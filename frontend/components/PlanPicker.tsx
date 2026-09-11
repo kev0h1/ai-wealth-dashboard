@@ -5,6 +5,7 @@ import { Check, ChevronDown, Crown, FileText, Landmark, Link2, Zap } from "lucid
 import { api } from "@/lib/api";
 import type {
   SubscriptionBillingPeriod,
+  SubscriptionBillingPeriodDetail,
   SubscriptionInfo,
   SubscriptionTier,
 } from "@wealth/shared";
@@ -56,18 +57,29 @@ const TIERS: Tier[] = [
   },
 ];
 
-const PERIODS: { id: SubscriptionBillingPeriod; short: string; renewal: string }[] = [
-  { id: "monthly", short: "Monthly", renewal: "every month" },
-  { id: "three_months", short: "3 months", renewal: "every 3 months" },
-  { id: "six_months", short: "6 months", renewal: "every 6 months" },
-  { id: "annual", short: "Yearly", renewal: "every year" },
+// Fallback only — used when an older API payload doesn't send
+// `info.billing_periods` yet (B22 added it). A live payload drives the
+// period buttons entirely off `info.billing_periods[selectedTier]`.
+const FALLBACK_PERIODS: { id: SubscriptionBillingPeriod; months: number }[] = [
+  { id: "monthly", months: 1 },
+  { id: "three_months", months: 3 },
+  { id: "six_months", months: 6 },
+  { id: "annual", months: 12 },
 ];
 
-const MONTHS: Record<SubscriptionBillingPeriod, number> = {
-  monthly: 1,
-  three_months: 3,
-  six_months: 6,
-  annual: 12,
+// Short button headline and the sentence-form renewal words, both display
+// concerns only — every price/saving figure comes from the server.
+const SHORT_LABELS: Record<SubscriptionBillingPeriod, string> = {
+  monthly: "Monthly",
+  three_months: "3 months",
+  six_months: "6 months",
+  annual: "Yearly",
+};
+const RENEWAL_WORDS: Record<SubscriptionBillingPeriod, string> = {
+  monthly: "every month",
+  three_months: "every 3 months",
+  six_months: "every 6 months",
+  annual: "every year",
 };
 
 function money(value: number): string {
@@ -78,7 +90,25 @@ function tierPrice(info: SubscriptionInfo, tier: SubscriptionTier, period: Subsc
   const configured = info?.billing_prices_gbp?.[tier]?.[period];
   if (typeof configured === "number") return configured;
   const monthly = info.prices_gbp?.[tier];
-  return typeof monthly === "number" ? monthly * MONTHS[period] : Number.NaN;
+  const months = FALLBACK_PERIODS.find((item) => item.id === period)?.months ?? 1;
+  return typeof monthly === "number" ? monthly * months : Number.NaN;
+}
+
+/** B22: every period's months/label/total/saving_gbp/per_month_gbp for
+ * `tier`, driven by `info.billing_periods[tier]` (the ordered,
+ * already-enabled-only list the server builds from
+ * app.core.subscription.billing_period_detail). Falls back to computing
+ * the same shape from `billing_prices_gbp`/`prices_gbp` against a fixed
+ * period list for an older API payload that predates `billing_periods` —
+ * that fallback has no discount data, so its saving is always £0. */
+function periodDetailsFor(info: SubscriptionInfo, tier: SubscriptionTier): SubscriptionBillingPeriodDetail[] {
+  const fromApi = info.billing_periods?.[tier];
+  if (fromApi && fromApi.length > 0) return fromApi;
+  return FALLBACK_PERIODS.map(({ id, months }) => {
+    const total = tierPrice(info, tier, id);
+    const perMonth = Number.isFinite(total) ? Math.round((total / months) * 100) / 100 : Number.NaN;
+    return { id, label: SHORT_LABELS[id], months, total, saving_gbp: 0, per_month_gbp: perMonth };
+  });
 }
 
 function displayIsoDate(value: string): string {
@@ -126,14 +156,33 @@ export default function PlanPicker({
   const [error, setError] = useState<string | null>(null);
 
   const chosen = TIERS.find((tier) => tier.id === selected) ?? TIERS[0];
-  const chosenPeriod = PERIODS.find((item) => item.id === period) ?? PERIODS[0];
-  const total = tierPrice(info, selected, period);
+  const periods = useMemo(() => periodDetailsFor(info, selected), [info, selected]);
+  const chosenPeriod = periods.find((item) => item.id === period) ?? periods[0];
+  const total = chosenPeriod?.total ?? Number.NaN;
+  const renewalWords = RENEWAL_WORDS[period] ?? "each period";
   const trialDays = info.trial_days ?? 14;
-  const trialChargeTiming = info.trial_charge_on ? `on ${displayIsoDate(info.trial_charge_on)}` : `after your ${trialDays}-day trial`;
+  // B22: which periods carry the trial is server-decided (Kevin-flippable,
+  // app.core.subscription.SUBSCRIPTION_TRIAL_PERIODS) — no longer hardcoded
+  // to annual. An older API payload without `trial_periods` falls back to
+  // annual-only, matching pre-B22 behaviour.
+  const trialPeriods = info.trial_periods ?? ["annual"];
+  const isTrialPeriod = trialPeriods.includes(period);
+  const chargeDateText = info.trial_charge_on ? displayIsoDate(info.trial_charge_on) : null;
+  const trialChargeTiming = chargeDateText ? `on ${chargeDateText}` : `after your ${trialDays}-day trial`;
+  const cancelByText = chargeDateText ? `before ${chargeDateText}` : "before your trial ends";
   const billingLive = info.billing_live ?? false;
   const hasPaidSubscription = info.has_paid_subscription === true;
   const managedPaidSubscription = hasPaidSubscription && ["active", "trialing", "past_due"].includes(info.status);
   const billingChangeInPortal = context === "settings" && managedPaidSubscription;
+  const trialActive = trial && isTrialPeriod && !hasPaidSubscription;
+
+  // B22: the exact disclosure the trial control needs adjacent to it —
+  // the amount, the named charge date, and a cancel-any-time line naming
+  // where to cancel. Kept as two named strings (not one) so both can be
+  // rendered right under the trial switch as well as echoed in the
+  // confirm-button panel below.
+  const trialDisclosureLine = `${trialDays} days free, then ${money(total)} ${trialChargeTiming}, then ${money(total)} ${renewalWords} unless you cancel.`;
+  const trialCancelLine = `Cancel any time ${cancelByText} from Settings, Your plan, and you will not be charged.`;
 
   const disclosure = useMemo(() => {
     if (billingChangeInPortal) {
@@ -141,11 +190,9 @@ export default function PlanPicker({
       return "Your active subscription and its renewal are managed securely in billing.";
     }
     if (selected === "statements") return "Free. No card and no automatic renewal.";
-    if (trial && period === "annual") {
-      return `${trialDays} days free. You will be charged ${money(total)} ${trialChargeTiming}, then every year unless you cancel.`;
-    }
-    return `${money(total)} ${chosenPeriod.renewal}. Renews ${chosenPeriod.renewal} unless you cancel.`;
-  }, [billingChangeInPortal, chosenPeriod.renewal, info.status, period, selected, total, trial, trialChargeTiming, trialDays]);
+    if (trialActive) return `${trialDisclosureLine} ${trialCancelLine}`;
+    return `${money(total)} today, then ${money(total)} ${renewalWords} unless you cancel. Cancel any time from Settings, Your plan.`;
+  }, [billingChangeInPortal, info.status, renewalWords, selected, total, trialActive, trialCancelLine, trialDisclosureLine]);
 
   async function openPortal() {
     const { url } = await api.openBillingPortal();
@@ -180,7 +227,7 @@ export default function PlanPicker({
       if (context === "onboarding") localStorage.setItem("wealth_onboarding_resume", "plan");
       const { url } = await api.startCheckout("subscription", selected as PaidTier, {
         billing_period: period,
-        trial: trial && period === "annual" && !hasPaidSubscription,
+        trial: trialActive,
         flow: context,
       });
       window.location.assign(url);
@@ -197,7 +244,7 @@ export default function PlanPicker({
       return context === "onboarding" ? "Continue with Statements" : current === "statements" ? "Current plan" : "Choose Statements";
     }
     if (!billingLive) return "Paid plans are not available yet";
-    if (trial && period === "annual" && !hasPaidSubscription) return `Start ${trialDays}-day free trial`;
+    if (trialActive) return `Start ${trialDays}-day free trial`;
     return `Choose ${chosen.name}`;
   })();
 
@@ -259,37 +306,52 @@ export default function PlanPicker({
         <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200/60 dark:bg-slate-800 dark:shadow-none dark:ring-white/[0.07]">
           <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-600 dark:text-slate-300">How often would you like to pay?</p>
           <div role="radiogroup" aria-label="Billing period" className="mt-3 grid grid-cols-2 gap-2">
-            {PERIODS.map((item, index) => (
+            {periods.map((item, index) => (
               <button
                 key={item.id}
                 type="button"
                 role="radio"
                 aria-checked={period === item.id}
                 tabIndex={period === item.id ? 0 : -1}
-                onClick={() => { setPeriod(item.id); if (item.id !== "annual") setTrial(false); }}
-                onKeyDown={(event) => moveRadio(event, index, PERIODS.length, (next) => { const nextPeriod = PERIODS[next].id; setPeriod(nextPeriod); if (nextPeriod !== "annual") setTrial(false); })}
+                onClick={() => { setPeriod(item.id); if (!trialPeriods.includes(item.id)) setTrial(false); }}
+                onKeyDown={(event) => moveRadio(event, index, periods.length, (next) => { const nextPeriod = periods[next].id; setPeriod(nextPeriod); if (!trialPeriods.includes(nextPeriod)) setTrial(false); })}
                 className={`min-h-11 rounded-xl px-3 text-xs font-semibold outline-none transition active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-indigo-500 ${period === item.id ? "bg-indigo-600 text-white" : "bg-slate-50 text-slate-600 ring-1 ring-slate-200 dark:bg-slate-700/70 dark:text-slate-200 dark:ring-slate-600"}`}
               >
-                <span className="block">{item.short}</span>
-                <span className={`money mt-0.5 block text-[10px] ${period === item.id ? "text-indigo-100" : "text-slate-600 dark:text-slate-300"}`}>{money(tierPrice(info, selected, item.id))}</span>
+                <span className="block">{SHORT_LABELS[item.id] ?? item.label}</span>
+                <span className={`money mt-0.5 block text-[10px] ${period === item.id ? "text-indigo-100" : "text-slate-600 dark:text-slate-300"}`}>{money(item.total)}</span>
+                {item.id !== "monthly" && item.saving_gbp > 0 && (
+                  <span className={`money mt-0.5 block text-[10px] font-semibold ${period === item.id ? "text-white" : "text-emerald-700 dark:text-emerald-400"}`}>Save {money(item.saving_gbp)}</span>
+                )}
               </button>
             ))}
           </div>
 
-          {period === "annual" && !hasPaidSubscription && (
-            <button
-              type="button"
-              role="switch"
-              aria-checked={trial}
-              onClick={() => setTrial((value) => !value)}
-              className={`mt-3 flex min-h-14 w-full items-center gap-3 rounded-xl px-3 text-left outline-none transition active:scale-[0.99] focus-visible:ring-2 focus-visible:ring-indigo-500 ${trial ? "bg-indigo-50 ring-1 ring-indigo-200 dark:bg-indigo-400/[0.08] dark:ring-indigo-400/20" : "bg-slate-50 ring-1 ring-slate-200 dark:bg-slate-700/60 dark:ring-slate-600"}`}
-            >
-              <span className={`grid h-5 w-5 shrink-0 place-items-center rounded-md border ${trial ? "border-indigo-600 bg-indigo-600 text-white" : "border-slate-300 dark:border-slate-500"}`}>{trial && <Check size={12} strokeWidth={3} />}</span>
-              <span>
-                <span className="block text-xs font-semibold text-slate-900 dark:text-slate-100">Start with {trialDays} days free</span>
-                <span className="mt-0.5 block text-[11px] leading-snug text-slate-600 dark:text-slate-300"><MoneyCopy text={`Then ${money(total)} a year. Card required, cancel before the trial ends to pay nothing.`} /></span>
-              </span>
-            </button>
+          {period === "annual" && chosenPeriod && chosenPeriod.saving_gbp > 0 && (
+            <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400"><MoneyCopy text={`${money(chosenPeriod.per_month_gbp)} a month, billed yearly.`} /></p>
+          )}
+
+          {isTrialPeriod && !hasPaidSubscription && (
+            <>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={trial}
+                onClick={() => setTrial((value) => !value)}
+                className={`mt-3 flex min-h-14 w-full items-center gap-3 rounded-xl px-3 text-left outline-none transition active:scale-[0.99] focus-visible:ring-2 focus-visible:ring-indigo-500 ${trial ? "bg-indigo-50 ring-1 ring-indigo-200 dark:bg-indigo-400/[0.08] dark:ring-indigo-400/20" : "bg-slate-50 ring-1 ring-slate-200 dark:bg-slate-700/60 dark:ring-slate-600"}`}
+              >
+                <span className={`grid h-5 w-5 shrink-0 place-items-center rounded-md border ${trial ? "border-indigo-600 bg-indigo-600 text-white" : "border-slate-300 dark:border-slate-500"}`}>{trial && <Check size={12} strokeWidth={3} />}</span>
+                <span>
+                  <span className="block text-xs font-semibold text-slate-900 dark:text-slate-100">Start with {trialDays} days free</span>
+                  <span className="mt-0.5 block text-[11px] leading-snug text-slate-600 dark:text-slate-300"><MoneyCopy text={`Then ${money(total)} ${renewalWords}. Card required, cancel before the trial ends to pay nothing.`} /></span>
+                </span>
+              </button>
+              {trialActive && (
+                <div className="mt-2 rounded-xl bg-indigo-50/60 px-3 py-2 dark:bg-indigo-400/[0.06]">
+                  <p className="text-[11px] leading-relaxed text-slate-700 dark:text-slate-300"><MoneyCopy text={trialDisclosureLine} /></p>
+                  <p className="mt-1 text-[11px] leading-relaxed text-slate-600 dark:text-slate-400">{trialCancelLine}</p>
+                </div>
+              )}
+            </>
           )}
         </div>
       )}

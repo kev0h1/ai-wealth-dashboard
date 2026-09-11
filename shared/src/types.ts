@@ -692,12 +692,37 @@ export interface SubscriptionMcpAllowance {
   pack_calls: number;
 }
 
+/** B22: one billing period's figures for a given tier — the id
+ *  (SubscriptionBillingPeriod), display label, months it covers, total
+ *  price, the saving in pounds versus paying monthly for that many months
+ *  (never negative), and the per-month equivalent. Built server-side by
+ *  app.core.subscription.billing_period_detail so this can never drift
+ *  from the price table. */
+export interface SubscriptionBillingPeriodDetail {
+  id: SubscriptionBillingPeriod;
+  label: string;
+  months: number;
+  total: number;
+  saving_gbp: number;
+  per_month_gbp: number;
+}
+
 export interface SubscriptionInfo {
   tier: SubscriptionTier;
   status: string;
   prices_gbp: Record<string, number>;
   billing_prices_gbp?: Record<string, Record<SubscriptionBillingPeriod, number>>;
-  billing_periods?: Record<SubscriptionBillingPeriod, { months: number; label: string }>;
+  /** B22: per tier, an ordered list of the currently-enabled billing
+   *  periods with their full detail (see SubscriptionBillingPeriodDetail).
+   *  PlanPicker.tsx drives its period buttons off
+   *  `billing_periods[selectedTier]` rather than a local constant, with a
+   *  fallback to `billing_prices_gbp` for an older API payload that
+   *  doesn't send this field. */
+  billing_periods?: Record<string, SubscriptionBillingPeriodDetail[]>;
+  /** B22: which of the above periods currently carry the 14-day
+   *  introductory trial (Kevin-flippable server-side, see
+   *  app.core.subscription.SUBSCRIPTION_TRIAL_PERIODS). */
+  trial_periods?: SubscriptionBillingPeriod[];
   trial_days?: number;
   trial_charge_on?: string;
   billing_period?: SubscriptionBillingPeriod | null;

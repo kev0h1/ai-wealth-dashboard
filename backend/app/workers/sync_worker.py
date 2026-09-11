@@ -24,8 +24,8 @@ from app.services.finexer_sync import finexer_sync_pipeline
 from app.services.categorisation import apply_rules_bulk, categorise_others_bg
 from app.services.manual_account_rules import apply_rules as apply_mirror_rules
 from app.services.notifications import notif_pref
-from app.core.subscription import get_subscription
-from app.db.collections import investment_accounts_col
+from app.core.subscription import TIER_BILLING_PRICES_GBP, get_subscription
+from app.db.collections import investment_accounts_col, subscriptions_col
 from app.services.investment_prices import refresh_account_prices
 from app.workers.ai_worker import task_refresh_savings_insights
 from app.services.retention import run_retention_sweep
@@ -631,6 +631,75 @@ async def task_refresh_investment_prices(ctx):
             logger.exception("investment price refresh: version bump failed for %s", uid)
 
 
+async def task_trial_reminder(ctx):
+    """B22: legal disclosure reminder a few days before a 14-day
+    introductory trial converts into a paid subscription. This is NOT
+    gated by app.services.notifications.notif_pref like the other pushes
+    in this module — it is the conversion-warning disclosure UK consumer
+    rules and both app stores expect before a trial silently renews into a
+    charge, not an optional nudge a user can turn off.
+
+    Runs daily. Every subscriptions_col doc with status "trialing" is
+    fetched, then in Python: skip anything already reminded
+    (trial_reminder_sent_at set), skip anything whose trial_ends_at isn't
+    within the next 3 days. The survivors get one push naming the amount
+    (from app.core.subscription.TIER_BILLING_PRICES_GBP, the same table
+    GET /subscription reads — never recomputed here) and the exact charge
+    date, then trial_reminder_sent_at is stamped so it can never fire
+    twice for the same trial.
+
+    There is no generic in-app notification-feed insert helper in
+    app.services.notifications today (its collection,
+    notification_state_col, only records per-check-type dedup state, not
+    a user-facing feed) — this reminder is push-only until one exists.
+    """
+    now = datetime.utcnow()
+    warn_cutoff = now + timedelta(days=3)
+
+    trialing = await subscriptions_col.find({"status": "trialing"}).to_list(None)
+    sent = 0
+    for doc in trialing:
+        uid = doc.get("user_id")
+        trial_ends_at = doc.get("trial_ends_at")
+        if not uid or not isinstance(trial_ends_at, datetime):
+            continue
+        if doc.get("trial_reminder_sent_at"):
+            continue
+        if not (now <= trial_ends_at <= warn_cutoff):
+            continue
+
+        tier = doc.get("tier")
+        billing_period = doc.get("billing_period")
+        total = TIER_BILLING_PRICES_GBP.get(tier, {}).get(billing_period)
+        if total is None:
+            logger.warning(
+                "trial reminder: no price for tier=%s billing_period=%s (uid=%s)",
+                tier, billing_period, uid,
+            )
+            continue
+
+        amount = f"£{total:.2f}"
+        charge_date = trial_ends_at.strftime("%-d %B %Y")
+        title = "Your free trial ends soon"
+        body = (
+            f"Your free trial ends on {charge_date}. {amount} will be charged "
+            f"then unless you cancel from Settings, Your plan."
+        )
+        try:
+            await send_push_to_user(uid, title, body, url="/settings")
+        except Exception:
+            logger.exception("trial reminder push failed for %s", uid)
+            continue
+
+        await subscriptions_col.update_one(
+            {"_id": doc["_id"]}, {"$set": {"trial_reminder_sent_at": now}},
+        )
+        sent += 1
+
+    logger.info("trial reminder: sent=%s", sent)
+    return {"sent": sent}
+
+
 async def task_retention_sweep(ctx):
     """Nightly retention sweep (SECURITY.md section 6): removes bank
     connections/consents whose consent ended more than 30 days ago and that
@@ -650,7 +719,7 @@ class WorkerSettings:
     functions = [task_sync_truelayer, task_sync_yapily, task_sync_mono,
                  task_sync_finexer, task_reconcile_truelayer, task_period_digests,
                  task_refresh_investment_prices, task_refresh_savings_insights,
-                 task_consent_watch, task_retention_sweep]
+                 task_consent_watch, task_retention_sweep, task_trial_reminder]
     cron_jobs = [
         cron(task_reconcile_truelayer, hour={0, 4, 8, 12, 16, 20}, minute=0, run_at_startup=False),
         cron(task_refresh_investment_prices, hour=6, minute=30, run_at_startup=False),
@@ -662,6 +731,9 @@ class WorkerSettings:
         # 03:30 UTC nightly: enforces SECURITY.md section 6 (connections 30
         # days after consent ends, dormant accounts after 12 months).
         cron(task_retention_sweep, hour=3, minute=30, run_at_startup=False),
+        # 09:00 UTC daily: B22's trial-conversion disclosure reminder,
+        # 3 days out from trial_ends_at.
+        cron(task_trial_reminder, hour=9, minute=0, run_at_startup=False),
     ]
     redis_settings = RedisSettings.from_dsn(REDIS_URL)
     max_jobs = 5

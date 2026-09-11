@@ -333,9 +333,36 @@ def test_create_checkout_session_annual_trial_is_fixed_at_14_days(monkeypatch):
 
 def test_create_checkout_session_rejects_trial_on_non_annual_period(monkeypatch):
     _patch_billing_enabled(monkeypatch, True, price_ids=_FULL_PRICE_IDS)
-    with pytest.raises(billing_module.BillingError, match="only available with annual"):
+    with pytest.raises(billing_module.BillingError, match="not available with this billing period"):
         _run(billing_module.create_checkout_session(
             UID, kind="subscription", target="max", billing_period="monthly", trial=True,
+            success_url="https://app/success", cancel_url="https://app/cancel",
+        ))
+
+
+def test_create_checkout_session_rejects_disabled_billing_period(monkeypatch):
+    """B22: SUBSCRIPTION_PERIODS_ENABLED is Kevin-flippable — if he ever
+    drops a period (three_months is the one currently under discussion,
+    TODO.md B22 note), checkout must reject it even though it is still a
+    structurally valid key in SUBSCRIPTION_BILLING_PERIODS."""
+    _patch_billing_enabled(monkeypatch, True, price_ids=_FULL_PRICE_IDS)
+    monkeypatch.setattr(billing_module, "SUBSCRIPTION_PERIODS_ENABLED", ("monthly", "annual"))
+    with pytest.raises(billing_module.BillingError, match="not currently offered"):
+        _run(billing_module.create_checkout_session(
+            UID, kind="subscription", target="max", billing_period="three_months",
+            success_url="https://app/success", cancel_url="https://app/cancel",
+        ))
+
+
+def test_create_checkout_session_rejects_trial_when_period_not_in_trial_periods(monkeypatch):
+    """Same guard, exercised the other way round: SUBSCRIPTION_TRIAL_PERIODS
+    controls the trial independently of SUBSCRIPTION_PERIODS_ENABLED — a
+    period can be offered without a trial."""
+    _patch_billing_enabled(monkeypatch, True, price_ids=_FULL_PRICE_IDS)
+    monkeypatch.setattr(billing_module, "SUBSCRIPTION_TRIAL_PERIODS", ())
+    with pytest.raises(billing_module.BillingError, match="not available with this billing period"):
+        _run(billing_module.create_checkout_session(
+            UID, kind="subscription", target="max", billing_period="annual", trial=True,
             success_url="https://app/success", cancel_url="https://app/cancel",
         ))
 
@@ -556,6 +583,36 @@ def test_billing_router_uses_fixed_onboarding_return_urls(monkeypatch):
     assert "attacker.invalid" not in captured["success_url"]
     assert captured["billing_period"] == "annual"
     assert captured["trial"] is True
+
+
+def test_billing_router_checkout_rejects_disabled_period(monkeypatch):
+    """B22: the router's own early guard (belt and braces ahead of
+    app.services.billing.create_checkout_session's own check) rejects a
+    period that SUBSCRIPTION_PERIODS_ENABLED doesn't currently list."""
+    _patch_billing_enabled(monkeypatch, True, price_ids=_FULL_PRICE_IDS)
+    monkeypatch.setattr(billing_router_module, "SUBSCRIPTION_PERIODS_ENABLED", ("monthly", "annual"))
+    try:
+        _run(billing_router_module.create_checkout(
+            {"kind": "subscription", "target": "max", "billing_period": "three_months"},
+            user={"email": UID},
+        ))
+        assert False, "expected HTTPException"
+    except HTTPException as exc:
+        assert exc.status_code == 400
+        assert "not currently offered" in exc.detail
+
+
+def test_billing_router_checkout_rejects_trial_on_non_trial_period(monkeypatch):
+    _patch_billing_enabled(monkeypatch, True, price_ids=_FULL_PRICE_IDS)
+    try:
+        _run(billing_router_module.create_checkout(
+            {"kind": "subscription", "target": "max", "billing_period": "monthly", "trial": True},
+            user={"email": UID},
+        ))
+        assert False, "expected HTTPException"
+    except HTTPException as exc:
+        assert exc.status_code == 400
+        assert "not available with this billing period" in exc.detail
 
 
 def test_billing_router_portal_404_without_customer(monkeypatch):
@@ -854,3 +911,61 @@ def test_select_free_tier_does_not_hide_an_active_stripe_renewal(monkeypatch):
         _run(subscription_router_module.select_free_tier(user={"email": UID}))
     assert exc.value.status_code == 409
     assert fake_subs.docs[0]["tier"] == "standard"
+
+
+# ── 8. B22 price table, billing_period_detail, and info payload ───────────
+
+_AGREED_PRICES_GBP = {
+    "lite":     {"monthly": 5.99,  "three_months": 16.99, "six_months": 31.99, "annual": 59.99},
+    "standard": {"monthly": 9.99,  "three_months": 28.99, "six_months": 53.99, "annual": 99.99},
+    "connect":  {"monthly": 12.99, "three_months": 36.99, "six_months": 69.99, "annual": 129.99},
+    "max":      {"monthly": 16.99, "three_months": 48.99, "six_months": 91.99, "annual": 169.99},
+}
+
+
+def test_tier_billing_prices_match_agreed_table():
+    for tier, periods in _AGREED_PRICES_GBP.items():
+        for period, price in periods.items():
+            assert subscription_module.TIER_BILLING_PRICES_GBP[tier][period] == price
+    assert subscription_module.TIER_BILLING_PRICES_GBP["statements"] == {
+        "monthly": 0.0, "three_months": 0.0, "six_months": 0.0, "annual": 0.0,
+    }
+
+
+def test_billing_period_detail_saving_never_negative_and_consistent():
+    for tier in subscription_module.TIER_BY_NAME:
+        for period, period_detail in subscription_module.SUBSCRIPTION_BILLING_PERIODS.items():
+            detail = subscription_module.billing_period_detail(tier, period)
+            assert detail["months"] == period_detail["months"]
+            assert detail["label"] == period_detail["label"]
+            assert detail["saving_gbp"] >= 0
+            monthly_total = round(subscription_module.TIER_PRICES_GBP[tier] * detail["months"], 2)
+            assert detail["saving_gbp"] == round(max(0.0, monthly_total - detail["total"]), 2)
+            assert detail["per_month_gbp"] == round(detail["total"] / detail["months"], 2)
+
+
+def test_billing_period_detail_annual_saving_for_max():
+    detail = subscription_module.billing_period_detail("max", "annual")
+    assert detail["total"] == 169.99
+    assert detail["saving_gbp"] == round(16.99 * 12 - 169.99, 2)
+    assert detail["per_month_gbp"] == round(169.99 / 12, 2)
+
+
+def test_get_subscription_info_exposes_billing_periods_and_trial_periods(monkeypatch):
+    async def _fake_get_subscription(email):
+        return subscription_module.Subscription(subscription_module.Tier.MAX)
+
+    monkeypatch.setattr(subscription_router_module, "get_subscription", _fake_get_subscription)
+    monkeypatch.setattr(subscription_router_module, "subscriptions_col", _FakeCol())
+    _patch_billing_enabled(monkeypatch, False)
+
+    result = _run(subscription_router_module.get_subscription_info(user={"email": UID}))
+
+    assert result["trial_periods"] == list(subscription_module.SUBSCRIPTION_TRIAL_PERIODS)
+    period_ids = [p["id"] for p in result["billing_periods"]["max"]]
+    assert period_ids == list(subscription_module.SUBSCRIPTION_PERIODS_ENABLED)
+    annual_entry = next(p for p in result["billing_periods"]["max"] if p["id"] == "annual")
+    assert annual_entry["total"] == 169.99
+    assert annual_entry["saving_gbp"] > 0
+    assert annual_entry["months"] == 12
+    assert result["billing_prices_gbp"]["max"]["annual"] == 169.99

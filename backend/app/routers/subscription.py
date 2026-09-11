@@ -7,9 +7,10 @@ from app.core.auth import current_user
 from app.core.config import BILLING_ENABLED, BOT_SECRET
 from app.core.subscription import (
     MCP_CALL_PACKS, PENNY_TOPUP, PENNY_TOPUP_LIFETIME_DAYS, PENNY_TOPUP_PACKS,
-    SUBSCRIPTION_BILLING_PERIODS, SUBSCRIPTION_TRIAL_DAYS,
+    SUBSCRIPTION_PERIODS_ENABLED, SUBSCRIPTION_TRIAL_DAYS, SUBSCRIPTION_TRIAL_PERIODS,
     TIER_BILLING_PRICES_GBP, TIER_BY_NAME, TIER_LIMITS, TIER_PRICES_GBP,
-    get_subscription, grant_pack, mcp_allowance, penny_allowance,
+    billing_period_detail, get_subscription, grant_pack, mcp_allowance,
+    penny_allowance,
 )
 from app.db.collections import subscriptions_col
 
@@ -83,12 +84,28 @@ async def get_subscription_info(user: dict = Depends(current_user)):
     except Exception:
         pass
 
+    # B22: per-tier, ordered-by-SUBSCRIPTION_PERIODS_ENABLED list of period
+    # detail (id/label/months/total/saving_gbp/per_month_gbp), each entry
+    # built by the shared app.core.subscription.billing_period_detail() so
+    # this can never drift from the price table. PlanPicker.tsx drives its
+    # period buttons off billing_periods[selected tier] rather than a local
+    # constant; billing_prices_gbp is kept alongside it for any caller that
+    # only wants the raw totals.
+    billing_periods = {
+        tier_name: [
+            {"id": period, **billing_period_detail(tier_name, period)}
+            for period in SUBSCRIPTION_PERIODS_ENABLED
+        ]
+        for tier_name in TIER_BY_NAME
+    }
+
     return {
         "tier":         sub.tier_name,
         "status":       sub.status,
         "prices_gbp":   TIER_PRICES_GBP,
         "billing_prices_gbp": TIER_BILLING_PRICES_GBP,
-        "billing_periods": SUBSCRIPTION_BILLING_PERIODS,
+        "billing_periods": billing_periods,
+        "trial_periods": list(SUBSCRIPTION_TRIAL_PERIODS),
         "trial_days": SUBSCRIPTION_TRIAL_DAYS,
         "trial_charge_on": (datetime.now(timezone.utc) + timedelta(days=SUBSCRIPTION_TRIAL_DAYS)).date().isoformat(),
         "billing_period": getattr(sub, "billing_period", None),

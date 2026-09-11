@@ -20,6 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.core.auth import current_user
 from app.core.config import APP_URL, BILLING_ENABLED
+from app.core.subscription import SUBSCRIPTION_PERIODS_ENABLED, SUBSCRIPTION_TRIAL_PERIODS
 from app.services import billing as billing_service
 
 logger = logging.getLogger(__name__)
@@ -56,6 +57,16 @@ async def create_checkout(body: dict, user: dict = Depends(current_user)):
         raise HTTPException(400, "trial must be true or false")
     if flow not in ("settings", "onboarding"):
         raise HTTPException(400, "flow must be 'settings' or 'onboarding'")
+    # B22: reject early, before touching Stripe, on a period that isn't
+    # currently offered or a trial requested on a period that doesn't
+    # carry one (app.core.subscription.SUBSCRIPTION_PERIODS_ENABLED /
+    # SUBSCRIPTION_TRIAL_PERIODS — both Kevin-flippable). create_checkout_session
+    # below re-checks the same two things for kind="subscription"; this is
+    # belt and braces so a bad request never reaches Stripe at all.
+    if kind == "subscription" and billing_period not in SUBSCRIPTION_PERIODS_ENABLED:
+        raise HTTPException(400, f"billing_period '{billing_period}' is not currently offered")
+    if trial and (kind != "subscription" or billing_period not in SUBSCRIPTION_TRIAL_PERIODS):
+        raise HTTPException(400, "the 14-day trial is not available with this billing period")
 
     if flow == "onboarding":
         success_url = f"{APP_URL}/?billing=success"

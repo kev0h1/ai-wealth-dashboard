@@ -4,7 +4,7 @@
 
 > **DRAFT for review, not yet published. Requires legal review before publication.**
 
-**Last updated:** 8 September 2026
+**Last updated:** 11 September 2026
 **Version:** 1.0
 
 These terms and conditions ("**Terms**") govern your use of Sorted (the "**Service**", "**App**"), a personal finance dashboard provided by AURIQ LTD. By creating an account or otherwise using the Service, you agree to be bound by these Terms. If you do not agree, please do not use the Service.
@@ -110,6 +110,16 @@ We may suspend or terminate your access if you breach this section (see Section 
 Sorted may offer both free and paid subscription tiers. Where a paid plan applies, the price and billing terms (including billing frequency and cancellation terms) will be clearly shown to you before you purchase, and you will be asked to confirm your agreement to them at that point. You may cancel a paid subscription in accordance with the terms shown to you at the time of purchase.
 
 We do not charge any fee for connecting your bank accounts or for the underlying account information service itself.
+
+**Introductory trials.** Some paid plans may be offered with an introductory free trial (for example, 14 days). A card is required to start a trial. If you do not cancel before the trial ends, the trial converts automatically into the paid plan shown to you when you started it, at the price and on the date shown to you at that time. We will send you a reminder before the trial converts. If you cancel before the trial end date, you will not be charged.
+
+**Auto-renewal.** Paid subscriptions renew automatically for the same billing period, at the price shown to you at the time, unless you cancel before the renewal date. If you cancel, you keep access to the plan until the end of the period you have already paid for. We do not offer partial refunds for the unused part of a billing period, except where the law requires it.
+
+**Changing your plan.** If you upgrade to a higher plan, or move to a shorter billing period, the change applies immediately and any unused value on your current plan is credited towards the new one. If you downgrade to a lower plan, or move to a longer billing period, the change takes effect at the end of your current billing period, and you keep your existing plan until then.
+
+**Cancelling.** You can cancel a paid subscription at any time from Settings, Your plan, or, if you bought it through an app store, through that app store's own subscription settings.
+
+**Your right to cancel (cooling-off period).** If you are a consumer in the UK, you normally have a 14-day right to cancel a subscription and receive a full refund under the Consumer Contracts Regulations. By starting a paid subscription or a trial that requires a card, you agree that the service starts immediately, and you accept that if you cancel within that 14-day period after the service has started, we may charge you for the days you have used before cancelling, in proportion to the full price of the plan.
 
 ## 10. Service availability
 
