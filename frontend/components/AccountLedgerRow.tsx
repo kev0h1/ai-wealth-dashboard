@@ -8,7 +8,7 @@
 //
 // Rendered across AccountsPage and HomePage.
 
-import { RefreshCw, Star } from "lucide-react";
+import { Star } from "lucide-react";
 import { BankBadge, accountBrand, type TermsPill } from "./AccountMiniCard";
 import { accountKindLabel } from "@/lib/accountKind";
 import type { EstateRow } from "@/lib/accountsEstate";
@@ -97,7 +97,6 @@ function brandAccountFor(row: EstateRow): Account {
 export interface AccountLedgerRowProps {
   row: EstateRow;
   pinned?: boolean;
-  onReconnect?: (row: EstateRow) => void;
   onClick?: (row: EstateRow) => void;
   /** Utilisation bar is OFF by default — no live credit-limit data source
    *  exists yet. Only pass `utilisation` once one does. */
@@ -117,7 +116,6 @@ export interface AccountLedgerRowProps {
 export default function AccountLedgerRow({
   row,
   pinned,
-  onReconnect,
   onClick,
   showUtilisation,
   utilisation,
@@ -168,7 +166,7 @@ export default function AccountLedgerRow({
           onClick?.(row);
         }
       }}
-      aria-label={`${row.name}, ${moneyStr(row.balance)}${stateCaption ? ` ${stateCaption}` : ""}`}
+      aria-label={`${row.name}, ${moneyStr(row.balance)}${stateCaption ? ` ${stateCaption}` : ""}${row.attention ? ", connection needs attention" : ""}`}
       className="w-full min-h-[60px] flex items-center gap-3 px-4 py-2.5 active:bg-slate-50 dark:active:bg-white/5 transition-colors motion-reduce:transition-none text-left cursor-pointer"
     >
       <BankBadge logoSrc={brand.logoSrc} initials={brand.initials} altText={brand.label} brandBg={brand.background} />
@@ -181,30 +179,18 @@ export default function AccountLedgerRow({
           </span>
         </div>
         <div className={`flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[12.5px] mt-0.5 ${muted ? "text-slate-400 dark:text-slate-600" : "text-slate-500 dark:text-slate-400"}`}>
+          {row.attention && (
+            <>
+              <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500 dark:bg-amber-400" />
+              <span className="sr-only">Connection needs attention. </span>
+            </>
+          )}
           <span className="truncate">
             {row.provider} · {accountKindLabel(row.kind)}
           </span>
         </div>
 
         {showUtilisation && utilisation && <UtilisationBar pct={utilisation.pct} limit={utilisation.limit} />}
-
-        {row.attention && (
-          <button
-            type="button"
-            onClick={
-              onReconnect
-                ? (e) => {
-                    e.stopPropagation();
-                    onReconnect(row);
-                  }
-                : undefined
-            }
-            className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-semibold text-amber-600 dark:text-amber-400 active:opacity-70 transition-opacity motion-reduce:transition-none"
-          >
-            <RefreshCw size={11} aria-hidden="true" />
-            Reconnect
-          </button>
-        )}
       </div>
 
       <div className="shrink-0 flex flex-col items-end gap-1">

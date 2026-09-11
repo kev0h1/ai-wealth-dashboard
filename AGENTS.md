@@ -14,6 +14,16 @@ unrecorded.
 - Nothing is worked off-board. If the task in front of you is not already
   on the board, add it first, then start it:
   `backend/.venv/bin/python scripts/backlog.py add <section-letter> "<one sentence title>" --owner codex`
+- Each agent only works items owned by its own model type. A Codex session
+  only starts items marked `[owner: codex]`. Items marked `[owner: claude]`
+  belong to Claude sessions, and items marked `[owner: kevin]` are Kevin's
+  own; leave both alone, even when asked to clear the board. When adding
+  an unplanned item, set `--owner codex` unless Kevin says otherwise. If
+  Kevin asks for work on an item owned by another agent, say so and let
+  him reassign it with `scripts/backlog.py owner <id> codex`; never
+  reassign it silently. `scripts/session.sh start` enforces this: set
+  `BACKLOG_AGENT=codex` before calling it, and it refuses to start an item
+  whose owner does not match unless `--any-owner` is passed.
 - Before editing any code, start a session for the item and work only
   inside the worktree it prints: `scripts/session.sh start <ID>`. Never
   edit files in `/root/ai-wealth-dashboard` itself, that is the shared
@@ -51,8 +61,9 @@ unrecorded.
 - Never commit `backend/.env` or any other key/secret file. Never edit
   files outside this repository.
 - Copy rules apply to every user-facing string you write: no em dashes,
-  British English. Design changes are proposed to Kevin as coded variants
-  under `/design` before they touch a production component.
+  British English. Design work has its own protocol, see "Design work"
+  below: propose variants, verify them yourself, only then block for
+  Kevin's choice.
 
 The exact commands, in order:
 
@@ -68,6 +79,24 @@ scripts/session.sh finish <ID>
 The service-restart commands under "Review and delivery" below describe
 the coordinator's role in the shared tree, not a worktree session. Do not
 run `systemctl restart` from inside a worktree under any circumstance.
+
+## Design work
+
+Before any UI work, read `PRODUCT.md` and `DESIGN.md`. The north star is "The Calm Cockpit": verdicts lead, colour is information, red means genuine financial risk only, and the indigo to violet gradient belongs to Penny alone.
+
+Never patch visuals in place, and never change a production component first. Design changes are proposed to Kevin, agreed, then built.
+
+Propose the change as two or three coded art-direction variants under `frontend/app/design/<slug>/`, registered in `frontend/app/design/page.tsx` (the `check:design-index` gate, run by `scripts/session.sh finish`, enforces that every preview directory is indexed). Variants are real coded pages, not mockups or descriptions. Commit them inside the worktree the usual way, with this file's trailer, `Co-Authored-By: Codex <noreply@openai.com>`.
+
+Verify your own work before Kevin sees it. `/design/*` pages are auth-exempt and deep-linkable, so screenshot them with headless Chrome and read the screenshots yourself, fixing anything clipped, unreadable or off-token. Authenticated product pages cannot be screenshotted, which is the reason previews exist. On this host, Chrome clamps `--window-size` to a 500px minimum width, so use a Puppeteer viewport override for true phone widths, and pass `--virtual-time-budget=4000` so client components have hydrated before the shot is taken.
+
+Only then block the item for Kevin's choice, and the block reason must carry working preview links: one per variant, or one link plus the `?state=` values that select each variant. Never block an item asking Kevin to choose between variants that do not exist yet; that was the B19 mistake, blocking "awaiting Kevin's choice of plan-picker variant" without having built any variants, so Kevin was asked to choose between previews that did not exist. If you are not ready to show him something real, the item stays in progress, not blocked.
+
+Kevin picks on his phone. His choice becomes a separate implementation item that folds the winning variant into the production component, in the shape "Implement approved <ID> variant A on ...".
+
+Where a design build changes a production component, have an independent reviewer agent audit the diff against `DESIGN.md` before Kevin sees it: authenticated pages cannot be screenshotted, so code-level review is the only gate.
+
+Copy rules apply to every user-facing string: no em dashes, British English, and the currency minus sign stays.
 
 ## Review and delivery
 

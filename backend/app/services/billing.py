@@ -31,7 +31,8 @@ Event-to-effect table (see `_dispatch_event` below):
   - customer.subscription.created / customer.subscription.updated ->
     upsert subscriptions_col: {user_id, tier (resolved from the
     subscription's price id via STRIPE_PRICE_IDS), status
-    ("active"/"trialing" -> "active", "past_due"/"unpaid" -> "past_due",
+    ("active" -> "active", "trialing" -> "trialing",
+    "past_due"/"unpaid" -> "past_due",
     anything else -> "expired"), stripe_subscription_id,
     current_period_end -> expires_at, updated_at, source: "stripe"}.
   - customer.subscription.deleted -> subscriptions_col status "expired".
@@ -49,12 +50,19 @@ Every event is processed idempotently on Stripe's own `event.id`
 a no-op read, not a double-grant or a double status flip.
 """
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from uuid import uuid4
+
+from pymongo import ReturnDocument
+from pymongo.errors import DuplicateKeyError
 
 from app.core.config import (
     BILLING_ENABLED, STRIPE_PRICE_IDS, STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET,
 )
-from app.core.subscription import MCP_CALL_PACKS, PENNY_TOPUP_PACKS, TIER_BY_NAME, grant_pack
+from app.core.subscription import (
+    MCP_CALL_PACKS, PENNY_TOPUP_PACKS, SUBSCRIPTION_BILLING_PERIODS,
+    SUBSCRIPTION_TRIAL_DAYS, TIER_BY_NAME, grant_pack,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +107,104 @@ class SignatureVerificationFailed(BillingError):
         super().__init__("Invalid Stripe webhook signature")
 
 
-def _price_id_for(kind: str, target: str) -> str | None:
+_SUBSCRIPTION_CHECKOUT_TTL = timedelta(hours=24)
+
+
+async def _claim_subscription_checkout(
+    uid: str, *, target: str, billing_period: str, trial: bool,
+) -> tuple[str | None, str | None]:
+    """Atomically allow only one live subscription Checkout per user.
+
+    The later Stripe webhook is authoritative for entitlement, but it can
+    arrive after a user double-clicks, retries or opens another tab. The
+    unique ``billing_customers.user_id`` index plus this conditional upsert
+    closes that gap. A retry of the same choice reuses the first Checkout
+    URL once it exists; a different choice is rejected until that Stripe
+    Checkout expires.
+    """
+    from app.db.collections import billing_customers_col
+
+    now = datetime.now(timezone.utc)
+    token = uuid4().hex
+    selection = {
+        "subscription_checkout_token": token,
+        "subscription_checkout_target": target,
+        "subscription_checkout_billing_period": billing_period,
+        "subscription_checkout_trial": trial,
+        "subscription_checkout_expires_at": now + _SUBSCRIPTION_CHECKOUT_TTL,
+        "subscription_checkout_session_id": None,
+        "subscription_checkout_url": None,
+    }
+    try:
+        claimed = await billing_customers_col.find_one_and_update(
+            {
+                "user_id": uid,
+                "$or": [
+                    {"subscription_checkout_expires_at": {"$exists": False}},
+                    {"subscription_checkout_expires_at": {"$lte": now}},
+                ],
+            },
+            {
+                "$set": {"user_id": uid, **selection},
+                "$setOnInsert": {"created_at": now},
+            },
+            upsert=True,
+            return_document=ReturnDocument.AFTER,
+        )
+    except DuplicateKeyError:
+        claimed = None
+
+    if claimed and claimed.get("subscription_checkout_token") == token:
+        return token, None
+
+    existing = await billing_customers_col.find_one({"user_id": uid})
+    existing_expires_at = existing.get("subscription_checkout_expires_at") if existing else None
+    if existing_expires_at and existing_expires_at.tzinfo is None:
+        existing_expires_at = existing_expires_at.replace(tzinfo=timezone.utc)
+    if (
+        existing
+        and existing.get("subscription_checkout_target") == target
+        and existing.get("subscription_checkout_billing_period") == billing_period
+        and bool(existing.get("subscription_checkout_trial")) is trial
+        and existing_expires_at
+        and existing_expires_at > now
+    ):
+        if existing.get("subscription_checkout_url"):
+            return None, existing["subscription_checkout_url"]
+        if existing.get("subscription_checkout_token"):
+            # The first request may still be running, or Stripe may have
+            # accepted it before a lost response. Reusing this token as
+            # Stripe's idempotency key makes either retry resolve to the
+            # same Checkout Session.
+            return existing["subscription_checkout_token"], None
+    raise BillingError("A subscription checkout is already open")
+
+
+async def _validate_subscription_checkout(uid: str, trial: bool) -> None:
+    """Prevent duplicate subscriptions and repeat introductory trials.
+
+    Active Stripe subscriptions are changed or cancelled through Stripe's
+    customer portal. Checkout may only create a new subscription when no
+    active Stripe subscription exists. A trial is introductory, so any
+    previous Stripe-backed subscription makes the user ineligible.
+    """
+    from app.db.collections import subscriptions_col
+
+    doc = await subscriptions_col.find_one({"user_id": uid})
+    if not doc:
+        return
+    stripe_backed = bool(doc.get("source") == "stripe" or doc.get("stripe_subscription_id"))
+    if stripe_backed and doc.get("status") in {"active", "trialing", "past_due"}:
+        raise BillingError("Manage your existing subscription in billing")
+    if trial and (stripe_backed or doc.get("trial_used_at") or doc.get("trial_ends_at")):
+        raise BillingError("The introductory trial has already been used")
+
+
+def _subscription_price_key(target: str, billing_period: str) -> str:
+    return target if billing_period == "monthly" else f"{target}_{billing_period}"
+
+
+def _price_id_for(kind: str, target: str, billing_period: str = "monthly") -> str | None:
     """Resolve `target` (a tier name for kind="subscription", or a pack id
     for kind="pack") to its configured Stripe price id, or None if it
     isn't mapped. Penny pack ids ("small"/"medium"/"large") are looked up
@@ -107,7 +212,11 @@ def _price_id_for(kind: str, target: str) -> str | None:
     app.core.config._parse_stripe_price_ids' own docstring for why); the
     MCP pack's id is already "mcp_1000" so it's looked up verbatim."""
     if kind == "subscription":
-        return STRIPE_PRICE_IDS.get(target)
+        if target not in TIER_BY_NAME or target == "statements":
+            return None
+        if billing_period not in SUBSCRIPTION_BILLING_PERIODS:
+            return None
+        return STRIPE_PRICE_IDS.get(_subscription_price_key(target, billing_period))
     if any(p["id"] == target for p in PENNY_TOPUP_PACKS):
         return STRIPE_PRICE_IDS.get(f"penny_{target}")
     if any(p["id"] == target for p in MCP_CALL_PACKS):
@@ -144,39 +253,90 @@ async def _get_or_create_customer(uid: str) -> str:
 
 async def create_checkout_session(
     uid: str, *, kind: str, target: str, success_url: str, cancel_url: str,
+    billing_period: str = "monthly", trial: bool = False,
 ) -> str:
     """Start a Stripe Checkout session for `uid`. `kind` is "subscription"
-    (mode="subscription", `target` a tier name — lite/standard/connect/max)
+    (mode="subscription", `target` a tier name, with a server-validated
+    recurring billing period and an optional 14-day annual-only trial)
     or "pack" (mode="payment", `target` a pack id). `client_reference_id`
     and `metadata` both carry `uid` (belt and braces — Stripe recommends
     both) plus `kind`/`target`, which is how the webhook handler below
     knows what to grant once payment completes; the client never gets to
     specify an amount, only which already-configured Stripe price to buy.
     Raises BillingNotLive if BILLING_ENABLED is false, or BillingError if
-    `target` has no configured price id."""
+    the target/period has no configured price id."""
     if not BILLING_ENABLED:
         raise BillingNotLive()
     if kind not in ("subscription", "pack"):
         raise BillingError("kind must be 'subscription' or 'pack'")
 
-    price_id = _price_id_for(kind, target)
+    if kind == "subscription" and billing_period not in SUBSCRIPTION_BILLING_PERIODS:
+        raise BillingError("billing_period must be monthly, three_months, six_months or annual")
+    if trial and (kind != "subscription" or billing_period != "annual"):
+        raise BillingError("the 14-day trial is only available with annual billing")
+    price_id = _price_id_for(kind, target, billing_period)
     if not price_id:
         raise BillingError(f"no Stripe price configured for {kind}:{target}")
+
+    checkout_token = None
+    if kind == "subscription":
+        await _validate_subscription_checkout(uid, trial)
+        checkout_token, existing_url = await _claim_subscription_checkout(
+            uid, target=target, billing_period=billing_period, trial=trial,
+        )
+        if existing_url:
+            return existing_url
 
     stripe_mod = _stripe()
     stripe_mod.api_key = STRIPE_SECRET_KEY
 
-    customer_id = await _get_or_create_customer(uid)
+    try:
+        customer_id = await _get_or_create_customer(uid)
 
-    session = stripe_mod.checkout.Session.create(
-        mode="subscription" if kind == "subscription" else "payment",
-        customer=customer_id,
-        client_reference_id=uid,
-        metadata={"uid": uid, "kind": kind, "target": target},
-        line_items=[{"price": price_id, "quantity": 1}],
-        success_url=success_url,
-        cancel_url=cancel_url,
-    )
+        metadata = {"uid": uid, "kind": kind, "target": target}
+        if kind == "subscription":
+            metadata.update({"billing_period": billing_period, "trial": "true" if trial else "false"})
+
+        checkout_args = {
+            "mode": "subscription" if kind == "subscription" else "payment",
+            "customer": customer_id,
+            "client_reference_id": uid,
+            "metadata": metadata,
+            "line_items": [{"price": price_id, "quantity": 1}],
+            "success_url": success_url,
+            "cancel_url": cancel_url,
+        }
+        if kind == "subscription":
+            subscription_data = {"metadata": metadata}
+            if trial:
+                subscription_data["trial_period_days"] = SUBSCRIPTION_TRIAL_DAYS
+                checkout_args["payment_method_collection"] = "always"
+            checkout_args["subscription_data"] = subscription_data
+
+        if checkout_token:
+            checkout_args["idempotency_key"] = checkout_token
+        session = stripe_mod.checkout.Session.create(**checkout_args)
+    except Exception:
+        # Keep a subscription reservation after every ambiguous failure.
+        # A retry reuses its Stripe idempotency key, so a response lost
+        # after Stripe accepted the request cannot create a second Session.
+        raise
+
+    if checkout_token:
+        from app.db.collections import billing_customers_col
+        try:
+            await billing_customers_col.update_one(
+                {"user_id": uid, "subscription_checkout_token": checkout_token},
+                {"$set": {
+                    "subscription_checkout_session_id": session.id,
+                    "subscription_checkout_url": session.url,
+                }},
+            )
+        except Exception:
+            # Stripe has already created the session. Keep the reservation
+            # so a storage hiccup cannot turn a retry into a second paid
+            # subscription; this caller can still continue using the URL.
+            logger.exception("billing: could not persist Checkout URL for %s", uid)
     return session.url
 
 
@@ -226,10 +386,14 @@ async def _uid_for_customer(customer_id: str) -> str | None:
     return doc.get("user_id") if doc else None
 
 
-def _tier_for_price_id(price_id: str) -> str | None:
+def _subscription_for_price_id(price_id: str) -> tuple[str, str] | None:
     for tier_name in TIER_BY_NAME:
-        if STRIPE_PRICE_IDS.get(tier_name) == price_id:
-            return tier_name
+        if tier_name == "statements":
+            continue
+        for billing_period in SUBSCRIPTION_BILLING_PERIODS:
+            key = _subscription_price_key(tier_name, billing_period)
+            if STRIPE_PRICE_IDS.get(key) == price_id:
+                return tier_name, billing_period
     return None
 
 
@@ -282,12 +446,13 @@ async def _handle_subscription_upsert(sub_obj: dict) -> dict:
     items = (sub_obj.get("items") or {}).get("data") or []
     price = (items[0] or {}).get("price") if items else None
     price_id = price.get("id") if isinstance(price, dict) else None
-    tier = _tier_for_price_id(price_id) if price_id else None
-    if not tier:
+    subscription_identity = _subscription_for_price_id(price_id) if price_id else None
+    if not subscription_identity:
         return {"handled": False, "reason": f"no tier mapped for price {price_id!r}"}
+    tier, billing_period = subscription_identity
 
     status_map = {
-        "active": "active", "trialing": "active",
+        "active": "active", "trialing": "trialing",
         "past_due": "past_due", "unpaid": "past_due",
         "canceled": "expired", "incomplete_expired": "expired",
     }
@@ -295,25 +460,40 @@ async def _handle_subscription_upsert(sub_obj: dict) -> dict:
 
     period_end = sub_obj.get("current_period_end")
     expires_at = datetime.fromtimestamp(period_end, tz=timezone.utc) if period_end else None
+    trial_end = sub_obj.get("trial_end")
+    trial_ends_at = datetime.fromtimestamp(trial_end, tz=timezone.utc) if trial_end else None
 
     now = datetime.now(timezone.utc)
+    trial_started_at = None
+    if sub_obj.get("status") == "trialing":
+        trial_start = sub_obj.get("trial_start")
+        trial_started_at = datetime.fromtimestamp(trial_start, tz=timezone.utc) if trial_start else now
+    subscription_fields = {
+        "user_id":               uid,
+        "tier":                  tier,
+        "status":                status,
+        "stripe_subscription_id": sub_obj.get("id"),
+        "billing_period":        billing_period,
+        "expires_at":            expires_at,
+        "trial_ends_at":         trial_ends_at,
+        "cancel_at_period_end":  bool(sub_obj.get("cancel_at_period_end")),
+        "updated_at":            now,
+        "source":                "stripe",
+    }
+    if trial_started_at:
+        subscription_fields["trial_used_at"] = trial_started_at
     await subscriptions_col.update_one(
         {"user_id": uid},
         {
-            "$set": {
-                "user_id":               uid,
-                "tier":                  tier,
-                "status":                status,
-                "stripe_subscription_id": sub_obj.get("id"),
-                "expires_at":            expires_at,
-                "updated_at":            now,
-                "source":                "stripe",
-            },
+            "$set": subscription_fields,
             "$setOnInsert": {"started_at": now},
         },
         upsert=True,
     )
-    return {"handled": True, "action": "subscription_upsert", "uid": uid, "tier": tier, "status": status}
+    return {
+        "handled": True, "action": "subscription_upsert", "uid": uid,
+        "tier": tier, "status": status, "billing_period": billing_period,
+    }
 
 
 async def _handle_subscription_deleted(sub_obj: dict) -> dict:

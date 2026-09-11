@@ -696,6 +696,15 @@ export interface SubscriptionInfo {
   tier: SubscriptionTier;
   status: string;
   prices_gbp: Record<string, number>;
+  billing_prices_gbp?: Record<string, Record<SubscriptionBillingPeriod, number>>;
+  billing_periods?: Record<SubscriptionBillingPeriod, { months: number; label: string }>;
+  trial_days?: number;
+  trial_charge_on?: string;
+  billing_period?: SubscriptionBillingPeriod | null;
+  trial_ends_at?: string | null;
+  renews_at?: string | null;
+  cancel_at_period_end?: boolean;
+  has_paid_subscription?: boolean;
   /** @deprecated see SubscriptionTopup's own note — use `topups`. */
   topup: SubscriptionTopup;
   topups: SubscriptionTopupPack[];
@@ -715,6 +724,8 @@ export interface SubscriptionInfo {
    *  `topups`' own placement. */
   mcp_packs?: SubscriptionMcpPack[];
 }
+
+export type SubscriptionBillingPeriod = "monthly" | "three_months" | "six_months" | "annual";
 
 export interface GrowVerdict {
   /** Factual headline, e.g. "You've got ~£240/month spare" */

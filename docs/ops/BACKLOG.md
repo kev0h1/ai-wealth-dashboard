@@ -29,6 +29,13 @@ A TODO.md item line looks like this:
   item is done (the checkbox wins). The `review` state and its branch are
   set by `scripts/session.sh finish` and consumed by
   `scripts/integrate.py`, see "Branch per item" below.
+- A `blocked` reason on a design item must point at something Kevin can
+  actually see, never at a choice he hasn't been shown yet. See "Design
+  work" in `CLAUDE.md` and `AGENTS.md`: it requires coded, linkable
+  variants under `frontend/app/design/<slug>/` to exist before an item is
+  blocked for Kevin's choice, the fix for the B19 mistake, where an item
+  was blocked "awaiting Kevin's choice of plan-picker variant" with no
+  variants built.
 - `rejected` is what a reviewer sets the moment they find a defect in an
   item sitting in `review`, instead of leaving it there. `review` alone
   is treated as consent to merge by any integrate pass, including one
@@ -45,7 +52,17 @@ A TODO.md item line looks like this:
   `scripts/integrate.py` never selects a `rejected` item as a merge
   candidate, `start` or `todo` moves it back out again (clearing both the
   reason and the retained branch).
-- `[owner: kevin]` or `[owner: claude]` says who is doing the work.
+- `[owner: kevin]`, `[owner: claude]` or `[owner: codex]` says who is
+  doing the work. Each agent only starts items it owns: a Claude session
+  only starts `[owner: claude]` items, a Codex session only starts
+  `[owner: codex]` items, and `[owner: kevin]` items are Kevin's own and
+  neither agent starts them. `scripts/session.sh start` enforces this by
+  reading the caller's type from the `BACKLOG_AGENT` environment variable
+  (`claude` or `codex`, defaulting to `claude`) and refusing an item whose
+  owner does not match, unless `--any-owner` is passed (see item H29 and
+  "Branch per item" below). An agent that wants an item reassigned asks
+  Kevin, or uses `scripts/backlog.py owner <id> <type>` once Kevin has
+  agreed; it never reassigns another agent's item on its own.
 - `[priority: p1]`, `[priority: p2]` or `[priority: p3]` is the item's
   priority. Absent means `p3`, the tag is only written for `p1`/`p2`, the
   same way `[state: ...]` is only written when the state isn't `todo`.

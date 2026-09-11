@@ -12,24 +12,21 @@
 // PennyUsageRow.tsx and ConnectedAssistantsCard.tsx, so the live card
 // (app/settings/SettingsPage.tsx) and its design preview
 // (app/design/your-plan/page.tsx) render the exact same markup against
-// real vs. fixture data. The one exception is "Manage plan" itself, which
-// calls POST /billing/portal directly (api.openBillingPortal) and
-// redirects the browser there, the same self-contained pattern
-// ConnectedAssistantsCard.tsx's MCP pack row and MoreMessagesSheet.tsx use
-// for checkout.
-//
-// "Manage plan" only renders once `info.billing_live` is true; until a
-// Stripe account exists (see CLAUDE.md's Backlog B5 note) the card instead
-// shows the quiet line "Plans and packs are coming soon." — no dead
-// button.
+// real vs. fixture data. Its plan picker owns free-plan selection, paid
+// Checkout and customer-portal redirects, keeping every path in one
+// production component. Paid actions remain visibly disabled until
+// `info.billing_live` becomes true.
 //
 // Copy: no em dashes (repo-wide rule).
 
-import { useState } from "react";
-import { CreditCard } from "lucide-react";
-import { api } from "@/lib/api";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
+import { CreditCard, X } from "lucide-react";
 import type { SubscriptionInfo } from "@/lib/api";
 import PennyUsageRow from "@/components/PennyUsageRow";
+import PlanPicker from "@/components/PlanPicker";
+import { refreshPennyUsage } from "@/components/PennySheetProvider";
+import { useSheetA11y } from "@/lib/useSheetA11y";
 
 const INDIGO = "#4f46e5";
 
@@ -37,12 +34,31 @@ function capitalize(s: string): string {
   return s.length ? s[0].toUpperCase() + s.slice(1) : s;
 }
 
+function shortDate(value: string): string {
+  return new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric" }).format(new Date(value));
+}
+
+function MoneyCopy({ text }: { text: string }) {
+  return <>{text.split(/(£\d+(?:\.\d+)?)/g).map((part, index) => part.startsWith("£") ? <span key={index} className="money tabular-nums">{part}</span> : part)}</>;
+}
+
 function formatSubtitle(info: SubscriptionInfo | null, error: boolean): string {
   if (!info) return error ? "Could not load your plan" : "Checking…";
   const tierName = capitalize(info.tier);
+  if (info.status === "trialing" && info.trial_ends_at) {
+    return `${tierName} trial, free until ${shortDate(info.trial_ends_at)}`;
+  }
+  if (info.status === "past_due") return `${tierName} plan, payment needs attention`;
+  if (info.cancel_at_period_end && info.renews_at) {
+    return `${tierName} plan, ends ${shortDate(info.renews_at)}`;
+  }
   const price = info.prices_gbp?.[info.tier];
   if (typeof price !== "number") return `${tierName} plan`;
-  return price > 0 ? `${tierName} plan, £${price.toFixed(2)} a month` : `${tierName} plan, free`;
+  if (price === 0) return `${tierName} plan, free`;
+  const period = info.billing_period ?? "monthly";
+  const total = info.billing_prices_gbp?.[info.tier]?.[period] ?? price;
+  const renewal = period === "annual" ? "a year" : period === "six_months" ? "every 6 months" : period === "three_months" ? "every 3 months" : "a month";
+  return `${tierName} plan, £${total.toFixed(2)} ${renewal}`;
 }
 
 export default function YourPlanCard({
@@ -55,26 +71,24 @@ export default function YourPlanCard({
    * prop, and is passed straight through to it. */
   error?: boolean;
 }) {
-  const [busy, setBusy] = useState(false);
-  const [portalError, setPortalError] = useState<string | null>(null);
-
-  const billingLive = info?.billing_live ?? false;
+  const [pickerOpen, setPickerOpen] = useState(false);
   const subtitle = formatSubtitle(info, error);
+  const panelRef = useSheetA11y<HTMLDivElement>(() => setPickerOpen(false));
 
-  async function handleManagePlan() {
-    if (busy) return;
-    setPortalError(null);
-    setBusy(true);
-    try {
-      const { url } = await api.openBillingPortal();
-      window.location.assign(url);
-    } catch {
-      setPortalError("Could not open billing. Try again in a moment.");
-      setBusy(false);
-    }
-  }
+  useEffect(() => {
+    if (!pickerOpen) return;
+    const shell = document.getElementById("app-shell");
+    const previousOverflow = document.body.style.overflow;
+    shell?.classList.add("sheet-open");
+    document.body.style.overflow = "hidden";
+    return () => {
+      shell?.classList.remove("sheet-open");
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [pickerOpen]);
 
   return (
+    <>
     <div className="glass-card rounded-2xl overflow-hidden">
       <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-700 flex items-start gap-2.5">
         <span
@@ -86,31 +100,52 @@ export default function YourPlanCard({
         </span>
         <div className="min-w-0 pt-0.5">
           <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Your plan</p>
-          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">{subtitle}</p>
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5"><MoneyCopy text={subtitle} /></p>
         </div>
       </div>
 
       <PennyUsageRow info={info} error={error} className="border-b border-slate-100 dark:border-slate-700" />
 
       <div className="px-4 py-3.5">
-        {billingLive ? (
-          <>
-            <button
-              type="button"
-              onClick={handleManagePlan}
-              disabled={busy}
-              className="min-h-[44px] px-3 text-sm font-medium text-indigo-600 dark:text-indigo-400 rounded-xl hover:bg-indigo-50 dark:hover:bg-indigo-900/10 active:bg-indigo-100 transition-colors disabled:opacity-60"
-            >
-              {busy ? "Opening…" : "Manage plan"}
-            </button>
-            {portalError && (
-              <p className="text-xs text-red-500 dark:text-red-400 mt-1">{portalError}</p>
-            )}
-          </>
-        ) : (
-          <p className="text-xs text-slate-500 dark:text-slate-400">Plans and packs are coming soon.</p>
-        )}
+        <button
+          type="button"
+          onClick={() => { if (info) setPickerOpen(true); else if (error) void refreshPennyUsage(); }}
+          disabled={!info && !error}
+          className="min-h-11 rounded-xl px-3 text-sm font-medium text-indigo-600 outline-none transition-colors hover:bg-indigo-50 active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:cursor-not-allowed disabled:text-slate-500 dark:text-indigo-400 dark:hover:bg-indigo-900/10 dark:disabled:text-slate-400"
+        >
+          {info ? "See plans" : error ? "Try loading plans again" : "Checking plans…"}
+        </button>
+        {!info?.billing_live && <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">You can choose Statements now. Paid checkout is not live yet.</p>}
       </div>
+
     </div>
+
+      {pickerOpen && info && typeof document !== "undefined" && createPortal(
+        <div className="fixed inset-0 z-[90] flex items-end justify-center bg-black/45 sm:items-center sm:p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) setPickerOpen(false); }}>
+          <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby="plan-picker-title" className="glass-sheet max-h-[94dvh] w-full overflow-y-auto rounded-t-3xl border-t border-slate-200 bg-slate-50 p-4 shadow-xl sm:max-w-md sm:rounded-3xl sm:border dark:border-slate-700 dark:bg-slate-900">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-600 dark:text-slate-300">Your plan</p>
+                <h2 id="plan-picker-title" className="mt-1 text-xl font-bold text-slate-950 dark:text-slate-50">Choose what fits</h2>
+                <p className="mt-1 text-xs leading-relaxed text-slate-500 dark:text-slate-400">Compare all five plans, then choose how often you want a paid plan to renew.</p>
+              </div>
+              <button type="button" aria-label="Close plan picker" onClick={() => setPickerOpen(false)} className="grid min-h-11 min-w-11 place-items-center rounded-xl text-slate-500 outline-none active:bg-white focus-visible:ring-2 focus-visible:ring-indigo-500 dark:active:bg-white/[0.05]">
+                <X size={18} aria-hidden="true" />
+              </button>
+            </div>
+            <PlanPicker
+              key={`${info?.tier ?? "loading"}-${info?.billing_period ?? "monthly"}`}
+              info={info}
+              context="settings"
+              onContinue={() => {
+                setPickerOpen(false);
+                void refreshPennyUsage();
+              }}
+            />
+          </div>
+        </div>,
+        document.body,
+      )}
+    </>
   );
 }

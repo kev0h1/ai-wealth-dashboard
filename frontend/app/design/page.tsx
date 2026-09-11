@@ -60,8 +60,12 @@ const ROUTES: PreviewRoute[] = [
     slug: "your-plan",
     name: "your-plan",
     description:
-      "Backlog B5: \"Your plan\" Settings card, real components/YourPlanCard.tsx (placed directly above the Penny card in app/settings/SettingsPage.tsx, hosting PennyUsageRow.tsx moved out of the Penny card) against fixtures, no data fetching · billing not live (\"Plans and packs are coming soon.\", today's state everywhere, no Stripe account exists yet) / billing live on Standard / billing live on Max (unlimited Penny messages, no pill) / loading / failed to load · \"Manage plan\" calls the real POST /billing/portal (api.openBillingPortal) and will show its own inline error on this unauthenticated preview, that is the correct failure mode to demonstrate here",
-    states: [{ label: "Everything", value: "everything" }],
+      "B19/B21: five-tier plan-picker · approved A capability ladder now uses the production PlanPicker with monthly, 3-month, 6-month and yearly renewal choices plus a 14-day annual trial · B full plan cards and C needs-first rows retained for comparison · Settings and onboarding contexts · light/dark modes · billing off/on states · preview-only fixtures, no plan or payment changes",
+    states: [
+      { label: "A · capability ladder", value: "a" },
+      { label: "B · full cards", value: "b" },
+      { label: "C · needs first", value: "c" },
+    ],
   },
   {
     slug: "app-only",
