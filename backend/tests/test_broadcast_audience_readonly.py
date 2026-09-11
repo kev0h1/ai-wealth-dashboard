@@ -22,6 +22,7 @@ import app.core.llm as llm_module
 import app.core.subscription as subscription_module
 import app.db.collections as db_collections_module
 import app.services.broadcast as broadcast
+import app.services.retention as retention_module
 
 UID_UNSETTLED = "b23-unsettled@example.com"
 UID_NO_PACKS = "b23-no-packs@example.com"
@@ -236,6 +237,15 @@ def _wire_real_chain(monkeypatch, *, packs_col, llm_col, candidates):
         assert key == "offers"
         return True  # nobody opted out in this fixture
     monkeypatch.setattr(broadcast, "notif_pref", fake_notif_pref)
+
+    # B24: _real_user_ids() calls account_has_data per candidate — this
+    # file is specifically about the "state" filter's real penny_allowance
+    # chain, not B24's audience-narrowing, so every candidate here is
+    # faked as a real account (has data) to keep this test's own scenario
+    # (an unsettled top-up pack) reachable at all.
+    async def fake_account_has_data(uid):
+        return uid in candidates
+    monkeypatch.setattr(retention_module, "account_has_data", fake_account_has_data)
 
 
 # ── the structural guarantee ──────────────────────────────────────────

@@ -85,17 +85,41 @@ def check_price_guard(title: str, body: str) -> None:
 
 
 async def _all_user_ids() -> list[str]:
-    """Every known user id (email). There is no single canonical "users"
-    collection in this codebase — identity is implicit via email, spread
-    across whichever per-user collection a given feature first touches
-    (see app.services.retention.account_has_data's own multi-collection
-    union for the same shape of problem). This unions the three
-    collections a signed-up user is virtually guaranteed to have touched:
-    user_profiles_col (stamped on every authenticated request),
-    preferences_col (written during income/onboarding setup), and
-    subscriptions_col (written the first time a tier is read or set).
-    A user who has done none of those has never really used the app, so
-    "everyone" not including them is the right answer, not a bug."""
+    """Every identity that has EVER touched one of three collections. There
+    is no single canonical "users" collection in this codebase — identity
+    is implicit via email, spread across whichever per-user collection a
+    given feature first touches. This unions user_profiles_col (upserted
+    by app.services.retention.stamp_activity on every authenticated
+    request — including a single one, from any session token that ever
+    decoded, e.g. a test script), preferences_col (written by a single
+    PATCH /preferences call, e.g. a fixture seeding a dark_mode toggle),
+    and subscriptions_col (written the first time a tier is read or set,
+    including an admin/manual grant with no user ever behind it).
+
+    B24 (docs/... item B24, see TODO.md): this was previously read
+    directly as the broadcast candidate pool, on the theory that "a user
+    who has done none of those has never really used the app". Ground
+    truth on UAT (live, read-only query, 2026-09-11) disproved the other
+    direction of that claim: doing exactly ONE of these three is NOT
+    sufficient evidence of genuine use. Three identities each cleared this
+    enumeration on the strength of a single stray document and nothing
+    else, ever: fixture-engine-2@test.local (one preferences doc, no
+    other collection, no user_profiles stamp at all — never authenticated,
+    a fixture seeded directly), not-the-owner@example.com (one
+    user_profiles doc from a single authenticated request timestamp, no
+    preferences, no subscription, no account, no transaction, ever — a
+    session token decoded once and nothing else), and
+    a.odonde@gmail.com / ndolomeshack@gmail.com (a "connect" subscriptions
+    doc with managed_by: "manual" and NOTHING else — no user_profiles
+    stamp, meaning the identity has never made a single authenticated
+    request despite "owning" an active paid tier). Every one of those
+    would have received a real broadcast under the old candidate pool.
+
+    This function's enumeration itself is kept as-is — it is an accurate
+    description of "identities some collection has a record of" and stays
+    useful for that. `_real_user_ids()` below is the actual audience
+    candidate pool: this list narrowed to identities with real account
+    data, which is the bar broadcast targeting needs."""
     ids: set[str] = set()
     async for doc in user_profiles_col.find({}, {"_id": 1}):
         if doc.get("_id"):
@@ -107,6 +131,43 @@ async def _all_user_ids() -> list[str]:
         if doc.get("user_id"):
             ids.add(doc["user_id"])
     return sorted(ids)
+
+
+async def _real_user_ids() -> list[str]:
+    """The actual broadcast candidate pool (B24): `_all_user_ids()`,
+    narrowed to identities `app.services.retention.account_has_data`
+    confirms hold a real connection, consent, account, or transaction row
+    somewhere (TrueLayer, Finexer, Yapily, Mono, M-Pesa, statement upload,
+    manual, or investment). That function is not new or invented for this
+    filter — it is the codebase's own existing bar for "this identity has
+    real data", already used to decide erase_orphaned_relay_account's own
+    "never delete an account with data" guard. Reusing it here means a
+    broadcast audience and the deletion-safety check agree on what a real
+    account looks like, rather than this module inventing a second,
+    competing definition.
+
+    Deliberately a DATA check, not an address/domain check: nothing here
+    ever inspects `uid` itself (no "test.local" / "example.com" special
+    case, which would be a user-specific hardcode and would not catch the
+    next fixture, whatever it's called) — only whether the identity owns a
+    row in a real per-account collection. A brand-new real user who has
+    signed up but not yet connected a bank, uploaded a statement, or added
+    a manual account is, by this same measure, indistinguishable from a
+    fixture that only ever got a stray preferences/subscription write or a
+    single authenticated ping — so they are excluded too, until they have
+    something a real account is made of. That is a deliberate, narrow
+    bias: a broadcast recipient list should undercount rather than
+    overcount, since the cost of missing a genuinely new user one offer
+    cycle is far lower than the cost of messaging a fixture or a still-
+    onboarding stranger."""
+    from app.services.retention import account_has_data
+
+    candidates = await _all_user_ids()
+    real: list[str] = []
+    for uid in candidates:
+        if await account_has_data(uid):
+            real.append(uid)
+    return real
 
 
 async def _matches_state(uid: str, state: str) -> bool:
@@ -145,12 +206,30 @@ async def resolve_audience(audience: dict) -> list[str]:
     `penny_allowance(uid, persist=False)`, which runs the identical
     settlement arithmetic without writing it — see that function's
     docstring. Nothing this function calls, transitively, ever writes.
+
+    B24: the candidate pool is `_real_user_ids()`, not the raw
+    `_all_user_ids()` union — see that function's docstring for why (test
+    fixtures and stray single-document identities were resolving into
+    every audience, including "everyone"). The "tier" branch additionally
+    requires a STORED subscriptions_col document before matching a tier at
+    all: `get_subscription`'s DEFAULT_TIER fallback (today "max") is a
+    real in-app entitlement decision for a genuine user with no
+    subscription doc yet ("nobody restricted before launch", see
+    app.core.subscription's own module docstring), not a tier assertion
+    strong enough to justify sending a tier-targeted offer. An identity
+    with no subscription record has no known tier for THIS purpose, so it
+    matches no tier filter — it can still appear in "everyone" if
+    `_real_user_ids()` includes it. `get_subscription` itself is left
+    untouched: every other caller (GET /subscription,
+    check_connection_limit, check_open_banking_allowed, …) keeps the
+    default-tier fallback exactly as before, since that is real product
+    behaviour for real users, not a broadcast-targeting bug.
     """
     kind = (audience or {}).get("type")
     if kind not in AUDIENCE_TYPES:
         raise BroadcastError(f"audience.type must be one of {AUDIENCE_TYPES}")
 
-    candidates = await _all_user_ids()
+    candidates = await _real_user_ids()
 
     if kind == "tier":
         tier_name = (audience.get("tier") or "").strip().lower()
@@ -158,6 +237,8 @@ async def resolve_audience(audience: dict) -> list[str]:
             raise BroadcastError(f"audience.tier must be one of {list(TIER_BY_NAME)}")
         matched = []
         for uid in candidates:
+            if not await subscriptions_col.find_one({"user_id": uid}, {"_id": 1}):
+                continue  # no stored tier — DEFAULT_TIER is not a targeting signal.
             sub = await get_subscription(uid)
             if sub.tier_name == tier_name:
                 matched.append(uid)
