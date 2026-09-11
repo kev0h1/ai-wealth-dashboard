@@ -62,9 +62,9 @@ const ROUTES: PreviewRoute[] = [
     description:
       "Backlog B19: five-tier plan-picker design round before production wiring · A capability ladder (recommended), B full plan cards, C needs-first rows · Settings and onboarding contexts · light/dark modes · billing off/on states · Statements selected by default · static fixtures, no API calls",
     states: [
-      { label: "A · capability ladder", value: "variant=a&context=settings&mode=light&billing=off" },
-      { label: "B · full cards", value: "variant=b&context=settings&mode=light&billing=off" },
-      { label: "C · needs first", value: "variant=c&context=settings&mode=light&billing=off" },
+      { label: "A · capability ladder", value: "a" },
+      { label: "B · full cards", value: "b" },
+      { label: "C · needs first", value: "c" },
     ],
   },
   {

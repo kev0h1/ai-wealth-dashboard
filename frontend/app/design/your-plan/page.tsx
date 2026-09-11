@@ -6,7 +6,7 @@
 //
 // /design/your-plan?variant=a|b|c&context=settings|onboarding&mode=light|dark&billing=off|on
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
@@ -170,6 +170,7 @@ function VariantB({ selected, current, onSelect }: { selected: TierName; current
             type="button"
             key={tier.id}
             onClick={() => onSelect(tier.id)}
+            aria-pressed={active}
             className={`w-full rounded-2xl p-4 text-left shadow-sm outline-none transition-transform active:scale-[0.99] focus-visible:ring-2 focus-visible:ring-indigo-500 dark:shadow-none ${active ? "bg-indigo-50 ring-2 ring-indigo-500 dark:bg-indigo-400/[0.08]" : "bg-white ring-1 ring-slate-200/60 dark:bg-[#1e293b] dark:ring-white/[0.07]"}`}
           >
             <span className="flex items-start gap-3">
@@ -206,11 +207,11 @@ function VariantC({ selected, current, onSelect }: { selected: TierName; current
   const chosen = TIERS.find((tier) => tier.id === selected) ?? TIERS[0];
   return (
     <div className="space-y-3">
-      <div className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200/60 dark:bg-[#1e293b] dark:shadow-none dark:ring-white/[0.07]">
+      <div role="radiogroup" aria-label="Choose a plan" className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200/60 dark:bg-[#1e293b] dark:shadow-none dark:ring-white/[0.07]">
         {TIERS.map((tier, index) => {
           const active = tier.id === selected;
           return (
-            <button key={tier.id} type="button" onClick={() => onSelect(tier.id)} className={`flex min-h-[58px] w-full items-center gap-3 px-4 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 ${index ? "border-t border-slate-100 dark:border-white/[0.06]" : ""} ${active ? "bg-indigo-50/70 dark:bg-indigo-400/[0.06]" : "active:bg-slate-50 dark:active:bg-white/[0.04]"}`}>
+            <button key={tier.id} type="button" role="radio" aria-checked={active} onClick={() => onSelect(tier.id)} className={`flex min-h-[58px] w-full items-center gap-3 px-4 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 ${index ? "border-t border-slate-100 dark:border-white/[0.06]" : ""} ${active ? "bg-indigo-50/70 dark:bg-indigo-400/[0.06]" : "active:bg-slate-50 dark:active:bg-white/[0.04]"}`}>
               <span className={`grid h-5 w-5 shrink-0 place-items-center rounded-full border ${active ? "border-indigo-600 bg-indigo-600 text-white" : "border-slate-300 dark:border-slate-600"}`}>
                 {active && <Check size={11} aria-hidden="true" strokeWidth={3} />}
               </span>
@@ -218,7 +219,7 @@ function VariantC({ selected, current, onSelect }: { selected: TierName; current
                 <span className="block text-[13px] font-semibold text-slate-900 dark:text-slate-100">{jobs[tier.id]}</span>
                 <span className="block text-[11px] text-slate-500 dark:text-slate-400">{tier.name}{tier.id === current ? " · Current" : ""}</span>
               </span>
-              <span className="text-[12px] font-semibold text-slate-800 dark:text-slate-200">{price(tier)}</span>
+              <span className="money text-[12px] font-semibold text-slate-800 dark:text-slate-200">{price(tier)}</span>
               <ChevronRight size={15} aria-hidden="true" className="text-slate-400" />
             </button>
           );
@@ -279,9 +280,9 @@ function Controls({ variant, context, mode, billing }: { variant: Variant; conte
   );
 }
 
-export default function Page() {
+function Preview() {
   const params = useSearchParams();
-  const rawVariant = params.get("variant");
+  const rawVariant = params.get("variant") ?? params.get("state");
   const rawContext = params.get("context");
   const rawMode = params.get("mode");
   const rawBilling = params.get("billing");
@@ -338,5 +339,19 @@ export default function Page() {
         <Controls variant={variant} context={context} mode={mode} billing={billing} />
       </main>
     </div>
+  );
+}
+
+export default function Page() {
+  return (
+    <Suspense
+      fallback={(
+        <main className="grid min-h-dvh place-items-center bg-[#f0f2f7] px-4 dark:bg-[#0f172a]">
+          <p className="text-sm text-slate-500 dark:text-slate-400">Loading plan preview…</p>
+        </main>
+      )}
+    >
+      <Preview />
+    </Suspense>
   );
 }
