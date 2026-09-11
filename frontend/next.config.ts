@@ -1,7 +1,62 @@
 import type { NextConfig } from "next";
 import { execSync } from "child_process";
+import fs from "fs";
+import path from "path";
 
 const BACKEND = process.env.BACKEND_URL || "http://localhost:8000";
+
+// scripts/session.sh's branch-per-item worktrees (see CLAUDE.md, "Backlog")
+// symlink frontend/node_modules to the shared tree at /root/ai-wealth-dashboard
+// rather than installing a separate copy per worktree. Turbopack refuses to
+// follow a node_modules symlink that resolves outside the project directory
+// ("Symlink [project]/node_modules is invalid, it points out of the
+// filesystem root"), which only bites in that worktree layout: the shared
+// tree's own node_modules is a real directory, not a symlink, so this is a
+// no-op there and in every other build environment (Vercel, Codemagic, the
+// systemd `next start` deploy). Detect the symlinked-worktree case and widen
+// Turbopack's root to the nearest ancestor that contains both the worktree
+// and the shared tree (/root) so it can resolve packages through the link.
+function resolveTurbopackRoot(): string | undefined {
+  const nodeModulesPath = path.join(__dirname, "node_modules");
+  let stat;
+  try {
+    stat = fs.lstatSync(nodeModulesPath);
+  } catch {
+    return undefined;
+  }
+  if (!stat.isSymbolicLink()) return undefined;
+
+  let target: string;
+  try {
+    target = fs.realpathSync(nodeModulesPath);
+  } catch {
+    return undefined;
+  }
+
+  const projectDir = path.resolve(__dirname, "..");
+  const relative = path.relative(projectDir, target);
+  const pointsOutsideProject = relative.startsWith("..") || path.isAbsolute(relative);
+  if (!pointsOutsideProject) return undefined;
+
+  // Walk up from both the worktree's frontend directory and the shared
+  // tree's frontend directory (the symlink target's parent) until the paths
+  // agree, e.g. /root/worktrees/feature-H32-x/frontend and
+  // /root/ai-wealth-dashboard/frontend both live under /root. This works
+  // regardless of how deep scripts/session.sh nests the worktree, unlike a
+  // fixed number of ".." hops.
+  const targetFrontendDir = path.dirname(target);
+  const here = __dirname.split(path.sep);
+  const there = targetFrontendDir.split(path.sep);
+  const common: string[] = [];
+  for (let i = 0; i < Math.min(here.length, there.length); i++) {
+    if (here[i] !== there[i]) break;
+    common.push(here[i]);
+  }
+  const root = common.join(path.sep);
+  return root || path.sep;
+}
+
+const turbopackRoot = resolveTurbopackRoot();
 
 // Derives the login/biometric-lock build tag (see frontend/lib/buildTag.ts)
 // at config-load time, i.e. before `next build` starts compiling, so it can
@@ -57,6 +112,7 @@ const nextConfig: NextConfig = {
   env: {
     NEXT_PUBLIC_BUILD_TAG: resolveBuildTag(),
   },
+  ...(turbopackRoot ? { turbopack: { root: turbopackRoot } } : {}),
   transpilePackages: ["@wealth/shared"],
   async rewrites() {
     if (MOBILE_EXPORT) return [];

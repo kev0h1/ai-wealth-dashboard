@@ -39,6 +39,11 @@ unrecorded.
   green: `scripts/session.sh finish <ID>`. This pushes the branch and
   marks the item in review. It refuses to run if the worktree is dirty or
   either check fails, fix that first rather than forcing it through.
+- `npm run build` (Turbopack) in a worktree now works unmodified:
+  `frontend/next.config.ts` widens `turbopack.root` to `/root` whenever it
+  detects `frontend/node_modules` is a symlink pointing outside the
+  project, which only happens in the worktree layout, so the shared tree
+  and every other build environment are unaffected.
 - Do not merge to `main`, do not push to `main`, do not tick the item
   done, and do not run `scripts/integrate.py` yourself. A coordinator
   session, or the integrate timer, merges the branch, rebuilds UAT, and
