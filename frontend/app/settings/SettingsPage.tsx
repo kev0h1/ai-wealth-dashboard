@@ -23,7 +23,7 @@ import PennyMark from "@/components/PennyMark";
 import { useAuth } from "@/components/AuthProvider";
 import { usePreferences } from "@/components/PreferencesContext";
 import { api, NotificationPrefs, Account, IdentitiesResponse, OAuthConnection } from "@/lib/api";
-import type { CompanionItem } from "@/lib/api";
+import type { CompanionItem, AccountEligibility } from "@/lib/api";
 import ConnectedAssistantsCard, { ConnectionsState } from "@/components/ConnectedAssistantsCard";
 import { usePennyUsage, refreshPennyUsage } from "@/components/PennySheetProvider";
 import YourPlanCard from "@/components/YourPlanCard";
@@ -109,16 +109,29 @@ type CoverPlanView = {
   shortAccountIds: Set<string>;
 };
 
-function coverPlanView(items: CompanionItem[]): CoverPlanView {
+function coverPlanView(
+  items: CompanionItem[],
+  accountEligibility?: Record<string, AccountEligibility>,
+): CoverPlanView {
   const moves = items.filter((item) => item.type === "move");
-  const shortAccountIds = new Set<string>();
-
-  for (const item of moves) {
-    const destinationId = item.plan_dest?.account_id
-      ?? item.move_map?.to.account_id
-      ?? item.moves?.[0]?.move_map.to.account_id;
-    if (destinationId) shortAccountIds.add(destinationId);
-  }
+  // G50 (2026-09-12): "short" comes straight from the source finder's own
+  // per-account headroom (backend `_account_headroom`, exposed on `GET
+  // /today/cover-plan` as `account_eligibility`), not from which accounts
+  // happen to be named as a destination by a CURRENTLY ACTIVE move card.
+  // An account can have zero spare headroom and still never appear as a
+  // move destination this pass (its own shortfall might be gated,
+  // dismissed, or simply not this window's biggest problem) — the engine
+  // will still refuse to use it as a source, so the toggle must show
+  // Skipped regardless of whether a move card exists. When
+  // `accountEligibility` hasn't loaded yet (or the fetch failed),
+  // this is an empty set — no account is WRONGLY shown as Skipped, it is
+  // simply not yet known to be short (see refreshCoverPlan's status
+  // handling for the honest "couldn't confirm" message on real failures).
+  const shortAccountIds = new Set<string>(
+    Object.entries(accountEligibility ?? {})
+      .filter(([, eligibility]) => eligibility.short)
+      .map(([accountId]) => accountId),
+  );
 
   const item = moves[0];
   if (!item) return { liveRoute: null, shortAccountIds };
@@ -376,6 +389,15 @@ export default function SettingsPage() {
     liveRoute: null,
     shortAccountIds: new Set(),
   });
+  // G50: tracks whether the last `GET /today/cover-plan` (the source of
+  // `coverPlan.shortAccountIds`) succeeded. "loading" covers both the
+  // first mount fetch and any refetch after a toggle; while it holds, no
+  // account is shown as Skipped that we haven't actually confirmed is
+  // short (coverPlanView defaults to an empty set until the response
+  // lands). "error" means the fetch failed and `coverPlan` may be stale
+  // or empty -- rendered as an honest inline note rather than silently
+  // reusing the old (wrong) move-card-derived short set.
+  const [coverEligibilityStatus, setCoverEligibilityStatus] = useState<"loading" | "ready" | "error">("loading");
   const [coverSaveMsg, setCoverSaveMsg] = useState<{ text: string; ok: boolean } | null>(null);
   // G45 (second re-review) — two earlier attempts at this got rejected:
   //
@@ -441,9 +463,19 @@ export default function SettingsPage() {
     setExcludedIds(next);
   }, []);
   const refreshCoverPlan = useCallback(() => {
+    setCoverEligibilityStatus((prev) => (prev === "ready" ? "ready" : "loading"));
     api.getCoverPlan()
-      .then((response) => setCoverPlan(coverPlanView(response.items)))
-      .catch(() => {});
+      .then((response) => {
+        setCoverPlan(coverPlanView(response.items, response.account_eligibility));
+        setCoverEligibilityStatus("ready");
+      })
+      .catch(() => {
+        // G50: do NOT fall back to deriving shortAccountIds from active
+        // move cards (the bug this fixes) -- leave the last known-good
+        // coverPlan in place and surface the failure honestly instead, see
+        // the "Couldn't confirm" note near CoverPlanSourcesCard below.
+        setCoverEligibilityStatus("error");
+      });
   }, []);
   useEffect(() => {
     getAccountsCached(true).then(accs => {
@@ -1216,6 +1248,11 @@ export default function SettingsPage() {
               hideAmounts={rawPrefs === null || Boolean(rawPrefs.hide_net_worth)}
               onToggle={toggleCoverAccount}
             />
+            {coverEligibilityStatus === "error" && (
+              <p role="status" aria-live="polite" className="mt-2 px-1 text-xs font-medium text-amber-600 dark:text-amber-400">
+                Could not confirm which accounts the cover plan would skip right now. Some accounts may show as available even if they are actually short. Try again shortly.
+              </p>
+            )}
             {coverSaveMsg && (
               <p
                 role="status"

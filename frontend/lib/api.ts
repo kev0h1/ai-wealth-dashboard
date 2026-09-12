@@ -1379,6 +1379,20 @@ export type TodayResponse = {
   items: CompanionItem[];
 };
 
+/**
+ * Per-account read of the cover-plan source finder's own headroom math
+ * (backend/app/services/companion.py's `_account_headroom`, G50,
+ * 2026-09-12): `short` is true when the account has no spare capacity left
+ * to fund another account after its own bills and the £10 buffer, the
+ * EXACT rule the source finder itself uses when picking legs for a move,
+ * not a client-side guess. Present on `GET /today/cover-plan` only.
+ */
+export type AccountEligibility = { short: boolean; headroom: number };
+
+export type CoverPlanResponse = TodayResponse & {
+  account_eligibility?: Record<string, AccountEligibility>;
+};
+
 export type SavingsAccountOption = {
   account_id: string;
   name: string;
@@ -3180,7 +3194,7 @@ export const api = {
 
   getToday: (paydayPreview?: boolean) =>
     get<TodayResponse>(paydayPreview ? "/today?payday_preview=1" : "/today"),
-  getCoverPlan: () => get<TodayResponse>("/today/cover-plan"),
+  getCoverPlan: () => get<CoverPlanResponse>("/today/cover-plan"),
   getNeedleSummary: () => get<NeedleSummary>("/needle/summary"),
   getCardsStory: (which: "current" | "last" = "current") => get<CardsStory>(`/cards/story?which=${which}`),
 

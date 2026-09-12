@@ -1349,7 +1349,12 @@ def _home_item_suppressed(kind: str) -> bool:
     return kind in HOME_ITEM_SUPPRESSION_REGISTRY
 
 
-async def compute_today_items(uid: str, payday_preview: bool = False, persist: bool = True) -> list[dict]:
+async def compute_today_items(
+    uid: str,
+    payday_preview: bool = False,
+    persist: bool = True,
+    account_eligibility_out: dict | None = None,
+) -> list[dict]:
     """Compute companion items for `uid`. Cap at 3, moves first (one card per at-risk destination).
 
     `payday_preview`: force the Payday Plan section on regardless of window
@@ -1369,6 +1374,17 @@ async def compute_today_items(uid: str, payday_preview: bool = False, persist: b
     dismissal/7-day-hide window ticking on their behalf. Every write site
     below is gated on this flag; the in-memory item is still computed and
     returned either way, only the persistence is skipped.
+
+    `account_eligibility_out` (G50, 2026-09-12): an optional out-param —
+    when a caller passes a dict, this function fills it in place with
+    `{account_id: {"short": bool, "headroom": float}}` for every account
+    the source finder could ever consider (current, savings, offline;
+    never credit cards). This is a pure read: nothing about the return
+    value or any write this function makes changes when it's passed, and
+    passing `None` (the default) costs nothing extra — every other caller
+    is unaffected. See `_account_headroom` below for what "short" means
+    and why it is the SAME figure the live source finder uses, not a
+    second, possibly-drifting definition of it.
     """
 
     # ── 1. Load cashflow cache + prefs (once — threaded through below) ──────
@@ -1807,6 +1823,33 @@ async def compute_today_items(uid: str, payday_preview: bool = False, persist: b
             # this is not a second, conflicting notion of "safe".
             source_capacity[sid] = mn - reserved_by_source.get(sid, 0.0)
 
+    # `_account_headroom` (G50, 2026-09-12): the ONE definition of a source's
+    # spare capacity — its own min-running balance (bills/income already
+    # netted off, above) less the £10 buffer every source keeps. This is
+    # read BOTH by `_live_class` below, when it decides whether an account
+    # is even a candidate leg for a specific shortfall, AND by the snapshot
+    # taken immediately below (before any leg-picking mutates
+    # `source_capacity` in place) to answer Settings' "is this account short
+    # regardless of any live move card" question. Extracted from what used
+    # to be an inline expression inside `_live_class` so the two reads can
+    # never drift apart — see the G50 backlog note for the bug this fixes:
+    # an account with no live move card, but genuinely no spare headroom,
+    # used to show a normal (do-nothing) toggle instead of Skipped.
+    def _account_headroom(sid: str) -> float:
+        return source_capacity.get(sid, 0.0) - 10
+
+    if account_eligibility_out is not None:
+        # Snapshot BEFORE any `_find_legs_for_destination` call below
+        # consumes `source_capacity` in place — this reports each account's
+        # standing headroom, not what's left after this request happens to
+        # have funded other destinations first.
+        for _sid in source_capacity:
+            _headroom = _account_headroom(_sid)
+            account_eligibility_out[_sid] = {
+                "short": _headroom <= 0,
+                "headroom": round(_headroom, 2),
+            }
+
     # ── Shared source finder (G42, 2026-09-11; fewest-legs G43, 2026-09-11) ──
     # Ranks and picks legs to fund `amount_needed` at `dest_acct`: current
     # accounts first, then savings, then offline — a savings pot is only ever
@@ -1856,7 +1899,7 @@ async def compute_today_items(uid: str, payday_preview: bool = False, persist: b
                     continue
                 if require_non_negative_current and min_running.get(sid, 0.0) < 0:
                     continue  # skip accounts that are themselves short
-                headroom = source_capacity.get(sid, 0.0) - 10  # keep £10 buffer
+                headroom = _account_headroom(sid)  # keep £10 buffer
                 if headroom >= 5:
                     out.append((sid, acc, headroom))
             # Deterministic order: highest headroom first (the account left
