@@ -61,6 +61,13 @@ async def get_preferences(user: dict = Depends(current_user)):
             # actions; an ISO timestamp once POST /penny/agent-consent has
             # been called. See app.services.penny_agent's own consent check.
             "penny_agent_consent": None,
+            # G45 v3: a monotonic write counter for the whole preferences
+            # document (see update_preferences below). 0 means "no write has
+            # ever happened" — strictly lower than the version any PATCH can
+            # ever return (that starts a fresh document's counter at 1), so a
+            # client that has never seen a version always accepts the first
+            # real one.
+            "version": 0,
         }
     region = doc.get("region", "UK")
     result = {
@@ -86,6 +93,7 @@ async def get_preferences(user: dict = Depends(current_user)):
         "cover_plan_excluded_accounts": doc.get("cover_plan_excluded_accounts", []),
         "payday_buffer": doc.get("payday_buffer", 50),
         "penny_agent_consent": doc.get("penny_agent_consent"),
+        "version": doc.get("version", 0),
     }
     if "debt_tracking_start" in doc:
         result["debt_tracking_start"] = doc["debt_tracking_start"]
@@ -109,9 +117,21 @@ async def update_preferences(body: dict, user: dict = Depends(current_user)):
         body["pension_annual"] = _coerce_money_field(body.get("pension_annual"), "pension_annual")
     uid = user["email"]
     pay_period_changed = "pay_period_config" in body
+    # G45 v3: every write bumps a monotonic per-document version, returned by
+    # both this endpoint and GET /preferences below. This is the freshness
+    # signal the frontend (PreferencesContext.tsx) uses to tell a stale GET
+    # snapshot (e.g. a slow app-boot fetch that resolves after a PATCH has
+    # already landed) apart from a genuinely newer one — including one
+    # written by a DIFFERENT caller than the one reading it (Penny's
+    # set_cover_plan_exclusions proposal replays this very endpoint via
+    # can_i._execute_update_preferences, so "newer" must never mean
+    # "written by me"). $inc on a field that doesn't exist yet starts it at
+    # 0 then applies the increment, so a document's very first PATCH always
+    # returns version 1 — strictly greater than the 0 GET /preferences
+    # reports for a user with no document at all.
     await preferences_col.update_one(
         {"user_id": uid},
-        {"$set": {**body, "user_id": uid}},
+        {"$set": {**body, "user_id": uid}, "$inc": {"version": 1}},
         upsert=True,
     )
     doc = await preferences_col.find_one({"user_id": uid})
@@ -135,4 +155,8 @@ async def update_preferences(body: dict, user: dict = Depends(current_user)):
         except Exception:
             pass
 
-    return {"hide_net_worth": doc.get("hide_net_worth", False), "dark_mode": doc.get("dark_mode", False)}
+    return {
+        "hide_net_worth": doc.get("hide_net_worth", False),
+        "dark_mode": doc.get("dark_mode", False),
+        "version": doc.get("version", 1),
+    }
