@@ -21,9 +21,41 @@ export function isNativePlatform(): boolean {
 // (PlanPicker, MoreMessagesSheet, YourPlanCard, ConnectedAssistantsCard)
 // gates on this single check rather than repeating isNativePlatform() and
 // letting the App Store reasoning drift out of sync between call sites.
+//
+// Deliberately does NOT just call isNativePlatform() above: that function
+// fails *open* to web (returns false, i.e. "treat as not native") on any
+// detection error, which is the right failure direction for its own
+// callers — biometrics, push registration and native Apple sign-in all
+// want to fall back to the ordinary web flow rather than break if the
+// platform check itself throws. A purchase gate needs the opposite
+// failure direction. If detection is uncertain, this treats the platform
+// as native and hides checkout, because the two ways this can go wrong
+// are not equally bad: a false positive (detection throws on a real web
+// user) costs one lost sale, a false negative (detection throws on a real
+// native user and checkout shows anyway) risks an App Store rejection
+// under guideline 3.1.1. The rejection is the worse outcome, so this
+// fails closed even though isNativePlatform() itself deliberately doesn't.
 export function canPurchaseInApp(): boolean {
-  return !isNativePlatform();
+  try {
+    return !Capacitor.isNativePlatform();
+  } catch {
+    return false;
+  }
 }
+
+// B26 follow-up: one sentence and one short trailing-label form for "you
+// cannot buy anything from inside this app", so every purchase-adjacent
+// surface reads identically instead of each inventing its own phrasing
+// (PlanPicker, YourPlanCard, MoreMessagesSheet and ConnectedAssistantsCard
+// previously had three different sentences for the same fact). "in this
+// app" is the natural British register; "on this app" reads as American
+// app-store marketing copy, which PRODUCT.md's anti-references steer away
+// from. Plain factual unavailability is fine under guideline 3.1.1, which
+// forbids buttons, links and calls to action, not statements of fact, so
+// this says the thing plainly rather than softening it into something
+// vague.
+export const PURCHASE_UNAVAILABLE_SENTENCE = "Paid plans are not available in this app.";
+export const PURCHASE_UNAVAILABLE_LABEL = "Not available in this app";
 
 // Sign in with Apple is only offered on iOS native builds — there's no
 // Google-style cross-platform web fallback worth building for a single-user

@@ -27,7 +27,7 @@ import PennyUsageRow from "@/components/PennyUsageRow";
 import PlanPicker from "@/components/PlanPicker";
 import { refreshPennyUsage } from "@/components/PennySheetProvider";
 import { useSheetA11y } from "@/lib/useSheetA11y";
-import { canPurchaseInApp } from "@/lib/nativeAuth";
+import { canPurchaseInApp, PURCHASE_UNAVAILABLE_SENTENCE } from "@/lib/nativeAuth";
 
 const INDIGO = "#4f46e5";
 
@@ -123,7 +123,7 @@ export default function YourPlanCard({
             subtitle above with nothing further to say here. */}
         {!canPurchaseInApp() ? (
           info?.tier === "statements" && (
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Paid plans are not available on this app.</p>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{PURCHASE_UNAVAILABLE_SENTENCE}</p>
           )
         ) : (
           !info?.billing_live && (

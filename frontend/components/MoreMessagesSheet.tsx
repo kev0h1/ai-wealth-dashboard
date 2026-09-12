@@ -30,8 +30,9 @@
 // purchase, which this app has never wired up on either platform, so
 // `canPurchaseInApp()` (frontend/lib/nativeAuth.ts) gates the interactive
 // state the same way `billing_live` already did, and a native build gets
-// its own trailing label ("Not available on this app") rather than
-// "Available soon", which would wrongly promise it'll show up here later.
+// the shared `PURCHASE_UNAVAILABLE_LABEL` ("Not available in this app")
+// rather than "Available soon", which would wrongly promise it'll show up
+// here later.
 //
 // B11 (docs/pricing/tiering-unit-economics-mcp-2026-09.md section 9):
 // replaced the single £2.99/100-message row with three packs, good/better/
@@ -49,7 +50,7 @@ import { useState } from "react";
 import { X } from "lucide-react";
 import { usePennyUsage, formatPennyResetDate } from "@/components/PennySheetProvider";
 import { api } from "@/lib/api";
-import { canPurchaseInApp } from "@/lib/nativeAuth";
+import { canPurchaseInApp, PURCHASE_UNAVAILABLE_LABEL } from "@/lib/nativeAuth";
 import type { SubscriptionTopupPack } from "@wealth/shared";
 
 const LEGACY_FALLBACK_PACKS: SubscriptionTopupPack[] = [
@@ -82,7 +83,7 @@ function TrailingPrice({
         </span>
       ) : (
         <span className="text-[10px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
-          {status === "soon" ? "Available soon" : "Not available on this app"}
+          {status === "soon" ? "Available soon" : PURCHASE_UNAVAILABLE_LABEL}
         </span>
       )}
     </span>

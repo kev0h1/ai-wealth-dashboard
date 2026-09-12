@@ -39,7 +39,7 @@ import { api } from "@/lib/api";
 import type { OAuthConnection } from "@/lib/api";
 import { describeScopes } from "@/lib/oauthScopes";
 import { MCP_URL } from "@/lib/featureFlags";
-import { canPurchaseInApp } from "@/lib/nativeAuth";
+import { canPurchaseInApp, PURCHASE_UNAVAILABLE_LABEL } from "@/lib/nativeAuth";
 import { formatPennyResetDate } from "@/components/PennySheetProvider";
 import type { SubscriptionMcpPack } from "@wealth/shared";
 
@@ -92,10 +92,11 @@ function formatAllowanceRow(allowance: McpAllowance): { subline: string; pill: {
 // auditing every `api.startCheckout` call site — this row has the exact
 // same unguarded pattern, so it gates on `canPurchaseInApp()` the same
 // way. On a native build it never becomes a button regardless of
-// `billingLive`, and its trailing label reads "Not available on this
-// app" rather than "Available soon", which would wrongly promise a
-// button that platform can never legally show (Apple guideline 3.1.1;
-// this app has no in-app-purchase integration on either platform).
+// `billingLive`, and its trailing label reads the shared
+// `PURCHASE_UNAVAILABLE_LABEL` ("Not available in this app") rather than
+// "Available soon", which would wrongly promise a button that platform
+// can never legally show (Apple guideline 3.1.1; this app has no
+// in-app-purchase integration on either platform).
 function McpPackRow({
   pack, billingLive, purchasingAllowed, busy, onBuy,
 }: {
@@ -126,7 +127,7 @@ function McpPackRow({
           </span>
         ) : (
           <span className="text-[10px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
-            {purchasingAllowed ? "Available soon" : "Not available on this app"}
+            {purchasingAllowed ? "Available soon" : PURCHASE_UNAVAILABLE_LABEL}
           </span>
         )}
       </span>
@@ -402,9 +403,17 @@ export default function ConnectedAssistantsCard({
           {packError && (
             <p className="text-[11px] leading-snug text-red-500 dark:text-red-400">{packError}</p>
           )}
+          {/* B26: "while billing is being built" is a promise that this
+              app will eventually sell Max in-app, which is true on web
+              and never true on native (no in-app-purchase integration),
+              so native keeps only the part of the sentence that stays
+              true either way. No CTA here either way, so this was a
+              copy-accuracy fix, not a 3.1.1 gate. */}
           {tier === "max" && !billingLive && (
             <p className="text-[11px] leading-snug text-slate-500 dark:text-slate-400">
-              Everyone is on the Max plan with 5,000 calls a month while billing is being built.
+              {purchasingAllowed
+                ? "Everyone is on the Max plan with 5,000 calls a month while billing is being built."
+                : "Everyone is on the Max plan with 5,000 calls a month."}
             </p>
           )}
         </div>

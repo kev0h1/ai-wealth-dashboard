@@ -3,7 +3,7 @@
 import { useMemo, useState, type KeyboardEvent } from "react";
 import { Check, ChevronDown, Crown, FileText, Landmark, Link2, Zap } from "lucide-react";
 import { api } from "@/lib/api";
-import { canPurchaseInApp } from "@/lib/nativeAuth";
+import { canPurchaseInApp, PURCHASE_UNAVAILABLE_SENTENCE } from "@/lib/nativeAuth";
 import type {
   SubscriptionBillingPeriod,
   SubscriptionBillingPeriodDetail,
@@ -203,7 +203,7 @@ export default function PlanPicker({
       return "Your active subscription and its renewal are managed securely in billing.";
     }
     if (selected === "statements") return "Free. No card and no automatic renewal.";
-    if (!purchasingAllowed) return "Not included on your plan.";
+    if (!purchasingAllowed) return PURCHASE_UNAVAILABLE_SENTENCE;
     if (trialActive) return `${trialDisclosureLine} ${trialCancelLine}`;
     return `${money(total)} today, then ${money(total)} ${renewalWords} unless you cancel. Cancel any time from Settings, Your plan.`;
   }, [billingChangeInPortal, info.status, purchasingAllowed, renewalWords, selected, total, trialActive, trialCancelLine, trialDisclosureLine]);
@@ -259,18 +259,28 @@ export default function PlanPicker({
     }
   }
 
+  // B26 follow-up: one derived notion of "can this file actually start a
+  // Stripe action right now" (platform gate AND server billing_live),
+  // used by primaryLabel, disabled and showActionButton alike so they
+  // cannot drift out of sync with each other — previously primaryLabel
+  // and disabled branched on billingLive only, which was harmless while
+  // showActionButton hid the button outright, but would have silently
+  // reopened the native purchase gate the moment showActionButton's own
+  // condition was loosened by someone who never looked at these two.
+  const canStartPurchaseFlow = purchasingAllowed && billingLive;
+
   const primaryLabel = (() => {
     if (busy) return "Opening…";
     if (billingChangeInPortal) return info.status === "past_due" ? "Fix payment in billing" : "Manage plan and renewal";
     if (selected === "statements") {
       return context === "onboarding" ? "Continue with Statements" : current === "statements" ? "Current plan" : "Choose Statements";
     }
-    if (!billingLive) return "Paid plans are not available yet";
+    if (!canStartPurchaseFlow) return "Paid plans are not available yet";
     if (trialActive) return `Start ${trialDays}-day free trial`;
     return `Choose ${chosen.name}`;
   })();
 
-  const disabled = busy || (!billingChangeInPortal && selected !== "statements" && !billingLive) || (context === "settings" && selected === "statements" && current === "statements");
+  const disabled = busy || (!billingChangeInPortal && selected !== "statements" && !canStartPurchaseFlow) || (context === "settings" && selected === "statements" && current === "statements");
   // B26: the primary button itself only ever starts a Stripe action
   // (Checkout or the customer portal) unless the selection is the free
   // Statements plan with no existing paid subscription to manage — that
