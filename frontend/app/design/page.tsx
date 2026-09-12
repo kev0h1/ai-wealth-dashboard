@@ -22,6 +22,17 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "cover-plan-sources",
+    name: "cover-plan-sources",
+    description:
+      "G46 cover-plan source settings round · A live source ladder (recommended): exact transfer legs update as an account is excluded, followed by Current → Savings → Offline groups / B ranked register: movable headroom, engine rank and exclusion impact share each row / C safeguard map: consequence leads, then one source class is inspected at a time · faithfully mirrors the settled source finder: current first, savings only once current accounts combined fall short, offline last, highest headroom first within a class, fewest legs, £10 retained, accounts that are themselves short skipped · presentation-only fixtures, no API or preference writes · ?variant=a|b|c&state=all|savings|short&mode=light|dark",
+    states: [
+      { label: "Current accounts cover it", value: "all" },
+      { label: "Savings enters", value: "savings" },
+      { label: "Partly uncovered", value: "short" },
+    ],
+  },
+  {
     slug: "spend-period-round",
     name: "spend-period-round",
     description:
