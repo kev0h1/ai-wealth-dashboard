@@ -67,6 +67,7 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
   const [postcode, setPostcode]   = useState("");
   const [payIdx, setPayIdx]       = useState(0);
   const [paydaySaving, setPaydaySaving] = useState(false);
+  const [paydayErrorMsg, setPaydayErrorMsg] = useState<string | null>(null);
   const [incomeInput, setIncomeInput]     = useState("");
   const [incomeFocused, setIncomeFocused] = useState(false);
   const [incomeSaving, setIncomeSaving]   = useState(false);
@@ -196,12 +197,17 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
   // whether to advance at all.
   //
   // A real pay schedule (anything but "I'll set this later", which never
-  // calls save() at all) BLOCKS progress on failure rather than showing an
-  // inline message: there is no established message slot on this step, and
-  // per CLAUDE.md's own guidance for a caller that cannot surface one,
-  // staying put with the button re-enabled (so the user can just retry) is
-  // preferred over silently proceeding with an unsaved, load-bearing
-  // setting.
+  // calls save() at all) BLOCKS progress on failure -- staying put with the
+  // button re-enabled is preferred over silently proceeding with an
+  // unsaved, load-bearing setting. First attempt at this (rejected on
+  // review, 2026-09-12) blocked with NO other signal: paydaySaving resets
+  // to false, the button just flips back from "Saving..." to "Continue" and
+  // sits there, which on the very first screen a new user meets reads as a
+  // dead button, not a deliberate retry state. Fixed by paydayErrorMsg
+  // below, rendered with the same ink-plus-amber-dot role="status" pattern
+  // already used in this diff for SpendTrends' widgetsSaveMsg and
+  // PreferencesContext's preferencesSaveError, wording the escape
+  // explicitly (retry, or pick "I'll set this later" above).
   const paydayOutcomeRef = useRef<"ok" | "failed">("ok");
   const paydaySaverRef = useRef(createPreferenceSaver<object>({
     queue: createSerialQueue(),
@@ -209,8 +215,21 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
     apply: () => {},
     save: (v) => api.updatePreferences({ pay_period_config: v }),
     reconcile: async () => undefined,
-    onSuccess: () => { paydayOutcomeRef.current = "ok"; },
-    onError: (msg) => { if (msg !== null) paydayOutcomeRef.current = "failed"; },
+    onSuccess: () => { paydayOutcomeRef.current = "ok"; setPaydayErrorMsg(null); },
+    // Rejected on review (2026-09-12): blocking progress with the button
+    // simply reverting to "Continue" reads as a dead button on the very
+    // first screen a new user meets -- there is no OTHER visible sign
+    // anything went wrong. onError already runs with `null` at the start of
+    // every attempt (clearing a stale message before this one begins) and
+    // with a real message on failure -- see lib/preferenceSave.ts's own
+    // docstring, point 6 -- so this just needs to show it, same
+    // ink-plus-amber-dot role="status" pattern already used in this diff
+    // for SpendTrends' widgetsSaveMsg and PreferencesContext's
+    // preferencesSaveError.
+    onError: (msg) => {
+      if (msg !== null) paydayOutcomeRef.current = "failed";
+      setPaydayErrorMsg(msg);
+    },
   })).current;
 
   async function savePayday() {
@@ -425,6 +444,20 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
         >
           {paydaySaving ? "Saving…" : "Continue"}
         </button>
+
+        {/* Rejected on review (2026-09-12): staying on this step with no
+            visible sign anything failed reads as a dead button on the very
+            first screen a new user meets. Ink-plus-amber-dot role="status",
+            the same pattern already used in this diff for SpendTrends'
+            widgetsSaveMsg and PreferencesContext's preferencesSaveError
+            (DESIGN.md:142), naming the actual escape this exact step
+            offers: pick "I'll set this later" above and continue. */}
+        {paydayErrorMsg && (
+          <p role="status" aria-live="polite" className="mt-3 flex items-start gap-1.5 text-xs font-medium text-slate-600 dark:text-slate-300">
+            <span aria-hidden="true" className="mt-1 size-1.5 shrink-0 rounded-full bg-amber-500 dark:bg-amber-400" />
+            <span>Could not save that. Try again, or choose &quot;I&apos;ll set this later&quot; above and continue.</span>
+          </p>
+        )}
       </Shell>
     );
   }
