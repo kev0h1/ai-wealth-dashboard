@@ -87,9 +87,20 @@ run `systemctl restart` from inside a worktree under any circumstance.
 
 ## Design work
 
+Design work is currently reassigned to Claude sessions (Kevin, 2026-09-12, after a Codex-built Settings card that did not scale). This section stays live for when it returns to Codex; the protocol below, including the skill choice, is shared with `CLAUDE.md` so both agents follow one approach.
+
 Before any UI work, read `PRODUCT.md` and `DESIGN.md`. The north star is "The Calm Cockpit": verdicts lead, colour is information, red means genuine financial risk only, and the indigo to violet gradient belongs to Penny alone.
 
 Never patch visuals in place, and never change a production component first. Design changes are proposed to Kevin, agreed, then built.
+
+Pick a design skill before building variants, and name it in the item's note so a rejected round can be traced to the approach that produced it:
+
+- `impeccable`: the primary skill for a design round on this app. Its scope covers dashboards, product UI, app shells, components, forms, settings, onboarding and empty states, which is what Sorted is. Used for the Accounts redesign.
+- `design-taste-frontend`: art direction when a bolder or more distinctive look is wanted. Its scope is landing pages, portfolios and redesigns, so it suits a look-and-feel round more than a settings screen.
+- `emil-design-eng`: interaction and motion polish once the layout is agreed. Used for the surface and glow system.
+- `web-design-guidelines`: the final gate, an accessibility and guidelines audit run before Kevin sees anything, alongside (not instead of) the independent reviewer agent below.
+
+A skill supplements `PRODUCT.md` and `DESIGN.md`, it never overrides them: the Calm Cockpit north star and DESIGN.md's named rules win on any conflict, including when a skill suggests something bolder or more decorative.
 
 Propose the change as two or three coded art-direction variants under `frontend/app/design/<slug>/`, registered in `frontend/app/design/page.tsx` (the `check:design-index` gate, run by `scripts/session.sh finish`, enforces that every preview directory is indexed). Variants are real coded pages, not mockups or descriptions. Commit them inside the worktree the usual way, with this file's trailer, `Co-Authored-By: Codex <noreply@openai.com>`.
 
