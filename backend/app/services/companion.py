@@ -28,7 +28,11 @@ from app.db.collections import (
 log = logging.getLogger(__name__)
 from app.routers.analytics import _build_cashflow_response, income_credit_ok, is_assessable_bill
 from app.routers.allocations import list_active_allocations
-from app.services.card_rates import is_credit_card_account
+from app.services.card_rates import (
+    is_credit_card_account,
+    is_current_account as _is_current,
+    is_savings_account as _is_savings,
+)
 from app.services.categories import MOVEMENT
 from app.services.categorisation import series_key
 
@@ -883,20 +887,14 @@ async def _active_commitment_slices(
         return {}
 
 
-# ── Module-level account classifiers ──────────────────────────────────────────
-# Lifted out of compute_today_items so the offline pass can share them without
-# re-defining inside the closure. Logic is byte-identical to the former nested defs.
-
-def _is_savings(acc: dict) -> bool:
-    st = (acc.get("account_subtype") or acc.get("subtype") or "").upper()
-    return "SAVING" in st or "ISA" in st
-
-
-def _is_current(acc: dict) -> bool:
-    st = (acc.get("account_subtype") or acc.get("subtype") or "").upper()
-    t = (acc.get("type") or "").upper()
-    return "TRANSACTION" in st or "CURRENT" in st or t == "BANK"
-
+# ── Module-level account classifiers ────────────────────────────────────────
+# _is_savings/_is_current used to be defined here; promoted to
+# services/card_rates.py as is_savings_account/is_current_account (G55,
+# 2026-09-12) and imported above under their original names, so
+# routers/accounts.py's cover_source_eligible can reuse the exact same
+# functions instead of restating the rule and risking drift. _is_offline
+# stays local: it reads the `_offline` marker this module fabricates on its
+# own manually-tracked account snapshots, which no other caller produces.
 
 def _is_offline(acc: dict) -> bool:
     """Manually-tracked (offline) accounts — real cash or a wallet the user

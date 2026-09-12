@@ -24,6 +24,11 @@ from app.db.collections import finexer_consents_col as _finexer_consents_col
 from app.services.finexer_sync import finexer_sync_pipeline as _finexer_sync_pipeline
 from app.services.categorisation import apply_rules_bulk, categorise_others_bg
 from app.services.manual_account_rules import apply_rules as apply_mirror_rules
+from app.services.card_rates import (
+    is_credit_card_account,
+    is_current_account,
+    is_savings_account,
+)
 from app.services import response_cache
 from app.routers.analytics import compute_and_cache_cashflow
 from app.services.planned import settle_planned_expenses
@@ -53,6 +58,32 @@ async def _attach_aprs(uid: str, result: List[Account]) -> List[Account]:
         if acc.id in rate_map:
             acc.apr = rate_map[acc.id]
     return result
+
+
+def _engine_source_eligible(acc: dict) -> bool:
+    """`cover_source_eligible` for a live (TrueLayer/Finexer/Yapily) account
+    doc, defined as EXACTLY the combined predicate `companion.py`'s
+    `source_capacity` build applies (see `compute_today_items`'s
+    `source_capacity` loop, `services/companion.py` around line 1802-1810):
+    a credit card is excluded outright, and what's left must additionally
+    clear the engine's own type-inclusion gate — reused here via
+    `is_current_account`/`is_savings_account`, the same functions
+    `companion.py` imports from `services/card_rates.py` (G55, 2026-09-12),
+    so this can never restate only half the rule and drift from the engine
+    as new provider/product types show up.
+
+    The engine's inclusion gate is actually a three-way OR that also admits
+    `_is_offline(acc)` (companion.py's own `_offline` marker), but that
+    marker only ever exists on companion.py's manually-tracked account
+    snapshots, which routers/accounts.py builds separately in
+    `_manual_to_account`/`_manual_accounts` below with its own (already
+    correct) credit-card check — a raw accounts_col/yapily_accounts_col doc
+    is never offline-marked, so that leg of the OR is omitted here as
+    always-false for this input shape, not because it doesn't apply.
+    """
+    if is_credit_card_account(acc):
+        return False
+    return is_current_account(acc) or is_savings_account(acc)
 
 
 def _manual_to_account(a: dict, currency: str) -> Account:
@@ -120,7 +151,17 @@ async def get_accounts(user: dict = Depends(current_user)):
         Account(
             id=d["_id"],
             **{k: v for k, v in d.items() if k not in {"_id", "cover_source_eligible"}},
-            cover_source_eligible=True,
+            # G55: `_engine_source_eligible` is companion.py's OWN
+            # source_capacity predicate (credit-card exclusion AND the
+            # current/savings inclusion gate), reused here rather than
+            # restated, so a UK credit card — or any future account shape
+            # the engine itself would not treat as a source — is never
+            # offered on Settings just because a separate frontend string
+            # heuristic happened to also catch today's cases. Computed
+            # fresh on every read (never persisted on the doc) so a
+            # re-typed provider subtype can never leave a stale value
+            # behind.
+            cover_source_eligible=_engine_source_eligible(d),
         )
         for d in docs
     ]
@@ -147,7 +188,15 @@ async def get_accounts(user: dict = Depends(current_user)):
                 balance=a.get("balance", 0), currency=a.get("currency", "GBP"),
                 provider=a.get("institution_id", "YAPILY"), status=a.get("status", "connected"),
                 connection_id=a.get("consent", ""),
-                cover_source_eligible=True,
+                # G55: was unconditionally True regardless of card type.
+                # Yapily's own sync (`services/yapily_sync.py`) stores the
+                # provider's real account type lowercased straight into
+                # `type` (its enum includes credit card) and never sets
+                # `subtype` at all, so `_engine_source_eligible` is passed
+                # the RAW doc `a` here, not the Account's own defaulted
+                # `type="bank"` above, otherwise a Yapily credit card would
+                # read as a current account and wrongly pass.
+                cover_source_eligible=_engine_source_eligible(a),
             ))
     result.extend(await _manual_accounts(uid, "GBP"))
     return await _attach_aprs(uid, result)
