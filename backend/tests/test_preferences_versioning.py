@@ -124,14 +124,24 @@ def test_version_advances_even_when_only_an_unrelated_field_changes(monkeypatch)
     assert result["version"] == 2
 
 
-def test_two_concurrent_callers_writing_the_same_field_both_advance_the_version(monkeypatch):
-    """Simulates the exact scenario the review flagged: Penny (via
-    can_i._execute_update_preferences) and Settings both PATCH
-    cover_plan_excluded_accounts through this same endpoint. Whichever call
-    lands second ends up with the higher version, regardless of which
-    "page" it came from — the version has no notion of caller identity, only
-    write order, which is exactly the "newer, no matter who wrote it" rule
-    the frontend comparison needs.
+def test_two_different_callers_writing_the_same_field_advance_one_shared_version(monkeypatch):
+    """Penny (via can_i._execute_update_preferences) and Settings both PATCH
+    cover_plan_excluded_accounts through this same endpoint. This proves
+    ONLY that the version counter has no notion of caller identity — two
+    different callers share and advance the exact same counter, purely by
+    write order, which is the "newer, no matter who wrote it" half of the
+    frontend's comparison rule.
+
+    It does NOT prove writes are safe under genuine concurrency: this test
+    is sequential (settings_write fully completes before penny_write
+    starts), and penny_write's payload is a strict superset of
+    settings_write's, so nothing is actually lost here even in principle.
+    Real concurrent writers replacing the whole array can still lose one
+    side's change (last write wins on the full array, not a merge) — that
+    is a separate, real gap, tracked as G54, and is deliberately NOT fixed
+    by the version field: version protects READERS (a stale GET can't
+    clobber a newer one), not WRITERS (two racing PATCHes can still race
+    each other). Do not read this test as covering that case.
     """
     _patch(monkeypatch, {"user_id": UID, "version": 0, "cover_plan_excluded_accounts": []})
 

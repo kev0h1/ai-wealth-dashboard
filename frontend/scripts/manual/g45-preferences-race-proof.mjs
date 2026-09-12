@@ -1,8 +1,9 @@
 #!/usr/bin/env node
-// G45 (second re-review) — manual, browser-driven proof for the two
-// blockers found in review that cannot be exercised without a real
-// browser + a real backend (this repo has no frontend test harness; the
-// coordinator asked that this be kept in the branch, not built into one).
+// G45 — manual, browser-driven proof for the review blockers that cannot
+// be exercised without a real browser + a real backend (this repo has no
+// frontend test harness; the coordinator asked that this be kept in the
+// branch, not built into one). Three scenarios, one per blocker found
+// across three review rounds.
 //
 // BLOCKER 1 (serialized writes): toggle A's PATCH is still in flight when
 // toggle B fires; if A later fails, its failure path must not wipe B's
@@ -24,6 +25,15 @@
 // frontend/components/PreferencesContext.tsx) that discards any snapshot
 // older than the last one accepted — including one from a slow GET that
 // predates a since-completed PATCH.
+//
+// BLOCKER 3 (third re-review, no-else fallback): runCoverToggle's catch
+// reconciles from the server on a failed PATCH, but had no `else` on
+// `if (server) { ... }` — if the reconciling GET ALSO failed, or its
+// snapshot was discarded as stale, the optimistic (unsaved) change stayed
+// on screen forever, next to a "could not save" message. Fixed by falling
+// back to `previous` (the pre-toggle value already captured at the top of
+// runCoverToggle) in that else branch, so the screen can never show an
+// unsaved change as saved. See scenarioDoubleFailure below.
 //
 // WHY THIS CAN'T BE A COMMITTED, CI-RUN TEST
 // This repo has no frontend test harness (no jest/vitest/testing-library).
@@ -124,7 +134,7 @@
 //   APP_URL=http://localhost:3131 \
 //     node scripts/manual/g45-preferences-race-proof.mjs
 //
-// Exits 0 if both scenarios pass, 1 otherwise. Prints a clear PASS/FAIL per
+// Exits 0 if all scenarios pass, 1 otherwise. Prints a clear PASS/FAIL per
 // assertion either way.
 
 import { createRequire } from "module";
@@ -353,6 +363,77 @@ async function scenarioOverlappingFailure(browser, account1Label, account2Label)
   await page.close();
 }
 
+// ── Scenario 3: the PATCH fails AND the reconciling GET also fails (or
+//    times out) — there is no server truth at all to reconcile from. The
+//    review's third-round blocker: runCoverToggle's catch had no `else` on
+//    `if (server) { ... }`, so this exact case left the optimistic (unsaved)
+//    change on screen forever, next to a "could not save" message — the
+//    screen claimed an account was protected from the cover plan when the
+//    server never received that change. ─────────────────────────────────
+async function scenarioDoubleFailure(browser, account1Label) {
+  console.log("\n=== Scenario 3: PATCH fails AND the reconciling GET also fails ===");
+  await realPatch([]); // real reset, real Mongo write — account1 starts NOT excluded
+
+  const page = await newPage(browser);
+  let getCount = 0;
+  let patchSeen = false;
+
+  await page.setRequestInterception(true);
+  page.on("request", async (req) => {
+    const url = req.url();
+    const isPreferences = url.includes("/api/preferences");
+    if (req.method() === "GET" && isPreferences) {
+      getCount += 1;
+      if (getCount === 1) {
+        // The app-boot mount GET must succeed normally so the page loads.
+        const real = await realGet();
+        await req.respond({ status: 200, contentType: "application/json", body: JSON.stringify(real) });
+        return;
+      }
+      // Every GET after the mount fetch is the toggle's OWN reconciling
+      // refetch (refreshPreferences() inside runCoverToggle's catch) —
+      // force it to fail too, so there is no server truth available at all.
+      await req.respond({ status: 500, contentType: "application/json", body: '{"detail":"forced GET failure"}' });
+      return;
+    }
+    if (req.method() === "PATCH" && isPreferences) {
+      patchSeen = true;
+      await req.respond({ status: 500, contentType: "application/json", body: '{"detail":"forced PATCH failure"}' });
+      return;
+    }
+    req.continue();
+  });
+
+  await gotoSettingsAndWaitForCard(page);
+
+  await page.evaluate((label) => {
+    document.querySelector(`button[aria-label*="${label}"]`).click();
+  }, account1Label);
+
+  const deadline = Date.now() + 10000;
+  while ((!patchSeen || getCount < 2) && Date.now() < deadline) await delay(100);
+  await delay(1000); // let the failed reconciliation fully settle
+
+  check("the toggle's PATCH was sent (and forced to fail)", patchSeen);
+  check("a reconciling GET was attempted after the PATCH failed (and forced to fail too)", getCount >= 2);
+
+  const state1 = await ariaChecked(page, account1Label);
+  const bodyText = await page.evaluate(() => document.body.innerText);
+  const server = await realGet();
+
+  // The account started NOT excluded ("true"). With no server truth
+  // reachable at all, the screen must fall back to that pre-toggle value —
+  // never leave the optimistic (unsaved) "excluded" state on screen.
+  check("checkbox falls back to the pre-toggle state (expect true = allowed)", state1 === "true");
+  check("the failure message is shown", bodyText.includes("Could not save that change"));
+  check(
+    "the server was never actually changed (still empty)",
+    JSON.stringify(server.cover_plan_excluded_accounts || []) === "[]"
+  );
+
+  await page.close();
+}
+
 async function main() {
   const browser = await puppeteer.launch({
     executablePath: CHROME_PATH,
@@ -378,6 +459,7 @@ async function main() {
 
     await scenarioStaleGet(browser, acc1.name);
     await scenarioOverlappingFailure(browser, acc1.name, acc2.name);
+    await scenarioDoubleFailure(browser, acc1.name);
   } finally {
     await browser.close();
   }
@@ -386,7 +468,7 @@ async function main() {
     console.error(`\n${failures} failure(s). This branch's G45 fix is NOT proven.`);
     process.exit(1);
   }
-  console.log("\nBoth scenarios passed.");
+  console.log("\nAll scenarios passed.");
 }
 
 main().catch((e) => {

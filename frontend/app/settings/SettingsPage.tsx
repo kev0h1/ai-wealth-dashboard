@@ -604,6 +604,19 @@ export default function SettingsPage() {
         // value — see lastSyncedRawPrefsRef's own comment.
         lastSyncedRawPrefsRef.current = server;
         applyExcludedIds(new Set(server.cover_plan_excluded_accounts ?? []));
+      } else {
+        // The PATCH failed AND the reconciling GET either failed too or its
+        // snapshot was discarded as stale (refreshPreferences() returns
+        // null in both cases) — there is no server truth to reconcile from
+        // here. Falling back to `previous` (captured before this toggle's
+        // own optimistic change, at the top of this function) is the only
+        // safe move: the screen must never show an unsaved change as saved
+        // next to a "could not save" message, given services/companion.py
+        // reads this exact field to decide which accounts it may move
+        // money from. `lastSyncedRawPrefsRef` is deliberately left
+        // untouched here — no new rawPrefs snapshot was consumed, so the
+        // normal effect-based sync above is unaffected by this fallback.
+        applyExcludedIds(previous);
       }
       refreshCoverPlan();
     }
