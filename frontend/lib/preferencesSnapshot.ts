@@ -1,15 +1,15 @@
 /**
- * The two things PreferencesContext.tsx does with a `GET /preferences`
+ * The things PreferencesContext.tsx does with a `GET /preferences`
  * snapshot, pulled out as plain, framework-free functions (G62) so the
- * distinction between them — which is the entire fix — can be tested with
- * a plain Node script instead of only living as prose in a code comment.
- * Same "no React, import the real module" pattern as
+ * fix — and the guard that closes the second hole a reviewer found in it —
+ * can be tested with a plain Node script instead of only living as prose
+ * in a code comment. Same "no React, import the real module" pattern as
  * lib/preferenceSave.ts, lib/serialQueue.ts and lib/preferencesVersion.ts;
  * see frontend/scripts/preferences-snapshot.test.mjs.
  *
- * BACKGROUND (G62): `loadPreferences` in PreferencesContext.tsx used to
- * serve two jobs — mount hydration, and the `reconcile()` callback every
- * field's saver runs after a failed save (via `refreshPreferences()`).
+ * BACKGROUND (G62, first pass): `loadPreferences` in PreferencesContext.tsx
+ * used to serve two jobs — mount hydration, and the `reconcile()` callback
+ * every field's saver runs after a failed save (via `refreshPreferences()`).
  * Applying every field is correct for mount hydration (nothing is in
  * flight yet) but wrong as a failure-path reconcile: if `hide_net_worth`
  * is mid-PATCH while `dark_mode`'s save fails, `dark_mode`'s reconcile
@@ -19,19 +19,56 @@
  * silently stomp `hide_net_worth`'s optimistic value and its
  * `wd_hide_balances` localStorage mirror.
  *
- * The fix splits the one function into two:
+ * The first pass split the one function into two:
  *  - `fetchGatedSnapshot` — the version-gated FETCH only. No field is ever
  *    applied to anything; it just returns the accepted snapshot, or null
- *    if the fetch failed or the snapshot was stale. This is what a field's
- *    own `reconcile()` should call: it can extract just its own key from
- *    the result, and nothing else on the page is ever touched by it.
+ *    if the fetch failed or the snapshot was stale.
  *  - `applyWholeDocument` — given a snapshot, calls every field's `apply`
- *    callback. Correct for mount hydration and for `refreshPreferences()`'s
- *    other caller (Settings' Penny "Turn off" control, which wants a full
- *    resync after a write to a DIFFERENT endpoint). Never called from a
- *    field saver's own `reconcile()` — doing so is exactly the G62 defect,
- *    and is what frontend/scripts/preferences-snapshot.test.mjs's "bug
- *    mode" scenario reconstructs to prove why.
+ *    callback.
+ * and rewired each of the six fields' OWN `reconcile()` (via
+ * `makeFieldReconcile` below) to call `fetchGatedSnapshot` alone, extracting
+ * only its own key — never `applyWholeDocument`. That closed the hole for a
+ * field reconciling ITS OWN failed save.
+ *
+ * THE HOLE THAT WAS LEFT (G62, review #1): `refreshPreferences()` in
+ * PreferencesContext.tsx still composes the fetch WITH `applyWholeDocument`
+ * — correct for MOUNT hydration, where nothing is in flight yet, but
+ * `refreshPreferences()` has FOUR OTHER callers, all in
+ * frontend/app/settings/SettingsPage.tsx, none of which were touched by the
+ * first pass because none of them are one of the six fields' own reconciles:
+ * the Penny agent-consent "Turn off" control (B13, ~line 379), and the
+ * failure-path reconciles of the child benefit toggle (G58, ~line 730), the
+ * cover-plan exclusion toggle (G45, ~line 790) and the notification prefs
+ * toggle (G52, ~line 841). Every one of those calls `refreshPreferences()`
+ * to reconcile ITS OWN field, but `refreshPreferences()` still applies every
+ * OTHER field too — including any of this context's six that might be
+ * mid-save at that exact moment. Concretely: flip dark mode (its PATCH in
+ * flight, version not yet bumped), then let a notification toggle fail in
+ * that window — its catch calls `refreshPreferences()`, which reapplies
+ * dark mode from a snapshot that still passes the freshness gate, bypassing
+ * the dark mode saver's own queue entirely. Same bug, different door.
+ *
+ * THE SECOND FIX: `applyWholeDocument` now takes an optional per-field
+ * `skip` map. A field whose own saver reports `isSaving` (a flag
+ * `lib/preferenceSave.ts`'s `createPreferenceSaver` already exposes for
+ * exactly this) is left untouched by ANY whole-document apply, mount
+ * hydration included — mount can never actually collide with an in-flight
+ * save (nothing has started saving yet when it runs), so the guard is a
+ * no-op there, but it makes `refreshPreferences()` — and by extension every
+ * one of its four callers above — safe by construction, present and
+ * future, rather than only the six call sites the first pass happened to
+ * rewire. This is NOT the busy-counter approach G45 rejected: that counter
+ * was asked to decide whether a SNAPSHOT was fresh, which in-flight-ness
+ * alone cannot answer (a GET issued before the write can still resolve
+ * after it). `isSaving` here is asked only whether a field is CURRENTLY
+ * AUTHORING ITS OWN VALUE, which it genuinely knows — the freshness
+ * question is still answered by the version scheme alone, untouched.
+ *
+ * The two fixes are complementary, not alternatives: `makeFieldReconcile`
+ * means a field's own failure path never even fetches a whole-document
+ * apply; the `skip` guard means that on the rarer path where some OTHER
+ * caller does apply the whole document, an in-flight field survives it
+ * too.
  *
  * Deliberately import-free of its sibling lib modules (same convention as
  * lib/preferenceSave.ts and lib/serialQueue.ts, and for the same reason
@@ -86,6 +123,30 @@ export function fetchGatedSnapshot(
     .catch(() => null);
 }
 
+/**
+ * Builds ONE field's `reconcile()` callback for `createPreferenceSaver`
+ * (`lib/preferenceSave.ts`): fetch a gated snapshot, extract just `key`,
+ * return `undefined` if there is no server truth to offer (the fetch
+ * failed, the snapshot was stale, or the key was absent) — the exact
+ * contract `createPreferenceSaver` expects, so it falls back to the
+ * pre-write value in that case (see its own docstring, point 4). Never
+ * applies anything — extraction only. All six of PreferencesContext.tsx's
+ * field savers are built from this one function rather than each hand-
+ * writing an near-identical `async () => { const server = ...; return
+ * server ? server.x : undefined; }` — see
+ * frontend/scripts/preferences-snapshot.test.mjs, which drives this exact
+ * function (not a reimplementation) for its own reconcile scenarios.
+ */
+export function makeFieldReconcile<T>(
+  fetchSnapshot: () => Promise<Record<string, any> | null>,
+  key: string
+): () => Promise<T | undefined> {
+  return async () => {
+    const server = await fetchSnapshot();
+    return server ? (server[key] as T) : undefined;
+  };
+}
+
 /** The `apply*` callbacks `applyWholeDocument` drives — one per field on
  * the preferences document PreferencesContext.tsx mirrors locally, plus
  * `setRawPrefs` for the raw snapshot other screens read directly. */
@@ -102,20 +163,49 @@ export interface WholeDocumentApplyCallbacks {
   setRawPrefs: (p: Record<string, any>) => void;
 }
 
+/** One `() => boolean` per field `applyWholeDocument` can skip, each
+ * almost always `() => someSaver.isSaving.current` (the flag
+ * `createPreferenceSaver` exposes) — a field this returns `true` for is
+ * left completely untouched by this call, however many other callers
+ * `refreshPreferences()` picks up in the future. All optional: a caller
+ * with no six-field savers to protect (there is none in this codebase
+ * today, but the type shouldn't assume there always will be) can omit any
+ * or all of them, which behaves exactly like the pre-G62-review-#1 code —
+ * always apply. */
+export interface WholeDocumentApplySkip {
+  hideNetWorth?: () => boolean;
+  darkMode?: () => boolean;
+  payPeriodConfig?: () => boolean;
+  region?: () => boolean;
+  debtTargetMonths?: () => boolean;
+  debtTrackingStart?: () => boolean;
+}
+
 /**
- * Applies every field on an already-fetched, already-gated snapshot. Only
- * ever call this for MOUNT hydration or a caller that genuinely wants a
- * full resync (`refreshPreferences()`'s B13 caller) — never from a single
- * field's own failure-path `reconcile()` (that is the G62 defect this
- * split exists to prevent).
+ * Applies every field on an already-fetched, already-gated snapshot,
+ * except any field `skip` marks as currently saving its own value. Called
+ * for MOUNT hydration (where `skip` is a no-op, since nothing has started
+ * saving yet) and by `refreshPreferences()` for every one of its callers —
+ * B13's Penny consent revoke, and the failure-path reconciles of the child
+ * benefit (G58), cover-plan (G45) and notification prefs (G52) toggles in
+ * SettingsPage.tsx — none of which reconcile one of THIS module's six
+ * fields themselves, so without `skip` any of those four could still land
+ * mid-save on one of the six and stomp it (see this module's own docstring,
+ * "THE HOLE THAT WAS LEFT"). Never called from one of the six fields' own
+ * failure-path `reconcile()` — those use `makeFieldReconcile` instead,
+ * which never applies anything at all.
  */
-export function applyWholeDocument(p: Record<string, any>, cb: WholeDocumentApplyCallbacks): void {
-  cb.applyHideNetWorth(p.hide_net_worth);
-  if (p.dark_mode !== undefined) cb.applyDarkMode(p.dark_mode);
-  if (p.pay_period_config) cb.applyPayPeriodConfig(p.pay_period_config as PayPeriodConfig);
-  if (p.region) cb.applyRegion(p.region as Region);
-  if (p.debt_target_months) cb.applyDebtTargetMonths(p.debt_target_months as number);
-  if (p.debt_tracking_start) cb.applyDebtTrackingStart(p.debt_tracking_start as string);
+export function applyWholeDocument(
+  p: Record<string, any>,
+  cb: WholeDocumentApplyCallbacks,
+  skip: WholeDocumentApplySkip = {}
+): void {
+  if (!skip.hideNetWorth?.()) cb.applyHideNetWorth(p.hide_net_worth);
+  if (p.dark_mode !== undefined && !skip.darkMode?.()) cb.applyDarkMode(p.dark_mode);
+  if (p.pay_period_config && !skip.payPeriodConfig?.()) cb.applyPayPeriodConfig(p.pay_period_config as PayPeriodConfig);
+  if (p.region && !skip.region?.()) cb.applyRegion(p.region as Region);
+  if (p.debt_target_months && !skip.debtTargetMonths?.()) cb.applyDebtTargetMonths(p.debt_target_months as number);
+  if (p.debt_tracking_start && !skip.debtTrackingStart?.()) cb.applyDebtTrackingStart(p.debt_tracking_start as string);
   if (Array.isArray(p.spend_widgets)) cb.setSpendWidgets(p.spend_widgets as string[]);
   if (p.home_pinned_widget !== undefined) cb.setHomePinnedWidget(p.home_pinned_widget ?? null);
   if (p.debt_burndown_overrides !== undefined) cb.setDebtBurndownOverrides(p.debt_burndown_overrides ?? null);
