@@ -1,7 +1,7 @@
 "use client";
 
-import type { LucideIcon } from "lucide-react";
-import { Landmark, ShieldCheck, Wallet } from "lucide-react";
+import { Fragment, useState } from "react";
+import { ArrowRight, ChevronDown, Search, ShieldCheck } from "lucide-react";
 import type { Account } from "@/lib/api";
 import { accountBrand, BankBadge } from "@/components/AccountMiniCard";
 import MoneyText from "@/components/MoneyText";
@@ -13,29 +13,41 @@ type SourceGroup = {
   kind: SourceClass;
   number: string;
   title: string;
-  short: string;
   rule: string;
-  icon: LucideIcon;
 };
 
+// G51 (Kevin, 2026-09-12, search-first exceptions manager, variant B of the
+// cover-plan-sources-scale round): the safeguard text these groups carry
+// used to sit as a paragraph above every account in the class; it now lives
+// behind the "How this works" disclosure in the header, and the class
+// itself only ever shows as the two-step ranking strip plus its allowed
+// count. Every safeguard statement stays true here: current before savings,
+// a class reached only once every earlier class combined cannot cover the
+// amount, highest headroom first and fewest legs preferred within a class,
+// each source keeping a £10 buffer, and an account that is itself short
+// skipped outright.
 const SOURCE_GROUPS: SourceGroup[] = [
   {
     kind: "current",
     number: "1",
     title: "Current accounts",
-    short: "Connected used first",
-    rule: "Within this connected step, Sorted uses the fewest accounts it can, choosing the highest live headroom first. Accounts that are short are skipped.",
-    icon: Wallet,
+    rule: "Within this step, Sorted uses the fewest accounts it can, choosing the highest live headroom first. An account that is short itself is skipped.",
   },
   {
     kind: "savings",
     number: "2",
     title: "Savings",
-    short: "Connected used second",
-    rule: "Connected savings follows only when every allowed connected current account combined cannot cover the amount. Manual transfers are checked after connected accounts.",
-    icon: Landmark,
+    rule: "Savings is reached only when every allowed current account combined cannot cover the amount. A manual-transfer account is checked last, after every connected account in both classes, because moving it needs you to act.",
   },
 ];
+
+// Past this many turned-off exceptions, collapse the list behind a closed
+// disclosure rather than render every row flat. Variant B measured 1248px
+// at 390 wide with every account excluded before this cap (Kevin,
+// 2026-09-12, cover-plan-sources-scale round); the cap keeps the
+// closed-by-default height bounded while an explicit tap still reaches the
+// full list.
+const EXCEPTION_CAP = 5;
 
 export type LiveCoverRoute = {
   headline: string;
@@ -61,6 +73,25 @@ function sourceClass(account: Account): SourceClass {
   return type.includes("saving") || subtype.includes("saving") || subtype.includes("isa")
     ? "savings"
     : "current";
+}
+
+// The engine's own eligibility, not whichever move card happens to be live
+// (G50): `shortAccountIds` must be the set of accounts the source finder
+// itself currently treats as too short to use. A zero-balance pot is a
+// separate, purely presentational fold — it holds nothing to move
+// regardless of engine state, so it never needs a live simulation to flag.
+function skipReason(account: Account, shortAccountIds: Set<string>): "short" | "empty" | null {
+  if (shortAccountIds.has(account.id)) return "short";
+  if (account.balance <= 0) return "empty";
+  return null;
+}
+
+function matchesQuery(account: Account, query: string): boolean {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return true;
+  return (
+    account.name.toLowerCase().includes(needle) || account.provider.toLowerCase().includes(needle)
+  );
 }
 
 function CoverOutcome({ accounts, excludedIds }: { accounts: Account[]; excludedIds: Set<string> }) {
@@ -190,15 +221,122 @@ function CoverRouteSummary({
   );
 }
 
+function Disclosure({ open, children }: { open: boolean; children: React.ReactNode }) {
+  return (
+    <div
+      className={`grid transition-[grid-template-rows] duration-200 ease-out motion-reduce:transition-none ${
+        open ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+      }`}
+    >
+      <div className="min-h-0 overflow-hidden">{children}</div>
+    </div>
+  );
+}
+
+function SearchField({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+}) {
+  return (
+    <div className="relative">
+      <Search
+        size={14}
+        aria-hidden="true"
+        className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500"
+      />
+      <input
+        type="search"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        aria-label={placeholder}
+        className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 pl-9 pr-3 text-[13px] text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-500"
+      />
+    </div>
+  );
+}
+
+function HowThisWorks({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+  return (
+    <p className="mt-1 text-[12px] leading-relaxed text-slate-500 dark:text-slate-400">
+      Current accounts go first, then savings, and every source keeps a <span className="money">£10</span> buffer.{" "}
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className="font-semibold text-indigo-600 underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400"
+      >
+        {open ? "Hide how this works" : "How this works"}
+      </button>
+    </p>
+  );
+}
+
+function HowThisWorksPanel() {
+  return (
+    <div className="mt-2 space-y-2 rounded-xl bg-slate-50 p-3 text-[12px] leading-relaxed text-slate-600 dark:bg-white/[0.04] dark:text-slate-300">
+      <p>
+        Choose the accounts Sorted may suggest. Your own bills, set-asides and a <span className="money">£10</span> buffer stay protected in every account.
+      </p>
+      {SOURCE_GROUPS.map((group) => (
+        <p key={group.kind}>
+          <span className="font-semibold text-slate-800 dark:text-slate-100">{group.number}. {group.title}.</span> {group.rule}
+        </p>
+      ))}
+    </div>
+  );
+}
+
+function RankingStrip({
+  accounts,
+  excludedIds,
+  shortAccountIds,
+}: {
+  accounts: Account[];
+  excludedIds: Set<string>;
+  shortAccountIds: Set<string>;
+}) {
+  const counts = SOURCE_GROUPS.map((group) => {
+    const classAccounts = accounts.filter((account) => sourceClass(account) === group.kind);
+    const eligible = classAccounts.filter((account) => !skipReason(account, shortAccountIds));
+    const allowed = eligible.filter((account) => !excludedIds.has(account.id));
+    return { group, eligibleCount: eligible.length, allowedCount: allowed.length };
+  });
+
+  return (
+    <div
+      aria-live="polite"
+      className="mx-4 mb-3 flex flex-wrap items-center gap-x-2 gap-y-1.5 rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2 dark:border-slate-700/70 dark:bg-white/[0.03]"
+    >
+      {counts.map(({ group, eligibleCount, allowedCount }, index) => (
+        <Fragment key={group.kind}>
+          {index > 0 && <ArrowRight size={12} aria-hidden="true" className="text-slate-300 dark:text-slate-600" />}
+          <span className="grid size-5 shrink-0 place-items-center rounded-full bg-indigo-600 text-[10px] font-bold text-white">
+            {group.number}
+          </span>
+          <span className="text-[12px] font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
+            {group.title}, {allowedCount}/{eligibleCount}
+          </span>
+        </Fragment>
+      ))}
+    </div>
+  );
+}
+
 function SourceAccountRow({
   account,
   excluded,
-  short,
+  reason,
   onToggle,
 }: {
   account: Account;
   excluded: boolean;
-  short: boolean;
+  reason: "short" | "empty" | null;
   onToggle: (id: string) => void;
 }) {
   const brand = accountBrand(account);
@@ -218,13 +356,18 @@ function SourceAccountRow({
           {account.name}
         </span>
         <span className={`mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-[12px] leading-snug ${
-          short || excluded ? "text-slate-600 dark:text-slate-300" : "text-slate-500 dark:text-slate-400"
+          reason || excluded ? "text-slate-600 dark:text-slate-300" : "text-slate-500 dark:text-slate-400"
         }`}>
-          <span className={short || excluded ? "min-w-0" : "truncate"}>
-            {short ? (
+          <span className={reason || excluded ? "min-w-0" : "truncate"}>
+            {reason === "short" ? (
               <span className="inline-flex items-center gap-1.5">
                 <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-red-500 dark:bg-red-400" />
                 Skipped while this account is short
+              </span>
+            ) : reason === "empty" ? (
+              <span className="inline-flex items-center gap-1.5">
+                <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-slate-400 dark:bg-slate-500" />
+                Skipped, this pot is empty
               </span>
             ) : excluded ? (
               "Excluded from every cover suggestion"
@@ -235,13 +378,13 @@ function SourceAccountRow({
             )}
           </span>
           {account.manual && (
-            <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+            <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-700 dark:text-slate-300">
               Manual transfer
             </span>
           )}
         </span>
       </span>
-      {short ? (
+      {reason ? (
         <span className="shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-700 dark:text-slate-300">
           Skipped
         </span>
@@ -253,6 +396,151 @@ function SourceAccountRow({
         />
       )}
     </div>
+  );
+}
+
+// The search-first exceptions manager (G51, variant B): the account list
+// itself starts almost empty, showing only accounts the user has turned off
+// (capped past EXCEPTION_CAP) plus a folded skipped count, with search as
+// the door into the full estate and a browse-all affordance for someone
+// with no name in mind.
+function ExceptionsManager({
+  accounts,
+  excludedIds,
+  shortAccountIds,
+  onToggle,
+}: {
+  accounts: Account[];
+  excludedIds: Set<string>;
+  shortAccountIds: Set<string>;
+  onToggle: (id: string) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [browseAll, setBrowseAll] = useState(false);
+  const [turnedOffOpen, setTurnedOffOpen] = useState(false);
+  const [skippedOpen, setSkippedOpen] = useState(false);
+
+  const reasonFor = (account: Account) => skipReason(account, shortAccountIds);
+  const eligible = accounts.filter((account) => !reasonFor(account));
+  const skipped = accounts.filter((account) => reasonFor(account));
+  const excludedAccounts = eligible.filter((account) => excludedIds.has(account.id));
+  const shortCount = skipped.filter((account) => reasonFor(account) === "short").length;
+  const emptyCount = skipped.length - shortCount;
+  const capped = excludedAccounts.length > EXCEPTION_CAP;
+
+  const showList = query.length > 0 || browseAll;
+  const matches = showList ? accounts.filter((account) => matchesQuery(account, query)) : [];
+
+  return (
+    <>
+      <div className="border-t border-slate-100 px-4 py-3 dark:border-slate-700/70">
+        <SearchField value={query} onChange={setQuery} placeholder={`Search your ${accounts.length} accounts`} />
+        {!browseAll && (
+          <button
+            type="button"
+            onClick={() => setBrowseAll(true)}
+            className="mt-2 text-[12px] font-semibold text-indigo-600 underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400"
+          >
+            Browse all {accounts.length} accounts
+          </button>
+        )}
+      </div>
+
+      {showList ? (
+        <div aria-live="polite" className="border-t border-slate-100 dark:border-slate-700/70">
+          {matches.length === 0 ? (
+            <p className="px-4 py-6 text-center text-[12px] text-slate-500 dark:text-slate-400">
+              No accounts match &ldquo;{query}&rdquo;.
+            </p>
+          ) : (
+            <div className="divide-y divide-slate-100 dark:divide-slate-700/60">
+              {matches.map((account) => (
+                <SourceAccountRow
+                  key={account.id}
+                  account={account}
+                  excluded={excludedIds.has(account.id)}
+                  reason={reasonFor(account)}
+                  onToggle={onToggle}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div aria-live="polite" className="border-t border-slate-100 dark:border-slate-700/70">
+          {excludedAccounts.length === 0 ? (
+            <p className="px-4 py-4 text-[12px] text-slate-500 dark:text-slate-400">
+              All {eligible.length} eligible accounts are allowed. Search to turn one off.
+            </p>
+          ) : capped ? (
+            <div>
+              <button
+                type="button"
+                onClick={() => setTurnedOffOpen((value) => !value)}
+                aria-expanded={turnedOffOpen}
+                className="flex min-h-11 w-full items-center gap-2 px-4 text-[12px] font-semibold text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-400"
+              >
+                <ChevronDown
+                  size={14}
+                  aria-hidden="true"
+                  className={`shrink-0 transition-transform duration-200 motion-reduce:transition-none ${turnedOffOpen ? "rotate-180" : ""}`}
+                />
+                {excludedAccounts.length} accounts turned off
+              </button>
+              <Disclosure open={turnedOffOpen}>
+                <div className="divide-y divide-slate-100 border-t border-slate-100 dark:divide-slate-700/60 dark:border-slate-700/70">
+                  {excludedAccounts.map((account) => (
+                    <SourceAccountRow key={account.id} account={account} excluded reason={null} onToggle={onToggle} />
+                  ))}
+                </div>
+              </Disclosure>
+            </div>
+          ) : (
+            <>
+              <p className="px-4 pt-3 text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">
+                Turned off ({excludedAccounts.length})
+              </p>
+              <div className="divide-y divide-slate-100 dark:divide-slate-700/60">
+                {excludedAccounts.map((account) => (
+                  <SourceAccountRow key={account.id} account={account} excluded reason={null} onToggle={onToggle} />
+                ))}
+              </div>
+            </>
+          )}
+
+          {skipped.length > 0 && (
+            <div className="border-t border-slate-100 dark:border-slate-700/70">
+              <button
+                type="button"
+                onClick={() => setSkippedOpen((value) => !value)}
+                aria-expanded={skippedOpen}
+                className="flex min-h-11 w-full items-center gap-2 px-4 text-[12px] font-semibold text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-400"
+              >
+                <ChevronDown
+                  size={14}
+                  aria-hidden="true"
+                  className={`shrink-0 transition-transform duration-200 motion-reduce:transition-none ${skippedOpen ? "rotate-180" : ""}`}
+                />
+                {skipped.length} skipped ({shortCount} short, {emptyCount} empty)
+              </button>
+              <Disclosure open={skippedOpen}>
+                <div className="divide-y divide-slate-100 border-t border-slate-100 dark:divide-slate-700/60 dark:border-slate-700/70">
+                  {skipped.map((account) => (
+                    <SourceAccountRow
+                      key={account.id}
+                      account={account}
+                      excluded={excludedIds.has(account.id)}
+                      reason={reasonFor(account)}
+                      onToggle={onToggle}
+                    />
+                  ))}
+                </div>
+              </Disclosure>
+            </div>
+          )}
+        </div>
+      )}
+    </>
   );
 }
 
@@ -271,6 +559,8 @@ export default function CoverPlanSourcesCard({
   hideAmounts?: boolean;
   onToggle: (id: string) => void;
 }) {
+  const [howOpen, setHowOpen] = useState(false);
+
   return (
     <section aria-labelledby="cover-sources-heading" className="glass-card overflow-hidden rounded-2xl">
       <header className="px-4 pb-3 pt-4">
@@ -285,9 +575,10 @@ export default function CoverPlanSourcesCard({
         <h2 id="cover-sources-heading" className="mt-2 text-[17px] font-bold text-slate-950 dark:text-white">
           Where cover money can come from
         </h2>
-        <p className="mt-1 text-[12px] leading-relaxed text-slate-500 dark:text-slate-400">
-          Choose the accounts Sorted may suggest. Your own bills, set-asides and a <span className="money">£10</span> buffer stay protected in every account.
-        </p>
+        <HowThisWorks open={howOpen} onToggle={() => setHowOpen((value) => !value)} />
+        <Disclosure open={howOpen}>
+          <HowThisWorksPanel />
+        </Disclosure>
       </header>
 
       <div className="px-4 pb-4">
@@ -298,57 +589,14 @@ export default function CoverPlanSourcesCard({
         )}
       </div>
 
-      <div className="border-t border-slate-100 dark:border-slate-700/70">
-        {SOURCE_GROUPS.map((group, groupPosition) => {
-          const Icon = group.icon;
-          const groupAccounts = accounts.filter((account) => sourceClass(account) === group.kind);
-          return (
-            <section
-              key={group.kind}
-              aria-labelledby={`cover-${group.kind}-heading`}
-              className={groupPosition > 0 ? "border-t border-slate-100 dark:border-slate-700/70" : ""}
-            >
-              <div className="flex items-start gap-3 px-4 pb-2 pt-4">
-                <span className="relative grid size-8 shrink-0 place-items-center rounded-full border border-indigo-200 bg-white text-[12px] font-bold text-indigo-700 dark:border-indigo-400/25 dark:bg-slate-800 dark:text-indigo-300">
-                  {group.number}
-                  {groupPosition < SOURCE_GROUPS.length - 1 && (
-                    <span aria-hidden="true" className="absolute left-1/2 top-full h-5 w-px -translate-x-1/2 bg-indigo-200 dark:bg-indigo-400/20" />
-                  )}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
-                    <h3 id={`cover-${group.kind}-heading`} className="text-[14px] font-bold text-slate-900 dark:text-slate-100">
-                      {group.title}
-                    </h3>
-                    <span className="text-[10px] font-semibold uppercase tracking-wide text-indigo-600 dark:text-indigo-400">
-                      {group.short}
-                    </span>
-                  </div>
-                  <p className="mt-1 text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">{group.rule}</p>
-                </div>
-                <Icon size={15} aria-hidden="true" className="mt-0.5 shrink-0 text-slate-400 dark:text-slate-500" />
-              </div>
-              {groupAccounts.length > 0 ? (
-                <div className="divide-y divide-slate-100 dark:divide-slate-700/60">
-                  {groupAccounts.map((account) => (
-                    <SourceAccountRow
-                      key={account.id}
-                      account={account}
-                      excluded={excludedIds.has(account.id)}
-                      short={shortAccountIds.has(account.id)}
-                      onToggle={onToggle}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <p className="px-4 pb-4 pl-16 text-[12px] text-slate-500 dark:text-slate-400">
-                  No {group.kind} accounts connected.
-                </p>
-              )}
-            </section>
-          );
-        })}
-      </div>
+      <RankingStrip accounts={accounts} excludedIds={excludedIds} shortAccountIds={shortAccountIds} />
+
+      <ExceptionsManager
+        accounts={accounts}
+        excludedIds={excludedIds}
+        shortAccountIds={shortAccountIds}
+        onToggle={onToggle}
+      />
     </section>
   );
 }
