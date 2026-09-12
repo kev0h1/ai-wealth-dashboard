@@ -175,7 +175,7 @@ function coverPlanView(
 export default function SettingsPage() {
   const router = useRouter();
   const { user, logout } = useAuth();
-  const { darkMode, setDarkMode, rawPrefs, refreshPreferences, notePreferencesVersion, preferencesSaveError } = usePreferences();
+  const { darkMode, setDarkMode, rawPrefs, refreshPreferences, notePreferencesVersion, preferencesSaveError, hideNetWorth, preferencesReady } = usePreferences();
   const { startFlow } = useTutorial();
 
   const [syncingHistory, setSyncingHistory] = useState(false);
@@ -1465,7 +1465,7 @@ export default function SettingsPage() {
               excludedIds={excludedIds}
               liveRoute={coverPlan.liveRoute}
               shortAccountIds={coverPlan.shortAccountIds}
-              hideAmounts={rawPrefs === null || Boolean(rawPrefs.hide_net_worth)}
+              hideAmounts={!preferencesReady || hideNetWorth}
               onToggle={toggleCoverAccount}
             />
             {coverEligibilityStatus === "error" && (
