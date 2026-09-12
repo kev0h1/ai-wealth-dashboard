@@ -3,8 +3,26 @@ import { createContext, useContext, useState, useEffect, useCallback, useRef, Re
 import { api, DebtBurndownOverrides } from "@/lib/api";
 import { PayPeriodConfig, DEFAULT_PAY_PERIOD_CONFIG } from "@/lib/payPeriod";
 import { shouldAcceptPreferencesSnapshot } from "@/lib/preferencesVersion";
+import { createPreferenceSaver } from "@/lib/preferenceSave";
+import { createSerialQueue } from "@/lib/serialQueue";
 
 export type Region = "UK" | "Kenya";
+
+/** G60: which of this context's six server-backed setters last failed to
+ * save, and what to tell the user. A single slot, not one per field — only
+ * `dark_mode` has a wired consumer today (the toggle in SettingsPage.tsx),
+ * so a second field failing while an unrelated one's message is still
+ * showing is not a scenario any current screen can even present; should a
+ * future control for hideNetWorth/payPeriodConfig/region/debtTargetMonths/
+ * debtTrackingStart want its own message, widening this to a per-field map
+ * is a small change, not a redesign of the mechanism. Every one of the six
+ * setters still fully reverts-and-reconciles on failure regardless of
+ * whether anything reads this field — the correctness guarantee never
+ * depends on a message being shown. */
+export interface PreferencesSaveError {
+  field: string;
+  message: string;
+}
 
 interface Prefs {
   hideNetWorth: boolean;
@@ -22,6 +40,9 @@ interface Prefs {
   // experimentation only, never written back to the account/card records.
   debtBurndownOverrides: DebtBurndownOverrides | null;
   rawPrefs: Record<string, any> | null;
+  /** See PreferencesSaveError above. Cleared automatically the next time
+   * the same field's setter is called (success or failure). */
+  preferencesSaveError: PreferencesSaveError | null;
 }
 interface PrefsCtx extends Prefs {
   setHideNetWorth: (v: boolean) => void;
@@ -39,13 +60,13 @@ interface PrefsCtx extends Prefs {
    * preferences change through a DIFFERENT endpoint (DELETE
    * /penny/agent-consent, not PATCH /preferences) and need the locally
    * cached `rawPrefs` to catch up rather than issuing a second bespoke
-   * fetch, or (G45) a caller reconciling after a failed direct
-   * api.updatePreferences() call that needs the server's ACTUAL current
-   * value, not a locally-captured pre-write snapshot. Returns the accepted
-   * snapshot (the same shape as api.getPreferences()), or null if the fetch
-   * failed or was discarded as stale by the version-freshness rule below —
-   * a null return means "nothing changed, rawPrefs is still whatever it
-   * was", not "the server has no data". */
+   * fetch, or (G45, and now G60) a caller reconciling after a failed
+   * direct api.updatePreferences() call that needs the server's ACTUAL
+   * current value, not a locally-captured pre-write snapshot. Returns the
+   * accepted snapshot (the same shape as api.getPreferences()), or null if
+   * the fetch failed or was discarded as stale by the version-freshness
+   * rule below — a null return means "nothing changed, rawPrefs is still
+   * whatever it was", not "the server has no data". */
   refreshPreferences: () => Promise<Record<string, any> | null>;
   /** Registers a version a caller already knows about — typically the
    * `version` field on the response of a DIRECT api.updatePreferences()
@@ -72,6 +93,7 @@ const Ctx = createContext<PrefsCtx>({
   homePinnedWidget: null,
   debtBurndownOverrides: null,
   rawPrefs: null,
+  preferencesSaveError: null,
   setHideNetWorth: () => {},
   setDarkMode: () => {},
   setPayPeriodConfig: () => {},
@@ -109,6 +131,53 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   const [homePinnedWidget, setHomePinnedWidgetState] = useState<string | null>(null);
   const [debtBurndownOverrides, setDebtBurndownOverridesState] = useState<DebtBurndownOverrides | null>(null);
   const [rawPrefs, setRawPrefs] = useState<Record<string, any> | null>(null);
+  const [preferencesSaveError, setPreferencesSaveError] = useState<PreferencesSaveError | null>(null);
+
+  // G60: every setState below that must also stay in step with a ref (so a
+  // queued lib/preferenceSave.ts save always reads the TRUE current value,
+  // never one captured when the caller invoked the setter — see that
+  // module's own docstring, point 3) is routed through one of these
+  // apply* wrappers rather than the raw setState. Each wrapper is the ONE
+  // place its field's ref and localStorage mirror (where one exists) are
+  // kept in lockstep with state, whether the new value came from the
+  // mount-time GET, a direct setter call, or a failure-path reconciliation.
+  const hideNetWorthRef = useRef(hideNetWorth);
+  const applyHideNetWorth = useCallback((v: boolean) => {
+    hideNetWorthRef.current = v;
+    setHideNetWorthState(v);
+    try { localStorage.setItem("wd_hide_balances", v ? "1" : "0"); } catch {}
+  }, []);
+
+  const darkModeRef = useRef(darkMode);
+  const applyDarkMode = useCallback((v: boolean) => {
+    darkModeRef.current = v;
+    setDarkModeState(v);
+    try { localStorage.setItem("wd_dark", v ? "1" : "0"); } catch {}
+  }, []);
+
+  const payPeriodConfigRef = useRef(payPeriodConfig);
+  const applyPayPeriodConfig = useCallback((v: PayPeriodConfig) => {
+    payPeriodConfigRef.current = v;
+    setPayPeriodConfigState(v);
+  }, []);
+
+  const regionRef = useRef(region);
+  const applyRegion = useCallback((v: Region) => {
+    regionRef.current = v;
+    setRegionState(v);
+  }, []);
+
+  const debtTargetMonthsRef = useRef(debtTargetMonths);
+  const applyDebtTargetMonths = useCallback((v: number) => {
+    debtTargetMonthsRef.current = v;
+    setDebtTargetMonthsState(v);
+  }, []);
+
+  const debtTrackingStartRef = useRef(debtTrackingStart);
+  const applyDebtTrackingStart = useCallback((v: string) => {
+    debtTrackingStartRef.current = v;
+    setDebtTrackingStartState(v);
+  }, []);
 
   // G45 (second re-review): the highest preferences `version` this context
   // has ever accepted, from ANY source — its own GET, or a direct
@@ -127,13 +196,15 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // Shared by the mount effect below and refreshPreferences() (B13): ONE
-  // place that fetches GET /preferences and applies every field, so a
-  // caller that changed a preference through a different endpoint (DELETE
-  // /penny/agent-consent, not PATCH /preferences) can bring this context's
-  // cached state back in sync without duplicating the field-by-field apply
-  // logic. useCallback with no deps: every setter here is itself a stable
-  // setState function, so this identity never needs to change.
+  // Shared by the mount effect below, refreshPreferences() (B13), and now
+  // every field's failure-path reconciliation (G60, via lib/preferenceSave.ts's
+  // `reconcile`): ONE place that fetches GET /preferences and applies every
+  // field, so a caller that changed a preference through a different
+  // endpoint (DELETE /penny/agent-consent, not PATCH /preferences), or one
+  // reconciling after a failed write, can bring this context's cached state
+  // back in sync without duplicating the field-by-field apply logic.
+  // useCallback with no deps: every apply* wrapper above is itself a stable
+  // useCallback, so this identity never needs to change.
   //
   // G45 (second re-review): every fetched snapshot is checked against
   // shouldAcceptPreferencesSnapshot() before anything is applied. A stale
@@ -152,23 +223,19 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
       if (typeof incomingVersion === "number" && Number.isFinite(incomingVersion)) {
         preferencesVersionRef.current = incomingVersion;
       }
-      setHideNetWorthState(p.hide_net_worth);
-      try { localStorage.setItem("wd_hide_balances", p.hide_net_worth ? "1" : "0"); } catch {}
-      if (p.dark_mode !== undefined) {
-        setDarkModeState(p.dark_mode);
-        try { localStorage.setItem("wd_dark", p.dark_mode ? "1" : "0"); } catch {}
-      }
-      if ((p as any).pay_period_config) setPayPeriodConfigState((p as any).pay_period_config as PayPeriodConfig);
-      if ((p as any).region) setRegionState((p as any).region as Region);
-      if ((p as any).debt_target_months) setDebtTargetMonthsState((p as any).debt_target_months as number);
-      if ((p as any).debt_tracking_start) setDebtTrackingStartState((p as any).debt_tracking_start as string);
+      applyHideNetWorth(p.hide_net_worth);
+      if (p.dark_mode !== undefined) applyDarkMode(p.dark_mode);
+      if ((p as any).pay_period_config) applyPayPeriodConfig((p as any).pay_period_config as PayPeriodConfig);
+      if ((p as any).region) applyRegion((p as any).region as Region);
+      if ((p as any).debt_target_months) applyDebtTargetMonths((p as any).debt_target_months as number);
+      if ((p as any).debt_tracking_start) applyDebtTrackingStart((p as any).debt_tracking_start as string);
       if (Array.isArray(p.spend_widgets)) setSpendWidgetsState(p.spend_widgets as string[]);
       if (p.home_pinned_widget !== undefined) setHomePinnedWidgetState(p.home_pinned_widget ?? null);
       if ((p as any).debt_burndown_overrides !== undefined) setDebtBurndownOverridesState((p as any).debt_burndown_overrides ?? null);
       setRawPrefs(p as any);
       return p as any;
     }).catch(() => null);
-  }, []);
+  }, [applyHideNetWorth, applyDarkMode, applyPayPeriodConfig, applyRegion, applyDebtTargetMonths, applyDebtTrackingStart]);
 
   useEffect(() => {
     loadPreferences().finally(() => setPreferencesReady(true));
@@ -184,38 +251,126 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     }
   }, [darkMode]);
 
-  const setHideNetWorth = useCallback((v: boolean) => {
-    setHideNetWorthState(v);
-    try { localStorage.setItem("wd_hide_balances", v ? "1" : "0"); } catch {}
-    api.updatePreferences({ hide_net_worth: v }).catch(() => {});
+  // G60: sets/clears preferencesSaveError for exactly one field, leaving any
+  // other field's currently-shown message alone (see PreferencesSaveError's
+  // own docstring above for why this is a single slot rather than a map).
+  const makeFieldErrorHandler = useCallback((field: string) => (message: string | null) => {
+    setPreferencesSaveError(prev => {
+      if (message === null) return prev && prev.field === field ? null : prev;
+      return { field, message };
+    });
   }, []);
 
-  const setDarkMode = useCallback((v: boolean) => {
-    setDarkModeState(v);
-    try { localStorage.setItem("wd_dark", v ? "1" : "0"); } catch {}
-    api.updatePreferences({ dark_mode: v }).catch(() => {});
-  }, []);
+  // G60: the six setters below used to fire setState (impure updater risk
+  // was never present here — they always took a plain value, not an
+  // updater — but still) then `api.updatePreferences(...).catch(() => {})`,
+  // so a failed save left the app displaying a setting the server never
+  // stored, forever, with nothing told to the user and no way for a later
+  // refetch to correct it (the mount-time GET had already run once).
+  // lib/preferenceSave.ts's createPreferenceSaver gives all six the same
+  // shape G45/G52/G58 established for cover-plan exclusions, notification
+  // prefs and child benefit: one write in flight per field (its own
+  // serialQueue), `previous` read from the ref above rather than a value
+  // closed over here, and on failure a reconcile-from-server (this
+  // context's own refreshPreferences/loadPreferences) with a fall back to
+  // `previous` only when the server has nothing to offer either.
+  //
+  // Each saver is created exactly once (useRef) and only ever closes over
+  // stable identities — the apply* wrappers and notePreferencesVersion are
+  // useCallback with empty deps, refreshPreferences is useCallback keyed
+  // only on the (itself stable) loadPreferences, and makeFieldErrorHandler
+  // is useCallback with empty deps — so there is no staleness risk from
+  // creating it once.
+  const hideNetWorthSaver = useRef(createPreferenceSaver<boolean>({
+    queue: createSerialQueue(),
+    getCurrent: () => hideNetWorthRef.current,
+    apply: applyHideNetWorth,
+    save: (v) => api.updatePreferences({ hide_net_worth: v }),
+    reconcile: async () => {
+      const server = await refreshPreferences();
+      return server ? (server.hide_net_worth as boolean) : undefined;
+    },
+    noteVersion: notePreferencesVersion,
+    onError: makeFieldErrorHandler("hide_net_worth"),
+  })).current;
 
-  const setPayPeriodConfig = useCallback((config: PayPeriodConfig) => {
-    setPayPeriodConfigState(config);
-    api.updatePreferences({ pay_period_config: config } as any).catch(() => {});
-  }, []);
+  const darkModeSaver = useRef(createPreferenceSaver<boolean>({
+    queue: createSerialQueue(),
+    getCurrent: () => darkModeRef.current,
+    apply: applyDarkMode,
+    save: (v) => api.updatePreferences({ dark_mode: v }),
+    reconcile: async () => {
+      const server = await refreshPreferences();
+      return server && server.dark_mode !== undefined ? (server.dark_mode as boolean) : undefined;
+    },
+    noteVersion: notePreferencesVersion,
+    onError: makeFieldErrorHandler("dark_mode"),
+  })).current;
 
-  const setRegion = useCallback((r: Region) => {
-    setRegionState(r);
-    api.updatePreferences({ region: r } as any).catch(() => {});
-  }, []);
+  const payPeriodConfigSaver = useRef(createPreferenceSaver<PayPeriodConfig>({
+    queue: createSerialQueue(),
+    getCurrent: () => payPeriodConfigRef.current,
+    apply: applyPayPeriodConfig,
+    save: (v) => api.updatePreferences({ pay_period_config: v } as any),
+    reconcile: async () => {
+      const server = await refreshPreferences();
+      return server && (server as any).pay_period_config ? ((server as any).pay_period_config as PayPeriodConfig) : undefined;
+    },
+    noteVersion: notePreferencesVersion,
+    onError: makeFieldErrorHandler("pay_period_config"),
+  })).current;
 
-  const setDebtTargetMonths = useCallback((n: number) => {
-    setDebtTargetMonthsState(n);
-    api.updatePreferences({ debt_target_months: n } as any).catch(() => {});
-  }, []);
+  const regionSaver = useRef(createPreferenceSaver<Region>({
+    queue: createSerialQueue(),
+    getCurrent: () => regionRef.current,
+    apply: applyRegion,
+    save: (v) => api.updatePreferences({ region: v } as any),
+    reconcile: async () => {
+      const server = await refreshPreferences();
+      return server && (server as any).region ? ((server as any).region as Region) : undefined;
+    },
+    noteVersion: notePreferencesVersion,
+    onError: makeFieldErrorHandler("region"),
+  })).current;
 
-  const setDebtTrackingStart = useCallback((s: string) => {
-    setDebtTrackingStartState(s);
-    api.updatePreferences({ debt_tracking_start: s } as any).catch(() => {});
-  }, []);
+  const debtTargetMonthsSaver = useRef(createPreferenceSaver<number>({
+    queue: createSerialQueue(),
+    getCurrent: () => debtTargetMonthsRef.current,
+    apply: applyDebtTargetMonths,
+    save: (v) => api.updatePreferences({ debt_target_months: v } as any),
+    reconcile: async () => {
+      const server = await refreshPreferences();
+      return server && (server as any).debt_target_months ? ((server as any).debt_target_months as number) : undefined;
+    },
+    noteVersion: notePreferencesVersion,
+    onError: makeFieldErrorHandler("debt_target_months"),
+  })).current;
 
+  const debtTrackingStartSaver = useRef(createPreferenceSaver<string>({
+    queue: createSerialQueue(),
+    getCurrent: () => debtTrackingStartRef.current,
+    apply: applyDebtTrackingStart,
+    save: (v) => api.updatePreferences({ debt_tracking_start: v } as any),
+    reconcile: async () => {
+      const server = await refreshPreferences();
+      return server && (server as any).debt_tracking_start ? ((server as any).debt_tracking_start as string) : undefined;
+    },
+    noteVersion: notePreferencesVersion,
+    onError: makeFieldErrorHandler("debt_tracking_start"),
+  })).current;
+
+  const setHideNetWorth = useCallback((v: boolean) => { void hideNetWorthSaver.run(v); }, [hideNetWorthSaver]);
+  const setDarkMode = useCallback((v: boolean) => { void darkModeSaver.run(v); }, [darkModeSaver]);
+  const setPayPeriodConfig = useCallback((c: PayPeriodConfig) => { void payPeriodConfigSaver.run(c); }, [payPeriodConfigSaver]);
+  const setRegion = useCallback((r: Region) => { void regionSaver.run(r); }, [regionSaver]);
+  const setDebtTargetMonths = useCallback((n: number) => { void debtTargetMonthsSaver.run(n); }, [debtTargetMonthsSaver]);
+  const setDebtTrackingStart = useCallback((s: string) => { void debtTrackingStartSaver.run(s); }, [debtTrackingStartSaver]);
+
+  // spend_widgets and home_pinned_widget are NOT persisted from here — the
+  // one caller (components/SpendTrends.tsx) owns the api.updatePreferences
+  // call itself (via its own lib/preferenceSave.ts savers, G60) and calls
+  // these purely to keep this context's copy — read by other consumers,
+  // e.g. HomePage's pinned-widget card — in step. Unchanged from before G60.
   const setSpendWidgets = useCallback((v: string[]) => {
     setSpendWidgetsState(v);
   }, []);
@@ -231,7 +386,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   return (
     <Ctx.Provider value={{
       hideNetWorth, preferencesReady, darkMode, payPeriodConfig, region, debtTargetMonths, debtTrackingStart,
-      spendWidgets, homePinnedWidget, debtBurndownOverrides, rawPrefs,
+      spendWidgets, homePinnedWidget, debtBurndownOverrides, rawPrefs, preferencesSaveError,
       setHideNetWorth, setDarkMode, setPayPeriodConfig, setRegion, setDebtTargetMonths, setDebtTrackingStart,
       setSpendWidgets, setHomePinnedWidget, setDebtBurndownOverrides, refreshPreferences,
       notePreferencesVersion,
