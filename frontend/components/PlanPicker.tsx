@@ -60,25 +60,29 @@ const TIERS: Tier[] = [
 
 // Fallback only — used when an older API payload doesn't send
 // `info.billing_periods` yet (B22 added it). A live payload drives the
-// period buttons entirely off `info.billing_periods[selectedTier]`.
+// period buttons entirely off `info.billing_periods[selectedTier]`. Lists
+// only the currently-enabled periods (B27, 2026-09-12: three_months
+// dropped) — SubscriptionBillingPeriod itself stays a superset because
+// `billing_prices_gbp` still carries a three_months column as reference
+// data, but nothing offered to a user should include it.
 const FALLBACK_PERIODS: { id: SubscriptionBillingPeriod; months: number }[] = [
   { id: "monthly", months: 1 },
-  { id: "three_months", months: 3 },
   { id: "six_months", months: 6 },
   { id: "annual", months: 12 },
 ];
 
 // Short button headline and the sentence-form renewal words, both display
-// concerns only — every price/saving figure comes from the server.
-const SHORT_LABELS: Record<SubscriptionBillingPeriod, string> = {
+// concerns only — every price/saving figure comes from the server. Partial
+// because they only need to cover the currently-enabled periods above;
+// every lookup site falls back to something sensible if a period turns up
+// that isn't listed here.
+const SHORT_LABELS: Partial<Record<SubscriptionBillingPeriod, string>> = {
   monthly: "Monthly",
-  three_months: "3 months",
   six_months: "6 months",
   annual: "Yearly",
 };
-const RENEWAL_WORDS: Record<SubscriptionBillingPeriod, string> = {
+const RENEWAL_WORDS: Partial<Record<SubscriptionBillingPeriod, string>> = {
   monthly: "every month",
-  three_months: "every 3 months",
   six_months: "every 6 months",
   annual: "every year",
 };
@@ -108,7 +112,7 @@ function periodDetailsFor(info: SubscriptionInfo, tier: SubscriptionTier): Subsc
   return FALLBACK_PERIODS.map(({ id, months }) => {
     const total = tierPrice(info, tier, id);
     const perMonth = Number.isFinite(total) ? Math.round((total / months) * 100) / 100 : Number.NaN;
-    return { id, label: SHORT_LABELS[id], months, total, saving_gbp: 0, per_month_gbp: perMonth };
+    return { id, label: SHORT_LABELS[id] ?? id, months, total, saving_gbp: 0, per_month_gbp: perMonth };
   });
 }
 
