@@ -376,12 +376,20 @@ export default function SettingsPage() {
     shortAccountIds: new Set(),
   });
   const [coverSaveMsg, setCoverSaveMsg] = useState<{ text: string; ok: boolean } | null>(null);
-  // Counts cover_plan_excluded_accounts PATCHes that are still in flight. The
-  // rawPrefs -> excludedIds sync effect below checks this before applying a
-  // refetch: without it, a GET /preferences that resolves while a PATCH is
-  // still pending (e.g. triggered by refreshPreferences() elsewhere on this
-  // page) would silently revert the user's still-saving toggle (G45).
-  const pendingCoverSaves = useRef(0);
+  // G45 fix v2: a busy-counter guard (block the rawPrefs resync only while a
+  // PATCH is "in flight") is not enough — it has no way to know a rawPrefs
+  // snapshot was FETCHED before the PATCH even started. PreferencesContext's
+  // mount GET and this page's first toggle can race (one uvicorn worker,
+  // documented slow cold starts), so a pre-toggle GET can resolve AFTER the
+  // counter has already dropped back to zero and still clobber the correct
+  // post-toggle value — which a later toggle would then re-PATCH, silently
+  // overwriting the server's correct value with a stale one. Simpler and
+  // actually correct: cover_plan_excluded_accounts has exactly one writer
+  // (this handler, via PATCH + refreshCoverPlan), so once the user has made
+  // one local edit this session, local state is authoritative and rawPrefs
+  // should never resync it again — there is no ordering race to lose to
+  // because nothing else in this session authors this field afterwards.
+  const hasEditedCoverExclusions = useRef(false);
   const refreshCoverPlan = useCallback(() => {
     api.getCoverPlan()
       .then((response) => setCoverPlan(coverPlanView(response.items)))
@@ -407,11 +415,11 @@ export default function SettingsPage() {
   }, [refreshCoverPlan]);
   useEffect(() => {
     if (rawPrefs === null) return;
-    // Skip while a cover-exclusion save is in flight: rawPrefs can update
-    // from an unrelated refetch (e.g. refreshPreferences() elsewhere on this
-    // page) before the PATCH resolves, and applying that stale snapshot
-    // would silently revert the toggle the user just made (G45).
-    if (pendingCoverSaves.current > 0) return;
+    // Stop resyncing entirely once the user has made a local edit this
+    // session (see hasEditedCoverExclusions above) — a busy-counter only
+    // blocked this while a PATCH was in flight, which could not detect a
+    // stale rawPrefs snapshot fetched BEFORE that PATCH started (G45).
+    if (hasEditedCoverExclusions.current) return;
     const ids = rawPrefs.cover_plan_excluded_accounts ?? [];
     setExcludedIds(new Set(ids));
   }, [rawPrefs]);
@@ -505,6 +513,13 @@ export default function SettingsPage() {
     // (React can invoke it more than once, or with a value the render then
     // discards) so firing the PATCH from inside one meant the save could go
     // out twice or not at all (G45).
+    //
+    // hasEditedCoverExclusions is latched here, synchronously, on the FIRST
+    // toggle of this session — permanently, not just for this one save —
+    // so the rawPrefs sync effect above never again applies a GET snapshot
+    // that could predate this (or any later) PATCH. See that ref's own
+    // comment for the ordering race a busy-counter could not close.
+    hasEditedCoverExclusions.current = true;
     const previous = excludedIds;
     const next = new Set(previous);
     if (next.has(id)) {
@@ -515,7 +530,6 @@ export default function SettingsPage() {
     setExcludedIds(next);
     setCoverSaveMsg(null);
     setCoverPlan(current => ({ ...current, liveRoute: null }));
-    pendingCoverSaves.current += 1;
     api.updatePreferences({ cover_plan_excluded_accounts: [...next] })
       .then(() => {
         refreshCoverPlan();
@@ -527,9 +541,6 @@ export default function SettingsPage() {
         setExcludedIds(previous);
         setCoverSaveMsg({ text: "Could not save that change. Try again.", ok: false });
         refreshCoverPlan();
-      })
-      .finally(() => {
-        pendingCoverSaves.current -= 1;
       });
   }
 
@@ -1122,7 +1133,13 @@ export default function SettingsPage() {
               onToggle={toggleCoverAccount}
             />
             {coverSaveMsg && (
-              <p className={`mt-2 px-1 text-xs font-medium ${coverSaveMsg.ok ? "text-emerald-500" : "text-red-500"}`}>{coverSaveMsg.text}</p>
+              <p
+                role="status"
+                aria-live="polite"
+                className={`mt-2 px-1 text-xs font-medium ${coverSaveMsg.ok ? "text-emerald-500" : "text-red-600 dark:text-red-400"}`}
+              >
+                {coverSaveMsg.text}
+              </p>
             )}
           </div>
         )}
@@ -1156,7 +1173,13 @@ export default function SettingsPage() {
                   />
                 </div>
                 {financeMsg && (
-                  <p className={`mt-2 text-xs font-medium ${financeMsg.ok ? "text-emerald-500" : "text-red-500"}`}>{financeMsg.text}</p>
+                  <p
+                    role="status"
+                    aria-live="polite"
+                    className={`mt-2 text-xs font-medium ${financeMsg.ok ? "text-emerald-500" : "text-red-500"}`}
+                  >
+                    {financeMsg.text}
+                  </p>
                 )}
           </div>
 
