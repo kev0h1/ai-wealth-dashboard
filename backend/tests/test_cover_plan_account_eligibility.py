@@ -37,6 +37,23 @@ plain `headroom <= 0` guess:
      `test_current_account_with_negative_running_minimum_is_short_despite_headroom`
      and its savings counterpart below.
 
+Second review fix (2026-09-12, rejected again): the rule was still
+duplicated — the £5 floor and the running-minimum gate were separate
+literals in `_live_class` and in `_account_usable_by_finder`, so changing
+one without the other (e.g. bumping the floor to £8 in only one place)
+would silently reintroduce the exact lie this item exists to end, and
+nothing in the suite would have caught it, since every boundary test here
+called `_account_usable_by_finder` directly rather than the real engine.
+Collapsed: `_live_class` now calls `_account_usable_by_finder(acc)` for
+both account-intrinsic gates and keeps only its three PER-CALL exclusions
+(destination self-exclusion, the toggle, already-used-this-call) local;
+`class_specs` lost its third tuple element (`require_non_negative_current`)
+entirely, since the helper derives the class from the account itself.
+`test_real_engine_never_picks_a_leg_at_4_99_headroom_but_does_at_5_00`
+below exercises the REAL leg-picking engine at the true boundary (not the
+helper in isolation) — confirmed to fail if the floor drifts by
+temporarily reintroducing a duplicate literal and watching it catch it.
+
 No mongomock is available in this environment, so DB-touching collections
 are replaced with tiny in-memory fakes, following the same local-copy
 convention `test_unfunded_move.py`/`test_overdraft_bills.py` already
@@ -392,6 +409,39 @@ def test_short_account_is_never_the_one_the_engine_actually_uses(monkeypatch):
     # The move's own plan_source / body must never name the short account.
     assert "Zero headroom" not in str(move)
     assert "Ample headroom" in str(move) or "src_ample" in str(move) or "hsbc" in str(move).lower()
+
+
+def test_real_engine_never_picks_a_leg_at_4_99_headroom_but_does_at_5_00(monkeypatch):
+    """The test that would actually catch a drift between `_live_class` and
+    `_account_usable_by_finder` (the second review's exact demand): the two
+    conditions live in ONE function now, called from both places, but a
+    test that only calls `_account_usable_by_finder` directly proves
+    nothing about whether `_live_class` still agrees with it — only
+    exercising the REAL leg-picking engine does. Two current-account
+    candidates for the SAME shortfall, £0.01 apart: `cand_4_99` (balance
+    £14.99, headroom £4.99) must NEVER be chosen as a leg source, in
+    addition to reporting short; `cand_5_00` (balance £15.00, headroom
+    exactly £5.00, the finder's own inclusive floor) must BOTH be chosen as
+    a leg source and report not short. Reads the real leg list
+    (`move["moves"][i]["move_map"]["from"]["account_id"]`), not a
+    restatement of the helper."""
+    accounts = [
+        _account("biller", 0.0, name="Biller"),
+        _account("cand_4_99", 14.99, name="Just under five"),
+        _account("cand_5_00", 15.00, name="Exactly five", provider="hsbc"),
+    ]
+    bills = [_bill("Small bill", 2, 5.0, "biller", 0.0, kind="commitment")]
+    eligibility = {}
+    items = _run(monkeypatch, bills, accounts=accounts, account_eligibility_out=eligibility)
+
+    assert eligibility["cand_4_99"] == {"short": True, "headroom": 4.99}
+    assert eligibility["cand_5_00"] == {"short": False, "headroom": 5.0}
+
+    move = _find(items, "move")
+    assert move is not None
+    leg_source_ids = {m["move_map"]["from"]["account_id"] for m in move["moves"]}
+    assert "cand_4_99" not in leg_source_ids
+    assert "cand_5_00" in leg_source_ids
 
 
 # ── Snapshot timing: taken before any leg-picking mutates source_capacity ──

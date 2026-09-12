@@ -1833,43 +1833,46 @@ async def compute_today_items(
     def _account_headroom(sid: str) -> float:
         return source_capacity.get(sid, 0.0) - 10
 
-    # `_account_usable_by_finder` (G50 review fix, 2026-09-12): "short" for
-    # Settings must mean exactly what `_live_class` below actually enforces
-    # for a candidate leg, not an approximation of it. That's TWO
-    # conditions, both mirrored here:
+    # `_account_usable_by_finder` (G50 review fix, 2026-09-12; collapsed onto
+    # `_live_class` after the second review fix, 2026-09-12): the ONLY place
+    # that decides whether an account is usable on ACCOUNT-INTRINSIC
+    # grounds, not an approximation kept in sync with `_live_class` by hand
+    # — `_live_class` below calls this function directly for these two
+    # gates, so a threshold changed here changes both readers, and one
+    # changed only in `_live_class` (or vice versa) is no longer possible.
+    # Settings' "short" is exactly `not _account_usable_by_finder(acc)`.
     #
-    #   1. `_live_class` only ever admits a candidate when `headroom >= 5`
-    #      (see the line below), not merely `headroom > 0` — an account
-    #      with, say, £2 spare is never picked in ANY combination, so it
-    #      must report short too. (An earlier version of this function used
-    #      `headroom <= 0`, which under-reported every account with £0-£5
-    #      of spare capacity as available when the finder would never
-    #      touch it — the exact defect this fix closes.)
+    #   1. `headroom >= 5` — not merely `headroom > 0`. An account with,
+    #      say, £2 spare is never picked in ANY combination the finder
+    #      tries, so it must report short too. (An earlier version of the
+    #      eligibility snapshot used `headroom <= 0`, which under-reported
+    #      every account with £0-£5 of spare capacity as available when the
+    #      finder would never touch it — the exact defect this fix closes.)
     #
-    #   2. `_live_class`'s `require_non_negative_current` check additionally
-    #      excludes an account whose own running minimum (`min_running` —
-    #      the destination-shortfall walk, a DIFFERENT figure from
+    #   2. A CURRENT (non-savings) account additionally counts as unusable
+    #      when its own running minimum (`min_running` — the
+    #      destination-shortfall walk, a DIFFERENT figure from
     #      `_account_headroom`) is negative — "skip accounts that are
-    #      themselves short" — but `class_specs` below only ever passes
-    #      `require_non_negative_current=True` for its CURRENT class
-    #      (`_is_current(acc) and not _is_savings(acc)`); savings and
-    #      offline both pass `False`. So this check is CLASS-AWARE, not a
-    #      blanket rule: a savings pot with the same negative min_running is
-    #      not excluded by it in the finder, and must not be reported short
-    #      on account of it either.
+    #      themselves short". CLASS-AWARE, not a blanket rule: `is_current_
+    #      class` below is textually the same predicate `class_specs` used
+    #      to pass as its now-removed `require_non_negative_current` flag
+    #      for the current-class entry only (savings/offline never got
+    #      `True`), so a savings pot with the same negative min_running is
+    #      NOT unusable on this account, and must not report short either.
     #
-    #      Recomputing `_is_current(acc) and not _is_savings(acc)` here
-    #      (rather than threading `require_non_negative_current` out of
-    #      `_live_class`) is provably the same test: `class_specs`' three
-    #      predicates are mutually exclusive by construction (a
-    #      savings-flagged account never matches the current-class
-    #      predicate, since that predicate is itself `... and not
-    #      _is_savings(acc)`; offline accounts carry no type/subtype fields
-    #      at all, so `_is_current` on one is always False) — so whichever
-    #      of the three predicates a given account actually satisfies inside
-    #      `_live_class`, this expression evaluates to the identical
-    #      `require_non_negative_current` that class's `class_specs` entry
-    #      passes it.
+    #      CURRENTLY UNREACHABLE in production, kept as defence in depth:
+    #      given non-negative envelope reservations and non-negative
+    #      internal-transfer credits, `headroom >= 5` already implies
+    #      `min_running >= 15` (min_running can only be pushed UP relative
+    #      to the bills-only walk that computes headroom, by a transfer
+    #      credit headroom's own walk never sees, and reservations only
+    #      pull headroom DOWN, never up) — so gate 2 can never actually
+    #      fire once gate 1 has passed, with today's semantics. It stays
+    #      here in case reservation math or inflow classification ever
+    #      allows a negative value, at which point this gate is the thing
+    #      that would catch it; the test suite exercises it directly via a
+    #      synthetic negative reservation for exactly this reason (see
+    #      test_cover_plan_account_eligibility.py).
     #
     # Deliberately NOT mirrored: `_live_class`'s remaining three exclusions
     # (`sid == dest_acct`, `sid in excluded_sources`, `sid in used_sources`)
@@ -1879,6 +1882,8 @@ async def compute_today_items(
     # about the account itself, so a destination-independent "is this
     # account short" answer has nothing to say about them. The toggle
     # (`excluded_sources`) already has its own UI state; this flag isn't it.
+    # `_live_class` keeps these three local, calling this function only for
+    # the two account-intrinsic gates above.
     def _account_usable_by_finder(acc: dict) -> bool:
         sid = acc["_str_id"]
         if _account_headroom(sid) < 5:
@@ -1941,7 +1946,14 @@ async def compute_today_items(
         legs: list[dict] = []
         used_sources: set[str] = set()   # belt-and-braces: one source per destination
 
-        def _live_class(accounts, predicate, require_non_negative_current=False):
+        def _live_class(accounts, predicate):
+            # Account-intrinsic usability (the £5 headroom floor and the
+            # current-class running-minimum check) is decided ENTIRELY by
+            # `_account_usable_by_finder` — the one definition shared with
+            # the eligibility snapshot above. Only the three PER-CALL
+            # exclusions stay local here: this account is the destination
+            # being funded, the user toggled it off, or it's already been
+            # spent on an earlier leg/class THIS call.
             out = []
             for acc in accounts:
                 sid = acc["_str_id"]
@@ -1949,11 +1961,9 @@ async def compute_today_items(
                     continue
                 if not predicate(acc):
                     continue
-                if require_non_negative_current and min_running.get(sid, 0.0) < 0:
-                    continue  # skip accounts that are themselves short
-                headroom = _account_headroom(sid)  # keep £10 buffer
-                if headroom >= 5:
-                    out.append((sid, acc, headroom))
+                if not _account_usable_by_finder(acc):
+                    continue
+                out.append((sid, acc, _account_headroom(sid)))
             # Deterministic order: highest headroom first (the account left
             # with the healthiest remaining balance/most spare capacity),
             # account id as the final tie-break.
@@ -1974,21 +1984,26 @@ async def compute_today_items(
                 "_src_name": src_name,
             }
 
+        # No `require_non_negative_current` flag here any more — that gate
+        # moved into `_account_usable_by_finder`, which derives the class
+        # from the account itself (`_is_current(acc) and not
+        # _is_savings(acc)`), so `_live_class` never needs to be told which
+        # class it's looking at.
         class_specs = [
-            (all_uk_accounts, lambda acc: _is_current(acc) and not _is_savings(acc), True),
-            (all_uk_accounts, _is_savings, False),
+            (all_uk_accounts, lambda acc: _is_current(acc) and not _is_savings(acc)),
+            (all_uk_accounts, _is_savings),
             # Offline accounts last: real money, but reaching it means a
             # manual transfer, so in practice it is the least liquid source.
-            (offline_accounts, lambda acc: True, False),
+            (offline_accounts, lambda acc: True),
         ]
 
         remaining = amount_needed
-        for accounts, predicate, require_non_negative in class_specs:
+        for accounts, predicate in class_specs:
             if remaining <= 0:
                 break
             # Re-read live capacity each class — headroom shrinks and
             # `used_sources` grows as earlier classes/legs commit.
-            live = _live_class(accounts, predicate, require_non_negative)
+            live = _live_class(accounts, predicate)
             if not live:
                 continue
 
