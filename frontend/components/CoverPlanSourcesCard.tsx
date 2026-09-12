@@ -37,7 +37,7 @@ const SOURCE_GROUPS: SourceGroup[] = [
     kind: "savings",
     number: "2",
     title: "Savings",
-    rule: "Savings is reached only when every allowed current account combined cannot cover the amount. A manual-transfer account is checked last, after every connected account in both classes, because moving it needs you to act.",
+    rule: "Savings is reached only when every allowed current account combined cannot cover the amount. A manually managed account ranks within its own class, current or savings, using the same headroom rule as a connected account. The connected account only comes first when both have exactly the same amount available, since moving the manual one needs you to act.",
   },
 ];
 
@@ -96,35 +96,30 @@ function matchesQuery(account: Account, query: string): boolean {
 
 function CoverOutcome({ accounts, excludedIds }: { accounts: Account[]; excludedIds: Set<string> }) {
   const allowed = accounts.filter((account) => !excludedIds.has(account.id));
-  const connectedCurrent = allowed.filter((account) => !account.manual && sourceClass(account) === "current");
-  const connectedSavings = allowed.filter((account) => !account.manual && sourceClass(account) === "savings");
-  const manual = allowed.filter((account) => account.manual);
+  const currentAllowed = allowed.filter((account) => sourceClass(account) === "current");
+  const savingsAllowed = allowed.filter((account) => sourceClass(account) === "savings");
+  const anyManualAllowed = allowed.some((account) => account.manual);
 
   let risk = false;
-  let heading = "Connected current accounts stay first";
-  let detail = "Connected savings follows only if all allowed connected current accounts combined cannot cover a gap.";
+  let heading = "Current accounts stay first";
+  let detail = "Savings follows only if all allowed current accounts combined cannot cover a gap.";
 
   if (allowed.length === 0) {
     risk = true;
     heading = "A future gap would be uncovered";
     detail = "No account is allowed as a cover source. Turn at least one account on for Sorted to suggest a transfer.";
-  } else if (connectedCurrent.length > 0) {
-    if (connectedSavings.length > 0 && manual.length > 0) {
-      detail = "Connected savings follows only if current accounts cannot cover a gap. Any manual transfer is checked after connected accounts.";
-    } else if (connectedSavings.length === 0 && manual.length > 0) {
-      detail = "If connected current accounts cannot cover a gap, a manually managed account is checked next and you would make the transfer.";
-    } else if (connectedSavings.length === 0) {
-      heading = "Connected current accounts are the only source";
+  } else if (currentAllowed.length > 0) {
+    if (savingsAllowed.length === 0) {
+      heading = "Current accounts are the only source";
       detail = "Any amount these accounts cannot cover would be left uncovered.";
     }
-  } else if (connectedSavings.length > 0) {
-    heading = "Connected savings would be checked first";
-    detail = manual.length > 0
-      ? "No connected current account is allowed. A manual transfer is checked only if connected savings cannot cover the gap."
-      : "No connected current account is allowed, so the next cover suggestion would start with connected savings.";
   } else {
-    heading = "A manual transfer may be needed";
-    detail = "Only manually managed accounts are allowed, so you would need to make any suggested transfer yourself.";
+    heading = "Savings would be checked first";
+    detail = "No current account is allowed, so the next cover suggestion would start with savings.";
+  }
+
+  if (!risk && anyManualAllowed) {
+    detail += " If Sorted picks a manually managed account, you would make that transfer yourself.";
   }
 
   return (
@@ -375,7 +370,7 @@ function SourceAccountRow({
             ) : excluded ? (
               "Excluded from every cover suggestion"
             ) : account.manual ? (
-              `${classLabel}, checked after connected accounts`
+              classLabel
             ) : (
               account.provider
             )}
