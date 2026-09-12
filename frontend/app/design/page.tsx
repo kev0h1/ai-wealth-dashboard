@@ -22,6 +22,16 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "home-brief-cards",
+    name: "home-brief-cards",
+    description:
+      "G48 Home brief card-family design round across AskPayday, AskGeneric, Celebration, Cliff, UnfundedMove, IntentPace, Move and Rhythm · the same real-behaviour fixtures in three presentation grammars: A Calm spine ranks verdict, evidence and actions in one vertical reading order, B Action dock separates decisions from evidence with a stable footer, C Folded brief compresses quiet cards while keeping dense move evidence explicitly available · every variant tests an overdue £70 unfunded AMERICAN EXPRESS move, a £70 three-source cover plan, multi-card stacking, all eight card types, light and dark themes · presentation only, no API calls or production-component edits · ?variant=a|b|c&state=stack|family&mode=light|dark",
+    states: [
+      { label: "Home stack", value: "stack" },
+      { label: "All eight cards", value: "family" },
+    ],
+  },
+  {
     slug: "cover-plan-sources-scale",
     name: "cover-plan-sources-scale",
     description:
