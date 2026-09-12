@@ -94,11 +94,28 @@ function matchesQuery(account: Account, query: string): boolean {
   );
 }
 
-function CoverOutcome({ accounts, excludedIds }: { accounts: Account[]; excludedIds: Set<string> }) {
+function CoverOutcome({
+  accounts,
+  excludedIds,
+  shortAccountIds,
+}: {
+  accounts: Account[];
+  excludedIds: Set<string>;
+  shortAccountIds: Set<string>;
+}) {
   const allowed = accounts.filter((account) => !excludedIds.has(account.id));
   const currentAllowed = allowed.filter((account) => sourceClass(account) === "current");
   const savingsAllowed = allowed.filter((account) => sourceClass(account) === "savings");
-  const anyManualAllowed = allowed.some((account) => account.manual);
+  // G66: "allowed" above is the user's own choice (the toggle state) and
+  // stays the basis for the two class buckets. "Usable" narrows that
+  // further to the engine's own live eligibility, shortAccountIds plus a
+  // zero-balance pot, the same test skipReason applies elsewhere on this
+  // card. An account can be switched on and still have nothing to give
+  // right now, so any sentence about what would actually happen must be
+  // driven off usable, never off allowed alone.
+  const currentUsable = currentAllowed.filter((account) => !skipReason(account, shortAccountIds));
+  const savingsUsable = savingsAllowed.filter((account) => !skipReason(account, shortAccountIds));
+  const usable = [...currentUsable, ...savingsUsable];
 
   let risk = false;
   let heading = "Current accounts stay first";
@@ -108,17 +125,33 @@ function CoverOutcome({ accounts, excludedIds }: { accounts: Account[]; excluded
     risk = true;
     heading = "A future gap would be uncovered";
     detail = "No account is allowed as a cover source. Turn at least one account on for Sorted to suggest a transfer.";
-  } else if (currentAllowed.length > 0) {
+  } else if (usable.length === 0) {
+    // Every allowed account is short or empty at this moment. That is a
+    // live, changeable condition rather than a verdict on the accounts
+    // themselves (an account is not permanently unusable), so this reads
+    // as a status, not the same risk as nothing being allowed at all.
+    heading = "No account has headroom right now";
+    detail = "Every allowed account is short or its pot is empty at the moment. This can change as balances update, or you can allow a different account instead.";
+  } else if (currentUsable.length > 0) {
     if (savingsAllowed.length === 0) {
       heading = "Current accounts are the only source";
       detail = "Any amount these accounts cannot cover would be left uncovered.";
     }
+  } else if (currentAllowed.length > 0) {
+    // Current accounts are allowed, and the engine does try them first, but
+    // every one of them is short today, so savings is what would actually
+    // cover a gap right now. "Current accounts stay first" would be true of
+    // the ranking but not of what would happen, so the heading follows the
+    // outcome instead once none of the allowed current accounts can give
+    // anything (some but not all short still takes the branch above).
+    heading = "Savings would cover it today";
+    detail = "Current accounts are tried first, but every one is short right now, so savings would step in.";
   } else {
     heading = "Savings would be checked first";
     detail = "No current account is allowed, so the next cover suggestion would start with savings.";
   }
 
-  if (!risk && anyManualAllowed) {
+  if (!risk && usable.some((account) => account.manual)) {
     detail += " If Sorted picks a manually managed account, you would make that transfer yourself.";
   }
 
@@ -598,7 +631,7 @@ export default function CoverPlanSourcesCard({
         {liveRoute ? (
           <CoverRouteSummary route={liveRoute} accounts={accounts} hideAmounts={hideAmounts} />
         ) : (
-          <CoverOutcome accounts={accounts} excludedIds={excludedIds} />
+          <CoverOutcome accounts={accounts} excludedIds={excludedIds} shortAccountIds={shortAccountIds} />
         )}
       </div>
 
