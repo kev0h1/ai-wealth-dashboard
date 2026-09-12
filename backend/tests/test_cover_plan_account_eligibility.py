@@ -405,10 +405,11 @@ def test_short_account_is_never_the_one_the_engine_actually_uses(monkeypatch):
 
     move = _find(items, "move")
     assert move is not None
-    used_sources = {leg.get("_src_name") for leg in move.get("legs", [])} if "legs" in move else None
-    # The move's own plan_source / body must never name the short account.
-    assert "Zero headroom" not in str(move)
-    assert "Ample headroom" in str(move) or "src_ample" in str(move) or "hsbc" in str(move).lower()
+    leg_source_ids = {m["move_map"]["from"]["account_id"] for m in move["moves"]}
+    # The move's own legs must never draw from the short account, and must
+    # draw from the ample one.
+    assert "src_zero" not in leg_source_ids
+    assert "src_ample" in leg_source_ids
 
 
 def test_real_engine_never_picks_a_leg_at_4_99_headroom_but_does_at_5_00(monkeypatch):
