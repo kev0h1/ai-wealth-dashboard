@@ -3,6 +3,8 @@
 import asyncio
 
 import app.routers.accounts as accounts_router
+import app.services.companion as companion
+from app.services.card_rates import is_credit_card_account
 
 
 class _Cursor:
@@ -120,3 +122,58 @@ def test_uk_account_listing_marks_engine_sources_and_statement_accounts(monkeypa
         "yapily": True,
         "manual": True,
     }
+
+
+def test_uk_credit_card_eligibility_matches_the_real_engine_classifier(monkeypatch):
+    """G55: `cover_source_eligible` on a TrueLayer/Finexer doc must mean
+    exactly what companion.py's `source_capacity` build means, so the
+    Settings toggle list and the engine agree by construction rather than
+    by coincidence of the current account taxonomy.
+
+    Pins the two together via the SAME classifier both call
+    (`is_credit_card_account` from `app.services.card_rates`) rather than
+    restating the credit-detection rule (a subtype/type string match) here
+    -- if either side's exclusion test ever changes, this test changes
+    with it instead of silently going stale.
+    """
+    async def uk_region(_uid):
+        return "UK"
+
+    credit_doc = {**_account("cc", name="Amex Platinum", subtype="CREDIT_CARD"), "type": "credit_card"}
+    current_doc = _account("current", name="Everyday current")
+    savings_doc = _account("savings", name="Rainy day", subtype="SAVINGS")
+
+    monkeypatch.setattr(accounts_router, "get_user_region", uk_region)
+    monkeypatch.setattr(
+        accounts_router, "accounts_col",
+        _Collection([credit_doc, current_doc, savings_doc]),
+    )
+    monkeypatch.setattr(accounts_router, "statement_accounts_col", _Collection())
+    monkeypatch.setattr(accounts_router, "yapily_consents_col", _Collection())
+    monkeypatch.setattr(accounts_router, "yapily_accounts_col", _Collection())
+    monkeypatch.setattr(accounts_router, "manual_accounts_col", _Collection())
+    monkeypatch.setattr(accounts_router, "account_rates_col", _Collection())
+
+    result = asyncio.run(accounts_router.get_accounts({"email": "kevin"}))
+    eligibility = {account.id: account.cover_source_eligible for account in result}
+
+    # Sanity: the fixtures actually exercise both sides of the real
+    # classifier before trusting any conclusion drawn from it.
+    assert is_credit_card_account(credit_doc) is True
+    assert is_credit_card_account(current_doc) is False
+    assert is_credit_card_account(savings_doc) is False
+
+    # The account the real engine classifier excludes from
+    # `source_capacity` (companion.py: `if is_credit_card_account(acc):
+    # continue`) must not be offered on Settings.
+    assert eligibility["cc"] is False
+    # The accounts it does NOT exclude on that test must be offered, and
+    # must also actually clear the type-inclusion gate `source_capacity`
+    # additionally applies (`_is_current(acc) or _is_savings(acc) or
+    # _is_offline(acc)`), so a "true" here really does mean "the engine
+    # would consider this account a source", not merely "not a credit
+    # card".
+    assert eligibility["current"] is True
+    assert companion._is_current(current_doc) is True
+    assert eligibility["savings"] is True
+    assert companion._is_savings(savings_doc) is True

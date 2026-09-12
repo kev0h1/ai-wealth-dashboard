@@ -24,6 +24,7 @@ from app.db.collections import finexer_consents_col as _finexer_consents_col
 from app.services.finexer_sync import finexer_sync_pipeline as _finexer_sync_pipeline
 from app.services.categorisation import apply_rules_bulk, categorise_others_bg
 from app.services.manual_account_rules import apply_rules as apply_mirror_rules
+from app.services.card_rates import is_credit_card_account
 from app.services import response_cache
 from app.routers.analytics import compute_and_cache_cashflow
 from app.services.planned import settle_planned_expenses
@@ -120,7 +121,17 @@ async def get_accounts(user: dict = Depends(current_user)):
         Account(
             id=d["_id"],
             **{k: v for k, v in d.items() if k not in {"_id", "cover_source_eligible"}},
-            cover_source_eligible=True,
+            # G55: this flag must mean exactly what companion.py's
+            # source_capacity build means — `is_credit_card_account` is the
+            # SAME classifier that excludes a card there (see
+            # `_shortfall_for_destination`'s overdraft walk and the
+            # `source_capacity` loop in `compute_today_items`), so a UK
+            # credit card is never offered as a cover-plan source on
+            # Settings just because a separate frontend string heuristic
+            # happened to also catch it. Computed fresh on every read (never
+            # persisted on the doc) so a re-typed provider subtype can never
+            # leave a stale True/False behind.
+            cover_source_eligible=not is_credit_card_account(d),
         )
         for d in docs
     ]
