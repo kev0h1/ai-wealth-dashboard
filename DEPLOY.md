@@ -571,6 +571,15 @@ is reachable yet, no Stripe account exists as of this writing (Kevin,
    covering all 16 required keys at the end — paste that straight into
    the `STRIPE_PRICE_IDS` env var (step 4 below is then already done).
 
+   Every price it creates is marked `tax_behavior="inclusive"`
+   (`docs/pricing/tiering-unit-economics-mcp-2026-09.md` treats the
+   advertised amounts as VAT-inclusive throughout, and this has to be set
+   at creation since Stripe prices are immutable afterwards). This only
+   controls how Stripe reads the amount already on the price — it does
+   **not** enable Stripe Tax or register for VAT. Whether to turn on
+   Stripe Tax, and any VAT registration, stays Kevin's own account-level
+   decision, made separately from this script.
+
    The manual fallback, if the dashboard is ever needed directly (the
    script above is the normal path): in the Stripe dashboard, create one
    **Product** per paid tier (Lite, Standard, Connect, Max; Statements is

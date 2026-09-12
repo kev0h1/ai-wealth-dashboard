@@ -69,6 +69,17 @@ _TIER_LABELS = {
     "lite": "Lite", "standard": "Standard", "connect": "Connect", "max": "Max",
 }
 
+# docs/pricing/tiering-unit-economics-mcp-2026-09.md treats every advertised
+# amount as VAT-inclusive throughout (it works e.g. £9.99 back to "ex VAT
+# £8.33"), and the plan picker shows £16.99 as the price a UK consumer
+# actually pays — so every price this script creates is marked
+# tax_behavior="inclusive" at creation. This has to happen at creation:
+# Stripe prices are immutable, tax_behavior can't be set afterwards. This
+# is NOT the same thing as enabling Stripe Tax or registering for VAT —
+# neither is touched here, both stay Kevin's own account-level decision
+# (see DEPLOY.md's Stripe setup checklist).
+_TAX_BEHAVIOR = "inclusive"
+
 
 def _gbp_to_pence(amount: float) -> int:
     """Pounds (float) -> pence (int), rounded (not truncated) so e.g.
@@ -130,7 +141,7 @@ def build_plan() -> tuple[list[ProductPlan], list[PricePlan]]:
 
     for tier in _PAID_TIERS:
         product_key = f"tier_{tier}"
-        products.append(ProductPlan(product_key, f"Sorted — {_TIER_LABELS[tier]}"))
+        products.append(ProductPlan(product_key, f"Sorted {_TIER_LABELS[tier]}"))
         for period in SUBSCRIPTION_BILLING_PERIODS:
             lookup_key = tier if period == "monthly" else f"{tier}_{period}"
             amount_gbp = TIER_BILLING_PRICES_GBP[tier][period]
@@ -142,7 +153,7 @@ def build_plan() -> tuple[list[ProductPlan], list[PricePlan]]:
                 metadata={"tier": tier, "period": period},
             ))
 
-    products.append(ProductPlan("penny_topups", "Sorted — Penny message top-ups"))
+    products.append(ProductPlan("penny_topups", "Sorted Penny message top-ups"))
     for pack in PENNY_TOPUP_PACKS:
         prices.append(PricePlan(
             lookup_key=f"penny_{pack['id']}",
@@ -152,7 +163,7 @@ def build_plan() -> tuple[list[ProductPlan], list[PricePlan]]:
             metadata={"pack_id": pack["id"], "messages": str(pack["messages"])},
         ))
 
-    products.append(ProductPlan("mcp_calls", "Sorted — MCP call pack"))
+    products.append(ProductPlan("mcp_calls", "Sorted MCP call pack"))
     for pack in MCP_CALL_PACKS:
         prices.append(PricePlan(
             lookup_key=pack["id"],
@@ -213,12 +224,15 @@ def run_dry_run(products: list[ProductPlan], prices: list[PricePlan]) -> None:
 
 def _ensure_products(products: list[ProductPlan]) -> dict[str, str]:
     """Returns product_key -> Stripe product id, creating any product
-    whose app_product_key marker isn't already present. Single
-    non-paginated list call: the whole catalog here is 6 products, well
-    under Stripe's page size of 100, so pagination is unnecessary."""
-    existing = stripe.Product.list(active=True, limit=100)
+    whose app_product_key marker isn't already present. Walks every page
+    via auto_paging_iter() rather than reading a single page — a single
+    `limit=100` page silently stops at 100 objects, and Kevin's account
+    accumulates other products over time (this catalog is only 6 of them),
+    so a plain `.data` read would eventually go blind past the first page
+    and this idempotent script would start creating duplicates instead of
+    reusing what's there."""
     by_key: dict[str, str] = {}
-    for prod in existing.data:
+    for prod in stripe.Product.list(active=True, limit=100).auto_paging_iter():
         marker = (prod.metadata or {}).get("app_product_key")
         if marker:
             by_key[marker] = prod.id
@@ -244,15 +258,38 @@ def _existing_price_recurring(price) -> dict | None:
     return {"interval": recurring["interval"], "interval_count": recurring["interval_count"]}
 
 
+def _chunked(items: list, size: int):
+    for i in range(0, len(items), size):
+        yield items[i:i + size]
+
+
+def _fetch_existing_prices_by_lookup_key(lookup_keys: list[str]) -> dict[str, object]:
+    """Returns lookup_key -> Stripe price object, for only the lookup_keys
+    this script cares about — not the account's whole price book. Stripe's
+    List Prices endpoint accepts up to 10 lookup_keys per call, so the 20
+    keys here go out in 2 chunks; each chunk is still walked with
+    auto_paging_iter() rather than a single page, matching _ensure_products
+    (belt-and-braces — a lookup_keys query should never itself need more
+    than one page, but a raw `.data` read would silently go blind past the
+    first page if it ever did)."""
+    by_lookup_key: dict[str, object] = {}
+    for chunk in _chunked(lookup_keys, 10):
+        for price in stripe.Price.list(lookup_keys=chunk, active=True, limit=100).auto_paging_iter():
+            key = getattr(price, "lookup_key", None)
+            if key:
+                by_lookup_key[key] = price
+    return by_lookup_key
+
+
 def _ensure_prices(prices: list[PricePlan], product_ids: dict[str, str]) -> dict[str, str]:
-    """Returns lookup_key -> Stripe price id. Single non-paginated list
-    call for the same reason as _ensure_products."""
-    existing = stripe.Price.list(active=True, limit=100)
-    by_lookup_key = {}
-    for price in existing.data:
-        key = getattr(price, "lookup_key", None)
-        if key:
-            by_lookup_key[key] = price
+    """Returns lookup_key -> Stripe price id. Looks existing prices up
+    directly by the lookup_keys this script's own plan needs (see
+    _fetch_existing_prices_by_lookup_key) rather than listing and
+    client-side-filtering the account's entire price book, which would
+    eventually miss a match past the first page and start creating
+    duplicate prices at lookup_keys that already exist — the exact failure
+    this script exists to prevent."""
+    by_lookup_key = _fetch_existing_prices_by_lookup_key([p.lookup_key for p in prices])
 
     resolved: dict[str, str] = {}
     for plan in prices:
@@ -263,7 +300,7 @@ def _ensure_prices(prices: list[PricePlan], product_ids: dict[str, str]) -> dict
         if current is None:
             created = stripe.Price.create(
                 product=product_id, lookup_key=plan.lookup_key, unit_amount=plan.unit_amount,
-                currency="gbp", metadata=plan.metadata,
+                currency="gbp", tax_behavior=_TAX_BEHAVIOR, metadata=plan.metadata,
                 **({"recurring": plan.recurring} if plan.recurring else {}),
             )
             resolved[plan.lookup_key] = created.id
@@ -280,7 +317,8 @@ def _ensure_prices(prices: list[PricePlan], product_ids: dict[str, str]) -> dict
         old_interval = _interval_description(existing_recurring)
         new_created = stripe.Price.create(
             product=product_id, lookup_key=plan.lookup_key, transfer_lookup_key=True,
-            unit_amount=plan.unit_amount, currency="gbp", metadata=plan.metadata,
+            unit_amount=plan.unit_amount, currency="gbp", tax_behavior=_TAX_BEHAVIOR,
+            metadata=plan.metadata,
             **({"recurring": plan.recurring} if plan.recurring else {}),
         )
         stripe.Price.modify(current.id, active=False)
