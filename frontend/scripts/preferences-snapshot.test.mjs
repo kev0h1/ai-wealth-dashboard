@@ -397,48 +397,138 @@ async function runExternalCallerScenario(withGuard) {
 
 // ── Part 4: static guards on the real PreferencesContext.tsx source —
 //    what actually fails if either fix is reverted. ─────────────────────
+//
+// H36: the two functions below used to be substring searches — "does
+// makeFieldReconcile(..., '<key>')" appear anywhere in the file, "does
+// '<saver>.isSaving.current'" appear anywhere in loadPreferences. Both
+// pass just as happily if a copy-paste swap pairs one field's key with
+// ANOTHER field's saver (e.g. hideNetWorthSaver wired to reconcile
+// "dark_mode", darkModeSaver wired to reconcile "hide_net_worth"; or the
+// skip map's `hideNetWorth` guard reading `darkModeSaver.isSaving.current`
+// and vice versa) — every expected substring is still present, just
+// attached to the wrong field. That is exactly the six-near-identical-
+// lines mistake this item exists to catch, so every check below binds a
+// field's key to its OWN saver, not to the set of keys/savers in the file
+// as a whole.
+//
+// Block extraction is a balanced-delimiter scan rather than a fixed
+// end-anchor or an indentation-sensitive pattern, so reformatting
+// (reordering an object's properties, reindenting, wrapping a line) can't
+// make it silently find zero blocks or the wrong one — a prior review
+// flagged exactly that failure mode for a regex-based block extraction.
+
+function extractBalanced(src, openIndex, openChar, closeChar) {
+  if (src[openIndex] !== openChar) return null;
+  let depth = 0;
+  for (let i = openIndex; i < src.length; i += 1) {
+    if (src[i] === openChar) depth += 1;
+    else if (src[i] === closeChar) {
+      depth -= 1;
+      if (depth === 0) return src.slice(openIndex, i + 1);
+    }
+  }
+  return null; // unbalanced source — caller must treat this as "not found", not crash
+}
+
+// The full `const <saverVarName> = useRef(createPreferenceSaver<...>({
+// ... })).current;` call for one saver, found by balanced-paren scan from
+// the `(` right after `useRef` through its matching `)` — independent of
+// how the object literal inside is formatted.
+function extractSaverBlock(src, saverVarName) {
+  const declPrefix = `const ${saverVarName} = useRef`;
+  const declIndex = src.indexOf(declPrefix);
+  if (declIndex === -1) return null;
+  const openParenIndex = src.indexOf("(", declIndex + declPrefix.length);
+  if (openParenIndex === -1) return null;
+  return extractBalanced(src, openParenIndex, "(", ")");
+}
+
+// The `{ ... }` body of `const <fnName> = useCallback((...) => { ... },
+// [...])`, found by balanced-brace scan from the function body's opening
+// brace — independent of what is defined before or after it in the file.
+function extractCallbackBody(src, fnName) {
+  const declPrefix = `const ${fnName} = useCallback`;
+  const declIndex = src.indexOf(declPrefix);
+  if (declIndex === -1) return null;
+  const braceIndex = src.indexOf("{", declIndex + declPrefix.length);
+  if (braceIndex === -1) return null;
+  return extractBalanced(src, braceIndex, "{", "}");
+}
+
+// The six fields, each with: its server-document key, its saver variable
+// name, and the key it should use in loadPreferences' skip map.
+const FIELD_SAVER_PAIRS = [
+  { key: "hide_net_worth", saverVar: "hideNetWorthSaver", skipKey: "hideNetWorth" },
+  { key: "dark_mode", saverVar: "darkModeSaver", skipKey: "darkMode" },
+  { key: "pay_period_config", saverVar: "payPeriodConfigSaver", skipKey: "payPeriodConfig" },
+  { key: "region", saverVar: "regionSaver", skipKey: "region" },
+  { key: "debt_target_months", saverVar: "debtTargetMonthsSaver", skipKey: "debtTargetMonths" },
+  { key: "debt_tracking_start", saverVar: "debtTrackingStartSaver", skipKey: "debtTrackingStart" },
+];
 
 function testRealContextFileWiresEachFieldToMakeFieldReconcile() {
   const contextSrc = readFileSync(path.join(frontendRoot, "components/PreferencesContext.tsx"), "utf-8");
-  const reconcileLines = [
-    ...contextSrc.matchAll(/reconcile: makeFieldReconcile<[^>]+>\(fetchPreferencesSnapshot, "([a-z_]+)"\)/g),
-  ].map((m) => m[1]);
 
+  // Whole-file sanity: exactly six reconcile-via-makeFieldReconcile call
+  // sites, covering exactly the expected keys. This does NOT by itself
+  // prove each key is wired to its own saver — a swap between two fields'
+  // keys leaves the count and the set both unchanged — which is what the
+  // per-saver loop below is for.
+  const reconcileLines = [
+    ...contextSrc.matchAll(/reconcile:\s*makeFieldReconcile<[^>]+>\(fetchPreferencesSnapshot,\s*"([a-z_]+)"\)/g),
+  ].map((m) => m[1]);
   check("components/PreferencesContext.tsx wires exactly six fields through makeFieldReconcile", reconcileLines.length === 6);
   check(
     "the six fields wired are exactly the expected set",
-    JSON.stringify([...reconcileLines].sort()) ===
-      JSON.stringify(
-        ["hide_net_worth", "dark_mode", "pay_period_config", "region", "debt_target_months", "debt_tracking_start"].sort()
-      )
+    JSON.stringify([...reconcileLines].sort()) === JSON.stringify(FIELD_SAVER_PAIRS.map((f) => f.key).sort())
   );
   check(
     "no reconcile in the file calls the whole-document refreshPreferences() (the first G62 defect)",
     !/reconcile: async \(\) => \{[\s\S]*?refreshPreferences\(\)/.test(contextSrc)
   );
+
+  // Per-saver binding: each saver's OWN useRef(createPreferenceSaver(...))
+  // block must contain a makeFieldReconcile call for THAT saver's own
+  // key, not merely a makeFieldReconcile call for the right key
+  // *somewhere in the file*. This is what catches a copy-paste swap
+  // (hideNetWorthSaver reconciling "dark_mode", darkModeSaver reconciling
+  // "hide_net_worth") that the two whole-file checks above would miss.
+  for (const { key, saverVar } of FIELD_SAVER_PAIRS) {
+    const block = extractSaverBlock(contextSrc, saverVar);
+    check(`${saverVar}'s createPreferenceSaver block is found in the real file`, block !== null);
+    if (!block) continue;
+    const ownReconciles = [
+      ...block.matchAll(/reconcile:\s*makeFieldReconcile<[^>]+>\(fetchPreferencesSnapshot,\s*"([a-z_]+)"\)/g),
+    ];
+    check(`${saverVar} has exactly one reconcile: makeFieldReconcile(...) call in its own block`, ownReconciles.length === 1);
+    check(
+      `${saverVar}'s reconcile is wired to its own key "${key}", not a swapped field's key`,
+      ownReconciles.length === 1 && ownReconciles[0][1] === key
+    );
+  }
 }
 
 function testRealLoadPreferencesGuardsEverySaverWithIsSaving() {
   const contextSrc = readFileSync(path.join(frontendRoot, "components/PreferencesContext.tsx"), "utf-8");
-  const start = contextSrc.indexOf("const loadPreferences = useCallback");
-  const end = contextSrc.indexOf("const refreshPreferences = useCallback", start);
-  check("loadPreferences is defined before refreshPreferences in the real file", start !== -1 && end !== -1 && end > start);
-  const body = contextSrc.slice(start, end);
+  const body = extractCallbackBody(contextSrc, "loadPreferences");
+  check("loadPreferences's body is found in the real file (balanced-brace extraction, order- and indentation-agnostic)", body !== null);
+  if (!body) return;
 
   check("loadPreferences calls applyWholeDocument", body.includes("applyWholeDocument("));
 
-  const expectedSavers = [
-    "hideNetWorthSaver",
-    "darkModeSaver",
-    "payPeriodConfigSaver",
-    "regionSaver",
-    "debtTargetMonthsSaver",
-    "debtTrackingStartSaver",
-  ];
-  for (const saver of expectedSavers) {
+  // Per-field binding: the skip map must pair EACH field's own key with
+  // THAT field's own saver's isSaving flag, not merely mention both the
+  // key and the saver substring somewhere in the function. A copy-paste
+  // swap — pairing `hideNetWorth` with `darkModeSaver.isSaving.current`
+  // and `darkMode` with `hideNetWorthSaver.isSaving.current` — leaves
+  // every one of the six `<saver>.isSaving.current` substrings present
+  // (the exact regression this item exists to close) but fails every one
+  // of the checks below, because none of the six pairings would match.
+  for (const { saverVar, skipKey } of FIELD_SAVER_PAIRS) {
+    const pairPattern = new RegExp(`\\b${skipKey}\\s*:\\s*\\(\\)\\s*=>\\s*${saverVar}\\.isSaving\\.current\\b`);
     check(
-      `loadPreferences' skip map reads ${saver}.isSaving.current (review #1's fix — protects refreshPreferences()'s four callers with no changes needed at any of them)`,
-      body.includes(`${saver}.isSaving.current`)
+      `loadPreferences' skip map pairs "${skipKey}" with its own ${saverVar}.isSaving.current, not a swapped field's saver`,
+      pairPattern.test(body)
     );
   }
 }
