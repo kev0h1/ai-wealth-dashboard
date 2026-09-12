@@ -115,18 +115,27 @@ function coverPlanView(
 ): CoverPlanView {
   const moves = items.filter((item) => item.type === "move");
   // G50 (2026-09-12): "short" comes straight from the source finder's own
-  // per-account headroom (backend `_account_headroom`, exposed on `GET
+  // usability test (backend `_account_usable_by_finder`, exposed on `GET
   // /today/cover-plan` as `account_eligibility`), not from which accounts
   // happen to be named as a destination by a CURRENTLY ACTIVE move card.
-  // An account can have zero spare headroom and still never appear as a
-  // move destination this pass (its own shortfall might be gated,
+  // An account can have no spare capacity to give and still never appear
+  // as a move destination this pass (its own shortfall might be gated,
   // dismissed, or simply not this window's biggest problem) — the engine
   // will still refuse to use it as a source, so the toggle must show
-  // Skipped regardless of whether a move card exists. When
-  // `accountEligibility` hasn't loaded yet (or the fetch failed),
-  // this is an empty set — no account is WRONGLY shown as Skipped, it is
-  // simply not yet known to be short (see refreshCoverPlan's status
-  // handling for the honest "couldn't confirm" message on real failures).
+  // Skipped regardless of whether a move card exists.
+  //
+  // Residual gap, accepted rather than hidden: until `accountEligibility`
+  // has loaded for the first time (or after a failed refetch),
+  // this is an empty set, so a genuinely short account can render with a
+  // normal, do-nothing toggle for that brief window — the SAME failure
+  // mode this item exists to fix, just time-bounded to one GET on mount
+  // instead of "until a move card happens to exist". Making the toggle
+  // itself inert during that window would need a disabled/dimmed treatment
+  // inside CoverPlanSourcesCard.tsx, which G51 owns and this item
+  // deliberately does not touch; refreshCoverPlan's "couldn't confirm"
+  // message (below, next to the card) is the honest signal for the
+  // FAILED-fetch case, where the gap can persist rather than resolve in
+  // the next tick.
   const shortAccountIds = new Set<string>(
     Object.entries(accountEligibility ?? {})
       .filter(([, eligibility]) => eligibility.short)
@@ -1249,8 +1258,9 @@ export default function SettingsPage() {
               onToggle={toggleCoverAccount}
             />
             {coverEligibilityStatus === "error" && (
-              <p role="status" aria-live="polite" className="mt-2 px-1 text-xs font-medium text-amber-600 dark:text-amber-400">
-                Could not confirm which accounts the cover plan would skip right now. Some accounts may show as available even if they are actually short. Try again shortly.
+              <p role="status" aria-live="polite" className="mt-2 flex items-start gap-1.5 px-1 text-xs font-medium text-slate-600 dark:text-slate-300">
+                <span aria-hidden="true" className="mt-1 size-1.5 shrink-0 rounded-full bg-amber-500 dark:bg-amber-400" />
+                <span>Could not confirm which accounts the cover plan would skip right now. Some accounts may show as available even if they are actually short. Try again shortly.</span>
               </p>
             )}
             {coverSaveMsg && (

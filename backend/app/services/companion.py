@@ -1827,27 +1827,79 @@ async def compute_today_items(
     # spare capacity — its own min-running balance (bills/income already
     # netted off, above) less the £10 buffer every source keeps. This is
     # read BOTH by `_live_class` below, when it decides whether an account
-    # is even a candidate leg for a specific shortfall, AND by the snapshot
-    # taken immediately below (before any leg-picking mutates
-    # `source_capacity` in place) to answer Settings' "is this account short
-    # regardless of any live move card" question. Extracted from what used
-    # to be an inline expression inside `_live_class` so the two reads can
-    # never drift apart — see the G50 backlog note for the bug this fixes:
-    # an account with no live move card, but genuinely no spare headroom,
-    # used to show a normal (do-nothing) toggle instead of Skipped.
+    # is even a candidate leg for a specific shortfall, AND by the
+    # eligibility snapshot immediately below, so the two can never quote
+    # different headroom for the same account.
     def _account_headroom(sid: str) -> float:
         return source_capacity.get(sid, 0.0) - 10
+
+    # `_account_usable_by_finder` (G50 review fix, 2026-09-12): "short" for
+    # Settings must mean exactly what `_live_class` below actually enforces
+    # for a candidate leg, not an approximation of it. That's TWO
+    # conditions, both mirrored here:
+    #
+    #   1. `_live_class` only ever admits a candidate when `headroom >= 5`
+    #      (see the line below), not merely `headroom > 0` — an account
+    #      with, say, £2 spare is never picked in ANY combination, so it
+    #      must report short too. (An earlier version of this function used
+    #      `headroom <= 0`, which under-reported every account with £0-£5
+    #      of spare capacity as available when the finder would never
+    #      touch it — the exact defect this fix closes.)
+    #
+    #   2. `_live_class`'s `require_non_negative_current` check additionally
+    #      excludes an account whose own running minimum (`min_running` —
+    #      the destination-shortfall walk, a DIFFERENT figure from
+    #      `_account_headroom`) is negative — "skip accounts that are
+    #      themselves short" — but `class_specs` below only ever passes
+    #      `require_non_negative_current=True` for its CURRENT class
+    #      (`_is_current(acc) and not _is_savings(acc)`); savings and
+    #      offline both pass `False`. So this check is CLASS-AWARE, not a
+    #      blanket rule: a savings pot with the same negative min_running is
+    #      not excluded by it in the finder, and must not be reported short
+    #      on account of it either.
+    #
+    #      Recomputing `_is_current(acc) and not _is_savings(acc)` here
+    #      (rather than threading `require_non_negative_current` out of
+    #      `_live_class`) is provably the same test: `class_specs`' three
+    #      predicates are mutually exclusive by construction (a
+    #      savings-flagged account never matches the current-class
+    #      predicate, since that predicate is itself `... and not
+    #      _is_savings(acc)`; offline accounts carry no type/subtype fields
+    #      at all, so `_is_current` on one is always False) — so whichever
+    #      of the three predicates a given account actually satisfies inside
+    #      `_live_class`, this expression evaluates to the identical
+    #      `require_non_negative_current` that class's `class_specs` entry
+    #      passes it.
+    #
+    # Deliberately NOT mirrored: `_live_class`'s remaining three exclusions
+    # (`sid == dest_acct`, `sid in excluded_sources`, `sid in used_sources`)
+    # are properties of one SPECIFIC funding call — which destination is
+    # being funded, whether the user toggled this account off, what's
+    # already been committed elsewhere THIS request — not standing facts
+    # about the account itself, so a destination-independent "is this
+    # account short" answer has nothing to say about them. The toggle
+    # (`excluded_sources`) already has its own UI state; this flag isn't it.
+    def _account_usable_by_finder(acc: dict) -> bool:
+        sid = acc["_str_id"]
+        if _account_headroom(sid) < 5:
+            return False
+        is_current_class = _is_current(acc) and not _is_savings(acc)
+        if is_current_class and min_running.get(sid, 0.0) < 0:
+            return False
+        return True
 
     if account_eligibility_out is not None:
         # Snapshot BEFORE any `_find_legs_for_destination` call below
         # consumes `source_capacity` in place — this reports each account's
-        # standing headroom, not what's left after this request happens to
-        # have funded other destinations first.
-        for _sid in source_capacity:
-            _headroom = _account_headroom(_sid)
+        # standing headroom/usability, not what's left after this request
+        # happens to have funded other destinations first.
+        for _acc in all_uk_accounts + offline_accounts:
+            _sid = _acc["_str_id"]
+            if _sid not in source_capacity:
+                continue  # not source-eligible at all — see the population loop above (credit card, or none of current/savings/offline)
             account_eligibility_out[_sid] = {
-                "short": _headroom <= 0,
-                "headroom": round(_headroom, 2),
+                "short": not _account_usable_by_finder(_acc),
+                "headroom": round(_account_headroom(_sid), 2),
             }
 
     # ── Shared source finder (G42, 2026-09-11; fewest-legs G43, 2026-09-11) ──

@@ -14,10 +14,28 @@ of what used to be an inline expression inside `_find_legs_for_destination`
 definition of an account's spare headroom. `compute_today_items` takes an
 optional `account_eligibility_out` dict and, when given one, fills it with
 a snapshot of every source-eligible account's headroom and "short" state
-(`headroom <= 0`) BEFORE any live shortfall consumes `source_capacity`.
-`GET /today/cover-plan` (companion.py's router) passes this through as
+BEFORE any live shortfall consumes `source_capacity`. `GET
+/today/cover-plan` (companion.py's router) passes this through as
 `account_eligibility` alongside the existing `items` list — one round
 trip, not two.
+
+Review fix (2026-09-12, rejected on first pass): "short" must mirror
+`_live_class`'s ACTUAL usability test, which is TWO conditions, not a
+plain `headroom <= 0` guess:
+  1. `_live_class` only ever admits a candidate at `headroom >= 5`, so an
+     account with, say, £2 spare (headroom 0 < h < 5) is excluded from
+     every combination the finder tries, and must report short too — see
+     `test_account_headroom_just_under_five_is_short` /
+     `test_account_headroom_of_exactly_five_is_not_short` below, which
+     replace an earlier (wrong) test that asserted a penny of headroom was
+     NOT short.
+  2. a CURRENT (non-savings) account additionally counts as short when its
+     own running minimum (`min_running`, the destination-shortfall walk —
+     a DIFFERENT figure from `_account_headroom`) is negative, even with
+     ample headroom; savings/offline accounts are exempt from this second
+     check in the finder — see
+     `test_current_account_with_negative_running_minimum_is_short_despite_headroom`
+     and its savings counterpart below.
 
 No mongomock is available in this environment, so DB-touching collections
 are replaced with tiny in-memory fakes, following the same local-copy
@@ -153,10 +171,24 @@ def _account(acct_id, balance, *, provider="barclays", name=None,
 
 
 def _run(monkeypatch, bills, *, accounts=None, income_streams=None,
-         window_income=None, account_eligibility_out=None):
+         window_income=None, account_eligibility_out=None,
+         reserved_by_source=None):
     """Full-stack harness for `companion.compute_today_items`, following
     test_overdraft_bills.py's `_run` pattern verbatim, extended to pass
-    `account_eligibility_out` through."""
+    `account_eligibility_out` through.
+
+    `reserved_by_source`, when given, replaces `_reserved_for_allocations`
+    entirely — used ONLY to construct the "positive headroom but negative
+    running minimum" boundary below. That combination is not reachable
+    through real bills/income/reservations in this engine (a
+    non-negative reservation and non-negative internal-transfer credits
+    together guarantee `min_running[sid] >= headroom + 10`, so headroom
+    passing implies the running minimum can't be negative); an
+    artificial, clearly-synthetic negative reservation is the only way to
+    isolate the SECOND gate (`require_non_negative_current`) from the
+    first (the £5 floor) in a test, proving the two are checked
+    independently rather than one silently subsuming the other.
+    """
     import app.services.pay_period as pay_period
     import app.services.income as income
 
@@ -166,6 +198,11 @@ def _run(monkeypatch, bills, *, accounts=None, income_streams=None,
         pay_period, "get_pay_period_for_date",
         lambda today_d, pay_cfg: (today_d - timedelta(days=10), today_d + timedelta(days=17)),
     )
+
+    if reserved_by_source is not None:
+        async def _fake_reserved(uid, internal_inflows, account_map):
+            return dict(reserved_by_source)
+        monkeypatch.setattr(companion, "_reserved_for_allocations", _fake_reserved)
 
     monkeypatch.setattr(companion, "accounts_col", FakeCol(accounts or []))
     monkeypatch.setattr(companion, "yapily_accounts_col", FakeCol([]))
@@ -205,7 +242,7 @@ def _find(items, item_type):
     return next((i for i in items if i["type"] == item_type), None)
 
 
-# ── Boundary: exactly zero spare headroom vs a penny above ─────────────────
+# ── Boundary: the £5 usability floor, not a plain "headroom > 0" guess ──────
 
 def test_account_at_exactly_zero_headroom_is_short(monkeypatch):
     """No bills anywhere, one account holding exactly £10 — its own min
@@ -218,14 +255,27 @@ def test_account_at_exactly_zero_headroom_is_short(monkeypatch):
     assert eligibility["src_zero"] == {"short": True, "headroom": 0.0}
 
 
-def test_account_a_penny_above_zero_headroom_is_not_short(monkeypatch):
-    """Same shape, one penny more in the account: headroom = 10.01 - 10 =
-    0.01 — genuinely spare, however small, so it must NOT read as short."""
-    accounts = [_account("src_penny", 10.01)]
+def test_account_headroom_just_under_five_is_short(monkeypatch):
+    """`_live_class` only ever admits a candidate at `headroom >= 5` — an
+    account with £4.99 of spare capacity is excluded from EVERY
+    combination the finder tries, in every class, so it must report short
+    even though its headroom is positive. Balance £14.99, no bills: mn =
+    14.99, headroom = 14.99 - 10 = 4.99."""
+    accounts = [_account("src_just_under", 14.99)]
     eligibility = {}
     _run(monkeypatch, [], accounts=accounts, account_eligibility_out=eligibility)
 
-    assert eligibility["src_penny"] == {"short": False, "headroom": 0.01}
+    assert eligibility["src_just_under"] == {"short": True, "headroom": 4.99}
+
+
+def test_account_headroom_of_exactly_five_is_not_short(monkeypatch):
+    """The finder's own floor is inclusive (`headroom >= 5`) — exactly £5
+    of spare capacity IS usable. Balance £15, no bills: headroom = 5.0."""
+    accounts = [_account("src_exactly_five", 15.0)]
+    eligibility = {}
+    _run(monkeypatch, [], accounts=accounts, account_eligibility_out=eligibility)
+
+    assert eligibility["src_exactly_five"] == {"short": False, "headroom": 5.0}
 
 
 def test_account_below_zero_headroom_is_short(monkeypatch):
@@ -243,6 +293,54 @@ def test_account_with_ample_headroom_is_not_short(monkeypatch):
     _run(monkeypatch, [], accounts=accounts, account_eligibility_out=eligibility)
 
     assert eligibility["src_ample"] == {"short": False, "headroom": 190.0}
+
+
+# ── Class-aware second gate: current accounts only, not savings/offline ────
+
+def test_current_account_with_negative_running_minimum_is_short_despite_headroom(monkeypatch):
+    """`_live_class`'s `require_non_negative_current` check excludes a
+    CURRENT (non-savings) account whose own running minimum is negative,
+    independent of headroom. This combination (ample headroom, negative
+    running minimum) can't arise from real bills/reservations alone in
+    this engine — see `_run`'s docstring for why — so `reserved_by_source`
+    is overridden with a deliberately synthetic negative value purely to
+    isolate this second gate from the first: a £1,100 bill on a £1,000
+    balance drives BOTH the account's own running minimum and its
+    bills-only headroom basis to -£100, then the synthetic -£200
+    "reservation" (`source_capacity = mn - reserved`) lifts headroom back
+    to £90 (mn -100 minus -200, well past the £5 floor) while
+    `min_running` stays at -£100 untouched (reservations never apply to
+    it). The account must still report short."""
+    accounts = [_account("current_acc", 1000.0, subtype="TRANSACTION", atype="BANK")]
+    bills = [_bill("Big debit", 2, 1100.0, "current_acc", 1000.0, kind="commitment")]
+    eligibility = {}
+    _run(
+        monkeypatch, bills, accounts=accounts, account_eligibility_out=eligibility,
+        reserved_by_source={"current_acc": -200.0},
+    )
+
+    assert eligibility["current_acc"]["headroom"] == 90.0
+    assert eligibility["current_acc"]["short"] is True
+
+
+def test_same_shape_as_savings_is_not_short_despite_negative_running_minimum(monkeypatch):
+    """Identical numbers to the test above, but the account is flagged
+    savings (`_is_savings(acc)` true) instead of a plain current account.
+    `class_specs` only ever passes `require_non_negative_current=True` to
+    the CURRENT class predicate (`_is_current(acc) and not
+    _is_savings(acc)`) — a savings-flagged account never matches it,
+    savings or not, so the same negative running minimum does NOT make it
+    short; only the £5 headroom floor applies, and headroom here is £90."""
+    accounts = [_account("savings_acc", 1000.0, subtype="SAVINGS", atype="BANK")]
+    bills = [_bill("Big debit", 2, 1100.0, "savings_acc", 1000.0, kind="commitment")]
+    eligibility = {}
+    _run(
+        monkeypatch, bills, accounts=accounts, account_eligibility_out=eligibility,
+        reserved_by_source={"savings_acc": -200.0},
+    )
+
+    assert eligibility["savings_acc"]["headroom"] == 90.0
+    assert eligibility["savings_acc"]["short"] is False
 
 
 def test_credit_card_account_never_appears_in_eligibility(monkeypatch):
