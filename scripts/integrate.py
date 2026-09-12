@@ -212,29 +212,134 @@ def _is_design_round_diff(changed: set[str]) -> bool:
     return all(p.startswith(_DESIGN_ROUND_PREFIX) for p in changed)
 
 
-def _design_round_preview_link() -> str:
-    """The link `scripts/integrate.py` stores on a `uat` item it lands
-    automatically: the public design-preview index, which lists every
-    registered preview directory (the `check:design-index` gate, run
-    below by `_run_frontend_checks`, guarantees every one this merge added
-    is registered there). Pointing at the index rather than guessing a
-    single slug is deliberate — a round can add more than one variant
-    directory, and the index is always correct regardless of how many."""
-    return f"https://{backlog.PUBLIC_UAT_HOST}/design"
+_DESIGN_INDEX_LINK = f"https://{backlog.PUBLIC_UAT_HOST}/design"
+_LOCAL_UAT_ORIGIN = "http://127.0.0.1:3030"
 
 
-def _notify_uat_ready(item_id: str, title: str, link: str) -> None:
+def _design_round_slugs(changed: set[str]) -> list[str]:
+    """The top-level directories under frontend/app/design/ that this
+    merge's diff touched, in path order, de-duplicated — i.e. the preview
+    slugs a design round actually added or changed. A file that sits
+    directly in frontend/app/design/ itself (page.tsx, the index; or
+    layout.tsx) is not a preview and is ignored, since it has no
+    directory segment of its own after the prefix."""
+    slugs: list[str] = []
+    seen: set[str] = set()
+    for path in sorted(changed):
+        if not path.startswith(_DESIGN_ROUND_PREFIX):
+            continue
+        rest = path[len(_DESIGN_ROUND_PREFIX):]
+        if "/" not in rest:
+            continue
+        slug = rest.split("/", 1)[0]
+        if slug and slug not in seen:
+            seen.add(slug)
+            slugs.append(slug)
+    return slugs
+
+
+def _design_round_example_query(slug: str) -> Optional[str]:
+    """Best-effort: read `slug`'s registered `states` entry straight out
+    of frontend/app/design/page.tsx's ROUTES table, to build one worked
+    example query string matching what the index page's own links use
+    (see PreviewCard there: `?mode=dark&state=<value>`). ROUTES is a flat
+    array of object literals, each opening at a bare `  {` and closing at
+    a bare `  },` (2-space indent, checked against the live file before
+    relying on it) — that shape is what lets a plain, narrow regex find
+    one whole route block reliably rather than trying to parse TSX
+    generally. Returns None on absolutely anything unexpected (file
+    missing, shape drifted, slug not found, no states) — this must never
+    raise, and a bare slug link is always correct where a guessed query
+    string that turns out wrong would not be."""
+    try:
+        text = (REPO_ROOT / "frontend" / "app" / "design" / "page.tsx").read_text()
+    except OSError:
+        return None
+    for block in re.findall(r"\n  \{(.*?)\n  \},", text, re.DOTALL):
+        if not re.search(r'slug:\s*"' + re.escape(slug) + r'"', block):
+            continue
+        states_match = re.search(r"states:\s*\[(.*?)\]", block, re.DOTALL)
+        if not states_match:
+            return None
+        value_match = re.search(r'value:\s*"([^"]+)"', states_match.group(1))
+        return f"mode=dark&state={value_match.group(1)}" if value_match else None
+    return None
+
+
+def _design_round_preview(changed: set[str]) -> tuple[str, Optional[str]]:
+    """The (link, detail) `scripts/integrate.py` stores/announces for a
+    design round it just landed in uat. `link` is the single URL that
+    goes in the board's `[state: uat: ...]` slot and the one the push
+    notification opens on tap; `detail`, when not None, is extra
+    preview-links text worth keeping as a note and folding into the
+    notification body for a round with more directories than that
+    single-URL field can hold.
+
+    Every candidate is curl-verified against the just-rebuilt local UAT
+    (`_LOCAL_UAT_ORIGIN`, the same origin the merge's own health check
+    just confirmed is up) before being trusted. Anything that fails to
+    resolve, or any error deriving a slug at all (the ROUTES parse is
+    best-effort, see `_design_round_example_query`), falls back to the
+    plain design index — H34's fix is cosmetic, never load-bearing: a
+    wrong or dead per-slug link would leave Kevin worse off than today's
+    generic one, and deriving it can never be allowed to abort a merge
+    that already succeeded (see the try/except this function is always
+    called inside)."""
+    slugs = _design_round_slugs(changed)
+    if not slugs:
+        return _DESIGN_INDEX_LINK, None
+
+    def verified(url: str) -> bool:
+        local = url.replace(_DESIGN_INDEX_LINK, f"{_LOCAL_UAT_ORIGIN}/design", 1)
+        return _http_ok(local)
+
+    if len(slugs) == 1:
+        slug = slugs[0]
+        candidates = []
+        query = _design_round_example_query(slug)
+        if query:
+            candidates.append(f"{_DESIGN_INDEX_LINK}/{slug}?{query}")
+        candidates.append(f"{_DESIGN_INDEX_LINK}/{slug}")
+        for candidate in candidates:
+            if verified(candidate):
+                return candidate, None
+        print(f"warning: preview link for {slug!r} did not resolve, falling back to design index", file=sys.stderr)
+        return _DESIGN_INDEX_LINK, None
+
+    # Several preview directories in one round: the board's `link` field
+    # only ever holds one URL (normalise_preview_link parses exactly one
+    # absolute URL — joining several into a comma/space-separated string
+    # would not survive it as a working link, just as a corrupt path). Per
+    # H34, record the first directory's own working link as the primary
+    # one, since it is more useful to Kevin than a bare directory listing,
+    # and keep every other verified slug's link as `detail` text (a board
+    # note plus extra notification body) rather than silently dropping
+    # them.
+    per_slug = [f"{_DESIGN_INDEX_LINK}/{slug}" for slug in slugs]
+    working = [url for url in per_slug if verified(url)]
+    if not working:
+        return _DESIGN_INDEX_LINK, None
+    if len(working) == 1:
+        return working[0], None
+    return working[0], "Also: " + ", ".join(working[1:])
+
+
+def _notify_uat_ready(item_id: str, title: str, link: str, detail: Optional[str] = None) -> None:
     """Best-effort push to Kevin that `item_id` landed in uat, through the
     existing FCM/APNs/webpush path in app.services.notifications (see
     notify_uat_ready there for the preference gate and the owner-only
-    targeting). Never allowed to fail the integrate run — a push failure
-    here is logged and swallowed, same discipline as every other
+    targeting). `detail`, when given, is folded into the title text so it
+    reaches the notification body alongside `link` without needing to
+    change notify_uat_ready's own signature (kept untouched since other
+    callers may exist). Never allowed to fail the integrate run — a push
+    failure here is logged and swallowed, same discipline as every other
     non-critical step in this script."""
     import asyncio
 
     from app.services.notifications import notify_uat_ready
 
-    asyncio.run(notify_uat_ready(item_id, title, link))
+    full_title = f"{title} ({detail})" if detail else title
+    asyncio.run(notify_uat_ready(item_id, full_title, link))
 
 
 def _http_ok(url: str) -> bool:
@@ -505,15 +610,34 @@ def _integrate_one(item: dict) -> tuple[str, str]:
     # implementation, just variants waiting on Kevin's choice.
     is_design_round = bool(item.get("uat_review")) or _is_design_round_diff(changed)
     if is_design_round:
-        preview_link = _design_round_preview_link()
+        # H34: derive the real preview link from the merged diff instead of
+        # always recording the bare design index. This is cosmetic, never
+        # load-bearing — the merge above already succeeded, so a failure
+        # here must fall back to the old generic link, not raise. Hence the
+        # broad except: _design_round_preview already falls back internally
+        # on anything it can predict (missing slug, unverified link,
+        # unreadable page.tsx), this is only the backstop for anything it
+        # can't.
+        try:
+            preview_link, preview_detail = _design_round_preview(changed)
+        except Exception as exc:  # noqa: BLE001 - see comment above
+            print(f"warning: could not derive a design preview link for {item_id}: {exc}", file=sys.stderr)
+            preview_link, preview_detail = _DESIGN_INDEX_LINK, None
         try:
             backlog.set_uat(item_id, preview_link, actor="claude")
             landed_detail = f"landed in uat, preview {preview_link}"
+            if preview_detail:
+                landed_detail += f" ({preview_detail})"
         except backlog.BacklogError as exc:
             print(f"warning: {item_id} merged but board write failed: {exc}", file=sys.stderr)
             landed_detail = "landed in uat, board write failed"
+        if preview_detail:
+            try:
+                backlog.add_note(item_id, f"Preview: {preview_link}. {preview_detail}", actor="claude")
+            except backlog.BacklogError as exc:
+                print(f"warning: could not record preview detail note for {item_id}: {exc}", file=sys.stderr)
         try:
-            _notify_uat_ready(item_id, title, preview_link)
+            _notify_uat_ready(item_id, title, preview_link, detail=preview_detail)
         except Exception as exc:  # noqa: BLE001 - a push failure must never fail the integrate run
             print(f"warning: could not notify Kevin for {item_id}: {exc}", file=sys.stderr)
     else:

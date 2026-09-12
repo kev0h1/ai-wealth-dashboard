@@ -407,10 +407,11 @@ def test_is_design_round_diff_false_for_empty_diff():
     assert integrate._is_design_round_diff(set()) is False
 
 
-def test_design_round_preview_link_is_on_the_public_uat_host():
-    link = integrate._design_round_preview_link()
+def test_design_round_preview_falls_back_to_index_when_no_slug_can_be_derived():
+    link, detail = integrate._design_round_preview(set())
     assert link == "https://uat.wealth.auriqltd.co.uk/design"
     assert link.startswith("https://" + integrate.backlog.PUBLIC_UAT_HOST)
+    assert detail is None
 
 
 def test_notify_uat_ready_delegates_to_notifications_service_no_real_transport(monkeypatch):
@@ -432,6 +433,181 @@ def test_notify_uat_ready_delegates_to_notifications_service_no_real_transport(m
     integrate._notify_uat_ready("H31", "UAT review swimlane", "https://uat.wealth.auriqltd.co.uk/design")
 
     assert calls == [("H31", "UAT review swimlane", "https://uat.wealth.auriqltd.co.uk/design")]
+
+
+def test_notify_uat_ready_folds_detail_into_the_body_title_text(monkeypatch):
+    """H34: a multi-slug round's extra preview links (`detail`) must reach
+    the push body too, not just the board note — folded into the title
+    text passed to notify_uat_ready rather than a new parameter on it, so
+    that shared service function (other callers may exist) stays
+    untouched."""
+    import app.services.notifications as notifications_module
+
+    calls: list[tuple] = []
+
+    async def fake_notify_uat_ready(item_id, title, link):
+        calls.append((item_id, title, link))
+        return {"apns": {}, "fcm": {}, "webpush": {}}
+
+    monkeypatch.setattr(notifications_module, "notify_uat_ready", fake_notify_uat_ready)
+
+    integrate._notify_uat_ready(
+        "G51",
+        "Two preview rounds",
+        "https://uat.wealth.auriqltd.co.uk/design/another-round",
+        detail="Also: https://uat.wealth.auriqltd.co.uk/design/plan-picker",
+    )
+
+    assert len(calls) == 1
+    item_id, title, link = calls[0]
+    assert item_id == "G51"
+    assert "Two preview rounds" in title
+    assert "Also: https://uat.wealth.auriqltd.co.uk/design/plan-picker" in title
+    assert link == "https://uat.wealth.auriqltd.co.uk/design/another-round"
+
+
+# ---------------------------------------------------------------------
+# H34 — the uat state records the real preview the merged diff added
+# instead of always pointing at the bare design index: _design_round_slugs
+# derives the touched preview directories from the diff,
+# _design_round_example_query best-effort-reads a worked ?state= query for
+# a single one out of frontend/app/design/page.tsx's ROUTES table, and
+# _design_round_preview ties both together with curl verification against
+# the just-rebuilt local UAT, falling back to the plain index on anything
+# that doesn't check out.
+# ---------------------------------------------------------------------
+
+
+def test_design_round_slugs_single_directory():
+    changed = {
+        "frontend/app/design/plan-picker/page.tsx",
+        "frontend/app/design/plan-picker/VariantA.tsx",
+    }
+    assert integrate._design_round_slugs(changed) == ["plan-picker"]
+
+
+def test_design_round_slugs_multiple_directories_sorted_by_path():
+    changed = {
+        "frontend/app/design/plan-picker/page.tsx",
+        "frontend/app/design/another-round/page.tsx",
+    }
+    assert integrate._design_round_slugs(changed) == ["another-round", "plan-picker"]
+
+
+def test_design_round_slugs_none_for_bare_index_files_and_empty_diff():
+    # page.tsx directly under frontend/app/design/ is the index itself,
+    # not a preview directory — it has no path segment after the prefix.
+    assert integrate._design_round_slugs({"frontend/app/design/page.tsx"}) == []
+    assert integrate._design_round_slugs(set()) == []
+
+
+def test_design_round_example_query_reads_first_state_value_for_slug(tmp_path, monkeypatch):
+    design_dir = tmp_path / "frontend" / "app" / "design"
+    design_dir.mkdir(parents=True)
+    (design_dir / "page.tsx").write_text(
+        "const ROUTES: PreviewRoute[] = [\n"
+        "  {\n"
+        '    slug: "plan-picker",\n'
+        '    name: "plan-picker",\n'
+        '    description: "test fixture",\n'
+        "    states: [\n"
+        '      { label: "Few accounts", value: "few" },\n'
+        '      { label: "Many accounts", value: "many" },\n'
+        "    ],\n"
+        "  },\n"
+        "];\n"
+    )
+    monkeypatch.setattr(integrate, "REPO_ROOT", tmp_path)
+
+    assert integrate._design_round_example_query("plan-picker") == "mode=dark&state=few"
+
+
+def test_design_round_example_query_none_for_unknown_slug_or_missing_file(tmp_path, monkeypatch):
+    design_dir = tmp_path / "frontend" / "app" / "design"
+    design_dir.mkdir(parents=True)
+    (design_dir / "page.tsx").write_text("const ROUTES: PreviewRoute[] = [];\n")
+    monkeypatch.setattr(integrate, "REPO_ROOT", tmp_path)
+
+    assert integrate._design_round_example_query("plan-picker") is None  # not in an empty table
+
+    monkeypatch.setattr(integrate, "REPO_ROOT", tmp_path / "does-not-exist")
+    assert integrate._design_round_example_query("plan-picker") is None  # file missing entirely
+
+
+def test_design_round_preview_single_directory_records_verified_slug_link(monkeypatch):
+    """A single design directory in the diff, with no worked example query
+    derivable (kept out of scope of this test) -> the bare slug link, once
+    it curl-verifies against local UAT."""
+    monkeypatch.setattr(integrate, "_design_round_example_query", lambda slug: None)
+    monkeypatch.setattr(integrate, "_http_ok", lambda url: url == "http://127.0.0.1:3030/design/plan-picker")
+
+    link, detail = integrate._design_round_preview({"frontend/app/design/plan-picker/page.tsx"})
+
+    assert link == "https://uat.wealth.auriqltd.co.uk/design/plan-picker"
+    assert detail is None
+
+
+def test_design_round_preview_single_directory_prefers_worked_example_query(monkeypatch):
+    monkeypatch.setattr(integrate, "_design_round_example_query", lambda slug: "mode=dark&state=few")
+    monkeypatch.setattr(
+        integrate,
+        "_http_ok",
+        lambda url: url == "http://127.0.0.1:3030/design/plan-picker?mode=dark&state=few",
+    )
+
+    link, detail = integrate._design_round_preview({"frontend/app/design/plan-picker/page.tsx"})
+
+    assert link == "https://uat.wealth.auriqltd.co.uk/design/plan-picker?mode=dark&state=few"
+    assert detail is None
+
+
+def test_design_round_preview_single_directory_falls_back_to_index_when_link_does_not_resolve(monkeypatch):
+    """The derived slug link is wrong/dead (404, still building, etc.) —
+    a bare, correct index link beats a broken, specific-looking one."""
+    monkeypatch.setattr(integrate, "_design_round_example_query", lambda slug: None)
+    monkeypatch.setattr(integrate, "_http_ok", lambda url: False)
+
+    link, detail = integrate._design_round_preview({"frontend/app/design/plan-picker/page.tsx"})
+
+    assert link == "https://uat.wealth.auriqltd.co.uk/design"
+    assert detail is None
+
+
+def test_design_round_preview_several_directories_records_first_plus_detail(monkeypatch):
+    """More than one preview directory in the round: the board's `link`
+    field only ever holds one URL, so the first (path-sorted) verified
+    slug link is recorded there, and every other verified one is returned
+    as `detail` for the caller to keep as a note and fold into the push
+    body — see H34."""
+    monkeypatch.setattr(integrate, "_http_ok", lambda url: True)
+
+    changed = {
+        "frontend/app/design/another-round/page.tsx",
+        "frontend/app/design/plan-picker/page.tsx",
+    }
+    link, detail = integrate._design_round_preview(changed)
+
+    assert link == "https://uat.wealth.auriqltd.co.uk/design/another-round"
+    assert detail == "Also: https://uat.wealth.auriqltd.co.uk/design/plan-picker"
+
+
+def test_design_round_preview_several_directories_falls_back_to_index_when_none_resolve(monkeypatch):
+    monkeypatch.setattr(integrate, "_http_ok", lambda url: False)
+
+    changed = {
+        "frontend/app/design/another-round/page.tsx",
+        "frontend/app/design/plan-picker/page.tsx",
+    }
+    link, detail = integrate._design_round_preview(changed)
+
+    assert link == "https://uat.wealth.auriqltd.co.uk/design"
+    assert detail is None
+
+
+def test_design_round_preview_none_when_diff_has_no_preview_directory():
+    link, detail = integrate._design_round_preview({"frontend/app/design/page.tsx"})
+    assert link == "https://uat.wealth.auriqltd.co.uk/design"
+    assert detail is None
 
 
 def test_review_items_excludes_uat_and_rejected_only_review_is_a_candidate(monkeypatch):
@@ -501,7 +677,7 @@ def test_integrate_one_lands_in_uat_when_uat_review_flag_is_set(monkeypatch):
     notify_calls: list[tuple] = []
     monkeypatch.setattr(integrate.backlog, "set_uat", lambda item_id, link, actor="claude": (uat_calls.append((item_id, link, actor)), ({}, True))[1])
     monkeypatch.setattr(integrate.backlog, "set_done", lambda *a, **k: (done_calls.append((a, k)), ({}, True))[1])
-    monkeypatch.setattr(integrate, "_notify_uat_ready", lambda item_id, title, link: notify_calls.append((item_id, title, link)))
+    monkeypatch.setattr(integrate, "_notify_uat_ready", lambda item_id, title, link, detail=None: notify_calls.append((item_id, title, link)))
 
     item = {"id": "H31", "branch": "feature-H31-thing", "title": "UAT review swimlane", "uat_review": True}
     result, detail = integrate._integrate_one(item)
@@ -530,7 +706,7 @@ def test_integrate_one_lands_in_uat_via_backstop_heuristic_when_flag_missing(mon
     done_calls: list[tuple] = []
     monkeypatch.setattr(integrate.backlog, "set_uat", lambda item_id, link, actor="claude": (uat_calls.append((item_id, link, actor)), ({}, True))[1])
     monkeypatch.setattr(integrate.backlog, "set_done", lambda *a, **k: (done_calls.append((a, k)), ({}, True))[1])
-    monkeypatch.setattr(integrate, "_notify_uat_ready", lambda item_id, title, link: None)
+    monkeypatch.setattr(integrate, "_notify_uat_ready", lambda item_id, title, link, detail=None: None)
 
     item = {"id": "B19", "branch": "feature-B19-thing", "title": "Plan-picker variants", "uat_review": False}
     result, detail = integrate._integrate_one(item)
@@ -553,7 +729,7 @@ def test_integrate_one_lands_in_done_for_a_normal_merge_not_a_design_round(monke
     done_calls: list[tuple] = []
     monkeypatch.setattr(integrate.backlog, "set_uat", lambda item_id, link, actor="claude": (uat_calls.append((item_id, link, actor)), ({}, True))[1])
     monkeypatch.setattr(integrate.backlog, "set_done", lambda *a, **k: (done_calls.append((a, k)), ({}, True))[1])
-    monkeypatch.setattr(integrate, "_notify_uat_ready", lambda item_id, title, link: None)
+    monkeypatch.setattr(integrate, "_notify_uat_ready", lambda item_id, title, link, detail=None: None)
 
     item = {"id": "G1", "branch": "feature-G1-thing", "title": "Fix a real bug", "uat_review": False}
     result, detail = integrate._integrate_one(item)
@@ -578,7 +754,7 @@ def test_integrate_one_design_round_diff_with_a_production_file_also_touched_is_
     done_calls: list[tuple] = []
     monkeypatch.setattr(integrate.backlog, "set_uat", lambda item_id, link, actor="claude": (uat_calls.append((item_id, link, actor)), ({}, True))[1])
     monkeypatch.setattr(integrate.backlog, "set_done", lambda *a, **k: (done_calls.append((a, k)), ({}, True))[1])
-    monkeypatch.setattr(integrate, "_notify_uat_ready", lambda item_id, title, link: None)
+    monkeypatch.setattr(integrate, "_notify_uat_ready", lambda item_id, title, link, detail=None: None)
 
     item = {"id": "G2", "branch": "feature-G2-thing", "title": "Also touches production", "uat_review": False}
     result, detail = integrate._integrate_one(item)
@@ -588,3 +764,145 @@ def test_integrate_one_design_round_diff_with_a_production_file_also_touched_is_
     assert result == "merged"
     assert uat_calls == []
     assert len(done_calls) == 1
+
+
+# --- H34 end-to-end: _integrate_one wires the derived link (and, for a
+# multi-directory round, the extra detail) into both the board and the
+# notification, without ever being able to abort a merge that already
+# succeeded. ---------------------------------------------------------------
+
+
+def _fake_sh_with_curl_success(url_predicate):
+    """Like `_fake_sh_factory()`, but any `curl` invocation returns 200 for
+    a URL matching `url_predicate` and 404 otherwise — lets a test decide
+    which candidate preview link "resolves" without ever making a real
+    network call."""
+    base = _fake_sh_factory()
+
+    def fake_sh(cmd, cwd=integrate.REPO_ROOT, timeout=integrate.GIT_TIMEOUT):
+        if cmd and cmd[0] == "curl":
+            url = cmd[-1]
+            return (0, "200") if url_predicate(url) else (0, "404")
+        return base(cmd, cwd=cwd, timeout=timeout)
+
+    return fake_sh
+
+
+def test_integrate_one_records_verified_single_slug_link(monkeypatch):
+    _patch_integrate_one_plumbing(monkeypatch, {"frontend/app/design/plan-picker/page.tsx"})
+    monkeypatch.setattr(integrate, "_sh", _fake_sh_with_curl_success(lambda url: "/design/plan-picker" in url))
+    monkeypatch.setattr(integrate, "_design_round_example_query", lambda slug: None)
+
+    uat_calls: list[tuple] = []
+    note_calls: list[tuple] = []
+    notify_calls: list[tuple] = []
+    monkeypatch.setattr(integrate.backlog, "set_uat", lambda item_id, link, actor="claude": (uat_calls.append((item_id, link)), ({}, True))[1])
+    monkeypatch.setattr(integrate.backlog, "set_done", lambda *a, **k: ({}, True))
+    monkeypatch.setattr(integrate.backlog, "add_note", lambda item_id, text, actor="claude": (note_calls.append((item_id, text)), ({}, True))[1])
+    monkeypatch.setattr(
+        integrate, "_notify_uat_ready", lambda item_id, title, link, detail=None: notify_calls.append((item_id, title, link, detail))
+    )
+
+    item = {"id": "H34", "branch": "feature-H34-thing", "title": "Single preview round", "uat_review": True}
+    result, detail = integrate._integrate_one(item)
+
+    print("single design directory in the diff -> result:", result, detail)
+
+    assert result == "merged"
+    assert uat_calls == [("H34", "https://uat.wealth.auriqltd.co.uk/design/plan-picker")]
+    assert note_calls == []  # nothing extra to record for a single-slug round
+    assert notify_calls == [("H34", "Single preview round", "https://uat.wealth.auriqltd.co.uk/design/plan-picker", None)]
+
+
+def test_integrate_one_records_first_slug_and_notes_the_rest_for_several_directories(monkeypatch):
+    changed = {
+        "frontend/app/design/another-round/page.tsx",
+        "frontend/app/design/plan-picker/page.tsx",
+    }
+    _patch_integrate_one_plumbing(monkeypatch, changed)
+    monkeypatch.setattr(
+        integrate,
+        "_sh",
+        _fake_sh_with_curl_success(lambda url: "/design/plan-picker" in url or "/design/another-round" in url),
+    )
+
+    uat_calls: list[tuple] = []
+    note_calls: list[tuple] = []
+    notify_calls: list[tuple] = []
+    monkeypatch.setattr(integrate.backlog, "set_uat", lambda item_id, link, actor="claude": (uat_calls.append((item_id, link)), ({}, True))[1])
+    monkeypatch.setattr(integrate.backlog, "set_done", lambda *a, **k: ({}, True))
+    monkeypatch.setattr(integrate.backlog, "add_note", lambda item_id, text, actor="claude": (note_calls.append((item_id, text)), ({}, True))[1])
+    monkeypatch.setattr(
+        integrate, "_notify_uat_ready", lambda item_id, title, link, detail=None: notify_calls.append((item_id, title, link, detail))
+    )
+
+    item = {"id": "H34", "branch": "feature-H34-thing", "title": "Two preview rounds", "uat_review": True}
+    result, detail = integrate._integrate_one(item)
+
+    print("two design directories in the diff -> result:", result, detail)
+
+    assert result == "merged"
+    # path-sorted: "another-round" precedes "plan-picker"
+    assert uat_calls == [("H34", "https://uat.wealth.auriqltd.co.uk/design/another-round")]
+    assert len(note_calls) == 1
+    assert note_calls[0][0] == "H34"
+    assert "https://uat.wealth.auriqltd.co.uk/design/plan-picker" in note_calls[0][1]
+    assert len(notify_calls) == 1
+    notified_detail = notify_calls[0][3]
+    assert notified_detail is not None
+    assert "https://uat.wealth.auriqltd.co.uk/design/plan-picker" in notified_detail
+
+
+def test_integrate_one_records_index_link_when_no_slug_can_be_derived(monkeypatch):
+    """Only the index file itself changed under frontend/app/design/ (e.g.
+    a merge that only re-shuffled ROUTES) — no preview directory to point
+    at, so the generic index link is recorded, exactly like before H34,
+    and the board/notification still land it rather than nothing."""
+    _patch_integrate_one_plumbing(monkeypatch, {"frontend/app/design/page.tsx"})
+    monkeypatch.setattr(integrate, "_sh", _fake_sh_with_curl_success(lambda url: True))
+
+    uat_calls: list[tuple] = []
+    notify_calls: list[tuple] = []
+    monkeypatch.setattr(integrate.backlog, "set_uat", lambda item_id, link, actor="claude": (uat_calls.append((item_id, link)), ({}, True))[1])
+    monkeypatch.setattr(integrate.backlog, "set_done", lambda *a, **k: ({}, True))
+    monkeypatch.setattr(integrate.backlog, "add_note", lambda *a, **k: ({}, True))
+    monkeypatch.setattr(
+        integrate, "_notify_uat_ready", lambda item_id, title, link, detail=None: notify_calls.append((item_id, title, link, detail))
+    )
+
+    item = {"id": "H34", "branch": "feature-H34-thing", "title": "Index only", "uat_review": True}
+    result, detail = integrate._integrate_one(item)
+
+    print("no preview directory in the diff -> result:", result, detail)
+
+    assert result == "merged"
+    assert uat_calls == [("H34", "https://uat.wealth.auriqltd.co.uk/design")]
+    assert notify_calls == [("H34", "Index only", "https://uat.wealth.auriqltd.co.uk/design", None)]
+
+
+def test_integrate_one_never_aborts_the_merge_when_link_derivation_raises(monkeypatch):
+    """H34's own constraint: the link is cosmetic, the merge is not. If
+    deriving the preview link blows up for any reason, _integrate_one must
+    still report the merge as landed (in uat, with the plain index link),
+    not bubble the exception up and turn a successful merge into a
+    blocked one."""
+    _patch_integrate_one_plumbing(monkeypatch, {"frontend/app/design/plan-picker/page.tsx"})
+
+    def boom(changed):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(integrate, "_design_round_preview", boom)
+
+    uat_calls: list[tuple] = []
+    monkeypatch.setattr(integrate.backlog, "set_uat", lambda item_id, link, actor="claude": (uat_calls.append((item_id, link)), ({}, True))[1])
+    monkeypatch.setattr(integrate.backlog, "set_done", lambda *a, **k: ({}, True))
+    monkeypatch.setattr(integrate, "_notify_uat_ready", lambda item_id, title, link, detail=None: None)
+
+    item = {"id": "H34", "branch": "feature-H34-thing", "title": "Broken derivation", "uat_review": True}
+    result, detail = integrate._integrate_one(item)
+
+    print("link derivation raises -> result:", result, detail)
+
+    assert result == "merged"
+    assert "landed in uat" in detail
+    assert uat_calls == [("H34", "https://uat.wealth.auriqltd.co.uk/design")]
