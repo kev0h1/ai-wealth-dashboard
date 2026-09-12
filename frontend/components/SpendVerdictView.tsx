@@ -59,7 +59,7 @@ const MOVED_ICON: Record<SpendVerdictMoved["kind"], LucideIcon> = {
 // (multiple >= 2.0); below that the badge is neutral slate. Colour is
 // information (DESIGN.md's Red/Amber-Is-Risk sibling rule), not decoration
 // applied to every notable equally regardless of how notable it actually
-// is. Shared by the hero card's badge and every grouped mini-row's badge.
+// is. Shared by every notable row's badge in the single ranked list (G53).
 const AMBER_THRESHOLD = 2.0;
 function paceBadgeClasses(multiple: number): string {
   return multiple >= AMBER_THRESHOLD
@@ -301,17 +301,17 @@ interface NotableCardProps {
   tips: SavingsInsight[];
 }
 
-// ── Shared resolve-in-place state/logic (variant B refactor) ───────────────
+// ── Shared resolve-in-place state/logic (variant B refactor, ported through
+// G53's single-row-template merge) ─────────────────────────────────────────
 // Extracted out of the old monolithic NotableCardView so the SAME logic
-// backs both the hero card (full template, unchanged behaviour) and every
-// grouped mini-row's expanded content (point 8 of the brief — a category
-// collapsing into "Also running warm" must never lose its one-off/new-normal
-// question, since CategorySheet.tsx deliberately does NOT carry that
-// question any more, see the AimBlock comment above; this hook is what
-// keeps that reachable from both surfaces without duplicating the actual
-// network/error handling). Each card instance (hero or a given mini-row)
-// owns its own hook call, exactly as each used to own its own useState —
-// nothing here is shared ACROSS cards, only the logic shape is shared.
+// backs every row in the now-single ranked list (NotableRowView) — a row
+// must never lose its one-off/new-normal question regardless of rank, since
+// CategorySheet.tsx deliberately does NOT carry that question any more (see
+// the AimBlock comment above); this hook is what keeps that reachable from
+// every row without duplicating the actual network/error handling. Each row
+// instance owns its own hook call, exactly as each used to own its own
+// useState — nothing here is shared ACROSS rows, only the logic shape is
+// shared.
 function useNotableResolve({
   category,
   resolved,
@@ -352,39 +352,61 @@ function useNotableResolve({
   return { localResolved, pending, intentError, handleOneOff };
 }
 
-// ── Shared badge — the amber "N× usual" pace pill crossfading (200ms,
-// opacity only) to a neutral "noted · one-off" / "usual updating" chip on
-// resolve. Both spans share one grid cell (col-start-1 row-start-1) so the
-// swap never reflows. Used by the hero card's header AND every mini-row's
-// collapsed header (point 9 of the brief). ─────────────────────────────────
-function ResolveBadge({ multiple, localResolved }: { multiple: number; localResolved: "one_off" | "new_normal" | null }) {
+// ── Shared figure+badge — G53 "one ranked ledger" (Variant A, Kevin's
+// phone review 2026-09-11: "why do we have the £2000 so big" / "the pills
+// still don't look right why can't they be underneath?"). The spend figure
+// and the "N× usual" pace pill now stack, badge under figure, right-aligned,
+// for EVERY notable row — not a hero-only two-row grid next to a mini-row's
+// single inline line (that divergence was the ticket's whole complaint).
+// `lead` (the single top-ranked row) gets the figure at Card/section-title
+// size (700, 16px); every other row stays one step below (600, 14px) — the
+// exact two sizes the pre-G53 hero card already used, just no longer paired
+// with a different row template. The pace pill itself still crossfades
+// (200ms, opacity only) to a neutral "noted · one-off" / "usual updating"
+// chip on resolve, both spans sharing one grid cell (col-start-1 row-start-1)
+// so the swap never reflows.
+function NotableFigureBadge({
+  amount,
+  multiple,
+  localResolved,
+  lead,
+}: {
+  amount: number;
+  multiple: number;
+  localResolved: "one_off" | "new_normal" | null;
+  lead: boolean;
+}) {
+  const figureSize = lead ? "text-base" : "text-sm";
   return (
-    <div className="relative grid justify-items-end flex-shrink-0">
-      <span
-        className={`col-start-1 row-start-1 text-[11px] font-semibold px-2 py-0.5 rounded-full transition-opacity duration-200 ${paceBadgeClasses(multiple)} ${
-          localResolved ? "opacity-0 pointer-events-none" : "opacity-100"
-        }`}
-      >
-        {multiple.toFixed(1)}× usual
-      </span>
-      <span
-        className={`col-start-1 row-start-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 transition-opacity duration-200 ${
-          localResolved ? "opacity-100" : "opacity-0 pointer-events-none"
-        }`}
-        aria-hidden={!localResolved}
-      >
-        {localResolved === "one_off" ? "noted · one-off" : "usual updating"}
-      </span>
-    </div>
+    <span className="flex shrink-0 flex-col items-end gap-1">
+      <span className={`font-mono font-bold tabular-nums text-slate-900 dark:text-slate-100 ${figureSize}`}>{fmt(amount)}</span>
+      <div className="relative grid justify-items-end">
+        <span
+          className={`col-start-1 row-start-1 text-[11px] font-semibold px-2 py-0.5 rounded-full transition-opacity duration-200 ${paceBadgeClasses(multiple)} ${
+            localResolved ? "opacity-0 pointer-events-none" : "opacity-100"
+          }`}
+        >
+          {multiple.toFixed(1)}× usual
+        </span>
+        <span
+          className={`col-start-1 row-start-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 transition-opacity duration-200 ${
+            localResolved ? "opacity-100" : "opacity-0 pointer-events-none"
+          }`}
+          aria-hidden={!localResolved}
+        >
+          {localResolved === "one_off" ? "noted · one-off" : "usual updating"}
+        </span>
+      </div>
+    </span>
   );
 }
 
 // ── Shared body — pace/consequence/cause lines, the "See the N payments"
 // link, the one-off/new-normal question and its buttons, and the aim block.
-// Everything below a card's own header+figure, identical whether that header
-// is the hero card's full-size version or a mini-row's compact one. This is
-// what guarantees a collapsed mini-row's expanded content is the SAME
-// interactive surface as the hero card, not a redrawn subset (point 8). ────
+// Everything below a row's own header+figure, identical for every row in the
+// ranked list regardless of rank (G53's single NotableRowView template).
+// This is what guarantees a collapsed row's expanded content is the SAME
+// interactive surface at every rank, never a redrawn subset (point 8). ────
 function NotableCardBody({
   notable, daysElapsed, onOpenCategory, sym, suggestedAim, checkpoint, onAimChanged, onNewNormalRequest,
   localResolved, pending, intentError, handleOneOff,
@@ -522,92 +544,20 @@ function NotableCardBody({
   );
 }
 
-// ── The hero notable card — full template, reserved for the single
-// highest-multiple notable (point 7 of the brief). Behaviourally identical
-// to the pre-variant-B card; only the badge threshold (ResolveBadge, point
-// 9) and the intent-button/aim-block treatment inside NotableCardBody
-// changed. ───────────────────────────────────────────────────────────────
-function NotableCardView({ notable, colours, daysElapsed, onOpenCategory, onIntent, sym, suggestedAim, checkpoint, onAimChanged, resolved, onResolved, onNewNormalRequest, tips }: NotableCardProps) {
-  const [expanded, setExpanded] = useState(false);
-  const { localResolved, pending, intentError, handleOneOff } = useNotableResolve({
-    category: notable.category,
-    resolved,
-    onIntent,
-    onResolved,
-  });
-  const detailId = `notable-review-${notable.category.replace(/[^a-zA-Z0-9]+/g, "-")}`;
-
-  return (
-    <section className="glass-card-flat rounded-2xl overflow-hidden" aria-label={`${notable.category} needs a look`}>
-      <p className="px-4 pt-3 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Needs a look</p>
-      <div className="flex items-center gap-2.5 px-4 pt-2">
-        <IconChip name={notable.category} colours={colours} size={32} />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">{notable.category}</p>
-          <p className="mt-0.5 text-[11px] text-slate-600 dark:text-slate-400">
-            <MoneyText
-              text={`${notable.payments_count} payment${notable.payments_count === 1 ? "" : "s"} · day ${daysElapsed}${
-                tipSubline(tips) ? ` · ${tipSubline(tips)}` : ""
-              }`}
-            />
-          </p>
-        </div>
-        <div className="flex shrink-0 flex-col items-end gap-1">
-          <p className="font-mono text-base font-bold tabular-nums text-slate-900 dark:text-slate-100">{fmt(notable.spent)}</p>
-          <ResolveBadge multiple={notable.multiple} localResolved={localResolved} />
-        </div>
-      </div>
-      <button
-        type="button"
-        onClick={() => {
-          const next = !expanded;
-          setExpanded(next);
-          if (next) onAimChanged();
-        }}
-        aria-expanded={expanded}
-        aria-controls={detailId}
-        className="mt-3 flex min-h-12 w-full items-center justify-between border-t border-slate-100 px-4 text-left text-[13px] font-semibold text-indigo-700 transition-colors hover:bg-slate-50 active:bg-slate-100 dark:border-white/10 dark:text-indigo-300 dark:hover:bg-white/5 dark:active:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500"
-      >
-        <span>{expanded ? "Close details" : "Review this spending"}</span>
-        {expanded ? <ChevronUp size={16} aria-hidden="true" /> : <ChevronDown size={16} aria-hidden="true" />}
-      </button>
-      {expanded && (
-        <div id={detailId} className="border-t border-slate-100 px-4 pb-4 pt-2 dark:border-white/10">
-          <NotableCardBody
-            notable={notable}
-            daysElapsed={daysElapsed}
-            onOpenCategory={onOpenCategory}
-            sym={sym}
-            suggestedAim={suggestedAim}
-            checkpoint={checkpoint}
-            onAimChanged={onAimChanged}
-            onNewNormalRequest={onNewNormalRequest}
-            localResolved={localResolved}
-            pending={pending}
-            intentError={intentError}
-            handleOneOff={handleOneOff}
-          />
-        </div>
-      )}
-    </section>
-  );
-}
-
-// ── A single mini-row inside the grouped "Also running warm" tile — point 8
-// of the brief. Unlike an earlier throwaway preview (design/spend-verdict-b/
-// NotableCards.tsx's GroupedNotablesTile), a collapsed row here is NOT a
-// dead end: tapping it expands the row IN PLACE to reveal the exact same
-// content the hero card shows (pace line, consequence line, biggest-causes
-// line, "See the N payments", the intent pair, and the aim block), via
-// NotableCardBody above. The one-off/new-normal question lives ONLY on the
-// notable card in production now (deliberately moved off CategorySheet, see
-// the AimBlock comment) — collapsing a category into this tile must never
-// make that question unreachable. Content is always present in the DOM and
-// toggled (grid-template-rows 1fr→0fr + opacity + `inert` on the collapsed
-// region), never conditionally unmounted, matching the collapse convention
-// already established on this file's other grid-rows blocks. ─────────────
-function NotableMiniRow({ notable, colours, daysElapsed, onOpenCategory, onIntent, sym, suggestedAim, checkpoint, onAimChanged, resolved, onResolved, onNewNormalRequest, tips }: NotableCardProps) {
-  const [expanded, setExpanded] = useState(false);
+// ── The single notable row template — G53 "one ranked ledger" (Variant A,
+// approved by Kevin 2026-09-11). Replaces the old hero card (NotableCardView)
+// + grouped mini-row tile (GroupedNotablesTile/NotableMiniRow) split: every
+// notable, hero-ranked or not, is now ONE row using this ONE template, so a
+// figure+badge placement can never diverge between "the top row" and "every
+// other row" again — that divergence was the whole ticket. Severity is
+// carried by rank order, the lead row's quiet eyebrow, and its starting-open
+// state, never by swapping to a differently-shaped card. Tapping anywhere on
+// the row (not a separate "Review this spending" link) is the disclosure
+// control, at a minimum 56px target — the mini-row's existing whole-row-tap
+// convention, now the ONLY convention.
+function NotableRowView({ notable, colours, daysElapsed, onOpenCategory, onIntent, sym, suggestedAim, checkpoint, onAimChanged, resolved, onResolved, onNewNormalRequest, tips, rank }: NotableCardProps & { rank: number }) {
+  const lead = rank === 0;
+  const [expanded, setExpanded] = useState(lead);
   const { localResolved, pending, intentError, handleOneOff } = useNotableResolve({
     category: notable.category,
     resolved,
@@ -615,9 +565,21 @@ function NotableMiniRow({ notable, colours, daysElapsed, onOpenCategory, onInten
     onResolved,
   });
   const detailId = `notable-detail-${notable.category.replace(/[^a-zA-Z0-9]+/g, "-")}`;
+  const s = notable.payments_count === 1 ? "" : "s";
 
   return (
     <div>
+      {/* The lead row gets one whisper eyebrow, not a bigger card or a
+          coloured border — a small leading amber dot on a caption line is
+          the documented signifier for "this row carries the period's
+          biggest impact" (DESIGN.md: "Figures Are Ink; Amber Lives In The
+          Signifier"), not a side accent bar or a differently sized card. */}
+      {lead && (
+        <p className="pl-3 pt-2.5 pb-0.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+          <span className="w-1.5 h-1.5 rounded-full bg-amber-400 dark:bg-amber-300 flex-shrink-0" aria-hidden="true" />
+          Biggest impact this period
+        </p>
+      )}
       <button
         type="button"
         onClick={() => {
@@ -627,23 +589,21 @@ function NotableMiniRow({ notable, colours, daysElapsed, onOpenCategory, onInten
         }}
         aria-expanded={expanded}
         aria-controls={detailId}
-        className="w-full min-h-[44px] flex items-center gap-2.5 pl-4 pr-5 py-2.5 text-left active:bg-slate-50 dark:active:bg-slate-700/30 transition-colors"
+        className="w-full min-h-[56px] flex items-center gap-2.5 pl-3 pr-4 py-2.5 text-left active:bg-slate-50 dark:active:bg-slate-700/30 transition-colors"
       >
-        <IconChip name={notable.category} colours={colours} size={28} />
+        <IconChip name={notable.category} colours={colours} size={lead ? 36 : 28} />
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">{notable.category}</p>
+          <p className="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">{notable.category}</p>
           <p className="mt-0.5 text-[11px] text-slate-600 dark:text-slate-400">
             <MoneyText
-              text={`${notable.payments_count} payment${notable.payments_count === 1 ? "" : "s"} · day ${daysElapsed}${
+              text={`${notable.payments_count} payment${s} · day ${daysElapsed}${
                 tipSubline(tips) ? ` · ${tipSubline(tips)}` : ""
               }`}
             />
           </p>
         </div>
-        <span className="flex-shrink-0 text-sm font-bold text-slate-900 dark:text-slate-100 font-mono tabular-nums">
-          {fmt(notable.spent)}
-        </span>
-        <ResolveBadge multiple={notable.multiple} localResolved={localResolved} />
+        <NotableFigureBadge amount={notable.spent} multiple={notable.multiple} localResolved={localResolved} lead={lead} />
+        {expanded ? <ChevronUp size={15} className="text-slate-400 flex-shrink-0" aria-hidden="true" /> : <ChevronDown size={15} className="text-slate-400 flex-shrink-0" aria-hidden="true" />}
       </button>
       <div
         id={detailId}
@@ -652,7 +612,7 @@ function NotableMiniRow({ notable, colours, daysElapsed, onOpenCategory, onInten
         }`}
         inert={!expanded}
       >
-        <div className="overflow-hidden px-4 pb-3">
+        <div className="overflow-hidden pl-3 pr-4 pb-3">
           <NotableCardBody
             notable={notable}
             daysElapsed={daysElapsed}
@@ -673,65 +633,11 @@ function NotableMiniRow({ notable, colours, daysElapsed, onOpenCategory, onInten
   );
 }
 
-interface GroupedNotablesTileProps {
-  notables: SpendVerdictNotable[];
-  colours: Record<string, string>;
-  daysElapsed: number;
-  onOpenCategory: (category: string) => void;
-  onIntent: (category: string, answer: "one_off" | "new_normal") => Promise<void>;
-  sym: string;
-  signals?: Record<string, { suggested_aim: number | null; checkpoint: Checkpoint | null }>;
-  onAimChanged: () => void;
-  resolved?: Record<string, "one_off" | "new_normal">;
-  onResolved?: (category: string, answer: "one_off" | "new_normal") => void;
-  onNewNormalRequest?: (category: string) => void;
-  /** Full, unfiltered insights list — each mini-row derives its own open
-   *  tips via openTipsFor(n.category, categoryInsights). */
-  categoryInsights?: SavingsInsight[];
-}
-
-// ── The grouped tile — every notable but the single highest-multiple hero
-// collapses into one tile of compact mini-rows (point 7). "Also running
-// warm" names the tile without repeating "notable"/"usual" language already
-// used by the hero card directly above it. ─────────────────────────────────
-function GroupedNotablesTile({ notables, colours, daysElapsed, onOpenCategory, onIntent, sym, signals, onAimChanged, resolved, onResolved, onNewNormalRequest, categoryInsights }: GroupedNotablesTileProps) {
-  if (notables.length === 0) return null;
-  return (
-    <div className="glass-card-flat rounded-2xl overflow-hidden">
-      <p className="px-4 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-        Also running warm
-      </p>
-      <div className="divide-y divide-slate-100 dark:divide-slate-700/50">
-        {notables.map((n) => (
-          <NotableMiniRow
-            key={n.category}
-            notable={n}
-            colours={colours}
-            daysElapsed={daysElapsed}
-            onOpenCategory={onOpenCategory}
-            onIntent={onIntent}
-            sym={sym}
-            suggestedAim={signals?.[n.category]?.suggested_aim ?? null}
-            checkpoint={signals?.[n.category]?.checkpoint ?? null}
-            onAimChanged={onAimChanged}
-            resolved={resolved?.[n.category] ?? null}
-            onResolved={onResolved}
-            onNewNormalRequest={onNewNormalRequest}
-            tips={openTipsFor(n.category, categoryInsights ?? [])}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// Splits notables into { hero, rest } — hero is the single highest-multiple
-// notable (tie-broken by spend, the larger figure leads), everything else
-// collapses into the grouped tile (point 7).
-function splitNotables(notables: SpendVerdictNotable[]): { hero: SpendVerdictNotable | null; rest: SpendVerdictNotable[] } {
-  if (notables.length === 0) return { hero: null, rest: [] };
-  const sorted = [...notables].sort((a, b) => b.multiple - a.multiple || b.spent - a.spent);
-  return { hero: sorted[0], rest: sorted.slice(1) };
+// Ranks notables by multiple descending (tie-broken by spend, the larger
+// figure leads) — the single ranked list's order, replacing the old
+// hero/rest split (splitNotables). Rank 0 is the lead row.
+function rankNotables(notables: SpendVerdictNotable[]): SpendVerdictNotable[] {
+  return [...notables].sort((a, b) => b.multiple - a.multiple || b.spent - a.spent);
 }
 
 // ── The unresolved-merchant ask card (impeccable's Option B) ────────────────
@@ -1231,48 +1137,38 @@ export default function SpendVerdictView({ verdict, colours, onOpenCategory, cat
         <p className="px-1 text-base font-bold leading-snug text-slate-900 dark:text-slate-100"><MoneyText text={reading} /></p>
       )}
 
-      {/* Notable cards — point 7 (variant B): ranked by multiple descending,
-          the single highest renders as the full hero card, everything else
-          collapses into one grouped "Also running warm" tile of expandable
-          mini-rows (GroupedNotablesTile/NotableMiniRow above) rather than
-          every notable rendering the identical full template regardless of
-          severity. */}
+      {/* Notable rows — G53 "one ranked ledger" (Variant A): every notable is
+          one row in one ranked list (NotableRowView above), ranked by
+          multiple descending (rankNotables), the lead row marked only by a
+          quiet eyebrow, not a bigger card or a different template. */}
       {notables.length > 0 && (() => {
-        const { hero, rest } = splitNotables(notables);
+        const ranked = rankNotables(notables);
         return (
-          <div className="mt-3 flex flex-col gap-3">
-            {hero && (
-              <NotableCardView
-                key={hero.category}
-                notable={hero}
-                colours={colours}
-                daysElapsed={daysElapsed}
-                onOpenCategory={onOpenCategory}
-                onIntent={onIntent}
-                sym={sym}
-                suggestedAim={signals?.[hero.category]?.suggested_aim ?? null}
-                checkpoint={signals?.[hero.category]?.checkpoint ?? null}
-                onAimChanged={onAimChanged ?? (() => {})}
-                resolved={resolved?.[hero.category] ?? null}
-                onResolved={onResolved}
-                onNewNormalRequest={onNewNormalRequest}
-                tips={openTipsFor(hero.category, categoryInsights ?? [])}
-              />
-            )}
-            <GroupedNotablesTile
-              notables={rest}
-              colours={colours}
-              daysElapsed={daysElapsed}
-              onOpenCategory={onOpenCategory}
-              onIntent={onIntent}
-              sym={sym}
-              signals={signals}
-              onAimChanged={onAimChanged ?? (() => {})}
-              resolved={resolved}
-              onResolved={onResolved}
-              onNewNormalRequest={onNewNormalRequest}
-              categoryInsights={categoryInsights}
-            />
+          <div className="mt-3">
+            <p className="px-1 pb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              Worth a look
+            </p>
+            <div className="glass-card-flat rounded-2xl overflow-hidden divide-y divide-slate-100 dark:divide-slate-700/50">
+              {ranked.map((n, i) => (
+                <NotableRowView
+                  key={n.category}
+                  notable={n}
+                  colours={colours}
+                  daysElapsed={daysElapsed}
+                  onOpenCategory={onOpenCategory}
+                  onIntent={onIntent}
+                  sym={sym}
+                  suggestedAim={signals?.[n.category]?.suggested_aim ?? null}
+                  checkpoint={signals?.[n.category]?.checkpoint ?? null}
+                  onAimChanged={onAimChanged ?? (() => {})}
+                  resolved={resolved?.[n.category] ?? null}
+                  onResolved={onResolved}
+                  onNewNormalRequest={onNewNormalRequest}
+                  tips={openTipsFor(n.category, categoryInsights ?? [])}
+                  rank={i}
+                />
+              ))}
+            </div>
           </div>
         );
       })()}
