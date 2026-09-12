@@ -1518,11 +1518,32 @@ async def compute_today_items(
     # all_uk_accounts on purpose: that list drives the pooled verdict, the
     # rhythm cash sum and destination lookups, none of which should change.
     # Manual credit cards are never a source.
+    #
+    # G47 (Kevin, 2026-09-13): "an offline account is the same as a
+    # connected account but is just manually synced, that is the
+    # distinction, and an offline account can be current or savings" — so
+    # an offline account must rank WITH its real class (current or
+    # savings), not as a third class ranked last regardless of what it
+    # actually is. `manual_accounts_col` already stores exactly that class
+    # in `account_type` (`{"savings", "current", "credit_card"}` — see
+    # `routers/manual_accounts.py`'s `ACCOUNT_TYPES`); it was only ever
+    # inspected here to skip credit cards, so the account's real class
+    # never reached `class_specs` below and `_is_current`/`_is_savings`
+    # (which read `account_subtype`/`subtype`/`type`) returned false for
+    # every offline account regardless of what it was. Stamping `subtype`
+    # here — the same "SAVINGS"/"TRANSACTION" mapping `routers/accounts.py`'s
+    # `_manual_to_account` already uses for the `/accounts` API response —
+    # lets the existing classifiers (`services/account_kinds.py`, G55) do
+    # the work with no local special-casing. `_offline` stays too: it is
+    # still read by `_overdraft_deficits` (offline accounts are never
+    # destinations) and now doubles as the manual-transfer tie-break in
+    # `_live_class` below.
     offline_accounts: list[dict] = []
     async for _macc in manual_accounts_col.find(
         {"user_id": uid}, {"name": 1, "balance": 1, "account_type": 1}
     ):
-        if (_macc.get("account_type") or "") == "credit_card":
+        _macc_type = _macc.get("account_type") or "savings"
+        if _macc_type == "credit_card":
             continue
         offline_accounts.append({
             "_id": _macc["_id"],
@@ -1531,6 +1552,7 @@ async def compute_today_items(
             "name": _macc.get("name") or "Offline account",
             "balance": float(_macc.get("balance") or 0.0),
             "provider": "Offline",
+            "subtype": "CURRENT" if _macc_type == "current" else "SAVINGS",
         })
     for _oacc in offline_accounts:
         live_balances[_oacc["_str_id"]] = _oacc["balance"]
@@ -1907,12 +1929,21 @@ async def compute_today_items(
                 "headroom": round(_account_headroom(_sid), 2),
             }
 
-    # ── Shared source finder (G42, 2026-09-11; fewest-legs G43, 2026-09-11) ──
+    # ── Shared source finder (G42, 2026-09-11; fewest-legs G43, 2026-09-11;
+    # offline collapsed into its real class G47, 2026-09-13) ──
     # Ranks and picks legs to fund `amount_needed` at `dest_acct`: current
-    # accounts first, then savings, then offline — a savings pot is only ever
-    # reached once every current account is exhausted, because moving money
-    # out of savings is a different decision from moving it between current
-    # accounts and must never be offered first. Each source's headroom is
+    # accounts first, then savings — a savings pot is only ever reached once
+    # every current account is exhausted, because moving money out of
+    # savings is a different decision from moving it between current
+    # accounts and must never be offered first. An offline (manually-synced)
+    # account ranks WITHIN whichever of those two classes it actually is
+    # (G47, Kevin 2026-09-13: "an offline account is the same as a connected
+    # account but is just manually synced, that is the distinction") — it is
+    # no longer a third class reached only after every connected account in
+    # both classes. The manual-transfer cost is real (the user must move the
+    # money by hand) but is expressed as a TIE-BREAK, not a class: at equal
+    # headroom within a class, a connected account sorts before an offline
+    # one — see the `_live_class` sort key below. Each source's headroom is
     # `source_capacity` (already reserves that source's own bills/income and
     # any envelope allocations — see `_source_min_running` above) minus a £10
     # buffer, consumed IN PLACE here so a source's contribution across
@@ -1925,10 +1956,10 @@ async def compute_today_items(
     # caller attaches whatever extra display fields its own card needs.
     #
     # G43 (Kevin, 2026-09-11): "fewer moves is better" — WITHIN the class
-    # ranking above (current before savings before offline, a class only
-    # reached once every earlier class combined can't cover the amount), the
-    # class actually used to fund the move is picked for the FEWEST legs, not
-    # by filling candidates in whatever order they happen to iterate in:
+    # ranking above (current before savings, a class only reached once every
+    # earlier class combined can't cover the amount), the class actually
+    # used to fund the move is picked for the FEWEST legs, not by filling
+    # candidates in whatever order they happen to iterate in:
     #   - if that class's total headroom covers `remaining` on its own, take
     #     the smallest prefix of its candidates (sorted by headroom, highest
     #     first) whose combined headroom reaches `remaining` — size 1 when a
@@ -1936,12 +1967,13 @@ async def compute_today_items(
     #   - if the class falls short even combined, it's exhausted in full (as
     #     before) and the residual carries into the next class down the
     #     ranking, since "nothing else covers it" is what licenses reaching
-    #     into savings/offline at all.
+    #     into savings at all.
     # The highest-headroom-first order is also the tie-break for "more than
     # one single source could do it alone" (owner's rule 4): it's deterministic
-    # (headroom desc, then account id, so two equal-headroom accounts still
-    # resolve the same way every run) and it leaves the healthiest remaining
-    # balance in the source(s) used, since spare headroom is what's left over.
+    # (headroom desc, then connected-before-offline, then account id, so two
+    # equal-headroom accounts still resolve the same way every run) and it
+    # leaves the healthiest remaining balance in the source(s) used, since
+    # spare headroom is what's left over.
     def _find_legs_for_destination(dest_acct: str, amount_needed: float, build_move_map) -> list[dict]:
         legs: list[dict] = []
         used_sources: set[str] = set()   # belt-and-braces: one source per destination
@@ -1965,9 +1997,13 @@ async def compute_today_items(
                     continue
                 out.append((sid, acc, _account_headroom(sid)))
             # Deterministic order: highest headroom first (the account left
-            # with the healthiest remaining balance/most spare capacity),
-            # account id as the final tie-break.
-            out.sort(key=lambda t: (-t[2], t[0]))
+            # with the healthiest remaining balance/most spare capacity);
+            # at EQUAL headroom, a connected account sorts before an offline
+            # one (G47, 2026-09-13) — reaching an offline account needs a
+            # manual transfer, so a connected account of the same headroom
+            # is the easier ask and is preferred, never the other way round;
+            # account id is the final tie-break.
+            out.sort(key=lambda t: (-t[2], _is_offline(t[1]), t[0]))
             return out
 
         def _make_leg(sid, acc, leg_amount):
@@ -1989,12 +2025,20 @@ async def compute_today_items(
         # from the account itself (`_is_current(acc) and not
         # _is_savings(acc)`), so `_live_class` never needs to be told which
         # class it's looking at.
+        #
+        # G47 (Kevin, 2026-09-13): two classes, not three. An offline
+        # account is included in `all_uk_accounts + offline_accounts` for
+        # BOTH class predicates below and ranks by its own real class —
+        # `_is_current`/`_is_savings` read the `subtype` the offline-account
+        # build loop above now stamps from `manual_accounts_col`'s
+        # `account_type`, so an offline current account competes with
+        # current accounts and an offline savings pot with savings, never
+        # as a separate last-resort tier. The manual-transfer cost lives in
+        # `_live_class`'s sort key (connected before offline at equal
+        # headroom), not here.
         class_specs = [
-            (all_uk_accounts, lambda acc: _is_current(acc) and not _is_savings(acc)),
-            (all_uk_accounts, _is_savings),
-            # Offline accounts last: real money, but reaching it means a
-            # manual transfer, so in practice it is the least liquid source.
-            (offline_accounts, lambda acc: True),
+            (all_uk_accounts + offline_accounts, lambda acc: _is_current(acc) and not _is_savings(acc)),
+            (all_uk_accounts + offline_accounts, _is_savings),
         ]
 
         remaining = amount_needed
@@ -2195,7 +2239,8 @@ async def compute_today_items(
 
         # Candidate ranking + leg-picking is the shared `_find_legs_for_
         # destination` (defined in Step 2 above) — current accounts first,
-        # then savings, then offline, each capped by its own remaining
+        # then savings, an offline account ranking within whichever class it
+        # actually is (G47), each capped by its own remaining
         # `source_capacity` (which already reserves that source's own
         # obligations) and consumed in place so a source can't double-spend
         # across destinations. This call site is unchanged behaviourally by
