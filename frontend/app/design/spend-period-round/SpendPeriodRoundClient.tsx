@@ -29,8 +29,14 @@
 //
 // Every variant resolves the inconsistency the same way at its core: there
 // is exactly ONE place in each variant's code where a spend figure meets its
-// pace badge (primitives.tsx's FigureBadge), and that pair is always
-// side-by-side on one line, never a figure over a badge in a two-row grid.
+// pace badge (primitives.tsx's FigureBadge), so the pair can never disagree
+// on placement between the hero row and a mini-row again. G53 (Kevin, on
+// Variant A: "why do we have the £2000 so big" / "the pills still don't
+// look right why can't they be underneath?") moved that one placement back
+// to stacked and right-aligned, matching the shipped hero card's own
+// layout, and brought the lead figure down from Amount-on-card (19px) to
+// Card/section title (16px) so a per-category row reads as a row, not a
+// page headline. Every variant here picked the change up for free.
 //
 // Fixture data only (fixtures.ts) — no API calls, no auth, no production
 // navigation. components/SpendVerdictView.tsx and the rest of the live Spend

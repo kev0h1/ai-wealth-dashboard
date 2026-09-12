@@ -23,9 +23,10 @@
 // How this resolves the ticket's named inconsistency: AttentionCard (below)
 // is the ONE card template used for every notable regardless of rank —
 // bigger padding for the lead card, identical internal layout otherwise —
-// and its figure+badge pair is always inline under the category name,
-// never stacked in a separate row grid. There is only one place in this
-// file where a figure meets a badge.
+// and its figure+badge pair (primitives.tsx's FigureBadge, stacked and
+// right-aligned per G53) is drawn once, the same way, under the category
+// name at every rank. There is only one place in this file where a figure
+// meets a badge.
 
 import { useState } from "react";
 import { ChevronRight, Target } from "lucide-react";
@@ -75,9 +76,10 @@ function AttentionCard({
     >
       <IconChip name={notable.category} colours={colours} size={lead ? 36 : 28} />
       <p className="mt-2 text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">{notable.category}</p>
-      {/* The figure and its pace badge sit on ONE line under the name,
-          exactly like every other row on this page — the actual fix, just
-          applied inside a card shape instead of a list row. */}
+      {/* The figure and its pace badge (stacked, right-aligned per G53) sit
+          under the name, exactly like every other row on this page — the
+          actual fix, just applied inside a card shape instead of a list
+          row. */}
       <div className="mt-1">
         <FigureBadge amount={notable.spent} multiple={notable.multiple} size={lead ? "lead" : "compact"} />
       </div>
