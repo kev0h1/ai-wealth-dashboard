@@ -28,6 +28,7 @@ from app.services.account_kinds import (
     is_credit_card_account,
     is_current_account,
     is_savings_account,
+    manual_account_class,
 )
 from app.services import response_cache
 from app.routers.analytics import compute_and_cache_cashflow
@@ -97,9 +98,18 @@ def _manual_to_account(a: dict, currency: str) -> Account:
             currency=currency, provider="Offline", status="connected", manual=True,
             cover_source_eligible=False,
         )
+    # G65 (2026-09-13): the current/savings call is delegated to
+    # `account_kinds.manual_account_class` — the SAME function
+    # `services/companion.py` calls when it stamps `subtype` on an offline
+    # account for the cover-plan engine — so this API response and the
+    # engine cannot classify a manual account differently by construction.
+    # `TRANSACTION` here (vs. companion.py's `CURRENT`) is this module's own
+    # subtype vocabulary for the `/accounts` response, matching what a live
+    # current account gets; both satisfy `is_current_account`.
+    subtype = "TRANSACTION" if manual_account_class(at) == "CURRENT" else "SAVINGS"
     return Account(
         id=a["_id"], name=a.get("name", "Account"), type="bank",
-        subtype="SAVINGS" if at == "savings" else "TRANSACTION",
+        subtype=subtype,
         balance=a.get("balance", 0), currency=currency,
         provider="Offline", status="connected", manual=True,
         cover_source_eligible=True,
