@@ -32,6 +32,7 @@ from app.services.account_kinds import (
     is_credit_card_account,
     is_current_account as _is_current,
     is_savings_account as _is_savings,
+    manual_account_class,
 )
 from app.services.categories import MOVEMENT
 from app.services.categorisation import series_key
@@ -1531,13 +1532,14 @@ async def compute_today_items(
     # never reached `class_specs` below and `_is_current`/`_is_savings`
     # (which read `account_subtype`/`subtype`/`type`) returned false for
     # every offline account regardless of what it was. Stamping `subtype`
-    # here — the same "SAVINGS"/"TRANSACTION" mapping `routers/accounts.py`'s
-    # `_manual_to_account` already uses for the `/accounts` API response —
-    # lets the existing classifiers (`services/account_kinds.py`, G55) do
-    # the work with no local special-casing. `_offline` stays too: it is
-    # still read by `_overdraft_deficits` (offline accounts are never
-    # destinations) and now doubles as the manual-transfer tie-break in
-    # `_live_class` below.
+    # here via `account_kinds.manual_account_class` (G65, 2026-09-13) —
+    # the SAME function `routers/accounts.py`'s `_manual_to_account` calls
+    # for the `/accounts` API response, so the two cannot disagree about an
+    # offline account's class by construction — lets the existing
+    # classifiers (`services/account_kinds.py`, G55) do the work with no
+    # local special-casing. `_offline` stays too: it is still read by
+    # `_overdraft_deficits` (offline accounts are never destinations) and
+    # now doubles as the manual-transfer tie-break in `_live_class` below.
     offline_accounts: list[dict] = []
     async for _macc in manual_accounts_col.find(
         {"user_id": uid}, {"name": 1, "balance": 1, "account_type": 1}
@@ -1552,7 +1554,7 @@ async def compute_today_items(
             "name": _macc.get("name") or "Offline account",
             "balance": float(_macc.get("balance") or 0.0),
             "provider": "Offline",
-            "subtype": "CURRENT" if _macc_type == "current" else "SAVINGS",
+            "subtype": manual_account_class(_macc_type),
         })
     for _oacc in offline_accounts:
         live_balances[_oacc["_str_id"]] = _oacc["balance"]
