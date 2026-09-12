@@ -44,6 +44,9 @@ A TODO.md item line looks like this:
   choice Kevin cannot see yet — the fix for the B19 mistake, where an item
   was blocked "awaiting Kevin's choice of plan-picker variant" with the
   branch still unpushed and no working link. See "uat state" below.
+- Which skill to run for a design round (`impeccable`, `design-taste-frontend`,
+  `emil-design-eng`, `web-design-guidelines`) is also part of "Design work" in
+  `CLAUDE.md` / `AGENTS.md`; the item's note should record the skill used.
 - `rejected` is what a reviewer sets the moment they find a defect in an
   item sitting in `review`, instead of leaving it there. `review` alone
   is treated as consent to merge by any integrate pass, including one
