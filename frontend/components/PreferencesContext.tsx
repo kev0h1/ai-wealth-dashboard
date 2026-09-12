@@ -2,9 +2,10 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from "react";
 import { api, DebtBurndownOverrides } from "@/lib/api";
 import { PayPeriodConfig, DEFAULT_PAY_PERIOD_CONFIG } from "@/lib/payPeriod";
-import { shouldAcceptPreferencesSnapshot } from "@/lib/preferencesVersion";
 import { createPreferenceSaver } from "@/lib/preferenceSave";
 import { createSerialQueue } from "@/lib/serialQueue";
+import { fetchGatedSnapshot, applyWholeDocument } from "@/lib/preferencesSnapshot";
+import { shouldAcceptPreferencesSnapshot } from "@/lib/preferencesVersion";
 
 export type Region = "UK" | "Kenya";
 
@@ -214,28 +215,42 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   // knows nothing changed. A snapshot that IS accepted updates
   // preferencesVersionRef so a still-slower, even-more-stale response
   // arriving later is rejected too.
+  //
+  // G62: the version-gated FETCH (`fetchGatedSnapshot`) and the
+  // whole-document APPLY (`applyWholeDocument`) are now separate, pure
+  // functions in lib/preferencesSnapshot.ts (see that module's docstring
+  // for the full defect history) rather than one function that always did
+  // both. `fetchPreferencesSnapshot` below is the fetch alone — it never
+  // applies a field to local state — and is what a field saver's own
+  // `reconcile` (further down) calls, so reconciling one field's failed
+  // write can never re-apply a stale snapshot to the other five. Only
+  // `loadPreferences` (next) composes the fetch WITH the whole-document
+  // apply, which is correct for mount hydration (nothing is in flight yet)
+  // and for refreshPreferences()'s other caller (Settings' Penny consent
+  // revoke, which wants a full resync after a write to a different
+  // endpoint).
+  const fetchPreferencesSnapshot = useCallback((): Promise<Record<string, any> | null> => {
+    return fetchGatedSnapshot(() => api.getPreferences(), preferencesVersionRef, shouldAcceptPreferencesSnapshot);
+  }, []);
+
   const loadPreferences = useCallback((): Promise<Record<string, any> | null> => {
-    return api.getPreferences().then(p => {
-      const incomingVersion = (p as any).version;
-      if (!shouldAcceptPreferencesSnapshot(incomingVersion, preferencesVersionRef.current)) {
-        return null;
-      }
-      if (typeof incomingVersion === "number" && Number.isFinite(incomingVersion)) {
-        preferencesVersionRef.current = incomingVersion;
-      }
-      applyHideNetWorth(p.hide_net_worth);
-      if (p.dark_mode !== undefined) applyDarkMode(p.dark_mode);
-      if ((p as any).pay_period_config) applyPayPeriodConfig((p as any).pay_period_config as PayPeriodConfig);
-      if ((p as any).region) applyRegion((p as any).region as Region);
-      if ((p as any).debt_target_months) applyDebtTargetMonths((p as any).debt_target_months as number);
-      if ((p as any).debt_tracking_start) applyDebtTrackingStart((p as any).debt_tracking_start as string);
-      if (Array.isArray(p.spend_widgets)) setSpendWidgetsState(p.spend_widgets as string[]);
-      if (p.home_pinned_widget !== undefined) setHomePinnedWidgetState(p.home_pinned_widget ?? null);
-      if ((p as any).debt_burndown_overrides !== undefined) setDebtBurndownOverridesState((p as any).debt_burndown_overrides ?? null);
-      setRawPrefs(p as any);
-      return p as any;
-    }).catch(() => null);
-  }, [applyHideNetWorth, applyDarkMode, applyPayPeriodConfig, applyRegion, applyDebtTargetMonths, applyDebtTrackingStart]);
+    return fetchPreferencesSnapshot().then(p => {
+      if (!p) return null;
+      applyWholeDocument(p, {
+        applyHideNetWorth,
+        applyDarkMode,
+        applyPayPeriodConfig,
+        applyRegion,
+        applyDebtTargetMonths,
+        applyDebtTrackingStart,
+        setSpendWidgets: setSpendWidgetsState,
+        setHomePinnedWidget: setHomePinnedWidgetState,
+        setDebtBurndownOverrides: setDebtBurndownOverridesState,
+        setRawPrefs,
+      });
+      return p;
+    });
+  }, [fetchPreferencesSnapshot, applyHideNetWorth, applyDarkMode, applyPayPeriodConfig, applyRegion, applyDebtTargetMonths, applyDebtTrackingStart]);
 
   useEffect(() => {
     loadPreferences().finally(() => setPreferencesReady(true));
@@ -287,7 +302,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     apply: applyHideNetWorth,
     save: (v) => api.updatePreferences({ hide_net_worth: v }),
     reconcile: async () => {
-      const server = await refreshPreferences();
+      const server = await fetchPreferencesSnapshot();
       return server ? (server.hide_net_worth as boolean) : undefined;
     },
     noteVersion: notePreferencesVersion,
@@ -300,7 +315,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     apply: applyDarkMode,
     save: (v) => api.updatePreferences({ dark_mode: v }),
     reconcile: async () => {
-      const server = await refreshPreferences();
+      const server = await fetchPreferencesSnapshot();
       return server && server.dark_mode !== undefined ? (server.dark_mode as boolean) : undefined;
     },
     noteVersion: notePreferencesVersion,
@@ -313,7 +328,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     apply: applyPayPeriodConfig,
     save: (v) => api.updatePreferences({ pay_period_config: v } as any),
     reconcile: async () => {
-      const server = await refreshPreferences();
+      const server = await fetchPreferencesSnapshot();
       return server && (server as any).pay_period_config ? ((server as any).pay_period_config as PayPeriodConfig) : undefined;
     },
     noteVersion: notePreferencesVersion,
@@ -326,7 +341,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     apply: applyRegion,
     save: (v) => api.updatePreferences({ region: v } as any),
     reconcile: async () => {
-      const server = await refreshPreferences();
+      const server = await fetchPreferencesSnapshot();
       return server && (server as any).region ? ((server as any).region as Region) : undefined;
     },
     noteVersion: notePreferencesVersion,
@@ -339,7 +354,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     apply: applyDebtTargetMonths,
     save: (v) => api.updatePreferences({ debt_target_months: v } as any),
     reconcile: async () => {
-      const server = await refreshPreferences();
+      const server = await fetchPreferencesSnapshot();
       return server && (server as any).debt_target_months ? ((server as any).debt_target_months as number) : undefined;
     },
     noteVersion: notePreferencesVersion,
@@ -352,7 +367,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     apply: applyDebtTrackingStart,
     save: (v) => api.updatePreferences({ debt_tracking_start: v } as any),
     reconcile: async () => {
-      const server = await refreshPreferences();
+      const server = await fetchPreferencesSnapshot();
       return server && (server as any).debt_tracking_start ? ((server as any).debt_tracking_start as string) : undefined;
     },
     noteVersion: notePreferencesVersion,
