@@ -3065,6 +3065,7 @@ async def compute_today_items(uid: str, payday_preview: bool = False, persist: b
                 "_is_overdraft": bool(u.get("is_overdraft")),
                 "_no_source": True,
                 "_window_end": window_end.isoformat(),
+                "plan_dest": dest_summaries[dest_acct],
             }
             if persist:
                 await companion_items_col.update_one(
@@ -3079,6 +3080,7 @@ async def compute_today_items(uid: str, payday_preview: bool = False, persist: b
                 "body": body,
                 "action": None,
                 "estimated": False,
+                "plan_dest": dest_summaries[dest_acct],
             })
             emitted_dests += 1
             continue

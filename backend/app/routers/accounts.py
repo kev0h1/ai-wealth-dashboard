@@ -62,12 +62,14 @@ def _manual_to_account(a: dict, currency: str) -> Account:
             id=a["_id"], name=a.get("name", "Account"), type="credit_card",
             subtype="CREDIT_CARD", balance=-abs(a.get("balance", 0)),
             currency=currency, provider="Offline", status="connected", manual=True,
+            cover_source_eligible=False,
         )
     return Account(
         id=a["_id"], name=a.get("name", "Account"), type="bank",
         subtype="SAVINGS" if at == "savings" else "TRANSACTION",
         balance=a.get("balance", 0), currency=currency,
         provider="Offline", status="connected", manual=True,
+        cover_source_eligible=True,
     )
 
 
@@ -92,6 +94,7 @@ async def get_accounts(user: dict = Depends(current_user)):
                 balance=a.get("balance", 0), currency=a.get("currency", "KES"),
                 provider=a.get("provider", "Mono"), status=a.get("status", "connected"),
                 connection_id=a.get("connection_id", ""),
+                cover_source_eligible=False,
             ))
         for a in mpesa_accs:
             result.append(Account(
@@ -99,6 +102,7 @@ async def get_accounts(user: dict = Depends(current_user)):
                 balance=a.get("balance", 0), currency=a.get("currency", "KES"),
                 provider=a.get("provider", "MPesa"), status=a.get("status", "connected"),
                 connection_id=a.get("connection_id", ""),
+                cover_source_eligible=False,
             ))
         for a in stmt_accs:
             result.append(Account(
@@ -106,12 +110,20 @@ async def get_accounts(user: dict = Depends(current_user)):
                 balance=a.get("balance", 0), currency=a.get("currency", "KES"),
                 provider=a.get("provider", "BANK"), status=a.get("status", "connected"),
                 connection_id="",
+                cover_source_eligible=False,
             ))
         result.extend(await _manual_accounts(uid, "KES"))
         return await _attach_aprs(uid, result)
 
     docs = await accounts_col.find({"user_id": uid}).to_list(None)
-    result = [Account(id=d["_id"], **{k: v for k, v in d.items() if k != "_id"}) for d in docs]
+    result = [
+        Account(
+            id=d["_id"],
+            **{k: v for k, v in d.items() if k not in {"_id", "cover_source_eligible"}},
+            cover_source_eligible=True,
+        )
+        for d in docs
+    ]
     stmt_accs = await statement_accounts_col.find({"user_id": uid, "region": "UK"}).to_list(None)
     for a in stmt_accs:
         result.append(Account(
@@ -119,6 +131,7 @@ async def get_accounts(user: dict = Depends(current_user)):
             balance=a.get("balance", 0), currency=a.get("currency", "GBP"),
             provider=a.get("provider", "BANK"), status=a.get("status", "connected"),
             connection_id="",
+            cover_source_eligible=False,
         ))
     # Only include Yapily accounts if the user has an active Yapily consent.
     # Stale records from past Yapily connections (consent since deleted) must
@@ -134,6 +147,7 @@ async def get_accounts(user: dict = Depends(current_user)):
                 balance=a.get("balance", 0), currency=a.get("currency", "GBP"),
                 provider=a.get("institution_id", "YAPILY"), status=a.get("status", "connected"),
                 connection_id=a.get("consent", ""),
+                cover_source_eligible=True,
             ))
     result.extend(await _manual_accounts(uid, "GBP"))
     return await _attach_aprs(uid, result)

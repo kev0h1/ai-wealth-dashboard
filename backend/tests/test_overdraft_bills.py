@@ -297,6 +297,23 @@ def test_overdrawn_account_no_bills_unchanged_overdraft_only(monkeypatch):
     assert "It's £30.61 overdrawn right now." in item["body"]
 
 
+def test_no_source_move_still_identifies_the_short_destination(monkeypatch):
+    """Settings needs the destination even when no source leg exists so it
+    can mark that account as short and skipped, rather than offering it as a
+    source toggle. The destination metadata must therefore be present on the
+    emitted API item as well as the persisted companion document."""
+    accounts = [_account("premier", -30.61, name="Premier Current")]
+    bills = [_bill("Account fee", 2, 5.0, "premier", -30.61)]
+
+    items, persisted = _run(monkeypatch, bills, accounts=accounts)
+
+    item = _find(items, "move")
+    assert item is not None
+    assert item["plan_dest"]["account_id"] == "premier"
+    assert item["plan_dest"]["name"] == "Premier Current"
+    assert persisted.docs[0]["plan_dest"]["account_id"] == "premier"
+
+
 def test_credit_card_bill_never_enters_the_walk(monkeypatch):
     """A negative balance on a CREDIT CARD must still be excluded -- only
     the debit-account sign check was wrong, not the credit-card exclusion."""

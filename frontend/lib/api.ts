@@ -3172,6 +3172,7 @@ export const api = {
 
   getToday: (paydayPreview?: boolean) =>
     get<TodayResponse>(paydayPreview ? "/today?payday_preview=1" : "/today"),
+  getCoverPlan: () => get<TodayResponse>("/today/cover-plan"),
   getNeedleSummary: () => get<NeedleSummary>("/needle/summary"),
   getCardsStory: (which: "current" | "last" = "current") => get<CardsStory>(`/cards/story?which=${which}`),
 

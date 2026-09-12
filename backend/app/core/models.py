@@ -18,6 +18,7 @@ class Account(BaseModel):
     sort_code: Optional[str] = None
     connection_id: Optional[str] = None
     manual: bool = False
+    cover_source_eligible: Optional[bool] = None
     logo_url: Optional[str] = None
     bg_colors: Optional[list] = None
     apr: Optional[float] = None

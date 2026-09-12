@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   RotateCcw,
@@ -10,9 +10,7 @@ import {
   Bell,
   BellOff,
   ChevronRight,
-  ChevronDown,
   Moon,
-  Wallet,
   Landmark,
   ShieldCheck,
   Database,
@@ -25,6 +23,7 @@ import PennyMark from "@/components/PennyMark";
 import { useAuth } from "@/components/AuthProvider";
 import { usePreferences } from "@/components/PreferencesContext";
 import { api, NotificationPrefs, Account, IdentitiesResponse, OAuthConnection } from "@/lib/api";
+import type { CompanionItem } from "@/lib/api";
 import ConnectedAssistantsCard, { ConnectionsState } from "@/components/ConnectedAssistantsCard";
 import { usePennyUsage, refreshPennyUsage } from "@/components/PennySheetProvider";
 import YourPlanCard from "@/components/YourPlanCard";
@@ -42,7 +41,7 @@ import BottomNav from "@/components/BottomNav";
 import { useTutorial, TUTORIAL_FLOWS } from "@/components/TutorialContext";
 import Toggle from "@/components/Toggle";
 import ConfirmDialog from "@/components/ConfirmDialog";
-import { accountBrand, BankBadge } from "@/components/AccountMiniCard";
+import CoverPlanSourcesCard, { type LiveCoverRoute } from "@/components/CoverPlanSourcesCard";
 import { useRouter } from "next/navigation";
 
 const INDIGO = "#4f46e5";
@@ -102,6 +101,52 @@ function deriveInitials(name: string | undefined): string {
   const words = trimmed.split(/\s+/).filter(Boolean);
   if (words.length === 1) return words[0].charAt(0).toUpperCase();
   return (words[0].charAt(0) + words[1].charAt(0)).toUpperCase();
+}
+
+type CoverPlanView = {
+  liveRoute: LiveCoverRoute | null;
+  shortAccountIds: Set<string>;
+};
+
+function coverPlanView(items: CompanionItem[]): CoverPlanView {
+  const moves = items.filter((item) => item.type === "move");
+  const shortAccountIds = new Set<string>();
+
+  for (const item of moves) {
+    const destinationId = item.plan_dest?.account_id
+      ?? item.move_map?.to.account_id
+      ?? item.moves?.[0]?.move_map.to.account_id;
+    if (destinationId) shortAccountIds.add(destinationId);
+  }
+
+  const item = moves[0];
+  if (!item) return { liveRoute: null, shortAccountIds };
+
+  const legs = item.moves?.length
+    ? item.moves.map((move) => ({
+        accountId: move.move_map.from.account_id,
+        name: move.move_map.from.name,
+        provider: move.move_map.from.provider,
+        amount: move.amount ?? 0,
+      }))
+    : item.move_map
+      ? [{
+          accountId: item.move_map.from.account_id,
+          name: item.move_map.from.name,
+          provider: item.move_map.from.provider,
+          amount: item.amount ?? 0,
+        }]
+      : [];
+
+  return {
+    liveRoute: {
+      headline: item.headline,
+      detail: [item.body, item.residual].filter(Boolean).join(" "),
+      legs,
+      risk: item.covered === false || legs.length === 0,
+    },
+    shortAccountIds,
+  };
 }
 
 export default function SettingsPage() {
@@ -326,10 +371,19 @@ export default function SettingsPage() {
   const [coverAccounts, setCoverAccounts] = useState<Account[]>([]);
   const [accountsLoaded, setAccountsLoaded] = useState(false);
   const [excludedIds, setExcludedIds] = useState<Set<string>>(new Set());
-  const [coverOpen, setCoverOpen] = useState(false);
+  const [coverPlan, setCoverPlan] = useState<CoverPlanView>({
+    liveRoute: null,
+    shortAccountIds: new Set(),
+  });
+  const refreshCoverPlan = useCallback(() => {
+    api.getCoverPlan()
+      .then((response) => setCoverPlan(coverPlanView(response.items)))
+      .catch(() => {});
+  }, []);
   useEffect(() => {
-    getAccountsCached().then(accs => {
+    getAccountsCached(true).then(accs => {
       const eligible = accs.filter(acc => {
+        if (acc.cover_source_eligible === false) return false;
         const type = (acc.type || "").toLowerCase();
         const sub = (acc.subtype || "").toLowerCase();
         if (type.includes("credit") || sub.includes("credit")) return false;
@@ -341,6 +395,9 @@ export default function SettingsPage() {
       setAccountsLoaded(true);
     });
   }, []);
+  useEffect(() => {
+    refreshCoverPlan();
+  }, [refreshCoverPlan]);
   useEffect(() => {
     if (rawPrefs === null) return;
     const ids = rawPrefs.cover_plan_excluded_accounts ?? [];
@@ -431,6 +488,7 @@ export default function SettingsPage() {
   }
 
   function toggleCoverAccount(id: string) {
+    setCoverPlan(current => ({ ...current, liveRoute: null }));
     setExcludedIds(prev => {
       const next = new Set(prev);
       if (next.has(id)) {
@@ -438,7 +496,9 @@ export default function SettingsPage() {
       } else {
         next.add(id);
       }
-      api.updatePreferences({ cover_plan_excluded_accounts: [...next] }).catch(() => {});
+      api.updatePreferences({ cover_plan_excluded_accounts: [...next] })
+        .then(refreshCoverPlan)
+        .catch(() => {});
       return next;
     });
   }
@@ -1021,71 +1081,18 @@ export default function SettingsPage() {
         </div>
 
         {/* ── Where money can come from ── */}
-        {coverAccounts.length > 0 && (() => {
-          const total = coverAccounts.length;
-          const allowedCount = coverAccounts.filter(a => !excludedIds.has(a.id)).length;
-          const summaryText = allowedCount === total
-            ? `Any of your ${total} ${total === 1 ? "account" : "accounts"}`
-            : `${allowedCount} of ${total} ${total === 1 ? "account" : "accounts"}`;
-          const bodyId = "cover-accounts-body";
-          return (
-            <div id={SECTION_ACCOUNTS} className="glass-card rounded-2xl overflow-hidden scroll-mt-4">
-              <button
-                type="button"
-                aria-expanded={coverOpen}
-                aria-controls={bodyId}
-                onClick={() => setCoverOpen(o => !o)}
-                className={`w-full text-left flex items-center gap-3 px-4 py-3 min-h-[44px] active:opacity-70${coverOpen ? " border-b border-slate-100 dark:border-slate-700" : ""}`}
-              >
-                <IconChip icon={Wallet} hex={INDIGO} />
-                <span className="flex-1 min-w-0">
-                  <span className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Where money can come from</span>
-                  <span className="block text-sm font-medium text-slate-800 dark:text-slate-100 mt-0.5">{summaryText}</span>
-                </span>
-                <ChevronDown
-                  size={16}
-                  className={`text-slate-400 dark:text-slate-500 flex-shrink-0 transition-transform${coverOpen ? " rotate-180" : ""}`}
-                />
-              </button>
-              {coverOpen && (
-                <div id={bodyId}>
-                  <p className="px-4 pt-3 text-[13px] text-slate-500 dark:text-slate-400 leading-snug">
-                    By default Penny can move from any of your accounts. Turn one off and it will never be suggested.
-                  </p>
-                  <div className="mt-2 divide-y divide-slate-100 dark:divide-slate-700/60">
-                    {coverAccounts.map(acc => {
-                      const brand = accountBrand(acc);
-                      const allowed = !excludedIds.has(acc.id);
-                      return (
-                        <div key={acc.id} className="flex items-center gap-3 px-4 py-3 min-h-[44px]">
-                          <BankBadge
-                            logoSrc={brand.logoSrc}
-                            initials={brand.initials}
-                            altText={brand.label}
-                            brandBg={brand.background}
-                          />
-                          <span className="flex-1 min-w-0">
-                            <span className="block text-sm font-medium text-slate-900 dark:text-slate-100 truncate">{acc.name}</span>
-                            {(acc.manual || acc.provider) && (
-                              <span className="block text-xs text-slate-400 dark:text-slate-500 truncate">
-                                {acc.manual ? "Offline account" : acc.provider}
-                              </span>
-                            )}
-                          </span>
-                          <Toggle
-                            checked={allowed}
-                            onChange={() => toggleCoverAccount(acc.id)}
-                            label={`Allow transfers from ${acc.name}`}
-                          />
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
-          );
-        })()}
+        {coverAccounts.length > 0 && (
+          <div id={SECTION_ACCOUNTS} className="scroll-mt-4">
+            <CoverPlanSourcesCard
+              accounts={coverAccounts}
+              excludedIds={excludedIds}
+              liveRoute={coverPlan.liveRoute}
+              shortAccountIds={coverPlan.shortAccountIds}
+              hideAmounts={rawPrefs === null || Boolean(rawPrefs.hide_net_worth)}
+              onToggle={toggleCoverAccount}
+            />
+          </div>
+        )}
 
         {/* ── Financial profile ── */}
         <div className="glass-card rounded-2xl overflow-hidden">

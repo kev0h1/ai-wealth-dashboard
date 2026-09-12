@@ -39,6 +39,19 @@ async def get_today(payday_preview: int = 0, user: dict = Depends(current_user))
     return payload
 
 
+@router.get("/today/cover-plan")
+async def get_cover_plan(user: dict = Depends(current_user)):
+    """Return the current cover-plan cards without advancing Home state.
+
+    Settings uses this after a source exclusion changes. The companion
+    engine's read-only mode preserves the exact source finder and returned
+    route while preventing item lifecycle updates and one-time celebration
+    stamps from being consumed outside Home.
+    """
+    items = await compute_today_items(uid=user["email"], persist=False)
+    return {"status": "ok", "items": [item for item in items if item.get("type") == "move"]}
+
+
 @router.post("/today/dismiss")
 async def dismiss_today_item(body: dict, user: dict = Depends(current_user)):
     uid = user["email"]
