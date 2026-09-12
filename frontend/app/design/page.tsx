@@ -22,6 +22,17 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "cover-plan-sources-scale",
+    name: "cover-plan-sources-scale",
+    description:
+      "G51 cover-plan safeguards scale round (Kevin 2026-09-12, rejecting the shipped G46 card): the shipped card renders every account in every class as an always-expanded toggle row with no search, collapse or limit, running several screens on the owner's real 17-account estate (4 current including 1 short and 1 manual, 13 savings including 1 manual and 4 empty pots) · A collapsed classes, exceptions inline: each class folds to one line with an allowed count, currently-excluded accounts show as a small note without opening anything, search and an empty-pots fold appear only once a class is opened / B search-first exceptions manager: ranking becomes a static two-step strip, the list starts showing only turned-off and skipped accounts, search is the one door into all 17 / C drill-in, one screen at a time: the summary shows only two tappable class rows, tapping one swaps the whole card body for that class's own search-and-list screen with a back arrow · every variant keeps the two-class waterfall (current before savings, a class reached only when the earlier one combined cannot cover the amount, highest headroom first, fewest legs preferred, a £10 buffer, short accounts skipped), keeps offline as a 'Manual transfer' attribute on an account of its real class rather than its own rung, fixes the G49 label sizing (uppercase, tracked) and the G50 skip derivation (from the account's own headroom/short state, not from live move cards) · fixture data only, no API calls · ?variant=a|b|c&state=all|savings|short&mode=light|dark",
+    states: [
+      { label: "Current accounts cover it", value: "all" },
+      { label: "Savings enters", value: "savings" },
+      { label: "Everything off", value: "short" },
+    ],
+  },
+  {
     slug: "cover-plan-sources",
     name: "cover-plan-sources",
     description:
