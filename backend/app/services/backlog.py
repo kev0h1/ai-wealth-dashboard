@@ -890,6 +890,145 @@ def load(todo_path: Optional[Path] = None, compliance_path: Optional[Path] = Non
 
 
 # --------------------------------------------------------------------------
+# Board lint / repair (H38)
+# --------------------------------------------------------------------------
+#
+# Before H27 sanitised `set_state`'s blocked/rejected reason to one line
+# (see `one_line_reason` above), `scripts/integrate.py` briefly wrote a raw,
+# multi-line pytest run straight into a `[state: blocked: ...]` reason. That
+# left two kinds of purely cosmetic damage behind in the lines it touched —
+# every affected item's checkbox (done/not-done) is untouched, so
+# `TodoDoc.parse` already reports the right workflow state for each one —
+# but it is real noise on `/ops/go-live`, which renders `TodoDoc.lines`
+# close to verbatim:
+#
+#   1. Free-standing pytest progress rows: a bare dot-run with a trailing
+#      percentage (e.g. "........... [ 14%]"), or a dot-run immediately
+#      followed by the `]` that happened to close the corrupted tag plus
+#      whatever tag came after it on the original single logical line
+#      (e.g. "...........] [unblocks: Q2, Q9]"). These match none of
+#      SECTION_HEADING_RE, ITEM_RE or NOTE_RE, so `TodoDoc.parse` already
+#      skips them outright as unrecognised lines — they are inert litter,
+#      not live data the model reads.
+#   2. An item's own line left holding a `[state: blocked: ...` fragment
+#      that was never closed with a `]` on that physical line (the closing
+#      bracket, if there ever was one, landed on one of the free-standing
+#      rows above instead). STATE_RE requires the closing `]` on the same
+#      line to match at all, so this fragment is never read as the item's
+#      state either — once OWNER_RE/PRIORITY_RE/etc. strip out everything
+#      they recognise, it is exactly what is left over in `item.text`,
+#      rendered as bogus extra description text.
+#
+# PYTEST_NOISE_RE is deliberately narrow — a dot-run plus a percentage, or
+# a dot-run plus a closing bracket — rather than "any line starting with a
+# few dots", so the false-positive risk against ordinary prose is
+# effectively zero.
+PYTEST_NOISE_RE = re.compile(r"^\.{5,}(?:\s*\[\s*\d+%\]|\].*)$")
+
+
+@dataclass
+class LintFinding:
+    kind: str  # "noise_line" | "dangling_state_tag"
+    line_no: int  # 0-indexed into TodoDoc.lines
+    item_id: Optional[str]
+    original: str
+    replacement: Optional[str]  # None means "delete this line outright"
+
+    def to_dict(self) -> dict:
+        return {
+            "kind": self.kind,
+            "line_no": self.line_no,
+            "item_id": self.item_id,
+            "original": self.original,
+            "replacement": self.replacement,
+        }
+
+
+def lint_todo(doc: "TodoDoc") -> list[LintFinding]:
+    """Scan `doc.lines` for H38-shaped damage (see module notes above)
+    without changing anything. Every other line — headings, well-formed
+    items, notes, ordinary prose — is left alone; this only ever flags a
+    line matching `PYTEST_NOISE_RE`, or an item line whose tail opens a
+    `[state: ...` tag it never closes."""
+    findings: list[LintFinding] = []
+    for i, line in enumerate(doc.lines):
+        if PYTEST_NOISE_RE.match(line):
+            findings.append(LintFinding("noise_line", i, None, line, None))
+            continue
+        m = ITEM_RE.match(line)
+        if not m:
+            continue
+        tail = m.group("tail")
+        idx = tail.find("[state:")
+        if idx == -1 or "]" in tail[idx:]:
+            continue  # no state tag on this line, or a normal, properly closed one
+        # Dangling: a `[state: ...` opened but never closed on this physical
+        # line. Keep everything before it, and re-attach a trailing
+        # `(done ...)` suffix if the corruption landed in front of one (as
+        # it did for both A17 and F16 — the item was ticked done after the
+        # bad reason was written, and `_rewrite` only ever touches this one
+        # line, so the done-suffix was appended right after the dangling
+        # fragment rather than replacing it).
+        before = tail[:idx].rstrip()
+        done_idx = tail.find("(done", idx)
+        if done_idx != -1:
+            after = tail[done_idx:]
+            new_tail = f"{before} {after}" if before else f" {after}"
+        else:
+            new_tail = before
+        new_line = m.group("prefix") + new_tail
+        findings.append(LintFinding("dangling_state_tag", i, m.group("id"), line, new_line))
+    return findings
+
+
+def repair_todo(
+    apply: bool = False,
+    actor: str = "claude",
+    *,
+    todo_path: Optional[Path] = None,
+    repo_root: Optional[Path] = None,
+) -> tuple[list[dict], bool]:
+    """Lint TODO.md for H38-shaped damage and, only when `apply` is True,
+    fix it: delete the free-standing noise lines `lint_todo` flags, and
+    replace any item line carrying a dangling `[state: ...` fragment with
+    its cleaned-up version. Never touches an item's title, owner,
+    priority, done marker, or an existing well-formed note or state tag —
+    `lint_todo` never flags those.
+
+    A dry run (`apply=False`, the CLI default) only reads the file, taking
+    no lock and making no commit, like every other read path in this
+    module. A real repair takes the same `.backlog.lock` and produces the
+    same kind of best-effort git commit as every other board write (see
+    the module docstring and `_git_commit_and_push`)."""
+    resolved_path = todo_path or _todo_path()
+    resolved_root = repo_root or _repo_root()
+    if not apply:
+        doc = TodoDoc.load(resolved_path)
+        findings = lint_todo(doc)
+        return [f.to_dict() for f in findings], False
+
+    with _locked(resolved_root):
+        doc = TodoDoc.load(resolved_path)
+        findings = lint_todo(doc)
+        if not findings:
+            return [], False
+        # Apply from the bottom of the file up so deleting a noise line
+        # never shifts the line_no of a finding still to be applied.
+        for f in sorted(findings, key=lambda f: f.line_no, reverse=True):
+            if f.replacement is None:
+                del doc.lines[f.line_no]
+            else:
+                doc.lines[f.line_no] = f.replacement
+        doc.save(resolved_path)
+    committed = _git_commit_and_push(
+        [resolved_path],
+        f"backlog: repaired {len(findings)} malformed line(s) by {actor}",
+        resolved_root,
+    )
+    return [f.to_dict() for f in findings], committed
+
+
+# --------------------------------------------------------------------------
 # Public mutators — each locks, loads, mutates, saves, then best-effort
 # commits and pushes just the one file it touched.
 # --------------------------------------------------------------------------
