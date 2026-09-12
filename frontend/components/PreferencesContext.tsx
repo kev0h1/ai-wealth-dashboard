@@ -2,9 +2,10 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from "react";
 import { api, DebtBurndownOverrides } from "@/lib/api";
 import { PayPeriodConfig, DEFAULT_PAY_PERIOD_CONFIG } from "@/lib/payPeriod";
-import { shouldAcceptPreferencesSnapshot } from "@/lib/preferencesVersion";
 import { createPreferenceSaver } from "@/lib/preferenceSave";
 import { createSerialQueue } from "@/lib/serialQueue";
+import { fetchGatedSnapshot, applyWholeDocument, makeFieldReconcile } from "@/lib/preferencesSnapshot";
+import { shouldAcceptPreferencesSnapshot } from "@/lib/preferencesVersion";
 
 export type Region = "UK" | "Kenya";
 
@@ -55,18 +56,27 @@ interface PrefsCtx extends Prefs {
   setHomePinnedWidget: (v: string | null) => void;
   setDebtBurndownOverrides: (v: DebtBurndownOverrides | null) => void;
   /** Re-runs the same GET /preferences fetch the mount effect uses and
-   * re-applies every field, including `rawPrefs`. For callers (B13:
-   * Settings' Penny "Turn off" control) that just made a server-side
-   * preferences change through a DIFFERENT endpoint (DELETE
-   * /penny/agent-consent, not PATCH /preferences) and need the locally
-   * cached `rawPrefs` to catch up rather than issuing a second bespoke
-   * fetch, or (G45, and now G60) a caller reconciling after a failed
-   * direct api.updatePreferences() call that needs the server's ACTUAL
-   * current value, not a locally-captured pre-write snapshot. Returns the
-   * accepted snapshot (the same shape as api.getPreferences()), or null if
-   * the fetch failed or was discarded as stale by the version-freshness
-   * rule below — a null return means "nothing changed, rawPrefs is still
-   * whatever it was", not "the server has no data". */
+   * re-applies every field, including `rawPrefs`. FOUR callers today, all
+   * in app/settings/SettingsPage.tsx: B13's Penny "Turn off" control (~line
+   * 379), which just made a server-side preferences change through a
+   * DIFFERENT endpoint (DELETE /penny/agent-consent, not PATCH
+   * /preferences) and needs the locally cached `rawPrefs` to catch up
+   * rather than issuing a second bespoke fetch; and the failure-path
+   * reconciles of the child benefit (G58, ~line 730), cover-plan (G45,
+   * ~line 790) and notification prefs (G52, ~line 841) toggles, each
+   * reconciling a field THIS CONTEXT DOES NOT OWN after its own failed
+   * direct api.updatePreferences() call, needing the server's ACTUAL
+   * current value rather than a locally-captured pre-write snapshot. Every
+   * one of the four applies the whole document (see loadPreferences'
+   * skip-in-flight-fields guard, G62 review #1) rather than the scoped
+   * per-field fetch the six fields this context owns use for their OWN
+   * reconciles — that is deliberate, and safe, precisely because that
+   * guard exists: it protects against exactly what a caller here could
+   * otherwise stomp. Returns the accepted snapshot (the same shape as
+   * api.getPreferences()), or null if the fetch failed or was discarded as
+   * stale by the version-freshness rule below — a null return means
+   * "nothing changed, rawPrefs is still whatever it was", not "the server
+   * has no data". */
   refreshPreferences: () => Promise<Record<string, any> | null>;
   /** Registers a version a caller already knows about — typically the
    * `version` field on the response of a DIRECT api.updatePreferences()
@@ -196,15 +206,17 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // Shared by the mount effect below, refreshPreferences() (B13), and now
-  // every field's failure-path reconciliation (G60, via lib/preferenceSave.ts's
-  // `reconcile`): ONE place that fetches GET /preferences and applies every
-  // field, so a caller that changed a preference through a different
-  // endpoint (DELETE /penny/agent-consent, not PATCH /preferences), or one
-  // reconciling after a failed write, can bring this context's cached state
-  // back in sync without duplicating the field-by-field apply logic.
-  // useCallback with no deps: every apply* wrapper above is itself a stable
-  // useCallback, so this identity never needs to change.
+  // Shared by the mount effect below, refreshPreferences() (its four
+  // callers: B13's Penny consent revoke, and the failure-path reconciles of
+  // SettingsPage.tsx's child benefit/G58, cover-plan/G45 and notification
+  // prefs/G52 toggles), and each of the six fields' own failure-path
+  // reconciliation below: ONE place that fetches GET /preferences and
+  // applies every field, so a caller that changed a preference through a
+  // different endpoint (DELETE /penny/agent-consent, not PATCH
+  // /preferences), or one reconciling after a failed direct
+  // api.updatePreferences() call for a field this context does not itself
+  // own, can bring this context's cached state back in sync without
+  // duplicating the field-by-field apply logic.
   //
   // G45 (second re-review): every fetched snapshot is checked against
   // shouldAcceptPreferencesSnapshot() before anything is applied. A stale
@@ -214,46 +226,42 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   // knows nothing changed. A snapshot that IS accepted updates
   // preferencesVersionRef so a still-slower, even-more-stale response
   // arriving later is rejected too.
-  const loadPreferences = useCallback((): Promise<Record<string, any> | null> => {
-    return api.getPreferences().then(p => {
-      const incomingVersion = (p as any).version;
-      if (!shouldAcceptPreferencesSnapshot(incomingVersion, preferencesVersionRef.current)) {
-        return null;
-      }
-      if (typeof incomingVersion === "number" && Number.isFinite(incomingVersion)) {
-        preferencesVersionRef.current = incomingVersion;
-      }
-      applyHideNetWorth(p.hide_net_worth);
-      if (p.dark_mode !== undefined) applyDarkMode(p.dark_mode);
-      if ((p as any).pay_period_config) applyPayPeriodConfig((p as any).pay_period_config as PayPeriodConfig);
-      if ((p as any).region) applyRegion((p as any).region as Region);
-      if ((p as any).debt_target_months) applyDebtTargetMonths((p as any).debt_target_months as number);
-      if ((p as any).debt_tracking_start) applyDebtTrackingStart((p as any).debt_tracking_start as string);
-      if (Array.isArray(p.spend_widgets)) setSpendWidgetsState(p.spend_widgets as string[]);
-      if (p.home_pinned_widget !== undefined) setHomePinnedWidgetState(p.home_pinned_widget ?? null);
-      if ((p as any).debt_burndown_overrides !== undefined) setDebtBurndownOverridesState((p as any).debt_burndown_overrides ?? null);
-      setRawPrefs(p as any);
-      return p as any;
-    }).catch(() => null);
-  }, [applyHideNetWorth, applyDarkMode, applyPayPeriodConfig, applyRegion, applyDebtTargetMonths, applyDebtTrackingStart]);
-
-  useEffect(() => {
-    loadPreferences().finally(() => setPreferencesReady(true));
-  }, [loadPreferences]);
-
-  const refreshPreferences = useCallback(() => loadPreferences(), [loadPreferences]);
-
-  useEffect(() => {
-    if (darkMode) {
-      document.documentElement.classList.add("dark");
-    } else {
-      document.documentElement.classList.remove("dark");
-    }
-  }, [darkMode]);
+  //
+  // G62 (first pass): the version-gated FETCH (`fetchGatedSnapshot`) and
+  // the whole-document APPLY (`applyWholeDocument`) are now separate, pure
+  // functions in lib/preferencesSnapshot.ts (see that module's docstring
+  // for the full defect history) rather than one function that always did
+  // both. `fetchPreferencesSnapshot` below is the fetch alone — it never
+  // applies a field to local state — and each of the six fields' own
+  // `reconcile` (via `makeFieldReconcile`, further down) calls it directly,
+  // so reconciling one field's failed write can never re-apply a stale
+  // snapshot to the other five.
+  //
+  // G62 (review #1): that first pass only rewired the six fields' OWN
+  // reconciles. `refreshPreferences()` still composes the fetch WITH
+  // `applyWholeDocument`, and its four OTHER callers (listed above) each
+  // reconcile a field this context doesn't own, so none of them were
+  // touched by that rewiring — yet every one of them can still land
+  // mid-save on one of THIS context's six fields and stomp it, the exact
+  // same defect through a different door. The fix lives entirely here,
+  // inside loadPreferences, rather than at any of those four call sites:
+  // `applyWholeDocument` is called below with a `skip` map built from each
+  // saver's own `isSaving` flag (`lib/preferenceSave.ts`'s
+  // `createPreferenceSaver` already exposes it for exactly this), so a
+  // field mid-save is left untouched by ANY whole-document apply,
+  // regardless of who triggered it — SettingsPage.tsx needed no changes at
+  // all. See lib/preferencesSnapshot.ts's own docstring for why this is
+  // not the busy-counter approach G45 rejected.
+  const fetchPreferencesSnapshot = useCallback((): Promise<Record<string, any> | null> => {
+    return fetchGatedSnapshot(() => api.getPreferences(), preferencesVersionRef, shouldAcceptPreferencesSnapshot);
+  }, []);
 
   // G60: sets/clears preferencesSaveError for exactly one field, leaving any
   // other field's currently-shown message alone (see PreferencesSaveError's
   // own docstring above for why this is a single slot rather than a map).
+  // Defined before the six savers below (which close over it) rather than
+  // after, so it and they can all sit ahead of loadPreferences, which in
+  // turn needs each saver's `isSaving` flag (see the `skip` map below).
   const makeFieldErrorHandler = useCallback((field: string) => (message: string | null) => {
     setPreferencesSaveError(prev => {
       if (message === null) return prev && prev.field === field ? null : prev;
@@ -271,25 +279,30 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   // shape G45/G52/G58 established for cover-plan exclusions, notification
   // prefs and child benefit: one write in flight per field (its own
   // serialQueue), `previous` read from the ref above rather than a value
-  // closed over here, and on failure a reconcile-from-server (this
-  // context's own refreshPreferences/loadPreferences) with a fall back to
-  // `previous` only when the server has nothing to offer either.
+  // closed over here, and on failure a reconcile-from-server with a fall
+  // back to `previous` only when the server has nothing to offer either.
+  //
+  // G62: `reconcile` for all six is built by `makeFieldReconcile` (in
+  // lib/preferencesSnapshot.ts) instead of each hand-writing a near-
+  // identical "fetch, then pull out my one key" body — see that function's
+  // own docstring; frontend/scripts/preferences-snapshot.test.mjs drives
+  // this exact function, not a reimplementation of it.
   //
   // Each saver is created exactly once (useRef) and only ever closes over
-  // stable identities — the apply* wrappers and notePreferencesVersion are
-  // useCallback with empty deps, refreshPreferences is useCallback keyed
-  // only on the (itself stable) loadPreferences, and makeFieldErrorHandler
-  // is useCallback with empty deps — so there is no staleness risk from
-  // creating it once.
+  // stable identities — the apply* wrappers, notePreferencesVersion,
+  // fetchPreferencesSnapshot and makeFieldErrorHandler are all useCallback
+  // with empty (or otherwise stable) deps — so there is no staleness risk
+  // from creating it once. Defined here, BEFORE loadPreferences, precisely
+  // so loadPreferences can read each saver's `isSaving` flag when it builds
+  // the `skip` map it passes to applyWholeDocument (see loadPreferences'
+  // own comment below, and the G62 review #1 note above
+  // fetchPreferencesSnapshot).
   const hideNetWorthSaver = useRef(createPreferenceSaver<boolean>({
     queue: createSerialQueue(),
     getCurrent: () => hideNetWorthRef.current,
     apply: applyHideNetWorth,
     save: (v) => api.updatePreferences({ hide_net_worth: v }),
-    reconcile: async () => {
-      const server = await refreshPreferences();
-      return server ? (server.hide_net_worth as boolean) : undefined;
-    },
+    reconcile: makeFieldReconcile<boolean>(fetchPreferencesSnapshot, "hide_net_worth"),
     noteVersion: notePreferencesVersion,
     onError: makeFieldErrorHandler("hide_net_worth"),
   })).current;
@@ -299,10 +312,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     getCurrent: () => darkModeRef.current,
     apply: applyDarkMode,
     save: (v) => api.updatePreferences({ dark_mode: v }),
-    reconcile: async () => {
-      const server = await refreshPreferences();
-      return server && server.dark_mode !== undefined ? (server.dark_mode as boolean) : undefined;
-    },
+    reconcile: makeFieldReconcile<boolean>(fetchPreferencesSnapshot, "dark_mode"),
     noteVersion: notePreferencesVersion,
     onError: makeFieldErrorHandler("dark_mode"),
   })).current;
@@ -312,10 +322,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     getCurrent: () => payPeriodConfigRef.current,
     apply: applyPayPeriodConfig,
     save: (v) => api.updatePreferences({ pay_period_config: v } as any),
-    reconcile: async () => {
-      const server = await refreshPreferences();
-      return server && (server as any).pay_period_config ? ((server as any).pay_period_config as PayPeriodConfig) : undefined;
-    },
+    reconcile: makeFieldReconcile<PayPeriodConfig>(fetchPreferencesSnapshot, "pay_period_config"),
     noteVersion: notePreferencesVersion,
     onError: makeFieldErrorHandler("pay_period_config"),
   })).current;
@@ -325,10 +332,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     getCurrent: () => regionRef.current,
     apply: applyRegion,
     save: (v) => api.updatePreferences({ region: v } as any),
-    reconcile: async () => {
-      const server = await refreshPreferences();
-      return server && (server as any).region ? ((server as any).region as Region) : undefined;
-    },
+    reconcile: makeFieldReconcile<Region>(fetchPreferencesSnapshot, "region"),
     noteVersion: notePreferencesVersion,
     onError: makeFieldErrorHandler("region"),
   })).current;
@@ -338,10 +342,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     getCurrent: () => debtTargetMonthsRef.current,
     apply: applyDebtTargetMonths,
     save: (v) => api.updatePreferences({ debt_target_months: v } as any),
-    reconcile: async () => {
-      const server = await refreshPreferences();
-      return server && (server as any).debt_target_months ? ((server as any).debt_target_months as number) : undefined;
-    },
+    reconcile: makeFieldReconcile<number>(fetchPreferencesSnapshot, "debt_target_months"),
     noteVersion: notePreferencesVersion,
     onError: makeFieldErrorHandler("debt_target_months"),
   })).current;
@@ -351,13 +352,64 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     getCurrent: () => debtTrackingStartRef.current,
     apply: applyDebtTrackingStart,
     save: (v) => api.updatePreferences({ debt_tracking_start: v } as any),
-    reconcile: async () => {
-      const server = await refreshPreferences();
-      return server && (server as any).debt_tracking_start ? ((server as any).debt_tracking_start as string) : undefined;
-    },
+    reconcile: makeFieldReconcile<string>(fetchPreferencesSnapshot, "debt_tracking_start"),
     noteVersion: notePreferencesVersion,
     onError: makeFieldErrorHandler("debt_tracking_start"),
   })).current;
+
+  const loadPreferences = useCallback((): Promise<Record<string, any> | null> => {
+    return fetchPreferencesSnapshot().then(p => {
+      if (!p) return null;
+      applyWholeDocument(
+        p,
+        {
+          applyHideNetWorth,
+          applyDarkMode,
+          applyPayPeriodConfig,
+          applyRegion,
+          applyDebtTargetMonths,
+          applyDebtTrackingStart,
+          setSpendWidgets: setSpendWidgetsState,
+          setHomePinnedWidget: setHomePinnedWidgetState,
+          setDebtBurndownOverrides: setDebtBurndownOverridesState,
+          setRawPrefs,
+        },
+        // G62 (review #1): skip any field currently authoring its own
+        // value — see this function's own comment above and
+        // lib/preferencesSnapshot.ts's docstring for why this is required
+        // for refreshPreferences()'s four non-six-field callers, not just
+        // defence in depth. A no-op during mount hydration (no saver has
+        // started saving yet at that point).
+        {
+          hideNetWorth: () => hideNetWorthSaver.isSaving.current,
+          darkMode: () => darkModeSaver.isSaving.current,
+          payPeriodConfig: () => payPeriodConfigSaver.isSaving.current,
+          region: () => regionSaver.isSaving.current,
+          debtTargetMonths: () => debtTargetMonthsSaver.isSaving.current,
+          debtTrackingStart: () => debtTrackingStartSaver.isSaving.current,
+        }
+      );
+      return p;
+    });
+  }, [
+    fetchPreferencesSnapshot,
+    applyHideNetWorth, applyDarkMode, applyPayPeriodConfig, applyRegion, applyDebtTargetMonths, applyDebtTrackingStart,
+    hideNetWorthSaver, darkModeSaver, payPeriodConfigSaver, regionSaver, debtTargetMonthsSaver, debtTrackingStartSaver,
+  ]);
+
+  useEffect(() => {
+    loadPreferences().finally(() => setPreferencesReady(true));
+  }, [loadPreferences]);
+
+  const refreshPreferences = useCallback(() => loadPreferences(), [loadPreferences]);
+
+  useEffect(() => {
+    if (darkMode) {
+      document.documentElement.classList.add("dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+    }
+  }, [darkMode]);
 
   const setHideNetWorth = useCallback((v: boolean) => { void hideNetWorthSaver.run(v); }, [hideNetWorthSaver]);
   const setDarkMode = useCallback((v: boolean) => { void darkModeSaver.run(v); }, [darkModeSaver]);
