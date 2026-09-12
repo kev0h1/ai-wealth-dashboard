@@ -2608,6 +2608,14 @@ export const api = {
      * have. SettingsPage.tsx reads this to reflect consent state; see that
      * row's own comment for why it's currently read-only. */
     penny_agent_consent?: string | null;
+    /** Monotonic write counter on the whole preferences document (G45 v3),
+     * bumped on every PATCH regardless of which field changed or which
+     * caller made it (Settings' own toggles, or Penny's
+     * set_cover_plan_exclusions proposal replaying this same endpoint).
+     * PreferencesContext.tsx/lib/preferencesVersion.ts use this to reject a
+     * GET snapshot that is older than the last one the app has already
+     * accepted, without ever assuming "written elsewhere" means "stale". */
+    version?: number;
   }>("/preferences"),
   getTaxAnnualisedIncome: () => get<{ annualised_income: number | null }>("/tax/annualised-income"),
   updatePreferences: (body: Partial<{
@@ -2631,7 +2639,7 @@ export const api = {
       method: "PATCH",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(body),
-    }).then((r) => toJson<{ hide_net_worth: boolean; dark_mode?: boolean }>(r)),
+    }).then((r) => toJson<{ hide_net_worth: boolean; dark_mode?: boolean; version?: number }>(r)),
   getCategories: () => get<CategoriesResponse>("/categories"),
   addCategory: (name: string, kind: CategoryKind = "discretionary") =>
     post<CategoriesResponse>("/categories", { name, kind }),

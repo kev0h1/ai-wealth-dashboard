@@ -127,6 +127,17 @@ is added to that open list only when `MCP_CONNECTOR_ENABLED` is true, so it
 is the one endpoint that actually reveals whether the connector is mounted;
 a 200 there in production is the failure case.
 
+**Preferences endpoint ordering (G45):** `GET`/`PATCH /preferences` carry a
+`version` field the frontend uses to reject a stale snapshot in favour of a
+newer one, no matter which caller wrote it (`frontend/lib/preferencesVersion.ts`);
+a response with no `version` at all is treated as always-acceptable for
+back-compat, so if an old (unversioned) backend answers even briefly while
+the new frontend is already live, that staleness check is a no-op and the
+clobbering bug it exists to prevent can briefly reopen. The backend must
+therefore be deployed before, or atomically with, the frontend for this
+endpoint. `deploy` already pushes both Vercel and Railway from the same
+`release` commit, so this holds today; keep it true if that ever changes.
+
 ## d) Rollback
 
 ```bash

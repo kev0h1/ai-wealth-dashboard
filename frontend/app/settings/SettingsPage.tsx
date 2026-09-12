@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   RotateCcw,
@@ -42,6 +42,7 @@ import { useTutorial, TUTORIAL_FLOWS } from "@/components/TutorialContext";
 import Toggle from "@/components/Toggle";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import CoverPlanSourcesCard, { type LiveCoverRoute } from "@/components/CoverPlanSourcesCard";
+import { createSerialQueue } from "@/lib/serialQueue";
 import { useRouter } from "next/navigation";
 
 const INDIGO = "#4f46e5";
@@ -152,7 +153,7 @@ function coverPlanView(items: CompanionItem[]): CoverPlanView {
 export default function SettingsPage() {
   const router = useRouter();
   const { user, logout } = useAuth();
-  const { darkMode, setDarkMode, rawPrefs, refreshPreferences } = usePreferences();
+  const { darkMode, setDarkMode, rawPrefs, refreshPreferences, notePreferencesVersion } = usePreferences();
   const { startFlow } = useTutorial();
 
   const [syncingHistory, setSyncingHistory] = useState(false);
@@ -375,6 +376,70 @@ export default function SettingsPage() {
     liveRoute: null,
     shortAccountIds: new Set(),
   });
+  const [coverSaveMsg, setCoverSaveMsg] = useState<{ text: string; ok: boolean } | null>(null);
+  // G45 (second re-review) — two earlier attempts at this got rejected:
+  //
+  //  v1, a busy-counter that blocked the rawPrefs resync only while a PATCH
+  //  was "in flight": it had no way to know a rawPrefs snapshot was FETCHED
+  //  before that PATCH even started, so a slow app-boot GET (single uvicorn
+  //  worker, documented slow cold starts) could resolve after the counter
+  //  had already dropped to zero and clobber the correct value anyway.
+  //
+  //  v2, a permanent latch ("stop resyncing after the first local edit"):
+  //  this assumed cover_plan_excluded_accounts has exactly one writer, which
+  //  is false — Penny's set_cover_plan_exclusions proposal
+  //  (backend/app/services/penny_tools.py, replayed via
+  //  can_i._execute_update_preferences) writes the SAME field through the
+  //  SAME PATCH /preferences endpoint, and PennySheetProvider is mounted
+  //  app-wide, so a Penny-driven write can legitimately land while this
+  //  page is open. A permanent latch would silently block that forever. It
+  //  also failed to handle two of ITS OWN toggles overlapping: a failed
+  //  save's catch restored a `previous` snapshot captured before EITHER
+  //  toggle happened, which could erase a second, already-succeeded toggle.
+  //
+  // The actual fix has three parts, all in this file plus a general
+  // (non-cover-plan-specific) facility in PreferencesContext.tsx and
+  // backend/app/routers/preferences.py:
+  //
+  //  1) Writes to this field are serialized (coverSaveQueue below, from
+  //     lib/serialQueue.ts) — never two PATCHes in flight at once, so each
+  //     toggle's "previous" is always read from settled state, never from
+  //     another toggle's still-in-flight optimism.
+  //  2) A failed save reconciles from the SERVER (refreshPreferences(),
+  //     applying whatever cover_plan_excluded_accounts it actually holds)
+  //     instead of restoring a locally-captured `previous` snapshot, which
+  //     could already be stale relative to another (serialized, and by
+  //     then settled) write.
+  //  3) rawPrefs itself is now guaranteed fresh-or-rejected by
+  //     PreferencesContext's own version comparison
+  //     (lib/preferencesVersion.ts) — a stale GET can never reach rawPrefs
+  //     at all, from ANY source, so this page can go back to just always
+  //     resyncing excludedIds from rawPrefs, no guard needed here.
+  const excludedIdsRef = useRef<Set<string>>(new Set());
+  const coverSaveQueue = useRef(createSerialQueue()).current;
+  // Guards against a SECOND source of truth stomping the first: excludedIds
+  // is kept in sync from rawPrefs by an effect below (needed so an EXTERNAL
+  // write — e.g. Penny's set_cover_plan_exclusions proposal, see the block
+  // comment above — is picked up on this page too), but React schedules
+  // that effect to run on its own render/commit cycle, not synchronously
+  // with the promise chain in runCoverToggle. A failed toggle's catch block
+  // ALSO applies a reconciled snapshot from refreshPreferences() directly
+  // (synchronously within that async function, so the very next QUEUED
+  // toggle reads correct state) — without this guard, the effect for that
+  // SAME rawPrefs object could fire moments LATER, after a subsequent
+  // toggle has already applied its own newer optimistic value, and
+  // silently overwrite it with the (by-then-superseded) reconciled one.
+  // Tracking the exact rawPrefs object already applied lets a delayed
+  // effect recognise "already handled" and no-op instead.
+  const lastSyncedRawPrefsRef = useRef<Record<string, any> | null>(null);
+  // Keeps excludedIdsRef and the excludedIds state in lockstep — used
+  // everywhere instead of a bare setExcludedIds so a QUEUED toggle (which
+  // only runs once earlier queued toggles have settled) can read the true
+  // current value via the ref without waiting on a React render.
+  const applyExcludedIds = useCallback((next: Set<string>) => {
+    excludedIdsRef.current = next;
+    setExcludedIds(next);
+  }, []);
   const refreshCoverPlan = useCallback(() => {
     api.getCoverPlan()
       .then((response) => setCoverPlan(coverPlanView(response.items)))
@@ -400,9 +465,15 @@ export default function SettingsPage() {
   }, [refreshCoverPlan]);
   useEffect(() => {
     if (rawPrefs === null) return;
-    const ids = rawPrefs.cover_plan_excluded_accounts ?? [];
-    setExcludedIds(new Set(ids));
-  }, [rawPrefs]);
+    // rawPrefs itself can no longer regress in version terms (see part 3
+    // above), but a specific snapshot can still reach this effect AFTER a
+    // newer LOCAL optimistic change if runCoverToggle's own failure-path
+    // sync (see lastSyncedRawPrefsRef above) already applied this exact
+    // object — skip it rather than stomping that newer value.
+    if (rawPrefs === lastSyncedRawPrefsRef.current) return;
+    lastSyncedRawPrefsRef.current = rawPrefs;
+    applyExcludedIds(new Set(rawPrefs.cover_plan_excluded_accounts ?? []));
+  }, [rawPrefs, applyExcludedIds]);
 
   useEffect(() => {
     if (rawPrefs === null) return;
@@ -487,20 +558,74 @@ export default function SettingsPage() {
     api.updatePreferences({ has_child_benefit: next }).catch(() => {});
   }
 
-  function toggleCoverAccount(id: string) {
+  // Runs one toggle's full lifecycle: compute -> optimistic apply -> save ->
+  // reconcile. Always invoked through coverSaveQueue.run() (see
+  // toggleCoverAccount below), which guarantees no two of these are ever
+  // running at once and that each one only starts once the previous one has
+  // fully settled — see the queue's own docstring in lib/serialQueue.ts for
+  // the exact overlapping-toggle bug this closes.
+  async function runCoverToggle(id: string) {
+    // Read the CURRENT true value via the ref, not the `excludedIds` state
+    // closed over when this function was enqueued — by the time a queued
+    // toggle actually runs, an earlier one may have changed it (including
+    // via its own failure-path reconciliation below).
+    const previous = excludedIdsRef.current;
+    const next = new Set(previous);
+    if (next.has(id)) {
+      next.delete(id);
+    } else {
+      next.add(id);
+    }
+    applyExcludedIds(next);
+    setCoverSaveMsg(null);
     setCoverPlan(current => ({ ...current, liveRoute: null }));
-    setExcludedIds(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
+    try {
+      const response = await api.updatePreferences({ cover_plan_excluded_accounts: [...next] });
+      // Registers this write's version with PreferencesContext even though
+      // this call bypassed refreshPreferences() — see notePreferencesVersion's
+      // own docstring for why a direct PATCH still has to report in.
+      notePreferencesVersion((response as { version?: number }).version);
+      refreshCoverPlan();
+    } catch {
+      // The server is authoritative on failure: refetch and apply whatever
+      // it actually holds, rather than restoring the `previous` captured
+      // above. Restoring a captured snapshot was the exact bug that let one
+      // failed toggle wipe a DIFFERENT, already-succeeded one — with writes
+      // now serialized that specific interleaving can't happen, but the
+      // server is still the correct source of truth to reconcile from on
+      // any failure (e.g. one this device never even learns succeeded).
+      setCoverSaveMsg({ text: "Could not save that change. Try again.", ok: false });
+      const server = await refreshPreferences();
+      if (server) {
+        // Mark this exact snapshot as already synced BEFORE applying it, so
+        // if the rawPrefs effect above fires for this same object later
+        // (after a subsequently-queued toggle has already moved state
+        // forward), it recognises the no-op and does not stomp that newer
+        // value — see lastSyncedRawPrefsRef's own comment.
+        lastSyncedRawPrefsRef.current = server;
+        applyExcludedIds(new Set(server.cover_plan_excluded_accounts ?? []));
       } else {
-        next.add(id);
+        // The PATCH failed AND the reconciling GET either failed too or its
+        // snapshot was discarded as stale (refreshPreferences() returns
+        // null in both cases) — there is no server truth to reconcile from
+        // here. Falling back to `previous` (captured before this toggle's
+        // own optimistic change, at the top of this function) is the only
+        // safe move: the screen must never show an unsaved change as saved
+        // next to a "could not save" message, given services/companion.py
+        // reads this exact field to decide which accounts it may move
+        // money from. `lastSyncedRawPrefsRef` is deliberately left
+        // untouched here — no new rawPrefs snapshot was consumed, so the
+        // normal effect-based sync above is unaffected by this fallback.
+        applyExcludedIds(previous);
       }
-      api.updatePreferences({ cover_plan_excluded_accounts: [...next] })
-        .then(refreshCoverPlan)
-        .catch(() => {});
-      return next;
-    });
+      refreshCoverPlan();
+    }
+  }
+
+  function toggleCoverAccount(id: string) {
+    // Serialized: see runCoverToggle's own comment and lib/serialQueue.ts.
+    // Never call api.updatePreferences for this field outside this queue.
+    void coverSaveQueue.run(() => runCoverToggle(id));
   }
 
   function toggleNotifPref(key: keyof NotificationPrefs) {
@@ -1091,6 +1216,15 @@ export default function SettingsPage() {
               hideAmounts={rawPrefs === null || Boolean(rawPrefs.hide_net_worth)}
               onToggle={toggleCoverAccount}
             />
+            {coverSaveMsg && (
+              <p
+                role="status"
+                aria-live="polite"
+                className={`mt-2 px-1 text-xs font-medium ${coverSaveMsg.ok ? "text-emerald-500" : "text-red-700 dark:text-red-400"}`}
+              >
+                {coverSaveMsg.text}
+              </p>
+            )}
           </div>
         )}
 
@@ -1123,7 +1257,13 @@ export default function SettingsPage() {
                   />
                 </div>
                 {financeMsg && (
-                  <p className={`mt-2 text-xs font-medium ${financeMsg.ok ? "text-emerald-500" : "text-red-500"}`}>{financeMsg.text}</p>
+                  <p
+                    role="status"
+                    aria-live="polite"
+                    className={`mt-2 text-xs font-medium ${financeMsg.ok ? "text-emerald-500" : "text-red-500"}`}
+                  >
+                    {financeMsg.text}
+                  </p>
                 )}
           </div>
 
