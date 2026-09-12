@@ -291,12 +291,23 @@ def test_connected_account_preferred_over_offline_at_equal_headroom(monkeypatch)
     The tie-break in `_live_class`'s sort key — connected before offline at
     equal headroom — must pick the connected account: reaching the offline
     one needs a manual transfer, so it is never preferred over an
-    equally-good connected account."""
+    equally-good connected account.
+
+    The ids are deliberately chosen so the offline account (`aaa_off_cur`)
+    sorts BEFORE the connected one (`zzz_conn_cur`) alphabetically. That
+    means the sort key's final tie-break term (account id) would, on its
+    own, already pick the connected account by the id-order coincidence
+    the previous version of this test relied on (`conn_cur` < `off_cur`).
+    Here id order points the WRONG way, so the only thing that can still
+    land on the connected account is the `_is_offline` term the sort key
+    checks before id — this test fails if that term is removed (confirmed
+    by temporarily deleting it from `_live_class`'s sort key in
+    `companion.py` and observing the assertion below fail)."""
     accounts = [
         _account("premier", 0.0, name="Premier Current"),
-        _account("conn_cur", 200.0, name="Connected Current", provider="hsbc"),
+        _account("zzz_conn_cur", 200.0, name="Connected Current", provider="hsbc"),
     ]
-    manual_accounts = [_manual("off_cur", 200.0, account_type="current", name="Offline Current")]
+    manual_accounts = [_manual("aaa_off_cur", 200.0, account_type="current", name="Offline Current")]
     bills = [_bill("Rent", 2, 60.0, "premier", 0.0, kind="commitment")]
 
     items = _run(monkeypatch, bills, accounts=accounts, manual_accounts=manual_accounts)
@@ -304,30 +315,54 @@ def test_connected_account_preferred_over_offline_at_equal_headroom(monkeypatch)
     move = _find(items, "move")
     assert move is not None
     leg_ids = _leg_source_ids(move)
-    assert leg_ids == {"conn_cur"}
-    assert "off_cur" not in leg_ids
+    assert leg_ids == {"zzz_conn_cur"}
+    assert "aaa_off_cur" not in leg_ids
 
 
 # ── The case that drove the old behaviour still holds ───────────────────────
 
 def test_offline_savings_only_reached_once_current_accounts_are_exhausted(monkeypatch):
-    """A connected current account alone can cover the whole gap. An
-    offline SAVINGS pot with ample headroom also exists. The current class
-    is still checked (and exhausted) before ever reaching savings — offline
-    or not — so the offline pot is never touched. This is the original
-    protective behaviour ("current before savings") continuing to hold now
-    that offline no longer gets its own tier."""
+    """TWO connected current accounts, neither alone big enough to cover
+    the gap (£100 and £50 headroom against a £220 need, `_ceil5(shortfall)
+    + 10` per `compute_today_items`, from a £210 bill), so the current
+    class's combined headroom (£150) still falls £70 short. An offline
+    SAVINGS pot with ample headroom (£4,990) also exists. The engine must
+    drain BOTH connected current accounts in full before carrying the £70
+    residual into the savings class, where the offline pot picks it up.
+
+    This is the case the previous version of this test claimed to cover
+    but did not: with only one connected current account (which alone
+    covered the whole bill), the current class was never actually
+    exhausted, so the test proved nothing about what happens once it is.
+    Here the current class is only exhausted in combination, and the
+    offline savings pot is only reached after that combination is spent.
+
+    Proof this discriminates: temporarily restricting `_live_class`'s
+    "class alone can't cover it" branch (around companion.py's
+    `_find_legs_for_destination`) to spend only the single highest-headroom
+    account instead of the whole class makes this test fail (`conn_b`
+    never appears; the residual the engine then hands to the offline pot
+    is wrong), which is what "exhausted in combination" is checking for."""
     accounts = [
         _account("premier", 0.0, name="Premier Current"),
-        _account("conn_cur", 200.0, name="Connected Current", provider="hsbc"),
+        _account("conn_a", 110.0, name="Connected Current A", provider="hsbc"),
+        _account("conn_b", 60.0, name="Connected Current B", provider="natwest"),
     ]
     manual_accounts = [_manual("piggy", 5000.0, account_type="savings", name="Offline Savings")]
-    bills = [_bill("Rent", 2, 60.0, "premier", 0.0, kind="commitment")]
+    bills = [_bill("Rent", 2, 210.0, "premier", 0.0, kind="commitment")]
 
     items = _run(monkeypatch, bills, accounts=accounts, manual_accounts=manual_accounts)
 
     move = _find(items, "move")
     assert move is not None
     leg_ids = _leg_source_ids(move)
-    assert leg_ids == {"conn_cur"}
-    assert "piggy" not in leg_ids
+    assert leg_ids == {"conn_a", "conn_b", "piggy"}
+
+    amount_by_source = {
+        m["move_map"]["from"]["account_id"]: m["amount"] for m in move["moves"]
+    }
+    # Both connected current accounts drained to their full headroom...
+    assert amount_by_source["conn_a"] == 100
+    assert amount_by_source["conn_b"] == 50
+    # ...and the offline pot picks up exactly the residual, not before.
+    assert amount_by_source["piggy"] == 70
