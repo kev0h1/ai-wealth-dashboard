@@ -516,9 +516,41 @@ export default function SettingsPage() {
     applyExcludedIds(new Set(rawPrefs.cover_plan_excluded_accounts ?? []));
   }, [rawPrefs, applyExcludedIds]);
 
+  // G52: notification_prefs gets the same treatment G45 gave
+  // cover_plan_excluded_accounts, for the identical reason -- toggleNotifPref
+  // used to call api.updatePreferences from inside the setNotifPrefs updater
+  // (impure, could fire the PATCH twice or not at all), swallowed a failed
+  // save with .catch(() => {}) so the switch kept showing the new value even
+  // when nothing was persisted, and this same sync effect used to reapply
+  // rawPrefs.notification_prefs on every refetch with no guard, so a refetch
+  // landing mid-save could silently revert an in-flight toggle. The fix
+  // reuses G45's own facilities rather than inventing a second mechanism:
+  // notifSaveQueue (lib/serialQueue.ts) serializes writes to this field the
+  // same way coverSaveQueue does, and rawPrefs itself is already
+  // fresh-or-rejected by PreferencesContext's version check
+  // (lib/preferencesVersion.ts). The one thing still needed locally is
+  // lastSyncedNotifPrefsRawRef, kept separate from cover-plan's own
+  // lastSyncedRawPrefsRef because "has this exact rawPrefs object already
+  // been applied" is tracked per FIELD, not per object -- the two effects
+  // can each be clobbered by the same snapshot independently, exactly as
+  // lastSyncedRawPrefsRef's own comment above explains for excludedIds.
+  const notifPrefsRef = useRef<NotificationPrefs | null>(null);
+  const notifSaveQueue = useRef(createSerialQueue()).current;
+  const lastSyncedNotifPrefsRawRef = useRef<Record<string, any> | null>(null);
+  const [notifSaveMsg, setNotifSaveMsg] = useState<string | null>(null);
+  const applyNotifPrefs = useCallback((next: NotificationPrefs) => {
+    notifPrefsRef.current = next;
+    setNotifPrefs(next);
+  }, []);
   useEffect(() => {
     if (rawPrefs === null) return;
-    if (rawPrefs.notification_prefs) setNotifPrefs(rawPrefs.notification_prefs);
+    if (rawPrefs === lastSyncedNotifPrefsRawRef.current) return;
+    lastSyncedNotifPrefsRawRef.current = rawPrefs;
+    if (rawPrefs.notification_prefs) applyNotifPrefs(rawPrefs.notification_prefs);
+  }, [rawPrefs, applyNotifPrefs]);
+
+  useEffect(() => {
+    if (rawPrefs === null) return;
     if (rawPrefs.income_bracket) setIncomeBracket(rawPrefs.income_bracket);
     if (rawPrefs.income_value) setIncomeInput(String(rawPrefs.income_value));
     if (rawPrefs.pension_annual) setPensionAnnual(String(rawPrefs.pension_annual));
@@ -669,13 +701,47 @@ export default function SettingsPage() {
     void coverSaveQueue.run(() => runCoverToggle(id));
   }
 
+  // Same shape as runCoverToggle above (see its own comment and the G52
+  // block comment near lastSyncedNotifPrefsRawRef): always run through
+  // notifSaveQueue so no two notification_prefs PATCHes are ever in flight
+  // together, read the CURRENT value from notifPrefsRef rather than a
+  // closed-over `prev`, and on failure reconcile from the server rather
+  // than a captured snapshot -- falling back to that snapshot only if the
+  // reconciling refetch has no server truth to offer either.
+  async function runNotifToggle(key: keyof NotificationPrefs) {
+    const previous = notifPrefsRef.current;
+    if (!previous) return;
+    const next = { ...previous, [key]: !previous[key] };
+    applyNotifPrefs(next);
+    setNotifSaveMsg(null);
+    try {
+      const response = await api.updatePreferences({ notification_prefs: next });
+      notePreferencesVersion((response as { version?: number }).version);
+    } catch {
+      setNotifSaveMsg("Could not save that change. Try again.");
+      const server = await refreshPreferences();
+      if (server) {
+        lastSyncedNotifPrefsRawRef.current = server;
+        if (server.notification_prefs) {
+          applyNotifPrefs(server.notification_prefs);
+        } else {
+          applyNotifPrefs(previous);
+        }
+      } else {
+        // The PATCH failed AND the reconciling GET either failed too or its
+        // snapshot was discarded as stale -- no server truth to reconcile
+        // from (the last defect G45 found: falling back to the pre-toggle
+        // value is the only safe move here, never leaving an unsaved
+        // "off" shown as saved next to a "could not save" message).
+        applyNotifPrefs(previous);
+      }
+    }
+  }
+
   function toggleNotifPref(key: keyof NotificationPrefs) {
-    setNotifPrefs(prev => {
-      if (!prev) return prev;
-      const next = { ...prev, [key]: !prev[key] };
-      api.updatePreferences({ notification_prefs: next }).catch(() => {});
-      return next;
-    });
+    // Serialized: see runNotifToggle's own comment and lib/serialQueue.ts.
+    // Never call api.updatePreferences for this field outside this queue.
+    void notifSaveQueue.run(() => runNotifToggle(key));
   }
 
   useEffect(() => {
@@ -1242,6 +1308,16 @@ export default function SettingsPage() {
                   />
                 </div>
               ))}
+              {notifSaveMsg && (
+                <p
+                  role="status"
+                  aria-live="polite"
+                  className="flex items-start gap-1.5 px-4 py-3 border-t border-slate-50 dark:border-slate-700/50 text-xs font-medium text-slate-600 dark:text-slate-300"
+                >
+                  <span aria-hidden="true" className="mt-1 size-1.5 shrink-0 rounded-full bg-amber-500 dark:bg-amber-400" />
+                  <span>{notifSaveMsg}</span>
+                </p>
+              )}
             </div>
           )}
         </div>
