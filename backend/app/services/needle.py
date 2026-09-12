@@ -61,14 +61,14 @@ async def _credit_card_account_ids(uid: str) -> set[str]:
     (analytics.py:2188-2213) and spend_verdict's `_load_period_txns`
     already union both providers; this helper now matches them.
 
-    `is_credit_card_account` (card_rates.py) is reused rather than
+    `is_credit_card_account` (account_kinds.py) is reused rather than
     reimplementing the check inline — its docstring confirms it is already
     written to work against a Yapily account doc's shape (Yapily docs store
     a lowercased `type` only, no `subtype`, per `yapily_sync.py`; the helper's
     `acc.get("account_type") or acc.get("type")` fallback already covers
     that, same test this function used inline before).
     """
-    from app.services.card_rates import is_credit_card_account
+    from app.services.account_kinds import is_credit_card_account
 
     raw = await accounts_col.find({"user_id": uid}).to_list(None)
     raw += await yapily_accounts_col.find({"user_id": uid}).to_list(None)

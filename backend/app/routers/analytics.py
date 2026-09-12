@@ -41,7 +41,7 @@ from app.services.categorisation import (
     canonical_merchant_key, refine_transfer_target, _byte_desc_key,
     _CHANNEL_CODES,
 )
-from app.services.card_rates import is_credit_card_account
+from app.services.account_kinds import is_credit_card_account
 from app.services.categories import get_category_kinds, is_non_spend, is_spend, kind_of, CategoryKinds, BUILTIN_CATEGORY_KINDS, MOVEMENT, COMMITMENT
 from app.services.recurring_judge import gate_failure_reason, judge_suspect_series, apply_verdicts
 from app.services.bnpl import is_bnpl_txn, build_bnpl_projections

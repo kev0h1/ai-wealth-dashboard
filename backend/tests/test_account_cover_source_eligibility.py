@@ -4,7 +4,7 @@ import asyncio
 
 import app.routers.accounts as accounts_router
 import app.services.companion as companion
-from app.services.card_rates import is_credit_card_account
+from app.services.account_kinds import is_credit_card_account
 
 
 class _Cursor:
@@ -131,7 +131,7 @@ def test_uk_credit_card_eligibility_matches_the_real_engine_classifier(monkeypat
     by coincidence of the current account taxonomy.
 
     Pins the two together via the SAME classifier both call
-    (`is_credit_card_account` from `app.services.card_rates`) rather than
+    (`is_credit_card_account` from `app.services.account_kinds`) rather than
     restating the credit-detection rule (a subtype/type string match) here
     -- if either side's exclusion test ever changes, this test changes
     with it instead of silently going stale.
@@ -238,7 +238,7 @@ def test_settings_eligibility_matches_the_engines_full_source_predicate(monkeypa
     `subtype` at all (accounts_col always carries a `type` key in practice,
     just not always a recognised one). Asserted against companion.py's own
     `_is_current`/`_is_savings`
-    (imported from the same `services/card_rates.py` functions this router
+    (imported from the same `services/account_kinds.py` functions this router
     now shares -- see `_engine_source_eligible` in `routers/accounts.py` --
     not restated here), so this fails again the instant the two sides
     diverge, rather than only for the one shape this review happened to
