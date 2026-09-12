@@ -269,7 +269,7 @@ function HowThisWorks({ open, onToggle }: { open: boolean; onToggle: () => void 
         type="button"
         onClick={onToggle}
         aria-expanded={open}
-        className="font-semibold text-indigo-600 underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400"
+        className="-my-[12px] inline-flex min-h-[44px] items-center font-semibold text-indigo-600 underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400"
       >
         {open ? "Hide how this works" : "How this works"}
       </button>
@@ -308,18 +308,21 @@ function RankingStrip({
     return { group, eligibleCount: eligible.length, allowedCount: allowed.length };
   });
 
+  const summary = counts.map(({ group, eligibleCount, allowedCount }) => `${group.title} ${allowedCount} of ${eligibleCount} allowed`).join(", ");
+
   return (
-    <div
-      aria-live="polite"
-      className="mx-4 mb-3 flex flex-wrap items-center gap-x-2 gap-y-1.5 rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2 dark:border-slate-700/70 dark:bg-white/[0.03]"
-    >
+    <div className="mx-4 mb-3 flex flex-wrap items-center gap-x-2 gap-y-1.5 rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2 dark:border-slate-700/70 dark:bg-white/[0.03]">
+      {/* The visible strip is presentational; a screen reader gets only the
+          short summary below, so toggling one account announces "3 of 3
+          allowed" rather than re-reading every badge and label. */}
+      <p aria-live="polite" className="sr-only">{summary}</p>
       {counts.map(({ group, eligibleCount, allowedCount }, index) => (
         <Fragment key={group.kind}>
           {index > 0 && <ArrowRight size={12} aria-hidden="true" className="text-slate-300 dark:text-slate-600" />}
-          <span className="grid size-5 shrink-0 place-items-center rounded-full bg-indigo-600 text-[10px] font-bold text-white">
+          <span aria-hidden="true" className="grid size-5 shrink-0 place-items-center rounded-full bg-indigo-600 text-[10px] font-bold text-white">
             {group.number}
           </span>
-          <span className="text-[12px] font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
+          <span aria-hidden="true" className="text-[12px] font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
             {group.title}, {allowedCount}/{eligibleCount}
           </span>
         </Fragment>
@@ -431,23 +434,37 @@ function ExceptionsManager({
   const showList = query.length > 0 || browseAll;
   const matches = showList ? accounts.filter((account) => matchesQuery(account, query)) : [];
 
+  // Short, count-only summaries for the sr-only live regions below — a
+  // screen reader hears "3 accounts found" or "2 accounts turned off" when
+  // the count changes, not every row in the list that just re-rendered.
+  const searchSummary = matches.length === 0
+    ? `No accounts match ${query}.`
+    : `${matches.length} account${matches.length === 1 ? "" : "s"} found.`;
+  const defaultSummary = (excludedAccounts.length === 0
+    ? `All ${eligible.length} eligible accounts allowed.`
+    : `${excludedAccounts.length} account${excludedAccounts.length === 1 ? "" : "s"} turned off.`
+  ) + (skipped.length > 0 ? ` ${skipped.length} skipped.` : "");
+
   return (
     <>
       <div className="border-t border-slate-100 px-4 py-3 dark:border-slate-700/70">
         <SearchField value={query} onChange={setQuery} placeholder={`Search your ${accounts.length} accounts`} />
         {!browseAll && (
-          <button
-            type="button"
-            onClick={() => setBrowseAll(true)}
-            className="mt-2 text-[12px] font-semibold text-indigo-600 underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400"
-          >
-            Browse all {accounts.length} accounts
-          </button>
+          <div className="mt-2">
+            <button
+              type="button"
+              onClick={() => setBrowseAll(true)}
+              className="-my-[12px] inline-flex min-h-[44px] items-center text-[12px] font-semibold text-indigo-600 underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400"
+            >
+              Browse all {accounts.length} accounts
+            </button>
+          </div>
         )}
       </div>
 
       {showList ? (
-        <div aria-live="polite" className="border-t border-slate-100 dark:border-slate-700/70">
+        <div className="border-t border-slate-100 dark:border-slate-700/70">
+          <p aria-live="polite" className="sr-only">{searchSummary}</p>
           {matches.length === 0 ? (
             <p className="px-4 py-6 text-center text-[12px] text-slate-500 dark:text-slate-400">
               No accounts match &ldquo;{query}&rdquo;.
@@ -467,7 +484,8 @@ function ExceptionsManager({
           )}
         </div>
       ) : (
-        <div aria-live="polite" className="border-t border-slate-100 dark:border-slate-700/70">
+        <div className="border-t border-slate-100 dark:border-slate-700/70">
+          <p aria-live="polite" className="sr-only">{defaultSummary}</p>
           {excludedAccounts.length === 0 ? (
             <p className="px-4 py-4 text-[12px] text-slate-500 dark:text-slate-400">
               All {eligible.length} eligible accounts are allowed. Search to turn one off.
