@@ -20,9 +20,10 @@
 // placement as the ranked list above them, just without the expand affordance.
 //
 // How this resolves the ticket's named inconsistency: NotableRow places the
-// figure and pace badge inline on ONE line (primitives.tsx's FigureBadge)
-// for every row, hero-ranked or not — there is only one row template on this
-// whole page, so there is structurally nothing left to stack differently.
+// figure and pace badge together (primitives.tsx's FigureBadge, stacked
+// per G53) for every row, hero-ranked or not — there is only one row
+// template on this whole page, so there is structurally nothing left to
+// place differently between a "needs a look" row and a calm one.
 
 import { useState } from "react";
 import { ChevronDown, ChevronUp, ChevronRight, Target } from "lucide-react";

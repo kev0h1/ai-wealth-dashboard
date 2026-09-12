@@ -7,17 +7,20 @@
 // then the calm majority list) is the RIGHT information architecture —
 // ranking by severity is a real, useful signal, and collapsing it into one
 // flat list (Variant A) loses that at-a-glance "is there one big thing or
-// several small ones" read. What's wrong today is only the header ROW
-// inside that hero card: it stacks the figure over the badge in a two-row
-// grid while every other row on the page (the mini-rows, the majority rows,
-// the moved rows) keeps them inline. This variant keeps the three-tier
-// structure and fixes exactly that, structurally rather than cosmetically —
-// the hero card's header and a mini-row's header are now literally the same
-// component (NotableRow below, two sizes), so the two can never drift back
-// into two different grammars again. A thin amber top rule (not a card-size
-// difference alone) now carries the "this is the one that matters most"
-// signal, since the header row itself no longer looks meaningfully
-// different at the two sizes.
+// several small ones" read. What's wrong today is only that the header ROW
+// inside the hero card and a mini-row's header ROW are two separately
+// hand-drawn templates that happen to place the figure and its pace badge
+// differently. This variant keeps the three-tier structure and fixes that
+// structurally rather than cosmetically — the hero card's header and a
+// mini-row's header are now literally the same component (NotableRow below,
+// two sizes) sharing one FigureBadge primitive, so the two can never drift
+// into two different grammars again (G53 moved that shared primitive's
+// figure+badge from inline to stacked-and-right-aligned, matching the
+// shipped hero card's own layout — this variant picked up that change for
+// free precisely because there is only one component to change). A thin
+// amber top rule (not a card-size difference alone) now carries the "this
+// is the one that matters most" signal, since the header row itself no
+// longer looks meaningfully different at the two sizes.
 //
 // Reader's order: 1) is there one thing that needs a look, and what's the
 // story (hero, always expanded) 2) what else is running warm, one tap away
