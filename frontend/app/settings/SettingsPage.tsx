@@ -549,13 +549,56 @@ export default function SettingsPage() {
     if (rawPrefs.notification_prefs) applyNotifPrefs(rawPrefs.notification_prefs);
   }, [rawPrefs, applyNotifPrefs]);
 
+  // G58: has_child_benefit gets the revert-and-surface half of the G45/G52
+  // shape, not the full shape -- see runChildBenefitToggle's own comment
+  // below for why no serial queue (lib/serialQueue.ts) is used here.
+  // hasChildBenefitRef lets the handler and the sync effect above always
+  // read/gate on the current true value instead of one closed over at
+  // render time, the same reason cover-plan and notification prefs read
+  // excludedIdsRef/notifPrefsRef rather than state directly.
+  const hasChildBenefitRef = useRef(false);
+  const savingChildBenefitRef = useRef(false);
+  const [savingChildBenefit, setSavingChildBenefit] = useState(false);
+  const [childBenefitSaveMsg, setChildBenefitSaveMsg] = useState<string | null>(null);
+  const applyHasChildBenefit = useCallback((next: boolean) => {
+    hasChildBenefitRef.current = next;
+    setHasChildBenefit(next);
+  }, []);
+
+  // G58: income_value, pension_annual and has_child_benefit were synced from
+  // rawPrefs with truthiness checks (`if (rawPrefs.income_value)`), so a
+  // genuine server-side 0/false never propagated -- combined with
+  // handleChildBenefitToggle's old silent-failure save (see
+  // runChildBenefitToggle below), turning child benefit off, having the save
+  // fail, and then a later refetch could never correct the display back to
+  // "on" because `false` is falsy. income_value/pension_annual switch to a
+  // key-presence check but keep matching handleIncomeBlur/handlePensionBlur's
+  // own convention of representing a genuine 0 as an empty field rather than
+  // the literal string "0" (see fmtDigits/handleIncomeBlur above). Reading
+  // income_bracket is left as a truthiness check: it's a derived enum string
+  // that is never legitimately empty once a bracket has been chosen, so
+  // there is no analogous falsy-but-real value to lose.
   useEffect(() => {
     if (rawPrefs === null) return;
     if (rawPrefs.income_bracket) setIncomeBracket(rawPrefs.income_bracket);
-    if (rawPrefs.income_value) setIncomeInput(String(rawPrefs.income_value));
-    if (rawPrefs.pension_annual) setPensionAnnual(String(rawPrefs.pension_annual));
-    if (rawPrefs.has_child_benefit) setHasChildBenefit(rawPrefs.has_child_benefit);
-  }, [rawPrefs]);
+    if ("income_value" in rawPrefs) {
+      setIncomeInput(rawPrefs.income_value === 0 ? "" : String(rawPrefs.income_value));
+    }
+    if ("pension_annual" in rawPrefs) {
+      setPensionAnnual(rawPrefs.pension_annual === 0 ? "" : String(rawPrefs.pension_annual));
+    }
+    // Skipped entirely while our own save is in flight (see
+    // runChildBenefitToggle): this field only ever has one writer, so the
+    // one snapshot that must never be allowed to stomp the optimistic value
+    // is an UNRELATED refreshPreferences() (e.g. the cover-plan or
+    // notification-prefs failure paths on this same page) landing before our
+    // own PATCH has committed server-side -- it would otherwise revert the
+    // switch back to the pre-toggle value even though our save is about to
+    // succeed.
+    if (!savingChildBenefitRef.current && "has_child_benefit" in rawPrefs) {
+      applyHasChildBenefit(Boolean(rawPrefs.has_child_benefit));
+    }
+  }, [rawPrefs, applyHasChildBenefit]);
 
   useEffect(() => {
     api.getProfile().then(p => {
@@ -625,10 +668,60 @@ export default function SettingsPage() {
     });
   }
 
+  // G58: has_child_benefit's old handler set state then fired
+  // api.updatePreferences().catch(() => {}) -- a failed save was completely
+  // invisible, and the switch kept showing a value the server never stored.
+  // Same shape as runCoverToggle/runNotifToggle: read the current true value
+  // via a ref (not a value closed over at render time), apply optimistically,
+  // and on failure reconcile from the server rather than a captured
+  // snapshot, falling back to that snapshot only if the reconciling refetch
+  // has no server truth to offer either (the last defect G45 found: falling
+  // back unconditionally to a captured "previous" was wrong because a
+  // DIFFERENT already-succeeded write could get wiped by it -- not possible
+  // to repeat here since this field has only one writer, but the same
+  // "server first, captured value only as a last resort" order is kept for
+  // consistency and because it's still the more correct answer even here).
+  //
+  // Unlike cover-plan exclusions and notification prefs, this field has no
+  // second concurrent writer to serialize against -- there is exactly one
+  // switch, so lib/serialQueue.ts is not used. The one race that queue
+  // exists to prevent (two overlapping PATCHes to the same field completing
+  // out of order server-side) is ruled out here a different way: the switch
+  // is disabled for the duration of its own save (savingChildBenefit),
+  // rather than being fired into a queue.
+  async function runChildBenefitToggle() {
+    const previous = hasChildBenefitRef.current;
+    const next = !previous;
+    applyHasChildBenefit(next);
+    setChildBenefitSaveMsg(null);
+    savingChildBenefitRef.current = true;
+    setSavingChildBenefit(true);
+    try {
+      const response = await api.updatePreferences({ has_child_benefit: next });
+      notePreferencesVersion((response as { version?: number }).version);
+    } catch {
+      setChildBenefitSaveMsg("Could not save that change. Try again.");
+      const server = await refreshPreferences();
+      if (server && "has_child_benefit" in server) {
+        applyHasChildBenefit(Boolean(server.has_child_benefit));
+      } else {
+        // The PATCH failed AND the reconciling GET either failed too or its
+        // snapshot was discarded as stale -- no server truth to reconcile
+        // from, so fall back to the pre-toggle value rather than leaving an
+        // unsaved change shown as saved next to a "could not save" message.
+        applyHasChildBenefit(previous);
+      }
+    } finally {
+      savingChildBenefitRef.current = false;
+      setSavingChildBenefit(false);
+    }
+  }
+
   function handleChildBenefitToggle() {
-    const next = !hasChildBenefit;
-    setHasChildBenefit(next);
-    api.updatePreferences({ has_child_benefit: next }).catch(() => {});
+    // Belt-and-braces against the switch's own `disabled` prop: never start
+    // a second save while one is still in flight.
+    if (savingChildBenefitRef.current) return;
+    void runChildBenefitToggle();
   }
 
   // Runs one toggle's full lifecycle: compute -> optimistic apply -> save ->
@@ -1423,8 +1516,19 @@ export default function SettingsPage() {
                   onChange={handleChildBenefitToggle}
                   label="Receiving Child Benefit"
                   onColor="bg-indigo-500"
+                  disabled={savingChildBenefit}
                 />
               </div>
+              {childBenefitSaveMsg && (
+                <p
+                  role="status"
+                  aria-live="polite"
+                  className="flex items-start gap-1.5 px-4 pb-3.5 text-xs font-medium text-slate-600 dark:text-slate-300"
+                >
+                  <span aria-hidden="true" className="mt-1 size-1.5 shrink-0 rounded-full bg-amber-500 dark:bg-amber-400" />
+                  <span>{childBenefitSaveMsg}</span>
+                </p>
+              )}
 
             </>
           )}
