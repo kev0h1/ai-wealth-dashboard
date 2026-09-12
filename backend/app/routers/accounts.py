@@ -24,7 +24,7 @@ from app.db.collections import finexer_consents_col as _finexer_consents_col
 from app.services.finexer_sync import finexer_sync_pipeline as _finexer_sync_pipeline
 from app.services.categorisation import apply_rules_bulk, categorise_others_bg
 from app.services.manual_account_rules import apply_rules as apply_mirror_rules
-from app.services.card_rates import (
+from app.services.account_kinds import (
     is_credit_card_account,
     is_current_account,
     is_savings_account,
@@ -68,8 +68,10 @@ def _engine_source_eligible(acc: dict) -> bool:
     a credit card is excluded outright, and what's left must additionally
     clear the engine's own type-inclusion gate — reused here via
     `is_current_account`/`is_savings_account`, the same functions
-    `companion.py` imports from `services/card_rates.py` (G55, 2026-09-12),
-    so this can never restate only half the rule and drift from the engine
+    `companion.py` imports from `services/account_kinds.py` (moved there
+    from `services/card_rates.py` by H35, 2026-09-13; originally promoted
+    to `card_rates.py` by G55, 2026-09-12), so this can never restate only
+    half the rule and drift from the engine
     as new provider/product types show up.
 
     The engine's inclusion gate is actually a three-way OR that also admits

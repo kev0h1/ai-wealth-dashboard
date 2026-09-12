@@ -35,7 +35,7 @@ from typing import Optional
 
 from app.db.collections import accounts_col, card_terms_col, cashflow_cache_col, preferences_col, transactions_col
 from app.services import response_cache
-from app.services.card_rates import is_credit_card_account
+from app.services.account_kinds import is_credit_card_account
 from app.services.categorisation import series_key
 from app.services.pay_period import get_pay_period_for_date, prev_pay_period
 from app.routers.card_terms import _promos_from_legacy
