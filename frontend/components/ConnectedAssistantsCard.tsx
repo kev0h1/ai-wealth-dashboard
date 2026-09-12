@@ -39,6 +39,7 @@ import { api } from "@/lib/api";
 import type { OAuthConnection } from "@/lib/api";
 import { describeScopes } from "@/lib/oauthScopes";
 import { MCP_URL } from "@/lib/featureFlags";
+import { canPurchaseInApp } from "@/lib/nativeAuth";
 import { formatPennyResetDate } from "@/components/PennySheetProvider";
 import type { SubscriptionMcpPack } from "@wealth/shared";
 
@@ -86,14 +87,25 @@ function formatAllowanceRow(allowance: McpAllowance): { subline: string; pill: {
 // target="mcp_1000") — starts a Stripe Checkout session and redirects the
 // browser to it. `onBuy`/`busy` are only meaningful when `billingLive` is
 // true; otherwise the row keeps the "Available soon" trailing label.
+//
+// B26: not named in that item's own file list, found alongside it while
+// auditing every `api.startCheckout` call site — this row has the exact
+// same unguarded pattern, so it gates on `canPurchaseInApp()` the same
+// way. On a native build it never becomes a button regardless of
+// `billingLive`, and its trailing label reads "Not available on this
+// app" rather than "Available soon", which would wrongly promise a
+// button that platform can never legally show (Apple guideline 3.1.1;
+// this app has no in-app-purchase integration on either platform).
 function McpPackRow({
-  pack, billingLive, busy, onBuy,
+  pack, billingLive, purchasingAllowed, busy, onBuy,
 }: {
   pack: SubscriptionMcpPack;
   billingLive: boolean;
+  purchasingAllowed: boolean;
   busy: boolean;
   onBuy: () => void;
 }) {
+  const canBuy = billingLive && purchasingAllowed;
   const inner = (
     <>
       <span className="flex items-center gap-2 min-w-0 pr-2">
@@ -108,20 +120,20 @@ function McpPackRow({
       </span>
       <span className="flex-shrink-0 flex flex-col items-end gap-0.5">
         <span className="font-mono text-[13px] text-slate-900 dark:text-slate-100">£{pack.price_gbp.toFixed(2)}</span>
-        {billingLive ? (
+        {canBuy ? (
           <span className="text-[10px] font-medium uppercase tracking-wide text-indigo-600 dark:text-indigo-400">
             {busy ? "Opening…" : "Buy"}
           </span>
         ) : (
           <span className="text-[10px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
-            Available soon
+            {purchasingAllowed ? "Available soon" : "Not available on this app"}
           </span>
         )}
       </span>
     </>
   );
 
-  if (!billingLive) {
+  if (!canBuy) {
     return (
       <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 dark:border-slate-700 px-4 py-3 min-h-[44px]">
         {inner}
@@ -206,9 +218,12 @@ export default function ConnectedAssistantsCard({
   const [disconnectedName, setDisconnectedName] = useState<string | null>(null);
   const [packPendingId, setPackPendingId] = useState<string | null>(null);
   const [packError, setPackError] = useState<string | null>(null);
+  // B26: see McpPackRow's own comment — no native build can ever reach
+  // Stripe Checkout.
+  const purchasingAllowed = canPurchaseInApp();
 
   async function handleBuyPack(packId: string) {
-    if (packPendingId) return;
+    if (packPendingId || !purchasingAllowed) return;
     setPackError(null);
     setPackPendingId(packId);
     try {
@@ -378,6 +393,7 @@ export default function ConnectedAssistantsCard({
                 key={pack.id}
                 pack={pack}
                 billingLive={billingLive}
+                purchasingAllowed={purchasingAllowed}
                 busy={packPendingId === pack.id}
                 onBuy={() => handleBuyPack(pack.id)}
               />

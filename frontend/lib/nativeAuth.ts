@@ -12,6 +12,19 @@ export function isNativePlatform(): boolean {
   }
 }
 
+// B26: Apple's guideline 3.1.1 forbids any button, external link, or copy
+// pointing at a purchase mechanism other than in-app purchase, outside the
+// US storefront, and this app has no in-app-purchase integration on either
+// platform (Android isn't enrolled in Play's billing-choice programme
+// either), so no native build can ever legally start Stripe Checkout or
+// open the Stripe customer portal. Every purchase-adjacent surface
+// (PlanPicker, MoreMessagesSheet, YourPlanCard, ConnectedAssistantsCard)
+// gates on this single check rather than repeating isNativePlatform() and
+// letting the App Store reasoning drift out of sync between call sites.
+export function canPurchaseInApp(): boolean {
+  return !isNativePlatform();
+}
+
 // Sign in with Apple is only offered on iOS native builds — there's no
 // Google-style cross-platform web fallback worth building for a single-user
 // app, and Apple's own guidelines are for the native ASAuthorization flow

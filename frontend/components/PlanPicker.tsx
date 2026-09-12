@@ -3,6 +3,7 @@
 import { useMemo, useState, type KeyboardEvent } from "react";
 import { Check, ChevronDown, Crown, FileText, Landmark, Link2, Zap } from "lucide-react";
 import { api } from "@/lib/api";
+import { canPurchaseInApp } from "@/lib/nativeAuth";
 import type {
   SubscriptionBillingPeriod,
   SubscriptionBillingPeriodDetail,
@@ -175,6 +176,12 @@ export default function PlanPicker({
   const managedPaidSubscription = hasPaidSubscription && ["active", "trialing", "past_due"].includes(info.status);
   const billingChangeInPortal = context === "settings" && managedPaidSubscription;
   const trialActive = trial && isTrialPeriod && !hasPaidSubscription;
+  // B26: Apple's guideline 3.1.1 (and, for now, Android not being enrolled
+  // in Play's billing-choice programme) means a native build can never
+  // start Stripe Checkout or open the Stripe customer portal, regardless
+  // of whether billing is live server-side. Free-plan selection is
+  // untouched by this, it never talks to Stripe.
+  const purchasingAllowed = canPurchaseInApp();
 
   // B22: the exact disclosure the trial control needs adjacent to it —
   // the amount, the named charge date, and a cancel-any-time line naming
@@ -186,13 +193,20 @@ export default function PlanPicker({
 
   const disclosure = useMemo(() => {
     if (billingChangeInPortal) {
+      if (!purchasingAllowed) {
+        // B26: no "open billing" phrasing (there is nothing to open here)
+        // and no naming of where billing actually happens, just the
+        // status itself, which the user is still entitled to see.
+        return info.status === "past_due" ? "Your last payment did not go through." : "Your active subscription renews automatically.";
+      }
       if (info.status === "past_due") return "Your payment needs attention. Open billing to update the payment method or change the plan.";
       return "Your active subscription and its renewal are managed securely in billing.";
     }
     if (selected === "statements") return "Free. No card and no automatic renewal.";
+    if (!purchasingAllowed) return "Not included on your plan.";
     if (trialActive) return `${trialDisclosureLine} ${trialCancelLine}`;
     return `${money(total)} today, then ${money(total)} ${renewalWords} unless you cancel. Cancel any time from Settings, Your plan.`;
-  }, [billingChangeInPortal, info.status, renewalWords, selected, total, trialActive, trialCancelLine, trialDisclosureLine]);
+  }, [billingChangeInPortal, info.status, purchasingAllowed, renewalWords, selected, total, trialActive, trialCancelLine, trialDisclosureLine]);
 
   async function openPortal() {
     const { url } = await api.openBillingPortal();
@@ -206,6 +220,14 @@ export default function PlanPicker({
     try {
       if (previewOnly) {
         setError("Preview only. No plan or payment has changed.");
+        setBusy(false);
+        return;
+      }
+      // B26: belt and braces alongside the button itself not rendering in
+      // this case (see showActionButton below) — Checkout and the Stripe
+      // portal are never reachable when purchasing isn't allowed, even if
+      // this function were somehow called another way.
+      if (!purchasingAllowed && (billingChangeInPortal || selected !== "statements")) {
         setBusy(false);
         return;
       }
@@ -249,6 +271,12 @@ export default function PlanPicker({
   })();
 
   const disabled = busy || (!billingChangeInPortal && selected !== "statements" && !billingLive) || (context === "settings" && selected === "statements" && current === "statements");
+  // B26: the primary button itself only ever starts a Stripe action
+  // (Checkout or the customer portal) unless the selection is the free
+  // Statements plan with no existing paid subscription to manage — that
+  // free-plan path stays available everywhere, the Stripe paths never
+  // render on a platform that can't legally reach them.
+  const showActionButton = purchasingAllowed || (!billingChangeInPortal && selected === "statements");
 
   return (
     <div className="space-y-4">
@@ -302,7 +330,10 @@ export default function PlanPicker({
         })}
       </div>
 
-      {selected !== "statements" && !billingChangeInPortal && (
+      {/* B26: this whole card is Stripe pricing/period choice on the way to
+          Checkout, it has nothing to do once purchasing isn't allowed, so
+          it does not render there rather than sitting inert. */}
+      {selected !== "statements" && !billingChangeInPortal && purchasingAllowed && (
         <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200/60 dark:bg-slate-800 dark:shadow-none dark:ring-white/[0.07]">
           <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-600 dark:text-slate-300">How often would you like to pay?</p>
           <div role="radiogroup" aria-label="Billing period" className="mt-3 grid grid-cols-2 gap-2">
@@ -358,15 +389,20 @@ export default function PlanPicker({
 
       <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200/60 dark:bg-slate-800 dark:shadow-none dark:ring-white/[0.07]">
         <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-300"><MoneyCopy text={disclosure} /></p>
-        <button
-          type="button"
-          onClick={handlePrimary}
-          disabled={disabled}
-          className="mt-3 min-h-11 w-full rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white outline-none transition hover:bg-indigo-700 active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500 dark:disabled:bg-slate-700 dark:disabled:text-slate-400"
-        >
-          {primaryLabel}
-        </button>
-        {selected !== "statements" && !billingLive && (
+        {/* B26: no button at all (not a disabled one) once purchasing isn't
+            allowed and there's nothing free left to choose, so the card
+            never reads as a broken control, just a status. */}
+        {showActionButton && (
+          <button
+            type="button"
+            onClick={handlePrimary}
+            disabled={disabled}
+            className="mt-3 min-h-11 w-full rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white outline-none transition hover:bg-indigo-700 active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500 dark:disabled:bg-slate-700 dark:disabled:text-slate-400"
+          >
+            {primaryLabel}
+          </button>
+        )}
+        {purchasingAllowed && selected !== "statements" && !billingLive && (
           <p className="mt-2 text-center text-xs text-slate-500 dark:text-slate-400">You can compare every plan now. Paid checkout will open when billing is live.</p>
         )}
         {error && <p role="alert" className="mt-2 text-xs text-slate-600 dark:text-slate-300">{error}</p>}
