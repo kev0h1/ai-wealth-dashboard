@@ -222,7 +222,7 @@ _FULL_PRICE_IDS = {
     **{
         f"{tier}_{period}": f"price_{tier}_{period}"
         for tier in ("lite", "standard", "connect", "max")
-        for period in ("three_months", "six_months", "annual")
+        for period in ("six_months", "annual")
     },
     "penny_small": "price_penny_small", "penny_medium": "price_penny_medium",
     "penny_large": "price_penny_large", "mcp_1000": "price_mcp_1000",
@@ -247,11 +247,12 @@ def test_parse_stripe_price_ids_empty_string():
 
 def test_billing_enabled_requires_secret_key_and_every_price_id():
     # Mirrors the formula in app.core.config: BILLING_ENABLED = bool(secret)
-    # and all(required keys present).
+    # and all(required keys present). B27 (2026-09-12): three_months was
+    # dropped from _STRIPE_LONGER_PERIODS, so this is 16 keys now, not 20.
     required = config_module._STRIPE_REQUIRED_PRICE_KEYS
     complete = {k: f"price_{k}" for k in required}
-    assert len(required) == 20
-    assert "lite_three_months" in required
+    assert len(required) == 16
+    assert "lite_three_months" not in required
     assert "standard_six_months" in required
     assert "max_annual" in required
     assert bool("sk_test_x") and all(k in complete for k in required)
@@ -294,7 +295,12 @@ def test_create_checkout_session_for_a_tier(monkeypatch):
     assert len(fake_stripe.customer_calls) == 1
 
 
-def test_create_checkout_session_for_three_month_period(monkeypatch):
+def test_create_checkout_session_for_six_month_period(monkeypatch):
+    """B27 (2026-09-12): was test_create_checkout_session_for_three_month_period
+    — three_months is no longer an offered period (SUBSCRIPTION_PERIODS_ENABLED),
+    so this now exercises the same non-monthly, non-annual price-key-building
+    path with six_months, the period that replaced it as the shortest
+    discounted term."""
     fake_stripe = _make_fake_stripe()
     monkeypatch.setattr(billing_module, "stripe", fake_stripe)
     monkeypatch.setattr(billing_module, "STRIPE_SECRET_KEY", "sk_test_x")
@@ -302,13 +308,13 @@ def test_create_checkout_session_for_three_month_period(monkeypatch):
     _patch_collections(monkeypatch, billing_customers_col=_FakeCol(), subscriptions_col=_FakeCol())
 
     _run(billing_module.create_checkout_session(
-        UID, kind="subscription", target="lite", billing_period="three_months",
+        UID, kind="subscription", target="lite", billing_period="six_months",
         success_url="https://app/success", cancel_url="https://app/cancel",
     ))
 
     call = fake_stripe.checkout_calls[0]
-    assert call["line_items"] == [{"price": "price_lite_three_months", "quantity": 1}]
-    assert call["metadata"]["billing_period"] == "three_months"
+    assert call["line_items"] == [{"price": "price_lite_six_months", "quantity": 1}]
+    assert call["metadata"]["billing_period"] == "six_months"
     assert "trial_period_days" not in call["subscription_data"]
 
 
@@ -341,10 +347,13 @@ def test_create_checkout_session_rejects_trial_on_non_annual_period(monkeypatch)
 
 
 def test_create_checkout_session_rejects_disabled_billing_period(monkeypatch):
-    """B22: SUBSCRIPTION_PERIODS_ENABLED is Kevin-flippable — if he ever
-    drops a period (three_months is the one currently under discussion,
-    TODO.md B22 note), checkout must reject it even though it is still a
-    structurally valid key in SUBSCRIPTION_BILLING_PERIODS."""
+    """B22: SUBSCRIPTION_PERIODS_ENABLED is Kevin-flippable — if he drops a
+    period (three_months, dropped B27 2026-09-12, was the first), checkout
+    must reject it even though it is still a structurally valid key in
+    SUBSCRIPTION_BILLING_PERIODS. Exercised here with an explicit
+    monkeypatch (rather than relying on three_months already being
+    disabled by default) so this test still means something if a further
+    period is ever dropped."""
     _patch_billing_enabled(monkeypatch, True, price_ids=_FULL_PRICE_IDS)
     monkeypatch.setattr(billing_module, "SUBSCRIPTION_PERIODS_ENABLED", ("monthly", "annual"))
     with pytest.raises(billing_module.BillingError, match="not currently offered"):

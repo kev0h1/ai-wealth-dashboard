@@ -265,7 +265,11 @@ function Preview() {
   // backend/app/core/subscription.py's TIER_BILLING_PRICES_GBP verbatim —
   // this preview fabricates a SubscriptionInfo (no API call), so it has to
   // hand-carry the same explicit totals the real endpoint now serves,
-  // not a naive monthly-times-months multiplication.
+  // not a naive monthly-times-months multiplication. The three_months
+  // field is kept here too (B27, 2026-09-12: dropped from what's offered)
+  // for the same one-line-flip-back reason the backend table keeps its
+  // column — it just isn't read by PERIOD_MONTHS/PERIOD_LABELS below, so
+  // this preview never offers a period the product doesn't.
   const AGREED_TOTALS: Record<TierName, { monthly: number; three_months: number; six_months: number; annual: number }> = {
     statements: { monthly: 0, three_months: 0, six_months: 0, annual: 0 },
     lite:       { monthly: 5.99, three_months: 16.99, six_months: 31.99, annual: 59.99 },
@@ -273,11 +277,11 @@ function Preview() {
     connect:    { monthly: 12.99, three_months: 36.99, six_months: 69.99, annual: 129.99 },
     max:        { monthly: 16.99, three_months: 48.99, six_months: 91.99, annual: 169.99 },
   };
-  const PERIOD_MONTHS: Record<"monthly" | "three_months" | "six_months" | "annual", number> = {
-    monthly: 1, three_months: 3, six_months: 6, annual: 12,
+  const PERIOD_MONTHS: Record<"monthly" | "six_months" | "annual", number> = {
+    monthly: 1, six_months: 6, annual: 12,
   };
-  const PERIOD_LABELS: Record<"monthly" | "three_months" | "six_months" | "annual", string> = {
-    monthly: "Monthly", three_months: "Every 3 months", six_months: "Every 6 months", annual: "Yearly",
+  const PERIOD_LABELS: Record<"monthly" | "six_months" | "annual", string> = {
+    monthly: "Monthly", six_months: "Every 6 months", annual: "Yearly",
   };
   const previewInfo = {
     tier: current ?? "statements",

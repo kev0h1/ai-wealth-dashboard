@@ -364,9 +364,9 @@ STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
 
 def _parse_stripe_price_ids(raw: str) -> dict[str, str]:
     """Parse STRIPE_PRICE_IDS ("key=price_id,key=price_id,...") into a
-    dict. Four entries per paid subscription tier (monthly uses the bare
-    tier name, then ``_<period>`` for ``three_months``, ``six_months`` and
-    ``annual``; Statements is free, it never checks out) and per purchasable pack
+    dict. Three entries per paid subscription tier (monthly uses the bare
+    tier name, then ``_<period>`` for ``six_months`` and ``annual``;
+    Statements is free, it never checks out) and per purchasable pack
     (penny_small/penny_medium/penny_large, matching
     app.core.subscription.PENNY_TOPUP_PACKS' ids prefixed with "penny_" so
     a tier name and a pack id can never collide in the same map; mcp_1000,
@@ -401,8 +401,13 @@ STRIPE_PRICE_IDS: dict[str, str] = _parse_stripe_price_ids(os.getenv("STRIPE_PRI
 # MCP_CALL_PACKS here) so this module has no import dependency on that one
 # — app.core.config is meant to be the leaf of the import graph, loaded
 # before almost everything else.
+# B27 (2026-09-12): three_months was dropped from
+# app.core.subscription.SUBSCRIPTION_PERIODS_ENABLED, so this no longer
+# requires a price id for it either — 16 keys now, not 20. Kept as its own
+# tuple rather than importing SUBSCRIPTION_PERIODS_ENABLED, for the same
+# leaf-of-the-import-graph reason as the comment below.
 _STRIPE_PAID_TIERS = ("lite", "standard", "connect", "max")
-_STRIPE_LONGER_PERIODS = ("three_months", "six_months", "annual")
+_STRIPE_LONGER_PERIODS = ("six_months", "annual")
 _STRIPE_REQUIRED_PRICE_KEYS = (
     *_STRIPE_PAID_TIERS,
     *(f"{tier}_{period}" for tier in _STRIPE_PAID_TIERS for period in _STRIPE_LONGER_PERIODS),

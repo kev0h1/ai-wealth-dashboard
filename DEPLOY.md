@@ -544,12 +544,15 @@ is reachable yet, no Stripe account exists as of this writing (Kevin,
    — nothing here is a "go live" step by itself).
 2. In the Stripe dashboard, create one **Product** per paid tier (Lite,
    Standard, Connect, Max; Statements is free and never needs a Stripe
-   price). Give each product four recurring Prices: monthly, every 3
-   months, every 6 months and yearly. Match `TIER_BILLING_PRICES_GBP` in
-   `backend/app/core/subscription.py` exactly. Until Kevin agrees longer-
-   term discounts, those totals are the monthly price multiplied by the
-   term. The 14-day introductory offer uses the same yearly Price with a
-   server-set Stripe trial, not a fifth Price.
+   price). Give each product three recurring Prices: monthly, every 6
+   months and yearly (three_months was dropped 2026-09-12, see
+   `app.core.subscription.SUBSCRIPTION_PERIODS_ENABLED`'s own comment for
+   why — no Product needs a three-month Price). Match
+   `TIER_BILLING_PRICES_GBP` in `backend/app/core/subscription.py`
+   exactly. Until Kevin agrees longer-term discounts, those totals are the
+   monthly price multiplied by the term. The 14-day introductory offer
+   uses the same yearly Price with a server-set Stripe trial, not a
+   fourth Price.
 3. Create one Product with three one-off **Prices** for the Penny top-up
    packs (`PENNY_TOPUP_PACKS`: small 20 messages/£0.99, medium 100
    messages/£2.99, large 200 messages/£4.99), and one Product with one
@@ -557,12 +560,11 @@ is reachable yet, no Stripe account exists as of this writing (Kevin,
    calls/£2.99).
 4. Copy each Price's id (`price_...`) into `STRIPE_PRICE_IDS` as
    `key=price_id` pairs, comma-separated. Monthly uses the bare tier key,
-   for example `lite`; longer terms use `lite_three_months`,
-   `lite_six_months` and `lite_annual`, repeated for Standard, Connect and
-   Max. Packs remain `penny_small`, `penny_medium`, `penny_large` and
-   `mcp_1000`. All 20 keys are required; `BILLING_ENABLED`
-   stays false if even one is missing (fail closed, see
-   `docs/ops/ENV.md`'s `STRIPE_PRICE_IDS` row).
+   for example `lite`; longer terms use `lite_six_months` and
+   `lite_annual`, repeated for Standard, Connect and Max. Packs remain
+   `penny_small`, `penny_medium`, `penny_large` and `mcp_1000`. All 16
+   keys are required; `BILLING_ENABLED` stays false if even one is
+   missing (fail closed, see `docs/ops/ENV.md`'s `STRIPE_PRICE_IDS` row).
 5. Copy the test-mode **Secret key** (`sk_test_...`) into
    `STRIPE_SECRET_KEY`.
 6. Register a webhook endpoint in the Stripe dashboard pointing at

@@ -41,8 +41,13 @@ TIER_PRICES_GBP = {
     "max":        16.99,
 }
 
-# B21: paid plans can renew monthly, every three months, every six months,
-# or yearly.
+# B21: the full set of billing periods the schema understands. This stays
+# four entries deliberately (including "three_months") even after B27
+# dropped three_months from SUBSCRIPTION_PERIODS_ENABLED below, both here
+# and in TIER_BILLING_PRICES_GBP just below: it is the reference table, so
+# re-enabling the period later is a one-line change to the enabled tuple
+# rather than re-deriving prices. A future reader should not "clean up"
+# these two structures by deleting the three_months rows.
 SUBSCRIPTION_BILLING_PERIODS = {
     "monthly":      {"months": 1,  "label": "Monthly"},
     "three_months": {"months": 3,  "label": "Every 3 months"},
@@ -68,10 +73,14 @@ TIER_BILLING_PRICES_GBP = {
     "max":        {"monthly": 16.99, "three_months": 48.99, "six_months": 91.99,  "annual": 169.99},
 }
 
-# Kevin decides: which periods are offered at all. He may remove
-# "three_months" if it doesn't carry its keep (TODO.md B22 note, still
-# open at time of writing).
-SUBSCRIPTION_PERIODS_ENABLED = ("monthly", "three_months", "six_months", "annual")
+# Kevin decides: which periods are offered at all. He dropped "three_months"
+# on 2026-09-12 (TODO.md B27 note, resolving one of B22's two open
+# switches): it saved a Lite user under £2 versus monthly, and every period
+# kept becomes four more SKUs to create and maintain in App Store Connect
+# for C13. SUBSCRIPTION_BILLING_PERIODS and TIER_BILLING_PRICES_GBP above
+# deliberately still carry a "three_months" column (see their own
+# comments), so re-enabling it later is a one-line change to this tuple.
+SUBSCRIPTION_PERIODS_ENABLED = ("monthly", "six_months", "annual")
 
 # Kevin decides: which of the enabled periods carry the 14-day introductory
 # trial. He may widen this to every period — the coordinator's own
