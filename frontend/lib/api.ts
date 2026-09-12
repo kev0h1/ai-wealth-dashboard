@@ -1379,6 +1379,30 @@ export type TodayResponse = {
   items: CompanionItem[];
 };
 
+/**
+ * Per-account read of the cover-plan source finder's own usability test
+ * (backend `_account_usable_by_finder`, G50, 2026-09-12). `short` mirrors
+ * the finder's two ACCOUNT-INTRINSIC conditions for picking a leg, not a
+ * client-side guess and not a plain "headroom <= 0" read:
+ *   1. `headroom` (spare capacity after the account's own bills and the
+ *      £10 buffer) must be at least £5 — an account with, say, £2 spare is
+ *      never picked in any combination, so it counts as short too.
+ *   2. a CURRENT (non-savings) account additionally counts as short when
+ *      its own running balance goes negative, even with positive headroom;
+ *      savings and offline accounts are exempt from this second check in
+ *      the finder, so the same balance shape on a savings pot is NOT short.
+ * NOT mirrored: the finder's per-call exclusions (this account IS the
+ * destination being funded, it's toggled off, it's already been used
+ * elsewhere this request) — those describe one specific funding attempt,
+ * not a standing fact about the account, so they're out of scope for this
+ * destination-independent read. Present on `GET /today/cover-plan` only.
+ */
+export type AccountEligibility = { short: boolean; headroom: number };
+
+export type CoverPlanResponse = TodayResponse & {
+  account_eligibility?: Record<string, AccountEligibility>;
+};
+
 export type SavingsAccountOption = {
   account_id: string;
   name: string;
@@ -3180,7 +3204,7 @@ export const api = {
 
   getToday: (paydayPreview?: boolean) =>
     get<TodayResponse>(paydayPreview ? "/today?payday_preview=1" : "/today"),
-  getCoverPlan: () => get<TodayResponse>("/today/cover-plan"),
+  getCoverPlan: () => get<CoverPlanResponse>("/today/cover-plan"),
   getNeedleSummary: () => get<NeedleSummary>("/needle/summary"),
   getCardsStory: (which: "current" | "last" = "current") => get<CardsStory>(`/cards/story?which=${which}`),
 

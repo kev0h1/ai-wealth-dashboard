@@ -47,9 +47,26 @@ async def get_cover_plan(user: dict = Depends(current_user)):
     engine's read-only mode preserves the exact source finder and returned
     route while preventing item lifecycle updates and one-time celebration
     stamps from being consumed outside Home.
+
+    `account_eligibility` (G50, 2026-09-12): `{account_id: {"short": bool,
+    "headroom": float}}` for every account the source finder could ever
+    consider, straight from `compute_today_items`'s own headroom
+    computation (`_account_headroom`) — not reconstructed from whatever
+    move cards happen to be active this request. Settings uses this to
+    show the Skipped state for an account that has no spare headroom even
+    when no live move card names it. Read-only: the out-param is filled
+    in memory only, nothing is written.
     """
-    items = await compute_today_items(uid=user["email"], persist=False)
-    return {"status": "ok", "items": [item for item in items if item.get("type") == "move"]}
+    uid = user["email"]
+    account_eligibility: dict = {}
+    items = await compute_today_items(
+        uid=uid, persist=False, account_eligibility_out=account_eligibility,
+    )
+    return {
+        "status": "ok",
+        "items": [item for item in items if item.get("type") == "move"],
+        "account_eligibility": account_eligibility,
+    }
 
 
 @router.post("/today/dismiss")
