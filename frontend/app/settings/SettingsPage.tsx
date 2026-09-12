@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   RotateCcw,
@@ -375,6 +375,13 @@ export default function SettingsPage() {
     liveRoute: null,
     shortAccountIds: new Set(),
   });
+  const [coverSaveMsg, setCoverSaveMsg] = useState<{ text: string; ok: boolean } | null>(null);
+  // Counts cover_plan_excluded_accounts PATCHes that are still in flight. The
+  // rawPrefs -> excludedIds sync effect below checks this before applying a
+  // refetch: without it, a GET /preferences that resolves while a PATCH is
+  // still pending (e.g. triggered by refreshPreferences() elsewhere on this
+  // page) would silently revert the user's still-saving toggle (G45).
+  const pendingCoverSaves = useRef(0);
   const refreshCoverPlan = useCallback(() => {
     api.getCoverPlan()
       .then((response) => setCoverPlan(coverPlanView(response.items)))
@@ -400,6 +407,11 @@ export default function SettingsPage() {
   }, [refreshCoverPlan]);
   useEffect(() => {
     if (rawPrefs === null) return;
+    // Skip while a cover-exclusion save is in flight: rawPrefs can update
+    // from an unrelated refetch (e.g. refreshPreferences() elsewhere on this
+    // page) before the PATCH resolves, and applying that stale snapshot
+    // would silently revert the toggle the user just made (G45).
+    if (pendingCoverSaves.current > 0) return;
     const ids = rawPrefs.cover_plan_excluded_accounts ?? [];
     setExcludedIds(new Set(ids));
   }, [rawPrefs]);
@@ -488,19 +500,37 @@ export default function SettingsPage() {
   }
 
   function toggleCoverAccount(id: string) {
+    // The next set is computed explicitly here, in the event handler, rather
+    // than inside the setExcludedIds updater: a state updater must be pure
+    // (React can invoke it more than once, or with a value the render then
+    // discards) so firing the PATCH from inside one meant the save could go
+    // out twice or not at all (G45).
+    const previous = excludedIds;
+    const next = new Set(previous);
+    if (next.has(id)) {
+      next.delete(id);
+    } else {
+      next.add(id);
+    }
+    setExcludedIds(next);
+    setCoverSaveMsg(null);
     setCoverPlan(current => ({ ...current, liveRoute: null }));
-    setExcludedIds(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      api.updatePreferences({ cover_plan_excluded_accounts: [...next] })
-        .then(refreshCoverPlan)
-        .catch(() => {});
-      return next;
-    });
+    pendingCoverSaves.current += 1;
+    api.updatePreferences({ cover_plan_excluded_accounts: [...next] })
+      .then(() => {
+        refreshCoverPlan();
+      })
+      .catch(() => {
+        // Revert the optimistic toggle and the liveRoute clear above, and
+        // tell the user, rather than leaving a silently-wrong toggle state
+        // (G45).
+        setExcludedIds(previous);
+        setCoverSaveMsg({ text: "Could not save that change. Try again.", ok: false });
+        refreshCoverPlan();
+      })
+      .finally(() => {
+        pendingCoverSaves.current -= 1;
+      });
   }
 
   function toggleNotifPref(key: keyof NotificationPrefs) {
@@ -1091,6 +1121,9 @@ export default function SettingsPage() {
               hideAmounts={rawPrefs === null || Boolean(rawPrefs.hide_net_worth)}
               onToggle={toggleCoverAccount}
             />
+            {coverSaveMsg && (
+              <p className={`mt-2 px-1 text-xs font-medium ${coverSaveMsg.ok ? "text-emerald-500" : "text-red-500"}`}>{coverSaveMsg.text}</p>
+            )}
           </div>
         )}
 
