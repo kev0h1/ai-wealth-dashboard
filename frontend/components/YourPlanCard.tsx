@@ -27,6 +27,7 @@ import PennyUsageRow from "@/components/PennyUsageRow";
 import PlanPicker from "@/components/PlanPicker";
 import { refreshPennyUsage } from "@/components/PennySheetProvider";
 import { useSheetA11y } from "@/lib/useSheetA11y";
+import { canPurchaseInApp, PURCHASE_UNAVAILABLE_SENTENCE } from "@/lib/nativeAuth";
 
 const INDIGO = "#4f46e5";
 
@@ -115,7 +116,20 @@ export default function YourPlanCard({
         >
           {info ? "See plans" : error ? "Try loading plans again" : "Checking plans…"}
         </button>
-        {!info?.billing_live && <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">You can choose Statements now. Paid checkout is not live yet.</p>}
+        {/* B26: on native this never mentions checkout going live, since
+            it never will in this app (Apple guideline 3.1.1, no in-app
+            purchase integration) — only shown for a free-tier user, an
+            existing paid subscriber's status already reads from the
+            subtitle above with nothing further to say here. */}
+        {!canPurchaseInApp() ? (
+          info?.tier === "statements" && (
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{PURCHASE_UNAVAILABLE_SENTENCE}</p>
+          )
+        ) : (
+          !info?.billing_live && (
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">You can choose Statements now. Paid checkout is not live yet.</p>
+          )
+        )}
       </div>
 
     </div>

@@ -24,6 +24,16 @@
 // row still renders the muted "Available soon" trailing label instead, so
 // nothing here reads as broken.
 //
+// B26: on a native build neither row can ever become a real button,
+// regardless of `billing_live` — Apple's guideline 3.1.1 forbids a button,
+// link, or "buy here" copy pointing at anything other than in-app
+// purchase, which this app has never wired up on either platform, so
+// `canPurchaseInApp()` (frontend/lib/nativeAuth.ts) gates the interactive
+// state the same way `billing_live` already did, and a native build gets
+// the shared `PURCHASE_UNAVAILABLE_LABEL` ("Not available in this app")
+// rather than "Available soon", which would wrongly promise it'll show up
+// here later.
+//
 // B11 (docs/pricing/tiering-unit-economics-mcp-2026-09.md section 9):
 // replaced the single £2.99/100-message row with three packs, good/better/
 // best, read from `info.topups` (falls back to the legacy single-pack
@@ -40,6 +50,7 @@ import { useState } from "react";
 import { X } from "lucide-react";
 import { usePennyUsage, formatPennyResetDate } from "@/components/PennySheetProvider";
 import { api } from "@/lib/api";
+import { canPurchaseInApp, PURCHASE_UNAVAILABLE_LABEL } from "@/lib/nativeAuth";
 import type { SubscriptionTopupPack } from "@wealth/shared";
 
 const LEGACY_FALLBACK_PACKS: SubscriptionTopupPack[] = [
@@ -48,11 +59,17 @@ const LEGACY_FALLBACK_PACKS: SubscriptionTopupPack[] = [
   { id: "large", messages: 200, price_gbp: 4.99, badge: "Best value" },
 ];
 
+/** B26: `"buy"` (real Checkout button), `"soon"` (billing not live yet, but
+ * this platform will get a real button once it is, so "Available soon" is
+ * still true), or `"unavailable"` (native, where "soon" would be a false
+ * promise since this platform never gets a purchase button). */
+type PurchaseRowStatus = "buy" | "soon" | "unavailable";
+
 function TrailingPrice({
-  priceGbp, billingLive, busy,
+  priceGbp, status, busy,
 }: {
   priceGbp: number | undefined;
-  billingLive: boolean;
+  status: PurchaseRowStatus;
   busy: boolean;
 }) {
   return (
@@ -60,13 +77,13 @@ function TrailingPrice({
       {typeof priceGbp === "number" && (
         <span className="font-mono text-[13px] text-slate-900 dark:text-slate-100">£{priceGbp.toFixed(2)}</span>
       )}
-      {billingLive ? (
+      {status === "buy" ? (
         <span className="text-[10px] font-medium uppercase tracking-wide text-indigo-600 dark:text-indigo-400">
           {busy ? "Opening…" : "Buy"}
         </span>
       ) : (
         <span className="text-[10px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
-          Available soon
+          {status === "soon" ? "Available soon" : PURCHASE_UNAVAILABLE_LABEL}
         </span>
       )}
     </span>
@@ -74,10 +91,10 @@ function TrailingPrice({
 }
 
 function PackRow({
-  pack, billingLive, busy, onBuy,
+  pack, status, busy, onBuy,
 }: {
   pack: SubscriptionTopupPack;
-  billingLive: boolean;
+  status: PurchaseRowStatus;
   busy: boolean;
   onBuy: () => void;
 }) {
@@ -93,11 +110,11 @@ function PackRow({
           </span>
         )}
       </span>
-      <TrailingPrice priceGbp={pack.price_gbp} billingLive={billingLive} busy={busy} />
+      <TrailingPrice priceGbp={pack.price_gbp} status={status} busy={busy} />
     </>
   );
 
-  if (!billingLive) {
+  if (status !== "buy") {
     return (
       <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 dark:border-slate-700 px-4 py-3 min-h-[44px]">
         {inner}
@@ -131,6 +148,11 @@ export default function MoreMessagesSheet({ onClose }: { onClose: () => void }) 
   // the Max tier's own monthly price is `prices_gbp.max`.
   const maxPrice = info?.prices_gbp?.max;
   const billingLive = info?.billing_live ?? false;
+  // B26: neither row can ever become a real button on a native build, see
+  // this file's top comment — computed once and fed into every row's
+  // status below rather than re-checked per row.
+  const purchasingAllowed = canPurchaseInApp();
+  const rowStatus: PurchaseRowStatus = !purchasingAllowed ? "unavailable" : billingLive ? "buy" : "soon";
   // Hide the Max row entirely once the user is already on it — there is
   // nothing to move to.
   const onMax = info?.tier === "max";
@@ -142,7 +164,7 @@ export default function MoreMessagesSheet({ onClose }: { onClose: () => void }) 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   async function buy(kind: "subscription" | "pack", target: string) {
-    if (pendingId) return;
+    if (pendingId || !purchasingAllowed) return;
     setErrorMsg(null);
     setPendingId(target);
     try {
@@ -155,7 +177,7 @@ export default function MoreMessagesSheet({ onClose }: { onClose: () => void }) 
   }
 
   const maxRow = !onMax && (
-    billingLive ? (
+    rowStatus === "buy" ? (
       <button
         type="button"
         onClick={() => buy("subscription", "max")}
@@ -165,14 +187,14 @@ export default function MoreMessagesSheet({ onClose }: { onClose: () => void }) 
         <span className="text-[13px] font-medium text-slate-800 dark:text-slate-100 pr-2">
           Move to Max, 400 a month
         </span>
-        <TrailingPrice priceGbp={maxPrice} billingLive={billingLive} busy={pendingId === "max"} />
+        <TrailingPrice priceGbp={maxPrice} status={rowStatus} busy={pendingId === "max"} />
       </button>
     ) : (
       <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 dark:border-slate-700 px-4 py-3 min-h-[44px]">
         <span className="text-[13px] font-medium text-slate-800 dark:text-slate-100 pr-2">
           Move to Max, 400 a month
         </span>
-        <TrailingPrice priceGbp={maxPrice} billingLive={billingLive} busy={false} />
+        <TrailingPrice priceGbp={maxPrice} status={rowStatus} busy={false} />
       </div>
     )
   );
@@ -181,7 +203,7 @@ export default function MoreMessagesSheet({ onClose }: { onClose: () => void }) 
     <PackRow
       key={pack.id}
       pack={pack}
-      billingLive={billingLive}
+      status={rowStatus}
       busy={pendingId === pack.id}
       onBuy={() => buy("pack", pack.id)}
     />
