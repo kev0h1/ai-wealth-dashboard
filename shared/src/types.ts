@@ -14,6 +14,8 @@ export interface Account {
   account_number?: string;
   sort_code?: string;
   manual?: boolean;
+  /** Whether the settled cover-plan source finder can consider this account. */
+  cover_source_eligible?: boolean;
   logo_url?: string;
   bg_colors?: string[];
   apr?: number | null;

@@ -17,6 +17,8 @@ import {
   SlidersHorizontal,
   Wallet,
 } from "lucide-react";
+import type { Account } from "@/lib/api";
+import CoverPlanSourcesCard, { type LiveCoverRoute } from "@/components/CoverPlanSourcesCard";
 import Toggle from "@/components/Toggle";
 
 type Variant = "a" | "b" | "c";
@@ -105,6 +107,72 @@ const ACCOUNTS: SourceAccount[] = [
   },
 ];
 
+const VARIANT_A_ACCOUNTS: Account[] = [
+  {
+    id: "barclays-current",
+    name: "Everyday household joint current account",
+    provider: "Barclays",
+    type: "bank",
+    subtype: "TRANSACTION",
+    balance: 2480,
+    currency: "GBP",
+    status: "connected",
+  },
+  {
+    id: "monzo-current",
+    name: "Monzo current",
+    provider: "Monzo",
+    type: "bank",
+    subtype: "CURRENT",
+    balance: 970,
+    currency: "GBP",
+    status: "connected",
+  },
+  {
+    id: "starling-bills",
+    name: "Bills account",
+    provider: "Starling",
+    type: "bank",
+    subtype: "CURRENT",
+    balance: 420,
+    currency: "GBP",
+    status: "connected",
+  },
+  {
+    id: "rainy-day",
+    name: "Rainy day",
+    provider: "NatWest",
+    type: "bank",
+    subtype: "SAVINGS",
+    balance: 2390,
+    currency: "GBP",
+    status: "connected",
+  },
+  {
+    id: "holiday-pot",
+    name: "Holiday pot",
+    provider: "Monzo",
+    type: "bank",
+    subtype: "SAVINGS",
+    balance: 470,
+    currency: "GBP",
+    status: "connected",
+  },
+  {
+    id: "cash-reserve",
+    name: "Cash reserve",
+    provider: "Offline",
+    type: "bank",
+    subtype: "SAVINGS",
+    balance: 790,
+    currency: "GBP",
+    status: "connected",
+    manual: true,
+  },
+];
+
+const VARIANT_A_SHORT_ACCOUNTS = new Set(["starling-bills"]);
+
 const GROUPS: Array<{
   kind: SourceKind;
   number: string;
@@ -141,15 +209,15 @@ const GROUPS: Array<{
 
 const PRESET_EXCLUSIONS: Record<PreviewState, string[]> = {
   all: [],
-  savings: ["monzo-current"],
-  short: ["monzo-current", "rainy-day", "holiday-pot", "cash-reserve"],
+  savings: ["barclays-current", "monzo-current", "starling-bills"],
+  short: VARIANT_A_ACCOUNTS.map((account) => account.id),
 };
 
 const NOTES: Record<Variant, { title: string; thesis: string; tradeoff: string }> = {
   a: {
-    title: "A · Live source ladder · recommended",
-    thesis: "Put the answer first: show the exact route for a real gap, then group every account in the order the engine will consider it.",
-    tradeoff: "The live example takes more room than today’s collapsed row, but it makes every switch immediately explain itself.",
+    title: "A · Live safeguard ladder · approved",
+    thesis: "Put the active transfer route first, then group accounts as Current and Savings. Connected accounts show today’s order; manually managed accounts keep their real class and their manual-transfer caveat.",
+    tradeoff: "The ladder takes more room than the old collapsed row, but every switch explains what the next cover suggestion can use.",
   },
   b: {
     title: "B · Ranked register",
@@ -208,10 +276,6 @@ function findCover(excluded: Set<string>, gap = GAP): CoverResult {
   }
 
   return { legs, uncovered: Math.max(0, remaining) };
-}
-
-function groupIndex(kind: SourceKind): number {
-  return GROUPS.findIndex((group) => group.kind === kind);
 }
 
 function BankMark({ account }: { account: SourceAccount }) {
@@ -378,57 +442,30 @@ function RouteSummary({ result, expanded = false }: { result: CoverResult; expan
 }
 
 function VariantA({ excluded, result, onToggle }: VariantProps) {
+  const liveRoute: LiveCoverRoute = {
+    headline: result.uncovered > 0
+      ? `${money(result.uncovered)} still uncovered`
+      : `Move ${money(GAP)} to Bills account`,
+    detail: result.uncovered > 0
+      ? `Allowed accounts can provide ${money(GAP - result.uncovered)} of this ${money(GAP)} gap.`
+      : `${money(GAP)} across ${result.legs.length} ${result.legs.length === 1 ? "transfer" : "transfers"} would cover the gap.`,
+    legs: result.legs.map((leg) => ({
+      accountId: leg.account.id,
+      name: VARIANT_A_ACCOUNTS.find((account) => account.id === leg.account.id)?.name ?? leg.account.name,
+      provider: leg.account.provider,
+      amount: leg.amount,
+    })),
+    risk: result.uncovered > 0,
+  };
+
   return (
-    <section aria-labelledby="cover-sources-heading-a" className="glass-card overflow-hidden rounded-3xl">
-      <header className="px-4 pb-3 pt-4">
-        <div className="flex items-start gap-3">
-          <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
-            <ShieldCheck size={18} aria-hidden="true" />
-          </span>
-          <div className="min-w-0">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">Cover plan safeguards</p>
-            <h2 id="cover-sources-heading-a" className="mt-0.5 text-[17px] font-bold text-slate-950 dark:text-white">Where cover money can come from</h2>
-            <p className="mt-1 text-[12px] leading-relaxed text-slate-500 dark:text-slate-400">
-              Choose the accounts Sorted may suggest. Your own bills and a <span className="money">£10</span> buffer stay protected in every account.
-            </p>
-          </div>
-        </div>
-      </header>
-
-      <div className="px-4 pb-4">
-        <RouteSummary result={result} />
-      </div>
-
-      <div className="border-t border-slate-100 dark:border-slate-700/70">
-        {GROUPS.map((group, groupPosition) => {
-          const Icon = group.icon;
-          const groupAccounts = ACCOUNTS.filter((account) => account.kind === group.kind);
-          return (
-            <section key={group.kind} aria-labelledby={`a-${group.kind}-heading`} className={groupPosition > 0 ? "border-t border-slate-100 dark:border-slate-700/70" : ""}>
-              <div className="flex items-start gap-3 px-4 pb-2 pt-4">
-                <span className="relative grid size-8 shrink-0 place-items-center rounded-full border border-indigo-200 bg-white text-[12px] font-bold text-indigo-700 dark:border-indigo-400/25 dark:bg-slate-800 dark:text-indigo-300">
-                  {group.number}
-                  {groupPosition < GROUPS.length - 1 && <span aria-hidden="true" className="absolute left-1/2 top-full h-5 w-px -translate-x-1/2 bg-indigo-200 dark:bg-indigo-400/20" />}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
-                    <h3 id={`a-${group.kind}-heading`} className="text-[14px] font-bold text-slate-900 dark:text-slate-100">{group.title}</h3>
-                    <span className="text-[10px] font-semibold uppercase tracking-wide text-indigo-600 dark:text-indigo-400">{group.short}</span>
-                  </div>
-                  <p className="mt-1 text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">{group.rule}</p>
-                </div>
-                <Icon size={15} aria-hidden="true" className="mt-0.5 shrink-0 text-slate-300 dark:text-slate-600" />
-              </div>
-              <div className="divide-y divide-slate-100 dark:divide-slate-700/60">
-                {groupAccounts.map((account) => (
-                  <AccountToggle key={account.id} account={account} excluded={excluded} onToggle={onToggle} />
-                ))}
-              </div>
-            </section>
-          );
-        })}
-      </div>
-    </section>
+    <CoverPlanSourcesCard
+      accounts={VARIANT_A_ACCOUNTS}
+      excludedIds={excluded}
+      liveRoute={liveRoute}
+      shortAccountIds={VARIANT_A_SHORT_ACCOUNTS}
+      onToggle={onToggle}
+    />
   );
 }
 
@@ -711,12 +748,18 @@ export default function CoverPlanSourcesClient() {
               <p className="mt-2 hidden text-[11px] leading-relaxed text-slate-500 dark:text-slate-400 lg:block"><span className="font-semibold">Trade-off:</span> {note.tradeoff}</p>
               <div className="mt-4 border-t border-slate-100 pt-3 dark:border-slate-700/70">
                 <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Fixture</p>
-                <p className="money mt-1 text-[17px] font-bold text-slate-950 dark:text-white">{money(GAP)} cover gap</p>
-                <p className="mt-1 hidden text-[11px] leading-relaxed text-slate-500 dark:text-slate-400 lg:block">Use the bottom state control or switch accounts directly. Every consequence is calculated locally from the settled engine order.</p>
+                <p className={`mt-1 text-[17px] font-bold text-slate-950 dark:text-white ${variant === "a" ? "" : "money"}`}>
+                  {variant === "a" ? "6 source accounts" : `${money(GAP)} cover gap`}
+                </p>
+                <p className="mt-1 hidden text-[11px] leading-relaxed text-slate-500 dark:text-slate-400 lg:block">
+                  {variant === "a"
+                    ? "Use the bottom state control or switch accounts directly. Variant A renders the production component."
+                    : "Use the bottom state control or switch accounts directly. Every consequence is calculated locally from the settled engine order."}
+                </p>
               </div>
             </aside>
 
-            <div className="mx-auto w-full max-w-[430px] space-y-4">
+            <div className="mx-auto min-w-0 w-full max-w-[430px] space-y-4">
               <SettingsContext />
               {variant === "a" && <VariantA excluded={excluded} result={result} onToggle={toggleAccount} />}
               {variant === "b" && <VariantB excluded={excluded} result={result} onToggle={toggleAccount} />}
