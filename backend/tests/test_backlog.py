@@ -1878,3 +1878,161 @@ def test_end_to_end_uat_loop_including_start_after_approve(tmp_path):
     print("end-to-end uat loop (CLI level):")
     print("  in-progress(branch) -> review --uat-review -> uat(link) -> approve -> in-progress(no branch) -> start(new branch)")
     print("  final state:", state)
+
+
+# ---------------------------------------------------------------------
+# H38 — lint / repair of historical pytest-noise damage: before H27 added
+# `one_line_reason`, a raw multi-line pytest run got written straight into
+# a `[state: blocked: ...]` reason, leaving free-standing dot-progress
+# rows and item lines with a `[state: ...` tag that never closes with a
+# `]` on the same physical line. `lint_todo`/`repair_todo` detect and (on
+# request) clean that up without touching anything else.
+# ---------------------------------------------------------------------
+
+NOISE_FIXTURE = """# Backlog fixture with historical pytest noise (H38)
+
+## A. Section A heading
+
+- [x] **A1. First item, corrupted by the old integrate bug.** [owner: claude] [priority: p1] [state: blocked: backend test suite failed: (done 2026-09-01, abc0001)
+........................................................................ [  4%]
+........................................................................ [  9%]
+.................................] [unblocks: Q1]
+  - note (2026-09-01, claude): Requeued after a transient failure.
+- [ ] **A2. Clean item, untouched.** [owner: claude] Some description text about A2.
+"""
+
+
+def test_lint_todo_leaves_a_clean_board_untouched():
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    assert backlog.lint_todo(doc) == []
+
+
+def test_lint_todo_flags_noise_lines_and_the_dangling_state_tag():
+    doc = backlog.TodoDoc.parse(NOISE_FIXTURE)
+    findings = backlog.lint_todo(doc)
+
+    noise = [f for f in findings if f.kind == "noise_line"]
+    dangling = [f for f in findings if f.kind == "dangling_state_tag"]
+    assert len(noise) == 3
+    assert len(dangling) == 1
+
+    # The three noise lines are exactly the dot-progress rows, never the
+    # item line itself or the note.
+    noise_originals = {f.original for f in noise}
+    assert noise_originals == {
+        "........................................................................ [  4%]",
+        "........................................................................ [  9%]",
+        ".................................] [unblocks: Q1]",
+    }
+
+    tag = dangling[0]
+    assert tag.item_id == "A1"
+    assert "[state:" not in tag.replacement
+    assert tag.replacement.endswith("(done 2026-09-01, abc0001)")
+    assert "[owner: claude]" in tag.replacement
+    assert "[priority: p1]" in tag.replacement
+
+
+def test_repair_todo_dry_run_changes_nothing_on_disk(tmp_path, mock_git):
+    todo_path = tmp_path / "TODO.md"
+    todo_path.write_text(NOISE_FIXTURE, encoding="utf-8")
+    before = todo_path.read_text(encoding="utf-8")
+
+    findings, committed = backlog.repair_todo(apply=False, todo_path=todo_path, repo_root=tmp_path)
+
+    assert len(findings) == 4
+    assert committed is False
+    assert todo_path.read_text(encoding="utf-8") == before
+    mock_git.assert_not_called()
+
+
+def test_repair_todo_apply_removes_exactly_the_malformed_lines(tmp_path, mock_git):
+    todo_path = tmp_path / "TODO.md"
+    todo_path.write_text(NOISE_FIXTURE, encoding="utf-8")
+
+    findings, committed = backlog.repair_todo(
+        apply=True, actor="claude", todo_path=todo_path, repo_root=tmp_path
+    )
+
+    assert len(findings) == 4
+    assert committed is True
+    assert "backlog: repaired 4 malformed line(s) by claude" in mock_git.call_args_list[1].args[0]
+
+    saved = todo_path.read_text(encoding="utf-8")
+    assert "....." not in saved
+    assert "[state: blocked: backend test suite failed:" not in saved
+
+    # Nothing but the flagged lines moved: A1 keeps its done marker, commit,
+    # owner, priority and (now correctly attached, since the noise between
+    # it and the item line is gone) its note; A2 is untouched byte for byte.
+    reparsed = backlog.TodoDoc.parse(saved)
+    assert set(reparsed.items) == {"A1", "A2"}
+
+    a1 = reparsed.items["A1"]
+    assert a1.done is True
+    assert a1.done_at == "2026-09-01"
+    assert a1.commit == "abc0001"
+    assert a1.owner == "claude"
+    assert a1.priority == "p1"
+    assert a1.text == ""
+    assert len(a1.notes) == 1
+    assert a1.notes[0].text == "Requeued after a transient failure."
+
+    a2 = reparsed.items["A2"]
+    assert a2.text == "Some description text about A2."
+    assert a2.owner == "claude"
+
+
+def test_repair_todo_apply_on_a_clean_board_makes_no_commit(paths, mock_git):
+    todo_path, _ = paths
+    repo_root = todo_path.parent
+    before = todo_path.read_text(encoding="utf-8")
+
+    findings, committed = backlog.repair_todo(apply=True, todo_path=todo_path, repo_root=repo_root)
+
+    assert findings == []
+    assert committed is False
+    assert todo_path.read_text(encoding="utf-8") == before
+    mock_git.assert_not_called()
+
+
+def test_cli_lint_dry_run_then_apply(tmp_path):
+    board_root = tmp_path / "board"
+    board_root.mkdir()
+    (board_root / "TODO.md").write_text(NOISE_FIXTURE, encoding="utf-8")
+    compliance_dir = board_root / "docs" / "compliance"
+    compliance_dir.mkdir(parents=True)
+    (compliance_dir / "finexer-agent-controls-2026-09.md").write_text(COMPLIANCE_FIXTURE, encoding="utf-8")
+
+    env = dict(os.environ)
+    env["BACKLOG_ROOT"] = str(board_root)
+
+    def run(*args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [sys.executable, str(SCRIPTS_BACKLOG), *args],
+            cwd=board_root,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+
+    dry = run("lint")
+    assert dry.returncode == 0, dry.stderr
+    assert "would remove pytest noise line" in dry.stdout
+    assert "would rewrite dangling state tag" in dry.stdout
+    # Dry run really did nothing.
+    assert "....." in (board_root / "TODO.md").read_text(encoding="utf-8")
+
+    applied = run("lint", "--apply")
+    assert applied.returncode == 0, applied.stderr
+    assert "4 finding(s) fixed." in applied.stdout
+
+    saved = (board_root / "TODO.md").read_text(encoding="utf-8")
+    assert "....." not in saved
+    assert "[state: blocked:" not in saved
+
+    # A second pass has nothing left to do.
+    clean = run("lint")
+    assert clean.returncode == 0, clean.stderr
+    assert "no H38-shaped damage found" in clean.stdout
