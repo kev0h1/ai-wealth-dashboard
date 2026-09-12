@@ -175,7 +175,7 @@ function coverPlanView(
 export default function SettingsPage() {
   const router = useRouter();
   const { user, logout } = useAuth();
-  const { darkMode, setDarkMode, rawPrefs, refreshPreferences, notePreferencesVersion } = usePreferences();
+  const { darkMode, setDarkMode, rawPrefs, refreshPreferences, notePreferencesVersion, preferencesSaveError } = usePreferences();
   const { startFlow } = useTutorial();
 
   const [syncingHistory, setSyncingHistory] = useState(false);
@@ -407,7 +407,14 @@ export default function SettingsPage() {
   // or empty -- rendered as an honest inline note rather than silently
   // reusing the old (wrong) move-card-derived short set.
   const [coverEligibilityStatus, setCoverEligibilityStatus] = useState<"loading" | "ready" | "error">("loading");
-  const [coverSaveMsg, setCoverSaveMsg] = useState<{ text: string; ok: boolean } | null>(null);
+  // G59 (folded into G60): this was `{ text: string; ok: boolean }`, rendered
+  // as a whole coloured sentence (emerald for ok, red for failure) — but
+  // runCoverToggle below only ever sets it on FAILURE, the `ok: true` branch
+  // was dead code, and red is wrong here regardless per the Red Is Risk rule
+  // (DESIGN.md:140): a failed settings save is not a financial risk. Plain
+  // string, ink-plus-amber-dot styling below, matching notifSaveMsg and
+  // childBenefitSaveMsg (the versions G52/G58 already got right).
+  const [coverSaveMsg, setCoverSaveMsg] = useState<string | null>(null);
   // G45 (second re-review) — two earlier attempts at this got rejected:
   //
   //  v1, a busy-counter that blocked the rawPrefs resync only while a PATCH
@@ -560,6 +567,19 @@ export default function SettingsPage() {
   const savingChildBenefitRef = useRef(false);
   const [savingChildBenefit, setSavingChildBenefit] = useState(false);
   const [childBenefitSaveMsg, setChildBenefitSaveMsg] = useState<string | null>(null);
+  // G60 (folding in a G58-review finding): income_value and pension_annual
+  // had no equivalent of savingChildBenefitRef above, so a refreshPreferences()
+  // triggered by an UNRELATED save on this page (cover-plan, notification
+  // prefs, or child benefit's own failure-path reconciliation) landing while
+  // the user is mid-type-and-blur on either figure could revert it to the
+  // pre-edit server value even though handleIncomeBlur/handlePensionBlur's
+  // own PATCH was still in flight and about to succeed -- the exact class of
+  // bug G45/G52/G58 each fixed for a different field. Same idiom, not the
+  // full lib/preferenceSave.ts shape: these two fields already show a
+  // message and never silently revert on their OWN failure (see financeMsg
+  // in handleIncomeBlur/handlePensionBlur), the only gap was this guard.
+  const incomeSavingRef = useRef(false);
+  const pensionSavingRef = useRef(false);
   const applyHasChildBenefit = useCallback((next: boolean) => {
     hasChildBenefitRef.current = next;
     setHasChildBenefit(next);
@@ -581,10 +601,10 @@ export default function SettingsPage() {
   useEffect(() => {
     if (rawPrefs === null) return;
     if (rawPrefs.income_bracket) setIncomeBracket(rawPrefs.income_bracket);
-    if ("income_value" in rawPrefs) {
+    if (!incomeSavingRef.current && "income_value" in rawPrefs) {
       setIncomeInput(rawPrefs.income_value === 0 ? "" : String(rawPrefs.income_value));
     }
-    if ("pension_annual" in rawPrefs) {
+    if (!pensionSavingRef.current && "pension_annual" in rawPrefs) {
       setPensionAnnual(rawPrefs.pension_annual === 0 ? "" : String(rawPrefs.pension_annual));
     }
     // Skipped entirely while our own save is in flight (see
@@ -647,11 +667,14 @@ export default function SettingsPage() {
     // so the pension/child-benefit fields appear without a refetch
     setIncomeBracket(value < 100_000 ? "under_100k" : value <= 125_140 ? "100k_125k" : "125k_plus");
     setFinanceMsg(null);
+    incomeSavingRef.current = true;
     api.updatePreferences({ income_value: value }).then(() => {
       setFinanceMsg({ text: "Saved", ok: true });
       setTimeout(() => setFinanceMsg(null), 2000);
     }).catch((e: unknown) => {
       setFinanceMsg({ text: e instanceof Error ? e.message : "Could not save", ok: false });
+    }).finally(() => {
+      incomeSavingRef.current = false;
     });
   }
 
@@ -660,11 +683,14 @@ export default function SettingsPage() {
     const value = isNaN(n) ? 0 : n;
     setPensionAnnual(value === 0 ? "" : String(value));
     setFinanceMsg(null);
+    pensionSavingRef.current = true;
     api.updatePreferences({ pension_annual: value }).then(() => {
       setFinanceMsg({ text: "Saved", ok: true });
       setTimeout(() => setFinanceMsg(null), 2000);
     }).catch((e: unknown) => {
       setFinanceMsg({ text: e instanceof Error ? e.message : "Could not save", ok: false });
+    }).finally(() => {
+      pensionSavingRef.current = false;
     });
   }
 
@@ -760,7 +786,7 @@ export default function SettingsPage() {
       // now serialized that specific interleaving can't happen, but the
       // server is still the correct source of truth to reconcile from on
       // any failure (e.g. one this device never even learns succeeded).
-      setCoverSaveMsg({ text: "Could not save that change. Try again.", ok: false });
+      setCoverSaveMsg("Could not save that change. Try again.");
       const server = await refreshPreferences();
       if (server) {
         // Mark this exact snapshot as already synced BEFORE applying it, so
@@ -1160,6 +1186,23 @@ export default function SettingsPage() {
               label="Dark mode"
             />
           </div>
+          {/* G60: PreferencesContext's setDarkMode now reverts and reconciles
+              on a failed save (see lib/preferenceSave.ts); this is the one
+              message from that context-wide fix with somewhere to be shown —
+              darkMode is the only one of the context's six server-backed
+              fields with a control on this page. Same ink-plus-amber-dot
+              pattern as notifSaveMsg/childBenefitSaveMsg below, not a whole
+              coloured sentence (DESIGN.md:142). */}
+          {preferencesSaveError?.field === "dark_mode" && (
+            <p
+              role="status"
+              aria-live="polite"
+              className="flex items-start gap-1.5 px-4 pb-3.5 text-xs font-medium text-slate-600 dark:text-slate-300"
+            >
+              <span aria-hidden="true" className="mt-1 size-1.5 shrink-0 rounded-full bg-amber-500 dark:bg-amber-400" />
+              <span>{preferencesSaveError.message}</span>
+            </p>
+          )}
         </div>
 
         {/* ── Your plan (B5) ── */}
@@ -1436,9 +1479,10 @@ export default function SettingsPage() {
               <p
                 role="status"
                 aria-live="polite"
-                className={`mt-2 px-1 text-xs font-medium ${coverSaveMsg.ok ? "text-emerald-500" : "text-red-700 dark:text-red-400"}`}
+                className="mt-2 flex items-start gap-1.5 px-1 text-xs font-medium text-slate-600 dark:text-slate-300"
               >
-                {coverSaveMsg.text}
+                <span aria-hidden="true" className="mt-1 size-1.5 shrink-0 rounded-full bg-amber-500 dark:bg-amber-400" />
+                <span>{coverSaveMsg}</span>
               </p>
             )}
           </div>

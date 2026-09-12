@@ -1,11 +1,13 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useRef, useState, useEffect } from "react";
 import { Wallet, ChevronRight, Check, Building2, ShieldCheck } from "lucide-react";
 import { api, type SubscriptionInfo } from "@/lib/api";
 import PennyMark from "@/components/PennyMark";
 import PlanPicker from "@/components/PlanPicker";
 import { isNativePlatform } from "@/lib/nativeAuth";
+import { createPreferenceSaver } from "@/lib/preferenceSave";
+import { createSerialQueue } from "@/lib/serialQueue";
 import {
   isAvailable as checkBiometryAvailability,
   authenticate as authenticateBiometrics,
@@ -64,6 +66,8 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
   const [lastName, setLastName]   = useState(() => defaultName.split(" ").slice(1).join(" ") ?? "");
   const [postcode, setPostcode]   = useState("");
   const [payIdx, setPayIdx]       = useState(0);
+  const [paydaySaving, setPaydaySaving] = useState(false);
+  const [paydayErrorMsg, setPaydayErrorMsg] = useState<string | null>(null);
   const [incomeInput, setIncomeInput]     = useState("");
   const [incomeFocused, setIncomeFocused] = useState(false);
   const [incomeSaving, setIncomeSaving]   = useState(false);
@@ -175,24 +179,103 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
     }
   }
 
+  // G60: this used to fire api.updatePreferences(...).catch(() => {}) and
+  // always advance to "plan" regardless of outcome, so a failed save left
+  // the whole app's Home/Spend/Planning runway calculations keyed to a pay
+  // schedule the user never actually confirmed, with no sign anything went
+  // wrong. Onboarding runs OUTSIDE PreferencesContext (AuthProvider renders
+  // it INSTEAD of the Providers tree's children while onboarding is
+  // pending, see components/AuthProvider.tsx) — there is no
+  // refreshPreferences()/notePreferencesVersion to reconcile against and no
+  // local value elsewhere in this flow that would need reverting, so the
+  // optimistic-apply-and-revert half of lib/preferenceSave.ts's shape does
+  // not apply here (both `getCurrent`/`apply` below are trivial no-ops).
+  // What DOES apply, and is exactly why this still goes through the shared
+  // saver rather than a bespoke try/catch: one write in flight at a time
+  // (protects against a double-tap firing the PATCH twice) and a clean
+  // success/failure signal via onSuccess/onError, used here to decide
+  // whether to advance at all.
+  //
+  // A real pay schedule (anything but "I'll set this later", which never
+  // calls save() at all) BLOCKS progress on failure -- staying put with the
+  // button re-enabled is preferred over silently proceeding with an
+  // unsaved, load-bearing setting. First attempt at this (rejected on
+  // review, 2026-09-12) blocked with NO other signal: paydaySaving resets
+  // to false, the button just flips back from "Saving..." to "Continue" and
+  // sits there, which on the very first screen a new user meets reads as a
+  // dead button, not a deliberate retry state. Fixed by paydayErrorMsg
+  // below, rendered with the same ink-plus-amber-dot role="status" pattern
+  // already used in this diff for SpendTrends' widgetsSaveMsg and
+  // PreferencesContext's preferencesSaveError, wording the escape
+  // explicitly (retry, or pick "I'll set this later" above).
+  const paydayOutcomeRef = useRef<"ok" | "failed">("ok");
+  const paydaySaverRef = useRef(createPreferenceSaver<object>({
+    queue: createSerialQueue(),
+    getCurrent: () => ({}),
+    apply: () => {},
+    save: (v) => api.updatePreferences({ pay_period_config: v }),
+    reconcile: async () => undefined,
+    onSuccess: () => { paydayOutcomeRef.current = "ok"; setPaydayErrorMsg(null); },
+    // Rejected on review (2026-09-12): blocking progress with the button
+    // simply reverting to "Continue" reads as a dead button on the very
+    // first screen a new user meets -- there is no OTHER visible sign
+    // anything went wrong. onError already runs with `null` at the start of
+    // every attempt (clearing a stale message before this one begins) and
+    // with a real message on failure -- see lib/preferenceSave.ts's own
+    // docstring, point 6 -- so this just needs to show it, same
+    // ink-plus-amber-dot role="status" pattern already used in this diff
+    // for SpendTrends' widgetsSaveMsg and PreferencesContext's
+    // preferencesSaveError.
+    onError: (msg) => {
+      if (msg !== null) paydayOutcomeRef.current = "failed";
+      setPaydayErrorMsg(msg);
+    },
+  })).current;
+
   async function savePayday() {
     const chosen = PAY_OPTIONS[payIdx].value;
-    if (chosen) {
-      try { await api.updatePreferences({ pay_period_config: chosen }); } catch {}
+    if (!chosen) {
+      // "I'll set this later" — nothing to save, always proceeds.
+      setStep("plan");
+      return;
     }
-    setStep("plan");
+    setPaydaySaving(true);
+    await paydaySaverRef.run(chosen);
+    setPaydaySaving(false);
+    if (paydayOutcomeRef.current === "ok") setStep("plan");
+    // On failure: stay on this step. The button below is enabled again
+    // (paydaySaving is back to false), so tapping Continue simply retries.
   }
 
   // Show 107,000 not 107000 while not focused — mirrors SettingsPage's fmtDigits.
   const fmtDigits = (v: string) => (v ? Number(v).toLocaleString("en-GB") : "");
 
-  // Optional data: never blocks progression, even on a save error.
+  // G60: income is explicitly optional (the copy on this step says so, and
+  // "I'll set this later" is always one tap away via skipIncome below) and,
+  // unlike pay period, nothing elsewhere depends on it being set correctly
+  // from day one — the same "Financial profile" field is editable in
+  // Settings with its own full revert-and-surface handling (financeMsg /
+  // handleIncomeBlur). So this keeps its pre-existing behaviour of never
+  // blocking progression on a save error, and still has nowhere on this
+  // step to show a failure message (see savePayday's comment above for why
+  // Onboarding has no PreferencesContext to reconcile against) — the one
+  // thing this move to the shared saver adds is the same single-flight
+  // protection savePayday gets, for consistency, even though a double-tap
+  // here is lower-stakes.
+  const incomeSaverRef = useRef(createPreferenceSaver<number>({
+    queue: createSerialQueue(),
+    getCurrent: () => 0,
+    apply: () => {},
+    save: (v) => api.updatePreferences({ income_value: v }),
+    reconcile: async () => undefined,
+  })).current;
+
   async function saveIncome() {
     const n = parseInt(incomeInput.replace(/[^0-9]/g, ""), 10);
     const value = isNaN(n) ? 0 : n;
     if (value > 0) {
       setIncomeSaving(true);
-      try { await api.updatePreferences({ income_value: value }); } catch {}
+      await incomeSaverRef.run(value);
       setIncomeSaving(false);
     }
     setStep("bank");
@@ -356,10 +439,25 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
 
         <button
           onClick={savePayday}
-          className="w-full py-3.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 active:scale-[0.97] text-sm font-semibold text-white transition"
+          disabled={paydaySaving}
+          className="w-full py-3.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 active:scale-[0.97] text-sm font-semibold text-white transition disabled:opacity-50"
         >
-          Continue
+          {paydaySaving ? "Saving…" : "Continue"}
         </button>
+
+        {/* Rejected on review (2026-09-12): staying on this step with no
+            visible sign anything failed reads as a dead button on the very
+            first screen a new user meets. Ink-plus-amber-dot role="status",
+            the same pattern already used in this diff for SpendTrends'
+            widgetsSaveMsg and PreferencesContext's preferencesSaveError
+            (DESIGN.md:142), naming the actual escape this exact step
+            offers: pick "I'll set this later" above and continue. */}
+        {paydayErrorMsg && (
+          <p role="status" aria-live="polite" className="mt-3 flex items-start gap-1.5 text-xs font-medium text-slate-600 dark:text-slate-300">
+            <span aria-hidden="true" className="mt-1 size-1.5 shrink-0 rounded-full bg-amber-500 dark:bg-amber-400" />
+            <span>Could not save that. Try again, or choose &quot;I&apos;ll set this later&quot; above and continue.</span>
+          </p>
+        )}
       </Shell>
     );
   }

@@ -6,7 +6,7 @@
 // the home page (PinnedWidgetCard), where it renders compact and deep-links
 // back here.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   PieChart, Pie, Cell, BarChart, Bar, LineChart, Line, AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
@@ -26,6 +26,8 @@ import { CSS } from "@dnd-kit/utilities";
 import { api, Transaction, TransportSummary, SpendVerdictPaceEntry, DebtPlanSummary } from "@/lib/api";
 import { cachedVerdict, fetchVerdictData } from "@/lib/verdictCache";
 import { usePreferences } from "@/components/PreferencesContext";
+import { createPreferenceSaver } from "@/lib/preferenceSave";
+import { createSerialQueue } from "@/lib/serialQueue";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { useSheetA11y } from "@/lib/useSheetA11y";
 import { getCategoryColour } from "@/lib/categories";
@@ -1008,32 +1010,103 @@ export default function SpendTrends(props: {
   // own comment for why this can't be derived from periodTxns/allTxns.
   paceSeries?: SpendVerdictPaceEntry[];
 }) {
-  const { spendWidgets: ctxWidgets, homePinnedWidget: ctxPinned, setSpendWidgets: setCtxWidgets, setHomePinnedWidget: setCtxPinned } = usePreferences();
+  const {
+    spendWidgets: ctxWidgets, homePinnedWidget: ctxPinned,
+    setSpendWidgets: setCtxWidgets, setHomePinnedWidget: setCtxPinned,
+    refreshPreferences, notePreferencesVersion,
+  } = usePreferences();
   // prefsLoaded is true once the context has received the server response (non-null array).
   const prefsLoaded = ctxWidgets !== null;
   const [widgets, setWidgets] = useState<WidgetId[]>(DEFAULT_WIDGETS);
   const [pinnedWidget, setPinnedWidget] = useState<WidgetId | null>(null);
   const [galleryOpen, setGalleryOpen] = useState(false);
+  // G60: saveWidgets/savePinned used to setState then fire
+  // api.updatePreferences(...).catch(() => {}) with no revert and nothing
+  // shown — a failed drag-reorder, add, remove or pin left this screen (and
+  // Home's pinned-widget card, via the shared context) showing an
+  // arrangement the server never stored. widgetsSaveMsg is a single slot
+  // shared by both fields since they live in the same on-screen region and
+  // are never both mid-save from the same user action.
+  const [widgetsSaveMsg, setWidgetsSaveMsg] = useState<string | null>(null);
 
-  // Sync local state from context whenever context loads/changes.
+  // Read via these refs at the top of a queued save (lib/preferenceSave.ts,
+  // point 3) rather than the `widgets`/`pinnedWidget` state closed over when
+  // the save was enqueued — see applyWidgets/applyPinned below, the only two
+  // places that mutate them.
+  const widgetsRef = useRef<WidgetId[]>(DEFAULT_WIDGETS);
+  const pinnedRef = useRef<WidgetId | null>(null);
+
+  // Applies a value to this component's own `widgets` mirror AND the
+  // shared PreferencesContext copy (read elsewhere, e.g. HomePage's pinned
+  // widget card) in one synchronous call — used for the optimistic value
+  // before a save starts and again for whatever a failed save's
+  // reconciliation resolves to.
+  const applyWidgets = useCallback((next: WidgetId[]) => {
+    widgetsRef.current = next;
+    setWidgets(next);
+    setCtxWidgets(next);
+  }, [setCtxWidgets]);
+
+  const applyPinned = useCallback((next: WidgetId | null) => {
+    pinnedRef.current = next;
+    setPinnedWidget(next);
+    setCtxPinned(next);
+  }, [setCtxPinned]);
+
+  // Sync local state from context whenever context loads/changes (e.g. the
+  // context's own mount-time GET /preferences, which resolves after this
+  // component has already rendered with the DEFAULT_WIDGETS placeholder).
   useEffect(() => {
-    if (ctxWidgets !== null) setWidgets(ctxWidgets.filter(isWidgetId));
+    if (ctxWidgets !== null) {
+      const filtered = ctxWidgets.filter(isWidgetId);
+      widgetsRef.current = filtered;
+      setWidgets(filtered);
+    }
   }, [ctxWidgets]);
 
   useEffect(() => {
-    setPinnedWidget(isWidgetId(ctxPinned) ? ctxPinned : null);
+    const next = isWidgetId(ctxPinned) ? ctxPinned : null;
+    pinnedRef.current = next;
+    setPinnedWidget(next);
   }, [ctxPinned]);
 
+  const spendWidgetsSaver = useRef(createPreferenceSaver<WidgetId[]>({
+    queue: createSerialQueue(),
+    getCurrent: () => widgetsRef.current,
+    apply: applyWidgets,
+    save: (v) => api.updatePreferences({ spend_widgets: v }),
+    reconcile: async () => {
+      const server = await refreshPreferences();
+      return server && Array.isArray(server.spend_widgets)
+        ? (server.spend_widgets.filter(isWidgetId) as WidgetId[])
+        : undefined;
+    },
+    noteVersion: notePreferencesVersion,
+    onError: setWidgetsSaveMsg,
+    failureMessage: "Could not save your widget changes. Try again.",
+  })).current;
+
+  const pinnedWidgetSaver = useRef(createPreferenceSaver<WidgetId | null>({
+    queue: createSerialQueue(),
+    getCurrent: () => pinnedRef.current,
+    apply: applyPinned,
+    save: (v) => api.updatePreferences({ home_pinned_widget: v }),
+    reconcile: async () => {
+      const server = await refreshPreferences();
+      if (!server || server.home_pinned_widget === undefined) return undefined;
+      return isWidgetId(server.home_pinned_widget) ? server.home_pinned_widget : null;
+    },
+    noteVersion: notePreferencesVersion,
+    onError: setWidgetsSaveMsg,
+    failureMessage: "Could not save your widget changes. Try again.",
+  })).current;
+
   function saveWidgets(next: WidgetId[]) {
-    setWidgets(next);
-    setCtxWidgets(next);
-    api.updatePreferences({ spend_widgets: next }).catch(() => {});
+    void spendWidgetsSaver.run(next);
   }
 
   function savePinned(next: WidgetId | null) {
-    setPinnedWidget(next);
-    setCtxPinned(next);
-    api.updatePreferences({ home_pinned_widget: next }).catch(() => {});
+    void pinnedWidgetSaver.run(next);
   }
 
   function removeWidget(id: WidgetId) {
@@ -1107,6 +1180,17 @@ export default function SpendTrends(props: {
         >
           <Plus size={14} /> Add widget
         </button>
+      )}
+
+      {/* G60: shown when a reorder, add, remove or pin failed to save — see
+          widgetsSaveMsg above. Ink-plus-amber-dot per DESIGN.md:142, not a
+          whole coloured sentence; persists until the next attempt rather
+          than auto-clearing, matching lib/preferenceSave.ts's default. */}
+      {widgetsSaveMsg && (
+        <p role="status" aria-live="polite" className="flex items-start gap-1.5 px-1 text-xs font-medium text-slate-600 dark:text-slate-300">
+          <span aria-hidden="true" className="mt-1 size-1.5 shrink-0 rounded-full bg-amber-500 dark:bg-amber-400" />
+          <span>{widgetsSaveMsg}</span>
+        </p>
       )}
 
       {galleryOpen && (
