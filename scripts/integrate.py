@@ -575,7 +575,10 @@ def _integrate_one(item: dict) -> tuple[str, str]:
     rc, out = _sh(["git", "merge", "--no-ff", f"origin/{branch}", "-m", f"integrate: {item_id} {title} ({branch})"])
     if rc != 0:
         _sh(["git", "merge", "--abort"])
-        reason = "integration conflict with main; rebase the branch"
+        reason = (
+            "conflict with main; merge origin/main into the branch (do not "
+            "rebase, it is already pushed) and re-run session.sh finish"
+        )
         _block(item_id, reason)
         return "blocked", f"{item_id}: merge conflict with {branch}"
 
