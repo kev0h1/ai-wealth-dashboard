@@ -22,6 +22,16 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "spend-page-refurbishment",
+    name: "spend-page-refurbishment",
+    description:
+      "G57 whole Spend-page refurbishment round against one reconciled, owner-shaped dense period: Out £4,976 leads honestly while £8,087 Moved is explicitly separate from spending, including £6,075 shifted between the owner's own accounts; 3 attention categories, 11 quieter categories, £340 not yet placed and the pay-shape drill-in all remain available without repeating today's tier stack · A Brief first (recommended): one verdict plus one two-column review workspace, with long evidence folded behind exact totals / B Reconciled register: Review 3 and All 14 are two views of one category ledger / C Split cockpit: wider screens carry review work and quieter evidence in parallel while mobile keeps the same verdict-first sequence · every variant replaces the ambiguous Patterns label with a coded Compare periods view focused on pace and repeated changes, leaving money shape in its own destination · fixture-only, no API calls or production-component edits · ?variant=a|b|c&view=period|compare&mode=light|dark",
+    states: [
+      { label: "This period", value: "period" },
+      { label: "Compare periods", value: "compare" },
+    ],
+  },
+  {
     slug: "cover-plan-sources-scale",
     name: "cover-plan-sources-scale",
     description:
