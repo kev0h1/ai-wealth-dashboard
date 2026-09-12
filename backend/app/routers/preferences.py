@@ -46,29 +46,16 @@ def _coerce_money_field(value, field_name: str) -> int:
 
 @router.get("/preferences")
 async def get_preferences(user: dict = Depends(current_user)):
-    doc = await preferences_col.find_one({"user_id": user["email"]})
-    if not doc:
-        return {
-            "hide_net_worth": False, "dark_mode": False,
-            "pay_period_config": {"type": "calendar_month"},
-            "region": "UK", "debt_target_months": 12,
-            "notification_prefs": _notif_prefs({}),
-            "cover_plan_excluded_accounts": [],
-            "payday_buffer": 50,
-            "debt_burndown_overrides": None,
-            # Penny Agent Mode v1 (owner decision, 2026-08-30) — absent/None
-            # means the user has NOT granted consent for Penny to propose app
-            # actions; an ISO timestamp once POST /penny/agent-consent has
-            # been called. See app.services.penny_agent's own consent check.
-            "penny_agent_consent": None,
-            # G45 v3: a monotonic write counter for the whole preferences
-            # document (see update_preferences below). 0 means "no write has
-            # ever happened" — strictly lower than the version any PATCH can
-            # ever return (that starts a fresh document's counter at 1), so a
-            # client that has never seen a version always accepts the first
-            # real one.
-            "version": 0,
-        }
+    # G61: a single doc-driven shape for both "no document yet" and "document
+    # exists but is missing some fields" — the two used to be built by
+    # separate literal dicts (a `not doc` branch and this one), which drifted
+    # out of sync (found via G58: the no-document branch was missing
+    # income_bracket, income_value, pension_annual, has_child_benefit, plus
+    # six more keys nobody had noticed). Folding `doc = doc or {}` into the
+    # one dict-building block below means every default here is evaluated by
+    # `doc.get(key, default)` against an empty dict when there's no document,
+    # which is exactly what the old no-document branch was hand-duplicating.
+    doc = await preferences_col.find_one({"user_id": user["email"]}) or {}
     region = doc.get("region", "UK")
     result = {
         "hide_net_worth":     doc.get("hide_net_worth", False),
