@@ -766,6 +766,50 @@ def test_integrate_one_design_round_diff_with_a_production_file_also_touched_is_
     assert len(done_calls) == 1
 
 
+# --- H37: a merge conflict must never tell the owning session to rebase a
+# branch that's already pushed to origin. By the time an item is in review
+# its branch is on the remote, so rebasing rewrites published commits and
+# the follow-up push is rejected as non-fast-forward; CLAUDE.md forbids
+# force-pushing to work around that. The block reason must say to merge
+# origin/main into the branch instead, and pin the exact wording so it
+# cannot silently drift back to "rebase". -----------------------------------
+
+
+def test_integrate_one_blocks_with_merge_not_rebase_reason_on_conflict(monkeypatch):
+    def fake_sh(cmd, cwd=integrate.REPO_ROOT, timeout=integrate.GIT_TIMEOUT):
+        if cmd[:2] == ["git", "rev-parse"]:
+            return 0, "deadbeef1234567890deadbeef1234567890dead"
+        if cmd[:3] == ["git", "merge", "--no-ff"]:
+            return 1, "CONFLICT (content): Merge conflict in frontend/app/design/page.tsx"
+        return 0, ""
+
+    monkeypatch.setattr(integrate, "_sh", fake_sh)
+
+    set_state_calls: list[tuple] = []
+
+    def fake_set_state(item_id, state, reason=None, branch=None, actor="claude"):
+        set_state_calls.append((item_id, state, reason, actor))
+        return {}, True
+
+    monkeypatch.setattr(integrate.backlog, "set_state", fake_set_state)
+    monkeypatch.setattr(integrate.backlog, "add_note", lambda *a, **k: None)
+
+    item = {"id": "H99", "branch": "feature-H99-thing", "title": "Some item", "uat_review": False}
+    result, detail = integrate._integrate_one(item)
+
+    print("merge conflict on H99 -> result:", result, detail)
+
+    assert result == "blocked"
+    assert len(set_state_calls) == 1
+    item_id, state, reason, actor = set_state_calls[0]
+    assert item_id == "H99"
+    assert state == "blocked"
+    assert reason == (
+        "conflict with main; merge origin/main into the branch (do not "
+        "rebase, it is already pushed) and re-run session.sh finish"
+    )
+
+
 # --- H34 end-to-end: _integrate_one wires the derived link (and, for a
 # multi-directory round, the extra detail) into both the board and the
 # notification, without ever being able to abort a merge that already
