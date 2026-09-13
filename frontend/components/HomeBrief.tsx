@@ -3,14 +3,13 @@
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { RefreshCw, AlertTriangle, AlertCircle, TrendingDown, X, ChevronRight, UserRound } from "lucide-react";
+import { RefreshCw, AlertTriangle, AlertCircle, TrendingDown, X, ChevronRight, UserRound, CalendarDays, CreditCard, Check, CheckCircle2, Clock3, ArrowRightLeft, Circle } from "lucide-react";
 import type { CompanionItem, PlanDest, SafeToSpend, UnfundedMoveEntry } from "@/lib/api";
 import { api } from "@/lib/api";
 import { useAuth } from "@/components/AuthProvider";
 import PaydayPlanCard from "@/components/PaydayPlanCard";
 import PennyMark from "@/components/PennyMark";
 import { BRAND_GRADIENT } from "@/lib/brand";
-import SettleMark from "@/components/SettleMark";
 import { BankBadge, BANK_META, bankKey } from "@/components/AccountMiniCard";
 import { useColours } from "@/components/ColourProvider";
 import { useCategoryIcons } from "@/components/IconProvider";
@@ -154,7 +153,7 @@ function MoveSourcesLedger({
 }) {
   const total = totalAmount ?? legs.reduce((s, l) => s + l.amount, 0);
   return (
-    <div className="glass-tile rounded-xl divide-y divide-slate-100 dark:divide-slate-700/60 mb-2">
+    <div className="glass-tile rounded-xl border border-slate-100 divide-y divide-slate-100 dark:border-slate-700/70 dark:divide-slate-700/60 mb-2">
       {legs.map((leg, idx) => {
         const chip = resolveBankChip(leg.provider);
         return (
@@ -214,7 +213,7 @@ function DismissChip({
       type="button"
       aria-label={label}
       onClick={onClick}
-      className={`${className} w-11 h-11 flex items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 active:scale-95 transition-transform duration-150`}
+      className={`${className} flex h-11 w-11 touch-manipulation items-center justify-center rounded-full [-webkit-tap-highlight-color:transparent] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white active:scale-95 transition-transform duration-150 motion-reduce:transition-none dark:focus-visible:ring-offset-slate-800`}
     >
       <span className="w-7 h-7 flex items-center justify-center rounded-full bg-slate-900/[0.05] dark:bg-white/[0.06] border border-slate-900/[0.06] dark:border-white/10 [@media(hover:hover)]:hover:bg-slate-900/[0.09] dark:[@media(hover:hover)]:hover:bg-white/[0.11] transition-colors duration-150">
         <X size={14} aria-hidden="true" className="text-slate-500 dark:text-slate-300" />
@@ -223,19 +222,82 @@ function DismissChip({
   );
 }
 
+// G48 variant B: each brief keeps its evidence on the calm card surface and
+// reserves a consistent final band for decisions.  Keeping these classes
+// local means the eight existing card behaviours can share the grammar
+// without introducing another production component/API.
+const BRIEF_CARD = "relative overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800";
+const ACTION_DOCK = "-mx-4 -mb-4 mt-4 border-t border-slate-100 bg-slate-50/80 px-4 py-3 dark:border-slate-700/70 dark:bg-slate-900/25";
+const ACTION_BASE = "inline-flex min-h-11 flex-1 touch-manipulation items-center justify-center gap-1 rounded-xl px-4 py-2 text-sm font-semibold [-webkit-tap-highlight-color:transparent] active:scale-95 transition-[transform,background-color] duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white disabled:pointer-events-none disabled:opacity-50 dark:focus-visible:ring-offset-slate-800";
+const PRIMARY_ACTION = `${ACTION_BASE} bg-indigo-600 text-white [@media(hover:hover)]:hover:bg-indigo-700`;
+const SECONDARY_ACTION = `${ACTION_BASE} border border-slate-200 bg-white text-slate-700 [@media(hover:hover)]:hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:[@media(hover:hover)]:hover:bg-slate-700`;
+const QUIET_ACTION = `${ACTION_BASE} text-slate-600 [@media(hover:hover)]:hover:bg-slate-100 dark:text-slate-300 dark:[@media(hover:hover)]:hover:bg-slate-700`;
+const EVIDENCE_BLOCK = "divide-y divide-slate-100 border-y border-slate-100 dark:divide-slate-700/70 dark:border-slate-700/70";
+
+function BriefIcon({ children, tone = "neutral" }: { children: React.ReactNode; tone?: "neutral" | "penny" }) {
+  const surface = tone === "penny"
+    ? "bg-indigo-50 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300"
+    : "bg-slate-100 text-slate-500 dark:bg-slate-700/70 dark:text-slate-300";
+  return <span aria-hidden="true" className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${surface}`}>{children}</span>;
+}
+
+function KindLabel({ children, tone = "neutral" }: { children: React.ReactNode; tone?: "neutral" | "watch" | "positive" }) {
+  const labelClass = "text-[10px] font-semibold uppercase tracking-[0.05em]";
+  if (tone === "positive") {
+    return <span className={`inline-flex items-center gap-1 ${labelClass} text-slate-600 dark:text-slate-300`}><Check size={14} className="text-emerald-600 dark:text-emerald-400" aria-hidden="true" />{children}</span>;
+  }
+  if (tone === "watch") {
+    return <span className={`inline-flex items-center gap-1 ${labelClass} text-slate-600 dark:text-slate-300`}><Circle size={8} fill="currentColor" className="text-amber-500 dark:text-amber-400" aria-hidden="true" />{children}</span>;
+  }
+  return <span className={`${labelClass} text-slate-500 dark:text-slate-400`}>{children}</span>;
+}
+
+function PennyKindLabel({ hideAttribution, children, tone = "neutral" }: { hideAttribution?: boolean; children: React.ReactNode; tone?: "neutral" | "watch" }) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+      {!hideAttribution && (
+        <span
+          className="inline-flex h-6 items-center gap-1 rounded-full px-2 text-[10px] font-semibold uppercase tracking-wide text-white"
+          style={{ background: BRAND_GRADIENT }}
+        >
+          <PennyMark size={11} />
+          Penny
+        </span>
+      )}
+      <KindLabel tone={tone}>{children}</KindLabel>
+    </div>
+  );
+}
+
+function BriefLead({ item, maskAmounts }: { item: CompanionItem; maskAmounts: (text: string) => string }) {
+  if (!item.brief_lead) return null;
+
+  return (
+    <div data-brief-lead className="mt-3 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+      <span className="text-[19px] font-bold leading-6 text-slate-950 dark:text-white">
+        <MoneyText text={maskAmounts(item.brief_lead.value)} />
+      </span>
+      <span className="min-w-0 break-words text-[12px] leading-5 text-slate-500 dark:text-slate-400">
+        <MoneyText text={maskAmounts(item.brief_lead.companion)} />
+      </span>
+    </div>
+  );
+}
+
 interface AskPaydayCardProps {
   item: CompanionItem;
   router: ReturnType<typeof useRouter>;
-  hideNetWorth: boolean;
   maskAmounts: (text: string) => string;
   onRefresh?: () => void;
+  /** Design previews keep the real component but must not write user data. */
+  previewMode?: boolean;
   /** Penny screen only — the page header already establishes Penny's voice,
    * so the per-card "✦ Penny" chip is redundant branding there. Home keeps
    * the chip exactly as before (prop omitted/false). */
   hideAttribution?: boolean;
 }
 
-function AskPaydayCard({ item, router, maskAmounts, onRefresh, hideAttribution }: AskPaydayCardProps) {
+export function AskPaydayCard({ item, router, maskAmounts, onRefresh, previewMode = false, hideAttribution }: AskPaydayCardProps) {
   const [busy, setBusy] = useState<null | "confirm" | "decline">(null);
   const [hidden, setHidden] = useState(false);
 
@@ -244,6 +306,11 @@ function AskPaydayCard({ item, router, maskAmounts, onRefresh, hideAttribution }
   async function handleConfirm() {
     if (busy) return;
     setBusy("confirm");
+    if (previewMode) {
+      setHidden(true);
+      setBusy(null);
+      return;
+    }
     try {
       await api.confirmPayday();
       setHidden(true);
@@ -258,55 +325,56 @@ function AskPaydayCard({ item, router, maskAmounts, onRefresh, hideAttribution }
   async function handleDecline() {
     if (busy) return;
     setBusy("decline");
-    try {
-      await api.dismissTodayItem(item.id);
-    } catch { /* swallow */ }
-    if (typeof window !== "undefined") {
-      sessionStorage.setItem("wealth_open_pay_period", "1");
+    if (!previewMode) {
+      try {
+        await api.dismissTodayItem(item.id);
+      } catch { /* swallow */ }
+      if (typeof window !== "undefined") {
+        sessionStorage.setItem("wealth_open_pay_period", "1");
+      }
+      router.push("/upcoming");
     }
     setHidden(true);
-    router.push("/upcoming");
   }
 
   return (
-    <div className="glass-card rounded-2xl p-4">
+    <div className={`${BRIEF_CARD} p-4`}>
       {/* Penny gradient chip — suppressed on the Penny screen itself */}
-      {!hideAttribution && (
-        <div className="flex items-center gap-2 mb-3">
-          <span
-            className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-white rounded-full px-2.5 py-1"
-            style={{ background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)" }}
-          >
-            <PennyMark size={11} />
-            Penny
-          </span>
+      <div className="flex items-start gap-3">
+        <BriefIcon tone="penny"><CalendarDays size={16} /></BriefIcon>
+        <div className="min-w-0 flex-1">
+          <PennyKindLabel hideAttribution={hideAttribution}>Payday check</PennyKindLabel>
+          <p className="mt-1 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-slate-100">
+            {item.headline}
+          </p>
         </div>
-      )}
-      {/* Headline */}
-      <p className="text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed mb-3 max-w-prose">
-        <strong className="text-slate-900 dark:text-slate-100 font-semibold">{item.headline}</strong>
-      </p>
+      </div>
+      <BriefLead item={item} maskAmounts={maskAmounts} />
       {/* Body */}
-      <p lang="en-GB" className="text-pretty text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed mb-3 max-w-prose">
+      <p lang="en-GB" className="mb-3 mt-3 max-w-prose text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-300">
         <MoneyText text={maskAmounts(item.body ?? "")} />
       </p>
       {/* Actions */}
-      <div className="flex items-center gap-2">
-        <button
-          onClick={handleConfirm}
-          disabled={busy !== null}
-          className="inline-flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-[transform,background-color] text-white text-sm font-semibold px-4 py-2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-50 min-h-[44px]"
-        >
-          {busy === "confirm" ? "Confirming…" : (item.action?.label ?? "Yes, that's it")}
-        </button>
-        <button
-          onClick={handleDecline}
-          disabled={busy !== null}
-          className="inline-flex items-center text-slate-500 dark:text-slate-400 text-sm font-semibold px-4 py-2 rounded-xl hover:opacity-80 active:opacity-70 transition-[transform,opacity] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-50 min-h-[44px]"
-        >
-          {item.secondary_action?.label ?? "No, set it myself"}
-        </button>
-      </div>
+      <footer className={ACTION_DOCK}>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={handleConfirm}
+            disabled={busy !== null}
+            className={PRIMARY_ACTION}
+          >
+            {busy === "confirm" ? "Confirming…" : (item.action?.label ?? "Yes, that's it")}
+          </button>
+          <button
+            type="button"
+            onClick={handleDecline}
+            disabled={busy !== null}
+            className={SECONDARY_ACTION}
+          >
+            {item.secondary_action?.label ?? "No, set it myself"}
+          </button>
+        </div>
+      </footer>
     </div>
   );
 }
@@ -335,7 +403,7 @@ interface AskGenericCardProps {
 // `dismissible`, the whole actions row is skipped so Penny never shows an
 // empty, actionless strip. Used for any ask item without bespoke handling
 // (e.g. ask:card_terms).
-function AskGenericCard({ item, router, maskAmounts, dismissible, onHomeDismiss, hideAttribution }: AskGenericCardProps) {
+export function AskGenericCard({ item, router, maskAmounts, dismissible, onHomeDismiss, hideAttribution }: AskGenericCardProps) {
   const [busy, setBusy] = useState(false);
   const [hidden, setHidden] = useState(false);
 
@@ -359,50 +427,49 @@ function AskGenericCard({ item, router, maskAmounts, dismissible, onHomeDismiss,
   }
 
   return (
-    <div className="glass-card rounded-2xl p-4">
+    <div className={`${BRIEF_CARD} p-4`}>
       {/* Penny gradient chip — suppressed on the Penny screen itself */}
-      {!hideAttribution && (
-        <div className="flex items-center gap-2 mb-3">
-          <span
-            className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-white rounded-full px-2.5 py-1"
-            style={{ background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)" }}
-          >
-            <PennyMark size={11} />
-            Penny
-          </span>
+      <div className="flex items-start gap-3">
+        <BriefIcon tone="penny"><CreditCard size={16} /></BriefIcon>
+        <div className="min-w-0 flex-1">
+          <PennyKindLabel hideAttribution={hideAttribution}>Card detail</PennyKindLabel>
+          <p className="mt-1 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-slate-100">
+            {item.headline}
+          </p>
         </div>
-      )}
-      {/* Headline */}
-      <p className="text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed mb-3 max-w-prose">
-        <strong className="text-slate-900 dark:text-slate-100 font-semibold">{item.headline}</strong>
-      </p>
+      </div>
+      <BriefLead item={item} maskAmounts={maskAmounts} />
       {/* Body */}
-      <p lang="en-GB" className="text-pretty text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed mb-3 max-w-prose">
+      <p lang="en-GB" className="mb-3 mt-3 max-w-prose text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-300">
         <MoneyText text={maskAmounts(item.body ?? "")} />
       </p>
       {/* Actions — skipped entirely when there'd be nothing to show (no
           primary action AND not on Home), so Penny never gets an empty row. */}
       {(item.action || dismissible) && (
-        <div className="flex items-center gap-2">
-          {item.action && (
-            <button
-              onClick={handleGo}
-              disabled={busy}
-              className="inline-flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-[transform,background-color] text-white text-sm font-semibold px-4 py-2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-50 min-h-[44px]"
-            >
-              {item.action.label}
-            </button>
-          )}
-          {dismissible && (
-            <button
-              onClick={handleNotNow}
-              disabled={busy}
-              className="inline-flex items-center text-slate-500 dark:text-slate-400 text-sm font-semibold px-4 py-2 rounded-xl hover:opacity-80 active:opacity-70 transition-[transform,opacity] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-50 min-h-[44px]"
-            >
-              Not now
-            </button>
-          )}
-        </div>
+        <footer className={ACTION_DOCK}>
+          <div className="flex flex-wrap items-center gap-2">
+            {item.action && (
+              <button
+                type="button"
+                onClick={handleGo}
+                disabled={busy}
+                className={PRIMARY_ACTION}
+              >
+                {item.action.label}
+              </button>
+            )}
+            {dismissible && (
+              <button
+                type="button"
+                onClick={handleNotNow}
+                disabled={busy}
+                className={QUIET_ACTION}
+              >
+                Not now
+              </button>
+            )}
+          </div>
+        </footer>
       )}
     </div>
   );
@@ -417,10 +484,10 @@ interface CelebrationCardProps {
   onHomeDismiss?: (id: string) => void;
 }
 
-// "Sorted" reward card — a proper glass card, not a pill. Emerald lives ONLY on
-// the SettleMark (colour is information: verified-safe); the headline stays
+// "Sorted" reward card — a proper card, not a pill. Emerald lives only on
+// the compact verified signifier (colour is information); the headline stays
 // ink. This is a resolution state ("Sorted: X is covered"), not Penny
-// speaking, so it wears SettleMark rather than PennyMark. Tapping the card
+// speaking, so it uses a check treatment rather than PennyMark. Tapping the card
 // opens Planning, not the Mirror: this celebrates upcoming bills being
 // covered, and Planning is where upcoming bills live. The ✕ only renders when
 // `dismissible` (Home) — a local, Home-only hide (localStorage). Penny never
@@ -456,26 +523,23 @@ export function CelebrationCard({ item, router, maskAmounts, dismissible, onHome
           handleOpen();
         }
       }}
-      className="glass-card rounded-2xl p-4 cursor-pointer active:scale-[0.99] transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 relative"
+      className={`${BRIEF_CARD} p-4 cursor-pointer active:scale-[0.99] transition-transform motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500`}
     >
-      <div className="flex items-start gap-3">
-        <span className="flex-shrink-0 flex items-center justify-center w-4 h-6">
-          <SettleMark size={16} className="text-emerald-500" />
-        </span>
-        <div className="flex-1 min-w-0 pr-7">
-          {/* Right inset: p-4 (16px) + pr-7 (28px) = 44px, matching the left
-              inset. Headline keeps a smaller pr-2 on top (44+8=52px) to just
-              clear the DismissChip's left edge (right-2 8px + w-11 44px). */}
-          <p className="text-[15px] font-semibold text-slate-900 dark:text-white leading-6 pr-2">
+      <div className="flex items-start gap-3 pr-9">
+        <BriefIcon><CheckCircle2 size={16} /></BriefIcon>
+        <div className="min-w-0 flex-1">
+          <KindLabel tone="positive">Covered</KindLabel>
+          <p className="mt-1 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-white">
             <MoneyText text={item.headline} />
           </p>
-          {item.body && (
-            <p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400 leading-snug text-pretty">
-              <MoneyText text={maskAmounts(item.body)} />
-            </p>
-          )}
         </div>
       </div>
+      <BriefLead item={item} maskAmounts={maskAmounts} />
+      {item.body && (
+        <p className="mt-3 text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-300">
+          <MoneyText text={maskAmounts(item.body)} />
+        </p>
+      )}
       {dismissible && (
         <DismissChip label="Hide on Home" onClick={handleDismiss} className="absolute top-2 right-2 z-10" />
       )}
@@ -485,7 +549,6 @@ export function CelebrationCard({ item, router, maskAmounts, dismissible, onHome
 
 interface CliffCardProps {
   item: CompanionItem;
-  router: ReturnType<typeof useRouter>;
   maskAmounts: (text: string) => string;
   /** Home-only "hide on Home" mode — see BriefBodyProps.dismissible. */
   dismissible?: boolean;
@@ -499,8 +562,11 @@ interface CliffCardProps {
 // reserved for materialised risk (Red-is-Risk rule). Icon varies by type:
 // AlertTriangle for cliff, TrendingDown for trajectory. The ✕ only renders
 // when `dismissible` (Home) — a local, Home-only hide; Penny never renders it.
-export function CliffCard({ item, router, maskAmounts, dismissible, onHomeDismiss }: CliffCardProps) {
-  const Icon = item.type === "trajectory" ? TrendingDown : AlertTriangle;
+export function CliffCard({ item, maskAmounts, dismissible, onHomeDismiss }: CliffCardProps) {
+  const isTrajectory = item.type === "trajectory";
+  const isRhythm = item.type === "rhythm";
+  const Icon = isTrajectory ? TrendingDown : isRhythm ? Clock3 : AlertTriangle;
+  const label = isTrajectory ? "Debt trajectory" : isRhythm ? "Spending pattern" : "Rate change";
   const [hidden, setHidden] = useState(false);
   if (hidden) return null;
 
@@ -517,33 +583,29 @@ export function CliffCard({ item, router, maskAmounts, dismissible, onHomeDismis
   }
 
   return (
-    <div className="glass-card rounded-2xl p-4 relative">
-      <div className="flex items-start gap-3">
-        <Icon size={15} aria-hidden="true" className="text-amber-500 dark:text-amber-400 flex-shrink-0 mt-[5px]" />
-        <div className="flex-1 min-w-0 pr-7">
-          {/* Right inset: p-4 (16px) + pr-7 (28px) = 44px, matching the ~43px
-              left inset (p-4 + icon + gap-3). Headline keeps its own small
-              pr-2 on top (44+8=52px) to just clear the DismissChip's left
-              edge (right-2 8px + w-11 44px = 52px) without double-inserting
-              past pr-8's old 76px. */}
-          <p className="text-[15px] font-semibold text-slate-900 dark:text-white leading-6 pr-2">
+    <div className={`${BRIEF_CARD} p-4`}>
+      <div className="flex items-start gap-3 pr-9">
+        <BriefIcon><Icon size={16} /></BriefIcon>
+        <div className="min-w-0 flex-1">
+          <KindLabel tone={item.type === "cliff" ? "watch" : "neutral"}>{label}</KindLabel>
+          <p className="mt-1 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-white">
             <MoneyText text={maskAmounts(item.headline)} />
           </p>
-          {item.body && (
-            <p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400 leading-snug text-pretty">
-              <MoneyText text={maskAmounts(item.body)} />
-            </p>
-          )}
-          {item.action && (
-            <button
-              onClick={() => router.push(item.action!.route)}
-              className="mt-3 inline-flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-[transform,background-color] text-white text-sm font-semibold px-4 py-2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-            >
-              {item.action.label}
-            </button>
-          )}
         </div>
       </div>
+      <BriefLead item={item} maskAmounts={maskAmounts} />
+      {item.body && (
+        <p className="mt-3 text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-300">
+          <MoneyText text={maskAmounts(item.body)} />
+        </p>
+      )}
+      {item.action && (
+        <footer className={ACTION_DOCK}>
+          <Link href={item.action.route} className={`${PRIMARY_ACTION} w-full`}>
+            {item.action.label}
+          </Link>
+        </footer>
+      )}
       {dismissible && (
         <DismissChip label="Hide on Home" onClick={handleDismiss} className="absolute top-2 right-2 z-10" />
       )}
@@ -553,9 +615,10 @@ export function CliffCard({ item, router, maskAmounts, dismissible, onHomeDismis
 
 interface UnfundedMoveCardProps {
   item: CompanionItem;
-  router: ReturnType<typeof useRouter>;
   hideNetWorth: boolean;
   maskAmounts: (text: string) => string;
+  /** Design previews keep local interactions but must not write user data. */
+  previewMode?: boolean;
   /** Penny screen only — see AskPaydayCardProps.hideAttribution. */
   hideAttribution?: boolean;
   /** Home-only "hide on Home" mode — see BriefBodyProps.dismissible. */
@@ -565,8 +628,7 @@ interface UnfundedMoveCardProps {
 
 // Owner decision (Kevin, 2026-08-27): due-but-unfunded OWN transfers get a
 // quiet Penny flag with a skip affordance — "there is a call to action
-// here". AlertCircle/amber-500 (SafeToSpendCard's "tight" convention, not
-// CliffCard's AlertTriangle) is the ONE amber signifier on the whole card;
+// here". A small amber dot is the one watch signifier on the whole card;
 // a missed movement has no fee/cut-off/credit damage, so it reads as a soft
 // attention cue, never the materialised-risk red treatment (Figures Are
 // Ink, Red Is Risk — a movement never takes red anywhere). Headline, body
@@ -577,7 +639,7 @@ interface UnfundedMoveCardProps {
 // when the last move is skipped the whole card quietly resolves
 // (setHidden(true), the same no-animation pattern every sibling card in
 // this file uses for a resolved/dismissed state).
-function UnfundedMoveCard({ item, router, hideNetWorth, maskAmounts, hideAttribution, dismissible, onHomeDismiss }: UnfundedMoveCardProps) {
+export function UnfundedMoveCard({ item, hideNetWorth, maskAmounts, previewMode = false, hideAttribution, dismissible, onHomeDismiss }: UnfundedMoveCardProps) {
   // `item.moves` is declared PlanMove[] on CompanionItem (MoveCard's own
   // field) since the two item types can't share a TS-narrowable shape
   // under one flat interface — see the field's doc comment in lib/api.ts.
@@ -611,6 +673,7 @@ function UnfundedMoveCard({ item, router, hideNetWorth, maskAmounts, hideAttribu
     // month" button already calls (backend comment, companion.py) — `key`
     // is the series identifier, `expected_date` is already the original
     // due date, so no new dismiss path exists for this card.
+    if (previewMode) return;
     api.skipUpcomingOccurrence(move.key, move.expected_date ?? "").catch(() => {
       // Revert: restore the move (and the card, if skipping it collapsed
       // the last one) — same fail-safe-visible approach as PlanningPage's
@@ -624,113 +687,94 @@ function UnfundedMoveCard({ item, router, hideNetWorth, maskAmounts, hideAttribu
 
   // Existing companion documents may still carry the route used before
   // Upcoming and long-term Planning became separate pages. Migrate those
-  // in place, and only hand same-origin paths to Next's router.
+  // in place, and only hand same-origin paths to Next's Link.
   const requestedRoute = item.action?.route?.replace(/^\/planning(?=\?|$)/, "/upcoming") ?? "/upcoming";
   const route = requestedRoute.startsWith("/") && !requestedRoute.startsWith("//") ? requestedRoute : "/upcoming";
   const actionLabel = item.action?.label ?? "See it in Upcoming ›";
 
   return (
-    <div className="glass-card rounded-2xl p-4 relative">
-      <div className="flex items-start gap-3">
-        <AlertCircle size={15} aria-hidden="true" className="text-amber-500 dark:text-amber-400 flex-shrink-0 mt-[5px]" />
-        <div className="flex-1 min-w-0 pr-7">
-          {/* Right inset: p-4 (16px) + pr-7 (28px) = 44px, matching the ~43px
-              left inset (p-4 + icon + gap-3). Headline keeps its own small
-              pr-2 on top (44+8=52px) to just clear the DismissChip's left
-              edge (right-2 8px + w-11 44px = 52px) without double-inserting
-              past pr-8's old 76px. */}
-          {/* Penny gradient chip — same convention as sibling advice cards,
-              suppressed on the Penny screen itself (its header already
-              establishes Penny's voice there). */}
-          {!hideAttribution && (
-            <div className="flex items-center gap-2 mb-2">
-              <span
-                className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-white rounded-full px-2.5 py-1"
-                style={{ background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)" }}
-              >
-                <PennyMark size={11} />
-                Penny
-              </span>
-            </div>
-          )}
-          {/* Only the headline clears the dismiss chip (absolute top-right,
-              below) — body, the per-move rows and the action span the full
-              card width. */}
-          <p className="text-[15px] font-semibold text-slate-900 dark:text-white leading-6 pr-2">
+    <div className={`${BRIEF_CARD} p-4`}>
+      <div className="flex items-start gap-3 pr-9">
+        <BriefIcon><AlertCircle size={16} /></BriefIcon>
+        <div className="min-w-0 flex-1">
+          <PennyKindLabel hideAttribution={hideAttribution} tone="watch">Move overdue</PennyKindLabel>
+          <p className="mt-1 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-white">
             <MoneyText text={maskAmounts(item.headline)} />
           </p>
-          {item.body && (
-            <p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400 leading-snug text-pretty">
-              <MoneyText text={maskAmounts(item.body)} />
-            </p>
-          )}
-          {/* Per-move list — name, mono money figure (DESIGN.md's Money Is
-              Mono rule, .money = --font-mono), due date, quiet skip.
-              `amount` arrives pre-rounded to whole pounds from the backend
-              (int(round(...)) server-side), so no decimal places here.
-              G44 (Kevin, 2026-09-11): "it's not telling me where to move it
-              from" — each move that carries a `suggested_sources` list (G42
-              wired the source finder in but only surfaced a count) gets the
-              SAME per-source ledger tile the cover-plan MoveCard renders
-              (MoveSourcesLedger, above), directly below its row. The row
-              itself — label, date, amount, "Skip this month" — is
-              untouched: only the padding moved from the row onto a wrapping
-              block so the ledger can sit under it without disturbing the
-              row's own layout or the DismissChip/skip tap targets. Shown at
-              most once per source ACCOUNT (`renderedLedgerAccts`), matching
-              the backend's own per-account (not per-move) dedup for the
-              body's prose sentence — two bills sharing one account would
-              otherwise repeat the identical breakdown twice. */}
-          <div className="mt-3 divide-y divide-slate-100 dark:divide-slate-700/60">
-            {(() => {
-              const renderedLedgerAccts = new Set<string>();
-              return moves.map(m => {
-                const dateStr = m.expected_date
-                  ? new Date(m.expected_date).toLocaleDateString("en-GB", { day: "numeric", month: "short" })
-                  : "recently";
-                const sources = m.suggested_sources;
-                const showLedger = !!sources && sources.length > 0 && !renderedLedgerAccts.has(m.source_account_id);
-                if (showLedger) renderedLedgerAccts.add(m.source_account_id);
-                return (
-                  <div key={m.key} className="py-2 first:pt-0 last:pb-0">
-                    <div className="flex items-center gap-2.5">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[13px] font-medium text-slate-700 dark:text-slate-200 truncate">{m.label}</p>
-                        <p className="text-[12px] text-slate-400 dark:text-slate-500">{dateStr}</p>
-                      </div>
-                      <span className="money text-[13px] font-semibold text-slate-900 dark:text-slate-100 flex-shrink-0">
-                        {hideNetWorth ? "£••••" : `£${m.amount.toLocaleString("en-GB")}`}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => handleSkip(m)}
-                        className="flex-shrink-0 text-[12px] font-medium text-slate-500 dark:text-slate-400 hover:underline underline-offset-2 focus:outline-none focus-visible:underline"
-                      >
-                        Skip this month
-                      </button>
-                    </div>
-                    {showLedger && (
-                      <div className="mt-2">
-                        <MoveSourcesLedger
-                          legs={sources!.map(s => ({ provider: s.provider, name: s.name, amount: s.amount }))}
-                          hideNetWorth={hideNetWorth}
-                          totalAmount={m.suggested_amount ?? undefined}
-                        />
-                      </div>
-                    )}
-                  </div>
-                );
-              });
-            })()}
-          </div>
-          <button
-            onClick={() => router.push(route)}
-            className="mt-3 inline-flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-[transform,background-color] text-white text-sm font-semibold px-4 py-2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-          >
-            {actionLabel}
-          </button>
         </div>
       </div>
+      <BriefLead item={item} maskAmounts={maskAmounts} />
+      {item.body && (
+        <p className="mt-3 text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-300">
+          <MoneyText text={maskAmounts(item.body)} />
+        </p>
+      )}
+      {/* Per-move list: bill name, bank-badged source account, mono money
+          figure (DESIGN.md's Money Is Mono rule, .money = --font-mono), due
+          date, and quiet skip. `amount` arrives pre-rounded to whole pounds
+          from the backend (int(round(...)) server-side), so no decimal places
+          here. G44 (Kevin, 2026-09-11): "it's not telling me where to move it
+          from". Each move that carries a `suggested_sources` list (G42 wired
+          the source finder in but only surfaced a count) gets the same
+          per-source ledger tile the cover-plan MoveCard renders
+          (MoveSourcesLedger, above), directly below its row. Shown at most
+          once per source account (`renderedLedgerAccts`), matching the
+          backend's per-account dedup for the body's prose sentence. */}
+      <div className={`mt-3 ${EVIDENCE_BLOCK}`}>
+        {(() => {
+          const renderedLedgerAccts = new Set<string>();
+          return moves.map(m => {
+            const dateStr = m.expected_date
+              ? new Date(m.expected_date).toLocaleDateString("en-GB", { day: "numeric", month: "short" })
+              : "recently";
+            const sources = m.suggested_sources;
+            const showLedger = !!sources && sources.length > 0 && !renderedLedgerAccts.has(m.source_account_id);
+            const sourceChip = resolveBankChip(m.source_bank);
+            if (showLedger) renderedLedgerAccts.add(m.source_account_id);
+            return (
+              <div key={m.key} className="py-2 first:pt-0 last:pb-0">
+                <div className="flex items-center gap-2.5">
+                  <BankBadge
+                    logoSrc={sourceChip.logoSrc}
+                    initials={sourceChip.initials}
+                    initialsSize={sourceChip.initialsSize}
+                    altText={sourceChip.label}
+                    brandBg={sourceChip.bg}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[13px] font-medium text-slate-700 dark:text-slate-200 truncate">{m.label}</p>
+                    <p className="text-[12px] text-slate-400 dark:text-slate-500 truncate">{m.source_name} · {dateStr}</p>
+                  </div>
+                  <span className="money text-[13px] font-semibold text-slate-900 dark:text-slate-100 flex-shrink-0">
+                    {hideNetWorth ? "£••••" : `£${m.amount.toLocaleString("en-GB")}`}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handleSkip(m)}
+                    className="inline-flex min-h-11 flex-shrink-0 touch-manipulation items-center rounded-lg px-2 text-[12px] font-medium text-slate-500 underline-offset-2 [@media(hover:hover)]:hover:bg-slate-100 [@media(hover:hover)]:hover:underline active:scale-95 transition-[transform,background-color] duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-400 dark:[@media(hover:hover)]:hover:bg-slate-700"
+                  >
+                    Skip this month
+                  </button>
+                </div>
+                {showLedger && (
+                  <div className="mt-2">
+                    <MoveSourcesLedger
+                      legs={sources!.map(s => ({ provider: s.provider, name: s.name, amount: s.amount }))}
+                      hideNetWorth={hideNetWorth}
+                      totalAmount={m.suggested_amount ?? undefined}
+                    />
+                  </div>
+                )}
+              </div>
+            );
+          });
+        })()}
+      </div>
+      <footer className={ACTION_DOCK}>
+        <Link href={route} className={`${PRIMARY_ACTION} w-full`}>
+          {actionLabel}
+        </Link>
+      </footer>
       {dismissible && (
         <DismissChip label="Hide on Home" onClick={handleDismiss} className="absolute top-2 right-2 z-10" />
       )}
@@ -752,7 +796,7 @@ interface IntentPaceCardProps {
 // `dismissible` (Home) — a local, Home-only hide; Penny never renders it, so
 // the note can't be dismissed away for good from there.
 // NO red: pace against a self-chosen aim is never materialised risk.
-function IntentPaceCard({ item, maskAmounts, dismissible, onHomeDismiss }: IntentPaceCardProps) {
+export function IntentPaceCard({ item, maskAmounts, dismissible, onHomeDismiss }: IntentPaceCardProps) {
   const [hidden, setHidden] = useState(false);
   if (hidden) return null;
 
@@ -769,25 +813,22 @@ function IntentPaceCard({ item, maskAmounts, dismissible, onHomeDismiss }: Inten
   }
 
   return (
-    <div className="glass-card rounded-2xl p-4 relative">
-      <div className="flex items-start gap-3">
-        <div className="flex-1 min-w-0 pr-7">
-          {/* Right inset: p-4 (16px) + pr-7 (28px) = 44px. This card has no
-              leading icon, so its left inset is only p-4 (16px) — the pr-7
-              here is for consistency with the rest of the card family in
-              this scrolling feed, not to mirror a left inset. Headline keeps
-              its own small pr-2 on top (44+8=52px) to just clear the
-              DismissChip's left edge (right-2 8px + w-11 44px = 52px). */}
-          <p className="text-[15px] font-semibold text-slate-900 dark:text-white leading-6 pr-2">
+    <div className={`${BRIEF_CARD} p-4`}>
+      <div className="flex items-start gap-3 pr-9">
+        <BriefIcon><Clock3 size={16} /></BriefIcon>
+        <div className="min-w-0 flex-1">
+          <KindLabel>Pace note</KindLabel>
+          <p className="mt-1 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-white">
             <MoneyText text={maskAmounts(item.headline)} />
           </p>
-          {item.body && (
-            <p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400 leading-snug text-pretty">
-              <MoneyText text={maskAmounts(item.body)} />
-            </p>
-          )}
         </div>
       </div>
+      <BriefLead item={item} maskAmounts={maskAmounts} />
+      {item.body && (
+        <p className="mt-3 text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-300">
+          <MoneyText text={maskAmounts(item.body)} />
+        </p>
+      )}
       {dismissible && (
         <DismissChip label="Hide on Home" onClick={handleDismiss} className="absolute top-2 right-2 z-10" />
       )}
@@ -797,7 +838,6 @@ function IntentPaceCard({ item, maskAmounts, dismissible, onHomeDismiss }: Inten
 
 interface MoveCardProps {
   item: CompanionItem;
-  router: ReturnType<typeof useRouter>;
   hideNetWorth: boolean;
   maskAmounts: (text: string) => string;
   /** Penny screen only — see AskPaydayCardProps.hideAttribution. */
@@ -807,7 +847,7 @@ interface MoveCardProps {
   onHomeDismiss?: (id: string) => void;
 }
 
-export function MoveCard({ item, router, hideNetWorth, maskAmounts, hideAttribution, dismissible, onHomeDismiss }: MoveCardProps) {
+export function MoveCard({ item, hideNetWorth, maskAmounts, hideAttribution, dismissible, onHomeDismiss }: MoveCardProps) {
   const [hidden, setHidden] = useState(false);
   if (hidden) return null;
 
@@ -837,38 +877,22 @@ export function MoveCard({ item, router, hideNetWorth, maskAmounts, hideAttribut
   const totalAmount = legs.reduce((s, l) => s + l.amount, 0);
 
   return (
-    <div className="glass-card rounded-2xl p-4">
-      {/* Penny gradient chip — marks this as a proactive advice surface;
-          suppressed on the Penny screen itself. The dismiss control is
-          Home-only: dismissing here is local ("Hide on Home", localStorage)
-          and the card keeps showing on Penny's permanent archive. Penny
-          itself must never be able to dismiss the card away for good, so no
-          dismiss control renders there at all — and with the chip also
-          suppressed on Penny, the whole header row is skipped rather than
-          leaving an empty strip above the headline. */}
-      {(dismissible || !hideAttribution) && (
-        <div className={`flex items-center gap-2 mb-3 ${hideAttribution ? "justify-end" : "justify-between"}`}>
-          {!hideAttribution && (
-            <span
-              className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-white rounded-full px-2.5 py-1"
-              style={{ background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)" }}
-            >
-              <PennyMark size={11} />
-              Penny
-            </span>
-          )}
-          {dismissible && (
-            <DismissChip label="Hide on Home" onClick={handleDismiss} />
-          )}
+    <div className={`${BRIEF_CARD} p-4`}>
+      {/* The Penny signifier is suppressed on the Penny screen itself, whose
+          header already establishes that voice. The card-kind label stays so
+          the family remains scannable in both contexts. */}
+      <div className="flex items-start gap-3 pr-9">
+        <BriefIcon tone="penny"><ArrowRightLeft size={16} /></BriefIcon>
+        <div className="min-w-0 flex-1">
+          <PennyKindLabel hideAttribution={hideAttribution}>Cover plan</PennyKindLabel>
+          <p className="mt-1 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-slate-100">
+            <MoneyText text={item.headline} />
+          </p>
         </div>
-      )}
+      </div>
+      <BriefLead item={item} maskAmounts={maskAmounts} />
       {item.plan_dest ? (
         <>
-          {/* Headline */}
-          <p className="text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed mb-3 max-w-prose">
-            <strong className="text-slate-900 dark:text-slate-100 font-semibold"><MoneyText text={item.headline} />.</strong>
-          </p>
-
           {/* a) Destination tile */}
           {(() => {
             const dest: PlanDest = item.plan_dest!;
@@ -889,7 +913,7 @@ export function MoveCard({ item, router, hideNetWorth, maskAmounts, hideAttribut
               ? `£${Math.round(dest.balance).toLocaleString("en-GB")} held · £${(dest.needs_total ?? 0).toLocaleString("en-GB")} payment expected ${dest.needs_by}`
               : `£${Math.round(dest.balance).toLocaleString("en-GB")} held · £${(dest.needs_total ?? 0).toLocaleString("en-GB")} in ${billCount} payments before period end · first expected ${dest.needs_by}`;
             return (
-              <div className="glass-tile rounded-xl px-3 py-2.5 mb-2">
+              <div className={`mt-3 glass-tile rounded-xl border border-slate-100 px-3 py-2.5 mb-2 dark:border-slate-700/70`}>
                 <div className="flex items-center gap-2.5">
                   <span className="flex-shrink-0">
                     <BankBadge
@@ -900,8 +924,9 @@ export function MoveCard({ item, router, hideNetWorth, maskAmounts, hideAttribut
                       brandBg={destChip.bg}
                     />
                   </span>
-                  <span className="text-[13px] text-slate-600 dark:text-slate-300 leading-snug flex-1 min-w-0">
-                    {maskAmounts(tileText)}
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[13px] font-semibold text-slate-800 dark:text-slate-100">{dest.name}</span>
+                    <span className="block text-[12px] text-slate-600 dark:text-slate-300 leading-snug">{maskAmounts(tileText)}</span>
                   </span>
                 </div>
               </div>
@@ -956,23 +981,21 @@ export function MoveCard({ item, router, hideNetWorth, maskAmounts, hideAttribut
         </>
       ) : (
         <>
-          {/* Headline */}
-          <p className="text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed mb-3 max-w-prose text-pretty">
-            <strong className="text-slate-900 dark:text-slate-100 font-semibold"><MoneyText text={item.headline} /></strong>
-          </p>
           {/* Body */}
-          <p lang="en-GB" className="text-pretty text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed mb-3 max-w-prose">
+          <p lang="en-GB" className="mb-3 mt-3 max-w-prose text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-300">
             <MoneyText text={item.body ?? ""} />
           </p>
         </>
       )}
       {item.action && (
-        <button
-          onClick={() => router.push(item.action!.route)}
-          className="mt-4 inline-flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-[transform,background-color] text-white text-sm font-semibold px-4 py-2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-        >
-          {item.action.label}
-        </button>
+        <footer className={ACTION_DOCK}>
+          <Link href={item.action.route} className={`${PRIMARY_ACTION} w-full`}>
+            {item.action.label}
+          </Link>
+        </footer>
+      )}
+      {dismissible && (
+        <DismissChip label="Hide on Home" onClick={handleDismiss} className="absolute top-2 right-2 z-10" />
       )}
     </div>
   );
@@ -983,6 +1006,8 @@ interface RhythmCardProps {
   router: ReturnType<typeof useRouter>;
   maskAmounts: (text: string) => string;
   onRefresh?: () => void;
+  /** Design previews keep local interactions but must not write user data. */
+  previewMode?: boolean;
   /** Home-only "hide on Home" mode — see BriefBodyProps.dismissible. The
    * quiet ✕ only renders when this is true (Home); it never renders on
    * Penny at all, leaving the one_off/new_normal intent buttons and the
@@ -991,7 +1016,7 @@ interface RhythmCardProps {
   onHomeDismiss?: (id: string) => void;
 }
 
-function RhythmCard({ item, router, maskAmounts, onRefresh, dismissible, onHomeDismiss }: RhythmCardProps) {
+export function RhythmCard({ item, router, maskAmounts, onRefresh, previewMode = false, dismissible, onHomeDismiss }: RhythmCardProps) {
   const [hidden, setHidden] = useState(false);
   const [busy, setBusy] = useState<null | "one_off" | "new_normal">(null);
   const [confirmed, setConfirmed] = useState<null | "one_off" | "new_normal">(null);
@@ -1053,6 +1078,11 @@ function RhythmCard({ item, router, maskAmounts, onRefresh, dismissible, onHomeD
     if (busy || confirmed) return;
     setIntentError(false);
     setBusy(answer);
+    if (previewMode) {
+      setConfirmed(answer);
+      setBusy(null);
+      return;
+    }
     try {
       await api.recordTrendIntent(category, answer);
       setConfirmed(answer);
@@ -1082,7 +1112,7 @@ function RhythmCard({ item, router, maskAmounts, onRefresh, dismissible, onHomeD
   }
 
   return (
-    <div className="glass-card rounded-2xl p-4 relative">
+    <div className={`${BRIEF_CARD} p-4`}>
       <div className="flex items-start gap-3">
         {/* Category icon chip — same size/treatment as Spend tile chips */}
         <span
@@ -1093,43 +1123,11 @@ function RhythmCard({ item, router, maskAmounts, onRefresh, dismissible, onHomeD
           <Icon size={16} style={{ color: colour }} />
         </span>
 
-        <div className="flex-1 min-w-0 pr-7">
-          {/* Right inset: p-4 (16px) + pr-7 (28px) = 44px, matching the
-              ~43px left inset. The DismissChip below is a flex sibling here
-              (not absolutely positioned like the other four cards), so flex
-              layout already reserves its width and this column never
-              actually overlaps it, but pr-7 keeps this card visually
-              consistent with the rest of the family. Headline keeps a
-              smaller pr-2 on top for the same reason. */}
-          <p className="text-[15px] font-semibold text-slate-900 dark:text-white leading-6 pr-2">
+        <div className="min-w-0 flex-1">
+          <KindLabel>Spending pattern</KindLabel>
+          <p className="mt-1 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-white">
             <MoneyText text={headline} />
           </p>
-          {/* One supporting line. Plain string (no dominant transaction):
-              same single-paragraph MoneyText render as every other card's
-              body copy. Structured `{ prefix, name, suffix }` (dominant
-              transaction present): a flex row instead, so the merchant name
-              alone truncates at its real available width and the trailing
-              date — `suffix`, `shrink-0` — can never wrap away from it onto
-              its own line. See the `supportLine` comment above for why. */}
-          {typeof supportLine === "string" ? (
-            supportLine && (
-              <p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400 leading-snug text-pretty">
-                <MoneyText text={maskAmounts(supportLine)} />
-              </p>
-            )
-          ) : (
-            supportLine && (
-              <p className="mt-1 flex items-baseline text-[13px] text-slate-500 dark:text-slate-400 leading-snug min-w-0">
-                <span className="shrink-0 whitespace-nowrap">{supportLine.prefix}</span>
-                <span className="truncate min-w-0" title={supportLine.name}>
-                  {supportLine.name}
-                </span>
-                <span className="shrink-0 whitespace-nowrap">
-                  <MoneyText text={maskAmounts(supportLine.suffix)} />
-                </span>
-              </p>
-            )
-          )}
         </div>
 
         {/* Dismiss button — Home-only, see the dismissible docstring above */}
@@ -1137,6 +1135,32 @@ function RhythmCard({ item, router, maskAmounts, onRefresh, dismissible, onHomeD
           <DismissChip label="Hide on Home" onClick={handleDismiss} />
         )}
       </div>
+
+      <BriefLead item={item} maskAmounts={maskAmounts} />
+
+      {/* The evidence line spans the card body rather than inheriting the
+          icon column's narrower measure. A structured dominant transaction
+          keeps its trailing amount and date visible while only the merchant
+          name truncates. */}
+      {typeof supportLine === "string" ? (
+        supportLine && (
+          <p className="mt-3 text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-300">
+            <MoneyText text={maskAmounts(supportLine)} />
+          </p>
+        )
+      ) : (
+        supportLine && (
+          <p className="mt-3 flex min-w-0 items-baseline text-[13px] leading-5 text-slate-600 dark:text-slate-300">
+            <span className="mr-1 shrink-0 whitespace-nowrap">{supportLine.prefix}</span>
+            <span className="min-w-0 truncate" title={supportLine.name}>
+              {supportLine.name}
+            </span>
+            <span className="shrink-0 whitespace-nowrap">
+              <MoneyText text={maskAmounts(supportLine.suffix)} />
+            </span>
+          </p>
+        )
+      )}
 
       {/* Answer pair — outside the icon-indented column, full width. The two
           real answers sit in a symmetric 50/50 grid; the softer "See the
@@ -1147,45 +1171,51 @@ function RhythmCard({ item, router, maskAmounts, onRefresh, dismissible, onHomeD
           visible/enabled with an inline error so the user can retry. "See
           the payments" stays available regardless of confirm state — it's a
           deep link to Spend, not an intent-recording action. */}
-      <div className="mt-3 flex flex-col gap-2">
-        {confirmed ? (
-          <p className="text-[13px] font-semibold text-slate-600 dark:text-slate-300">
-            {confirmed === "one_off" ? "Noted, one-off." : "Noted, new normal."}
-          </p>
-        ) : (
-          <>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={() => handleIntent("one_off")}
-                disabled={busy !== null}
-                className="inline-flex items-center justify-center text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 active:scale-95 transition-[transform,background-color] text-sm font-semibold px-3 py-2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-50"
-              >
-                {busy === "one_off" ? "Saving…" : "A one-off"}
-              </button>
-              <button
-                onClick={() => handleIntent("new_normal")}
-                disabled={busy !== null}
-                className="inline-flex items-center justify-center text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 active:scale-95 transition-[transform,background-color] text-sm font-semibold px-3 py-2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-50"
-              >
-                {busy === "new_normal" ? "Saving…" : "My new normal"}
-              </button>
-            </div>
-            {intentError && (
-              <p className="mt-2 text-[12px] font-semibold text-red-600 dark:text-red-400" role="alert">
-                Couldn&apos;t save that, try again.
-              </p>
-            )}
-          </>
-        )}
-        <button
-          onClick={handleSeePayments}
-          disabled={busy !== null}
-          className="inline-flex items-center justify-center gap-0.5 w-full text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100/50 dark:hover:bg-slate-700/40 active:scale-95 transition-[transform,background-color,color] text-sm font-semibold px-3 py-2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-50"
-        >
-          See the payments
-          <ChevronRight size={14} className="flex-shrink-0" aria-hidden="true" />
-        </button>
-      </div>
+      <footer className={ACTION_DOCK}>
+        <div className="flex flex-col gap-2">
+          {confirmed ? (
+            <p className="text-[13px] font-semibold text-slate-600 dark:text-slate-300">
+              {confirmed === "one_off" ? "Noted, one-off." : "Noted, new normal."}
+            </p>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleIntent("one_off")}
+                  disabled={busy !== null}
+                  className="inline-flex min-h-11 items-center justify-center text-slate-600 dark:text-slate-300 bg-white border border-slate-200 dark:border-slate-600 dark:bg-slate-800 [@media(hover:hover)]:hover:bg-slate-50 dark:[@media(hover:hover)]:hover:bg-slate-700 active:scale-95 transition-[transform,background-color] motion-reduce:transition-none text-sm font-semibold px-3 py-2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-50"
+                >
+                  {busy === "one_off" ? "Saving…" : "A one-off"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleIntent("new_normal")}
+                  disabled={busy !== null}
+                  className="inline-flex min-h-11 items-center justify-center text-slate-600 dark:text-slate-300 bg-white border border-slate-200 dark:border-slate-600 dark:bg-slate-800 [@media(hover:hover)]:hover:bg-slate-50 dark:[@media(hover:hover)]:hover:bg-slate-700 active:scale-95 transition-[transform,background-color] motion-reduce:transition-none text-sm font-semibold px-3 py-2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-50"
+                >
+                  {busy === "new_normal" ? "Saving…" : "My new normal"}
+                </button>
+              </div>
+              {intentError && (
+                <p className="mt-2 flex items-center gap-2 text-[12px] font-medium text-slate-700 dark:text-slate-200" role="alert">
+                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" aria-hidden="true" />
+                  <span>Couldn&apos;t save that, try again.</span>
+                </p>
+              )}
+            </>
+          )}
+          <button
+            type="button"
+            onClick={handleSeePayments}
+            disabled={busy !== null}
+            className="inline-flex min-h-11 items-center justify-center gap-0.5 w-full text-slate-500 dark:text-slate-400 [@media(hover:hover)]:hover:text-slate-700 dark:[@media(hover:hover)]:hover:text-slate-200 [@media(hover:hover)]:hover:bg-slate-100/50 dark:[@media(hover:hover)]:hover:bg-slate-700/40 active:scale-95 transition-[transform,background-color,color] motion-reduce:transition-none text-sm font-semibold px-3 py-2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-50"
+          >
+            See the payments
+            <ChevronRight size={14} className="flex-shrink-0" aria-hidden="true" />
+          </button>
+        </div>
+      </footer>
     </div>
   );
 }
@@ -1454,7 +1484,7 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth =
   // Mask £ figures in a string when hideNetWorth is on
   function maskAmounts(text: string): string {
     if (!hideNetWorth) return text;
-    return text.replace(/£[\d,]+/g, "£••••");
+    return text.replace(/£[\d,]+(?:\.\d+)?/g, "£••••");
   }
 
   return (
@@ -1464,11 +1494,11 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth =
         ))}
 
         {cliffItems.map(item => (
-          <CliffCard key={item.id} item={item} router={router} maskAmounts={maskAmounts} dismissible={dismissible} onHomeDismiss={onHomeDismiss} />
+          <CliffCard key={item.id} item={item} maskAmounts={maskAmounts} dismissible={dismissible} onHomeDismiss={onHomeDismiss} />
         ))}
 
         {trajectoryItems.map(item => (
-          <CliffCard key={item.id} item={item} router={router} maskAmounts={maskAmounts} dismissible={dismissible} onHomeDismiss={onHomeDismiss} />
+          <CliffCard key={item.id} item={item} maskAmounts={maskAmounts} dismissible={dismissible} onHomeDismiss={onHomeDismiss} />
         ))}
 
         {rhythmItems.map(item => (
@@ -1480,7 +1510,7 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth =
             there's no category/multiple/spent to anchor them to. Reuses the
             existing informational fact-card family (CliffCard). */}
         {rhythmInfoItems.map(item => (
-          <CliffCard key={item.id} item={item} router={router} maskAmounts={maskAmounts} dismissible={dismissible} onHomeDismiss={onHomeDismiss} />
+          <CliffCard key={item.id} item={item} maskAmounts={maskAmounts} dismissible={dismissible} onHomeDismiss={onHomeDismiss} />
         ))}
 
         {/* Intent-pace notes — quiet info cards, no accent, no CTA */}
@@ -1491,7 +1521,7 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth =
         {/* Unfunded moves — Penny's quiet flag for a due-but-unfunded own
             transfer (owner, 2026-08-27); see UnfundedMoveCard's docstring */}
         {unfundedMoveItems.map(item => (
-          <UnfundedMoveCard key={item.id} item={item} router={router} hideNetWorth={hideNetWorth} maskAmounts={maskAmounts} hideAttribution={hideAttribution} dismissible={dismissible} onHomeDismiss={onHomeDismiss} />
+          <UnfundedMoveCard key={item.id} item={item} hideNetWorth={hideNetWorth} maskAmounts={maskAmounts} hideAttribution={hideAttribution} dismissible={dismissible} onHomeDismiss={onHomeDismiss} />
         ))}
 
         {/* Ask cards — payday keeps its bespoke confirm/decline (unaffected
@@ -1504,7 +1534,6 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth =
             <AskPaydayCard
               item={askItem}
               router={router}
-              hideNetWorth={hideNetWorth}
               maskAmounts={maskAmounts}
               onRefresh={onRefresh}
               hideAttribution={hideAttribution}
@@ -1545,7 +1574,7 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth =
         ))}
 
         {moveItems.map(item => (
-          <MoveCard key={item.id} item={item} router={router} hideNetWorth={hideNetWorth} maskAmounts={maskAmounts} hideAttribution={hideAttribution} dismissible={dismissible} onHomeDismiss={onHomeDismiss} />
+          <MoveCard key={item.id} item={item} hideNetWorth={hideNetWorth} maskAmounts={maskAmounts} hideAttribution={hideAttribution} dismissible={dismissible} onHomeDismiss={onHomeDismiss} />
         ))}
     </div>
   );
@@ -1889,7 +1918,7 @@ export function PaydayPlanSection({ items, safeToSpend, hideNetWorth = false, on
 
   function maskAmounts(text: string): string {
     if (!hideNetWorth) return text;
-    return text.replace(/£[\d,]+/g, "£••••");
+    return text.replace(/£[\d,]+(?:\.\d+)?/g, "£••••");
   }
 
   const paydaySubline = (() => {

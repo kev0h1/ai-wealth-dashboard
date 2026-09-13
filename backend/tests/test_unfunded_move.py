@@ -553,6 +553,10 @@ def test_viable_current_account_chosen_over_savings_pot(monkeypatch):
     assert move["suggested_from_name"] == "HSBC Current"
     assert move["suggested_from_count"] == 1
     assert move["suggested_covers_all"] is True
+    assert item["brief_lead"] == {
+        "value": "£70",
+        "companion": "suggested from HSBC Current",
+    }
     assert "Halifax" not in item["body"]
     assert "Moving £70 from HSBC Current" in item["body"]
     # The old fixed notice must not still be tacked on once a source is found.
@@ -576,6 +580,31 @@ def test_savings_offered_only_when_nothing_else_covers(monkeypatch):
     move = item["moves"][0]
     assert move["suggested_from_name"] == "Halifax Savings"
     assert move["suggested_amount"] == 70
+
+
+def test_lead_counts_one_source_account_across_two_destinations(monkeypatch):
+    """The same source can fund separate overdue destinations in two legs.
+    The Lead caption names that one account rather than calling two legs two
+    accounts, while its value still totals both truthful suggestions."""
+    accounts = [
+        _account("premier", 44.68, name="Premier Current Account"),
+        _account("bills", 44.68, name="Bills Current Account", provider="barclays"),
+        _account("hsbc", 500.0, name="HSBC Current", provider="hsbc"),
+    ]
+    bills = [
+        _mv_bill("AMERICAN EXPRESS", 100.0, "premier",
+                 pending=True, days_past_due=2, original_date="2026-09-09"),
+        _mv_bill("BARCLAYCARD", 100.0, "bills",
+                 pending=True, days_past_due=1, original_date="2026-09-10"),
+    ]
+    items, _ = _run(monkeypatch, bills, accounts=accounts)
+    item = _find(items, "unfunded_move")
+    assert item is not None
+    assert len(item["moves"]) == 2
+    assert item["brief_lead"] == {
+        "value": "£140",
+        "companion": "suggested from HSBC Current",
+    }
 
 
 def test_candidate_source_excluded_when_its_own_obligations_consume_it(monkeypatch):
@@ -618,6 +647,10 @@ def test_no_viable_source_falls_back_to_todays_notice(monkeypatch):
     move = item["moves"][0]
     assert move["suggested_amount"] is None
     assert move["suggested_from_name"] is None
+    assert item["brief_lead"] == {
+        "value": "£100",
+        "companion": "planned move still needs funding",
+    }
     assert (
         "Top up the account, make the move if you already have, or skip it for this month."
         in item["body"]

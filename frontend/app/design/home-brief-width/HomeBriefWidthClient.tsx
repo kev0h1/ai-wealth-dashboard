@@ -29,6 +29,7 @@ const CELEBRATION_ITEM: CompanionItem = {
   body: "Moved three days early from your everyday account, no chasing needed, and nothing else in this pay period is affected, so there is nothing left to do here before next month.",
   action: null,
   estimated: false,
+  brief_lead: { value: "£925", companion: "held aside" },
 };
 
 const CLIFF_ITEM: CompanionItem = {
@@ -38,6 +39,7 @@ const CLIFF_ITEM: CompanionItem = {
   body: "After that, £1,175 carried at the standard rate would cost around £24 a month in interest, so it is worth deciding whether to clear it or move it to another 0% deal before the promo runs out.",
   action: { label: "See the plan", route: "/cards" },
   estimated: false,
+  brief_lead: { value: "12 Oct", companion: "rate changes from 0% to 24.9%" },
 };
 
 const MOVE_ITEM: CompanionItem = {
@@ -47,6 +49,7 @@ const MOVE_ITEM: CompanionItem = {
   body: "This clears the mortgage and the council tax direct debit due before payday, and every source account still comfortably covers its own bills and any envelopes you have set aside, with a little room left over besides.",
   action: { label: "See it in Upcoming", route: "/upcoming" },
   estimated: false,
+  brief_lead: { value: "£1,175", companion: "to Premier Current" },
 };
 
 function noop() {
@@ -67,13 +70,13 @@ function CardStack({ router }: { router: ReturnType<typeof useRouter> }) {
         <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-1.5">
           CliffCard
         </p>
-        <CliffCard item={CLIFF_ITEM} router={router} maskAmounts={maskAmounts} dismissible onHomeDismiss={noop} />
+        <CliffCard item={CLIFF_ITEM} maskAmounts={maskAmounts} dismissible onHomeDismiss={noop} />
       </div>
       <div>
         <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-1.5">
           MoveCard
         </p>
-        <MoveCard item={MOVE_ITEM} router={router} hideNetWorth={false} maskAmounts={maskAmounts} dismissible onHomeDismiss={noop} />
+        <MoveCard item={MOVE_ITEM} hideNetWorth={false} maskAmounts={maskAmounts} dismissible onHomeDismiss={noop} />
       </div>
     </div>
   );
