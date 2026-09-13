@@ -369,12 +369,24 @@ async def create_portal_session(uid: str, return_url: str) -> str:
 
 def verify_and_parse_event(raw_body: bytes, sig_header: str | None) -> dict:
     """Verify `raw_body`'s Stripe-Signature header against
-    STRIPE_WEBHOOK_SECRET and return the parsed event. Raises
-    SignatureVerificationFailed on any failure — missing header, missing/
-    unconfigured secret, bad signature, or an unparseable body — which the
-    route (app/routers/billing.py) maps to a 400, never a 5xx: Stripe reads
-    a 400 as "this delivery was rejected", not "the endpoint is broken",
-    and keeps retrying only on 5xx/timeout."""
+    STRIPE_WEBHOOK_SECRET and return the parsed event as a plain dict.
+    Raises SignatureVerificationFailed on any failure — missing header,
+    missing/unconfigured secret, bad signature, or an unparseable body —
+    which the route (app/routers/billing.py) maps to a 400, never a 5xx:
+    Stripe reads a 400 as "this delivery was rejected", not "the endpoint
+    is broken", and keeps retrying only on 5xx/timeout.
+
+    `stripe.Webhook.construct_event` returns a `stripe.Event`, a
+    StripeObject, not a dict — StripeObject deliberately does not support
+    `.get(...)` (it raises AttributeError, not a KeyError/None like a
+    dict would). Every caller of this function (`handle_event` and
+    everything it dispatches to) treats the return value as a plain dict,
+    including nested objects like `event["data"]["object"]`, so the
+    conversion happens once, here, at the boundary: `.to_dict()` recurses
+    by default (verified against stripe-python's own
+    `StripeObject.to_dict`/`_to_dict_recursive`), so nested StripeObjects
+    (e.g. `data.object`, `data.object.items.data[*].price`) come back as
+    plain dicts too, not just the top level."""
     if not STRIPE_WEBHOOK_SECRET or not sig_header:
         raise SignatureVerificationFailed()
 
@@ -383,7 +395,7 @@ def verify_and_parse_event(raw_body: bytes, sig_header: str | None) -> dict:
         event = stripe_mod.Webhook.construct_event(raw_body, sig_header, STRIPE_WEBHOOK_SECRET)
     except Exception as exc:
         raise SignatureVerificationFailed() from exc
-    return event
+    return event.to_dict()
 
 
 async def _uid_for_customer(customer_id: str) -> str | None:

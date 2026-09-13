@@ -141,6 +141,63 @@ def _obj(**kw):
     return type("Obj", (), kw)()
 
 
+class _FakeStripeObject:
+    """Deliberately small fake of stripe._stripe_object.StripeObject (the
+    real base class behind stripe.Event), just honest enough about the
+    one thing this whole item is about: a StripeObject is NOT a dict.
+    Real stripe-python backs attribute/item access onto an internal
+    `_data` dict but explicitly blocks the dict methods people reach for
+    out of habit — get/keys/values/items/pop/setdefault — raising
+    AttributeError with a pointed message instead
+    (StripeObject._DICT_METHOD_NAMES / __getattr__, verified against the
+    installed stripe==15.6.1 source). Nested dicts/lists are wrapped the
+    same way, so `event["data"]["object"]` is a _FakeStripeObject too,
+    matching the real Event/StripeObject nesting — a handler reaching two
+    levels deep hits the same trap, not just the top level. `.to_dict()`
+    unwraps everything back to plain dicts/lists, recursively, mirroring
+    StripeObject.to_dict()/_to_dict_recursive (recursive by default).
+
+    Deliberately NOT a full StripeObject reimplementation (no __setitem__,
+    no _unsaved_values, no API-request machinery) — that would be testing
+    this fake instead of billing.py's own boundary-conversion contract.
+    """
+
+    _DICT_METHOD_NAMES = frozenset({"get", "keys", "values", "items", "pop", "setdefault"})
+
+    def __init__(self, data):
+        object.__setattr__(self, "_data", data)
+
+    def _wrap(self, value):
+        if isinstance(value, dict):
+            return _FakeStripeObject(value)
+        if isinstance(value, list):
+            return [self._wrap(v) for v in value]
+        return value
+
+    def __getitem__(self, key):
+        return self._wrap(self._data[key])
+
+    def __getattr__(self, key):
+        if key in type(self)._DICT_METHOD_NAMES:
+            raise AttributeError(
+                f"'{key}' is a dict method, but a Event is not a dict. "
+                "Use .to_dict() to convert it."
+            )
+        try:
+            return self._wrap(self._data[key])
+        except KeyError as err:
+            raise AttributeError(key) from err
+
+    def to_dict(self):
+        def unwrap(value):
+            if isinstance(value, dict):
+                return {k: unwrap(v) for k, v in value.items()}
+            if isinstance(value, list):
+                return [unwrap(v) for v in value]
+            return value
+        return unwrap(self._data)
+
+
 def _make_fake_stripe(valid_secret="whsec_test", valid_sig="valid-sig"):
     """A minimal fake of the parts of the `stripe` SDK app.services.billing
     actually calls: checkout.Session.create, billing_portal.Session.create,
@@ -182,7 +239,11 @@ def _make_fake_stripe(valid_secret="whsec_test", valid_sig="valid-sig"):
         def construct_event(payload, sig_header, secret):
             if secret != valid_secret or sig_header != valid_sig:
                 raise _SignatureVerificationError("bad signature")
-            return json.loads(payload)
+            # Real stripe.Webhook.construct_event returns a stripe.Event
+            # (a StripeObject), never a plain dict — wrap it the same way
+            # so a test exercising this fake catches the same class of bug
+            # a real Stripe delivery would.
+            return _FakeStripeObject(json.loads(payload))
 
     fake = _obj(
         checkout=_Checkout, billing_portal=_BillingPortal, Customer=_Customer,
@@ -694,6 +755,38 @@ def test_verify_and_parse_event_missing_secret_raises(monkeypatch):
         assert False, "expected SignatureVerificationFailed"
     except billing_module.SignatureVerificationFailed:
         pass
+
+
+def test_verify_and_parse_event_returns_plain_dicts_not_stripe_objects(monkeypatch):
+    """B33 regression test. stripe.Webhook.construct_event returns a
+    stripe.Event (a StripeObject), which deliberately does not support
+    .get(...) the way a dict does — that mismatch is exactly what made
+    the whole webhook pipeline crash against a real Stripe delivery
+    (handle_event's event.get("id")) while every test here passed,
+    because the old fake returned json.loads(payload), a genuine dict.
+    With _FakeStripeObject now modelling that refusal, this test only
+    stays green if verify_and_parse_event actually converts at the
+    boundary (event.to_dict()) — both the top level AND the nested
+    data.object, which a shallow conversion would miss."""
+    fake_stripe = _make_fake_stripe()
+    monkeypatch.setattr(billing_module, "stripe", fake_stripe)
+    monkeypatch.setattr(billing_module, "STRIPE_WEBHOOK_SECRET", "whsec_test")
+
+    payload = json.dumps({
+        "id": "evt_shape_1",
+        "type": "checkout.session.completed",
+        "data": {"object": {"id": "cs_1", "metadata": {"uid": UID}}},
+    }).encode()
+
+    event = billing_module.verify_and_parse_event(payload, "valid-sig")
+
+    assert type(event) is dict
+    assert type(event["data"]) is dict
+    assert type(event["data"]["object"]) is dict
+    assert type(event["data"]["object"]["metadata"]) is dict
+    # The actual regression: .get() must work, not raise AttributeError.
+    assert event.get("id") == "evt_shape_1"
+    assert event["data"]["object"].get("id") == "cs_1"
 
 
 def test_stripe_webhook_route_400_on_bad_signature(monkeypatch):
