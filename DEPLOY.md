@@ -612,17 +612,25 @@ is reachable yet, no Stripe account exists as of this writing (Kevin,
    `STRIPE_SECRET_KEY` (the same env var `scripts/stripe_bootstrap.py`
    reads in step 2 above — it is never passed as a command-line argument,
    so it never lands in shell history).
-6. Register a webhook endpoint in the Stripe dashboard pointing at
+6. Register a webhook endpoint pointing at
    `<APP_URL or API_PUBLIC_URL>/webhooks/stripe` (same public-path
    convention as the TrueLayer/Finexer receivers — no path secret needed,
-   the signature check is what authenticates Stripe). Enable these
-   events: `checkout.session.completed`, `customer.subscription.created`,
-   `customer.subscription.updated`, `customer.subscription.deleted`,
-   `invoice.payment_failed`. Copy the endpoint's **Signing secret**
-   (`whsec_...`) into `STRIPE_WEBHOOK_SECRET`.
+   the signature check is what authenticates Stripe), either in the
+   Stripe dashboard or via the API (`stripe.WebhookEndpoint.create`,
+   checking `stripe.WebhookEndpoint.list()` first since Stripe only
+   returns the signing secret at creation time — a second create against
+   the same URL makes a duplicate endpoint rather than recovering it).
+   UAT's endpoint (`https://uat.wealth.auriqltd.co.uk/api/webhooks/stripe`)
+   was created this way on 2026-09-13 (B25): id `we_1UFGYIJiJ5QYCFZ8m40XX92X`.
+   Enable these events: `checkout.session.completed`,
+   `customer.subscription.created`, `customer.subscription.updated`,
+   `customer.subscription.deleted`, `invoice.payment_failed`. Copy the
+   endpoint's **Signing secret** (`whsec_...`) into
+   `STRIPE_WEBHOOK_SECRET`.
 7. Configure Stripe's customer portal to allow switching between every
-   paid product and all four recurring Prices, cancellation and payment-
-   method updates. Existing subscribers always use the portal for changes;
+   paid product and all three recurring Prices (three_months was dropped
+   2026-09-12, see step 2 above), cancellation and payment-method
+   updates. Existing subscribers always use the portal for changes;
    Checkout is server-blocked from creating a second active subscription.
 8. Redeploy (or restart, on UAT) with the three env vars set.
    `GET /subscription`'s `billing_live` (and `GET /billing/status`) flips
