@@ -32,6 +32,8 @@ Kevin's choice lands on the board as `scripts/backlog.py approve <ID> "<choice>"
 
 Where a design build changes a production component, have an independent reviewer agent audit the diff against `DESIGN.md` before Kevin sees it: authenticated pages cannot be screenshotted, so code-level review is the only gate.
 
+A preview may hand-author markup while exploring variants, since no production component exists yet to render. Once Kevin picks and the pick is implemented, the preview for that surface must import and render the production component, supplying fixture data through its real props, the way `cover-plan-sources-scale` renders `CoverPlanSourcesCard`. A preview that still reimplements a shipped component's markup is not a gate, it cannot detect the shipped code drifting from what Kevin approved; that is how G48 shipped without the Lead row and bank-icon gating every variant showed, because `home-brief-cards` never imported `HomeBrief.tsx`. If review finds a preview that is a copy, say the visual verification is absent, do not report its screenshots as evidence. Exception: a component that fetches its own data instead of taking it as props cannot be dropped into an unauthenticated preview without mocking that fetch or refactoring the component first; when that is out of scope, say so rather than quietly rendering a fork.
+
 Copy rules apply to every user-facing string: no em dashes, British English, and the currency minus sign stays.
 
 ## Surface map (reindexed 2026-09-04 after the Codex design round)
