@@ -4,6 +4,12 @@ export type MoveAccount = {
   amount?: number;
 };
 
+export type MovePayment = {
+  name: string;
+  amount: number;
+  due: string;
+};
+
 export type MoveScenario = {
   id: "one-source" | "three-sources";
   status: "Move overdue" | "Cover plan";
@@ -13,10 +19,7 @@ export type MoveScenario = {
     needed: number;
     due: string;
   };
-  payment: MoveAccount & {
-    amount: number;
-    due: string;
-  };
+  payment: MovePayment;
   sources: readonly (MoveAccount & { amount: number })[];
   moving: number;
   assurance: string;
@@ -34,7 +37,6 @@ const DESTINATION = {
 
 const PAYMENT = {
   name: "American Express",
-  provider: "Amex",
   amount: 100,
   due: "9 Sept",
 } as const;
