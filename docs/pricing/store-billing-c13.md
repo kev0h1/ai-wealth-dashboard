@@ -15,7 +15,12 @@ B33 and B36 (2026-09-13). Currency: GBP throughout.
   magazines or music, not a finance tool), and the multiplatform
   exception (3.1.3(e)) requires the same subscription to also be sold as
   an IAP, which is the thing being built here, not an alternative to it.
-  So UK iOS must use IAP.
+  This guideline-subsection reasoning is this document's own analysis,
+  not independently confirmed against Apple's current guidelines text in
+  this session (see section 10) — the decision to use StoreKit itself is
+  Kevin's, already made, and is not reopened by that caveat; only this
+  document's supporting reasoning about which subsections apply is
+  unconfirmed. So UK iOS must use IAP.
 - **Android**: does not use Play Billing. Since 2026-06-30 Play's
   billing-choice programme covers the UK, so the app enrols and links out
   to the existing Stripe flow (roughly 10% service fee on that revenue,
@@ -56,7 +61,7 @@ payment provider:
   ```
 
   Read back by `app.core.subscription.get_subscription(email)`
-  (`backend/app/core/subscription.py:250`, whose body was written by
+  (`backend/app/core/subscription.py:258`, whose body was written by
   `_handle_subscription_upsert` at `backend/app/services/billing.py:484`),
   which does a single `subscriptions_col.find_one({"user_id": email})`.
 
@@ -402,8 +407,10 @@ Components B26 gated, and what changes:
   consumable products instead of the twelve subscriptions.
 - **`YourPlanCard.tsx`** — the manage/cancel surface. Today (post-B29) a
   native user with an active subscription gets plain text pointing them
-  to a browser, because no in-app management existed. Under C13 that
-  splits by provider, not just by platform: a Stripe-sourced
+  to a browser (`NATIVE_MANAGE_SUBSCRIPTION_LINE`,
+  `frontend/components/PlanPicker.tsx:101`, rendered inside the sheet
+  `YourPlanCard.tsx` opens), because no in-app management existed. Under
+  C13 that splits by provider, not just by platform: a Stripe-sourced
   subscription (any provider `"stripe"` document, regardless of which
   platform the user is currently on) still points at the Stripe customer
   portal (browser on Android, and — this needs Kevin's copy sign-off,
@@ -496,6 +503,17 @@ test it in — until A9 is done.
 Flagged explicitly per this doc's own instructions rather than written
 as confident guesses:
 
+- Which Apple guideline subsections apply to Sorted, and why (section 0)
+  — the reasoning that Sorted fits neither the reader-app exception
+  (3.1.3(a)) nor the multiplatform exception (3.1.3(e)), and so must sell
+  through StoreKit rather than an external link, is this document's own
+  analysis from general guideline knowledge, not independently confirmed
+  against Apple's current guidelines text; `WebFetch` against
+  `developer.apple.com` failed in this session, the same way it did for
+  the two entries below. The decision to use StoreKit itself is Kevin's,
+  already made (TODO.md C13), and this caveat does not reopen it — only
+  this document's own supporting reasoning about which subsections apply
+  is unconfirmed.
 - Exact behaviour of subscription-group ranking for same-tier,
   different-duration products (section 3) — whether Apple treats a
   duration-only change as upgrade, downgrade or crossgrade, and whether
