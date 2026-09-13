@@ -46,6 +46,7 @@ export function AccountStack({ accounts, size = 28 }: { accounts: readonly MoveA
   return (
     <span
       data-account-icon-stack
+      role="img"
       aria-label={accounts.map((account) => account.name).join(", ")}
       className="flex shrink-0 -space-x-2"
     >

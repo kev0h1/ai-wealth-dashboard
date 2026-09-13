@@ -154,21 +154,12 @@ export default function PaydayPlanCard({ item, router, hideNetWorth, maskAmounts
           )}
         </div>
 
-      {/* Preview framing — Penny-voice sentence stating this is hypothetical,
-          so the card can't be mistaken for a live instruction. Dated + hedged
-          to the REAL next payday (2026-08-29 FIX B) rather than the old "if
-          your pay landed today" framing, which priced a fictional same-day
-          credit. Falls back to the old copy only if `next_pay` is somehow
-          missing (should not happen once the plan is computed server-side). */}
-      {item.preview && (
+      {/* This is a recommendation for the user's next pay, not a promise that
+          income will land on a modelled date. Keep the same date-neutral
+          framing in preview and live salary-backed plans. */}
+      {item.salary && !isSet && (
         <p className="text-[13px] text-slate-500 dark:text-slate-400 leading-snug mb-2">
-          {item.next_pay
-            ? `Once your pay lands ~${new Date(item.next_pay).toLocaleDateString("en-GB", {
-                weekday: "short",
-                day: "numeric",
-                month: "short",
-              })}, here's how I'd split it.`
-            : "Once your pay lands, here's how I'd split it."}
+          Here’s one way to split your next pay.
         </p>
       )}
 

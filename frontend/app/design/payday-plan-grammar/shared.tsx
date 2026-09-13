@@ -22,7 +22,7 @@ export function PaydayCard({ scenario, children }: { scenario: PaydayScenario; c
             <h2 className="mt-1 text-[15px] font-bold leading-5 text-slate-950 dark:text-white">Your payday plan</h2>
           </div>
         </div>
-        <p className="mt-3 text-[13px] leading-5 text-slate-600 dark:text-slate-300">After your expected pay on {scenario.payday}, this is where the money will go.</p>
+        <p className="mt-3 text-[13px] leading-5 text-slate-600 dark:text-slate-300">Here’s one way to split your next pay.</p>
         <div data-payday-totals className="mt-3 flex items-end justify-between gap-3">
           <div data-total-moving={moving}><Currency value={moving} className="text-[24px] font-bold tracking-tight text-slate-950 dark:text-white" /><p className="text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-500 dark:text-slate-400">total moving</p></div>
           <p className="pb-1 text-right text-[12px] leading-4 text-slate-500 dark:text-slate-400"><Currency value={scenario.salary.amount} prefix="~" /> expected pay</p>

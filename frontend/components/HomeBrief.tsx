@@ -214,7 +214,12 @@ function MoveAccountStack({ accounts, size = 28 }: { accounts: readonly MoveLedg
   const displayCount = visibleAccounts.length + (remaining > 0 ? 1 : 0);
 
   return (
-    <span data-account-icon-stack className="flex shrink-0 -space-x-2">
+    <span
+      data-account-icon-stack
+      role="img"
+      aria-label={accounts.map(account => account.name).join(", ")}
+      className="flex shrink-0 -space-x-2"
+    >
       {visibleAccounts.map((account, index) => (
         <span
           key={`${account.provider}-${account.name}-${index}`}
@@ -287,7 +292,7 @@ function MoveSourcesDisclosure({
   return (
     <details data-source-disclosure className="group mt-2 rounded-xl border border-slate-100 dark:border-slate-700">
       <summary className="flex min-h-11 cursor-pointer list-none touch-manipulation items-center justify-between gap-3 rounded-xl px-3 text-[12px] font-semibold text-slate-700 [-webkit-tap-highlight-color:transparent] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 [&::-webkit-details-marker]:hidden dark:text-slate-200">
-        <span>How {moveMoney(totalAmount, hideNetWorth)} is made up</span>
+        <span>How <span className="money">{moveMoney(totalAmount, hideNetWorth)}</span> is made up</span>
         <ChevronDown size={15} aria-hidden="true" className="shrink-0 transition-transform duration-200 group-open:rotate-180 motion-reduce:transition-none" />
       </summary>
       <div className="divide-y divide-slate-100 border-t border-slate-100 px-3 dark:divide-slate-700 dark:border-slate-700">
@@ -1220,7 +1225,7 @@ export function MoveCard({ item, hideNetWorth, maskAmounts, hideAttribution, dis
 
         {destination.is_overdraft && (
           <p className="mt-3 text-[12px] leading-5 text-slate-500 dark:text-slate-400">
-            {moveMoney(Math.abs(destination.balance), hideNetWorth)} overdrawn right now.
+            <span className="money">{moveMoney(Math.abs(destination.balance), hideNetWorth)}</span> overdrawn right now.
           </p>
         )}
         {(assurance || item.residual || item.income_note || item.overflow_note) && (
