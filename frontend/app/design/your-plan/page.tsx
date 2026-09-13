@@ -4,7 +4,15 @@
 // B19: five-tier picker variants for Kevin to compare before the picker is
 // wired into Settings or onboarding. Static fixtures only, no API calls.
 //
-// /design/your-plan?variant=a|b|c&context=settings|onboarding&mode=light|dark&billing=off|on
+// /design/your-plan?variant=a|b|c&context=settings|onboarding&mode=light|dark&billing=off|on&sub=none|active|trialing|past_due|cancelled&native=0|1
+//
+// B29: `sub` and `native` only affect variant a (the real PlanPicker, see
+// below) — b and c are static mockups with no subscription-state logic of
+// their own. `native=1` forces PlanPicker's design-preview-only
+// `nativeOverride` prop, since `canPurchaseInApp()` reads the real
+// Capacitor runtime and is never native inside a plain browser preview;
+// without it there was no way to render (or screenshot) the native-gated
+// states the B29 fix touches.
 
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
@@ -232,18 +240,31 @@ function ChoiceAction({ selected, current, billing, context }: { selected: TierN
   );
 }
 
-function Controls({ variant, context, mode, billing }: { variant: Variant; context: Context; mode: Mode; billing: Billing }) {
+const SUB_STATES = ["none", "active", "trialing", "past_due", "cancelled"] as const;
+
+function Controls({ variant, context, mode, billing, sub, native }: { variant: Variant; context: Context; mode: Mode; billing: Billing; sub: (typeof SUB_STATES)[number]; native: boolean }) {
+  const base = `context=${context}&mode=${mode}&billing=${billing}&sub=${sub}&native=${native ? "1" : "0"}`;
+  const nextSub = SUB_STATES[(SUB_STATES.indexOf(sub) + 1) % SUB_STATES.length];
   return (
-    <nav aria-label="Preview controls" className="pointer-events-none fixed inset-x-0 z-50 flex justify-center px-2" style={{ bottom: "calc(env(safe-area-inset-bottom) + 10px)" }}>
+    <nav aria-label="Preview controls" className="pointer-events-none fixed inset-x-0 z-50 flex flex-wrap justify-center gap-1.5 px-2" style={{ bottom: "calc(env(safe-area-inset-bottom) + 10px)" }}>
       <div className="pointer-events-auto flex items-center gap-0.5 rounded-full border border-white/15 bg-slate-950/95 p-1 shadow-xl">
         {(["a", "b", "c"] as Variant[]).map((item) => (
-          <a key={item} href={`?variant=${item}&context=${context}&mode=${mode}&billing=${billing}`} className={`grid min-h-11 min-w-11 place-items-center rounded-full text-xs font-bold ${variant === item ? "bg-indigo-600 text-white" : "text-slate-400"}`}>{item.toUpperCase()}</a>
+          <a key={item} href={`?variant=${item}&${base}`} className={`grid min-h-11 min-w-11 place-items-center rounded-full text-xs font-bold ${variant === item ? "bg-indigo-600 text-white" : "text-slate-400"}`}>{item.toUpperCase()}</a>
         ))}
         <span aria-hidden="true" className="mx-0.5 h-5 w-px bg-white/15" />
-        <a href={`?variant=${variant}&context=${context === "settings" ? "onboarding" : "settings"}&mode=${mode}&billing=${billing}`} className="flex min-h-11 items-center rounded-full px-2.5 text-[11px] font-semibold text-slate-300">{context === "settings" ? "Onboard" : "Settings"}</a>
-        <a href={`?variant=${variant}&context=${context}&mode=${mode === "light" ? "dark" : "light"}&billing=${billing}`} className="flex min-h-11 items-center rounded-full px-2.5 text-[11px] font-semibold text-slate-300">{mode === "light" ? "Dark" : "Light"}</a>
-        <a href={`?variant=${variant}&context=${context}&mode=${mode}&billing=${billing === "off" ? "on" : "off"}`} className="flex min-h-11 items-center rounded-full px-2.5 text-[11px] font-semibold text-slate-300">{billing === "off" ? "Billing on" : "Billing off"}</a>
+        <a href={`?variant=${variant}&context=${context === "settings" ? "onboarding" : "settings"}&mode=${mode}&billing=${billing}&sub=${sub}&native=${native ? "1" : "0"}`} className="flex min-h-11 items-center rounded-full px-2.5 text-[11px] font-semibold text-slate-300">{context === "settings" ? "Onboard" : "Settings"}</a>
+        <a href={`?variant=${variant}&context=${context}&mode=${mode === "light" ? "dark" : "light"}&billing=${billing}&sub=${sub}&native=${native ? "1" : "0"}`} className="flex min-h-11 items-center rounded-full px-2.5 text-[11px] font-semibold text-slate-300">{mode === "light" ? "Dark" : "Light"}</a>
+        <a href={`?variant=${variant}&context=${context}&mode=${mode}&billing=${billing === "off" ? "on" : "off"}&sub=${sub}&native=${native ? "1" : "0"}`} className="flex min-h-11 items-center rounded-full px-2.5 text-[11px] font-semibold text-slate-300">{billing === "off" ? "Billing on" : "Billing off"}</a>
       </div>
+      {/* B29: only variant a (the real PlanPicker) reads sub/native, so
+          these only make sense there — b and c ignore both. */}
+      {variant === "a" && (
+        <div className="pointer-events-auto flex items-center gap-0.5 rounded-full border border-white/15 bg-slate-950/95 p-1 shadow-xl">
+          <a href={`?variant=${variant}&context=${context}&mode=${mode}&billing=${billing}&sub=${nextSub}&native=${native ? "1" : "0"}`} className="flex min-h-11 items-center rounded-full px-2.5 text-[11px] font-semibold text-slate-300">Sub: {sub}</a>
+          <span aria-hidden="true" className="mx-0.5 h-5 w-px bg-white/15" />
+          <a href={`?variant=${variant}&context=${context}&mode=${mode}&billing=${billing}&sub=${sub}&native=${native ? "0" : "1"}`} className={`flex min-h-11 items-center rounded-full px-2.5 text-[11px] font-semibold ${native ? "bg-indigo-600 text-white" : "text-slate-300"}`}>{native ? "Native: on" : "Native: off"}</a>
+        </div>
+      )}
     </nav>
   );
 }
@@ -258,7 +279,17 @@ function Preview() {
   const context: Context = rawContext === "onboarding" ? "onboarding" : "settings";
   const mode: Mode = rawMode === "dark" ? "dark" : "light";
   const billing: Billing = rawBilling === "on" ? "on" : "off";
-  const current: TierName | null = context === "settings" ? "standard" : null;
+  // B29: which of the five subscription states to fabricate — none (free,
+  // never subscribed), active, trialing, past_due, or cancelled (still
+  // inside the paid period it already paid for, cancel_at_period_end
+  // true). Only variant a (the real PlanPicker) reads this; b and c are
+  // static mockups. Native is a separate axis: whether canPurchaseInApp()
+  // is forced off, simulating the Capacitor build.
+  const rawSub = params.get("sub");
+  const sub: "none" | "active" | "trialing" | "past_due" | "cancelled" =
+    rawSub === "none" || rawSub === "trialing" || rawSub === "past_due" || rawSub === "cancelled" ? rawSub : "active";
+  const native = params.get("native") === "1";
+  const current: TierName | null = context === "settings" ? (sub === "none" ? "statements" : "standard") : null;
   const [selected, setSelected] = useState<TierName>(() => current ?? "statements");
   const note = NOTES[variant];
   // B22: Kevin's agreed pricing of 2026-09-11 (TODO.md B22 notes), matching
@@ -285,7 +316,13 @@ function Preview() {
   };
   const previewInfo = {
     tier: current ?? "statements",
-    status: "active",
+    // B29: the sub axis drives status, has_paid_subscription and
+    // cancel_at_period_end together so PlanPicker's own
+    // `managedPaidSubscription` derivation sees a consistent, real-shaped
+    // payload rather than a status string with no matching flags.
+    status: sub === "none" ? "active" : sub === "cancelled" ? "active" : sub,
+    has_paid_subscription: sub !== "none",
+    cancel_at_period_end: sub === "cancelled",
     prices_gbp: Object.fromEntries(TIERS.map((tier) => [tier.id, tier.price])),
     billing_prices_gbp: Object.fromEntries(TIERS.map((tier) => [tier.id, AGREED_TOTALS[tier.id]])),
     billing_periods: Object.fromEntries(TIERS.map((tier) => [
@@ -344,7 +381,7 @@ function Preview() {
         )}
 
         {variant === "a" ? (
-          <PlanPicker info={previewInfo} context={context} previewOnly />
+          <PlanPicker info={previewInfo} context={context} previewOnly nativeOverride={native} />
         ) : (
           <>
             {variant === "b" ? <VariantB selected={selected} current={current} onSelect={setSelected} /> : <VariantC selected={selected} current={current} onSelect={setSelected} />}
@@ -358,7 +395,7 @@ function Preview() {
           <p className="mt-1 text-[11px] leading-snug text-slate-500 dark:text-slate-400">Risk: {note.risk}</p>
         </section>
         </div>
-        <Controls variant={variant} context={context} mode={mode} billing={billing} />
+        <Controls variant={variant} context={context} mode={mode} billing={billing} sub={sub} native={native} />
       </main>
     </div>
   );
