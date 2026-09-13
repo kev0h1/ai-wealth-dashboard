@@ -139,16 +139,6 @@ const ROUTES: PreviewRoute[] = [
     ],
   },
   {
-    slug: "cards-outlook",
-    name: "cards-outlook",
-    description:
-      "G10 proposal: per-card outlook section for Cards, below THE TRAJECTORY (Kevin decision 2026-09-09, two coded variants before any CardsPage build) · A ledger rows: one row per carried card, rate pill (0% until date, muted, or APR, amber only when paying interest), +£/mo pace and clear month, cleared-monthly cards fold into one quiet line / B timeline: same lead line, a 24-month rail with one dot per carried card at its clear month and hollow promo-end ticks, plus an accessible two-column list below · fixtures derived from debt_plan.py's compute_debt_plan shape (services/debt_narration.get_debt_plan_view is uncalled by the live UI), no fetching · superseded for the page-level view by cards-page below, which shows the same idea against the full seven-card Cards page instead of a 3-card fixture · ?variant=a|b&state=carried|clear&mode=light|dark",
-    states: [
-      { label: "Carried", value: "carried" },
-      { label: "Clear", value: "clear" },
-    ],
-  },
-  {
     slug: "cards-page",
     name: "cards-page",
     description:
@@ -415,14 +405,6 @@ const ROUTES: PreviewRoute[] = [
   // surface map. Kept indexed rather than deleted so they stay reachable
   // and check:design-index has no untracked directories to flag.
   {
-    slug: "settings-b",
-    name: "settings-b",
-    description:
-      "Settings redesign, Variant B: Grouped Estate. Accounts, notifications and other settings grouped into estate-style sections, compare against settings-a on Kevin's phone. Static preview only, hardcoded mock state, no API calls or auth context (2026-09-02)",
-    states: [{ label: "Everything", value: "everything" }],
-    group: "earlier",
-  },
-  {
     slug: "accounts-rows",
     name: "accounts-rows",
     description:
@@ -455,14 +437,6 @@ const ROUTES: PreviewRoute[] = [
     group: "earlier",
   },
   {
-    slug: "settings-c",
-    name: "settings-c",
-    description:
-      "Settings redesign, Variant C: Merged Settings. Static preview only, hardcoded mock state, no API calls or auth context (2026-08-16)",
-    states: [{ label: "Everything", value: "everything" }],
-    group: "earlier",
-  },
-  {
     slug: "cards-check",
     name: "cards-check",
     description:
@@ -475,14 +449,6 @@ const ROUTES: PreviewRoute[] = [
     name: "category-kind",
     description:
       "Category-kind chooser preview mirroring TeachingSheet's naming step, same exported CategoryKindChooser component over realistic names (2026-08-15)",
-    states: [{ label: "Everything", value: "everything" }],
-    group: "earlier",
-  },
-  {
-    slug: "settings-a",
-    name: "settings-a",
-    description:
-      "Settings redesign, Variant A: Refined Cockpit. Static preview only, hardcoded mock state, no API calls or auth (2026-08-15)",
     states: [{ label: "Everything", value: "everything" }],
     group: "earlier",
   },
