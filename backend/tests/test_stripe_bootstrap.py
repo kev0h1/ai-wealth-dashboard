@@ -68,6 +68,33 @@ def _paginate(items: list, kwargs: dict):
     return result
 
 
+class _FakeStripeObject:
+    """Mimics just enough of real Stripe's StripeObject to catch the bug
+    class this script actually hit running against the real API:
+    stripe-python's StripeObject deliberately does NOT support dict
+    methods like .get() ("a StripeObject is not a dict. Use .to_dict() to
+    convert it.") -- only supports [] / in / .to_dict(). The first version
+    of this fake used a plain dict for metadata, which let
+    `(prod.metadata or {}).get(...)` pass every test here while crashing
+    on the real second bootstrap run. Every metadata attribute below is
+    wrapped in this instead, so a future regression of the same shape
+    fails a test rather than only showing up live."""
+    def __init__(self, data):
+        self._data = dict(data or {})
+
+    def __getitem__(self, key):
+        return self._data[key]
+
+    def __contains__(self, key):
+        return key in self._data
+
+    def to_dict(self):
+        return dict(self._data)
+
+    def __bool__(self):
+        return bool(self._data)
+
+
 class _FakePrice:
     def __init__(self, id, lookup_key, unit_amount, currency, recurring, product, metadata,
                  tax_behavior=None, active=True):
@@ -77,7 +104,7 @@ class _FakePrice:
         self.currency = currency
         self.recurring = recurring
         self.product = product
-        self.metadata = metadata
+        self.metadata = _FakeStripeObject(metadata)
         self.tax_behavior = tax_behavior
         self.active = active
 
@@ -86,7 +113,7 @@ class _FakeProduct:
     def __init__(self, id, name, metadata, active=True):
         self.id = id
         self.name = name
-        self.metadata = metadata
+        self.metadata = _FakeStripeObject(metadata)
         self.active = active
 
 

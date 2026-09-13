@@ -250,7 +250,7 @@ def _ensure_products(products: list[ProductPlan]) -> dict[str, str]:
     reusing what's there."""
     by_key: dict[str, str] = {}
     for prod in stripe.Product.list(active=True, limit=100).auto_paging_iter():
-        marker = (prod.metadata or {}).get("app_product_key")
+        marker = _to_plain_dict(prod.metadata).get("app_product_key")
         if marker:
             by_key[marker] = prod.id
 
@@ -266,6 +266,23 @@ def _ensure_products(products: list[ProductPlan]) -> dict[str, str]:
             resolved[plan.product_key] = created.id
             print(f"creating product: {plan.name} ({plan.product_key}) -> {created.id}")
     return resolved
+
+
+def _to_plain_dict(obj) -> dict:
+    """Real Stripe API objects (StripeObject) deliberately don't support
+    dict methods like .get() ("a StripeObject is not a dict") -- only the
+    fake stripe used in tests represents metadata as a plain dict, which
+    is exactly how this bug (found running for real against Stripe, not
+    caught by the test suite) slipped through. Normalizes either shape to
+    a plain dict so callers can use .get() uniformly."""
+    if obj is None:
+        return {}
+    if isinstance(obj, dict):
+        return obj
+    to_dict = getattr(obj, "to_dict", None)
+    if callable(to_dict):
+        return to_dict()
+    return dict(obj)
 
 
 def _existing_price_recurring(price) -> dict | None:
