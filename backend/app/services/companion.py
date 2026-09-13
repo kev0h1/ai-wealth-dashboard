@@ -3103,6 +3103,42 @@ async def compute_today_items(
                 )
             body = " ".join(_um_sentences)
 
+            # Presentation contract for G48's ranked Lead row. Keep this
+            # structured instead of asking the client to recover money and
+            # account names from the prose above.
+            _um_found_suggestions = [
+                s for s in _um_suggestion_by_acct.values() if s.get("kind") == "found"
+            ]
+            if _um_found_suggestions:
+                _um_lead_total = sum(float(s.get("amount") or 0) for s in _um_found_suggestions)
+                _um_lead_sources = {
+                    str(source.get("account_id") or source.get("name")): source
+                    for suggestion in _um_found_suggestions
+                    for source in (suggestion.get("sources") or [])
+                }
+                _um_lead_source_count = len(_um_lead_sources)
+                if _um_lead_source_count == 1:
+                    _um_only_source = next(iter(_um_lead_sources.values()))
+                    _um_lead_companion = (
+                        f"suggested from {humanise_account_name(_um_only_source['name'])}"
+                    )
+                else:
+                    _um_lead_companion = f"suggested across {_um_lead_source_count} accounts"
+                _um_brief_lead = {
+                    "value": _gbp(_um_lead_total),
+                    "companion": _um_lead_companion,
+                }
+            else:
+                _um_due_total = sum(float(m.get("amount") or 0) for m in _um_moves)
+                _um_brief_lead = {
+                    "value": _gbp(_um_due_total),
+                    "companion": (
+                        "planned move still needs funding"
+                        if _um_n == 1 else
+                        f"across {_um_n} planned moves still needing funding"
+                    ),
+                }
+
             _um_first = _um_moves[0]
             if _um_first["expected_date"]:
                 _um_route = f"/upcoming?day={_um_first['expected_date']}&bill={quote(_um_first['key'], safe='')}"
@@ -3120,6 +3156,7 @@ async def compute_today_items(
                     "body": body,
                     "action": _um_action,
                     "estimated": False,
+                    "brief_lead": _um_brief_lead,
                     "created_at": datetime.utcnow(),
                     "_window_end": window_end.isoformat(),
                     "moves": _um_moves,
@@ -3137,6 +3174,7 @@ async def compute_today_items(
                     "body": body,
                     "action": _um_action,
                     "estimated": False,
+                    "brief_lead": _um_brief_lead,
                     "moves": _um_moves,
                 })
 
@@ -3212,6 +3250,10 @@ async def compute_today_items(
                 "body": body,
                 "action": None,
                 "estimated": False,
+                "brief_lead": {
+                    "value": _gbp(u["shortfall"]),
+                    "companion": f"still to cover at {_dest_display}",
+                },
                 "created_at": datetime.utcnow(),
                 "_dest_acct": dest_acct,
                 "_dest_name": u["dest_name"],
@@ -3237,6 +3279,10 @@ async def compute_today_items(
                 "body": body,
                 "action": None,
                 "estimated": False,
+                "brief_lead": {
+                    "value": _gbp(u["shortfall"]),
+                    "companion": f"still to cover at {_dest_display}",
+                },
                 "plan_dest": dest_summaries[dest_acct],
             })
             emitted_dests += 1
@@ -3384,6 +3430,7 @@ async def compute_today_items(
             "body": body,
             "action": {"label": "See what's due ›", "route": "/upcoming"},
             "estimated": False,
+            "brief_lead": {"value": _gbp(total), "companion": f"to {dest_name}"},
             "created_at": datetime.utcnow(),
             "_dest_acct": dest_acct,
             "_dest_name": dest_name,
@@ -3420,6 +3467,7 @@ async def compute_today_items(
             "body": body,
             "action": {"label": "See what's due ›", "route": "/upcoming"},
             "estimated": False,
+            "brief_lead": {"value": _gbp(total), "companion": f"to {dest_name}"},
             "moves": [
                 {"headline": r["headline"], "amount": r["amount"], "move_map": r["move_map"]}
                 for r in rows
@@ -3510,6 +3558,13 @@ async def compute_today_items(
             body = f"£{int(round(float(needs_total))):,} of payments{_at_clause} are safe."
         else:
             body = "Everything due there before period end is safe."
+        _lead_amount = needs_total or bill_amount
+        if _lead_amount:
+            brief_lead = {"value": _gbp(float(_lead_amount)), "companion": "held aside"}
+        elif stored.get("_is_overdraft"):
+            brief_lead = {"value": "Above £0", "companion": "overdrawn balance cleared"}
+        else:
+            brief_lead = {"value": "Covered", "companion": "before period end"}
         return {
             "id": f"celebrate:{stored['_id']}",
             "type": "celebration",
@@ -3517,6 +3572,7 @@ async def compute_today_items(
             "body": body,
             "action": None,
             "estimated": False,
+            "brief_lead": brief_lead,
         }
 
     def _celebration_lapsed(stored: dict, now_utc: datetime) -> bool:
@@ -3607,6 +3663,7 @@ async def compute_today_items(
                         "body": f"£{stored_total:,} of payments are safe.",
                         "action": None,
                         "estimated": False,
+                        "brief_lead": {"value": _gbp(float(stored_total)), "companion": "held aside"},
                     },
                 })
             elif stored_status == "active" and len(stored_dest_accts) > 1 and emitted_dests > 0:
@@ -3769,6 +3826,7 @@ async def compute_today_items(
                 "body": _win_body,
                 "action": None,
                 "estimated": False,
+                "brief_lead": {"value": f"£{_win_amt_str}/mo", "companion": "verified saving"},
             })
     except Exception as _win_exc:
         log.warning("insight win narration failed for %s: %s", uid, _win_exc)
@@ -3834,6 +3892,10 @@ async def compute_today_items(
                     "body": body,
                     "action": None,
                     "estimated": True,
+                    "brief_lead": {
+                        "value": _gbp(avg_early_month),
+                        "companion": "commitments in the first 7 days",
+                    },
                 })
 
         # credit_switch: day 8, 9 or 10 of the month
@@ -3866,6 +3928,7 @@ async def compute_today_items(
                 # Personalise with the real month-to-date card delta, when available.
                 # Falls back to the generic body above on any error or if the
                 # movement so far this period is too small to be worth naming.
+                _cs_delta = 0.0
                 try:
                     from app.services.needle import (
                         _credit_card_account_ids as _cs_cc_ids,
@@ -3890,6 +3953,21 @@ async def compute_today_items(
                         )
                 except Exception:
                     pass
+                if _cs_delta >= 10:
+                    _cs_brief_lead = {
+                        "value": _gbp(_cs_delta),
+                        "companion": "on credit cards so far this month",
+                    }
+                elif late_pct is not None:
+                    _cs_brief_lead = {
+                        "value": f"{late_pct}%",
+                        "companion": "of spending usually moves to cards",
+                    }
+                else:
+                    _cs_brief_lead = {
+                        "value": "Card season",
+                        "companion": "usual shift later in the month",
+                    }
                 rhythm_items.append({
                     "id": rid,
                     "type": "rhythm",
@@ -3897,6 +3975,7 @@ async def compute_today_items(
                     "body": body,
                     "action": None,
                     "estimated": False,
+                    "brief_lead": _cs_brief_lead,
                 })
 
         # saving_habit streak celebration
@@ -3929,6 +4008,7 @@ async def compute_today_items(
                             "body": "Still going. That habit is yours.",
                             "action": None,
                             "estimated": False,
+                            "brief_lead": {"value": f"{n} weeks", "companion": "saving streak"},
                         })
 
     # ── 8b. NEEDLE item (period close reward) ──────────────────────────────
@@ -3981,6 +4061,10 @@ async def compute_today_items(
                     "action": {"label": "Yes, that's it", "route": "/income/confirm-payday", "kind": "confirm_payday"},
                     "secondary_action": {"label": "No, set it myself", "route": "/spend", "kind": "set_payday"},
                     "estimated": False,
+                    "brief_lead": {
+                        "value": _phrase,
+                        "companion": f"expected payday · £{_amt:,.0f} expected",
+                    },
                     "proposal": proposal,
                 })
     except Exception as _ask_exc:
@@ -4024,6 +4108,10 @@ async def compute_today_items(
                         "body": _ct_body,
                         "action": {"label": "Add my rates", "route": "/accounts?cardTerms=1", "kind": "card_terms"},
                         "estimated": False,
+                        "brief_lead": {
+                            "value": "Card details",
+                            "companion": "one answer keeps the debt plan accurate",
+                        },
                     })
     except Exception as _ct_exc:
         log.warning("ask:card_terms item failed for %s: %s", uid, _ct_exc)
@@ -4087,8 +4175,10 @@ async def compute_today_items(
                     if _apr:
                         _monthly = int(round(_bal_mag * float(_apr) / 1200))
                         _body = f"From then it'd cost {float(_apr):g}%, about £{_monthly:,} a month, unless it's cleared or moved."
+                        _cliff_lead_companion = f"rate changes from {_promo_rate} to {float(_apr):g}%"
                     else:
                         _body = "Add its standard rate and I can say what that costs."
+                        _cliff_lead_companion = f"{_promo_rate} offer ends"
                     cliff_items.append({
                         "id": _cliff_id,
                         "type": "cliff",
@@ -4096,6 +4186,7 @@ async def compute_today_items(
                         "body": _body,
                         "action": {"label": "See the card ›", "route": f"/accounts?cardTerms={_sid}"},
                         "estimated": False,
+                        "brief_lead": {"value": _when, "companion": _cliff_lead_companion},
                         "_until": _until_d.isoformat(),
                     })
                     break   # one cliff per card at a time
@@ -4253,6 +4344,25 @@ async def compute_today_items(
                     )
                 _traj_body = " ".join(_body_parts)
 
+                if _debt_free_month:
+                    _traj_brief_lead = {
+                        "value": _fmt_month(_debt_free_month),
+                        "companion": "projected debt-free at current pace",
+                    }
+                elif _monthly_interest_now >= 1:
+                    _traj_brief_lead = {
+                        "value": f"{_fmt_gbp(_monthly_interest_now)}/mo",
+                        "companion": "interest right now",
+                    }
+                else:
+                    _carried_for_lead = (_plan["totals"].get("buckets") or {}).get("carried_total")
+                    if _carried_for_lead is None:
+                        _carried_for_lead = sum(c["debt"] for c in _material_cards)
+                    _traj_brief_lead = {
+                        "value": _fmt_gbp(_carried_for_lead),
+                        "companion": f"carried across {len(_material_cards)} card{'s' if len(_material_cards) != 1 else ''}",
+                    }
+
                 trajectory_items.append({
                     "id": _traj_id,
                     "type": "trajectory",
@@ -4260,6 +4370,7 @@ async def compute_today_items(
                     "body": _traj_body,
                     "action": {"label": "See the route ›", "route": "/debt-plan"},
                     "estimated": False,
+                    "brief_lead": _traj_brief_lead,
                 })
     except Exception as _traj_exc:
         log.warning("trajectory item failed for %s: %s", uid, _traj_exc)
@@ -4422,6 +4533,21 @@ async def compute_today_items(
                 except Exception as _dom_exc:
                     log.warning("rhythm checkpoint dominant failed for %s: %s", uid, _dom_exc)
 
+                if _rc_dominant:
+                    try:
+                        _rc_lead_date = date.fromisoformat(str(_rc_dominant["date"])[:10]).strftime("%-d %b")
+                    except (TypeError, ValueError):
+                        _rc_lead_date = "this period"
+                    _rc_lead = {
+                        "value": f"£{float(_rc_dominant['amount']):,.2f}",
+                        "companion": f"at {_rc_dominant['name'] or 'recent payment'} · {_rc_lead_date}",
+                    }
+                else:
+                    _rc_lead = {
+                        "value": f"£{_rc_spent:,.2f}",
+                        "companion": "so far this period",
+                    }
+
                 rhythm_checkpoint_items.append({
                     "id": _rc_item_id,
                     "type": "rhythm",
@@ -4429,6 +4555,7 @@ async def compute_today_items(
                     "body": f"£{_rc_spent:,.2f} so far this period.",
                     "action": None,
                     "estimated": False,
+                    "brief_lead": _rc_lead,
                     "payload": {
                         "category": _rc_cat,
                         "multiple": _rc_mult,
@@ -4497,6 +4624,10 @@ async def compute_today_items(
                         "body": "Tracking the change you asked for, no action needed.",
                         "action": None,
                         "estimated": False,
+                        "brief_lead": {
+                            "value": _gbp(_ip_spent),
+                            "companion": f"of {_gbp(_ip_pro_rata)} usual by now",
+                        },
                     })
         except Exception as _ip_exc:
             log.warning("intent pace item failed for %s: %s", uid, _ip_exc)

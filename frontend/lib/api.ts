@@ -1302,6 +1302,16 @@ export type UnfundedMoveEntry = {
   suggested_sources?: { account_id: string; name: string; provider: string; amount: number }[];
 };
 
+/**
+ * The ranked fact shown between a Home brief card's headline and its
+ * supporting detail. The backend supplies this as presentation data so the
+ * UI never has to recover a financial figure or date by parsing prose.
+ */
+export type CompanionBriefLead = {
+  value: string;
+  companion: string;
+};
+
 export type CompanionItem = {
   id: string;
   type: "move" | "rhythm" | "celebration" | "info" | "needle" | "ask" | "cliff" | "trajectory" | "payday_plan" | "intent_pace" | "unfunded_move";
@@ -1309,6 +1319,7 @@ export type CompanionItem = {
   body: string;
   action: CompanionAction | null;
   estimated: boolean;
+  brief_lead?: CompanionBriefLead;
   move_map?: MoveMap;
   // `PlanMove[]` when type === "move" (MoveCard's leg list). When type ===
   // "unfunded_move" the backend reuses this SAME field name for an

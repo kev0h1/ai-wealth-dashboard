@@ -242,13 +242,14 @@ function BriefIcon({ children, tone = "neutral" }: { children: React.ReactNode; 
 }
 
 function KindLabel({ children, tone = "neutral" }: { children: React.ReactNode; tone?: "neutral" | "watch" | "positive" }) {
+  const labelClass = "text-[10px] font-semibold uppercase tracking-[0.05em]";
   if (tone === "positive") {
-    return <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-600 dark:text-slate-300"><Check size={14} className="text-emerald-600 dark:text-emerald-400" aria-hidden="true" />{children}</span>;
+    return <span className={`inline-flex items-center gap-1 ${labelClass} text-slate-600 dark:text-slate-300`}><Check size={14} className="text-emerald-600 dark:text-emerald-400" aria-hidden="true" />{children}</span>;
   }
   if (tone === "watch") {
-    return <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-600 dark:text-slate-300"><Circle size={8} fill="currentColor" className="text-amber-500 dark:text-amber-400" aria-hidden="true" />{children}</span>;
+    return <span className={`inline-flex items-center gap-1 ${labelClass} text-slate-600 dark:text-slate-300`}><Circle size={8} fill="currentColor" className="text-amber-500 dark:text-amber-400" aria-hidden="true" />{children}</span>;
   }
-  return <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">{children}</span>;
+  return <span className={`${labelClass} text-slate-500 dark:text-slate-400`}>{children}</span>;
 }
 
 function PennyKindLabel({ hideAttribution, children, tone = "neutral" }: { hideAttribution?: boolean; children: React.ReactNode; tone?: "neutral" | "watch" }) {
@@ -268,19 +269,35 @@ function PennyKindLabel({ hideAttribution, children, tone = "neutral" }: { hideA
   );
 }
 
+function BriefLead({ item, maskAmounts }: { item: CompanionItem; maskAmounts: (text: string) => string }) {
+  if (!item.brief_lead) return null;
+
+  return (
+    <div data-brief-lead className="mt-3 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+      <span className="text-[19px] font-bold leading-6 text-slate-950 dark:text-white">
+        <MoneyText text={maskAmounts(item.brief_lead.value)} />
+      </span>
+      <span className="min-w-0 break-words text-[12px] leading-5 text-slate-500 dark:text-slate-400">
+        <MoneyText text={maskAmounts(item.brief_lead.companion)} />
+      </span>
+    </div>
+  );
+}
+
 interface AskPaydayCardProps {
   item: CompanionItem;
   router: ReturnType<typeof useRouter>;
-  hideNetWorth: boolean;
   maskAmounts: (text: string) => string;
   onRefresh?: () => void;
+  /** Design previews keep the real component but must not write user data. */
+  previewMode?: boolean;
   /** Penny screen only — the page header already establishes Penny's voice,
    * so the per-card "✦ Penny" chip is redundant branding there. Home keeps
    * the chip exactly as before (prop omitted/false). */
   hideAttribution?: boolean;
 }
 
-function AskPaydayCard({ item, router, maskAmounts, onRefresh, hideAttribution }: AskPaydayCardProps) {
+export function AskPaydayCard({ item, router, maskAmounts, onRefresh, previewMode = false, hideAttribution }: AskPaydayCardProps) {
   const [busy, setBusy] = useState<null | "confirm" | "decline">(null);
   const [hidden, setHidden] = useState(false);
 
@@ -289,6 +306,11 @@ function AskPaydayCard({ item, router, maskAmounts, onRefresh, hideAttribution }
   async function handleConfirm() {
     if (busy) return;
     setBusy("confirm");
+    if (previewMode) {
+      setHidden(true);
+      setBusy(null);
+      return;
+    }
     try {
       await api.confirmPayday();
       setHidden(true);
@@ -303,20 +325,22 @@ function AskPaydayCard({ item, router, maskAmounts, onRefresh, hideAttribution }
   async function handleDecline() {
     if (busy) return;
     setBusy("decline");
-    try {
-      await api.dismissTodayItem(item.id);
-    } catch { /* swallow */ }
-    if (typeof window !== "undefined") {
-      sessionStorage.setItem("wealth_open_pay_period", "1");
+    if (!previewMode) {
+      try {
+        await api.dismissTodayItem(item.id);
+      } catch { /* swallow */ }
+      if (typeof window !== "undefined") {
+        sessionStorage.setItem("wealth_open_pay_period", "1");
+      }
+      router.push("/upcoming");
     }
     setHidden(true);
-    router.push("/upcoming");
   }
 
   return (
     <div className={`${BRIEF_CARD} p-4`}>
       {/* Penny gradient chip — suppressed on the Penny screen itself */}
-      <div className="mb-3 flex items-start gap-3">
+      <div className="flex items-start gap-3">
         <BriefIcon tone="penny"><CalendarDays size={16} /></BriefIcon>
         <div className="min-w-0 flex-1">
           <PennyKindLabel hideAttribution={hideAttribution}>Payday check</PennyKindLabel>
@@ -325,8 +349,9 @@ function AskPaydayCard({ item, router, maskAmounts, onRefresh, hideAttribution }
           </p>
         </div>
       </div>
+      <BriefLead item={item} maskAmounts={maskAmounts} />
       {/* Body */}
-      <p lang="en-GB" className="mb-3 max-w-prose text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-300">
+      <p lang="en-GB" className="mb-3 mt-3 max-w-prose text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-300">
         <MoneyText text={maskAmounts(item.body ?? "")} />
       </p>
       {/* Actions */}
@@ -378,7 +403,7 @@ interface AskGenericCardProps {
 // `dismissible`, the whole actions row is skipped so Penny never shows an
 // empty, actionless strip. Used for any ask item without bespoke handling
 // (e.g. ask:card_terms).
-function AskGenericCard({ item, router, maskAmounts, dismissible, onHomeDismiss, hideAttribution }: AskGenericCardProps) {
+export function AskGenericCard({ item, router, maskAmounts, dismissible, onHomeDismiss, hideAttribution }: AskGenericCardProps) {
   const [busy, setBusy] = useState(false);
   const [hidden, setHidden] = useState(false);
 
@@ -404,7 +429,7 @@ function AskGenericCard({ item, router, maskAmounts, dismissible, onHomeDismiss,
   return (
     <div className={`${BRIEF_CARD} p-4`}>
       {/* Penny gradient chip — suppressed on the Penny screen itself */}
-      <div className="mb-3 flex items-start gap-3">
+      <div className="flex items-start gap-3">
         <BriefIcon tone="penny"><CreditCard size={16} /></BriefIcon>
         <div className="min-w-0 flex-1">
           <PennyKindLabel hideAttribution={hideAttribution}>Card detail</PennyKindLabel>
@@ -413,8 +438,9 @@ function AskGenericCard({ item, router, maskAmounts, dismissible, onHomeDismiss,
           </p>
         </div>
       </div>
+      <BriefLead item={item} maskAmounts={maskAmounts} />
       {/* Body */}
-      <p lang="en-GB" className="mb-3 max-w-prose text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-300">
+      <p lang="en-GB" className="mb-3 mt-3 max-w-prose text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-300">
         <MoneyText text={maskAmounts(item.body ?? "")} />
       </p>
       {/* Actions — skipped entirely when there'd be nothing to show (no
@@ -508,6 +534,7 @@ export function CelebrationCard({ item, router, maskAmounts, dismissible, onHome
           </p>
         </div>
       </div>
+      <BriefLead item={item} maskAmounts={maskAmounts} />
       {item.body && (
         <p className="mt-3 text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-300">
           <MoneyText text={maskAmounts(item.body)} />
@@ -522,7 +549,6 @@ export function CelebrationCard({ item, router, maskAmounts, dismissible, onHome
 
 interface CliffCardProps {
   item: CompanionItem;
-  router: ReturnType<typeof useRouter>;
   maskAmounts: (text: string) => string;
   /** Home-only "hide on Home" mode — see BriefBodyProps.dismissible. */
   dismissible?: boolean;
@@ -537,7 +563,10 @@ interface CliffCardProps {
 // AlertTriangle for cliff, TrendingDown for trajectory. The ✕ only renders
 // when `dismissible` (Home) — a local, Home-only hide; Penny never renders it.
 export function CliffCard({ item, maskAmounts, dismissible, onHomeDismiss }: CliffCardProps) {
-  const Icon = item.type === "trajectory" ? TrendingDown : AlertTriangle;
+  const isTrajectory = item.type === "trajectory";
+  const isRhythm = item.type === "rhythm";
+  const Icon = isTrajectory ? TrendingDown : isRhythm ? Clock3 : AlertTriangle;
+  const label = isTrajectory ? "Debt trajectory" : isRhythm ? "Spending pattern" : "Rate change";
   const [hidden, setHidden] = useState(false);
   if (hidden) return null;
 
@@ -558,12 +587,13 @@ export function CliffCard({ item, maskAmounts, dismissible, onHomeDismiss }: Cli
       <div className="flex items-start gap-3 pr-9">
         <BriefIcon><Icon size={16} /></BriefIcon>
         <div className="min-w-0 flex-1">
-          <KindLabel tone="watch">{item.type === "trajectory" ? "Debt trajectory" : "Rate change"}</KindLabel>
+          <KindLabel tone={item.type === "cliff" ? "watch" : "neutral"}>{label}</KindLabel>
           <p className="mt-1 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-white">
             <MoneyText text={maskAmounts(item.headline)} />
           </p>
         </div>
       </div>
+      <BriefLead item={item} maskAmounts={maskAmounts} />
       {item.body && (
         <p className="mt-3 text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-300">
           <MoneyText text={maskAmounts(item.body)} />
@@ -585,9 +615,10 @@ export function CliffCard({ item, maskAmounts, dismissible, onHomeDismiss }: Cli
 
 interface UnfundedMoveCardProps {
   item: CompanionItem;
-  router: ReturnType<typeof useRouter>;
   hideNetWorth: boolean;
   maskAmounts: (text: string) => string;
+  /** Design previews keep local interactions but must not write user data. */
+  previewMode?: boolean;
   /** Penny screen only — see AskPaydayCardProps.hideAttribution. */
   hideAttribution?: boolean;
   /** Home-only "hide on Home" mode — see BriefBodyProps.dismissible. */
@@ -608,7 +639,7 @@ interface UnfundedMoveCardProps {
 // when the last move is skipped the whole card quietly resolves
 // (setHidden(true), the same no-animation pattern every sibling card in
 // this file uses for a resolved/dismissed state).
-function UnfundedMoveCard({ item, hideNetWorth, maskAmounts, hideAttribution, dismissible, onHomeDismiss }: UnfundedMoveCardProps) {
+export function UnfundedMoveCard({ item, hideNetWorth, maskAmounts, previewMode = false, hideAttribution, dismissible, onHomeDismiss }: UnfundedMoveCardProps) {
   // `item.moves` is declared PlanMove[] on CompanionItem (MoveCard's own
   // field) since the two item types can't share a TS-narrowable shape
   // under one flat interface — see the field's doc comment in lib/api.ts.
@@ -642,6 +673,7 @@ function UnfundedMoveCard({ item, hideNetWorth, maskAmounts, hideAttribution, di
     // month" button already calls (backend comment, companion.py) — `key`
     // is the series identifier, `expected_date` is already the original
     // due date, so no new dismiss path exists for this card.
+    if (previewMode) return;
     api.skipUpcomingOccurrence(move.key, move.expected_date ?? "").catch(() => {
       // Revert: restore the move (and the card, if skipping it collapsed
       // the last one) — same fail-safe-visible approach as PlanningPage's
@@ -671,6 +703,7 @@ function UnfundedMoveCard({ item, hideNetWorth, maskAmounts, hideAttribution, di
           </p>
         </div>
       </div>
+      <BriefLead item={item} maskAmounts={maskAmounts} />
       {item.body && (
         <p className="mt-3 text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-300">
           <MoneyText text={maskAmounts(item.body)} />
@@ -763,7 +796,7 @@ interface IntentPaceCardProps {
 // `dismissible` (Home) — a local, Home-only hide; Penny never renders it, so
 // the note can't be dismissed away for good from there.
 // NO red: pace against a self-chosen aim is never materialised risk.
-function IntentPaceCard({ item, maskAmounts, dismissible, onHomeDismiss }: IntentPaceCardProps) {
+export function IntentPaceCard({ item, maskAmounts, dismissible, onHomeDismiss }: IntentPaceCardProps) {
   const [hidden, setHidden] = useState(false);
   if (hidden) return null;
 
@@ -790,6 +823,7 @@ function IntentPaceCard({ item, maskAmounts, dismissible, onHomeDismiss }: Inten
           </p>
         </div>
       </div>
+      <BriefLead item={item} maskAmounts={maskAmounts} />
       {item.body && (
         <p className="mt-3 text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-300">
           <MoneyText text={maskAmounts(item.body)} />
@@ -804,7 +838,6 @@ function IntentPaceCard({ item, maskAmounts, dismissible, onHomeDismiss }: Inten
 
 interface MoveCardProps {
   item: CompanionItem;
-  router: ReturnType<typeof useRouter>;
   hideNetWorth: boolean;
   maskAmounts: (text: string) => string;
   /** Penny screen only — see AskPaydayCardProps.hideAttribution. */
@@ -848,7 +881,7 @@ export function MoveCard({ item, hideNetWorth, maskAmounts, hideAttribution, dis
       {/* The Penny signifier is suppressed on the Penny screen itself, whose
           header already establishes that voice. The card-kind label stays so
           the family remains scannable in both contexts. */}
-      <div className="mb-3 flex items-start gap-3 pr-9">
+      <div className="flex items-start gap-3 pr-9">
         <BriefIcon tone="penny"><ArrowRightLeft size={16} /></BriefIcon>
         <div className="min-w-0 flex-1">
           <PennyKindLabel hideAttribution={hideAttribution}>Cover plan</PennyKindLabel>
@@ -857,6 +890,7 @@ export function MoveCard({ item, hideNetWorth, maskAmounts, hideAttribution, dis
           </p>
         </div>
       </div>
+      <BriefLead item={item} maskAmounts={maskAmounts} />
       {item.plan_dest ? (
         <>
           {/* a) Destination tile */}
@@ -879,7 +913,7 @@ export function MoveCard({ item, hideNetWorth, maskAmounts, hideAttribution, dis
               ? `£${Math.round(dest.balance).toLocaleString("en-GB")} held · £${(dest.needs_total ?? 0).toLocaleString("en-GB")} payment expected ${dest.needs_by}`
               : `£${Math.round(dest.balance).toLocaleString("en-GB")} held · £${(dest.needs_total ?? 0).toLocaleString("en-GB")} in ${billCount} payments before period end · first expected ${dest.needs_by}`;
             return (
-              <div className={`glass-tile rounded-xl border border-slate-100 px-3 py-2.5 mb-2 dark:border-slate-700/70`}>
+              <div className={`mt-3 glass-tile rounded-xl border border-slate-100 px-3 py-2.5 mb-2 dark:border-slate-700/70`}>
                 <div className="flex items-center gap-2.5">
                   <span className="flex-shrink-0">
                     <BankBadge
@@ -948,7 +982,7 @@ export function MoveCard({ item, hideNetWorth, maskAmounts, hideAttribution, dis
       ) : (
         <>
           {/* Body */}
-          <p lang="en-GB" className="mb-3 max-w-prose text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-300">
+          <p lang="en-GB" className="mb-3 mt-3 max-w-prose text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-300">
             <MoneyText text={item.body ?? ""} />
           </p>
         </>
@@ -972,6 +1006,8 @@ interface RhythmCardProps {
   router: ReturnType<typeof useRouter>;
   maskAmounts: (text: string) => string;
   onRefresh?: () => void;
+  /** Design previews keep local interactions but must not write user data. */
+  previewMode?: boolean;
   /** Home-only "hide on Home" mode — see BriefBodyProps.dismissible. The
    * quiet ✕ only renders when this is true (Home); it never renders on
    * Penny at all, leaving the one_off/new_normal intent buttons and the
@@ -980,7 +1016,7 @@ interface RhythmCardProps {
   onHomeDismiss?: (id: string) => void;
 }
 
-function RhythmCard({ item, router, maskAmounts, onRefresh, dismissible, onHomeDismiss }: RhythmCardProps) {
+export function RhythmCard({ item, router, maskAmounts, onRefresh, previewMode = false, dismissible, onHomeDismiss }: RhythmCardProps) {
   const [hidden, setHidden] = useState(false);
   const [busy, setBusy] = useState<null | "one_off" | "new_normal">(null);
   const [confirmed, setConfirmed] = useState<null | "one_off" | "new_normal">(null);
@@ -1042,6 +1078,11 @@ function RhythmCard({ item, router, maskAmounts, onRefresh, dismissible, onHomeD
     if (busy || confirmed) return;
     setIntentError(false);
     setBusy(answer);
+    if (previewMode) {
+      setConfirmed(answer);
+      setBusy(null);
+      return;
+    }
     try {
       await api.recordTrendIntent(category, answer);
       setConfirmed(answer);
@@ -1095,6 +1136,8 @@ function RhythmCard({ item, router, maskAmounts, onRefresh, dismissible, onHomeD
         )}
       </div>
 
+      <BriefLead item={item} maskAmounts={maskAmounts} />
+
       {/* The evidence line spans the card body rather than inheriting the
           icon column's narrower measure. A structured dominant transaction
           keeps its trailing amount and date visible while only the merchant
@@ -1108,7 +1151,7 @@ function RhythmCard({ item, router, maskAmounts, onRefresh, dismissible, onHomeD
       ) : (
         supportLine && (
           <p className="mt-3 flex min-w-0 items-baseline text-[13px] leading-5 text-slate-600 dark:text-slate-300">
-            <span className="shrink-0 whitespace-nowrap">{supportLine.prefix}</span>
+            <span className="mr-1 shrink-0 whitespace-nowrap">{supportLine.prefix}</span>
             <span className="min-w-0 truncate" title={supportLine.name}>
               {supportLine.name}
             </span>
@@ -1441,7 +1484,7 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth =
   // Mask £ figures in a string when hideNetWorth is on
   function maskAmounts(text: string): string {
     if (!hideNetWorth) return text;
-    return text.replace(/£[\d,]+/g, "£••••");
+    return text.replace(/£[\d,]+(?:\.\d+)?/g, "£••••");
   }
 
   return (
@@ -1451,11 +1494,11 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth =
         ))}
 
         {cliffItems.map(item => (
-          <CliffCard key={item.id} item={item} router={router} maskAmounts={maskAmounts} dismissible={dismissible} onHomeDismiss={onHomeDismiss} />
+          <CliffCard key={item.id} item={item} maskAmounts={maskAmounts} dismissible={dismissible} onHomeDismiss={onHomeDismiss} />
         ))}
 
         {trajectoryItems.map(item => (
-          <CliffCard key={item.id} item={item} router={router} maskAmounts={maskAmounts} dismissible={dismissible} onHomeDismiss={onHomeDismiss} />
+          <CliffCard key={item.id} item={item} maskAmounts={maskAmounts} dismissible={dismissible} onHomeDismiss={onHomeDismiss} />
         ))}
 
         {rhythmItems.map(item => (
@@ -1467,7 +1510,7 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth =
             there's no category/multiple/spent to anchor them to. Reuses the
             existing informational fact-card family (CliffCard). */}
         {rhythmInfoItems.map(item => (
-          <CliffCard key={item.id} item={item} router={router} maskAmounts={maskAmounts} dismissible={dismissible} onHomeDismiss={onHomeDismiss} />
+          <CliffCard key={item.id} item={item} maskAmounts={maskAmounts} dismissible={dismissible} onHomeDismiss={onHomeDismiss} />
         ))}
 
         {/* Intent-pace notes — quiet info cards, no accent, no CTA */}
@@ -1478,7 +1521,7 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth =
         {/* Unfunded moves — Penny's quiet flag for a due-but-unfunded own
             transfer (owner, 2026-08-27); see UnfundedMoveCard's docstring */}
         {unfundedMoveItems.map(item => (
-          <UnfundedMoveCard key={item.id} item={item} router={router} hideNetWorth={hideNetWorth} maskAmounts={maskAmounts} hideAttribution={hideAttribution} dismissible={dismissible} onHomeDismiss={onHomeDismiss} />
+          <UnfundedMoveCard key={item.id} item={item} hideNetWorth={hideNetWorth} maskAmounts={maskAmounts} hideAttribution={hideAttribution} dismissible={dismissible} onHomeDismiss={onHomeDismiss} />
         ))}
 
         {/* Ask cards — payday keeps its bespoke confirm/decline (unaffected
@@ -1491,7 +1534,6 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth =
             <AskPaydayCard
               item={askItem}
               router={router}
-              hideNetWorth={hideNetWorth}
               maskAmounts={maskAmounts}
               onRefresh={onRefresh}
               hideAttribution={hideAttribution}
@@ -1532,7 +1574,7 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth =
         ))}
 
         {moveItems.map(item => (
-          <MoveCard key={item.id} item={item} router={router} hideNetWorth={hideNetWorth} maskAmounts={maskAmounts} hideAttribution={hideAttribution} dismissible={dismissible} onHomeDismiss={onHomeDismiss} />
+          <MoveCard key={item.id} item={item} hideNetWorth={hideNetWorth} maskAmounts={maskAmounts} hideAttribution={hideAttribution} dismissible={dismissible} onHomeDismiss={onHomeDismiss} />
         ))}
     </div>
   );
@@ -1876,7 +1918,7 @@ export function PaydayPlanSection({ items, safeToSpend, hideNetWorth = false, on
 
   function maskAmounts(text: string): string {
     if (!hideNetWorth) return text;
-    return text.replace(/£[\d,]+/g, "£••••");
+    return text.replace(/£[\d,]+(?:\.\d+)?/g, "£••••");
   }
 
   const paydaySubline = (() => {
