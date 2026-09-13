@@ -1,39 +1,44 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import VariantA from "./VariantA";
-import VariantB from "./VariantB";
-import VariantC from "./VariantC";
-import type { PreviewMode, PreviewVariant } from "./shared";
+import VariantAChartPage from "./VariantAChartPage";
+import { INITIAL_CHART_COLLECTION, type ChartPlacement } from "./VariantACharts";
+import type { PreviewMode } from "./shared";
 
-const variants: readonly { key: PreviewVariant; label: string; rolled?: boolean }[] = [
-  { key: "a", label: "A · Journey", rolled: true },
-  { key: "b", label: "B · Next decision" },
-  { key: "c", label: "C · Category field" },
-];
+type PreviewSurface = "journey" | "charts";
 
-function PreviewControls({ variant, mode }: { variant: PreviewVariant; mode: PreviewMode }) {
+function previewHref(placement: ChartPlacement, mode: PreviewMode, surface: PreviewSurface = "journey") {
+  return `?variant=a&charts=${placement}&surface=${surface}&mode=${mode}`;
+}
+
+function PreviewControls({ placement, mode, surface }: { placement: ChartPlacement; mode: PreviewMode; surface: PreviewSurface }) {
+  const placements: readonly { key: ChartPlacement; label: string }[] = [
+    { key: "here", label: "1 · Charts here" },
+    { key: "page", label: "2 · Own page" },
+  ];
+
   return (
     <nav
-      aria-label="G57 Spend revamp variants"
+      aria-label="G57 chart placement treatments"
       className="fixed inset-x-0 bottom-0 z-[70] border-t border-white/10 bg-slate-950/95 px-3 py-2 text-white shadow-xl"
       style={{ paddingBottom: "max(8px, env(safe-area-inset-bottom, 0px))" }}
     >
       <div className="mx-auto flex w-full max-w-5xl items-center gap-1 overflow-x-auto">
-        {variants.map((item) => (
+        <span className="hidden shrink-0 rounded-full bg-indigo-400/15 px-2 py-1 text-[9px] font-bold uppercase tracking-[0.06em] text-indigo-200 sm:inline">A winner</span>
+        {placements.map((item) => (
           <a
             key={item.key}
-            href={`?variant=${item.key}&mode=${mode}`}
-            aria-current={variant === item.key ? "page" : undefined}
-            className={`flex min-h-11 shrink-0 items-center gap-2 rounded-xl px-3 text-[12px] font-semibold transition-colors active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 ${variant === item.key ? "bg-white text-slate-950" : "text-slate-300 hover:bg-white/10"}`}
+            href={previewHref(item.key, mode, item.key === "page" ? surface : "journey")}
+            aria-current={placement === item.key ? "page" : undefined}
+            className={`flex min-h-11 shrink-0 items-center rounded-xl px-3 text-[12px] font-semibold transition-colors active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 ${placement === item.key ? "bg-white text-slate-950" : "text-slate-300 hover:bg-white/10"}`}
           >
             {item.label}
-            {item.rolled && <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.06em] ${variant === item.key ? "bg-indigo-100 text-indigo-700" : "bg-white/10 text-slate-300"}`}>The roll</span>}
           </a>
         ))}
         <a
-          href={`?variant=${variant}&mode=${mode === "dark" ? "light" : "dark"}`}
+          href={previewHref(placement, mode === "dark" ? "light" : "dark", surface)}
           className="ml-auto flex min-h-11 shrink-0 items-center rounded-xl px-3 text-[12px] font-semibold text-slate-300 transition-colors hover:bg-white/10 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
         >
           {mode === "dark" ? "Light" : "Dark"}
@@ -45,9 +50,10 @@ function PreviewControls({ variant, mode }: { variant: PreviewVariant; mode: Pre
 
 export default function SpendPageRefurbishmentClient() {
   const params = useSearchParams();
-  const rawVariant = params.get("variant");
-  const variant: PreviewVariant = rawVariant === "b" || rawVariant === "c" ? rawVariant : "a";
+  const [chartCollection, setChartCollection] = useState(INITIAL_CHART_COLLECTION);
+  const placement: ChartPlacement = params.get("charts") === "page" ? "page" : "here";
   const mode: PreviewMode = params.get("mode") === "dark" ? "dark" : "light";
+  const surface: PreviewSurface = placement === "page" && params.get("surface") === "charts" ? "charts" : "journey";
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", mode === "dark");
@@ -58,12 +64,14 @@ export default function SpendPageRefurbishmentClient() {
   return (
     <div className={mode === "dark" ? "dark" : ""} style={{ colorScheme: mode }}>
       <div className="min-h-dvh bg-[#f0f2f7] text-slate-950 dark:bg-[#0f172a] dark:text-slate-100">
-        <p className="sr-only">Illustrative figures, not real balances. G57 Spend revamp, variant {variant.toUpperCase()}.</p>
-        {variant === "a" && <VariantA />}
-        {variant === "b" && <VariantB />}
-        {variant === "c" && <VariantC />}
+        <p className="sr-only">Illustrative figures, not real balances. G57 Spend revamp, A with charts {placement === "here" ? "on the journey" : "on their own page"}.</p>
+        {surface === "charts" ? (
+          <VariantAChartPage backHref={previewHref("page", mode)} collection={chartCollection} setCollection={setChartCollection} />
+        ) : (
+          <VariantA chartPlacement={placement} chartsHref={previewHref("page", mode, "charts")} chartCollection={chartCollection} setChartCollection={setChartCollection} />
+        )}
       </div>
-      <PreviewControls variant={variant} mode={mode} />
+      <PreviewControls placement={placement} mode={mode} surface={surface} />
     </div>
   );
 }

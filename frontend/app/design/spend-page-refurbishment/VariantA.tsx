@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import type { Dispatch, ReactNode, SetStateAction } from "react";
 import {
   ArrowDown,
   ArrowRight,
@@ -30,7 +30,7 @@ import {
   PeriodBar,
   ReconciliationNote,
 } from "./shared";
-import VariantACharts from "./VariantACharts";
+import VariantACharts, { type ChartCollectionState, type ChartPlacement } from "./VariantACharts";
 
 type JourneyTarget = "changes" | "place" | "spending" | "charts";
 
@@ -74,24 +74,29 @@ function JumpButton({
   );
 }
 
-function JourneyJumpStrip({ desktop = false }: { desktop?: boolean }) {
+function JourneyJumpStrip({ desktop = false, chartPlacement }: { desktop?: boolean; chartPlacement: ChartPlacement }) {
   return (
     <nav aria-label="Jump through this pay period" className={`grid gap-2 ${desktop ? "grid-cols-2" : "grid-cols-4"}`}>
       <JumpButton label="Changes" value={<><Money value={PERIOD.aheadOfUsual} />{desktop && " ahead"}</>} target="changes" needsLook compact={!desktop} />
       <JumpButton label="Place" value={<>{PERIOD.unresolvedPayments} · <Money value={PERIOD.unresolved} /></>} target="place" compact={!desktop} />
       <JumpButton label="Spending" value={<><Money value={1496} />{desktop && " across 11"}</>} target="spending" compact={!desktop} />
-      <JumpButton label="Charts" value="7 views" target="charts" compact={!desktop} />
+      <JumpButton label="Charts" value={chartPlacement === "here" ? "2 shown" : "Own page"} target="charts" compact={!desktop} />
     </nav>
   );
 }
 
-export default function VariantA() {
+export default function VariantA({ chartPlacement, chartsHref, chartCollection, setChartCollection }: {
+  chartPlacement: ChartPlacement;
+  chartsHref: string;
+  chartCollection: ChartCollectionState;
+  setChartCollection: Dispatch<SetStateAction<ChartCollectionState>>;
+}) {
   return (
     <main className="mx-auto w-full max-w-6xl px-4 pb-20 pt-5 sm:px-6 lg:px-8">
       <PeriodBar />
 
       <div className="sticky top-0 z-30 -mx-4 mt-3 border-y border-slate-200/90 bg-[#f0f2f7]/95 px-4 py-2 backdrop-blur-sm dark:border-slate-700/80 dark:bg-[#0f172a]/95 lg:hidden">
-        <JourneyJumpStrip />
+        <JourneyJumpStrip chartPlacement={chartPlacement} />
       </div>
 
       <div className="mt-7 grid items-start gap-9 lg:grid-cols-[minmax(260px,0.72fr)_minmax(0,1.45fr)] lg:gap-14">
@@ -119,7 +124,7 @@ export default function VariantA() {
           </dl>
 
           <div className="mt-4"><ReconciliationNote /></div>
-          <div className="mt-5 hidden lg:block"><JourneyJumpStrip desktop /></div>
+          <div className="mt-5 hidden lg:block"><JourneyJumpStrip desktop chartPlacement={chartPlacement} /></div>
         </aside>
 
         <div aria-label="Pay-period journey" className="relative pl-8 before:absolute before:bottom-3 before:left-[11px] before:top-3 before:w-px before:bg-slate-300 dark:before:bg-slate-600 sm:pl-10">
@@ -280,9 +285,13 @@ export default function VariantA() {
             <span className="absolute -left-8 top-1 flex h-6 w-6 items-center justify-center rounded-full border border-indigo-300 bg-indigo-50 text-indigo-700 ring-4 ring-[#f0f2f7] dark:border-indigo-400/30 dark:bg-indigo-400/10 dark:text-indigo-300 dark:ring-[#0f172a] sm:-left-10" aria-hidden="true">
               <BarChart3 size={12} />
             </span>
-            <h3 className="text-xl font-bold text-slate-950 dark:text-white">Charts and patterns</h3>
-            <p className="mt-1 max-w-2xl text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-400">See the evidence behind this journey, then open the full chart collection when you want more detail.</p>
-            <div className="mt-4"><VariantACharts /></div>
+            <h3 className="text-xl font-bold text-slate-950 dark:text-white">Your charts</h3>
+            <p className="mt-1 max-w-2xl text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-400">
+              {chartPlacement === "here"
+                ? "Choose which charts appear in this journey, reorder them, or pin one to Home."
+                : "Keep this journey shorter and manage the same chart collection on its own page."}
+            </p>
+            <div className="mt-4"><VariantACharts placement={chartPlacement} pageHref={chartsHref} collection={chartCollection} setCollection={setChartCollection} /></div>
           </section>
         </div>
       </div>
