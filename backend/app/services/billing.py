@@ -33,8 +33,15 @@ Event-to-effect table (see `_dispatch_event` below):
     subscription's price id via STRIPE_PRICE_IDS), status
     ("active" -> "active", "trialing" -> "trialing",
     "past_due"/"unpaid" -> "past_due",
-    anything else -> "expired"), stripe_subscription_id,
-    current_period_end -> expires_at, updated_at, source: "stripe"}.
+    "canceled"/"incomplete"/"incomplete_expired"/"paused" -> "expired",
+    any other (unrecognised) status -> "expired", fail closed
+    (B36, 2026-09-13: this used to default to "active", silently
+    granting the paid tier for "incomplete" — abandoned/failed 3D
+    Secure — and for any status this map hadn't been taught yet)),
+    stripe_subscription_id, expires_at (read from
+    items.data[0].current_period_end, the current Stripe API shape,
+    falling back to the subscription-level current_period_end for
+    older shapes — see B36), updated_at, source: "stripe"}.
   - customer.subscription.deleted -> subscriptions_col status "expired".
   - invoice.payment_failed -> subscriptions_col status "past_due".
     app.core.subscription.get_subscription only ever falls back to the
@@ -73,6 +80,23 @@ logger = logging.getLogger(__name__)
 # same way it would patch any other module-level collaborator in this
 # codebase (e.g. app.db.collections.<col> across the test suite).
 stripe = None
+
+
+# Pinned explicitly (B36, 2026-09-13) after the account's own API version
+# moved `current_period_end` off the Subscription object onto each
+# Subscription Item without this code changing at all — see
+# _handle_subscription_upsert. Pinning `stripe.api_version` fixes the
+# shape of objects this module fetches or creates directly via the SDK
+# (Customer.create, checkout.Session.create, billing_portal.Session.create)
+# so a future account-level upgrade can't silently reshape those the same
+# way. It deliberately does NOT fix webhook payload shape on its own —
+# an incoming webhook event is rendered in whichever API version is
+# configured on the Stripe *webhook endpoint* itself (a Stripe-dashboard/
+# API setting, independent of this SDK client's api_version), which is
+# exactly why the fallback in _handle_subscription_upsert still reads
+# both the old and new field locations rather than relying on this pin
+# alone. Bump this only as a deliberate, tested upgrade, never silently.
+STRIPE_API_VERSION = "2026-08-26.dahlia"
 
 
 def _stripe():
@@ -238,6 +262,7 @@ async def _get_or_create_customer(uid: str) -> str:
 
     stripe_mod = _stripe()
     stripe_mod.api_key = STRIPE_SECRET_KEY
+    stripe_mod.api_version = STRIPE_API_VERSION
     customer = stripe_mod.Customer.create(email=uid, metadata={"uid": uid})
 
     now = datetime.now(timezone.utc)
@@ -295,6 +320,7 @@ async def create_checkout_session(
 
     stripe_mod = _stripe()
     stripe_mod.api_key = STRIPE_SECRET_KEY
+    stripe_mod.api_version = STRIPE_API_VERSION
 
     try:
         customer_id = await _get_or_create_customer(uid)
@@ -361,6 +387,7 @@ async def create_portal_session(uid: str, return_url: str) -> str:
 
     stripe_mod = _stripe()
     stripe_mod.api_key = STRIPE_SECRET_KEY
+    stripe_mod.api_version = STRIPE_API_VERSION
     session = stripe_mod.billing_portal.Session.create(
         customer=doc["stripe_customer_id"], return_url=return_url,
     )
@@ -469,14 +496,45 @@ async def _handle_subscription_upsert(sub_obj: dict) -> dict:
         return {"handled": False, "reason": f"no tier mapped for price {price_id!r}"}
     tier, billing_period = subscription_identity
 
+    # Every status Stripe documents for a Subscription object, mapped
+    # explicitly (B36, 2026-09-13). "incomplete" is the state of a
+    # subscription whose first payment has not succeeded yet — exactly
+    # what you get when a customer abandons or fails the 3D Secure
+    # challenge — and "paused" means collection is paused, neither of
+    # which is "the customer is entitled to the paid tier". Both used to
+    # fall through the old map's default of "active", silently granting
+    # the paid tier to someone who never paid. The fallback itself is the
+    # deeper fix: an unrecognised status (a future Stripe status this map
+    # hasn't been taught yet) must fail closed to "expired", not "active",
+    # matching this repo's fail-closed doctrine elsewhere (Safe-to-Spend
+    # hardening clamps to <= 0 rather than guessing).
     status_map = {
-        "active": "active", "trialing": "trialing",
-        "past_due": "past_due", "unpaid": "past_due",
-        "canceled": "expired", "incomplete_expired": "expired",
+        "active":             "active",
+        "trialing":           "trialing",
+        "past_due":           "past_due",
+        "unpaid":             "past_due",
+        "canceled":           "expired",
+        "incomplete":         "expired",
+        "incomplete_expired": "expired",
+        "paused":             "expired",
     }
-    status = status_map.get(sub_obj.get("status"), "active")
+    status = status_map.get(sub_obj.get("status"), "expired")
 
-    period_end = sub_obj.get("current_period_end")
+    # Stripe API version 2026-08-26.dahlia moved `current_period_end` off
+    # the Subscription object and onto each Subscription Item (B36,
+    # 2026-09-13, confirmed against real event payloads from Kevin's
+    # Stripe test account) — `sub_obj.get("current_period_end")` is
+    # `None` under that shape, so `expires_at` was never written, which
+    # in turn meant a past_due subscriber's dunning grace (see this
+    # module's own docstring above) never ended and a cancel-at-period-end
+    # was only ever enforced by a later terminal webhook arriving, with no
+    # local time-based fallback if one was missed. Read the item-level
+    # field first (the current shape), falling back to the
+    # subscription-level field so an older API version's payload (or a
+    # payload from a webhook endpoint still pinned to an older version)
+    # still works.
+    item_period_end = (items[0] or {}).get("current_period_end") if items else None
+    period_end = item_period_end if item_period_end is not None else sub_obj.get("current_period_end")
     expires_at = datetime.fromtimestamp(period_end, tz=timezone.utc) if period_end else None
     trial_end = sub_obj.get("trial_end")
     trial_ends_at = datetime.fromtimestamp(trial_end, tz=timezone.utc) if trial_end else None

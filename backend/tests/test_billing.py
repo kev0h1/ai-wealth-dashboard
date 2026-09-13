@@ -1007,6 +1007,189 @@ def test_subscription_upsert_resolves_uid_via_customer_lookup_when_metadata_miss
     assert result["result"]["uid"] == UID
 
 
+# ── 6b. B36: fail-closed status mapping + item-level current_period_end ───
+#
+# Real Stripe event payloads (Kevin's Stripe test account, API version
+# 2026-08-26.dahlia, 2026-09-13) carry `current_period_end` on
+# `items.data[0]`, not on the subscription object itself — the shape the
+# rest of this file's older fixtures use. Every payload built below puts
+# it on the item to match what Stripe actually sends now.
+
+def test_subscription_incomplete_status_does_not_grant_entitlement(monkeypatch):
+    """B36: "incomplete" is what a subscription's status is when its first
+    payment hasn't succeeded — exactly what a customer sees after
+    abandoning or failing 3D Secure. It must never be recorded (or read
+    back) as an entitled status."""
+    fake_subs = _FakeCol()
+    _patch_collections(monkeypatch, billing_events_col=_FakeCol(), subscriptions_col=fake_subs)
+    monkeypatch.setattr(billing_module, "STRIPE_PRICE_IDS", _FULL_PRICE_IDS)
+    # DEFAULT_TIER is "max" outside tests (pre-billing-launch generosity —
+    # see app/core/config.py), which would coincide with a paid tier and
+    # make a bare "!=" assertion meaningless. Pin it to something the
+    # purchased tier ("standard") can never equal, so the assertion below
+    # actually proves the fallback, not a coincidence of the ambient
+    # default.
+    monkeypatch.setattr(config_module, "DEFAULT_TIER", "lite")
+
+    period_end_ts = int((datetime.now(timezone.utc) + timedelta(days=30)).timestamp())
+    event = {
+        "id": "evt_sub_incomplete", "type": "customer.subscription.created",
+        "data": {"object": {
+            "id": "sub_incomplete", "customer": "cus_1", "status": "incomplete",
+            "metadata": {"uid": UID},
+            "items": {"data": [{
+                "price": {"id": "price_standard"},
+                "current_period_end": period_end_ts,
+            }]},
+        }},
+    }
+    result = _run(billing_module.handle_event(event))
+    assert result["result"]["status"] == "expired"
+    assert fake_subs.docs[0]["status"] == "expired"
+
+    sub = _run(subscription_module.get_subscription(UID))
+    assert sub.status == "expired"
+    assert sub.tier == subscription_module.Tier.LITE
+    assert sub.tier != subscription_module.Tier.STANDARD
+
+
+def test_subscription_unknown_status_does_not_grant_entitlement(monkeypatch):
+    """B36: the fallback for a status this map hasn't been taught yet must
+    fail closed to "expired", not default to "active" — a status Stripe
+    invents tomorrow must not silently entitle anyone today."""
+    fake_subs = _FakeCol()
+    _patch_collections(monkeypatch, billing_events_col=_FakeCol(), subscriptions_col=fake_subs)
+    monkeypatch.setattr(billing_module, "STRIPE_PRICE_IDS", _FULL_PRICE_IDS)
+    # See the "lite" pin in the "incomplete" test above — DEFAULT_TIER is
+    # "max" outside tests, which would otherwise coincide with the "max"
+    # tier purchased here.
+    monkeypatch.setattr(config_module, "DEFAULT_TIER", "lite")
+
+    period_end_ts = int((datetime.now(timezone.utc) + timedelta(days=30)).timestamp())
+    event = {
+        "id": "evt_sub_future_status", "type": "customer.subscription.updated",
+        "data": {"object": {
+            "id": "sub_future", "customer": "cus_1", "status": "some_future_stripe_status",
+            "metadata": {"uid": UID},
+            "items": {"data": [{
+                "price": {"id": "price_max"},
+                "current_period_end": period_end_ts,
+            }]},
+        }},
+    }
+    result = _run(billing_module.handle_event(event))
+    assert result["result"]["status"] == "expired"
+    assert fake_subs.docs[0]["status"] == "expired"
+
+    sub = _run(subscription_module.get_subscription(UID))
+    assert sub.status == "expired"
+    assert sub.tier == subscription_module.Tier.LITE
+    assert sub.tier != subscription_module.Tier.MAX
+
+
+def test_subscription_expires_at_populated_from_subscription_item(monkeypatch):
+    """B36: current_period_end lives on items.data[0] in the API version
+    this account is on — expires_at must come from there."""
+    fake_subs = _FakeCol()
+    _patch_collections(monkeypatch, billing_events_col=_FakeCol(), subscriptions_col=fake_subs)
+    monkeypatch.setattr(billing_module, "STRIPE_PRICE_IDS", _FULL_PRICE_IDS)
+
+    period_end_ts = int((datetime.now(timezone.utc) + timedelta(days=30)).timestamp())
+    event = {
+        "id": "evt_sub_item_period_end", "type": "customer.subscription.created",
+        "data": {"object": {
+            "id": "sub_item_shape", "customer": "cus_1", "status": "active",
+            "metadata": {"uid": UID},
+            # No subscription-level current_period_end at all — the
+            # current (dahlia) shape only ever has it on the item.
+            "items": {"data": [{
+                "price": {"id": "price_standard"},
+                "current_period_end": period_end_ts,
+            }]},
+        }},
+    }
+    _run(billing_module.handle_event(event))
+
+    expires_at = fake_subs.docs[0]["expires_at"]
+    assert expires_at is not None
+    assert abs((expires_at - datetime.fromtimestamp(period_end_ts, tz=timezone.utc)).total_seconds()) < 1
+
+
+def test_subscription_expires_at_falls_back_to_subscription_level_field(monkeypatch):
+    """B36: an older API version's payload (or a webhook endpoint still
+    pinned to one) carries current_period_end on the subscription itself,
+    with no items[].current_period_end at all — that shape must still
+    populate expires_at."""
+    fake_subs = _FakeCol()
+    _patch_collections(monkeypatch, billing_events_col=_FakeCol(), subscriptions_col=fake_subs)
+    monkeypatch.setattr(billing_module, "STRIPE_PRICE_IDS", _FULL_PRICE_IDS)
+
+    period_end_ts = int((datetime.now(timezone.utc) + timedelta(days=30)).timestamp())
+    event = {
+        "id": "evt_sub_old_shape", "type": "customer.subscription.created",
+        "data": {"object": {
+            "id": "sub_old_shape", "customer": "cus_1", "status": "active",
+            "current_period_end": period_end_ts,
+            "metadata": {"uid": UID},
+            "items": {"data": [{"price": {"id": "price_standard"}}]},
+        }},
+    }
+    _run(billing_module.handle_event(event))
+
+    expires_at = fake_subs.docs[0]["expires_at"]
+    assert expires_at is not None
+    assert abs((expires_at - datetime.fromtimestamp(period_end_ts, tz=timezone.utc)).total_seconds()) < 1
+
+
+def test_past_due_subscriber_keeps_tier_until_expires_at_then_loses_it(monkeypatch):
+    """B36: this is the dunning-grace behaviour the module docstring has
+    always claimed ("a past_due subscription keeps its tier and limits
+    until expires_at") but which bug 2 made impossible, since expires_at
+    was never written. First asserts expires_at was actually populated
+    from the item's current_period_end (this fails against pre-fix code,
+    where it is written as None); then that a past_due subscriber keeps
+    the paid tier while that stored expires_at is still in the future,
+    and loses it once expires_at has passed."""
+    fake_subs = _FakeCol()
+    _patch_collections(monkeypatch, billing_events_col=_FakeCol(), subscriptions_col=fake_subs)
+    monkeypatch.setattr(billing_module, "STRIPE_PRICE_IDS", _FULL_PRICE_IDS)
+    monkeypatch.setattr(config_module, "DEFAULT_TIER", "lite")
+
+    future_ts = int((datetime.now(timezone.utc) + timedelta(days=3)).timestamp())
+    event = {
+        "id": "evt_sub_past_due_grace", "type": "customer.subscription.updated",
+        "data": {"object": {
+            "id": "sub_grace", "customer": "cus_1", "status": "past_due",
+            "metadata": {"uid": UID},
+            "items": {"data": [{
+                "price": {"id": "price_standard"},
+                "current_period_end": future_ts,
+            }]},
+        }},
+    }
+    _run(billing_module.handle_event(event))
+
+    stored_expires_at = fake_subs.docs[0]["expires_at"]
+    assert stored_expires_at is not None
+    assert abs((stored_expires_at - datetime.fromtimestamp(future_ts, tz=timezone.utc)).total_seconds()) < 1
+
+    still_in_grace = _run(subscription_module.get_subscription(UID))
+    assert still_in_grace.status == "past_due"
+    assert still_in_grace.tier == subscription_module.Tier.STANDARD
+
+    # The grace period has now passed. Mutate the stored expires_at
+    # directly to simulate time moving on past it (no new webhook needed:
+    # this is exactly the local, time-based fallback bug 2 removed). The
+    # value being overwritten here was already verified above to be the
+    # one the code itself computed from the item.
+    fake_subs.docs[0]["expires_at"] = datetime.now(timezone.utc) - timedelta(seconds=1)
+
+    after_grace = _run(subscription_module.get_subscription(UID))
+    assert after_grace.status == "expired"
+    assert after_grace.tier == subscription_module.Tier.LITE
+    assert after_grace.tier != subscription_module.Tier.STANDARD
+
+
 # ── 7. GET /subscription billing_live ─────────────────────────────────────
 
 def test_get_subscription_billing_live_reflects_flag(monkeypatch):
