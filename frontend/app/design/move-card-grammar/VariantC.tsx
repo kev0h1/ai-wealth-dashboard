@@ -52,7 +52,19 @@ function coverPlanItem(scenario: MoveScenario): CompanionItem {
       balance: destination.held,
       needs_total: destination.needed,
       needs_by: destination.due,
-      bills: scenario.payments.map(payment => ({ label: payment.name, amount: payment.amount })),
+      bills: scenario.payments.map((payment, index) => ({
+        label: payment.name,
+        amount: payment.amount,
+        expected_date: `2026-09-${String(9 + index).padStart(2, "0")}`,
+        ...(scenario.id === "three-payments" && index === 0
+          ? {
+              key: "american-express-planned-move",
+              expected_date: "2026-09-09",
+              days_past_due: 3,
+              can_skip: true,
+            }
+          : {}),
+      })),
     },
     covered: true,
     sources_safe: true,
@@ -119,6 +131,7 @@ export default function VariantC({ scenarios }: { scenarios: readonly MoveScenar
                 item={coverPlanItem(scenario)}
                 hideNetWorth={false}
                 maskAmounts={maskAmounts}
+                previewMode
               />
             )}
           </div>
