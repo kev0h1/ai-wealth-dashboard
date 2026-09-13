@@ -106,18 +106,28 @@ export function MoveLead({ scenario, companion }: { scenario: MoveScenario; comp
   );
 }
 
-export function PaymentLine({ scenario, compact = false }: { scenario: MoveScenario; compact?: boolean }) {
+export function paymentTotal(scenario: MoveScenario) {
+  return scenario.payments.reduce((total, payment) => total + payment.amount, 0);
+}
+
+export function PaymentsList({ scenario, compact = false }: { scenario: MoveScenario; compact?: boolean }) {
   return (
-    <div data-payment-evidence className={compact ? "" : "overflow-hidden rounded-xl bg-slate-50 dark:bg-slate-900/35"}>
-      <div className={`flex items-center gap-2.5 ${compact ? "py-2" : "px-3 py-2.5"}`}>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-[13px] font-semibold text-slate-800 dark:text-slate-100">{scenario.payment.name}</p>
-          <p className="text-[12px] leading-4 text-slate-500 dark:text-slate-400">
-            Payment {scenario.overdue ? "was due" : "due"} {scenario.payment.due}
-          </p>
+    <div
+      data-payment-evidence
+      data-payment-count={scenario.payments.length}
+      className={`${compact ? "divide-y divide-slate-100 dark:divide-slate-700" : "overflow-hidden rounded-xl bg-slate-50 dark:bg-slate-900/35"}`}
+    >
+      {scenario.payments.map((payment) => (
+        <div key={`${payment.name}-${payment.due}`} data-payment-row className={`flex items-center gap-2.5 ${compact ? "py-2" : "px-3 py-2.5"}`}>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[13px] font-semibold text-slate-800 dark:text-slate-100">{payment.name}</p>
+            <p className="text-[12px] leading-4 text-slate-500 dark:text-slate-400">
+              Payment {scenario.overdue ? "was due" : "due"} {payment.due}
+            </p>
+          </div>
+          <Currency value={payment.amount} className="shrink-0 text-[13px] font-semibold text-slate-900 dark:text-slate-100" />
         </div>
-        <Currency value={scenario.payment.amount} className="shrink-0 text-[13px] font-semibold text-slate-900 dark:text-slate-100" />
-      </div>
+      ))}
       {scenario.secondaryAction ? (
         <button
           type="button"

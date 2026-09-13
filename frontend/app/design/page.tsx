@@ -25,11 +25,12 @@ const ROUTES: PreviewRoute[] = [
     slug: "move-card-grammar",
     name: "move-card-grammar",
     description:
-      "G69 replacement move-card grammar round after Kevin found G48's one-source overdue card still looked like the original while the multi-source cover plan used a different structure · both scenarios now tell the same reconciled story, a £70 top-up to Premier Current protecting a £100 American Express payment due 9 Sept, and differ only in status plus one versus three funding accounts · A Money route makes the transfer spatial, B Transfer ledger uses one From / To / Covers scan, C Compact handoff folds the source detail behind one consistent disclosure · transfer source and destination accounts keep their bank icons, while the protected payment is deliberately text-only because it is evidence rather than another transfer endpoint · amber remains a small overdue signifier and settled engine behaviour is unchanged · fixture-only, no API calls or production edits · ?variant=a|b|c&state=pair|single|multiple&mode=light|dark",
+      "G69 follow-up move-card grammar round after Kevin approved the three directions and asked to see how they scale when one move protects several payments · all variants now cover one source and one payment, three sources and one payment, plus three sources protecting three text-only payments · A Money route aligns the Money leaves and Money arrives entries on one shared inset · B Transfer ledger keeps its approved From / To / Covers grammar and simply gains payment rows · C Compact handoff replaces its single-icon count badge with a stack of the actual source-account icons, then folds multi-payment evidence behind a total-led disclosure · source and destination accounts keep bank icons while payments remain deliberately icon-free · every fixture visibly reconciles the destination balance, moved amount, protected payments and £10 buffer · fixture-only, no API calls or production edits · ?variant=a|b|c&state=pair|single|multiple|payments&mode=light|dark",
     states: [
       { label: "Compare both", value: "pair" },
       { label: "One source", value: "single" },
       { label: "Three sources", value: "multiple" },
+      { label: "Three payments", value: "payments" },
     ],
   },
   {

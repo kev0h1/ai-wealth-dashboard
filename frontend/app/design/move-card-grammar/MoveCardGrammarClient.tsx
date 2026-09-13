@@ -1,10 +1,10 @@
 "use client";
 
-// TEMPORARY PREVIEW. G69 compares a one-source overdue move with the same
-// £70 plan funded from three accounts. Fixtures and interactions are local;
-// this route performs no API requests and does not mutate production data.
+// TEMPORARY PREVIEW. G69 compares the same move grammar across one source,
+// three sources, and three protected payments. Fixtures and interactions are
+// local; this route performs no API requests and does not mutate production data.
 //
-// /design/move-card-grammar?variant=a|b|c&state=pair|single|multiple&mode=light|dark
+// /design/move-card-grammar?variant=a|b|c&state=pair|single|multiple|payments&mode=light|dark
 
 import { useEffect } from "react";
 import { useSearchParams } from "next/navigation";
@@ -14,7 +14,7 @@ import VariantB from "./VariantB";
 import VariantC from "./VariantC";
 
 type Variant = "a" | "b" | "c";
-type State = "pair" | "single" | "multiple";
+type State = "pair" | "single" | "multiple" | "payments";
 type Mode = "light" | "dark";
 
 const VARIANTS: { key: Variant; label: string }[] = [
@@ -27,6 +27,7 @@ const STATES: { key: State; label: string }[] = [
   { key: "pair", label: "Both" },
   { key: "single", label: "1 source" },
   { key: "multiple", label: "3 sources" },
+  { key: "payments", label: "3 payments" },
 ];
 
 function hrefFor(variant: Variant, state: State, mode: Mode) {
@@ -35,21 +36,30 @@ function hrefFor(variant: Variant, state: State, mode: Mode) {
 
 function PreviewControls({ variant, state, mode }: { variant: Variant; state: State; mode: Mode }) {
   return (
-    <nav aria-label="Design preview controls" className="pointer-events-auto max-w-[calc(100vw-24px)] touch-pan-x overflow-x-auto overscroll-x-contain rounded-2xl border border-white/15 bg-slate-950/95 p-1.5 shadow-xl">
-      <div className="flex w-max items-center gap-1">
-        {VARIANTS.map((item) => (
+    <nav aria-label="Design preview controls" className="pointer-events-auto max-w-[calc(100vw-24px)] rounded-2xl border border-white/15 bg-slate-950/95 p-1.5 shadow-xl">
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center justify-center gap-1">
+          {VARIANTS.map((item) => (
+            <a
+              key={item.key}
+              href={hrefFor(item.key, state, mode)}
+              aria-current={item.key === variant ? "page" : undefined}
+              aria-label={`Variant ${item.key.toUpperCase()}: ${item.label}`}
+              className={`grid min-h-11 min-w-11 touch-manipulation place-items-center rounded-xl px-3 text-xs font-bold [-webkit-tap-highlight-color:transparent] transition-[transform,background-color,color] duration-150 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80 motion-reduce:transition-none ${item.key === variant ? "bg-indigo-600 text-white" : "text-slate-300 hover:text-white"}`}
+            >
+              {item.key.toUpperCase()}
+            </a>
+          ))}
+          <span className="mx-0.5 h-6 w-px bg-white/15" aria-hidden="true" />
           <a
-            key={item.key}
-            href={hrefFor(item.key, state, mode)}
-            aria-current={item.key === variant ? "page" : undefined}
-            aria-label={`Variant ${item.key.toUpperCase()}: ${item.label}`}
-            className={`grid min-h-11 min-w-11 touch-manipulation place-items-center rounded-xl px-3 text-xs font-bold [-webkit-tap-highlight-color:transparent] transition-[transform,background-color,color] duration-150 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80 motion-reduce:transition-none ${item.key === variant ? "bg-indigo-600 text-white" : "text-slate-300 hover:text-white"}`}
+            href={hrefFor(variant, state, mode === "dark" ? "light" : "dark")}
+            className="flex min-h-11 touch-manipulation items-center rounded-xl px-3 text-xs font-semibold text-slate-300 [-webkit-tap-highlight-color:transparent] transition-[transform,color] duration-150 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80 hover:text-white motion-reduce:transition-none"
           >
-            {item.key.toUpperCase()}
+            {mode === "dark" ? "Light" : "Dark"}
           </a>
-        ))}
-        <span className="mx-0.5 h-6 w-px bg-white/15" aria-hidden="true" />
-        {STATES.map((item) => (
+        </div>
+        <div className="flex items-center justify-center gap-0.5 border-t border-white/10 pt-1">
+          {STATES.map((item) => (
           <a
             key={item.key}
             href={hrefFor(variant, item.key, mode)}
@@ -58,14 +68,8 @@ function PreviewControls({ variant, state, mode }: { variant: Variant; state: St
           >
             {item.label}
           </a>
-        ))}
-        <span className="mx-0.5 h-6 w-px bg-white/15" aria-hidden="true" />
-        <a
-          href={hrefFor(variant, state, mode === "dark" ? "light" : "dark")}
-          className="flex min-h-11 touch-manipulation items-center rounded-xl px-3 text-xs font-semibold text-slate-300 [-webkit-tap-highlight-color:transparent] transition-[transform,color] duration-150 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80 hover:text-white motion-reduce:transition-none"
-        >
-          {mode === "dark" ? "Light" : "Dark"}
-        </a>
+          ))}
+        </div>
       </div>
     </nav>
   );
@@ -76,7 +80,7 @@ export default function MoveCardGrammarClient() {
   const rawVariant = params.get("variant");
   const variant: Variant = rawVariant === "b" || rawVariant === "c" ? rawVariant : "a";
   const rawState = params.get("state");
-  const state: State = rawState === "single" || rawState === "multiple" ? rawState : "pair";
+  const state: State = rawState === "single" || rawState === "multiple" || rawState === "payments" ? rawState : "pair";
   const mode: Mode = params.get("mode") === "dark" ? "dark" : "light";
 
   useEffect(() => {
@@ -85,9 +89,10 @@ export default function MoveCardGrammarClient() {
     document.querySelector('meta[name="theme-color"]')?.setAttribute("content", mode === "dark" ? "#0f172a" : "#f0f2f7");
   }, [mode]);
 
+  const scenarioId = state === "single" ? "one-source" : state === "multiple" ? "three-sources" : "three-payments";
   const scenarios = state === "pair"
-    ? MOVE_SCENARIOS
-    : MOVE_SCENARIOS.filter((scenario) => scenario.id === (state === "single" ? "one-source" : "three-sources"));
+    ? MOVE_SCENARIOS.filter((scenario) => scenario.id !== "three-payments")
+    : MOVE_SCENARIOS.filter((scenario) => scenario.id === scenarioId);
 
   return (
     <div className={mode === "dark" ? "dark" : ""} style={{ colorScheme: mode }}>
@@ -99,7 +104,7 @@ export default function MoveCardGrammarClient() {
           <header className="mx-auto max-w-2xl text-center">
             <h1 className="text-balance text-xl font-bold tracking-[-0.02em] text-slate-950 dark:text-white sm:text-2xl">One move, one grammar</h1>
             <p className="mx-auto mt-2 max-w-xl text-pretty text-sm leading-6 text-slate-600 dark:text-slate-300">
-              The same £70 top-up and £100 card payment, shown with 1 funding account and with 3 funding accounts. Status changes; structure does not.
+              Compare one source, several sources, and several payments without changing how the transfer reads.
             </p>
             <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">Preview only. No bank data or preferences are changed.</p>
           </header>
