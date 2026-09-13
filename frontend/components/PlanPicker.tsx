@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, type KeyboardEvent } from "react";
-import { Check, ChevronDown, Crown, FileText, Landmark, Link2, Zap } from "lucide-react";
+import { Check, ChevronDown, Crown, FileText, Globe, Landmark, Link2, Zap } from "lucide-react";
 import { api } from "@/lib/api";
 import { canPurchaseInApp, PURCHASE_UNAVAILABLE_SENTENCE } from "@/lib/nativeAuth";
 import type {
@@ -87,6 +87,19 @@ const RENEWAL_WORDS: Partial<Record<SubscriptionBillingPeriod, string>> = {
   annual: "every year",
 };
 
+// B29: a native build can neither start Checkout nor open the Stripe
+// customer portal (see canPurchaseInApp's own doc comment), so a native
+// user with an existing paid subscription previously landed on a bare
+// status line with no button and, critically, no way anywhere to fix a
+// failed payment or cancel — a dead end that contradicts TERMS.md
+// section 9's "you can cancel from Settings, Your plan, or the app
+// store" promise, since neither route exists on native. This is a
+// plain-text pointer, not a link or button, and it names an existing
+// account rather than offering to start one, so App Store guideline
+// 3.1.1 (which restricts starting a new purchase, not managing one you
+// already have) does not apply.
+const NATIVE_MANAGE_SUBSCRIPTION_LINE = "You can update your payment method, change your plan, or cancel from a browser at wealth.auriqltd.co.uk, under Settings, Your plan.";
+
 function money(value: number): string {
   return Number.isFinite(value) ? `£${value.toFixed(2)}` : "Price unavailable";
 }
@@ -147,11 +160,20 @@ export default function PlanPicker({
   context,
   onContinue,
   previewOnly = false,
+  nativeOverride,
 }: {
   info: SubscriptionInfo;
   context: "settings" | "onboarding";
   onContinue?: () => void;
   previewOnly?: boolean;
+  /** B29: design-preview-only escape hatch. `canPurchaseInApp()` reads the
+   * real Capacitor runtime, which is never native inside a browser preview,
+   * so `/design/your-plan` had no way to render the native-gated states at
+   * all (the review that raised B29 flagged this). Leave undefined in every
+   * production call site (Settings, onboarding) so real behaviour is
+   * untouched; the preview alone passes `true`/`false` to force the branch
+   * it wants to screenshot. */
+  nativeOverride?: boolean;
 }) {
   const current = info.tier;
   const [selected, setSelected] = useState<SubscriptionTier>(() => context === "onboarding" ? "statements" : (info?.tier ?? "statements"));
@@ -184,8 +206,11 @@ export default function PlanPicker({
   // in Play's billing-choice programme) means a native build can never
   // start Stripe Checkout or open the Stripe customer portal, regardless
   // of whether billing is live server-side. Free-plan selection is
-  // untouched by this, it never talks to Stripe.
-  const purchasingAllowed = canPurchaseInApp();
+  // untouched by this, it never talks to Stripe. B29: `nativeOverride`
+  // only exists for the design preview (see the prop's own doc comment);
+  // every real caller leaves it undefined, so this reduces to the
+  // original `canPurchaseInApp()` call everywhere it matters.
+  const purchasingAllowed = nativeOverride === undefined ? canPurchaseInApp() : !nativeOverride;
 
   // B22: the exact disclosure the trial control needs adjacent to it —
   // the amount, the named charge date, and a cancel-any-time line naming
@@ -200,8 +225,15 @@ export default function PlanPicker({
       if (!purchasingAllowed) {
         // B26: no "open billing" phrasing (there is nothing to open here)
         // and no naming of where billing actually happens, just the
-        // status itself, which the user is still entitled to see.
-        return info.status === "past_due" ? "Your last payment did not go through." : "Your active subscription renews automatically.";
+        // status itself, which the user is still entitled to see. B29:
+        // a subscription that is cancelled but still inside its paid
+        // period gets its own honest line — the generic "renews
+        // automatically" below would otherwise be a false statement once
+        // `cancel_at_period_end` is true, and that line sat unread by
+        // anyone until B29 added a manage/cancel pointer next to it.
+        if (info.status === "past_due") return "Your last payment did not go through.";
+        if (info.cancel_at_period_end) return "Your subscription is cancelled and will not renew. You keep access until the end of the period you have paid for.";
+        return "Your active subscription renews automatically.";
       }
       if (info.status === "past_due") return "Your payment needs attention. Open billing to update the payment method or change the plan.";
       return "Your active subscription and its renewal are managed securely in billing.";
@@ -210,7 +242,7 @@ export default function PlanPicker({
     if (!purchasingAllowed) return PURCHASE_UNAVAILABLE_SENTENCE;
     if (trialActive) return `${trialDisclosureLine} ${trialCancelLine}`;
     return `${money(total)} today, then ${money(total)} ${renewalWords} unless you cancel. Cancel any time from Settings, Your plan.`;
-  }, [billingChangeInPortal, info.status, purchasingAllowed, renewalWords, selected, total, trialActive, trialCancelLine, trialDisclosureLine]);
+  }, [billingChangeInPortal, info.cancel_at_period_end, info.status, purchasingAllowed, renewalWords, selected, total, trialActive, trialCancelLine, trialDisclosureLine]);
 
   async function openPortal() {
     const { url } = await api.openBillingPortal();
@@ -403,6 +435,19 @@ export default function PlanPicker({
 
       <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200/60 dark:bg-slate-800 dark:shadow-none dark:ring-white/[0.07]">
         <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-300"><MoneyCopy text={disclosure} /></p>
+        {/* B29: the only path a native user with an existing paid
+            subscription has anywhere in the app. Plain ink text with a
+            small neutral signifier (DESIGN.md's "figures are ink, amber
+            lives in the signifier" rule) rather than a coloured sentence,
+            since needing a browser is a fact of the platform, not a
+            financial risk. Never a link or button: this names an
+            existing account, it does not start a purchase. */}
+        {billingChangeInPortal && !purchasingAllowed && (
+          <p className="mt-2 flex items-start gap-1.5 text-xs leading-relaxed text-slate-600 dark:text-slate-300">
+            <Globe size={13} aria-hidden="true" className="mt-0.5 shrink-0 text-slate-500 dark:text-slate-400" />
+            <span>{NATIVE_MANAGE_SUBSCRIPTION_LINE}</span>
+          </p>
+        )}
         {/* B26: no button at all (not a disabled one) once purchasing isn't
             allowed and there's nothing free left to choose, so the card
             never reads as a broken control, just a status. */}
