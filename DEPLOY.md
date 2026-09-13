@@ -542,10 +542,50 @@ is reachable yet, no Stripe account exists as of this writing (Kevin,
 1. Create the Stripe account, **stay in test mode** for the whole first
    pass (test mode has its own separate keys and price ids from live mode
    — nothing here is a "go live" step by itself).
-2. In the Stripe dashboard, create one **Product** per paid tier (Lite,
-   Standard, Connect, Max; Statements is free and never needs a Stripe
-   price). Give each product three recurring Prices: monthly, every 6
-   months and yearly (three_months was dropped 2026-09-12, see
+2. **Steps 2 to 4 (creating the products/prices and assembling
+   `STRIPE_PRICE_IDS`) are done by `scripts/stripe_bootstrap.py` (B25),
+   not by hand in the dashboard.** It reads `TIER_BILLING_PRICES_GBP`,
+   `SUBSCRIPTION_PERIODS_ENABLED`, `SUBSCRIPTION_BILLING_PERIODS`,
+   `PENNY_TOPUP_PACKS` and `MCP_CALL_PACKS` straight from
+   `backend/app/core/subscription.py` (so it can never drift from the
+   price table below, and only ever creates a Price for a period that is
+   actually enabled — `SUBSCRIPTION_PERIODS_ENABLED` dropped
+   `three_months` 2026-09-12, see that tuple's own comment), is idempotent
+   (a second run creates nothing; a changed price in the table gets a
+   replacement Stripe price with the corrected amount and the stale one
+   archived, printed loudly), and refuses to run against anything but a
+   `sk_test_...` key. Preview the plan with no Stripe calls at all via:
+
+   ```bash
+   STRIPE_SECRET_KEY=sk_test_dummy backend/.venv/bin/python scripts/stripe_bootstrap.py --dry-run
+   ```
+
+   then run it for real once the test-mode secret key from step 5 below
+   is exported as `STRIPE_SECRET_KEY`:
+
+   ```bash
+   STRIPE_SECRET_KEY=sk_test_... backend/.venv/bin/python scripts/stripe_bootstrap.py
+   ```
+
+   It prints a ready-to-paste `STRIPE_PRICE_IDS=key=price_id,...` line
+   covering all 16 required keys at the end — paste that straight into
+   the `STRIPE_PRICE_IDS` env var (step 4 below is then already done).
+
+   Every price it creates is marked `tax_behavior="inclusive"`
+   (`docs/pricing/tiering-unit-economics-mcp-2026-09.md` treats the
+   advertised amounts as VAT-inclusive throughout, and this has to be set
+   at creation since Stripe prices are immutable afterwards). This only
+   controls how Stripe reads the amount already on the price — it does
+   **not** enable Stripe Tax or register for VAT. Whether to turn on
+   Stripe Tax, and any VAT registration, stays Kevin's own account-level
+   decision, made separately from this script.
+
+   The manual fallback, if the dashboard is ever needed directly (the
+   script above is the normal path): in the Stripe dashboard, create one
+   **Product** per paid tier (Lite, Standard, Connect, Max; Statements is
+   free and never needs a Stripe price). Give each product three
+   recurring Prices: monthly, every 6 months and yearly (three_months was
+   dropped 2026-09-12, see
    `app.core.subscription.SUBSCRIPTION_PERIODS_ENABLED`'s own comment for
    why — no Product needs a three-month Price). Match
    `TIER_BILLING_PRICES_GBP` in `backend/app/core/subscription.py`
@@ -553,31 +593,44 @@ is reachable yet, no Stripe account exists as of this writing (Kevin,
    monthly price multiplied by the term. The 14-day introductory offer
    uses the same yearly Price with a server-set Stripe trial, not a
    fourth Price.
-3. Create one Product with three one-off **Prices** for the Penny top-up
-   packs (`PENNY_TOPUP_PACKS`: small 20 messages/£0.99, medium 100
+3. Manual fallback for the pack products (the script above does this
+   too): create one Product with three one-off **Prices** for the Penny
+   top-up packs (`PENNY_TOPUP_PACKS`: small 20 messages/£0.99, medium 100
    messages/£2.99, large 200 messages/£4.99), and one Product with one
    one-off Price for the MCP call pack (`MCP_CALL_PACKS`: mcp_1000, 1000
    calls/£2.99).
-4. Copy each Price's id (`price_...`) into `STRIPE_PRICE_IDS` as
-   `key=price_id` pairs, comma-separated. Monthly uses the bare tier key,
-   for example `lite`; longer terms use `lite_six_months` and
-   `lite_annual`, repeated for Standard, Connect and Max. Packs remain
-   `penny_small`, `penny_medium`, `penny_large` and `mcp_1000`. All 16
-   keys are required; `BILLING_ENABLED` stays false if even one is
-   missing (fail closed, see `docs/ops/ENV.md`'s `STRIPE_PRICE_IDS` row).
+4. Manual fallback for wiring up the env var (the script above prints
+   this line for you): copy each Price's id (`price_...`) into
+   `STRIPE_PRICE_IDS` as `key=price_id` pairs, comma-separated. Monthly
+   uses the bare tier key, for example `lite`; longer terms use
+   `lite_six_months` and `lite_annual`, repeated for Standard, Connect and
+   Max. Packs remain `penny_small`, `penny_medium`, `penny_large` and
+   `mcp_1000`. All 16 keys are required; `BILLING_ENABLED` stays false if
+   even one is missing (fail closed, see `docs/ops/ENV.md`'s
+   `STRIPE_PRICE_IDS` row).
 5. Copy the test-mode **Secret key** (`sk_test_...`) into
-   `STRIPE_SECRET_KEY`.
-6. Register a webhook endpoint in the Stripe dashboard pointing at
+   `STRIPE_SECRET_KEY` (the same env var `scripts/stripe_bootstrap.py`
+   reads in step 2 above — it is never passed as a command-line argument,
+   so it never lands in shell history).
+6. Register a webhook endpoint pointing at
    `<APP_URL or API_PUBLIC_URL>/webhooks/stripe` (same public-path
    convention as the TrueLayer/Finexer receivers — no path secret needed,
-   the signature check is what authenticates Stripe). Enable these
-   events: `checkout.session.completed`, `customer.subscription.created`,
-   `customer.subscription.updated`, `customer.subscription.deleted`,
-   `invoice.payment_failed`. Copy the endpoint's **Signing secret**
-   (`whsec_...`) into `STRIPE_WEBHOOK_SECRET`.
+   the signature check is what authenticates Stripe), either in the
+   Stripe dashboard or via the API (`stripe.WebhookEndpoint.create`,
+   checking `stripe.WebhookEndpoint.list()` first since Stripe only
+   returns the signing secret at creation time — a second create against
+   the same URL makes a duplicate endpoint rather than recovering it).
+   UAT's endpoint (`https://uat.wealth.auriqltd.co.uk/api/webhooks/stripe`)
+   was created this way on 2026-09-13 (B25): id `we_1UFGYIJiJ5QYCFZ8m40XX92X`.
+   Enable these events: `checkout.session.completed`,
+   `customer.subscription.created`, `customer.subscription.updated`,
+   `customer.subscription.deleted`, `invoice.payment_failed`. Copy the
+   endpoint's **Signing secret** (`whsec_...`) into
+   `STRIPE_WEBHOOK_SECRET`.
 7. Configure Stripe's customer portal to allow switching between every
-   paid product and all four recurring Prices, cancellation and payment-
-   method updates. Existing subscribers always use the portal for changes;
+   paid product and all three recurring Prices (three_months was dropped
+   2026-09-12, see step 2 above), cancellation and payment-method
+   updates. Existing subscribers always use the portal for changes;
    Checkout is server-blocked from creating a second active subscription.
 8. Redeploy (or restart, on UAT) with the three env vars set.
    `GET /subscription`'s `billing_live` (and `GET /billing/status`) flips
