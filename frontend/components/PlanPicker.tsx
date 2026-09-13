@@ -444,7 +444,7 @@ export default function PlanPicker({
             existing account, it does not start a purchase. */}
         {billingChangeInPortal && !purchasingAllowed && (
           <p className="mt-2 flex items-start gap-1.5 text-xs leading-relaxed text-slate-600 dark:text-slate-300">
-            <Globe size={13} aria-hidden="true" className="mt-0.5 shrink-0 text-slate-400 dark:text-slate-500" />
+            <Globe size={13} aria-hidden="true" className="mt-0.5 shrink-0 text-slate-500 dark:text-slate-400" />
             <span>{NATIVE_MANAGE_SUBSCRIPTION_LINE}</span>
           </p>
         )}
