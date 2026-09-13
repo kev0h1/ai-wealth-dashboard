@@ -10,18 +10,31 @@ what every function in the module under test reads at call time).
 `scripts/stripe_bootstrap.py` lives outside the `app` package (it's a
 top-level repo script, run with `backend/.venv/bin/python
 scripts/stripe_bootstrap.py`), so it's imported here by adding the repo's
-`scripts/` directory to `sys.path`, the same trick the script itself uses
-to reach `app.core.*` from `backend/`.
+`scripts/` directory, loaded by file path via importlib rather than
+adding `scripts/` to `sys.path` at all. `scripts/tests/` is also a real
+package (scripts/backlog.py's own tests, with its own __init__.py), and
+Python's import machinery resolves a bare `import tests` against
+whichever `tests/` directory it finds a REGULAR package at (has
+__init__.py) -- which wins over backend/tests (a namespace package, no
+__init__.py) regardless of whether scripts/ is inserted at the front or
+appended to the back of sys.path. That silently broke this file's
+sibling test_billing.py's `import tests.conftest` whenever both ran in
+the same pytest invocation (proved by testing both insert(0) and
+append() -- both failed identically; only avoiding sys.path entirely for
+scripts/ fixed it). stripe_bootstrap.py's own internal
+`sys.path.insert(0, backend)` is unaffected by this -- `backend` isn't a
+namespace-collision risk the way `scripts` is.
 """
-import sys
+import importlib.util
 from pathlib import Path
 
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(REPO_ROOT / "scripts"))
-
-import stripe_bootstrap  # noqa: E402
+_stripe_bootstrap_path = REPO_ROOT / "scripts" / "stripe_bootstrap.py"
+_spec = importlib.util.spec_from_file_location("stripe_bootstrap", _stripe_bootstrap_path)
+stripe_bootstrap = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(stripe_bootstrap)
 from app.core.config import _STRIPE_REQUIRED_PRICE_KEYS  # noqa: E402
 from app.core.subscription import TIER_BILLING_PRICES_GBP  # noqa: E402
 
