@@ -99,8 +99,8 @@ export default function PaydayPlanGrammarClient() {
       <main id="payday-preview" tabIndex={-1} className="min-h-dvh scroll-pb-40 bg-[#f0f2f7] text-slate-900 selection:bg-indigo-200 selection:text-slate-950 dark:bg-[#0f172a] dark:text-slate-100 dark:selection:bg-indigo-500/40 dark:selection:text-white">
         <div className="mx-auto w-full max-w-[600px] px-4 pb-40 pt-7 sm:px-6 sm:pt-10">
           <header className="text-center">
-            <h1 className="text-balance text-xl font-bold tracking-[-0.02em] text-slate-950 dark:text-white sm:text-2xl">One payday, many destinations</h1>
-            <p className="mx-auto mt-2 max-w-md text-pretty text-sm leading-6 text-slate-600 dark:text-slate-300">Compare how expected pay can fan out without losing the account-level truth.</p>
+            <h1 className="text-balance text-xl font-bold tracking-[-0.02em] text-slate-950 dark:text-white sm:text-2xl">One pay, many destinations</h1>
+            <p className="mx-auto mt-2 max-w-md text-pretty text-sm leading-6 text-slate-600 dark:text-slate-300">Compare ways to split the next pay without losing the account-level truth.</p>
             <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">Preview only. No bank data or preferences are changed.</p>
           </header>
           <div className="mt-7 sm:mt-9">

@@ -41,10 +41,12 @@ export function AccountBadge({ account, size = 36 }: { account: MoveAccount; siz
 export function AccountStack({ accounts, size = 28 }: { accounts: readonly MoveAccount[]; size?: number }) {
   const visibleAccounts = accounts.length > 3 ? accounts.slice(0, 2) : accounts;
   const remaining = accounts.length - visibleAccounts.length;
+  const displayCount = visibleAccounts.length + (remaining > 0 ? 1 : 0);
 
   return (
     <span
       data-account-icon-stack
+      role="img"
       aria-label={accounts.map((account) => account.name).join(", ")}
       className="flex shrink-0 -space-x-2"
     >
@@ -53,7 +55,7 @@ export function AccountStack({ accounts, size = 28 }: { accounts: readonly MoveA
           key={`${account.provider}-${account.name}`}
           data-account-icon={account.provider}
           className="relative inline-flex rounded-lg ring-2 ring-slate-50 dark:ring-slate-900"
-          style={{ zIndex: visibleAccounts.length - index }}
+          style={{ zIndex: displayCount - index }}
         >
           <AccountBadge account={account} size={size} />
         </span>
@@ -63,7 +65,7 @@ export function AccountStack({ accounts, size = 28 }: { accounts: readonly MoveA
           data-more-account-icon={remaining}
           aria-label={`${remaining} more accounts`}
           className="relative inline-grid shrink-0 place-items-center rounded-lg bg-slate-700 font-bold text-white ring-2 ring-slate-50 dark:bg-slate-500 dark:ring-slate-900"
-          style={{ width: size, height: size, zIndex: visibleAccounts.length + 1, fontSize: Math.max(9, Math.round(size * 0.36)) }}
+          style={{ width: size, height: size, zIndex: 1, fontSize: Math.max(9, Math.round(size * 0.36)) }}
         >
           +{remaining}
         </span>

@@ -1,98 +1,9 @@
-import { ChevronDown } from "lucide-react";
+"use client";
+
+import { MoveCard, UnfundedMoveCard } from "@/components/HomeBrief";
+import type { CompanionItem, PlanMove, UnfundedMoveEntry } from "@/lib/api";
 import type { MoveScenario } from "./fixtures";
-import { AccountBadge, AccountRow, AccountStack, Assurance, Currency, MoveCardFrame, PaymentsList, paymentTotal, PreviewHeading, RouteArrow } from "./shared";
-
-function SummaryNode({ scenario, side }: { scenario: MoveScenario; side: "from" | "to" }) {
-  if (side === "to") {
-    return (
-      <div className="min-w-0">
-        <div className="flex items-center gap-1.5">
-          <AccountBadge account={scenario.destination} size={28} />
-          <div className="min-w-0">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.05em] text-slate-400 dark:text-slate-500">To</p>
-            <p className="text-[12px] font-semibold leading-4 text-slate-900 dark:text-white">{scenario.destination.name}</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  const first = scenario.sources[0];
-  return (
-    <div className="min-w-0">
-      <div className="flex items-center gap-1.5">
-        <span data-source-icon-stack>
-          <AccountStack accounts={scenario.sources} />
-        </span>
-        <div className="min-w-0">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.05em] text-slate-400 dark:text-slate-500">From</p>
-          <p className="text-[12px] font-semibold leading-4 text-slate-900 dark:text-white">
-            {scenario.sources.length === 1 ? first.name : `${scenario.sources.length} accounts`}
-          </p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function FoldCard({ scenario }: { scenario: MoveScenario }) {
-  const lastPayment = scenario.payments[scenario.payments.length - 1];
-
-  return (
-    <MoveCardFrame scenario={scenario}>
-      <div data-move-lead className="mt-3 flex items-baseline justify-between gap-3">
-        <div>
-          <Currency value={scenario.moving} className="text-[21px] font-bold leading-7 text-slate-950 dark:text-white" />
-          <p className="text-[12px] text-slate-500 dark:text-slate-400">moving now</p>
-        </div>
-        <p className="max-w-[170px] text-right text-[12px] leading-5 text-slate-500 dark:text-slate-400">
-          {scenario.payments.length === 1
-            ? `${scenario.overdue ? "Payment overdue" : "Payment due"} ${lastPayment.due}`
-            : `${scenario.payments.length} payments due by ${lastPayment.due}`}
-        </p>
-      </div>
-
-      <div className="mt-3 grid grid-cols-[minmax(0,0.9fr)_28px_minmax(0,1.1fr)] items-center gap-2 rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-3 max-[350px]:grid-cols-1 dark:border-slate-700 dark:bg-slate-900/30">
-        <SummaryNode scenario={scenario} side="from" />
-        <span className="justify-self-center max-[350px]:rotate-90"><RouteArrow horizontal /></span>
-        <SummaryNode scenario={scenario} side="to" />
-      </div>
-
-      <details className="group mt-2 rounded-xl border border-slate-100 dark:border-slate-700">
-        <summary className="flex min-h-11 cursor-pointer list-none touch-manipulation items-center justify-between gap-3 rounded-xl px-3 text-[12px] font-semibold text-slate-700 [-webkit-tap-highlight-color:transparent] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 [&::-webkit-details-marker]:hidden dark:text-slate-200">
-          <span>How the {NUMBER.format(scenario.moving)} is made up</span>
-          <ChevronDown size={15} className="shrink-0 transition-transform duration-200 group-open:rotate-180 motion-reduce:transition-none" aria-hidden="true" />
-        </summary>
-        <div className="divide-y divide-slate-100 border-t border-slate-100 px-3 dark:divide-slate-700 dark:border-slate-700">
-          {scenario.sources.map((source) => <AccountRow key={source.name} account={source} quiet />)}
-        </div>
-      </details>
-
-      <div className="mt-3">
-        {scenario.payments.length === 1 ? (
-          <PaymentsList scenario={scenario} />
-        ) : (
-          <details data-payment-disclosure className="group rounded-xl border border-slate-100 bg-slate-50 dark:border-slate-700 dark:bg-slate-900/35">
-            <summary className="flex min-h-14 cursor-pointer list-none touch-manipulation items-center justify-between gap-3 rounded-xl px-3 py-2 [-webkit-tap-highlight-color:transparent] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 [&::-webkit-details-marker]:hidden">
-              <span className="min-w-0">
-                <span className="block text-[13px] font-semibold text-slate-800 dark:text-slate-100">Protects {scenario.payments.length} payments</span>
-                <span className="block text-[12px] leading-4 text-slate-500 dark:text-slate-400">Due by {lastPayment.due}</span>
-              </span>
-              <span className="flex shrink-0 items-center gap-2">
-                <Currency value={paymentTotal(scenario)} className="text-[13px] font-semibold text-slate-900 dark:text-slate-100" />
-                <ChevronDown size={15} className="transition-transform duration-200 group-open:rotate-180 motion-reduce:transition-none" aria-hidden="true" />
-              </span>
-            </summary>
-            <div className="border-t border-slate-100 px-3 dark:border-slate-700">
-              <PaymentsList scenario={scenario} compact />
-            </div>
-          </details>
-        )}
-      </div>
-      <Assurance scenario={scenario} />
-    </MoveCardFrame>
-  );
-}
+import { PreviewHeading } from "./shared";
 
 const NUMBER = new Intl.NumberFormat("en-GB", {
   style: "currency",
@@ -101,12 +12,117 @@ const NUMBER = new Intl.NumberFormat("en-GB", {
   maximumFractionDigits: 2,
 });
 
+function coverPlanItem(scenario: MoveScenario): CompanionItem {
+  const destination = scenario.destination;
+  const moves: PlanMove[] = scenario.sources.map((source, index) => ({
+    headline: `Move ${NUMBER.format(source.amount)} from ${source.name}`,
+    amount: source.amount,
+    move_map: {
+      from: {
+        account_id: `source-${scenario.id}-${index}`,
+        name: source.name,
+        provider: source.provider,
+        balance: source.amount + 100,
+        safe_note: "Still covers its own bills",
+      },
+      to: {
+        account_id: `destination-${scenario.id}`,
+        name: destination.name,
+        provider: destination.provider,
+        balance: destination.held,
+        incoming: NUMBER.format(scenario.moving),
+      },
+    },
+  }));
+
+  return {
+    id: `preview-${scenario.id}`,
+    type: "move",
+    headline: `Move ${NUMBER.format(scenario.moving)} to ${destination.name}`,
+    body: scenario.assurance,
+    action: { label: scenario.primaryAction, route: "/upcoming" },
+    estimated: false,
+    brief_lead: { value: NUMBER.format(scenario.moving), companion: `to ${destination.name}` },
+    moves,
+    move_map: moves.length === 1 ? moves[0].move_map : undefined,
+    plan_dest: {
+      account_id: `destination-${scenario.id}`,
+      name: destination.name,
+      provider: destination.provider,
+      balance: destination.held,
+      needs_total: destination.needed,
+      needs_by: destination.due,
+      bills: scenario.payments.map(payment => ({ label: payment.name, amount: payment.amount })),
+    },
+    covered: true,
+    sources_safe: true,
+    amount: scenario.moving,
+  };
+}
+
+function overdueItem(scenario: MoveScenario): CompanionItem {
+  const payment = scenario.payments[0];
+  const move: UnfundedMoveEntry = {
+    key: payment.name,
+    label: payment.name,
+    amount: payment.amount,
+    expected_date: "2026-09-09",
+    days_past_due: 2,
+    source_account_id: `destination-${scenario.id}`,
+    source_name: scenario.destination.name,
+    source_bank: scenario.destination.provider,
+    suggested_amount: scenario.moving,
+    suggested_from_name: scenario.sources.length === 1 ? scenario.sources[0].name : null,
+    suggested_from_count: scenario.sources.length,
+    suggested_covers_all: true,
+    suggested_sources: scenario.sources.map((source, index) => ({
+      account_id: `source-${scenario.id}-${index}`,
+      name: source.name,
+      provider: source.provider,
+      amount: source.amount,
+    })),
+  };
+
+  return {
+    id: `preview-${scenario.id}`,
+    type: "unfunded_move",
+    headline: "A planned move may not have the funds.",
+    body: scenario.assurance,
+    action: { label: scenario.primaryAction, route: "/upcoming" },
+    estimated: false,
+    brief_lead: {
+      value: NUMBER.format(scenario.moving),
+      companion: scenario.sources.length === 1 ? `suggested from ${scenario.sources[0].name}` : `suggested from ${scenario.sources.length} accounts`,
+    },
+    moves: [move] as unknown as PlanMove[],
+  };
+}
+
 export default function VariantC({ scenarios }: { scenarios: readonly MoveScenario[] }) {
+  const maskAmounts = (text: string) => text;
+
   return (
     <section aria-label="Variant C, compact handoff">
-      <PreviewHeading title="C · Compact handoff" copy="Up to three source icons stack in the summary; larger sets show two real accounts plus a +N tile. Full source and payment details stay one tap away." />
+      <PreviewHeading title="C · Compact handoff" copy="The production move card. Up to three account icons stack in reading order; larger sets show two real accounts with the +N tile in the rear position. Full source and payment details stay one tap away." />
       <div className="grid items-start gap-4 lg:grid-cols-2">
-        {scenarios.map((scenario) => <FoldCard key={scenario.id} scenario={scenario} />)}
+        {scenarios.map(scenario => (
+          <div key={scenario.id} data-move-scenario={scenario.id}>
+            {scenario.overdue ? (
+              <UnfundedMoveCard
+                item={overdueItem(scenario)}
+                hideNetWorth={false}
+                maskAmounts={maskAmounts}
+                previewMode
+              />
+            ) : (
+              <MoveCard
+                item={coverPlanItem(scenario)}
+                hideNetWorth={false}
+                maskAmounts={maskAmounts}
+              />
+            )}
+          </div>
+        ))}
       </div>
     </section>
   );

@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { X } from "lucide-react";
+import { ArrowDown, WalletCards, X } from "lucide-react";
 import type { CompanionItem, PaydayPlanDest } from "@/lib/api";
 import { api } from "@/lib/api";
 import { BankBadge, BANK_META, bankKey } from "@/components/AccountMiniCard";
@@ -49,7 +49,7 @@ interface PaydayPlanCardProps {
 
 // Multi-destination fork of MoveCard — one payday_plan item can fan money out
 // to several destination accounts, each with its own sources. Reuses MoveCard's
-// visual language throughout: Penny gradient chip, glass-tile dest/ledger rows,
+// visual language throughout: Penny gradient chip, a contained allocation ledger,
 // BankBadge/resolveBankChip logos, £ formatting + hideNetWorth masking, and the
 // same indigo action-button styling. Dismiss mirrors CelebrationCard/CliffCard
 // (self-contained: local `hidden` state + a direct api.dismissTodayItem call —
@@ -64,10 +64,8 @@ export default function PaydayPlanCard({ item, router, hideNetWorth, maskAmounts
   const destsSettled = dests.filter((d) => d.move === 0 && d.usual != null);
   const moveCount = destsWithMove.length;
 
-  // Headline prose duplicates the hero figure ("split £4,798 across N
-  // accounts") — strip the amount client-side now that the total has its own
-  // hero treatment below. Regex has no match on headlines without a £ figure,
-  // so it safely falls back to the raw headline in that case.
+  // The salary-backed allocation ledger carries its own complete hierarchy.
+  // Keep a de-duplicated headline only for legacy no-salary and settled states.
   const headlineNoAmount = item.headline.replace(/£[\d,]+ ?/g, "");
 
   function handleDismiss(e: React.MouseEvent) {
@@ -108,7 +106,7 @@ export default function PaydayPlanCard({ item, router, hideNetWorth, maskAmounts
   // its own attention; a halo on top of that reads as decoration, not
   // signal. Plain glass-card in every state (live, preview, ask).
   return (
-    <div className="glass-card rounded-2xl p-4">
+    <div data-payday-plan-card="allocation-ledger" className="glass-card overflow-hidden rounded-2xl">
       {/* Penny gradient chip — marks this as a proactive advice surface, same
           treatment as MoveCard/AskPaydayCard/AskGenericCard. Close/dismiss
           sits on the same row, gated by `showCloseButton` (see above): a
@@ -125,43 +123,43 @@ export default function PaydayPlanCard({ item, router, hideNetWorth, maskAmounts
           the canonical (factored) version — this card lives outside
           HomeBrief.tsx so it carries its own copy of the same markup
           rather than importing an unexported local component. */}
-      <div className="flex items-start justify-between gap-2 mb-3">
-        <span
-          className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-white rounded-full px-2.5 py-1"
-          style={{ background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)" }}
-        >
-          <PennyMark size={11} />
-          Penny
-        </span>
-        {showCloseButton && (
-          <button
-            type="button"
-            aria-label={onClose ? "Close" : "Dismiss"}
-            onClick={handleCloseClick}
-            className="flex-shrink-0 -mt-2 -mr-2 w-11 h-11 flex items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 active:scale-95 transition-transform duration-150"
-          >
-            <span className="w-7 h-7 flex items-center justify-center rounded-full bg-slate-900/[0.05] dark:bg-white/[0.06] border border-slate-900/[0.06] dark:border-white/10 [@media(hover:hover)]:hover:bg-slate-900/[0.09] dark:[@media(hover:hover)]:hover:bg-white/[0.11] transition-colors duration-150">
-              <X size={14} aria-hidden="true" className="text-slate-500 dark:text-slate-300" />
+      <div className="p-4">
+        <div className="mb-3 flex items-start justify-between gap-2">
+          <div className="flex min-w-0 items-start gap-3">
+            <span aria-hidden="true" className="grid size-9 shrink-0 place-items-center rounded-xl bg-indigo-50 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300">
+              <WalletCards size={17} />
             </span>
-          </button>
-        )}
-      </div>
+            <div className="min-w-0">
+              <span
+                className="inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-white"
+                style={{ background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)" }}
+              >
+                <PennyMark size={11} />
+                Penny
+              </span>
+              <h2 className="mt-1 text-[15px] font-bold leading-5 text-slate-950 dark:text-white">Your payday plan</h2>
+            </div>
+          </div>
+          {showCloseButton && (
+            <button
+              type="button"
+              aria-label={onClose ? "Close" : "Dismiss"}
+              onClick={handleCloseClick}
+              className="flex-shrink-0 -mt-2 -mr-2 w-11 h-11 flex items-center justify-center rounded-full touch-manipulation [-webkit-tap-highlight-color:transparent] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 active:scale-95 transition-transform duration-150 motion-reduce:transition-none"
+            >
+              <span className="w-7 h-7 flex items-center justify-center rounded-full bg-slate-900/[0.05] dark:bg-white/[0.06] border border-slate-900/[0.06] dark:border-white/10 [@media(hover:hover)]:hover:bg-slate-900/[0.09] dark:[@media(hover:hover)]:hover:bg-white/[0.11] transition-colors duration-150 motion-reduce:transition-none">
+                <X size={14} aria-hidden="true" className="text-slate-500 dark:text-slate-300" />
+              </span>
+            </button>
+          )}
+        </div>
 
-      {/* Preview framing — Penny-voice sentence stating this is hypothetical,
-          so the card can't be mistaken for a live instruction. Dated + hedged
-          to the REAL next payday (2026-08-29 FIX B) rather than the old "if
-          your pay landed today" framing, which priced a fictional same-day
-          credit. Falls back to the old copy only if `next_pay` is somehow
-          missing (should not happen once the plan is computed server-side). */}
-      {item.preview && (
+      {/* This is a recommendation for the user's next pay, not a promise that
+          income will land on a modelled date. Keep the same date-neutral
+          framing in preview and live salary-backed plans. */}
+      {item.salary && !isSet && (
         <p className="text-[13px] text-slate-500 dark:text-slate-400 leading-snug mb-2">
-          {item.next_pay
-            ? `Once your pay lands ~${new Date(item.next_pay).toLocaleDateString("en-GB", {
-                weekday: "short",
-                day: "numeric",
-                month: "short",
-              })}, here's how I'd split it.`
-            : "Once your pay lands, here's how I'd split it."}
+          Here’s one way to split your next pay.
         </p>
       )}
 
@@ -171,24 +169,34 @@ export default function PaydayPlanCard({ item, router, hideNetWorth, maskAmounts
           condition the old footer total used, so the isSet ("you're set for
           the month") variant keeps its calm headline/body ramp with no hero. */}
       {(item.total ?? 0) > 0 && (
-        <div className="mb-3">
-          <p className="money text-[28px] font-bold tracking-tight text-slate-900 dark:text-slate-100">
-            {hideNetWorth ? "£••••" : `£${Math.round(item.total ?? 0).toLocaleString("en-GB")}`}
-          </p>
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mt-0.5">
-            Moving to {moveCount} {moveCount === 1 ? "account" : "accounts"}
-          </p>
+        <div className="mb-3 flex items-end justify-between gap-3">
+          <div data-total-moving={item.total ?? 0}>
+            <p className="money text-[28px] font-bold tracking-tight text-slate-900 dark:text-slate-100">
+              {hideNetWorth ? "£••••" : `£${Math.round(item.total ?? 0).toLocaleString("en-GB")}`}
+            </p>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mt-0.5">
+              Total moving to {moveCount} {moveCount === 1 ? "account" : "accounts"}
+            </p>
+          </div>
+          {item.salary && (
+            <p className="pb-1 text-right text-[12px] leading-4 text-slate-500 dark:text-slate-400">
+              <span className="money">{hideNetWorth ? "~£••••" : `~£${Math.round(item.salary.amount).toLocaleString("en-GB")}`}</span><br />
+              expected pay
+            </p>
+          )}
         </div>
       )}
 
       {/* Headline — amount stripped (see headlineNoAmount above); the hero
           figure now carries that number. */}
-      <p className="text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed mb-3 max-w-prose">
-        <strong className="text-slate-900 dark:text-slate-100 font-semibold">{headlineNoAmount}</strong>
-      </p>
+      {(!item.salary || isSet) && (
+        <p className="text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed mb-3 max-w-prose">
+          <strong className="text-slate-900 dark:text-slate-100 font-semibold">{headlineNoAmount}</strong>
+        </p>
+      )}
 
       {/* Body sentence */}
-      {item.body && (
+      {item.body && (!item.salary || isSet) && (
         <p className="text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed mb-3 max-w-prose">
           <MoneyText text={maskAmounts(item.body)} />
         </p>
@@ -239,12 +247,11 @@ export default function PaydayPlanCard({ item, router, hideNetWorth, maskAmounts
         </p>
       )}
 
-      {/* Salary tile — the FROM account for every allocation below. Right side
-          uses the codebase's existing "credit amount" convention (see
-          TransactionSheet.tsx: "+" prefix, emerald, bold) since this is money
-          landing, not leaving. */}
+      {/* Salary source and every destination form one contained allocation
+          ledger. The expected amount stays ink because it is forecast context,
+          not a completed credit. */}
       {item.salary && (
-        <div className="glass-tile rounded-xl px-3 py-2.5 mb-3">
+        <div data-salary-source data-salary-amount={item.salary.amount} className={isSet ? "glass-tile rounded-xl px-3 py-2.5 mb-3" : "rounded-xl border border-slate-100 bg-slate-50/70 px-3 dark:border-slate-700 dark:bg-slate-900/30"}>
           <div className="flex items-center gap-2.5">
             <span className="flex-shrink-0">
               <BankBadge
@@ -260,21 +267,52 @@ export default function PaydayPlanCard({ item, router, hideNetWorth, maskAmounts
                 {item.salary.name}
               </span>
             </span>
-            <span className="money text-sm font-bold text-emerald-600 dark:text-emerald-400 flex-shrink-0">
+            <span className="money flex-shrink-0 text-sm font-bold text-slate-900 dark:text-slate-100">
               {hideNetWorth ? "£••••" : `~£${Math.round(item.salary.amount).toLocaleString("en-GB")}`}
             </span>
           </div>
           <p className="mt-1 text-[12px] text-slate-400 dark:text-slate-500 leading-snug pl-[46px]">
             expected
           </p>
+          {!isSet && (
+            <>
+              <div className="flex justify-center py-1" aria-hidden="true">
+                <span className="grid size-7 place-items-center rounded-full border border-slate-200 bg-white text-indigo-600 dark:border-slate-600 dark:bg-slate-800 dark:text-indigo-300">
+                  <ArrowDown size={14} />
+                </span>
+              </div>
+              <p className="pt-1 text-[10px] font-semibold uppercase tracking-[0.05em] text-slate-400 dark:text-slate-500">Moving to {moveCount} {moveCount === 1 ? "account" : "accounts"}</p>
+              <div className="divide-y divide-slate-100 dark:divide-slate-700">
+                {destsWithMove.map((dest, di) => {
+                  const destChip = resolveBankChip(dest.provider ?? "");
+                  const breakdownParts: string[] = [];
+                  if (dest.bills_total > 0) breakdownParts.push(`£${Math.round(dest.bills_total).toLocaleString("en-GB")} payments`);
+                  if (dest.spend_typical > 0) breakdownParts.push(`~£${Math.round(dest.spend_typical).toLocaleString("en-GB")} spending`);
+                  if (dest.buffer > 0) breakdownParts.push(`£${Math.round(dest.buffer).toLocaleString("en-GB")} buffer`);
+                  const showUsual = dest.usual != null && Math.abs(dest.usual - dest.move) > 25;
+                  return <div key={dest.account_id ?? di} data-destination-row data-destination-move={dest.move} className="flex min-h-12 items-center gap-2.5 py-2">
+                    <span className="flex-shrink-0"><BankBadge logoSrc={destChip.logoSrc} initials={destChip.initials} initialsSize={destChip.initialsSize} altText={destChip.label} brandBg={destChip.bg} /></span>
+                    <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium text-slate-700 dark:text-slate-200">{dest.name}</span>{breakdownParts.length > 0 && <span className="mt-0.5 block truncate text-[12px] leading-snug text-slate-500 dark:text-slate-400"><MoneyText text={maskAmounts(breakdownParts.join(" · "))} /></span>}{showUsual && <span className="mt-0.5 block truncate text-[12px] leading-snug text-slate-400 dark:text-slate-500"><MoneyText text={maskAmounts(`you usually send £${Math.round(dest.usual!).toLocaleString("en-GB")}`)} /></span>}{dest.commitment_names && dest.commitment_names.length > 0 && <span className="mt-0.5 block truncate text-[12px] leading-snug text-slate-400 dark:text-slate-500">{`funds ${dest.commitment_names[0]}${dest.commitment_names.length > 1 ? ` +${dest.commitment_names.length - 1} more` : ""}`}</span>}</span>
+                    <span className="money shrink-0 text-sm font-semibold text-slate-900 dark:text-slate-100">{hideNetWorth ? "£••••" : `£${Math.round(dest.move).toLocaleString("en-GB")}`}</span>
+                  </div>;
+                })}
+              </div>
+            </>
+          )}
         </div>
+      )}
+
+      {item.salary && !isSet && destsSettled.length > 0 && (
+        <p className="mt-2 text-[12px] text-slate-400 dark:text-slate-500 leading-snug">
+          {maskAmounts(`Already set: ${destsSettled.map((d) => d.name).join(", ")}`)}
+        </p>
       )}
 
       {/* Destination rows — one allocation per dest FROM the salary account
           above, sorted by move size. Skipped entirely for the "you're set"
           variant: no tiles, just the headline/body ramp (calm reassurance,
           not a celebration). */}
-      {!isSet && (
+      {!isSet && !item.salary && (
         <div className="space-y-2">
           {destsWithMove.map((dest, di) => {
             const destChip = resolveBankChip(dest.provider ?? "");
@@ -360,11 +398,13 @@ export default function PaydayPlanCard({ item, router, hideNetWorth, maskAmounts
 
       {/* Footer — action button only; the hero figure above replaced the old
           12px total line, so the footer no longer needs to restate it. */}
+      </div>
       {item.action && (
-        <div className="mt-4 flex items-center gap-3 flex-wrap">
+        <div className="border-t border-slate-900/[0.06] bg-slate-50/70 p-3 dark:border-white/[0.08] dark:bg-slate-900/25">
           <button
+            type="button"
             onClick={() => router.push(item.action!.route)}
-            className="inline-flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-[transform,background-color] text-white text-sm font-semibold px-4 py-2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+            className="inline-flex min-h-11 w-full touch-manipulation items-center justify-center gap-1 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white [-webkit-tap-highlight-color:transparent] transition-[transform,background-color] hover:bg-indigo-700 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 motion-reduce:transition-none dark:focus-visible:ring-offset-slate-800"
           >
             {item.preview ? "See the full plan ›" : item.action.label}
           </button>

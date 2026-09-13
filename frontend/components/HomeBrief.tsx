@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { RefreshCw, AlertTriangle, AlertCircle, TrendingDown, X, ChevronRight, UserRound, CalendarDays, CreditCard, Check, CheckCircle2, Clock3, ArrowRightLeft, Circle } from "lucide-react";
+import { RefreshCw, AlertTriangle, AlertCircle, TrendingDown, X, ChevronRight, ChevronDown, UserRound, CalendarDays, CreditCard, Check, CheckCircle2, Clock3, ArrowRight, ArrowRightLeft, Circle } from "lucide-react";
 import type { CompanionItem, PlanDest, SafeToSpend, UnfundedMoveEntry } from "@/lib/api";
 import { api } from "@/lib/api";
 import { useAuth } from "@/components/AuthProvider";
@@ -181,6 +181,203 @@ function MoveSourcesLedger({
         </span>
       </div>
     </div>
+  );
+}
+
+function moveMoney(value: number, hideNetWorth: boolean) {
+  return hideNetWorth ? "£••••" : `£${Math.round(value).toLocaleString("en-GB")}`;
+}
+
+function MoveAccountIcon({ account, size = 28 }: { account: { provider: string; name: string }; size?: number }) {
+  const chip = resolveBankChip(account.provider);
+  return (
+    <BankBadge
+      logoSrc={chip.logoSrc}
+      initials={chip.initials}
+      initialsSize={chip.initialsSize}
+      altText={chip.label}
+      brandBg={chip.bg}
+      size={size}
+    />
+  );
+}
+
+/**
+ * Compact account identity for a transfer endpoint. One to three accounts
+ * show every real icon. Larger sets show two real icons and a counted final
+ * tile. Depth always follows reading order: first is in front, the last item
+ * is at the rear whether it is a bank icon or +N.
+ */
+function MoveAccountStack({ accounts, size = 28 }: { accounts: readonly MoveLedgerLeg[]; size?: number }) {
+  const visibleAccounts = accounts.length > 3 ? accounts.slice(0, 2) : accounts;
+  const remaining = accounts.length - visibleAccounts.length;
+  const displayCount = visibleAccounts.length + (remaining > 0 ? 1 : 0);
+
+  return (
+    <span
+      data-account-icon-stack
+      role="img"
+      aria-label={accounts.map(account => account.name).join(", ")}
+      className="flex shrink-0 -space-x-2"
+    >
+      {visibleAccounts.map((account, index) => (
+        <span
+          key={`${account.provider}-${account.name}-${index}`}
+          data-account-icon={account.provider}
+          className="relative inline-flex rounded-lg ring-2 ring-slate-50 dark:ring-slate-900"
+          style={{ zIndex: displayCount - index }}
+        >
+          <MoveAccountIcon account={account} size={size} />
+        </span>
+      ))}
+      {remaining > 0 && (
+        <span
+          data-more-account-icon={remaining}
+          aria-label={`${remaining} more accounts`}
+          className="relative inline-grid shrink-0 place-items-center rounded-lg bg-slate-700 font-bold text-white ring-2 ring-slate-50 dark:bg-slate-500 dark:ring-slate-900"
+          style={{ width: size, height: size, zIndex: 1, fontSize: Math.max(9, Math.round(size * 0.36)) }}
+        >
+          +{remaining}
+        </span>
+      )}
+    </span>
+  );
+}
+
+function MoveRouteSummary({
+  sources,
+  destination,
+}: {
+  sources: readonly MoveLedgerLeg[];
+  destination: { provider: string; name: string };
+}) {
+  const firstSource = sources[0];
+  return (
+    <div
+      data-move-route-summary
+      className="mt-3 grid grid-cols-[minmax(0,0.9fr)_28px_minmax(0,1.1fr)] items-center gap-2 rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-3 max-[350px]:grid-cols-1 dark:border-slate-700 dark:bg-slate-900/30"
+    >
+      <div className="flex min-w-0 items-center gap-1.5">
+        <MoveAccountStack accounts={sources} />
+        <div className="min-w-0">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.05em] text-slate-400 dark:text-slate-500">From</p>
+          <p className="text-[12px] font-semibold leading-4 text-slate-900 dark:text-white">
+            {sources.length === 1 ? firstSource.name : `${sources.length} accounts`}
+          </p>
+        </div>
+      </div>
+      <span aria-hidden="true" className="grid size-7 justify-self-center place-items-center rounded-full border border-slate-200 bg-white text-indigo-600 max-[350px]:rotate-90 dark:border-slate-600 dark:bg-slate-800 dark:text-indigo-300">
+        <ArrowRight size={14} />
+      </span>
+      <div className="flex min-w-0 items-center gap-1.5">
+        <MoveAccountIcon account={destination} />
+        <div className="min-w-0">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.05em] text-slate-400 dark:text-slate-500">To</p>
+          <p className="text-[12px] font-semibold leading-4 text-slate-900 dark:text-white">{destination.name}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MoveSourcesDisclosure({
+  legs,
+  hideNetWorth,
+  totalAmount,
+}: {
+  legs: readonly MoveLedgerLeg[];
+  hideNetWorth: boolean;
+  totalAmount: number;
+}) {
+  return (
+    <details data-source-disclosure className="group mt-2 rounded-xl border border-slate-100 dark:border-slate-700">
+      <summary className="flex min-h-11 cursor-pointer list-none touch-manipulation items-center justify-between gap-3 rounded-xl px-3 text-[12px] font-semibold text-slate-700 [-webkit-tap-highlight-color:transparent] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 [&::-webkit-details-marker]:hidden dark:text-slate-200">
+        <span>How <span className="money">{moveMoney(totalAmount, hideNetWorth)}</span> is made up</span>
+        <ChevronDown size={15} aria-hidden="true" className="shrink-0 transition-transform duration-200 group-open:rotate-180 motion-reduce:transition-none" />
+      </summary>
+      <div className="divide-y divide-slate-100 border-t border-slate-100 px-3 dark:divide-slate-700 dark:border-slate-700">
+        {legs.map((leg, index) => (
+          <div key={`${leg.provider}-${leg.name}-${index}`} className="flex min-h-11 items-center gap-2.5 py-1.5">
+            <MoveAccountIcon account={leg} size={32} />
+            <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-slate-700 dark:text-slate-200">{leg.name}</span>
+            <span className="money shrink-0 text-[13px] font-semibold text-slate-900 dark:text-slate-100">{moveMoney(leg.amount, hideNetWorth)}</span>
+          </div>
+        ))}
+      </div>
+    </details>
+  );
+}
+
+function MovePaymentEvidence({
+  bills,
+  due,
+  hideNetWorth,
+  overdue = false,
+  onSkip,
+}: {
+  bills: readonly { label: string; amount: number; due?: string }[];
+  due: string;
+  hideNetWorth: boolean;
+  overdue?: boolean;
+  onSkip?: (index: number) => void;
+}) {
+  if (bills.length === 0) return null;
+  if (bills.length === 1) {
+    const bill = bills[0];
+    return (
+      <div data-payment-evidence className="mt-3 flex min-h-14 items-center gap-2 rounded-xl bg-slate-50 px-3 py-1.5 dark:bg-slate-900/35">
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[13px] font-semibold text-slate-800 dark:text-slate-100">{bill.label}</p>
+          <p className="text-[12px] leading-4 text-slate-500 dark:text-slate-400">Payment {overdue ? "was due" : "due"} {bill.due ?? due}</p>
+        </div>
+        <span className="money shrink-0 text-[13px] font-semibold text-slate-900 dark:text-slate-100">{moveMoney(bill.amount, hideNetWorth)}</span>
+        {onSkip && (
+          <button
+            type="button"
+            onClick={() => onSkip(0)}
+            className="inline-flex min-h-11 shrink-0 touch-manipulation items-center rounded-lg px-2 text-[12px] font-medium text-slate-500 underline-offset-2 [-webkit-tap-highlight-color:transparent] [@media(hover:hover)]:hover:bg-slate-100 [@media(hover:hover)]:hover:underline active:scale-95 transition-[transform,background-color] duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-400 dark:[@media(hover:hover)]:hover:bg-slate-700"
+          >
+            Skip this month
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  const total = bills.reduce((sum, bill) => sum + bill.amount, 0);
+  return (
+    <details data-payment-disclosure className="group mt-3 rounded-xl border border-slate-100 bg-slate-50 dark:border-slate-700 dark:bg-slate-900/35">
+      <summary className="flex min-h-14 cursor-pointer list-none touch-manipulation items-center justify-between gap-3 rounded-xl px-3 py-2 [-webkit-tap-highlight-color:transparent] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 [&::-webkit-details-marker]:hidden">
+        <span className="min-w-0">
+          <span className="block text-[13px] font-semibold text-slate-800 dark:text-slate-100">Protects {bills.length} payments</span>
+          <span className="block text-[12px] leading-4 text-slate-500 dark:text-slate-400">{overdue ? "Overdue" : `Due by ${due}`}</span>
+        </span>
+        <span className="flex shrink-0 items-center gap-2">
+          <span className="money text-[13px] font-semibold text-slate-900 dark:text-slate-100">{moveMoney(total, hideNetWorth)}</span>
+          <ChevronDown size={15} aria-hidden="true" className="transition-transform duration-200 group-open:rotate-180 motion-reduce:transition-none" />
+        </span>
+      </summary>
+      <div className="divide-y divide-slate-100 border-t border-slate-100 px-3 dark:divide-slate-700 dark:border-slate-700">
+        {bills.map((bill, index) => (
+          <div key={`${bill.label}-${index}`} className="flex min-h-11 items-center gap-3 py-2">
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[13px] font-medium text-slate-700 dark:text-slate-200">{bill.label}</span>
+              {bill.due && <span className="block text-[11px] text-slate-500 dark:text-slate-400">Was due {bill.due}</span>}
+            </span>
+            <span className="money shrink-0 text-[13px] font-semibold text-slate-900 dark:text-slate-100">{moveMoney(bill.amount, hideNetWorth)}</span>
+            {onSkip && (
+              <button
+                type="button"
+                onClick={() => onSkip(index)}
+                className="inline-flex min-h-11 shrink-0 touch-manipulation items-center rounded-lg px-2 text-[12px] font-medium text-slate-500 underline-offset-2 [-webkit-tap-highlight-color:transparent] [@media(hover:hover)]:hover:bg-slate-100 [@media(hover:hover)]:hover:underline active:scale-95 transition-[transform,background-color] duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-400 dark:[@media(hover:hover)]:hover:bg-slate-700"
+              >
+                Skip
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+    </details>
   );
 }
 
@@ -692,6 +889,103 @@ export function UnfundedMoveCard({ item, hideNetWorth, maskAmounts, previewMode 
   const route = requestedRoute.startsWith("/") && !requestedRoute.startsWith("//") ? requestedRoute : "/upcoming";
   const actionLabel = item.action?.label ?? "See it in Upcoming ›";
 
+  // The backend computes one top-up per destination account, then copies that
+  // suggestion onto each overdue payment from that account. Group first so a
+  // shared top-up is never counted or instructed more than once. Only the
+  // fully covering result gets the confident compact treatment; partial and
+  // legacy suggestions keep the existing explicit warning card below.
+  const moveGroups = Array.from(
+    moves.reduce((groups, move) => {
+      const existing = groups.get(move.source_account_id);
+      if (existing) existing.push(move);
+      else groups.set(move.source_account_id, [move]);
+      return groups;
+    }, new Map<string, UnfundedMoveEntry[]>())
+  ).map(([accountId, accountMoves]) => ({
+    accountId,
+    moves: accountMoves,
+    suggestion: accountMoves[0],
+  }));
+  const everyAccountFullyCovered = moveGroups.every(({ moves: accountMoves }) =>
+    accountMoves.every(move =>
+      (move.suggested_sources?.length ?? 0) > 0
+        && (move.suggested_amount ?? 0) > 0
+        && move.suggested_covers_all === true
+    )
+  );
+  if (everyAccountFullyCovered) {
+    const totalSuggested = moveGroups.reduce((sum, group) => sum + (group.suggestion.suggested_amount ?? 0), 0);
+    const sourceKeys = new Set(moves.flatMap(move => (move.suggested_sources ?? []).map(source => source.account_id)));
+    const onlyMove = moves[0];
+    const onlyDue = onlyMove.expected_date
+      ? new Date(onlyMove.expected_date).toLocaleDateString("en-GB", { day: "numeric", month: "short" })
+      : "recently";
+    const dueCopy = moves.length === 1 ? `Payment overdue ${onlyDue}` : `${moves.length} payments overdue`;
+
+    return (
+      <div data-unfunded-move-card="compact-handoff" className={`${BRIEF_CARD} p-4`}>
+        <div className="flex items-start gap-3 pr-9">
+          <BriefIcon><AlertCircle size={16} /></BriefIcon>
+          <div className="min-w-0 flex-1">
+            <PennyKindLabel hideAttribution={hideAttribution} tone="watch">Move overdue</PennyKindLabel>
+            <p className="mt-1 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-white">Put this move in place</p>
+          </div>
+        </div>
+
+        <div data-move-lead className="mt-3 flex items-baseline justify-between gap-3">
+          <div>
+            <p className="money text-[21px] font-bold leading-7 text-slate-950 dark:text-white">{moveMoney(totalSuggested, hideNetWorth)}</p>
+            <p className="text-[12px] text-slate-500 dark:text-slate-400">moving now</p>
+          </div>
+          <p className="max-w-[170px] text-right text-[12px] leading-5 text-slate-500 dark:text-slate-400">{dueCopy}</p>
+        </div>
+
+        <div className="divide-y divide-slate-100 dark:divide-slate-700/70">
+          {moveGroups.map((group, index) => {
+            const { suggestion, moves: accountMoves } = group;
+            const sources = (suggestion.suggested_sources ?? []).map(source => ({
+              provider: source.provider,
+              name: source.name,
+              amount: source.amount,
+            }));
+            const latestMove = accountMoves[accountMoves.length - 1];
+            const due = latestMove.expected_date
+              ? new Date(latestMove.expected_date).toLocaleDateString("en-GB", { day: "numeric", month: "short" })
+              : "recently";
+            const bills = accountMoves.map(move => ({
+              label: move.label,
+              amount: move.amount,
+              due: move.expected_date
+                ? new Date(move.expected_date).toLocaleDateString("en-GB", { day: "numeric", month: "short" })
+                : "recently",
+            }));
+            return (
+              <div key={group.accountId} className={index > 0 ? "pt-3" : ""}>
+                <MoveRouteSummary sources={sources} destination={{ provider: suggestion.source_bank, name: suggestion.source_name }} />
+                <MoveSourcesDisclosure legs={sources} hideNetWorth={hideNetWorth} totalAmount={suggestion.suggested_amount ?? 0} />
+                <MovePaymentEvidence
+                  bills={bills}
+                  due={due}
+                  hideNetWorth={hideNetWorth}
+                  overdue
+                  onSkip={billIndex => handleSkip(accountMoves[billIndex])}
+                />
+              </div>
+            );
+          })}
+        </div>
+
+        <p className="mt-3 text-[12px] leading-snug text-slate-500 dark:text-slate-400">
+          {sourceKeys.size === 1 ? "The source still covers its own bills." : "Every source still covers its own bills."}
+        </p>
+        <footer className={ACTION_DOCK}>
+          <Link href={route} className={`${PRIMARY_ACTION} w-full`}>{actionLabel}</Link>
+        </footer>
+        {dismissible && <DismissChip label="Hide on Home" onClick={handleDismiss} className="absolute top-2 right-2 z-10" />}
+      </div>
+    );
+  }
+
   return (
     <div className={`${BRIEF_CARD} p-4`}>
       <div className="flex items-start gap-3 pr-9">
@@ -875,6 +1169,82 @@ export function MoveCard({ item, hideNetWorth, maskAmounts, hideAttribution, dis
       ? [{ provider: (item.move_map.from as any)?.provider, name: (item.move_map.from as any)?.name, amount: item.amount ?? 0 }]
       : [];
   const totalAmount = legs.reduce((s, l) => s + l.amount, 0);
+
+  const destination = item.plan_dest;
+  if (destination && legs.length > 0) {
+    const billCount = destination.bills.length;
+    const dueCopy = destination.is_overdraft
+      ? "Overdrawn right now"
+      : billCount === 1
+        ? `Payment due ${destination.needs_by}`
+        : billCount > 1
+          ? `${billCount} payments due by ${destination.needs_by}`
+          : "Move ready to review";
+    const clearClause = !item.covered
+      ? null
+      : destination.is_overdraft
+        ? "Clears the overdrawn balance"
+        : billCount > 0
+          ? (billCount === 1 ? "Clears the payment" : `Clears all ${billCount} payments`)
+          : null;
+    const safeSuffix = item.envelope_reserved ? " and envelopes" : "";
+    const safeClause = item.sources_safe
+      ? (legs.length === 1
+          ? `the source still covers its own bills${safeSuffix}`
+          : `every source still covers its own bills${safeSuffix}`)
+      : null;
+    const assurance = clearClause && safeClause
+      ? `${clearClause}; ${safeClause}.`
+      : clearClause
+        ? `${clearClause}.`
+        : safeClause
+          ? `${safeClause.charAt(0).toUpperCase()}${safeClause.slice(1)}.`
+          : null;
+
+    return (
+      <div data-move-card="compact-handoff" className={`${BRIEF_CARD} p-4`}>
+        <div className="flex items-start gap-3 pr-9">
+          <BriefIcon tone="penny"><ArrowRightLeft size={16} /></BriefIcon>
+          <div className="min-w-0 flex-1">
+            <PennyKindLabel hideAttribution={hideAttribution}>Cover plan</PennyKindLabel>
+            <p className="mt-1 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-slate-100">Put this move in place</p>
+          </div>
+        </div>
+
+        <div data-move-lead className="mt-3 flex items-baseline justify-between gap-3">
+          <div>
+            <p className="money text-[21px] font-bold leading-7 text-slate-950 dark:text-white">{moveMoney(totalAmount, hideNetWorth)}</p>
+            <p className="text-[12px] text-slate-500 dark:text-slate-400">moving now</p>
+          </div>
+          <p className="max-w-[170px] text-right text-[12px] leading-5 text-slate-500 dark:text-slate-400">{dueCopy}</p>
+        </div>
+
+        <MoveRouteSummary sources={legs} destination={destination} />
+        <MoveSourcesDisclosure legs={legs} hideNetWorth={hideNetWorth} totalAmount={totalAmount} />
+        <MovePaymentEvidence bills={destination.bills} due={destination.needs_by} hideNetWorth={hideNetWorth} />
+
+        {destination.is_overdraft && (
+          <p className="mt-3 text-[12px] leading-5 text-slate-500 dark:text-slate-400">
+            <span className="money">{moveMoney(Math.abs(destination.balance), hideNetWorth)}</span> overdrawn right now.
+          </p>
+        )}
+        {(assurance || item.residual || item.income_note || item.overflow_note) && (
+          <div className="mt-3 space-y-1.5">
+            {assurance && <p className="text-[12px] leading-snug text-slate-500 dark:text-slate-400">{assurance}</p>}
+            {item.residual && <p className="text-[12px] leading-snug text-slate-400 dark:text-slate-500"><MoneyText text={maskAmounts(String(item.residual))} /></p>}
+            {item.income_note && <p className="text-[12px] leading-snug text-slate-400 dark:text-slate-500"><MoneyText text={maskAmounts(item.income_note)} /></p>}
+            {item.overflow_note && <p className="text-[12px] leading-snug text-slate-400 dark:text-slate-500">{item.overflow_note}</p>}
+          </div>
+        )}
+        {item.action && (
+          <footer className={ACTION_DOCK}>
+            <Link href={item.action.route} className={`${PRIMARY_ACTION} w-full`}>{item.action.label}</Link>
+          </footer>
+        )}
+        {dismissible && <DismissChip label="Hide on Home" onClick={handleDismiss} className="absolute top-2 right-2 z-10" />}
+      </div>
+    );
+  }
 
   return (
     <div className={`${BRIEF_CARD} p-4`}>
