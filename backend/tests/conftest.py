@@ -3,7 +3,27 @@ import os
 
 import pytest
 
+import app.routers.billing as billing_router_module
+import app.routers.subscription as subscription_router_module
+import app.services.billing as billing_module
 from app.services import data_version, response_cache
+
+
+def patch_billing_enabled(monkeypatch, enabled: bool, *, price_ids: dict | None = None):
+    """BILLING_ENABLED is imported ('from app.core.config import
+    BILLING_ENABLED') separately into app.services.billing,
+    app.routers.billing and app.routers.subscription, so each module's own
+    binding has to be patched independently — same convention
+    test_mcp_connector_flag.py uses for MCP_CONNECTOR_ENABLED. Shared here
+    (moved from tests/test_billing.py, B34) so any test that merely touches
+    a BILLING_ENABLED-gated code path, not just test_billing.py's own
+    dedicated billing tests, can pin the flag instead of inheriting whatever
+    Stripe configuration happens to be in the environment."""
+    monkeypatch.setattr(billing_module, "BILLING_ENABLED", enabled)
+    monkeypatch.setattr(billing_router_module, "BILLING_ENABLED", enabled)
+    monkeypatch.setattr(subscription_router_module, "BILLING_ENABLED", enabled)
+    if price_ids is not None:
+        monkeypatch.setattr(billing_module, "STRIPE_PRICE_IDS", price_ids)
 
 
 def _mongo_cleanup_allowed() -> bool:
