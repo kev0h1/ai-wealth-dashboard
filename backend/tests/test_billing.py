@@ -1145,9 +1145,11 @@ def test_past_due_subscriber_keeps_tier_until_expires_at_then_loses_it(monkeypat
     """B36: this is the dunning-grace behaviour the module docstring has
     always claimed ("a past_due subscription keeps its tier and limits
     until expires_at") but which bug 2 made impossible, since expires_at
-    was never written. With expires_at correctly read from the item, a
-    past_due subscriber keeps the paid tier up to that moment, and loses
-    it once it has passed."""
+    was never written. First asserts expires_at was actually populated
+    from the item's current_period_end (this fails against pre-fix code,
+    where it is written as None); then that a past_due subscriber keeps
+    the paid tier while that stored expires_at is still in the future,
+    and loses it once expires_at has passed."""
     fake_subs = _FakeCol()
     _patch_collections(monkeypatch, billing_events_col=_FakeCol(), subscriptions_col=fake_subs)
     monkeypatch.setattr(billing_module, "STRIPE_PRICE_IDS", _FULL_PRICE_IDS)
@@ -1167,13 +1169,19 @@ def test_past_due_subscriber_keeps_tier_until_expires_at_then_loses_it(monkeypat
     }
     _run(billing_module.handle_event(event))
 
+    stored_expires_at = fake_subs.docs[0]["expires_at"]
+    assert stored_expires_at is not None
+    assert abs((stored_expires_at - datetime.fromtimestamp(future_ts, tz=timezone.utc)).total_seconds()) < 1
+
     still_in_grace = _run(subscription_module.get_subscription(UID))
     assert still_in_grace.status == "past_due"
     assert still_in_grace.tier == subscription_module.Tier.STANDARD
 
-    # The grace period has now passed — mutate the stored expires_at
+    # The grace period has now passed. Mutate the stored expires_at
     # directly to simulate time moving on past it (no new webhook needed:
-    # this is exactly the local, time-based fallback bug 2 removed).
+    # this is exactly the local, time-based fallback bug 2 removed). The
+    # value being overwritten here was already verified above to be the
+    # one the code itself computed from the item.
     fake_subs.docs[0]["expires_at"] = datetime.now(timezone.utc) - timedelta(seconds=1)
 
     after_grace = _run(subscription_module.get_subscription(UID))
