@@ -11,8 +11,8 @@ const NUMBER = new Intl.NumberFormat("en-GB", {
   maximumFractionDigits: 2,
 });
 
-export function Currency({ value, className = "" }: { value: number; className?: string }) {
-  return <span className={`font-mono tabular-nums ${className}`}>{NUMBER.format(value)}</span>;
+export function Currency({ value, className = "", prefix = "" }: { value: number; className?: string; prefix?: string }) {
+  return <span className={`font-mono tabular-nums ${className}`}>{prefix}{NUMBER.format(value)}</span>;
 }
 
 function bankMeta(provider: string) {
@@ -34,6 +34,40 @@ export function AccountBadge({ account, size = 36 }: { account: MoveAccount; siz
   return (
     <span className="inline-flex shrink-0" data-account-badge={account.provider}>
       <BankBadge {...bankMeta(account.provider)} size={size} />
+    </span>
+  );
+}
+
+export function AccountStack({ accounts, size = 28 }: { accounts: readonly MoveAccount[]; size?: number }) {
+  const visibleAccounts = accounts.length > 3 ? accounts.slice(0, 2) : accounts;
+  const remaining = accounts.length - visibleAccounts.length;
+
+  return (
+    <span
+      data-account-icon-stack
+      aria-label={accounts.map((account) => account.name).join(", ")}
+      className="flex shrink-0 -space-x-2"
+    >
+      {visibleAccounts.map((account, index) => (
+        <span
+          key={`${account.provider}-${account.name}`}
+          data-account-icon={account.provider}
+          className="relative inline-flex rounded-lg ring-2 ring-slate-50 dark:ring-slate-900"
+          style={{ zIndex: visibleAccounts.length - index }}
+        >
+          <AccountBadge account={account} size={size} />
+        </span>
+      ))}
+      {remaining > 0 ? (
+        <span
+          data-more-account-icon={remaining}
+          aria-label={`${remaining} more accounts`}
+          className="relative inline-grid shrink-0 place-items-center rounded-lg bg-slate-700 font-bold text-white ring-2 ring-slate-50 dark:bg-slate-500 dark:ring-slate-900"
+          style={{ width: size, height: size, zIndex: visibleAccounts.length + 1, fontSize: Math.max(9, Math.round(size * 0.36)) }}
+        >
+          +{remaining}
+        </span>
+      ) : null}
     </span>
   );
 }
