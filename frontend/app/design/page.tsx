@@ -22,6 +22,16 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "payday-plan-grammar",
+    name: "payday-plan-grammar",
+    description:
+      "G69 final design extension after C Compact handoff was selected for move cards · models the real Payday Plan inverse flow, one expected salary account distributing money to either five destinations or the production cap of ten · both fixtures reconcile exactly: ~£3,450 expected pay becomes £2,360 moved plus £1,090 staying in Premier Current, or £2,820 moved plus £630 staying · A Fan-out summary compresses the whole route into one source-to-stack handoff with the full destination audit trail in a disclosure · B Allocation ledger keeps every destination visible · C Ranked handoff keeps the two largest allocations visible and folds the rest · scalable summaries show two real destination icons plus a third +N tile whenever there are more than three accounts, while every destination retains its real bank icon and name in the detail · production-shaped fixture data only, no API calls or production edits · ?variant=a|b|c&state=five|ten&mode=light|dark",
+    states: [
+      { label: "Five destinations", value: "five" },
+      { label: "Ten destinations", value: "ten" },
+    ],
+  },
+  {
     slug: "spend-page-refurbishment",
     name: "spend-page-refurbishment",
     description:
@@ -32,11 +42,12 @@ const ROUTES: PreviewRoute[] = [
     slug: "move-card-grammar",
     name: "move-card-grammar",
     description:
-      "G69 follow-up move-card grammar round after Kevin approved the three directions and asked to see how they scale when one move protects several payments · all variants now cover one source and one payment, three sources and one payment, plus three sources protecting three text-only payments · A Money route aligns the Money leaves and Money arrives entries on one shared inset · B Transfer ledger keeps its approved From / To / Covers grammar and simply gains payment rows · C Compact handoff replaces its single-icon count badge with a stack of the actual source-account icons, then folds multi-payment evidence behind a total-led disclosure · source and destination accounts keep bank icons while payments remain deliberately icon-free · every fixture visibly reconciles the destination balance, moved amount, protected payments and £10 buffer · fixture-only, no API calls or production edits · ?variant=a|b|c&state=pair|single|multiple|payments&mode=light|dark",
+      "G69 move-card grammar round with C Compact handoff selected as the scalable foundation · the preview covers one, three and five funding sources as well as three protected payments · one to three sources show every real bank icon, while four or more show the first two real icons plus a third +N tile with every source still named in the disclosure · A Money route keeps its aligned Money leaves and Money arrives inset and B preserves its From / To / Covers ledger as the decision record · source and destination accounts keep bank icons while payments remain deliberately icon-free · every fixture visibly reconciles the destination balance, moved amount, protected payments and £10 buffer · fixture-only, no API calls or production edits · ?variant=a|b|c&state=pair|single|multiple|many|payments&mode=light|dark",
     states: [
       { label: "Compare both", value: "pair" },
       { label: "One source", value: "single" },
       { label: "Three sources", value: "multiple" },
+      { label: "Five sources", value: "many" },
       { label: "Three payments", value: "payments" },
     ],
   },

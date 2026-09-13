@@ -1,27 +1,6 @@
 import { ChevronDown } from "lucide-react";
 import type { MoveScenario } from "./fixtures";
-import { AccountBadge, AccountRow, Assurance, Currency, MoveCardFrame, PaymentsList, paymentTotal, PreviewHeading, RouteArrow } from "./shared";
-
-function SourceBadgeStack({ scenario }: { scenario: MoveScenario }) {
-  return (
-    <span
-      data-source-icon-stack
-      aria-label={scenario.sources.map((source) => source.name).join(", ")}
-      className="flex shrink-0 -space-x-2"
-    >
-      {scenario.sources.map((source, index) => (
-        <span
-          key={source.name}
-          data-source-icon={source.provider}
-          className="relative inline-flex rounded-lg ring-2 ring-slate-50 dark:ring-slate-900"
-          style={{ zIndex: scenario.sources.length - index }}
-        >
-          <AccountBadge account={source} size={28} />
-        </span>
-      ))}
-    </span>
-  );
-}
+import { AccountBadge, AccountRow, AccountStack, Assurance, Currency, MoveCardFrame, PaymentsList, paymentTotal, PreviewHeading, RouteArrow } from "./shared";
 
 function SummaryNode({ scenario, side }: { scenario: MoveScenario; side: "from" | "to" }) {
   if (side === "to") {
@@ -42,7 +21,9 @@ function SummaryNode({ scenario, side }: { scenario: MoveScenario; side: "from" 
   return (
     <div className="min-w-0">
       <div className="flex items-center gap-1.5">
-        <SourceBadgeStack scenario={scenario} />
+        <span data-source-icon-stack>
+          <AccountStack accounts={scenario.sources} />
+        </span>
         <div className="min-w-0">
           <p className="text-[10px] font-semibold uppercase tracking-[0.05em] text-slate-400 dark:text-slate-500">From</p>
           <p className="text-[12px] font-semibold leading-4 text-slate-900 dark:text-white">
@@ -123,7 +104,7 @@ const NUMBER = new Intl.NumberFormat("en-GB", {
 export default function VariantC({ scenarios }: { scenarios: readonly MoveScenario[] }) {
   return (
     <section aria-label="Variant C, compact handoff">
-      <PreviewHeading title="C · Compact handoff" copy="Actual source icons stack in the transfer summary. Source and payment details stay one tap away when either side grows." />
+      <PreviewHeading title="C · Compact handoff" copy="Up to three source icons stack in the summary; larger sets show two real accounts plus a +N tile. Full source and payment details stay one tap away." />
       <div className="grid items-start gap-4 lg:grid-cols-2">
         {scenarios.map((scenario) => <FoldCard key={scenario.id} scenario={scenario} />)}
       </div>
