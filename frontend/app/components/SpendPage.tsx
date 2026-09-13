@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import dynamic from "next/dynamic";
 import { useSearchParams, useRouter } from "next/navigation";
-import { Check, Undo2 } from "lucide-react";
+import { BarChart3, Check, WalletCards, Undo2 } from "lucide-react";
 import { api, Account, Transaction, SpendVerdict, type SavingsInsight, type MoneyShape } from "@/lib/api";
 import { loadMoneyShape, peekMoneyShape } from "@/lib/moneyShape";
 import SpendShapeCard from "@/components/SpendShapeCard";
@@ -28,7 +28,8 @@ import { CategoryData } from "@/components/CategoryRow";
 import BottomNav from "@/components/BottomNav";
 import Spinner from "@/components/Spinner";
 import SpendVerdictView from "@/components/SpendVerdictView";
-import SpendHeader, { SpendPatternsToggle, RecentPeriodOption, SpendHeroSkeleton } from "@/components/SpendHeader";
+import { SpendJourneySummary, SpendPeriodBar, type RecentPeriodOption, SpendHeroSkeleton } from "@/components/SpendHeader";
+import SpendJourneyNav, { type SpendJourneyDestination } from "@/components/SpendJourneyNav";
 import PayPeriodSettingsSheet, { formatPeriodLocal } from "@/components/PayPeriodSettingsSheet";
 import { consumeSpendUiState, writeSpendUiState, SpendUiState } from "@/lib/spendUiState";
 import { useTutorialReady } from "@/components/TutorialContext";
@@ -119,9 +120,9 @@ function ResolveToast({
           if (timerRef.current) clearTimeout(timerRef.current);
           onUndo();
         }}
-        className="flex-shrink-0 min-h-[44px] px-2 -mr-2 flex items-center gap-1 text-[12px] font-semibold text-indigo-600 dark:text-indigo-400 active:opacity-70 transition-opacity"
+        className="-mr-2 flex min-h-[44px] shrink-0 items-center gap-1 rounded-lg px-2 text-[12px] font-semibold text-indigo-600 transition-opacity hover:text-indigo-700 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300"
       >
-        <Undo2 size={13} />
+        <Undo2 size={13} aria-hidden="true" />
         Undo
       </button>
     </div>
@@ -226,7 +227,7 @@ function SpendSkeleton() {
 }
 
 export default function SpendPage() {
-  const { payPeriodConfig, setPayPeriodConfig, region, rawPrefs, hideNetWorth } = usePreferences();
+  const { payPeriodConfig, setPayPeriodConfig, region, rawPrefs, hideNetWorth, spendWidgets } = usePreferences();
   const { colours } = useColours();
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -241,25 +242,14 @@ export default function SpendPage() {
   // saved offset onto — restoring this state first restores the page's
   // real height too, so that height-gated scroll restore succeeds normally.
   const [restoredUi] = useState<SpendUiState>(() => consumeSpendUiState());
-  // The old three-way Categories/Transactions/Trends tabs are retired. The
-  // page now has two scopes: the reconciled current/selected pay period and
-  // patterns across pay periods (including the former Insights proportion
-  // summary and the existing chart tools).
-  // Patterns is opt-in. A fresh or ordinary /spend navigation always opens
-  // the transaction/category breakdown; only an explicit patterns deep link
-  // opens the cross-period view.
-  const [showPatterns, setShowPatterns] = useState<boolean>(
-    () => {
-      const requestedView = searchParams.get("view");
-      return requestedView === "patterns" || requestedView === "trends";
-    }
+  // G57 A keeps charts at the end of the same pay-period journey. Their
+  // transaction-heavy data still loads only when the section is requested
+  // or approaches the viewport, preserving the old period view's fast first
+  // answer while removing the separate Patterns destination.
+  const [chartsRequested, setChartsRequested] = useState(
+    () => ["patterns", "trends", "charts"].includes(searchParams.get("view") ?? "")
   );
-  const setSpendView = useCallback((nextPatterns: boolean) => {
-    setShowPatterns(nextPatterns);
-    const params = new URLSearchParams(searchParams.toString());
-    params.set("view", nextPatterns ? "patterns" : "period");
-    router.replace(`/spend?${params.toString()}`, { scroll: false });
-  }, [router, searchParams]);
+  const [chartsAnchor, setChartsAnchor] = useState<HTMLElement | null>(null);
   const [categoryInsights, setCategoryInsights] = useState<SavingsInsight[]>(
     () => cachedCategoryInsights ?? []
   );
@@ -275,8 +265,28 @@ export default function SpendPage() {
     return () => { active = false; window.clearTimeout(timer); };
   }, []);
   const [transactionsRequested, setTransactionsRequested] = useState(false);
-  const transactionsEnabled = showPatterns || transactionsRequested;
+  const transactionsEnabled = chartsRequested || transactionsRequested;
   const { transactions: allTransactions, loading: txLoading, setTransactions: setAllTransactions } = useAllTransactions(transactionsEnabled);
+
+  useEffect(() => {
+    if (chartsRequested) return;
+    if (!chartsAnchor) return;
+    if (typeof IntersectionObserver === "undefined") {
+      setChartsRequested(true);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setChartsRequested(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "500px 0px" },
+    );
+    observer.observe(chartsAnchor);
+    return () => observer.disconnect();
+  }, [chartsAnchor, chartsRequested]);
   // Computed exactly once (ref-memoized, not useMemo — this must never be
   // silently recomputed) from restoredUi.periodStart, so periodStart,
   // periodEnd, periodOffset AND the signals cache lookup below all agree on
@@ -902,15 +912,19 @@ export default function SpendPage() {
 
   const periodSwipe = usePeriodSwipe({ onPrev: handlePrev, onNext: handleNext, canPrev: canGoPrev, canNext: !isCurrentPeriod });
 
-  // Sync the This period/Patterns split with ?view= when it changes (e.g. a
-  // deep-link from the home strip). "list" — the retired Transactions view —
-  // falls back to "Breakdown", the hub that replaces it.
+  // Old Patterns/Trends links remain valid: they now request and scroll to
+  // the inline chart stop instead of opening a separate page state.
   useEffect(() => {
     const v = searchParams.get("view");
     if (v === "upcoming") { router.replace("/upcoming"); return; }
-    if (v === "patterns" || v === "trends") setShowPatterns(true);
-    else if (v === "period" || v === "categories" || v === "list") setShowPatterns(false);
-  }, [searchParams, router]);
+    if (!["patterns", "trends", "charts"].includes(v ?? "")) return;
+    setChartsRequested(true);
+    if (showFullSkeleton) return;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById("spend-journey-charts")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [searchParams, router, showFullSkeleton]);
 
 
   function handleTxUpdated(updated: Transaction, additionalIds?: string[]) {
@@ -935,6 +949,33 @@ export default function SpendPage() {
   }
 
   const sym = region === "Kenya" ? "KES " : "£";
+  const wholeMoney = (value: number) => `${value < 0 ? "−" : ""}${sym}${Math.abs(Math.round(value)).toLocaleString("en-GB")}`;
+  const latestPace = verdict ? [...(verdict.pace_series ?? [])].reverse().find((point) => point.usual != null) : undefined;
+  const paceDifference = verdict && latestPace?.usual != null ? verdict.pills.spent - latestPace.usual : null;
+  const journeyDestinations: SpendJourneyDestination[] = verdict ? [
+    ...(verdict.notables.length > 0 ? [{
+      id: "spend-journey-changes",
+      label: "Changes",
+      value: paceDifference == null ? `${verdict.notables.length} to review` : wholeMoney(Math.abs(paceDifference)),
+      needsLook: paceDifference != null && paceDifference > 0,
+    }] : []),
+    ...(verdict.unresolved.total > 0 ? [{
+      id: "spend-unresolved",
+      label: "Place",
+      value: `${verdict.unresolved.payments_count} · ${wholeMoney(verdict.unresolved.total)}`,
+    }] : []),
+    {
+      id: "spend-majority-section",
+      label: "Spending",
+      value: wholeMoney(verdict.majority.reduce((sum, row) => sum + Math.max(0, row.spent), 0)),
+    },
+    {
+      id: "spend-journey-charts",
+      label: "Charts",
+      value: `${spendWidgets?.length ?? 3} shown`,
+      onBeforeJump: () => setChartsRequested(true),
+    },
+  ] : [];
 
   // Cold-load hold — see `showFullSkeleton` above. Placed after every hook
   // in the component (same pattern as AccountsPage.tsx's detail-view/list-
@@ -948,10 +989,8 @@ export default function SpendPage() {
   }
 
   return (
-    <div className="mx-auto min-h-dvh max-w-xl pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
-      {/* Header — shared with /design/spend-live so the two can never draw
-          different Spent/Income figures again (SpendHeader.tsx). */}
-      <SpendHeader
+    <div className="mx-auto min-h-dvh max-w-6xl px-4 pb-[calc(9rem+env(safe-area-inset-bottom,0px))] pt-5 sm:px-6 lg:px-8 lg:pb-8" style={{ paddingTop: "max(1.25rem, env(safe-area-inset-top, 0px))" }}>
+      <SpendPeriodBar
         verdict={verdict}
         periodLabel={formatPeriodLocal(periodStart, periodEnd)}
         isCurrentPeriod={isCurrentPeriod}
@@ -971,37 +1010,58 @@ export default function SpendPage() {
         onSelectOffset={handleSelectOffset}
       />
 
-      <div className="px-4 pt-4">
-        <SpendPatternsToggle showPatterns={showPatterns} onSetShowPatterns={setSpendView} />
-      </div>
+      {verdict && (
+        <div className="sticky top-0 z-30 -mx-4 mt-3 border-y border-slate-200/90 bg-[#f0f2f7]/95 px-4 py-2 backdrop-blur-sm dark:border-slate-700/80 dark:bg-[#0f172a]/95 lg:hidden">
+          <SpendJourneyNav destinations={journeyDestinations} />
+        </div>
+      )}
 
-      {/* This period is the reconciled verdict hub, closing on the money-shape
-          instrument card (owner decisions 2026-09-05); Patterns keeps the
-          charts only, the shape itself now lives at /spend/shape. */}
-      {!showPatterns ? (
-        <div className="px-4 pt-4" data-tutorial-id="tutorial-spend-categories">
+      <div className="mt-7 grid items-start gap-9 lg:grid-cols-[minmax(260px,0.72fr)_minmax(0,1.45fr)] lg:gap-14">
+        <aside className="lg:sticky lg:top-6">
+          <SpendJourneySummary
+            verdict={verdict}
+            periodLabel={formatPeriodLocal(periodStart, periodEnd)}
+            isCurrentPeriod={isCurrentPeriod}
+            canGoPrev={canGoPrev}
+            onPrev={handlePrev}
+            onNext={handleNext}
+            onOpenSettings={() => setSettingsOpen(true)}
+            onOpenRules={() => setRulesOpen(true)}
+            incomeTxns={incomeTxns}
+            onIncomeOpen={() => setTransactionsRequested(true)}
+            onTransactionClick={(tx) => { setAskHandoffTxId(null); setSelectedTx(tx); }}
+            onOutTap={handleOutTap}
+            onMovedTap={handleMovedTap}
+            onUnresolvedTap={handleUnresolvedTap}
+            recentPeriods={recentPeriods}
+            onSelectOffset={handleSelectOffset}
+          />
+          {verdict && <div className="mt-5 hidden lg:block"><SpendJourneyNav destinations={journeyDestinations} desktop /></div>}
+        </aside>
+
+        <main data-tutorial-id="tutorial-spend-categories" className="relative pl-8 before:absolute before:bottom-3 before:left-[11px] before:top-3 before:w-px before:bg-slate-300 dark:before:bg-slate-600 sm:pl-10">
           {verdict ? (
-            // A cached verdict (warm from a previous visit — see
-            // cachedVerdict above) paints immediately even while pageLoading
-            // (accounts/transactions) or a silent revalidation is still in
-            // flight; this is what makes the page restorable on BACK-nav —
-            // there's no spinner-at-near-zero-height for ScrollReset's
-            // gated restore to land on.
             <>
+              <section className="relative pb-10">
+                <span className="absolute -left-8 top-1 flex size-6 items-center justify-center rounded-full bg-indigo-600 text-white ring-4 ring-[#f0f2f7] dark:ring-[#0f172a] sm:-left-10" aria-hidden="true">
+                  <WalletCards size={12} />
+                </span>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-slate-600 dark:text-slate-400">Pay arrived · {periodStart.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</p>
+                <h2 className="mt-2 text-xl font-bold text-slate-950 dark:text-white"><span className="font-mono tabular-nums">{wholeMoney(verdict.pills.income)}</span> recorded coming in</h2>
+                <p className="mt-1 max-w-2xl text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-400">Income is evidence for this period, not a claim that every pound of spending came from this pay packet.</p>
+              </section>
+
               <SpendVerdictView
                 verdict={verdict}
                 colours={colours}
                 hideReading
+                journey
                 categoryInsights={categoryInsights}
                 expandMajoritySignal={expandSignal}
                 miscategorisedCount={miscategorisedCount}
                 pairCount={pairCount}
                 reviewTotal={reviewTotal}
                 onMiscategorisedTap={handleMiscategorisedTap}
-                // Task 3 — every category tap (notable card's "See the N
-                // payments", every majority row) opens the global hub with
-                // both the category and this period pre-applied as removable
-                // chips, instead of CategorySheet.
                 onOpenCategory={(name) => {
                   const params = new URLSearchParams();
                   params.set("category", name);
@@ -1009,36 +1069,17 @@ export default function SpendPage() {
                   params.set("to", isoDate(periodEnd));
                   router.push(`/transactions?${params.toString()}`);
                 }}
-                // The ask card's account line (Change 3) — resolved here off
-                // `accounts` state since SpendVerdictView has no accounts list
-                // of its own; undefined (never a blank separator) when the
-                // account can't be resolved, matching UnresolvedAskCard's own
-                // fallback.
                 unresolvedAccountName={accounts.find(a => a.id === verdict.unresolved.largest?.account_id)?.name}
-                // "Money you moved" rows (Change 6) — same route-construction
-                // pattern as onOpenCategory above (category/from/to), plus
-                // `txn_type=debit` (a moved-money row is never a refund/credit)
-                // and `label` so the removable chip on /transactions shows the
-                // row's own label ("To your pots") instead of a raw joined
-                // category list. SpendVerdictView only ever calls this for a
-                // row it has already gated on `m.categories` being non-empty.
                 onOpenMoved={(m) => {
                   if (!m.categories || m.categories.length === 0) return;
                   const params = new URLSearchParams();
-                  // One `categories` param per name (not a comma-joined
-                  // `category` string) — a custom movement category name can
-                  // legally contain a comma, which a delimiter can't represent
-                  // unambiguously. URLSearchParams handles the encoding, and
-                  // the backend's `_search_query` reads the repeated param
-                  // as an exact-match list (see transactions.py).
-                  m.categories.forEach((c) => params.append("categories", c));
+                  m.categories.forEach((category) => params.append("categories", category));
                   params.set("txn_type", "debit");
                   params.set("from", isoDate(periodStart));
                   params.set("to", isoDate(periodEnd));
                   params.set("label", m.label);
                   router.push(`/transactions?${params.toString()}`);
                 }}
-                // BACK-navigation restore — see the restoredUi comment above.
                 initialMajorityExpanded={restoredUi.majorityExpanded}
                 onMajorityExpandedChange={(expanded) => writeSpendUiState({ majorityExpanded: expanded })}
                 initialMovedOpen={restoredUi.movedOpen}
@@ -1046,48 +1087,21 @@ export default function SpendPage() {
                 signals={signals}
                 sym={sym}
                 onAimChanged={refetchSignals}
-                onIntent={(category, answer) => {
-                  // Returns the request promise (no swallowed .catch()) so the
-                  // card can await the real result and only claim success once
-                  // the write has actually landed — see SpendVerdictView. Only
-                  // ever called for "one_off" now — "new_normal" always routes
-                  // through onNewNormalRequest below instead.
-                  return api.recordTrendIntent(category, answer)
-                    .then(() => { refetchSignals(); fetchVerdict(periodOffset); });
-                }}
+                onIntent={(category, answer) => api.recordTrendIntent(category, answer)
+                  .then(() => { refetchSignals(); fetchVerdict(periodOffset); })}
                 resolved={resolved}
                 onResolved={handleResolved}
                 onNewNormalRequest={(category) => { setFileError(false); setConsentFor(category); }}
                 onAskCorrect={() => {
-                  // "Tell me what this was" opens the teaching sheet directly
-                  // on the unresolved transaction — no detour through a
-                  // synthetic "Other" category sheet first. category stays
-                  // "Other" (honest — that's what the row really is); the
-                  // sheet is told separately (forceMovementRoot below) to
-                  // open on "Is this account yours?" rather than the spend
-                  // picker, matching /design/spend-live's preview of this
-                  // handoff (fix-round Blocker 4 — the Destination Rule's
-                  // movement question is the better first question for a
-                  // payment the engine explicitly couldn't place).
                   const largest = verdict.unresolved.largest;
                   if (!largest) return;
                   setAskHandoffTxId(largest.id);
                   setSelectedTx({
                     id: largest.id,
-                    // account_id is now on the unresolved payload's largest
-                    // (Change 3) — fall back to "" only for a cached payload
-                    // fetched before the backend started sending it, same as
-                    // before this field existed.
                     account_id: largest.account_id ?? "",
                     date: largest.date,
                     amount: largest.amount,
                     currency: region === "Kenya" ? "KES" : "GBP",
-                    // description carries the raw provider string (the sheet's
-                    // evidence line); merchant_name only carries a display_name
-                    // when one actually survived the cleanup — never launder
-                    // the raw string into the field that means "cleaned
-                    // merchant" (TeachingSheet's `name` falls back to
-                    // `description` automatically when this is undefined).
                     description: largest.raw_description,
                     merchant_name: largest.display_name || undefined,
                     category: "Other",
@@ -1095,65 +1109,54 @@ export default function SpendPage() {
                   });
                 }}
               />
-              <div className="mt-4">
-                <SpendShapeCard
-                  shape={moneyShape}
-                  hideValues={hideNetWorth}
-                  onOpen={() => router.push("/spend/shape")}
-                />
-              </div>
+
+              <section className="relative scroll-mt-24 pb-10">
+                <span aria-hidden="true" className="absolute -left-8 top-1 size-6 rounded-full border-[6px] border-emerald-400 bg-white ring-4 ring-[#f0f2f7] dark:bg-slate-900 dark:ring-[#0f172a] sm:-left-10" />
+                <SpendShapeCard shape={moneyShape} hideValues={hideNetWorth} onOpen={() => router.push("/spend/shape")} />
+              </section>
+
+              <section ref={setChartsAnchor} id="spend-journey-charts" tabIndex={-1} className="relative scroll-mt-24 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">
+                <span className="absolute -left-8 top-1 flex size-6 items-center justify-center rounded-full border border-indigo-300 bg-indigo-50 text-indigo-700 ring-4 ring-[#f0f2f7] dark:border-indigo-400/30 dark:bg-indigo-400/10 dark:text-indigo-300 dark:ring-[#0f172a] sm:-left-10" aria-hidden="true">
+                  <BarChart3 size={12} />
+                </span>
+                <h2 className="text-xl font-bold text-slate-950 dark:text-white">Your charts</h2>
+                <p className="mt-1 max-w-2xl text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-400">Choose what appears here, drag the handle to reorder, or pin one chart to Home.</p>
+                {!chartsRequested || pageLoading ? (
+                  <div className="flex min-h-36 items-center justify-center" aria-label="Loading charts"><Spinner size={32} /></div>
+                ) : (
+                  <SpendTrends
+                    embedded
+                    periodTxns={homeTxns}
+                    allTxns={homeAllTxns}
+                    periodStart={periodStart}
+                    periodEnd={periodEnd}
+                    payPeriodConfig={payPeriodConfig}
+                    colours={colours}
+                    paceSeries={verdict.pace_series}
+                    onReviewLarge={() => {
+                      const large = listTxns.filter((tx) => Math.abs(tx.amount) >= 250);
+                      setOpenCategory({
+                        name: "Other",
+                        title: "Payments over £250",
+                        total: large.reduce((sum, transaction) => sum + Math.abs(transaction.amount), 0),
+                        count: large.length,
+                        transactions: large,
+                        pct: 0,
+                      });
+                    }}
+                  />
+                )}
+              </section>
             </>
-          ) : pageLoading || verdictLoading ? (
-            <div className="flex items-center justify-center py-16">
-              <Spinner size={32} />
-            </div>
+          ) : verdictLoading ? (
+            <div className="flex items-center justify-center py-16"><Spinner size={32} /></div>
           ) : (
             <div className="glass-card rounded-2xl p-8 text-center">
-              <p className="text-slate-500 dark:text-slate-400 text-sm">Couldn&apos;t load this period. Try again shortly.</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400">Couldn&apos;t load this period. Try again shortly.</p>
             </div>
           )}
-        </div>
-      ) : (
-        <>
-          {pageLoading ? (
-            <div className="flex items-center justify-center py-16">
-              <Spinner size={32} />
-            </div>
-          ) : (
-            <>
-              <div className="px-4 pt-5">
-                <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">Charts</h2>
-                <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">Explore the detail behind your spending.</p>
-              </div>
-              <SpendTrends
-                periodTxns={homeTxns}
-                allTxns={homeAllTxns}
-                periodStart={periodStart}
-                periodEnd={periodEnd}
-                payPeriodConfig={payPeriodConfig}
-                colours={colours}
-                // pace_curve widget's data — the same verdict state the
-                // header above already reads, never a second fetch/derivation.
-                paceSeries={verdict?.pace_series}
-                onReviewLarge={() => {
-                  // No standalone Transactions/list view survives the redesign
-                  // — reuse the existing CategorySheet as a synthetic, scoped
-                  // list rather than inventing a new surface.
-                  const large = listTxns.filter((tx) => Math.abs(tx.amount) >= 250);
-                  setOpenCategory({
-                    name: "Other",
-                    title: "Payments over £250",
-                    total: large.reduce((s, t) => s + Math.abs(t.amount), 0),
-                    count: large.length,
-                    transactions: large,
-                    pct: 0,
-                  });
-                }}
-              />
-            </>
-          )}
-        </>
-      )}
+        </main>
+      </div>
 
       {/* Category sheet — survives ONLY for the synthetic "Payments over
           £250" list (Spend Trends' onReviewLarge, below): an amount-

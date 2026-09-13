@@ -24,16 +24,26 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import Link from "next/link";
+import { BarChart3, WalletCards } from "lucide-react";
 import SpendVerdictView from "@/components/SpendVerdictView";
-import SpendHeader, { SpendPatternsToggle, RecentPeriodOption } from "@/components/SpendHeader";
+import { SpendJourneySummary, SpendPeriodBar, type RecentPeriodOption } from "@/components/SpendHeader";
+import SpendJourneyNav, { type SpendJourneyDestination } from "@/components/SpendJourneyNav";
+import SpendTrends from "@/components/SpendTrends";
 import TeachingSheet from "@/components/TeachingSheet";
 import PayPeriodSettingsSheet from "@/components/PayPeriodSettingsSheet";
 import CategorisationRulesSheet from "@/components/CategorisationRulesSheet";
-import { SPEND_VERDICT_FIXTURES, PREVIEW_INCOME_TXNS, PREVIEW_SIGNALS, PREVIEW_ACCOUNTS } from "./fixtures";
+import {
+  PREVIEW_ACCOUNTS,
+  PREVIEW_CHART_PERIOD_TXNS,
+  PREVIEW_CHART_TRANSACTIONS,
+  PREVIEW_INCOME_TXNS,
+  PREVIEW_SIGNALS,
+  SPEND_VERDICT_FIXTURES,
+} from "./fixtures";
 import { api } from "@/lib/api";
 import type { SpendVerdictState, Transaction } from "@/lib/api";
 import { DEFAULT_PAY_PERIOD_CONFIG, prevPeriodWithConfig } from "@/lib/payPeriod";
+import { OPEN_TIPS } from "../spend-tips/fixtures";
 
 // Fixture transactions for the teaching-sheet demo modes below — one per
 // fork (ENGINE.md Destination Rule: movement gets destinations, spend gets
@@ -167,14 +177,6 @@ export default function SpendLiveClient() {
     return list;
   }, [verdict.period.start, verdict.period.end]);
 
-  // "Breakdown" vs "Charts" (renamed from "This period"/"Over time",
-  // 2026-09 — see SpendHeader.tsx's SpendPatternsToggle) — the body swaps in
-  // place (matching production's own SpendPage.tsx pattern). This
-  // fixture-only route has no live transaction list to chart, so the
-  // swapped-in content is an honest placeholder pointing at the real page
-  // rather than a fake chart.
-  const [showPatterns, setShowPatterns] = useState(false);
-
   // "Out" tap's Show Your Working destination — force the majority list
   // open and scroll to it, the exact reconciled transactions behind the
   // Out/Spent figure (notables + majority + unresolved = pills.spent).
@@ -185,6 +187,14 @@ export default function SpendLiveClient() {
   function handleOutTap() {
     setExpandSignal((s) => (s ?? 0) + 1);
     document.getElementById("spend-majority-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function handleMovedTap() {
+    document.getElementById("spend-money-moved")?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
+  function handleUnresolvedTap() {
+    document.getElementById("spend-unresolved")?.scrollIntoView({ behavior: "smooth", block: "center" });
   }
 
   useEffect(() => {
@@ -198,23 +208,34 @@ export default function SpendLiveClient() {
   }, [mode]);
 
   const hrefFor = (s: SpendVerdictState) => `?mode=${mode}&state=${s}`;
-
-  const patternsPlaceholder = (
-    <div className="glass-card-flat rounded-2xl p-4 text-center">
-      <p className="text-sm text-slate-600 dark:text-slate-400">
-        Charts draws from your live transactions, this preview doesn&apos;t have any to plot.
-      </p>
-      <Link href="/spend?view=trends" className="mt-2 inline-block text-[13px] font-semibold text-indigo-600 dark:text-indigo-400">
-        See it on the real Spend page →
-      </Link>
-    </div>
-  );
+  const latestPace = [...(verdict.pace_series ?? [])].reverse().find((point) => point.usual != null);
+  const paceDifference = latestPace?.usual == null ? null : verdict.pills.spent - latestPace.usual;
+  const money = (value: number) => `£${Math.abs(Math.round(value)).toLocaleString("en-GB")}`;
+  const destinations: SpendJourneyDestination[] = [
+    ...(verdict.notables.length > 0 ? [{
+      id: "spend-journey-changes",
+      label: "Changes",
+      value: paceDifference == null ? `${verdict.notables.length} to review` : money(paceDifference),
+      needsLook: paceDifference != null && paceDifference > 0,
+    }] : []),
+    ...(verdict.unresolved.total > 0 ? [{
+      id: "spend-unresolved",
+      label: "Place",
+      value: `${verdict.unresolved.payments_count} · ${money(verdict.unresolved.total)}`,
+    }] : []),
+    {
+      id: "spend-majority-section",
+      label: "Spending",
+      value: money(verdict.majority.reduce((sum, row) => sum + Math.max(0, row.spent), 0)),
+    },
+    { id: "spend-journey-charts", label: "Charts", value: "3 shown" },
+  ];
 
   return (
     <div className={mode === "dark" ? "dark" : ""}>
       <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-28">
-        <div className="mx-auto w-full max-w-[430px]">
-          <SpendHeader
+        <div className="mx-auto w-full max-w-6xl px-4 pt-5 sm:px-6 lg:px-8">
+          <SpendPeriodBar
             verdict={verdict}
             loading={false}
             periodLabel={periodLabel(verdict.period.start, verdict.period.end)}
@@ -227,20 +248,46 @@ export default function SpendLiveClient() {
             incomeTxns={PREVIEW_INCOME_TXNS}
             onTransactionClick={(tx) => { setSheetTx(tx); setSheetForceMovementRoot(false); setSheetOpen(true); }}
             onOutTap={handleOutTap}
+            onMovedTap={handleMovedTap}
+            onUnresolvedTap={handleUnresolvedTap}
             recentPeriods={recentPeriods}
             onSelectOffset={(o) => setPeriodOffset(o)}
           />
 
-          {/* The real component under test, rendering the fixture payload.
-              hideReading is always true — the header already renders the
-              reading (20px hero treatment). */}
-          <div className="px-4 pt-4">
-            {showPatterns ? (
-              <>
-                <SpendPatternsToggle showPatterns={showPatterns} onSetShowPatterns={setShowPatterns} />
-                {patternsPlaceholder}
-              </>
-            ) : (
+          <div className="sticky top-0 z-30 -mx-4 mt-3 border-y border-slate-200/90 bg-[#f0f2f7]/95 px-4 py-2 backdrop-blur-sm dark:border-slate-700/80 dark:bg-[#0f172a]/95 lg:hidden">
+            <SpendJourneyNav destinations={destinations} />
+          </div>
+
+          <div className="mt-7 grid items-start gap-9 lg:grid-cols-[minmax(260px,0.72fr)_minmax(0,1.45fr)] lg:gap-14">
+            <aside className="lg:sticky lg:top-6">
+              <SpendJourneySummary
+                verdict={verdict}
+                periodLabel={periodLabel(verdict.period.start, verdict.period.end)}
+                isCurrentPeriod={isCurrentPeriod}
+                canGoPrev
+                onPrev={() => setPeriodOffset((offset) => offset - 1)}
+                onNext={() => setPeriodOffset((offset) => Math.min(0, offset + 1))}
+                onOpenSettings={() => setSettingsOpen(true)}
+                onOpenRules={() => setRulesOpen(true)}
+                incomeTxns={PREVIEW_INCOME_TXNS}
+                onTransactionClick={(transaction) => { setSheetTx(transaction); setSheetForceMovementRoot(false); setSheetOpen(true); }}
+                onOutTap={handleOutTap}
+                onMovedTap={handleMovedTap}
+                onUnresolvedTap={handleUnresolvedTap}
+                recentPeriods={recentPeriods}
+                onSelectOffset={(offset) => setPeriodOffset(offset)}
+              />
+              <div className="mt-5 hidden lg:block"><SpendJourneyNav destinations={destinations} desktop /></div>
+            </aside>
+
+            <main className="relative pl-8 before:absolute before:bottom-3 before:left-[11px] before:top-3 before:w-px before:bg-slate-300 dark:before:bg-slate-600 sm:pl-10">
+              <section className="relative pb-10">
+                <span className="absolute -left-8 top-1 flex size-6 items-center justify-center rounded-full bg-indigo-600 text-white ring-4 ring-[#f0f2f7] dark:ring-[#0f172a] sm:-left-10" aria-hidden="true"><WalletCards size={12} /></span>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-slate-600 dark:text-slate-400">Pay arrived · 31 Jul</p>
+                <h2 className="mt-2 text-xl font-bold text-slate-950 dark:text-white"><span className="font-mono tabular-nums">{money(verdict.pills.income)}</span> recorded coming in</h2>
+                <p className="mt-1 max-w-2xl text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-400">Income is evidence for this period, not a claim that every pound of spending came from this pay packet.</p>
+              </section>
+
               <SpendVerdictView
                 verdict={verdict}
                 colours={{}}
@@ -256,8 +303,9 @@ export default function SpendLiveClient() {
                 onAimChanged={() => {}}
                 onAskCorrect={() => { setSheetTx(ASK_FIXTURE_TX); setSheetForceMovementRoot(true); setSheetOpen(true); }}
                 hideReading
+                journey
+                categoryInsights={OPEN_TIPS}
                 expandMajoritySignal={expandSignal}
-                aboveMajority={<SpendPatternsToggle showPatterns={showPatterns} onSetShowPatterns={setShowPatterns} />}
                 // Mirrors SpendPage.tsx's own resolve-off-accounts-state
                 // pattern (Change 3), against the small PREVIEW_ACCOUNTS
                 // fixture — proves the ask card renders the account name,
@@ -272,12 +320,29 @@ export default function SpendLiveClient() {
                   window.alert(`Would open /transactions?category=${m.categories.join(",")}&txn_type=debit&label=${encodeURIComponent(m.label)}`);
                 }}
               />
-            )}
+
+              <section id="spend-journey-charts" tabIndex={-1} className="relative scroll-mt-24 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">
+                <span className="absolute -left-8 top-1 flex size-6 items-center justify-center rounded-full border border-indigo-300 bg-indigo-50 text-indigo-700 ring-4 ring-[#f0f2f7] dark:border-indigo-400/30 dark:bg-indigo-400/10 dark:text-indigo-300 dark:ring-[#0f172a] sm:-left-10" aria-hidden="true"><BarChart3 size={12} /></span>
+                <h2 className="text-xl font-bold text-slate-950 dark:text-white">Your charts</h2>
+                <p className="mt-1 max-w-2xl text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-400">Choose what appears here, drag the handle to reorder, or pin one chart to Home.</p>
+              <SpendTrends
+                embedded
+                preview={{ widgets: ["category_pie", "daily_bars", "period_compare"], pinnedWidget: "period_compare" }}
+                periodTxns={PREVIEW_CHART_PERIOD_TXNS}
+                allTxns={PREVIEW_CHART_TRANSACTIONS}
+                  periodStart={new Date(verdict.period.start)}
+                  periodEnd={new Date(verdict.period.end)}
+                  payPeriodConfig={DEFAULT_PAY_PERIOD_CONFIG}
+                  colours={{}}
+                  paceSeries={verdict.pace_series}
+                />
+              </section>
+            </main>
           </div>
 
           {/* Teaching-sheet demo entry points — both forks, the real
               component (not a redrawn mockup). */}
-          <div className="px-4 mt-4 flex items-center gap-3">
+          <div className="mt-8 flex flex-wrap items-center gap-3">
             <button
               type="button"
               onClick={() => { setSheetTx(MOVE_FIXTURE_TX); setSheetForceMovementRoot(false); setSheetOpen(true); }}
