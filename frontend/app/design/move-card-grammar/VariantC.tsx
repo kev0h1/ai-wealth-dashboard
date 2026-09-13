@@ -1,6 +1,27 @@
 import { ChevronDown } from "lucide-react";
 import type { MoveScenario } from "./fixtures";
-import { AccountBadge, AccountRow, Assurance, Currency, MoveCardFrame, PaymentLine, PreviewHeading, RouteArrow } from "./shared";
+import { AccountBadge, AccountRow, Assurance, Currency, MoveCardFrame, PaymentsList, paymentTotal, PreviewHeading, RouteArrow } from "./shared";
+
+function SourceBadgeStack({ scenario }: { scenario: MoveScenario }) {
+  return (
+    <span
+      data-source-icon-stack
+      aria-label={scenario.sources.map((source) => source.name).join(", ")}
+      className="flex shrink-0 -space-x-2"
+    >
+      {scenario.sources.map((source, index) => (
+        <span
+          key={source.name}
+          data-source-icon={source.provider}
+          className="relative inline-flex rounded-lg ring-2 ring-slate-50 dark:ring-slate-900"
+          style={{ zIndex: scenario.sources.length - index }}
+        >
+          <AccountBadge account={source} size={28} />
+        </span>
+      ))}
+    </span>
+  );
+}
 
 function SummaryNode({ scenario, side }: { scenario: MoveScenario; side: "from" | "to" }) {
   if (side === "to") {
@@ -21,14 +42,7 @@ function SummaryNode({ scenario, side }: { scenario: MoveScenario; side: "from" 
   return (
     <div className="min-w-0">
       <div className="flex items-center gap-1.5">
-        <div className="relative h-7 w-8 shrink-0">
-          <span className="absolute left-0 top-0"><AccountBadge account={first} size={28} /></span>
-          {scenario.sources.length > 1 ? (
-            <span className="absolute -bottom-1 -right-0.5 grid size-5 place-items-center rounded-full border-2 border-white bg-slate-700 text-[9px] font-bold text-white dark:border-slate-800 dark:bg-slate-500">
-              {scenario.sources.length}
-            </span>
-          ) : null}
-        </div>
+        <SourceBadgeStack scenario={scenario} />
         <div className="min-w-0">
           <p className="text-[10px] font-semibold uppercase tracking-[0.05em] text-slate-400 dark:text-slate-500">From</p>
           <p className="text-[12px] font-semibold leading-4 text-slate-900 dark:text-white">
@@ -41,6 +55,8 @@ function SummaryNode({ scenario, side }: { scenario: MoveScenario; side: "from" 
 }
 
 function FoldCard({ scenario }: { scenario: MoveScenario }) {
+  const lastPayment = scenario.payments[scenario.payments.length - 1];
+
   return (
     <MoveCardFrame scenario={scenario}>
       <div data-move-lead className="mt-3 flex items-baseline justify-between gap-3">
@@ -49,7 +65,9 @@ function FoldCard({ scenario }: { scenario: MoveScenario }) {
           <p className="text-[12px] text-slate-500 dark:text-slate-400">moving now</p>
         </div>
         <p className="max-w-[170px] text-right text-[12px] leading-5 text-slate-500 dark:text-slate-400">
-          {scenario.overdue ? "Payment overdue" : "Payment due"} {scenario.payment.due}
+          {scenario.payments.length === 1
+            ? `${scenario.overdue ? "Payment overdue" : "Payment due"} ${lastPayment.due}`
+            : `${scenario.payments.length} payments due by ${lastPayment.due}`}
         </p>
       </div>
 
@@ -70,7 +88,25 @@ function FoldCard({ scenario }: { scenario: MoveScenario }) {
       </details>
 
       <div className="mt-3">
-        <PaymentLine scenario={scenario} />
+        {scenario.payments.length === 1 ? (
+          <PaymentsList scenario={scenario} />
+        ) : (
+          <details data-payment-disclosure className="group rounded-xl border border-slate-100 bg-slate-50 dark:border-slate-700 dark:bg-slate-900/35">
+            <summary className="flex min-h-14 cursor-pointer list-none touch-manipulation items-center justify-between gap-3 rounded-xl px-3 py-2 [-webkit-tap-highlight-color:transparent] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 [&::-webkit-details-marker]:hidden">
+              <span className="min-w-0">
+                <span className="block text-[13px] font-semibold text-slate-800 dark:text-slate-100">Protects {scenario.payments.length} payments</span>
+                <span className="block text-[12px] leading-4 text-slate-500 dark:text-slate-400">Due by {lastPayment.due}</span>
+              </span>
+              <span className="flex shrink-0 items-center gap-2">
+                <Currency value={paymentTotal(scenario)} className="text-[13px] font-semibold text-slate-900 dark:text-slate-100" />
+                <ChevronDown size={15} className="transition-transform duration-200 group-open:rotate-180 motion-reduce:transition-none" aria-hidden="true" />
+              </span>
+            </summary>
+            <div className="border-t border-slate-100 px-3 dark:border-slate-700">
+              <PaymentsList scenario={scenario} compact />
+            </div>
+          </details>
+        )}
       </div>
       <Assurance scenario={scenario} />
     </MoveCardFrame>
@@ -87,7 +123,7 @@ const NUMBER = new Intl.NumberFormat("en-GB", {
 export default function VariantC({ scenarios }: { scenarios: readonly MoveScenario[] }) {
   return (
     <section aria-label="Variant C, compact handoff">
-      <PreviewHeading title="C · Compact handoff" copy="The transfer reads in one line, with the same source disclosure on both cards. Open it only when the account split matters." />
+      <PreviewHeading title="C · Compact handoff" copy="Actual source icons stack in the transfer summary. Source and payment details stay one tap away when either side grows." />
       <div className="grid items-start gap-4 lg:grid-cols-2">
         {scenarios.map((scenario) => <FoldCard key={scenario.id} scenario={scenario} />)}
       </div>

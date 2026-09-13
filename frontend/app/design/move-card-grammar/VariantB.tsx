@@ -1,10 +1,10 @@
 import type { MoveScenario } from "./fixtures";
-import { AccountRow, Assurance, MoveCardFrame, MoveLead, PaymentLine, PreviewHeading } from "./shared";
+import { AccountRow, Assurance, MoveCardFrame, MoveLead, PaymentsList, PreviewHeading } from "./shared";
 
 function LedgerCard({ scenario }: { scenario: MoveScenario }) {
   return (
     <MoveCardFrame scenario={scenario}>
-      <MoveLead scenario={scenario} companion={<>to the payment account</>} />
+      <MoveLead scenario={scenario} companion={<>to the bills account</>} />
       <div className="mt-3 overflow-hidden rounded-xl border border-slate-100 bg-slate-50/70 dark:border-slate-700 dark:bg-slate-900/30">
         <div className="px-3 py-2">
           <p className="text-[10px] font-semibold uppercase tracking-[0.05em] text-slate-400 dark:text-slate-500">
@@ -19,14 +19,14 @@ function LedgerCard({ scenario }: { scenario: MoveScenario }) {
           <p className="text-[10px] font-semibold uppercase tracking-[0.05em] text-slate-400 dark:text-slate-500">To</p>
           <AccountRow
             account={{ ...scenario.destination, amount: scenario.moving }}
-            label={`${NUMBER.format(scenario.destination.held)} held · £10 buffer included`}
+            label={`${NUMBER.format(scenario.destination.held)} held · ${NUMBER.format(scenario.destination.buffer)} buffer included`}
           />
         </div>
       </div>
 
       <div className="mt-3 border-y border-slate-100 dark:border-slate-700">
         <p className="pt-2 text-[10px] font-semibold uppercase tracking-[0.05em] text-slate-400 dark:text-slate-500">Covers</p>
-        <PaymentLine scenario={scenario} compact />
+        <PaymentsList scenario={scenario} compact />
       </div>
       <Assurance scenario={scenario} />
     </MoveCardFrame>
@@ -43,7 +43,7 @@ const NUMBER = new Intl.NumberFormat("en-GB", {
 export default function VariantB({ scenarios }: { scenarios: readonly MoveScenario[] }) {
   return (
     <section aria-label="Variant B, transfer ledger">
-      <PreviewHeading title="B · Transfer ledger" copy="A single From, To, Covers sequence keeps every account and amount in one scan. The source section simply gains rows." />
+      <PreviewHeading title="B · Transfer ledger" copy="A single From, To, Covers sequence keeps every account and amount in one scan. Source and payment sections simply gain rows." />
       <div className="grid items-start gap-4 lg:grid-cols-2">
         {scenarios.map((scenario) => <LedgerCard key={scenario.id} scenario={scenario} />)}
       </div>
