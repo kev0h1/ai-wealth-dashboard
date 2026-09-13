@@ -46,7 +46,10 @@ pass, which merged the rejected branch anyway).
      flagged explicitly via `scripts/session.sh finish <ID> --uat-review`
      (recorded on the board as the item's `uat_review` flag) or, as a
      backstop, if the merge's own diff touches only
-     `frontend/app/design/` — mark it `uat` with a preview link instead of
+     `frontend/app/design/` AND looks like a genuine variants round (H41:
+     either it creates a brand new preview directory from scratch, or it
+     touches two or more live VariantX.tsx files together inside one
+     preview directory) — mark it `uat` with a preview link instead of
      `done`, and push Kevin a notification through the existing FCM/APNs
      path (`app.services.notifications.notify_uat_ready`). Otherwise mark
      it done with the merge commit. Either way: delete the remote branch
@@ -192,24 +195,125 @@ def _changed_paths(sha_range: str) -> set[str]:
 # unmerged (see B19). This is decided two ways: explicitly, by
 # `scripts/session.sh finish <ID> --uat-review` (recorded on the board as
 # the item's `uat_review` flag while it sits in `review`), or, as a
-# backstop when that flag was forgotten, by DESIGN_ROUND_DIFF below over
-# the merge's own changed paths.
+# backstop when that flag was forgotten, by _is_design_round_diff below
+# over the merge's own changed paths. The flag always wins outright: it is
+# checked with `or` before the heuristic is even evaluated (see
+# `_integrate_one`), so an agent that built variants and remembered to say
+# so is never second-guessed by anything below.
+#
+# H41: the backstop used to fire on ANY diff confined to
+# frontend/app/design/, full stop — which is right for a variants round
+# but also fired on preview TOOLING that happens to live under the same
+# tree and has nothing for Kevin to choose between: a fix making an
+# existing preview's named states reachable from a URL (H40), converting a
+# hand-authored preview to render its shipped production component, and
+# deleting previews that no longer gate anything (H43, three times). Each
+# of those is confined to frontend/app/design/ and touches nothing else,
+# so the old rule landed all four in `uat` and a coordinator had to move
+# them back to `todo`/`done` by hand every time. The tightened rule below
+# requires the diff to additionally look like a real variants round in one
+# of two ways a genuine round always has and none of the four misfiles
+# did:
+#   (a) it creates at least one frontend/app/design/<slug>/ directory that
+#       had no files at all at the pre-merge sha — the shape of G48, G51
+#       and G57, each landing every file for a never-before-seen slug in
+#       one merge; or
+#   (b) it adds or modifies (never only deletes) two or more distinctly
+#       named VariantX.tsx files together inside one existing preview
+#       directory — the shape of G53, which restacked a shared primitive
+#       and re-touched VariantA/B/C.tsx together with no new directory or
+#       file anywhere, still a live round revisiting the choices Kevin is
+#       comparing. A status of "deleted" never counts towards this: H43
+#       deleted whole VariantA/B/C.tsx sets across two of its four
+#       misfiles, and removing a choice is not creating one.
+# Neither signal fires for H40 (edits one already-existing, non-variant
+# file) or H43 (deletes or converts already-existing files, no new
+# directory, no live variant pair) — see the regression tests in
+# backend/tests/test_integrate_script.py that assert exactly that.
 _DESIGN_ROUND_PREFIX = "frontend/app/design/"
+_VARIANT_FILE_RE = re.compile(r"^Variant[A-Za-z0-9]*\.tsx$")
 
 
-def _is_design_round_diff(changed: set[str]) -> bool:
-    """True only when every changed path is under frontend/app/design/ — a
-    branch that touches so much as one file outside that tree (a
+def _slug_is_new(slug: str, pre_sha: str) -> bool:
+    """True when frontend/app/design/<slug>/ had no files at all in the
+    tree at `pre_sha` — i.e. this merge created the whole preview
+    directory from scratch, signal (a) above. Best-effort like the rest of
+    this heuristic: `git ls-tree` failing for any reason (unexpected right
+    after a successful merge, but this must never be the thing that turns
+    a good merge into a blocked one) is treated as "not new" rather than
+    raising, since under-classifying into `done` is always the safe
+    failure direction here — a `done` item can be reopened by hand, but a
+    phantom `uat` entry pings Kevin with a choice that doesn't exist."""
+    rc, out = _sh(["git", "ls-tree", "-r", "--name-only", pre_sha, "--", f"{_DESIGN_ROUND_PREFIX}{slug}"], timeout=10)
+    if rc != 0:
+        return False
+    return not out.strip()
+
+
+def _changed_paths_with_status(sha_range: str) -> dict[str, str]:
+    """Like `_changed_paths` above but keeps each path's git status letter
+    (A/M/D, or a rename/copy code like R100/C100 kept as-is) so
+    `_has_multi_variant_edit` below can tell a file that was added or
+    modified from one that was only deleted. Returns an empty dict on any
+    git failure, same fail-safe direction as `_slug_is_new`."""
+    rc, out = _sh(["git", "diff", "--name-status", sha_range], timeout=GIT_TIMEOUT)
+    if rc != 0:
+        return {}
+    result: dict[str, str] = {}
+    for line in out.splitlines():
+        parts = line.split("\t")
+        if len(parts) < 2:
+            continue
+        # A rename/copy line is "R100\told-path\tnew-path" (3 fields); the
+        # path this script cares about — whether the preview file exists
+        # now — is always the last field.
+        result[parts[-1].strip()] = parts[0].strip()
+    return result
+
+
+def _has_multi_variant_edit(status_by_path: dict[str, str]) -> bool:
+    """Signal (b) above: true when two or more distinctly named
+    VariantX.tsx files under the same frontend/app/design/<slug>/
+    directory were added or modified together (never only deleted) in
+    this merge."""
+    by_slug: dict[str, set[str]] = {}
+    for path, status in status_by_path.items():
+        if status.startswith("D"):
+            continue
+        if not path.startswith(_DESIGN_ROUND_PREFIX):
+            continue
+        rest = path[len(_DESIGN_ROUND_PREFIX):]
+        if "/" not in rest:
+            continue
+        slug, filename = rest.split("/", 1)
+        if "/" in filename or not _VARIANT_FILE_RE.match(filename):
+            continue
+        by_slug.setdefault(slug, set()).add(filename)
+    return any(len(files) >= 2 for files in by_slug.values())
+
+
+def _is_design_round_diff(changed: set[str], pre_sha: str) -> bool:
+    """True only when every changed path is under frontend/app/design/ —
+    a branch that touches so much as one file outside that tree (a
     production component, a shared lib, a test) is never just a design
     round by this heuristic, however small the rest of the diff is; see
     AGENTS.md "Design work", which already forbids touching a production
     component from one of these branches, so a diff confined to
     frontend/app/design/ is never anything else. An empty diff (e.g. a
     merge that only touched board metadata) does not count — there is
-    nothing to preview."""
+    nothing to preview.
+
+    On top of that (H41), the diff must also look like a genuine variants
+    round: see the module-level comment above `_DESIGN_ROUND_PREFIX` for
+    the two signals and the misfiles they were built to exclude."""
     if not changed:
         return False
-    return all(p.startswith(_DESIGN_ROUND_PREFIX) for p in changed)
+    if not all(p.startswith(_DESIGN_ROUND_PREFIX) for p in changed):
+        return False
+    slugs = _design_round_slugs(changed)
+    if any(_slug_is_new(slug, pre_sha) for slug in slugs):
+        return True
+    return _has_multi_variant_edit(_changed_paths_with_status(f"{pre_sha}..HEAD"))
 
 
 _DESIGN_INDEX_LINK = f"https://{backlog.PUBLIC_UAT_HOST}/design"
@@ -610,8 +714,25 @@ def _integrate_one(item: dict) -> tuple[str, str]:
     # by the backstop heuristic when that flag was forgotten) lands in
     # `uat` instead of `done` — the code is merged and UAT is rebuilt with
     # it either way, the only difference is that this is not the finished
-    # implementation, just variants waiting on Kevin's choice.
-    is_design_round = bool(item.get("uat_review")) or _is_design_round_diff(changed)
+    # implementation, just variants waiting on Kevin's choice. The flag
+    # always wins outright: `or` short-circuits before the heuristic below
+    # ever runs, so an agent that built variants and remembered to say so
+    # is never second-guessed.
+    #
+    # H41: the heuristic call itself is wrapped — the merge and push above
+    # have already succeeded, so a failure inside the classification (a
+    # git call behaving unexpectedly) must never turn a completed merge
+    # into a blocked one; the worst acceptable outcome here is landing in
+    # `done` instead of `uat`, never raising.
+    try:
+        design_round_backstop = _is_design_round_diff(changed, pre_sha)
+    except Exception as exc:  # noqa: BLE001 - classification must never abort a completed merge
+        print(
+            f"warning: design-round classification failed for {item_id}, defaulting to done: {exc}",
+            file=sys.stderr,
+        )
+        design_round_backstop = False
+    is_design_round = bool(item.get("uat_review")) or design_round_backstop
     if is_design_round:
         # H34: derive the real preview link from the merged diff instead of
         # always recording the bare design index. This is cosmetic, never

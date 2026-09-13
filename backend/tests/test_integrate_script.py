@@ -382,13 +382,36 @@ def test_block_swallows_backlog_error_from_set_state(monkeypatch, capsys):
 # ---------------------------------------------------------------------
 
 
-def test_is_design_round_diff_true_when_every_path_under_frontend_design():
+def _fake_sh_with_backstop_git_state(*, ls_tree_output: str = "", diff_name_status: str = ""):
+    """Answers the two extra git calls the tightened backstop (H41) makes
+    on top of the plain diff: `git ls-tree -r --name-only <sha> -- <path>`
+    (`_slug_is_new`, telling a brand new preview directory from an edit to
+    an existing one) and `git diff --name-status <range>`
+    (`_has_multi_variant_edit`, telling an added/modified VariantX.tsx
+    from a deleted one). Every ls-tree/diff --name-status call in a given
+    test gets the same canned output, which is fine since these tests each
+    only ever deal with one slug."""
+
+    def fake_sh(cmd, cwd=None, timeout=None):
+        if cmd[:2] == ["git", "ls-tree"]:
+            return 0, ls_tree_output
+        if cmd[:3] == ["git", "diff", "--name-status"]:
+            return 0, diff_name_status
+        return 0, ""
+
+    return fake_sh
+
+
+def test_is_design_round_diff_true_when_every_path_under_frontend_design(monkeypatch):
+    # ls-tree returns nothing for "plan-picker" -> the slug did not exist
+    # at the pre-merge sha, signal (a): a brand new preview directory.
+    monkeypatch.setattr(integrate, "_sh", _fake_sh_with_backstop_git_state(ls_tree_output=""))
     changed = {
         "frontend/app/design/plan-picker/page.tsx",
         "frontend/app/design/plan-picker/VariantA.tsx",
         "frontend/app/design/page.tsx",  # the index itself, still under the tree
     }
-    assert integrate._is_design_round_diff(changed) is True
+    assert integrate._is_design_round_diff(changed, "deadbeef") is True
 
 
 def test_is_design_round_diff_false_when_a_production_component_is_also_touched():
@@ -396,15 +419,138 @@ def test_is_design_round_diff_false_when_a_production_component_is_also_touched(
         "frontend/app/design/plan-picker/page.tsx",
         "frontend/app/components/HomePage.tsx",  # one file outside the tree is enough
     }
-    assert integrate._is_design_round_diff(changed) is False
+    # No _sh monkeypatch needed: the confined-to-prefix check fails and
+    # short-circuits before either backstop signal is ever evaluated.
+    assert integrate._is_design_round_diff(changed, "deadbeef") is False
 
 
 def test_is_design_round_diff_false_for_backend_only_change():
-    assert integrate._is_design_round_diff({"backend/app/services/x.py"}) is False
+    assert integrate._is_design_round_diff({"backend/app/services/x.py"}, "deadbeef") is False
 
 
 def test_is_design_round_diff_false_for_empty_diff():
-    assert integrate._is_design_round_diff(set()) is False
+    assert integrate._is_design_round_diff(set(), "deadbeef") is False
+
+
+# --- H41: the backstop used to fire on any diff confined to
+# frontend/app/design/, full stop, which is right for a variants round but
+# also misfiled on preview TOOLING that lives under the same tree: H40
+# edited an existing preview's internal states to make every branch
+# reachable from a URL, and H43 (three times) converted a hand-authored
+# preview to render its shipped production component and deleted previews
+# that no longer gated anything. None of those has anything for Kevin to
+# choose between. The tightened rule requires either a brand new preview
+# directory (signal a) or two or more live VariantX.tsx files touched
+# together (signal b) — see the module comment above _DESIGN_ROUND_PREFIX
+# in scripts/integrate.py. -----------------------------------------------
+
+
+def test_is_design_round_diff_false_for_edit_to_existing_single_file_preview(monkeypatch):
+    """H40 shape: an edit to CoverPlanSourcesScaleClient.tsx, the one file
+    an already-existing preview is built from, to make every named state
+    reachable — a reachability fix, not a round with a new choice. This
+    would pass under the old loose rule (every path confined to
+    frontend/app/design/, nothing else asked), so it is a genuine
+    regression check for H41, not a restatement of the old behaviour."""
+    monkeypatch.setattr(
+        integrate,
+        "_sh",
+        _fake_sh_with_backstop_git_state(
+            ls_tree_output=(
+                "frontend/app/design/cover-plan-sources-scale/CoverPlanSourcesScaleClient.tsx\n"
+                "frontend/app/design/cover-plan-sources-scale/page.tsx\n"
+            ),
+            diff_name_status="M\tfrontend/app/design/cover-plan-sources-scale/CoverPlanSourcesScaleClient.tsx\n",
+        ),
+    )
+    changed = {"frontend/app/design/cover-plan-sources-scale/CoverPlanSourcesScaleClient.tsx"}
+
+    result = integrate._is_design_round_diff(changed, "deadbeef")
+
+    print("H40-shape edit to an existing single-file preview -> is_design_round_diff:", result)
+    assert result is False
+
+
+def test_is_design_round_diff_false_for_deletion_of_existing_preview_variants(monkeypatch):
+    """H43 shape: a whole VariantA/B/C.tsx set deleted because the preview
+    no longer gated anything. The directory already existed and every
+    touched file is gone, never added or modified, so neither backstop
+    signal may fire however many variant-named files the deletion
+    spans."""
+    monkeypatch.setattr(
+        integrate,
+        "_sh",
+        _fake_sh_with_backstop_git_state(
+            ls_tree_output=(
+                "frontend/app/design/account-rows/VariantA.tsx\n"
+                "frontend/app/design/account-rows/VariantB.tsx\n"
+                "frontend/app/design/account-rows/VariantC.tsx\n"
+                "frontend/app/design/account-rows/page.tsx\n"
+            ),
+            diff_name_status=(
+                "D\tfrontend/app/design/account-rows/VariantA.tsx\n"
+                "D\tfrontend/app/design/account-rows/VariantB.tsx\n"
+                "D\tfrontend/app/design/account-rows/VariantC.tsx\n"
+                "D\tfrontend/app/design/account-rows/page.tsx\n"
+            ),
+        ),
+    )
+    changed = {
+        "frontend/app/design/account-rows/VariantA.tsx",
+        "frontend/app/design/account-rows/VariantB.tsx",
+        "frontend/app/design/account-rows/VariantC.tsx",
+        "frontend/app/design/account-rows/page.tsx",
+    }
+
+    result = integrate._is_design_round_diff(changed, "deadbeef")
+
+    print("H43-shape deletion of a whole variant set -> is_design_round_diff:", result)
+    assert result is False
+
+
+def test_is_design_round_diff_true_for_mixed_diff_editing_existing_variant_files(monkeypatch):
+    """G53 shape: not every genuine round adds a new directory. G53
+    restacked a shared primitive and re-touched VariantA/B/C.tsx together
+    inside the already-existing spend-period-round/ directory, with no new
+    file anywhere, and correctly needed to land in uat so Kevin could see
+    the restack applied to all three choices he was comparing. Two or more
+    live (added-or-modified, not deleted) VariantX.tsx files touched
+    together in one slug is still a real choice being revisited — this is
+    a mixed diff (some files match the variant pattern, some don't; some
+    slugs old, no slug new) and must still come out True."""
+    monkeypatch.setattr(
+        integrate,
+        "_sh",
+        _fake_sh_with_backstop_git_state(
+            ls_tree_output=(
+                "frontend/app/design/spend-period-round/VariantA.tsx\n"
+                "frontend/app/design/spend-period-round/VariantB.tsx\n"
+                "frontend/app/design/spend-period-round/VariantC.tsx\n"
+                "frontend/app/design/spend-period-round/primitives.tsx\n"
+                "frontend/app/design/spend-period-round/SpendPeriodRoundClient.tsx\n"
+                "frontend/app/design/spend-period-round/page.tsx\n"
+            ),
+            diff_name_status=(
+                "M\tfrontend/app/design/spend-period-round/VariantA.tsx\n"
+                "M\tfrontend/app/design/spend-period-round/VariantB.tsx\n"
+                "M\tfrontend/app/design/spend-period-round/VariantC.tsx\n"
+                "M\tfrontend/app/design/spend-period-round/primitives.tsx\n"
+                "M\tfrontend/app/design/spend-period-round/SpendPeriodRoundClient.tsx\n"
+            ),
+        ),
+    )
+    changed = {
+        "frontend/app/design/spend-period-round/VariantA.tsx",
+        "frontend/app/design/spend-period-round/VariantB.tsx",
+        "frontend/app/design/spend-period-round/VariantC.tsx",
+        "frontend/app/design/spend-period-round/primitives.tsx",
+        "frontend/app/design/spend-period-round/SpendPeriodRoundClient.tsx",
+    }
+
+    result = integrate._is_design_round_diff(changed, "deadbeef")
+
+    print("G53-shape refinement touching existing VariantA/B/C together -> is_design_round_diff:", result)
+    assert result is True
 
 
 def test_design_round_preview_falls_back_to_index_when_no_slug_can_be_derived():
@@ -764,6 +910,201 @@ def test_integrate_one_design_round_diff_with_a_production_file_also_touched_is_
     assert result == "merged"
     assert uat_calls == []
     assert len(done_calls) == 1
+
+
+# --- H41 end-to-end: the tightened backstop wired through the full
+# _integrate_one landing decision, not just the standalone
+# _is_design_round_diff unit above. Covers the four shapes the item asks
+# for directly: a newly added preview directory, an edit to an existing
+# one, a deletion, and a mixed diff — with the flag left unset (False) in
+# every case so only the heuristic itself is under test. ------------------
+
+
+def _fake_sh_with_backstop_state(*, ls_tree_output: str = "", diff_name_status: str = ""):
+    """`_patch_integrate_one_plumbing` already installs `_fake_sh_factory()`
+    for `_sh`; this layers the two extra git calls the tightened backstop
+    makes (see `_fake_sh_with_backstop_git_state` above the standalone
+    `_is_design_round_diff` tests) on top of that same base, so
+    `_integrate_one`'s other `_sh` calls (rev-parse, merge, push, curl for
+    the preview-link derivation) keep working exactly as they do in every
+    other `_integrate_one` test."""
+    base = _fake_sh_factory()
+
+    def fake_sh(cmd, cwd=integrate.REPO_ROOT, timeout=integrate.GIT_TIMEOUT):
+        if cmd[:2] == ["git", "ls-tree"]:
+            return 0, ls_tree_output
+        if cmd[:3] == ["git", "diff", "--name-status"]:
+            return 0, diff_name_status
+        return base(cmd, cwd=cwd, timeout=timeout)
+
+    return fake_sh
+
+
+def test_integrate_one_backstop_lands_uat_for_newly_added_preview_directory(monkeypatch):
+    """G48/G51/G57 shape: every file for a never-before-seen slug lands in
+    one merge. ls-tree at the pre-merge sha comes back empty for that
+    slug -> genuinely new -> uat, flag still unset."""
+    changed = {
+        "frontend/app/design/new-round/page.tsx",
+        "frontend/app/design/new-round/NewRoundClient.tsx",
+    }
+    _patch_integrate_one_plumbing(monkeypatch, changed)
+    monkeypatch.setattr(integrate, "_sh", _fake_sh_with_backstop_state(ls_tree_output=""))
+
+    uat_calls: list[tuple] = []
+    done_calls: list[tuple] = []
+    monkeypatch.setattr(integrate.backlog, "set_uat", lambda item_id, link, actor="claude": (uat_calls.append((item_id, link)), ({}, True))[1])
+    monkeypatch.setattr(integrate.backlog, "set_done", lambda *a, **k: (done_calls.append((a, k)), ({}, True))[1])
+    monkeypatch.setattr(integrate, "_notify_uat_ready", lambda item_id, title, link, detail=None: None)
+
+    item = {"id": "G90", "branch": "feature-G90-thing", "title": "New round", "uat_review": False}
+    result, detail = integrate._integrate_one(item)
+
+    print("newly added preview directory, flag unset -> result:", result, detail)
+
+    assert result == "merged"
+    assert "landed in uat" in detail
+    assert len(uat_calls) == 1
+    assert done_calls == []
+
+
+def test_integrate_one_backstop_lands_done_for_edit_to_existing_preview_states(monkeypatch):
+    """H40 shape and the item's core regression case: editing
+    CoverPlanSourcesScaleClient.tsx, the single file an already-existing
+    preview is built from, to make every named state reachable from a URL.
+    Nothing new for Kevin to choose between, so this must land done, not
+    uat. This is the exact case the old loose rule (every path confined to
+    frontend/app/design/, nothing else asked) got wrong four times; this
+    test fails under that rule and passes under the tightened one."""
+    changed = {"frontend/app/design/cover-plan-sources-scale/CoverPlanSourcesScaleClient.tsx"}
+    _patch_integrate_one_plumbing(monkeypatch, changed)
+    monkeypatch.setattr(
+        integrate,
+        "_sh",
+        _fake_sh_with_backstop_state(
+            ls_tree_output=(
+                "frontend/app/design/cover-plan-sources-scale/CoverPlanSourcesScaleClient.tsx\n"
+                "frontend/app/design/cover-plan-sources-scale/page.tsx\n"
+            ),
+            diff_name_status="M\tfrontend/app/design/cover-plan-sources-scale/CoverPlanSourcesScaleClient.tsx\n",
+        ),
+    )
+
+    uat_calls: list[tuple] = []
+    done_calls: list[tuple] = []
+    monkeypatch.setattr(integrate.backlog, "set_uat", lambda item_id, link, actor="claude": (uat_calls.append((item_id, link)), ({}, True))[1])
+    monkeypatch.setattr(integrate.backlog, "set_done", lambda *a, **k: (done_calls.append((a, k)), ({}, True))[1])
+    monkeypatch.setattr(integrate, "_notify_uat_ready", lambda item_id, title, link, detail=None: None)
+
+    item = {"id": "H40", "branch": "feature-H40-thing", "title": "Reachable preview states", "uat_review": False}
+    result, detail = integrate._integrate_one(item)
+
+    print("edit to an existing single-file preview, flag unset -> result:", result, detail)
+
+    assert result == "merged"
+    assert detail.endswith("(done)")
+    assert uat_calls == []
+    assert len(done_calls) == 1
+
+
+def test_integrate_one_backstop_lands_done_for_deletion_of_existing_preview_variants(monkeypatch):
+    """H43 shape: a whole VariantA/B/C.tsx set deleted because the preview
+    no longer gated anything. Removing choices is not creating one, and
+    the directory already existed, so this must land done."""
+    changed = {
+        "frontend/app/design/account-rows/VariantA.tsx",
+        "frontend/app/design/account-rows/VariantB.tsx",
+        "frontend/app/design/account-rows/VariantC.tsx",
+        "frontend/app/design/account-rows/page.tsx",
+    }
+    _patch_integrate_one_plumbing(monkeypatch, changed)
+    monkeypatch.setattr(
+        integrate,
+        "_sh",
+        _fake_sh_with_backstop_state(
+            ls_tree_output=(
+                "frontend/app/design/account-rows/VariantA.tsx\n"
+                "frontend/app/design/account-rows/VariantB.tsx\n"
+                "frontend/app/design/account-rows/VariantC.tsx\n"
+                "frontend/app/design/account-rows/page.tsx\n"
+            ),
+            diff_name_status=(
+                "D\tfrontend/app/design/account-rows/VariantA.tsx\n"
+                "D\tfrontend/app/design/account-rows/VariantB.tsx\n"
+                "D\tfrontend/app/design/account-rows/VariantC.tsx\n"
+                "D\tfrontend/app/design/account-rows/page.tsx\n"
+            ),
+        ),
+    )
+
+    uat_calls: list[tuple] = []
+    done_calls: list[tuple] = []
+    monkeypatch.setattr(integrate.backlog, "set_uat", lambda item_id, link, actor="claude": (uat_calls.append((item_id, link)), ({}, True))[1])
+    monkeypatch.setattr(integrate.backlog, "set_done", lambda *a, **k: (done_calls.append((a, k)), ({}, True))[1])
+    monkeypatch.setattr(integrate, "_notify_uat_ready", lambda item_id, title, link, detail=None: None)
+
+    item = {"id": "H43", "branch": "feature-H43-thing", "title": "Delete dead previews", "uat_review": False}
+    result, detail = integrate._integrate_one(item)
+
+    print("deletion of an existing variant set, flag unset -> result:", result, detail)
+
+    assert result == "merged"
+    assert detail.endswith("(done)")
+    assert uat_calls == []
+    assert len(done_calls) == 1
+
+
+def test_integrate_one_backstop_lands_uat_for_mixed_diff_editing_existing_variant_files(monkeypatch):
+    """G53 shape: no new directory, but a shared primitive plus
+    VariantA/B/C.tsx all edited together inside the already-existing
+    spend-period-round/ round Kevin was actively comparing. A mixed diff
+    (some touched files match the variant pattern, some don't) must still
+    land uat."""
+    changed = {
+        "frontend/app/design/spend-period-round/VariantA.tsx",
+        "frontend/app/design/spend-period-round/VariantB.tsx",
+        "frontend/app/design/spend-period-round/VariantC.tsx",
+        "frontend/app/design/spend-period-round/primitives.tsx",
+        "frontend/app/design/spend-period-round/SpendPeriodRoundClient.tsx",
+    }
+    _patch_integrate_one_plumbing(monkeypatch, changed)
+    monkeypatch.setattr(
+        integrate,
+        "_sh",
+        _fake_sh_with_backstop_state(
+            ls_tree_output=(
+                "frontend/app/design/spend-period-round/VariantA.tsx\n"
+                "frontend/app/design/spend-period-round/VariantB.tsx\n"
+                "frontend/app/design/spend-period-round/VariantC.tsx\n"
+                "frontend/app/design/spend-period-round/primitives.tsx\n"
+                "frontend/app/design/spend-period-round/SpendPeriodRoundClient.tsx\n"
+                "frontend/app/design/spend-period-round/page.tsx\n"
+            ),
+            diff_name_status=(
+                "M\tfrontend/app/design/spend-period-round/VariantA.tsx\n"
+                "M\tfrontend/app/design/spend-period-round/VariantB.tsx\n"
+                "M\tfrontend/app/design/spend-period-round/VariantC.tsx\n"
+                "M\tfrontend/app/design/spend-period-round/primitives.tsx\n"
+                "M\tfrontend/app/design/spend-period-round/SpendPeriodRoundClient.tsx\n"
+            ),
+        ),
+    )
+
+    uat_calls: list[tuple] = []
+    done_calls: list[tuple] = []
+    monkeypatch.setattr(integrate.backlog, "set_uat", lambda item_id, link, actor="claude": (uat_calls.append((item_id, link)), ({}, True))[1])
+    monkeypatch.setattr(integrate.backlog, "set_done", lambda *a, **k: (done_calls.append((a, k)), ({}, True))[1])
+    monkeypatch.setattr(integrate, "_notify_uat_ready", lambda item_id, title, link, detail=None: None)
+
+    item = {"id": "G53", "branch": "feature-G53-thing", "title": "Spend period round refinement", "uat_review": False}
+    result, detail = integrate._integrate_one(item)
+
+    print("mixed diff re-touching existing VariantA/B/C together, flag unset -> result:", result, detail)
+
+    assert result == "merged"
+    assert "landed in uat" in detail
+    assert len(uat_calls) == 1
+    assert done_calls == []
 
 
 # --- H37: a merge conflict must never tell the owning session to rebase a
