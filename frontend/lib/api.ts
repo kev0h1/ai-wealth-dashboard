@@ -1150,7 +1150,17 @@ export type PlanMove = {
   move_map: MoveMap;
 };
 
-export type PlanDestBill = { label: string; amount: number };
+export type PlanDestBill = {
+  label: string;
+  amount: number;
+  /** Original occurrence identity for a planned move that can be skipped. */
+  key?: string;
+  /** ISO date for this individual payment, rather than the plan's earliest date. */
+  expected_date?: string | null;
+  days_past_due?: number;
+  /** Only overdue own-transfer occurrences expose the per-month skip action. */
+  can_skip?: boolean;
+};
 export type PlanDest = {
   account_id: string;
   name: string;

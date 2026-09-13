@@ -203,6 +203,12 @@ def _run(monkeypatch, bills, *, accounts=None, payday_window=False,
         {"user_id": UID, "income_streams": income_streams or []}
     ]))
     monkeypatch.setattr(companion, "transactions_col", FakeCol([]))
+    # Cover-plan source safety reads active allocations before it evaluates
+    # any movement. Keep this focused suite hermetic instead of allowing the
+    # imported router helper to reach the configured Mongo client.
+    async def no_active_allocations(uid):
+        return []
+    monkeypatch.setattr(companion, "list_active_allocations", no_active_allocations)
     # app.services.pace imports its OWN module-level cashflow_cache_col /
     # transactions_col / yapily_transactions_col / preferences_col (from
     # app.db.collections, at import time), read/written by
@@ -213,10 +219,23 @@ def _run(monkeypatch, bills, *, accounts=None, payday_window=False,
     # cashflow_cache collection, 2026-08-28) — patch pace's own references
     # too so this suite never touches Mongo.
     import app.services.pace as pace_module
+    import app.services.categories as categories_module
+    import app.services.checkpoints as checkpoints_module
+    import app.services.debt_plan as debt_plan_module
     monkeypatch.setattr(pace_module, "cashflow_cache_col", FakeCol([{"_id": UID}]))
     monkeypatch.setattr(pace_module, "preferences_col", FakeCol([{"user_id": UID}]))
     monkeypatch.setattr(pace_module, "transactions_col", FakeCol([]))
     monkeypatch.setattr(pace_module, "yapily_transactions_col", FakeCol([]))
+    monkeypatch.setattr(categories_module, "user_categories_col", FakeCol([]))
+    monkeypatch.setattr(checkpoints_module, "preferences_col", FakeCol([{"user_id": UID}]))
+    monkeypatch.setattr(checkpoints_module, "checkpoints_col", FakeCol([]))
+    monkeypatch.setattr(checkpoints_module, "category_intent_col", FakeCol([]))
+    monkeypatch.setattr(db_collections, "transactions_col", FakeCol([]))
+    monkeypatch.setattr(db_collections, "yapily_transactions_col", FakeCol([]))
+    monkeypatch.setattr(db_collections, "commitments_col", FakeCol([]))
+    async def no_debt_plan(uid):
+        return {"totals": {"verdict": "good"}, "cards": []}
+    monkeypatch.setattr(debt_plan_module, "get_debt_plan_cached", no_debt_plan)
 
     async def fake_resp(cached, uid=None, prefs=None):
         return {
@@ -484,30 +503,141 @@ def test_movement_bounce_never_appears_in_shortfalls_or_move_cards():
         mp.undo()
 
 
-def test_movement_and_real_bill_coexist_move_card_represents_the_real_bill_only():
-    """An account with BOTH a bounced movement (unfunded_move territory)
-    AND a real bounced bill (move-card territory, gate (b) does not
-    suppress since a real obligation is among the bounced items) — the move
-    card must still describe the REAL bill, never the movement, exactly as
-    `_gate_recommendation`'s docstring promises; unfunded_move covers the
-    movement side separately."""
+def test_movement_and_real_bill_share_one_canonical_move_card():
+    """A bounced overdue movement plus real period payments on one account
+    is one funding problem, not two competing transfers. The regular card
+    owns the arithmetic and carries the movement occurrence for skipping."""
     import pytest
     mp = pytest.MonkeyPatch()
     try:
-        accounts = [_account("barclays", 20.0)]
+        accounts = [
+            _account("barclays", 20.0),
+            _account("hsbc", 500.0, name="HSBC Current", provider="hsbc"),
+        ]
         bills = [
             _mv_bill("KEVIN MAINGI HSBC FT", 81.67, "barclays",
                      pending=True, days_past_due=9, original_date="2026-08-18"),
             _commitment_bill("Council Tax", 50.0, "barclays", days_away=0),
         ]
         items, _ = _run(mp, bills, accounts=accounts)
-        move = _find(items, "move")
-        assert move is not None
-        assert "Council Tax" in move["body"] or "Council Tax" in move.get("headline", "")
-        assert "HSBC" not in move["body"]
-        assert _find(items, "unfunded_move") is not None
+        moves = [item for item in items if item["type"] == "move"]
+        assert len(moves) == 1
+        move = moves[0]
+        assert _find(items, "unfunded_move") is None
+        assert move["amount"] == 125  # £20 held against £131.67 due, plus £10 buffer.
+        assert move["moves"][0]["amount"] == 125
+        rows = {row["label"]: row for row in move["plan_dest"]["bills"]}
+        overdue = rows["Kevin Maingi Hsbc"]
+        assert overdue == {
+            "label": "Kevin Maingi Hsbc",
+            "amount": 82,
+            "key": "KEVIN MAINGI HSBC FT",
+            "expected_date": "2026-08-18",
+            "days_past_due": 9,
+            "can_skip": True,
+        }
+        assert rows["Council Tax"]["expected_date"] == TODAY.isoformat()
+        assert "can_skip" not in rows["Council Tax"]
     finally:
         mp.undo()
+
+
+def test_multiple_overdue_movements_and_future_bill_stay_on_one_card(monkeypatch):
+    accounts = [
+        _account("premier", 10.0, name="Premier Current"),
+        _account("hsbc", 1_000.0, name="HSBC Current", provider="hsbc"),
+    ]
+    bills = [
+        _mv_bill("FIRST MOVE", 40.0, "premier", pending=True,
+                 days_past_due=4, original_date="2026-09-01"),
+        _mv_bill("SECOND MOVE", 30.0, "premier", pending=True,
+                 days_past_due=2, original_date="2026-09-03"),
+        _commitment_bill("Broadband", 50.0, "premier", days_away=3),
+    ]
+    items, _ = _run(monkeypatch, bills, accounts=accounts)
+    moves = [item for item in items if item["type"] == "move"]
+    assert len(moves) == 1
+    assert _find(items, "unfunded_move") is None
+    payments = moves[0]["plan_dest"]["bills"]
+    skippable = {row["key"]: row for row in payments if row.get("can_skip")}
+    assert set(skippable) == {"FIRST MOVE", "SECOND MOVE"}
+    assert skippable["FIRST MOVE"]["expected_date"] == "2026-09-01"
+    assert skippable["SECOND MOVE"]["expected_date"] == "2026-09-03"
+    assert all(row["can_skip"] is True for row in skippable.values())
+    ordinary = next(row for row in payments if row["label"] == "Broadband")
+    assert ordinary["expected_date"] == (TODAY + timedelta(days=3)).isoformat()
+    assert "can_skip" not in ordinary
+
+
+def test_mixed_account_without_a_safe_source_still_has_one_skippable_card(monkeypatch):
+    accounts = [_account("premier", 10.0, name="Premier Current")]
+    bills = [
+        _mv_bill("PREMIER MOVE", 40.0, "premier", pending=True,
+                 days_past_due=2, original_date="2026-09-02"),
+        _commitment_bill("Council Tax", 50.0, "premier", days_away=1),
+    ]
+    items, _ = _run(monkeypatch, bills, accounts=accounts)
+    moves = [item for item in items if item["type"] == "move"]
+    assert len(moves) == 1
+    assert _find(items, "unfunded_move") is None
+    assert moves[0]["action"] is None
+    skippable = [row for row in moves[0]["plan_dest"]["bills"] if row.get("can_skip")]
+    assert [(row["key"], row["expected_date"]) for row in skippable] == [
+        ("PREMIER MOVE", "2026-09-02"),
+    ]
+
+
+def test_dismissed_regular_card_does_not_swallow_standalone_skip(monkeypatch):
+    accounts = [
+        _account("premier", 10.0, name="Premier Current"),
+        _account("hsbc", 1_000.0, name="HSBC Current", provider="hsbc"),
+    ]
+    bills = [
+        _mv_bill("PREMIER MOVE", 40.0, "premier", pending=True,
+                 days_past_due=2, original_date="2026-09-02"),
+        _commitment_bill("Council Tax", 50.0, "premier", days_away=1),
+    ]
+    first_items, first_col = _run(monkeypatch, bills, accounts=accounts)
+    regular_id = _find(first_items, "move")["id"]
+    stored = list(first_col.docs) + [{
+        "_id": f"dismissed:{UID}",
+        "uid": UID,
+        "ids": [regular_id],
+    }]
+
+    second_items, _ = _run(
+        monkeypatch,
+        bills,
+        accounts=accounts,
+        companion_items=stored,
+    )
+    assert _find(second_items, "move") is None
+    standalone = _find(second_items, "unfunded_move")
+    assert standalone is not None
+    assert [row["key"] for row in standalone["moves"]] == ["PREMIER MOVE"]
+
+
+def test_one_account_consolidates_while_movement_only_account_stays_standalone(monkeypatch):
+    accounts = [
+        _account("premier", 10.0, name="Premier Current"),
+        _account("monzo", 5.0, name="Monzo Current", provider="monzo"),
+        _account("hsbc", 1_000.0, name="HSBC Current", provider="hsbc"),
+    ]
+    bills = [
+        _mv_bill("PREMIER MOVE", 40.0, "premier", pending=True,
+                 days_past_due=2, original_date="2026-09-02"),
+        _commitment_bill("Council Tax", 50.0, "premier", days_away=1),
+        _mv_bill("MONZO MOVE", 30.0, "monzo", pending=True,
+                 days_past_due=1, original_date="2026-09-05"),
+    ]
+    items, _ = _run(monkeypatch, bills, accounts=accounts)
+    moves = [item for item in items if item["type"] == "move"]
+    assert len(moves) == 1
+    assert moves[0]["plan_dest"]["account_id"] == "premier"
+    assert {row["key"] for row in moves[0]["plan_dest"]["bills"] if row.get("can_skip")} == {"PREMIER MOVE"}
+    unfunded = _find(items, "unfunded_move")
+    assert unfunded is not None
+    assert [row["key"] for row in unfunded["moves"]] == ["MONZO MOVE"]
 
 
 # ── G42: source finder wired into unfunded_move ──────────────────────────
