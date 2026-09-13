@@ -108,9 +108,8 @@ export function MoveLead({ scenario, companion }: { scenario: MoveScenario; comp
 
 export function PaymentLine({ scenario, compact = false }: { scenario: MoveScenario; compact?: boolean }) {
   return (
-    <div className={compact ? "" : "overflow-hidden rounded-xl bg-slate-50 dark:bg-slate-900/35"}>
+    <div data-payment-evidence className={compact ? "" : "overflow-hidden rounded-xl bg-slate-50 dark:bg-slate-900/35"}>
       <div className={`flex items-center gap-2.5 ${compact ? "py-2" : "px-3 py-2.5"}`}>
-        <AccountBadge account={scenario.payment} size={32} />
         <div className="min-w-0 flex-1">
           <p className="truncate text-[13px] font-semibold text-slate-800 dark:text-slate-100">{scenario.payment.name}</p>
           <p className="text-[12px] leading-4 text-slate-500 dark:text-slate-400">
