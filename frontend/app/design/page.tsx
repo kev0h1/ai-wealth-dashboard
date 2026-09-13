@@ -22,6 +22,13 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "spend-page-refurbishment",
+    name: "spend-page-refurbishment",
+    description:
+      "G57 replacement Spend revamp after Kevin rejected the first round as more of the same · three genuinely different work models against the owner-shaped reconciled figures (£4,976 Out = £3,140 in three attention categories + £1,496 across eleven quieter categories + £340 unplaced; £8,087 Moved stays separate and neutral): A Pay-period journey makes the page one continuous story from pay arrival through today, unplaced work, quieter spend, movement and six-period context, with no This period / Patterns split; B Next decision uses a wayfinding model where Review changes, Place payments, Browse all spending, Follow moved money and Compare periods are distinct destinations, showing one useful workspace at a time; C Category field makes category amount spatial, keeps every category visible without an eleven-row tail, and uses one persistent focus panel while retaining Across periods as a separate analytical view · preview-only fixture data, no API calls or production edits · ?variant=a|b|c&mode=light|dark",
+    states: [{ label: "Everything", value: "everything" }],
+  },
+  {
     slug: "move-card-grammar",
     name: "move-card-grammar",
     description:
