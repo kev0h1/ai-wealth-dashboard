@@ -10,14 +10,17 @@ they already match) and prints a ready-to-paste `STRIPE_PRICE_IDS=...` line.
 
 Source of truth is the code, never a second copy of the numbers here:
 `app.core.subscription.TIER_BILLING_PRICES_GBP` /
-`SUBSCRIPTION_BILLING_PERIODS` / `PENNY_TOPUP_PACKS` / `MCP_CALL_PACKS`, and
+`SUBSCRIPTION_PERIODS_ENABLED` (which periods are actually sold — see the
+comment by `build_plan()`'s loop for why this is NOT
+`SUBSCRIPTION_BILLING_PERIODS`, the wider reference table) /
+`PENNY_TOPUP_PACKS` / `MCP_CALL_PACKS`, and
 `app.core.config._STRIPE_REQUIRED_PRICE_KEYS` as the completeness check.
 
 Statements is free and never gets a Stripe product or price.
 
 Idempotency: every price gets a stable Stripe `lookup_key` equal to its
 `STRIPE_PRICE_IDS` key (bare tier name for monthly, `{tier}_{period}` for
-the three longer periods, `penny_small`/`penny_medium`/`penny_large` and
+the other enabled periods, `penny_small`/`penny_medium`/`penny_large` and
 `mcp_1000` for the packs). Every product gets a stable
 `metadata["app_product_key"]` marker. A second run finds these and creates
 nothing new. Stripe prices are immutable — if an existing price's amount or
@@ -55,7 +58,7 @@ sys.path.insert(0, str(REPO_ROOT / "backend"))
 from app.core.config import _STRIPE_REQUIRED_PRICE_KEYS  # noqa: E402
 from app.core.subscription import (  # noqa: E402
     MCP_CALL_PACKS, PENNY_TOPUP_PACKS, SUBSCRIPTION_BILLING_PERIODS,
-    TIER_BILLING_PRICES_GBP,
+    SUBSCRIPTION_PERIODS_ENABLED, TIER_BILLING_PRICES_GBP,
 )
 
 # Lazily-bound-at-call-time module global (not a local alias) so tests can
@@ -73,11 +76,15 @@ _TIER_LABELS = {
 # amount as VAT-inclusive throughout (it works e.g. £9.99 back to "ex VAT
 # £8.33"), and the plan picker shows £16.99 as the price a UK consumer
 # actually pays — so every price this script creates is marked
-# tax_behavior="inclusive" at creation. This has to happen at creation:
-# Stripe prices are immutable, tax_behavior can't be set afterwards. This
-# is NOT the same thing as enabling Stripe Tax or registering for VAT —
-# neither is touched here, both stay Kevin's own account-level decision
-# (see DEPLOY.md's Stripe setup checklist).
+# tax_behavior="inclusive" at creation. This has to happen at creation: the
+# Price object itself is immutable (that's the whole reason a changed
+# amount above creates a replacement price rather than editing this one),
+# and while tax_behavior can technically be set once on a price still
+# sitting at Stripe's own default of "unspecified", never setting it here
+# would leave every price unspecified forever. This is NOT the same thing
+# as enabling Stripe Tax or registering for VAT — neither is touched here,
+# both stay Kevin's own account-level decision (see DEPLOY.md's Stripe
+# setup checklist).
 _TAX_BEHAVIOR = "inclusive"
 
 
@@ -142,7 +149,17 @@ def build_plan() -> tuple[list[ProductPlan], list[PricePlan]]:
     for tier in _PAID_TIERS:
         product_key = f"tier_{tier}"
         products.append(ProductPlan(product_key, f"Sorted {_TIER_LABELS[tier]}"))
-        for period in SUBSCRIPTION_BILLING_PERIODS:
+        # Iterate SUBSCRIPTION_PERIODS_ENABLED (which periods the product
+        # actually sells), NOT SUBSCRIPTION_BILLING_PERIODS (the full
+        # reference table of every period the schema understands, kept
+        # deliberately wider than what's sold — see its own comment in
+        # app.core.subscription, and B27's note by
+        # SUBSCRIPTION_PERIODS_ENABLED on why "just re-add three_months to
+        # the wider tuple" would be wrong). Driving this loop from the
+        # reference table would create a Stripe Price for a period the
+        # product doesn't sell (three_months, dropped 2026-09-12) — do not
+        # "simplify" this back to SUBSCRIPTION_BILLING_PERIODS.
+        for period in SUBSCRIPTION_PERIODS_ENABLED:
             lookup_key = tier if period == "monthly" else f"{tier}_{period}"
             amount_gbp = TIER_BILLING_PRICES_GBP[tier][period]
             prices.append(PricePlan(
