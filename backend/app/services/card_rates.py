@@ -40,16 +40,6 @@ RE_ASK_DAYS = 14             # 'Later' (skipped) suppresses the ask this long
 TAVILY_CALLS = 0
 
 
-# ── Credit-card classification (mirrors services/needle.py) ──────────────────
-
-def is_credit_card_account(acc: dict) -> bool:
-    """True when an account doc (TrueLayer or Finexer row in accounts_col,
-    or a yapily row) is a credit card — same test as needle.py."""
-    subtype = (acc.get("account_subtype") or acc.get("subtype") or "").upper()
-    atype = (acc.get("account_type") or acc.get("type") or "").lower()
-    return "CREDIT" in subtype or atype in ("credit", "credit_card")
-
-
 # ── Ask eligibility ──────────────────────────────────────────────────────────
 
 def is_ask_eligible(terms_doc: dict | None, now: datetime | None = None) -> bool:

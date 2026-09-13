@@ -337,13 +337,43 @@ def test_create_checkout_session_annual_trial_is_fixed_at_14_days(monkeypatch):
     assert call["subscription_data"]["metadata"]["trial"] == "true"
 
 
-def test_create_checkout_session_rejects_trial_on_non_annual_period(monkeypatch):
+def test_create_checkout_session_rejects_trial_on_disabled_period(monkeypatch):
+    """B28 (2026-09-13) widened SUBSCRIPTION_TRIAL_PERIODS to every period
+    in SUBSCRIPTION_PERIODS_ENABLED, so a trial on "monthly" is now
+    accepted (see test_create_checkout_session_trial_accepted_on_every_enabled_period
+    below). B27 (2026-09-12) already dropped "three_months" from
+    SUBSCRIPTION_PERIODS_ENABLED; this test makes sure a trial request
+    can't slip it back in as an accidental side door - the
+    "not currently offered" guard must still fire before the trial is
+    ever considered."""
     _patch_billing_enabled(monkeypatch, True, price_ids=_FULL_PRICE_IDS)
-    with pytest.raises(billing_module.BillingError, match="not available with this billing period"):
+    with pytest.raises(billing_module.BillingError, match="not currently offered"):
         _run(billing_module.create_checkout_session(
-            UID, kind="subscription", target="max", billing_period="monthly", trial=True,
+            UID, kind="subscription", target="max", billing_period="three_months", trial=True,
             success_url="https://app/success", cancel_url="https://app/cancel",
         ))
+
+
+def test_create_checkout_session_trial_accepted_on_every_enabled_period(monkeypatch):
+    """B28 (2026-09-13): Kevin widened the 14-day trial to every currently
+    enabled billing period, not annual only, because tying it to yearly
+    made it a lever into a 12-month commitment. Exercises all three
+    periods SUBSCRIPTION_PERIODS_ENABLED currently lists."""
+    for period in ("monthly", "six_months", "annual"):
+        fake_stripe = _make_fake_stripe()
+        monkeypatch.setattr(billing_module, "stripe", fake_stripe)
+        monkeypatch.setattr(billing_module, "STRIPE_SECRET_KEY", "sk_test_x")
+        _patch_billing_enabled(monkeypatch, True, price_ids=_FULL_PRICE_IDS)
+        _patch_collections(monkeypatch, billing_customers_col=_FakeCol(), subscriptions_col=_FakeCol())
+
+        _run(billing_module.create_checkout_session(
+            UID, kind="subscription", target="max", billing_period=period, trial=True,
+            success_url="https://app/success", cancel_url="https://app/cancel",
+        ))
+
+        call = fake_stripe.checkout_calls[0]
+        assert call["subscription_data"]["trial_period_days"] == 14
+        assert call["subscription_data"]["metadata"]["trial"] == "true"
 
 
 def test_create_checkout_session_rejects_disabled_billing_period(monkeypatch):
@@ -612,7 +642,15 @@ def test_billing_router_checkout_rejects_disabled_period(monkeypatch):
 
 
 def test_billing_router_checkout_rejects_trial_on_non_trial_period(monkeypatch):
+    """B28 (2026-09-13) made SUBSCRIPTION_TRIAL_PERIODS equal to
+    SUBSCRIPTION_PERIODS_ENABLED by default, so the two lists no longer
+    diverge on their own; the router's belt-and-braces trial guard would
+    otherwise become dead code that nothing exercises. Monkeypatch the
+    trial list narrower than the enabled list to prove the guard still
+    fires when they do diverge (e.g. if Kevin widens periods without
+    widening the trial in future)."""
     _patch_billing_enabled(monkeypatch, True, price_ids=_FULL_PRICE_IDS)
+    monkeypatch.setattr(billing_router_module, "SUBSCRIPTION_TRIAL_PERIODS", ("annual",))
     try:
         _run(billing_router_module.create_checkout(
             {"kind": "subscription", "target": "max", "billing_period": "monthly", "trial": True},

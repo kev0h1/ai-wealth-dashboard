@@ -460,9 +460,16 @@ do not block) if the recorded branch doesn't start with `feature-<ID>`
 for that item's id, then `git merge --no-ff origin/<branch>` regardless:
 a branch is merged whatever its name is, the check just catches likely
 copy-paste mistakes early. A conflict aborts that one merge and
-blocks the item with a reason ("integration conflict with main; rebase
-the branch"), a real problem for the owning session to fix, not
-integrate's to solve. After a clean merge it reinstalls dependencies if the
+blocks the item with a reason ("conflict with main; merge origin/main
+into the branch (do not rebase, it is already pushed) and re-run
+session.sh finish"), a real problem for the owning session to fix, not
+integrate's to solve. It says merge, not rebase, deliberately: by the
+time an item reaches `review` its branch is already pushed to origin, so
+rebasing rewrites commits the remote already has, and landing the
+rebased branch again needs a force-push, which CLAUDE.md forbids; a
+plain `merge origin/main` into the branch resolves the conflict with new
+commits instead of rewriting old ones, so the next `session.sh finish`
+push is a normal fast-forward. After a clean merge it reinstalls dependencies if the
 merge changed a lockfile (`pip install -r backend/requirements.txt` into the
 shared venv, `npm ci` in `frontend/`), then runs the backend suite,
 rebuilds the frontend and restarts `wealth-frontend` if `frontend/` or

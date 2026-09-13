@@ -83,7 +83,7 @@ const TIERS: Tier[] = [
 const NOTES: Record<Variant, { title: string; thesis: string; risk: string }> = {
   a: {
     title: "A · Capability ladder · recommended",
-    thesis: "All five choices stay visible. The selected rung opens into monthly, 3-month, 6-month and yearly renewal choices, with the 14-day trial disclosed against yearly billing.",
+    thesis: "All five choices stay visible. The selected rung opens into monthly, 6-month and yearly renewal choices (B27 dropped 3-month), with the 14-day trial disclosed against whichever period is selected (B28, 2026-09-13).",
     risk: "Longer terms add one decision after the plan choice, so renewal wording stays next to the final action rather than inside every tier row.",
   },
   b: {
@@ -299,7 +299,12 @@ function Preview() {
         return { id, label: PERIOD_LABELS[id], months, total, saving_gbp, per_month_gbp };
       }),
     ])),
-    trial_periods: ["annual"],
+    // B28 (2026-09-13): Kevin widened the 14-day trial to every currently
+    // enabled period, not annual only, so this fixture now lists all three
+    // periods this preview offers (see PERIOD_MONTHS/PERIOD_LABELS above) —
+    // matching the same "trial follows SUBSCRIPTION_PERIODS_ENABLED"
+    // behaviour backend/app/core/subscription.py now derives for real.
+    trial_periods: ["monthly", "six_months", "annual"],
     billing_live: billing === "on",
     trial_days: 14,
     trial_charge_on: "2026-09-25",

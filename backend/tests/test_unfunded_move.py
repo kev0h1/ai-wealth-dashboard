@@ -514,9 +514,10 @@ def test_movement_and_real_bill_coexist_move_card_represents_the_real_bill_only(
 # Kevin, 2026-09-11: the card previously ended in a fixed notice sentence and
 # never offered a source, even though the sibling cover-plan "move" card
 # already knows how to say "move £X from A to B". These reuse the exact same
-# `_find_legs_for_destination` ranking (current accounts, then savings, then
-# offline, each capped by its own remaining `source_capacity`, which already
-# reserves that source's own obligations) rather than a second
+# `_find_legs_for_destination` ranking (current accounts, then savings, an
+# offline account ranking within whichever class it actually is — G47,
+# 2026-09-13 — each capped by its own remaining `source_capacity`, which
+# already reserves that source's own obligations) rather than a second
 # implementation — see companion.py section 5d.
 
 def test_gap_arithmetic():

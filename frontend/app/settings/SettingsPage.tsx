@@ -175,7 +175,7 @@ function coverPlanView(
 export default function SettingsPage() {
   const router = useRouter();
   const { user, logout } = useAuth();
-  const { darkMode, setDarkMode, rawPrefs, refreshPreferences, notePreferencesVersion, preferencesSaveError } = usePreferences();
+  const { darkMode, setDarkMode, rawPrefs, refreshPreferences, notePreferencesVersion, preferencesSaveError, hideNetWorth, preferencesReady } = usePreferences();
   const { startFlow } = useTutorial();
 
   const [syncingHistory, setSyncingHistory] = useState(false);
@@ -495,13 +495,12 @@ export default function SettingsPage() {
   }, []);
   useEffect(() => {
     getAccountsCached(true).then(accs => {
-      const eligible = accs.filter(acc => {
-        if (acc.cover_source_eligible === false) return false;
-        const type = (acc.type || "").toLowerCase();
-        const sub = (acc.subtype || "").toLowerCase();
-        if (type.includes("credit") || sub.includes("credit")) return false;
-        return true;
-      });
+      // G55: cover_source_eligible is now computed backend-side from the
+      // SAME classifier companion.py's source_capacity build uses
+      // (is_credit_card_account), so this trusts the flag rather than
+      // re-deriving eligibility from a type/subtype string heuristic that
+      // had no guaranteed correspondence to the engine's own rule.
+      const eligible = accs.filter(acc => acc.cover_source_eligible !== false);
       setCoverAccounts(eligible);
       setAccountsLoaded(true);
     }).catch(() => {
@@ -1466,7 +1465,7 @@ export default function SettingsPage() {
               excludedIds={excludedIds}
               liveRoute={coverPlan.liveRoute}
               shortAccountIds={coverPlan.shortAccountIds}
-              hideAmounts={rawPrefs === null || Boolean(rawPrefs.hide_net_worth)}
+              hideAmounts={!preferencesReady || hideNetWorth}
               onToggle={toggleCoverAccount}
             />
             {coverEligibilityStatus === "error" && (

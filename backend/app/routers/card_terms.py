@@ -22,10 +22,10 @@ from pydantic import BaseModel
 from app.core.auth import current_user
 from app.db.collections import accounts_col, card_terms_col
 from app.services import response_cache
+from app.services.account_kinds import is_credit_card_account
 from app.services.card_rates import (
     derive_product_identity,
     is_ask_eligible,
-    is_credit_card_account,
     lookup_product_rate,
 )
 

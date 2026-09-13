@@ -83,10 +83,14 @@ TIER_BILLING_PRICES_GBP = {
 SUBSCRIPTION_PERIODS_ENABLED = ("monthly", "six_months", "annual")
 
 # Kevin decides: which of the enabled periods carry the 14-day introductory
-# trial. He may widen this to every period — the coordinator's own
-# recommendation (TODO.md B22 note) is that the trial should never be a
-# lever into a 12-month commitment, only the discounted periods should be.
-SUBSCRIPTION_TRIAL_PERIODS = ("annual",)
+# trial. Widened to every enabled period on 2026-09-13 (TODO.md B28):
+# restricting the trial to annual only made it a lever into a 12-month
+# commitment, when the discounted price alone should be what motivates
+# prepaying. Deriving this from SUBSCRIPTION_PERIODS_ENABLED rather than
+# hardcoding a second tuple means dropping or adding an enabled period
+# automatically carries the trial with it, with no second list to keep
+# in sync.
+SUBSCRIPTION_TRIAL_PERIODS = SUBSCRIPTION_PERIODS_ENABLED
 
 
 def billing_period_detail(tier: str, period: str) -> dict:

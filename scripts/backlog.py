@@ -90,6 +90,20 @@ Commands:
                                         clears the tag).
     status Q7 ready|needs-kevin|blocked-deploy|submitted
                                         Set a questionnaire question's status.
+    lint [--apply]                      Scan TODO.md for H38-shaped damage:
+                                        stray pytest progress lines and item
+                                        lines left with a dangling, never-
+                                        closed `[state: ...` fragment (both
+                                        come from the pre-H27 defect where
+                                        scripts/integrate.py wrote raw
+                                        multi-line command output into a
+                                        blocked/rejected reason). Dry run by
+                                        default — prints what it would
+                                        change and touches nothing; pass
+                                        --apply to actually rewrite the
+                                        file, under the same lock and with
+                                        the same kind of git commit as every
+                                        other command here.
 
 Every command takes an optional `--actor kevin|claude|codex` (defaults to
 `claude`) that is recorded in the note/commit and attributed as the git
@@ -229,6 +243,27 @@ def cmd_status(args: argparse.Namespace) -> None:
     _print_result(args.item_id, result, committed)
 
 
+def cmd_lint(args: argparse.Namespace) -> None:
+    findings, committed = backlog.repair_todo(apply=args.apply, actor=args.actor)
+    if not findings:
+        print("lint: no H38-shaped damage found." if not args.apply else "repair: nothing to fix.")
+        return
+    verb = "removed" if args.apply else "would remove"
+    for f in findings:
+        if f["kind"] == "noise_line":
+            print(f"line {f['line_no'] + 1}: {verb} pytest noise line: {f['original']!r}")
+        else:
+            print(
+                f"line {f['line_no'] + 1} ({f['item_id']}): "
+                f"{'rewrote' if args.apply else 'would rewrite'} dangling state tag\n"
+                f"  before: {f['original']!r}\n"
+                f"  after:  {f['replacement']!r}"
+            )
+    print(f"\n{len(findings)} finding(s){' fixed' if args.apply else ' (dry run, pass --apply to fix)'}.")
+    if args.apply and not committed:
+        print("  (saved to file; git commit or push failed — see logs)")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="backlog.py",
@@ -358,6 +393,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_status.add_argument("status", choices=["ready", "needs-kevin", "blocked-deploy", "submitted"])
     add_actor(p_status)
     p_status.set_defaults(func=cmd_status)
+
+    p_lint = sub.add_parser(
+        "lint", help="Scan TODO.md for stray pytest noise / dangling state tags (H38). Dry run unless --apply."
+    )
+    p_lint.add_argument("--apply", action="store_true", help="Actually rewrite the file (default: dry run).")
+    add_actor(p_lint)
+    p_lint.set_defaults(func=cmd_lint)
 
     return parser
 
