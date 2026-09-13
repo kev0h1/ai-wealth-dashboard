@@ -10,7 +10,19 @@
 // reimplementation — production Settings pages are authenticated and can't
 // be screenshotted, so this is the only way to see the real component at
 // scale before Kevin does.
-// /design/cover-plan-sources-scale?state=all|savings|short&mode=light|dark
+//
+// H40 (2026-09-13): CoverOutcome in the production card has six branches.
+// The original three states (all, savings, short) only reached three of
+// them (current-usable default, savings-covers-it-today, and the
+// uncovered-gap risk case respectively). Three states were added so every
+// branch is reachable by URL rather than by scripting toggle clicks against
+// a running build: current-only (current accounts are the only source,
+// every savings account excluded), no-headroom (every allowed account is
+// short or empty, reached by excluding everything except the fixture's
+// already-short current account and its four zero-balance pots), and
+// savings-only (savings would be checked first, every current account
+// excluded). Nothing about the existing three states changed.
+// /design/cover-plan-sources-scale?state=all|savings|short|current-only|no-headroom|savings-only&mode=light|dark
 
 import { useState } from "react";
 import { useSearchParams } from "next/navigation";
@@ -18,7 +30,7 @@ import { ChevronLeft, CircleAlert, ShieldCheck } from "lucide-react";
 import type { Account } from "@/lib/api";
 import CoverPlanSourcesCard from "@/components/CoverPlanSourcesCard";
 
-type PreviewState = "all" | "savings" | "short";
+type PreviewState = "all" | "savings" | "short" | "current-only" | "no-headroom" | "savings-only";
 type Mode = "light" | "dark";
 
 type Seed = {
@@ -71,17 +83,41 @@ const ACCOUNTS: Account[] = SEED.map((seed) => ({
 
 const SHORT_ACCOUNT_IDS = new Set(SEED.filter((seed) => seed.short).map((seed) => seed.id));
 
+const SAVINGS_IDS = SEED.filter((seed) => seed.kind === "savings").map((seed) => seed.id);
+const CURRENT_IDS = SEED.filter((seed) => seed.kind === "current").map((seed) => seed.id);
+// The five short-or-empty accounts left allowed for "no-headroom":
+// starling-bills is the fixture's own short current account, and the four
+// zero-balance pots are already empty, so every allowed account is
+// unusable without inventing a new kind of account.
+const HEADROOM_ALLOWED = new Set(["starling-bills", "groceries-pot", "transport-pot", "roundup-pot", "holiday-pot"]);
+
 const PRESET_EXCLUSIONS: Record<PreviewState, string[]> = {
   all: [],
   savings: ["barclays-current", "monzo-current", "petty-cash"],
   short: SEED.map((seed) => seed.id),
+  // H40: every savings account excluded, all four current accounts
+  // (including the short one) left allowed, so the three non-short current
+  // accounts are usable and savings has nothing to enter with.
+  "current-only": SAVINGS_IDS,
+  // H40: only the fixture's own short current account and its four
+  // zero-balance savings pots stay allowed. Every allowed account is short
+  // or empty, so nothing is usable even though something is allowed.
+  "no-headroom": SEED.filter((seed) => !HEADROOM_ALLOWED.has(seed.id)).map((seed) => seed.id),
+  // H40: every current account excluded, every savings account left
+  // allowed, so the plan would start with savings.
+  "savings-only": CURRENT_IDS,
 };
 
 const STATE_LABEL: Record<PreviewState, string> = {
   all: "Nothing excluded",
   savings: "A few excluded",
   short: "Everything excluded",
+  "current-only": "Savings excluded",
+  "no-headroom": "Only short/empty left",
+  "savings-only": "Current excluded",
 };
+
+const PREVIEW_STATES: PreviewState[] = ["all", "savings", "short", "current-only", "no-headroom", "savings-only"];
 
 function SettingsContext() {
   return (
@@ -114,7 +150,8 @@ function SettingsContext() {
 }
 
 function Controls({ state, mode }: { state: PreviewState; mode: Mode }) {
-  const nextState: Record<PreviewState, PreviewState> = { all: "savings", savings: "short", short: "all" };
+  const currentIndex = PREVIEW_STATES.indexOf(state);
+  const nextState = PREVIEW_STATES[(currentIndex + 1) % PREVIEW_STATES.length];
   return (
     <nav
       aria-label="Preview controls"
@@ -123,7 +160,7 @@ function Controls({ state, mode }: { state: PreviewState; mode: Mode }) {
     >
       <div className="pointer-events-auto flex items-center gap-1 rounded-full border border-white/15 bg-slate-950/95 p-1 shadow-xl">
         <a
-          href={`?state=${nextState[state]}&mode=${mode}`}
+          href={`?state=${nextState}&mode=${mode}`}
           className="flex min-h-11 items-center rounded-full px-3 text-xs font-semibold text-slate-300 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 motion-reduce:transform-none"
         >
           {STATE_LABEL[state]}
@@ -143,7 +180,9 @@ function Controls({ state, mode }: { state: PreviewState; mode: Mode }) {
 export default function CoverPlanSourcesScaleClient() {
   const params = useSearchParams();
   const rawState = params.get("state");
-  const state: PreviewState = rawState === "savings" || rawState === "short" ? rawState : "all";
+  const state: PreviewState = (PREVIEW_STATES as string[]).includes(rawState ?? "")
+    ? (rawState as PreviewState)
+    : "all";
   const mode: Mode = params.get("mode") === "dark" ? "dark" : "light";
   const [excluded, setExcluded] = useState<Set<string>>(() => new Set(PRESET_EXCLUSIONS[state]));
   const [lastState, setLastState] = useState(state);
