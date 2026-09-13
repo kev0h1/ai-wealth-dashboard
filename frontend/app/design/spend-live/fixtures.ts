@@ -60,6 +60,34 @@ export const PREVIEW_INCOME_TXNS: Transaction[] = [
   },
 ];
 
+// The chart collection uses these real-period transactions rather than the
+// separate September fixtures from G57's earlier art-direction page. The
+// current rows total £4,917, exactly matching NORMAL.pills.spent below, and
+// every date falls inside NORMAL.period (31 July to 27 August). Older rows
+// populate the same component's period-comparison history.
+export const PREVIEW_CHART_PERIOD_TXNS: Transaction[] = [
+  { id: "chart-bills", account_id: "fixture-account", date: "2026-08-01", amount: 2028, currency: "GBP", description: "Bills", category: "Bills", transaction_type: "debit" },
+  { id: "chart-transport", account_id: "fixture-account", date: "2026-08-03", amount: 449, currency: "GBP", description: "Transport", category: "Transport", transaction_type: "debit" },
+  { id: "chart-health", account_id: "fixture-account", date: "2026-08-05", amount: 228, currency: "GBP", description: "Health", category: "Health", transaction_type: "debit" },
+  { id: "chart-groceries", account_id: "fixture-account", date: "2026-08-07", amount: 421, currency: "GBP", description: "Groceries", category: "Groceries", transaction_type: "debit" },
+  { id: "chart-subscriptions", account_id: "fixture-account", date: "2026-08-08", amount: 122, currency: "GBP", description: "Subscriptions", category: "Subscriptions", transaction_type: "debit" },
+  { id: "chart-travel", account_id: "fixture-account", date: "2026-08-09", amount: 118, currency: "GBP", description: "Travel", category: "Travel", transaction_type: "debit" },
+  { id: "chart-cash", account_id: "fixture-account", date: "2026-08-10", amount: 115, currency: "GBP", description: "Cash", category: "Cash", transaction_type: "debit" },
+  { id: "chart-shopping", account_id: "fixture-account", date: "2026-08-11", amount: 61, currency: "GBP", description: "Shopping", category: "Shopping", transaction_type: "debit" },
+  { id: "chart-golf", account_id: "fixture-account", date: "2026-08-11", amount: 36, currency: "GBP", description: "Golf", category: "Golf", transaction_type: "debit" },
+  { id: "chart-software", account_id: "fixture-account", date: "2026-08-12", amount: 22, currency: "GBP", description: "Software", category: "Software", transaction_type: "debit" },
+  { id: "chart-beauty", account_id: "fixture-account", date: "2026-08-12", amount: 18, currency: "GBP", description: "Beauty", category: "Beauty", transaction_type: "debit" },
+  { id: "chart-charity", account_id: "fixture-account", date: "2026-08-12", amount: 5, currency: "GBP", description: "Charity", category: "Charity", transaction_type: "debit" },
+  { id: "chart-unplaced", account_id: "fixture-account", date: "2026-08-12", amount: 1294, currency: "GBP", description: "Unplaced payments", category: "Other", transaction_type: "debit" },
+];
+
+export const PREVIEW_CHART_TRANSACTIONS: Transaction[] = [
+  ...PREVIEW_CHART_PERIOD_TXNS,
+  { id: "chart-prev-1", account_id: "fixture-account", date: "2026-07-10", amount: 3610, currency: "GBP", description: "Previous period", category: "Bills", transaction_type: "debit" },
+  { id: "chart-prev-2", account_id: "fixture-account", date: "2026-06-12", amount: 3385, currency: "GBP", description: "Earlier period", category: "Bills", transaction_type: "debit" },
+  { id: "chart-prev-3", account_id: "fixture-account", date: "2026-05-15", amount: 3900, currency: "GBP", description: "Earlier period", category: "Bills", transaction_type: "debit" },
+];
+
 // The aim/checkpoint mechanism's fixture signals — feeds SpendVerdictView's
 // `signals` prop the same shape SpendPage.tsx's real `/spend/category-
 // signals` map does, for exactly the two "normal" notables that should show

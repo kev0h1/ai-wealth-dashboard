@@ -21,7 +21,7 @@
 
 import { useEffect, useState } from "react";
 import type { LucideIcon } from "lucide-react";
-import { ChevronDown, ChevronUp, ChevronRight, PiggyBank, CreditCard, TrendingUp, ReceiptText, ArrowLeftRight, Target } from "lucide-react";
+import { ChevronDown, ChevronUp, ChevronRight, PiggyBank, CreditCard, TrendingUp, ReceiptText, ArrowLeftRight, Target, RotateCcw, CircleHelp } from "lucide-react";
 import { getCategoryColour } from "@/lib/categories";
 import { getCategoryIcon } from "@/lib/categoryIcons";
 import { api } from "@/lib/api";
@@ -44,6 +44,7 @@ import { openTipsFor, tipSubline } from "@/lib/spendTips";
 // − U+2212, never ASCII hyphen-minus, for money (copy rule).
 const MINUS = "−";
 const fmt = (n: number) => `£${Math.round(n).toLocaleString("en-GB")}`;
+const fmtSigned = (n: number) => `${n < 0 ? MINUS : ""}£${Math.abs(Math.round(n)).toLocaleString("en-GB")}`;
 
 const MOVED_ICON: Record<SpendVerdictMoved["kind"], LucideIcon> = {
   pots: PiggyBank,
@@ -158,7 +159,7 @@ function AimBlock({ category, multiple, suggestedAim, checkpoint, sym, onChanged
               // silent — user can try again
             }
           }}
-          className="mt-1 min-h-[44px] inline-flex items-center text-[11px] font-medium text-slate-600 dark:text-slate-400 active:opacity-70 transition-opacity"
+          className="mt-1 inline-flex min-h-[44px] items-center text-[11px] font-medium text-slate-600 transition-opacity hover:text-slate-900 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-400 dark:hover:text-slate-100"
         >
           Cancel this aim
         </button>
@@ -179,7 +180,7 @@ function AimBlock({ category, multiple, suggestedAim, checkpoint, sym, onChanged
       <button
         type="button"
         onClick={() => setAimOpen(true)}
-        className="mt-2 min-h-[44px] inline-flex items-center gap-1 text-[12px] font-semibold text-indigo-600 dark:text-indigo-400 active:opacity-70 transition-opacity"
+        className="mt-2 inline-flex min-h-[44px] items-center gap-1 text-[12px] font-semibold text-indigo-600 transition-opacity hover:text-indigo-700 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300"
       >
         <Target size={13} className="flex-shrink-0" aria-hidden="true" />
         Set an aim
@@ -222,7 +223,7 @@ function AimBlock({ category, multiple, suggestedAim, checkpoint, sym, onChanged
             type="button"
             disabled={saving}
             onClick={() => handleSetAim(undefined)}
-            className="min-h-[44px] flex items-center justify-center text-[12px] font-semibold text-white rounded-lg px-3 py-1.5 active:scale-95 transition-transform disabled:opacity-60"
+            className="flex min-h-[44px] items-center justify-center rounded-lg px-3 py-1.5 text-[12px] font-semibold text-white transition-transform active:scale-95 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 motion-reduce:transition-none dark:focus-visible:ring-offset-slate-900"
             style={{ backgroundColor: "#4f46e5" }}
           >
             Set this aim
@@ -231,7 +232,7 @@ function AimBlock({ category, multiple, suggestedAim, checkpoint, sym, onChanged
             type="button"
             disabled={saving}
             onClick={() => setCustomMode(true)}
-            className="min-h-[44px] flex items-center justify-center text-[12px] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-1.5 active:scale-95 transition-transform disabled:opacity-60"
+            className="flex min-h-[44px] items-center justify-center rounded-lg border border-slate-200 px-3 py-1.5 text-[12px] text-slate-600 transition-[background-color,transform] hover:bg-slate-50 active:scale-95 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 motion-reduce:transition-none dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
           >
             Choose a different amount
           </button>
@@ -253,7 +254,7 @@ function AimBlock({ category, multiple, suggestedAim, checkpoint, sym, onChanged
             type="button"
             disabled={saving || !customValid}
             onClick={() => handleSetAim(parsedCustom)}
-            className="text-[12px] font-semibold text-white rounded-lg px-3 py-1.5 active:scale-95 transition-transform disabled:opacity-60"
+            className="min-h-[44px] rounded-lg px-3 py-1.5 text-[12px] font-semibold text-white transition-transform active:scale-95 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 motion-reduce:transition-none dark:focus-visible:ring-offset-slate-900"
             style={{ backgroundColor: "#4f46e5" }}
           >
             Set this aim
@@ -461,7 +462,7 @@ function NotableCardBody({
       <button
         type="button"
         onClick={() => onOpenCategory(notable.category)}
-        className="mt-2 inline-flex items-center gap-0.5 text-[12px] font-semibold text-indigo-600 dark:text-indigo-400"
+        className="mt-2 inline-flex min-h-11 items-center gap-0.5 rounded-lg text-[12px] font-semibold text-indigo-600 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300"
       >
         See the {notable.payments_count} payment{s}
         <ChevronRight size={14} className="flex-shrink-0" aria-hidden="true" />
@@ -490,7 +491,7 @@ function NotableCardBody({
           navigate/act links elsewhere on this card ("See the N payments",
           "Set an aim"), never for a choice-pair option. */}
       <div
-        className={`grid transition-[grid-template-rows,opacity] duration-200 ease-[var(--ease-out)] ${
+        className={`grid transition-[grid-template-rows,opacity] duration-200 ease-[var(--ease-out)] motion-reduce:transition-none ${
           localResolved ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"
         }`}
         inert={!!localResolved}
@@ -499,22 +500,27 @@ function NotableCardBody({
           <p className="mt-2 text-[12px] text-slate-600 dark:text-slate-400">
             {notable.prior_intent?.question ?? "Was this a one-off, or the new normal?"}
           </p>
-          <div className="mt-1.5 flex items-center gap-2">
+          <div className="mt-2 grid grid-cols-2 gap-2">
             <button
               type="button"
               disabled={pending !== null || !!localResolved}
               onClick={handleOneOff}
-              className="flex-1 min-h-[44px] rounded-xl border border-slate-300 dark:border-slate-500 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-semibold active:scale-95 transition-transform disabled:opacity-50"
+              className="flex min-h-[68px] flex-col items-start justify-center rounded-xl border border-slate-300 bg-white px-3 text-left text-slate-700 transition-[background-color,border-color,transform] hover:border-indigo-300 hover:bg-indigo-50/50 active:scale-95 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 motion-reduce:transition-none dark:border-slate-500 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-indigo-400/50 dark:hover:bg-indigo-400/10"
             >
-              {pending === "one_off" ? "Saving…" : "One-off"}
+              <span className="flex items-center gap-2 text-[13px] font-bold">
+                <RotateCcw size={15} aria-hidden="true" />
+                {pending === "one_off" ? "Saving…" : "One-off"}
+              </span>
+              <span className="mt-1 text-[10px] font-medium leading-4 text-slate-500 dark:text-slate-400">Keep your usual pace</span>
             </button>
             <button
               type="button"
               disabled={pending !== null || !!localResolved}
               onClick={() => onNewNormalRequest?.(notable.category)}
-              className="flex-1 min-h-[44px] rounded-xl border border-slate-300 dark:border-slate-500 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-semibold active:scale-95 transition-transform disabled:opacity-50"
+              className="flex min-h-[68px] flex-col items-start justify-center rounded-xl border border-slate-300 bg-white px-3 text-left text-slate-700 transition-[background-color,border-color,transform] hover:border-indigo-300 hover:bg-indigo-50/50 active:scale-95 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 motion-reduce:transition-none dark:border-slate-500 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-indigo-400/50 dark:hover:bg-indigo-400/10"
             >
-              New normal
+              <span className="flex items-center gap-2 text-[13px] font-bold"><TrendingUp size={15} aria-hidden="true" />New normal</span>
+              <span className="mt-1 text-[10px] font-medium leading-4 text-slate-500 dark:text-slate-400">Review a new usual</span>
             </button>
           </div>
           {intentError && (
@@ -589,7 +595,7 @@ function NotableRowView({ notable, colours, daysElapsed, onOpenCategory, onInten
         }}
         aria-expanded={expanded}
         aria-controls={detailId}
-        className="w-full min-h-[56px] flex items-center gap-2.5 pl-3 pr-4 py-2.5 text-left active:bg-slate-50 dark:active:bg-slate-700/30 transition-colors"
+        className="flex min-h-[56px] w-full items-center gap-2.5 py-2.5 pl-3 pr-4 text-left transition-colors hover:bg-slate-50 active:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 dark:hover:bg-slate-700/20 dark:active:bg-slate-700/40"
       >
         <IconChip name={notable.category} colours={colours} size={lead ? 36 : 28} />
         <div className="min-w-0 flex-1">
@@ -607,7 +613,7 @@ function NotableRowView({ notable, colours, daysElapsed, onOpenCategory, onInten
       </button>
       <div
         id={detailId}
-        className={`grid transition-[grid-template-rows,opacity] duration-200 ease-[var(--ease-out)] ${
+        className={`grid transition-[grid-template-rows,opacity] duration-200 ease-[var(--ease-out)] motion-reduce:transition-none ${
           expanded ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
         }`}
         inert={!expanded}
@@ -737,14 +743,14 @@ function UnresolvedAskCard({
         <button
           type="button"
           onClick={onCorrect}
-          className="min-h-[44px] text-[13px] font-semibold text-indigo-600 dark:text-indigo-400 active:opacity-70 transition-opacity"
+          className="min-h-[44px] rounded-lg text-[13px] font-semibold text-indigo-600 transition-opacity hover:text-indigo-700 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300"
         >
           Tell me what this was
         </button>
         <button
           type="button"
           onClick={onDismiss}
-          className="ml-auto min-h-[44px] text-[11px] font-medium text-slate-500 dark:text-slate-500 active:opacity-70 transition-opacity"
+          className="ml-auto min-h-[44px] rounded-lg text-[11px] font-medium text-slate-500 transition-opacity hover:text-slate-800 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-400 dark:hover:text-slate-200"
         >
           Not now
         </button>
@@ -772,7 +778,7 @@ function MajorityRowView({
     <button
       type="button"
       onClick={onOpen}
-      className="w-full min-h-[44px] flex items-center gap-2.5 px-4 py-2.5 text-left active:bg-slate-50 dark:active:bg-slate-700/30 transition-colors"
+      className="flex min-h-[44px] w-full items-center gap-2.5 px-4 py-2.5 text-left transition-colors hover:bg-slate-50 active:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 dark:hover:bg-slate-700/20 dark:active:bg-slate-700/40"
     >
       <IconChip name={row.category} colours={colours} size={28} />
       <div className="min-w-0 flex-1">
@@ -808,7 +814,7 @@ function OtherRowView({ total, paymentsCount, colours, onOpen }: {
     <button
       type="button"
       onClick={onOpen}
-      className="w-full min-h-[44px] flex items-center gap-2.5 px-4 py-2.5 text-left active:bg-slate-50 dark:active:bg-slate-700/30 transition-colors"
+      className="flex min-h-[44px] w-full items-center gap-2.5 px-4 py-2.5 text-left transition-colors hover:bg-slate-50 active:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 dark:hover:bg-slate-700/20 dark:active:bg-slate-700/40"
     >
       <IconChip name="Other" colours={colours} size={28} />
       <div className="min-w-0 flex-1">
@@ -858,7 +864,7 @@ function MoneyYouMoved({
           onOpenChange?.(next);
         }}
         aria-expanded={open}
-        className="w-full flex items-center justify-between px-4 py-3 glass-card rounded-2xl"
+        className="glass-card flex min-h-11 w-full items-center justify-between rounded-2xl px-4 py-3 text-left transition-colors hover:bg-white/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:hover:bg-slate-800/80"
       >
         <p className="text-xs font-semibold text-slate-600 dark:text-slate-400">
           Money you moved · <span className="font-mono tabular-nums">{fmt(total)}</span>, not counted in spending
@@ -904,7 +910,7 @@ function MoneyYouMoved({
                 key={m.kind}
                 type="button"
                 onClick={() => onOpenRow?.(m)}
-                className="w-full flex items-center gap-2.5 px-4 py-2.5 min-h-[44px] text-left active:bg-slate-50 dark:active:bg-slate-700/30 transition-colors"
+                className="flex min-h-[44px] w-full items-center gap-2.5 px-4 py-2.5 text-left transition-colors hover:bg-slate-50 active:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 dark:hover:bg-slate-700/20 dark:active:bg-slate-700/40"
               >
                 {rowContent}
               </button>
@@ -1048,9 +1054,12 @@ export interface SpendVerdictViewProps {
   onMajorityExpandedChange?: (expanded: boolean) => void;
   initialMovedOpen?: boolean;
   onMovedOpenChange?: (open: boolean) => void;
+  /** Approved G57 A presentation. It changes section hierarchy and labels,
+   *  but keeps this component's existing live actions and data sources. */
+  journey?: boolean;
 }
 
-export default function SpendVerdictView({ verdict, colours, onOpenCategory, categoryInsights, onIntent, signals, sym = "£", onAimChanged, onAskCorrect, hideReading, aboveMajority, expandMajoritySignal, miscategorisedCount = 0, onMiscategorisedTap, pairCount = 0, reviewTotal, resolved, onResolved, onNewNormalRequest, unresolvedAccountName, onOpenMoved, initialMajorityExpanded, onMajorityExpandedChange, initialMovedOpen, onMovedOpenChange }: SpendVerdictViewProps) {
+export default function SpendVerdictView({ verdict, colours, onOpenCategory, categoryInsights, onIntent, signals, sym = "£", onAimChanged, onAskCorrect, hideReading, aboveMajority, expandMajoritySignal, miscategorisedCount = 0, onMiscategorisedTap, pairCount = 0, reviewTotal, resolved, onResolved, onNewNormalRequest, unresolvedAccountName, onOpenMoved, initialMajorityExpanded, onMajorityExpandedChange, initialMovedOpen, onMovedOpenChange, journey = false }: SpendVerdictViewProps) {
   // Optimistic, in-session hide the instant "Not now" is tapped — the real
   // persistence is server-side (POST /spend/verdict/dismiss-unresolved sets
   // unresolved.ask_worthy=false on every future fetch for this transaction,
@@ -1077,6 +1086,11 @@ export default function SpendVerdictView({ verdict, colours, onOpenCategory, cat
   const visibleRows = majorityExpanded ? nonZeroRows : nonZeroRows.slice(0, MAJORITY_COLLAPSE_AT);
   const hiddenCount = nonZeroRows.length - visibleRows.length;
   const headerSum = nonZeroRows.reduce((s, r) => s + r.spent, 0);
+  const latestPace = [...(verdict.pace_series ?? [])].reverse().find((point) => point.usual != null);
+  const usualByNow = latestPace?.usual ?? null;
+  const paceDelta = usualByNow == null ? null : pills.spent - usualByNow;
+  const attentionChange = notables.reduce((sum, item) => sum + Math.max(0, item.excess), 0);
+  const elsewhereChange = paceDelta == null ? null : paceDelta - attentionChange;
 
   const showAskCard = unresolved.ask_worthy && !askDismissed && unresolved.largest != null;
 
@@ -1109,7 +1123,7 @@ export default function SpendVerdictView({ verdict, colours, onOpenCategory, cat
         <button
           type="button"
           onClick={onMiscategorisedTap}
-          className="w-full glass-tile rounded-xl px-3 py-2 flex items-center gap-2 active:scale-95 transition-transform"
+          className="glass-tile flex min-h-11 w-full items-center gap-2 rounded-xl px-3 py-2 transition-transform hover:bg-white/80 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 motion-reduce:transition-none dark:hover:bg-slate-800/80"
         >
           <ReceiptText size={14} className="text-slate-400 dark:text-slate-500 flex-shrink-0" />
           <span className="flex-1 text-left text-[11px] font-medium text-slate-600 dark:text-slate-400">
@@ -1144,11 +1158,53 @@ export default function SpendVerdictView({ verdict, colours, onOpenCategory, cat
       {notables.length > 0 && (() => {
         const ranked = rankNotables(notables);
         return (
-          <div className="mt-3">
-            <p className="px-1 pb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              Worth a look
-            </p>
-            <div className="glass-card-flat rounded-2xl overflow-hidden divide-y divide-slate-100 dark:divide-slate-700/50">
+          <section
+            id={journey ? "spend-journey-changes" : undefined}
+            tabIndex={journey ? -1 : undefined}
+            className={journey
+              ? "relative scroll-mt-24 pb-10 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+              : "mt-3"}
+          >
+            {journey && (
+              <>
+                <span aria-hidden="true" className="absolute -left-8 top-1 size-6 rounded-full border-[6px] border-amber-400 bg-white ring-4 ring-[#f0f2f7] dark:bg-slate-900 dark:ring-[#0f172a] sm:-left-10" />
+                <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-slate-600 dark:text-slate-400">Today · day {daysElapsed}</p>
+                <h2 className="mt-2 text-balance text-2xl font-bold tracking-[-0.025em] text-slate-950 dark:text-white">
+                  {paceDelta != null && paceDelta > 0
+                    ? <>What put you <span className="font-mono tabular-nums">{fmtSigned(paceDelta)}</span> ahead</>
+                    : paceDelta != null && paceDelta < 0
+                      ? <>What kept you <span className="font-mono tabular-nums">{fmtSigned(Math.abs(paceDelta))}</span> below usual</>
+                      : "What changed your pace"}
+                </h2>
+                {usualByNow != null && (
+                  <p className="mt-2 text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-300">
+                    You have spent <span className="font-mono tabular-nums">{fmt(pills.spent)}</span> by day {daysElapsed}, against a usual <span className="font-mono tabular-nums">{fmt(usualByNow)}</span>.
+                  </p>
+                )}
+                {paceDelta != null && elsewhereChange != null && (
+                  <dl className="mt-4 divide-y divide-slate-200 rounded-2xl border border-slate-200 bg-white px-4 shadow-sm dark:divide-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:shadow-none">
+                    <div className="flex min-h-12 items-center justify-between gap-4 py-2 text-[12px]">
+                      <dt className="text-slate-600 dark:text-slate-300">More across {notables.length} categor{notables.length === 1 ? "y" : "ies"}</dt>
+                      <dd className="font-mono font-bold tabular-nums text-slate-900 dark:text-white">{fmt(attentionChange)}</dd>
+                    </div>
+                    <div className="flex min-h-12 items-center justify-between gap-4 py-2 text-[12px]">
+                      <dt className="text-slate-600 dark:text-slate-300">{elsewhereChange < 0 ? "Less" : "More"} across everything else</dt>
+                      <dd className="font-mono font-bold tabular-nums text-slate-900 dark:text-white">{fmtSigned(elsewhereChange)}</dd>
+                    </div>
+                    <div className="flex min-h-12 items-center justify-between gap-4 py-2 text-[13px]">
+                      <dt className="font-bold text-slate-900 dark:text-white">{paceDelta < 0 ? "Below usual overall" : "Ahead overall"}</dt>
+                      <dd className="font-mono font-bold tabular-nums text-slate-900 dark:text-white">{fmtSigned(paceDelta)}</dd>
+                    </div>
+                  </dl>
+                )}
+              </>
+            )}
+            {!journey && (
+              <p className="px-1 pb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                Worth a look
+              </p>
+            )}
+            <div className={`${journey ? "mt-4" : ""} glass-card-flat overflow-hidden rounded-2xl divide-y divide-slate-100 dark:divide-slate-700/50`}>
               {ranked.map((n, i) => (
                 <NotableRowView
                   key={n.category}
@@ -1169,7 +1225,7 @@ export default function SpendVerdictView({ verdict, colours, onOpenCategory, cat
                 />
               ))}
             </div>
-          </div>
+          </section>
         );
       })()}
 
@@ -1178,22 +1234,65 @@ export default function SpendVerdictView({ verdict, colours, onOpenCategory, cat
           notable stack's own 12px rhythm instead of filing as "notable
           #4". id="spend-unresolved" is the OUT-pill footnote's Show Your
           Working scroll target (SpendHeader's onUnresolvedTap). */}
-      <div id="spend-unresolved">
-        {showAskCard && unresolved.largest && (
-          <div className="mt-5">
-            <UnresolvedAskCard
-              largest={unresolved.largest}
+      {journey && unresolved.total > 0 ? (
+        <section id="spend-unresolved" tabIndex={-1} className="relative scroll-mt-24 pb-10 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">
+          <span aria-hidden="true" className="absolute -left-8 top-1 flex size-6 items-center justify-center rounded-full border border-indigo-300 bg-indigo-50 text-indigo-700 ring-4 ring-[#f0f2f7] dark:border-indigo-400/30 dark:bg-indigo-400/10 dark:text-indigo-300 dark:ring-[#0f172a] sm:-left-10">
+            <CircleHelp size={12} />
+          </span>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-xl font-bold text-slate-950 dark:text-white">
+                {unresolved.payments_count} payment{unresolved.payments_count === 1 ? "" : "s"} still need a place
+              </h2>
+              <p className="mt-1 text-[13px] text-slate-600 dark:text-slate-400">Already included in Out, but not yet in a category.</p>
+            </div>
+            <span className="font-mono text-base font-bold tabular-nums text-slate-900 dark:text-white">{fmt(unresolved.total)}</span>
+          </div>
+          {showAskCard && unresolved.largest ? (
+            <div className="mt-4">
+              <UnresolvedAskCard
+                largest={unresolved.largest}
               paymentsCount={unresolved.payments_count}
               unresolvedTotal={unresolved.total}
               periodOut={pills.spent}
               weight={unresolved.weight}
               accountName={unresolvedAccountName}
               onCorrect={() => (onAskCorrect ? onAskCorrect() : onOpenCategory("Other"))}
-              onDismiss={handleDismissAsk}
-            />
-          </div>
-        )}
-      </div>
+                onDismiss={handleDismissAsk}
+              />
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => onOpenCategory("Other")}
+              className="mt-4 flex min-h-14 w-full items-center justify-between rounded-2xl bg-indigo-600 px-4 text-left text-white transition-colors hover:bg-indigo-700 active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 motion-reduce:transition-none dark:focus-visible:ring-offset-slate-900"
+            >
+              <span>
+                <span className="block text-sm font-bold">Place the payments</span>
+                <span className="mt-0.5 block text-[11px] text-indigo-100">Review what is still uncategorised</span>
+              </span>
+              <ChevronRight size={17} aria-hidden="true" />
+            </button>
+          )}
+        </section>
+      ) : (
+        <div id="spend-unresolved">
+          {showAskCard && unresolved.largest && (
+            <div className="mt-5">
+              <UnresolvedAskCard
+                largest={unresolved.largest}
+                paymentsCount={unresolved.payments_count}
+                unresolvedTotal={unresolved.total}
+                periodOut={pills.spent}
+                weight={unresolved.weight}
+                accountName={unresolvedAccountName}
+                onCorrect={() => (onAskCorrect ? onAskCorrect() : onOpenCategory("Other"))}
+                onDismiss={handleDismissAsk}
+              />
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Majority — aboveMajority (the This period/Over time tablist) gets
           the same mt-5 rhythm the majority section itself uses everywhere
@@ -1202,11 +1301,32 @@ export default function SpendVerdictView({ verdict, colours, onOpenCategory, cat
           tablist's own mb-2 with no added margin (avoids stacking two mt-5
           gaps back to back). */}
       {aboveMajority && <div className="mt-5">{aboveMajority}</div>}
-      <div className={aboveMajority ? "" : "mt-5"} id="spend-majority-section">
-        <p className="px-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
-          <MoneyText text={majorityHeader(state, headerSum, nonZeroRows.length)} />
-        </p>
-        {nonZeroRows.length > 0 || unresolved.total > 0 ? (
+      <section
+        className={journey
+          ? "relative scroll-mt-24 pb-10 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+          : aboveMajority ? "" : "mt-5"}
+        id="spend-majority-section"
+        tabIndex={journey ? -1 : undefined}
+      >
+        {journey ? (
+          <>
+            <span aria-hidden="true" className="absolute -left-8 top-1 size-6 rounded-full border-[6px] border-slate-300 bg-white ring-4 ring-[#f0f2f7] dark:border-slate-500 dark:bg-slate-900 dark:ring-[#0f172a] sm:-left-10" />
+            <div className="flex items-end justify-between gap-3 border-b border-slate-200 pb-3 dark:border-slate-700">
+              <div>
+                <h2 className="text-xl font-bold text-slate-950 dark:text-white">The rest of your spending</h2>
+                <p className="mt-1 text-[12px] text-slate-600 dark:text-slate-400">
+                  {nonZeroRows.length} quieter categor{nonZeroRows.length === 1 ? "y" : "ies"}, with saving tips shown where available.
+                </p>
+              </div>
+              <span className="shrink-0 font-mono text-sm font-bold tabular-nums text-slate-900 dark:text-white">{fmt(headerSum)}</span>
+            </div>
+          </>
+        ) : (
+          <p className="px-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
+            <MoneyText text={majorityHeader(state, headerSum, nonZeroRows.length)} />
+          </p>
+        )}
+        {nonZeroRows.length > 0 || (!journey && unresolved.total > 0) ? (
           <div className="mt-2 glass-card-flat rounded-2xl divide-y divide-slate-100 dark:divide-slate-700/50 overflow-hidden">
             {visibleRows.map((row) => (
               <MajorityRowView
@@ -1218,7 +1338,7 @@ export default function SpendVerdictView({ verdict, colours, onOpenCategory, cat
                 tips={openTipsFor(row.category, categoryInsights ?? [])}
               />
             ))}
-            {unresolved.total > 0 && (
+            {!journey && unresolved.total > 0 && (
               <OtherRowView
                 total={unresolved.total}
                 paymentsCount={unresolved.payments_count}
@@ -1234,7 +1354,7 @@ export default function SpendVerdictView({ verdict, colours, onOpenCategory, cat
           <button
             type="button"
             onClick={() => { setMajorityExpanded(true); onMajorityExpandedChange?.(true); }}
-            className="mt-2 w-full text-center text-[12px] font-semibold text-indigo-600 dark:text-indigo-400 py-1"
+            className="mt-2 min-h-11 w-full rounded-lg py-1 text-center text-[12px] font-semibold text-indigo-600 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300"
           >
             Show all {nonZeroRows.length}
           </button>
@@ -1244,18 +1364,31 @@ export default function SpendVerdictView({ verdict, colours, onOpenCategory, cat
             Nothing in {zeroRows.map((r) => r.category).join(" or ")} yet
           </p>
         )}
-      </div>
+      </section>
 
       {/* Money you moved — id is the "Moved" tap's Show Your Working
           scroll target (SpendHeader's onMovedTap, once that prop lands). */}
-      <div className="mt-3" id="spend-money-moved">
-        <MoneyYouMoved
-          moved={moved}
-          onOpenRow={onOpenMoved}
-          initialOpen={initialMovedOpen}
-          onOpenChange={onMovedOpenChange}
-        />
-      </div>
+      {moved.length > 0 && (
+        <section
+          className={journey ? "relative scroll-mt-24 pb-10 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500" : "mt-3"}
+          id="spend-money-moved"
+          tabIndex={journey ? -1 : undefined}
+        >
+          {journey && (
+            <>
+              <span aria-hidden="true" className="absolute -left-8 top-1 size-6 rounded-full border-[6px] border-slate-300 bg-white ring-4 ring-[#f0f2f7] dark:border-slate-500 dark:bg-slate-900 dark:ring-[#0f172a] sm:-left-10" />
+              <h2 className="text-xl font-bold text-slate-950 dark:text-white">Money moved on a separate route</h2>
+              <p className="mb-3 mt-1 text-[12px] text-slate-600 dark:text-slate-400">This is kept outside Out.</p>
+            </>
+          )}
+          <MoneyYouMoved
+            moved={moved}
+            onOpenRow={onOpenMoved}
+            initialOpen={initialMovedOpen}
+            onOpenChange={onMovedOpenChange}
+          />
+        </section>
+      )}
     </div>
   );
 }
