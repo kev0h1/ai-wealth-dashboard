@@ -196,10 +196,12 @@ def _changed_paths(sha_range: str) -> set[str]:
 # `scripts/session.sh finish <ID> --uat-review` (recorded on the board as
 # the item's `uat_review` flag while it sits in `review`), or, as a
 # backstop when that flag was forgotten, by _is_design_round_diff below
-# over the merge's own changed paths. The flag always wins outright: it is
-# checked with `or` before the heuristic is even evaluated (see
-# `_integrate_one`), so an agent that built variants and remembered to say
-# so is never second-guessed by anything below.
+# over the merge's own changed paths. The flag always wins outright: when
+# it is set, `_integrate_one` skips the heuristic entirely rather than
+# evaluating it and discarding the result — the flag is checked first as
+# its own branch, so an agent that built variants and remembered to say so
+# never pays for the extra git calls the heuristic makes, and is never
+# second-guessed by anything below.
 #
 # H41: the backstop used to fire on ANY diff confined to
 # frontend/app/design/, full stop — which is right for a variants round
@@ -715,24 +717,31 @@ def _integrate_one(item: dict) -> tuple[str, str]:
     # `uat` instead of `done` — the code is merged and UAT is rebuilt with
     # it either way, the only difference is that this is not the finished
     # implementation, just variants waiting on Kevin's choice. The flag
-    # always wins outright: `or` short-circuits before the heuristic below
-    # ever runs, so an agent that built variants and remembered to say so
-    # is never second-guessed.
+    # always wins outright: it is checked first, as its own branch below,
+    # and the heuristic is never even called when it is set — an `or`
+    # between the flag and a variable already computed on the line above
+    # would not do this, it would just discard a result that was
+    # unconditionally computed anyway (H41 review finding: an earlier
+    # version of this code did exactly that, so a correctly flagged design
+    # round still paid for `git ls-tree` and `git diff --name-status`
+    # every time, and the comment claiming otherwise was false).
     #
     # H41: the heuristic call itself is wrapped — the merge and push above
     # have already succeeded, so a failure inside the classification (a
     # git call behaving unexpectedly) must never turn a completed merge
     # into a blocked one; the worst acceptable outcome here is landing in
     # `done` instead of `uat`, never raising.
-    try:
-        design_round_backstop = _is_design_round_diff(changed, pre_sha)
-    except Exception as exc:  # noqa: BLE001 - classification must never abort a completed merge
-        print(
-            f"warning: design-round classification failed for {item_id}, defaulting to done: {exc}",
-            file=sys.stderr,
-        )
-        design_round_backstop = False
-    is_design_round = bool(item.get("uat_review")) or design_round_backstop
+    if item.get("uat_review"):
+        is_design_round = True
+    else:
+        try:
+            is_design_round = _is_design_round_diff(changed, pre_sha)
+        except Exception as exc:  # noqa: BLE001 - classification must never abort a completed merge
+            print(
+                f"warning: design-round classification failed for {item_id}, defaulting to done: {exc}",
+                file=sys.stderr,
+            )
+            is_design_round = False
     if is_design_round:
         # H34: derive the real preview link from the merged diff instead of
         # always recording the bare design index. This is cosmetic, never

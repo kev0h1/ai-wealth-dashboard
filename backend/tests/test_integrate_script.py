@@ -816,7 +816,27 @@ def _patch_integrate_one_plumbing(monkeypatch, changed_paths):
 
 
 def test_integrate_one_lands_in_uat_when_uat_review_flag_is_set(monkeypatch):
+    """H41 review finding: this test used to pass for the wrong reason.
+    The generic fake shell returns empty output for the (previously
+    unconditional) `git ls-tree` call, which `_slug_is_new` reads as "this
+    slug is new", so the heuristic coincidentally agreed with the flag
+    even though it was still being evaluated (and its result discarded)
+    on every flagged merge. Record every call to `_is_design_round_diff`
+    instead of faking its git calls, and assert the list stays empty: a
+    raise-based stub would not have caught the regression either, since
+    `_integrate_one` already wraps that call in a broad except and the
+    flag being True made the final result look right regardless of
+    whether the heuristic actually ran or blew up. Only "was it called at
+    all" tells old and new code apart here."""
     _patch_integrate_one_plumbing(monkeypatch, {"frontend/app/design/plan-picker/page.tsx"})
+
+    heuristic_calls: list[tuple] = []
+
+    def record_call(changed, pre_sha):
+        heuristic_calls.append((changed, pre_sha))
+        return True
+
+    monkeypatch.setattr(integrate, "_is_design_round_diff", record_call)
 
     uat_calls: list[tuple] = []
     done_calls: list[tuple] = []
@@ -828,8 +848,9 @@ def test_integrate_one_lands_in_uat_when_uat_review_flag_is_set(monkeypatch):
     item = {"id": "H31", "branch": "feature-H31-thing", "title": "UAT review swimlane", "uat_review": True}
     result, detail = integrate._integrate_one(item)
 
-    print("uat_review flag set, diff is design-round-only -> result:", result, detail)
+    print("uat_review flag set, heuristic calls recorded ->", result, detail, "heuristic_calls:", heuristic_calls)
 
+    assert heuristic_calls == []  # the flag must skip the heuristic entirely, not just outrank its result
     assert result == "merged"
     assert "landed in uat" in detail
     assert len(uat_calls) == 1
