@@ -44,10 +44,12 @@ TIER_PRICES_GBP = {
 # B21: the full set of billing periods the schema understands. This stays
 # four entries deliberately (including "three_months") even after B27
 # dropped three_months from SUBSCRIPTION_PERIODS_ENABLED below, both here
-# and in TIER_BILLING_PRICES_GBP just below: it is the reference table, so
-# re-enabling the period later is a one-line change to the enabled tuple
-# rather than re-deriving prices. A future reader should not "clean up"
-# these two structures by deleting the three_months rows.
+# and in TIER_BILLING_PRICES_GBP just below: they are reference tables, so
+# a restored period's price is already here rather than needing to be
+# re-derived. Restoring the period itself takes more than this table —
+# see the note by SUBSCRIPTION_PERIODS_ENABLED below. A future reader
+# should not "clean up" these two structures by deleting the three_months
+# rows.
 SUBSCRIPTION_BILLING_PERIODS = {
     "monthly":      {"months": 1,  "label": "Monthly"},
     "three_months": {"months": 3,  "label": "Every 3 months"},
@@ -79,7 +81,18 @@ TIER_BILLING_PRICES_GBP = {
 # kept becomes four more SKUs to create and maintain in App Store Connect
 # for C13. SUBSCRIPTION_BILLING_PERIODS and TIER_BILLING_PRICES_GBP above
 # deliberately still carry a "three_months" column (see their own
-# comments), so re-enabling it later is a one-line change to this tuple.
+# comments) as reference data. B27 claimed restoring the period was a
+# one-line flip of this tuple; a post-merge review (TODO.md B30,
+# 2026-09-14) found that wrong — it takes FOUR one-line edits, not one:
+# this tuple (add "three_months" back); app.core.config's
+# _STRIPE_LONGER_PERIODS (~line 410), without which BILLING_ENABLED would
+# go true while never requiring the three-month Stripe price ids, so a
+# checkout for that period would fail rather than work; and
+# frontend/components/PlanPicker.tsx's SHORT_LABELS (~line 80) and
+# RENEWAL_WORDS (~line 85), whose three_months entries were deleted
+# rather than left to a fallback, so without the RENEWAL_WORDS entry the
+# disclosure would read "then £X each period unless you cancel" instead
+# of "every 3 months".
 SUBSCRIPTION_PERIODS_ENABLED = ("monthly", "six_months", "annual")
 
 # Kevin decides: which of the enabled periods carry the 14-day introductory

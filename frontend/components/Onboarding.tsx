@@ -469,7 +469,7 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
         <div className="mb-6">
           <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">Choose your plan</h2>
           <p className="mt-1 text-sm leading-relaxed text-slate-500 dark:text-slate-400">
-            Statements is free and selected for you. Paid plans can renew monthly, every 3 months, every 6 months or yearly.
+            Statements is free and selected for you. Paid plans can renew monthly, every 6 months or yearly.
           </p>
         </div>
         {planInfo === undefined ? (
