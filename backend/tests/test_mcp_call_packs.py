@@ -30,6 +30,7 @@ import app.core.subscription as subscription_module
 import app.db.collections as db_collections_module
 import app.routers.mcp as mcp_router_module
 import app.routers.subscription as subscription_router_module
+from tests.conftest import patch_billing_enabled
 
 UID = "mcp-call-packs-test@example.com"
 
@@ -382,6 +383,20 @@ def test_get_subscription_serves_mcp_block_and_packs(monkeypatch):
     # unit test of the MCP block, not an accidental integration test of B11.
     monkeypatch.setattr(llm_module, "llm_usage_col", _FakeLlmUsageCol())
     monkeypatch.setattr(db_collections_module, "penny_topups_col", _FakePacksCol())
+    # `billing_live` in the payload is just BILLING_ENABLED passed through
+    # (app/routers/subscription.py); this test doesn't care which way it
+    # goes, but reading it off the real BILLING_ENABLED left this test's
+    # pass/fail dependent on whether the machine running it happens to have
+    # Stripe configured. B34: B25's sandbox bring-up put a live test-mode
+    # key and the full price table into backend/.env, which flipped
+    # BILLING_ENABLED to true and broke this assertion everywhere that env
+    # loads from, so pin it explicitly instead of inheriting the ambient
+    # value. Pinned false (not dropped) to keep this a full payload-shape
+    # assertion; the false/true toggle itself is
+    # test_billing.py's test_get_subscription_billing_live_reflects_flag,
+    # which already owns that behaviour — don't undo this pin thinking it's
+    # dead weight.
+    patch_billing_enabled(monkeypatch, False)
 
     result = _run(subscription_router_module.get_subscription_info({"email": UID}))
 

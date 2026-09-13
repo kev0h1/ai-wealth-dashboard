@@ -35,6 +35,7 @@ import app.db.collections as db_collections_module
 import app.routers.billing as billing_router_module
 import app.routers.subscription as subscription_router_module
 import app.services.billing as billing_module
+from tests.conftest import patch_billing_enabled as _patch_billing_enabled
 
 UID = "billing-test@example.com"
 
@@ -203,17 +204,11 @@ def _patch_collections(monkeypatch, **cols):
         monkeypatch.setattr(db_collections_module, name, col)
 
 
-def _patch_billing_enabled(monkeypatch, enabled: bool, *, price_ids: dict | None = None):
-    """BILLING_ENABLED is imported ('from app.core.config import
-    BILLING_ENABLED') separately into app.services.billing,
-    app.routers.billing and app.routers.subscription, so each module's own
-    binding has to be patched independently — same convention
-    test_mcp_connector_flag.py uses for MCP_CONNECTOR_ENABLED."""
-    monkeypatch.setattr(billing_module, "BILLING_ENABLED", enabled)
-    monkeypatch.setattr(billing_router_module, "BILLING_ENABLED", enabled)
-    monkeypatch.setattr(subscription_router_module, "BILLING_ENABLED", enabled)
-    if price_ids is not None:
-        monkeypatch.setattr(billing_module, "STRIPE_PRICE_IDS", price_ids)
+# `_patch_billing_enabled` used to live here, but B34 moved it to
+# tests/conftest.py (as `patch_billing_enabled`, imported above under this
+# file's original name) once tests/test_mcp_call_packs.py also needed it —
+# see that function's own docstring for why each module's binding has to be
+# patched independently.
 
 
 _FULL_PRICE_IDS = {
