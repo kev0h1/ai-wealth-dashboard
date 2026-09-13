@@ -1,4 +1,4 @@
-import type { PaydayPlanDest, PaydayPlanSalary } from "@/lib/api";
+import type { CompanionItem, PaydayPlanDest, PaydayPlanSalary } from "@/lib/api";
 
 export type PaydayScenario = {
   id: "five" | "ten";
@@ -80,4 +80,23 @@ export const PAYDAY_SCENARIOS: readonly PaydayScenario[] = [
 
 export function totalMoving(scenario: PaydayScenario) {
   return scenario.destinations.reduce((total, destination) => total + destination.move, 0);
+}
+
+/** Production-shaped data for Variant B. Keeping this fixture at the API
+ * boundary means the design preview exercises the actual card rather than a
+ * visual copy of it. */
+export function paydayPlanItem(scenario: PaydayScenario): CompanionItem {
+  return {
+    id: `design-payday-${scenario.id}`,
+    type: "payday_plan",
+    headline: `Payday plan: split £${scenario.salary.amount.toLocaleString("en-GB")} across ${scenario.destinations.length} accounts`,
+    body: `£${totalMoving(scenario).toLocaleString("en-GB")} distributed, £${scenario.salary.stays.toLocaleString("en-GB")} stays in ${scenario.salary.name}.`,
+    action: { label: "See the full plan", route: "/upcoming" },
+    estimated: false,
+    total: totalMoving(scenario),
+    preview: true,
+    next_pay: "2026-09-27",
+    dests: [...scenario.destinations],
+    salary: scenario.salary,
+  };
 }
