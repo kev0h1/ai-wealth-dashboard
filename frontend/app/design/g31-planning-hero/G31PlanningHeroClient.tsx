@@ -1,12 +1,22 @@
 "use client";
 
 // TEMPORARY PREVIEW — G31, Planning hero design round.
-// Static reconciled fixtures only. No API requests or production changes.
+// Variant A ("Plain verdict") is what Kevin picked and what G34 implemented
+// into the real components/planning/GrowPanel.tsx (see the exported
+// GrowHero, added specifically so previews like this one can render the
+// exact live hero markup — see that file's own comment above GrowHero).
+// This preview now renders GrowHero itself against static fixtures for
+// variant A, so it can no longer drift from what actually ships; B and C
+// were never picked and remain hand-authored references kept only for
+// side-by-side comparison.
+// No API requests or production changes.
 // /design/g31-planning-hero?variant=a|b|c&state=short|spare&mode=light|dark&open=1
 
 import { useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { ChevronDown, Gauge } from "lucide-react";
+import type { GrowView } from "@wealth/shared";
+import { GrowHero } from "@/app/planning/GrowPanel";
 
 type Variant = "a" | "b" | "c";
 type State = "short" | "spare";
@@ -25,21 +35,48 @@ const FIXTURES: Record<State, Fixture> = {
   spare: { state: "spare", income: 2555, spending: 2103, debt: 120, result: 332 },
 };
 
+/** GrowHero only reads period_gate, surplus_monthly and surplus_ledger, but
+ *  GrowView requires the rest of the shape too — filled with placeholder
+ *  values the hero never touches. period_gate.short is always false here:
+ *  this preview is about the CALM branch's monthly verdict (short/spare in
+ *  a typical month), not the urgent "This period needs you first" branch. */
+function toGrowView(fixture: Fixture): GrowView {
+  return {
+    verdict: { headline: "", sub: "" },
+    surplus_monthly: fixture.result,
+    surplus_ledger: {
+      income: fixture.income,
+      spending: fixture.spending,
+      debt_deduction: fixture.debt,
+      debt_deducted: true,
+      surplus: fixture.result,
+      n_months: 3,
+      month_labels: ["Jun", "Jul", "Aug"],
+    },
+    buffer: { current: 900, target: 5000, pct: 18, days_covered: 20, target_months: 1 },
+    debt: { has_debt: false, total: 0, all_promo: false, expensive_total: 0, promo_cliff: null },
+    invest: { portfolio_value: 0, has_investments: false },
+    ladder: [],
+    notes: [],
+    period_gate: { short: false, to_cover: 0, period_end: null },
+  };
+}
+
 const NOTES: Record<Variant, { title: string; thesis: string; risk: string }> = {
   a: {
-    title: "A · Plain verdict · recommended",
-    thesis: "Say the result once in ordinary language, then let a single calm disclosure carry the evidence.",
+    title: "A · Plain verdict · shipped (G34)",
+    thesis: "Say the result once in ordinary language, then let a single calm disclosure carry the evidence. Renders the real GrowHero.",
     risk: "The exact three-month lens is inside the calculation, so a user who never opens it sees only the shorter methodology sentence.",
   },
   b: {
-    title: "B · Cockpit reading",
+    title: "B · Cockpit reading · not picked",
     thesis: "Lead with a signed monthly position and make the three measured months part of the instrument.",
-    risk: "Faster for financially confident users, but less conversational and the month markers add another visual object.",
+    risk: "Faster for financially confident users, but less conversational and the month markers add another visual object. Kept as a hand-authored reference only, never shipped.",
   },
   c: {
-    title: "C · Open working",
+    title: "C · Open working · not picked",
     thesis: "Keep the entire reconciled calculation visible so no tap is needed to understand where the result came from.",
-    risk: "The evidence competes with the verdict and makes a long-horizon landing card feel like a compact statement.",
+    risk: "The evidence competes with the verdict and makes a long-horizon landing card feel like a compact statement. Kept as a hand-authored reference only, never shipped.",
   },
 };
 
@@ -93,44 +130,11 @@ function Ledger({ fixture, resultLabel = "Monthly position" }: { fixture: Fixtur
   );
 }
 
-function CalculationDisclosure({ fixture, defaultOpen, label }: { fixture: Fixture; defaultOpen: boolean; label: string }) {
-  return (
-    <details className="group mt-3" open={defaultOpen ? true : undefined}>
-      <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 rounded-lg text-[13px] font-semibold text-indigo-600 outline-none transition-colors active:opacity-70 focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400 [&::-webkit-details-marker]:hidden">
-        {label}
-        <ChevronDown size={16} aria-hidden="true" className="shrink-0 transition-transform group-open:rotate-180 motion-reduce:transition-none" />
-      </summary>
-      <Ledger fixture={fixture} />
-    </details>
-  );
-}
-
 function HeroShell({ children, labelledBy }: { children: React.ReactNode; labelledBy: string }) {
   return (
     <section aria-labelledby={labelledBy} className="glass-hero overflow-hidden rounded-3xl p-5">
       {children}
     </section>
-  );
-}
-
-function VariantA({ fixture, defaultOpen }: { fixture: Fixture; defaultOpen: boolean }) {
-  const isShort = fixture.state === "short";
-  return (
-    <HeroShell labelledBy="variant-a-heading">
-      <div className="flex items-center gap-1.5">
-        <Gauge size={13} aria-hidden="true" className="text-indigo-500" />
-        <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">Planning</p>
-      </div>
-      <h2 id="variant-a-heading" className="mt-4 text-[28px] font-bold leading-[1.12] tracking-tight text-slate-950 dark:text-white text-pretty">
-        {isShort ? "You’re " : "You have "}
-        <span className="money whitespace-nowrap">{money(fixture.result)}</span>
-        {isShort ? " short" : " spare"} in a typical month
-      </h2>
-      <p className="mt-3 text-[13px] leading-relaxed text-slate-600 dark:text-slate-300 text-pretty">
-        Based on your recent income, typical spending and debt repayments.
-      </p>
-      <CalculationDisclosure fixture={fixture} defaultOpen={defaultOpen} label="How we calculated this" />
-    </HeroShell>
   );
 }
 
@@ -162,7 +166,13 @@ function VariantB({ fixture, defaultOpen }: { fixture: Fixture; defaultOpen: boo
           </div>
         </div>
       </div>
-      <CalculationDisclosure fixture={fixture} defaultOpen={defaultOpen} label="See the monthly calculation" />
+      <details className="group mt-3" open={defaultOpen ? true : undefined}>
+        <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 rounded-lg text-[13px] font-semibold text-indigo-600 outline-none transition-colors active:opacity-70 focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400 [&::-webkit-details-marker]:hidden">
+          See the monthly calculation
+          <ChevronDown size={16} aria-hidden="true" className="shrink-0 transition-transform group-open:rotate-180 motion-reduce:transition-none" />
+        </summary>
+        <Ledger fixture={fixture} />
+      </details>
     </HeroShell>
   );
 }
@@ -259,7 +269,9 @@ export default function G31PlanningHeroClient() {
             <p className="mt-2 text-[12px] leading-relaxed text-slate-500 dark:text-slate-400"><span className="font-semibold">Trade-off:</span> {note.risk}</p>
           </aside>
 
-          {variant === "a" && <VariantA fixture={fixture} defaultOpen={defaultOpen} />}
+          {variant === "a" && (
+            <GrowHero view={toGrowView(fixture)} hideValues={false} onSeeDue={() => {}} />
+          )}
           {variant === "b" && <VariantB fixture={fixture} defaultOpen={defaultOpen} />}
           {variant === "c" && <VariantC fixture={fixture} />}
 

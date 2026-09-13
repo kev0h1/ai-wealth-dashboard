@@ -22,6 +22,16 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "spend-page-refurbishment",
+    name: "spend-page-refurbishment",
+    description:
+      "G57 whole Spend-page refurbishment round against one reconciled, owner-shaped dense period: Out £4,976 leads honestly while £8,087 Moved is explicitly separate from spending, including £6,075 shifted between the owner's own accounts; 3 attention categories, 11 quieter categories, £340 not yet placed and the pay-shape drill-in all remain available without repeating today's tier stack · A Brief first (recommended): one verdict plus one two-column review workspace, with long evidence folded behind exact totals / B Reconciled register: Review 3 and All 14 are two views of one category ledger / C Split cockpit: wider screens carry review work and quieter evidence in parallel while mobile keeps the same verdict-first sequence · every variant replaces the ambiguous Patterns label with a coded Compare periods view focused on pace and repeated changes, leaving money shape in its own destination · fixture-only, no API calls or production-component edits · ?variant=a|b|c&view=period|compare&mode=light|dark",
+    states: [
+      { label: "This period", value: "period" },
+      { label: "Compare periods", value: "compare" },
+    ],
+  },
+  {
     slug: "home-brief-cards",
     name: "home-brief-cards",
     description:
@@ -129,16 +139,6 @@ const ROUTES: PreviewRoute[] = [
     ],
   },
   {
-    slug: "cards-outlook",
-    name: "cards-outlook",
-    description:
-      "G10 proposal: per-card outlook section for Cards, below THE TRAJECTORY (Kevin decision 2026-09-09, two coded variants before any CardsPage build) · A ledger rows: one row per carried card, rate pill (0% until date, muted, or APR, amber only when paying interest), +£/mo pace and clear month, cleared-monthly cards fold into one quiet line / B timeline: same lead line, a 24-month rail with one dot per carried card at its clear month and hollow promo-end ticks, plus an accessible two-column list below · fixtures derived from debt_plan.py's compute_debt_plan shape (services/debt_narration.get_debt_plan_view is uncalled by the live UI), no fetching · superseded for the page-level view by cards-page below, which shows the same idea against the full seven-card Cards page instead of a 3-card fixture · ?variant=a|b&state=carried|clear&mode=light|dark",
-    states: [
-      { label: "Carried", value: "carried" },
-      { label: "Clear", value: "clear" },
-    ],
-  },
-  {
     slug: "cards-page",
     name: "cards-page",
     description:
@@ -224,17 +224,11 @@ const ROUTES: PreviewRoute[] = [
     slug: "g31-planning-hero",
     name: "g31-planning-hero",
     description:
-      "G31 Planning hero hierarchy round using reconciled typical-month fixtures · A plain verbal verdict with one methodology line and borderless disclosure (recommended after outside-critic pass) / B signed cockpit reading with a three-month calibration marker / C always-visible working to expose the density trade-off · short −£119 and spare +£332 states, all currency signed and monospaced, no production component or API changes · ?variant=a|b|c&state=short|spare&mode=light|dark&open=1",
+      "G31 Planning hero hierarchy round using reconciled typical-month fixtures · A plain verbal verdict with one methodology line and borderless disclosure, SHIPPED (G34) and now rendered here via the real GrowHero (components/planning/GrowPanel.tsx) so this preview can't drift from what's live / B signed cockpit reading with a three-month calibration marker, not picked, kept hand-authored for comparison / C always-visible working to expose the density trade-off, not picked, kept hand-authored for comparison · short −£119 and spare +£332 states, all currency signed and monospaced · ?variant=a|b|c&state=short|spare&mode=light|dark&open=1",
     states: [
       { label: "Short", value: "short" },
       { label: "Spare", value: "spare" },
     ],
-  },
-  {
-    slug: "account-rows",
-    name: "account-rows",
-    description: "Credit-card row cleanup (taste + impeccable pass) · owner phone screenshot 2026-08-30 /accounts: rose balance + orphan \"owed\" line + ragged APR/promo-chip stack made credit rows read as a different component family to current/savings rows · 3 variants against the real 7 cards + one no-terms fixture (A one grammar, rows byte-identical to accounts, terms fold into the subline, amber dot only on an expiring promo / B disciplined card row, one right column, red reserved for cards actually accruing interest / C off the row, terms move to a group-header caption + CardTermsSheet, rows fully uniform) · in-page variant switcher, ?variant=a|b|c&mode=light|dark",
-    states: [{ label: "Everything", value: "everything" }],
   },
   {
     slug: "account-picker",
@@ -269,12 +263,6 @@ const ROUTES: PreviewRoute[] = [
       { label: "Single", value: "single" },
       { label: "Empty", value: "empty" },
     ],
-  },
-  {
-    slug: "reconnect",
-    name: "reconnect",
-    description: "Home reconnect banner · 3 variants at N=1/2/3 expired providers — C (quiet strip) chosen 2026-08-28, shipped as the real Home banner (components/ReconnectStrip.tsx); kept here for reference",
-    states: [{ label: "Everything", value: "everything" }],
   },
   {
     slug: "spend-verdict-a",
@@ -417,14 +405,6 @@ const ROUTES: PreviewRoute[] = [
   // surface map. Kept indexed rather than deleted so they stay reachable
   // and check:design-index has no untracked directories to flag.
   {
-    slug: "settings-b",
-    name: "settings-b",
-    description:
-      "Settings redesign, Variant B: Grouped Estate. Accounts, notifications and other settings grouped into estate-style sections, compare against settings-a on Kevin's phone. Static preview only, hardcoded mock state, no API calls or auth context (2026-09-02)",
-    states: [{ label: "Everything", value: "everything" }],
-    group: "earlier",
-  },
-  {
     slug: "accounts-rows",
     name: "accounts-rows",
     description:
@@ -457,14 +437,6 @@ const ROUTES: PreviewRoute[] = [
     group: "earlier",
   },
   {
-    slug: "settings-c",
-    name: "settings-c",
-    description:
-      "Settings redesign, Variant C: Merged Settings. Static preview only, hardcoded mock state, no API calls or auth context (2026-08-16)",
-    states: [{ label: "Everything", value: "everything" }],
-    group: "earlier",
-  },
-  {
     slug: "cards-check",
     name: "cards-check",
     description:
@@ -477,14 +449,6 @@ const ROUTES: PreviewRoute[] = [
     name: "category-kind",
     description:
       "Category-kind chooser preview mirroring TeachingSheet's naming step, same exported CategoryKindChooser component over realistic names (2026-08-15)",
-    states: [{ label: "Everything", value: "everything" }],
-    group: "earlier",
-  },
-  {
-    slug: "settings-a",
-    name: "settings-a",
-    description:
-      "Settings redesign, Variant A: Refined Cockpit. Static preview only, hardcoded mock state, no API calls or auth (2026-08-15)",
     states: [{ label: "Everything", value: "everything" }],
     group: "earlier",
   },

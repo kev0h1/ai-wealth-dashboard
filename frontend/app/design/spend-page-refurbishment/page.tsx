@@ -1,10 +1,10 @@
 import { Suspense } from "react";
-import CardsOutlookClient from "./CardsOutlookClient";
+import SpendPageRefurbishmentClient from "./SpendPageRefurbishmentClient";
 
 export default function Page() {
   return (
     <Suspense fallback={null}>
-      <CardsOutlookClient />
+      <SpendPageRefurbishmentClient />
     </Suspense>
   );
 }
