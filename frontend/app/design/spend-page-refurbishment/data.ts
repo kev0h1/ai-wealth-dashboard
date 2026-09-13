@@ -60,6 +60,13 @@ export const ATTENTION: readonly SpendCategory[] = [
   },
 ] as const;
 
+export const ATTENTION_CHANGE = ATTENTION.reduce(
+  (total, category) => total + category.spent - (category.usualByDay ?? category.spent),
+  0,
+);
+
+export const ELSEWHERE_OFFSET = ATTENTION_CHANGE - PERIOD.aheadOfUsual;
+
 export const QUIET: readonly SpendCategory[] = [
   { category: "Groceries", spent: 421, payments: 7 },
   { category: "Subscriptions", spent: 222, payments: 9 },
@@ -92,6 +99,23 @@ export const PERIOD_HISTORY = [
   { label: "22 Jun to 19 Jul", out: 4020, usual: 3320 },
   { label: "20 Jul to 16 Aug", out: 3815, usual: 3360 },
   { label: "30 Aug to 26 Sep", out: 4976, usual: 3390, current: true },
+] as const;
+
+/** Cumulative production-shaped fixture for the real Spending pace chart. */
+export const PACE_SERIES = [
+  { day: 1, actual: 410, usual: 360 },
+  { day: 2, actual: 820, usual: 670 },
+  { day: 3, actual: 1050, usual: 930 },
+  { day: 4, actual: 1280, usual: 1160 },
+  { day: 5, actual: 1600, usual: 1430 },
+  { day: 6, actual: 1900, usual: 1700 },
+  { day: 7, actual: 2250, usual: 1950 },
+  { day: 8, actual: 2600, usual: 2200 },
+  { day: 9, actual: 2950, usual: 2450 },
+  { day: 10, actual: 3380, usual: 2700 },
+  { day: 11, actual: 3970, usual: 2940 },
+  { day: 12, actual: 4510, usual: 3170 },
+  { day: 13, actual: 4976, usual: 3390 },
 ] as const;
 
 export const PAY_SHAPE = {
@@ -129,6 +153,15 @@ function assertFacts() {
     throw new Error(
       `[spend-page-refurbishment] expected 3,140 + 1,496 + 340 = 4,976; got ${attention} + ${quiet} + ${PERIOD.unresolved} = ${reconciled}`,
     );
+  }
+  if (ATTENTION_CHANGE !== 1730 || ELSEWHERE_OFFSET !== 144) {
+    throw new Error(
+      `[spend-page-refurbishment] expected 1,730 category change - 144 elsewhere = 1,586 ahead; got ${ATTENTION_CHANGE} - ${ELSEWHERE_OFFSET}`,
+    );
+  }
+  const lastPacePoint = PACE_SERIES[PACE_SERIES.length - 1];
+  if (lastPacePoint.actual !== PERIOD.out || lastPacePoint.usual !== PERIOD.usualByDay) {
+    throw new Error("[spend-page-refurbishment] pace chart must end on the period Out and usual figures");
   }
   if (MOVED_TOTAL !== 8087) {
     throw new Error(`[spend-page-refurbishment] moved total is ${MOVED_TOTAL}, not 8,087`);
