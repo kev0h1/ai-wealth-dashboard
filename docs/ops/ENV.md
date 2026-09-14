@@ -337,3 +337,68 @@ A27 backlog note.
   wasn't linked; it now is (`vercel link --yes --project
   ai-wealth-dashboard` from a scratch directory, never `frontend/`), and
   confirms Vercel production/preview carry only `BACKEND_URL`.
+
+## Secret rotation (A26)
+
+Names only below, as everywhere else in this file — never a value.
+
+**Mechanics common to every row in the table:** a secret lives in up to
+three places (UAT's `backend/.env`/`frontend/.env.local` on this VPS, the
+two Railway services, the Vercel project); rotating it means generating a
+new value, writing it to every place that variable is `present` per the
+tables above, and restarting/redeploying so the new value is actually
+picked up: `systemctl restart wealth-api`/`wealth-worker`/`wealth-frontend`
+on the VPS (per CLAUDE.md, only after the corresponding code change, but a
+plain env-value rotation with no code change still needs the restart to
+pick up the new value), `railway variables set --service <name> KEY=...`
+(or the Railway dashboard) followed by a redeploy of that service, and
+`vercel env rm`/`vercel env add` (or the dashboard) followed by a Vercel
+redeploy. **Who can do it, for every row below:** today, only Kevin — he is
+the sole operator with VPS root, Railway project, Vercel project and every
+third-party dashboard access; there is no delegated ops role yet, and
+`BOT_SECRET`'s replacement (A28) doesn't change who administers secrets,
+only how the bot-route credential itself works.
+
+| Variable | How to rotate | What breaks while rotating |
+|---|---|---|
+| `MONGO_URI` | Atlas dashboard: create a new database user (or rotate the existing user's password), update the connection string everywhere it's `present`, then remove the old user once every place is confirmed on the new one. | Every DB-touching request fails until every process (API, worker) has the new URI and has restarted; do not remove the old Atlas user until all processes are confirmed rotated, or you can lock yourself out mid-rotation. |
+| `OPENROUTER_API_KEY` | OpenRouter dashboard: generate a new key, update everywhere, revoke the old key once confirmed. | Penny chat, categorisation, savings insights and every other LLM call fail (each has its own try/except, so this degrades those features rather than crashing the whole app, but it's a real feature outage while unrotated). |
+| `TAVILY_API_KEY` | Tavily dashboard: generate a new key, update, revoke old. | Savings-insight web lookups fail; the rest of the app is unaffected. |
+| `LOGODEV_TOKEN` | Logo.dev dashboard: generate a new token, update, revoke old. | Merchant logos silently degrade to initials (this is the documented no-token fallback, so a rotation gap here is low-severity by design). |
+| `REDIS_URL` | Provisioned by Railway for both services (and points at whatever Redis the VPS runs for UAT); rotating means recreating/repointing the Redis instance and updating this URI everywhere. | Rate limiting falls back to the in-process, per-replica approximation (A27's territory); the OAuth pending-request store and any other Redis-backed cache fall back to their own in-process equivalents; background job queueing (arq) has no in-process fallback and stops working entirely until every worker has the new URL. |
+| `BOT_SECRET` | Today: generate a new random value, update `backend/.env` (UAT) and both Railway services, restart. A28 is replacing this whole credential with scoped, rotatable, individually revocable ones — once that lands, rotation is per-credential (revoke one, issue another) rather than this single shared value. | Every call authenticating as the bot (admin/MCP-audit routes) fails until rotated everywhere it's used; nothing else. |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google Cloud Console (the OAuth 2.0 client under this project): rotate the client secret (the client ID itself rarely needs to change), update everywhere. | New Google sign-ins fail until rotated; existing signed-in sessions are unaffected (this is only used at the sign-in exchange, not on every request). |
+| `SESSION_SECRET` | Generate a new random value (`sync-vars --generate SESSION_SECRET` or equivalent), update. On UAT this falls back to `backend/.session_secret` (a gitignored file) if the env var is unset — rotating there means regenerating that file instead. | **Every existing session token everywhere becomes invalid the instant this changes** (session tokens are signed with this key) — every signed-in user, on every surface (web, both Capacitor shells), is logged out and must sign in again. There is no graceful dual-key rotation window today; treat this as a "everyone gets logged out" event, not a silent rotation. |
+| `TRUELAYER_CLIENT_ID` / `TRUELAYER_CLIENT_SECRET` | TrueLayer console: rotate the client secret, update everywhere, and confirm the redirect URI registration still matches `TRUELAYER_REDIRECT_URI`. | New bank connections via TrueLayer fail (invalid_client) until rotated; existing connections' stored, encrypted access/refresh tokens are unaffected (they were issued under the old credential but TrueLayer doesn't invalidate already-issued user tokens when the *app's own* client secret rotates). |
+| `TRUELAYER_WEBHOOK_SECRET` | Generate a new random value, update the URL-embedded secret in TrueLayer's webhook configuration (console) and here at the same time — they must change together, since the value IS the URL path segment. On UAT this falls back to `backend/.webhook_secret` if unset. | TrueLayer webhook deliveries 401 and are dropped until both sides (TrueLayer's console and our env var) agree on the new value; syncs still happen on the next scheduled reconcile job, so this degrades freshness, it doesn't lose data. |
+| `VAPID_PRIVATE_KEY` | Generate a fresh VAPID keypair (`py_vapid` or any standard tool), update. On UAT this falls back to `backend/.vapid_private_key` if unset. | Every existing web-push subscription becomes invalid (VAPID keys are what browsers use to verify the push sender) — users need to be re-subscribed; there is no seamless rotation for web push, this is an expected one-time break. |
+| `APNS_KEY_ID` / `APNS_TEAM_ID` / `APNS_AUTH_KEY` (the `.p8` key, held as a file on UAT and as this env var's contents on Railway) | Apple Developer portal: revoke the old key, create a new APNs Auth Key, update `APNS_KEY_ID` and the key contents everywhere (`backend/.apns_auth_key.p8` on UAT, `APNS_AUTH_KEY` on Railway). `APNS_TEAM_ID` itself never needs rotating (it's the Apple team id, not a secret). | iOS push notifications fail until rotated; nothing else. |
+| `FCM_SERVICE_ACCOUNT_JSON` (and the file-fallback `.fcm_service_account.json` on UAT) | Firebase console: create a new service account key for the project, update everywhere, then revoke the old key. | Android push notifications fail until rotated; nothing else. |
+| `MONO_SECRET_KEY` / `MONO_PUBLIC_KEY` | Mono dashboard: rotate the API key pair, update everywhere. | New Kenya-region bank connections and syncs fail (Mono calls use this key on every request, unlike TrueLayer/Finexer's per-user consent model); harmless everywhere else since Mono is region-scoped. |
+| `YAPILY_APP_UUID` / `YAPILY_SECRET` | Yapily dashboard: rotate, update. Yapily is dormant pending removal (Finexer migration) — a live gap found during this pass (see `docs/security/pentest-scope-2026-09.md` and the A26 completion report) is that Yapily consent tokens are stored in plaintext (`yapily_accounts_col.consent`), unlike TrueLayer's Fernet-encrypted tokens; there are currently zero live rows in that collection on UAT, but this is worth resolving before Yapily is fully retired rather than after. | New Yapily connections/syncs fail until rotated; Finexer (the primary provider) is unaffected. |
+| `FINEXER_API_KEY` | Finexer dashboard: rotate, update. | Every Finexer call fails — new consents, syncs, and webhook-triggered resyncs all stop working until rotated. This is the primary bank-connect provider, so this is a full open-banking outage while unrotated. |
+| `FINEXER_WEBHOOK_SECRET` (falls back to a generated `backend/.finexer_webhook_secret` file if unset) | Same shape as `TRUELAYER_WEBHOOK_SECRET`: generate a new value, update it in Finexer's webhook URL configuration and here together. | Finexer webhook deliveries 401 and are dropped until both sides agree; Finexer retries and eventually pauses the webhook after 10 consecutive non-2xx responses (per `routers/webhooks.py`'s own docstring), so a slow rotation risks the webhook being disabled Finexer-side, needing manual re-registration. |
+| `FINEXER_WEBHOOK_SIGNING_SECRET` | Finexer dashboard issues this once the webhook endpoint is registered; rotate by regenerating it there and updating here. Currently unset everywhere (Finexer hasn't issued one yet), which means signature verification is skipped with a logged warning — see the "what no log line or error response can carry" findings in the A26 completion report for why this specific gap is already flagged. | While unset: no signature check at all on Finexer webhooks (only the URL secret above gates them). While mid-rotation with a mismatched value on either side: every delivery 401s the same way as the URL-secret case above. |
+| `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` | Stripe dashboard: roll the secret key, and re-register/re-fetch the webhook signing secret if the webhook endpoint itself is ever recreated. Not yet set anywhere (no live Stripe account), so this is forward-looking. | Once billing is live: `STRIPE_SECRET_KEY` rotation breaks checkout/portal session creation; `STRIPE_WEBHOOK_SECRET` rotation makes every webhook delivery fail closed (400, per `services/billing.py`'s own doctrine that a Stripe webhook can grant real entitlements, so it never skips verification the way the Finexer signing secret does pre-registration). |
+| `SENTRY_DSN` | Sentry project settings: regenerate the DSN if it's ever suspected leaked (a DSN isn't a high-value secret — it can only be used to submit fake error events, not read data — but Sentry supports rotating it). Not currently set in either environment. | Error monitoring stops receiving events; no user-facing impact. |
+| `TOKEN_ENCRYPTION_KEY` (falls back to `backend/.token_key` on UAT) | **This is the highest-severity row in this table.** There is no re-encryption migration path today: `core/crypto.py` decrypts with whichever single key is currently configured, so replacing the key without first decrypting-and-re-encrypting every stored token under the new key makes every existing bank connection's stored token undecryptable (`decrypt_token` returns `None` on an `InvalidToken` error, i.e. "unusable," not a crash). Proper rotation therefore needs a one-time migration script (decrypt all under the old key, re-encrypt under the new key, in one pass, before removing the old key from every environment) — no such script exists yet. Losing the key entirely (not rotating, just losing it) is explicitly called out in `core/crypto.py`'s own docstring as "users must reconnect their banks; nothing else is lost." | Without a migration: every user with a connected bank has to disconnect and reconnect it. With a proper migration script (not yet built): ideally nothing, if the migration completes before any process restarts onto the new key. |
+| `CODEMAGIC_API_TOKEN` / `CODEMAGIC_APP_ID` | Codemagic account settings: regenerate the personal API token, update the shared tree's operator shell environment (not part of any `.env` file, see the table above). | `scripts/release.py deploy`'s post-release TestFlight trigger silently skips (logs a warning, never fails the deploy) until rotated; start `ios-capacitor-prod` by hand meanwhile. |
+| `FUEL_FINDER_CLIENT_ID` / `FUEL_FINDER_CLIENT_SECRET` | Fuel Finder open data portal: rotate, update `backend/.env` (these aren't read by the API process, only by the standalone collector scripts). | The standalone fuel-price collector scripts fail; no impact on the API, worker, or any user-facing feature. |
+
+**Not secrets, no rotation procedure needed:** every other name in the
+tables above is either a non-sensitive config value (`APP_URL`,
+`API_PUBLIC_URL`, `MCP_PUBLIC_URL`, `ALLOWED_EMAILS`, `DEFAULT_TIER`,
+`APPLE_BUNDLE_ID`, `APPLE_SERVICES_ID`, `YAPILY_BASE_URL`,
+`FINEXER_RETURN_URL`, `FINEXER_PROVIDERS_TTL_HOURS`,
+`RECONCILE_SPREAD_MINUTES`, `RECONCILE_MAX_PER_MINUTE`,
+`RECONCILE_MIN_GAP_SECONDS`, `SENTRY_ENV`, `APNS_BUNDLE_ID`,
+`APNS_AUTH_KEY_PATH`, `APNS_USE_SANDBOX`, `FCM_PROJECT_ID`,
+`FCM_SERVICE_ACCOUNT_PATH`, `VAPID_SUBJECT`, `REPO_ROOT`, `BACKLOG_ROOT`,
+`STRIPE_PRICE_IDS`), a boolean/flag switching behaviour on or off rather
+than authenticating anything (`OPEN_SIGNUP`, `MCP_CONNECTOR_ENABLED`,
+`MCP_ONLY`, `ENABLE_API_DOCS`, `DEV_MODE`, and every `NEXT_PUBLIC_*` flag —
+these ship to the browser by definition, so they were never secret), or
+already documented above as orphaned/vestigial (`MONGO_DB`, the stray
+`TOKEN_KEY` name on Railway). `BACKEND_URL` and `NEXT_PUBLIC_API_URL` are
+routing configuration, not credentials, changing them is a redeploy, not a
+rotation.

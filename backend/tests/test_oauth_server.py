@@ -30,6 +30,17 @@ def _run(coro):
     return asyncio.run(coro)
 
 
+def _run_concurrently(*coros):
+    """Runs several coroutines under one asyncio.run via gather. Plain
+    `asyncio.gather(*coros)` can't be built outside a running loop (it
+    calls ensure_future/get_event_loop immediately), so gather has to be
+    awaited from inside the coroutine _run hands to asyncio.run, not built
+    beforehand."""
+    async def _gather():
+        return await asyncio.gather(*coros)
+    return asyncio.run(_gather())
+
+
 @pytest.fixture(autouse=True)
 def _mcp_connector_enabled(monkeypatch):
     """A17: MCP_CONNECTOR_ENABLED defaults to false (production ships the
@@ -85,6 +96,22 @@ class _FakeCollection:
                 doc.update(update.get("$set", {}))
                 count += 1
         return _FakeResult(count)
+
+    async def find_one_and_update(self, query, update):
+        """Mimics Motor/pymongo's default (return_document=BEFORE):
+        returns the matching doc as it was *before* applying `update`, or
+        None if nothing matched `query`. A26: oauth.py relies on this
+        being atomic (one document mutated per matching call, no separate
+        read step an interleaved caller could slip in between) to close
+        the code-replay / refresh-reuse race — see
+        test_concurrent_code_exchange_only_one_winner below for why that
+        matters."""
+        for doc in self.docs.values():
+            if _matches(doc, query):
+                before = dict(doc)
+                doc.update(update.get("$set", {}))
+                return before
+        return None
 
     def find(self, query):
         rows = [dict(d) for d in self.docs.values() if _matches(d, query)]
@@ -455,6 +482,70 @@ def test_code_reuse_revokes_the_whole_family(monkeypatch):
     assert all(t["revoked_at"] is not None for t in tokens.docs.values())
 
 
+def _rendezvous_gate(real_fn, n_expected: int):
+    """Wraps an async fake-collection method so that, when called
+    concurrently by `n_expected` callers, every caller has genuinely
+    reached this point (i.e. has already run every non-mutating check
+    earlier in the handler) before any of them proceeds into `real_fn`.
+    Models the worst case for a TOCTOU race: two requests that both read
+    "not yet used/revoked" before either one writes."""
+    state = {"arrived": 0}
+    release = asyncio.Event()
+
+    async def gated(*args, **kwargs):
+        state["arrived"] += 1
+        if state["arrived"] >= n_expected:
+            release.set()
+        else:
+            await release.wait()
+        return await real_fn(*args, **kwargs)
+
+    return gated
+
+
+def test_concurrent_code_exchange_only_one_winner(monkeypatch):
+    """A26: two requests redeeming the SAME authorization code at the same
+    time must not both succeed. Before the atomic-claim fix, oauth.py read
+    the code with a plain find_one and only marked it used with a later,
+    separate update_one — two racing requests could both pass the
+    used_at-is-None read before either write landed, and both would mint a
+    live token pair from one code. This forces that exact interleaving
+    (both requests complete every check up to the claim before either
+    claims) and asserts the code's real defence, find_one_and_update's
+    per-document atomicity, still lets only one through."""
+    clients, codes, tokens, _ = _install_fakes(monkeypatch)
+    clients.docs["client-1"] = {"_id": "client-1", "client_id": "client-1", "client_name": "Claude"}
+    code, verifier, code_doc = _run(_approve_and_get_code())
+    codes.docs[code_doc["_id"]] = code_doc
+
+    monkeypatch.setattr(
+        codes, "find_one_and_update",
+        _rendezvous_gate(codes.find_one_and_update, n_expected=2),
+    )
+
+    form = {
+        "grant_type": "authorization_code", "code": code,
+        "redirect_uri": code_doc["redirect_uri"], "client_id": "client-1",
+        "code_verifier": verifier,
+    }
+    results = _run_concurrently(
+        oauth.token_endpoint(_FakeFormRequest(dict(form))),
+        oauth.token_endpoint(_FakeFormRequest(dict(form))),
+    )
+    statuses = sorted(r.status_code for r in results)
+    assert statuses == [200, 400]
+    # Exactly one token pair was ever inserted (access + refresh), never two.
+    assert len(tokens.docs) == 2
+    # Per the existing "any reuse signal revokes the whole family" doctrine
+    # (test_code_reuse_revokes_the_whole_family above), the loser's cleanup
+    # sweep revokes the pair the winner just received. That is the same
+    # fail-safe this server already applies to sequential reuse, now also
+    # covering the concurrent case: a genuine race is indistinguishable
+    # from an attacker replaying an intercepted code, so both directions
+    # revoke rather than risk a live duplicate.
+    assert all(t["revoked_at"] is not None for t in tokens.docs.values())
+
+
 def test_refresh_rotation_revokes_old_refresh_token(monkeypatch):
     clients, codes, tokens, _ = _install_fakes(monkeypatch)
     clients.docs["client-1"] = {"_id": "client-1", "client_id": "client-1", "client_name": "Claude"}
@@ -487,6 +578,42 @@ def test_refresh_rotation_revokes_old_refresh_token(monkeypatch):
         "client_id": "client-1",
     })))
     assert reuse_old.status_code == 400
+
+
+def test_concurrent_refresh_rotation_only_one_winner(monkeypatch):
+    """A26: the refresh-token leg has the same class of race as the
+    authorization code leg above. Two requests rotating the SAME refresh
+    token at the same time must not both succeed, forced here the same
+    way (both requests pass the plain revoked_at-is-None read before
+    either one claims the token via find_one_and_update)."""
+    clients, codes, tokens, _ = _install_fakes(monkeypatch)
+    clients.docs["client-1"] = {"_id": "client-1", "client_id": "client-1", "client_name": "Claude"}
+    code, verifier, code_doc = _run(_approve_and_get_code())
+    codes.docs[code_doc["_id"]] = code_doc
+
+    import json
+    first = _run(oauth.token_endpoint(_FakeFormRequest({
+        "grant_type": "authorization_code", "code": code,
+        "redirect_uri": code_doc["redirect_uri"], "client_id": "client-1",
+        "code_verifier": verifier,
+    })))
+    refresh_token = json.loads(first.body)["refresh_token"]
+
+    monkeypatch.setattr(
+        tokens, "find_one_and_update",
+        _rendezvous_gate(tokens.find_one_and_update, n_expected=2),
+    )
+
+    form = {"grant_type": "refresh_token", "refresh_token": refresh_token, "client_id": "client-1"}
+    results = _run_concurrently(
+        oauth.token_endpoint(_FakeFormRequest(dict(form))),
+        oauth.token_endpoint(_FakeFormRequest(dict(form))),
+    )
+    statuses = sorted(r.status_code for r in results)
+    assert statuses == [200, 400]
+    # 2 from the original code exchange + exactly 2 more from whichever
+    # single request won the rotation race, never 2 + 4.
+    assert len(tokens.docs) == 4
 
 
 def test_unsupported_grant_type(monkeypatch):

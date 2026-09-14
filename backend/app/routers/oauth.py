@@ -358,11 +358,16 @@ async def _handle_authorization_code_grant(form) -> JSONResponse:
 
     now = datetime.now(timezone.utc)
 
+    # This first used_at check is a fast, non-authoritative path for the
+    # ordinary sequential-replay case (a client retrying a request it
+    # already completed): it lets us skip straight to the revoke-the-family
+    # response without a wasted write. It is NOT what prevents two
+    # concurrent redemptions of the same code — see the atomic claim below,
+    # which is the actual enforcement point (A26: this find_one is a plain
+    # read, so two requests racing each other can both observe
+    # used_at=None here and both reach the validation below; only the
+    # find_one_and_update several lines down is safe against that).
     if doc.get("used_at") is not None:
-        # Reuse of an already-redeemed code is a strong signal the code
-        # leaked (interception, log capture, ...): revoke every token that
-        # was ever minted from it, including anything refresh-rotated
-        # since (origin_code_hash is carried forward through rotation).
         await oauth_tokens_col.update_many(
             {"origin_code_hash": code_hash, "revoked_at": None},
             {"$set": {"revoked_at": now}},
@@ -383,10 +388,31 @@ async def _handle_authorization_code_grant(form) -> JSONResponse:
     if not secrets.compare_digest(expected_challenge, doc.get("code_challenge", "")):
         return _oauth_error("invalid_grant", description="code_verifier mismatch")
 
-    # Mark used BEFORE issuing tokens: a crash between these two lines only
-    # ever costs the caller a retry (which now correctly hits the reuse
-    # branch above), never risks issuing two live token pairs from one code.
-    await oauth_codes_col.update_one({"_id": code_hash}, {"$set": {"used_at": now}})
+    # Atomic claim (A26): a single findOneAndUpdate is the actual defence
+    # against two concurrent requests both redeeming the same code. Mongo
+    # serialises writes to one document, so of any number of callers that
+    # reach this line with the same code_hash, exactly one can match
+    # {"used_at": None} and come back non-None; every other caller's
+    # filter fails to match (the winner already flipped used_at) and gets
+    # None back here, however tight the race. This replaces the previous
+    # find_one-then-update_one pair, which had a real TOCTOU window: two
+    # requests could both pass the plain `doc.get("used_at")` check above
+    # before either one's update_one landed, and both would then issue a
+    # live token pair from the same code.
+    claimed = await oauth_codes_col.find_one_and_update(
+        {"_id": code_hash, "used_at": None},
+        {"$set": {"used_at": now}},
+    )
+    if claimed is None:
+        # Lost the race (or a concurrent request already claimed it
+        # between our read above and this line): treat exactly like the
+        # sequential-reuse branch above, revoke every token this code line
+        # ever produced.
+        await oauth_tokens_col.update_many(
+            {"origin_code_hash": code_hash, "revoked_at": None},
+            {"$set": {"revoked_at": now}},
+        )
+        return _oauth_error("invalid_grant", description="Code already used")
 
     client = await oauth_clients_col.find_one({"_id": client_id})
     client_name = client.get("client_name") if client else client_id
@@ -414,8 +440,20 @@ async def _handle_refresh_token_grant(form) -> JSONResponse:
     # Rotate: the old refresh token is revoked the instant it's redeemed,
     # so it can only ever be used once (reuse of a rotated-out refresh
     # token then simply fails the revoked_at check above like any other
-    # dead token).
-    await oauth_tokens_col.update_one({"_id": token_hash}, {"$set": {"revoked_at": now}})
+    # dead token). Atomic claim (A26, same reasoning as the authorization
+    # code grant above): two requests racing on the same refresh token
+    # could both pass the plain `doc.get("revoked_at")` read above before
+    # either write lands, so the write that actually revokes it must be
+    # conditioned on revoked_at still being None. If we lose the race, a
+    # concurrent request beat us to rotating this token, so we fail the
+    # same way redeeming an already-revoked token fails, rather than
+    # minting a second token pair from it.
+    claimed = await oauth_tokens_col.find_one_and_update(
+        {"_id": token_hash, "revoked_at": None},
+        {"$set": {"revoked_at": now}},
+    )
+    if claimed is None:
+        return _oauth_error("invalid_grant")
 
     client = await oauth_clients_col.find_one({"_id": client_id})
     client_name = client.get("client_name") if client else client_id

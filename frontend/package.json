@@ -10,6 +10,7 @@
     "start": "next start",
     "lint": "eslint",
     "check:design-index": "node scripts/check-design-index.mjs",
+    "check:design-no-live-data": "node scripts/check-design-no-live-data.mjs",
     "check:build-mobile-guard": "bash scripts/build-mobile-guard.test.sh",
     "check:legal-content": "node scripts/legal-content.test.mjs",
     "check:preferences-version": "node --no-warnings --experimental-strip-types scripts/preferences-version.test.mjs",
