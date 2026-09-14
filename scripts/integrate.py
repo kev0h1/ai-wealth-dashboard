@@ -39,9 +39,12 @@ pass, which merged the rejected branch anyway).
      can affect its cron code); then checks both health endpoints.
   4. On any failure in step 3: `git reset --hard ORIG_HEAD`, restart
      services again from the restored tree, and block the item. The full
-     failure output is logged at error level and recorded as a board note
-     (up to ~1,500 characters); the `[state: blocked: ...]` tag itself only
-     ever gets a single sanitised line, capped at 200 characters (see H27).
+     failure output is logged at error level (in full); the board note is
+     built from its diagnostic tail rather than the raw head, so it holds
+     the actual traceback/assertion/error rather than progress noise, and
+     is capped by `backlog.add_note` regardless (see `_extract_diagnostic_tail`
+     and H46, following on from H27); the `[state: blocked: ...]` tag itself
+     only ever gets a single sanitised line, capped at 200 characters (H27).
   5. On success: `git push origin main`. If the item is a design round —
      flagged explicitly via `scripts/session.sh finish <ID> --uat-review`
      (recorded on the board as the item's `uat_review` flag) or, as a
@@ -603,13 +606,54 @@ def _one_line_reason(text: str, cap: int = 200) -> str:
     return backlog.one_line_reason(text, cap=cap)
 
 
+_DIAGNOSTIC_SECTION_MARKERS = ("FAILURES", "ERRORS", "short test summary info")
+
+
+def _extract_diagnostic_tail(output: str, max_chars: int = 1500) -> str:
+    """Pull the useful part out of a command's full output for the board
+    note, instead of the head. `pytest -x` (and most build tools) print
+    steady progress first — dozens of `tests/test_x.py ..... [ 12%]`
+    lines, or an npm/tsc progress log — then the actual failure detail at
+    the end. H46: a note built from the *head* of that output (the old
+    behaviour, `full_text.strip()[:1500]`) was mostly collapsed progress
+    dots and never reached the traceback or assertion at all — the same
+    "raw command output reaches the board" corruption H27 fixed for the
+    `[state: blocked: ...]` tag, returning by the note route instead.
+
+    Prefer starting at the first recognised pytest section marker
+    (`FAILURES`, `ERRORS`, `short test summary info`) when one is
+    present, since that is exactly where the progress noise ends and the
+    useful part begins; otherwise fall back to the last `max_chars`
+    characters of raw output, on the same theory (a build tool's error is
+    almost always printed last, not first). The full, untruncated output
+    is never lost here — see `_block`, which logs it in full at error
+    level regardless of what this returns."""
+    stripped = (output or "").strip()
+    if not stripped:
+        return ""
+    marker_pos = -1
+    for marker in _DIAGNOSTIC_SECTION_MARKERS:
+        pos = stripped.find(marker)
+        if pos != -1 and (marker_pos == -1 or pos < marker_pos):
+            marker_pos = pos
+    tail = stripped[marker_pos:] if marker_pos != -1 else stripped
+    if len(tail) > max_chars:
+        tail = tail[-max_chars:]
+    return tail
+
+
 def _block(item_id: str, reason: str) -> None:
     """Block `item_id` with `reason`, which may be many lines of raw
     command output. The full text is logged at error level (captured by
     journald when this runs under integrate.timer, or the terminal when
-    run by hand) and, best-effort, recorded as a board note (capped at
-    ~1,500 characters) — only a single sanitised line ever reaches the
-    `[state: blocked: ...]` tag itself, see `_one_line_reason`."""
+    run by hand) and, best-effort, recorded as a board note built from
+    its diagnostic tail rather than verbatim (see
+    `_extract_diagnostic_tail`) — only a single sanitised line ever
+    reaches the `[state: blocked: ...]` tag itself, see
+    `_one_line_reason`. `backlog.add_note` (via `TodoDoc.add_note` /
+    `_collapse_note_text`) additionally caps and newline-collapses
+    whatever is passed here regardless, as the last line of defence — see
+    H46."""
     full_text = reason or ""
     if full_text.strip():
         print(f"error: {item_id} blocked, full detail follows:\n{full_text}", file=sys.stderr)
@@ -622,7 +666,7 @@ def _block(item_id: str, reason: str) -> None:
         return
     if full_text.strip():
         try:
-            backlog.add_note(item_id, full_text.strip()[:1500], actor="claude")
+            backlog.add_note(item_id, _extract_diagnostic_tail(full_text), actor="claude")
         except backlog.BacklogError as exc:
             print(f"warning: could not add detail note for {item_id}: {exc}", file=sys.stderr)
 

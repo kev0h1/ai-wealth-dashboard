@@ -420,6 +420,97 @@ def test_add_note_collapses_embedded_newlines_to_slash_separated_single_line():
     assert reparsed.items["B1"].text == "Something about B1."
 
 
+def test_add_note_caps_a_very_long_note_at_1500_chars_with_ellipsis():
+    # H46: _collapse_note_text was newline-safe (H27) but uncapped, so
+    # scripts/integrate.py passing a raw multi-line command-output dump
+    # straight through (up to 1,500 characters, but with no cap enforced
+    # here) could still fill the board with noise once collapsed to one
+    # line. The cap is enforced in TodoDoc.add_note itself — the one place
+    # every caller (scripts/backlog.py, /ops/go-live, scripts/integrate.py)
+    # passes through — so no caller can bypass it.
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    doc.add_note("A1", "y" * 3000, "claude")
+
+    note = doc.items["A1"].notes[0]
+    assert len(note.text) == 1500
+    assert note.text.endswith("...")
+    assert note.text[:1497] == "y" * 1497
+
+    reparsed = backlog.TodoDoc.parse(doc.text())
+    assert reparsed.items["A1"].notes[0].text == note.text
+    assert reparsed.items["B1"].text == "Something about B1."
+
+
+def test_add_note_survives_brackets_asterisks_and_backticks_round_trip():
+    # A note containing markdown-ish characters that matter elsewhere on
+    # the board (`]` closes a `[state: ...]`/`[owner: ...]` tag early,
+    # `**` closes the item's bold title marker, a backtick has no special
+    # meaning to the parser but is exactly the kind of thing raw command
+    # output contains) must not corrupt the item line or fail to round
+    # trip; NOTE_RE captures the rest of the line verbatim, so nothing
+    # here needs stripping the way `[`/`]` are stripped from `[state: ...]`
+    # reasons (see one_line_reason).
+    text = "npm error: Cannot find module `left-pad` [see log] **bold** *emph*"
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    doc.add_note("A1", text, "claude")
+
+    assert doc.items["A1"].notes[0].text == text
+    assert "\n" not in doc.lines[doc.items["A1"].notes[0].line_no]
+
+    reparsed = backlog.TodoDoc.parse(doc.text())
+    assert reparsed.items["A1"].notes[0].text == text
+    # nothing else in the fixture was corrupted.
+    assert reparsed.items["B1"].text == "Something about B1."
+    assert reparsed.items["A3"].notes[0].text == "an existing note."
+
+
+def test_add_note_real_pytest_failure_output_collapses_to_one_readable_line():
+    # A realistic capture of `pytest -x` output against a suite with many
+    # passing test files before the failure: per-file progress lines
+    # ("tests/test_x.py ..... [ 12%]"), a FAILURES section with a
+    # traceback, and a short test summary — exactly the shape that
+    # produced the "backend test suite failed: / ........ [ 3%] / ........
+    # [ 6%]" board notes described in H46 once collapsed and (previously)
+    # left uncapped and unfiltered.
+    pytest_output = (
+        "../../../../tmp/h46_demo/test_file1.py .....                             [ 12%]\n"
+        "../../../../tmp/h46_demo/test_file2.py .....                             [ 24%]\n"
+        "../../../../tmp/h46_demo/test_file3.py .....                             [ 36%]\n"
+        "../../../../tmp/h46_demo/test_file4.py .....                             [ 48%]\n"
+        "../../../../tmp/h46_demo/test_file5.py .....                             [ 60%]\n"
+        "../../../../tmp/h46_demo/test_file6.py .....                             [ 73%]\n"
+        "../../../../tmp/h46_demo/test_file7.py .....                             [ 85%]\n"
+        "../../../../tmp/h46_demo/test_file8.py .....F\n"
+        "\n"
+        "=================================== FAILURES ===================================\n"
+        "__________________________________ test_fail ___________________________________\n"
+        "\n"
+        "    def test_fail():\n"
+        "        got = {\"status\": \"error\", \"code\": 17}\n"
+        ">       assert got[\"status\"] == \"ok\", f\"unexpected status payload: {got}\"\n"
+        "E       AssertionError: unexpected status payload: {'status': 'error', 'code': 17}\n"
+        "E       assert 'error' == 'ok'\n"
+        "\n"
+        "/tmp/h46_demo/test_file8.py:8: AssertionError\n"
+        "=========================== short test summary info ============================\n"
+        "FAILED ../../../../tmp/h46_demo/test_file8.py::test_fail - AssertionError: un...\n"
+        "!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!\n"
+        "1 failed, 40 passed in 0.20s\n"
+    )
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    doc.add_note("A1", pytest_output, "claude")
+
+    note_line = doc.lines[doc.items["A1"].notes[0].line_no]
+    # single physical line: the board is still parseable on the next read.
+    assert "\n" not in note_line
+    assert note_line.startswith("  - note (")
+
+    reparsed = backlog.TodoDoc.parse(doc.text())
+    assert len(reparsed.items["A1"].notes) == 1
+    assert reparsed.items["B1"].text == "Something about B1."
+    assert reparsed.items["A3"].notes[0].text == "an existing note."
+
+
 def test_add_note_on_item_with_no_notes_yet():
     doc = backlog.TodoDoc.parse(TODO_FIXTURE)
     doc.add_note("A1", "first note ever", "kevin")
