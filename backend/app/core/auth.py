@@ -3,6 +3,7 @@ from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 from itsdangerous import SignatureExpired, BadSignature
 from app.core import bot_credentials
+from app.core import ratelimit
 from app.core.config import (
     API_PUBLIC_URL, MCP_CONNECTOR_ENABLED, SESSION_MAX_AGE, serializer,
 )
@@ -114,6 +115,15 @@ async def auth_middleware(request: Request, call_next):
     # other and gets the plain 401/404 treatment, no discovery header.
     is_mcp_path = MCP_CONNECTOR_ENABLED and (path == "/mcp" or path.startswith("/mcp/"))
     mcp_headers = {"WWW-Authenticate": MCP_WWW_AUTHENTICATE} if is_mcp_path else None
+    # A27: IP-keyed catch-all, checked for EVERY request that reaches this
+    # point — before the bearer token is even looked at, so a caller
+    # spamming garbage/expired tokens at a protected route (real work per
+    # request: signature verification, and for a sorted_bot_ token a Mongo
+    # lookup — A28) is bounded too, not just a caller who eventually
+    # resolves to a real identity. See app.core.ratelimit's module comment
+    # for the limit and the per-user tier applied further down.
+    if limited := await ratelimit.check_catch_all_ip_limit(request):
+        return limited
     auth = request.headers.get("Authorization", "")
     if not auth.startswith("Bearer "):
         return JSONResponse(status_code=401, content={"detail": "Not authenticated"}, headers=mcp_headers)
@@ -128,9 +138,15 @@ async def auth_middleware(request: Request, call_next):
         # depends on) is the single place a use gets logged, so a request
         # that gets this far and passes is audited exactly once, not
         # twice.
-        ok, _cred = await bot_credentials.check_bot_request(request.method, path, token)
+        ok, cred = await bot_credentials.check_bot_request(request.method, path, token)
         if not ok:
             return JSONResponse(status_code=401, content={"detail": "Not authenticated"}, headers=mcp_headers)
+        # A27: per-caller catch-all, keyed by the credential's own name —
+        # bot-eligible routes are already low-volume/scope-gated, but this
+        # keeps the same defence-in-depth this middleware applies to real
+        # users.
+        if limited := await ratelimit.check_catch_all_user_limit(request, f"bot:{cred['bot_name']}"):
+            return limited
         return await call_next(request)
     if token.startswith("sorted_at_") and is_mcp_path:
         # F2 OAuth access token, on the one path it's ever valid for: this
@@ -148,9 +164,27 @@ async def auth_middleware(request: Request, call_next):
         # /auth/oauth/revoke, both under the already-public /auth/ prefix
         # handled above, so a refresh token never even reaches this line
         # for its own legitimate use.
+        #
+        # A27: the catch-all does NOT apply here — F7 already gave the MCP
+        # connector its own per-principal burst/daily limits, keyed by
+        # OAuth client_id/uid (app.routers.mcp, via check_keyed_limit
+        # directly), tuned for that surface's own call shape. Stacking the
+        # generic catch-all on top would just be a second, uncoordinated
+        # limit on the same traffic.
         return await call_next(request)
     try:
-        serializer.loads(token, max_age=SESSION_MAX_AGE)
+        data = serializer.loads(token, max_age=SESSION_MAX_AGE)
     except (SignatureExpired, BadSignature):
         return JSONResponse(status_code=401, content={"detail": "Session expired"}, headers=mcp_headers)
+    # A27: per-user catch-all — keyed by the session's own email, not IP,
+    # so two users behind the same NAT/office network don't share a budget
+    # and one user roaming networks doesn't get a fresh one. `data` is
+    # whatever current_user would also decode from this same token; a
+    # malformed-but-signature-valid payload (no "email") falls back to the
+    # raw token string as the key, same fail-safe current_user itself uses
+    # ({"email": "unknown", ...}) — still a real per-caller bound, just not
+    # a human-readable one.
+    identity = data.get("email") if isinstance(data, dict) else None
+    if limited := await ratelimit.check_catch_all_user_limit(request, identity or token):
+        return limited
     return await call_next(request)

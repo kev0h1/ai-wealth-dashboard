@@ -54,11 +54,57 @@ RULES = [
 ]
 
 
+# A27: catch-all, applied by app.core.auth.auth_middleware to every request
+# that reaches a protected route not already covered by a RULES entry above
+# (i.e. everything except /auth/, /webhooks/, /push/test,
+# /push/client-diagnostic, and /mcp — the last already has its own
+# per-principal limits in app.routers.mcp). Two tiers, both checked on the
+# SAME request when it resolves to a real identity:
+#
+# - CATCH_ALL_IP_LIMIT: keyed by IP, checked for every request reaching a
+#   protected route REGARDLESS of whether the bearer token turns out valid.
+#   Closes the gap an identity-only limit would leave open: an
+#   unauthenticated caller spamming garbage/expired bearer tokens at a
+#   protected route still does real work per request (signature
+#   verification, and for a `sorted_bot_` token a Mongo lookup — A28), and
+#   was previously not rate-limited at all outside the /auth/ prefix.
+# - CATCH_ALL_USER_LIMIT: keyed by the resolved identity (email, or a bot
+#   credential's name — A28) once a request's token actually validates.
+#   Generous: a real Home screen load fires on the order of 10-15 requests
+#   in the first second or two (app/components/HomePage.tsx alone issues
+#   6, plus its child components and the idle /spend prefetch), so this
+#   window leaves roughly 20x that headroom for a user reloading a few
+#   times inside a minute.
+#
+# EXPENSIVE_PREFIXES get a tighter budget on top of (not instead of) the
+# general per-user limit: full-text transaction search, the Safe-to-Spend
+# calculation, cashflow, the spend verdict, the money-shape instrument and
+# savings-insights all run a real aggregation or a multi-step recompute per
+# call, unlike a plain single-document read.
+CATCH_ALL_IP_LIMIT = (600, 60)
+CATCH_ALL_USER_LIMIT = (300, 60)
+EXPENSIVE_PREFIXES = (
+    "/transactions/search", "/safe-to-spend", "/cashflow",
+    "/spend/verdict", "/money-shape", "/savings-insights",
+)
+EXPENSIVE_USER_LIMIT = (30, 60)
+
+
 def client_ip(request: Request) -> str:
+    # A27: `getattr(..., None)` rather than `request.client` directly — a
+    # real Starlette Request always has this attribute (None or a Client),
+    # but this function is now called for every protected request (not
+    # just the /auth/, /webhooks/, /push/* prefixes that used to be its
+    # only callers), and several existing tests exercise app.core.auth's
+    # middleware with a minimal hand-rolled fake Request that never set
+    # `.client` at all — a real attribute error there shouldn't crash
+    # request handling, it should just fall back to "unknown" same as a
+    # real request with no client info.
+    client = getattr(request, "client", None)
     return (
         request.headers.get("X-Real-IP")
         or (request.headers.get("X-Forwarded-For") or "").split(",")[0].strip()
-        or (request.client.host if request.client else "unknown")
+        or (client.host if client else "unknown")
     )
 
 
@@ -142,4 +188,48 @@ async def check_rate_limit(request: Request) -> JSONResponse | None:
                     headers={"Retry-After": str(retry_after)},
                 )
             return None
+    return None
+
+
+def _too_many_requests(retry_after: int) -> JSONResponse:
+    return JSONResponse(
+        status_code=429,
+        content={"detail": "Too many requests"},
+        headers={"Retry-After": str(retry_after)},
+    )
+
+
+async def check_catch_all_ip_limit(request: Request) -> JSONResponse | None:
+    """A27: IP-keyed, applied to every request reaching a protected route
+    regardless of whether it ever resolves to a valid identity — see the
+    CATCH_ALL_IP_LIMIT module comment for why this has to exist
+    independently of the per-user check below (an unauthenticated caller
+    never reaches an identity to key by)."""
+    limit, window = CATCH_ALL_IP_LIMIT
+    key = f"catchall-ip:{client_ip(request)}"
+    retry_after = await check_keyed_limit(key, limit, window)
+    return _too_many_requests(retry_after) if retry_after is not None else None
+
+
+async def check_catch_all_user_limit(request: Request, identity: str) -> JSONResponse | None:
+    """A27: keyed by the resolved caller identity (a real user's email, or
+    a bot credential's name — A28), not IP — two different real users
+    behind the same NAT/office IP must not share a budget, and a single
+    user switching networks must not get a fresh one. Checks the general
+    per-user budget, then (only if that passes) the tighter per-user
+    budget for EXPENSIVE_PREFIXES, so an expensive-endpoint caller is
+    bound by whichever of the two limits is stricter."""
+    general_limit, general_window = CATCH_ALL_USER_LIMIT
+    key = f"catchall-user:{identity}"
+    retry_after = await check_keyed_limit(key, general_limit, general_window)
+    if retry_after is not None:
+        return _too_many_requests(retry_after)
+
+    path = request.url.path
+    if any(path.startswith(p) for p in EXPENSIVE_PREFIXES):
+        exp_limit, exp_window = EXPENSIVE_USER_LIMIT
+        exp_key = f"catchall-user-expensive:{identity}"
+        retry_after = await check_keyed_limit(exp_key, exp_limit, exp_window)
+        if retry_after is not None:
+            return _too_many_requests(retry_after)
     return None
