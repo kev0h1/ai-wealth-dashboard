@@ -1253,11 +1253,11 @@ async def execute_proposal(proposal_id: str, user: dict = Depends(current_user))
         result = await executor(uid, doc.get("params") or {})
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception(
             "can_i: proposal execute failed for %s kind=%s id=%s", uid, doc["kind"], proposal_id,
         )
-        raise HTTPException(500, f"execution failed: {e}")
+        raise HTTPException(500, "That did not go through, you can try again")
 
     now = datetime.now()
     await penny_proposals_col.update_one(
