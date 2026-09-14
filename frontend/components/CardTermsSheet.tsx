@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
-import { BANK_META, BankBadge, bankKey } from "@/components/AccountMiniCard";
+import { BANK_META, BankBadge, bankKey, bankLogoSrc } from "@/components/AccountMiniCard";
 import { RadioDot } from "@/components/PlanOneOffSheet";
 import { api, BtOffer, CardPromo, CardPromoKind, CardTermsCard, CardTermsLookup } from "@/lib/api";
 import { usePreferences } from "@/components/PreferencesContext";
@@ -46,11 +46,7 @@ function resolveBankChip(provider: string) {
   const key = bankKey({ provider });
   const meta = BANK_META[key];
   return {
-    logoSrc: meta?.logoFile
-      ? `/banks/${meta.logoFile}`
-      : meta?.domain
-      ? `https://www.google.com/s2/favicons?domain=${meta.domain}&sz=64`
-      : null,
+    logoSrc: bankLogoSrc(meta),
     initials: meta?.initials ?? (provider || "?").slice(0, 2).toUpperCase(),
     label: meta?.label ?? (provider || "Bank"),
     bg: meta?.bg,

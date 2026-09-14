@@ -7,7 +7,7 @@
 import { useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { ChevronDown, ChevronRight, RefreshCw } from "lucide-react";
-import { BANK_META, BankBadge, bankKey, type BankMeta } from "@/components/AccountMiniCard";
+import { BANK_META, BankBadge, bankKey, bankLogoSrc, type BankMeta } from "@/components/AccountMiniCard";
 
 type Variant = "a" | "b" | "c";
 type Surface = "accounts" | "home";
@@ -71,11 +71,7 @@ function providerMeta(provider: string): BankMeta {
   return BANK_META[bankKey({ provider })];
 }
 
-function logoSrc(meta: BankMeta): string | null {
-  if (meta.logoFile) return `/banks/${meta.logoFile}`;
-  if (meta.domain) return `https://www.google.com/s2/favicons?domain=${meta.domain}&sz=64`;
-  return null;
-}
+const logoSrc = bankLogoSrc;
 
 function ProviderMark({ provider, size = 34 }: { provider: string; size?: number }) {
   const meta = providerMeta(provider);

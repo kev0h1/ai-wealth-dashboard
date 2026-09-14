@@ -1,9 +1,8 @@
 // Resolves a BANK_META key straight to BankBadge props without needing a
 // full Account object — every row on this page carries only a bank
 // identity string from the backend (DismissedUserRow/EngineRow.bank), not
-// a real Account. Mirrors the same logoFile/domain priority
-// AccountMiniCard.tsx's accountBrand() uses, and DebtPlanPage.tsx's
-// resolveBankChip() takes the same approach for its own key-only bank data.
+// a real Account. Logo resolution itself is shared via bankLogoSrc()
+// (A34, 2026-09-14) so this file only supplies the key-only lookup.
 //
 // This is a real (non-preview) copy of app/design/dismissed/bankBadge.tsx.
 // That file is marked "delete with the preview route" and is fixture/
@@ -11,18 +10,14 @@
 // something destined for removal — see PENNY_TOOLS.md-style precedent of
 // pages not depending on /design/* internals.
 
-import { BANK_META } from "@/components/AccountMiniCard";
+import { BANK_META, bankLogoSrc } from "@/components/AccountMiniCard";
 
 export function bankBadgeProps(key: string | null, size = 26) {
   const meta = key ? BANK_META[key] : undefined;
   if (!meta) {
     return { logoSrc: null, initials: "?", altText: "Unknown bank", brandBg: "#64748b", size };
   }
-  const logoSrc = meta.logoFile
-    ? `/banks/${meta.logoFile}`
-    : meta.domain
-    ? `https://www.google.com/s2/favicons?domain=${meta.domain}&sz=64`
-    : null;
+  const logoSrc = bankLogoSrc(meta);
   return {
     logoSrc,
     initials: meta.initials,

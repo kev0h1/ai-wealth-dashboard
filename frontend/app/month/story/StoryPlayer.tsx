@@ -12,7 +12,7 @@ import { useCategoryIcons } from "@/components/IconProvider";
 import { getCategoryColour } from "@/lib/categories";
 import { getCategoryIcon } from "@/lib/categoryIcons";
 import { useCountUp } from "@/lib/useCountUp";
-import { bankKey, BANK_META, BankBadge } from "@/components/AccountMiniCard";
+import { bankKey, BANK_META, BankBadge, bankLogoSrc } from "@/components/AccountMiniCard";
 
 // A ref callback a slide hands its focal DOM node to, so the player can
 // measure it and steer the spotlight glow toward it. See the
@@ -248,12 +248,7 @@ function cardLogoBrand(row: { name: string; provider: string }): {
   const key = bankKey({ provider: row.provider });
   const meta = BANK_META[key];
   if (meta) {
-    const logoSrc = meta.logoFile
-      ? `/banks/${meta.logoFile}`
-      : meta.domain
-      ? `https://www.google.com/s2/favicons?domain=${meta.domain}&sz=64`
-      : null;
-    return { logoSrc, initials: meta.initials, label: meta.label, brandBg: meta.bg };
+    return { logoSrc: bankLogoSrc(meta), initials: meta.initials, label: meta.label, brandBg: meta.bg };
   }
   // Unknown provider — no curated entry. Leave brandBg undefined so
   // BankBadge falls back to its own neutral Slate Voice fill (the same

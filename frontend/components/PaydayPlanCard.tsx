@@ -5,21 +5,18 @@ import { useState } from "react";
 import { ArrowDown, WalletCards, X } from "lucide-react";
 import type { CompanionItem, PaydayPlanDest } from "@/lib/api";
 import { api } from "@/lib/api";
-import { BankBadge, BANK_META, bankKey } from "@/components/AccountMiniCard";
+import { BankBadge, BANK_META, bankKey, bankLogoSrc } from "@/components/AccountMiniCard";
 import PennyMark from "@/components/PennyMark";
 import MoneyText from "@/components/MoneyText";
 
 // Same resolver MoveCard uses in HomeBrief.tsx — kept local (not exported from
 // there) so this component doesn't reach into HomeBrief's module internals.
+// Logo resolution itself is shared via bankLogoSrc() (A34, 2026-09-14).
 function resolveBankChip(provider: string) {
   const key = bankKey({ provider });
   const meta = BANK_META[key];
   return {
-    logoSrc: meta?.logoFile
-      ? `/banks/${meta.logoFile}`
-      : meta?.domain
-      ? `https://www.google.com/s2/favicons?domain=${meta.domain}&sz=64`
-      : null,
+    logoSrc: bankLogoSrc(meta),
     initials: meta?.initials ?? (provider || "?").slice(0, 2).toUpperCase(),
     label: meta?.label ?? (provider || "Bank"),
     bg: meta?.bg,

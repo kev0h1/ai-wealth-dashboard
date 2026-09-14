@@ -18,7 +18,7 @@
 // (SafeToSpendCard, UpcomingBillsStrip, ThisMonthStrip, HomeInsightSpotlight).
 
 import { ChevronDown } from "lucide-react";
-import { BankBadge, bankKey, BANK_META, type BankMeta } from "@/components/AccountMiniCard";
+import { BankBadge, bankKey, bankLogoSrc, BANK_META, type BankMeta } from "@/components/AccountMiniCard";
 
 export type ReconnectProvider = {
   provider: string;
@@ -49,15 +49,10 @@ function providerMeta(p: ReconnectProvider): BankMeta {
   };
 }
 
-// Mirrors accountBrand()'s BRANCH 1 logo resolution (AccountMiniCard.tsx) —
-// duplicated in miniature here rather than imported, since accountBrand()
-// takes a full Account (balance, type, Finexer logo/colour fields, etc.)
-// and this strip only ever has a provider name and id to work with.
-function providerLogoSrc(meta: BankMeta): string | null {
-  if (meta.logoFile) return `/banks/${meta.logoFile}`;
-  if (meta.domain) return `https://www.google.com/s2/favicons?domain=${meta.domain}&sz=64`;
-  return null;
-}
+// Logo resolution now lives in one place: AccountMiniCard's bankLogoSrc()
+// (A34, 2026-09-14 — this used to duplicate that logic locally, including
+// a Google favicon fallback CSP blocks and privacy rules against).
+const providerLogoSrc = bankLogoSrc;
 
 export default function ReconnectStrip({ providers, onReconnect }: ReconnectStripProps) {
   const n = providers.length;
