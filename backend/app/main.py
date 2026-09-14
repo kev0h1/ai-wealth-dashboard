@@ -14,6 +14,7 @@ from app.core.config import (
     SAFE_TO_SPEND_HISTORY_TTL_DAYS, TRUELAYER_CLIENT_ID,
 )
 from app.core.auth import auth_middleware
+from app.core.security_headers import security_headers_middleware
 from app.db.collections import (
     connections_col, accounts_col, transactions_col, preferences_col,
     chat_sessions_col, episodic_memory_col, user_categories_col,
@@ -199,6 +200,21 @@ def build_app(mcp_connector_enabled: bool, mcp_only: bool = False) -> FastAPI:
                 request.method, request.url.path, response.status_code, elapsed_ms,
             )
         return response
+
+    # A27: registered LAST, i.e. OUTERMOST — Starlette/FastAPI's
+    # `.middleware("http")`/`add_middleware` build an onion where the most
+    # recently registered layer runs first on the way in and last on the
+    # way out (verified empirically against this exact app: a middleware
+    # registered before CORS/auth never saw auth_middleware's own 401s at
+    # all, because auth_middleware short-circuits without calling
+    # call_next — only a layer registered AFTER it wraps those responses
+    # too). Registering this last is what makes it apply to literally
+    # every response this process sends: a normal 200, a CORS preflight, a
+    # 401 from auth_middleware, a 429 from the rate limiter, a 500. See
+    # app.core.security_headers's own module docstring for why this API's
+    # CSP can be the strictest possible shape (it never renders HTML for a
+    # browser), unlike frontend/next.config.ts's.
+    built.middleware("http")(security_headers_middleware)
 
     # mcp_only mounts ONLY the connector (mcp + oauth routers, which between
     # them also cover the /.well-known/oauth-* discovery paths, see

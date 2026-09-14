@@ -203,6 +203,101 @@ the manifest has a complete picture of everything `deploy` reads.
 | `CODEMAGIC_API_TOKEN` | `scripts/release.py` (`_codemagic_trigger_prod_build` / equivalent helper) | absent | optional; a Codemagic personal API token. When set together with `CODEMAGIC_APP_ID`, `deploy` POSTs to `https://api.codemagic.io/builds` after tagging a successful release to start the `ios-capacitor-prod` workflow on `release` (see DEPLOY.md's "Release trigger"). Missing it just means `deploy` warns and skips the trigger, it never fails the deploy. Never printed or logged by `release.py`. |
 | `CODEMAGIC_APP_ID` | `scripts/release.py` | absent | optional; the Codemagic application id for this repo (Codemagic UI: App settings -> General -> App ID), paired with `CODEMAGIC_API_TOKEN` above. |
 
+## Edge and transport hardening (A27, 2026-09-14)
+
+Not an environment variable either — recorded here for the same reason as
+the A28 section above (this file is where operational decisions like this
+get written down). Closes three gaps found by probing both live hosts on
+2026-09-14: production sent only `Strict-Transport-Security` (no
+`includeSubDomains`/`preload`, no CSP, no frame protection, no
+`X-Content-Type-Options`, no `Referrer-Policy`, no `Permissions-Policy`);
+the Railway API sent no security headers at all; and `core/ratelimit.py`'s
+`RULES` covered only seven auth/webhook/push prefixes, so every data
+endpoint was unlimited (masked only by `ALLOWED_EMAILS` keeping sign-up
+closed to ten addresses — a protection D1 will remove).
+
+**Frontend headers** (`frontend/next.config.ts`'s `securityHeaders()`,
+production builds only): HSTS with `includeSubDomains; preload`,
+`X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
+`Referrer-Policy: strict-origin-when-cross-origin`, a `Permissions-Policy`
+that locks down every browser feature this app doesn't use, and a CSP.
+**The CSP's `script-src` and `style-src` both need `'unsafe-inline'`** —
+verified against a real build in headless Chrome, console inspected
+2026-09-14. `style-src` needs it because this app sets React
+`style={{...}}` on 150+ components (renders as inline `style="..."`
+attributes, no practical hash/nonce mechanism for that). `script-src` needs
+it because Next.js's own App Router injects `self.__next_f.push(...)`
+React Server Components flight-data scripts inline on every page, with
+content that differs per page/build — a hash allow-list can't cover that,
+and the nonce-based fix (`middleware.ts` + `headers()` read in
+`app/layout.tsx`) would force this app's ~80 currently-statically-generated
+routes into per-request dynamic rendering (layout.tsx wraps every route),
+which is a real performance regression this item judged not worth paying
+for a header that's defence in depth, not the only thing between an
+attacker and a script tag. If that tradeoff is ever revisited, the nonce
+pattern is documented at
+https://nextjs.org/docs/app/guides/content-security-policy. Every other CSP
+directive is `'self'`-only (no external script/style/image/font/connect
+targets — bank logos, API calls and everything else this app loads are
+same-origin). `output: 'export'` (Capacitor/MOBILE_EXPORT) doesn't support
+`headers()` at all, so the mobile shells carry whatever headers wrap the
+static bundle, not these.
+
+**Backend headers** (`backend/app/core/security_headers.py`, registered as
+the OUTERMOST middleware in `app.main.build_app` — every response this
+process sends carries these, including a 401 from `auth_middleware` and a
+429 from the rate limiter): the same HSTS/nosniff/DENY/Referrer-Policy/
+Permissions-Policy as the frontend, plus a CSP of
+`default-src 'none'; frame-ancestors 'none'; base-uri 'none'` — the
+strictest possible shape, since this API only ever serves JSON (to the
+Next.js `/api` rewrite or the MCP connector), never HTML for a browser to
+render. CSP is skipped specifically for `/docs`/`/redoc`/`/openapi.json`
+(Swagger UI, `ENABLE_API_DOCS`-gated, must stay unset in production) so it
+doesn't break if that flag is ever turned on locally.
+
+**Catch-all rate limit** (`app.core.ratelimit`
+`CATCH_ALL_IP_LIMIT`/`CATCH_ALL_USER_LIMIT`/`EXPENSIVE_PREFIXES`, wired into
+`app.core.auth.auth_middleware`): every request reaching a protected route
+not already covered by a `RULES` entry is now bounded two ways on the same
+request — 600/60s keyed by IP (checked before the bearer token is even
+validated, so a caller spamming garbage tokens is bounded too, not just one
+who resolves to a real identity), and 300/60s keyed by the resolved
+identity (a real user's email, or a bot credential's name — A28) once the
+token validates, tighter to 30/60s for a named set of expensive endpoints
+(`/transactions/search`, `/safe-to-spend`, `/cashflow`, `/spend/verdict`,
+`/money-shape`, `/savings-insights`). Chosen against a real reading of a
+Home screen load (`app/components/HomePage.tsx` alone issues 6 requests on
+mount, plus its child components and the idle `/spend` prefetch — on the
+order of 10-15 total): the general limit leaves roughly 20x that headroom
+for a few reloads inside a minute, the expensive-endpoint limit still
+covers several page loads. `/mcp` is deliberately excluded — F7 already
+gave the MCP connector its own per-principal burst/daily limits, keyed by
+OAuth `client_id`/`uid`, tuned for that surface; stacking an uncoordinated
+second limit on the same traffic would just be confusing.
+
+**Redis-unavailable fallback, chosen direction: degrade, not fail open or
+fail closed.** When Redis is unreachable, every rule in `ratelimit.py`
+(the pre-existing auth/webhook rules and this catch-all alike) falls back
+to an in-process deque — this was already true before A27, and A27
+deliberately keeps it rather than changing direction. Concretely: a rate
+limit check NEVER raises (a Redis exception is caught and treated as "use
+the local path"), and the local path still enforces the SAME limit, just
+per-process rather than shared. On today's single Railway replica that is
+exactly as safe as the Redis path; once E5 adds replicas, a Redis outage
+would let the effective limit become (per-replica limit × replica count)
+for as long as it lasts — looser than intended, but never unenforced, and
+never a hard failure. The alternative (fail closed: reject every request
+while Redis is down) was rejected for a financial app specifically because
+this rate limiter is defence in depth behind real authentication and
+authorisation, not the primary access control — turning a transient Redis
+blip into a total outage for every real user trying to see their own bank
+data is a worse failure mode than a temporarily looser abuse bound.
+
+**Explicitly NOT done here, Kevin's own decisions**: Vercel Firewall rule
+configuration, and whether Cloudflare goes in front of the Railway API.
+Both are infrastructure/vendor decisions outside this item's scope; see the
+A27 backlog note.
+
 ## Known drift (2026-09-08)
 
 - **`FCM_PROJECT_ID`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_AUTH_KEY`**:
