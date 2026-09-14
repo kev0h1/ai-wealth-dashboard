@@ -63,8 +63,8 @@ ALLOWLIST: set[tuple[str, int]] = {
     # app.services.billing.BillingError — "Base class for billing-service
     # errors that should surface to the caller as a 400" per its own
     # docstring; every raise site is a static, authored string.
-    ("app/routers/billing.py", 85),
-    ("app/routers/billing.py", 101),
+    ("app/routers/billing.py", 172),
+    ("app/routers/billing.py", 195),
     # ValueError raised by app.core.subscription.grant_pack with an authored
     # message ("pack_id must be one of: ..."); admin-only endpoint.
     ("app/routers/subscription.py", 239),

@@ -23,11 +23,13 @@ and a plain-dict-like `.headers`, mirroring test_finexer_webhook.py's own
 """
 import asyncio
 import json
+import logging
 from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi import HTTPException
 from pymongo.errors import DuplicateKeyError
+from starlette.datastructures import Headers
 
 import app.core.config as config_module
 import app.core.subscription as subscription_module
@@ -1287,3 +1289,135 @@ def test_get_subscription_info_exposes_billing_periods_and_trial_periods(monkeyp
     assert annual_entry["saving_gbp"] > 0
     assert annual_entry["months"] == 12
     assert result["billing_prices_gbp"]["max"]["annual"] == 169.99
+
+
+# ── 9. B31: server-side backstop on the native purchase gate ──────────────
+#
+# The client-side gate (B26, frontend/lib/nativeAuth.ts's
+# canPurchaseInApp) hides every purchase button on a Capacitor build; this
+# section exercises the server-side backstop behind it
+# (app.routers.billing._reject_native_platform), which reads the
+# `X-Client-Platform` header the client sends only when it detects a
+# native context. A real starlette.datastructures.Headers is used (not a
+# plain dict) so the case-insensitive lookup _reject_native_platform
+# relies on is exercised for real, not assumed.
+
+def _fake_request(headers: dict | None = None):
+    return _obj(headers=Headers(headers or {}))
+
+
+@pytest.mark.parametrize("platform", ["ios", "android", "native", "IOS", " Android "])
+def test_checkout_refuses_native_signalled_request(monkeypatch, platform, caplog):
+    fake_stripe = _make_fake_stripe()
+    monkeypatch.setattr(billing_module, "stripe", fake_stripe)
+    monkeypatch.setattr(billing_module, "STRIPE_SECRET_KEY", "sk_test_x")
+    _patch_billing_enabled(monkeypatch, True, price_ids=_FULL_PRICE_IDS)
+    _patch_collections(monkeypatch, billing_customers_col=_FakeCol(), subscriptions_col=_FakeCol())
+
+    req = _fake_request({"X-Client-Platform": platform})
+    with caplog.at_level(logging.WARNING):
+        try:
+            _run(billing_router_module.create_checkout(
+                {"kind": "subscription", "target": "lite"}, request=req, user={"email": UID},
+            ))
+            assert False, "expected HTTPException"
+        except HTTPException as exc:
+            assert exc.status_code == 403
+            assert exc.detail["code"] == "BILLING_NATIVE_BLOCKED"
+            assert exc.detail["message"] == "Paid plans are not available in this app."
+    # Never reached Stripe.
+    assert fake_stripe.checkout_calls == []
+    assert any("refused" in r.message and "checkout" in r.message for r in caplog.records)
+
+
+@pytest.mark.parametrize("platform", ["ios", "android", "native"])
+def test_portal_refuses_native_signalled_request(monkeypatch, platform):
+    fake_stripe = _make_fake_stripe()
+    monkeypatch.setattr(billing_module, "stripe", fake_stripe)
+    _patch_billing_enabled(monkeypatch, True, price_ids=_FULL_PRICE_IDS)
+    _patch_collections(
+        monkeypatch,
+        billing_customers_col=_FakeCol([{"user_id": UID, "stripe_customer_id": "cus_1"}]),
+    )
+
+    req = _fake_request({"X-Client-Platform": platform})
+    try:
+        _run(billing_router_module.create_portal(None, request=req, user={"email": UID}))
+        assert False, "expected HTTPException"
+    except HTTPException as exc:
+        assert exc.status_code == 403
+        assert exc.detail["code"] == "BILLING_NATIVE_BLOCKED"
+        assert exc.detail["message"] == "Paid plans are not available in this app."
+    assert fake_stripe.portal_calls == []
+
+
+@pytest.mark.parametrize("platform", [None, "web", "", "windows", "desktop"])
+def test_checkout_web_or_unrecognised_platform_is_unaffected(monkeypatch, platform):
+    """A request that either declares itself web, or sends a value this
+    server doesn't recognise as native, must proceed exactly as it did
+    before B31 — this is not an allowlist of "web", it is a refusal that
+    only fires on values that positively assert a native platform."""
+    fake_stripe = _make_fake_stripe()
+    monkeypatch.setattr(billing_module, "stripe", fake_stripe)
+    monkeypatch.setattr(billing_module, "STRIPE_SECRET_KEY", "sk_test_x")
+    _patch_billing_enabled(monkeypatch, True, price_ids=_FULL_PRICE_IDS)
+    _patch_collections(monkeypatch, billing_customers_col=_FakeCol(), subscriptions_col=_FakeCol())
+
+    headers = {} if platform is None else {"X-Client-Platform": platform}
+    req = _fake_request(headers)
+    result = _run(billing_router_module.create_checkout(
+        {"kind": "pack", "target": "small"}, request=req, user={"email": UID},
+    ))
+    assert result["url"].startswith("https://checkout.stripe.com/test/")
+
+
+def test_portal_web_request_is_unaffected(monkeypatch):
+    fake_stripe = _make_fake_stripe()
+    monkeypatch.setattr(billing_module, "stripe", fake_stripe)
+    _patch_billing_enabled(monkeypatch, True, price_ids=_FULL_PRICE_IDS)
+    _patch_collections(
+        monkeypatch,
+        billing_customers_col=_FakeCol([{"user_id": UID, "stripe_customer_id": "cus_1"}]),
+    )
+
+    req = _fake_request({"X-Client-Platform": "web"})
+    result = _run(billing_router_module.create_portal(None, request=req, user={"email": UID}))
+    assert result["url"] == "https://billing.stripe.com/test/portal"
+
+
+def test_checkout_with_no_request_object_behaves_like_absent_header(monkeypatch):
+    """B31's absent-signal decision: no X-Client-Platform header (or, as
+    here, no Request at all — the shape every pre-B31 test in this file
+    already calls this route with) is treated as web, not refused. A
+    forgeable header cannot prove a request came from a browser, so
+    refusing on its absence would only ever catch real web callers and
+    every pre-B31 cached web bundle, none of which have ever sent it —
+    it would not catch a spoofed native request, which would simply omit
+    the header too."""
+    fake_stripe = _make_fake_stripe()
+    monkeypatch.setattr(billing_module, "stripe", fake_stripe)
+    monkeypatch.setattr(billing_module, "STRIPE_SECRET_KEY", "sk_test_x")
+    _patch_billing_enabled(monkeypatch, True, price_ids=_FULL_PRICE_IDS)
+    _patch_collections(monkeypatch, billing_customers_col=_FakeCol(), subscriptions_col=_FakeCol())
+
+    result = _run(billing_router_module.create_checkout(
+        {"kind": "pack", "target": "small"}, user={"email": UID},
+    ))
+    assert result["url"].startswith("https://checkout.stripe.com/test/")
+
+
+def test_native_block_takes_priority_over_billing_not_live(monkeypatch):
+    """The platform check runs before _require_billing_live, so a native
+    client gets the same BILLING_NATIVE_BLOCKED refusal whether or not
+    Stripe is currently configured — the message must not depend on, or
+    leak, the billing_live flag."""
+    _patch_billing_enabled(monkeypatch, False)
+    req = _fake_request({"X-Client-Platform": "ios"})
+    try:
+        _run(billing_router_module.create_checkout(
+            {"kind": "subscription", "target": "lite"}, request=req, user={"email": UID},
+        ))
+        assert False, "expected HTTPException"
+    except HTTPException as exc:
+        assert exc.status_code == 403
+        assert exc.detail["code"] == "BILLING_NATIVE_BLOCKED"
