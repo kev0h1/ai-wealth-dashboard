@@ -6,6 +6,7 @@ from fastapi.responses import RedirectResponse
 
 from app.core.auth import current_user
 from app.core.config import YAPILY_APP_UUID, YAPILY_BASE_URL, APP_URL
+from app.core.crypto import encrypt_token, token_fingerprint
 from app.core.subscription import check_connection_limit, check_open_banking_allowed
 from app.db.collections import yapily_consents_col, yapily_accounts_col, yapily_transactions_col
 from app.services.yapily_sync import sync_yapily_consent, yapily_headers
@@ -64,23 +65,41 @@ async def yapily_create_requisition(body: dict, user: dict = Depends(current_use
     data          = r.json().get("data", {})
     consent_token = data.get("id")
     auth_url      = data.get("authorisationUrl")
+    consent_id    = None
     if consent_token:
-        await yapily_consents_col.update_one({"_id": consent_token}, {"$set": {
-            "_id": consent_token, "user_id": uid,
+        # The consent token Yapily hands back doubles as a bearer credential
+        # (sent verbatim as the `consent` header on every accounts/transactions
+        # call) AND, historically, as our own lookup key. It can't be stored
+        # in the clear (A30) or used as `_id` directly (Fernet ciphertext
+        # isn't exact-match queryable) — so `_id` is a non-reversible
+        # fingerprint of it, and the recoverable value lives encrypted in
+        # `token`. See app.services.yapily_sync for the read/decrypt side.
+        consent_id = token_fingerprint(consent_token)
+        await yapily_consents_col.update_one({"_id": consent_id}, {"$set": {
+            "_id": consent_id, "user_id": uid,
             "institution_id": institution_id,
             "status": "AWAITING_AUTHORIZATION",
             "created_at": datetime.now(),
+            "token": encrypt_token(consent_token),
         }}, upsert=True)
-    return {"link": auth_url, "requisition_id": consent_token}
+    return {"link": auth_url, "requisition_id": consent_id}
 
 
 @router.get("/auth/yapily/callback")
 async def yapily_callback(consent: str = "", error: str = ""):
     if consent:
-        doc = await yapily_consents_col.find_one({"_id": consent})
+        consent_id = token_fingerprint(consent)
+        doc = await yapily_consents_col.find_one({"_id": consent_id})
+        if not doc:
+            # Transitional fallback for a row created before this fingerprint
+            # scheme (or, in principle, a callback racing a deploy): the row
+            # may still be keyed by the raw value Yapily just sent us.
+            legacy_doc = await yapily_consents_col.find_one({"_id": consent})
+            if legacy_doc:
+                doc, consent_id = legacy_doc, consent
         if doc:
-            await yapily_consents_col.update_one({"_id": consent}, {"$set": {"status": "AUTHORIZED"}})
-            asyncio.create_task(sync_yapily_consent(consent, doc["user_id"]))
+            await yapily_consents_col.update_one({"_id": consent_id}, {"$set": {"status": "AUTHORIZED"}})
+            asyncio.create_task(sync_yapily_consent(consent_id, doc["user_id"]))
     return RedirectResponse(url=f"{APP_URL}/accounts?yapily=connected")
 
 
