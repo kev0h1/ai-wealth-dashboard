@@ -125,3 +125,52 @@ def test_a_realistic_home_page_load_does_not_trip_the_limit():
         for path in home_load_paths:
             resp = _run(auth_mod.auth_middleware(_FakeRequest(path, headers=headers), _call_next))
             assert resp.status_code == 200, f"{path} tripped the catch-all on a realistic Home load"
+
+
+def test_a_realistic_walk_between_home_spend_upcoming_and_planning_does_not_trip_the_limit():
+    """A36: the gap in the test above — it only ever modelled reloading ONE
+    screen (Home), never moving BETWEEN screens, which is exactly the
+    pattern the A27 post-merge review flagged as the real risk. Sequence
+    and per-screen counts are read straight off the frontend call graph
+    (not estimated):
+
+    - Home mount (app/components/HomePage.tsx loadData + child strips):
+      safe-to-spend, transactions/search, cashflow (UpcomingBillsStrip),
+      savings-insights/spotlight (HomeInsightSpotlight), plus the idle-
+      triggered spend/verdict warm-up (lib/verdictCache.ts fetchVerdictData,
+      fired unconditionally, no TTL check of its own).
+    - Spend mount (app/components/SpendPage.tsx): spend/verdict (its own
+      fetchVerdict, which ALSO always calls fetchVerdictData even on a
+      cache hit — the "silent revalidation" the ticket calls out), plus
+      money-shape (lib/moneyShape.ts loadMoneyShape, same no-TTL-check
+      shape) and savings-insights (loadCategoryInsights, 300ms after
+      mount).
+    - Upcoming mount (app/planning/PlanningPage.tsx): cashflow.
+    - Planning mount (app/planning/LongTermPlanningPage.tsx): none of the
+      six — it only calls /commitments and /debt-plan/summary.
+
+    One full lap (Home -> Spend -> Upcoming -> Planning -> back to Home)
+    fires 14 requests against EXPENSIVE_PREFIXES routes: under the OLD
+    shared 30/60 pool this alone would have used nearly half the budget
+    before any tip tap or manual search; under the fixed per-prefix
+    budgets, no single prefix sees more than 3 hits in a lap, so several
+    laps inside one minute — genuinely frantic navigation — must all
+    still return 200."""
+    token = serializer.dumps({"email": "screen-walk-user@example.com", "name": "Test"})
+    headers = {"Authorization": f"Bearer {token}"}
+    home_mount = [
+        "/accounts", "/today", "/needle-summary", "/investments/accounts", "/preferences",
+        "/safe-to-spend", "/transactions/search", "/cashflow", "/savings-insights/spotlight",
+        "/spend/verdict",  # idle warm-up
+    ]
+    spend_mount = ["/spend/verdict", "/money-shape", "/savings-insights"]
+    upcoming_mount = ["/cashflow"]
+    planning_mount = ["/commitments", "/debt-plan/summary"]
+    one_lap = home_mount + spend_mount + upcoming_mount + planning_mount + home_mount
+    for lap in range(3):
+        for path in one_lap:
+            resp = _run(auth_mod.auth_middleware(_FakeRequest(path, headers=headers), _call_next))
+            assert resp.status_code == 200, (
+                f"lap {lap + 1}, {path} tripped the catch-all on a realistic "
+                "Home -> Spend -> Upcoming -> Planning -> Home walk"
+            )

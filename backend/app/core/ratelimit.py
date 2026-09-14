@@ -81,6 +81,31 @@ RULES = [
 # calculation, cashflow, the spend verdict, the money-shape instrument and
 # savings-insights all run a real aggregation or a multi-step recompute per
 # call, unlike a plain single-document read.
+#
+# A36: EXPENSIVE_USER_LIMIT is a PER-PREFIX budget, not one pool shared
+# across all six — see check_catch_all_user_limit below, which keys the
+# bucket on the matched prefix as well as the identity. Originally (A27) all
+# six shared one 30/60 bucket, which a post-merge review (2026-09-15) found
+# ordinary navigation could exhaust: reading the frontend call graph
+# (HomePage.tsx, SpendPage.tsx, PlanningPage.tsx, verdictCache.ts,
+# moneyShape.ts) shows a single Home mount alone fires five of these
+# six-prefix requests (safe-to-spend, transactions/search, cashflow via
+# UpcomingBillsStrip, savings-insights/spotlight via HomeInsightSpotlight,
+# and spend/verdict via the idle warm-up), Spend adds three more
+# (spend/verdict revalidation, money-shape, savings-insights list), and
+# Upcoming adds one more cashflow call — 9 hits to the shared pool from a
+# single Home -> Spend -> Upcoming -> Planning -> Home lap, well over what a
+# genuinely realistic minute of browsing (a couple of such laps) leaves
+# headroom for once notifications/tips/search are added on top. No single
+# prefix in that walk was hit more than twice, so keying each prefix's own
+# 30/60 budget separately (rather than raising the shared number, which
+# would just make a genuine single-endpoint flood — e.g. the original A27
+# probe of 35 sequential /safe-to-spend calls — harder to catch) keeps every
+# individual endpoint exactly as protected as A27 originally intended while
+# no longer letting a Spend visit's /money-shape calls eat into Upcoming's
+# /cashflow budget or vice versa. A script hammering any ONE of these six
+# prefixes more than 30 times in 60 seconds — the original abuse pattern —
+# still trips a 429 on that prefix, unchanged from A27.
 CATCH_ALL_IP_LIMIT = (600, 60)
 CATCH_ALL_USER_LIMIT = (300, 60)
 EXPENSIVE_PREFIXES = (
@@ -218,7 +243,14 @@ async def check_catch_all_user_limit(request: Request, identity: str) -> JSONRes
     user switching networks must not get a fresh one. Checks the general
     per-user budget, then (only if that passes) the tighter per-user
     budget for EXPENSIVE_PREFIXES, so an expensive-endpoint caller is
-    bound by whichever of the two limits is stricter."""
+    bound by whichever of the two limits is stricter.
+
+    A36: the expensive-tier bucket is keyed by (matched prefix, identity),
+    not identity alone — each of the six EXPENSIVE_PREFIXES gets its own
+    30/60 budget instead of all six sharing one pool. See the
+    EXPENSIVE_PREFIXES module comment for the measured browsing pattern
+    that made the shared pool a false positive risk, and for what abuse
+    pattern this still stops."""
     general_limit, general_window = CATCH_ALL_USER_LIMIT
     key = f"catchall-user:{identity}"
     retry_after = await check_keyed_limit(key, general_limit, general_window)
@@ -226,9 +258,10 @@ async def check_catch_all_user_limit(request: Request, identity: str) -> JSONRes
         return _too_many_requests(retry_after)
 
     path = request.url.path
-    if any(path.startswith(p) for p in EXPENSIVE_PREFIXES):
+    matched_prefix = next((p for p in EXPENSIVE_PREFIXES if path.startswith(p)), None)
+    if matched_prefix is not None:
         exp_limit, exp_window = EXPENSIVE_USER_LIMIT
-        exp_key = f"catchall-user-expensive:{identity}"
+        exp_key = f"catchall-user-expensive:{matched_prefix}:{identity}"
         retry_after = await check_keyed_limit(exp_key, exp_limit, exp_window)
         if retry_after is not None:
             return _too_many_requests(retry_after)
