@@ -8,6 +8,7 @@ export type MovePayment = {
   name: string;
   amount: number;
   due: string;
+  expectedDate: string;
 };
 
 export type MoveScenario = {
@@ -41,6 +42,7 @@ const PAYMENT = {
   name: "American Express",
   amount: 100,
   due: "9 Sept",
+  expectedDate: "2026-09-09",
 } as const;
 
 export const MOVE_SCENARIOS: readonly MoveScenario[] = [
@@ -83,8 +85,8 @@ export const MOVE_SCENARIOS: readonly MoveScenario[] = [
     },
     payments: [
       PAYMENT,
-      { name: "British Gas", amount: 42, due: "10 Sept" },
-      { name: "EE", amount: 28, due: "12 Sept" },
+      { name: "British Gas", amount: 42, due: "10 Sept", expectedDate: "2026-09-10" },
+      { name: "EE", amount: 28, due: "12 Sept", expectedDate: "2026-09-12" },
     ],
     sources: [
       { name: "HSBC Current", provider: "HSBC", amount: 55 },
