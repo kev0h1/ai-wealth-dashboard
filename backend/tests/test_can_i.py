@@ -159,6 +159,39 @@ def test_can_i_house_style_applied_to_agent_output(monkeypatch):
     assert "—" not in result["reply"] and "–" not in result["reply"]
 
 
+# ── B37 (2026-09-14): agent reports an infrastructure failure ──────────────
+# Distinct from the None-returns-a-refusal tests below: `run_penny_agent`
+# now returns `{"provider_error": True}` (never None) when OpenRouter itself
+# could not be made to answer after its bounded retries. Before this fix
+# every failure — including a 429/502 the model never even saw — collapsed
+# to the SAME `None` the refusal fallback below turns into "that's outside
+# what I can work out", `out_of_scope: True`. This must get a different,
+# honestly-worded reply instead.
+
+def test_can_i_provider_error_reply_when_agent_reports_infra_failure(monkeypatch):
+    _patch_can_i_common(monkeypatch)
+
+    async def fake_agent(uid, question, history, screen, context):
+        return {"provider_error": True}
+
+    monkeypatch.setattr(can_i_module, "run_penny_agent", fake_agent)
+
+    body = {"question": "how much can I spend this weekend"}
+    result = asyncio.run(can_i_module.can_i(body, {"email": "kevin"}))
+
+    # The one thing this whole ticket exists to fix: infrastructure must
+    # never speak as scope.
+    assert result["out_of_scope"] is False
+    assert result["headline"] == "Couldn't answer that just now"
+    assert "outside what I can work out" not in result["reply"]
+    assert "couldn't reach" in result["reply"].lower()
+    assert result["facts"] == []
+    assert result["explainer"] is False
+    assert result["topic"] is None
+    # No promised timescale or fix, no blame — house copy rules.
+    assert "—" not in result["reply"] and "–" not in result["reply"]
+
+
 # ── Refusal fallback: agent returns None (any failure, or a genuine
 # off-topic decline via the sentinel — both indistinguishable to can_i.py,
 # see run_penny_agent's own failure contract) ─────────────────────────────

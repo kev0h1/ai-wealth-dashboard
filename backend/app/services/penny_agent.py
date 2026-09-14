@@ -23,14 +23,28 @@ loop needs that already exist there (£-agnostic HEADLINE/REPLY parsing) are
 reimplemented here in miniature — see `_parse_headline_reply_or_none`'s own
 "twin of" comment.
 
-Failure doctrine: `run_penny_agent` returns a dict on success and `None` on
-ANY failure whatsoever — HTTP error, timeout, round cap exhausted, the hard
-wall-clock ceiling firing, unparseable output, OR the model itself declining
-the question as off-topic (see `_OUT_OF_SCOPE_SENTINEL` below) — it never
-raises. The caller (can_i.py's seam) falls back to the pre-existing
-out-of-scope refusal on `None`, so a slow/unavailable model, or a genuinely
-off-topic question, never costs the user a wrong answer — only the chance
-of a better one.
+Failure doctrine (revised, B37, 2026-09-14): `run_penny_agent` never raises,
+and returns one of THREE shapes. A dict on success (or the pre-existing
+`consent_required`/`proposal` shapes). `{"provider_error": True}` when
+OpenRouter itself could not be made to answer — a retryable HTTP error
+(429/5xx, see `_call_openrouter_with_retry` and the module-level comment
+above `_MAX_PROVIDER_RETRIES`) that stayed bad through every retry, a
+non-retryable HTTP error (400/401/...), or a connection-level failure
+(timeout, DNS, refused connection). `None` for everything else that isn't
+an infrastructure problem: round cap exhausted, the hard wall-clock ceiling
+firing, unparseable output, OR the model itself declining the question as
+off-topic (see `_OUT_OF_SCOPE_SENTINEL` below). This three-way split exists
+because the caller (can_i.py's seam) must NOT tell these apart the same
+way: `None` still falls back to the pre-existing out-of-scope refusal
+(`out_of_scope: True`) — correct for a genuinely off-topic or unparseable
+question, since the model was consulted and either declined or answered
+badly. `provider_error` gets its own, honestly-worded failure reply instead
+(`out_of_scope: False`) — the model was never actually consulted, so
+telling the user their question was out of scope would be false. Before
+this split, EVERY failure collapsed to `None`, which is exactly the bug
+this fixes: a 429 or a 502 read to the user as "that's outside what I can
+work out", a wrong and discouraging thing to tell someone about their own,
+perfectly answerable question.
 
 Off-topic sentinel: rule 5 of `_SYSTEM_PROMPT` instructs the model to answer
 a question with no financial angle with the single bare line
@@ -57,10 +71,12 @@ falls back to a refusal anyway.
 import asyncio
 import json
 import logging
+import random
 import re
 import time
 import uuid
-from datetime import date
+from datetime import date, datetime, timezone
+from email.utils import parsedate_to_datetime
 
 import httpx
 
@@ -115,6 +131,161 @@ _WALL_CLOCK_BUDGET_S = 40.0
 # off mid-flight every time, while still bounding the absolute worst case.
 _WALL_CLOCK_GRACE_S = 20.0
 _REQUEST_TIMEOUT_S = 35.0
+
+# ── Transient provider errors (B37, 2026-09-14 audit) ───────────────────────
+# Before this: ANY non-200 from OpenRouter (a rate limit, a blip, a
+# misconfigured key, anything) was treated identically — one failed request,
+# no retry, straight to `None`, which the seam in can_i.py turns into the
+# fixed "that's outside what I can work out" refusal with `out_of_scope:
+# True`. That is a lie about the user's question specifically for the
+# transient case: a 429 or a 502 says nothing about whether the question was
+# answerable, only that the provider had a bad moment. A 400 (malformed
+# request) or 401 (bad/missing key) is a different story — retrying either
+# repeats the exact same mistake at the exact same paid-call cost with no
+# chance of a different outcome, so only 429 and 5xx are retried.
+#
+# Bounded on every axis: `_MAX_PROVIDER_RETRIES` retries (3 attempts total)
+# per model-call round, exponential backoff with full jitter between them
+# capped at `_RETRY_MAX_DELAY_S`, and a provider `Retry-After` header is
+# honoured but itself capped at `_RETRY_AFTER_CAP_S` — a provider asking for
+# a longer backoff than that is treated as "not worth waiting for" in a
+# synchronous, user-facing request rather than actually waited out. Worst
+# case added latency from this scheduling alone (no Retry-After present):
+# two backoff waits, each up to its own ceiling (0.5s then 1.0s) = 1.5s.
+# With a Retry-After header honoured on both retries: 2 * `_RETRY_AFTER_CAP_S`
+# = 6.0s. Either way this sits inside the SAME `_WALL_CLOCK_BUDGET_S` +
+# `_WALL_CLOCK_GRACE_S` = 60s hard ceiling that already bounds the whole
+# loop (see `run_penny_agent`'s `asyncio.wait_for` below) — a retry never
+# gets its own separate budget, it just spends time out of the one that
+# already exists, and if the ceiling fires mid-retry the loop still gives up
+# cleanly (falls through to the pre-existing `asyncio.TimeoutError` handler,
+# unchanged).
+#
+# Metering stays honest for free: `app.core.llm.openrouter_chat`/
+# `record_llm_usage` only ever write a usage row on a 200 response (see that
+# module) — a 429/5xx attempt that gets retried records nothing, so only the
+# attempt that finally lands a 200 (if any) is billed, and if every attempt
+# in a round fails, NOTHING is billed for it at all. Every attempt in this
+# module also shares the one `message_id` `run_penny_agent` already
+# generates per user question, so `monthly_usage`'s distinct-message-id count
+# (what the user's monthly Penny allowance is actually measured against)
+# cannot move because of a retry either — that count is already keyed off
+# distinct message ids, not row counts.
+_MAX_PROVIDER_RETRIES = 2
+_RETRY_BASE_DELAY_S = 0.5
+_RETRY_MAX_DELAY_S = 4.0
+_RETRY_AFTER_CAP_S = 3.0
+
+
+class _ProviderFailure(Exception):
+    """Raised out of `_call_openrouter_with_retry` once a request to
+    OpenRouter could not be made to succeed — a non-retryable status on the
+    very first attempt (e.g. 400/401), or a retryable one (429/5xx) that
+    stayed bad through every retry. Deliberately a DIFFERENT signal from a
+    plain `None` return elsewhere in this module: `None` still means "the
+    model declined the question as off-topic, or its final answer couldn't
+    be parsed" (a genuine scope/output problem), this means "OpenRouter
+    itself could not be reached to ask" (an infrastructure problem). See
+    `run_penny_agent`'s docstring for how the two are told apart on the
+    wire — `None` still drives the caller's existing out-of-scope refusal,
+    this drives a distinct, honestly-worded failure reply with
+    `out_of_scope: False`."""
+
+
+def _is_retryable_status(status_code: int) -> bool:
+    """429 (rate limited) or any 5xx (provider-side) — worth paying for a
+    second attempt. Everything else (400 malformed, 401/403 auth, 404, 422,
+    ...) is a permanent failure that a retry cannot fix, only repeat."""
+    return status_code == 429 or status_code >= 500
+
+
+def _parse_retry_after(response: httpx.Response) -> float | None:
+    """OpenRouter's own `Retry-After` header, when sent — either
+    delta-seconds (`"Retry-After: 20"`) or an HTTP-date, per RFC 9110.
+    Returns None when absent or unparseable, in which case the caller falls
+    back to its own backoff schedule instead."""
+    raw = response.headers.get("retry-after")
+    if not raw:
+        return None
+    try:
+        return float(raw)
+    except ValueError:
+        pass
+    try:
+        dt = parsedate_to_datetime(raw)
+    except (TypeError, ValueError, IndexError):
+        return None
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return max((dt - datetime.now(timezone.utc)).total_seconds(), 0.0)
+
+
+def _retry_delay_s(attempt: int, retry_after: float | None) -> float:
+    """`attempt` is 0-indexed (0 = the wait before the FIRST retry). A
+    provider `Retry-After` is honoured directly, capped at
+    `_RETRY_AFTER_CAP_S` (see the module-level note above for why an
+    uncapped honour would risk the user-facing latency budget). Otherwise:
+    bounded exponential backoff with full jitter (uniform over [0, ceiling],
+    the standard AWS-recommended shape) — jitter rather than a fixed delay
+    so a burst of requests hitting the same transient error don't all retry
+    in lockstep and immediately reproduce the same rate limit."""
+    if retry_after is not None:
+        return min(max(retry_after, 0.0), _RETRY_AFTER_CAP_S)
+    ceiling = min(_RETRY_BASE_DELAY_S * (2 ** attempt), _RETRY_MAX_DELAY_S)
+    return random.uniform(0, ceiling)
+
+
+async def _call_openrouter_with_retry(
+    payload: dict, *, uid: str, client: httpx.AsyncClient, message_id: str,
+) -> httpx.Response:
+    """One model-call round's worth of OpenRouter request, with the retry
+    policy described in the module-level comment above applied on top of
+    the shared `app.core.llm.openrouter_chat` (metering stays centralised
+    there, unchanged — this only decides WHETHER to call it again). Always
+    returns a 200 `httpx.Response` on success; raises `_ProviderFailure`
+    (never returns a non-200 response) once there is nothing more worth
+    trying. A connection-level failure (no HTTP response at all — DNS,
+    refused connection, the request timing out against
+    `_REQUEST_TIMEOUT_S`) is treated as an immediate, UNretried failure:
+    the attempt has already spent up to the client's own timeout, so
+    retrying it risks doubling that against the wall-clock ceiling for a
+    case no more likely to succeed a moment later — the caller's existing
+    round-cap/wall-clock handling is what bounds that case, not this
+    function."""
+    attempt = 0
+    while True:
+        try:
+            response = await openrouter_chat(
+                payload, user_id=uid, pipeline="penny", client=client, message_id=message_id,
+            )
+        except (httpx.TimeoutException, httpx.TransportError) as exc:
+            # Logged here (with the real exception text, where a message
+            # like this belongs) but NOT threaded into the raised
+            # `_ProviderFailure` below — chaining via `from exc` keeps the
+            # traceback without leaking a library-authored message into a
+            # value that could end up user-facing (see
+            # tests/test_no_raw_exception_leak.py's structural guard).
+            logger.warning("penny_agent: OpenRouter request failed for %s: %r", uid, exc)
+            raise _ProviderFailure("connection failure") from exc
+        if response.status_code == 200:
+            return response
+        retryable = _is_retryable_status(response.status_code)
+        if not retryable or attempt >= _MAX_PROVIDER_RETRIES:
+            logger.warning(
+                "penny_agent: OpenRouter HTTP %s for %s (attempt %d/%d, retryable=%s), giving up",
+                response.status_code, uid, attempt + 1, _MAX_PROVIDER_RETRIES + 1, retryable,
+            )
+            raise _ProviderFailure(f"HTTP {response.status_code}")
+        delay = _retry_delay_s(attempt, _parse_retry_after(response))
+        logger.warning(
+            "penny_agent: OpenRouter HTTP %s for %s, retrying in %.2fs (attempt %d/%d)",
+            response.status_code, uid, delay, attempt + 1, _MAX_PROVIDER_RETRIES,
+        )
+        await asyncio.sleep(delay)
+        attempt += 1
+
 
 # The model's own decline for a question with no financial angle — see the
 # module docstring's "Off-topic sentinel" section for why this exists rather
@@ -425,9 +596,11 @@ def _build_user_content(question: str, screen: str | None, context: str) -> str:
 async def run_penny_agent(
     uid: str, question: str, history: list[dict], screen: str | None, context: str,
 ) -> dict | None:
-    """Run the tool-calling loop for one question. See module docstring for
-    the failure contract: dict on success, None on ANY failure, never
-    raises.
+    """Run the tool-calling loop for one question. See module docstring's
+    revised (B37) "Failure doctrine" for the three-way return contract: a
+    dict on success, `{"provider_error": True}` on an infrastructure
+    failure (OpenRouter unreachable/erroring after retries), `None` for a
+    genuine off-topic decline or unparseable output. Never raises.
 
     Penny Agent Mode v1 (2026-08-30): also returns a dict for the two new
     non-answer outcomes — `{"proposal": {...}}` when a propose-only write
@@ -565,12 +738,20 @@ async def run_penny_agent(
                     "tools": tools,
                     "tool_choice": "none" if force_final else "auto",
                 }
-                r = await openrouter_chat(
-                    payload, user_id=uid, pipeline="penny", client=client, message_id=message_id,
+                # `_call_openrouter_with_retry` (module-level, see its own
+                # docstring and the "Transient provider errors" comment
+                # above `_MAX_PROVIDER_RETRIES`) already retries a 429/5xx a
+                # bounded number of times and only ever returns a 200 here —
+                # a non-retryable status, or a retryable one that stayed bad
+                # through every retry, raises `_ProviderFailure` instead,
+                # caught by the `asyncio.wait_for` wrapper below this
+                # function, NOT here (letting it propagate out of `_loop`
+                # keeps this inner function's job to "get one successful
+                # round or raise", not to also decide what a failure means
+                # to the caller).
+                r = await _call_openrouter_with_retry(
+                    payload, uid=uid, client=client, message_id=message_id,
                 )
-                if r.status_code != 200:
-                    logger.warning("penny_agent: OpenRouter HTTP %s for %s", r.status_code, uid)
-                    return None
                 data = r.json()
                 choice = (data.get("choices") or [{}])[0]
                 msg = choice.get("message") or {}
@@ -710,6 +891,20 @@ async def run_penny_agent(
             _WALL_CLOCK_BUDGET_S + _WALL_CLOCK_GRACE_S, uid, total_ms,
         )
         return None
+    except _ProviderFailure as exc:
+        # B37 — retries exhausted (or a non-retryable status hit on the
+        # first attempt): OpenRouter itself is the problem, not the
+        # question. Distinct from every `None` return above: the caller
+        # (can_i.py) must tell this apart from a genuine off-topic decline
+        # or an unparseable answer and reply honestly that the service
+        # could not answer right now, `out_of_scope: False` — see that
+        # module's own handling of `agent_result.get("provider_error")`.
+        total_ms = int((time.monotonic() - started) * 1000)
+        logger.warning(
+            "penny_agent: provider failure for %s after %dms (%s), reporting infrastructure failure",
+            uid, total_ms, exc,
+        )
+        return {"provider_error": True}
     except Exception:
         total_ms = int((time.monotonic() - started) * 1000)
         logger.exception("penny_agent: failed for %s after %dms", uid, total_ms)
