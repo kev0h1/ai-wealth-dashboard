@@ -14,6 +14,18 @@ const NUMBER = new Intl.NumberFormat("en-GB", {
 
 function coverPlanItem(scenario: MoveScenario): CompanionItem {
   const destination = scenario.destination;
+  const planBills = scenario.payments.map((payment, index) => ({
+    label: payment.name,
+    amount: payment.amount,
+    expected_date: payment.expectedDate,
+    ...(scenario.id === "three-payments" && index === 0
+      ? {
+          key: "american-express-planned-move",
+          days_past_due: 3,
+          can_skip: true,
+        }
+      : {}),
+  }));
   const moves: PlanMove[] = scenario.sources.map((source, index) => ({
     headline: `Move ${NUMBER.format(source.amount)} from ${source.name}`,
     amount: source.amount,
@@ -51,20 +63,11 @@ function coverPlanItem(scenario: MoveScenario): CompanionItem {
       provider: destination.provider,
       balance: destination.held,
       needs_total: destination.needed,
-      needs_by: destination.due,
-      bills: scenario.payments.map((payment, index) => ({
-        label: payment.name,
-        amount: payment.amount,
-        expected_date: `2026-09-${String(9 + index).padStart(2, "0")}`,
-        ...(scenario.id === "three-payments" && index === 0
-          ? {
-              key: "american-express-planned-move",
-              expected_date: "2026-09-09",
-              days_past_due: 3,
-              can_skip: true,
-            }
-          : {}),
-      })),
+      // The backend's account-wide field describes the first event. In a
+      // mixed state that is the rolled-forward overdue occurrence, while
+      // each current payment keeps its own later date below.
+      needs_by: planBills.some(bill => bill.can_skip) ? "today" : destination.due,
+      bills: planBills,
     },
     covered: true,
     sources_safe: true,

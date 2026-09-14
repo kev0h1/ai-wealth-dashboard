@@ -388,7 +388,7 @@ function MovePaymentEvidence({
                   disabled={isSkipping}
                   className="inline-flex min-h-11 shrink-0 touch-manipulation items-center rounded-lg px-2 text-[12px] font-medium text-slate-500 underline-offset-2 [-webkit-tap-highlight-color:transparent] [@media(hover:hover)]:hover:bg-slate-100 [@media(hover:hover)]:hover:underline active:scale-95 transition-[transform,background-color] duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:cursor-wait disabled:no-underline disabled:opacity-60 dark:text-slate-400 dark:[@media(hover:hover)]:hover:bg-slate-700"
                 >
-                  {isSkipping ? "Skipping…" : "Skip this month"}
+                  {isSkipping ? "Skipping…" : "Skip"}
                 </button>
               )}
             </div>
@@ -1205,12 +1205,25 @@ export function MoveCard({ item, hideNetWorth, maskAmounts, hideAttribution, dis
 
   const destination = item.plan_dest;
   const paymentBills = (destination?.bills ?? []).map(bill => ({
-      ...bill,
-      due: bill.expected_date
-        ? new Date(`${bill.expected_date}T00:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short" })
-        : undefined,
-      overdue: (bill.days_past_due ?? 0) > 0,
+    ...bill,
+    due: bill.expected_date
+      ? new Date(`${bill.expected_date}T00:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short" })
+      : undefined,
+    overdue: (bill.days_past_due ?? 0) > 0,
   }));
+  const overdueBillCount = paymentBills.filter(bill => bill.overdue).length;
+  const currentBillCount = paymentBills.length - overdueBillCount;
+  const hasOverdueBills = overdueBillCount > 0;
+  const overduePaymentCountCopy = (count: number) =>
+    `${count} overdue payment${count === 1 ? "" : "s"}`;
+  let latestCurrentDate = "";
+  let currentPaymentsDueBy = destination?.needs_by ?? "";
+  for (const bill of paymentBills) {
+    if (!bill.overdue && bill.expected_date && bill.expected_date >= latestCurrentDate) {
+      latestCurrentDate = bill.expected_date;
+      currentPaymentsDueBy = bill.due ?? currentPaymentsDueBy;
+    }
+  }
   async function handleSkip(bill: PlanDestBill) {
     if (!bill.key || !bill.expected_date || skippingKey) return;
     const identity = `${bill.key}:${bill.expected_date}`;
@@ -1234,18 +1247,26 @@ export function MoveCard({ item, hideNetWorth, maskAmounts, hideAttribution, dis
     const billCount = destination.bills.length;
     const dueCopy = destination.is_overdraft
       ? "Overdrawn right now"
-      : billCount === 1
-        ? `Payment due ${destination.needs_by}`
-        : billCount > 1
-          ? `${billCount} payments due by ${destination.needs_by}`
-          : "Move ready to review";
+      : hasOverdueBills
+        ? currentBillCount > 0
+          ? `${overdueBillCount} overdue, ${currentBillCount} due by ${currentPaymentsDueBy}`
+          : overduePaymentCountCopy(overdueBillCount)
+        : billCount === 1
+          ? `Payment due ${destination.needs_by}`
+          : billCount > 1
+            ? `${billCount} payments due by ${destination.needs_by}`
+            : "Move ready to review";
     const clearClause = !item.covered
       ? null
       : destination.is_overdraft
         ? "Clears the overdrawn balance"
-        : billCount > 0
-          ? (billCount === 1 ? "Clears the payment" : `Clears all ${billCount} payments`)
-          : null;
+        : hasOverdueBills
+          ? currentBillCount > 0
+            ? `Covers ${overduePaymentCountCopy(overdueBillCount)} and ${currentBillCount} payment${currentBillCount === 1 ? "" : "s"} due by ${currentPaymentsDueBy}`
+            : `Covers ${overduePaymentCountCopy(overdueBillCount)}`
+          : billCount > 0
+            ? (billCount === 1 ? "Clears the payment" : `Clears all ${billCount} payments`)
+            : null;
     const safeSuffix = item.envelope_reserved ? " and envelopes" : "";
     const safeClause = item.sources_safe
       ? (legs.length === 1
@@ -1265,7 +1286,7 @@ export function MoveCard({ item, hideNetWorth, maskAmounts, hideAttribution, dis
         <div className="flex items-start gap-3 pr-9">
           <BriefIcon tone="penny"><ArrowRightLeft size={16} /></BriefIcon>
           <div className="min-w-0 flex-1">
-            <PennyKindLabel hideAttribution={hideAttribution}>Cover plan</PennyKindLabel>
+            <PennyKindLabel hideAttribution={hideAttribution} tone={hasOverdueBills ? "watch" : "neutral"}>Cover plan</PennyKindLabel>
             <p className="mt-1 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-slate-100">Put this move in place</p>
           </div>
         </div>
@@ -1324,7 +1345,7 @@ export function MoveCard({ item, hideNetWorth, maskAmounts, hideAttribution, dis
       <div className="flex items-start gap-3 pr-9">
         <BriefIcon tone="penny"><ArrowRightLeft size={16} /></BriefIcon>
         <div className="min-w-0 flex-1">
-          <PennyKindLabel hideAttribution={hideAttribution}>Cover plan</PennyKindLabel>
+          <PennyKindLabel hideAttribution={hideAttribution} tone={hasOverdueBills ? "watch" : "neutral"}>Cover plan</PennyKindLabel>
           <p className="mt-1 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-slate-100">
             <MoneyText text={item.headline} />
           </p>
