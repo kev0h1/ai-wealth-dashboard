@@ -26,9 +26,10 @@ from app.services.penny_tools import execute_tool
 
 
 class _FakeResponse:
-    def __init__(self, status_code=200, payload=None):
+    def __init__(self, status_code=200, payload=None, headers=None):
         self.status_code = status_code
         self._payload = payload or {}
+        self.headers = headers or {}
 
     def json(self):
         return self._payload
@@ -77,6 +78,23 @@ class _ScriptedAsyncClient:
         if isinstance(item, Exception):
             raise item
         return item
+
+
+def _patch_no_sleep(monkeypatch, delays: list) -> None:
+    """Replaces `asyncio.sleep` (module-level singleton — same convention
+    this file's own docstring already documents for `httpx.AsyncClient`)
+    with a stand-in that records the requested delay and yields control
+    without actually waiting `_RETRY_BASE_DELAY_S`/`_RETRY_AFTER_CAP_S`-scale
+    real time, so a test that exercises B37's retry backoff runs in
+    milliseconds rather than seconds. `monkeypatch` restores the real
+    `asyncio.sleep` automatically at test teardown."""
+    real_sleep = asyncio.sleep
+
+    async def fake_sleep(seconds):
+        delays.append(seconds)
+        await real_sleep(0)
+
+    monkeypatch.setattr(penny_agent_module.asyncio, "sleep", fake_sleep)
 
 
 # ── 1. One tool call, then a well-formed final answer ───────────────────────
@@ -142,9 +160,18 @@ def test_run_penny_agent_infinite_tool_calls_stops_at_cap(monkeypatch):
     assert client.calls[-1]["tool_choice"] == "none"
 
 
-# ── 3. OpenRouter HTTP failure on the first call -> None, no exception ─────
+# ── 3. OpenRouter HTTP/connection failure -> `{"provider_error": True}`,
+# NOT None, and NOT raised (B37, 2026-09-14). Before this fix every one of
+# these collapsed to the same `None` the can_i.py seam turns into the fixed
+# "that's outside what I can work out" refusal — a 429/502/connection
+# failure told the user their answerable question was out of scope. See
+# app.services.penny_agent's revised "Failure doctrine" docstring section.
 
-def test_run_penny_agent_http_error_returns_none(monkeypatch):
+def test_run_penny_agent_connection_error_reports_provider_error_not_none(monkeypatch):
+    # A connection-level failure (DNS, refused connection, ...) is just as
+    # much an infrastructure problem as an HTTP 429/502 — not retried (see
+    # `_call_openrouter_with_retry`'s own docstring for why), but no longer
+    # silently indistinguishable from a genuine off-topic decline either.
     client = _ScriptedAsyncClient([httpx.ConnectError("boom")])
     monkeypatch.setattr(penny_agent_module.httpx, "AsyncClient", client)
 
@@ -154,15 +181,199 @@ def test_run_penny_agent_http_error_returns_none(monkeypatch):
     monkeypatch.setattr(penny_agent_module, "execute_tool", fail_execute_tool)
 
     result = asyncio.run(run_penny_agent("kevin", "how much can I spend", [], None, ""))
-    assert result is None
+    assert result == {"provider_error": True}
 
 
-def test_run_penny_agent_non_200_returns_none(monkeypatch):
-    client = _ScriptedAsyncClient([_FakeResponse(status_code=500, payload={})])
+def test_run_penny_agent_non_retryable_status_reports_provider_error_immediately(monkeypatch):
+    # 400 (malformed request) — never worth retrying, see
+    # `_is_retryable_status`. Exactly one attempt, no backoff wait.
+    delays: list = []
+    _patch_no_sleep(monkeypatch, delays)
+    client = _ScriptedAsyncClient([_FakeResponse(status_code=400, payload={})] * 5)
     monkeypatch.setattr(penny_agent_module.httpx, "AsyncClient", client)
 
     result = asyncio.run(run_penny_agent("kevin", "how much can I spend", [], None, ""))
-    assert result is None
+    assert result == {"provider_error": True}
+    assert len(client.calls) == 1
+    assert delays == []
+
+
+def test_run_penny_agent_401_not_retried(monkeypatch):
+    # 401 (bad/missing key) — a config problem, not a rate limit: retrying
+    # with the same key wastes a paid call and time for an outcome that
+    # cannot change.
+    delays: list = []
+    _patch_no_sleep(monkeypatch, delays)
+    client = _ScriptedAsyncClient([_FakeResponse(status_code=401, payload={})] * 5)
+    monkeypatch.setattr(penny_agent_module.httpx, "AsyncClient", client)
+
+    result = asyncio.run(run_penny_agent("kevin", "how much can I spend", [], None, ""))
+    assert result == {"provider_error": True}
+    assert len(client.calls) == 1
+    assert delays == []
+
+
+def test_run_penny_agent_429_retried_then_succeeds(monkeypatch):
+    delays: list = []
+    _patch_no_sleep(monkeypatch, delays)
+    client = _ScriptedAsyncClient([
+        _FakeResponse(status_code=429, payload={}),
+        _final_payload("HEADLINE: Yes\nREPLY: You have £40 free until payday."),
+    ])
+    monkeypatch.setattr(penny_agent_module.httpx, "AsyncClient", client)
+
+    result = asyncio.run(run_penny_agent("kevin", "how much can I spend", [], None, ""))
+
+    assert result is not None
+    assert result["headline"] == "Yes"
+    assert result["reply"] == "You have £40 free until payday."
+    assert len(client.calls) == 2
+    assert len(delays) == 1
+    assert 0 <= delays[0] <= penny_agent_module._RETRY_MAX_DELAY_S
+
+
+def test_run_penny_agent_500_retried_then_succeeds(monkeypatch):
+    delays: list = []
+    _patch_no_sleep(monkeypatch, delays)
+    client = _ScriptedAsyncClient([
+        _FakeResponse(status_code=502, payload={}),
+        _final_payload("HEADLINE: Yes\nREPLY: You have £40 free until payday."),
+    ])
+    monkeypatch.setattr(penny_agent_module.httpx, "AsyncClient", client)
+
+    result = asyncio.run(run_penny_agent("kevin", "how much can I spend", [], None, ""))
+    assert result is not None
+    assert result["reply"] == "You have £40 free until payday."
+
+
+def test_run_penny_agent_429_exhausts_retries_reports_provider_error(monkeypatch):
+    delays: list = []
+    _patch_no_sleep(monkeypatch, delays)
+    client = _ScriptedAsyncClient([_FakeResponse(status_code=429, payload={})] * 10)
+    monkeypatch.setattr(penny_agent_module.httpx, "AsyncClient", client)
+
+    result = asyncio.run(run_penny_agent("kevin", "how much can I spend", [], None, ""))
+
+    assert result == {"provider_error": True}
+    # 1 initial attempt + _MAX_PROVIDER_RETRIES retries, no more.
+    assert len(client.calls) == penny_agent_module._MAX_PROVIDER_RETRIES + 1
+    assert len(delays) == penny_agent_module._MAX_PROVIDER_RETRIES
+
+
+def test_run_penny_agent_retry_honours_retry_after_header(monkeypatch):
+    delays: list = []
+    _patch_no_sleep(monkeypatch, delays)
+    client = _ScriptedAsyncClient([
+        _FakeResponse(status_code=429, payload={}, headers={"retry-after": "2"}),
+        _final_payload("HEADLINE: Yes\nREPLY: fine."),
+    ])
+    monkeypatch.setattr(penny_agent_module.httpx, "AsyncClient", client)
+
+    result = asyncio.run(run_penny_agent("kevin", "how much can I spend", [], None, ""))
+    assert result is not None
+    assert delays == [2.0]
+
+
+def test_run_penny_agent_retry_after_capped_below_provider_value(monkeypatch):
+    # A provider asking for a 120s backoff is not something a synchronous,
+    # user-facing request can afford to actually wait out — capped at
+    # `_RETRY_AFTER_CAP_S` rather than honoured verbatim.
+    delays: list = []
+    _patch_no_sleep(monkeypatch, delays)
+    client = _ScriptedAsyncClient([
+        _FakeResponse(status_code=503, payload={}, headers={"retry-after": "120"}),
+        _final_payload("HEADLINE: Yes\nREPLY: fine."),
+    ])
+    monkeypatch.setattr(penny_agent_module.httpx, "AsyncClient", client)
+
+    result = asyncio.run(run_penny_agent("kevin", "how much can I spend", [], None, ""))
+    assert result is not None
+    assert delays == [penny_agent_module._RETRY_AFTER_CAP_S]
+
+
+def test_run_penny_agent_retry_total_added_latency_within_stated_cap(monkeypatch):
+    # Worst case (no Retry-After sent): two backoff waits with ceilings
+    # 0.5s then 1.0s (full jitter, so each realised delay is <= its
+    # ceiling) — 1.5s total, the number quoted in the module-level comment
+    # above `_MAX_PROVIDER_RETRIES`.
+    delays: list = []
+    _patch_no_sleep(monkeypatch, delays)
+    client = _ScriptedAsyncClient([_FakeResponse(status_code=500, payload={})] * 10)
+    monkeypatch.setattr(penny_agent_module.httpx, "AsyncClient", client)
+
+    asyncio.run(run_penny_agent("kevin", "how much can I spend", [], None, ""))
+    assert sum(delays) <= 1.5
+
+
+def test_run_penny_agent_retry_does_not_double_meter_the_question(monkeypatch):
+    # B37 cost/metering guarantee: a rate-limit storm must not bill a user
+    # more than once for one question, and must not silently inflate their
+    # monthly Penny message allowance either.
+    import app.core.llm as llm_module
+
+    class _FakeUsageCol:
+        def __init__(self):
+            self.docs: list = []
+
+        async def create_index(self, spec):
+            pass
+
+        async def insert_one(self, doc):
+            self.docs.append(doc)
+
+    fake_usage = _FakeUsageCol()
+    monkeypatch.setattr(llm_module, "llm_usage_col", fake_usage)
+    monkeypatch.setattr(llm_module, "_indexes_ready", True)
+
+    delays: list = []
+    _patch_no_sleep(monkeypatch, delays)
+    client = _ScriptedAsyncClient([
+        _FakeResponse(status_code=429, payload={}),
+        _FakeResponse(status_code=429, payload={}),
+        _final_payload("HEADLINE: Yes\nREPLY: You have £40 free until payday."),
+    ])
+    monkeypatch.setattr(penny_agent_module.httpx, "AsyncClient", client)
+
+    result = asyncio.run(run_penny_agent("kevin", "how much can I spend", [], None, ""))
+
+    assert result is not None
+    # Two failed 429 attempts never reach record_llm_usage (only a 200
+    # does, see app.core.llm.openrouter_chat) — exactly one usage row for
+    # this one question, despite three total attempts.
+    assert len(fake_usage.docs) == 1
+    message_ids = {d.get("message_id") for d in fake_usage.docs}
+    assert len(message_ids) == 1
+
+
+def test_run_penny_agent_retry_exhaustion_records_zero_usage(monkeypatch):
+    # A question that NEVER got answered (retries exhausted) must not cost
+    # the user any of their monthly allowance at all — monthly_usage counts
+    # distinct message_id among recorded rows, and no row is ever recorded
+    # for an all-failed message.
+    import app.core.llm as llm_module
+
+    class _FakeUsageCol:
+        def __init__(self):
+            self.docs: list = []
+
+        async def create_index(self, spec):
+            pass
+
+        async def insert_one(self, doc):
+            self.docs.append(doc)
+
+    fake_usage = _FakeUsageCol()
+    monkeypatch.setattr(llm_module, "llm_usage_col", fake_usage)
+    monkeypatch.setattr(llm_module, "_indexes_ready", True)
+
+    delays: list = []
+    _patch_no_sleep(monkeypatch, delays)
+    client = _ScriptedAsyncClient([_FakeResponse(status_code=429, payload={})] * 10)
+    monkeypatch.setattr(penny_agent_module.httpx, "AsyncClient", client)
+
+    result = asyncio.run(run_penny_agent("kevin", "how much can I spend", [], None, ""))
+    assert result == {"provider_error": True}
+    assert fake_usage.docs == []
 
 
 # ── 4. Malformed final text (no HEADLINE:/REPLY: lines) -> None ────────────
