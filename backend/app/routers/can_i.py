@@ -293,12 +293,42 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
     # question that isn't a greeting, isn't malformed, and isn't scenario-
     # shaped reaches app.services.penny_agent.run_penny_agent, which owns
     # the OpenRouter tool-calling cycle over the read-only catalog in
-    # app.services.penny_tools. Its failure contract (see that module's own
-    # docstring) is a dict on success, None on ANY failure whatsoever
-    # (provider error, timeout, round/budget cap, unparseable output, or the
-    # model's own OUT_OF_SCOPE decline) — never raises.
+    # app.services.penny_tools. Its (B37-revised) failure contract — see
+    # that module's own "Failure doctrine" docstring section — is now a
+    # THREE-way split, not a plain dict-or-None: a dict on success (or the
+    # consent_required/proposal shapes just below), `{"provider_error":
+    # True}` when OpenRouter itself couldn't be made to answer (a 429/5xx
+    # that stayed bad through its bounded retries, a non-retryable HTTP
+    # error, or a connection failure — see penny_agent._call_openrouter_
+    # with_retry), or `None` for a genuine off-topic decline, round/budget
+    # cap exhaustion, or unparseable output. Never raises.
     agent_result = await run_penny_agent(uid, question, history, screen, context)
     if agent_result is not None:
+        # B37: an infrastructure failure, not a scope one — checked FIRST,
+        # ahead of consent_required/proposal/the ordinary answer shape,
+        # since none of those can also be true on the same result. The old
+        # bug this replaces: every OpenRouter failure fell through to
+        # section 7's fixed "that one's outside what I can work out"
+        # refusal below, `out_of_scope: True`, telling the user their
+        # question — never actually put to the model — was out of scope.
+        # This reply is honest instead: the service could not answer just
+        # now, `out_of_scope: False`, no usage charge (run_penny_agent
+        # never recorded one for a message that never got a 200 — see
+        # app.core.llm.record_llm_usage, only called on a 200). No promised
+        # timescale or fix per the house copy rules (DESIGN.md), just a
+        # calm nudge to try again shortly.
+        if agent_result.get("provider_error"):
+            return {
+                "reply": _house_style(
+                    "I couldn't reach what I needed to answer that. "
+                    "Try asking again shortly."
+                ),
+                "headline": _house_style("Couldn't answer that just now"),
+                "facts": [],
+                "explainer": False,
+                "topic": None,
+                "out_of_scope": False,
+            }
         # ── Penny Agent Mode v1 (owner decision, 2026-08-30) — two new
         # non-answer outcomes ahead of the ordinary headline/reply shape,
         # both additive on the wire (see PENNY_TOOLS.md's "Write tools
