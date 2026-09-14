@@ -46,6 +46,17 @@ const ROUTES: PreviewRoute[] = [
     states: [{ label: "Everything", value: "everything" }],
   },
   {
+    slug: "spend-containment",
+    name: "spend-containment",
+    description:
+      "G78/G82: Spend root containment and narrow-phone header round against the typed normal-period fixture and real SpendJourneySummary, SpendVerdictView, SpendJourneyNav and SpendTrends components · A full cockpit verdict card with a deliberate two-row phone header (recommended) / B one unified top deck with a compact single-row header / C editorial narrative with its reconciled ledger carded and controls in one dock · summary precedes the jump map in every variant · ?variant=a|b|c&mode=light|dark&state=normal|nothing|everything|nobaseline|early",
+    states: [
+      { label: "A · cockpit card", value: "a" },
+      { label: "B · unified deck", value: "b" },
+      { label: "C · editorial ledger", value: "c" },
+    ],
+  },
+  {
     slug: "move-card-grammar",
     name: "move-card-grammar",
     description:
