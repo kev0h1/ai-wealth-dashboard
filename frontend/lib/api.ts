@@ -2711,7 +2711,22 @@ export const api = {
     spend_widgets: string[];
     home_pinned_widget: string | null;
     debt_burndown_overrides: DebtBurndownOverrides | null;
+    /** Whole-list replace: "set the exclusion list to exactly these
+     * accounts". Kept for callers that genuinely need that shape (Penny's
+     * set_cover_plan_exclusions proposal); the backend makes this safe
+     * against a concurrent SettingsPage.tsx toggle with a compare-and-swap
+     * retry on the document's `version` (G54). SettingsPage.tsx itself no
+     * longer sends this key -- see cover_plan_exclude_add/remove below. */
     cover_plan_excluded_accounts: string[];
+    /** G54: single-account delta ops, backed by atomic Mongo $addToSet/
+     * $pull -- never read the array first, so two of these (or one of
+     * these racing a cover_plan_excluded_accounts full-list-set) can never
+     * lose each other's change regardless of write order. This is what a
+     * single Settings toggle means ("exclude/un-exclude THIS one account"),
+     * and is what SettingsPage.tsx's runCoverToggle now sends instead of
+     * the whole array. */
+    cover_plan_exclude_add: string[];
+    cover_plan_exclude_remove: string[];
   }>) =>
     fetch(`${API_BASE}/preferences`, {
       method: "PATCH",

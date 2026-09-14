@@ -28,13 +28,31 @@ import app.routers.preferences as preferences
 UID = "user@example.com"
 
 
+class _UpdateResult:
+    """Motor's UpdateResult carries `.matched_count` -- G54's compare-and-
+    swap loop (app.routers.preferences._cas_set_cover_plan_excluded_accounts)
+    reads it to know whether a version-conditioned write actually landed or
+    lost the race, so this fake must report it honestly rather than
+    returning None (the old shape), which would make a lost CAS write look
+    like a success."""
+
+    def __init__(self, matched_count):
+        self.matched_count = matched_count
+
+
 class _FakeCol:
     def __init__(self, docs=None):
         self.docs = list(docs or [])
 
     @staticmethod
     def _match(d, q):
-        return all(d.get(k) == v for k, v in (q or {}).items())
+        for k, v in (q or {}).items():
+            if isinstance(v, dict) and "$exists" in v:
+                if (k in d) != v["$exists"]:
+                    return False
+            elif d.get(k) != v:
+                return False
+        return True
 
     async def find_one(self, query=None, projection=None):
         query = query or {}
@@ -47,11 +65,29 @@ class _FakeCol:
         for d in self.docs:
             if self._match(d, filt):
                 d.update(update.get("$set") or {})
-                return
+                for field, amount in (update.get("$inc") or {}).items():
+                    d[field] = d.get(field, 0) + amount
+                for field, spec in (update.get("$addToSet") or {}).items():
+                    each = spec.get("$each", [spec]) if isinstance(spec, dict) else [spec]
+                    existing = d.get(field) or []
+                    d[field] = existing + [v for v in each if v not in existing]
+                for field, spec in (update.get("$pull") or {}).items():
+                    cond = spec.get("$in", []) if isinstance(spec, dict) else [spec]
+                    existing = d.get(field) or []
+                    d[field] = [v for v in existing if v not in cond]
+                return _UpdateResult(1)
         if upsert:
             new_doc = dict(filt)
             new_doc.update(update.get("$set") or {})
+            new_doc.update(update.get("$setOnInsert") or {})
+            for field, amount in (update.get("$inc") or {}).items():
+                new_doc[field] = new_doc.get(field, 0) + amount
+            for field, spec in (update.get("$addToSet") or {}).items():
+                each = spec.get("$each", [spec]) if isinstance(spec, dict) else [spec]
+                new_doc[field] = list(dict.fromkeys(each))
             self.docs.append(new_doc)
+            return _UpdateResult(0)
+        return _UpdateResult(0)
 
 
 class _CacheSpy:

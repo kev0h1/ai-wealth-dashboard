@@ -210,7 +210,7 @@ reconciled against that real total.
 | Set income value | `app/settings/SettingsPage.tsx:354`, `components/Onboarding.tsx:179` | `PATCH /preferences {income_value}` | `get_tax_position` reads it, `propose_set_income` (B15) writes it | covered |
 | Set annual pension | `app/settings/SettingsPage.tsx:367` | `PATCH /preferences {pension_annual}` | `get_tax_position` reads it, `propose_set_pension_contributions` (B15) writes it | covered |
 | Toggle Child Benefit | `app/settings/SettingsPage.tsx:378` | `PATCH /preferences {has_child_benefit}` | `get_tax_position` reads it, `propose_set_child_benefit` (B15) writes it | covered |
-| Exclude accounts from the cover plan | `app/settings/SettingsPage.tsx:389` | `PATCH /preferences {cover_plan_excluded_accounts}` | `propose_set_cover_plan_exclusions` (B15) | covered |
+| Exclude accounts from the cover plan | `app/settings/SettingsPage.tsx:389` | `PATCH /preferences {cover_plan_exclude_add}` / `{cover_plan_exclude_remove}` (G54, 2026-09-14: single-account delta, was `{cover_plan_excluded_accounts}` whole-list replace — see G54 for why) | `propose_set_cover_plan_exclusions` (B15) still sends the whole-list `{cover_plan_excluded_accounts}` shape, now CAS-protected server-side | covered |
 | Change notification preferences | `app/settings/SettingsPage.tsx:398` | `PATCH /preferences {notification_prefs}` | none | gap |
 | Reorder Spend "over time" widgets | `components/SpendTrends.tsx:1030` | `PATCH /preferences {spend_widgets}` | none | gap (deliberate) |
 | Pin a widget to Home | `components/SpendTrends.tsx:1036` | `PATCH /preferences {home_pinned_widget}` | none | gap (deliberate) |
