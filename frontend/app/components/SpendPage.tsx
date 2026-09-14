@@ -1011,7 +1011,7 @@ export default function SpendPage() {
       />
 
       {verdict && (
-        <div className="sticky top-0 z-30 -mx-4 mt-3 border-y border-slate-200/90 bg-[#f0f2f7]/95 px-4 py-2 backdrop-blur-sm dark:border-slate-700/80 dark:bg-[#0f172a]/95 lg:hidden">
+        <div className="sticky top-0 z-30 -mx-4 mt-3 bg-[#f0f2f7]/95 px-4 py-2 backdrop-blur-sm dark:bg-[#0f172a]/95 lg:hidden">
           <SpendJourneyNav destinations={journeyDestinations} />
         </div>
       )}

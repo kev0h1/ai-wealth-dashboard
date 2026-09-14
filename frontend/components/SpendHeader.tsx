@@ -302,7 +302,7 @@ export function SpendPeriodBar(props: SpendHeaderProps) {
 
   return (
     <>
-      <header className="flex flex-wrap items-center gap-x-3 gap-y-3 border-b border-slate-200/90 pb-4 dark:border-slate-700/80">
+      <header className="flex flex-wrap items-center gap-x-3 gap-y-3 pb-4">
         <div className="mr-auto">
           <h1 className="text-[28px] font-bold leading-none tracking-[-0.03em] text-slate-950 dark:text-white">Spend</h1>
           <p className="mt-1 text-[13px] text-slate-600 dark:text-slate-400">
@@ -407,7 +407,7 @@ export function SpendJourneySummary(props: SpendHeaderProps) {
         <MoneyText text={verdict.reading} />
       </p>
 
-      <dl className={`mt-7 grid ${hasMoved ? "grid-cols-3" : "grid-cols-2"} gap-3 border-y border-slate-200 py-4 dark:border-slate-700 lg:grid-cols-1 lg:gap-0 lg:divide-y lg:divide-slate-200 lg:py-0 dark:lg:divide-slate-700`}>
+      <dl className={`mt-7 grid ${hasMoved ? "grid-cols-3" : "grid-cols-2"} gap-3 border-t border-slate-400/25 py-4 dark:border-white/10 lg:grid-cols-1 lg:gap-0 lg:divide-y lg:divide-slate-200 lg:py-0 dark:lg:divide-white/10`}>
         <div className="lg:flex lg:items-end lg:justify-between lg:py-4">
           <dt className="text-[10px] font-semibold uppercase tracking-[0.06em] text-slate-600 dark:text-slate-400">In</dt>
           <dd>
