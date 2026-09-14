@@ -5,6 +5,7 @@ from a secret manager), else backend/.token_key file (generated on first run,
 gitignored). Losing the key means users must reconnect their banks; nothing
 else is lost.
 """
+import hashlib
 import os
 from pathlib import Path
 from typing import Optional
@@ -49,3 +50,21 @@ def decrypt_token(value: Optional[str]) -> Optional[str]:
 
 def is_encrypted(value: Optional[str]) -> bool:
     return bool(value) and value.startswith(_FERNET_PREFIX)
+
+
+def token_fingerprint(value: str) -> str:
+    """Deterministic, non-reversible lookup key for a bank credential that
+    must ALSO serve as a document/join id (e.g. Yapily's consent token,
+    which a provider both issues to us as an opaque identifier and expects
+    back verbatim as a bearer header — unlike TrueLayer, where the OAuth
+    `state`/connection id we mint ourselves is a different value from the
+    access token).
+
+    Fernet ciphertext isn't exact-match queryable (it's randomised per
+    call), so the encrypted value itself can't be used as `_id`. A SHA-256
+    fingerprint can: same input always yields the same fingerprint, so
+    lookups by the raw value coming back from a provider callback still
+    work, while the fingerprint alone can't be reversed to the credential.
+    The recoverable credential is stored separately via encrypt_token.
+    """
+    return hashlib.sha256(value.encode()).hexdigest()

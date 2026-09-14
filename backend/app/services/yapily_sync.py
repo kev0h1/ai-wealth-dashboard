@@ -7,6 +7,7 @@ from typing import Optional
 import httpx
 
 from app.core.config import YAPILY_APP_UUID, YAPILY_SECRET, YAPILY_BASE_URL
+from app.core.crypto import encrypt_token, decrypt_token, is_encrypted, token_fingerprint
 from app.services.notifications import notify_after_sync
 from app.db.collections import (
     yapily_accounts_col, yapily_transactions_col, yapily_consents_col,
@@ -22,8 +23,69 @@ def yapily_headers(consent: str | None = None) -> dict:
     return h
 
 
+async def upgrade_legacy_consent(doc: dict) -> dict:
+    """Rekey a pre-A30 consent row (Yapily's raw consent token used
+    directly as `_id`, stored in the clear) to the hardened shape: `_id`
+    becomes a non-reversible SHA-256 fingerprint of that token, and the
+    actual token moves into a Fernet-encrypted `token` field, mirroring how
+    TrueLayer's access/refresh tokens are encrypted (app.core.crypto).
+
+    A document already in the new shape (has a `token` field) is returned
+    unchanged. Idempotent and safe to call on every read.
+    """
+    if doc.get("token"):
+        return doc
+    raw = doc["_id"]
+    new_id = token_fingerprint(raw)
+    if new_id == raw:
+        return doc  # already fingerprinted somehow; defensive no-op
+    new_doc = {**doc, "_id": new_id, "token": encrypt_token(raw)}
+    await yapily_consents_col.insert_one(new_doc)
+    await yapily_consents_col.delete_one({"_id": raw})
+    # yapily_accounts_col rows join on the consent id, not the token itself —
+    # repoint them so the accounts list keeps resolving after the rekey.
+    await yapily_accounts_col.update_many({"consent": raw}, {"$set": {"consent": new_id}})
+    return new_doc
+
+
+async def migrate_legacy_yapily_consents() -> int:
+    """One-time/startup sweep: upgrade any pre-A30 plaintext consent rows
+    that haven't been touched by a sync (and so haven't hit the lazy
+    upgrade in _resolve_consent_token) yet. Returns the number upgraded."""
+    count = 0
+    async for doc in yapily_consents_col.find({"token": {"$exists": False}}):
+        await upgrade_legacy_consent(doc)
+        count += 1
+    return count
+
+
+async def _resolve_consent_token(consent_id: str) -> tuple[Optional[str], Optional[str]]:
+    """Look up the raw Yapily consent token to send as the `consent`
+    header, transparently handling both storage shapes. Returns
+    (raw_token, effective_consent_id); (None, None) if the record is
+    missing or its encrypted token can't be decrypted (wrong/rotated key —
+    fails closed rather than returning something unusable)."""
+    doc = await yapily_consents_col.find_one({"_id": consent_id})
+    if not doc:
+        return None, None
+    doc = await upgrade_legacy_consent(doc)
+    stored = doc.get("token")
+    raw = decrypt_token(stored)
+    if raw is None:
+        return None, None
+    if not is_encrypted(stored):
+        # Defensive: a plaintext value somehow ended up in the `token`
+        # field directly (rather than via the legacy `_id` path above).
+        # Encrypt it in place so it doesn't linger in the clear.
+        await yapily_consents_col.update_one({"_id": doc["_id"]}, {"$set": {"token": encrypt_token(raw)}})
+    return raw, doc["_id"]
+
+
 async def sync_yapily_consent(consent_token: str, user_id: str):
-    headers = yapily_headers(consent_token)
+    raw_token, consent_token = await _resolve_consent_token(consent_token)
+    if not raw_token:
+        return
+    headers = yapily_headers(raw_token)
     async with httpx.AsyncClient(timeout=30) as client:
         ar = await client.get(f"{YAPILY_BASE_URL}/accounts", headers=headers)
     if ar.status_code != 200:
