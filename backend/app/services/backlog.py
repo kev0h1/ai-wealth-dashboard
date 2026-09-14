@@ -121,6 +121,7 @@ OWNERS = ("kevin", "claude", "codex")
 PRIORITIES = ("p1", "p2", "p3")
 DEFAULT_PRIORITY = "p3"
 REASON_CAP = 200
+NOTE_CAP = 1500  # see _collapse_note_text below (H46)
 
 # H31: the only host a `uat` preview link is ever allowed to point at.
 # Kevin opens these links from his phone, not this VPS's loopback
@@ -201,16 +202,41 @@ def one_line_reason(text: Optional[str], cap: int = REASON_CAP) -> str:
     return collapsed
 
 
-def _collapse_note_text(text: str) -> str:
+def _collapse_note_text(text: str, cap: int = NOTE_CAP) -> str:
     """Notes are one line each in TODO.md (`NOTE_RE` only ever matches a
     single list line) — a note containing a literal newline would insert a
     line into `TodoDoc.lines` that does not start with the `  - note (...)`
     prefix, so it silently stops being a note on the next parse and just
     sits in the file as stray text. Collapse embedded newlines to " / "
     instead of dropping them, so multi-line detail (e.g. a chunk of
-    command output passed to `add_note`) stays readable on one line."""
+    command output passed to `add_note`) stays readable on one line, then
+    cap the result.
+
+    H46: H27 made this newline-safe but left it uncapped, so
+    `scripts/integrate.py` writing a block's full diagnostic detail as a
+    note (its `_block()` used to pass up to 1,500 raw characters through
+    untouched) could still fill the board with a wall of collapsed
+    pytest progress lines ("........ [ 3%] / ........ [ 6%] / ...") that
+    carry no information — the same corruption H27 was meant to close, by
+    a different route. Every writer of a note — `scripts/backlog.py`,
+    the `/ops/go-live` page, and `scripts/integrate.py` — goes through
+    `TodoDoc.add_note`, which calls this, so capping here is the one
+    place that protects the board no matter what a caller passes in;
+    `scripts/integrate.py` additionally extracts a meaningful tail out of
+    raw command output before it ever gets here (see
+    `_extract_diagnostic_tail` there), but that is a quality improvement,
+    not the safety net. 1,500 characters is generous enough to hold a
+    genuinely detailed hand-written note (the longest note on the live
+    board as of H46 is ~1,140 characters) while still bounding a raw
+    command-output dump a caller forgot to trim."""
     parts = [p.strip() for p in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
-    return " / ".join(p for p in parts if p)
+    collapsed = " / ".join(p for p in parts if p)
+    if len(collapsed) > cap:
+        if cap > 3:
+            collapsed = collapsed[: cap - 3].rstrip() + "..."
+        else:
+            collapsed = collapsed[:cap]
+    return collapsed
 
 
 SECTION_HEADING_RE = re.compile(r"^## ([A-H])\. (.+)$")

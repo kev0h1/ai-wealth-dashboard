@@ -304,6 +304,89 @@ def test_one_line_reason_empty_text_returns_empty_string():
     assert integrate._one_line_reason("   \n   \n") == ""
 
 
+# Real `pytest -x` output captured against a synthetic suite of 8 files
+# (5 passing tests each) where the 8th file's last test fails — the exact
+# shape described in H46: per-file progress lines with a `[ N%]` marker,
+# then a FAILURES section, a short test summary, and the final result
+# line. This is what a real failing backend-suite run under integrate.py
+# actually produces (reproduced on this VPS with pytest 9.1.1; captured
+# verbatim, not hand-written).
+REAL_PYTEST_FAILURE_OUTPUT = (
+    "../../../../tmp/h46_demo/test_file1.py .....                             [ 12%]\n"
+    "../../../../tmp/h46_demo/test_file2.py .....                             [ 24%]\n"
+    "../../../../tmp/h46_demo/test_file3.py .....                             [ 36%]\n"
+    "../../../../tmp/h46_demo/test_file4.py .....                             [ 48%]\n"
+    "../../../../tmp/h46_demo/test_file5.py .....                             [ 60%]\n"
+    "../../../../tmp/h46_demo/test_file6.py .....                             [ 73%]\n"
+    "../../../../tmp/h46_demo/test_file7.py .....                             [ 85%]\n"
+    "../../../../tmp/h46_demo/test_file8.py .....F\n"
+    "\n"
+    "=================================== FAILURES ===================================\n"
+    "__________________________________ test_fail ___________________________________\n"
+    "\n"
+    "    def test_fail():\n"
+    "        got = {\"status\": \"error\", \"code\": 17}\n"
+    ">       assert got[\"status\"] == \"ok\", f\"unexpected status payload: {got}\"\n"
+    "E       AssertionError: unexpected status payload: {'status': 'error', 'code': 17}\n"
+    "E       assert 'error' == 'ok'\n"
+    "\n"
+    "/tmp/h46_demo/test_file8.py:8: AssertionError\n"
+    "=========================== short test summary info ============================\n"
+    "FAILED ../../../../tmp/h46_demo/test_file8.py::test_fail - AssertionError: un...\n"
+    "!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!\n"
+    "1 failed, 40 passed in 0.20s\n"
+)
+
+
+def test_extract_diagnostic_tail_drops_progress_dots_keeps_failures_section():
+    # H46: the old behaviour (raw_output[:1500]) would have kept exactly
+    # the per-file progress lines and none of the FAILURES/assertion
+    # detail for a large enough suite. Starting at the FAILURES marker
+    # drops the noise and keeps everything that actually explains the
+    # failure.
+    result = integrate._extract_diagnostic_tail(REAL_PYTEST_FAILURE_OUTPUT)
+    assert result.startswith("FAILURES")
+    assert "[ 12%]" not in result
+    assert "test_file1.py" not in result
+    assert "AssertionError: unexpected status payload" in result
+    assert "FAILED ../../../../tmp/h46_demo/test_file8.py::test_fail" in result
+    assert "1 failed, 40 passed in 0.20s" in result.rstrip()
+
+
+def test_extract_diagnostic_tail_falls_back_to_raw_tail_without_a_marker():
+    # git/npm errors don't have a pytest section marker at all — fall back
+    # to the last max_chars characters, on the theory that a build tool's
+    # actual error is printed last, not first.
+    body = "\n".join(f"npm warn deprecated pkg{i}@1.0.0" for i in range(100))
+    output = body + "\nnpm ERR! could not resolve dependency graph"
+    result = integrate._extract_diagnostic_tail(output, max_chars=80)
+    assert result.endswith("npm ERR! could not resolve dependency graph")
+    assert len(result) <= 80
+    assert "pkg0@1.0.0" not in result
+
+
+def test_extract_diagnostic_tail_short_text_is_returned_unchanged():
+    assert integrate._extract_diagnostic_tail("git push origin main failed: connection refused") == (
+        "git push origin main failed: connection refused"
+    )
+
+
+def test_extract_diagnostic_tail_empty_text_returns_empty_string():
+    assert integrate._extract_diagnostic_tail("") == ""
+    assert integrate._extract_diagnostic_tail("   \n   \n") == ""
+
+
+def test_extract_diagnostic_tail_respects_max_chars_even_within_a_section():
+    huge_failure = "=================================== FAILURES ===================================\n" + (
+        "E       " + ("x" * 3000) + "\n"
+    )
+    result = integrate._extract_diagnostic_tail(huge_failure, max_chars=500)
+    assert len(result) == 500
+    # kept the *end* of the section (closest to the actual final assertion
+    # line a human would look at first), not the marker itself.
+    assert result.endswith("x" * 100)
+
+
 def test_block_writes_single_sanitised_line_logs_full_text_and_adds_note(monkeypatch, capsys):
     set_state_calls: list[tuple] = []
     add_note_calls: list[tuple] = []
@@ -334,12 +417,15 @@ def test_block_writes_single_sanitised_line_logs_full_text_and_adds_note(monkeyp
     assert reason.startswith("frontend build failed:")
     assert len(reason) <= 200
 
-    # the full multi-line text is preserved as a board note.
+    # the diagnostic tail is recorded as a board note — no pytest section
+    # marker in this text and it's under the cap, so the tail is the full
+    # text unchanged (see _extract_diagnostic_tail tests below for the
+    # marker-based and truncating cases).
     assert len(add_note_calls) == 1
     note_item_id, note_text, note_actor = add_note_calls[0]
     assert note_item_id == "H99"
     assert note_actor == "claude"
-    assert note_text == raw_output[:1500]
+    assert note_text == raw_output.strip()
 
     # the full text was also logged (at error level, to stderr) before
     # being truncated for the board.
@@ -372,6 +458,77 @@ def test_block_swallows_backlog_error_from_set_state(monkeypatch, capsys):
     assert add_note_calls == []
     captured = capsys.readouterr()
     assert "could not write block reason for H99" in captured.err
+
+
+def test_block_real_pytest_failure_round_trips_through_the_real_board(tmp_path, monkeypatch):
+    """End-to-end: `_block` fed the real captured pytest -x failure output
+    (REAL_PYTEST_FAILURE_OUTPUT), through the *real* backlog.py TodoDoc
+    (not mocked) writing to a throwaway board file — proving the whole
+    pipeline (integrate.py's tail extraction + backlog.py's cap/newline
+    sanitisation) leaves the board readable and parseable, which is what
+    H46 actually promises. Git is mocked (no real commit/push), but the
+    file-level TodoDoc read/write/reparse logic is untouched."""
+    from app.services import backlog as real_backlog
+    from unittest.mock import MagicMock
+
+    todo_path = tmp_path / "TODO.md"
+    todo_path.write_text(
+        "# Backlog fixture\n\n## H. Section H heading\n\n"
+        "- [ ] **H99. Some item.** [owner: claude] [state: in-progress] Some text.\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(real_backlog.subprocess, "run", MagicMock(return_value=MagicMock(returncode=0)))
+    # integrate.backlog IS real_backlog already (it's imported once and
+    # cached in sys.modules); capture the real functions *before*
+    # patching them onto the module below, otherwise the wrappers would
+    # call themselves.
+    original_set_state = real_backlog.set_state
+    original_add_note = real_backlog.add_note
+
+    def fake_set_state(item_id, state, reason=None, branch=None, actor="claude"):
+        return original_set_state(
+            item_id, state, reason=reason, branch=branch, actor=actor,
+            todo_path=todo_path, repo_root=tmp_path,
+        )
+
+    def fake_add_note(item_id, text, actor="claude"):
+        return original_add_note(item_id, text, actor=actor, todo_path=todo_path, repo_root=tmp_path)
+
+    monkeypatch.setattr(integrate.backlog, "set_state", fake_set_state)
+    monkeypatch.setattr(integrate.backlog, "add_note", fake_add_note)
+
+    integrate._block("H99", "backend test suite failed:\n" + REAL_PYTEST_FAILURE_OUTPUT)
+
+    # The board must still parse cleanly, on one line per item/note.
+    raw = todo_path.read_text(encoding="utf-8")
+    doc = real_backlog.TodoDoc.parse(raw)
+    item = doc.items["H99"]
+    assert item.state == "blocked"
+    # the [state: blocked: ...] tag itself is a single sanitised line.
+    assert "\n" not in item.reason
+    assert "[" not in item.reason and "]" not in item.reason
+    assert len(item.reason) <= 200
+
+    assert len(item.notes) == 1
+    note = item.notes[0]
+    # the note is readable: it carries the actual failure, not dot-flood.
+    assert "AssertionError: unexpected status payload" in note.text
+    assert "FAILED ../../../../tmp/h46_demo/test_file8.py::test_fail" in note.text
+    assert "[ 12%]" not in note.text
+    assert len(note.text) <= real_backlog.NOTE_CAP
+
+    # the item line and the note line are each exactly one physical line
+    # in the file — this is the actual corruption H46 is about: a raw
+    # multi-line reason/note breaking the one-line-per-item/note format
+    # that the whole board parser depends on.
+    lines = raw.splitlines()
+    item_lines = [ln for ln in lines if ln.startswith("- [ ] **H99.") or ln.startswith("- [x] **H99.")]
+    assert len(item_lines) == 1
+    note_lines = [ln for ln in lines if ln.startswith("  - note (")]
+    assert len(note_lines) == 1
+
+    print(f"item line: {item_lines[0]!r}")
+    print(f"note line: {note_lines[0]!r}")
 
 
 # ---------------------------------------------------------------------

@@ -484,7 +484,18 @@ sanitised line of at most 200 characters (first line only, whitespace
 collapsed, no `[`/`]`), whatever the caller passed in; the full command
 output goes to the integrate log at error level and to a board note
 instead, so the detail is not lost, it just never corrupts the item's
-one-line format (see H27). A clean pass pushes `main`, then decides
+one-line format (see H27). That note is itself built from the output's
+diagnostic tail rather than its raw head (pytest and most build tools
+print steady progress first and the actual failure last, so integrate.py
+starts the note at a recognised failure marker — `FAILURES`, `ERRORS`,
+`short test summary info` — or, absent one, keeps the last part of the
+output) and is capped at 1,500 characters with embedded newlines
+collapsed to " / " before it ever reaches the file — the cap and
+newline-collapse apply to every note any caller writes (`scripts/backlog.py`,
+`/ops/go-live`, `scripts/integrate.py`), not just this one, so a raw
+command-output dump can never fill the board with uncapped noise (see
+H46, closing the same corruption H27 fixed for the state tag, returning
+by the note route). A clean pass pushes `main`, then decides
 between two landings (H31): if the item's `uat_review` flag is set (from
 `scripts/session.sh finish <ID> --uat-review`) or, as a backstop, if the
 merge's own diff touches only `frontend/app/design/`
