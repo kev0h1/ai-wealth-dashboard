@@ -214,6 +214,27 @@ MCP_AUDIT_TTL_DAYS = int(os.getenv("MCP_AUDIT_TTL_DAYS", "90"))
 # never grow without limit.
 SAFE_TO_SPEND_HISTORY_TTL_DAYS = int(os.getenv("SAFE_TO_SPEND_HISTORY_TTL_DAYS", "90"))
 
+# A32: default lifetime for a bot/service credential (app.core.bot_credentials)
+# when `scripts_bot_credential.py create` is run without --expires-days, and
+# the grace window app.main's `_migrate_bot_credential_expiry` backfills onto
+# any credential minted before this field existed (see that function's
+# docstring for why the clock starts at migration time, not the
+# credential's own `created_at`). 90 days matches the bound already used
+# elsewhere in this file for "long-lived but must still end" (
+# MCP_AUDIT_TTL_DAYS, SAFE_TO_SPEND_HISTORY_TTL_DAYS above): long enough
+# that a legitimate automated caller (a cron job, a dashboard) isn't
+# re-minted every few days, short enough that a forgotten credential can't
+# live forever the way the old single static BOT_SECRET did — the exact
+# bug A28 was opened to fix, now closed for expiry too.
+BOT_CREDENTIAL_DEFAULT_TTL_DAYS = int(os.getenv("BOT_CREDENTIAL_DEFAULT_TTL_DAYS", "90"))
+
+# A32: retention for bot_credential_unknown_col (app.core.bot_credentials.
+# record_unknown_attempt) — the audit trail for a bot-prefixed bearer token
+# that did NOT resolve to a live credential (unknown, malformed, revoked,
+# or expired). Same 90-day bound as the MCP connector's own audit log
+# (MCP_AUDIT_TTL_DAYS above), per that precedent.
+BOT_CREDENTIAL_UNKNOWN_TTL_DAYS = int(os.getenv("BOT_CREDENTIAL_UNKNOWN_TTL_DAYS", "90"))
+
 
 _secrets_file = _BACKEND_DIR / ".session_secret"
 if s := os.getenv("SESSION_SECRET"):

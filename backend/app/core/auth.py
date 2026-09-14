@@ -62,7 +62,16 @@ async def current_user(request: Request) -> dict:
     `user.get("email")` (audited across every router 2026-09-14: that's
     almost all of them). A bot principal only ever reaches a route in
     `bot_credentials.ROUTE_SCOPES`; everywhere else this raises 401/403
-    before the route body ever runs."""
+    before the route body ever runs.
+
+    A32: `cred is None` (unknown, malformed, revoked, or expired token —
+    `resolve_bot_credential` gives all four the same shape) also writes an
+    aggregated `record_unknown_attempt` row. See that function's docstring
+    for why aggregated rather than one-per-attempt, and
+    `auth_middleware`'s own call for why this branch is unreachable for
+    that case in real traffic (the middleware always blocks it first) but
+    kept here anyway for tests/future code paths that reach this
+    dependency directly."""
     auth = request.headers.get("Authorization", "")
     if not auth.startswith("Bearer "):
         raise HTTPException(401, "Not authenticated")
@@ -71,6 +80,10 @@ async def current_user(request: Request) -> dict:
         ok, cred = await bot_credentials.check_bot_request(request.method, request.url.path, token)
         if cred is not None:
             await bot_credentials.record_use(cred["bot_name"], request.method, request.url.path, ok, token=token)
+        else:
+            await bot_credentials.record_unknown_attempt(
+                request.method, request.url.path, ratelimit.client_ip(request)
+            )
         if not ok:
             status = 401 if cred is None else 403
             detail = "Invalid or revoked credential" if cred is None else "Credential not authorised for this route"
@@ -133,12 +146,23 @@ async def auth_middleware(request: Request, call_next):
         # credential is refused at the front door for any route this
         # middleware would otherwise wave through — defence in depth,
         # in case a future route is ever added without a `current_user`
-        # dependency of its own. No audit write here: `current_user`
-        # (which every route in bot_credentials.ROUTE_SCOPES already
-        # depends on) is the single place a use gets logged, so a request
-        # that gets this far and passes is audited exactly once, not
-        # twice.
+        # dependency of its own. No SUCCESSFUL-use audit write here:
+        # `current_user` (which every route in bot_credentials.ROUTE_SCOPES
+        # already depends on) is the single place a use gets logged, so a
+        # request that gets this far and passes is audited exactly once,
+        # not twice.
+        #
+        # A32: an unresolved credential (cred is None: unknown, malformed,
+        # revoked, or expired) IS audited here, because this middleware —
+        # not `current_user` — is the actual enforcement point a real
+        # request hits: it returns 401 directly, without calling
+        # `call_next`, so `current_user`'s own dependency never runs and
+        # its matching audit call is unreachable for this exact case in
+        # real traffic. Aggregated, not one row per attempt — see
+        # `record_unknown_attempt`'s docstring.
         ok, cred = await bot_credentials.check_bot_request(request.method, path, token)
+        if cred is None:
+            await bot_credentials.record_unknown_attempt(request.method, path, ratelimit.client_ip(request))
         if not ok:
             return JSONResponse(status_code=401, content={"detail": "Not authenticated"}, headers=mcp_headers)
         # A27: per-caller catch-all, keyed by the credential's own name —

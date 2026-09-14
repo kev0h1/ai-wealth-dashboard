@@ -274,16 +274,37 @@ allowed_signups_col    = db["allowed_signups"]
 # {_id: token_hash, name (human label, e.g. "usage-dashboard"), scopes:
 # [str, ...] (a subset of app.core.bot_credentials.SCOPES), created_at,
 # created_by (the owner email that minted it, for accountability — never
-# a bot), revoked_at (None until revoked), last_used_at, last_used_path}.
-# Minted/revoked/listed only via backend/scripts_bot_credential.py, never
-# through an HTTP route.
+# a bot), revoked_at (None until revoked), expires_at (A32: enforced at
+# validation exactly like revoked_at, defaults to created_at + 90 days,
+# see app.core.bot_credentials.BOT_CREDENTIAL_DEFAULT_TTL_DAYS; credentials
+# minted before A32 are backfilled by app.main's
+# _migrate_bot_credential_expiry rather than left permanently unset),
+# last_used_at, last_used_path}. Minted/revoked/listed only via
+# backend/scripts_bot_credential.py, never through an HTTP route.
 bot_credentials_col    = db["bot_credentials"]
 
 # A28: append-only audit trail of every bot-credential use — who (the
 # credential's `name`, never the secret), when, which route, whether the
 # scope check passed. {bot_name, method, path, ok, ts (TTL index field,
-# app/main.py's _create_indexes, BOT_CREDENTIAL_AUDIT_TTL_DAYS)}.
+# app/main.py's _create_indexes, BOT_CREDENTIAL_AUDIT_TTL_DAYS)}. Only
+# ever written for a token that DID resolve to a credential (see
+# bot_credential_unknown_col below for the case that doesn't).
 bot_credential_uses_col = db["bot_credential_uses"]
+
+# A32: aggregated audit trail for a bot-prefixed bearer token that did NOT
+# resolve to a live credential (unknown, malformed, revoked, or expired) —
+# the signal `resolve_bot_credential`'s "same outward shape for all three"
+# doctrine deliberately hides from the caller, but which an investigator
+# needs. One doc per (UTC calendar day, source IP), upserted and
+# incremented rather than one row per attempt, so a probe flood (this
+# endpoint needs no credential to reach) writes O(days x distinct IPs)
+# rows, not O(requests) — see app.core.bot_credentials.record_unknown_attempt
+# for the full design, including why the presented token is never
+# recorded, not even hashed or truncated. {_id: "<YYYY-MM-DD>:<source_ip>",
+# day, source_ip, count, first_seen, last_seen, last_method, last_path,
+# TTL index on last_seen (app/main.py's _create_indexes,
+# BOT_CREDENTIAL_UNKNOWN_TTL_DAYS, same 90-day bound as mcp_calls_col's).
+bot_credential_unknown_col = db["bot_credential_unknown_attempts"]
 
 # Cross-process response cache (see app/services/response_cache.py) — the
 # Mongo-backed half of the two-layer (in-process memory + Mongo) per-user

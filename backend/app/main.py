@@ -10,7 +10,8 @@ from pymongo.errors import OperationFailure
 import os
 
 from app.core.config import (
-    APP_URL, API_PUBLIC_URL, MCP_AUDIT_TTL_DAYS, MCP_CONNECTOR_ENABLED, MCP_ONLY, MCP_ORIGIN,
+    APP_URL, API_PUBLIC_URL, BOT_CREDENTIAL_UNKNOWN_TTL_DAYS, MCP_AUDIT_TTL_DAYS,
+    MCP_CONNECTOR_ENABLED, MCP_ONLY, MCP_ORIGIN,
     SAFE_TO_SPEND_HISTORY_TTL_DAYS, TRUELAYER_CLIENT_ID,
 )
 from app.core.auth import auth_middleware
@@ -29,7 +30,7 @@ from app.db.collections import (
     response_cache_col, mcp_calls_col, mcp_call_counters_col,
     oauth_codes_col, oauth_tokens_col,
     allowed_signups_col,
-    bot_credential_uses_col,
+    bot_credential_uses_col, bot_credential_unknown_col, bot_credentials_col,
     billing_customers_col, billing_events_col,
     broadcasts_col, broadcast_receipts_col,
     safe_to_spend_history_col,
@@ -485,6 +486,18 @@ async def _create_indexes():
     await _ensure_index(bot_credential_uses_col,
         "ts", expireAfterSeconds=180 * 24 * 3600, name="bot_credential_uses_ttl",
     )
+    # A32: unresolved bot-token attempts (app.core.bot_credentials.
+    # record_unknown_attempt) — one aggregated row per (day, source IP), so
+    # this index is really just the TTL bound; there's no per-name lookup
+    # index to add since there's no name, only a source IP. Same 90-day
+    # bound as the MCP connector's own audit log (MCP_AUDIT_TTL_DAYS),
+    # unlike bot_credential_uses_col's 180-day bound above, because this
+    # collection carries no resolved-credential accountability trail worth
+    # a longer window, only a probing signal.
+    await _ensure_index(bot_credential_unknown_col,
+        "last_seen", expireAfterSeconds=BOT_CREDENTIAL_UNKNOWN_TTL_DAYS * 24 * 3600,
+        name="bot_credential_unknown_ttl",
+    )
 
 
 async def _acquire_migration_lock() -> bool:
@@ -543,6 +556,7 @@ async def _migrate():
     asyncio.create_task(_seed_cashflow_cache())
     asyncio.create_task(_migrate_penny_topup_packs())
     asyncio.create_task(_seed_mcp_call_counters())
+    asyncio.create_task(_migrate_bot_credential_expiry())
 
 
 async def _encrypt_plaintext_tokens():
@@ -733,6 +747,47 @@ async def _seed_mcp_call_counters():
             seeded += 1
     if seeded:
         print(f"[startup] seeded {seeded} mcp_call_counters docs from existing rows")
+
+
+async def _migrate_bot_credential_expiry():
+    """One-time (A32): backfill `expires_at` onto any `bot_credentials_col`
+    row that predates this field — every credential minted before this
+    migration shipped had none, only manual revocation, which is the exact
+    "lives forever unless a human remembers to revoke it" bug A32 exists
+    to close.
+
+    The backfilled value is `now + BOT_CREDENTIAL_DEFAULT_TTL_DAYS`
+    (app.core.bot_credentials.default_expiry()), i.e. the clock starts
+    from THIS migration running, not from the credential's own
+    `created_at`. Anchoring to `created_at` instead would mean an old
+    enough credential could already be in the past the moment this code
+    deploys, expiring — and locking out — whatever is using it mid-flight
+    with no warning. Anchoring to "now" gives every legacy credential a
+    full, fresh grace window (as of 2026-09-14 there are zero rows in this
+    collection on the live database, so this is a precaution for whenever
+    the first one is minted under the old, pre-A32 shape, not a fix for
+    anything currently in production — checked read-only via
+    `bot_credentials_col.count_documents({})` before writing this). The
+    alternative of leaving `expires_at` unset forever was rejected because
+    that's silently eternal, i.e. the original bug; the alternative of
+    expiring instantly was rejected because that risks a live outage for
+    no attacker-facing benefit — see `resolve_bot_credential`'s own
+    docstring for how a still-unmigrated (momentarily missing) field is
+    treated in the meantime.
+
+    Idempotent: only touches rows where `expires_at` doesn't exist yet, so
+    a credential that already has one (freshly minted, or already
+    migrated on a previous boot) is never touched again — in particular
+    this never pushes an already-expired-on-purpose credential's clock
+    back out."""
+    from app.core.bot_credentials import default_expiry
+
+    result = await bot_credentials_col.update_many(
+        {"expires_at": {"$exists": False}},
+        {"$set": {"expires_at": default_expiry()}},
+    )
+    if result.modified_count:
+        print(f"[startup] backfilled expires_at on {result.modified_count} legacy bot credential(s)")
 
 
 async def _seed_subscriptions():
