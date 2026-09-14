@@ -47,7 +47,6 @@ interface AccountMiniCardProps {
 export interface BankMeta {
   label: string;
   bg: string;
-  domain?: string;       // for Google favicon service
   logoFile?: string;     // local /banks/{file}
   initials: string;
   initialsSize?: string;
@@ -118,20 +117,20 @@ export function bankKey(account: { provider?: string; provider_id?: string }): s
 export const BANK_META: Record<string, BankMeta> = {
   BARCLAYS:     { label: "Barclays",     bg: "linear-gradient(135deg,#00aeef,#002d72)", logoFile: "barclays.png",  initials: "B" },
   NATWEST:      { label: "NatWest",      bg: "linear-gradient(135deg,#5a0069,#d9006c)", logoFile: "natwest.png",   initials: "NW" },
-  HSBC:         { label: "HSBC",         bg: "linear-gradient(135deg,#db0011,#6b0008)", domain: "hsbc.co.uk",      initials: "HSBC", initialsSize: "8px" },
-  MONZO:        { label: "Monzo",        bg: "linear-gradient(135deg,#ff3464,#ff6b35)", domain: "monzo.com",       initials: "M" },
+  HSBC:         { label: "HSBC",         bg: "linear-gradient(135deg,#db0011,#6b0008)", initials: "HSBC", initialsSize: "8px" },
+  MONZO:        { label: "Monzo",        bg: "linear-gradient(135deg,#ff3464,#ff6b35)", initials: "M" },
   STARLING:     { label: "Starling",     bg: "linear-gradient(135deg,#6935d8,#00d4aa)", logoFile: "starling.png",  initials: "SB" },
   LLOYDS:       { label: "Lloyds",       bg: "linear-gradient(135deg,#024731,#006a4d)", logoFile: "lloyds.png",    initials: "L" },
   AMEX:         { label: "Amex",         bg: "linear-gradient(135deg,#007bc1,#003f6b)", logoFile: "amex.png",      initials: "AX" },
-  REVOLUT:      { label: "Revolut",      bg: "linear-gradient(135deg,#191c1f,#3d4451)", domain: "revolut.com",     initials: "R" },
-  SANTANDER:    { label: "Santander",    bg: "linear-gradient(135deg,#ec0000,#8b0000)", domain: "santander.co.uk", initials: "S" },
-  HALIFAX:      { label: "Halifax",      bg: "linear-gradient(135deg,#1c5aa0,#003580)", domain: "halifax.co.uk",   initials: "HFX", initialsSize: "9px" },
-  NATIONWIDE:   { label: "Nationwide",   bg: "linear-gradient(135deg,#1a2e6b,#3c5fa0)", domain: "nationwide.co.uk",initials: "NBS", initialsSize: "9px" },
-  CHASE:        { label: "Chase",        bg: "linear-gradient(135deg,#117aca,#003087)", domain: "chase.co.uk",     initials: "Ch" },
-  FIRST_DIRECT: { label: "first direct", bg: "linear-gradient(135deg,#111,#444)",       domain: "firstdirect.com", initials: "fd" },
-  TSB:          { label: "TSB",          bg: "linear-gradient(135deg,#006ab0,#003f6b)", domain: "tsb.co.uk",       initials: "TSB", initialsSize: "9px" },
-  MONO:         { label: "Mono",         bg: "linear-gradient(135deg,#1a1a2e,#16213e)", domain: "mono.co",         initials: "M" },
-  MPESA:        { label: "M-Pesa",       bg: "linear-gradient(135deg,#4caf50,#1b5e20)", domain: "safaricom.co.ke", initials: "MP", initialsSize: "10px" },
+  REVOLUT:      { label: "Revolut",      bg: "linear-gradient(135deg,#191c1f,#3d4451)", initials: "R" },
+  SANTANDER:    { label: "Santander",    bg: "linear-gradient(135deg,#ec0000,#8b0000)", initials: "S" },
+  HALIFAX:      { label: "Halifax",      bg: "linear-gradient(135deg,#1c5aa0,#003580)", initials: "HFX", initialsSize: "9px" },
+  NATIONWIDE:   { label: "Nationwide",   bg: "linear-gradient(135deg,#1a2e6b,#3c5fa0)", initials: "NBS", initialsSize: "9px" },
+  CHASE:        { label: "Chase",        bg: "linear-gradient(135deg,#117aca,#003087)", initials: "Ch" },
+  FIRST_DIRECT: { label: "first direct", bg: "linear-gradient(135deg,#111,#444)",       initials: "fd" },
+  TSB:          { label: "TSB",          bg: "linear-gradient(135deg,#006ab0,#003f6b)", initials: "TSB", initialsSize: "9px" },
+  MONO:         { label: "Mono",         bg: "linear-gradient(135deg,#1a1a2e,#16213e)", initials: "M" },
+  MPESA:        { label: "M-Pesa",       bg: "linear-gradient(135deg,#4caf50,#1b5e20)", initials: "MP", initialsSize: "10px" },
   // Kenyan banks (statement uploads)
   EQUITY:       { label: "Equity Bank",  bg: "linear-gradient(135deg,#e60000,#8b0000)",  initials: "EQ" },
   KCB:          { label: "KCB",          bg: "linear-gradient(135deg,#006400,#003300)",  initials: "KCB", initialsSize: "10px" },
@@ -189,9 +188,27 @@ export interface AccountBrand {
   label: string;
 }
 
-/** Build a Google favicon URL for a domain. */
-function googleFaviconURL(domain: string): string {
-  return `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
+/**
+ * Resolve a curated bank's logo image, local-only.
+ *
+ * A34 (2026-09-14): this used to fall back to Google's favicon service
+ * (`www.google.com/s2/favicons?domain=...`) for any curated bank without a
+ * bundled file, which A27's CSP then blocked (`img-src` allows only `self`,
+ * `data:`, `blob:`), silently dropping nine major UK banks' logos to the
+ * initials chip. Restoring that fallback would restore the logos by
+ * restoring a privacy leak: it told Google, from the user's own browser and
+ * IP, which bank that user holds an account with, on every page load. The
+ * fix is not to widen the CSP, it is to never make that request — a bank
+ * without a bundled file renders the initials chip (BankBadge's existing,
+ * brand-coloured, non-broken fallback), not a fetch to a third party.
+ * Single source of truth: every call site that used to duplicate this
+ * logoFile/domain priority now imports this instead (see AccountMiniCard,
+ * ReconnectStrip, PaydayPlanCard, CardTermsSheet, TransactionSheet,
+ * HomeBrief, StoryPlayer, planning/dismissed and design preview bankBadge
+ * helpers, and the G29 reconnect-rows preview).
+ */
+export function bankLogoSrc(meta: BankMeta | null | undefined): string | null {
+  return meta?.logoFile ? `/banks/${meta.logoFile}` : null;
 }
 
 /**
@@ -228,11 +245,7 @@ export function accountBrand(account: Account): AccountBrand {
     }
 
     // Never use account.logo_url here — keep it consistent across providers
-    const logoSrc: string | null = meta.logoFile
-      ? `/banks/${meta.logoFile}`
-      : meta.domain
-      ? googleFaviconURL(meta.domain)
-      : null;
+    const logoSrc: string | null = bankLogoSrc(meta);
 
     return {
       background,

@@ -6,7 +6,7 @@ import { X, Tag, Check, Users, User, CalendarArrowUp, CheckSquare, Square } from
 import { Transaction, api } from "@/lib/api";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { useSheetOpen } from "@/lib/useSheetOpen";
-import { BankBadge, BANK_META } from "@/components/AccountMiniCard";
+import { BankBadge, BANK_META, bankLogoSrc } from "@/components/AccountMiniCard";
 import { getCategoryColour } from "@/lib/categories";
 import { useColours } from "@/components/ColourProvider";
 import { useCategories } from "@/components/CategoriesContext";
@@ -182,11 +182,7 @@ export default function TransactionSheet({
           {account && (() => {
             const key = (account.provider ?? "").toUpperCase().replace(/[\s-]+/g, "_");
             const meta = BANK_META[key];
-            const logoSrc = meta?.logoFile
-              ? `/banks/${meta.logoFile}`
-              : meta?.domain
-                ? `https://www.google.com/s2/favicons?domain=${meta.domain}&sz=64`
-                : null;
+            const logoSrc = bankLogoSrc(meta);
             const initials = meta?.initials ?? (account.provider ?? "?").slice(0, 2).toUpperCase();
             const label = meta?.label ?? (account.provider || "Bank");
             return (

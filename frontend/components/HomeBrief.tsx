@@ -10,7 +10,7 @@ import { useAuth } from "@/components/AuthProvider";
 import PaydayPlanCard from "@/components/PaydayPlanCard";
 import PennyMark from "@/components/PennyMark";
 import { BRAND_GRADIENT } from "@/lib/brand";
-import { BankBadge, BANK_META, bankKey } from "@/components/AccountMiniCard";
+import { BankBadge, BANK_META, bankKey, bankLogoSrc } from "@/components/AccountMiniCard";
 import { useColours } from "@/components/ColourProvider";
 import { useCategoryIcons } from "@/components/IconProvider";
 import { getCategoryIcon } from "@/lib/categoryIcons";
@@ -119,11 +119,7 @@ function resolveBankChip(provider: string) {
   const key = bankKey({ provider });
   const meta = BANK_META[key];
   return {
-    logoSrc: meta?.logoFile
-      ? `/banks/${meta.logoFile}`
-      : meta?.domain
-      ? `https://www.google.com/s2/favicons?domain=${meta.domain}&sz=64`
-      : null,
+    logoSrc: bankLogoSrc(meta),
     initials: meta?.initials ?? (provider || "?").slice(0, 2).toUpperCase(),
     label: meta?.label ?? (provider || "Bank"),
     bg: meta?.bg,

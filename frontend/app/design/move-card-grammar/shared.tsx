@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { ArrowDown, ArrowRight, ArrowRightLeft, Circle, X } from "lucide-react";
 import PennyMark from "@/components/PennyMark";
-import { BANK_META, BankBadge, bankKey } from "@/components/AccountMiniCard";
+import { BANK_META, BankBadge, bankKey, bankLogoSrc } from "@/components/AccountMiniCard";
 import type { MoveAccount, MoveScenario } from "./fixtures";
 
 const NUMBER = new Intl.NumberFormat("en-GB", {
@@ -18,11 +18,7 @@ export function Currency({ value, className = "", prefix = "" }: { value: number
 function bankMeta(provider: string) {
   const meta = BANK_META[bankKey({ provider })];
   return {
-    logoSrc: meta?.logoFile
-      ? `/banks/${meta.logoFile}`
-      : meta?.domain
-        ? `https://www.google.com/s2/favicons?domain=${meta.domain}&sz=64`
-        : null,
+    logoSrc: bankLogoSrc(meta),
     initials: meta?.initials ?? provider.slice(0, 2).toUpperCase(),
     initialsSize: meta?.initialsSize,
     altText: meta?.label ?? provider,
