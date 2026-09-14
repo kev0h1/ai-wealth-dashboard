@@ -485,10 +485,46 @@ def test_code_reuse_revokes_the_whole_family(monkeypatch):
 def _rendezvous_gate(real_fn, n_expected: int):
     """Wraps an async fake-collection method so that, when called
     concurrently by `n_expected` callers, every caller has genuinely
-    reached this point (i.e. has already run every non-mutating check
-    earlier in the handler) before any of them proceeds into `real_fn`.
-    Models the worst case for a TOCTOU race: two requests that both read
-    "not yet used/revoked" before either one writes."""
+    reached this point before any of them proceeds into `real_fn`. Models
+    the worst case for a TOCTOU race: two requests that both read "not yet
+    used/revoked" before either one writes.
+
+    A26 regression note: this MUST be patched onto a call that both the
+    vulnerable and the fixed handler make, not onto find_one_and_update.
+    The vulnerable handler (find_one, then a later unconditional
+    update_one) never calls find_one_and_update at all, so a gate placed
+    there never fires; asyncio has no true suspension point anywhere else
+    in either coroutine (the fake collection methods never actually await
+    real I/O), so without a forced interleaving the two coroutines just
+    run one to completion before the other starts, and the *sequential*
+    reuse check (`doc.get("used_at") is not None`) quietly does the job
+    instead of the race defence under test. That was proven by running
+    these two tests against oauth.py as of commit 1d061ac (the parent of
+    A26's fix, find_one + plain update_one, no atomic claim): both PASSED,
+    2 passed, 0 failed, for exactly that wrong reason. Gating the initial
+    `find_one` read instead works against both implementations, because
+    both call it as their very first read of the code/token document,
+    before any write: forcing both callers to complete that read before
+    either proceeds reproduces the actual TOCTOU window (both observe
+    "not yet used") regardless of whether the later write is a bare
+    update_one or an atomic find_one_and_update.
+
+    Gating the right call is necessary but not sufficient: an explicit
+    `await asyncio.sleep(0)` below, AFTER real_fn returns and BEFORE
+    control is handed back to the caller, is what actually forces the
+    interleaving. Without it, releasing the gate (`release.set()`) only
+    *schedules* the other caller's wakeup via the event loop's ready
+    queue, it does not switch to it immediately; since none of the fake
+    collection's own methods ever truly suspend, whichever caller is
+    running when the gate opens just keeps running, uninterrupted,
+    straight through its own read AND write AND response, and completes
+    before the other caller gets to run at all. `asyncio.sleep(0)` is a
+    genuine, unconditional suspension point, so it hands control back to
+    the loop and lets the other (already-woken) caller run its own read
+    before either one reaches the write. Confirmed empirically: with this
+    sleep(0) removed, both rewritten tests below still passed against the
+    pre-A26 vulnerable oauth.py (1d061ac) even after the gate was moved
+    onto find_one, for this exact reason."""
     state = {"arrived": 0}
     release = asyncio.Event()
 
@@ -498,7 +534,13 @@ def _rendezvous_gate(real_fn, n_expected: int):
             release.set()
         else:
             await release.wait()
-        return await real_fn(*args, **kwargs)
+        result = await real_fn(*args, **kwargs)
+        # Force a real scheduling yield (see docstring above): without
+        # this, whichever caller is running when the gate opens runs
+        # straight through to its own write and response before the
+        # other caller ever resumes, so the two never actually interleave.
+        await asyncio.sleep(0)
+        return result
 
     return gated
 
@@ -509,18 +551,21 @@ def test_concurrent_code_exchange_only_one_winner(monkeypatch):
     the code with a plain find_one and only marked it used with a later,
     separate update_one — two racing requests could both pass the
     used_at-is-None read before either write landed, and both would mint a
-    live token pair from one code. This forces that exact interleaving
-    (both requests complete every check up to the claim before either
-    claims) and asserts the code's real defence, find_one_and_update's
-    per-document atomicity, still lets only one through."""
+    live token pair from one code.
+
+    The gate is patched onto `codes.find_one`, the initial read every
+    request makes before any write, NOT onto find_one_and_update — see the
+    note on _rendezvous_gate for why that seam is the one that exists in
+    both the vulnerable and the fixed handler, and why gating
+    find_one_and_update instead makes this test unable to fail (A33)."""
     clients, codes, tokens, _ = _install_fakes(monkeypatch)
     clients.docs["client-1"] = {"_id": "client-1", "client_id": "client-1", "client_name": "Claude"}
     code, verifier, code_doc = _run(_approve_and_get_code())
     codes.docs[code_doc["_id"]] = code_doc
 
     monkeypatch.setattr(
-        codes, "find_one_and_update",
-        _rendezvous_gate(codes.find_one_and_update, n_expected=2),
+        codes, "find_one",
+        _rendezvous_gate(codes.find_one, n_expected=2),
     )
 
     form = {
@@ -583,9 +628,10 @@ def test_refresh_rotation_revokes_old_refresh_token(monkeypatch):
 def test_concurrent_refresh_rotation_only_one_winner(monkeypatch):
     """A26: the refresh-token leg has the same class of race as the
     authorization code leg above. Two requests rotating the SAME refresh
-    token at the same time must not both succeed, forced here the same
-    way (both requests pass the plain revoked_at-is-None read before
-    either one claims the token via find_one_and_update)."""
+    token at the same time must not both succeed, forced here by gating
+    `tokens.find_one` (the initial read, present in both the vulnerable
+    and the fixed handler), not find_one_and_update — see the note on
+    _rendezvous_gate (A33)."""
     clients, codes, tokens, _ = _install_fakes(monkeypatch)
     clients.docs["client-1"] = {"_id": "client-1", "client_id": "client-1", "client_name": "Claude"}
     code, verifier, code_doc = _run(_approve_and_get_code())
@@ -600,8 +646,8 @@ def test_concurrent_refresh_rotation_only_one_winner(monkeypatch):
     refresh_token = json.loads(first.body)["refresh_token"]
 
     monkeypatch.setattr(
-        tokens, "find_one_and_update",
-        _rendezvous_gate(tokens.find_one_and_update, n_expected=2),
+        tokens, "find_one",
+        _rendezvous_gate(tokens.find_one, n_expected=2),
     )
 
     form = {"grant_type": "refresh_token", "refresh_token": refresh_token, "client_id": "client-1"}
