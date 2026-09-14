@@ -1,0 +1,36 @@
+# Never bake these into the image, and never send them to the build
+# context at all. A26: this file didn't exist before, and its absence was
+# a real (if narrow) build-reliability bug — with no .dockerignore, `COPY
+# . .` sends whatever is on disk in `frontend/` into the build context,
+# including node_modules. In a worktree checkout, `node_modules` is a
+# symlink to the shared tree's real directory (see scripts/session.sh /
+# CLAUDE.md's worktree convention), so the build context's `node_modules`
+# is a *file* (a symlink) colliding with the real directory `npm ci`
+# already populated in the `deps` stage, and `COPY . .` fails outright:
+# "cannot replace to directory .../node_modules with file". A clean CI
+# checkout has no node_modules at all so this never showed up there, only
+# when building from a local/worktree tree that already has one installed.
+
+# --- Secrets (supplied as Vercel/Railway env vars, must NOT ship in the image) ---
+.env
+.env.local
+.env.*.local
+
+# --- Local runtime / caches (ephemeral, regenerated) ---
+node_modules/
+.next/
+out/
+.screens/
+public/*.apk
+
+# --- Dev / VCS / tooling ---
+.git/
+.gitignore
+# Anchored to the root only — content/*.md (terms.md, privacy.md) is real
+# build content the app reads at runtime (app/terms/page.tsx,
+# app/privacy/page.tsx), not dev docs, and must NOT be excluded here.
+/AGENTS.md
+/CLAUDE.md
+/README.md
+scripts/*.test.sh
+scripts/*.test.mjs

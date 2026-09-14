@@ -1,0 +1,107 @@
+name: Security scan (dependencies + containers)
+
+# A26: this repo had no CI at all beyond the nightly Mongo backup
+# (backup.yml) before this pass — dependency/container auditing was a
+# manual, one-off pass recorded by hand in SECURITY.md (commit bc99714,
+# 2026-09-06). This workflow replaces that with a recurring, automated
+# check: on every push/PR that could change what ships, plus a weekly
+# schedule so a freshly published advisory against otherwise-unchanged code
+# is still caught (SECURITY.md's 2026-09-10 audit entry found exactly that
+# shape of thing: a moderate advisory that didn't exist against the same
+# dependency tree four days earlier).
+#
+# Severity bar matches what the manual audits already used: fails on HIGH
+# or CRITICAL findings in PRODUCTION dependencies / the built container
+# images, does not fail on dev-tooling-only advisories. Both Dockerfiles
+# (backend/Dockerfile, frontend/Dockerfile) are built and scanned here too
+# — see commit history around this file for the frontend/.dockerignore
+# added alongside it, without which the frontend image doesn't build at
+# all from a tree that already has node_modules installed.
+
+on:
+  push:
+    branches: [main, release]
+  pull_request:
+  schedule:
+    - cron: "17 6 * * 1" # weekly, Monday ~06:17 UTC (off the hour, avoids the stampede of jobs scheduled exactly on 00:00/06:00)
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  frontend-dependencies:
+    name: npm audit (frontend, production dependencies)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      # --omit=dev matches SECURITY.md's own audits: dev-only tooling
+      # advisories (build/lint dependencies never shipped to a user) are
+      # tracked but don't block. --audit-level=high fails on high or
+      # critical, same bar as the manual passes.
+      - run: npm audit --omit=dev --audit-level=high
+
+  backend-dependencies:
+    name: pip-audit (backend/requirements.txt)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pip-audit
+      # Scans the pinned manifest directly (no venv build needed): every
+      # advisory pip-audit's OSV backend reports has a fix version
+      # available per SECURITY.md's own audit notes, so a real hit here is
+      # actionable, not noise to triage away.
+      - run: pip-audit -r backend/requirements.txt
+
+  container-images:
+    name: Trivy image scan (${{ matrix.image }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: backend
+            context: backend
+        # frontend/Dockerfile is deliberately NOT scanned here yet: it does
+        # not build at all today (confirmed during A26, not something this
+        # pass fixes). `lib/api.ts` imports the local workspace package
+        # `@wealth/shared` (frontend/package.json: "@wealth/shared":
+        # "file:../shared"), which lives one directory above `frontend/`;
+        # `docker build frontend` scopes its build context to `frontend/`
+        # alone, so `../shared` is invisible to it and `npm run build`
+        # fails at the TypeScript step ("Cannot find module
+        # '@wealth/shared'"). This isn't new breakage from A26 — production
+        # deploys the frontend via Vercel, not this Dockerfile, so the bug
+        # had no live consequence and went unnoticed; the self-hosted
+        # docker-compose.yml path (the only thing that references this
+        # Dockerfile) has been broken the same way the whole time. Fixing
+        # it means restructuring the build context (build from the repo
+        # root with `-f frontend/Dockerfile`, or vendoring `shared/` into
+        # `frontend/` some other way) and touching docker-compose.yml to
+        # match — real work, not a small/safe fix to fold into a
+        # pentest-readiness pass. Flagged as a follow-up; see the A26
+        # completion report.
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build ${{ matrix.image }} image
+        run: docker build -t wealth-${{ matrix.image }}:scan ${{ matrix.context }}
+      - name: Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: wealth-${{ matrix.image }}:scan
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"

@@ -1,0 +1,18 @@
+# AURIQ LTD (Sorted / Auriq Wealth) — security.txt, per RFC 9116.
+# https://www.rfc-editor.org/rfc/rfc9116
+#
+# This is a public responsible-disclosure route: if you believe you have
+# found a security vulnerability in this product, please report it to the
+# contact below before disclosing it publicly. We do not currently run a
+# bug bounty programme and cannot offer a reward, but we will acknowledge
+# your report, investigate, and let you know once it is resolved.
+#
+# Our internal Security & Incident Response Policy (SECURITY.md in the
+# product repository) is not yet published as a public web page; the
+# contact below is the live, monitored route until it is.
+
+Contact: mailto:info@auriqltd.co.uk
+Expires: 2027-09-14T00:00:00.000Z
+Preferred-Languages: en
+Canonical: https://wealth.auriqltd.co.uk/.well-known/security.txt
+Canonical: https://uat.wealth.auriqltd.co.uk/.well-known/security.txt

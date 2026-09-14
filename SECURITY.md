@@ -2,7 +2,7 @@
 
 **Owner:** Kevin Maingi, Founder / Information Security Manager
 **Applies to:** the Auriq Wealth product (web app, iOS/Android apps) and all supporting infrastructure operated by AURIQ LTD.
-**Status:** Version 1.9 — last reviewed 2026-09-10. Reviewed at least annually and after any material incident or architecture change.
+**Status:** Version 1.10 — last reviewed 2026-09-14. Reviewed at least annually and after any material incident or architecture change.
 
 This document is the company's primary security policy. It exists to satisfy our obligations as a registered agent of Finexer LTD for Account Information Services (AIS) and under UK GDPR / the Data Protection Act 2018. It covers our security controls, our incident-response process, and our data-breach procedures.
 
@@ -26,8 +26,10 @@ AURIQ LTD processes UK consumers' bank account and transaction data, obtained wi
 | Network | Managed-platform firewalls, application-level rate limiting on auth/webhook routes, restricted CORS, and IP allow-listing of production API keys where supported (incl. Finexer). |
 | Data store | MongoDB Atlas, access-controlled, hosted in a UK/EU region. |
 | Backups | Encrypted nightly database backups to Cloudflare R2 with 30-day retention. |
-| Webhooks | Signature/secret verification on inbound provider webhooks. |
+| Webhooks | Signature/secret verification on inbound provider webhooks (TrueLayer: URL-embedded secret over HTTPS, no per-request signature — see `docs/security/pentest-scope-2026-09.md`; Finexer: URL-embedded secret plus HMAC-SHA256 request signing once the signing secret is configured; Stripe: SDK-verified signature). Covered by automated tests for all three (`backend/tests/test_truelayer_webhook.py`, `test_finexer_webhook.py`, `test_billing.py`). |
 | Monitoring | Platform logs (Vercel/Railway/Atlas) and optional application error monitoring (Sentry). |
+| Dependency & container scanning | Automated in CI (`.github/workflows/security-scan.yml`, added 2026-09): `npm audit`/`pip-audit` on every push/PR plus weekly, and a Trivy image scan of the backend container. Replaces the one-off manual audit below as the standing control; the audit log is kept as history. |
+| Responsible disclosure | Public `security.txt` per RFC 9116 at `/.well-known/security.txt` on both UAT and production, pointing to `info@auriqltd.co.uk`. |
 
 Detailed operational security notes live in `CLAUDE.md`, `DEPLOY.md`, and `ADR.md`.
 
@@ -52,6 +54,40 @@ Dependency audits are re-run before each production release.
 | **High (P2)** | Security control failure with potential for data exposure. | Auth bypass, exposed secret, exploited vulnerability without confirmed data loss. |
 | **Medium (P3)** | Contained issue, no data exposure. | Blocked intrusion attempt, dependency vulnerability, misconfiguration caught before exploitation. |
 | **Low (P4)** | Minor/no risk. | Isolated failed logins, spam. |
+
+## 3a. Remediation SLA (A26, 2026-09)
+
+These targets apply to a confirmed vulnerability or control failure found by
+internal review, a dependency/container scan, or an external tester
+(including the CREST engagement A7 is booking) — distinct from the incident
+*response* timings in §4, which govern an active incident already under
+way. A finding here may or may not also be an incident; if it is, both
+apply (§4's containment/notification clock starts immediately regardless of
+severity, remediation is tracked separately per the table below).
+
+| Severity | Acknowledge | Remediate or mitigate | Notes |
+|----------|-------------|------------------------|-------|
+| **Critical (P1)** | Within 24 hours | Within 72 hours | A temporary mitigation (revoke a token, disable a route, roll back a deploy) that removes the exposure counts as meeting this target even if the full fix lands later; the exposure must stop within 72 hours, not just get a fix merged. |
+| **High (P2)** | Within 3 business days | Within 14 days | |
+| **Medium (P3)** | Within 5 business days | Within 30 days, or the next scheduled dependency/release cycle if sooner | Matches the existing dependency-audit cadence (§2's audit log; now also CI-automated, see below) — a Medium dependency finding is expected to be swept up by the next audit pass, not left open indefinitely. |
+| **Low (P4)** | Best effort | Best effort, tracked on the product backlog (`TODO.md`) | Not a fixed deadline; still recorded, not silently dropped. |
+
+The ISM (Kevin Maingi) owns triage and severity classification, using §3's
+definitions. Today, as a founder-operated company, the ISM is also the only
+person who can implement most fixes — these targets are a commitment on
+effort and priority, not a guarantee that every fix ships within the
+window regardless of complexity; a Critical finding that needs a genuine
+architectural change (not a config flip or a revoke) still gets a mitigation
+within 72 hours and the ISM communicates a realistic timeline for the full
+fix.
+
+This SLA is the answer this document backs for the Finexer compliance
+questionnaire's Q11 ("Security and incident controls, testing"); see
+`docs/compliance/finexer-agent-controls-2026-09.md` for the questionnaire
+answer itself (not edited by this pass) and
+`docs/security/pentest-scope-2026-09.md` /
+`docs/security/oauth-threat-model.md` for the pentest-readiness evidence
+Q11 can also cite.
 
 ## 4. Incident response process
 
@@ -147,3 +183,4 @@ This policy is reviewed at least annually, and after any material incident, chan
 | 1.7 | 2026-09-06 | Dependency upgrades from the audit (Next 16.3.4; aiohttp, pillow, cryptography, starlette, pyasn1, python-multipart, idna, click). |
 | 1.8 | 2026-09-08 | Contact address changed to info@auriqltd.co.uk. |
 | 1.9 | 2026-09-10 | Fresh dependency audit ahead of the production deploy (release-20260910-1137); recorded below. |
+| 1.10 | 2026-09-14 | A26 pentest-readiness pass: added the remediation SLA (§3a); dependency/container scanning moved from a one-off manual audit to CI (`.github/workflows/security-scan.yml`); added public `security.txt` (RFC 9116); OAuth 2.1 authorisation server threat-modelled for the first time (`docs/security/oauth-threat-model.md`) and a concurrent-redemption race in the authorization-code and refresh-token exchange fixed; added webhook replay/forgery tests for TrueLayer (previously untested) alongside the existing Finexer/Stripe coverage; confirmed bank tokens are Fernet-encrypted at rest for TrueLayer connections (read-only check against live UAT data) and found Yapily's dormant consent-token storage is not (flagged, not fixed — see `docs/security/pentest-scope-2026-09.md`); added a CI guard against `/design` preview routes reaching real data, and found six existing preview files already do (flagged, not fixed, same document). |
