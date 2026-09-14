@@ -22,6 +22,13 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "spend-header-rules",
+    name: "spend-header-rules",
+    description:
+      "G75 Spend top-region separator round using the real SpendPeriodBar, SpendJourneyNav and SpendJourneySummary through the production-backed Spend Live preview · A Open canvas removes structural rules and lets spacing plus control surfaces carry hierarchy / B Section close keeps one low-alpha shared hairline below the jump strip / C Ledger cue keeps one low-alpha shared hairline above the In, Out and Moved figures · no API data or production-component styling changes · ?variant=a|b|c&mode=light|dark&state=normal",
+    states: [{ label: "Normal pay period", value: "normal" }],
+  },
+  {
     slug: "payday-plan-grammar",
     name: "payday-plan-grammar",
     description:

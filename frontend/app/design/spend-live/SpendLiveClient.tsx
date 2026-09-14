@@ -128,7 +128,7 @@ function periodLabel(start: string, end: string): string {
   return `${fmtDate(start)} → ${fmtDate(end)}`;
 }
 
-export default function SpendLiveClient() {
+export default function SpendLiveClient({ hidePreviewControls = false }: { hidePreviewControls?: boolean } = {}) {
   const params = useSearchParams();
   const mode: Mode = params.get("mode") === "dark" ? "dark" : "light";
   const state: SpendVerdictState = STATES.includes(params.get("state") as SpendVerdictState)
@@ -391,33 +391,34 @@ export default function SpendLiveClient() {
 
         {rulesOpen && <CategorisationRulesSheet onClose={() => setRulesOpen(false)} />}
 
-        {/* Fixed state hopper footer */}
-        <div
-          className="fixed bottom-0 left-0 right-0 glass-sheet border-t border-slate-100 dark:border-slate-700 px-3 py-2 space-y-1.5"
-          style={{ paddingBottom: "max(8px, env(safe-area-inset-bottom, 0px))" }}
-        >
-          <div className="mx-auto w-full max-w-[430px] flex items-center gap-2 overflow-x-auto">
-            {STATES.map((s) => (
+        {!hidePreviewControls && (
+          <div
+            className="fixed bottom-0 left-0 right-0 glass-sheet border-t border-slate-100 dark:border-slate-700 px-3 py-2 space-y-1.5"
+            style={{ paddingBottom: "max(8px, env(safe-area-inset-bottom, 0px))" }}
+          >
+            <div className="mx-auto w-full max-w-[430px] flex items-center gap-2 overflow-x-auto">
+              {STATES.map((s) => (
+                <a
+                  key={s}
+                  href={hrefFor(s)}
+                  className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[11px] font-semibold whitespace-nowrap transition-colors ${
+                    s === state
+                      ? "bg-indigo-500 text-white"
+                      : "bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300"
+                  }`}
+                >
+                  {STATE_LABEL[s]}
+                </a>
+              ))}
               <a
-                key={s}
-                href={hrefFor(s)}
-                className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[11px] font-semibold whitespace-nowrap transition-colors ${
-                  s === state
-                    ? "bg-indigo-500 text-white"
-                    : "bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300"
-                }`}
+                href={`?mode=${mode === "dark" ? "light" : "dark"}&state=${state}`}
+                className="flex-shrink-0 ml-auto px-3 py-1.5 rounded-full text-[11px] font-semibold bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300"
               >
-                {STATE_LABEL[s]}
+                {mode === "dark" ? "Light" : "Dark"}
               </a>
-            ))}
-            <a
-              href={`?mode=${mode === "dark" ? "light" : "dark"}&state=${state}`}
-              className="flex-shrink-0 ml-auto px-3 py-1.5 rounded-full text-[11px] font-semibold bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300"
-            >
-              {mode === "dark" ? "Light" : "Dark"}
-            </a>
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );
