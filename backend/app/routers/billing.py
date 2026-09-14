@@ -1,8 +1,16 @@
 """Stripe billing routes (B5): checkout, customer portal, status, and the
-webhook receiver. No Stripe account exists yet, so every environment today
-has BILLING_ENABLED false and /billing/checkout, /billing/portal both
-answer 503 BILLING_NOT_LIVE — see app/core/config.py and
-app/services/billing.py for the full doctrine.
+webhook receiver. BILLING_ENABLED is derived from whether a Stripe secret
+key and every required price id are configured (app/core/config.py) —
+B31 (2026-09-14) found this is already true wherever a Stripe test-mode
+key and price table are set, including this codebase's own shared
+environment, so /billing/checkout and /billing/portal are not a
+theoretical "once billing goes live" concern. See app/services/billing.py
+for the full doctrine.
+
+B31 also added _reject_native_platform: a server-side backstop behind the
+client-side native purchase gate (B26). See that function's own comment
+for what signal it checks, how strong a guarantee it is, and why an
+absent signal is treated as web rather than refused.
 
 POST /webhooks/stripe is public (the app-wide auth middleware exempts any
 path starting with "/webhooks/", see app/core/auth.py) and rate-limited the
@@ -36,12 +44,91 @@ def _require_billing_live() -> None:
         )
 
 
+# B31: the native purchase gate (B26) is entirely client-side —
+# frontend/lib/nativeAuth.ts's canPurchaseInApp() hides every purchase
+# button on a Capacitor build because Apple and Google require digital
+# goods to go through their own in-app purchase systems, and this app has
+# no IAP integration on either platform. Apple and Google review the
+# client UI, not raw API calls, so a server-side check here is defence in
+# depth, not the live control — but with nothing at all server-side, a
+# regression, a stale cached bundle, or a webview edge case would reopen a
+# route straight to Stripe with no backstop and no way to notice.
+#
+# The only platform signal the server can see today is one the client
+# chooses to send: `X-Client-Platform`, set by frontend/lib/api.ts's
+# platformHeaders() from the same Capacitor.isNativePlatform() check
+# canPurchaseInApp() uses, fixed to fail closed the same way (any
+# detection error is treated as native). There is no signal the server
+# can see independently of the client asserting it — no CapacitorHttp
+# plugin is in use (capacitor-spike/capacitor.config.json has no `plugins`
+# block), so requests go through the platform WebView's ordinary fetch,
+# and neither its User-Agent nor any TLS/transport property reliably
+# distinguishes a Capacitor WebView from a mobile browser. That makes this
+# header a backstop against the accidental and the careless case, not a
+# security control: anyone driving the app under a debugger can omit or
+# forge it. If a stronger guarantee is ever needed, it would have to come
+# from something the client cannot fully control from within the same
+# process that would forge the header — e.g. a signed attestation
+# (Apple's App Attest / Play Integrity) checked against Apple/Google
+# servers, which is a materially bigger build, not a header rename.
+#
+# Absent header is treated as web (allowed to proceed to the billing-live
+# check below), not refused. A forgeable signal cannot prove a request
+# came from a browser, so refusing on absence would not stop a spoofed
+# request (it would just omit the header too) while it would break every
+# real web user and every pre-B31 cached web bundle, none of which have
+# ever had a reason to send this header. Refusing only ever fires on a
+# header that positively asserts a native platform, which is exactly the
+# regression/stale-bundle/webview-edge-case this item exists to catch.
+_NATIVE_PLATFORM_VALUES = {"ios", "android", "native"}
+
+
+def _reject_native_platform(request: "Request | None", user: dict, *, endpoint: str) -> None:
+    if request is None:
+        return  # no Request available (never happens outside a direct unit-test call) — same as absent header
+    platform = (request.headers.get("x-client-platform") or "").strip().lower()
+    if platform not in _NATIVE_PLATFORM_VALUES:
+        return
+    logger.warning(
+        "billing: refused %s for user=%s, X-Client-Platform=%r looks native",
+        endpoint, user.get("email"), platform,
+    )
+    raise HTTPException(
+        status_code=403,
+        detail={
+            "code": "BILLING_NATIVE_BLOCKED",
+            # Same sentence as frontend/lib/nativeAuth.ts's
+            # PURCHASE_UNAVAILABLE_SENTENCE, so a native client that
+            # somehow reaches this (rather than being stopped by its own
+            # canPurchaseInApp() gate) shows the identical, already-agreed
+            # copy rather than inventing a second sentence for the same
+            # fact.
+            "message": "Paid plans are not available in this app.",
+        },
+    )
+
+
 @router.post("/billing/checkout")
-async def create_checkout(body: dict, user: dict = Depends(current_user)):
+async def create_checkout(
+    body: dict,
+    # Typed exactly `Request` (not `Request | None`), because FastAPI's own
+    # dependency resolver only recognises the injected-Request special case
+    # via `lenient_issubclass(type_annotation, Request)`
+    # (fastapi/dependencies/utils.py) — a Union annotation fails that
+    # isinstance check and would make FastAPI try to treat this as an
+    # ordinary field instead. The `= None` default is never seen over real
+    # HTTP (FastAPI injects the true Request regardless of the default);
+    # it only matters for the handful of existing tests that call this
+    # function directly without a request, which then behave exactly like
+    # "no X-Client-Platform header" (see _reject_native_platform above).
+    request: Request = None,  # type: ignore[assignment]
+    user: dict = Depends(current_user),
+):
     """{kind: "subscription"|"pack", target: tier-or-pack-id} -> {url}.
     `target` is never trusted beyond "does a Stripe price exist for it" —
     what a user actually gets is granted only once Stripe's own webhook
     fires (app.services.billing.handle_event), never from this request."""
+    _reject_native_platform(request, user, endpoint="POST /billing/checkout")
     _require_billing_live()
 
     kind = (body.get("kind") or "").strip().lower()
@@ -87,9 +174,16 @@ async def create_checkout(body: dict, user: dict = Depends(current_user)):
 
 
 @router.post("/billing/portal")
-async def create_portal(body: dict | None = None, user: dict = Depends(current_user)):
+async def create_portal(
+    body: dict | None = None,
+    # See create_checkout's own comment above for why this is typed
+    # `Request` (not `Request | None`) with a `= None` default.
+    request: Request = None,  # type: ignore[assignment]
+    user: dict = Depends(current_user),
+):
     """Open a Stripe customer-portal session for the signed-in user, so
     they can manage or cancel a subscription and update their card."""
+    _reject_native_platform(request, user, endpoint="POST /billing/portal")
     _require_billing_live()
 
     return_url = (body or {}).get("return_url") or f"{APP_URL}/settings"

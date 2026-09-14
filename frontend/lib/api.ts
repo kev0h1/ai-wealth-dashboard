@@ -1,3 +1,4 @@
+import { Capacitor } from "@capacitor/core";
 import { getToken } from "./auth";
 import type { GoLiveItem, GoLiveQuestion, GoLiveOwner } from "./goLive";
 import type {
@@ -1462,6 +1463,38 @@ export function authHeaders(): HeadersInit {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+// B31: server-side backstop on the native purchase gate (backend/app/routers/billing.py's
+// _reject_native_platform) — see that function's own comment for the full
+// reasoning on how strong a signal this is (a backstop against the
+// accidental and careless case, not a security control, since anything
+// the client sends is forgeable) and why an absent header is read as
+// web, not refused.
+//
+// Deliberately duplicates nativeAuth.ts's canPurchaseInApp() fail-closed
+// check (`Capacitor.isNativePlatform()`, any detection error treated as
+// native) rather than importing it — nativeAuth.ts itself imports `api`
+// from this file, so importing the other way would be a top-level
+// circular import. Same small-duplication precedent as that file's own
+// safeSerialize().
+function isNativePurchaseContext(): boolean {
+  try {
+    return Capacitor.isNativePlatform();
+  } catch {
+    return true; // fail closed: treat an unknown platform as native
+  }
+}
+
+function platformHeaders(): HeadersInit {
+  if (!isNativePurchaseContext()) return {};
+  let platform = "native";
+  try {
+    platform = Capacitor.getPlatform();
+  } catch {
+    /* keep the generic "native" value */
+  }
+  return { "X-Client-Platform": platform };
+}
+
 // Private go-live readiness board (/ops/go-live) — see
 // backend/app/routers/ops.py + backend/app/services/backlog.py.
 export type GoLiveDoc = { markdown: string; updated_at: string };
@@ -1599,10 +1632,10 @@ async function get<T>(path: string, attempt = 0): Promise<T> {
   }
 }
 
-async function post<T>(path: string, body?: unknown): Promise<T> {
+async function post<T>(path: string, body?: unknown, extraHeaders?: HeadersInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
+    headers: { "Content-Type": "application/json", ...authHeaders(), ...extraHeaders },
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) throw await apiErrorFromResponse(res);
@@ -3215,14 +3248,14 @@ export const api = {
     kind: "subscription" | "pack",
     target: string,
     options: { billing_period?: import("@wealth/shared").SubscriptionBillingPeriod; trial?: boolean; flow?: "settings" | "onboarding" } = {},
-  ) => post<{ url: string }>("/billing/checkout", { kind, target, ...options }),
+  ) => post<{ url: string }>("/billing/checkout", { kind, target, ...options }, platformHeaders()),
 
   selectFreePlan: () => post<{ ok: true; tier: "statements" }>("/subscription/select-free", {}),
 
   // B5: opens Stripe's customer portal (manage/cancel a subscription,
   // update the card on file) for the signed-in user. 404s if they have no
   // Stripe customer yet (never started a checkout).
-  openBillingPortal: () => post<{ url: string }>("/billing/portal", {}),
+  openBillingPortal: () => post<{ url: string }>("/billing/portal", {}, platformHeaders()),
 
   getIncomeStreams: () => get<IncomeStream[]>("/income/streams"),
   confirmIncomeStream: (key: string) =>
