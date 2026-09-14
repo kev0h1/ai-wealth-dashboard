@@ -26,19 +26,22 @@ import asyncio
 import sys
 from datetime import datetime, timezone
 
-from app.core.bot_credentials import SCOPES, hash_token, mint_token
-from app.core.config import PRIMARY_EMAIL
+from app.core.bot_credentials import SCOPES, default_expiry, hash_token, mint_token
+from app.core.config import BOT_CREDENTIAL_DEFAULT_TTL_DAYS, PRIMARY_EMAIL
 from app.db.collections import bot_credentials_col
 
 
-async def create(name: str, scopes: list[str], created_by: str) -> str:
+async def create(name: str, scopes: list[str], created_by: str, expires_days: int | None = None) -> tuple[str, datetime]:
     bad = [s for s in scopes if s not in SCOPES]
     if bad:
         raise SystemExit(f"Unknown scope(s): {', '.join(bad)}. Valid scopes: {', '.join(sorted(SCOPES))}")
     if not scopes:
         raise SystemExit("At least one --scopes value is required (see --list-scopes).")
+    if expires_days is not None and expires_days <= 0:
+        raise SystemExit("--expires-days must be a positive integer (there is no eternal option — see A32).")
     token = mint_token()
     now = datetime.now(timezone.utc)
+    expires_at = default_expiry(expires_days)
     await bot_credentials_col.insert_one({
         "_id": hash_token(token),
         "name": name,
@@ -46,10 +49,11 @@ async def create(name: str, scopes: list[str], created_by: str) -> str:
         "created_at": now,
         "created_by": created_by,
         "revoked_at": None,
+        "expires_at": expires_at,
         "last_used_at": None,
         "last_used_path": None,
     })
-    return token
+    return token, expires_at
 
 
 async def revoke(name: str) -> int:
@@ -80,6 +84,14 @@ async def main() -> int:
         "--created-by", default=PRIMARY_EMAIL,
         help="Who minted this (accountability trail). Defaults to the owner's own email.",
     )
+    p_create.add_argument(
+        "--expires-days", type=int, default=None,
+        help=(
+            "Lifetime in days from now (A32: every credential expires, there is "
+            f"no eternal option). Defaults to BOT_CREDENTIAL_DEFAULT_TTL_DAYS "
+            f"({BOT_CREDENTIAL_DEFAULT_TTL_DAYS})."
+        ),
+    )
 
     p_revoke = sub.add_parser("revoke", help="Revoke every active credential with this name.")
     p_revoke.add_argument("--name", required=True)
@@ -90,10 +102,10 @@ async def main() -> int:
 
     if args.command == "create":
         scopes = [s.strip() for s in args.scopes.split(",") if s.strip()]
-        token = await create(args.name, scopes, args.created_by)
+        token, expires_at = await create(args.name, scopes, args.created_by, args.expires_days)
         print("Created credential. Store this token now — it is never shown again:\n")
         print(f"  {token}\n")
-        print(f"name={args.name} scopes={sorted(set(scopes))}")
+        print(f"name={args.name} scopes={sorted(set(scopes))} expires_at={expires_at.isoformat()}")
         return 0
 
     if args.command == "revoke":
@@ -109,11 +121,24 @@ async def main() -> int:
         if not docs:
             print("No credentials minted yet.")
             return 0
+        now = datetime.now(timezone.utc)
         for d in docs:
-            status = "revoked" if d.get("revoked_at") else "active"
+            expires_at = d.get("expires_at")
+            expires_at_aware = (
+                expires_at.replace(tzinfo=timezone.utc) if expires_at and expires_at.tzinfo is None else expires_at
+            )
+            if d.get("revoked_at"):
+                status = "revoked"
+            elif expires_at_aware is not None and expires_at_aware <= now:
+                status = "expired"
+            elif expires_at_aware is None:
+                status = "active (no expires_at — pre-A32, awaiting migration backfill)"
+            else:
+                status = "active"
             print(
                 f"{d.get('name'):24} {status:8} scopes={d.get('scopes')} "
                 f"created_by={d.get('created_by')} created_at={d.get('created_at')} "
+                f"expires_at={expires_at} "
                 f"last_used_at={d.get('last_used_at')} last_used_path={d.get('last_used_path')}"
             )
         return 0

@@ -45,7 +45,10 @@ import re
 import secrets
 from datetime import datetime, timezone
 
-from app.db.collections import bot_credentials_col, bot_credential_uses_col
+from app.core.config import BOT_CREDENTIAL_DEFAULT_TTL_DAYS
+from app.db.collections import (
+    bot_credentials_col, bot_credential_uses_col, bot_credential_unknown_col,
+)
 
 logger = logging.getLogger("app.bot_credentials")
 
@@ -94,6 +97,35 @@ def mint_token() -> str:
     return TOKEN_PREFIX + secrets.token_urlsafe(32)
 
 
+def default_expiry(days: int | None = None) -> datetime:
+    """`now + days` (BOT_CREDENTIAL_DEFAULT_TTL_DAYS if `days` is not
+    given). Shared by `scripts_bot_credential.py create` (minting a new
+    credential) and `app.main._migrate_bot_credential_expiry` (backfilling
+    a credential minted before A32 added this field), so the "what is a
+    sensible default lifetime" decision lives in exactly one place. Always
+    relative to the current time, never to the credential's own
+    `created_at` — see `_migrate_bot_credential_expiry`'s docstring for why
+    that matters for the backfill case specifically (an old `created_at`
+    could put `created_at + days` in the past, expiring a live credential
+    the instant the migration runs)."""
+    from datetime import timedelta
+    days = BOT_CREDENTIAL_DEFAULT_TTL_DAYS if days is None else days
+    return datetime.now(timezone.utc) + timedelta(days=days)
+
+
+def _as_aware_utc(value: datetime | None) -> datetime | None:
+    """Mongo can hand back a naive datetime (no tzinfo) for a value that
+    was always meant as UTC — same defensive normalisation app.routers.
+    oauth's `as_utc` applies to code/token expiry, needed here for the
+    same reason: comparing a naive and an aware datetime raises, it
+    doesn't just compare wrong."""
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
+
+
 def required_scope(method: str, path: str) -> str | None:
     """The scope a bot credential needs to call (method, path), or None if
     this path is closed to bot credentials altogether (the default for
@@ -106,18 +138,36 @@ def required_scope(method: str, path: str) -> str | None:
 
 async def resolve_bot_credential(token: str) -> dict | None:
     """Look up a `sorted_bot_...` token by hash. Returns None for an
-    unknown, malformed or revoked credential — deliberately the same
-    outward shape for all three, so a caller can't use response
-    differences to enumerate which tokens once existed. Never raises on a
-    DB hiccup: a failed lookup is treated exactly like "not found" (fail
+    unknown, malformed, revoked, OR EXPIRED (A32) credential — deliberately
+    the same outward shape for all four, so a caller can't use response
+    differences to enumerate which tokens once existed or distinguish
+    "expired" from "revoked" from "never existed". Never raises on a DB
+    hiccup: a failed lookup is treated exactly like "not found" (fail
     closed — a credential that can't be verified grants no access, it
-    never falls back to trusting the caller)."""
+    never falls back to trusting the caller).
+
+    A32 legacy note: a credential minted before this field existed and not
+    yet reached by `app.main._migrate_bot_credential_expiry` (the startup
+    migration runs within moments of deploy, but isn't instantaneous) has
+    no `expires_at` at all — `doc.get("expires_at")` is None, and that is
+    treated as "not expired" here, NOT as "expired instantly". The
+    alternative (missing field = expired) would lock out every credential
+    minted under the old system the moment this code ships, before the
+    migration has even had a chance to backfill a grace window onto it;
+    treating a genuinely missing field as eternal (the bug this item
+    exists to close) is avoided instead by the migration itself, which
+    guarantees every such row gets a bounded `expires_at` almost
+    immediately rather than leaving this function to paper over it
+    forever."""
     try:
         doc = await bot_credentials_col.find_one({"_id": hash_token(token)})
     except Exception:
         logger.exception("bot_credentials: lookup failed")
         return None
     if not doc or doc.get("revoked_at"):
+        return None
+    expires_at = _as_aware_utc(doc.get("expires_at"))
+    if expires_at is not None and expires_at <= datetime.now(timezone.utc):
         return None
     return {
         "bot_name": doc.get("name") or "unnamed",
@@ -153,6 +203,66 @@ async def record_use(bot_name: str, method: str, path: str, ok: bool, token: str
             )
         except Exception:
             logger.exception("bot_credentials: failed to stamp last_used_at for %s", bot_name)
+
+
+async def record_unknown_attempt(method: str, path: str, source_ip: str) -> None:
+    """A32: audit trail for a bot-prefixed bearer token that did NOT
+    resolve to a live credential (unknown, malformed, revoked, or expired
+    — `resolve_bot_credential` deliberately gives all four the same outward
+    shape, but an investigator looking for a probe needs to see that the
+    attempt happened at all). Called from both `app.core.auth.auth_middleware`
+    and `current_user`'s bot branch on `cred is None`, same "validated (and
+    now audited-on-failure) in both places" doctrine as the credential
+    check itself — in real traffic these can never both fire for the same
+    request, since the middleware always runs first and never calls
+    `call_next` when `ok` is False, so `current_user`'s own branch here is
+    unreachable then; the duplication only matters for whichever surface a
+    test or a future code path happens to exercise directly.
+
+    Deliberately does NOT record the presented token, not even hashed or
+    truncated. Hashing it with the same SHA-256 scheme `bot_credentials_col`
+    uses for `_id` would mean anyone who ever sees both this collection and
+    a leaked/backed-up `bot_credentials_col` (including an old, revoked
+    credential's hash, which is never deleted, only flagged) could confirm
+    by simple equality that a specific historical guess was an exact,
+    once-valid token — worse than telling them nothing, since a bare 401
+    already told them the guess was wrong. Truncating narrows a
+    brute-force attacker's remaining search space for free. Neither buys
+    an investigator anything a plain "these came from this route, this
+    volume" signal doesn't already give.
+
+    Deliberately aggregated, not one row per attempt: this collection is
+    the one place in the app a caller can write to it with NO credential
+    at all (that's the entire premise — the token doesn't resolve), so it
+    is attacker-controllable in a way `bot_credential_uses_col` above
+    isn't. `app.core.ratelimit.check_catch_all_ip_limit` already runs
+    earlier in `auth_middleware` for every request (A27, 600/60s per IP)
+    and bounds the real-time rate, but at that ceiling one IP could still
+    generate roughly 864,000 requests/day; upserting a single row per (UTC
+    day, source IP) and incrementing a counter keeps this collection's
+    size bounded by (days retained x distinct source IPs seen) instead of
+    by request volume, so a sustained flood costs one growing counter, not
+    one growing collection. Backstopped by a TTL index on `last_seen`
+    (app/main.py, BOT_CREDENTIAL_UNKNOWN_TTL_DAYS, same 90-day bound as
+    the MCP connector's own audit log) so even the (day, IP) rows
+    eventually age out once the source goes quiet."""
+    now = datetime.now(timezone.utc)
+    day = now.strftime("%Y-%m-%d")
+    try:
+        await bot_credential_unknown_col.update_one(
+            {"_id": f"{day}:{source_ip}"},
+            {
+                "$set": {
+                    "day": day, "source_ip": source_ip, "last_seen": now,
+                    "last_method": method, "last_path": path,
+                },
+                "$setOnInsert": {"first_seen": now},
+                "$inc": {"count": 1},
+            },
+            upsert=True,
+        )
+    except Exception:
+        logger.exception("bot_credentials: failed to write unknown-attempt audit row")
 
 
 async def check_bot_request(method: str, path: str, token: str) -> tuple[bool, dict | None]:
