@@ -23,7 +23,7 @@ import {
   TrendingUp,
   X,
 } from "lucide-react";
-import SpendTrends, { PaceCurveWidget, type WidgetData } from "@/components/SpendTrends";
+import SpendTrends, { DEFAULT_WIDGETS, PaceCurveWidget, type WidgetData } from "@/components/SpendTrends";
 import type { Transaction } from "@/lib/api";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { DEFAULT_PAY_PERIOD_CONFIG } from "@/lib/payPeriod";
@@ -403,7 +403,7 @@ export default function VariantACharts({ placement, pageHref, collection, setCol
   return (
     <SpendTrends
       embedded
-      preview={{ widgets: ["category_pie", "daily_bars", "period_compare"], pinnedWidget: "period_compare" }}
+      preview={{ widgets: DEFAULT_WIDGETS, pinnedWidget: "period_compare" }}
       periodTxns={WIDGET_DATA.periodTxns}
       allTxns={WIDGET_DATA.allTxns}
       periodStart={WIDGET_DATA.periodStart}

@@ -392,7 +392,10 @@ export function SpendJourneySummary(props: SpendHeaderProps) {
   const attentionTotal = verdict.notables.reduce((sum, item) => sum + item.spent, 0);
   const unresolvedTotal = verdict.unresolved.total;
   const restTotal = Math.max(0, verdict.pills.spent - attentionTotal - unresolvedTotal);
-  const hasMoved = verdict.moved_total !== undefined || verdict.moved.length > 0;
+  // The drill-in section is built from moved rows, so the summary action is
+  // present only when that destination exists. The server derives
+  // moved_total from the same rows.
+  const hasMoved = verdict.moved.length > 0;
   const movedTotal = verdict.moved_total ?? verdict.moved.reduce((sum, item) => sum + item.amount, 0);
 
   return (
@@ -416,7 +419,7 @@ export function SpendJourneySummary(props: SpendHeaderProps) {
                 if (next) onIncomeOpen?.();
               }}
               aria-expanded={incomeExpanded}
-              className="mt-1 min-h-8 font-mono text-sm font-bold tabular-nums text-slate-900 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-white lg:text-base"
+              className="mt-1 inline-flex min-h-11 items-center font-mono text-lg font-bold tracking-[-0.025em] tabular-nums text-slate-950 transition-colors hover:text-indigo-700 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-white dark:hover:text-indigo-300 sm:text-xl lg:text-2xl"
             >
               {fmt(verdict.pills.income)}
             </button>
@@ -428,7 +431,7 @@ export function SpendJourneySummary(props: SpendHeaderProps) {
             <button
               type="button"
               onClick={onOutTap}
-              className="mt-1 min-h-8 font-mono text-lg font-bold tabular-nums text-slate-950 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-white lg:text-xl"
+              className="mt-1 inline-flex min-h-11 items-center font-mono text-[26px] font-bold tracking-[-0.035em] tabular-nums text-slate-950 transition-colors hover:text-indigo-700 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-white dark:hover:text-indigo-300 sm:text-[28px] lg:text-[30px]"
             >
               {fmt(verdict.pills.spent)}
             </button>
@@ -441,7 +444,7 @@ export function SpendJourneySummary(props: SpendHeaderProps) {
               <button
                 type="button"
                 onClick={onMovedTap}
-                className="mt-1 min-h-8 font-mono text-sm font-bold tabular-nums text-slate-900 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-white lg:text-base"
+                className="mt-1 inline-flex min-h-11 items-center font-mono text-lg font-bold tracking-[-0.025em] tabular-nums text-slate-950 transition-colors hover:text-indigo-700 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-white dark:hover:text-indigo-300 sm:text-xl lg:text-2xl"
               >
                 {fmt(movedTotal)}
               </button>

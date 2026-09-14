@@ -972,7 +972,7 @@ export default function SpendPage() {
     {
       id: "spend-journey-charts",
       label: "Charts",
-      value: `${spendWidgets?.length ?? 3} shown`,
+      value: `${spendWidgets?.length ?? 4} shown`,
       onBeforeJump: () => setChartsRequested(true),
     },
   ] : [];

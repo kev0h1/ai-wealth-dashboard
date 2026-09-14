@@ -52,7 +52,7 @@ export type WidgetId = "category_pie" | "daily_bars" | "period_compare" | "size_
 
 // Only used before preferences load. A loaded empty list is intentional: it
 // means the person has removed every chart, so never repopulate it here.
-export const DEFAULT_WIDGETS: WidgetId[] = ["category_pie", "daily_bars", "period_compare"];
+export const DEFAULT_WIDGETS: WidgetId[] = ["category_pie", "daily_bars", "pace_curve", "period_compare"];
 
 const WIDGET_META: Record<WidgetId, { title: string; description: string; Icon: typeof ChartPie }> = {
   category_pie: {
