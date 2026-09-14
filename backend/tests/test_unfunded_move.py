@@ -612,6 +612,147 @@ def test_mixed_account_without_a_safe_source_still_has_one_skippable_card(monkey
     ]
 
 
+# ── G71: the shadow simulation and the real emission gate must be ONE
+# decision, not two hand-aligned copies (backend/app/services/companion.py
+# section 5d vs section 6). Before the fix, each ran its OWN independent
+# `companion_items_col.find_one` probe for the SAME `_id` — one from the
+# unfunded_move shadow in 5d, a second later from the real gate in 6. On a
+# single-worker event loop a concurrent write (another request marking the
+# card auto-verified/dismissed) can land between those two awaits, so the
+# two probes can observe two different answers to the same question.
+# `_FlippingCol` reproduces that race deterministically: the FIRST find_one
+# for a `move:`/`plan:` item id sees "not done" (nothing stored yet — this
+# is exactly the shadow's own probe in 5d, which runs first), every
+# SUBSEQUENT find_one for that same id sees "done" (a concurrent write
+# landed) — this is the real gate's probe in section 6, which runs after.
+class _FlippingCol(FakeCol):
+    def __init__(self, docs=None):
+        super().__init__(docs)
+        self._calls_by_id: dict = {}
+
+    async def find_one(self, query=None, projection=None):
+        query = query or {}
+        _id = query.get("_id")
+        if isinstance(_id, str) and (_id.startswith("move:") or _id.startswith("plan:")):
+            n = self._calls_by_id.get(_id, 0)
+            self._calls_by_id[_id] = n + 1
+            if n >= 1:
+                return {"_id": _id, "uid": query.get("uid"), "status": "done"}
+        return await super().find_one(query, projection)
+
+
+def test_shadow_and_real_gate_cannot_disagree_under_a_racing_probe(monkeypatch):
+    """Regression for G71. Two destinations qualify for BOTH the regular
+    cover-plan card and the unfunded_move shadow's suppression check: one
+    plain movement-only account (barclays, item id `move:...`) and one
+    account with a real bill alongside the movement (hsbc, item id
+    `plan:...`) so both `_id` prefixes the gate produces are exercised.
+    Under the racing collection, the OLD two-probe code silently dropped
+    BOTH the regular card and the standalone skip for at least one of these
+    destinations (the shadow's probe said "will emit" so it suppressed
+    itself, then the real gate's own later probe saw the same id as
+    already "done" and skipped emitting it too) — neither card is shown,
+    which is the exact "moved money it didn't need to, or wasn't told
+    about a move it did need to make" failure class G70 exists to catch.
+    The fix makes both call sites share ONE precomputed decision (one
+    find_one per destination, not two), so they cannot see different
+    answers to the same question regardless of what the store does
+    concurrently: for every qualifying destination, EXACTLY ONE of
+    {regular card, standalone unfunded_move mention} is present, never
+    neither and never both."""
+    accounts = [
+        _account("barclays", 20.0),
+        _account("hsbc", 500.0, name="HSBC Current", provider="hsbc"),
+        _account("premier", 10.0, name="Premier Current"),
+    ]
+    bills = [
+        # barclays: movement-only, no other bill on the account — a plain
+        # `move:{dest}:...` id (no legs -> "no viable source" branch, since
+        # 20.0 alone doesn't cover a fresh moved-money computation here;
+        # what matters is the item id prefix and the race, not the amount).
+        _mv_bill("BARCLAYS MOVE", 40.0, "premier", pending=True,
+                 days_past_due=2, original_date="2026-09-02"),
+        _commitment_bill("Council Tax", 50.0, "premier", days_away=1),
+        # hsbc: movement + real bill on a funded account -> a `plan:...` id
+        # (dest_legs branch), the other id prefix the gate produces.
+        _mv_bill("HSBC MOVE", 81.67, "barclays",
+                 pending=True, days_past_due=9, original_date="2026-08-18"),
+        _commitment_bill("HSBC Bill", 50.0, "barclays", days_away=0),
+    ]
+
+    import app.services.pay_period as pay_period
+    import app.services.income as income
+    import app.db.collections as db_collections
+
+    monkeypatch.setattr(income, "get_confirmed_payday", lambda prefs, today_d: None)
+    monkeypatch.setattr(pay_period, "_next_payday", lambda today_d, pay_cfg: today_d + timedelta(days=10))
+    monkeypatch.setattr(
+        pay_period, "get_pay_period_for_date",
+        lambda today_d, pay_cfg: (today_d - timedelta(days=10), today_d + timedelta(days=17)),
+    )
+    monkeypatch.setattr(companion, "accounts_col", FakeCol(accounts))
+    monkeypatch.setattr(companion, "yapily_accounts_col", FakeCol([]))
+    monkeypatch.setattr(companion, "manual_accounts_col", FakeCol([]))
+    racing_items_col = _FlippingCol([])
+    monkeypatch.setattr(companion, "companion_items_col", racing_items_col)
+    monkeypatch.setattr(companion, "behaviour_portrait_col", FakeCol([]))
+    monkeypatch.setattr(db_collections, "savings_insights_col", FakeCol([]))
+    monkeypatch.setattr(db_collections, "card_terms_col", FakeCol([]))
+    monkeypatch.setattr(companion, "cashflow_cache_col", FakeCol([{"_id": UID}]))
+    monkeypatch.setattr(companion, "preferences_col", FakeCol([{"user_id": UID, "income_streams": []}]))
+    monkeypatch.setattr(companion, "transactions_col", FakeCol([]))
+
+    async def no_active_allocations(uid):
+        return []
+    monkeypatch.setattr(companion, "list_active_allocations", no_active_allocations)
+
+    import app.services.pace as pace_module
+    import app.services.categories as categories_module
+    import app.services.checkpoints as checkpoints_module
+    import app.services.debt_plan as debt_plan_module
+    monkeypatch.setattr(pace_module, "cashflow_cache_col", FakeCol([{"_id": UID}]))
+    monkeypatch.setattr(pace_module, "preferences_col", FakeCol([{"user_id": UID}]))
+    monkeypatch.setattr(pace_module, "transactions_col", FakeCol([]))
+    monkeypatch.setattr(pace_module, "yapily_transactions_col", FakeCol([]))
+    monkeypatch.setattr(categories_module, "user_categories_col", FakeCol([]))
+    monkeypatch.setattr(checkpoints_module, "preferences_col", FakeCol([{"user_id": UID}]))
+    monkeypatch.setattr(checkpoints_module, "checkpoints_col", FakeCol([]))
+    monkeypatch.setattr(checkpoints_module, "category_intent_col", FakeCol([]))
+    monkeypatch.setattr(db_collections, "transactions_col", FakeCol([]))
+    monkeypatch.setattr(db_collections, "yapily_transactions_col", FakeCol([]))
+    monkeypatch.setattr(db_collections, "commitments_col", FakeCol([]))
+
+    async def no_debt_plan(uid):
+        return {"totals": {"verdict": "good"}, "cards": []}
+    monkeypatch.setattr(debt_plan_module, "get_debt_plan_cached", no_debt_plan)
+
+    async def fake_resp(cached, uid=None, prefs=None):
+        return {"upcoming_bills": bills, "upcoming_income": [], "internal_inflows": []}
+    monkeypatch.setattr(companion, "_build_cashflow_response", fake_resp)
+
+    items = asyncio.run(companion.compute_today_items(UID, persist=True))
+
+    move_dest_accts = {i["plan_dest"]["account_id"] for i in items if i["type"] == "move"}
+    unfunded = _find(items, "unfunded_move")
+    skip_keys = {row["key"] for row in (unfunded["moves"] if unfunded else [])}
+
+    # premier's movement is carried on its own regular card (it shares the
+    # account with a real bill), so it must be spoken for EXACTLY once:
+    # either the regular card names it as skippable, or the standalone
+    # unfunded_move card does — never neither.
+    premier_spoken_for = "premier" in move_dest_accts or "BARCLAYS MOVE" in skip_keys
+    assert premier_spoken_for, (
+        "premier's overdue movement vanished from BOTH the regular card and "
+        "the standalone skip card — the exact silent-gap G71 exists to prevent"
+    )
+    # barclays' HSBC-bound movement, likewise.
+    barclays_spoken_for = "barclays" in move_dest_accts or "HSBC MOVE" in skip_keys
+    assert barclays_spoken_for, (
+        "barclays's overdue movement vanished from BOTH the regular card and "
+        "the standalone skip card — the exact silent-gap G71 exists to prevent"
+    )
+
+
 def test_dismissed_regular_card_does_not_swallow_standalone_skip(monkeypatch):
     accounts = [
         _account("premier", 10.0, name="Premier Current"),

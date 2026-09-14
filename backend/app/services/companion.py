@@ -9,7 +9,7 @@ import logging
 import math
 import re
 from datetime import date, datetime, time, timedelta
-from typing import Any
+from typing import Any, NamedTuple
 from urllib.parse import quote
 
 from app.db.collections import (
@@ -307,6 +307,92 @@ def _shortfall_fingerprint(shortfall_tuples: list[tuple[str, int]]) -> str:
     sorted_pairs = sorted(shortfall_tuples)
     raw = repr(sorted_pairs).encode()
     return hashlib.sha1(raw).hexdigest()[:10]
+
+
+class _RegularMoveCardGate(NamedTuple):
+    """Result of `_gate_regular_move_cards` — the ONE decision of whether the
+    regular cover-plan card (a "plan:" or "move:" companion item) would be
+    emitted for each at-risk destination this compute, in `shortfalls` order.
+
+    `item_id_by_dest` / `will_emit_by_dest` only carry entries for
+    destinations that even reach the gate (dest has either legs or an
+    `uncovered_by_dest` entry) — everything else never became a candidate
+    card at all, same as today.
+    """
+    item_id_by_dest: dict[str, str]
+    will_emit_by_dest: dict[str, bool]
+    capped_out: int
+
+
+async def _gate_regular_move_cards(
+    *,
+    shortfalls: list[tuple],
+    suppress_moves: bool,
+    legs_by_dest: dict[str, list[dict]],
+    uncovered_by_dest: dict[str, dict],
+    dest_bucketed: dict[str, float],
+    window_end: date,
+    dismissed: set[str],
+    uid: str,
+) -> _RegularMoveCardGate:
+    """SINGLE source of truth for whether the regular "move money" card would
+    be emitted for a shortfall's destination this compute — dismissal,
+    already-`done` state and the `_MOVE_CARD_CAP` card cap, in the same
+    `shortfalls` iteration order the real emission loop (section 6) walks.
+
+    Before G71 this decision was computed twice by hand: once here-shaped,
+    inline in section 6's emission loop, and a second time as a "shadow"
+    copy inline in section 5d's `unfunded_move` branch (which needs to know
+    whether the regular card already speaks for a destination, WITHOUT
+    rendering it, so it can avoid double-reporting the same shortfall). The
+    two copies agreed only because they were kept in step by hand — any
+    future edit to one that wasn't mirrored in the other would desync them
+    silently, the exact "two places decide the same thing independently"
+    class of bug G70 exists to catch (and the same class as G55/G65).
+
+    Calling this ONCE and having BOTH section 5d and section 6 read the
+    result also cuts the `companion_items_col.find_one` probe per
+    destination from two down to one — section 5d no longer runs its own
+    copy, so this is a net win for the Home brief's request cost, not a
+    added one. It also closes a live race: two independent probes for the
+    same `_id`, made at two different points in one async request on a
+    single-worker event loop, could observe two different answers if a
+    concurrent write (another request auto-verifying or dismissing that
+    same card) landed in between — one probe sees "not done" so it thinks
+    the card is happening, but the other, later probe sees "done", so
+    nothing actually gets rendered anywhere. One probe removes that
+    possibility by construction.
+    """
+    item_id_by_dest: dict[str, str] = {}
+    will_emit_by_dest: dict[str, bool] = {}
+    capped_out = 0
+    emitted = 0
+    if not suppress_moves:
+        for _, _, dest_acct, _bill in shortfalls:
+            dest_legs = legs_by_dest.get(dest_acct) or []
+            if not dest_legs and not uncovered_by_dest.get(dest_acct):
+                continue
+            dest_fp = _shortfall_fingerprint([(dest_acct, dest_bucketed.get(dest_acct, 0))])
+            item_id = (
+                f"plan:{window_end.isoformat()}:{dest_fp}"
+                if dest_legs else
+                f"move:{dest_acct}:{window_end.isoformat()}:{dest_fp}"
+            )
+            item_id_by_dest[dest_acct] = item_id
+            if item_id in dismissed:
+                will_emit_by_dest[dest_acct] = False
+                continue
+            existing = await companion_items_col.find_one({"_id": item_id, "uid": uid})
+            if existing and existing.get("status") == "done":
+                will_emit_by_dest[dest_acct] = False
+                continue
+            if emitted >= _MOVE_CARD_CAP:
+                capped_out += 1
+                will_emit_by_dest[dest_acct] = False
+                continue
+            will_emit_by_dest[dest_acct] = True
+            emitted += 1
+    return _RegularMoveCardGate(item_id_by_dest, will_emit_by_dest, capped_out)
 
 
 async def _live_balance(account_id: str) -> float | None:
@@ -2908,6 +2994,30 @@ async def compute_today_items(
     # about whether a move was skipped. One aggregated QUIET item (never one
     # per move); resolves itself on the next compute once every listed move
     # is skipped or observed, rather than lingering.
+    #
+    # `_regular_move_gate` is computed here, OUTSIDE the try/except below,
+    # deliberately: section 6's emission loop (further down, no try/except
+    # of its own) reads it unconditionally, and previously would have run
+    # its OWN independent computation regardless of whether the unfunded_move
+    # block below succeeded or raised. Computing the shared gate inside that
+    # try would mean a failure anywhere in unfunded_move's OWN logic (after
+    # the gate call) still leaves it bound (fine), but a failure DURING the
+    # gate call itself would leave `_regular_move_gate` unbound and crash
+    # section 6 too — a strictly worse blast radius than before, where
+    # section 6 was fully independent of the shadow. Keeping the gate call
+    # outside preserves that independence: if it raises, this propagates the
+    # same way section 6's own inline computation would have before G71.
+    _regular_move_gate = await _gate_regular_move_cards(
+        shortfalls=shortfalls,
+        suppress_moves=_suppress_moves,
+        legs_by_dest=legs_by_dest,
+        uncovered_by_dest=uncovered_by_dest,
+        dest_bucketed=dest_bucketed,
+        window_end=window_end,
+        dismissed=dismissed,
+        uid=uid,
+    )
+
     unfunded_move_items: list[dict] = []
     try:
         _um_qualifying: list[tuple[str, dict]] = []
@@ -2926,36 +3036,17 @@ async def compute_today_items(
         # The regular move card is the canonical account-level calculation:
         # it has already included every assessable payment for the period and
         # consumed its source capacity. Only suppress a quiet unfunded-move
-        # occurrence when that regular card will genuinely be emitted. This
-        # mirrors the emission gate below (dismissal, completed state and
-        # card cap included), so a hidden regular card can never swallow the
-        # only actionable skip recommendation.
-        _um_regular_emitted_dests: set[str] = set()
-        if not _suppress_moves:
-            _um_emitted_count = 0
-            for _um_days, _um_shortfall, _um_dest, _um_bill in shortfalls:
-                _um_dest_legs = legs_by_dest.get(_um_dest) or []
-                if not _um_dest_legs and not uncovered_by_dest.get(_um_dest):
-                    continue
-                _um_dest_fp = _shortfall_fingerprint([
-                    (_um_dest, dest_bucketed.get(_um_dest, 0))
-                ])
-                _um_regular_id = (
-                    f"plan:{window_end.isoformat()}:{_um_dest_fp}"
-                    if _um_dest_legs else
-                    f"move:{_um_dest}:{window_end.isoformat()}:{_um_dest_fp}"
-                )
-                if _um_regular_id in dismissed:
-                    continue
-                _um_existing = await companion_items_col.find_one({
-                    "_id": _um_regular_id, "uid": uid,
-                })
-                if _um_existing and _um_existing.get("status") == "done":
-                    continue
-                if _um_emitted_count >= _MOVE_CARD_CAP:
-                    continue
-                _um_regular_emitted_dests.add(_um_dest)
-                _um_emitted_count += 1
+        # occurrence when that regular card will genuinely be emitted.
+        # `_regular_move_gate` (above, G71) is the SAME single-pass decision
+        # section 6's emission loop below reads — dismissal, completed state
+        # and card cap included — computed ONCE rather than mirrored by hand
+        # in two places, so a hidden regular card can never swallow the only
+        # actionable skip recommendation, and the two can no longer silently
+        # drift apart.
+        _um_regular_emitted_dests: set[str] = {
+            _dest for _dest, _will_emit in _regular_move_gate.will_emit_by_dest.items()
+            if _will_emit
+        }
 
         # Do not run a second source-finder pass, or add a second amount, for
         # an overdue movement whose destination's regular card is live. The
@@ -3285,10 +3376,15 @@ async def compute_today_items(
     # one account without touching the other. Ordered most urgent first — `shortfalls`
     # is already sorted by (first bounce day, then largest gap).
     emitted_dests = 0
-    capped_out = 0
+    # `_regular_move_gate` (built once in section 5d via `_gate_regular_move_cards`,
+    # G71) already decided — in this exact `shortfalls` order — which
+    # destination's regular card is dismissed, already `done`, capped out or
+    # actually due to render. Both branches (a) and (b) below just read that
+    # single decision rather than re-deriving it (and re-probing Mongo for
+    # it) a second time.
+    capped_out = _regular_move_gate.capped_out
 
     for _da, _sa, dest_acct, bill in ([] if _suppress_moves else shortfalls):
-        dest_fp = _shortfall_fingerprint([(dest_acct, dest_bucketed.get(dest_acct, 0))])
         dest_legs = legs_by_dest.get(dest_acct) or []
 
         # ── (a) No viable source for this destination: the "no easy cover" card ──
@@ -3296,15 +3392,9 @@ async def compute_today_items(
             u = uncovered_by_dest.get(dest_acct)
             if not u:
                 continue
-            item_id = f"move:{dest_acct}:{window_end.isoformat()}:{dest_fp}"
-            if item_id in dismissed:
+            if not _regular_move_gate.will_emit_by_dest.get(dest_acct):
                 continue
-            existing = await companion_items_col.find_one({"_id": item_id, "uid": uid})
-            if existing and existing.get("status") == "done":
-                continue
-            if emitted_dests >= _MOVE_CARD_CAP:
-                capped_out += 1
-                continue
+            item_id = _regular_move_gate.item_id_by_dest[dest_acct]
             # Humanise once — the destination's ALL-CAPS product name is
             # shown in the headline, then referred to as "it" on second
             # mention in the body (no repeated full name, no shouting caps).
@@ -3372,15 +3462,9 @@ async def compute_today_items(
             continue
 
         # ── (b) This destination has funding: the cover card ──
-        item_id = f"plan:{window_end.isoformat()}:{dest_fp}"
-        if item_id in dismissed:
+        if not _regular_move_gate.will_emit_by_dest.get(dest_acct):
             continue
-        existing = await companion_items_col.find_one({"_id": item_id, "uid": uid})
-        if existing and existing.get("status") == "done":
-            continue
-        if emitted_dests >= _MOVE_CARD_CAP:
-            capped_out += 1
-            continue
+        item_id = _regular_move_gate.item_id_by_dest[dest_acct]
 
         # One row per source WITHIN this destination, first-appearance order.
         _src_order: list[str] = []
