@@ -318,7 +318,7 @@ def test_plain_affordability_question_still_takes_can_i_path(monkeypatch):
     # Penny tool loop, not an inline fact pack — proving the question reached
     # it (not the scenario path) means stubbing run_penny_agent itself and
     # asserting its well-formed answer comes back through unchanged.
-    async def fake_run_penny_agent(uid, question, history, screen, context):
+    async def fake_run_penny_agent(uid, question, history, screen, context, view=None):
         return {"headline": "You have headroom", "reply": "You have £100 free until payday.", "tools_used": []}
 
     monkeypatch.setattr(can_i_mod, "run_penny_agent", fake_run_penny_agent)

@@ -33,6 +33,8 @@ import SpendJourneyNav, { type SpendJourneyDestination } from "@/components/Spen
 import PayPeriodSettingsSheet, { formatPeriodLocal } from "@/components/PayPeriodSettingsSheet";
 import { consumeSpendUiState, writeSpendUiState, SpendUiState } from "@/lib/spendUiState";
 import { useTutorialReady } from "@/components/TutorialContext";
+import { setPennyScreenView } from "@/components/PennySheetProvider";
+import { buildSpendPeriodView } from "@/lib/pennyScreenViews";
 
 // These surfaces are absent from the initial This period view. Keeping them
 // outside its client graph avoids paying for charts, portals, and form logic
@@ -351,6 +353,20 @@ export default function SpendPage() {
   // immediately instead of skeletoning again.
   const [moneyShape, setMoneyShape] = useState<MoneyShape | null | undefined>(() => peekMoneyShape() ?? undefined);
   const moneyShapeRequestedRef = useRef(false);
+  // Penny screen context (B39) — published via `buildSpendPeriodView`
+  // (lib/pennyScreenViews.ts), which only maps GET /spend/verdict's own
+  // already-server-computed `pills`/`reading`/`period` onto the shared
+  // view shape — no arithmetic of its own, so what Penny can quote back
+  // can never disagree with SpendHeader's rendered Out/In/Net pills or its
+  // reading line, both sourced from this same `verdict` object. Cleared
+  // (not stale) while a period is loading or errored.
+  useEffect(() => {
+    if (verdictLoading || !verdict) {
+      setPennyScreenView("spend", null);
+      return;
+    }
+    setPennyScreenView("spend", buildSpendPeriodView(verdict));
+  }, [verdict, verdictLoading]);
   // `silent` = we already have something on screen for this offset (cache
   // or a previous fetch) — revalidate in the background without flipping
   // the spinner back on, and never blank a good verdict on a transient error.

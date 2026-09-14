@@ -135,6 +135,150 @@ def test_system_prompt_keeps_card_growth_separate_from_cash():
     assert "Never add it to or subtract it from Safe to Spend" in prompt
 
 
+# ── B39 (2026-09-14) — VIEW: the screen's own structured context, and the
+# view-vs-tool precedence/staleness rule. See PennySheetProvider.tsx's
+# PennyScreenView and can_i.py's _sanitize_view for the client/server sides
+# of the contract this exercises. ───────────────────────────────────────────
+
+def test_system_prompt_states_view_precedence_and_staleness_rule():
+    prompt = penny_agent_module._SYSTEM_PROMPT
+    # The rule: a VIEW figure wins over a fresher tool figure for the SAME
+    # quantity (the user is looking at the VIEW figure right now), and the
+    # model must never surface two different numbers for one quantity.
+    assert "VIEW block" in prompt
+    assert "must use that VIEW value verbatim" in prompt
+    assert "never a different number from a tool call for the same quantity" in prompt
+    assert "never quote a second, different value for the same labelled quantity" in prompt
+    # Still says a tool may be called for the REASONING behind a VIEW figure
+    # — VIEW replaces the number, not the model's ability to explain it.
+    assert "still call a tool to explain what is driving a VIEW figure" in prompt
+
+
+def test_system_prompt_no_app_artifacts_rule_still_present():
+    # The standing "Penny never repeats what a visible surface already
+    # shows" doctrine (feedback_no_app_artifacts_in_penny) must survive the
+    # VIEW extension word for word — B39 adds a precedence/staleness rule
+    # to rule 6, it does not replace or weaken the original no-narration
+    # sentence.
+    prompt = penny_agent_module._SYSTEM_PROMPT
+    assert (
+        "Never repeat what the user's current screen already shows them "
+        "(the screen name, when known, is given in the user message) — add "
+        "only what is new."
+    ) in prompt
+
+
+def test_build_user_content_with_no_view_is_unchanged():
+    content = penny_agent_module._build_user_content("can I spend £20", "home", "")
+    assert content == "can I spend £20\n\n(Current screen: home)"
+
+
+def test_build_user_content_includes_view_block_with_figures_scope_and_verdict():
+    view = {
+        "route": "/",
+        "scope": "Until payday, Fri",
+        "verdict": "On track",
+        "figures": [{"label": "Safe to spend", "value": "£83"}],
+        "asOf": "2026-09-14T08:00:00.000Z",
+    }
+    content = penny_agent_module._build_user_content("why is this so low", "home", "", view)
+    assert "why is this so low" in content
+    assert "(Current screen: home)" in content
+    assert "VIEW" in content
+    assert "Route: /" in content
+    assert "Scope: Until payday, Fri" in content
+    assert "Verdict shown: On track" in content
+    assert "Safe to spend: £83" in content
+    assert "As of: 2026-09-14T08:00:00.000Z" in content
+
+
+def test_build_user_content_view_with_empty_figures_only_shows_present_fields():
+    # A screen mid-load (nothing to quote yet) still publishes route/scope —
+    # nothing crashes on an empty figures list, and no blank figure lines
+    # render.
+    view = {"route": "/spend", "figures": []}
+    content = penny_agent_module._build_user_content("what's my spend", "spend", "", view)
+    assert "Route: /spend" in content
+    assert "Scope:" not in content
+    assert "Verdict shown:" not in content
+
+
+def test_build_user_content_view_none_omits_view_block_entirely():
+    content = penny_agent_module._build_user_content("can I spend £20", "home", "", None)
+    assert "VIEW" not in content
+
+
+def test_run_penny_agent_sends_view_block_to_the_model(monkeypatch):
+    # Proves `view` actually reaches the OpenRouter payload, not just the
+    # pure formatter above — the full run_penny_agent plumbing.
+    client = _ScriptedAsyncClient([
+        _final_payload("HEADLINE: Here's why\nREPLY: Entertainment drove most of it."),
+    ])
+    monkeypatch.setattr(penny_agent_module.httpx, "AsyncClient", client)
+
+    view = {
+        "route": "/",
+        "verdict": "On track",
+        "figures": [{"label": "Safe to spend", "value": "£83"}],
+        "asOf": "2026-09-14T08:00:00.000Z",
+    }
+    result = asyncio.run(run_penny_agent("kevin", "why is this so low", [], "home", "", view))
+
+    assert result is not None
+    user_message = client.calls[0]["messages"][-1]
+    assert user_message["role"] == "user"
+    assert "Safe to spend: £83" in user_message["content"]
+    assert "Verdict shown: On track" in user_message["content"]
+
+
+def test_run_penny_agent_question_the_view_cannot_answer_still_reaches_tools(monkeypatch):
+    # A view is present (Home's Safe-to-Spend figure) but the question is
+    # about something the view has no figure for (category breakdown) — the
+    # tool loop must still run normally, proving VIEW never gates tool
+    # availability, only supplies an extra grounding fact.
+    client = _ScriptedAsyncClient([
+        _tool_call_payload("get_category_spend", {"category": "Entertainment"}),
+        _final_payload("HEADLINE: Entertainment breakdown\nREPLY: £120 across 8 payments this period."),
+    ])
+    monkeypatch.setattr(penny_agent_module.httpx, "AsyncClient", client)
+
+    async def fake_execute_tool(uid, name, args):
+        assert name == "get_category_spend"
+        return {"total": {"raw": 120.0, "formatted": "£120"}, "count": 8}
+
+    monkeypatch.setattr(penny_agent_module, "execute_tool", fake_execute_tool)
+
+    view = {"route": "/", "figures": [{"label": "Safe to spend", "value": "£83"}]}
+    result = asyncio.run(run_penny_agent(
+        "kevin", "what's driving my entertainment spend", [], "home", "", view,
+    ))
+
+    assert result is not None
+    assert result["tools_used"] == ["get_category_spend"]
+    assert result["reply"] == "£120 across 8 payments this period."
+
+
+def test_run_penny_agent_view_omitted_behaves_exactly_as_before(monkeypatch):
+    # Backward compatibility: every existing call site in this file omits
+    # `view` entirely (5 positional args) — the default must be a true no-op,
+    # not merely "doesn't crash".
+    client = _ScriptedAsyncClient([
+        _tool_call_payload("get_safe_to_spend", {}),
+        _final_payload("HEADLINE: You have headroom\nREPLY: You have £100 free until payday."),
+    ])
+    monkeypatch.setattr(penny_agent_module.httpx, "AsyncClient", client)
+
+    async def fake_execute_tool(uid, name, args):
+        return {"safe_to_spend": {"raw": 100.0, "formatted": "£100"}}
+
+    monkeypatch.setattr(penny_agent_module, "execute_tool", fake_execute_tool)
+
+    result = asyncio.run(run_penny_agent("kevin", "how much can I spend", [], None, ""))
+    assert result is not None
+    user_message = client.calls[0]["messages"][-1]
+    assert "VIEW" not in user_message["content"]
+
+
 # ── 2. Model returns tool_calls forever -> capped at 4 model calls, None ───
 
 def test_run_penny_agent_infinite_tool_calls_stops_at_cap(monkeypatch):
@@ -575,7 +719,7 @@ def test_can_i_seam_full_integration_out_of_scope_sentinel_falls_back(monkeypatc
 def test_can_i_seam_falls_back_to_refusal_when_agent_returns_none(monkeypatch):
     _patch_can_i_common(monkeypatch)
 
-    async def fake_agent(uid, question, history, screen, context):
+    async def fake_agent(uid, question, history, screen, context, view=None):
         return None
 
     monkeypatch.setattr(can_i_module, "run_penny_agent", fake_agent)

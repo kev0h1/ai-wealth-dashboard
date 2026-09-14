@@ -895,6 +895,23 @@ export type PennyChipResponse = {
   facts?: Record<string, unknown>;
 };
 
+/** A screen's structured, deterministic snapshot of what it is CURRENTLY
+ * showing (B39, 2026-09-14) — the `view` argument to `api.canI` below.
+ * Defined here rather than in components/PennySheetProvider.tsx (which
+ * re-exports it) purely to avoid a module cycle: that file already imports
+ * `api`/`SubscriptionInfo` from this one. See PennySheetProvider.tsx's own
+ * copy of this doc comment (`setPennyScreenView`) for the full rationale on
+ * what's deliberately included/excluded — kept there, not duplicated here,
+ * since that's the file screens actually read when publishing one. */
+export type PennyViewFigure = { key: string; label: string; value: string };
+export type PennyScreenView = {
+  route: string;
+  scope?: string;
+  verdict?: string;
+  figures: PennyViewFigure[];
+  asOf: string;
+};
+
 /** Thrown by api.canI on a 402 with `detail.code === "PENNY_LIMIT_REACHED"`
  * — the monthly Penny message cap (see /subscription's `usage.penny_limit`/
  * `penny_remaining`). Callers should catch this specifically (`instanceof
@@ -2367,14 +2384,21 @@ export const api = {
    * this, and its header comment for the incident this fixes.
    *
    * `screen` (added 2026-08-26) is a DIFFERENT kind of context from
-   * `context` above, and the two are not interchangeable: `context` is a
-   * one-shot summary sent only on the first request of a screen's session
-   * (deliberately, per its own comment); `screen` is cheap structured data
-   * (one of PennyAskContext's enum values, e.g. "planning"/"spend") sent on
-   * EVERY request while the sheet is open, because any question mid-
-   * conversation can reference "this page" and the backend needs to know
-   * what that page is each time, not just at the start. See
-   * PennyConversation.tsx's `ask()`/`send()` for the call site. */
+   * `context` above: cheap structured data (one of PennyAskContext's enum
+   * values, e.g. "planning"/"spend") sent on EVERY request while the sheet
+   * is open, because any question mid-conversation can reference "this
+   * page" and the backend needs to know what that page is each time, not
+   * just at the start.
+   *
+   * `view` (B39, 2026-09-14) is the structured sibling of `screen`: what
+   * that screen is actually RENDERING right now (headline figures with
+   * their on-screen labels, the verdict word/sentence, period/card
+   * identity), not just its name. Also sent on every request, same cadence
+   * as `screen` (never one-shot). See PennyConversation.tsx's
+   * `ask()`/`send()` for the call site, and
+   * components/PennySheetProvider.tsx's own `PennyScreenView` doc comment
+   * (`setPennyScreenView`) for the full rationale on what's included and
+   * deliberately left out, and for where a screen publishes one. */
   // A hand-rolled fetch, not the plain `post<T>` helper: a 402 here carries
   // a STRUCTURED `detail` object (`{code, used, limit, resets_on, tier}`),
   // not the human string every other `detail` on this file is. `post<T>`'s
@@ -2386,12 +2410,13 @@ export const api = {
     question: string,
     history?: Array<{ role: "user" | "assistant"; content: string }>,
     context?: string,
-    screen?: string
+    screen?: string,
+    view?: PennyScreenView
   ): Promise<CanIResponse> => {
     const res = await fetch(`${API_BASE}/can-i`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders() },
-      body: JSON.stringify({ question, history, context, screen }),
+      body: JSON.stringify({ question, history, context, screen, view }),
     });
     if (res.status === 402) {
       let detail: unknown = null;

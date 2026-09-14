@@ -160,7 +160,16 @@ def _greeting_response() -> dict:
 # that module's `_build_user_content`) — this router itself makes no routing
 # decision on it any more, it only validates the shape before passing it on.
 _KNOWN_SCREENS = frozenset({
-    "planning", "tax", "home", "spend", "insights", "grow", "debt", "accounts", "other",
+    # "upcoming" added B39 (2026-09-14) — PennySheetProvider.tsx's
+    # `PennyAskContext["screen"]` union has carried this value since the
+    # Upcoming/Planning split (see CLAUDE.md's surface map), but it was
+    # never added here: every question asked from /upcoming was silently
+    # losing its screen grounding (`_valid_screen` mapped it to None, so
+    # neither `(Current screen: upcoming)` nor the out-of-scope screen hint
+    # ever fired for that tab) — a real, pre-existing gap, not a hypothetical
+    # one, and directly in scope for B39 since Upcoming is one of the three
+    # screens that ticket names.
+    "planning", "upcoming", "tax", "home", "spend", "insights", "grow", "debt", "accounts", "other",
 })
 
 
@@ -169,6 +178,100 @@ def _valid_screen(raw) -> str | None:
     frontend's tab router actually uses. Anything else — missing, wrong
     type, a typo, a future/removed screen name — becomes None."""
     return raw if isinstance(raw, str) and raw in _KNOWN_SCREENS else None
+
+
+# ── `view` (B39, 2026-09-14) — a STRUCTURED, DETERMINISTIC snapshot of what
+# the user's current screen is actually rendering, replacing the old one-shot
+# free-text `summary` (PennySheetProvider.tsx's `PennyAskContext.summary`,
+# now removed) that only one screen ever set and only the first question of a
+# thread ever received. Computed on the client by the same code that renders
+# the figures (SafeToSpendCard.tsx / SpendPage.tsx / PlanningPage.tsx — see
+# their own `setPennyScreenView` calls), sent on EVERY question while a
+# thread is grounded to that screen, not just the first — see
+# PennyConversation.tsx's `ask()`.
+#
+# Sanitised here, server-side, before it ever reaches the model: the
+# frontend already caps size (`capView` in PennySheetProvider.tsx), but this
+# endpoint is the actual trust boundary (client input, never trusted as-is),
+# and belt-and-braces against a stale/compromised/future client build that
+# stops capping correctly. Three jobs:
+#  1. Shape — drop anything not in the fixed allow-list below, so a future
+#     field added to the frontend type needs a matching change HERE before
+#     it can reach a prompt (fails closed, not open).
+#  2. Size — cap figure count and every string length, so this can never
+#     become the "raw payload dump" the ticket explicitly warns against; a
+#     client sending more just has the excess silently dropped.
+#  3. Privacy — drop (not redact — the whole figure, label included) any
+#     figure whose label or value looks like a sort code, UK account
+#     number, or IBAN. Screens have no legitimate reason to publish one of
+#     these into a view figure at all (see the same rule already enforced
+#     for MCP's read tools, PENNY_TOOLS.md), so a match is treated as a
+#     bug/attack, not a redaction candidate.
+_VIEW_MAX_FIGURES = 6
+_VIEW_ROUTE_MAX = 80
+_VIEW_SCOPE_MAX = 100
+_VIEW_VERDICT_MAX = 200
+_VIEW_LABEL_MAX = 40
+_VIEW_VALUE_MAX = 30
+_VIEW_ASOF_MAX = 40
+# Sort code (12-34-56), a bare 8-digit run (UK account number), or an
+# IBAN-shaped token (2 letters, 2 digits, 4-30 alnum) — checked against BOTH
+# label and value since either could carry one.
+_VIEW_PII_RE = re.compile(
+    r"\d{2}-\d{2}-\d{2}|(?<!\d)\d{8}(?!\d)|\b[A-Z]{2}\d{2}[A-Z0-9]{4,30}\b"
+)
+
+
+def _looks_like_pii(text: str) -> bool:
+    return bool(_VIEW_PII_RE.search(text or ""))
+
+
+def _sanitize_view(raw) -> dict | None:
+    """Validate and cap the optional `view` field. Returns None on anything
+    that isn't a well-formed dict (missing `route`, wrong types throughout)
+    rather than raising — a malformed view degrades to "no view", the same
+    graceful-degradation contract every other optional grounding field on
+    this endpoint already has (`context`, `screen`)."""
+    if not isinstance(raw, dict):
+        return None
+    route = raw.get("route")
+    if not isinstance(route, str) or not route.strip():
+        return None
+    out: dict = {"route": route.strip()[:_VIEW_ROUTE_MAX]}
+
+    scope = raw.get("scope")
+    if isinstance(scope, str) and scope.strip():
+        out["scope"] = scope.strip()[:_VIEW_SCOPE_MAX]
+
+    verdict = raw.get("verdict")
+    if isinstance(verdict, str) and verdict.strip() and not _looks_like_pii(verdict):
+        out["verdict"] = verdict.strip()[:_VIEW_VERDICT_MAX]
+
+    figures_out: list[dict] = []
+    raw_figures = raw.get("figures")
+    if isinstance(raw_figures, list):
+        for item in raw_figures[:_VIEW_MAX_FIGURES]:
+            if not isinstance(item, dict):
+                continue
+            label = item.get("label")
+            value = item.get("value")
+            if not isinstance(label, str) or not label.strip():
+                continue
+            if not isinstance(value, (str, int, float)):
+                continue
+            value_str = str(value).strip()
+            if not value_str:
+                continue
+            if _looks_like_pii(label) or _looks_like_pii(value_str):
+                continue
+            figures_out.append({"label": label.strip()[:_VIEW_LABEL_MAX], "value": value_str[:_VIEW_VALUE_MAX]})
+    out["figures"] = figures_out
+
+    as_of = raw.get("asOf") or raw.get("as_of")
+    if isinstance(as_of, str) and as_of.strip():
+        out["asOf"] = as_of.strip()[:_VIEW_ASOF_MAX]
+
+    return out
 
 
 # ONE fixed sentence, appended to the out-of-scope refusal ONLY when
@@ -205,6 +308,9 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
     raw_context = body.get("context")
     context = raw_context if isinstance(raw_context, str) else ""
     screen = _valid_screen(body.get("screen"))
+    # B39 — structured, per-question screen grounding. See `_sanitize_view`
+    # above for the shape/size/privacy contract.
+    view = _sanitize_view(body.get("view"))
 
     raw_history = body.get("history") or []
     history: list[dict] = []
@@ -302,7 +408,7 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
     # error, or a connection failure — see penny_agent._call_openrouter_
     # with_retry), or `None` for a genuine off-topic decline, round/budget
     # cap exhaustion, or unparseable output. Never raises.
-    agent_result = await run_penny_agent(uid, question, history, screen, context)
+    agent_result = await run_penny_agent(uid, question, history, screen, context, view)
     if agent_result is not None:
         # B37: an infrastructure failure, not a scope one — checked FIRST,
         # ahead of consent_required/proposal/the ordinary answer shape,

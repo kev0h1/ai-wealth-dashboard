@@ -56,8 +56,17 @@
 
 import { useSyncExternalStore } from "react";
 import { api } from "@/lib/api";
-import type { SubscriptionInfo } from "@/lib/api";
+import type { SubscriptionInfo, PennyScreenView, PennyViewFigure } from "@/lib/api";
 import PennySheet from "./PennySheet";
+
+// `PennyScreenView`/`PennyViewFigure` are DEFINED in lib/api.ts (that's the
+// wire shape `api.canI`'s `view` argument takes) and re-exported here so
+// every other file in this feature (screens publishing a view,
+// PennyConversation.tsx reading one back) can import them from this
+// provider file, where the rest of the screen-context contract
+// (`PennyAskContext`, `setPennyScreenView`) already lives — one import
+// source for anything screen-context-shaped, not two.
+export type { PennyScreenView, PennyViewFigure };
 
 export type PennyAskContext = {
   // "grow" and "debt" added 2026-08-25 for the screen-aware header
@@ -76,15 +85,132 @@ export type PennyAskContext = {
   // point (lib/pennyScreenConfig.tsx already had a config entry waiting on
   // this exact addition — see that file's `ConfigScreenKey` comment).
   screen: "planning" | "upcoming" | "tax" | "home" | "spend" | "insights" | "grow" | "debt" | "accounts" | "other";
-  /** One short line describing what the user was looking at when they
-   * opened the sheet from that screen. Decorative context for the
-   * conversation, not required. */
-  summary?: string;
   /** A question to submit immediately on open (mirrors PennyConversation's
    * existing `?ask=` deep-link convention, just carried in memory instead
    * of a query string). */
   ask?: string;
 };
+
+// ── SCREEN VIEW (B39, 2026-09-14) — what a screen is actually showing, not
+// just its name. Replaces the one-shot free-text `PennyAskContext.summary`
+// that used to live on this type (removed): that field only ever got set by
+// ONE screen (app/spend/shape/ShapePage.tsx, "Your money's shape" — pure
+// decoration, no figures) and PennyConversation.tsx's old `summaryConsumedRef`
+// gated it to the FIRST question of a thread only, so a follow-up ("why is
+// it low") got no grounding at all even on that one screen. See Kevin's
+// 2026-09-14 note on B39 (TODO.md) for the full diagnosis.
+//
+// `PennyViewFigure`/`PennyScreenView` are DELIBERATELY small — this rides in
+// every question's prompt (see can_i.py's `_sanitize_view` and
+// penny_agent.py's `_build_user_content`), not just the first:
+// - `figures` caps at a handful of HEADLINE numbers with the label the user
+//   can see next to them (server-pre-formatted strings, e.g. "£83", never a
+//   raw number the model could reformat differently from the screen), not a
+//   full ledger and never a transaction list — raw transactions are excluded
+//   from the MCP read surface by design (PENNY_TOOLS.md); this door must not
+//   reintroduce them.
+// - `scope` is the one line of identity a question needs ("this period",
+//   "until payday, Fri") — which period/card is on screen, not a page
+//   description.
+// - `verdict` is the screen's own server-derived status word/sentence,
+//   verbatim, when it has one (e.g. SafeToSpendCard's "On track", or
+//   SpendVerdict's own `reading` sentence) — Penny phrases, she never
+//   recomputes a verdict that's already been decided (engine doctrine).
+// - `asOf` is when the screen's OWN figures were last fetched/computed
+//   (not "now") — see can_i.py's system-prompt precedence rule for how
+//   this grounds the staleness call: VIEW wins over a fresher tool number
+//   for the same quantity, since it's what the user is actually looking at.
+// - Deliberately excluded: account numbers, sort codes, provider ids (never
+//   render these into a figure at all — can_i.py's `_sanitize_view` also
+//   drops anything PII-shaped as a second line of defence), raw transaction
+//   rows, and anything not already visible on screen (this is a snapshot of
+//   the render, not a fresh data pull).
+// `PennyViewFigure`/`PennyScreenView` themselves: `key` is a stable machine
+// key not shown to the user (currently unused by the backend contract,
+// which reads label/value only, kept so a future consumer can refer to "the
+// same figure" without string-matching a label a copy change could alter);
+// `label`/`value` are the exact text/pre-formatted string as rendered
+// (e.g. "£83", never a raw 83 the model could reformat differently);
+// `asOf` is an ISO timestamp of when the screen's OWN figures were
+// computed — usually the underlying payload's own freshness field (e.g.
+// SafeToSpend's `last_synced`), falling back to the moment this view was
+// published when no better timestamp exists. See the re-export above:
+// both types are actually DEFINED in lib/api.ts (the wire shape
+// `api.canI`'s `view` argument takes), to avoid a module cycle.
+
+const _VIEW_MAX_FIGURES = 6;
+const _VIEW_ROUTE_MAX = 80;
+const _VIEW_SCOPE_MAX = 100;
+const _VIEW_VERDICT_MAX = 200;
+const _VIEW_LABEL_MAX = 40;
+const _VIEW_VALUE_MAX = 30;
+
+/** Client-side cap — defense in depth, not the trust boundary (that's
+ * can_i.py's own `_sanitize_view`, which never trusts this). Keeps a
+ * careless caller from accidentally publishing something oversized, and
+ * keeps the size numbers in this feature's own report honest (what the
+ * frontend actually sends, not just what the backend would eventually
+ * allow through). */
+function capView(view: PennyScreenView | null): PennyScreenView | null {
+  if (!view) return null;
+  return {
+    route: view.route.slice(0, _VIEW_ROUTE_MAX),
+    ...(view.scope ? { scope: view.scope.slice(0, _VIEW_SCOPE_MAX) } : {}),
+    ...(view.verdict ? { verdict: view.verdict.slice(0, _VIEW_VERDICT_MAX) } : {}),
+    figures: view.figures.slice(0, _VIEW_MAX_FIGURES).map((f) => ({
+      key: f.key.slice(0, _VIEW_LABEL_MAX),
+      label: f.label.slice(0, _VIEW_LABEL_MAX),
+      value: f.value.slice(0, _VIEW_VALUE_MAX),
+    })),
+    asOf: view.asOf,
+  };
+}
+
+// Module scope, one map for the whole app (same convention as `sheetState`
+// below) — keyed by screen, so a screen's own view survives a navigation
+// to a DIFFERENT screen and back without being clobbered, and so
+// PennyConversation.tsx can read whichever screen's view is CURRENT at
+// ask-time rather than one captured once at sheet-open (see that file's
+// `ask()`/`send()` for why that staleness would defeat the point of this
+// feature — a background figure refresh while the sheet stays open must be
+// picked up by the very next question, not require a reopen).
+let screenViews: Partial<Record<PennyAskContext["screen"], PennyScreenView | null>> = {};
+const viewListeners = new Set<() => void>();
+function notifyViews() {
+  viewListeners.forEach((l) => l());
+}
+function subscribeViews(listener: () => void): () => void {
+  viewListeners.add(listener);
+  return () => { viewListeners.delete(listener); };
+}
+function getViewsSnapshot(): typeof screenViews {
+  return screenViews;
+}
+
+/** Publish (or clear, with `null`) a screen's current structured view. Call
+ * from a `useEffect` in the component that OWNS the figures being shown,
+ * keyed on the same data the render itself uses (see
+ * SafeToSpendCard.tsx/SpendPage.tsx/PlanningPage.tsx) — the point of this
+ * feature is that the published view and the rendered figures come from
+ * the identical computation, so they can never disagree. A screen that
+ * never calls this just means Penny falls through to tools for a question
+ * about it, exactly as before this feature existed (no regression, purely
+ * additive). Cheap no-op when the content hasn't actually changed, so a
+ * screen can safely call this on every render without spamming
+ * subscribers/re-serialising the prompt payload for nothing. */
+export function setPennyScreenView(screen: PennyAskContext["screen"], view: PennyScreenView | null): void {
+  const next = capView(view);
+  if (JSON.stringify(screenViews[screen] ?? null) === JSON.stringify(next)) return;
+  screenViews = { ...screenViews, [screen]: next };
+  notifyViews();
+}
+
+/** All published screen views, live. PennyConversation.tsx reads the
+ * CURRENT screen's entry out of this at ask-time (see that file), not a
+ * value captured once when the sheet opened. */
+export function usePennyScreenViews(): Partial<Record<PennyAskContext["screen"], PennyScreenView | null>> {
+  return useSyncExternalStore(subscribeViews, getViewsSnapshot, getViewsSnapshot);
+}
 
 type SheetState = {
   isOpen: boolean;
