@@ -266,6 +266,25 @@ linked_identities_col   = db["linked_identities"]
 # of creating a duplicate.
 allowed_signups_col    = db["allowed_signups"]
 
+# A28: named, scoped, individually revocable service credentials — the
+# replacement for the single static BOT_SECRET. See
+# app.core.bot_credentials's module docstring for the full design. One doc
+# per credential, keyed by the SHA-256 hash of its opaque `sorted_bot_`-
+# prefixed token (never stored raw, same doctrine as oauth_tokens_col).
+# {_id: token_hash, name (human label, e.g. "usage-dashboard"), scopes:
+# [str, ...] (a subset of app.core.bot_credentials.SCOPES), created_at,
+# created_by (the owner email that minted it, for accountability — never
+# a bot), revoked_at (None until revoked), last_used_at, last_used_path}.
+# Minted/revoked/listed only via backend/scripts_bot_credential.py, never
+# through an HTTP route.
+bot_credentials_col    = db["bot_credentials"]
+
+# A28: append-only audit trail of every bot-credential use — who (the
+# credential's `name`, never the secret), when, which route, whether the
+# scope check passed. {bot_name, method, path, ok, ts (TTL index field,
+# app/main.py's _create_indexes, BOT_CREDENTIAL_AUDIT_TTL_DAYS)}.
+bot_credential_uses_col = db["bot_credential_uses"]
+
 # Cross-process response cache (see app/services/response_cache.py) — the
 # Mongo-backed half of the two-layer (in-process memory + Mongo) per-user
 # cache. `{user_id, name, version, day, payload, computed_at}`, unique on

@@ -92,7 +92,11 @@ services with `railway variable set NAME=VALUE --service <service>
 string, never printed. `--value NAME=VALUE` sets a fresh literal value
 instead of reading one (for a value that has no UAT equivalent yet);
 `--generate NAME` creates a 32-byte urlsafe token and sets that, used for
-`BOT_SECRET` so production gets its own secret rather than reusing UAT's.
+values like `SESSION_SECRET`/`TOKEN_ENCRYPTION_KEY` so production gets its
+own secret rather than reusing UAT's. (Bot/service credentials are a
+separate, A28 mechanism — not an env var at all, never set via this
+command; see docs/ops/ENV.md's "Bot/service credentials" section and
+`backend/scripts_bot_credential.py`.)
 Prints only the names set and which services, never a value.
 
 ```bash

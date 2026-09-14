@@ -1,8 +1,8 @@
 """Admin-only endpoints (bot sync + one-time migrations)."""
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.auth import current_user
-from app.core.config import BOT_SECRET
+from app.core.config import PRIMARY_EMAIL
 from app.db.collections import connections_col, accounts_col, transactions_col
 from app.services.truelayer_sync import sync_connection
 from app.services.categorisation import apply_rules_bulk, categorise_others_bg
@@ -25,9 +25,17 @@ def _fire_and_forget(coro) -> None:
 
 
 @router.post("/admin/sync-all")
-async def admin_sync_all(request: Request):
-    auth = request.headers.get("Authorization", "")
-    if not (BOT_SECRET and auth == f"Bearer {BOT_SECRET}"):
+async def admin_sync_all(user: dict = Depends(current_user)):
+    """A28: bot credential with `admin:sync` scope (app.core.bot_credentials),
+    or Kevin's own session as a break-glass path — same bot-or-owner pairing
+    as app.routers.admin_usage._require_admin, so this bulk, all-users
+    resync is never permanently locked away from its only human operator
+    even if every bot credential were revoked or the credential store were
+    unreachable. Never any OTHER signed-in user: this iterates every
+    connection for every account, not the caller's own."""
+    is_bot = user.get("name") == "Bot"
+    is_owner = (user.get("email") or "").strip().lower() == PRIMARY_EMAIL
+    if not (is_bot or is_owner):
         raise HTTPException(403, "Forbidden")
     all_conns      = await connections_col.find({}).to_list(None)
     total_accounts = 0

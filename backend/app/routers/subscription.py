@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.auth import current_user
-from app.core.config import BILLING_ENABLED, BOT_SECRET
+from app.core.config import BILLING_ENABLED, PRIMARY_EMAIL
 from app.core.subscription import (
     MCP_CALL_PACKS, PENNY_TOPUP, PENNY_TOPUP_LIFETIME_DAYS, PENNY_TOPUP_PACKS,
     SUBSCRIPTION_PERIODS_ENABLED, SUBSCRIPTION_TRIAL_DAYS, SUBSCRIPTION_TRIAL_PERIODS,
@@ -161,9 +161,13 @@ async def select_free_tier(user: dict = Depends(current_user)):
 
 @router.patch("/subscription/admin/set-tier")
 async def admin_set_tier(body: dict, user: dict = Depends(current_user)):
-    """Bot/admin only — manually set a user's subscription tier."""
-    auth_header_ok = user.get("name") == "Bot"
-    if not auth_header_ok:
+    """Bot credential with `subscription:admin` scope, or Kevin's own
+    session (break-glass — A28, same bot-or-owner pairing as
+    app.routers.admin_usage._require_admin) — manually set a user's
+    subscription tier."""
+    is_bot = user.get("name") == "Bot"
+    is_owner = (user.get("email") or "").strip().lower() == PRIMARY_EMAIL
+    if not (is_bot or is_owner):
         raise HTTPException(403, "Admin only")
 
     target_email = body.get("email")
@@ -203,8 +207,12 @@ async def admin_topup(body: dict, user: dict = Depends(current_user)):
     there) or a raw `messages`/`calls` count. Either way the stored doc's
     own `pack_id` is "admin", not the referenced pack's id — this is an
     admin grant, not a purchase, so it must never count as a genuine pack
-    sale if that distinction matters later."""
-    if user.get("name") != "Bot":
+    sale if that distinction matters later. Bot credential with
+    `subscription:admin` scope, or Kevin's own session (break-glass — A28,
+    same pairing as admin_set_tier above)."""
+    is_bot = user.get("name") == "Bot"
+    is_owner = (user.get("email") or "").strip().lower() == PRIMARY_EMAIL
+    if not (is_bot or is_owner):
         raise HTTPException(403, "Admin only")
 
     target_email = body.get("email")
