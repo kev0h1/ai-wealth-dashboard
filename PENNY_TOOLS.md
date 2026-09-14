@@ -769,3 +769,49 @@ absent, matching the Finexer compliance answers ("planned", not live). It
 is only on for this VPS's UAT for now; see `DEPLOY.md`'s "MCP connector
 flag" section for the exact env vars and the launch-day checklist (turn
 both on, regenerate the legal PDFs with the flag on).
+
+**Update, 2026-09-14 (F18, hardening the quote-verbatim contract for
+external harnesses).** The "quote it verbatim" doctrine two paragraphs up
+("The change") is enforced inside this app by `app.services.penny_agent`'s
+`_SYSTEM_PROMPT`: no exceptions, every £ figure verbatim, never
+recomputed, and every server-decided verdict/state word reproduced
+exactly. A 2026-09-14 audit of the harness found that contract lived ONLY
+in that prompt. `app/routers/mcp.py` hands the SAME `TOOL_SCHEMAS` to an
+external harness (Claude.ai, ChatGPT, ...) over `/mcp`, and an external
+harness has none of Penny's own system prompt, only what the MCP
+`tools/list`/`initialize` responses actually advertise. So a connected
+assistant could sum two real Sorted figures, or report its own "tight"
+where the backend said "comfortable", and the wrong answer would read as
+Sorted's own.
+
+Fixed by moving the load-bearing parts of the contract onto the wire, in
+two places:
+- `MCP_SERVER_INSTRUCTIONS` (`app/routers/mcp.py`), sent once as
+  `InitializeResult.instructions`, the MCP-spec field for exactly this
+  ("a hint... SHOULD NOT be relied upon to strongly influence the model's
+  behavior"). One copy of the parts that apply to every tool: quote every
+  £ figure verbatim rather than recomputing/deriving/summing/rounding one,
+  use `calculate` for multi-step maths, reproduce a server-decided
+  verdict/state word exactly rather than substituting your own, and treat
+  every future-dated figure as an estimate, never a promise.
+- Every one of the 19 tool descriptions in `TOOL_SCHEMAS`
+  (`app/services/penny_tools.py`) now carries its OWN short verbatim-
+  quoting line, since a client is free to ignore the `instructions` hint,
+  and a tool's own description is what the model actually reads at the
+  point it uses a result. The four tools whose result carries a genuine
+  server-decided verdict/state word (`get_safe_to_spend`'s `state`,
+  `get_spend_verdict`'s `reading`, `check_affordability`'s `verdict`,
+  `get_mirror`'s aim on-track status) each say so explicitly, in addition
+  to the verbatim line. This is a doctrine restatement, not a new rule:
+  Penny's own loop already behaved this way, the fix is that the SAME
+  words are now visible to whichever model is calling the tool, first-
+  party or not.
+
+Deliberately left prompt-only, not ported to the schema: `_SYSTEM_PROMPT`'s
+UI-shaped rules (the HEADLINE:/REPLY: two-line output format, the
+OUT_OF_SCOPE sentinel, "never repeat what the current screen shows",
+British English/no em-dash copy style, the advice-vs-facts/FCA framing,
+the 63-key `explain` follow-up routing heuristics). None of those govern
+HOW a tool's own output may be used, which is this item's scope; they
+govern how Penny's specific chat surface renders a reply, which has no
+meaning to an external harness rendering its own UI.

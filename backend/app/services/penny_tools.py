@@ -197,7 +197,7 @@ def _explain_tool_description() -> str:
         "pay-yourself-first. "
         "Call this for ANY of these question shapes. An unknown topic "
         "returns the full list of valid keys to pick from. The "
-        "returned text is complete and final, follow it closely "
+        "returned text is complete and final, quote it verbatim "
         "rather than inventing your own explanation."
     )
 
@@ -211,10 +211,13 @@ TOOL_SCHEMAS = [
             "description": (
                 "The user's current safe-to-spend figure: the money that is genuinely "
                 "free to spend before their next payday, already net of upcoming bills "
-                "and set-asides. Card balance growth is returned as a separate fact and "
-                "is not normally deducted from cash. Use this for ANY question about "
-                "how much the user can afford, has spare, or has left until payday. "
-                "The returned figures are authoritative, never estimate your own."
+                "and set-asides. Card balance growth is returned as a separate fact, "
+                "never add or subtract it from the cash figure yourself. Use this for "
+                "ANY question about how much the user can afford, has spare, or has "
+                "left until payday. Figures are authoritative: quote them verbatim, "
+                "never recompute, derive, or round them yourself. `state` is a "
+                "verdict word already decided by the server, reproduce it exactly, "
+                "never substitute your own."
             ),
             "parameters": {"type": "object", "properties": {}, "required": []},
         },
@@ -227,7 +230,9 @@ TOOL_SCHEMAS = [
                 "The user's upcoming recurring bills and expected income in the next "
                 "35 days, each with an amount and days away. Use this when the "
                 "question is about what's due, what's coming up, or when the next "
-                "bill/payment lands. Figures are authoritative, never estimate your own."
+                "bill/payment lands. Dates are expected, not promised, money may "
+                "move earlier or later. Figures are authoritative: quote them "
+                "verbatim, never recompute, derive, or round them yourself."
             ),
             "parameters": {"type": "object", "properties": {}, "required": []},
         },
@@ -241,8 +246,9 @@ TOOL_SCHEMAS = [
                 "questions naming a specific merchant, category, date range, or "
                 "transaction type ('how much did I spend at X', 'show my Tesco "
                 "payments', 'what did I spend on eating out in April'). Returns at "
-                "most 20 rows, most recent first. Figures are authoritative, never "
-                "estimate your own. Does NOT match account or pot names — `q` only "
+                "most 20 rows, most recent first. Figures are authoritative: quote "
+                "them verbatim, never recompute, derive, or round them yourself. "
+                "Does NOT match account or pot names — `q` only "
                 "searches each row's own description/merchant/category. If the "
                 "question instead NAMES a specific account or pot and asks about "
                 "ITS transactions ('what was the first payment into my Saving "
@@ -272,8 +278,10 @@ TOOL_SCHEMAS = [
                 "and current balance for each. Use this for questions about which "
                 "accounts the user has, or a specific account's balance — and to "
                 "look up an account's id before calling get_account_activity when "
-                "two accounts might share a similar name. Never returns "
-                "credentials, account numbers or sort codes."
+                "two accounts might share a similar name. Balances are "
+                "authoritative: quote them verbatim, use calculate rather than "
+                "summing them yourself. Never returns credentials, account "
+                "numbers or sort codes."
             ),
             "parameters": {"type": "object", "properties": {}, "required": []},
         },
@@ -288,7 +296,10 @@ TOOL_SCHEMAS = [
                 "moved between own accounts. Use this for 'how is my spending going', "
                 "'am I overspending', or 'was I over usual on X'. period_offset 0 is "
                 "the current period, negative values are prior closed periods (-1 = "
-                "last period). Figures are authoritative, never estimate your own."
+                "last period). Figures are authoritative: quote them verbatim, "
+                "never recompute, derive, or round them yourself. `reading` is a "
+                "verdict sentence already decided by the server, reproduce it "
+                "exactly, never rephrase, soften, or contradict it."
             ),
             "parameters": {
                 "type": "object",
@@ -310,7 +321,8 @@ TOOL_SCHEMAS = [
                 "The user's savings buffer: current savings, target, percent funded, "
                 "and monthly income/spending/surplus. Use this for questions about "
                 "savings progress, safety net size, or monthly surplus. Figures are "
-                "authoritative, never estimate your own. monthly_surplus is a 90-day "
+                "authoritative: quote them verbatim, never recompute, derive, or "
+                "round them yourself. monthly_surplus is a 90-day "
                 "smoothed typical-month median, it can read positive even while the "
                 "CURRENT pay period is short — always check the returned period_gate "
                 "field before suggesting the user has money spare to move or stash; "
@@ -329,7 +341,9 @@ TOOL_SCHEMAS = [
                 "The user's credit-card debt position: total debt, monthly interest "
                 "being charged, projected debt-free month, and a per-card breakdown. "
                 "Use this for any question about debt, cards owed on, or interest "
-                "being paid. Figures are authoritative, never estimate your own."
+                "being paid. The projected debt-free month is an estimate, not a "
+                "promise. Figures are authoritative: quote them verbatim, never "
+                "recompute, derive, or round them yourself."
             ),
             "parameters": {"type": "object", "properties": {}, "required": []},
         },
@@ -341,7 +355,9 @@ TOOL_SCHEMAS = [
             "description": (
                 "The user's active savings/spending goals (e.g. a named pot like "
                 "'Japan'), with target amount and target date where set. Use this "
-                "when the question names a goal or asks about progress toward one."
+                "when the question names a goal or asks about progress toward one. "
+                "Figures are authoritative: quote them verbatim, never recompute, "
+                "derive, or round them yourself."
             ),
             "parameters": {"type": "object", "properties": {}, "required": []},
         },
@@ -390,7 +406,8 @@ TOOL_SCHEMAS = [
                 "spend', or any advice-shaped question ('how can I cut my X "
                 "spending') where the facts (the total, how it compares, what's "
                 "driving it) make the answer obvious without you prescribing "
-                "anything. Figures are authoritative, never estimate your own."
+                "anything. Figures are authoritative: quote them verbatim, never "
+                "recompute, derive, or round them yourself."
             ),
             "parameters": {
                 "type": "object",
@@ -412,7 +429,8 @@ TOOL_SCHEMAS = [
                 "alternative, a pattern worth knowing about), the same list shown "
                 "on their Insights page, ranked the same way. Use this for "
                 "questions about insights, tips, saving ideas, or 'what's the "
-                "best insight'. Rank 1 IS the top/best insight, never re-rank."
+                "best insight'. Rank 1 IS the top/best insight, never re-rank. "
+                "Quote each tip's own figures verbatim, never recompute them."
             ),
             "parameters": {"type": "object", "properties": {}, "required": []},
         },
@@ -446,8 +464,8 @@ TOOL_SCHEMAS = [
                 "Benefit. Call this for any UK tax question about the user's "
                 "OWN numbers ('how much personal allowance do I have left', "
                 "'what's my adjusted net income') rather than estimating from "
-                "general knowledge. Figures are authoritative, never estimate "
-                "your own."
+                "general knowledge. Figures are authoritative: quote them "
+                "verbatim, never recompute, derive, or round them yourself."
             ),
             "parameters": {"type": "object", "properties": {}, "required": []},
         },
@@ -464,8 +482,10 @@ TOOL_SCHEMAS = [
                 "(live if it's payday, or a preview otherwise). Use this for "
                 "'what is Penny suggesting/asking', 'why is this move "
                 "recommended', 'what happens if I ignore it', 'what's my "
-                "payday plan'. Figures are authoritative, never estimate your "
-                "own."
+                "payday plan'. Recommended moves are suggestions, never a "
+                "promise money will move. Figures are authoritative: quote "
+                "them verbatim, never recompute, derive, or round them "
+                "yourself."
             ),
             "parameters": {"type": "object", "properties": {}, "required": []},
         },
@@ -481,7 +501,9 @@ TOOL_SCHEMAS = [
                 "subscriptions am I paying', 'when does X renew', 'which "
                 "account does X bill from', or any question naming a "
                 "specific recurring bill rather than the whole upcoming-bills "
-                "list. Figures are authoritative, never estimate your own."
+                "list. `next_expected_date` is an estimate, not a promise. "
+                "Figures are authoritative: quote them verbatim, never "
+                "recompute, derive, or round them yourself."
             ),
             "parameters": {"type": "object", "properties": {}, "required": []},
         },
@@ -509,7 +531,8 @@ TOOL_SCHEMAS = [
                 "an account/pot NAME at all. `account_id_or_name` accepts a "
                 "loose, everyday version of the name (plurals, missing "
                 "words in parentheses), it does not need to be exact. All "
-                "totals are server-aggregated, never sum rows yourself. If "
+                "totals are server-aggregated: quote them verbatim, never "
+                "sum rows yourself. If "
                 "two accounts share a name, this returns `{ambiguous: true, "
                 "matches: [...]}` with each candidate's id instead of "
                 "guessing, call get_accounts first to see every account's id "
@@ -563,7 +586,10 @@ TOOL_SCHEMAS = [
                 "they set) with progress and whether they're on track. Use "
                 "this for 'what is the Mirror', 'why do you say this about "
                 "me', 'how is my aim going', 'what have I kept/changed'. "
-                "Figures are authoritative, never estimate your own."
+                "Whether an aim is on track is a verdict already decided by "
+                "the server, reproduce it exactly, never substitute your own. "
+                "Figures are authoritative: quote them verbatim, never "
+                "recompute, derive, or round them yourself."
             ),
             "parameters": {"type": "object", "properties": {}, "required": []},
         },
@@ -579,7 +605,8 @@ TOOL_SCHEMAS = [
                 "it?' step uses. Use this to find the exact payment that "
                 "should fill an envelope/allocation BEFORE calling "
                 "propose_create_allocation, so match_value names a real, "
-                "recent payment rather than a guess."
+                "recent payment rather than a guess. Amounts are "
+                "authoritative, quote them verbatim."
             ),
             "parameters": {
                 "type": "object",
@@ -652,7 +679,8 @@ TOOL_SCHEMAS = [
                 "it returns a short note that nothing is recalculated, no "
                 "notability required. Call this BEFORE "
                 "propose_record_trend_intent so you can tell the user what "
-                "they're agreeing to, never guess the consequence yourself."
+                "they're agreeing to, never guess the consequence yourself. "
+                "The returned lines are authoritative, quote them verbatim."
             ),
             "parameters": {
                 "type": "object",

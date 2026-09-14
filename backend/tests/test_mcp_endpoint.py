@@ -169,6 +169,29 @@ def test_initialize_handshake_shape():
     assert "version" in result["serverInfo"]
 
 
+def test_initialize_advertises_the_quote_verbatim_contract_via_instructions():
+    """F18: an external harness (Claude.ai, ChatGPT, ...) connecting over
+    `/mcp` has none of Penny's own `_SYSTEM_PROMPT` (app.services.
+    penny_agent), which is what tells Penny's own loop to quote £ figures
+    verbatim and never substitute a server-decided verdict word. The MCP
+    spec's `InitializeResult.instructions` field is the one place that
+    contract's server-wide part can reach every client without repeating a
+    paragraph in all nineteen tool descriptions. This exercises the real
+    `initialize` dispatch path, not just the `MCP_SERVER_INSTRUCTIONS`
+    constant, so a future refactor that stops wiring it through fails here."""
+    resp = _run(mcp.handle_jsonrpc_request(_principal(), {
+        "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {},
+    }))
+    instructions = resp["result"]["instructions"]
+    assert isinstance(instructions, str) and instructions
+    assert instructions == mcp.MCP_SERVER_INSTRUCTIONS
+    low = instructions.lower()
+    assert "verbatim" in low
+    assert "never recompute" in low
+    assert "decided by the server" in low
+    assert "estimate" in low  # future-dated figures are estimates, not promises
+
+
 def test_notifications_initialized_is_a_notification_with_no_response():
     resp = _run(mcp.handle_jsonrpc_request(_principal(), {
         "jsonrpc": "2.0", "method": "notifications/initialized", "params": {},
@@ -227,6 +250,46 @@ def test_tools_list_entries_carry_scope_text_and_input_schema():
     assert "Scope: plans:read." in plans_tool["description"]
     insights_tool = by_name["get_insights"]
     assert "Scope: insights:read." in insights_tool["description"]
+
+
+def test_tools_list_descriptions_carry_the_verbatim_quoting_rule():
+    """F18: the part of the honesty contract that varies per tool (money
+    figures, not just verdicts) must be IN the description text every
+    client actually receives from tools/list, not only in the server-level
+    `instructions` hint a client is free to ignore. Exercises the real
+    dispatch path (handle_jsonrpc_request -> _mcp_tool_list ->
+    TOOL_SCHEMAS), so this fails if a future refactor stops threading a
+    tool's own description through to the advertised schema."""
+    resp = _run(mcp.handle_jsonrpc_request(_principal(), {
+        "jsonrpc": "2.0", "id": 4, "method": "tools/list",
+    }))
+    by_name = {t["name"]: t for t in resp["result"]["tools"]}
+    # Every tool actually advertised over the connector must carry SOME
+    # verbatim-quoting instruction of its own, not rely solely on the
+    # `instructions` hint.
+    for name, tool in by_name.items():
+        assert "verbatim" in tool["description"].lower(), (
+            f"{name}'s advertised description carries no verbatim-quoting rule"
+        )
+
+
+def test_tools_list_descriptions_carry_verdict_fidelity_for_verdict_bearing_tools():
+    """F18: tools whose result includes a server-decided verdict/state word
+    (get_safe_to_spend's `state`, get_spend_verdict's `reading`,
+    check_affordability's `verdict`, get_mirror's on-track status) must say,
+    in their OWN advertised description, that the word must be reproduced
+    exactly rather than replaced by the model's own judgement, the exact
+    failure the F18 audit flagged: an external harness free-styling a
+    different verdict word from Sorted's own figures."""
+    resp = _run(mcp.handle_jsonrpc_request(_principal(), {
+        "jsonrpc": "2.0", "id": 4, "method": "tools/list",
+    }))
+    by_name = {t["name"]: t for t in resp["result"]["tools"]}
+    for name in ("get_safe_to_spend", "get_spend_verdict", "check_affordability", "get_mirror"):
+        desc_low = by_name[name]["description"].lower()
+        assert "verdict" in desc_low or "decided by the server" in desc_low, (
+            f"{name}'s advertised description carries no verdict-fidelity rule"
+        )
 
 
 # ── tools/call: happy path, masking, audit ──────────────────────────────

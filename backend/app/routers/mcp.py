@@ -64,6 +64,41 @@ MCP_PROTOCOL_VERSION = "2025-06-18"
 MCP_SERVER_NAME = "sorted"
 MCP_SERVER_VERSION = "0.1.0"
 
+# F18 (2026-09-14 audit): inside the app, Penny's own loop runs under
+# `app.services.penny_agent._SYSTEM_PROMPT`, which tells the model to quote
+# every tool figure verbatim, never recompute one, and never substitute a
+# server-decided verdict word for its own. An external harness connecting
+# over MCP (Claude.ai, ChatGPT, ...) gets `TOOL_SCHEMAS` through this same
+# router but has none of that prompt, so the honesty contract that keeps
+# Sorted's numbers from being confidently misquoted existed on only one
+# side of the connector. Per-tool descriptions below now carry the
+# tool-specific parts of that contract (see penny_tools.py); this
+# `instructions` field is the MCP-spec-defined place (InitializeResult.
+# instructions, "2025-06-18" section on server instructions) for the
+# ONE copy of the part that applies to every tool, so all nineteen tool
+# descriptions don't each carry the same paragraph. Sent once, in the
+# `initialize` response, per spec: "This can be used by clients to improve
+# the LLM's understanding of available tools... SHOULD NOT be relied upon
+# to strongly influence the model's behavior": a hint, not a guarantee,
+# which is exactly why the load-bearing per-tool lines (verbatim quoting,
+# verdict fidelity) also live in TOOL_SCHEMAS itself, sent on every
+# tools/list and visible to the model at the point it actually reads a
+# result.
+MCP_SERVER_INSTRUCTIONS = (
+    "Sorted tool results are the only source of truth for the user's own "
+    "money. Quote every £ figure verbatim, exactly as returned (prefer a "
+    "result's pre-formatted string): never recompute, derive, sum, or "
+    "round one yourself, even from two real figures you already have; "
+    "call the calculate tool for any multi-step maths instead. Any verdict, state, "
+    "or classification string in a result (for example a safe-to-spend "
+    "state, a spend verdict's reading sentence, an aim's on-track status) "
+    "was already decided by the server from the user's live numbers: "
+    "reproduce it exactly, never paraphrase, soften, or substitute a "
+    "different word of your own. Treat every future-dated figure (an "
+    "upcoming bill, expected income, a projected debt-free month) as an "
+    "estimate, never a promise that money will move on that date."
+)
+
 # v1 scopes (docs/pricing section 7). `transactions:read` is deliberately
 # absent, deferred until a later version adds an explicit transaction-row
 # scope with its own consent line; v1 never returns transaction rows at all,
@@ -467,6 +502,7 @@ async def handle_jsonrpc_request(principal: dict, msg: dict) -> dict | None:
                 "protocolVersion": MCP_PROTOCOL_VERSION,
                 "capabilities": {"tools": {}},
                 "serverInfo": {"name": MCP_SERVER_NAME, "version": MCP_SERVER_VERSION},
+                "instructions": MCP_SERVER_INSTRUCTIONS,
             }
         elif method == "notifications/initialized":
             return None
