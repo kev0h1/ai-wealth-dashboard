@@ -344,6 +344,15 @@ function PeriodCompareWidget({ data, compact }: { data: WidgetData; compact?: bo
   return (
     <>
       {!compact && (() => {
+        // Deliberately no colour here: this is a comparison to the
+        // immediately preceding pay period, not a judgement. Spending more
+        // than last period might be a mortgage payment, an annual bill, or
+        // a deliberate purchase; spending less isn't automatically good
+        // either. No signal upstream marks either direction as concerning
+        // (unlike, say, a notable's amber "N× usual" badge, which fires off
+        // a real pace threshold), so the sentence stays ink throughout and
+        // the money figures carry the only emphasis, via weight and the
+        // app's mono/tabular treatment. See DESIGN.md:142 and item G72.
         const currentEntry = periods.find(p => p.current) ?? periods[periods.length - 1];
         const currentIdx = periods.indexOf(currentEntry);
         const prevEntry = currentIdx > 0 ? periods[currentIdx - 1] : null;
@@ -351,20 +360,19 @@ function PeriodCompareWidget({ data, compact }: { data: WidgetData; compact?: bo
         const prevSpend = prevEntry?.spend ?? 0;
         const delta = prevEntry && prevSpend > 0 ? currentSpend - prevSpend : null;
         const absDelta = delta !== null ? Math.abs(delta) : null;
-        const pct = delta !== null && prevSpend > 0 ? Math.round((Math.abs(delta) / prevSpend) * 100) : null;
         return (
           <p className="text-sm text-slate-600 dark:text-slate-400 leading-snug mb-3">
             <span className="font-bold text-slate-900 dark:text-slate-100 font-mono tabular-nums">{fmtGBP(currentSpend)}</span>
             {" this period"}
-            {delta !== null && absDelta !== null && pct !== null && (
+            {delta !== null && absDelta !== null && (
               delta > 0 ? (
-                <span className="text-amber-600 dark:text-amber-400">
-                  {" · "}<span className="font-bold font-mono tabular-nums">{fmtGBP(absDelta)}</span>{` (${pct}%) more than last`}
-                </span>
+                <>
+                  {" · "}<span className="font-bold font-mono tabular-nums">{fmtGBP(absDelta)}</span>{" more than last"}
+                </>
               ) : delta < 0 ? (
-                <span className="text-emerald-600 dark:text-emerald-400">
-                  {" · "}<span className="font-bold font-mono tabular-nums">{fmtGBP(absDelta)}</span>{` (${pct}%) less than last`}
-                </span>
+                <>
+                  {" · "}<span className="font-bold font-mono tabular-nums">{fmtGBP(absDelta)}</span>{" less than last"}
+                </>
               ) : null
             )}
           </p>
