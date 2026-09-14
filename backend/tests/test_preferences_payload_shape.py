@@ -144,9 +144,19 @@ def test_new_user_gets_the_normal_branchs_own_empty_doc_defaults_for_previously_
     assert result["home_pinned_accounts"] == []
     assert result["home_pinned_cards"] == []
     assert result["spend_widgets"] is None
-    assert result["home_pinned_widget"] is None
+    assert result["home_pinned_widget"] == "period_compare"
     assert result["recurring_categories"] == DEFAULT_RECURRING_CATEGORIES
     assert result["dismissed_recurring"] == []
+
+
+def test_existing_user_explicitly_unpinned_from_home_stays_unpinned(monkeypatch):
+    """The new-user default applies only when the field is absent. A stored
+    null is an intentional user choice and must not silently repin a chart."""
+    _patch(monkeypatch, doc={"user_id": UID, "home_pinned_widget": None})
+
+    result = asyncio.run(preferences.get_preferences({"email": UID}))
+
+    assert result["home_pinned_widget"] is None
 
 
 def test_existing_but_empty_document_also_reports_version_zero(monkeypatch):

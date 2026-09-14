@@ -23,7 +23,8 @@ import {
   TrendingUp,
   X,
 } from "lucide-react";
-import { PaceCurveWidget, type WidgetData } from "@/components/SpendTrends";
+import SpendTrends, { DEFAULT_WIDGETS, PaceCurveWidget, type WidgetData } from "@/components/SpendTrends";
+import type { Transaction } from "@/lib/api";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { DEFAULT_PAY_PERIOD_CONFIG } from "@/lib/payPeriod";
 import { useSheetA11y } from "@/lib/useSheetA11y";
@@ -70,9 +71,21 @@ export const INITIAL_CHART_COLLECTION: ChartCollectionState = {
   pinned: "period",
 };
 
+export const CHART_TRANSACTIONS: Transaction[] = [
+  { id: "chart-1", account_id: "preview", date: "2026-09-02", amount: 2080, currency: "GBP", description: "Bills", category: "Bills", transaction_type: "debit" },
+  { id: "chart-2", account_id: "preview", date: "2026-09-05", amount: 612, currency: "GBP", description: "Eating out", category: "Eating Out", transaction_type: "debit" },
+  { id: "chart-3", account_id: "preview", date: "2026-09-08", amount: 448, currency: "GBP", description: "Transport", category: "Transport", transaction_type: "debit" },
+  { id: "chart-4", account_id: "preview", date: "2026-09-11", amount: 421, currency: "GBP", description: "Groceries", category: "Groceries", transaction_type: "debit" },
+  { id: "chart-5", account_id: "preview", date: "2026-09-13", amount: 1075, currency: "GBP", description: "Other spending", category: "Shopping", transaction_type: "debit" },
+  { id: "chart-prev-1", account_id: "preview", date: "2026-08-12", amount: 1620, currency: "GBP", description: "Previous bills", category: "Bills", transaction_type: "debit" },
+  { id: "chart-prev-2", account_id: "preview", date: "2026-08-18", amount: 1990, currency: "GBP", description: "Previous spending", category: "Shopping", transaction_type: "debit" },
+  { id: "chart-prev-3", account_id: "preview", date: "2026-07-14", amount: 3385, currency: "GBP", description: "Earlier spending", category: "Bills", transaction_type: "debit" },
+  { id: "chart-prev-4", account_id: "preview", date: "2026-06-15", amount: 3900, currency: "GBP", description: "Earlier spending", category: "Bills", transaction_type: "debit" },
+];
+
 const WIDGET_DATA: WidgetData = {
-  periodTxns: [],
-  allTxns: [],
+  periodTxns: CHART_TRANSACTIONS.slice(0, 5),
+  allTxns: CHART_TRANSACTIONS,
   periodStart: new Date("2026-08-30T00:00:00Z"),
   periodEnd: new Date("2026-09-26T00:00:00Z"),
   payPeriodConfig: DEFAULT_PAY_PERIOD_CONFIG,
@@ -387,5 +400,17 @@ export default function VariantACharts({ placement, pageHref, collection, setCol
   setCollection: Dispatch<SetStateAction<ChartCollectionState>>;
 }) {
   if (placement === "page") return <SeparatePageEntry href={pageHref} collection={collection} />;
-  return <ChartManagerPreview collection={collection} setCollection={setCollection} />;
+  return (
+    <SpendTrends
+      embedded
+      preview={{ widgets: DEFAULT_WIDGETS, pinnedWidget: "period_compare" }}
+      periodTxns={WIDGET_DATA.periodTxns}
+      allTxns={WIDGET_DATA.allTxns}
+      periodStart={WIDGET_DATA.periodStart}
+      periodEnd={WIDGET_DATA.periodEnd}
+      payPeriodConfig={WIDGET_DATA.payPeriodConfig}
+      colours={WIDGET_DATA.colours}
+      paceSeries={WIDGET_DATA.paceSeries}
+    />
+  );
 }

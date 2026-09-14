@@ -11,8 +11,8 @@ import {
   PieChart, Pie, Cell, BarChart, Bar, LineChart, Line, AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 import {
-  ChartPie, BarChart3, TrendingUp, TrendingDown, AlignStartVertical, MoreVertical,
-  Pin, PinOff, Trash2, Plus, ChevronRight, Activity,
+  ChartPie, BarChart3, TrendingUp, TrendingDown, AlignStartVertical, MoreVertical, GripVertical, ChevronUp, ChevronDown,
+  Pin, PinOff, Trash2, Plus, ChevronRight, Activity, X,
   Car, Fuel, Train, Bus, CarTaxiFront, PlugZap, Wrench, SquareParking,
 } from "lucide-react";
 import {
@@ -50,7 +50,9 @@ function useIsDark() {
 
 export type WidgetId = "category_pie" | "daily_bars" | "period_compare" | "size_distribution" | "transport_modes" | "pace_curve" | "debt_burndown";
 
-export const DEFAULT_WIDGETS: WidgetId[] = ["category_pie", "daily_bars"];
+// Only used before preferences load. A loaded empty list is intentional: it
+// means the person has removed every chart, so never repopulate it here.
+export const DEFAULT_WIDGETS: WidgetId[] = ["category_pie", "daily_bars", "pace_curve", "period_compare"];
 
 const WIDGET_META: Record<WidgetId, { title: string; description: string; Icon: typeof ChartPie }> = {
   category_pie: {
@@ -456,10 +458,12 @@ function SizeDistributionWidget({ data, compact }: { data: WidgetData; compact?:
                 }
               </p>
               {/* By spend / By count segmented pill toggle */}
-              <div className="flex-shrink-0 flex rounded-full border border-slate-200 dark:border-slate-600 overflow-hidden text-[11px] font-semibold">
+              <div role="group" aria-label="Payment size chart measure" className="flex shrink-0 overflow-hidden rounded-full border border-slate-200 text-[11px] font-semibold dark:border-slate-600">
                 <button
+                  type="button"
                   onClick={() => setMode("spend")}
-                  className={`px-2.5 py-1 transition-colors ${
+                  aria-pressed={mode === "spend"}
+                  className={`min-h-11 px-2.5 py-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 ${
                     mode === "spend"
                       ? "bg-slate-200 dark:bg-slate-600 text-slate-900 dark:text-slate-100"
                       : "bg-transparent text-slate-500 dark:text-slate-400 active:bg-slate-100 dark:active:bg-slate-700"
@@ -468,8 +472,10 @@ function SizeDistributionWidget({ data, compact }: { data: WidgetData; compact?:
                   By spend
                 </button>
                 <button
+                  type="button"
                   onClick={() => setMode("count")}
-                  className={`px-2.5 py-1 transition-colors ${
+                  aria-pressed={mode === "count"}
+                  className={`min-h-11 px-2.5 py-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 ${
                     mode === "count"
                       ? "bg-slate-200 dark:bg-slate-600 text-slate-900 dark:text-slate-100"
                       : "bg-transparent text-slate-500 dark:text-slate-400 active:bg-slate-100 dark:active:bg-slate-700"
@@ -481,8 +487,9 @@ function SizeDistributionWidget({ data, compact }: { data: WidgetData; compact?:
             </div>
             {largeCount > 0 && data.onReviewLarge && (
               <button
+                type="button"
                 onClick={data.onReviewLarge}
-                className="px-4 py-1.5 rounded-full border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 text-xs font-semibold active:scale-95 transition-transform bg-transparent"
+                className="min-h-11 rounded-full border border-slate-300 bg-transparent px-4 py-1.5 text-xs font-semibold text-slate-700 transition-[background-color,transform] hover:bg-slate-50 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 motion-reduce:transition-none dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
               >
                 Review large payments
               </button>
@@ -905,18 +912,22 @@ function renderWidget(id: WidgetId, data: WidgetData, compact?: boolean) {
 /* ── Widget card chrome ───────────────────────────────────────────── */
 
 function WidgetCard({
-  id, data, pinned, otherPinned, onPin, onRemove,
+  id, data, pinned, otherPinned, canMoveUp, canMoveDown, onMoveUp, onMoveDown, onPin, onRemove,
 }: {
   id: WidgetId;
   data: WidgetData;
   pinned: boolean;
   otherPinned: boolean; // one Home slot — pinning here evicts the current pin
+  canMoveUp: boolean;
+  canMoveDown: boolean;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
   onPin: () => void;
   onRemove: () => void;
 }) {
-  // Hold (300ms) anywhere on the card to lift and drag it into a new spot;
-  // quick touches still scroll/tap as normal
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  // The visible handle keeps chart controls tappable. A 300ms hold on it
+  // activates touch dragging; mouse dragging begins after 8px of movement.
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({ id });
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const meta = WIDGET_META[id];
@@ -937,33 +948,62 @@ function WidgetCard({
   return (
     <div
       ref={setNodeRef}
-      {...attributes}
-      {...listeners}
       style={{
         transform: CSS.Transform.toString(transform),
         transition,
-        touchAction: "manipulation",
         zIndex: isDragging ? 30 : undefined,
         position: "relative",
       }}
       className={`glass-card rounded-2xl p-4 ${
-        isDragging ? "shadow-xl ring-2 ring-indigo-300 dark:ring-indigo-500/50 scale-[1.02]" : ""
+        isDragging ? "select-none shadow-xl ring-2 ring-indigo-300 dark:ring-indigo-500/50 scale-[1.02]" : ""
       }`}
     >
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2 min-w-0">
+          <button
+            ref={setActivatorNodeRef}
+            type="button"
+            {...attributes}
+            {...listeners}
+            aria-label={`Reorder ${meta.title}. Press Space to pick up, use arrow keys to move, then press Space to drop.`}
+            title="Drag to reorder"
+            className="-ml-2 flex size-11 shrink-0 touch-none items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-500 dark:hover:bg-slate-700 dark:hover:text-slate-300"
+          >
+            <GripVertical size={18} aria-hidden="true" />
+          </button>
           <p className="text-base font-bold text-slate-800 dark:text-slate-100 truncate">{meta.title}</p>
-          {pinned && <Pin size={11} className="text-indigo-400 flex-shrink-0" />}
+          {pinned && (
+            <>
+              <Pin size={11} className="shrink-0 text-indigo-400" aria-hidden="true" />
+              <span className="sr-only">Pinned to Home</span>
+            </>
+          )}
         </div>
         <div className="relative" ref={menuRef}>
           <button
+            type="button"
             onClick={() => setMenuOpen(v => !v)}
-            className="w-10 h-10 -mr-1 flex items-center justify-center rounded-full text-slate-400 dark:text-slate-500 active:bg-slate-100 dark:active:bg-slate-700"
+            aria-label={`Manage ${meta.title}`}
+            aria-expanded={menuOpen}
+            aria-haspopup="menu"
+            className="size-11 -mr-1 flex items-center justify-center rounded-full text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-500 active:bg-slate-100 dark:active:bg-slate-700"
           >
-            <MoreVertical size={15} />
+            <MoreVertical size={15} aria-hidden="true" />
           </button>
           {menuOpen && (
-            <div className="absolute right-0 top-8 z-20 w-52 bg-white dark:bg-slate-700 rounded-xl shadow-lg border border-slate-100 dark:border-slate-600 py-1 overflow-hidden">
+            <div role="menu" className="absolute right-0 top-10 z-20 w-52 overflow-hidden rounded-xl border border-slate-100 bg-white py-1 shadow-lg dark:border-slate-600 dark:bg-slate-700">
+              <MenuItem
+                icon={<ChevronUp size={13} />}
+                label="Move up"
+                disabled={!canMoveUp}
+                onClick={() => { setMenuOpen(false); onMoveUp(); }}
+              />
+              <MenuItem
+                icon={<ChevronDown size={13} />}
+                label="Move down"
+                disabled={!canMoveDown}
+                onClick={() => { setMenuOpen(false); onMoveDown(); }}
+              />
               <MenuItem
                 icon={pinned ? <PinOff size={13} /> : <Pin size={13} />}
                 label={pinned ? "Unpin from Home" : otherPinned ? "Pin to Home (replaces pin)" : "Pin to Home"}
@@ -980,17 +1020,20 @@ function WidgetCard({
   );
 }
 
-function MenuItem({ icon, label, onClick, destructive }: {
-  icon: React.ReactNode; label: string; onClick: () => void; destructive?: boolean;
+function MenuItem({ icon, label, onClick, destructive, disabled = false }: {
+  icon: React.ReactNode; label: string; onClick: () => void; destructive?: boolean; disabled?: boolean;
 }) {
   return (
     <button
+      type="button"
+      role="menuitem"
       onClick={onClick}
-      className={`w-full flex items-center gap-2.5 px-3.5 py-2.5 text-xs font-medium text-left active:bg-slate-50 dark:active:bg-slate-600 ${
+      disabled={disabled}
+      className={`flex min-h-11 w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-xs font-medium active:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-40 dark:active:bg-slate-600 ${
         destructive ? "text-red-500 dark:text-red-400" : "text-slate-700 dark:text-slate-200"
       }`}
     >
-      {icon}
+      <span aria-hidden="true">{icon}</span>
       {label}
     </button>
   );
@@ -1006,6 +1049,12 @@ export default function SpendTrends(props: {
   payPeriodConfig: PayPeriodConfig;
   colours: Record<string, string>;
   onReviewLarge?: () => void;
+  /** Removes the standalone page gutter when the collection is rendered as
+   *  the final stop in the G57 pay-period journey. */
+  embedded?: boolean;
+  /** Fixture-backed design routes can exercise this production collection
+   *  without reading or writing an authenticated user's preferences. */
+  preview?: { widgets?: WidgetId[]; pinnedWidget?: WidgetId | null };
   // Threaded from SpendPage.tsx's verdict?.pace_series — see WidgetData's
   // own comment for why this can't be derived from periodTxns/allTxns.
   paceSeries?: SpendVerdictPaceEntry[];
@@ -1016,9 +1065,11 @@ export default function SpendTrends(props: {
     refreshPreferences, notePreferencesVersion,
   } = usePreferences();
   // prefsLoaded is true once the context has received the server response (non-null array).
-  const prefsLoaded = ctxWidgets !== null;
-  const [widgets, setWidgets] = useState<WidgetId[]>(DEFAULT_WIDGETS);
-  const [pinnedWidget, setPinnedWidget] = useState<WidgetId | null>(null);
+  const prefsLoaded = props.preview != null || ctxWidgets !== null;
+  const initialWidgets = props.preview?.widgets ?? DEFAULT_WIDGETS;
+  const initialPinnedWidget = props.preview?.pinnedWidget ?? null;
+  const [widgets, setWidgets] = useState<WidgetId[]>(initialWidgets);
+  const [pinnedWidget, setPinnedWidget] = useState<WidgetId | null>(initialPinnedWidget);
   const [galleryOpen, setGalleryOpen] = useState(false);
   // G60: saveWidgets/savePinned used to setState then fire
   // api.updatePreferences(...).catch(() => {}) with no revert and nothing
@@ -1028,13 +1079,15 @@ export default function SpendTrends(props: {
   // shared by both fields since they live in the same on-screen region and
   // are never both mid-save from the same user action.
   const [widgetsSaveMsg, setWidgetsSaveMsg] = useState<string | null>(null);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [removedWidget, setRemovedWidget] = useState<{ id: WidgetId; index: number; wasPinned: boolean } | null>(null);
 
   // Read via these refs at the top of a queued save (lib/preferenceSave.ts,
   // point 3) rather than the `widgets`/`pinnedWidget` state closed over when
   // the save was enqueued — see applyWidgets/applyPinned below, the only two
   // places that mutate them.
-  const widgetsRef = useRef<WidgetId[]>(DEFAULT_WIDGETS);
-  const pinnedRef = useRef<WidgetId | null>(null);
+  const widgetsRef = useRef<WidgetId[]>(initialWidgets);
+  const pinnedRef = useRef<WidgetId | null>(initialPinnedWidget);
 
   // Applies a value to this component's own `widgets` mirror AND the
   // shared PreferencesContext copy (read elsewhere, e.g. HomePage's pinned
@@ -1057,18 +1110,20 @@ export default function SpendTrends(props: {
   // context's own mount-time GET /preferences, which resolves after this
   // component has already rendered with the DEFAULT_WIDGETS placeholder).
   useEffect(() => {
+    if (props.preview) return;
     if (ctxWidgets !== null) {
       const filtered = ctxWidgets.filter(isWidgetId);
       widgetsRef.current = filtered;
       setWidgets(filtered);
     }
-  }, [ctxWidgets]);
+  }, [ctxWidgets, props.preview]);
 
   useEffect(() => {
+    if (props.preview) return;
     const next = isWidgetId(ctxPinned) ? ctxPinned : null;
     pinnedRef.current = next;
     setPinnedWidget(next);
-  }, [ctxPinned]);
+  }, [ctxPinned, props.preview]);
 
   const spendWidgetsSaver = useRef(createPreferenceSaver<WidgetId[]>({
     queue: createSerialQueue(),
@@ -1083,7 +1138,7 @@ export default function SpendTrends(props: {
     },
     noteVersion: notePreferencesVersion,
     onError: setWidgetsSaveMsg,
-    failureMessage: "Could not save your widget changes. Try again.",
+    failureMessage: "Could not save your chart changes. Try again.",
   })).current;
 
   const pinnedWidgetSaver = useRef(createPreferenceSaver<WidgetId | null>({
@@ -1098,20 +1153,71 @@ export default function SpendTrends(props: {
     },
     noteVersion: notePreferencesVersion,
     onError: setWidgetsSaveMsg,
-    failureMessage: "Could not save your widget changes. Try again.",
+    failureMessage: "Could not save your chart changes. Try again.",
   })).current;
 
   function saveWidgets(next: WidgetId[]) {
+    if (props.preview) {
+      applyWidgets(next);
+      setWidgetsSaveMsg(null);
+      return;
+    }
     void spendWidgetsSaver.run(next);
   }
 
   function savePinned(next: WidgetId | null) {
+    if (props.preview) {
+      applyPinned(next);
+      setWidgetsSaveMsg(null);
+      return;
+    }
     void pinnedWidgetSaver.run(next);
   }
 
   function removeWidget(id: WidgetId) {
+    const index = widgets.indexOf(id);
+    if (index < 0) return;
+    const wasPinned = pinnedWidget === id;
     saveWidgets(widgets.filter(w => w !== id));
-    if (pinnedWidget === id) savePinned(null);
+    if (wasPinned) savePinned(null);
+    setRemovedWidget({ id, index, wasPinned });
+    setActionMessage(`${WIDGET_META[id].title} removed.`);
+  }
+
+  function moveWidget(id: WidgetId, direction: -1 | 1) {
+    const from = widgets.indexOf(id);
+    const to = from + direction;
+    if (from < 0 || to < 0 || to >= widgets.length) return;
+    saveWidgets(arrayMove(widgets, from, to));
+    setRemovedWidget(null);
+    setActionMessage(`${WIDGET_META[id].title} moved ${direction < 0 ? "up" : "down"}.`);
+  }
+
+  function undoRemove() {
+    if (!removedWidget) return;
+    const next = [...widgetsRef.current];
+    next.splice(Math.min(removedWidget.index, next.length), 0, removedWidget.id);
+    saveWidgets(next);
+    if (removedWidget.wasPinned) savePinned(removedWidget.id);
+    setActionMessage(`${WIDGET_META[removedWidget.id].title} restored.`);
+    setRemovedWidget(null);
+  }
+
+  function togglePinnedWidget(id: WidgetId) {
+    const next = pinnedWidget === id ? null : id;
+    const replaced = pinnedWidget !== null && pinnedWidget !== id ? pinnedWidget : null;
+    savePinned(next);
+    setRemovedWidget(null);
+    setActionMessage(next
+      ? `${WIDGET_META[id].title} pinned to Home.${replaced ? ` ${WIDGET_META[replaced].title} was replaced.` : ""}`
+      : `${WIDGET_META[id].title} unpinned from Home.`);
+  }
+
+  function addWidget(id: WidgetId) {
+    saveWidgets([...widgets, id]);
+    setGalleryOpen(false);
+    setRemovedWidget(null);
+    setActionMessage(`${WIDGET_META[id].title} added.`);
   }
 
   // TouchSensor (not PointerSensor): pointer events are passive, so the browser
@@ -1130,6 +1236,8 @@ export default function SpendTrends(props: {
     const to = widgets.indexOf(over.id as WidgetId);
     if (from < 0 || to < 0) return;
     saveWidgets(arrayMove(widgets, from, to));
+    setRemovedWidget(null);
+    setActionMessage(`${WIDGET_META[active.id as WidgetId].title} moved.`);
   }
 
   const data: WidgetData = {
@@ -1146,7 +1254,15 @@ export default function SpendTrends(props: {
   const available = ALL_WIDGETS.filter(w => !widgets.includes(w));
 
   return (
-    <div className="px-4 pt-4 space-y-3">
+    <div className={`${props.embedded ? "pt-4" : "px-4 pt-4"} space-y-3`}>
+      {actionMessage && (
+        <div role="status" aria-live="polite" className="flex min-h-11 items-center gap-3 rounded-xl bg-slate-100 px-3 text-xs font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+          <span className="min-w-0 flex-1">{actionMessage}</span>
+          {removedWidget && (
+            <button type="button" onClick={undoRemove} className="min-h-11 shrink-0 font-bold text-indigo-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-300">Undo</button>
+          )}
+        </div>
+      )}
       {prefsLoaded && widgets.length === 0 && (
         <div className="glass-card rounded-2xl p-8 text-center">
           <p className="text-sm text-slate-500 dark:text-slate-400">
@@ -1165,7 +1281,11 @@ export default function SpendTrends(props: {
                 data={data}
                 pinned={pinnedWidget === id}
                 otherPinned={pinnedWidget !== null && pinnedWidget !== id}
-                onPin={() => savePinned(pinnedWidget === id ? null : id)}
+                canMoveUp={widgets.indexOf(id) > 0}
+                canMoveDown={widgets.indexOf(id) < widgets.length - 1}
+                onMoveUp={() => moveWidget(id, -1)}
+                onMoveDown={() => moveWidget(id, 1)}
+                onPin={() => togglePinnedWidget(id)}
                 onRemove={() => removeWidget(id)}
               />
             ))}
@@ -1175,10 +1295,11 @@ export default function SpendTrends(props: {
 
       {available.length > 0 && (
         <button
+          type="button"
           onClick={() => setGalleryOpen(true)}
-          className="w-full flex items-center justify-center gap-1.5 py-3.5 rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 text-xs font-semibold active:scale-[0.98] transition-transform"
+          className="flex min-h-14 w-full items-center justify-center gap-1.5 rounded-2xl border-2 border-dashed border-slate-200 text-xs font-semibold text-slate-500 transition-[background-color,border-color,transform] hover:border-indigo-300 hover:bg-indigo-50/60 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 motion-reduce:transition-none dark:border-slate-700 dark:text-slate-400 dark:hover:border-indigo-400/40 dark:hover:bg-indigo-400/10"
         >
-          <Plus size={14} /> Add widget
+          <Plus size={14} aria-hidden="true" /> Add chart
         </button>
       )}
 
@@ -1196,7 +1317,7 @@ export default function SpendTrends(props: {
       {galleryOpen && (
         <AddWidgetGallery
           available={available}
-          onAdd={id => { saveWidgets([...widgets, id]); setGalleryOpen(false); }}
+          onAdd={addWidget}
           onClose={() => setGalleryOpen(false)}
         />
       )}
@@ -1213,35 +1334,41 @@ function AddWidgetGallery({ available, onAdd, onClose }: {
   const panelRef = useSheetA11y<HTMLDivElement>(onClose);
   return (
     <>
-      <div className="fixed inset-0 bg-black/40 z-[65]" onClick={onClose} />
+      <button type="button" tabIndex={-1} aria-label="Close add chart" onClick={onClose} className="fixed inset-0 z-[65] cursor-default bg-black/40" />
       <div
         ref={panelRef}
         role="dialog"
         aria-modal="true"
-        aria-label="Add a widget"
+        aria-label="Add a chart"
         className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] lg:max-w-md lg:bottom-auto lg:top-1/2 lg:-translate-y-1/2 glass-sheet rounded-t-3xl lg:rounded-3xl z-[70] max-h-[88dvh] overflow-y-auto p-5 pb-[calc(2rem+env(safe-area-inset-bottom))] lg:pb-5"
       >
-        <p className="text-base font-bold text-slate-900 dark:text-slate-100 mb-1">Add a widget</p>
-        <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
-          Most charts use the pay period you're viewing.
-        </p>
-        <div className="space-y-2">
+        <div className="flex items-start gap-4">
+          <div className="min-w-0 flex-1">
+            <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">Add a chart</h2>
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Most charts use the pay period you&apos;re viewing.</p>
+          </div>
+          <button type="button" aria-label="Close" onClick={onClose} className="flex size-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-600 transition-colors hover:bg-slate-50 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">
+            <X size={17} aria-hidden="true" />
+          </button>
+        </div>
+        <div className="mt-4 space-y-2">
           {available.map(id => {
             const { title, description, Icon } = WIDGET_META[id];
             return (
               <button
                 key={id}
+                type="button"
                 onClick={() => onAdd(id)}
-                className="w-full flex items-center gap-3 p-3 rounded-2xl bg-slate-50 dark:bg-slate-700/50 active:scale-[0.98] transition-transform text-left"
+                className="flex min-h-16 w-full items-center gap-3 rounded-2xl bg-slate-50 p-3 text-left transition-[background-color,transform] hover:bg-indigo-50 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 motion-reduce:transition-none dark:bg-slate-700/50 dark:hover:bg-indigo-400/10"
                   >
                     <span className="w-9 h-9 rounded-xl bg-indigo-50 dark:bg-indigo-900/30 flex items-center justify-center flex-shrink-0">
-                      <Icon size={16} className="text-indigo-500 dark:text-indigo-400" />
+                      <Icon size={16} aria-hidden="true" className="text-indigo-500 dark:text-indigo-400" />
                     </span>
                     <span className="flex-1 min-w-0">
                       <span className="block text-sm font-semibold text-slate-800 dark:text-slate-100">{title}</span>
                       <span className="block text-[11px] text-slate-500 dark:text-slate-400">{description}</span>
                     </span>
-                    <Plus size={15} className="text-slate-300 dark:text-slate-500 flex-shrink-0" />
+                    <Plus size={15} aria-hidden="true" className="text-slate-300 dark:text-slate-500 flex-shrink-0" />
               </button>
             );
           })}
@@ -1317,8 +1444,9 @@ export function PinnedWidgetCard({
   return (
     <div className="lg:mx-0">
       <button
+        type="button"
         onClick={onOpen}
-        className="w-full glass-card rounded-2xl p-4 text-left active:scale-[0.99] transition-transform"
+        className="glass-card w-full rounded-2xl p-4 text-left transition-transform hover:ring-1 hover:ring-slate-300 active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 motion-reduce:transition-none dark:hover:ring-slate-600"
       >
         <div className="flex items-center justify-between mb-2.5">
           <p className="text-base font-bold text-slate-800 dark:text-slate-100">

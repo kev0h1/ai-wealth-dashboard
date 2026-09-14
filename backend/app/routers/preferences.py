@@ -14,6 +14,12 @@ from app.routers.analytics import DEFAULT_RECURRING_CATEGORIES
 
 router = APIRouter(tags=["preferences"])
 
+# G57 A1: a first-time user's Home evidence starts with the approved period
+# comparison chart. An explicitly stored None still means they chose to
+# unpin it, because dict.get returns that stored value instead of this
+# missing-field default.
+DEFAULT_HOME_PINNED_WIDGET = "period_compare"
+
 
 def _notif_prefs(doc: dict) -> dict:
     saved = (doc or {}).get("notification_prefs") or {}
@@ -71,7 +77,7 @@ async def get_preferences(user: dict = Depends(current_user)):
         "home_pinned_accounts": doc.get("home_pinned_accounts", []),
         "home_pinned_cards":  doc.get("home_pinned_cards", []),
         "spend_widgets":      doc.get("spend_widgets"),
-        "home_pinned_widget": doc.get("home_pinned_widget"),
+        "home_pinned_widget": doc.get("home_pinned_widget", DEFAULT_HOME_PINNED_WIDGET),
         # "What-if" figures for the Spend page's debt_burndown widget — local
         # experimentation only, never fed back into card_terms/accounts.
         "debt_burndown_overrides": doc.get("debt_burndown_overrides"),

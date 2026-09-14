@@ -28,7 +28,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, Settings2, Search, Info, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Settings2, SlidersHorizontal, Search, Info, X } from "lucide-react";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { useSheetA11y } from "@/lib/useSheetA11y";
 import TransactionRow from "@/components/TransactionRow";
@@ -184,7 +184,7 @@ function PeriodSheet({
   const panelRef = useSheetA11y<HTMLDivElement>(onClose);
   return (
     <>
-      <div className="fixed inset-0 bg-black/40 z-[65]" onClick={onClose} />
+      <button type="button" tabIndex={-1} aria-label="Close pay periods" className="fixed inset-0 z-[65] cursor-default bg-black/40" onClick={onClose} />
       <div
         ref={panelRef}
         role="dialog"
@@ -196,11 +196,12 @@ function PeriodSheet({
         <div className="flex items-center justify-between px-4 pt-4 pb-2">
           <p className="text-sm font-bold text-slate-900 dark:text-slate-100">Pay periods</p>
           <button
+            type="button"
             onClick={onClose}
             aria-label="Close"
-            className="w-11 h-11 -mr-2 flex items-center justify-center rounded-full active:bg-slate-100 dark:active:bg-slate-700/60 transition-colors"
+            className="-mr-2 flex size-11 items-center justify-center rounded-full transition-colors hover:bg-slate-100 active:bg-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:hover:bg-slate-700/40 dark:active:bg-slate-700/70"
           >
-            <X size={18} className="text-slate-500 dark:text-slate-400" />
+            <X size={18} aria-hidden="true" className="text-slate-500 dark:text-slate-400" />
           </button>
         </div>
         <div className="px-2 pb-2" data-tutorial-id="tutorial-spend-periods">
@@ -209,7 +210,7 @@ function PeriodSheet({
               key={p.offset}
               type="button"
               onClick={() => { onSelectOffset(p.offset); onClose(); }}
-              className="w-full min-h-[44px] flex items-center justify-between px-3 rounded-xl active:bg-slate-100 dark:active:bg-slate-700/40 transition-colors"
+              className="flex min-h-[44px] w-full items-center justify-between rounded-xl px-3 transition-colors hover:bg-slate-50 active:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 dark:hover:bg-slate-700/20 dark:active:bg-slate-700/40"
             >
               <span className="text-sm font-medium text-slate-800 dark:text-slate-100">{p.label}</span>
               {p.offset === 0 && (
@@ -219,10 +220,18 @@ function PeriodSheet({
           ))}
         </div>
         <div className="border-t border-slate-100 dark:border-slate-700 px-2 pt-2">
+          <Link
+            href="/transactions"
+            onClick={onClose}
+            className="flex min-h-11 w-full items-center gap-2.5 rounded-xl px-3 text-left text-sm font-medium text-slate-800 transition-colors active:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-100 dark:active:bg-slate-700/40"
+          >
+            <Search size={15} aria-hidden="true" className="shrink-0 text-slate-500 dark:text-slate-400" />
+            Search transactions
+          </Link>
           <button
             type="button"
             onClick={() => { onOpenSettings(); onClose(); }}
-            className="w-full min-h-[44px] flex items-center gap-2.5 px-3 rounded-xl active:bg-slate-100 dark:active:bg-slate-700/40 transition-colors text-left"
+            className="flex min-h-[44px] w-full items-center gap-2.5 rounded-xl px-3 text-left transition-colors hover:bg-slate-50 active:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 dark:hover:bg-slate-700/20 dark:active:bg-slate-700/40"
           >
             <Settings2 size={15} className="text-slate-500 dark:text-slate-400 flex-shrink-0" />
             <span className="text-sm font-medium text-slate-800 dark:text-slate-100">Pay period settings</span>
@@ -230,7 +239,7 @@ function PeriodSheet({
           <button
             type="button"
             onClick={() => { onOpenRules(); onClose(); }}
-            className="w-full min-h-[44px] flex items-center gap-2.5 px-3 rounded-xl active:bg-slate-100 dark:active:bg-slate-700/40 transition-colors text-left"
+            className="flex min-h-[44px] w-full items-center gap-2.5 rounded-xl px-3 text-left transition-colors hover:bg-slate-50 active:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 dark:hover:bg-slate-700/20 dark:active:bg-slate-700/40"
             data-tutorial-id="tutorial-spend-manage"
           >
             <Info size={15} className="text-slate-500 dark:text-slate-400 flex-shrink-0" />
@@ -277,6 +286,181 @@ export function SpendHeroSkeleton() {
           <div className="h-3.5 w-2/3 rounded bg-slate-200 dark:bg-slate-700" />
         </div>
       </div>
+    </div>
+  );
+}
+
+/** The full-width control row used by the approved pay-period journey. */
+export function SpendPeriodBar(props: SpendHeaderProps) {
+  const {
+    verdict, periodLabel, isCurrentPeriod, canGoPrev, onPrev, onNext,
+    onOpenSettings, onOpenRules, recentPeriods = [], onSelectOffset,
+  } = props;
+  const [sheetOpen, setSheetOpen] = useState(false);
+
+  if (!verdict) return <SpendHeroSkeleton />;
+
+  return (
+    <>
+      <header className="flex flex-wrap items-center gap-x-3 gap-y-3 border-b border-slate-200/90 pb-4 dark:border-slate-700/80">
+        <div className="mr-auto">
+          <h1 className="text-[28px] font-bold leading-none tracking-[-0.03em] text-slate-950 dark:text-white">Spend</h1>
+          <p className="mt-1 text-[13px] text-slate-600 dark:text-slate-400">
+            Day {verdict.period.days_elapsed}{verdict.period.days_left != null ? ` of ${verdict.period.days_elapsed + verdict.period.days_left}` : ""}
+          </p>
+        </div>
+
+        <nav aria-label="Pay period" className="flex min-h-11 items-center rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800">
+          <button
+            type="button"
+            aria-label="Previous pay period"
+            disabled={!canGoPrev}
+            onClick={onPrev}
+            className="flex min-h-11 min-w-11 items-center justify-center rounded-l-xl text-slate-600 transition-colors hover:bg-slate-50 active:scale-95 disabled:cursor-not-allowed disabled:text-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 motion-reduce:transition-none dark:text-slate-300 dark:hover:bg-slate-700 dark:disabled:text-slate-600"
+          >
+            <ChevronLeft size={17} aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setSheetOpen(true)}
+            className="min-h-11 max-w-[190px] truncate border-x border-slate-200 px-3 text-[13px] font-semibold text-slate-800 transition-colors hover:bg-slate-50 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 motion-reduce:transition-none dark:border-slate-700 dark:text-slate-100 dark:hover:bg-slate-700"
+          >
+            {periodLabel.replace(" → ", " to ")}
+          </button>
+          <button
+            type="button"
+            aria-label="Next pay period"
+            disabled={isCurrentPeriod}
+            onClick={onNext}
+            className="flex min-h-11 min-w-11 items-center justify-center rounded-r-xl text-slate-600 transition-colors hover:bg-slate-50 active:scale-95 disabled:cursor-not-allowed disabled:text-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 motion-reduce:transition-none dark:text-slate-300 dark:hover:bg-slate-700 dark:disabled:text-slate-600"
+          >
+            <ChevronRight size={17} aria-hidden="true" />
+          </button>
+        </nav>
+
+        <button
+          type="button"
+          onClick={() => setSheetOpen(true)}
+          aria-label="Spend settings"
+          className="flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-50 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 motion-reduce:transition-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+        >
+          <SlidersHorizontal size={17} aria-hidden="true" />
+        </button>
+
+        <Link
+          href="/transactions"
+          aria-label="Search transactions"
+          className="hidden min-h-11 min-w-11 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-50 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 motion-reduce:transition-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 sm:flex"
+        >
+          <Search size={17} aria-hidden="true" />
+        </Link>
+      </header>
+
+      {!isCurrentPeriod && onSelectOffset && (
+        <button
+          type="button"
+          onClick={() => onSelectOffset(0)}
+          className="mt-3 inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50 px-3 text-[12px] font-semibold text-indigo-700 transition-transform active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 motion-reduce:transition-none dark:border-indigo-400/30 dark:bg-indigo-400/10 dark:text-indigo-300"
+        >
+          <ChevronLeft size={13} aria-hidden="true" />
+          Back to this period
+        </button>
+      )}
+
+      {sheetOpen && (
+        <PeriodSheet
+          recentPeriods={recentPeriods}
+          onSelectOffset={(offset) => onSelectOffset?.(offset)}
+          onOpenSettings={onOpenSettings}
+          onOpenRules={onOpenRules}
+          onClose={() => setSheetOpen(false)}
+        />
+      )}
+    </>
+  );
+}
+
+/** The stable answer-first summary that sits beside the journey on desktop. */
+export function SpendJourneySummary(props: SpendHeaderProps) {
+  const {
+    verdict, incomeTxns, onIncomeOpen, onTransactionClick, onOutTap, onMovedTap,
+  } = props;
+  const [incomeExpanded, setIncomeExpanded] = useState(false);
+
+  if (!verdict) return null;
+
+  const attentionTotal = verdict.notables.reduce((sum, item) => sum + item.spent, 0);
+  const unresolvedTotal = verdict.unresolved.total;
+  const restTotal = Math.max(0, verdict.pills.spent - attentionTotal - unresolvedTotal);
+  // The drill-in section is built from moved rows, so the summary action is
+  // present only when that destination exists. The server derives
+  // moved_total from the same rows.
+  const hasMoved = verdict.moved.length > 0;
+  const movedTotal = verdict.moved_total ?? verdict.moved.reduce((sum, item) => sum + item.amount, 0);
+
+  return (
+    <div data-tutorial-id="tutorial-spend-verdict">
+      <h2 className="max-w-md text-balance text-[30px] font-bold leading-[1.05] tracking-[-0.035em] text-slate-950 dark:text-white sm:text-[38px]">
+        Your pay period, as it happened
+      </h2>
+      <p lang="en-GB" className="mt-4 max-w-md text-pretty text-[15px] leading-6 text-slate-600 dark:text-slate-300">
+        <MoneyText text={verdict.reading} />
+      </p>
+
+      <dl className={`mt-7 grid ${hasMoved ? "grid-cols-3" : "grid-cols-2"} gap-3 border-y border-slate-200 py-4 dark:border-slate-700 lg:grid-cols-1 lg:gap-0 lg:divide-y lg:divide-slate-200 lg:py-0 dark:lg:divide-slate-700`}>
+        <div className="lg:flex lg:items-end lg:justify-between lg:py-4">
+          <dt className="text-[10px] font-semibold uppercase tracking-[0.06em] text-slate-600 dark:text-slate-400">In</dt>
+          <dd>
+            <button
+              type="button"
+              onClick={() => {
+                const next = !incomeExpanded;
+                setIncomeExpanded(next);
+                if (next) onIncomeOpen?.();
+              }}
+              aria-expanded={incomeExpanded}
+              className="mt-1 inline-flex min-h-11 items-center font-mono text-lg font-bold tracking-[-0.025em] tabular-nums text-slate-950 transition-colors hover:text-indigo-700 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-white dark:hover:text-indigo-300 sm:text-xl lg:text-2xl"
+            >
+              {fmt(verdict.pills.income)}
+            </button>
+          </dd>
+        </div>
+        <div className="lg:flex lg:items-end lg:justify-between lg:py-4">
+          <dt className="text-[10px] font-semibold uppercase tracking-[0.06em] text-slate-600 dark:text-slate-400">Out</dt>
+          <dd>
+            <button
+              type="button"
+              onClick={onOutTap}
+              className="mt-1 inline-flex min-h-11 items-center font-mono text-[26px] font-bold tracking-[-0.035em] tabular-nums text-slate-950 transition-colors hover:text-indigo-700 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-white dark:hover:text-indigo-300 sm:text-[28px] lg:text-[30px]"
+            >
+              {fmt(verdict.pills.spent)}
+            </button>
+          </dd>
+        </div>
+        {hasMoved && (
+          <div className="lg:flex lg:items-end lg:justify-between lg:py-4">
+            <dt className="text-[10px] font-semibold uppercase tracking-[0.06em] text-slate-600 dark:text-slate-400">Moved separately</dt>
+            <dd>
+              <button
+                type="button"
+                onClick={onMovedTap}
+                className="mt-1 inline-flex min-h-11 items-center font-mono text-lg font-bold tracking-[-0.025em] tabular-nums text-slate-950 transition-colors hover:text-indigo-700 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-white dark:hover:text-indigo-300 sm:text-xl lg:text-2xl"
+              >
+                {fmt(movedTotal)}
+              </button>
+            </dd>
+          </div>
+        )}
+      </dl>
+
+      <p className="mt-4 text-pretty text-[12px] leading-5 text-slate-500 dark:text-slate-400">
+        <span className="font-mono tabular-nums">{fmt(attentionTotal)}</span> needing a look +{" "}
+        <span className="font-mono tabular-nums">{fmt(restTotal)}</span> across the rest
+        {unresolvedTotal > 0 && <>{" "}+ <span className="font-mono tabular-nums">{fmt(unresolvedTotal)}</span> unplaced</>}
+        {" "}= <span className="font-mono tabular-nums">{fmt(verdict.pills.spent)}</span> out.
+      </p>
+
+      {incomeExpanded && <IncomeDrilldown incomeTxns={incomeTxns} onTransactionClick={onTransactionClick} />}
     </div>
   );
 }
