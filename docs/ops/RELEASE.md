@@ -165,7 +165,7 @@ production release:
 Deploy Sorted to production. Follow docs/ops/RELEASE.md exactly and use only scripts/release.py for every production action.
 
 1. From /root/ai-wealth-dashboard on main, run `backend/.venv/bin/python scripts/release.py check`. If anything is red, stop and report it; do not try to work around a red item. If the only red items are the two Railway branch checks, and the operator has confirmed in the message that both services were switched to release in the Railway dashboard, rerun check and then deploy with `--railway-branch-confirmed`; any other red stops the release.
-2. If the check lists production variables as missing, set them with `backend/.venv/bin/python scripts/release.py sync-vars <names>` from backend/.env (use `--generate BOT_SECRET` for the bot secret so production gets its own). Never print a value.
+2. If the check lists production variables as missing, set them with `backend/.venv/bin/python scripts/release.py sync-vars <names>` from backend/.env. Never print a value. Bot/service credentials are not env vars and are never set this way; mint a production one separately with `backend/scripts_bot_credential.py create --name <name> --scopes <scope>` (see docs/ops/ENV.md's "Bot/service credentials" section).
 3. Run `backend/.venv/bin/python scripts/release.py deploy`. Wait for it to finish; it pushes release, waits for Vercel and Railway, runs the smoke checks and tags the release.
 4. If deploy fails after the push, run `backend/.venv/bin/python scripts/release.py rollback <previous release sha printed by deploy>` and report.
 5. Report: the release tag and sha, the previous release sha, the Vercel and Railway deployment ids, the smoke-check table, and any amber items from the check.
