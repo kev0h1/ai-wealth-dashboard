@@ -388,7 +388,7 @@ function MovePaymentEvidence({
                   disabled={isSkipping}
                   className="inline-flex min-h-11 shrink-0 touch-manipulation items-center rounded-lg px-2 text-[12px] font-medium text-slate-500 underline-offset-2 [-webkit-tap-highlight-color:transparent] [@media(hover:hover)]:hover:bg-slate-100 [@media(hover:hover)]:hover:underline active:scale-95 transition-[transform,background-color] duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:cursor-wait disabled:no-underline disabled:opacity-60 dark:text-slate-400 dark:[@media(hover:hover)]:hover:bg-slate-700"
                 >
-                  {isSkipping ? "Skipping…" : "Skip"}
+                  {isSkipping ? "Skipping…" : "Skip this month"}
                 </button>
               )}
             </div>
@@ -1172,6 +1172,81 @@ interface MoveCardProps {
   previewMode?: boolean;
 }
 
+type MovePaymentBill = PlanDestBill & { due?: string; overdue: boolean };
+
+function paymentCountCopy(count: number): string {
+  return `${count} payment${count === 1 ? "" : "s"}`;
+}
+
+function overduePaymentCountCopy(count: number): string {
+  return `${count} overdue payment${count === 1 ? "" : "s"}`;
+}
+
+/**
+ * One source of truth for payment timing on both MoveCard render paths.
+ * `plan_dest.needs_by` is the account's earliest event, so a mixed card
+ * must derive its upcoming deadline from the non-overdue bill rows instead.
+ */
+function movePaymentCopy(destination: PlanDest, bills: readonly MovePaymentBill[], covered: boolean) {
+  const overdueBillCount = bills.filter(bill => bill.overdue).length;
+  const currentBills = bills.filter(bill => !bill.overdue);
+  const currentBillCount = currentBills.length;
+  const hasOverdueBills = overdueBillCount > 0;
+  const latestCurrentBill = currentBills.reduce<MovePaymentBill | null>((latest, bill) => {
+    if (!bill.expected_date) return latest;
+    if (!latest?.expected_date || bill.expected_date > latest.expected_date) return bill;
+    return latest;
+  }, null);
+  const currentPaymentsDueBy = latestCurrentBill?.due;
+
+  const currentHeadlineCopy = currentBillCount > 0
+    ? currentPaymentsDueBy
+      ? `${currentBillCount} due by ${currentPaymentsDueBy}`
+      : `${currentBillCount} upcoming`
+    : null;
+  const currentSentenceCopy = currentBillCount > 0
+    ? currentPaymentsDueBy
+      ? `${paymentCountCopy(currentBillCount)} due by ${currentPaymentsDueBy}`
+      : `${currentBillCount} upcoming payment${currentBillCount === 1 ? "" : "s"}`
+    : null;
+
+  const dueCopy = destination.is_overdraft
+    ? "Overdrawn right now"
+    : hasOverdueBills
+      ? currentHeadlineCopy
+        ? `${overdueBillCount} overdue, ${currentHeadlineCopy}`
+        : overduePaymentCountCopy(overdueBillCount)
+      : bills.length === 1
+        ? `Payment due ${destination.needs_by}`
+        : bills.length > 1
+          ? `${bills.length} payments due by ${destination.needs_by}`
+          : "Move ready to review";
+
+  const clearClause = !covered
+    ? null
+    : destination.is_overdraft
+      ? "Clears the overdrawn balance"
+      : hasOverdueBills
+        ? currentSentenceCopy
+          ? `Covers ${overduePaymentCountCopy(overdueBillCount)} and ${currentSentenceCopy}`
+          : `Covers ${overduePaymentCountCopy(overdueBillCount)}`
+        : bills.length > 0
+          ? bills.length === 1 ? "Clears the payment" : `Clears all ${bills.length} payments`
+          : null;
+
+  const tilePaymentCopy = hasOverdueBills
+    ? currentSentenceCopy
+      ? `for ${overduePaymentCountCopy(overdueBillCount)} and ${currentSentenceCopy}`
+      : `for ${overduePaymentCountCopy(overdueBillCount)}`
+    : bills.length === 1
+      ? `payment expected${destination.needs_by ? ` ${destination.needs_by}` : ""}`
+      : bills.length > 1
+        ? `in ${paymentCountCopy(bills.length)} before period end${destination.needs_by ? ` · first expected ${destination.needs_by}` : ""}`
+        : "needed for this move";
+
+  return { clearClause, dueCopy, hasOverdueBills, tilePaymentCopy };
+}
+
 export function MoveCard({ item, hideNetWorth, maskAmounts, hideAttribution, dismissible, onHomeDismiss, onRefresh, previewMode = false }: MoveCardProps) {
   const [hidden, setHidden] = useState(false);
   const [skippingKey, setSkippingKey] = useState<string | null>(null);
@@ -1204,26 +1279,16 @@ export function MoveCard({ item, hideNetWorth, maskAmounts, hideAttribution, dis
   const totalAmount = legs.reduce((s, l) => s + l.amount, 0);
 
   const destination = item.plan_dest;
-  const paymentBills = (destination?.bills ?? []).map(bill => ({
+  const paymentBills: MovePaymentBill[] = (destination?.bills ?? []).map(bill => ({
     ...bill,
     due: bill.expected_date
       ? new Date(`${bill.expected_date}T00:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short" })
       : undefined,
     overdue: (bill.days_past_due ?? 0) > 0,
   }));
-  const overdueBillCount = paymentBills.filter(bill => bill.overdue).length;
-  const currentBillCount = paymentBills.length - overdueBillCount;
-  const hasOverdueBills = overdueBillCount > 0;
-  const overduePaymentCountCopy = (count: number) =>
-    `${count} overdue payment${count === 1 ? "" : "s"}`;
-  let latestCurrentDate = "";
-  let currentPaymentsDueBy = destination?.needs_by ?? "";
-  for (const bill of paymentBills) {
-    if (!bill.overdue && bill.expected_date && bill.expected_date >= latestCurrentDate) {
-      latestCurrentDate = bill.expected_date;
-      currentPaymentsDueBy = bill.due ?? currentPaymentsDueBy;
-    }
-  }
+  const paymentCopy = destination
+    ? movePaymentCopy(destination, paymentBills, Boolean(item.covered))
+    : null;
   async function handleSkip(bill: PlanDestBill) {
     if (!bill.key || !bill.expected_date || skippingKey) return;
     const identity = `${bill.key}:${bill.expected_date}`;
@@ -1244,29 +1309,7 @@ export function MoveCard({ item, hideNetWorth, maskAmounts, hideAttribution, dis
   }
 
   if (destination && legs.length > 0) {
-    const billCount = destination.bills.length;
-    const dueCopy = destination.is_overdraft
-      ? "Overdrawn right now"
-      : hasOverdueBills
-        ? currentBillCount > 0
-          ? `${overdueBillCount} overdue, ${currentBillCount} due by ${currentPaymentsDueBy}`
-          : overduePaymentCountCopy(overdueBillCount)
-        : billCount === 1
-          ? `Payment due ${destination.needs_by}`
-          : billCount > 1
-            ? `${billCount} payments due by ${destination.needs_by}`
-            : "Move ready to review";
-    const clearClause = !item.covered
-      ? null
-      : destination.is_overdraft
-        ? "Clears the overdrawn balance"
-        : hasOverdueBills
-          ? currentBillCount > 0
-            ? `Covers ${overduePaymentCountCopy(overdueBillCount)} and ${currentBillCount} payment${currentBillCount === 1 ? "" : "s"} due by ${currentPaymentsDueBy}`
-            : `Covers ${overduePaymentCountCopy(overdueBillCount)}`
-          : billCount > 0
-            ? (billCount === 1 ? "Clears the payment" : `Clears all ${billCount} payments`)
-            : null;
+    const { clearClause, dueCopy, hasOverdueBills } = paymentCopy!;
     const safeSuffix = item.envelope_reserved ? " and envelopes" : "";
     const safeClause = item.sources_safe
       ? (legs.length === 1
@@ -1338,14 +1381,14 @@ export function MoveCard({ item, hideNetWorth, maskAmounts, hideAttribution, dis
   }
 
   return (
-    <div className={`${BRIEF_CARD} p-4`}>
+    <div data-move-card="fallback" className={`${BRIEF_CARD} p-4`}>
       {/* The Penny signifier is suppressed on the Penny screen itself, whose
           header already establishes that voice. The card-kind label stays so
           the family remains scannable in both contexts. */}
       <div className="flex items-start gap-3 pr-9">
         <BriefIcon tone="penny"><ArrowRightLeft size={16} /></BriefIcon>
         <div className="min-w-0 flex-1">
-          <PennyKindLabel hideAttribution={hideAttribution} tone={hasOverdueBills ? "watch" : "neutral"}>Cover plan</PennyKindLabel>
+          <PennyKindLabel hideAttribution={hideAttribution} tone={paymentCopy?.hasOverdueBills ? "watch" : "neutral"}>Cover plan</PennyKindLabel>
           <p className="mt-1 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-slate-100">
             <MoneyText text={item.headline} />
           </p>
@@ -1358,7 +1401,6 @@ export function MoveCard({ item, hideNetWorth, maskAmounts, hideAttribution, dis
           {(() => {
             const dest: PlanDest = item.plan_dest!;
             const destChip = resolveBankChip(dest.provider ?? "");
-            const billCount = (dest.bills ?? []).length;
             // Overdraft destination: no bill drove this card, the account is
             // simply negative right now (a live balance read, not a
             // projection). needs_total/needs_by carry no meaning here, so
@@ -1370,11 +1412,9 @@ export function MoveCard({ item, hideNetWorth, maskAmounts, hideAttribution, dis
               : overdrawnAmt.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
             const tileText = dest.is_overdraft
               ? `£${overdrawnStr} overdrawn right now`
-              : billCount === 1
-              ? `£${Math.round(dest.balance).toLocaleString("en-GB")} held · £${(dest.needs_total ?? 0).toLocaleString("en-GB")} payment expected ${dest.needs_by}`
-              : `£${Math.round(dest.balance).toLocaleString("en-GB")} held · £${(dest.needs_total ?? 0).toLocaleString("en-GB")} in ${billCount} payments before period end · first expected ${dest.needs_by}`;
+              : `£${Math.round(dest.balance).toLocaleString("en-GB")} held · £${(dest.needs_total ?? 0).toLocaleString("en-GB")} ${paymentCopy?.tilePaymentCopy ?? "needed for this move"}`;
             return (
-              <div className={`mt-3 glass-tile rounded-xl border border-slate-100 px-3 py-2.5 mb-2 dark:border-slate-700/70`}>
+              <div data-destination-tile className={`mt-3 glass-tile rounded-xl border border-slate-100 px-3 py-2.5 mb-2 dark:border-slate-700/70`}>
                 <div className="flex items-center gap-2.5">
                   <span className="flex-shrink-0">
                     <BankBadge
@@ -1387,7 +1427,7 @@ export function MoveCard({ item, hideNetWorth, maskAmounts, hideAttribution, dis
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[13px] font-semibold text-slate-800 dark:text-slate-100">{dest.name}</span>
-                    <span className="block text-[12px] text-slate-600 dark:text-slate-300 leading-snug">{maskAmounts(tileText)}</span>
+                    <span className="block text-[12px] text-slate-600 dark:text-slate-300 leading-snug"><MoneyText text={maskAmounts(tileText)} /></span>
                   </span>
                 </div>
               </div>
@@ -1407,19 +1447,15 @@ export function MoveCard({ item, hideNetWorth, maskAmounts, hideAttribution, dis
             </p>
           )}
 
-          {/* b+c) Sources ledger tile — shared MoveSourcesLedger, see G44 */}
-          <MoveSourcesLedger legs={legs} hideNetWorth={hideNetWorth} totalAmount={totalAmount} />
+          {/* b+c) Sources ledger tile — shared MoveSourcesLedger, see G44.
+              A source-less fallback has no contribution rows to reconcile. */}
+          {legs.length > 0 && (
+            <MoveSourcesLedger legs={legs} hideNetWorth={hideNetWorth} totalAmount={totalAmount} />
+          )}
 
           {/* Footer — merged assurance line + residual */}
           {(() => {
-            const destBillCount = (item.plan_dest?.bills ?? []).length;
-            const clearClause = !item.covered
-              ? null
-              : item.plan_dest?.is_overdraft
-              ? "Clears the overdrawn balance"
-              : destBillCount > 0
-              ? (destBillCount === 1 ? "Clears the payment" : `Clears all ${destBillCount} payments`)
-              : null;
+            const clearClause = paymentCopy?.clearClause ?? null;
             // "...and envelopes" only appended when true (owner fix,
             // 2026-08-31): an envelope reservation actually reduced a
             // source's contribution here — see item.envelope_reserved /
@@ -1438,7 +1474,7 @@ export function MoveCard({ item, hideNetWorth, maskAmounts, hideAttribution, dis
             return (
               <div className="mt-3 space-y-1.5">
                 {assurance && (
-                  <p className="text-[12px] text-slate-500 dark:text-slate-400 leading-snug">{assurance}</p>
+                  <p data-move-assurance className="text-[12px] text-slate-500 dark:text-slate-400 leading-snug">{assurance}</p>
                 )}
                 {item.residual && (
                   <p className="text-[12px] text-slate-400 dark:text-slate-500 leading-snug"><MoneyText text={maskAmounts(String(item.residual))} /></p>

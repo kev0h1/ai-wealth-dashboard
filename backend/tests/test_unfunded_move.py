@@ -569,6 +569,31 @@ def test_multiple_overdue_movements_and_future_bill_stay_on_one_card(monkeypatch
     assert "can_skip" not in ordinary
 
 
+def test_due_today_movement_keeps_skip_on_canonical_card(monkeypatch):
+    """The existing due-or-overdue skip contract survives consolidation."""
+    accounts = [
+        _account("premier", 10.0, name="Premier Current"),
+        _account("hsbc", 1_000.0, name="HSBC Current", provider="hsbc"),
+    ]
+    bills = [
+        _mv_bill("MOVE TODAY", 40.0, "premier", pending=True,
+                 days_away=0, days_past_due=0),
+        _commitment_bill("Broadband", 50.0, "premier", days_away=3),
+    ]
+
+    items, _ = _run(monkeypatch, bills, accounts=accounts)
+    moves = [item for item in items if item["type"] == "move"]
+    assert len(moves) == 1
+    assert _find(items, "unfunded_move") is None
+    due_today = next(
+        row for row in moves[0]["plan_dest"]["bills"]
+        if row["label"] == "Move Today"
+    )
+    assert due_today["expected_date"] == TODAY.isoformat()
+    assert due_today["days_past_due"] == 0
+    assert due_today["can_skip"] is True
+
+
 def test_mixed_account_without_a_safe_source_still_has_one_skippable_card(monkeypatch):
     accounts = [_account("premier", 10.0, name="Premier Current")]
     bills = [

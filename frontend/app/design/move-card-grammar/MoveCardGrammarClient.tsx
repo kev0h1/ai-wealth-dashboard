@@ -4,7 +4,7 @@
 // three or five sources, and three protected payments. Fixtures and interactions are
 // local; this route performs no API requests and does not mutate production data.
 //
-// /design/move-card-grammar?variant=a|b|c&state=pair|single|multiple|many|payments&mode=light|dark
+// /design/move-card-grammar?variant=a|b|c&state=pair|single|multiple|many|payments|fallback&mode=light|dark
 
 import { useEffect } from "react";
 import { useSearchParams } from "next/navigation";
@@ -14,7 +14,7 @@ import VariantB from "./VariantB";
 import VariantC from "./VariantC";
 
 type Variant = "a" | "b" | "c";
-type State = "pair" | "single" | "multiple" | "many" | "payments";
+type State = "pair" | "single" | "multiple" | "many" | "payments" | "fallback";
 type Mode = "light" | "dark";
 
 const VARIANTS: { key: Variant; label: string }[] = [
@@ -29,6 +29,7 @@ const STATES: { key: State; label: string }[] = [
   { key: "multiple", label: "3 src" },
   { key: "many", label: "5 src" },
   { key: "payments", label: "3 bills" },
+  { key: "fallback", label: "No src" },
 ];
 
 function hrefFor(variant: Variant, state: State, mode: Mode) {
@@ -81,7 +82,7 @@ export default function MoveCardGrammarClient() {
   const rawVariant = params.get("variant");
   const variant: Variant = rawVariant === "b" || rawVariant === "c" ? rawVariant : "a";
   const rawState = params.get("state");
-  const state: State = rawState === "single" || rawState === "multiple" || rawState === "many" || rawState === "payments" ? rawState : "pair";
+  const state: State = rawState === "single" || rawState === "multiple" || rawState === "many" || rawState === "payments" || rawState === "fallback" ? rawState : "pair";
   const mode: Mode = params.get("mode") === "dark" ? "dark" : "light";
 
   useEffect(() => {
@@ -96,7 +97,9 @@ export default function MoveCardGrammarClient() {
       ? "three-sources"
       : state === "many"
         ? "five-sources"
-        : "three-payments";
+        : state === "fallback"
+          ? "no-source-mixed"
+          : "three-payments";
   const scenarios = state === "pair"
     ? MOVE_SCENARIOS.filter((scenario) => scenario.id === "one-source" || scenario.id === "three-sources")
     : MOVE_SCENARIOS.filter((scenario) => scenario.id === scenarioId);

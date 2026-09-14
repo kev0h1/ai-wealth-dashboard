@@ -18,7 +18,7 @@ function coverPlanItem(scenario: MoveScenario): CompanionItem {
     label: payment.name,
     amount: payment.amount,
     expected_date: payment.expectedDate,
-    ...(scenario.id === "three-payments" && index === 0
+    ...(scenario.mixedOverdue && index === 0
       ? {
           key: "american-express-planned-move",
           days_past_due: 3,
@@ -70,7 +70,7 @@ function coverPlanItem(scenario: MoveScenario): CompanionItem {
       bills: planBills,
     },
     covered: true,
-    sources_safe: true,
+    sources_safe: scenario.sources.length > 0,
     amount: scenario.moving,
   };
 }

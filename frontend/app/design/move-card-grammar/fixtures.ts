@@ -12,9 +12,10 @@ export type MovePayment = {
 };
 
 export type MoveScenario = {
-  id: "one-source" | "three-sources" | "five-sources" | "three-payments";
+  id: "one-source" | "three-sources" | "five-sources" | "three-payments" | "no-source-mixed";
   status: "Move overdue" | "Cover plan";
   overdue: boolean;
+  mixedOverdue?: boolean;
   destination: MoveAccount & {
     held: number;
     needed: number;
@@ -77,6 +78,7 @@ export const MOVE_SCENARIOS: readonly MoveScenario[] = [
     id: "three-payments",
     status: "Cover plan",
     overdue: false,
+    mixedOverdue: true,
     destination: {
       ...DESTINATION,
       needed: 170,
@@ -95,6 +97,27 @@ export const MOVE_SCENARIOS: readonly MoveScenario[] = [
     ],
     moving: 140,
     assurance: "All three payments are covered; every source still covers its own bills.",
+    primaryAction: "See what’s due",
+  },
+  {
+    id: "no-source-mixed",
+    status: "Cover plan",
+    overdue: false,
+    mixedOverdue: true,
+    destination: {
+      ...DESTINATION,
+      needed: 170,
+      buffer: 10,
+      due: "12 Sept",
+    },
+    payments: [
+      PAYMENT,
+      { name: "British Gas", amount: 42, due: "10 Sept", expectedDate: "2026-09-10" },
+      { name: "EE", amount: 28, due: "12 Sept", expectedDate: "2026-09-12" },
+    ],
+    sources: [],
+    moving: 140,
+    assurance: "All three payments are represented on one account card even when no source account is known.",
     primaryAction: "See what’s due",
   },
   {
