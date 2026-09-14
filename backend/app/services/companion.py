@@ -2111,6 +2111,45 @@ async def compute_today_items(
     # the figure actually used here — see the branch immediately below).
     dest_shortfall: dict[str, float] = {}
 
+    # A pending bounced own-transfer can be one of the payments that makes an
+    # otherwise ordinary account short. Keep its occurrence identity on the
+    # destination summary now, rather than creating a second recommendation
+    # later that describes the same account. Section 5d decides whether the
+    # standalone quiet card remains necessary; this metadata lets the one
+    # canonical account card still offer the per-occurrence skip action.
+    _pending_bounced_movement_occurrences: set[tuple[str, str, str | None]] = {
+        (
+            _movement_acct,
+            str(_movement_bill.get("name") or ""),
+            _movement_bill.get("original_date") or _movement_bill.get("expected_date"),
+        )
+        for _movement_acct, _movement_bills in bounced_bills.items()
+        for _movement_bill in _movement_bills
+        if _movement_bill.get("kind") == MOVEMENT and _movement_bill.get("pending")
+    }
+
+    def _plan_dest_bill(b: dict, account_id: str) -> dict:
+        """Return one regular-card payment row with safe optional metadata."""
+        _expected_date = b.get("expected_date")
+        _row = {
+            "label": _humanise_bill_name(b.get("name", "bill")),
+            "amount": int(round(float(b.get("amount") or 0))),
+            "expected_date": _expected_date,
+        }
+        _original_date = b.get("original_date") or _expected_date
+        if (
+            account_id,
+            str(b.get("name") or ""),
+            _original_date,
+        ) in _pending_bounced_movement_occurrences:
+            _row.update({
+                "key": b.get("name", ""),
+                "expected_date": _original_date,
+                "days_past_due": int(b.get("days_past_due") or 0),
+                "can_skip": True,
+            })
+        return _row
+
     for _days_away, _shortfall_amt, dest_acct, bill in shortfalls:
         # `bill` is None for an OVERDRAFT destination. Every field below that
         # would normally come from the bill must be handled honestly instead
@@ -2195,7 +2234,7 @@ async def compute_today_items(
                 "needs_total": int(round(sum(float(b["amount"]) for b in dest_bills))),
                 "needs_by": _when_label(date.fromisoformat(dest_bills[0]["expected_date"]), today_d),
                 "bills": [
-                    {"label": _humanise_bill_name(b.get("name", "bill")), "amount": int(round(float(b["amount"])))}
+                    _plan_dest_bill(b, dest_acct)
                     for b in dest_bills
                 ],
                 "is_overdraft": False,
@@ -2883,6 +2922,50 @@ async def compute_today_items(
                 if _um_bill.get("dest_account_id") in _pp_dest_ids_final:
                     continue
                 _um_qualifying.append((_um_acct, _um_bill))
+
+        # The regular move card is the canonical account-level calculation:
+        # it has already included every assessable payment for the period and
+        # consumed its source capacity. Only suppress a quiet unfunded-move
+        # occurrence when that regular card will genuinely be emitted. This
+        # mirrors the emission gate below (dismissal, completed state and
+        # card cap included), so a hidden regular card can never swallow the
+        # only actionable skip recommendation.
+        _um_regular_emitted_dests: set[str] = set()
+        if not _suppress_moves:
+            _um_emitted_count = 0
+            for _um_days, _um_shortfall, _um_dest, _um_bill in shortfalls:
+                _um_dest_legs = legs_by_dest.get(_um_dest) or []
+                if not _um_dest_legs and not uncovered_by_dest.get(_um_dest):
+                    continue
+                _um_dest_fp = _shortfall_fingerprint([
+                    (_um_dest, dest_bucketed.get(_um_dest, 0))
+                ])
+                _um_regular_id = (
+                    f"plan:{window_end.isoformat()}:{_um_dest_fp}"
+                    if _um_dest_legs else
+                    f"move:{_um_dest}:{window_end.isoformat()}:{_um_dest_fp}"
+                )
+                if _um_regular_id in dismissed:
+                    continue
+                _um_existing = await companion_items_col.find_one({
+                    "_id": _um_regular_id, "uid": uid,
+                })
+                if _um_existing and _um_existing.get("status") == "done":
+                    continue
+                if _um_emitted_count >= _MOVE_CARD_CAP:
+                    continue
+                _um_regular_emitted_dests.add(_um_dest)
+                _um_emitted_count += 1
+
+        # Do not run a second source-finder pass, or add a second amount, for
+        # an overdue movement whose destination's regular card is live. The
+        # occurrence remains inside that card's `plan_dest.bills` above with
+        # its skip metadata.
+        _um_qualifying = [
+            (_um_acct, _um_bill)
+            for _um_acct, _um_bill in _um_qualifying
+            if _um_acct not in _um_regular_emitted_dests
+        ]
 
         _um_item_id: str | None = None
         if _um_qualifying:
