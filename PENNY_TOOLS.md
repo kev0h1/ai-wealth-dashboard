@@ -815,3 +815,43 @@ the 63-key `explain` follow-up routing heuristics). None of those govern
 HOW a tool's own output may be used, which is this item's scope; they
 govern how Penny's specific chat surface renders a reply, which has no
 meaning to an external harness rendering its own UI.
+
+### VIEW — structured screen context on /can-i only (B39, 2026-09-14)
+
+`POST /can-i` accepts an optional `view` field alongside `screen`/`context`:
+a small structured snapshot of what the CURRENT screen is actually
+rendering (route, scope/period identity, a verdict word/sentence when the
+screen has one, up to 6 labelled figures, an `asOf` timestamp), computed on
+the frontend by the SAME code that renders the figures (see
+`frontend/components/SafeToSpendCard.tsx`, `app/components/SpendPage.tsx`,
+`app/planning/PlanningPage.tsx`'s own `setPennyScreenView` calls in
+`components/PennySheetProvider.tsx`) so the two can never disagree, and
+carried for the whole conversation from that screen (not one-shot — see
+`PennyConversation.tsx`'s `ask()`). Replaces the old one-shot free-text
+`PennyAskContext.summary`, which only one screen (`/spend/shape`) ever set
+and which only ever grounded the first question of a thread.
+
+Sanitised server-side in `app/routers/can_i.py`'s `_sanitize_view` (the
+actual trust boundary — client input, never trusted as-is): fixed
+allow-list of fields, capped figure count/string lengths, and any figure
+whose label or value matches a sort-code/account-number/IBAN-shaped pattern
+is dropped outright, never redacted-and-kept. Folded into the model's user
+message by `app.services.penny_agent._build_user_content` /
+`_format_view_block` as plain labelled text, not a JSON dump.
+
+**Precedence and staleness rule** (system prompt rule 6, extended): a VIEW
+figure is the exact value the user is looking at right now, and wins over a
+fresher number the model's own tool call might return for the same
+quantity — the user asked about what's on screen, not about whatever a
+recomputation happens to say a few seconds later. The model may still call
+a tool to explain what's DRIVING a VIEW figure (the reasoning), but must
+never surface a second, different number for the same labelled quantity,
+and must never mention that a tool disagreed. This is deliberately a
+prompt-level rule, not a server-side numeric override: `_sanitize_view`
+only validates shape/size/privacy, it never compares a VIEW figure against
+a tool result itself.
+
+Not wired into the MCP connector's tool schemas (`penny_tools.py`,
+`TOOL_SCHEMAS`) — MCP is a headless surface with no "current screen" at
+all, so `view` only ever reaches the model via `/can-i`'s own
+`run_penny_agent` call, same scoping as `screen`/`context` above it.

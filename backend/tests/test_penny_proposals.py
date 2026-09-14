@@ -950,7 +950,7 @@ def _patch_can_i_common(monkeypatch):
 def test_can_i_seam_consent_required_branch(monkeypatch):
     _patch_can_i_common(monkeypatch)
 
-    async def fake_agent(uid, question, history, screen, context):
+    async def fake_agent(uid, question, history, screen, context, view=None):
         return {"consent_required": True}
 
     monkeypatch.setattr(can_i_module, "run_penny_agent", fake_agent)
@@ -971,7 +971,7 @@ def test_can_i_seam_proposal_branch(monkeypatch):
         "params": {"name": "Saving Challenge"},
     }
 
-    async def fake_agent(uid, question, history, screen, context):
+    async def fake_agent(uid, question, history, screen, context, view=None):
         return {"proposal": proposal}
 
     monkeypatch.setattr(can_i_module, "run_penny_agent", fake_agent)

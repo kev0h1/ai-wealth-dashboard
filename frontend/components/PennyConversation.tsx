@@ -58,20 +58,23 @@
 //   passed through by PennySheet.tsx), a token that changes on every
 //   `open()` call including a reopen, so "already handled" means "already
 //   handled THIS open" — see `askSeqHandledRef` and its effect below.
-// - `askContext.summary` grounds the FIRST request from that screen, sent
-//   as its own `context` argument to `api.canI` (lib/api.ts, added
-//   2026-08-25 for exactly this). It must NEVER be concatenated into the
-//   question string sent to POST /can-i — an earlier version of this file
-//   did that, and it was a live bug, not a style choice: the backend's
-//   deterministic gates (`_extract_amount`, the spend/planning/debt domain
-//   router's tier-1 checks, `_is_out_of_scope`, `_is_tax_question`) parse
-//   `question` verbatim before any LLM runs. Planning's context line reads
-//   like "£165 free · 4 days left" — concatenate that in front of an
-//   amount-free question and `_extract_amount` sees an amount that was
-//   never asked about, silently mis-routing exactly the screens that pass
-//   context. `context` stays a structurally separate field, used only as
-//   LLM grounding, so this can't happen. See `send()`'s
-//   `summaryConsumedRef` for the one-request-per-screen limit.
+// - Screen grounding is no longer carried on `askContext` at all (it used
+//   to: `askContext.summary`, a one-shot free-text line sent only on the
+//   FIRST request of a thread — removed, B39, 2026-09-14, see
+//   PennySheetProvider.tsx's `PennyScreenView` doc comment for the full
+//   history). `ask()` below instead reads TWO things fresh at send time:
+//   `askContext?.screen` (unchanged, an enum tag) and `screenViews[screen]`
+//   (new — a structured `PennyScreenView`, published by whichever screen
+//   owns the figures currently on show, via `setPennyScreenView`). Both are
+//   sent on EVERY question, not just the first, as `screen`/`view` — two
+//   structurally separate fields on `api.canI`, never concatenated into the
+//   question string itself. That separation matters for the same reason it
+//   always did: the backend's deterministic gates (`_extract_amount`, the
+//   domain router's tier-1 checks, `_is_out_of_scope`, `_is_tax_question`)
+//   parse `question` verbatim before any LLM runs, and a grounding line like
+//   "£165 free, 4 days left" folded into the front of an amount-free
+//   question would make `_extract_amount` see an amount that was never
+//   asked about.
 //
 // Backend contract (CONTRACT, may not be live yet):
 //   GET /can-i/suggestions -> { chips: [{ label }], context_line }
@@ -123,6 +126,7 @@ import type { PennyAskContext } from "@/components/PennySheetProvider";
 import {
   usePennySheet,
   usePennyUsage,
+  usePennyScreenViews,
   refreshPennyUsage,
   markPennyLimitReached,
   formatPennyResetDate,
@@ -1082,6 +1086,15 @@ export default function PennyConversation({
   // whole session, see this file's header comment) picks up that screen's
   // own bucket immediately.
   const currentScreen: PennyAskContext["screen"] = askContext?.screen ?? "other";
+  // B39 (2026-09-14) — the current screen's structured view, read LIVE from
+  // the module-level store (PennySheetProvider.tsx's `setPennyScreenView`),
+  // not from `askContext` itself: a screen publishes into that store on its
+  // own data-driven effect, independent of when the sheet was opened, so a
+  // background figure refresh while the sheet stays open is picked up on
+  // the very next question rather than requiring a reopen. `ask()`/`send()`/
+  // `sendChip()` below read straight off this object at call time, same
+  // pattern this file already uses for `askContext?.screen` itself.
+  const screenViews = usePennyScreenViews();
   const [buckets, setBuckets] = useState<Record<PennyAskContext["screen"], ThreadBucket>>(newBuckets);
   // `messages`/`askedLabels` below name exactly the two fields the rest of
   // this component already reads by these names (rendering, chip
@@ -1134,18 +1147,9 @@ export default function PennyConversation({
   // already has a real, positive `askSeq`). See the effect below and this
   // file's header comment.
   const askSeqHandledRef = useRef(0);
-  // `askContext.summary` grounds ONE request only — the first this
-  // component ever sends, regardless of whether that's `askContext.ask`
-  // or a manually typed question (whichever fires first) — for the WHOLE
-  // SESSION, not per open. Deliberately left as a
-  // plain forever-once ref, unlike the two refs above: repeating a screen
-  // summary as LLM grounding on every reopen is not the same class of bug
-  // as silently dropping a question the user (or a caller on their behalf)
-  // explicitly asked to be submitted — see `send()`.
-  const summaryConsumedRef = useRef(false);
   // Whether the calm "you've used all your Penny messages" notice has
   // already been shown this session (2026-09-06, usage ring round) — a
-  // plain forever-once ref, same class as `summaryConsumedRef` above: the
+  // plain forever-once ref: the
   // composer disables itself the moment the first 402 lands (see
   // `usePennyUsage().capped`), so a second one reaching this catch block at
   // all is already an edge case (a race between two in-flight asks), and
@@ -1291,10 +1295,17 @@ export default function PennyConversation({
     // when the response arrives.
     const sendScreen = askContext?.screen;
     const bucketScreen: PennyAskContext["screen"] = sendScreen ?? "other";
+    // `view` (B39): read from `screenViews` at this exact same moment, for
+    // the same closure reason as `sendScreen` just above — this
+    // component's render-time snapshot of the live store, not a fresh read
+    // taken after the `await` below. `undefined` (not `null`) when the
+    // screen has never published one, so `api.canI` omits the field on the
+    // wire entirely rather than sending an empty `view: null`.
+    const sendView = sendScreen ? screenViews[sendScreen] ?? undefined : undefined;
     setError(false);
     setLoading(true);
     try {
-      const res = await api.canI(question, history, context, sendScreen);
+      const res = await api.canI(question, history, context, sendScreen, sendView);
       // One id per answer turn, shared across whichever branch below fires
       // (see the Msg union's `id` comment for why every message needs one).
       const id = newMsgId();
@@ -1421,32 +1432,19 @@ export default function PennyConversation({
     }));
     setInput("");
     setOffer(null);
-    // askContext.summary grounds the FIRST request from a sheet caller's
-    // screen only (see PennyAskContext's doc comment and this file's header
-    // comment). It is sent as its own `context` argument to `api.canI` —
-    // NEVER concatenated into the question string. `question` is what the
-    // backend's deterministic gates read (amount extraction, the domain
-    // router's tier-1 checks, out-of-scope/tax detection all parse this
-    // exact string before any LLM call happens); a screen summary like
-    // "£165 free · 4 days left" concatenated in front of an amount-free
-    // question makes it LOOK amount-bearing to `_extract_amount` and
-    // silently mis-routes it. `context` is grounding for the LLM only, kept
-    // structurally separate on the wire for exactly that reason. Do not
-    // "simplify" this back into a single string.
-    //
-    // Contrast with `askContext.screen`, sent alongside this on every call
-    // (inside `ask()` itself, not computed here): `summary` is deliberately
-    // ONE-SHOT (`summaryConsumedRef` above gates it to the first request per
-    // screen) because it's a free-text sentence that would get stale and
-    // repetitive if resent on every follow-up. `screen` is the opposite —
-    // cheap structured data (an enum tag, not prose), so there's no cost to
-    // resending it, and the whole point of having it is that ANY question
-    // mid-conversation ("what about this page") needs the CURRENT screen,
-    // not just whichever screen was open when the thread started. Don't
-    // fold `screen` into this one-shot gate.
-    const context = askContext?.summary && !summaryConsumedRef.current ? askContext.summary : undefined;
-    if (context) summaryConsumedRef.current = true;
-    ask(trimmed, history, context);
+    // Screen grounding (B39): `ask()` reads BOTH `askContext?.screen` and
+    // the live `screenViews` store itself (see that function's own comment)
+    // — neither is computed here any more. The old one-shot free-text
+    // `askContext.summary`, sent as `ask()`'s `context` argument on the
+    // FIRST request of a thread only, is gone (see PennySheetProvider.tsx's
+    // `PennyScreenView` doc comment for the full history: only one screen
+    // ever set it, and a follow-up question got no grounding at all even on
+    // that one screen — exactly the bug B39 fixes). `view` replaces it,
+    // structured and resent on EVERY question, same cadence as `screen`
+    // itself, for the same reason: any question mid-conversation ("what
+    // about this page", "why is this so low") needs whatever is CURRENT,
+    // not just whatever was on screen when the thread started.
+    ask(trimmed, history);
   }
 
   function retry() {

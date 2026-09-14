@@ -75,7 +75,7 @@ export default function ShapePage({ shape: previewShape }: { shape?: MoneyShape 
     // props in place).
   }, [isPreview]);
 
-  const askPenny = (ask: string) => openPennySheet({ screen: "spend", summary: "Your money's shape", ask });
+  const askPenny = (ask: string) => openPennySheet({ screen: "spend", ask });
 
   return (
     <div className="min-h-dvh pb-10 lg:max-w-2xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>

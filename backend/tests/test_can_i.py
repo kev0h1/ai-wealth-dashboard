@@ -21,6 +21,7 @@ from app.routers.can_i import (
     _headroom_chip,
     _is_greeting,
     _round5,
+    _sanitize_view,
     _scaled_fallback_chip,
     _valid_screen,
     _weekend_or_week,
@@ -100,11 +101,171 @@ def test_can_i_missing_api_key_raises_500(monkeypatch):
 # longer routes on it directly ───────────────────────────────────────────
 
 def test_valid_screen_accepts_known_values_only():
-    for s in ("home", "spend", "planning", "insights", "tax", "grow", "debt", "accounts", "other"):
+    # "upcoming" (B39, 2026-09-14): was missing from _KNOWN_SCREENS despite
+    # PennySheetProvider.tsx's PennyAskContext["screen"] union carrying it
+    # since the Upcoming/Planning split — every question asked from
+    # /upcoming was silently losing its screen grounding. See can_i.py's
+    # own comment on _KNOWN_SCREENS for the full story.
+    for s in ("home", "spend", "planning", "upcoming", "insights", "tax", "grow", "debt", "accounts", "other"):
         assert _valid_screen(s) == s
     assert _valid_screen("not-a-real-screen") is None
     assert _valid_screen(None) is None
     assert _valid_screen(123) is None
+
+
+# ── `_sanitize_view` (B39, 2026-09-14) — the structured screen-context
+# object replacing the old one-shot free-text `summary`. This is the actual
+# trust boundary: client input, sanitised before it can reach a prompt. ────
+
+def test_sanitize_view_accepts_well_formed_view():
+    raw = {
+        "route": "/",
+        "scope": "Until payday, Fri",
+        "verdict": "On track",
+        "figures": [{"key": "safe_to_spend", "label": "Safe to spend", "value": "£83"}],
+        "asOf": "2026-09-14T08:00:00.000Z",
+    }
+    out = _sanitize_view(raw)
+    assert out["route"] == "/"
+    assert out["scope"] == "Until payday, Fri"
+    assert out["verdict"] == "On track"
+    assert out["figures"] == [{"label": "Safe to spend", "value": "£83"}]
+    assert out["asOf"] == "2026-09-14T08:00:00.000Z"
+
+
+def test_sanitize_view_rejects_non_dict():
+    assert _sanitize_view(None) is None
+    assert _sanitize_view("a string") is None
+    assert _sanitize_view(42) is None
+    assert _sanitize_view([1, 2, 3]) is None
+
+
+def test_sanitize_view_requires_a_non_empty_route():
+    assert _sanitize_view({}) is None
+    assert _sanitize_view({"route": ""}) is None
+    assert _sanitize_view({"route": "   "}) is None
+    assert _sanitize_view({"route": 5}) is None
+
+
+def test_sanitize_view_tolerates_missing_optional_fields():
+    out = _sanitize_view({"route": "/upcoming"})
+    assert out == {"route": "/upcoming", "figures": []}
+
+
+def test_sanitize_view_caps_figures_at_six():
+    figures = [{"label": f"Figure {i}", "value": f"£{i}"} for i in range(12)]
+    out = _sanitize_view({"route": "/spend", "figures": figures})
+    assert len(out["figures"]) == 6
+    assert out["figures"][0]["label"] == "Figure 0"
+
+
+def test_sanitize_view_caps_string_lengths():
+    out = _sanitize_view({
+        "route": "/" + "x" * 200,
+        "scope": "y" * 200,
+        "verdict": "z" * 400,
+        "figures": [{"label": "L" * 100, "value": "V" * 100}],
+    })
+    assert len(out["route"]) == 80
+    assert len(out["scope"]) == 100
+    assert len(out["verdict"]) == 200
+    assert len(out["figures"][0]["label"]) == 40
+    assert len(out["figures"][0]["value"]) == 30
+
+
+def test_sanitize_view_drops_figures_that_look_like_a_sort_code():
+    out = _sanitize_view({
+        "route": "/accounts",
+        "figures": [
+            {"label": "Sort code", "value": "12-34-56"},
+            {"label": "Safe to spend", "value": "£83"},
+        ],
+    })
+    assert out["figures"] == [{"label": "Safe to spend", "value": "£83"}]
+
+
+def test_sanitize_view_drops_figures_that_look_like_an_account_number():
+    out = _sanitize_view({
+        "route": "/accounts",
+        "figures": [
+            {"label": "Account", "value": "12345678"},
+            {"label": "Safe to spend", "value": "£83"},
+        ],
+    })
+    assert out["figures"] == [{"label": "Safe to spend", "value": "£83"}]
+
+
+def test_sanitize_view_drops_verdict_containing_pii_pattern():
+    out = _sanitize_view({"route": "/accounts", "verdict": "Sort code 12-34-56 on file"})
+    assert "verdict" not in out
+
+
+def test_sanitize_view_drops_non_dict_figure_items_and_figures_missing_label_or_value():
+    out = _sanitize_view({
+        "route": "/spend",
+        "figures": [
+            "not a dict",
+            {"label": "Out", "value": ""},
+            {"value": "£100"},
+            {"label": "In"},
+            {"label": "Net", "value": "£40"},
+        ],
+    })
+    assert out["figures"] == [{"label": "Net", "value": "£40"}]
+
+
+def test_sanitize_view_accepts_numeric_figure_values_and_stringifies_them():
+    out = _sanitize_view({"route": "/spend", "figures": [{"label": "Days left", "value": 4}]})
+    assert out["figures"] == [{"label": "Days left", "value": "4"}]
+
+
+def test_sanitize_view_reads_snake_case_as_of_fallback():
+    out = _sanitize_view({"route": "/spend", "as_of": "2026-09-14"})
+    assert out["asOf"] == "2026-09-14"
+
+
+def test_can_i_passes_sanitized_view_through_to_agent(monkeypatch):
+    _patch_can_i_common(monkeypatch)
+    captured = {}
+
+    async def fake_agent(uid, question, history, screen, context, view=None):
+        captured["view"] = view
+        return {"headline": "You have headroom", "reply": "You have £83 free until payday.", "tools_used": []}
+
+    monkeypatch.setattr(can_i_module, "run_penny_agent", fake_agent)
+
+    body = {
+        "question": "why is this so low",
+        "screen": "home",
+        "view": {
+            "route": "/",
+            "verdict": "On track",
+            "figures": [
+                {"label": "Safe to spend", "value": "£83"},
+                {"label": "Sort code", "value": "12-34-56"},
+            ],
+        },
+    }
+    asyncio.run(can_i_module.can_i(body, {"email": "kevin"}))
+
+    assert captured["view"]["route"] == "/"
+    assert captured["view"]["verdict"] == "On track"
+    # The sort-code-shaped figure never reaches the agent, even though the
+    # legitimate figure right next to it does.
+    assert captured["view"]["figures"] == [{"label": "Safe to spend", "value": "£83"}]
+
+
+def test_can_i_missing_view_passes_none_through(monkeypatch):
+    _patch_can_i_common(monkeypatch)
+    captured = {}
+
+    async def fake_agent(uid, question, history, screen, context, view=None):
+        captured["view"] = view
+        return {"headline": "Fine", "reply": "Fine.", "tools_used": []}
+
+    monkeypatch.setattr(can_i_module, "run_penny_agent", fake_agent)
+    asyncio.run(can_i_module.can_i({"question": "can I spend £20 this weekend"}, {"email": "kevin"}))
+    assert captured["view"] is None
 
 
 # ── Scenario gate: covered end-to-end (wiring into /can-i) in
@@ -126,7 +287,7 @@ def _patch_can_i_common(monkeypatch):
 def test_can_i_wire_shape_on_agent_success(monkeypatch):
     _patch_can_i_common(monkeypatch)
 
-    async def fake_agent(uid, question, history, screen, context):
+    async def fake_agent(uid, question, history, screen, context, view=None):
         return {"headline": "You have headroom", "reply": "You have £100 free until payday.", "tools_used": ["get_safe_to_spend"]}
 
     monkeypatch.setattr(can_i_module, "run_penny_agent", fake_agent)
@@ -149,7 +310,7 @@ def test_can_i_house_style_applied_to_agent_output(monkeypatch):
     # other reply shape in this file.
     _patch_can_i_common(monkeypatch)
 
-    async def fake_agent(uid, question, history, screen, context):
+    async def fake_agent(uid, question, history, screen, context, view=None):
         return {"headline": "Fine either way", "reply": "That works, no issue at all — go for it.", "tools_used": []}
 
     monkeypatch.setattr(can_i_module, "run_penny_agent", fake_agent)
@@ -171,7 +332,7 @@ def test_can_i_house_style_applied_to_agent_output(monkeypatch):
 def test_can_i_provider_error_reply_when_agent_reports_infra_failure(monkeypatch):
     _patch_can_i_common(monkeypatch)
 
-    async def fake_agent(uid, question, history, screen, context):
+    async def fake_agent(uid, question, history, screen, context, view=None):
         return {"provider_error": True}
 
     monkeypatch.setattr(can_i_module, "run_penny_agent", fake_agent)
@@ -199,7 +360,7 @@ def test_can_i_provider_error_reply_when_agent_reports_infra_failure(monkeypatch
 def test_can_i_refusal_fallback_when_agent_returns_none(monkeypatch):
     _patch_can_i_common(monkeypatch)
 
-    async def fake_agent(uid, question, history, screen, context):
+    async def fake_agent(uid, question, history, screen, context, view=None):
         return None
 
     monkeypatch.setattr(can_i_module, "run_penny_agent", fake_agent)
@@ -221,7 +382,7 @@ def test_can_i_refusal_fallback_when_agent_returns_none(monkeypatch):
 def test_can_i_refusal_fallback_appends_screen_hint_only_when_known(monkeypatch):
     _patch_can_i_common(monkeypatch)
 
-    async def fake_agent(uid, question, history, screen, context):
+    async def fake_agent(uid, question, history, screen, context, view=None):
         return None
 
     monkeypatch.setattr(can_i_module, "run_penny_agent", fake_agent)
@@ -249,7 +410,7 @@ def test_can_i_refusal_fallback_gracefully_handles_sts_lookup_failure(monkeypatc
     # example.
     _patch_can_i_common(monkeypatch)
 
-    async def fake_agent(uid, question, history, screen, context):
+    async def fake_agent(uid, question, history, screen, context, view=None):
         return None
 
     monkeypatch.setattr(can_i_module, "run_penny_agent", fake_agent)

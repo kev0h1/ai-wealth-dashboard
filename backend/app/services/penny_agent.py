@@ -360,7 +360,18 @@ _SYSTEM_PROMPT = (
     "one line and nothing else: OUT_OF_SCOPE\n"
     "6. Never repeat what the user's current screen already shows them "
     "(the screen name, when known, is given in the user message) — add "
-    "only what is new.\n"
+    "only what is new. When the user message includes a VIEW block, its "
+    "labelled figures are the exact values already computed and currently "
+    "on that screen. If the question is about one of them, your REPLY "
+    "must use that VIEW value verbatim for that figure, never a different "
+    "number from a tool call for the same quantity, even if a tool "
+    "returns one, VIEW is what the user is looking at right now. You may "
+    "still call a tool to explain what is driving a VIEW figure (the "
+    "reasoning behind it), but never quote a second, different value for "
+    "the same labelled quantity alongside it, and never mention that a "
+    "tool disagreed. A VIEW verdict word is server-decided the same way "
+    "as a tool's own verdict/state field (rule 2) — reproduce it, don't "
+    "re-derive or soften it.\n"
     "7. British English, answer-first. Normally at most 2 short sentences; "
     "allow up to 3 only when a genuine breakdown needs the extra room (for "
     "example naming what's driving a category, see rule 8) — never use the "
@@ -578,23 +589,60 @@ def _parse_headline_reply_or_none(raw: str, *, has_tool_grounding: bool = False)
     return "", fallback
 
 
-def _build_user_content(question: str, screen: str | None, context: str) -> str:
+def _format_view_block(view: dict) -> str:
+    """Renders a sanitised `view` dict (see can_i.py's `_sanitize_view`) as
+    compact, labelled plain text rather than a JSON dump — cheaper in
+    tokens and easier for the model to read as facts than to parse as data.
+    Every field is optional except `figures` (may be an empty list, e.g. a
+    screen mid-load with nothing to quote yet, in which case only
+    route/scope/verdict — whatever's present — render)."""
+    lines = [
+        "VIEW (exactly what the user's screen shows right now — these "
+        "labelled figures and verdict, when given, are CURRENT and "
+        "AUTHORITATIVE for what's on screen; see rule 6):"
+    ]
+    route = view.get("route")
+    if route:
+        lines.append(f"Route: {route}")
+    scope = view.get("scope")
+    if scope:
+        lines.append(f"Scope: {scope}")
+    verdict = view.get("verdict")
+    if verdict:
+        lines.append(f"Verdict shown: {verdict}")
+    for fig in view.get("figures") or []:
+        label = fig.get("label")
+        value = fig.get("value")
+        if label and value is not None:
+            lines.append(f"{label}: {value}")
+    as_of = view.get("asOf")
+    if as_of:
+        lines.append(f"As of: {as_of}")
+    return "\n".join(lines)
+
+
+def _build_user_content(question: str, screen: str | None, context: str, view: dict | None = None) -> str:
     """The human turn handed to the model: the raw question, plus the
-    screen name (when known) and the screen's own context block (when
-    non-trivial) — the same two grounding signals every other LLM path in
-    can_i.py appends, just folded into one user message instead of a
-    separate system-prompt slot, since this loop's system prompt is fixed
-    and shared across every question rather than rebuilt per-call."""
+    screen name (when known), the screen's own free-text context block
+    (when non-trivial — legacy, currently unused by any live screen, kept
+    additive), and the screen's structured `view` (B39, when given) — the
+    grounding signals every other LLM path in can_i.py appends, folded into
+    one user message instead of a separate system-prompt slot, since this
+    loop's system prompt is fixed and shared across every question rather
+    than rebuilt per-call."""
     parts = [question]
     if screen:
         parts.append(f"(Current screen: {screen})")
     if context:
         parts.append(f"CONTEXT (what the user's current screen shows): {context}")
+    if view:
+        parts.append(_format_view_block(view))
     return "\n\n".join(parts)
 
 
 async def run_penny_agent(
     uid: str, question: str, history: list[dict], screen: str | None, context: str,
+    view: dict | None = None,
 ) -> dict | None:
     """Run the tool-calling loop for one question. See module docstring's
     revised (B37) "Failure doctrine" for the three-way return contract: a
@@ -694,7 +742,7 @@ async def run_penny_agent(
         content = entry.get("content") if isinstance(entry, dict) else None
         if role in ("user", "assistant") and isinstance(content, str):
             messages.append({"role": role, "content": content})
-    messages.append({"role": "user", "content": _build_user_content(question, screen, context)})
+    messages.append({"role": "user", "content": _build_user_content(question, screen, context, view)})
 
     # One id per USER MESSAGE (i.e. per call to run_penny_agent), shared by
     # every OpenRouter round the loop below makes for it — see app.core.llm's

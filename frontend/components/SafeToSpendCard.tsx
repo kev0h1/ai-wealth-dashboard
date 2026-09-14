@@ -1,9 +1,12 @@
 "use client";
 
+import { useEffect } from "react";
 import { AlertCircle, AlertTriangle, ArrowRight, ChevronDown, CreditCard, ShieldCheck } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { SafeToSpend } from "@/lib/api";
 import { usePreferences } from "@/components/PreferencesContext";
+import { setPennyScreenView } from "@/components/PennySheetProvider";
+import { zeroSafe, deriveSafeToSpendHeadline, buildSafeToSpendView } from "@/lib/pennyScreenViews";
 import MoneyText from "@/components/MoneyText";
 
 interface SafeToSpendCardProps {
@@ -11,10 +14,6 @@ interface SafeToSpendCardProps {
   loading?: boolean;
   error?: boolean;
   onRetry?: () => void;
-}
-
-function zeroSafe(value: number): number {
-  return Math.abs(value) < 1 ? 0 : value;
 }
 
 function fmt(value: number): string {
@@ -160,6 +159,28 @@ export default function SafeToSpendCard({ data, loading, error, onRetry }: SafeT
   const router = useRouter();
   const hidden = hideNetWorth || !preferencesReady;
 
+  // Penny screen context (B39) — published here via `buildSafeToSpendView`
+  // (lib/pennyScreenViews.ts), the SAME function a node test pins against
+  // fixture payloads, so what Penny can quote back for "why is this so
+  // low" can never disagree with the hero figure this card renders below
+  // (both ultimately call that module's `deriveSafeToSpendHeadline`). Must
+  // be an unconditional hook call (every render, including the early
+  // loading/error/insufficient-data/degraded returns below, where the
+  // correct published view is "nothing to quote yet", not a stale figure
+  // left over from a previous successful render) — placed above every
+  // early `return` in this component for exactly that reason.
+  useEffect(() => {
+    if (loading || !data) {
+      setPennyScreenView("home", null);
+      return;
+    }
+    if (data.status !== "ok" || data.calculation_status === "degraded") {
+      setPennyScreenView("home", { route: "/", scope: "Safe to Spend", figures: [], asOf: new Date().toISOString() });
+      return;
+    }
+    setPennyScreenView("home", buildSafeToSpendView(data, { hidden }));
+  }, [data, loading, hidden]);
+
   if (loading && !data) {
     return (
       <div className="rounded-3xl p-5 glass-hero" aria-busy="true" aria-label="Loading Safe to Spend">
@@ -211,8 +232,11 @@ export default function SafeToSpendCard({ data, loading, error, onRetry }: SafeT
   const cardGrowth = zeroSafe(data.card_growth_total ?? 0);
   const cardNewSpend = zeroSafe(data.card_new_spend_total ?? 0);
   const cardReserve = zeroSafe(data.card_growth_reserved ?? 0);
-  const isCardsUnconfirmedShort = data.state === "short" && data.short_reason === "cards_unconfirmed";
-  const state: "comfortable" | "tight" | "short" = data.state === "short" && !data.short_reason && freeAmount > -1 ? "comfortable" : data.state;
+  // `state`/`stateLabel`/`isCardsUnconfirmedShort`/`heroAmount`/`paydayLabel`
+  // now come from `deriveSafeToSpendHeadline` (this file, above) — the SAME
+  // call the Penny screen-context effect above makes, not a second copy of
+  // this maths (B39).
+  const { state, stateLabel, isCardsUnconfirmedShort, heroAmount, paydayLabel } = deriveSafeToSpendHeadline(data);
 
   const amount = (value: number) => hidden ? "£••••" : fmt(value);
   const exactAmount = (value: number) => hidden ? "£••••" : fmt2(value);
@@ -220,17 +244,7 @@ export default function SafeToSpendCard({ data, loading, error, onRetry }: SafeT
     ? `${value < 0 ? "−" : "+"}£••••`
     : `${value < 0 ? "−" : "+"}${fmt2(value)}`;
 
-  const paydayDate = new Date(data.next_payday);
-  paydayDate.setHours(0, 0, 0, 0);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const daysAway = Math.round((paydayDate.getTime() - today.getTime()) / 86400000);
-  const paydayLabel = daysAway <= 0 ? "today" : daysAway === 1 ? "tomorrow" : daysAway < 7
-    ? new Date(data.next_payday).toLocaleDateString("en-GB", { weekday: "long" })
-    : new Date(data.next_payday).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
-
   const StateIcon = state === "comfortable" ? ShieldCheck : state === "tight" || isCardsUnconfirmedShort ? AlertCircle : AlertTriangle;
-  const stateLabel = state === "comfortable" ? "On track" : state === "tight" ? "Tight" : isCardsUnconfirmedShort ? "Check card bill" : "Short";
   const stateChipClass = state === "comfortable"
     ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-400/10 dark:text-emerald-300"
     : state === "tight" || isCardsUnconfirmedShort
@@ -242,9 +256,6 @@ export default function SafeToSpendCard({ data, loading, error, onRetry }: SafeT
       ? "text-red-600 dark:text-red-400"
       : "text-slate-900 dark:text-slate-100";
 
-  const heroAmount = state === "short"
-    ? isCardsUnconfirmedShort ? 0 : Math.abs(cashRunway)
-    : freeAmount;
   const heroCaption = state === "short" && !isCardsUnconfirmedShort
     ? "short before payday"
     : `available in cash until ${paydayLabel}`;

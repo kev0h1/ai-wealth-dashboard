@@ -15,6 +15,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import BottomNav from "@/components/BottomNav";
 import Spinner from "@/components/Spinner";
 import { useTutorialReady } from "@/components/TutorialContext";
+import { setPennyScreenView } from "@/components/PennySheetProvider";
+import { buildUpcomingRunwayView, type UpcomingRunwayInput } from "@/lib/pennyScreenViews";
 import MoneyText from "@/components/MoneyText";
 
 // Editing flows are not needed to understand the initial runway. Keeping them
@@ -225,6 +227,26 @@ export default function PlanningPage() {
   const searchParams = useSearchParams();
   const sym = "£";
   const [planningNow] = useState(() => Date.now());
+  // Penny screen context (B39) — the runway hero's own three headline
+  // values (`runway`/`runwayStatus`/`isCalendarMonth`) are computed deep
+  // inside `upcomingBlock`'s render-time IIFE below (a large row-by-row
+  // simulation that depends on a lot of page-only state — see that block's
+  // own extensive comments), not inside a hook, so they can't be read
+  // directly from a `useEffect` here. This ref is written to, in plain JS
+  // (no hook-order concern — it's not a hook call), the moment those three
+  // values are known inside the IIFE; the effect below reads it back AFTER
+  // every commit (no dependency array) and publishes whatever it currently
+  // holds via `buildUpcomingRunwayView` — the SAME function a node test
+  // pins against fixture inputs — so the figure Penny can quote back can
+  // never disagree with the one just rendered. `undefined` (the initial
+  // value, and while `upcomingBlock`'s own early "nothing left to pay"/
+  // loading/error branches are showing instead) means "nothing to
+  // publish", not "not decided yet" — those branches have no runway
+  // number, so there is nothing to quote either.
+  const pennyRunwayRef = useRef<UpcomingRunwayInput | undefined>(undefined);
+  useEffect(() => {
+    setPennyScreenView("upcoming", pennyRunwayRef.current ? buildUpcomingRunwayView(pennyRunwayRef.current) : null);
+  });
 
   const [cashflow, setCashflow] = useState<CashflowData | null>(null);
   const [cashflowError, setCashflowError] = useState(false);
@@ -855,6 +877,12 @@ export default function PlanningPage() {
   /* renderRow only captures ref-backed mutation handlers for later user
      events; it never reads those refs while this JSX is being produced. */
   /* eslint-disable react-hooks/refs */
+  // Reset before every render's ternary below runs: only the success IIFE
+  // branch (rawItems.length > 0) ever sets this back to a real value, so an
+  // error/loading/nothing-left-to-pay render correctly clears whatever a
+  // PRIOR render may have published, rather than leaving Penny quoting a
+  // runway figure that is no longer on screen.
+  pennyRunwayRef.current = undefined;
   const upcomingBlock = (
     <>
       {cashflowError ? (
@@ -1072,6 +1100,15 @@ export default function PlanningPage() {
         const runway = spendableNow + runwayIncomeTotal - runwayBillsTotal - allocationsRemainingTotal;
         const runwayNegative = runway < 0;
         const runwayStatus = runwayNegative ? "short" : runway > 0 ? "left" : "even";
+        // Penny screen context (B39) — plain JS assignment, not a hook
+        // call (see `pennyRunwayRef`'s own declaration above for why this
+        // lives inside a render-time IIFE rather than a `useEffect`). The
+        // publish effect up top reads this back after the commit and calls
+        // the SAME `buildUpcomingRunwayView` a node test pins against
+        // fixture inputs, so the figure Penny can quote back can never
+        // disagree with the hero below, which renders these same three
+        // values.
+        pennyRunwayRef.current = { runway, runwayStatus, isCalendarMonth };
 
         const atRiskCount = items.filter(i => i.type === "bill" && i.at_risk).length;
         void atRiskCount;
