@@ -6,8 +6,11 @@ Two families of route:
   app.routers.admin_usage._require_admin / app.routers.ops._require_owner,
   merged into one gate since this is read by both a future cron/bot AND
   Kevin's own /ops page, which can only ever carry his own session token,
-  never BOT_SECRET — that never reaches a browser). Compose (resolve +
-  freeze an audience, never sends), then send (confirm step, idempotent).
+  never a bot credential — that never reaches a browser). A28: a bot
+  credential needs `admin:broadcast` scope (app.core.bot_credentials),
+  checked by `current_user` before any of these route bodies run. Compose
+  (resolve + freeze an audience, never sends), then send (confirm step,
+  idempotent).
 - `/offers*` — any authenticated user, scoped to themselves. The in-app
   card half of a sent broadcast: unread offers, and dismissing one.
 
@@ -25,12 +28,11 @@ router = APIRouter(tags=["broadcast"])
 
 
 def _require_admin(user: dict) -> None:
-    """Bot (BOT_SECRET bearer, `current_user` resolves it to
-    `{"name": "Bot", ...}`) or the account owner's own session — see this
-    module's docstring for why a strict bot-only gate (routers/admin.py's
-    `admin_sync_all`, which checks the raw Authorization header itself)
-    can't work here: BOT_SECRET is a server secret and never reaches the
-    /ops page's browser. An unauthenticated request never even reaches
+    """Bot (a scoped credential, `current_user` resolves it to
+    `{"name": "Bot", "email": None, ...}` — A28) or the account owner's own
+    session — see this module's docstring for why a strict bot-only gate
+    can't work here: a bot credential is a server secret and never reaches
+    the /ops page's browser. An unauthenticated request never even reaches
     this function (`current_user` already 401s it); an ordinary signed-in
     user who is neither the bot nor the owner is rejected here."""
     if user.get("name") == "Bot":

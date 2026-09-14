@@ -45,7 +45,6 @@ names, `railway variables --service ai-wealth-dashboard|worker --kv`,
 | `ALLOWED_EMAILS` | `core/config.py` | present | present | required; comma-separated sign-in allow-list, the seed list checked first by every sign-in. D5: day-to-day invites go through the in-app `allowed_signups` Mongo collection instead (managed from `/ops/go-live`'s Allowlist section, `app/routers/admin_allowlist.py`) — this env var stays for the owner's own account and anything else that needs to work even if Mongo is unreachable, and only changing it still needs an env edit + redeploy. |
 | `DEFAULT_TIER` | `core/config.py` | absent (default `max`) | absent (default `max`) | optional; deliberately top-tier pre-launch. |
 | `REDIS_URL` | `core/config.py` | present | present | required; queue + cache. |
-| `BOT_SECRET` | `core/config.py` | present | present (required, currently absent, see "Known drift" below) | required in production for the admin/MCP-audit bot routes to be callable. Use a different value from UAT's (`sync-vars --generate BOT_SECRET`), never copy UAT's. |
 | `GOOGLE_CLIENT_ID` | `core/config.py` | present | present | required; Google sign-in. |
 | `GOOGLE_CLIENT_SECRET` | `core/config.py` | present | present | required; Google sign-in. |
 | `APPLE_BUNDLE_ID` | `core/config.py` | absent (default `co.uk.auriqltd.sorted` is correct) | absent (same default) | optional. |
@@ -93,6 +92,67 @@ names, `railway variables --service ai-wealth-dashboard|worker --kv`,
 | `TOKEN_ENCRYPTION_KEY` | `core/crypto.py` | absent (falls back to `backend/.token_key`) | present | optional on UAT (file fallback), present on Railway (no persistent filesystem), encrypts stored bank tokens at rest. |
 | `REPO_ROOT` | `routers/ops.py` | absent (defaults to this repo) | absent | optional; test/override only, not meant to be set in either real environment. |
 | `BACKLOG_ROOT` | `services/backlog.py` | absent (defaults to `/root/ai-wealth-dashboard`) | absent | optional; test override only, never meant to be set outside pytest. |
+
+### Bot/service credentials (A28, replaces `BOT_SECRET`)
+
+Not an environment variable at all, so it doesn't appear in the table
+above or get tracked by `scripts/env_drift.py`. A28 (2026-09-14) replaced
+the single static `BOT_SECRET` — one shared string, no expiry, no
+scoping, and (the actual defect) `core/auth.py` resolved it to Kevin's
+own identity, `{"email": "kevin.maingi12@gmail.com", ...}`, so the same
+string could read or write anything Kevin's own session could — with
+named, scoped, individually revocable credentials stored in Mongo
+(`bot_credentials` collection, see `app.core.bot_credentials`'s module
+docstring for the full design).
+
+A resolved bot credential principal is `{"name": "Bot", "email": None,
+"bot_name": <name>, "scopes": {...}}` — `email` is always `None`, never a
+real address, which is what stops a credential impersonating a real user:
+almost every route in this app scopes its Mongo reads/writes to
+`user["email"]`, and a bot credential simply cannot supply one. A bot
+credential can only ever reach the small, explicit list of routes in
+`app.core.bot_credentials.ROUTE_SCOPES` (today: `POST /admin/sync-all`,
+`GET /admin/llm-usage`, `GET /admin/sync-stats`,
+`POST /admin/finexer/providers/refresh`,
+`PATCH /subscription/admin/set-tier`, `POST /subscription/admin/topup`,
+`/admin/broadcast*`, `/admin/allowlist*`), each gated by one of the
+scopes in `app.core.bot_credentials.SCOPES`; every other route (including
+`POST /admin/fix-card-transactions`, which acts on "the caller's own
+account", and `GET /mcp` / `GET /mcp/audit`, which used to be reachable
+with `BOT_SECRET` and read Kevin's own MCP data) closes the door on a bot
+credential entirely, however broad its scopes.
+
+**Rotation** (no redeploy, no env var, no restart):
+
+```bash
+# mint (prints the raw token exactly once, never stored anywhere)
+backend/.venv/bin/python scripts_bot_credential.py create --name usage-dashboard --scopes admin:usage
+# hand the new token to whatever was calling the old one, then:
+backend/.venv/bin/python scripts_bot_credential.py revoke --name usage-dashboard-old
+# list every credential (name/scopes/timestamps, never the token itself)
+backend/.venv/bin/python scripts_bot_credential.py list
+```
+
+Every lookup is a live Mongo read (`bot_credentials_col.find_one`, keyed
+by the SHA-256 hash of the token, same doctrine as `oauth_tokens_col`), so
+a `create` or `revoke` takes effect on the very next request — there is
+nothing cached, nothing to restart.
+
+**Break-glass for Kevin**: every bot-eligible route also accepts Kevin's
+own real session (the normal Google/Apple sign-in flow everything else in
+this app already uses, itsdangerous-signed, expiring, never a static
+secret) as a fallback if every bot credential were ever revoked or the
+credential store were unreachable — see `admin.py`'s `admin_sync_all`,
+`subscription.py`'s `admin_set_tier`/`admin_topup`, and the existing
+bot-or-owner gates in `admin_usage.py`/`broadcast.py`/`admin_allowlist.py`.
+This is not "the old secret under a new name": it requires a real,
+already-authenticated owner login, it only ever resolves to Kevin's own
+identity (never a bot masquerading as him), and it's the exact same
+break-glass every other owner-only surface in this app (`/ops/go-live`)
+already relies on — nothing new was added to make this possible, A28 just
+made sure it stayed available on the two routes (`admin_sync_all`,
+`subscription` admin) that had previously been bot-only with no owner
+fallback at all.
 
 ### Present but not read by `backend/app` (legacy / standalone scripts)
 
@@ -155,14 +215,17 @@ the manifest has a complete picture of everything `deploy` reads.
   `.fcm_service_account.json` file, production needs the whole JSON body
   set as this env var (`FCM_PROJECT_ID` is already present on UAT but
   still needs setting on Railway too).
-- **`BOT_SECRET`**: present on UAT, absent on Railway.
-- Net effect of the four points above: **production push notifications
-  are unconfigured** (`APNS_CONFIGURED` / `FCM_CONFIGURED` both evaluate
-  false with these unset) and **admin/MCP-audit bot routes are
-  uncallable in production** until `BOT_SECRET` is set there. Neither is
-  a regression, production has simply never had these set, but they
-  block real push delivery and bot-driven audits once traffic moves off
-  UAT.
+- **`BOT_SECRET`**: retired 2026-09-14 (A28). It is no longer read anywhere
+  in `backend/app` — see "Bot/service credentials" below for its
+  replacement. If it is still set in `backend/.env` or on either Railway
+  service, that is harmless (nothing reads it) but should be cleared out
+  next time either is touched, so it doesn't get mistaken for something
+  live.
+- Net effect of the first two points above: **production push
+  notifications are unconfigured** (`APNS_CONFIGURED` / `FCM_CONFIGURED`
+  both evaluate false with these unset). Not a regression, production has
+  simply never had these set, but it blocks real push delivery once
+  traffic moves off UAT.
 - **`MCP_CONNECTOR_ENABLED`** (Railway) and **`NEXT_PUBLIC_MCP_CONNECTOR`**
   (Vercel) being absent is *intentional*, not drift, see A17 in the
   backlog. Do not "fix" this by setting them.

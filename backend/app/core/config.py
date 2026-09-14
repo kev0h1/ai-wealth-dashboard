@@ -109,7 +109,13 @@ def mask_email(email: str) -> str:
 REDIS_URL           = os.getenv("REDIS_URL", "redis://localhost:6379")
 
 # ── Auth ─────────────────────────────────────────────────────────────────────
-BOT_SECRET          = os.getenv("BOT_SECRET", "")
+# A28 (2026-09-14): BOT_SECRET (a single static shared secret that
+# authenticated as Kevin's own account) is retired. Its replacement —
+# named, scoped, individually revocable credentials stored in
+# app.db.collections.bot_credentials_col — is not an env var at all, see
+# app.core.bot_credentials and backend/scripts_bot_credential.py. Any
+# BOT_SECRET left set in an environment's .env/Railway config is now
+# inert (nothing reads it); it is not read here on purpose.
 GOOGLE_CLIENT_ID    = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
 

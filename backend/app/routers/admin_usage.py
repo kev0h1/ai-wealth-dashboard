@@ -38,11 +38,14 @@ _MONTH_RE = re.compile(r"^\d{4}-\d{2}$")
 
 
 def _require_admin(user: dict) -> None:
-    """Bot (BOT_SECRET bearer) or the account owner's own session — same
-    admin-or-owner pairing as app.routers.ops._require_owner /
-    app.routers.subscription.admin_set_tier, merged into one gate since
-    this endpoint is read by both the bot's nightly report and Kevin's own
-    ops pages."""
+    """A bot credential with `admin:usage` scope (app.core.bot_credentials,
+    A28) or the account owner's own session — same admin-or-owner pairing
+    as app.routers.ops._require_owner / app.routers.subscription.admin_set_tier,
+    merged into one gate since this endpoint is read by both the bot's
+    nightly report and Kevin's own ops pages. `current_user` has already
+    checked the credential's scope for this route before this function
+    ever runs; this just distinguishes "some other signed-in user" from
+    those two, which it still must reject."""
     if user.get("name") == "Bot":
         return
     if (user.get("email") or "").strip().lower() == PRIMARY_EMAIL:

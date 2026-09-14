@@ -28,6 +28,7 @@ from app.db.collections import (
     response_cache_col, mcp_calls_col, mcp_call_counters_col,
     oauth_codes_col, oauth_tokens_col,
     allowed_signups_col,
+    bot_credential_uses_col,
     billing_customers_col, billing_events_col,
     broadcasts_col, broadcast_receipts_col,
     safe_to_spend_history_col,
@@ -456,6 +457,17 @@ async def _create_indexes():
     await _ensure_index(safe_to_spend_history_col,
         "computed_at", expireAfterSeconds=SAFE_TO_SPEND_HISTORY_TTL_DAYS * 24 * 3600,
         name="safe_to_spend_history_ttl",
+    )
+    # A28: bot-credential use audit (app.core.bot_credentials.record_use).
+    # 180 days (double mcp_calls_col's F14 bound) — this is a security
+    # audit trail for a small number of privileged, low-volume routes, not
+    # a per-user data collection, so a longer retention is cheap and more
+    # useful for after-the-fact review.
+    await _ensure_index(bot_credential_uses_col,
+        [("bot_name", 1), ("ts", -1)], name="bot_credential_uses_name_ts"
+    )
+    await _ensure_index(bot_credential_uses_col,
+        "ts", expireAfterSeconds=180 * 24 * 3600, name="bot_credential_uses_ttl",
     )
 
 

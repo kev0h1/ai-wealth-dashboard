@@ -18,8 +18,13 @@ one JSON-RPC 2.0 request or a batch (a JSON array of them); `GET /mcp` is
 server is stateless, no `Mcp-Session-Id` to tear down).
 
 Auth: the SAME bearer the rest of the app uses (`app.core.auth.current_user`,
-a session token, or `BOT_SECRET`), resolved once per request by
-`resolve_mcp_principal`. F2 (OAuth 2.1 authorisation server, not started)
+a real session token), resolved once per request by `resolve_mcp_principal`.
+A28 (2026-09-14): a bot/service credential (`app.core.bot_credentials`) can
+never reach `/mcp` or `/mcp/audit` — neither is in `ROUTE_SCOPES`, since
+both act as "the caller's own account" (tool calls attributed to `uid`,
+the audit log read back by `uid`) and there is no bot-owned account for
+either to mean anything against; `current_user` 403s a bot credential here
+before this router's body ever runs. F2 (OAuth 2.1 authorisation server, not started)
 will swap in real per-token scopes from a different principal source; every
 other function in this module already takes a `principal` dict rather than
 re-deriving it, so that swap should not have to touch anything below

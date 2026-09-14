@@ -2,8 +2,9 @@
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 from itsdangerous import SignatureExpired, BadSignature
+from app.core import bot_credentials
 from app.core.config import (
-    API_PUBLIC_URL, BOT_SECRET, MCP_CONNECTOR_ENABLED, SESSION_MAX_AGE, serializer,
+    API_PUBLIC_URL, MCP_CONNECTOR_ENABLED, SESSION_MAX_AGE, serializer,
 )
 from app.core.ratelimit import check_rate_limit
 
@@ -45,13 +46,35 @@ _MCP_OPEN_PATHS = {
 
 
 async def current_user(request: Request) -> dict:
-    """FastAPI dependency: extract & validate session token."""
+    """FastAPI dependency: extract & validate session token.
+
+    A28: a `sorted_bot_...` bearer is a named, scoped service credential
+    (app.core.bot_credentials), resolved and scope-checked here as well as
+    in `auth_middleware` below (deliberate double-check, not redundant
+    dead code — see that function's docstring). This is the ONLY place a
+    bot credential's use gets audited (`record_use`), so a route reached
+    via a bot credential is audited exactly once per request, even though
+    both this dependency and the middleware validate it. Unlike the old
+    BOT_SECRET check, the returned principal never carries a real email —
+    `email` is always `None` for a bot, which is what stops it reading or
+    writing any route that scopes itself to `user["email"]`/
+    `user.get("email")` (audited across every router 2026-09-14: that's
+    almost all of them). A bot principal only ever reaches a route in
+    `bot_credentials.ROUTE_SCOPES`; everywhere else this raises 401/403
+    before the route body ever runs."""
     auth = request.headers.get("Authorization", "")
     if not auth.startswith("Bearer "):
         raise HTTPException(401, "Not authenticated")
     token = auth[7:]
-    if BOT_SECRET and token == BOT_SECRET:
-        return {"email": "kevin.maingi12@gmail.com", "name": "Bot"}
+    if token.startswith(bot_credentials.TOKEN_PREFIX):
+        ok, cred = await bot_credentials.check_bot_request(request.method, request.url.path, token)
+        if cred is not None:
+            await bot_credentials.record_use(cred["bot_name"], request.method, request.url.path, ok, token=token)
+        if not ok:
+            status = 401 if cred is None else 403
+            detail = "Invalid or revoked credential" if cred is None else "Credential not authorised for this route"
+            raise HTTPException(status, detail)
+        return {"name": "Bot", "email": None, "bot_name": cred["bot_name"], "scopes": cred["scopes"]}
     try:
         data = serializer.loads(token, max_age=SESSION_MAX_AGE)
         result = data if isinstance(data, dict) else {"email": "unknown", "name": ""}
@@ -95,7 +118,19 @@ async def auth_middleware(request: Request, call_next):
     if not auth.startswith("Bearer "):
         return JSONResponse(status_code=401, content={"detail": "Not authenticated"}, headers=mcp_headers)
     token = auth[7:]
-    if BOT_SECRET and token == BOT_SECRET:
+    if token.startswith(bot_credentials.TOKEN_PREFIX):
+        # A28: validated here too (not just in `current_user`) so a bot
+        # credential is refused at the front door for any route this
+        # middleware would otherwise wave through — defence in depth,
+        # in case a future route is ever added without a `current_user`
+        # dependency of its own. No audit write here: `current_user`
+        # (which every route in bot_credentials.ROUTE_SCOPES already
+        # depends on) is the single place a use gets logged, so a request
+        # that gets this far and passes is audited exactly once, not
+        # twice.
+        ok, _cred = await bot_credentials.check_bot_request(request.method, path, token)
+        if not ok:
+            return JSONResponse(status_code=401, content={"detail": "Not authenticated"}, headers=mcp_headers)
         return await call_next(request)
     if token.startswith("sorted_at_") and is_mcp_path:
         # F2 OAuth access token, on the one path it's ever valid for: this

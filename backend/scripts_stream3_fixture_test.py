@@ -3,8 +3,9 @@
 WRITES ONLY to the isolated fixture user (FIXTURE_UID) — never to a real
 user. Exercises the live API (systemctl service on localhost:8000) exactly
 as a real client would: mints a session token for the fixture user with the
-app's own serializer (never touches BOT_SECRET, which resolves to the real
-kevin.maingi12@gmail.com identity and must never be used for writes).
+app's own serializer (never a bot/service credential — A28's
+app.core.bot_credentials — which can't resolve to any real user's identity
+at all, and couldn't reach a user-data write route even if it tried).
 
 Cleans up every fixture doc it created, in every collection, at the end
 (best-effort — runs even if an assertion fails, via try/finally).
