@@ -4,7 +4,7 @@
 // B19: five-tier picker variants for Kevin to compare before the picker is
 // wired into Settings or onboarding. Static fixtures only, no API calls.
 //
-// /design/your-plan?variant=a|b|c&context=settings|onboarding&mode=light|dark&billing=off|on&sub=none|active|trialing|past_due|cancelled&native=0|1
+// /design/your-plan?variant=a|b|c&context=settings|onboarding&mode=light|dark&billing=off|on&sub=none|active|trialing|past_due|cancelled&native=0|1&sheet=0|1
 //
 // B29: `sub` and `native` only affect variant a (the real PlanPicker, see
 // below) — b and c are static mockups with no subscription-state logic of
@@ -17,6 +17,7 @@
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import PlanPicker from "@/components/PlanPicker";
+import YourPlanCard from "@/components/YourPlanCard";
 import type { SubscriptionInfo } from "@wealth/shared";
 import {
   ArrowLeft,
@@ -289,6 +290,10 @@ function Preview() {
   const sub: "none" | "active" | "trialing" | "past_due" | "cancelled" =
     rawSub === "none" || rawSub === "trialing" || rawSub === "past_due" || rawSub === "cancelled" ? rawSub : "active";
   const native = params.get("native") === "1";
+  // G74: render the production Settings card as an opt-in verification
+  // surface. Opening it exercises YourPlanCard's real portalled sheet rather
+  // than the historical hand-authored Settings frame below.
+  const sheet = params.get("sheet") === "1";
   const current: TierName | null = context === "settings" ? (sub === "none" ? "statements" : "standard") : null;
   const [selected, setSelected] = useState<TierName>(() => current ?? "statements");
   const note = NOTES[variant];
@@ -345,6 +350,33 @@ function Preview() {
     billing_live: billing === "on",
     trial_days: 14,
     trial_charge_on: "2026-09-25",
+    topup: { messages: 100, price_gbp: 2.99 },
+    topups: [
+      { id: "small", messages: 20, price_gbp: 0.99, badge: null },
+      { id: "medium", messages: 100, price_gbp: 2.99, badge: "Most popular" },
+      { id: "large", messages: 200, price_gbp: 4.99, badge: "Best value" },
+    ],
+    limits: {
+      open_banking: true,
+      max_banks: null,
+      max_accounts: null,
+      refresh: "daily",
+      penny_messages_per_month: 150,
+      mcp_tool_calls_per_month: null,
+      history_days: null,
+      statement_uploads_per_month: null,
+    },
+    usage: {
+      year_month: "2026-09",
+      penny_messages: 37,
+      cost_usd: 0,
+      penny_limit: 150,
+      penny_remaining: 113,
+      penny_resets_on: "2026-10-01",
+      penny_topup_messages: 0,
+      penny_topup_expires_soonest: null,
+      penny_packs_bought_this_month: 0,
+    },
   } as SubscriptionInfo;
 
   useEffect(() => {
@@ -380,7 +412,9 @@ function Preview() {
           </header>
         )}
 
-        {variant === "a" ? (
+        {variant === "a" && context === "settings" && sheet ? (
+          <YourPlanCard info={previewInfo} />
+        ) : variant === "a" ? (
           <PlanPicker info={previewInfo} context={context} previewOnly nativeOverride={native} />
         ) : (
           <>
@@ -395,7 +429,7 @@ function Preview() {
           <p className="mt-1 text-[11px] leading-snug text-slate-500 dark:text-slate-400">Risk: {note.risk}</p>
         </section>
         </div>
-        <Controls variant={variant} context={context} mode={mode} billing={billing} sub={sub} native={native} />
+        {!sheet && <Controls variant={variant} context={context} mode={mode} billing={billing} sub={sub} native={native} />}
       </main>
     </div>
   );
