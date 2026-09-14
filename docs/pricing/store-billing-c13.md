@@ -255,14 +255,19 @@ existing `_STRIPE_REQUIRED_PRICE_KEYS` tuple's 16 keys as the shared
 vocabulary between the two providers rather than inventing a second
 naming scheme.
 
-### 3.1 iOS SKU pricing (Kevin, 2026-09-14)
+### 3.1 iOS SKU pricing (proposed here, awaiting Kevin's sign-off)
 
-Kevin decided against pricing for full recovery of Apple's cut. The iOS
-SKUs (products 1-12 above) carry an uplift of roughly 18% over the web
-price, not the roughly 37% that would be needed to make the iOS net
-match the web net exactly.
+**Proposed here for Kevin's sign-off, not a decision he has recorded**:
+pricing against full recovery of Apple's cut. The only record of this in
+the repository is a same-day board note (TODO.md C13, 2026-09-14) written
+by the same agent that wrote this document, restating this document's own
+conclusion rather than sourcing it independently, so it is not evidence
+that Kevin reviewed or confirmed it. Until he does, this stays a
+proposal: the iOS SKUs (products 1-12 above) would carry an uplift of
+roughly 18% over the web price, not the roughly 37% that would be needed
+to make the iOS net match the web net exactly.
 
-Two reasons, both recorded here:
+Two reasons are offered here in support of that proposal:
 
 - The App Store listing shows the price publicly, so the iOS number is
   what the app is judged on against competitors, not a blended figure
@@ -271,12 +276,13 @@ Two reasons, both recorded here:
   the business registers for VAT above the £90k threshold. At today's
   £16.99 Max price charged on both channels, the web net is about £16.54
   (unregistered) against an iOS net of about £12.03, a gap of £4.51.
-  Once VAT-registered, the web net for Max falls to about £13.71 (VAT
-  now comes off the web side too) against the same £12.03 on iOS, a gap
-  of £1.68. A 37% uplift fixed today, sized against the wider gap, would
-  become a large overcharge on iOS customers exactly as the business
-  grows into VAT registration and the gap it was set to close shrinks
-  under it.
+  Once VAT-registered, the web net for Max falls to about £13.70 (VAT
+  now comes off the web side too: ex-VAT £16.99 / 1.2 = £14.158333, less
+  the same £0.45485 Stripe fee = £13.703483, rounded to the penny only
+  at the end) against the same £12.03 on iOS, a gap of £1.67. A 37%
+  uplift fixed today, sized against the wider gap, would become a large
+  overcharge on iOS customers exactly as the business grows into VAT
+  registration and the gap it was set to close shrinks under it.
 
 Set against that: in-app purchase converts better than sending someone
 to a website to check out, so a thinner per-subscriber margin on iOS can
@@ -287,10 +293,11 @@ first place (section 0).
 
 Figures below: web price is read from `TIER_BILLING_PRICES_GBP`
 (`backend/app/core/subscription.py:70`) as it stands, not retyped by
-hand; iOS price is the agreed price point; uplift is `(iOS − web) /
-web`; iOS net is `price / 1.2 × 0.85` (VAT removed at the 20% assumption
-below, then Apple's 15% Small Business Program commission); web net is
-the price less Stripe's fee (1.5% + 20p).
+hand; iOS price is the proposed price point above, awaiting Kevin's
+sign-off; uplift is `(iOS − web) / web`; iOS net is `price / 1.2 × 0.85`
+(VAT removed at the 20% assumption below, then Apple's 15% Small
+Business Program commission); web net is the price less Stripe's fee
+(1.5% + 20p).
 
 | Tier | Period | Web price | iOS price | Uplift | iOS net | Web net |
 |---|---|---|---|---|---|---|
@@ -312,11 +319,12 @@ computed to a clean 18%, the real per-SKU uplift ranges from about 15.4%
 (Connect monthly, the low end) to about 20.0% (Standard monthly and
 Standard annual, the high end), not a flat 18% across all twelve.
 
-**Caveat, not a fact about Apple**: these twelve prices are a decision
-about market positioning, not a confirmed fact about what Apple offers.
-They must be checked against Apple's actual price point grid when the
-SKUs are created in App Store Connect — Apple sells in fixed price
-tiers, and a requested price may not exist at that exact point.
+**Caveat, not a fact about Apple**: these twelve prices are a proposal
+about market positioning, awaiting Kevin's sign-off, not a confirmed
+fact about what Apple offers. They must be checked against Apple's
+actual price point grid when the SKUs are created in App Store Connect —
+Apple sells in fixed price tiers, and a requested price may not exist at
+that exact point.
 `WebFetch` against `developer.apple.com` failed in this session the same
 way it did elsewhere in this document (section 10), so none of the
 twelve prices above has been checked against the live grid; this is
@@ -536,25 +544,34 @@ regardless of `expires_at` — this mirrors the fail-closed doctrine this
 codebase already applies elsewhere (Safe-to-Spend hardening clamping to
 `<= 0` on any lookup failure, referenced in `CLAUDE.md`'s surface map).
 
-**Decided (Kevin, 2026-09-14): no clawback.** If a user refunds a Penny
-or MCP pack (section 3, products 13-16) after spending some or all of
-the messages or calls, this app does not reclaim them. `grant_pack`'s
-`remaining` field is left untouched by a consumable `REFUND` — no
-zeroing, no negative balance, nothing for `_settle_packs`
-(`backend/app/core/subscription.py`) to special-case. The refund simply
-stands as a loss on this app's side. Two reasons: consumables are
-consumed at the moment of use, so there is nothing to "revoke" about
-Penny replies already generated or MCP calls already served; and this
-matches Apple's own model, which treats a consumable as spent once
-delivered and does not ask this app's permission before refunding it
-anyway.
+**Proposed here for Kevin's sign-off, not a decision he has recorded: no
+clawback.** As with the pricing proposal in section 3.1, the only record
+of this in the repository is a same-day board note (TODO.md C13,
+2026-09-14) restating this document's own conclusion, which is not
+evidence that Kevin reviewed or confirmed it. Until he does, this is a
+proposal: if a user refunds a Penny or MCP pack (section 3, products
+13-16) after spending some or all of the messages or calls, this app
+would not reclaim them. `grant_pack`'s `remaining` field would be left
+untouched by a consumable `REFUND` — no zeroing, no negative balance,
+nothing for `_settle_packs` (`backend/app/core/subscription.py`) to
+special-case. The refund would simply stand as a loss on this app's
+side. Two reasons are offered in support: consumables are consumed at
+the moment of use, so there is nothing to "revoke" about Penny replies
+already generated or MCP calls already served; and this matches Apple's
+own model, which treats a consumable as spent once delivered and does
+not ask this app's permission before refunding it anyway.
 
 This is a known abuse vector: someone can buy a pack, spend it in full,
 then get Apple to refund the purchase, and nothing in this design stops
-them doing it again. Because no clawback happens, that pattern is
-otherwise invisible — so the ASSN v2 `REFUND` notification for a
-consumable product must still be **recorded** against the purchasing
-user even though it grants nothing back. It is written to
+them doing it again. The exposure is bounded per abuse cycle by the
+price of the largest consumable a refund can target: £4.99 for the large
+Penny pack (200 messages) and £2.99 for mcp_1000 (1,000 calls), per
+`PENNY_TOPUP_PACKS` and `MCP_CALL_PACKS`
+(`backend/app/core/subscription.py`) as they stand today. Because no
+clawback happens, that pattern is otherwise invisible — so the ASSN v2
+`REFUND` notification for a consumable product must still be
+**recorded** against the purchasing user even though it grants nothing
+back. It is written to
 `billing_events_col` (`backend/app/db/collections.py:122`), the same
 collection and the same shape every other Apple and Stripe event is
 already recorded in (section 5): keyed on the notification's
@@ -623,6 +640,13 @@ as confident guesses:
   an external link (section 6, section 9) — described in general terms
   only; check Play Console's own billing-choice documentation once A9
   exists.
+- Whether any of the twelve proposed iOS subscription prices (section
+  3.1) land on an actual point on Apple's price-point grid — App Store
+  Connect only accepts prices from that fixed grid, and none of the
+  twelve has been checked against it in this session; `WebFetch` against
+  `developer.apple.com` failed the same way it did for the entries
+  above, so this must be confirmed before the SKUs are created in App
+  Store Connect.
 
 ## 11. Testing
 
@@ -704,28 +728,32 @@ practice:
 
 ## 13. OPEN — needs Kevin
 
-One thing remains open. Two things that were open when this document was
-first written have since been decided by Kevin and moved into the body
-of the spec, not left sitting here marked resolved.
+Three things remain open. This document's own body (sections 3.1 and 8)
+had previously carried the two pricing/refund items below as "Decided,
+Kevin, 2026-09-14", on the strength of a same-day board note written by
+the same agent that wrote this document, restating this document's own
+conclusion rather than sourcing it from Kevin directly. That is not
+evidence he reviewed or confirmed either one, so both are listed here as
+proposals awaiting his sign-off, not decisions, until he says otherwise.
 
 1. **A9, Play Console record** (section 9, section 12) — does not exist
    yet; owned by Kevin, not something this item or a Claude session can
-   create. This is the only thing in this document still waiting on
-   Kevin; it blocks all of section 9 (Android's billing-choice
+   create. It blocks all of section 9 (Android's billing-choice
    enrolment) and nothing else.
 
-**Resolved, Kevin, 2026-09-14:**
+**Proposed here for Kevin's sign-off, not yet decisions he has recorded:**
 
-- **Store-side pricing** — decided: the iOS SKUs carry an uplift of
+- **Store-side pricing** — proposed: the iOS SKUs carry an uplift of
   roughly 18% over the web price, not full compensation for Apple's cut
   (which would need roughly +37%). See section 3.1 for the full price
-  table, the arithmetic and the reasoning Kevin gave for stopping short
-  of full recovery.
-- **Refunded-consumable clawback** — decided: no clawback. A refunded
-  Penny or MCP pack does not claw back already-spent messages or calls;
-  the refund notification is still recorded against the user so a repeat
-  pattern is visible. See section 8 for the reasoning, the abuse-vector
-  consequence and where that record lives.
+  table, the arithmetic and the reasoning offered here in support of
+  stopping short of full recovery.
+- **Refunded-consumable clawback** — proposed: no clawback. Under this
+  proposal, a refunded Penny or MCP pack would not claw back
+  already-spent messages or calls; the refund notification would still
+  be recorded against the user so a repeat pattern is visible. See
+  section 8 for the reasoning, the abuse-vector consequence, its
+  monetary bound and where that record lives.
 
 **Discrepancy found while writing the original version of this
 document**: C13's own board text (`TODO.md`) said a £16.99 tier "nets
