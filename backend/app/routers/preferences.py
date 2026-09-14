@@ -93,13 +93,77 @@ async def get_preferences(user: dict = Depends(current_user)):
     return result
 
 
+_COVER_PLAN_CAS_MAX_ATTEMPTS = 8
+
+
+async def _cas_set_cover_plan_excluded_accounts(uid: str, excluded_ids: list, rest_of_body: dict) -> None:
+    """G54: cover_plan_excluded_accounts used to be written as a blind whole-
+    array `$set` by two independent writers -- SettingsPage.tsx's own toggle
+    and Penny's set_cover_plan_exclusions proposal (replayed through this
+    same endpoint via can_i._execute_update_preferences) -- with no
+    compare-and-swap. Two racing writers could each read the same array,
+    compute their own modified copy, and write the WHOLE thing back:
+    whichever PATCH landed second silently discarded whatever the first one
+    changed, a classic lost update.
+
+    The Settings side is fixed by moving to true delta ops
+    (cover_plan_exclude_add/remove below, $addToSet/$pull -- atomic,
+    idempotent, never need to read the array first). But Penny's proposal
+    genuinely needs "set the exclusion list to EXACTLY these accounts"
+    (account_refs names a full desired set, not a delta), so that shape is
+    kept here rather than removed -- made safe with an optimistic
+    compare-and-swap retry loop on `version` instead of an unconditional
+    $set: read the current version, write conditioned on that exact
+    version, and if another writer's version bump beat us to it (matched
+    nothing), retry against the fresh version. Our own target (excluded_ids)
+    is a literal desired final state handed to us by the caller, not derived
+    from the array we read, so retrying with the identical value against a
+    newer version is correct, not stale.
+    """
+    for _ in range(_COVER_PLAN_CAS_MAX_ATTEMPTS):
+        doc = await preferences_col.find_one({"user_id": uid})
+        set_body = {**rest_of_body, "cover_plan_excluded_accounts": excluded_ids, "user_id": uid}
+        if doc is None:
+            # No document at all yet for this field to race over -- a
+            # concurrent first-ever write for the same user is vanishingly
+            # unlikely, and even then the loser of the upsert would simply
+            # retry as a normal versioned update on its next attempt.
+            await preferences_col.update_one(
+                {"user_id": uid},
+                {"$set": set_body, "$inc": {"version": 1}},
+                upsert=True,
+            )
+            return
+        # A real MongoDB equality filter {"version": 0} does NOT match a
+        # document where "version" is simply absent (a legacy doc from
+        # before G45 added the counter, never $inc'd since) -- doc.get
+        # defaulting to 0 above is only a display default, not what's
+        # actually stored. Match on {"$exists": False} for that case so the
+        # CAS filter reflects what is really in the document, not a
+        # Python-side default that would otherwise always mismatch and
+        # exhaust every retry attempt for these legacy docs.
+        version_query = doc["version"] if "version" in doc else {"$exists": False}
+        current_version = doc.get("version", 0)
+        result = await preferences_col.update_one(
+            {"user_id": uid, "version": version_query},
+            {"$set": set_body, "$inc": {"version": 1}},
+        )
+        if getattr(result, "matched_count", 1) >= 1:
+            return
+        # Someone else wrote (a delta toggle, or another full-list-set)
+        # between our read and our write -- version moved under us, loop
+        # and retry against the fresh state.
+    raise HTTPException(
+        status_code=409,
+        detail="Could not save cover-plan exclusions, too many concurrent changes. Try again.",
+    )
+
+
 @router.patch("/preferences")
 async def update_preferences(body: dict, user: dict = Depends(current_user)):
+    uid = user["email"]
+
     # income_bracket is derived, not chosen — the salary is the source of truth
-    if "cover_plan_excluded_accounts" in body:
-        body["cover_plan_excluded_accounts"] = sorted(
-            {str(x) for x in (body.get("cover_plan_excluded_accounts") or []) if str(x).strip()}
-        )
     if "income_value" in body:
         v = _coerce_money_field(body.get("income_value"), "income_value")
         body["income_value"] = v
@@ -108,8 +172,34 @@ async def update_preferences(body: dict, user: dict = Depends(current_user)):
         )
     if "pension_annual" in body:
         body["pension_annual"] = _coerce_money_field(body.get("pension_annual"), "pension_annual")
-    uid = user["email"]
     pay_period_changed = "pay_period_config" in body
+
+    # G54 delta ops: "toggle exclusion for ONE account", exactly what a
+    # Settings toggle means. $addToSet/$pull are atomic single-element Mongo
+    # operations -- they never read the array first, so two of these (or one
+    # of these racing the CAS full-list-set below) can never lose each
+    # other's change regardless of write order. Naturally idempotent too:
+    # adding an already-present id, or removing an absent one, is a no-op.
+    add_ids = sorted({
+        str(x).strip() for x in (body.pop("cover_plan_exclude_add", None) or [])
+        if str(x).strip()
+    })
+    remove_ids = sorted({
+        str(x).strip() for x in (body.pop("cover_plan_exclude_remove", None) or [])
+        if str(x).strip()
+    })
+    delta_op_ran = False
+    for op_ids, set_key in ((add_ids, "$addToSet"), (remove_ids, "$pull")):
+        if not op_ids:
+            continue
+        delta_op_ran = True
+        update_doc = {"$inc": {"version": 1}, "$setOnInsert": {"user_id": uid}}
+        if set_key == "$addToSet":
+            update_doc["$addToSet"] = {"cover_plan_excluded_accounts": {"$each": op_ids}}
+        else:
+            update_doc["$pull"] = {"cover_plan_excluded_accounts": {"$in": op_ids}}
+        await preferences_col.update_one({"user_id": uid}, update_doc, upsert=True)
+
     # G45 v3: every write bumps a monotonic per-document version, returned by
     # both this endpoint and GET /preferences below. This is the freshness
     # signal the frontend (PreferencesContext.tsx) uses to tell a stale GET
@@ -122,11 +212,25 @@ async def update_preferences(body: dict, user: dict = Depends(current_user)):
     # 0 then applies the increment, so a document's very first PATCH always
     # returns version 1 — strictly greater than the 0 GET /preferences
     # reports for a user with no document at all.
-    await preferences_col.update_one(
-        {"user_id": uid},
-        {"$set": {**body, "user_id": uid}, "$inc": {"version": 1}},
-        upsert=True,
-    )
+    if "cover_plan_excluded_accounts" in body:
+        excluded_ids = sorted(
+            {str(x) for x in (body.pop("cover_plan_excluded_accounts") or []) if str(x).strip()}
+        )
+        await _cas_set_cover_plan_excluded_accounts(uid, excluded_ids, body)
+    elif body or not delta_op_ran:
+        # Skip this catch-all write when a delta op above already ran and
+        # nothing else is left in the body -- otherwise a plain
+        # cover_plan_exclude_add/remove-only PATCH would bump `version`
+        # twice (once for its own $addToSet/$pull, once more here for an
+        # empty no-op $set), which is harmless but wasteful. A genuinely
+        # empty PATCH (no delta ops, no other fields) still runs this once,
+        # matching the pre-G54 behaviour of always creating/touching the
+        # document.
+        await preferences_col.update_one(
+            {"user_id": uid},
+            {"$set": {**body, "user_id": uid}, "$inc": {"version": 1}},
+            upsert=True,
+        )
     doc = await preferences_col.find_one({"user_id": uid})
 
     # Preferences include Safe-to-Spend inputs (notably region, pay-period

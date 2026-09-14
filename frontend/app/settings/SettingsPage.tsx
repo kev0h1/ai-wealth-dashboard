@@ -702,18 +702,31 @@ export default function SettingsPage() {
   // snapshot, falling back to that snapshot only if the reconciling refetch
   // has no server truth to offer either (the last defect G45 found: falling
   // back unconditionally to a captured "previous" was wrong because a
-  // DIFFERENT already-succeeded write could get wiped by it -- not possible
-  // to repeat here since this field has only one writer, but the same
-  // "server first, captured value only as a last resort" order is kept for
-  // consistency and because it's still the more correct answer even here).
+  // DIFFERENT already-succeeded write could get wiped by it -- the "server
+  // first" order is kept for consistency and because it's still the more
+  // correct answer even here).
   //
-  // Unlike cover-plan exclusions and notification prefs, this field has no
-  // second concurrent writer to serialize against -- there is exactly one
-  // switch, so lib/serialQueue.ts is not used. The one race that queue
-  // exists to prevent (two overlapping PATCHes to the same field completing
-  // out of order server-side) is ruled out here a different way: the switch
-  // is disabled for the duration of its own save (savingChildBenefit),
-  // rather than being fired into a queue.
+  // CORRECTION (G54 review, 2026-09-12): this comment used to claim
+  // has_child_benefit "has only one writer" / "no second concurrent writer"
+  // because there is exactly one SWITCH on this page. That is false: Penny's
+  // set_child_benefit proposal (backend/app/services/penny_tools.py
+  // _exec_propose_set_child_benefit, replayed via
+  // can_i._execute_update_preferences) writes this exact field through the
+  // exact same PATCH /preferences endpoint, same as cover-plan exclusions
+  // and notification prefs -- it just isn't reachable today because Penny
+  // agent mode consent is off everywhere (see G5). What genuinely has only
+  // one writer here is the LOCAL toggle on THIS page: no two overlapping
+  // PATCHes from this switch can ever be in flight together (it's disabled
+  // for the duration of its own save, via savingChildBenefit), which is the
+  // specific race lib/serialQueue.ts exists to prevent for cover-plan/
+  // notification prefs -- so not using that queue here is still correct.
+  // It does NOT mean this field is immune to the general "two independent
+  // callers PATCH the same field" concern; unlike the array-valued cover
+  // plan field, though, a scalar $set here is last-writer-wins with no
+  // stale-read merge step, so it cannot silently lose part of either
+  // writer's change the way a whole-array replace can (see G54's own note
+  // and app/routers/preferences.py's _cas_set_cover_plan_excluded_accounts
+  // docstring for why the array case needed a different fix).
   async function runChildBenefitToggle() {
     const previous = hasChildBenefitRef.current;
     const next = !previous;
@@ -762,7 +775,8 @@ export default function SettingsPage() {
     // via its own failure-path reconciliation below).
     const previous = excludedIdsRef.current;
     const next = new Set(previous);
-    if (next.has(id)) {
+    const removing = next.has(id);
+    if (removing) {
       next.delete(id);
     } else {
       next.add(id);
@@ -771,7 +785,21 @@ export default function SettingsPage() {
     setCoverSaveMsg(null);
     setCoverPlan(current => ({ ...current, liveRoute: null }));
     try {
-      const response = await api.updatePreferences({ cover_plan_excluded_accounts: [...next] });
+      // G54: this used to PATCH the whole cover_plan_excluded_accounts
+      // array (read the current set, toggle one id, send the lot back) --
+      // exactly the shape that let a concurrent write from a different
+      // caller (Penny's set_cover_plan_exclusions proposal, same PATCH
+      // /preferences endpoint) silently lose whichever side wrote second.
+      // A single toggle only ever means "exclude/un-exclude THIS one
+      // account", so it's sent as one atomic delta op instead
+      // (cover_plan_exclude_add / cover_plan_exclude_remove -- backed by
+      // Mongo $addToSet/$pull, see app/routers/preferences.py) that cannot
+      // lose a concurrent change regardless of write order.
+      const response = await api.updatePreferences(
+        removing
+          ? { cover_plan_exclude_remove: [id] }
+          : { cover_plan_exclude_add: [id] }
+      );
       // Registers this write's version with PreferencesContext even though
       // this call bypassed refreshPreferences() — see notePreferencesVersion's
       // own docstring for why a direct PATCH still has to report in.

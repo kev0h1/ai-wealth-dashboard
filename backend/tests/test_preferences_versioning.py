@@ -8,12 +8,14 @@ this same endpoint via app.routers.can_i._execute_update_preferences — see
 that file's own docstring for why "newer" must never mean "written by the
 same page").
 
-`_FakeCol` here is a fuller collection double than the ones in
-tests/test_safe_to_spend_hardening.py (`_PrefsCol`, whose update_one is a
-call-recorder that never actually mutates the stored doc) and
-tests/test_cover_plan_exclusions_persist.py (`_FakeCol`, which applies
-`$set` but not `$inc`) — proving "the version advances on write" requires a
-double that actually applies `$inc`, so this file has its own.
+`_FakeCol` here is a fuller collection double than
+tests/test_safe_to_spend_hardening.py's `_PrefsCol` (whose update_one is a
+call-recorder that never actually mutates the stored doc) — proving "the
+version advances on write" requires a double that actually applies `$inc`,
+so this file has its own (now shared in shape with
+tests/test_cover_plan_exclusions_persist.py's own copy, both updated for
+G54's compare-and-swap: `update_one` returns a `.matched_count`-bearing
+result and understands `$addToSet`/`$pull`/`{"$exists": False}`).
 """
 import asyncio
 
@@ -22,13 +24,31 @@ import app.routers.preferences as preferences
 UID = "user@example.com"
 
 
+class _UpdateResult:
+    """Motor's UpdateResult carries `.matched_count` -- G54's compare-and-
+    swap loop (app.routers.preferences._cas_set_cover_plan_excluded_accounts)
+    reads it to know whether a version-conditioned write actually landed or
+    lost the race, so this fake must report it honestly rather than
+    returning None (the old shape), which would make a lost CAS write look
+    like a success."""
+
+    def __init__(self, matched_count):
+        self.matched_count = matched_count
+
+
 class _FakeCol:
     def __init__(self, docs=None):
         self.docs = list(docs or [])
 
     @staticmethod
     def _match(d, q):
-        return all(d.get(k) == v for k, v in (q or {}).items())
+        for k, v in (q or {}).items():
+            if isinstance(v, dict) and "$exists" in v:
+                if (k in d) != v["$exists"]:
+                    return False
+            elif d.get(k) != v:
+                return False
+        return True
 
     async def find_one(self, query=None, projection=None):
         query = query or {}
@@ -43,13 +63,27 @@ class _FakeCol:
                 d.update(update.get("$set") or {})
                 for field, amount in (update.get("$inc") or {}).items():
                     d[field] = d.get(field, 0) + amount
-                return
+                for field, spec in (update.get("$addToSet") or {}).items():
+                    each = spec.get("$each", [spec]) if isinstance(spec, dict) else [spec]
+                    existing = d.get(field) or []
+                    d[field] = existing + [v for v in each if v not in existing]
+                for field, spec in (update.get("$pull") or {}).items():
+                    cond = spec.get("$in", []) if isinstance(spec, dict) else [spec]
+                    existing = d.get(field) or []
+                    d[field] = [v for v in existing if v not in cond]
+                return _UpdateResult(1)
         if upsert:
             new_doc = dict(filt)
             new_doc.update(update.get("$set") or {})
+            new_doc.update(update.get("$setOnInsert") or {})
             for field, amount in (update.get("$inc") or {}).items():
                 new_doc[field] = new_doc.get(field, 0) + amount
+            for field, spec in (update.get("$addToSet") or {}).items():
+                each = spec.get("$each", [spec]) if isinstance(spec, dict) else [spec]
+                new_doc[field] = list(dict.fromkeys(each))
             self.docs.append(new_doc)
+            return _UpdateResult(0)
+        return _UpdateResult(0)
 
 
 class _CacheSpy:
