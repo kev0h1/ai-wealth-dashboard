@@ -75,28 +75,28 @@ ALLOWLIST: set[tuple[str, int]] = {
     ("app/services/safe_calc.py", 136),
     # app.routers.mcp.McpError — the MCP JSON-RPC error contract IS
     # (code, message, data); every raise site is a static, authored string.
-    ("app/routers/mcp.py", 486),
+    ("app/routers/mcp.py", 522),
     # penny_tools.py: `except HTTPException as e: return _tool_error(str(e.detail))`
     # / `return {"error": str(e.detail)}` — forwarding HTTPException.detail
     # raised by our own _validate_*/_normalise_* helpers a few lines above
     # (app.routers.allocations, app.routers.commitments, app.routers.card_terms,
     # app.routers.allocations.fill_candidates, app.routers.transactions
     # source-scope resolution), never a caught system/library exception.
-    ("app/services/penny_tools.py", 3829),
-    ("app/services/penny_tools.py", 3894),  # ValueError from compute_intent_preview, see above
-    ("app/services/penny_tools.py", 4397),
-    ("app/services/penny_tools.py", 4417),
-    ("app/services/penny_tools.py", 4453),
-    ("app/services/penny_tools.py", 4476),
-    ("app/services/penny_tools.py", 4618),
-    ("app/services/penny_tools.py", 4623),
-    ("app/services/penny_tools.py", 4628),
-    ("app/services/penny_tools.py", 4715),
-    ("app/services/penny_tools.py", 4720),
-    ("app/services/penny_tools.py", 4725),
-    ("app/services/penny_tools.py", 5666),
-    ("app/services/penny_tools.py", 6321),
-    ("app/services/penny_tools.py", 6335),
+    ("app/services/penny_tools.py", 3857),
+    ("app/services/penny_tools.py", 3922),  # ValueError from compute_intent_preview, see above
+    ("app/services/penny_tools.py", 4425),
+    ("app/services/penny_tools.py", 4445),
+    ("app/services/penny_tools.py", 4481),
+    ("app/services/penny_tools.py", 4504),
+    ("app/services/penny_tools.py", 4646),
+    ("app/services/penny_tools.py", 4651),
+    ("app/services/penny_tools.py", 4656),
+    ("app/services/penny_tools.py", 4743),
+    ("app/services/penny_tools.py", 4748),
+    ("app/services/penny_tools.py", 4753),
+    ("app/services/penny_tools.py", 5694),
+    ("app/services/penny_tools.py", 6349),
+    ("app/services/penny_tools.py", 6363),
     # app.services.billing._handle_checkout_completed: `str(exc)` here is an
     # authored ValueError message from grant_pack (see above), returned as
     # the body of a Stripe *webhook* response — read by Stripe's own retry
