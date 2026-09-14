@@ -1925,9 +1925,9 @@ def _tool_error(reason: str) -> dict:
 async def _exec_get_safe_to_spend(uid: str) -> dict:
     try:
         sts = await compute_safe_to_spend(uid)
-    except Exception as e:
+    except Exception:
         logger.exception("penny_tools: get_safe_to_spend failed for %s", uid)
-        return _tool_error(f"safe-to-spend lookup failed: {e}")
+        return _tool_error("safe-to-spend lookup failed")
     if sts.get("status") != "ok":
         return {"insufficient_data": True, "reason": "no account data connected yet"}
     return {
@@ -1982,9 +1982,9 @@ async def _exec_get_upcoming_bills(uid: str) -> dict:
         if cached is None:
             return {"insufficient_data": True, "reason": "no account data connected yet"}
         resp = await _build_cashflow_response(cached, uid=uid)
-    except Exception as e:
+    except Exception:
         logger.exception("penny_tools: get_upcoming_bills failed for %s", uid)
-        return _tool_error(f"upcoming bills lookup failed: {e}")
+        return _tool_error("upcoming bills lookup failed")
     bills = resp.get("upcoming_bills") or []
     income = resp.get("upcoming_income") or []
     return {
@@ -2078,9 +2078,9 @@ async def _exec_get_recurring_payments(uid: str) -> dict:
                 key = b.get("name")
                 if key and key not in occ_by_name:
                     occ_by_name[key] = b
-    except Exception as e:
+    except Exception:
         logger.exception("penny_tools: get_recurring_payments failed for %s", uid)
-        return _tool_error(f"recurring payments lookup failed: {e}")
+        return _tool_error("recurring payments lookup failed")
     if not patterns:
         return {"series": [], "count": 0}
     ranked = sorted(patterns, key=lambda r: -(r.get("avg_amount") or 0))
@@ -2128,9 +2128,9 @@ async def _exec_search_transactions(
             for c in _SEARCH_COLLECTIONS
         ))
         items = _merge_paginate(list(per_collection), 1, _SEARCH_CAP)
-    except Exception as e:
+    except Exception:
         logger.exception("penny_tools: search_transactions failed for %s", uid)
-        return _tool_error(f"transaction search failed: {e}")
+        return _tool_error("transaction search failed")
 
     rows = []
     for d in items:
@@ -2301,9 +2301,9 @@ async def _exec_get_account_activity(
     try:
         from app.routers.accounts import get_accounts as _route_get_accounts
         accs = await _route_get_accounts(user={"email": uid})
-    except Exception as e:
+    except Exception:
         logger.exception("penny_tools: get_account_activity failed for %s", uid)
-        return _tool_error(f"accounts lookup failed: {e}")
+        return _tool_error("accounts lookup failed")
     if not accs:
         return {"insufficient_data": True, "reason": "no accounts connected"}
 
@@ -2350,9 +2350,9 @@ async def _exec_get_account_activity(
         for acc in targets:
             rows = await _account_activity_rows(uid, acc.id, start_dt, end_dt, home_currency)
             summaries.append(_summarise_account_activity(acc, rows, kind_map))
-    except Exception as e:
+    except Exception:
         logger.exception("penny_tools: get_account_activity aggregation failed for %s", uid)
-        return _tool_error(f"account activity lookup failed: {e}")
+        return _tool_error("account activity lookup failed")
 
     # Echo the window actually queried (not just the input `days`) so the
     # model can see it explicitly used date_from/date_to rather than the
@@ -2402,9 +2402,9 @@ async def _exec_get_accounts(uid: str) -> dict:
     try:
         from app.routers.accounts import get_accounts as _route_get_accounts
         accs = await _route_get_accounts(user={"email": uid})
-    except Exception as e:
+    except Exception:
         logger.exception("penny_tools: get_accounts failed for %s", uid)
-        return _tool_error(f"accounts lookup failed: {e}")
+        return _tool_error("accounts lookup failed")
     try:
         prefs = await preferences_col.find_one({"user_id": uid}) or {}
         pinned_ids = {str(x) for x in (prefs.get("home_pinned_accounts") or [])}
@@ -2491,9 +2491,9 @@ async def _exec_get_spend_verdict(uid: str, period_offset: int) -> dict:
     off = max(-60, min(0, int(period_offset or 0)))
     try:
         verdict = await compute_spend_verdict(uid, offset=off)
-    except Exception as e:
+    except Exception:
         logger.exception("penny_tools: get_spend_verdict failed for %s", uid)
-        return _tool_error(f"spend verdict lookup failed: {e}")
+        return _tool_error("spend verdict lookup failed")
     reading = verdict.get("reading")
     period = verdict.get("period") or {}
     unresolved = verdict.get("unresolved") or {}
@@ -2579,9 +2579,9 @@ async def _exec_get_savings_position(uid: str) -> dict:
         monthly_income, monthly_spending, monthly_surplus = await _cashflow(uid, region, cutoff)
         current = await _current_savings(uid, goal)
         target = _target_amount(goal, monthly_spending)
-    except Exception as e:
+    except Exception:
         logger.exception("penny_tools: get_savings_position failed for %s", uid)
-        return _tool_error(f"savings lookup failed: {e}")
+        return _tool_error("savings lookup failed")
     if not goal and monthly_spending <= 0 and monthly_income <= 0:
         return {"insufficient_data": True, "reason": "not enough transaction history yet"}
     # Twin of app.routers.savings.savings_insights's own inline pct_funded
@@ -2638,9 +2638,9 @@ _DEBT_ROUTE_CAP = 5
 async def _exec_get_debt_position(uid: str) -> dict:
     try:
         plan = await get_debt_plan_cached(uid)
-    except Exception as e:
+    except Exception:
         logger.exception("penny_tools: get_debt_position failed for %s", uid)
-        return _tool_error(f"debt plan lookup failed: {e}")
+        return _tool_error("debt plan lookup failed")
     if plan.get("status") != "ok":
         return {"insufficient_data": True, "reason": "no credit-card accounts connected"}
     totals = plan.get("totals") or {}
@@ -2744,9 +2744,9 @@ async def _exec_get_goals(uid: str) -> dict:
     try:
         from app.routers.commitments import list_commitments as _route_list_commitments
         resp = await _route_list_commitments(user={"email": uid})
-    except Exception as e:
+    except Exception:
         logger.exception("penny_tools: get_goals failed for %s", uid)
-        return _tool_error(f"goals lookup failed: {e}")
+        return _tool_error("goals lookup failed")
     items = resp.get("items") or []
     goals = []
     for g in items[:_GOALS_CAP]:
@@ -2791,9 +2791,9 @@ async def _exec_check_affordability(uid: str, amount, timeframe) -> dict:
         return _tool_error("amount must be a number")
     try:
         return await _check_affordability(uid, amount, timeframe)
-    except Exception as e:
+    except Exception:
         logger.exception("penny_tools: check_affordability failed for %s", uid)
-        return _tool_error(f"affordability check failed: {e}")
+        return _tool_error("affordability check failed")
 
 
 # ── get_category_spend ───────────────────────────────────────────────────
@@ -2841,9 +2841,9 @@ def _top_merchants(rows: list[dict], n: int = 3) -> list[dict]:
 async def _exec_get_category_spend(uid: str, category: str | None, months) -> dict:
     try:
         verdict = await compute_spend_verdict(uid, offset=0)
-    except Exception as e:
+    except Exception:
         logger.exception("penny_tools: get_category_spend verdict lookup failed for %s", uid)
-        return _tool_error(f"spend lookup failed: {e}")
+        return _tool_error("spend lookup failed")
 
     period = verdict.get("period") or {}
     # Current-period totals are ALWAYS read from the engine's own already-
@@ -2948,9 +2948,9 @@ async def _exec_get_insights(uid: str) -> dict:
         docs = await savings_insights_col.find(
             {"user_id": uid, "retired_at": {"$exists": False}}
         ).to_list(None)
-    except Exception as e:
+    except Exception:
         logger.exception("penny_tools: get_insights failed for %s", uid)
-        return _tool_error(f"insights lookup failed: {e}")
+        return _tool_error("insights lookup failed")
     result: dict = {"insights": []}
     if docs:
         docs.sort(key=_insights_rank_key, reverse=True)
@@ -3156,9 +3156,9 @@ async def _exec_get_today_brief(uid: str) -> dict:
     # claim, which this preserves rather than adds an exception to.
     try:
         items = await compute_today_items(uid, payday_preview=False, persist=False)
-    except Exception as e:
+    except Exception:
         logger.exception("penny_tools: get_today_brief failed for %s", uid)
-        return _tool_error(f"today brief lookup failed: {e}")
+        return _tool_error("today brief lookup failed")
 
     live_payday = next((i for i in items if i.get("type") == "payday_plan"), None)
     payday_plan = _shape_payday_plan(live_payday) if live_payday else None
@@ -3209,9 +3209,9 @@ async def _exec_get_mirror(uid: str) -> dict:
             for trait in portrait["traits"]:
                 if trait["id"] in old_choices and old_choices[trait["id"]]:
                     trait["choice"] = old_choices[trait["id"]]
-    except Exception as e:
+    except Exception:
         logger.exception("penny_tools: get_mirror failed for %s", uid)
-        return _tool_error(f"mirror lookup failed: {e}")
+        return _tool_error("mirror lookup failed")
 
     if portrait.get("status") != "ok":
         return {"insufficient_data": True, "reason": "not enough transaction history yet (needs 60+ days)"}
@@ -3792,9 +3792,9 @@ async def _exec_explain(topic: str | None) -> dict:
 async def _exec_get_tax_position(uid: str) -> dict:
     try:
         fact_pack = await build_tax_fact_pack(uid)
-    except Exception as e:
+    except Exception:
         logger.exception("penny_tools: get_tax_position failed for %s", uid)
-        return _tool_error(f"tax position lookup failed: {e}")
+        return _tool_error("tax position lookup failed")
     if not fact_pack.get("income_known"):
         return {
             "insufficient_data": True,
@@ -3827,9 +3827,9 @@ async def _exec_get_fill_candidates(uid: str, account_id_or_name: str | None) ->
         resp = await _route_fill_candidates(account_id=account.id, user={"email": uid})
     except HTTPException as e:
         return _tool_error(str(e.detail))
-    except Exception as e:
+    except Exception:
         logger.exception("penny_tools: get_fill_candidates failed for %s", uid)
-        return _tool_error(f"fill candidates lookup failed: {e}")
+        return _tool_error("fill candidates lookup failed")
     items = resp.get("items") or []
     return {
         "account_id": account.id,
@@ -4061,8 +4061,9 @@ async def _resolve_recurring_key(uid: str, key_or_name: str, *, dismissed: bool)
         try:
             from app.routers.analytics import dismissed_series as _route_dismissed_series
             resp = await _route_dismissed_series(user={"email": uid})
-        except Exception as e:
-            return {"error": f"dismissed series lookup failed: {e}"}
+        except Exception:
+            logger.exception("penny_tools: dismissed series lookup failed for %s", uid)
+            return {"error": "dismissed series lookup failed"}
         candidates = [
             {"key": r["key"], "name": r.get("display_name") or r["key"]}
             for r in (resp.get("user") or [])
@@ -4473,9 +4474,9 @@ async def _exec_propose_create_commitment(uid: str, name, amount, target_date, f
         )
     except HTTPException as e:
         return _tool_error(str(e.detail))
-    except Exception as e:
+    except Exception:
         logger.exception("penny_tools: propose_create_commitment preview failed for %s", uid)
-        return _tool_error(f"commitment preview failed: {e}")
+        return _tool_error("commitment preview failed")
 
     feasibility_note = preview.get("feasibility_note")
     slice_amount = preview.get("per_period_slice") or 0
@@ -6307,8 +6308,12 @@ async def _exec_propose_set_card_terms(
     if promos is not None:
         try:
             promo_models = [_RouteCardPromo(**p) for p in promos]
-        except Exception as e:
-            return _tool_error(f"invalid promos: {e}")
+        except Exception:
+            logger.warning("penny_tools: propose_update_card_terms invalid promos payload for %s", uid, exc_info=True)
+            return _tool_error(
+                "each promo needs a valid kind ('purchases', 'balance_transfer' or 'both'), "
+                "a numeric apr_pct, and an until date"
+            )
         try:
             temp_body = _RouteCardTermsBody(status="confirmed", promos=promo_models)
             changed["promos"] = _route_normalise_promos(temp_body)
@@ -6318,8 +6323,11 @@ async def _exec_propose_set_card_terms(
     if bt_offers is not None:
         try:
             bt_models = [_RouteBtOffer(**o) for o in bt_offers]
-        except Exception as e:
-            return _tool_error(f"invalid bt_offers: {e}")
+        except Exception:
+            logger.warning("penny_tools: propose_update_card_terms invalid bt_offers payload for %s", uid, exc_info=True)
+            return _tool_error(
+                "each balance-transfer offer needs a valid ends date and a numeric fee_pct"
+            )
         try:
             temp_body = _RouteCardTermsBody(status="confirmed", bt_offers=bt_models)
             changed["bt_offers"] = _route_normalise_bt_offers(temp_body)
@@ -6810,6 +6818,6 @@ async def execute_tool(uid: str, name: str, args: dict) -> dict:
         if name == "propose_remove_merchant_label":
             return await _exec_propose_remove_merchant_label(uid, args.get("merchant_key"))
         return _tool_error(f"unknown tool: {name}")
-    except Exception as e:
+    except Exception:
         logger.exception("penny_tools: execute_tool(%s) crashed for %s", name, uid)
-        return _tool_error(f"tool failed: {e}")
+        return _tool_error("tool failed")

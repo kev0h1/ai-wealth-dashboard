@@ -1,5 +1,6 @@
 """PDF text extraction and LLM statement parsing."""
 import json
+import logging
 import re
 import tempfile
 import subprocess
@@ -8,6 +9,8 @@ from fastapi import HTTPException
 import httpx
 
 from app.core.llm import openrouter_chat
+
+logger = logging.getLogger(__name__)
 
 
 async def extract_pdf_text(content: bytes, password: str = "") -> str:
@@ -61,8 +64,9 @@ async def llm_parse_mpesa(text: str, uid: str | None = None) -> list[dict]:
             if raw.startswith("json"):
                 raw = raw[4:]
         return json.loads(raw.strip())
-    except Exception as e:
-        raise HTTPException(422, f"LLM parsing failed: {e}")
+    except Exception:
+        logger.exception("pdf: llm_parse_mpesa failed for %s", uid)
+        raise HTTPException(422, "We could not read that statement. Try uploading it again, or a clearer copy of it.")
 
 
 async def llm_parse_statement(text: str, uid: str | None = None) -> dict:
@@ -117,8 +121,9 @@ async def llm_parse_statement(text: str, uid: str | None = None) -> dict:
         if not isinstance(parsed, dict) or "transactions" not in parsed:
             raise ValueError("LLM response missing required keys")
         return parsed
-    except Exception as e:
-        raise HTTPException(422, f"LLM parsing failed: {e}")
+    except Exception:
+        logger.exception("pdf: llm_parse_statement failed for %s", uid)
+        raise HTTPException(422, "We could not read that statement. Try uploading it again, or a clearer copy of it.")
 
 
 async def llm_parse_investment_statement(text: str, uid: str | None = None) -> dict:
@@ -173,8 +178,9 @@ async def llm_parse_investment_statement(text: str, uid: str | None = None) -> d
         if not isinstance(parsed, dict) or "holdings" not in parsed:
             raise ValueError("LLM response missing required keys")
         return parsed
-    except Exception as e:
-        raise HTTPException(422, f"LLM investment parsing failed: {e}")
+    except Exception:
+        logger.exception("pdf: llm_parse_investment_statement failed for %s", uid)
+        raise HTTPException(422, "We could not read that statement. Try uploading it again, or a clearer copy of it.")
 
 
 async def llm_parse_contract_note(text: str, uid: str | None = None) -> dict:
@@ -223,5 +229,6 @@ async def llm_parse_contract_note(text: str, uid: str | None = None) -> dict:
         if not isinstance(parsed, dict) or "doc_type" not in parsed:
             raise ValueError("LLM response missing required keys")
         return parsed
-    except Exception as e:
-        raise HTTPException(422, f"LLM contract note parsing failed: {e}")
+    except Exception:
+        logger.exception("pdf: llm_parse_contract_note failed for %s", uid)
+        raise HTTPException(422, "We could not read that contract note. Try uploading it again, or a clearer copy of it.")

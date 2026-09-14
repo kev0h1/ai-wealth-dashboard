@@ -1,5 +1,6 @@
 """Transaction read/write + auto-categorise endpoints."""
 import asyncio
+import logging
 import re
 import json
 import uuid as uuid_lib
@@ -29,6 +30,7 @@ from app.services.categories import get_category_kinds, is_non_spend
 from app.services import response_cache
 
 router = APIRouter(tags=["transactions"])
+logger = logging.getLogger(__name__)
 
 
 def _description_stem(desc: str) -> str:
@@ -781,8 +783,9 @@ async def auto_categorise(
     try:
         start_dt = datetime.fromisoformat(from_date) if from_date else None
         end_dt   = datetime.fromisoformat(to_date)   if to_date   else None
-    except ValueError as e:
-        raise HTTPException(400, f"Invalid date format: {e}")
+    except ValueError:
+        logger.warning("transactions: auto_categorise got an unparseable date range for %s", uid, exc_info=True)
+        raise HTTPException(400, "Invalid date format, use YYYY-MM-DD")
 
     date_filter: dict = {}
     if start_dt:
