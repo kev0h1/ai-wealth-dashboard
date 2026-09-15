@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { ArrowLeft, ChevronRight, CircleDollarSign, Flag, Target } from "lucide-react";
-import { GrowHero, CollapsedLadder } from "@/app/planning/GrowPanel";
+import { CashAndInvestments, CollapsedLadder, GrowHero, PlanningComposition } from "@/app/planning/GrowPanel";
 import { DebtPosition, GoalRow } from "@/app/planning/LongTermPlanningPage";
 import { DEBT_SUMMARY, GOALS, growView } from "@/app/design/planning-ladder/fixtures";
 
@@ -45,7 +45,7 @@ function CanvasHeading({ title, copy, icon: Icon }: { title: string; copy: strin
 
 function Goals() {
   return (
-    <section id="goals" className="scroll-mt-6" aria-labelledby="g89-goals-heading">
+    <section id="commitments" className="scroll-mt-6" aria-labelledby="g89-goals-heading">
       <CanvasHeading title="Long-term goals" icon={Target} copy="Each goal keeps its own target, pace and edit decision together." />
       <div className="mt-3 overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:shadow-none">
         {GOALS.map((goal) => <GoalRow key={goal.id} goal={goal} hideValues={false} onOpen={() => {}} />)}
@@ -78,16 +78,14 @@ function VariantA({ position }: { position: Position }) {
 function VariantB({ position }: { position: Position }) {
   const view = growView(position);
   return (
-    <div className="lg:grid lg:grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)] lg:items-start lg:gap-10">
-      <div className="space-y-6 lg:sticky lg:top-6">
-        <GrowHero view={view} hideValues={false} onSeeDue={() => {}} />
-        <CanvasHeading title="Your long horizon" icon={CircleDollarSign} copy="Keep the month in view, then follow the live priority. Debt & goals stay as proof and choices, not decoration." />
-        <nav aria-label="Planning sections" className="flex flex-wrap gap-x-4 gap-y-2 px-1 text-[13px] font-semibold text-indigo-700 dark:text-indigo-300">
-          <a href="#priorities" className="rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">Priority</a><a href="#debt" className="rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">Debt</a><a href="#goals" className="rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">Goals</a>
-        </nav>
-      </div>
-      <div className="mt-9 border-t border-slate-300/80 pt-8 dark:border-slate-700 lg:mt-0 lg:border-l lg:border-t-0 lg:pl-10 lg:pt-0"><Work position={position} /></div>
-    </div>
+    <PlanningComposition
+      view={view}
+      hideValues={false}
+      onSeeDue={() => {}}
+      cashSlot={<CashAndInvestments view={view} hideValues={false} />}
+      debtSlot={<section id="debt" className="scroll-mt-6" aria-label="Debt evidence"><DebtPosition debt={DEBT_SUMMARY} hideValues={false} onOpen={() => {}} /></section>}
+      goalsSlot={<Goals />}
+    />
   );
 }
 
