@@ -22,6 +22,7 @@ type PreviewRoute = {
 };
 
 const ROUTES: PreviewRoute[] = [
+  { slug: "g99-month-story-canvas", name: "g99-month-story-canvas", description: "G99 Canvas Before Cards review for the Month story · A Reading path / B Verdict first / C Chapter path · immersive narrative canvas with return path, pause control and no dashboard-card wallpaper · static fixtures only, no API calls or mutations · ?variant=a|b|c&state=play|pause", states: [{ label: "Playing", value: "play" }, { label: "Paused", value: "pause" }], variants: [{ label: "A · Reading path", value: "a" }, { label: "B · Verdict first", value: "b" }, { label: "C · Chapter path", value: "c" }] },
   {
     slug: "accounts-canvas-before-cards",
     name: "accounts-canvas-before-cards",
