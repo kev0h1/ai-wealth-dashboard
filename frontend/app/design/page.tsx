@@ -22,6 +22,7 @@ type PreviewRoute = {
 };
 
 const ROUTES: PreviewRoute[] = [
+  {slug:"mcp-activity-canvas-before-cards",name:"mcp-activity-canvas-before-cards",description:"G101 Canvas Before Cards review for MCP activity · A private log / B grouped audit view / C focused filters · activity context and filters live on canvas, with date-grouped audit logs and pagination in earned containers · fixture-only, no API calls or production edits · ?variant=a|b|c&state=enabled|empty|loading|error|gated&mode=light|dark",states:[{label:"Enabled",value:"enabled"},{label:"Empty",value:"empty"},{label:"Loading",value:"loading"},{label:"Error",value:"error"},{label:"Feature gated",value:"gated"}],variants:[{label:"A · Private log",value:"a"},{label:"B · Grouped",value:"b"},{label:"C · Focused",value:"c"}]},
   {
     slug: "accounts-canvas-before-cards",
     name: "accounts-canvas-before-cards",
