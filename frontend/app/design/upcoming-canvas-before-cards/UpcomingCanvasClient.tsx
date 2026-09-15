@@ -37,7 +37,7 @@ function PreviewToolbar({ variant, state, dark }: { variant: Variant; state: Sta
 
   return (
     <nav aria-label="G90 design preview controls" className="border-b border-white/10 bg-slate-950 px-3 py-2 text-white">
-      <div className="mx-auto flex max-w-5xl items-center gap-1 overflow-x-auto">
+      <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-center gap-1 sm:justify-start">
         <span className="mr-2 shrink-0 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-400">Preview</span>
         {variants.map((item) => (
           <Link
