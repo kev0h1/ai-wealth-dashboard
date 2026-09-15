@@ -23,6 +23,13 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "upcoming-canvas-before-cards",
+    name: "upcoming-canvas-before-cards",
+    description: "G90 Canvas Before Cards review for Upcoming · A runway reading (recommended) / B ordered forecast / C concise briefing · orientation and the runway verdict sit directly on the canvas, while the calculation disclosure, bounded payment group and plans earn their surfaces · includes the hidden-predictions companion · fixture-only, no API calls or production edits · ?variant=a|b|c&state=short|healthy|hidden&mode=light|dark",
+    states: [{ label: "Shortfall", value: "short" }, { label: "Healthy", value: "healthy" }, { label: "Predictions hidden", value: "hidden" }],
+    variants: [{ label: "A · Runway", value: "a" }, { label: "B · Sequence", value: "b" }, { label: "C · Briefing", value: "c" }],
+  },
+  {
     slug: "tax-canvas-before-cards",
     name: "tax-canvas-before-cards",
     description:
