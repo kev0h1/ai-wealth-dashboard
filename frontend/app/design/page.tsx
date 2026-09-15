@@ -22,6 +22,7 @@ type PreviewRoute = {
 };
 
 const ROUTES: PreviewRoute[] = [
+  {slug:"money-shape-canvas-before-cards",name:"money-shape-canvas-before-cards",description:"G95 Canvas Before Cards review for Your money shape · A editorial instrument / B split reading / C progressive reference rail · one pay-shape instrument leads on the canvas while explanation and reference shapes are disclosed only when useful · fixture-only, no API calls or production edits · ?variant=a|b|c&state=steady|changed|thin&mode=light|dark",states:[{label:"Steady",value:"steady"},{label:"Changed",value:"changed"},{label:"Thin history",value:"thin"}],variants:[{label:"A · Editorial",value:"a"},{label:"B · Split",value:"b"},{label:"C · Reference",value:"c"}]},
   {
     slug: "accounts-canvas-before-cards",
     name: "accounts-canvas-before-cards",
