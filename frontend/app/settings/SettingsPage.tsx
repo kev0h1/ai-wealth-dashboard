@@ -50,15 +50,6 @@ const EMERALD = "#10b981";
 const AMBER = "#f59e0b";
 const RED = "#ef4444";
 
-const SECTION_ACCOUNTS = "settings-accounts";
-const SECTION_SECURITY = "settings-security";
-
-function jumpTo(id: string) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-  el.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
-}
 
 // ~15%-alpha tinted icon chip — the Category Voice Rule (DESIGN.md): colour
 // as a tinted chip + full-strength icon, never a flooded surface.
@@ -94,14 +85,6 @@ function SectionHeader({
       </div>
     </div>
   );
-}
-
-function deriveInitials(name: string | undefined): string {
-  const trimmed = (name ?? "").trim();
-  if (!trimmed) return "";
-  const words = trimmed.split(/\s+/).filter(Boolean);
-  if (words.length === 1) return words[0].charAt(0).toUpperCase();
-  return (words[0].charAt(0) + words[1].charAt(0)).toUpperCase();
 }
 
 type CoverPlanView = {
@@ -1059,65 +1042,11 @@ export default function SettingsPage() {
     </div>
   );
 
-  const initials = deriveInitials(user?.name);
-  const bioLabel = bioState?.enabled ? "Face ID on" : "Face ID off";
-
   return (
     <div className="min-h-dvh pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8 lg:max-w-6xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       <div className="px-4 pt-6 pb-2">
         <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Settings</h1>
-      </div>
-
-      <div className="px-4 pt-4">
-        {/* ── Account identity hero ── */}
-        <div className="glass-hero rounded-3xl p-5">
-          <div className="flex items-center gap-3 mb-4">
-            <span
-              className="w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0 text-base font-bold bg-indigo-500/15 dark:bg-indigo-400/20 text-indigo-600 dark:text-indigo-300"
-              aria-hidden="true"
-            >
-              {initials || <UserRound size={20} />}
-            </span>
-            <div className="min-w-0">
-              <p className="text-base font-bold text-slate-900 dark:text-slate-100 truncate">{user?.name || "—"}</p>
-              <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{user?.email}</p>
-            </div>
-          </div>
-
-          {(accountsLoaded || bioState?.supported) && (
-            <div className={`grid gap-2 ${accountsLoaded && bioState?.supported ? "grid-cols-2" : "grid-cols-1"}`}>
-              {accountsLoaded && (
-                <button
-                  type="button"
-                  onClick={() => jumpTo(SECTION_ACCOUNTS)}
-                  aria-label={`${coverAccounts.length} accounts connected, jump to Where money can come from`}
-                  className="glass-tile rounded-2xl px-2.5 py-3 text-left min-h-[44px] active:scale-[0.98] transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-                >
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Accounts</p>
-                  <p className="text-[13px] font-bold text-slate-900 dark:text-slate-100 mt-1 leading-tight">
-                    {coverAccounts.length} connected
-                  </p>
-                </button>
-              )}
-              {bioState?.supported && (
-                <button
-                  type="button"
-                  onClick={() => jumpTo(SECTION_SECURITY)}
-                  aria-label={`${bioLabel}, jump to Security`}
-                  className="glass-tile rounded-2xl px-2.5 py-3 text-left min-h-[44px] active:scale-[0.98] transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-                >
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Security</p>
-                  <p
-                    className="text-[13px] font-bold mt-1 leading-tight"
-                    style={{ color: bioState.enabled ? EMERALD : AMBER }}
-                  >
-                    {bioLabel}
-                  </p>
-                </button>
-              )}
-            </div>
-          )}
-        </div>
+        <p className="mt-1 max-w-[65ch] text-sm text-slate-600 dark:text-slate-400">Change how Sorted behaves, then review your account access.</p>
       </div>
 
       <div className="px-4 pt-3 space-y-3">
