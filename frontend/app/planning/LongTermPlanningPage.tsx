@@ -178,7 +178,7 @@ export default function LongTermPlanningPage() {
   useTutorialReady("planning", goals !== undefined && growReady);
 
   return (
-    <div className="min-h-dvh pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:mx-auto lg:max-w-xl lg:pb-8" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
+    <div className="min-h-dvh pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:mx-auto lg:max-w-6xl lg:pb-8" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       <main className="space-y-4 px-4 pt-6">
         <GrowPanel
           onLoaded={handleGrowLoaded}

@@ -784,6 +784,54 @@ type GrowPanelProps = {
   stripSlot?: (view: GrowView | null) => ReactNode;
 };
 
+/** Shared live Planning composition. It is deliberately prop-driven so the
+ * auth-exempt design twin renders the same hierarchy with fixtures. */
+export function PlanningComposition({
+  view,
+  hideValues,
+  onSeeDue,
+  strip,
+  debtSlot,
+  goalsSlot,
+  cashSlot,
+}: {
+  view: GrowView;
+  hideValues: boolean;
+  onSeeDue: () => void;
+  strip?: ReactNode;
+  debtSlot: ReactNode;
+  goalsSlot: ReactNode;
+  cashSlot: ReactNode;
+}) {
+  const hasLadder = view.ladder.length > 0;
+  return (
+    <div className="lg:grid lg:grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)] lg:items-start lg:gap-10">
+      <div className="space-y-4 lg:sticky lg:top-6">
+        <GrowHero view={view} hideValues={hideValues} onSeeDue={onSeeDue} />
+        <div className="px-1">
+          <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">Your long horizon</h2>
+          <p className="mt-1 text-[13px] leading-5 text-slate-600 dark:text-slate-400">Keep this month in view, then follow the live priority. Debt and goals stay as proof and choices.</p>
+        </div>
+        {strip}
+        <nav aria-label="Planning sections" className="flex flex-wrap gap-x-4 gap-y-2 px-1 text-[13px] font-semibold text-indigo-700 dark:text-indigo-300">
+          <a href="#priorities" className="rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">Priority</a>
+          <a href="#debt" className="rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">Debt</a>
+          <a href="#commitments" className="rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">Goals</a>
+        </nav>
+      </div>
+      <div className="mt-8 space-y-4 border-t border-slate-300/80 pt-8 dark:border-slate-700 lg:mt-0 lg:border-l lg:border-t-0 lg:pl-10 lg:pt-0">
+        <section id="priorities" className="scroll-mt-4" aria-labelledby="planning-priorities-heading">
+          <h2 id="planning-priorities-heading" className="sr-only">Your priority order</h2>
+          {hasLadder ? <CollapsedLadder steps={view.ladder} hideValues={hideValues} /> : <div className="glass-card rounded-2xl p-5"><p className="text-sm text-slate-600 dark:text-slate-300">No order to show yet. Connect an account so Planning has a live reading to work from.</p></div>}
+        </section>
+        {cashSlot}
+        {debtSlot}
+        {goalsSlot}
+      </div>
+    </div>
+  );
+}
+
 export default function GrowPanel({ onLoaded, debtSlot, goalsSlot, stripSlot }: GrowPanelProps) {
   const router = useRouter();
   const { region, hideNetWorth } = usePreferences();
@@ -845,8 +893,6 @@ export default function GrowPanel({ onLoaded, debtSlot, goalsSlot, stripSlot }: 
     });
   }, [load, loadSavings]);
 
-  const hasLadder = !!view && view.ladder.length > 0;
-
   return (
     <>
         {loading ? (
@@ -869,43 +915,22 @@ export default function GrowPanel({ onLoaded, debtSlot, goalsSlot, stripSlot }: 
           </div>
         ) : (
           <div className="space-y-4">
-            {/* ── Hero verdict — the gauge cluster's headline reading ── */}
-            <GrowHero view={view} hideValues={hideNetWorth} onSeeDue={() => router.push("/upcoming")} />
-
-            {/* ── Section jump strip — Buffer/Debt/Goals, one row, right
-                under the hero ── */}
-            {stripSlot?.(view)}
-
-            {/* ── The ladder — hero instrument, folded to what's live ── */}
-            {hasLadder && <CollapsedLadder steps={view.ladder} hideValues={hideNetWorth} />}
-
-            {!hasLadder && (
-              <div className="glass-card rounded-2xl p-5">
-                <p className="text-sm text-slate-600 dark:text-slate-300">
-                  No order to show yet. Connect an account so Planning has a live reading to work from.
-                </p>
-              </div>
-            )}
-
-            {/* ── Cash and investments — buffer + save-vs-invest split, merged
-                (owner decision, 2026-09-04): one card, directly after the
-                ladder, states cash-safe and invested-at-risk together
-                rather than splitting them across the top and foot of the
-                panel ── */}
-            <CashAndInvestments
+            <PlanningComposition
               view={view}
               hideValues={hideNetWorth}
-              onEdit={savings ? () => setSheetOpen(true) : undefined}
+              onSeeDue={() => router.push("/upcoming")}
+              strip={stripSlot?.(view)}
+              cashSlot={<CashAndInvestments view={view} hideValues={hideNetWorth} onEdit={savings ? () => setSheetOpen(true) : undefined} />}
+              debtSlot={debtSlot}
+              goalsSlot={goalsSlot}
             />
           </div>
         )}
 
-        {/* ── Debt and goals — supplied by LongTermPlanningPage, rendered
-            unconditionally: neither is a "Grow" fact, so a failed/loading
-            /grow fetch above must never take them down with it. ── */}
-        {debtSlot}
-
-        {goalsSlot}
+        {/* Debt and goals remain independently useful while Grow loads or
+            fails. Once Grow is live, PlanningComposition places them in the
+            desktop work column after the cash-and-investments instrument. */}
+        {(loading || error || !view) && <>{debtSlot}{goalsSlot}</>}
 
         {/* ── Quiet footnotes — /grow facts, so gated on a loaded view. The
             save-vs-invest split used to render here too; it now lives in
