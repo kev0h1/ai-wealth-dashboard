@@ -44,7 +44,7 @@ import ConfirmDialog from "@/components/ConfirmDialog";
 import CoverPlanSourcesCard, { type LiveCoverRoute } from "@/components/CoverPlanSourcesCard";
 import { createSerialQueue } from "@/lib/serialQueue";
 import { useRouter } from "next/navigation";
-import { SETTINGS_GROUP_ORDER, type SettingsGroup } from "./settingsGroupOrder";
+import SettingsGroupSection from "./SettingsGroupSection";
 
 const INDIGO = "#4f46e5";
 const EMERALD = "#10b981";
@@ -85,17 +85,6 @@ function SectionHeader({
         {subtitle && <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">{subtitle}</p>}
       </div>
     </div>
-  );
-}
-
-function SettingsGroupHeader({ group }: { group: SettingsGroup }) {
-  const item = SETTINGS_GROUP_ORDER.find((candidate) => candidate.id === group);
-  if (!item) return null;
-  return (
-    <section aria-labelledby={`settings-group-${item.id}`} className={`order-${group === "account-access" ? "10" : group === "security-connected" ? "20" : group === "how-sorted-behaves" ? "30" : group === "data-help" ? "40" : "50"} border-y border-slate-300/80 py-4 dark:border-slate-700`}>
-      <h2 id={`settings-group-${item.id}`} className="text-base font-bold text-slate-900 dark:text-slate-100">{item.title}</h2>
-      <p className="mt-1 text-[13px] text-slate-600 dark:text-slate-400">{item.copy}</p>
-    </section>
   );
 }
 
@@ -1055,22 +1044,8 @@ export default function SettingsPage() {
     </div>
   );
 
-  return (
-    <div className="min-h-dvh pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8 lg:max-w-6xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
-      <div className="px-4 pt-6 pb-2">
-        <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Settings</h1>
-        <p className="mt-1 max-w-[65ch] text-sm text-slate-600 dark:text-slate-400">Change how Sorted behaves, then review your account access.</p>
-      </div>
-
-      <div className="px-4 pt-3 flex flex-col gap-3 lg:grid lg:grid-cols-2 lg:items-start lg:gap-x-6">
-        <SettingsGroupHeader group="account-access" />
-        <SettingsGroupHeader group="security-connected" />
-        <SettingsGroupHeader group="how-sorted-behaves" />
-        <SettingsGroupHeader group="data-help" />
-        <SettingsGroupHeader group="leave-delete" />
-
-        {/* ── Sign-in methods ── */}
-        <div className="order-10 glass-card rounded-2xl overflow-hidden">
+  const signInCard = (
+        <div className="glass-card rounded-2xl overflow-hidden">
           <SectionHeader icon={KeyRound} hex={INDIGO} title="Sign-in methods" />
 
           {/* Google — always present, this account always has one */}
@@ -1145,9 +1120,10 @@ export default function SettingsPage() {
             )}
           </div>
         </div>
+  );
 
-        {/* ── Display ── */}
-        <div className="order-30 glass-card rounded-2xl overflow-hidden">
+  const displayCard = (
+        <div className="glass-card rounded-2xl overflow-hidden">
           <SectionHeader icon={Moon} hex={INDIGO} title="Display" />
           <div className="flex items-center justify-between px-4 py-3.5">
             <div>
@@ -1178,56 +1154,14 @@ export default function SettingsPage() {
             </p>
           )}
         </div>
+  );
 
-        {/* ── Your plan (B5) ── */}
-        {/* Tier, price and (once billing is live) a "Manage plan" link into
-            Stripe's customer portal. Hosts PennyUsageRow.tsx, moved out of
-            the Penny card below (see that component's own "re-homes into a
-            Your plan card" note) — usage against the tier's monthly
-            allowance reads more naturally next to the tier itself. Placed
-            directly above the Penny card since both are about the same
-            account-level relationship (what plan, what Penny can do). */}
-        <div className="order-10"><YourPlanCard info={pennyUsage.info} error={pennyUsageError} /></div>
+  const planCard = (
+        <YourPlanCard info={pennyUsage.info} error={pennyUsageError} />
+  );
 
-        {/* ── Penny (agent mode v1) ── */}
-        {/* Consent-state row for Penny's agent mode (setting up envelopes/
-            goals/one-offs on the user's behalf, always with a confirm card
-            first — see PennyConversation.tsx's ConsentCard/ProposalConfirmCard).
-            Reads `rawPrefs.penny_agent_consent` (an ISO timestamp when
-            granted, absent/null otherwise) straight from the same
-            preferences fetch every other row on this page already uses —
-            no separate request.
-
-            B13 (2026-09-08): consent is no longer one-way. DELETE
-            /penny/agent-consent (api.revokePennyAgentConsent) now exists —
-            same call Penny's own "stop setting things up" chat phrase
-            triggers server-side — so the "on" state gets a real "Turn off"
-            control instead of the old read-only "ask Penny to stop in
-            chat" line, which called nothing. Confirm-gated (ConfirmDialog,
-            same component the Apple-unlink row above uses) since revoking
-            also cancels any of the user's still-unconfirmed proposals, not
-            just the on/off flag. refreshPreferences() re-fetches
-            GET /preferences after a successful revoke so `rawPrefs` (and
-            this row) flips to the off branch without a page reload.
-
-            Placement: this doesn't nest inside an existing card (no
-            existing section is both an unconditional render and a clean
-            semantic fit for "can Penny act on my behalf at all" — "Where
-            money can come from" is conditional on having eligible accounts
-            and is specifically about SOURCE accounts, a narrower and
-            different permission). A small dedicated card, same
-            glass-card/SectionHeader family as every other section here,
-            was the more honest fit than forcing this into a card about
-            something else. Icon is a plain INDIGO-tinted IconChip carrying
-            Penny's own mark (PennyMark, not the generic Wand2 lucide icon),
-            not the Penny gradient: DESIGN.md's Penny Gradient Rule reserves
-            that gradient for surfaces that give advice, and Settings isn't
-            one. That reasoning still holds, only the glyph inside the chip
-            changed (G32, 2026-09-10) so Penny's identity mark shows up here
-            too, same tint as every other row on this page. B5: Penny
-            messages usage now lives in the "Your plan" card above, not
-            here. */}
-        <div className="order-30 glass-card rounded-2xl overflow-hidden">
+  const pennyCard = (
+        <div className="glass-card rounded-2xl overflow-hidden">
           <SectionHeader icon={PennyMark} hex={INDIGO} title="Penny" subtitle="What Penny can do on your behalf" />
 
           <div className="px-4 py-3.5">
@@ -1262,11 +1196,11 @@ export default function SettingsPage() {
             )}
           </div>
         </div>
+  );
 
-        {/* ── Connected assistants (F4) ── A17: hidden entirely (no render,
-            no fetch) unless the MCP connector is turned on. */}
-        {MCP_CONNECTOR && (
-          <div className="order-20"><ConnectedAssistantsCard
+  const assistantsCard = (
+        MCP_CONNECTOR ? (
+          <ConnectedAssistantsCard
             state={connectionsState}
             onDisconnect={handleDisconnectAssistant}
             tierAllowance={pennyUsage.info?.limits?.mcp_tool_calls_per_month ?? null}
@@ -1274,11 +1208,12 @@ export default function SettingsPage() {
             mcpPacks={pennyUsage.info?.mcp_packs ?? []}
             tier={pennyUsage.info?.tier ?? null}
             billingLive={pennyUsage.info?.billing_live ?? false}
-          /></div>
-        )}
+          />
+        ) : null
+  );
 
-        {/* ── Notifications ── */}
-        <div className="order-30 glass-card rounded-2xl overflow-hidden">
+  const notificationsCard = (
+        <div className="glass-card rounded-2xl overflow-hidden">
           <SectionHeader icon={Bell} hex={INDIGO} title="Notifications" />
           <div className="px-4 py-3.5">
             {notifPermission === "native" ? (
@@ -1431,10 +1366,11 @@ export default function SettingsPage() {
             </div>
           )}
         </div>
+  );
 
-        {/* ── Where money can come from ── */}
-        {coverAccounts.length > 0 && (
-          <div id="settings-accounts" className="order-20 scroll-mt-4">
+  const coverAccountsCard = (
+        coverAccounts.length > 0 ? (
+          <div id="settings-accounts" className="scroll-mt-4">
             <CoverPlanSourcesCard
               accounts={coverAccounts}
               excludedIds={excludedIds}
@@ -1460,10 +1396,11 @@ export default function SettingsPage() {
               </p>
             )}
           </div>
-        )}
+        ) : null
+  );
 
-        {/* ── Financial profile ── */}
-        <div className="order-10 glass-card rounded-2xl overflow-hidden">
+  const financialProfileCard = (
+        <div className="glass-card rounded-2xl overflow-hidden">
           <SectionHeader
             icon={Landmark}
             hex={INDIGO}
@@ -1561,10 +1498,11 @@ export default function SettingsPage() {
             </button>
           )}
         </div>
+  );
 
-        {/* ── Security (app shell only) ── */}
-        {bioState?.supported && (
-          <div id="settings-security" className="order-20 glass-card rounded-2xl overflow-hidden scroll-mt-4">
+  const securityCard = (
+        bioState?.supported ? (
+          <div id="settings-security" className="glass-card rounded-2xl overflow-hidden scroll-mt-4">
             <SectionHeader icon={ShieldCheck} hex={EMERALD} title="Security" />
             <div className="flex items-center justify-between px-4 py-3.5">
               <div>
@@ -1578,10 +1516,11 @@ export default function SettingsPage() {
               />
             </div>
           </div>
-        )}
+        ) : null
+  );
 
-        {/* ── Data ── */}
-        <div className="order-40 glass-card rounded-2xl overflow-hidden">
+  const dataCard = (
+        <div className="glass-card rounded-2xl overflow-hidden">
           <SectionHeader icon={Database} hex={INDIGO} title="Data" />
           <div className="px-4 py-3.5">
             <p className="text-sm font-medium text-slate-800 dark:text-slate-100">Sync all history</p>
@@ -1610,9 +1549,10 @@ export default function SettingsPage() {
             <ChevronRight size={16} className="flex-shrink-0 text-slate-400 dark:text-slate-500" />
           </button>
         </div>
+  );
 
-        {/* ── Account ── */}
-        <div className="order-10 glass-card rounded-2xl overflow-hidden">
+  const accountCard = (
+        <div className="glass-card rounded-2xl overflow-hidden">
           <div className="px-4 py-3 border-b border-slate-50 dark:border-slate-700 flex items-start gap-2.5">
             <IconChip icon={UserRound} hex={INDIGO} />
             <div className="min-w-0 pt-0.5">
@@ -1660,9 +1600,10 @@ export default function SettingsPage() {
           </div>
 
         </div>
+  );
 
-        {/* ── How Sorted works (tutorial replay, one row per per-screen flow) ── */}
-        <div className="order-40 glass-card rounded-2xl overflow-hidden">
+  const tutorialsCard = (
+        <div className="glass-card rounded-2xl overflow-hidden">
           <SectionHeader icon={HelpCircle} hex={INDIGO} title="How Sorted works" subtitle="Replay any screen's tour" />
           {TUTORIAL_FLOWS.map((flow, i) => (
             <button
@@ -1681,9 +1622,10 @@ export default function SettingsPage() {
             </button>
           ))}
         </div>
+  );
 
-        {/* ── Help ── */}
-        <div className="order-40 glass-card rounded-2xl overflow-hidden">
+  const helpCard = (
+        <div className="glass-card rounded-2xl overflow-hidden">
           <SectionHeader icon={HelpCircle} hex={INDIGO} title="Help" />
           <button
             type="button"
@@ -1702,13 +1644,14 @@ export default function SettingsPage() {
             <ChevronRight size={16} className="flex-shrink-0 text-slate-400 dark:text-slate-500" />
           </button>
         </div>
+  );
 
-        {/* ── Danger zone ── */}
-        <div className="order-50 glass-card rounded-2xl overflow-hidden">
+  const leaveDeleteCard = (
+        <div className="glass-card rounded-2xl overflow-hidden">
           <button
             type="button"
             onClick={logout}
-            className="w-full min-h-[44px] flex items-center gap-3 px-4 py-3.5 text-left text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 active:bg-slate-100 transition-colors"
+            className="w-full min-h-[44px] flex items-center gap-3 px-4 py-3.5 text-left text-slate-600 transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 dark:text-slate-300 dark:hover:bg-slate-700"
           >
             <LogOut size={16} aria-hidden="true" />
             <span className="text-sm font-medium">Sign out</span>
@@ -1720,14 +1663,47 @@ export default function SettingsPage() {
               <p className="text-xs font-semibold text-red-500 dark:text-red-400 uppercase tracking-wide mb-1">Danger zone</p>
               <button
                 onClick={() => setDeleteOpen(true)}
-                className="min-h-[44px] px-4 py-2.5 -ml-4 text-sm font-medium text-red-500 dark:text-red-400 rounded-xl hover:bg-red-50 dark:hover:bg-red-900/10 active:bg-red-100 transition-colors"
+                className="min-h-[44px] px-4 py-2.5 -ml-4 rounded-xl text-sm font-medium text-red-500 transition-colors hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 dark:text-red-400 dark:hover:bg-red-900/10"
               >
                 Delete account &amp; all data…
               </button>
             </div>
           </div>
         </div>
+  );
 
+  return (
+    <div className="min-h-dvh pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:mx-auto lg:max-w-6xl lg:pb-8" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
+      <div className="px-4 pb-2 pt-6">
+        <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Settings</h1>
+        <p className="mt-1 max-w-[65ch] text-sm text-slate-600 dark:text-slate-400">Start with your account access, then choose how Sorted works for you.</p>
+      </div>
+
+      <div className="mx-auto max-w-4xl space-y-10 px-4 pt-3">
+        <SettingsGroupSection group="account-access">
+          {signInCard}
+          {planCard}
+          {financialProfileCard}
+          {accountCard}
+        </SettingsGroupSection>
+        <SettingsGroupSection group="security-connected">
+          {assistantsCard}
+          {coverAccountsCard}
+          {securityCard}
+        </SettingsGroupSection>
+        <SettingsGroupSection group="how-sorted-behaves">
+          {displayCard}
+          {pennyCard}
+          {notificationsCard}
+        </SettingsGroupSection>
+        <SettingsGroupSection group="data-help">
+          {dataCard}
+          {tutorialsCard}
+          {helpCard}
+        </SettingsGroupSection>
+        <SettingsGroupSection group="leave-delete">
+          {leaveDeleteCard}
+        </SettingsGroupSection>
       </div>
 
       {/* Delete account confirmation dialog */}
