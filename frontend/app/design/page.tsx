@@ -22,6 +22,7 @@ type PreviewRoute = {
 };
 
 const ROUTES: PreviewRoute[] = [
+  { slug: "g98-month-canvas", name: "g98-month-canvas", description: "G98 Canvas Before Cards review for Month · A reading / B evidence rail / C editorial ledger · monthly verdict and explanation live on the canvas, with reconciled evidence earning its boundary and a preserved path to the month story · static fixtures, no API calls or mutations · ?variant=a|b|c&state=ahead|steady|short|empty&mode=light|dark", states: [{ label: "Ahead", value: "ahead" }, { label: "Steady", value: "steady" }, { label: "Short", value: "short" }, { label: "History building", value: "empty" }], variants: [{ label: "A · Reading", value: "a" }, { label: "B · Evidence rail", value: "b" }, { label: "C · Editorial ledger", value: "c" }] },
   {
     slug: "accounts-canvas-before-cards",
     name: "accounts-canvas-before-cards",
