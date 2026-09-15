@@ -23,6 +23,27 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "accounts-canvas-before-cards",
+    name: "accounts-canvas-before-cards",
+    description:
+      "G87 Canvas Before Cards review for Accounts · A Reconciled estate (recommended) / B Group focus / C Statement rail · the title, context, net worth and exact cash plus investments less card position reconciliation sit on the canvas · cards are retained for account groups, reconnect actions and interactive detail records · real AccountLedgerRow, ReconnectStrip, SegmentedControl and TransactionRow components over fixture-only data · mixed, reconnect, empty, current, expired, credit, offline and investment states · persistent global navigation, no API calls or production changes · ?variant=a|b|c&state=estate|attention|empty|detail-current|detail-expired|detail-credit|detail-manual|detail-investment&mode=light|dark",
+    states: [
+      { label: "Mixed estate", value: "estate" },
+      { label: "Reconnect needed", value: "attention" },
+      { label: "Nothing connected", value: "empty" },
+      { label: "Current detail", value: "detail-current" },
+      { label: "Expired detail", value: "detail-expired" },
+      { label: "Credit detail", value: "detail-credit" },
+      { label: "Offline detail", value: "detail-manual" },
+      { label: "Investment detail", value: "detail-investment" },
+    ],
+    variants: [
+      { label: "A · Reconciled estate", value: "a" },
+      { label: "B · Group focus", value: "b" },
+      { label: "C · Statement rail", value: "c" },
+    ],
+  },
+  {
     slug: "tax-canvas-before-cards",
     name: "tax-canvas-before-cards",
     description:
@@ -586,7 +607,7 @@ function PreviewCard({ route }: { route: PreviewRoute }) {
               <Link
                 key={variant.value}
                 href={`/design/${route.slug}?mode=dark&state=${route.states[0].value}&variant=${variant.value}`}
-                className="inline-flex min-h-[44px] items-center rounded-full bg-indigo-50 px-3.5 py-2 text-[11px] font-semibold text-indigo-600 transition-transform active:scale-95 dark:bg-indigo-500/15 dark:text-indigo-300"
+                className="inline-flex min-h-[44px] items-center rounded-full bg-indigo-50 px-3.5 py-2 text-[11px] font-semibold text-indigo-600 transition-transform active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:bg-indigo-500/15 dark:text-indigo-300"
               >
                 {variant.label}
               </Link>
