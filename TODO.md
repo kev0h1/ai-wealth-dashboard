@@ -466,6 +466,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
 - [ ] **G93. Canvas Before Cards review 8 of 16, Penny: produce two or three coded variants that treat the conversation as the primary canvas and reserve cards for proposals, confirmations, tool results and bounded evidence; preserve the Penny-only gradient and verify keyboard, loading, error and allowance states before production changes** [owner: claude]
 - [ ] **G94. Canvas Before Cards review 9 of 16, Settings: produce two or three coded variants that remove any unearned profile hero and improve canvas orientation while retaining card boundaries for related controls, permissions and destructive actions; verify long-page navigation and all responsive themes before production changes** [owner: claude]
 - [ ] **G95. Canvas Before Cards review 10 of 16, Your money shape: produce two or three coded variants that make the drill-in an editorial canvas around one pay-shape instrument, with reference shapes and explanations progressively disclosed rather than carded by default; verify navigation and responsive states before production changes** [owner: claude]
+- [ ] **G96. Canvas Before Cards review 11 of 16, Receipts: produce two or three coded variants that lead with scan status and next action on the canvas, reserving cards for receipt groups, review tasks and upload actions; verify empty, loading, error and populated states before production changes** [owner: claude]
 
 ## H. Repo hygiene
 
