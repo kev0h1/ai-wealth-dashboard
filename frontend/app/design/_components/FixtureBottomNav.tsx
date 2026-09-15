@@ -13,10 +13,10 @@ const TABS = [
 /**
  * Static, fixture-safe counterpart to BottomNav for auth-exempt previews.
  * The production component reads cached status and can call the API, so it
- * must not be mounted on /design. Accounts is not a primary tab, therefore
- * no rail item is highlighted, matching the production route.
+ * must not be mounted on /design. Callers may identify the active primary
+ * route; pages outside the primary tabs leave every rail item neutral.
  */
-export default function FixtureBottomNav() {
+export default function FixtureBottomNav({ active }: { active?: "Home" | "Spend" | "Upcoming" | "Planning" }) {
   return (
     <>
       <div
@@ -43,11 +43,12 @@ export default function FixtureBottomNav() {
                 <Link
                   key={tab.label}
                   href={tab.href}
+                  aria-current={active === tab.label ? "page" : undefined}
                   style={{ gridColumnStart: tab.slot + 1 }}
                   className="relative z-10 flex min-h-11 touch-manipulation flex-col items-center justify-center gap-0.5 rounded-2xl [-webkit-tap-highlight-color:transparent] transition-transform active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 motion-reduce:transition-none"
                 >
-                  <tab.Icon size={22} strokeWidth={1.8} className="text-slate-500 dark:text-slate-400" aria-hidden="true" />
-                  <span className="text-[11px] font-medium leading-none text-slate-500 dark:text-slate-400">{tab.label}</span>
+                  <tab.Icon size={22} strokeWidth={1.8} className={active === tab.label ? "text-indigo-600 dark:text-indigo-300" : "text-slate-500 dark:text-slate-400"} aria-hidden="true" />
+                  <span className={`text-[11px] font-medium leading-none ${active === tab.label ? "text-indigo-600 dark:text-indigo-300" : "text-slate-500 dark:text-slate-400"}`}>{tab.label}</span>
                 </Link>
               ))}
             </div>
