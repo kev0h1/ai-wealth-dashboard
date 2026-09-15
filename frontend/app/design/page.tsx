@@ -184,6 +184,7 @@ const ROUTES: PreviewRoute[] = [
     name: "g96-receipts-canvas",
     description: "G96 Canvas Before Cards Receipts round · A Scan first leads with scan status / B Review rail holds the next action beside review records on desktop / C Receipt journey explains scan, review and price history on the canvas · static fixtures only, no API calls or production edits · ?variant=a|b|c&state=ready|empty|loading|error&mode=light|dark",
     states: [{ label: "Ready to review", value: "ready" }, { label: "No receipts", value: "empty" }, { label: "Reading receipt", value: "loading" }, { label: "Couldn’t read", value: "error" }],
+    variants: [{ label: "A · Scan first", value: "a" }, { label: "B · Review rail", value: "b" }, { label: "C · Receipt journey", value: "c" }],
   },
   {
     slug: "settings-usage-row",
