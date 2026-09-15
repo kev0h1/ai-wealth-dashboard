@@ -396,7 +396,7 @@ export default function PennySheet() {
   // route change, forever, for the whole session.
   //
   // Does NOT clobber a pending `askContext.ask`: the only ways `ctx.ask`
-  // gets set are TaxPennyEntry.tsx / ScenarioPage.tsx / Planning's prompt
+  // gets set are ScenarioPage.tsx / Planning's prompt
   // bar calling `open({ screen, ask })` directly from a click — a distinct
   // `open()` call this effect never races, since it isn't triggered by a
   // pathname change at all. The other route into `ctx.ask` being live is a

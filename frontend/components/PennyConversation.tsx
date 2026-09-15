@@ -193,7 +193,7 @@ type ScenarioMsg = {
 };
 /** A general-knowledge answer (tax, currently the only topic) that isn't
  * grounded in the user's own balances — the fold-in of the retired TaxChat
- * popup (components/TaxChat.tsx, now deleted; see TaxPennyEntry.tsx for its
+ * popup (the old Tax chat components are now deleted; see the Tax nav context for its
  * replacement entry point). Deliberately its own kind rather than a
  * degraded VerdictMsg: an explainer is markdown prose, not a headline +
  * facts, and giving it verdict weight would be exactly the mistake a design

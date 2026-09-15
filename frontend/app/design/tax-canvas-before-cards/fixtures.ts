@@ -1,41 +1,15 @@
+import type { TaxAction, TaxCanvasModel, TaxYear } from "@/app/tax/TaxCanvas";
+
+export type { TaxAction } from "@/app/tax/TaxCanvas";
+
 export type TaxPreviewState = "trap" | "lost" | "higher" | "basic" | "empty";
 
-export type TaxActionStatus = "action" | "info";
-
-export type TaxAction = {
-  key: string;
-  title: string;
-  detail: string;
-  status: TaxActionStatus;
-  canMarkDone?: boolean;
-  highlight?: boolean;
-};
-
-export type TaxYear = {
-  label: string;
-  progressPct: number;
-  daysLeft: number;
-  nextYear: number;
-};
-
-export type TaxPreviewModel = {
+export type TaxPreviewModel = TaxCanvasModel & {
   state: TaxPreviewState;
   stateLabel: string;
   income: number;
   pensionAnnual: number;
   adjustedIncome: number;
-  hasIncome: boolean;
-  heroHeadline: string;
-  heroBody: string;
-  leverTitle: string;
-  leverDetail: string;
-  leverStatus: TaxActionStatus | "safe";
-  pensionNeededTotal: number;
-  taxSaving: number;
-  effectiveCost: number;
-  mainActions: TaxAction[];
-  secondaryActions: TaxAction[];
-  taxYear: TaxYear;
 };
 
 const PERSONAL_ALLOWANCE = 12_570;
