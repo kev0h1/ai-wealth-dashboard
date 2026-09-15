@@ -67,8 +67,6 @@ function usePaydayWindowActive(): boolean {
 // Maps the current route to the sheet's `screen` context (PennySheetProvider.tsx)
 // so the conversation knows roughly what the user was looking at when they
 // opened it from the nav, without any page having to call `open()` itself.
-// "tax" is never produced here — that value is for TaxPennyEntry.tsx's own
-// entry point, a different door into the same sheet.
 // Exported (2026-08-25) so Sidebar.tsx's desktop Penny trigger can derive
 // the same screen context from the same pathname, rather than duplicating
 // this switch — one source of truth for "which route means which screen"
@@ -84,6 +82,7 @@ export function screenForPathname(pathname: string | null): PennyAskContext["scr
     case "/spend/shape": return "spend";
     case "/upcoming": return "upcoming";
     case "/planning": return "planning";
+    case "/tax": return "tax";
     // /insights is retired to a client redirect (-> /spend/shape or /tax)
     // that never renders this BottomNav, so this case is now unreachable in
     // practice — removed rather than kept inert, unlike "/grow" below,
@@ -106,11 +105,8 @@ export function screenForPathname(pathname: string | null): PennyAskContext["scr
     // union gained "accounts" — lib/pennyScreenConfig.tsx already had a real
     // `accounts` config entry (chips, header links) waiting on exactly this.
     case "/accounts": return "accounts";
-    // "tax" is never produced here — that value is for TaxPennyEntry.tsx's
-    // own entry point, a different door into the same sheet. /tax and
-    // /receipts (retired from under /insights 2026-09-05, now their own
-    // top-level routes) don't render BottomNav themselves, so they fall to
-    // "other" like any other sub-route without its own nav instance.
+    // /receipts (retired from under /insights 2026-09-05) has no dedicated
+    // Penny context, so it falls to "other" like any unrecognised sub-route.
     default: return "other";
   }
 }
