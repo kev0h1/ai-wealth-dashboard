@@ -820,7 +820,8 @@ export function PlanningComposition({
         </nav>
       </div>
       <div className="mt-8 space-y-4 border-t border-slate-300/80 pt-8 dark:border-slate-700 lg:mt-0 lg:border-l lg:border-t-0 lg:pl-10 lg:pt-0">
-        <section id="priorities" className="scroll-mt-4">
+        <section id="priorities" className="scroll-mt-4" aria-labelledby="planning-priorities-heading">
+          <h2 id="planning-priorities-heading" className="sr-only">Your priority order</h2>
           {hasLadder ? <CollapsedLadder steps={view.ladder} hideValues={hideValues} /> : <div className="glass-card rounded-2xl p-5"><p className="text-sm text-slate-600 dark:text-slate-300">No order to show yet. Connect an account so Planning has a live reading to work from.</p></div>}
         </section>
         {cashSlot}
