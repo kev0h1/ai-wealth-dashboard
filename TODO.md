@@ -468,6 +468,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
 - [ ] **G95. Canvas Before Cards review 10 of 16, Your money shape: produce two or three coded variants that make the drill-in an editorial canvas around one pay-shape instrument, with reference shapes and explanations progressively disclosed rather than carded by default; verify navigation and responsive states before production changes** [owner: claude]
 - [ ] **G96. Canvas Before Cards review 11 of 16, Receipts: produce two or three coded variants that lead with scan status and next action on the canvas, reserving cards for receipt groups, review tasks and upload actions; verify empty, loading, error and populated states before production changes** [owner: claude]
 - [ ] **G97. Canvas Before Cards review 12 of 16, Mirror: produce two or three coded variants that make the behavioural reading an editorial canvas and reserve cards for selectable aims, bounded evidence and actions; preserve factual wording and category colour semantics before production changes** [owner: claude]
+- [ ] **G98. Canvas Before Cards review 13 of 16, Month: produce two or three coded variants that lead with the monthly verdict and explanation on the canvas, keep charts and reconciled evidence in earned containers, and preserve the path into the month story; verify all responsive states before production changes** [owner: claude]
 
 ## H. Repo hygiene
 
