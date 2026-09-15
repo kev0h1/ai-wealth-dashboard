@@ -509,7 +509,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
 - [ ] **G100. Canvas Before Cards review 15 of 16, Scenario: produce two or three coded variants that keep the scenario question and outcome on the canvas while using containers for inputs, calculations and comparisons; clearly distinguish forecasts from live balances and verify edge states before production changes** [owner: codex] [state: review: feature-G100-canvas-before-cards-review] [uat-review]
   - note (2026-09-15, codex): Design round uses Impeccable. Independent review corrected contradictory scenario arithmetic, dead and stale-looking controls, static-fixture clarity, 44px preview controls and negative-forecast risk treatment. TypeScript and all preview gates pass; production phone/desktop light/dark captures verify safe, tight and empty states.
 - [ ] **G101. Canvas Before Cards review 16 of 16, MCP activity: produce two or three coded variants that put activity context and filters on the canvas while keeping log groups, pagination and audit details in functional containers; preserve privacy, scanability and feature-gated states before production changes** [owner: codex] [state: in-progress] [branch: feature-G101-canvas-before-cards-review]
-- [ ] **G102. Ten of the eleven Canvas Before Cards previews omit the global navigation, so no round can show a colour or spacing collision with Penny's nav button** [owner: codex]
+- [ ] **G102. Ten of the eleven Canvas Before Cards previews omit the global navigation, so no round can show a colour or spacing collision with Penny's nav button** [owner: codex] [priority: p2]
 
 ## H. Repo hygiene
 
