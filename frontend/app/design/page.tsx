@@ -22,6 +22,7 @@ type PreviewRoute = {
 };
 
 const ROUTES: PreviewRoute[] = [
+  {slug:"mirror-canvas-before-cards",name:"mirror-canvas-before-cards",description:"G97 Canvas Before Cards review for Mirror · A editorial reading / B paired traits / C progressive evidence · behavioural reading stays on the canvas, while selectable aims and bounded transaction evidence earn a card · fixture-only, no API calls or production edits · ?variant=a|b|c&state=portrait|aim|empty&mode=light|dark",states:[{label:"Portrait",value:"portrait"},{label:"Active aim",value:"aim"},{label:"Not enough data",value:"empty"}],variants:[{label:"A · Editorial",value:"a"},{label:"B · Paired",value:"b"},{label:"C · Evidence",value:"c"}]},
   {slug:"money-shape-canvas-before-cards",name:"money-shape-canvas-before-cards",description:"G95 Canvas Before Cards review for Your money shape · A editorial instrument / B split reading / C progressive reference rail · one pay-shape instrument leads on the canvas while explanation and reference shapes are disclosed only when useful · fixture-only, no API calls or production edits · ?variant=a|b|c&state=steady|changed|thin&mode=light|dark",states:[{label:"Steady",value:"steady"},{label:"Changed",value:"changed"},{label:"Thin history",value:"thin"}],variants:[{label:"A · Editorial",value:"a"},{label:"B · Split",value:"b"},{label:"C · Reference",value:"c"}]},
   { slug: "transactions-canvas-before-cards", name: "transactions-canvas-before-cards", description: "G92 Canvas Before Cards review for Transactions · A canvas search reading / B desktop context rail / C evidence-forward groups · search, context and summary stay on canvas while dense date groups and expandable teaching evidence keep earned boundaries · populated, long-list, loading, empty and error fixtures only · ?variant=a|b|c&state=populated|long|loading|empty|error&mode=light|dark", states: [{label:"Populated",value:"populated"},{label:"Long list",value:"long"},{label:"Loading",value:"loading"},{label:"Empty",value:"empty"},{label:"Error",value:"error"}], variants: [{label:"A · Canvas",value:"a"},{label:"B · Context rail",value:"b"},{label:"C · Evidence",value:"c"}] },
   {
@@ -215,6 +216,13 @@ const ROUTES: PreviewRoute[] = [
   },
   {
     slug:"g100-scenario-canvas",name:"g100-scenario-canvas",description:"G100 Canvas Before Cards Scenario round · question and forecast outcome on canvas, inputs/calculation/comparison bounded · A outcome first / B comparison rail / C calculation path · static, no API or production edits · ?variant=a|b|c&state=safe|tight|empty&mode=light|dark",states:[{label:"Safe forecast",value:"safe"},{label:"Tight forecast",value:"tight"},{label:"No scenario",value:"empty"}],variants:[{label:"A · Outcome first",value:"a"},{label:"B · Comparison rail",value:"b"},{label:"C · Calculation path",value:"c"}],
+  },
+  {
+    slug: "g96-receipts-canvas",
+    name: "g96-receipts-canvas",
+    description: "G96 Canvas Before Cards Receipts round · A Scan first leads with scan status / B Review rail holds the next action beside review records on desktop / C Receipt journey explains scan, review and price history on the canvas · static fixtures only, no API calls or production edits · ?variant=a|b|c&state=ready|empty|loading|error&mode=light|dark",
+    states: [{ label: "Ready to review", value: "ready" }, { label: "No receipts", value: "empty" }, { label: "Reading receipt", value: "loading" }, { label: "Couldn’t read", value: "error" }],
+    variants: [{ label: "A · Scan first", value: "a" }, { label: "B · Review rail", value: "b" }, { label: "C · Receipt journey", value: "c" }],
   },
   {
     slug: "g94-settings-canvas",
