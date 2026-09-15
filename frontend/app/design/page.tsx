@@ -22,7 +22,15 @@ type PreviewRoute = {
 };
 
 const ROUTES: PreviewRoute[] = [
+  {slug:"money-shape-canvas-before-cards",name:"money-shape-canvas-before-cards",description:"G95 Canvas Before Cards review for Your money shape · A editorial instrument / B split reading / C progressive reference rail · one pay-shape instrument leads on the canvas while explanation and reference shapes are disclosed only when useful · fixture-only, no API calls or production edits · ?variant=a|b|c&state=steady|changed|thin&mode=light|dark",states:[{label:"Steady",value:"steady"},{label:"Changed",value:"changed"},{label:"Thin history",value:"thin"}],variants:[{label:"A · Editorial",value:"a"},{label:"B · Split",value:"b"},{label:"C · Reference",value:"c"}]},
   { slug: "transactions-canvas-before-cards", name: "transactions-canvas-before-cards", description: "G92 Canvas Before Cards review for Transactions · A canvas search reading / B desktop context rail / C evidence-forward groups · search, context and summary stay on canvas while dense date groups and expandable teaching evidence keep earned boundaries · populated, long-list, loading, empty and error fixtures only · ?variant=a|b|c&state=populated|long|loading|empty|error&mode=light|dark", states: [{label:"Populated",value:"populated"},{label:"Long list",value:"long"},{label:"Loading",value:"loading"},{label:"Empty",value:"empty"},{label:"Error",value:"error"}], variants: [{label:"A · Canvas",value:"a"},{label:"B · Context rail",value:"b"},{label:"C · Evidence",value:"c"}] },
+  {
+    slug: "g93-penny-canvas",
+    name: "g93-penny-canvas",
+    description: "G93 Canvas Before Cards review for Penny · A conversation line / B evidence rail / C compact companion · the thread is the primary canvas, while proposals, confirmations and bounded evidence earn cards · static fixtures only, no API calls or mutations · ?variant=a|b|c&state=ready|loading|error|allowance&mode=light|dark",
+    states: [{ label: "Ready", value: "ready" }, { label: "Loading", value: "loading" }, { label: "Error", value: "error" }, { label: "Allowance used", value: "allowance" }],
+    variants: [{ label: "A · Conversation line", value: "a" }, { label: "B · Evidence rail", value: "b" }, { label: "C · Compact companion", value: "c" }],
+  },
   {
     slug: "accounts-canvas-before-cards",
     name: "accounts-canvas-before-cards",
@@ -61,6 +69,13 @@ const ROUTES: PreviewRoute[] = [
       { label: "B · Today board", value: "b" },
       { label: "C · Rhythm", value: "c" },
     ],
+  },
+  {
+    slug: "upcoming-canvas-before-cards",
+    name: "upcoming-canvas-before-cards",
+    description: "G90 Canvas Before Cards review for Upcoming · A runway reading (recommended) / B ordered forecast / C concise briefing · orientation and the runway verdict sit directly on the canvas, while the calculation disclosure, bounded payment group and plans earn their surfaces · includes the hidden-predictions companion · fixture-only, no API calls or production edits · ?variant=a|b|c&state=short|healthy|hidden&mode=light|dark",
+    states: [{ label: "Shortfall", value: "short" }, { label: "Healthy", value: "healthy" }, { label: "Predictions hidden", value: "hidden" }],
+    variants: [{ label: "A · Runway", value: "a" }, { label: "B · Sequence", value: "b" }, { label: "C · Briefing", value: "c" }],
   },
   {
     slug: "tax-canvas-before-cards",
@@ -323,6 +338,21 @@ const ROUTES: PreviewRoute[] = [
     description:
       "Spend tips integration round (owner brief 2026-09-04: 'Penny noticed' rows wedged under category rows break the list grammar, truncate the fact and contradict 'Looking normal'; corrected 2026-09-05: a category tap routes to the transactions page, not a sheet) · A tip count + estimate folded into the category subline, tip waits behind a one-line row under the filter chips on the transactions page, above the payments / B one 'Ways to save' card under the list with a reconciled total and a door to Patterns / C both · real InsightCard over the owner's live tips · ?variant=a|b|c&mode=light|dark",
     states: [{ label: "Everything", value: "everything" }],
+  },
+  {
+    slug: "g89-planning-canvas",
+    name: "g89-planning-canvas",
+    description:
+      "G89 Canvas Before Cards Planning round · A Clear reading keeps the month’s position, priority ladder, debt evidence and goals in one calm order / B Position rail keeps the monthly instrument visible beside desktop decisions / C Next decision sequences the same facts on the canvas before the bounded decision groups · real GrowHero, CollapsedLadder, DebtPosition and GoalRow over static long-term fixtures, no API calls or production edits · ?variant=a|b|c&state=short|calm&mode=light|dark",
+    states: [
+      { label: "Short month", value: "short" },
+      { label: "Calm month", value: "calm" },
+    ],
+    variants: [
+      { label: "A · Clear reading", value: "a" },
+      { label: "B · Position rail", value: "b" },
+      { label: "C · Next decision", value: "c" },
+    ],
   },
   {
     slug: "planning-ladder",
