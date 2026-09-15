@@ -3,10 +3,12 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Check, ChevronLeft, Filter, ShieldCheck } from "lucide-react";
+import { Check, ChevronLeft, Filter } from "lucide-react";
 
 type Variant = "a" | "b" | "c";
-type State = "enabled" | "empty" | "loading" | "error" | "gated";
+// This mirrors McpActivityPage. Plan availability is resolved by
+// ConnectedAssistantsCard before the user reaches this route.
+type State = "enabled" | "empty" | "loading" | "error";
 type Row = { day: string; assistant: string; request: string; time: string; detail: string };
 
 const currentRows: Row[] = [
@@ -25,10 +27,10 @@ function Switcher({ variant, state, dark }: { variant: Variant; state: State; da
   const query = (nextVariant: Variant, nextState: State, nextDark: boolean) =>
     `?variant=${nextVariant}&state=${nextState}&mode=${nextDark ? "dark" : "light"}`;
   return (
-    <nav aria-label="Preview controls" className="fixed inset-x-0 bottom-3 z-50 overflow-x-auto px-2">
+    <nav aria-label="Preview controls" className="fixed inset-x-0 bottom-3 z-50 overflow-x-auto px-2 lg:left-[272px]">
       <div className="mx-auto flex w-max min-w-full gap-1 rounded-2xl bg-slate-900/95 p-1.5 text-[11px] shadow-xl">
         {(["a", "b", "c"] as Variant[]).map((value) => <Link key={value} href={query(value, state, dark)} className={`inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl px-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white ${variant === value ? "bg-indigo-600 text-white" : "text-slate-200"}`}>{value.toUpperCase()}</Link>)}
-        {(["enabled", "empty", "loading", "error", "gated"] as State[]).map((value) => <Link key={value} href={query(variant, value, dark)} className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl px-2 text-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white">{value}</Link>)}
+        {(["enabled", "empty", "loading", "error"] as State[]).map((value) => <Link key={value} href={query(variant, value, dark)} className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl px-2 text-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white">{value}</Link>)}
         <Link href={query(variant, state, !dark)} className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl px-2 text-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white">{dark ? "light" : "dark"}</Link>
       </div>
     </nav>
@@ -43,7 +45,7 @@ function ActivityRows({ rows, variant }: { rows: Row[]; variant: Variant }) {
 export default function McpActivityCanvasClient() {
   const params = useSearchParams();
   const variant: Variant = params.get("variant") === "b" || params.get("variant") === "c" ? params.get("variant") as Variant : "a";
-  const state: State = (["enabled", "empty", "loading", "error", "gated"] as string[]).includes(params.get("state") ?? "") ? params.get("state") as State : "enabled";
+  const state: State = (["enabled", "empty", "loading", "error"] as string[]).includes(params.get("state") ?? "") ? params.get("state") as State : "enabled";
   const dark = params.get("mode") === "dark";
   const [filter, setFilter] = useState<(typeof assistants)[number]>("All assistants");
   const [showOlder, setShowOlder] = useState(false);
@@ -55,15 +57,15 @@ export default function McpActivityCanvasClient() {
   const shown = filter === "No-result fixture" ? [] : records.filter((row) => filter === "All assistants" || row.assistant === filter);
   const endReached = showOlder && filter === "All assistants";
 
-  return <div className="min-h-screen bg-[#f0f2f7] pb-32 text-slate-900 dark:bg-slate-900 dark:text-slate-100">
+  return <div className={`${dark ? "dark" : ""} min-h-screen bg-[#f0f2f7] pb-32 text-slate-900 dark:bg-slate-900 dark:text-slate-100`}>
     <a href="#activity" className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[60] focus:rounded-lg focus:bg-white focus:px-3 focus:py-2 focus:text-sm focus:font-semibold">Skip to activity</a>
     <main id="activity" className="mx-auto max-w-4xl px-5 py-8 sm:px-9">
       <a href="/settings" className="inline-flex min-h-11 items-center gap-1 text-sm font-semibold text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-300"><ChevronLeft size={16} aria-hidden="true" />Back to Settings</a>
       <h1 className="mt-3 text-2xl font-bold">Activity log</h1>
-      <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600 dark:text-slate-400">A private fixture record of what connected assistants asked Sorted to do. Retention is not represented in this preview.</p>
-      {state === "gated" ? <section className="mt-10 max-w-xl border-y border-slate-200 py-8 dark:border-slate-700"><ShieldCheck className="text-indigo-600" aria-hidden="true" /><h2 className="mt-3 text-lg font-bold">Activity is available on Connect and Max</h2><p className="mt-2 text-sm text-slate-600 dark:text-slate-400">Choose a plan with connected-assistant activity to view this record.</p><a href="/settings?plan=1" className="mt-4 inline-flex min-h-11 items-center rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">View plans</a></section> : <>
+      <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600 dark:text-slate-400">A private fixture record of what connected assistants asked Sorted to do. Sorted keeps activity for 90 days.</p>
+      <>
         <div className="mt-6 flex flex-wrap gap-2" aria-label="Activity filters">{assistants.map((value) => <button type="button" key={value} onClick={() => setFilter(value)} aria-pressed={filter === value} className={`min-h-11 rounded-xl px-3 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${filter === value ? "bg-indigo-600 text-white" : "border border-slate-200 bg-white text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"}`}>{value}</button>)}<span className="inline-flex min-h-11 items-center gap-1 px-2 text-sm text-slate-600 dark:text-slate-400"><Filter size={15} aria-hidden="true" />All time</span></div>
-        {state === "loading" ? <div className="mt-8 space-y-3" aria-label="Loading activity"><div className="h-32 rounded-2xl bg-slate-200 motion-safe:animate-pulse dark:bg-slate-700" /><div className="h-32 rounded-2xl bg-slate-200 motion-safe:animate-pulse dark:bg-slate-700" /></div> : state === "empty" ? <section className="mt-10 border-y border-slate-200 py-8 dark:border-slate-700"><h2 className="text-lg font-bold">No activity yet</h2><p className="mt-2 text-sm text-slate-600 dark:text-slate-400">When an assistant uses Sorted, its request will appear here.</p></section> : state === "error" ? <section className="mt-10 border-y border-slate-200 py-8 dark:border-slate-700"><h2 className="text-lg font-bold">Activity could not load</h2><p className="mt-2 text-sm text-slate-600 dark:text-slate-400">Check your connection, then try again. No assistant data has changed.</p><button type="button" onClick={() => setRetried(true)} className="mt-4 min-h-11 rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">{retried ? "Retry requested" : "Try again"}</button></section> : <section className="mt-8 space-y-5" aria-label="Fixture activity"><ActivityRows rows={shown} variant={variant} />{shown.length === 0 && <div className="border-y border-slate-200 py-6 dark:border-slate-700"><h2 className="text-lg font-bold">No matching activity</h2><p className="mt-2 text-sm text-slate-600 dark:text-slate-400">This fixture filter deliberately has no results. Choose another assistant to see the record.</p></div>}{shown.length > 0 && !showOlder && <button type="button" onClick={() => setShowOlder(true)} className="mx-auto flex min-h-11 items-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-slate-700 dark:bg-slate-800">Show older fixture activity</button>}{endReached && <p className="border-y border-slate-200 py-4 text-center text-sm text-slate-600 dark:border-slate-700 dark:text-slate-400">End of fixture activity</p>}</section>}</>}
+        {state === "loading" ? <div className="mt-8 space-y-3" aria-label="Loading activity"><div className="h-32 rounded-2xl bg-slate-200 motion-safe:animate-pulse dark:bg-slate-700" /><div className="h-32 rounded-2xl bg-slate-200 motion-safe:animate-pulse dark:bg-slate-700" /></div> : state === "empty" ? <section className="mt-10 border-y border-slate-200 py-8 dark:border-slate-700"><h2 className="text-lg font-bold">No activity yet</h2><p className="mt-2 text-sm text-slate-600 dark:text-slate-400">When an assistant uses Sorted, its request will appear here.</p></section> : state === "error" ? <section className="mt-10 border-y border-slate-200 py-8 dark:border-slate-700"><h2 className="text-lg font-bold">Activity could not load</h2><p className="mt-2 text-sm text-slate-600 dark:text-slate-400">Check your connection, then try again. No assistant data has changed.</p><button type="button" onClick={() => setRetried(true)} className="mt-4 min-h-11 rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">{retried ? "Retry requested" : "Try again"}</button></section> : <section className="mt-8 space-y-5" aria-label="Fixture activity"><ActivityRows rows={shown} variant={variant} />{shown.length === 0 && <div className="border-y border-slate-200 py-6 dark:border-slate-700"><h2 className="text-lg font-bold">No matching activity</h2><p className="mt-2 text-sm text-slate-600 dark:text-slate-400">This fixture filter deliberately has no results. Choose another assistant to see the record.</p></div>}{shown.length > 0 && !showOlder && <button type="button" onClick={() => setShowOlder(true)} className="mx-auto flex min-h-11 items-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-slate-700 dark:bg-slate-800">Show older fixture activity</button>}{endReached && <p className="border-y border-slate-200 py-4 text-center text-sm text-slate-600 dark:border-slate-700 dark:text-slate-400">End of fixture activity</p>}</section>}</>
     </main>
     <Switcher variant={variant} state={state} dark={dark} />
   </div>;
