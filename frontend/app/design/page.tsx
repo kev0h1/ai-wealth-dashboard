@@ -77,9 +77,9 @@ const ROUTES: PreviewRoute[] = [
   {
     slug: "upcoming-canvas-before-cards",
     name: "upcoming-canvas-before-cards",
-    description: "G90 Canvas Before Cards review for Upcoming · A runway reading (recommended) / B ordered forecast / C concise briefing · orientation and the runway verdict sit directly on the canvas, while the calculation disclosure, bounded payment group and plans earn their surfaces · includes the hidden-predictions companion · fixture-only, no API calls or production edits · ?variant=a|b|c&state=short|healthy|hidden&mode=light|dark",
-    states: [{ label: "Shortfall", value: "short" }, { label: "Healthy", value: "healthy" }, { label: "Predictions hidden", value: "hidden" }],
-    variants: [{ label: "A · Runway", value: "a" }, { label: "B · Sequence", value: "b" }, { label: "C · Briefing", value: "c" }],
+    description: "G90 Upcoming second round after phone review · uses the owner's £612 available, £771 due, −£159 payday forecast and £231.30 Barclays account gap · the Summer holiday envelope is visibly an envelope and honestly starts with the next pay, so it does not alter the current-period arithmetic · A five-day reading / B money path / C action first · preview controls occupy their own top bar instead of obscuring page content · includes covered and set-aside-predictions states · fixture-only, no API calls or production edits · ?variant=a|b|c&state=short|healthy|hidden&mode=light|dark",
+    states: [{ label: "My figures", value: "short" }, { label: "Covered", value: "healthy" }, { label: "Set-aside predictions", value: "hidden" }],
+    variants: [{ label: "A · Five-day reading", value: "a" }, { label: "B · Money path", value: "b" }, { label: "C · Action first", value: "c" }],
   },
   {
     slug: "tax-canvas-before-cards",
