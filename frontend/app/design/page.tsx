@@ -26,7 +26,7 @@ const ROUTES: PreviewRoute[] = [
     slug: "accounts-canvas-before-cards",
     name: "accounts-canvas-before-cards",
     description:
-      "G87 Canvas Before Cards review for Accounts · A Reconciled estate (recommended) / B Group focus / C Statement rail · the title, context, net worth and exact cash plus investments less card position reconciliation sit on the canvas · cards are retained for account groups, reconnect actions and interactive detail records · real AccountLedgerRow, ReconnectStrip, SegmentedControl and TransactionRow components over fixture-only data · mixed, reconnect, empty, current, expired, credit, offline and investment states · persistent global navigation, no API calls or production changes · ?variant=a|b|c&state=estate|attention|empty|detail-current|detail-expired|detail-credit|detail-manual|detail-investment&mode=light|dark",
+      "G87 Canvas Before Cards review for Accounts, revised after mobile UAT · A Quiet position (recommended) / B Own and owe / C Details on demand · every route keeps net worth as the sole verdict and removes the four-part equation from the default reading · A lets account-group subtotals explain the position, B adds two plain-language supporting figures, and C reveals a stacked ledger only on request · cards remain for account groups, reconnect actions and interactive detail records · real AccountLedgerRow, ReconnectStrip, SegmentedControl and TransactionRow components over fixture-only data · mixed, reconnect, empty, current, expired, credit, offline and investment states · persistent global navigation, no API calls or production changes · ?variant=a|b|c&state=estate|attention|empty|detail-current|detail-expired|detail-credit|detail-manual|detail-investment&mode=light|dark",
     states: [
       { label: "Mixed estate", value: "estate" },
       { label: "Reconnect needed", value: "attention" },
@@ -38,9 +38,9 @@ const ROUTES: PreviewRoute[] = [
       { label: "Investment detail", value: "detail-investment" },
     ],
     variants: [
-      { label: "A · Reconciled estate", value: "a" },
-      { label: "B · Group focus", value: "b" },
-      { label: "C · Statement rail", value: "c" },
+      { label: "A · Quiet position", value: "a" },
+      { label: "B · Own and owe", value: "b" },
+      { label: "C · Details on demand", value: "c" },
     ],
   },
   {
