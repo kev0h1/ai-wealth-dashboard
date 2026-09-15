@@ -26,7 +26,7 @@ const ROUTES: PreviewRoute[] = [
     slug: "tax-canvas-before-cards",
     name: "tax-canvas-before-cards",
     description:
-      "G86 Canvas Before Cards review for Tax · A guided reading (recommended) / B sticky decision rail / C deadline path · every variant moves orientation, the personalised verdict and explanation onto the canvas, while the pension calculation, action groups, dates and Penny keep earned boundaries · fixture-only preservation of the live taper, higher-rate, basic-rate and no-income branches, including child benefit, EIS/SEIS, self-assessment and adviser-risk wording · no API calls or production changes · ?variant=a|b|c&state=trap|lost|higher|basic|empty&mode=light|dark",
+      "G86 Canvas Before Cards review for Tax · A guided reading (recommended) / B sticky decision rail / C deadline path · every variant moves orientation, the personalised verdict and explanation onto the canvas, while the pension calculation, action groups and dates keep earned boundaries · the global navigation remains present and Tax's four quick questions live inside Penny's fixture-only chat instead of a separate page-level chip row · fixture-only preservation of the live taper, higher-rate, basic-rate and no-income branches, including child benefit, EIS/SEIS, self-assessment and adviser-risk wording · no API calls or production changes · ?variant=a|b|c&state=trap|lost|higher|basic|empty&mode=light|dark",
     states: [
       { label: "60% tax trap", value: "trap" },
       { label: "Allowance fully tapered", value: "lost" },

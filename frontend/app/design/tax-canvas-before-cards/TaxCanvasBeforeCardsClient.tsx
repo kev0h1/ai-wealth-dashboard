@@ -1,14 +1,20 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   AlertCircle,
   ArrowLeft,
+  CalendarClock,
   CalendarDays,
   CheckCircle2,
   ChevronDown,
+  Home,
   Info,
+  PieChart,
+  Target,
+  X,
 } from "lucide-react";
 import MoneyText from "@/components/MoneyText";
 import PennyMark from "@/components/PennyMark";
@@ -31,19 +37,19 @@ const VARIANT_NOTES: Record<Variant, { title: string; thesis: string; rule: stri
   a: {
     title: "A · Guided reading · recommended",
     thesis: "One calm reading order moves from the personalised verdict to the most valuable lever, then the bounded checklist and dates.",
-    rule: "Orientation and explanation stay on the canvas. Cards are reserved for the pension calculation, actionable groups, the date ledger and Penny.",
+    rule: "Orientation and explanation stay on the canvas. Cards are reserved for the pension calculation, actionable groups and the date ledger. Navigation remains present, while Tax prompts live inside Penny's chat.",
     tradeoff: "It is the clearest phone experience, but desktop deliberately remains a focused reading column rather than becoming a dashboard.",
   },
   b: {
     title: "B · Decision rail",
     thesis: "The personalised verdict becomes a sticky canvas rail on desktop while the calculations and actions move beside it.",
-    rule: "The rail holds only orientation, explanation and tax-year position. Every boundary in the work column contains an action or evidence object.",
+    rule: "The rail holds only orientation, explanation and tax-year position. Every boundary in the work column contains an action or evidence object. Navigation remains present, while Tax prompts live inside Penny's chat.",
     tradeoff: "Desktop scanning is faster, but the rail creates a stronger split between understanding the position and acting on it.",
   },
   c: {
     title: "C · Deadline path",
     thesis: "The page organises the same tax facts by when they matter: before 5 Apr, during the year, and at the filing dates.",
-    rule: "Canvas landmarks carry the sequence. Cards contain the calculation, each bounded action group and the dated obligations.",
+    rule: "Canvas landmarks carry the sequence. Cards contain the calculation, each bounded action group and the dated obligations. Navigation remains present, while Tax prompts live inside Penny's chat.",
     tradeoff: "The time-based story is distinctive, but it is less faithful to the live page's current levers-first mental model.",
   },
 };
@@ -302,11 +308,14 @@ const PENNY_PROMPTS = [
   "How does Gift Aid reduce my tax?",
 ];
 
-function PennyEntry() {
+function PennyEntry({ onOpen, open }: { onOpen: () => void; open: boolean }) {
   return (
     <section aria-label="Ask Penny about tax">
       <button
         type="button"
+        onClick={onOpen}
+        aria-controls="g86-penny-chat"
+        aria-expanded={open}
         className="flex min-h-12 w-full cursor-pointer touch-manipulation items-center gap-3 rounded-2xl border border-slate-200 bg-white px-3.5 py-3 text-left shadow-sm [-webkit-tap-highlight-color:transparent] transition-colors hover:bg-slate-50 active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 motion-reduce:transition-none dark:border-slate-700 dark:bg-slate-800 dark:shadow-none dark:hover:bg-slate-700"
       >
         <span className="flex size-8 shrink-0 items-center justify-center rounded-xl" style={{ background: BRAND_GRADIENT }}>
@@ -314,18 +323,147 @@ function PennyEntry() {
         </span>
         <span className="text-[14px] text-slate-600 dark:text-slate-300">Ask Penny about tax…</span>
       </button>
-      <div className="mt-2.5 flex flex-wrap gap-2">
-        {PENNY_PROMPTS.map((prompt) => (
-          <button
-            key={prompt}
-            type="button"
-            className="inline-flex min-h-11 max-w-full cursor-pointer touch-manipulation items-center whitespace-normal rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-left text-[13px] font-medium leading-5 text-slate-700 [-webkit-tap-highlight-color:transparent] transition-colors hover:bg-slate-100 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 motion-reduce:transition-none dark:border-slate-600 dark:bg-slate-700/60 dark:text-slate-300 dark:hover:bg-slate-700"
-          >
-            {prompt}
-          </button>
-        ))}
-      </div>
     </section>
+  );
+}
+
+function PennyChatPreview({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const [selectedPrompt, setSelectedPrompt] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (open) closeButtonRef.current?.focus();
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [onClose, open]);
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-x-0 bottom-[calc(110px+env(safe-area-inset-bottom,0px)+var(--g86-preview-clearance))] z-[70] px-3 lg:inset-x-auto lg:bottom-[calc(24px+var(--g86-preview-clearance))] lg:left-auto lg:right-6 lg:px-0">
+      <section
+        id="g86-penny-chat"
+        role="dialog"
+        aria-labelledby="g86-penny-chat-title"
+        className="mx-auto flex max-h-[65dvh] min-h-[22rem] w-full max-w-[420px] flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-xl ring-1 ring-black/[0.04] dark:border-slate-700 dark:bg-slate-900 dark:ring-white/[0.08]"
+      >
+        <header className="flex items-center gap-3 border-b border-slate-100 px-4 py-3 dark:border-slate-800">
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl" style={{ background: BRAND_GRADIENT }}>
+            <PennyMark size={18} className="text-white" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <h2 id="g86-penny-chat-title" className="text-[16px] font-bold text-slate-950 dark:text-white">Penny</h2>
+            <p className="text-[12px] text-slate-500 dark:text-slate-400">Tax questions</p>
+          </div>
+          <button
+            ref={closeButtonRef}
+            type="button"
+            onClick={onClose}
+            aria-label="Close Penny chat"
+            className="flex size-11 cursor-pointer touch-manipulation items-center justify-center rounded-xl text-slate-500 [-webkit-tap-highlight-color:transparent] transition-colors hover:bg-slate-100 hover:text-slate-900 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 motion-reduce:transition-none dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
+          >
+            <X size={19} aria-hidden="true" />
+          </button>
+        </header>
+
+        <div className="flex-1 overscroll-contain overflow-y-auto px-4 py-4">
+          <p className="text-[14px] font-semibold text-slate-900 dark:text-slate-100">What would you like to understand?</p>
+          <p className="mt-1 text-[13px] leading-5 text-slate-600 dark:text-slate-400">
+            Choose a Tax question or ask in your own words.
+          </p>
+          <div className="mt-4 flex flex-wrap gap-2" aria-label="Tax quick questions">
+            {PENNY_PROMPTS.map((prompt) => (
+              <button
+                key={prompt}
+                type="button"
+                onClick={() => setSelectedPrompt(prompt)}
+                aria-pressed={selectedPrompt === prompt}
+                className={`inline-flex min-h-11 max-w-full cursor-pointer touch-manipulation items-center whitespace-normal rounded-full border px-4 py-2 text-left text-[13px] font-medium leading-5 [-webkit-tap-highlight-color:transparent] transition-colors active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 motion-reduce:transition-none ${selectedPrompt === prompt ? "border-indigo-300 bg-indigo-50 text-indigo-800 dark:border-indigo-400/40 dark:bg-indigo-400/10 dark:text-indigo-200" : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"}`}
+              >
+                {prompt}
+              </button>
+            ))}
+          </div>
+
+          <div className="mt-5 min-h-20 rounded-2xl bg-slate-50 p-3 dark:bg-slate-800" aria-live="polite">
+            {selectedPrompt ? (
+              <>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">Ready to ask</p>
+                <p className="mt-1 text-[13px] leading-5 text-slate-800 dark:text-slate-200">{selectedPrompt}</p>
+              </>
+            ) : (
+              <p className="text-[13px] leading-5 text-slate-500 dark:text-slate-400">Your question will appear here.</p>
+            )}
+          </div>
+          <p className="mt-3 text-[11px] leading-4 text-slate-500 dark:text-slate-400">Illustrative chat. No message is sent.</p>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+const PREVIEW_NAV_TABS = [
+  { href: "/", label: "Home", Icon: Home, slot: 0 },
+  { href: "/spend?view=period", label: "Spend", Icon: PieChart, slot: 1 },
+  { href: "/upcoming", label: "Upcoming", Icon: CalendarClock, slot: 3 },
+  { href: "/planning", label: "Planning", Icon: Target, slot: 4 },
+];
+
+function PreviewBottomNav({ pennyOpen, onTogglePenny }: { pennyOpen: boolean; onTogglePenny: () => void }) {
+  return (
+    <>
+      <div
+        aria-hidden="true"
+        className="nav-scrim pointer-events-none fixed inset-x-0 bottom-[var(--g86-preview-clearance)] z-40 h-[116px] lg:hidden"
+      />
+      <nav
+        aria-label="Primary"
+        className="fixed inset-x-0 bottom-[calc(max(env(safe-area-inset-bottom,0px),10px)+var(--g86-preview-clearance))] z-50 flex justify-center lg:hidden"
+      >
+        <div className="relative w-[calc(100%-28px)] max-w-[402px]">
+          <button
+            type="button"
+            onClick={onTogglePenny}
+            aria-label="Penny"
+            aria-controls="g86-penny-chat"
+            aria-expanded={pennyOpen}
+            aria-pressed={pennyOpen}
+            className="absolute -top-7 left-1/2 z-10 flex size-14 -translate-x-1/2 cursor-pointer touch-manipulation items-center justify-center rounded-2xl [-webkit-tap-highlight-color:transparent] transition-transform active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 motion-reduce:transition-none dark:focus-visible:ring-offset-slate-900"
+            style={{
+              background: BRAND_GRADIENT,
+              boxShadow: pennyOpen
+                ? "0 4px 14px rgba(79,70,229,0.35), 0 0 0 6px rgba(79,70,229,0.18)"
+                : "0 4px 14px rgba(79,70,229,0.35)",
+            }}
+          >
+            <PennyMark size={22} className="text-white" />
+          </button>
+
+          <div className="glass-rail relative rounded-[22px]">
+            <div className="relative grid h-16 grid-cols-5 px-1.5">
+              {PREVIEW_NAV_TABS.map((tab) => (
+                <Link
+                  key={tab.label}
+                  href={tab.href}
+                  style={{ gridColumnStart: tab.slot + 1 }}
+                  className="relative z-10 flex min-h-11 touch-manipulation flex-col items-center justify-center gap-0.5 rounded-2xl [-webkit-tap-highlight-color:transparent] transition-transform active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 motion-reduce:transition-none"
+                >
+                  <tab.Icon size={22} strokeWidth={1.8} className="text-slate-500 dark:text-slate-400" aria-hidden="true" />
+                  <span className="text-[11px] font-medium leading-none text-slate-500 dark:text-slate-400">{tab.label}</span>
+                </Link>
+              ))}
+            </div>
+          </div>
+        </div>
+      </nav>
+    </>
   );
 }
 
@@ -369,7 +507,15 @@ function EmptyIncome({ model, variant }: { model: TaxPreviewModel; variant: Vari
   );
 }
 
-function VariantA({ model, done, onToggle }: { model: TaxPreviewModel; done: Set<string>; onToggle: (key: string) => void }) {
+type TaxVariantProps = {
+  model: TaxPreviewModel;
+  done: Set<string>;
+  onToggle: (key: string) => void;
+  onOpenPenny: () => void;
+  pennyOpen: boolean;
+};
+
+function VariantA({ model, done, onToggle, onOpenPenny, pennyOpen }: TaxVariantProps) {
   return (
     <div className="mx-auto w-full max-w-3xl px-4 pt-5 sm:px-6 lg:px-8">
       <PageTitle model={model} />
@@ -389,14 +535,14 @@ function VariantA({ model, done, onToggle }: { model: TaxPreviewModel; done: Set
         <KeyDates model={model} />
       </section>
 
-      <div className="mt-10"><PennyEntry /></div>
+      <div className="mt-10"><PennyEntry onOpen={onOpenPenny} open={pennyOpen} /></div>
       <div className="mt-7"><Disclaimer /></div>
       <div className="mt-12"><DesignNote variant="a" /></div>
     </div>
   );
 }
 
-function VariantB({ model, done, onToggle }: { model: TaxPreviewModel; done: Set<string>; onToggle: (key: string) => void }) {
+function VariantB({ model, done, onToggle, onOpenPenny, pennyOpen }: TaxVariantProps) {
   return (
     <div className="mx-auto w-full max-w-6xl px-4 pt-5 sm:px-6 lg:px-8">
       <PageTitle model={model} progressBelow={false} />
@@ -420,7 +566,7 @@ function VariantB({ model, done, onToggle }: { model: TaxPreviewModel; done: Set
             <SectionIntro title="Key dates">Three dates worth keeping in view for this tax year.</SectionIntro>
             <KeyDates model={model} />
           </section>
-          <PennyEntry />
+          <PennyEntry onOpen={onOpenPenny} open={pennyOpen} />
           <Disclaimer />
         </div>
       </div>
@@ -429,7 +575,7 @@ function VariantB({ model, done, onToggle }: { model: TaxPreviewModel; done: Set
   );
 }
 
-function VariantC({ model, done, onToggle }: { model: TaxPreviewModel; done: Set<string>; onToggle: (key: string) => void }) {
+function VariantC({ model, done, onToggle, onOpenPenny, pennyOpen }: TaxVariantProps) {
   const isaActions = model.mainActions.filter((item) => item.key === "isa");
   const duringYearActions = model.mainActions.filter((item) => item.key !== "isa");
 
@@ -464,7 +610,7 @@ function VariantC({ model, done, onToggle }: { model: TaxPreviewModel; done: Set
         </section>
       </div>
 
-      <div className="mt-12"><PennyEntry /></div>
+      <div className="mt-12"><PennyEntry onOpen={onOpenPenny} open={pennyOpen} /></div>
       <div className="mt-7"><Disclaimer /></div>
       <div className="mt-12"><DesignNote variant="c" /></div>
     </div>
@@ -526,6 +672,8 @@ export default function TaxCanvasBeforeCardsClient() {
   const hideControls = params.get("controls") === "0";
   const model = useMemo(() => getTaxPreviewModel(state), [state]);
   const [done, setDone] = useState<Set<string>>(new Set());
+  const [pennyOpen, setPennyOpen] = useState(false);
+  const pennyReturnFocusRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -555,22 +703,45 @@ export default function TaxCanvasBeforeCardsClient() {
     });
   };
 
+  const openPenny = () => {
+    pennyReturnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setPennyOpen(true);
+  };
+
+  const closePenny = () => {
+    setPennyOpen(false);
+    window.requestAnimationFrame(() => pennyReturnFocusRef.current?.focus());
+  };
+
+  const togglePenny = () => {
+    if (pennyOpen) closePenny();
+    else openPenny();
+  };
+
   const content = !model.hasIncome
     ? <EmptyIncome model={model} variant={variant} />
     : variant === "b"
-      ? <VariantB model={model} done={done} onToggle={toggleDone} />
+      ? <VariantB model={model} done={done} onToggle={toggleDone} onOpenPenny={openPenny} pennyOpen={pennyOpen} />
       : variant === "c"
-        ? <VariantC model={model} done={done} onToggle={toggleDone} />
-        : <VariantA model={model} done={done} onToggle={toggleDone} />;
+        ? <VariantC model={model} done={done} onToggle={toggleDone} onOpenPenny={openPenny} pennyOpen={pennyOpen} />
+        : <VariantA model={model} done={done} onToggle={toggleDone} onOpenPenny={openPenny} pennyOpen={pennyOpen} />;
 
   return (
-    <div className={mode === "dark" ? "dark" : ""} style={{ colorScheme: mode }}>
-      <div className="min-h-dvh bg-[#f0f2f7] pb-36 text-slate-950 selection:bg-indigo-200 selection:text-indigo-950 dark:bg-[#0f172a] dark:text-slate-100 dark:selection:bg-indigo-500/40 dark:selection:text-white sm:pb-28" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
+    <div
+      className={mode === "dark" ? "dark" : ""}
+      style={{
+        colorScheme: mode,
+        "--g86-preview-clearance": hideControls ? "0px" : "108px",
+      } as React.CSSProperties}
+    >
+      <div className={`min-h-dvh bg-[#f0f2f7] text-slate-950 selection:bg-indigo-200 selection:text-indigo-950 dark:bg-[#0f172a] dark:text-slate-100 dark:selection:bg-indigo-500/40 dark:selection:text-white ${hideControls ? "pb-32" : "pb-60"} lg:pb-28`} style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
         <p className="sr-only">Illustrative figures, not real balances. G86 Tax canvas before cards variant {variant.toUpperCase()}.</p>
         <a href="#g86-main" className="sr-only fixed left-3 top-3 z-[100] rounded-xl bg-white px-4 py-3 font-semibold text-slate-950 shadow-lg focus:not-sr-only focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-slate-800 dark:text-white">
           Skip to Tax content
         </a>
         <main id="g86-main" tabIndex={-1}>{content}</main>
+        <PennyChatPreview open={pennyOpen} onClose={closePenny} />
+        <PreviewBottomNav pennyOpen={pennyOpen} onTogglePenny={togglePenny} />
         {!hideControls && <PreviewControls variant={variant} mode={mode} state={state} />}
       </div>
     </div>
