@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   AlertCircle,
   ArrowLeft,
@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import MoneyText from "@/components/MoneyText";
 import PennyMark from "@/components/PennyMark";
+import TaxCanvas from "@/app/tax/TaxCanvas";
 import { BRAND_GRADIENT } from "@/lib/brand";
 import {
   getTaxPreviewModel,
@@ -308,25 +309,6 @@ const PENNY_PROMPTS = [
   "How does Gift Aid reduce my tax?",
 ];
 
-function PennyEntry({ onOpen, open }: { onOpen: () => void; open: boolean }) {
-  return (
-    <section aria-label="Ask Penny about tax">
-      <button
-        type="button"
-        onClick={onOpen}
-        aria-controls="g86-penny-chat"
-        aria-expanded={open}
-        className="flex min-h-12 w-full cursor-pointer touch-manipulation items-center gap-3 rounded-2xl border border-slate-200 bg-white px-3.5 py-3 text-left shadow-sm [-webkit-tap-highlight-color:transparent] transition-colors hover:bg-slate-50 active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 motion-reduce:transition-none dark:border-slate-700 dark:bg-slate-800 dark:shadow-none dark:hover:bg-slate-700"
-      >
-        <span className="flex size-8 shrink-0 items-center justify-center rounded-xl" style={{ background: BRAND_GRADIENT }}>
-          <PennyMark size={14} className="text-white" />
-        </span>
-        <span className="text-[14px] text-slate-600 dark:text-slate-300">Ask Penny about tax…</span>
-      </button>
-    </section>
-  );
-}
-
 function PennyChatPreview({ open, onClose }: { open: boolean; onClose: () => void }) {
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const [selectedPrompt, setSelectedPrompt] = useState<string | null>(null);
@@ -511,38 +493,26 @@ type TaxVariantProps = {
   model: TaxPreviewModel;
   done: Set<string>;
   onToggle: (key: string) => void;
-  onOpenPenny: () => void;
-  pennyOpen: boolean;
 };
 
-function VariantA({ model, done, onToggle, onOpenPenny, pennyOpen }: TaxVariantProps) {
+function VariantA({ model, done, onToggle }: TaxVariantProps) {
+  const router = useRouter();
+
   return (
-    <div className="mx-auto w-full max-w-3xl px-4 pt-5 sm:px-6 lg:px-8">
-      <PageTitle model={model} />
-      <div className="mt-10"><VerdictCanvas model={model} /></div>
-
-      <section className="mt-12 space-y-4">
-        <SectionIntro title="Your levers">
-          Start with the move that changes your position most, then work through the checks that apply to you.
-        </SectionIntro>
-        <PensionLever model={model} />
-        <ActionGroup items={model.mainActions} done={done} onToggle={onToggle} ariaLabel="Tax actions" />
-        <AlsoWorthKnowing model={model} done={done} onToggle={onToggle} />
-      </section>
-
-      <section className="mt-12 space-y-4">
-        <SectionIntro title="Key dates">The deadlines that can change what you need to pay or file.</SectionIntro>
-        <KeyDates model={model} />
-      </section>
-
-      <div className="mt-10"><PennyEntry onOpen={onOpenPenny} open={pennyOpen} /></div>
-      <div className="mt-7"><Disclaimer /></div>
-      <div className="mt-12"><DesignNote variant="a" /></div>
-    </div>
+    <>
+      <TaxCanvas
+        model={model}
+        done={done}
+        onToggle={onToggle}
+        contextLabel={`Illustrative preview · ${model.stateLabel}`}
+        onBack={() => router.push("/design")}
+      />
+      <div className="mx-auto mt-12 w-full max-w-3xl px-4 sm:px-6 lg:px-8"><DesignNote variant="a" /></div>
+    </>
   );
 }
 
-function VariantB({ model, done, onToggle, onOpenPenny, pennyOpen }: TaxVariantProps) {
+function VariantB({ model, done, onToggle }: TaxVariantProps) {
   return (
     <div className="mx-auto w-full max-w-6xl px-4 pt-5 sm:px-6 lg:px-8">
       <PageTitle model={model} progressBelow={false} />
@@ -566,7 +536,6 @@ function VariantB({ model, done, onToggle, onOpenPenny, pennyOpen }: TaxVariantP
             <SectionIntro title="Key dates">Three dates worth keeping in view for this tax year.</SectionIntro>
             <KeyDates model={model} />
           </section>
-          <PennyEntry onOpen={onOpenPenny} open={pennyOpen} />
           <Disclaimer />
         </div>
       </div>
@@ -575,7 +544,7 @@ function VariantB({ model, done, onToggle, onOpenPenny, pennyOpen }: TaxVariantP
   );
 }
 
-function VariantC({ model, done, onToggle, onOpenPenny, pennyOpen }: TaxVariantProps) {
+function VariantC({ model, done, onToggle }: TaxVariantProps) {
   const isaActions = model.mainActions.filter((item) => item.key === "isa");
   const duringYearActions = model.mainActions.filter((item) => item.key !== "isa");
 
@@ -610,7 +579,6 @@ function VariantC({ model, done, onToggle, onOpenPenny, pennyOpen }: TaxVariantP
         </section>
       </div>
 
-      <div className="mt-12"><PennyEntry onOpen={onOpenPenny} open={pennyOpen} /></div>
       <div className="mt-7"><Disclaimer /></div>
       <div className="mt-12"><DesignNote variant="c" /></div>
     </div>
@@ -718,13 +686,13 @@ export default function TaxCanvasBeforeCardsClient() {
     else openPenny();
   };
 
-  const content = !model.hasIncome
-    ? <EmptyIncome model={model} variant={variant} />
-    : variant === "b"
-      ? <VariantB model={model} done={done} onToggle={toggleDone} onOpenPenny={openPenny} pennyOpen={pennyOpen} />
-      : variant === "c"
-        ? <VariantC model={model} done={done} onToggle={toggleDone} onOpenPenny={openPenny} pennyOpen={pennyOpen} />
-        : <VariantA model={model} done={done} onToggle={toggleDone} onOpenPenny={openPenny} pennyOpen={pennyOpen} />;
+  const content = variant === "a"
+    ? <VariantA model={model} done={done} onToggle={toggleDone} />
+    : !model.hasIncome
+      ? <EmptyIncome model={model} variant={variant} />
+      : variant === "b"
+        ? <VariantB model={model} done={done} onToggle={toggleDone} />
+        : <VariantC model={model} done={done} onToggle={toggleDone} />;
 
   return (
     <div

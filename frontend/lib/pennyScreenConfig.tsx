@@ -205,10 +205,8 @@ const CONFIGS: Record<Exclude<ConfigScreenKey, "other">, ScreenConfig> = {
   },
   tax: {
     headerLinks: DEFAULT_HEADER_LINKS,
-    // TaxPennyEntry.tsx's QUICK array, carried over verbatim so the same
-    // four prompts are reachable as chips inside an already-open sheet, not
-    // only from that page's own row. LLM explainers (ExplainerBubble), not
-    // deterministic.
+    // Tax questions stay inside the chat opened from the persistent nav.
+    // These are LLM explainers (ExplainerBubble), not deterministic replies.
     chips: [
       { kind: "ask", label: "How does pension carry-forward work?", q: "How does pension carry-forward work?", chipId: "tax_pension_carry_forward", short: "Carry-forward?" },
       { kind: "ask", label: "What counts as salary sacrifice?", q: "What counts as salary sacrifice?", chipId: "tax_salary_sacrifice", short: "Salary sacrifice?" },
