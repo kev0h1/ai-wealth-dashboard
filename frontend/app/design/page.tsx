@@ -307,6 +307,21 @@ const ROUTES: PreviewRoute[] = [
     states: [{ label: "Everything", value: "everything" }],
   },
   {
+    slug: "g89-planning-canvas",
+    name: "g89-planning-canvas",
+    description:
+      "G89 Canvas Before Cards Planning round · A Clear reading keeps the month’s position, priority ladder, debt evidence and goals in one calm order / B Position rail keeps the monthly instrument visible beside desktop decisions / C Next decision sequences the same facts on the canvas before the bounded decision groups · real GrowHero, CollapsedLadder, DebtPosition and GoalRow over static long-term fixtures, no API calls or production edits · ?variant=a|b|c&state=short|calm&mode=light|dark",
+    states: [
+      { label: "Short month", value: "short" },
+      { label: "Calm month", value: "calm" },
+    ],
+    variants: [
+      { label: "A · Clear reading", value: "a" },
+      { label: "B · Position rail", value: "b" },
+      { label: "C · Next decision", value: "c" },
+    ],
+  },
+  {
     slug: "planning-ladder",
     name: "planning-ladder",
     description:
