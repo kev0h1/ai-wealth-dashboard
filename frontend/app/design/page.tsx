@@ -217,6 +217,17 @@ const ROUTES: PreviewRoute[] = [
     ],
   },
   {
+    slug: "g91-cards-canvas",
+    name: "g91-cards-canvas",
+    description:
+      "G91 Canvas Before Cards Cards round · A Reconciled position puts debt, movement and arithmetic on the canvas before the card account register / B Trajectory rail keeps the position visible beside the bounded account projections on desktop / C Drivers first exposes the spending drivers before the account inventory · static fixture data, no API calls or production edits · ?variant=a|b|c&state=growing|reducing|empty&mode=light|dark",
+    states: [
+      { label: "Balance growing", value: "growing" },
+      { label: "Balance reducing", value: "reducing" },
+      { label: "No carried balance", value: "empty" },
+    ],
+  },
+  {
     slug: "cards-page",
     name: "cards-page",
     description:
