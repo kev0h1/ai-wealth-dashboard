@@ -463,6 +463,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
 - [ ] **G90. Canvas Before Cards review 5 of 16, Upcoming: produce two or three coded variants that retain the runway verdict as the primary instrument, move orientation and explanatory copy to the canvas, and reserve cards for calculations, plans and bounded bill groups; include the hidden-predictions companion before production changes** [owner: claude]
 - [ ] **G91. Canvas Before Cards review 6 of 16, Cards: produce two or three coded variants that lead with the debt position and trajectory on the canvas, keep each card account and actionable projection as a bounded object, and preserve visible reconciliation across totals, movement and drivers before production changes** [owner: claude]
 - [ ] **G92. Canvas Before Cards review 7 of 16, Transactions: produce two or three coded variants that put search context, filters and summary orientation on the canvas while keeping dense transaction groups, teaching actions and expandable evidence in earned containers; verify long lists and all data states before production changes** [owner: claude]
+- [ ] **G93. Canvas Before Cards review 8 of 16, Penny: produce two or three coded variants that treat the conversation as the primary canvas and reserve cards for proposals, confirmations, tool results and bounded evidence; preserve the Penny-only gradient and verify keyboard, loading, error and allowance states before production changes** [owner: claude]
 
 ## H. Repo hygiene
 
