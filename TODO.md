@@ -460,6 +460,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
 - [ ] **G87. Canvas Before Cards review 2 of 16, Accounts: produce two or three coded variants that move the page title, net worth and context onto the canvas; retain cards for account groups, interactive records and detail objects; reduce nested surfaces; verify list and detail states before production changes** [owner: claude]
 - [ ] **G88. Canvas Before Cards review 3 of 16, Home: produce two or three coded variants that keep Safe to Spend as the sole earned hero, make the daily brief and orientation quieter, and reserve supporting cards for bounded actions or evidence; verify fresh, normal, caution, error and hidden-balance states before production changes** [owner: claude]
 - [ ] **G89. Canvas Before Cards review 4 of 16, Planning: produce two or three coded variants that retain the monthly-position hero as the primary instrument, move explanation and section orientation to the canvas, and use cards only for ladder decisions, debt evidence and goals; verify responsive states before production changes** [owner: claude]
+- [ ] **G90. Canvas Before Cards review 5 of 16, Upcoming: produce two or three coded variants that retain the runway verdict as the primary instrument, move orientation and explanatory copy to the canvas, and reserve cards for calculations, plans and bounded bill groups; include the hidden-predictions companion before production changes** [owner: claude]
 
 ## H. Repo hygiene
 
