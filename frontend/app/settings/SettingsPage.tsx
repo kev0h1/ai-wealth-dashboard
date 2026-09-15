@@ -44,6 +44,7 @@ import ConfirmDialog from "@/components/ConfirmDialog";
 import CoverPlanSourcesCard, { type LiveCoverRoute } from "@/components/CoverPlanSourcesCard";
 import { createSerialQueue } from "@/lib/serialQueue";
 import { useRouter } from "next/navigation";
+import { SETTINGS_GROUP_ORDER } from "./settingsGroupOrder";
 
 const INDIGO = "#4f46e5";
 const EMERALD = "#10b981";
@@ -1049,10 +1050,11 @@ export default function SettingsPage() {
         <p className="mt-1 max-w-[65ch] text-sm text-slate-600 dark:text-slate-400">Change how Sorted behaves, then review your account access.</p>
       </div>
 
-      <div className="px-4 pt-3 space-y-3">
+      <div className="px-4 pt-3 flex flex-col gap-3">
+        <h2 className="sr-only">{SETTINGS_GROUP_ORDER[0]}</h2>
 
         {/* ── Sign-in methods ── */}
-        <div className="glass-card rounded-2xl overflow-hidden">
+        <div className="order-10 glass-card rounded-2xl overflow-hidden">
           <SectionHeader icon={KeyRound} hex={INDIGO} title="Sign-in methods" />
 
           {/* Google — always present, this account always has one */}
@@ -1129,7 +1131,7 @@ export default function SettingsPage() {
         </div>
 
         {/* ── Display ── */}
-        <div className="glass-card rounded-2xl overflow-hidden">
+        <div className="order-30 glass-card rounded-2xl overflow-hidden">
           <SectionHeader icon={Moon} hex={INDIGO} title="Display" />
           <div className="flex items-center justify-between px-4 py-3.5">
             <div>
@@ -1169,7 +1171,7 @@ export default function SettingsPage() {
             allowance reads more naturally next to the tier itself. Placed
             directly above the Penny card since both are about the same
             account-level relationship (what plan, what Penny can do). */}
-        <YourPlanCard info={pennyUsage.info} error={pennyUsageError} />
+        <div className="order-10"><YourPlanCard info={pennyUsage.info} error={pennyUsageError} /></div>
 
         {/* ── Penny (agent mode v1) ── */}
         {/* Consent-state row for Penny's agent mode (setting up envelopes/
@@ -1209,7 +1211,7 @@ export default function SettingsPage() {
             too, same tint as every other row on this page. B5: Penny
             messages usage now lives in the "Your plan" card above, not
             here. */}
-        <div className="glass-card rounded-2xl overflow-hidden">
+        <div className="order-30 glass-card rounded-2xl overflow-hidden">
           <SectionHeader icon={PennyMark} hex={INDIGO} title="Penny" subtitle="What Penny can do on your behalf" />
 
           <div className="px-4 py-3.5">
@@ -1248,7 +1250,7 @@ export default function SettingsPage() {
         {/* ── Connected assistants (F4) ── A17: hidden entirely (no render,
             no fetch) unless the MCP connector is turned on. */}
         {MCP_CONNECTOR && (
-          <ConnectedAssistantsCard
+          <div className="order-20"><ConnectedAssistantsCard
             state={connectionsState}
             onDisconnect={handleDisconnectAssistant}
             tierAllowance={pennyUsage.info?.limits?.mcp_tool_calls_per_month ?? null}
@@ -1256,11 +1258,11 @@ export default function SettingsPage() {
             mcpPacks={pennyUsage.info?.mcp_packs ?? []}
             tier={pennyUsage.info?.tier ?? null}
             billingLive={pennyUsage.info?.billing_live ?? false}
-          />
+          /></div>
         )}
 
         {/* ── Notifications ── */}
-        <div className="glass-card rounded-2xl overflow-hidden">
+        <div className="order-30 glass-card rounded-2xl overflow-hidden">
           <SectionHeader icon={Bell} hex={INDIGO} title="Notifications" />
           <div className="px-4 py-3.5">
             {notifPermission === "native" ? (
@@ -1416,7 +1418,7 @@ export default function SettingsPage() {
 
         {/* ── Where money can come from ── */}
         {coverAccounts.length > 0 && (
-          <div id={SECTION_ACCOUNTS} className="scroll-mt-4">
+          <div id="settings-accounts" className="order-20 scroll-mt-4">
             <CoverPlanSourcesCard
               accounts={coverAccounts}
               excludedIds={excludedIds}
@@ -1445,7 +1447,7 @@ export default function SettingsPage() {
         )}
 
         {/* ── Financial profile ── */}
-        <div className="glass-card rounded-2xl overflow-hidden">
+        <div className="order-10 glass-card rounded-2xl overflow-hidden">
           <SectionHeader
             icon={Landmark}
             hex={INDIGO}
@@ -1546,7 +1548,7 @@ export default function SettingsPage() {
 
         {/* ── Security (app shell only) ── */}
         {bioState?.supported && (
-          <div id={SECTION_SECURITY} className="glass-card rounded-2xl overflow-hidden scroll-mt-4">
+          <div id="settings-security" className="order-20 glass-card rounded-2xl overflow-hidden scroll-mt-4">
             <SectionHeader icon={ShieldCheck} hex={EMERALD} title="Security" />
             <div className="flex items-center justify-between px-4 py-3.5">
               <div>
@@ -1563,7 +1565,7 @@ export default function SettingsPage() {
         )}
 
         {/* ── Data ── */}
-        <div className="glass-card rounded-2xl overflow-hidden">
+        <div className="order-40 glass-card rounded-2xl overflow-hidden">
           <SectionHeader icon={Database} hex={INDIGO} title="Data" />
           <div className="px-4 py-3.5">
             <p className="text-sm font-medium text-slate-800 dark:text-slate-100">Sync all history</p>
@@ -1594,7 +1596,7 @@ export default function SettingsPage() {
         </div>
 
         {/* ── Account ── */}
-        <div className="glass-card rounded-2xl overflow-hidden">
+        <div className="order-10 glass-card rounded-2xl overflow-hidden">
           <div className="px-4 py-3 border-b border-slate-50 dark:border-slate-700 flex items-start gap-2.5">
             <IconChip icon={UserRound} hex={INDIGO} />
             <div className="min-w-0 pt-0.5">
@@ -1651,7 +1653,7 @@ export default function SettingsPage() {
         </div>
 
         {/* ── How Sorted works (tutorial replay, one row per per-screen flow) ── */}
-        <div className="glass-card rounded-2xl overflow-hidden">
+        <div className="order-40 glass-card rounded-2xl overflow-hidden">
           <SectionHeader icon={HelpCircle} hex={INDIGO} title="How Sorted works" subtitle="Replay any screen's tour" />
           {TUTORIAL_FLOWS.map((flow, i) => (
             <button
@@ -1672,7 +1674,7 @@ export default function SettingsPage() {
         </div>
 
         {/* ── Help ── */}
-        <div className="glass-card rounded-2xl overflow-hidden">
+        <div className="order-40 glass-card rounded-2xl overflow-hidden">
           <SectionHeader icon={HelpCircle} hex={INDIGO} title="Help" />
           <button
             type="button"
@@ -1693,7 +1695,7 @@ export default function SettingsPage() {
         </div>
 
         {/* ── Danger zone ── */}
-        <div className="glass-card rounded-2xl overflow-hidden border border-red-100 dark:border-red-900/40">
+        <div className="order-50 glass-card rounded-2xl overflow-hidden border border-red-100 dark:border-red-900/40">
           <div className="px-4 py-3 flex items-start gap-2.5">
             <IconChip icon={AlertTriangle} hex={RED} />
             <div className="min-w-0 pt-0.5">
