@@ -110,6 +110,7 @@ This system explicitly rejects legacy bank portals (dense grey tables, enterpris
 **Key Characteristics:**
 - Soft, tactile, confident surfaces: 16-24px radii, chunky touch targets, `active:scale-95` press feedback
 - Numbers lead, labels whisper: bold 20-30px figures over 10-11px uppercase tracking-wide muted labels
+- The canvas carries orientation and explanation; cards are earned containers for instruments, actions and evidence
 - One brand voice (indigo #4f46e5), a semantic category palette, and status colours used sparingly
 - Dark mode is a first-class twin, built on slate-800/900 surfaces with border-based separation
 - Mobile-first (430px shell) with a deliberate desktop layout, never a stretched phone screen
@@ -203,6 +204,12 @@ Soft, tactile, confident: generous radii, thumb-sized targets, immediate press f
 - **Shadow Strategy:** One Shadow Rule (above).
 - **Border:** Hairline in light mode where shadow needs help; always in dark mode.
 - **Internal Padding:** 16px (p-4); dense list rows 12px vertical.
+
+**The Canvas Before Cards Rule (2026-09-15).** The page canvas is the default surface for orientation and explanation. Page titles, answer-first verdicts, short supporting readings, reconciliations, section introductions and cross-links sit directly on the canvas unless a visual boundary materially helps the user understand or act on them.
+
+A page may use at most one `.glass-hero`, and only when it contains the page's primary financial instrument or a high-stakes decision whose boundary improves comprehension. A standard card must earn its boundary by containing at least one discrete action, bounded object, comparison, ledger, chart, input or form, expandable evidence group, or genuine risk state. Never add a card solely to create a background, spacing or a heading. Never wrap each paragraph or section by habit, and avoid nesting cards inside cards. Use typography, spacing, landmarks, hairlines and progressive disclosure to establish the rest of the hierarchy.
+
+This is a shared surface hierarchy, not a universal page template. Spend's chronological journey, timeline and sticky desktop rail remain specific to its pay-period story. Home, Upcoming and Planning may retain one hero when it is their primary financial instrument. Settings, forms, grouped account records and dense ledgers may be more container-led because their boundaries carry interaction or grouping meaning, but every surface must still have a job. Plain-canvas content must preserve a readable measure, clear section landmarks, WCAG AA contrast and equivalent separation in light and dark themes.
 
 ### Inputs / Fields
 - **Style:** Slate-50 (dark: slate-700) fill, hairline border, 12px radius, 14px text, 10px vertical padding.
