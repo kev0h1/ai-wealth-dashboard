@@ -44,7 +44,7 @@ import ConfirmDialog from "@/components/ConfirmDialog";
 import CoverPlanSourcesCard, { type LiveCoverRoute } from "@/components/CoverPlanSourcesCard";
 import { createSerialQueue } from "@/lib/serialQueue";
 import { useRouter } from "next/navigation";
-import { SETTINGS_GROUP_ORDER } from "./settingsGroupOrder";
+import { SETTINGS_GROUP_ORDER, type SettingsGroup } from "./settingsGroupOrder";
 
 const INDIGO = "#4f46e5";
 const EMERALD = "#10b981";
@@ -85,6 +85,17 @@ function SectionHeader({
         {subtitle && <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">{subtitle}</p>}
       </div>
     </div>
+  );
+}
+
+function SettingsGroupHeader({ group }: { group: SettingsGroup }) {
+  const item = SETTINGS_GROUP_ORDER.find((candidate) => candidate.id === group);
+  if (!item) return null;
+  return (
+    <section aria-labelledby={`settings-group-${item.id}`} className={`order-${group === "account-access" ? "10" : group === "security-connected" ? "20" : group === "how-sorted-behaves" ? "30" : group === "data-help" ? "40" : "50"} border-y border-slate-300/80 py-4 dark:border-slate-700`}>
+      <h2 id={`settings-group-${item.id}`} className="text-base font-bold text-slate-900 dark:text-slate-100">{item.title}</h2>
+      <p className="mt-1 text-[13px] text-slate-600 dark:text-slate-400">{item.copy}</p>
+    </section>
   );
 }
 
@@ -1034,6 +1045,7 @@ export default function SettingsPage() {
         <span className="font-bold text-slate-700 dark:text-slate-200">DELETE</span> to confirm.
       </p>
       <input
+        aria-label="Type DELETE to confirm account deletion"
         className="w-full text-sm bg-slate-50 dark:bg-slate-700 dark:text-slate-100 rounded-xl px-3 py-2 border border-red-200 dark:border-red-800 focus:outline-none focus:ring-2 focus:ring-red-500"
         value={deleteConfirm}
         onChange={e => setDeleteConfirm(e.target.value)}
@@ -1050,8 +1062,12 @@ export default function SettingsPage() {
         <p className="mt-1 max-w-[65ch] text-sm text-slate-600 dark:text-slate-400">Change how Sorted behaves, then review your account access.</p>
       </div>
 
-      <div className="px-4 pt-3 flex flex-col gap-3">
-        <h2 className="sr-only">{SETTINGS_GROUP_ORDER[0]}</h2>
+      <div className="px-4 pt-3 flex flex-col gap-3 lg:grid lg:grid-cols-2 lg:items-start lg:gap-x-6">
+        <SettingsGroupHeader group="account-access" />
+        <SettingsGroupHeader group="security-connected" />
+        <SettingsGroupHeader group="how-sorted-behaves" />
+        <SettingsGroupHeader group="data-help" />
+        <SettingsGroupHeader group="leave-delete" />
 
         {/* ── Sign-in methods ── */}
         <div className="order-10 glass-card rounded-2xl overflow-hidden">
@@ -1643,13 +1659,6 @@ export default function SettingsPage() {
             {profileMsg && <p className={`text-xs font-medium ${profileMsg.ok ? "text-emerald-500" : "text-red-500"}`}>{profileMsg.text}</p>}
           </div>
 
-          <button
-            onClick={logout}
-            className="w-full min-h-[44px] flex items-center gap-3 px-4 py-3.5 text-left text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 active:bg-slate-100 transition-colors"
-          >
-            <LogOut size={16} />
-            <span className="text-sm font-medium">Sign out</span>
-          </button>
         </div>
 
         {/* ── How Sorted works (tutorial replay, one row per per-screen flow) ── */}
@@ -1695,7 +1704,16 @@ export default function SettingsPage() {
         </div>
 
         {/* ── Danger zone ── */}
-        <div className="order-50 glass-card rounded-2xl overflow-hidden border border-red-100 dark:border-red-900/40">
+        <div className="order-50 glass-card rounded-2xl overflow-hidden">
+          <button
+            type="button"
+            onClick={logout}
+            className="w-full min-h-[44px] flex items-center gap-3 px-4 py-3.5 text-left text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 active:bg-slate-100 transition-colors"
+          >
+            <LogOut size={16} aria-hidden="true" />
+            <span className="text-sm font-medium">Sign out</span>
+          </button>
+          <div className="border-t border-slate-100 dark:border-slate-700" />
           <div className="px-4 py-3 flex items-start gap-2.5">
             <IconChip icon={AlertTriangle} hex={RED} />
             <div className="min-w-0 pt-0.5">
