@@ -52,25 +52,27 @@ function PreviewToolbar({ variant, state, dark }: { variant: Variant; state: Sta
             {item.key.toUpperCase()}
           </Link>
         ))}
-        <span className="mx-1 h-6 w-px shrink-0 bg-white/15" aria-hidden="true" />
-        {(["short", "healthy", "hidden"] as State[]).map((item) => (
+        <div className="flex basis-full items-center justify-center gap-1 sm:basis-auto sm:justify-start">
+          <span className="mx-1 hidden h-6 w-px shrink-0 bg-white/15 sm:block" aria-hidden="true" />
+          {(["short", "healthy", "hidden"] as State[]).map((item) => (
+            <Link
+              key={item}
+              href={href(variant, item, dark)}
+              aria-current={item === state ? "page" : undefined}
+              className={`inline-flex min-h-11 shrink-0 items-center rounded-xl px-3 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white ${
+                item === state ? "bg-slate-700 text-white" : "text-slate-300 hover:bg-white/10 hover:text-white"
+              }`}
+            >
+              {item === "short" ? "My figures" : item === "healthy" ? "Covered" : "Set aside"}
+            </Link>
+          ))}
           <Link
-            key={item}
-            href={href(variant, item, dark)}
-            aria-current={item === state ? "page" : undefined}
-            className={`inline-flex min-h-11 shrink-0 items-center rounded-xl px-3 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white ${
-              item === state ? "bg-slate-700 text-white" : "text-slate-300 hover:bg-white/10 hover:text-white"
-            }`}
+            href={href(variant, state, !dark)}
+            className="inline-flex min-h-11 shrink-0 items-center rounded-xl px-3 text-xs font-semibold text-slate-300 hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
           >
-            {item === "short" ? "My figures" : item === "healthy" ? "Covered" : "Set aside"}
+            {dark ? "Light" : "Dark"}
           </Link>
-        ))}
-        <Link
-          href={href(variant, state, !dark)}
-          className="inline-flex min-h-11 shrink-0 items-center rounded-xl px-3 text-xs font-semibold text-slate-300 hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
-        >
-          {dark ? "Light" : "Dark"}
-        </Link>
+        </div>
       </div>
     </nav>
   );
