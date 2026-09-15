@@ -22,12 +22,13 @@ type PreviewRoute = {
 };
 
 const ROUTES: PreviewRoute[] = [
-  { slug: "g98-month-canvas", name: "g98-month-canvas", description: "G98 Canvas Before Cards review for Month · A reading / B evidence rail / C editorial ledger · monthly verdict and explanation live on the canvas, with reconciled evidence earning its boundary and a preserved path to the month story · static fixtures, no API calls or mutations · ?variant=a|b|c&state=ahead|steady|short|empty&mode=light|dark", states: [{ label: "Ahead", value: "ahead" }, { label: "Steady", value: "steady" }, { label: "Short", value: "short" }, { label: "History building", value: "empty" }], variants: [{ label: "A · Reading", value: "a" }, { label: "B · Evidence rail", value: "b" }, { label: "C · Editorial ledger", value: "c" }] },
+  { slug: "g98-month-canvas", name: "g98-month-canvas", description: "G98 Canvas Before Cards review for Month · A reading / B evidence rail / C editorial ledger · monthly verdict and explanation live on the canvas, with reconciled evidence earning its boundary and a preserved path to the month story · static fixtures, no API calls or mutations · ?variant=a|b|c&state=ahead|steady|short|empty|loading|error&mode=light|dark", states: [{ label: "Ahead", value: "ahead" }, { label: "Steady", value: "steady" }, { label: "Short", value: "short" }, { label: "History building", value: "empty" }, { label: "Loading", value: "loading" }, { label: "Error", value: "error" }], variants: [{ label: "A · Reading", value: "a" }, { label: "B · Evidence rail", value: "b" }, { label: "C · Editorial ledger", value: "c" }] },
+  { slug: "transactions-canvas-before-cards", name: "transactions-canvas-before-cards", description: "G92 Canvas Before Cards review for Transactions · A canvas search reading / B desktop context rail / C evidence-forward groups · search, context and summary stay on canvas while dense date groups and expandable teaching evidence keep earned boundaries · populated, long-list, loading, empty and error fixtures only · ?variant=a|b|c&state=populated|long|loading|empty|error&mode=light|dark", states: [{label:"Populated",value:"populated"},{label:"Long list",value:"long"},{label:"Loading",value:"loading"},{label:"Empty",value:"empty"},{label:"Error",value:"error"}], variants: [{label:"A · Canvas",value:"a"},{label:"B · Context rail",value:"b"},{label:"C · Evidence",value:"c"}] },
   {
     slug: "accounts-canvas-before-cards",
     name: "accounts-canvas-before-cards",
     description:
-      "G87 Canvas Before Cards review for Accounts · A Reconciled estate (recommended) / B Group focus / C Statement rail · the title, context, net worth and exact cash plus investments less card position reconciliation sit on the canvas · cards are retained for account groups, reconnect actions and interactive detail records · real AccountLedgerRow, ReconnectStrip, SegmentedControl and TransactionRow components over fixture-only data · mixed, reconnect, empty, current, expired, credit, offline and investment states · persistent global navigation, no API calls or production changes · ?variant=a|b|c&state=estate|attention|empty|detail-current|detail-expired|detail-credit|detail-manual|detail-investment&mode=light|dark",
+      "G87 Canvas Before Cards review for Accounts, revised after mobile UAT · A Quiet position (recommended) / B Own and owe / C Details on demand · every route keeps net worth as the sole verdict and removes the four-part equation from the default reading · A lets account-group subtotals explain the position, B adds two plain-language supporting figures, and C reveals a stacked ledger only on request · cards remain for account groups, reconnect actions and interactive detail records · real AccountLedgerRow, ReconnectStrip, SegmentedControl and TransactionRow components over fixture-only data · mixed, reconnect, empty, current, expired, credit, offline and investment states · persistent global navigation, no API calls or production changes · ?variant=a|b|c&state=estate|attention|empty|detail-current|detail-expired|detail-credit|detail-manual|detail-investment&mode=light|dark",
     states: [
       { label: "Mixed estate", value: "estate" },
       { label: "Reconnect needed", value: "attention" },
@@ -39,9 +40,9 @@ const ROUTES: PreviewRoute[] = [
       { label: "Investment detail", value: "detail-investment" },
     ],
     variants: [
-      { label: "A · Reconciled estate", value: "a" },
-      { label: "B · Group focus", value: "b" },
-      { label: "C · Statement rail", value: "c" },
+      { label: "A · Quiet position", value: "a" },
+      { label: "B · Own and owe", value: "b" },
+      { label: "C · Details on demand", value: "c" },
     ],
   },
   {
@@ -181,6 +182,12 @@ const ROUTES: PreviewRoute[] = [
     states: [{ label: "Everything", value: "everything" }],
   },
   {
+    slug: "g94-settings-canvas",
+    name: "g94-settings-canvas",
+    description: "G94 Canvas Before Cards Settings round · A Guided settings keeps canvas orientation and one dependable reading order / B Settings rail keeps long-page navigation visible on desktop / C Intent groups orders controls by account access, behaviour, then security and data · static fixture only, no API calls or production edits · ?variant=a|b|c&state=ready|attention|empty&mode=light|dark",
+    states: [{ label: "Ready", value: "ready" }, { label: "Needs attention", value: "attention" }, { label: "New account", value: "empty" }],
+  },
+  {
     slug: "settings-usage-row",
     name: "settings-usage-row",
     description:
@@ -215,6 +222,17 @@ const ROUTES: PreviewRoute[] = [
       { label: "High (128/150)", value: "high" },
       { label: "Cap (150/150)", value: "cap" },
       { label: "Unlimited", value: "unlimited" },
+    ],
+  },
+  {
+    slug: "g91-cards-canvas",
+    name: "g91-cards-canvas",
+    description:
+      "G91 Canvas Before Cards Cards round · A Reconciled position puts debt, movement and arithmetic on the canvas before the card account register / B Trajectory rail keeps the position visible beside the bounded account projections on desktop / C Drivers first exposes the spending drivers before the account inventory · static fixture data, no API calls or production edits · ?variant=a|b|c&state=growing|reducing|empty&mode=light|dark",
+    states: [
+      { label: "Balance growing", value: "growing" },
+      { label: "Balance reducing", value: "reducing" },
+      { label: "No carried balance", value: "empty" },
     ],
   },
   {
