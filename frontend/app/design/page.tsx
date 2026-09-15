@@ -181,6 +181,12 @@ const ROUTES: PreviewRoute[] = [
     states: [{ label: "Everything", value: "everything" }],
   },
   {
+    slug: "g94-settings-canvas",
+    name: "g94-settings-canvas",
+    description: "G94 Canvas Before Cards Settings round · A Guided settings keeps canvas orientation and one dependable reading order / B Settings rail keeps long-page navigation visible on desktop / C Intent groups orders controls by account access, behaviour, then security and data · static fixture only, no API calls or production edits · ?variant=a|b|c&state=ready|attention|empty&mode=light|dark",
+    states: [{ label: "Ready", value: "ready" }, { label: "Needs attention", value: "attention" }, { label: "New account", value: "empty" }],
+  },
+  {
     slug: "settings-usage-row",
     name: "settings-usage-row",
     description:
