@@ -23,6 +23,24 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "g88-home-canvas",
+    name: "g88-home-canvas",
+    description:
+      "G88 Canvas Before Cards review for Home · A Reading line / B Today board / C Rhythm · Safe to Spend remains the one earned hero, while orientation, the daily brief and pay-period evidence sit directly on the canvas · static fixtures only, with no API calls, preference changes or production edits · ?variant=a|b|c&state=fresh|normal|caution|error|hidden&mode=light|dark",
+    states: [
+      { label: "Fresh payday", value: "fresh" },
+      { label: "Normal", value: "normal" },
+      { label: "Caution", value: "caution" },
+      { label: "Connection error", value: "error" },
+      { label: "Balance hidden", value: "hidden" },
+    ],
+    variants: [
+      { label: "A · Reading line", value: "a" },
+      { label: "B · Today board", value: "b" },
+      { label: "C · Rhythm", value: "c" },
+    ],
+  },
+  {
     slug: "tax-canvas-before-cards",
     name: "tax-canvas-before-cards",
     description:
