@@ -180,6 +180,9 @@ const ROUTES: PreviewRoute[] = [
     states: [{ label: "Everything", value: "everything" }],
   },
   {
+    slug:"g100-scenario-canvas",name:"g100-scenario-canvas",description:"G100 Canvas Before Cards Scenario round · question and forecast outcome on canvas, inputs/calculation/comparison bounded · A outcome first / B comparison rail / C calculation path · static, no API or production edits · ?variant=a|b|c&state=safe|tight|empty&mode=light|dark",states:[{label:"Safe forecast",value:"safe"},{label:"Tight forecast",value:"tight"},{label:"No scenario",value:"empty"}],
+  },
+  {
     slug: "settings-usage-row",
     name: "settings-usage-row",
     description:
