@@ -24,6 +24,13 @@ type PreviewRoute = {
 const ROUTES: PreviewRoute[] = [
   { slug: "transactions-canvas-before-cards", name: "transactions-canvas-before-cards", description: "G92 Canvas Before Cards review for Transactions · A canvas search reading / B desktop context rail / C evidence-forward groups · search, context and summary stay on canvas while dense date groups and expandable teaching evidence keep earned boundaries · populated, long-list, loading, empty and error fixtures only · ?variant=a|b|c&state=populated|long|loading|empty|error&mode=light|dark", states: [{label:"Populated",value:"populated"},{label:"Long list",value:"long"},{label:"Loading",value:"loading"},{label:"Empty",value:"empty"},{label:"Error",value:"error"}], variants: [{label:"A · Canvas",value:"a"},{label:"B · Context rail",value:"b"},{label:"C · Evidence",value:"c"}] },
   {
+    slug: "g93-penny-canvas",
+    name: "g93-penny-canvas",
+    description: "G93 Canvas Before Cards review for Penny · A conversation line / B evidence rail / C compact companion · the thread is the primary canvas, while proposals, confirmations and bounded evidence earn cards · static fixtures only, no API calls or mutations · ?variant=a|b|c&state=ready|loading|error|allowance&mode=light|dark",
+    states: [{ label: "Ready", value: "ready" }, { label: "Loading", value: "loading" }, { label: "Error", value: "error" }, { label: "Allowance used", value: "allowance" }],
+    variants: [{ label: "A · Conversation line", value: "a" }, { label: "B · Evidence rail", value: "b" }, { label: "C · Compact companion", value: "c" }],
+  },
+  {
     slug: "accounts-canvas-before-cards",
     name: "accounts-canvas-before-cards",
     description:
