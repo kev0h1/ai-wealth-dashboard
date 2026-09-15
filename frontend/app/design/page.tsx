@@ -23,6 +23,13 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "g93-penny-canvas",
+    name: "g93-penny-canvas",
+    description: "G93 Canvas Before Cards review for Penny · A conversation line / B evidence rail / C compact companion · the thread is the primary canvas, while proposals, confirmations and bounded evidence earn cards · static fixtures only, no API calls or mutations · ?variant=a|b|c&state=ready|loading|error|allowance&mode=light|dark",
+    states: [{ label: "Ready", value: "ready" }, { label: "Loading", value: "loading" }, { label: "Error", value: "error" }, { label: "Allowance used", value: "allowance" }],
+    variants: [{ label: "A · Conversation line", value: "a" }, { label: "B · Evidence rail", value: "b" }, { label: "C · Compact companion", value: "c" }],
+  },
+  {
     slug: "accounts-canvas-before-cards",
     name: "accounts-canvas-before-cards",
     description:
