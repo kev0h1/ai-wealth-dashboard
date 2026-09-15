@@ -22,6 +22,7 @@ type PreviewRoute = {
 };
 
 const ROUTES: PreviewRoute[] = [
+  {slug:"mirror-canvas-before-cards",name:"mirror-canvas-before-cards",description:"G97 Canvas Before Cards review for Mirror · A editorial reading / B paired traits / C progressive evidence · behavioural reading stays on the canvas, while selectable aims and bounded transaction evidence earn a card · fixture-only, no API calls or production edits · ?variant=a|b|c&state=portrait|aim|empty&mode=light|dark",states:[{label:"Portrait",value:"portrait"},{label:"Active aim",value:"aim"},{label:"Not enough data",value:"empty"}],variants:[{label:"A · Editorial",value:"a"},{label:"B · Paired",value:"b"},{label:"C · Evidence",value:"c"}]},
   {
     slug: "accounts-canvas-before-cards",
     name: "accounts-canvas-before-cards",
