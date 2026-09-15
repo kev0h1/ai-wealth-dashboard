@@ -214,6 +214,13 @@ const ROUTES: PreviewRoute[] = [
     states: [{ label: "Everything", value: "everything" }],
   },
   {
+    slug: "g96-receipts-canvas",
+    name: "g96-receipts-canvas",
+    description: "G96 Canvas Before Cards Receipts round · A Scan first leads with scan status / B Review rail holds the next action beside review records on desktop / C Receipt journey explains scan, review and price history on the canvas · static fixtures only, no API calls or production edits · ?variant=a|b|c&state=ready|empty|loading|error&mode=light|dark",
+    states: [{ label: "Ready to review", value: "ready" }, { label: "No receipts", value: "empty" }, { label: "Reading receipt", value: "loading" }, { label: "Couldn’t read", value: "error" }],
+    variants: [{ label: "A · Scan first", value: "a" }, { label: "B · Review rail", value: "b" }, { label: "C · Receipt journey", value: "c" }],
+  },
+  {
     slug: "g94-settings-canvas",
     name: "g94-settings-canvas",
     description: "G94 Canvas Before Cards Settings round · A Guided settings keeps canvas orientation and one dependable reading order / B Settings rail keeps long-page navigation visible on desktop / C Intent groups orders controls by account access, behaviour, then security and data · static fixture only, no API calls or production edits · ?variant=a|b|c&state=ready|attention|empty&mode=light|dark",
