@@ -53,22 +53,22 @@ const LENSES: EstateLens[] = ["All", "Current", "Savings", "Credit", "Investment
 
 const VARIANT_NOTES: Record<Variant, { title: string; thesis: string; rule: string; tradeoff: string }> = {
   a: {
-    title: "A · Reconciled estate · recommended",
-    thesis: "Net worth and its arithmetic lead on the canvas, followed by familiar account-group ledgers with every group visible in one reading order.",
-    rule: "The canvas carries orientation, position and controls. Each account group earns one card, with its heading and rows inside the same boundary.",
-    tradeoff: "It is the most transparent and production-faithful option, though a large estate still creates a long page.",
+    title: "A · Quiet position · recommended",
+    thesis: "Net worth gets one clear reading. The account-group subtotals below explain its make-up where the user can inspect and act on each position.",
+    rule: "The header answers one question only. Existing account ledgers carry the evidence, so the same figures are not repeated as a second hero.",
+    tradeoff: "It is the calmest and most direct option, but the full composition is understood by scanning the group headings rather than one summary.",
   },
   b: {
-    title: "B · Group focus",
-    thesis: "The canvas becomes an estate switchboard: group totals stay visible while one chosen account group occupies the working card below.",
-    rule: "Summary choices live directly on the canvas. Only the active group receives a card, so the page never stacks several competing surfaces.",
-    tradeoff: "It shortens the page substantially, but comparing individual accounts across groups takes another tap.",
+    title: "B · Own and owe",
+    thesis: "Net worth remains the verdict, followed by a quiet two-part split between the money and investments held and the balances owed.",
+    rule: "Plain-language buckets replace the equation. The focused group switcher keeps the working area short while preserving every account.",
+    tradeoff: "It explains the position fastest at a glance, but introduces two supporting figures into the opening canvas.",
   },
   c: {
-    title: "C · Statement rail",
-    thesis: "Desktop keeps the net-worth statement and reconciliation in a sticky canvas rail while account ledgers move beside it; mobile keeps the same order in one column.",
-    rule: "The rail explains the position without a hero card. The work column contains only reconnect actions, filters and bounded account groups.",
-    tradeoff: "It gives desktop the strongest deliberate layout, but the split adds little on a narrow phone.",
+    title: "C · Details on demand",
+    thesis: "The opening stays as quiet as A, with the calculation available as a stacked ledger only when someone asks how the position is built.",
+    rule: "Progressive disclosure keeps arithmetic out of the default reading. Desktop gives the optional statement a sticky rail while account work continues beside it.",
+    tradeoff: "It offers the strongest show-your-working path, but adds a disclosure control that most users may never need.",
   },
 };
 
@@ -81,32 +81,70 @@ function money(value: number, hidden = false, exact = false): string {
   return `${value < 0 ? "−" : ""}£${magnitude}`;
 }
 
-function PositionEquation({ estate, hidden }: { estate: Estate; hidden: boolean }) {
+function positionFigures(estate: Estate) {
   const cash = estate.groups
     .filter((group) => group.kind === "Current" || group.kind === "Savings")
     .reduce((sum, group) => sum + group.subtotal, 0)
     + estate.rows.filter((row) => row.kind === "Offline").reduce((sum, row) => sum + row.balance, 0);
   const investments = estate.groups.find((group) => group.kind === "Investment")?.subtotal ?? 0;
   const cardPosition = estate.groups.find((group) => group.kind === "Credit")?.subtotal ?? 0;
+  const owned = estate.rows.filter((row) => row.balance > 0).reduce((sum, row) => sum + row.balance, 0);
+  const owed = Math.abs(estate.rows.filter((row) => row.balance < 0).reduce((sum, row) => sum + row.balance, 0));
+
+  return { cash, investments, cardPosition, owned, owed };
+}
+
+function PositionContext({ estate, hidden, variant }: { estate: Estate; hidden: boolean; variant: Variant }) {
+  const { cash, investments, cardPosition, owned, owed } = positionFigures(estate);
 
   if (estate.rows.length === 0) {
-    return <p className="mt-3 max-w-[62ch] text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-400">Nothing contributes to this position yet.</p>;
+    return null;
+  }
+
+  if (variant === "a") {
+    return null;
+  }
+
+  if (variant === "b") {
+    return (
+      <dl className="mt-5 grid max-w-sm grid-cols-2 gap-6 border-t border-slate-300/80 pt-4 dark:border-slate-700">
+        <div>
+          <dt className="text-[11px] font-medium text-slate-600 dark:text-slate-400">You own</dt>
+          <dd className="money mt-1 text-[16px] font-bold text-slate-900 dark:text-slate-100">{hidden ? "£••••" : money(owned)}</dd>
+        </div>
+        <div>
+          <dt className="text-[11px] font-medium text-slate-600 dark:text-slate-400">You owe</dt>
+          <dd className="money mt-1 text-[16px] font-bold text-slate-900 dark:text-slate-100">{hidden ? "£••••" : money(owed)}</dd>
+        </div>
+      </dl>
+    );
   }
 
   return (
-    <div className="mt-5 max-w-2xl border-t border-slate-300/80 pt-4 dark:border-slate-700">
-      <p className="money text-[15px] font-semibold tracking-tight text-slate-900 dark:text-slate-100">
-        {hidden
-          ? "£•••• + £•••• − £•••• = £••••"
-          : `${money(cash)} + ${money(investments)} ${cardPosition < 0 ? "−" : "+"} ${money(Math.abs(cardPosition))} = ${money(estate.netWorth)}`}
-      </p>
-      <div className="mt-2 grid grid-cols-4 gap-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-600 dark:text-slate-400">
-        <span>Cash & savings</span>
-        <span>Investments</span>
-        <span>Card position</span>
-        <span>Net worth</span>
-      </div>
-    </div>
+    <details className="group mt-4 max-w-sm border-t border-slate-300/80 dark:border-slate-700">
+      <summary className="flex min-h-11 touch-manipulation cursor-pointer list-none items-center justify-between gap-3 text-[12px] font-semibold text-slate-700 [-webkit-tap-highlight-color:transparent] marker:content-none hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-300 dark:hover:text-white [&::-webkit-details-marker]:hidden">
+        What makes this up
+        <ChevronDown size={15} className="shrink-0 transition-transform group-open:rotate-180 motion-reduce:transition-none" aria-hidden="true" />
+      </summary>
+      <dl className="pb-2 text-[12px] text-slate-600 dark:text-slate-400">
+        <div className="flex min-h-8 items-center justify-between gap-4">
+          <dt>Cash and savings</dt>
+          <dd className="money font-semibold text-slate-900 dark:text-slate-100">{hidden ? "£••••" : money(cash)}</dd>
+        </div>
+        <div className="flex min-h-8 items-center justify-between gap-4">
+          <dt>Investments</dt>
+          <dd className="money font-semibold text-slate-900 dark:text-slate-100">{hidden ? "£••••" : money(investments)}</dd>
+        </div>
+        <div className="flex min-h-8 items-center justify-between gap-4">
+          <dt>Card position</dt>
+          <dd className="money font-semibold text-slate-900 dark:text-slate-100">{hidden ? "£••••" : money(cardPosition)}</dd>
+        </div>
+        <div className="mt-1 flex min-h-9 items-center justify-between gap-4 border-t border-slate-300/80 pt-1 font-semibold text-slate-900 dark:border-slate-700 dark:text-slate-100">
+          <dt>Net worth</dt>
+          <dd className="money font-bold">{hidden ? "£••••" : money(estate.netWorth)}</dd>
+        </div>
+      </dl>
+    </details>
   );
 }
 
@@ -159,7 +197,7 @@ type HeaderProps = {
   onChooseAdd: (label: string) => void;
 };
 
-function AccountsCanvasHeader({ estate, hidden, onToggleHidden, addOpen, onToggleAdd, onChooseAdd }: HeaderProps) {
+function AccountsCanvasHeader({ estate, hidden, onToggleHidden, addOpen, onToggleAdd, onChooseAdd, variant }: HeaderProps & { variant: Variant }) {
   const bankCount = estate.rows.filter((row) => row.source === "bank" && row.kind !== "Offline").length;
   const investmentCount = estate.rows.filter((row) => row.source === "investment").length;
   const offlineCount = estate.rows.filter((row) => row.kind === "Offline").length;
@@ -193,7 +231,7 @@ function AccountsCanvasHeader({ estate, hidden, onToggleHidden, addOpen, onToggl
           {hidden ? <EyeOff size={18} aria-hidden="true" /> : <Eye size={18} aria-hidden="true" />}
         </button>
       </div>
-      <PositionEquation estate={estate} hidden={hidden} />
+      <PositionContext estate={estate} hidden={hidden} variant={variant} />
     </header>
   );
 }
@@ -377,7 +415,7 @@ function VariantAList(props: ListSharedProps) {
   const groups = allGroups(props.estate);
   return (
     <div className="mx-auto w-full max-w-4xl px-4 pt-6 sm:px-6 lg:px-8">
-      <AccountsCanvasHeader {...props} />
+      <AccountsCanvasHeader {...props} variant="a" />
       <div className="mt-8 space-y-3">
         <PreviewNotice message={props.notice} />
         <ReconnectArea estate={props.estate} onReconnect={props.onReconnect} />
@@ -400,7 +438,7 @@ function VariantBList(props: ListSharedProps) {
   const selected = groups.find((group) => group.label === props.focusGroup) ?? groups[0];
   return (
     <div className="mx-auto w-full max-w-5xl px-4 pt-6 sm:px-6 lg:px-8">
-      <AccountsCanvasHeader {...props} />
+      <AccountsCanvasHeader {...props} variant="b" />
       <div className="mt-8 space-y-4">
         <PreviewNotice message={props.notice} />
         <ReconnectArea estate={props.estate} onReconnect={props.onReconnect} />
@@ -436,7 +474,7 @@ function VariantCList(props: ListSharedProps) {
   return (
     <div className="mx-auto grid w-full max-w-6xl grid-cols-[minmax(0,1fr)] items-start gap-10 px-4 pt-6 sm:px-6 lg:grid-cols-[minmax(290px,0.8fr)_minmax(0,1.55fr)] lg:gap-16 lg:px-8">
       <div className="min-w-0 lg:sticky lg:top-6">
-        <AccountsCanvasHeader {...props} />
+        <AccountsCanvasHeader {...props} variant="c" />
         <div className="mt-10 hidden lg:block"><DesignNote variant="c" /></div>
       </div>
       <div className="min-w-0 space-y-3 lg:pt-2">
@@ -583,7 +621,7 @@ function PreviewControls({ variant, mode, state }: { variant: Variant; mode: Mod
   return (
     <nav aria-label="G87 design preview controls" className="fixed inset-x-0 bottom-0 z-[80] border-t border-white/10 bg-slate-950/95 px-3 py-2 text-white shadow-xl" style={{ paddingBottom: "max(8px, env(safe-area-inset-bottom, 0px))" }}>
       <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-1.5">
-        {VARIANTS.map((item) => <a key={item} href={hrefFor({ variant: item })} aria-current={variant === item ? "page" : undefined} className={`inline-flex min-h-11 items-center rounded-xl px-3 text-[12px] font-semibold transition-colors active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 motion-reduce:transition-none ${variant === item ? "bg-white text-slate-950" : "text-slate-300 hover:bg-white/10"}`}>{item.toUpperCase()} · {item === "a" ? "Estate" : item === "b" ? "Focus" : "Rail"}</a>)}
+        {VARIANTS.map((item) => <a key={item} href={hrefFor({ variant: item })} aria-current={variant === item ? "page" : undefined} className={`inline-flex min-h-11 items-center rounded-xl px-3 text-[12px] font-semibold transition-colors active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 motion-reduce:transition-none ${variant === item ? "bg-white text-slate-950" : "text-slate-300 hover:bg-white/10"}`}>{item.toUpperCase()} · {item === "a" ? "Quiet" : item === "b" ? "Own / owe" : "Breakdown"}</a>)}
         <label className="ml-auto flex min-h-11 items-center rounded-xl bg-white/10 px-2.5 text-[12px] text-slate-300 focus-within:ring-2 focus-within:ring-indigo-400">
           <span className="sr-only">Preview Accounts state</span>
           <select name="preview-state" value={state} onChange={(event) => window.location.assign(hrefFor({ state: event.target.value as AccountsPreviewState }))} className="cursor-pointer bg-slate-800 pr-1 font-semibold text-white outline-none">
