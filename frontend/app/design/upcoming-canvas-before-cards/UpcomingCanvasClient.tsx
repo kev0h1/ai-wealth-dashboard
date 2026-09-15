@@ -176,10 +176,7 @@ function Envelope({ data, quiet = false }: { data: PlanningFixture; quiet?: bool
         </div>
         <span className="shrink-0 text-xs font-semibold text-slate-500 dark:text-slate-400">Starts {data.paydayLabel}</span>
       </div>
-      <button
-        type="button"
-        className="mt-3 flex min-h-[76px] w-full items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left shadow-sm transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 active:scale-[0.99] dark:border-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700"
-      >
+      <div className="mt-3 flex min-h-[76px] w-full items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left shadow-sm dark:border-slate-700 dark:bg-slate-800">
         <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-indigo-50 text-indigo-600 dark:bg-indigo-400/10 dark:text-indigo-300">
           <MailOpen size={19} aria-hidden="true" />
         </span>
@@ -193,8 +190,7 @@ function Envelope({ data, quiet = false }: { data: PlanningFixture; quiet?: bool
           <span className="block font-mono text-sm font-bold tabular-nums text-slate-950 dark:text-white">£0</span>
           <span className="block text-[10px] text-slate-500 dark:text-slate-400">this period</span>
         </span>
-        <ChevronRight size={16} className="shrink-0 text-slate-400" aria-hidden="true" />
-      </button>
+      </div>
     </section>
   );
 }
@@ -214,10 +210,9 @@ function Bills({ data, limit }: { data: PlanningFixture; limit?: number }) {
         {rows.map((row, index) => {
           const risk = row.risk === "genuine";
           return (
-            <button
-              type="button"
+            <div
               key={row.id}
-              className={`flex min-h-[68px] w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-slate-50 focus-visible:relative focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 dark:hover:bg-slate-700 ${index ? "border-t border-slate-100 dark:border-slate-700" : ""}`}
+              className={`flex min-h-[68px] w-full items-center gap-3 px-4 py-3 text-left ${index ? "border-t border-slate-100 dark:border-slate-700" : ""}`}
             >
               <span className={`grid size-9 shrink-0 place-items-center rounded-xl ${risk ? "bg-rose-100 text-rose-600 dark:bg-rose-400/10 dark:text-rose-300" : "bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-300"}`}>
                 <ReceiptText size={16} aria-hidden="true" />
@@ -227,7 +222,7 @@ function Bills({ data, limit }: { data: PlanningFixture; limit?: number }) {
                 <span className="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">{row.dateLabel} · {row.bank}</span>
               </span>
               <span className={`shrink-0 font-mono text-sm font-semibold tabular-nums ${risk ? "text-rose-600 dark:text-rose-400" : "text-slate-950 dark:text-white"}`}>−{money(row.amount)}</span>
-            </button>
+            </div>
           );
         })}
       </div>
@@ -260,7 +255,7 @@ function ActionPanel({ data }: { data: PlanningFixture }) {
 
 function HiddenPredictions() {
   return (
-    <main className="mx-auto w-full max-w-2xl px-4 py-8 sm:px-6 sm:py-10">
+    <main id="upcoming-main" className="mx-auto w-full max-w-2xl px-4 py-8 sm:px-6 sm:py-10">
       <header>
         <h1 className="text-[28px] font-bold tracking-[-0.035em] text-slate-950 dark:text-white">Set-aside predictions</h1>
         <p className="mt-2 max-w-xl text-sm leading-6 text-slate-600 dark:text-slate-300">Two predictions are quiet, not deleted. Your runway and envelopes still use everything that remains active.</p>
@@ -293,11 +288,12 @@ export default function UpcomingCanvasClient() {
   return (
     <div className={dark ? "dark" : ""} style={{ colorScheme: dark ? "dark" : "light" }}>
       <div className="min-h-dvh bg-[#f0f2f7] text-slate-900 selection:bg-indigo-200 selection:text-slate-950 dark:bg-[#0f172a] dark:text-slate-100 dark:selection:bg-indigo-500/40 dark:selection:text-white">
+        <a href="#upcoming-main" className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-xl focus:bg-slate-950 focus:px-4 focus:py-3 focus:text-white">Skip to Upcoming preview</a>
         <PreviewToolbar variant={variant} state={state} dark={dark} />
         {state === "hidden" ? (
           <HiddenPredictions />
         ) : (
-          <main className="mx-auto w-full max-w-5xl px-4 pb-16 pt-7 sm:px-6 sm:pt-10">
+          <main id="upcoming-main" className="mx-auto w-full max-w-5xl px-4 pb-16 pt-7 sm:px-6 sm:pt-10">
             <PageHeader data={data} />
 
             {variant === "a" && (
