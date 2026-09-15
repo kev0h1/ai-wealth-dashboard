@@ -17,10 +17,29 @@ type PreviewRoute = {
   name: string;
   description: string;
   states: { label: string; value: string }[];
+  variants?: { label: string; value: string }[];
   group?: "current" | "earlier";
 };
 
 const ROUTES: PreviewRoute[] = [
+  {
+    slug: "tax-canvas-before-cards",
+    name: "tax-canvas-before-cards",
+    description:
+      "G86 Canvas Before Cards review for Tax · A guided reading (recommended) / B sticky decision rail / C deadline path · every variant moves orientation, the personalised verdict and explanation onto the canvas, while the pension calculation, action groups, dates and Penny keep earned boundaries · fixture-only preservation of the live taper, higher-rate, basic-rate and no-income branches, including child benefit, EIS/SEIS, self-assessment and adviser-risk wording · no API calls or production changes · ?variant=a|b|c&state=trap|lost|higher|basic|empty&mode=light|dark",
+    states: [
+      { label: "60% tax trap", value: "trap" },
+      { label: "Allowance fully tapered", value: "lost" },
+      { label: "Higher rate", value: "higher" },
+      { label: "Basic rate", value: "basic" },
+      { label: "Income not set", value: "empty" },
+    ],
+    variants: [
+      { label: "A · Guided reading", value: "a" },
+      { label: "B · Decision rail", value: "b" },
+      { label: "C · Deadline path", value: "c" },
+    ],
+  },
   {
     slug: "spend-header-rules",
     name: "spend-header-rules",
@@ -548,6 +567,8 @@ const CURRENT_ROUTES = ROUTES.filter((route) => (route.group ?? "current") === "
 const EARLIER_ROUTES = ROUTES.filter((route) => route.group === "earlier");
 
 function PreviewCard({ route }: { route: PreviewRoute }) {
+  const defaultVariant = route.variants?.[0]?.value;
+
   return (
     <div className="glass-card-flat rounded-2xl p-4">
       <div className="text-sm font-semibold text-slate-900 dark:text-white">
@@ -557,11 +578,28 @@ function PreviewCard({ route }: { route: PreviewRoute }) {
         {route.description}
       </div>
 
-      <div className="mt-3 flex flex-wrap gap-2">
+      {route.variants && (
+        <div className="mt-3">
+          <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Variants</p>
+          <div className="mt-1.5 flex flex-wrap gap-2">
+            {route.variants.map((variant) => (
+              <Link
+                key={variant.value}
+                href={`/design/${route.slug}?mode=dark&state=${route.states[0].value}&variant=${variant.value}`}
+                className="inline-flex min-h-[44px] items-center rounded-full bg-indigo-50 px-3.5 py-2 text-[11px] font-semibold text-indigo-600 transition-transform active:scale-95 dark:bg-indigo-500/15 dark:text-indigo-300"
+              >
+                {variant.label}
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className={`${route.variants ? "mt-2" : "mt-3"} flex flex-wrap gap-2`}>
         {route.states.map((s) => (
           <Link
             key={s.value}
-            href={`/design/${route.slug}?mode=dark&state=${s.value}`}
+            href={`/design/${route.slug}?mode=dark&state=${s.value}${defaultVariant ? `&variant=${defaultVariant}` : ""}`}
             className="inline-flex items-center min-h-[44px] rounded-full px-3.5 py-2 text-[11px] font-semibold text-indigo-600 bg-indigo-50 dark:text-indigo-300 dark:bg-indigo-500/15 active:scale-95 transition-transform"
           >
             {s.label}
@@ -571,7 +609,7 @@ function PreviewCard({ route }: { route: PreviewRoute }) {
 
       <div className="mt-2">
         <Link
-          href={`/design/${route.slug}?mode=light&state=${route.states[0].value}`}
+          href={`/design/${route.slug}?mode=light&state=${route.states[0].value}${defaultVariant ? `&variant=${defaultVariant}` : ""}`}
           className="text-[11px] font-medium text-slate-400 dark:text-slate-500 underline underline-offset-2"
         >
           light
