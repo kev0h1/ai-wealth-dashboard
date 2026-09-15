@@ -60,13 +60,17 @@ const ROUTES: PreviewRoute[] = [
     slug: "g88-home-canvas",
     name: "g88-home-canvas",
     description:
-      "G88 Canvas Before Cards review for Home · A Reading line / B Today board / C Rhythm · Safe to Spend remains the one earned hero, while orientation, the daily brief and pay-period evidence sit directly on the canvas · static fixtures only, with no API calls, preference changes or production edits · ?variant=a|b|c&state=fresh|normal|caution|error|hidden&mode=light|dark",
+      "G88 Canvas Before Cards review for Home · A Reading line / B Today board / C Rhythm · Safe to Spend remains the sole hero, while every reachable supporting-card permutation is rendered with real production cards and typed local fixtures · calm with no card, payday question, cover or money move, pace advice, details needed, good news, full mixed family, connection error and balances hidden · no API calls, preference changes or production edits · ?variant=a|b|c&state=calm|payday|cover|pace|details|good-news|mixed|error|hidden&mode=light|dark",
     states: [
-      { label: "Fresh payday", value: "fresh" },
-      { label: "Normal", value: "normal" },
-      { label: "Caution", value: "caution" },
+      { label: "Calm, no cards", value: "calm" },
+      { label: "Payday question", value: "payday" },
+      { label: "Cover a move", value: "cover" },
+      { label: "Pace advice", value: "pace" },
+      { label: "Details needed", value: "details" },
+      { label: "Good news", value: "good-news" },
+      { label: "Full mixed family", value: "mixed" },
       { label: "Connection error", value: "error" },
-      { label: "Balance hidden", value: "hidden" },
+      { label: "Balances hidden", value: "hidden" },
     ],
     variants: [
       { label: "A · Reading line", value: "a" },
