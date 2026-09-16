@@ -426,6 +426,9 @@ cmd_finish() {
   log "checking legal content marker/renumbering contract in $worktree_dir/frontend..."
   (cd "$worktree_dir/frontend" && npm run -s check:legal-content)
 
+  log "checking bottom nav coverage in $worktree_dir/frontend..."
+  (cd "$worktree_dir/frontend" && npm run -s check:nav-coverage)
+
   log "pushing $branch..."
   git -C "$worktree_dir" push -u origin "$branch"
 
