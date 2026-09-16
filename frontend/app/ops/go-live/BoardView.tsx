@@ -34,6 +34,21 @@
 // column. That is the root cause behind cards getting stuck in In
 // progress when dragged back to To do. `pointerWithin` checks actual
 // pointer containment first, which fixes it.
+//
+// Touch scrolling vs. drag (H55): `Card` uses `touch-manipulation`
+// (`touch-action: manipulation`), NOT `touch-none`. `touch-action: none`
+// tells the browser this element never scrolls, so a finger landing on a
+// card could never pan the page at all — every scroll gesture that
+// started on a card silently became a drag instead, because the finger
+// had nowhere to move within `TouchSensor`'s tolerance. `manipulation`
+// leaves normal panning (and the lane's horizontal scroll) to the
+// browser, and it's the delay plus tolerance on `TouchSensor` below
+// (400ms held, under 5px of movement) that tells deliberate-press-and-
+// hold apart from an ordinary scroll: a scroll moves the finger past the
+// tolerance (or the browser starts panning) well before 400ms elapses,
+// which cancels the pending drag. Do not put `touch-none` back on this
+// element; `touch-action: none` is only correct for an immediate-
+// activation TouchSensor with no delay.
 
 import { Fragment, useEffect, useState } from "react";
 import { ChevronDown, MessageSquare } from "lucide-react";
@@ -159,7 +174,7 @@ function Card({ item, onOpen }: { item: GoLiveItem; onOpen: () => void }) {
       ref={setNodeRef}
       type="button"
       onClick={onOpen}
-      className={`glass-card w-full touch-none rounded-xl p-2.5 text-left transition-transform hover:-translate-y-0.5 ${
+      className={`glass-card w-full touch-manipulation rounded-xl p-2.5 text-left transition-transform hover:-translate-y-0.5 ${
         isDragging ? "opacity-30" : ""
       }`}
       {...listeners}
@@ -612,7 +627,7 @@ export function BoardView({
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 400, tolerance: 5 } }),
     useSensor(KeyboardSensor)
   );
 
