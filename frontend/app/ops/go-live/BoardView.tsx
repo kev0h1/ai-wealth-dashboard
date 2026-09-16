@@ -517,19 +517,46 @@ function ownerLabel(owner: GoLiveOwner): string {
  *  the item's prior state — reversing "todo" always goes to "start" (i.e.
  *  In progress), even if the item was actually Blocked or In review before
  *  the drop that sent it to To do. Good enough for "I dropped this a
- *  second ago and want it back", not a general undo stack. */
-function reverseAction(action: ActionBody, priorOwner: GoLiveOwner): ActionBody | null {
+ *  second ago and want it back", not a general undo stack.
+ *
+ *  H57: "start" and "block" are the one place this best-effort shortcut
+ *  used to be flatly wrong rather than just imprecise. Dropping a Done
+ *  card onto In progress or onto Blocked still sends the plain "start" /
+ *  "block" forward action (there is no done-aware special case for those
+ *  two columns the way the To do column has one, see the drop-mapping
+ *  comment above `handleDragEnd`), and `TodoDoc.set_state` unconditionally
+ *  clears `done` for any of those (H55) — so undoing with the old
+ *  unconditional `{ action: "todo" }` left a Done card un-ticked in To do
+ *  instead of back in Done. `wasDone` (the source column the drag actually
+ *  started from) lets this send the card back to where it came from.
+ *
+ *  H57 correction round, finding C1: every `{ action: "done" }` this
+ *  returns (the two `wasDone` branches below, and "reopen"'s reverse,
+ *  which by construction only ever fires when the card started out Done)
+ *  must also carry the source item's original `commit`. Without it,
+ *  `set_done` stamps today's date and drops the merge sha, turning
+ *  `(done 2026-09-06, abc1234)` into `(done 2026-09-17)` — a control
+ *  labelled Undo must not rewrite the completion record like that. Note
+ *  this stays lossy on `done_at` itself: restoring the exact original
+ *  date would need a new parameter on `set_done` (backend/app/services/
+ *  backlog.py), which is a larger change left for its own board item. */
+function reverseAction(
+  action: ActionBody,
+  priorOwner: GoLiveOwner,
+  wasDone: boolean,
+  commit: string | null
+): ActionBody | null {
   switch (action.action) {
     case "done":
       return { action: "reopen" };
     case "reopen":
-      return { action: "done" };
+      return { action: "done", commit: commit ?? undefined };
     case "start":
-      return { action: "todo" };
+      return wasDone ? { action: "done", commit: commit ?? undefined } : { action: "todo" };
     case "todo":
       return { action: "start" };
     case "block":
-      return { action: "todo" };
+      return wasDone ? { action: "done", commit: commit ?? undefined } : { action: "todo" };
     case "owner":
       return { action: "owner", owner: priorOwner };
     default:
@@ -537,10 +564,15 @@ function reverseAction(action: ActionBody, priorOwner: GoLiveOwner): ActionBody 
   }
 }
 
-function buildUndo(actions: ActionBody[], priorOwner: GoLiveOwner): ActionBody[] {
+function buildUndo(
+  actions: ActionBody[],
+  priorOwner: GoLiveOwner,
+  wasDone: boolean,
+  commit: string | null
+): ActionBody[] {
   const reversed: ActionBody[] = [];
   for (const action of [...actions].reverse()) {
-    const r = reverseAction(action, priorOwner);
+    const r = reverseAction(action, priorOwner, wasDone, commit);
     if (r) reversed.push(r);
   }
   return reversed;
@@ -598,7 +630,7 @@ function BlockDropPanel({
 }
 
 type OptimisticPlacement = Record<string, { lane: string; column: GoLiveItemState }>;
-type BlockDraft = { itemId: string; lane: string };
+type BlockDraft = { itemId: string; lane: string; wasDone: boolean; commit: string | null };
 type ToastState = { seq: number; itemId: string; message: string; undo: ActionBody[] } | null;
 
 export function BoardView({
@@ -726,7 +758,7 @@ export function BoardView({
 
     if (targetColumn === "blocked") {
       if (ownerAction) fireOptimistic(item.id, targetLane, item.state, [ownerAction]);
-      setBlockDraft({ itemId: item.id, lane: targetLane });
+      setBlockDraft({ itemId: item.id, lane: targetLane, wasDone: item.state === "done", commit: item.commit });
       return;
     }
 
@@ -736,7 +768,7 @@ export function BoardView({
       showDropToast(
         item.id,
         `${item.id} reassigned to ${ownerLabel(targetLane as GoLiveOwner)}.`,
-        buildUndo([ownerAction as ActionBody], priorOwner)
+        buildUndo([ownerAction as ActionBody], priorOwner, item.state === "done", item.commit)
       );
       return;
     }
@@ -752,15 +784,21 @@ export function BoardView({
 
     const actions = ownerAction ? [ownerAction, columnAction] : [columnAction];
     fireOptimistic(item.id, targetLane, targetColumn, actions);
-    showDropToast(item.id, `${item.id} moved to ${columnLabel(targetColumn)}.`, buildUndo(actions, priorOwner));
+    showDropToast(
+      item.id,
+      `${item.id} moved to ${columnLabel(targetColumn)}.`,
+      buildUndo(actions, priorOwner, item.state === "done", item.commit)
+    );
   }
 
   function submitBlockDraft(reason: string) {
     if (!blockDraft) return;
-    const { itemId, lane } = blockDraft;
+    const { itemId, lane, wasDone, commit } = blockDraft;
     setBlockDraft(null);
     fireOptimistic(itemId, lane, "blocked", [{ action: "block", reason }]);
-    showDropToast(itemId, `${itemId} moved to Blocked.`, [{ action: "todo" }]);
+    showDropToast(itemId, `${itemId} moved to Blocked.`, [
+      wasDone ? { action: "done", commit: commit ?? undefined } : { action: "todo" },
+    ]);
   }
 
   // Keep `selected` pointed at the freshest copy of the item after a write

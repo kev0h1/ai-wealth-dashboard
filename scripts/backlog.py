@@ -25,13 +25,20 @@ Commands:
                                         "## <section>. ..." (e.g. A, H) with
                                         the next free id in that section.
                                         Prints just the new id on stdout.
-    start <id> [--branch <name>]        Mark an item in progress. --branch
+    start <id> [--branch <name>] [--force]
+                                        Mark an item in progress. --branch
                                         records the live worktree's branch
                                         (scripts/session.sh start passes
                                         this); omit it for a plain mark
-                                        with no worktree attached.
-    block <id> "<reason>"               Mark an item blocked, with a reason.
-    review <id> --branch <name> [--uat-review]
+                                        with no worktree attached. Refuses a
+                                        done item (H57) unless --force is
+                                        passed; use "reopen" to deliberately
+                                        reopen one instead.
+    block <id> "<reason>" [--force]     Mark an item blocked, with a reason.
+                                        Refuses a done item (H57) unless
+                                        --force is passed; use "reopen" to
+                                        deliberately reopen one instead.
+    review <id> --branch <name> [--uat-review] [--force]
                                         Mark an item in review on a branch
                                         (see docs/ops/BACKLOG.md "Branch per
                                         item" — scripts/session.sh finish
@@ -40,7 +47,10 @@ Commands:
                                         round: scripts/integrate.py lands a
                                         clean merge in "uat" instead of
                                         "done" (see the "uat" command below).
-    reject <id> "<reason>"              Reject an item sitting in review,
+                                        Refuses a done item (H57) unless
+                                        --force is passed; use "reopen" to
+                                        deliberately reopen one instead.
+    reject <id> "<reason>" [--force]    Reject an item sitting in review,
                                         with a reason (required). Use this
                                         the moment a reviewer finds a defect
                                         in work sitting in review, leaving it
@@ -49,8 +59,11 @@ Commands:
                                         from a concurrent session. Keeps the
                                         item's branch so the reviewer can see
                                         which branch was refused; start or
-                                        todo moves it back out again.
-    uat <id> --link <url>               Move an item into "uat": a design
+                                        todo moves it back out again. Refuses
+                                        a done item (H57) unless --force is
+                                        passed; use "reopen" to deliberately
+                                        reopen one instead.
+    uat <id> --link <url> [--force]     Move an item into "uat": a design
                                         round has landed on a rebuilt UAT
                                         and is waiting on Kevin's review, not
                                         on the next integrate pass ("uat" is
@@ -63,7 +76,10 @@ Commands:
                                         any other host is rejected. Normally
                                         set automatically by
                                         scripts/integrate.py; this command
-                                        is for a manual retrofit.
+                                        is for a manual retrofit. Refuses a
+                                        done item (H57) unless --force is
+                                        passed; use "reopen" to deliberately
+                                        reopen one instead.
     approve <id> "<choice>"             Record which variant Kevin picked
                                         from a "uat" round (required) as a
                                         dated note, and move the item back
@@ -72,9 +88,12 @@ Commands:
                                         implements the winner on a fresh
                                         branch. Only valid on an item
                                         currently in "uat".
-    todo <id>                           Reset an item to to-do (clears any
+    todo <id> [--force]                 Reset an item to to-do (clears any
                                         state tag, including a rejection;
-                                        used by session.sh abandon).
+                                        used by session.sh abandon). Refuses
+                                        a done item (H57) unless --force is
+                                        passed; use "reopen" to deliberately
+                                        reopen one instead.
     done <id> [--commit <sha>] [--merge <sha>]
                                         Tick an item done. --merge is an
                                         alias for --commit for the case
@@ -134,6 +153,30 @@ def _print_result(item_id: str, result: dict, committed: bool) -> None:
         print("  (saved to file; git commit or push failed — see logs)")
 
 
+def _refuse_if_done(item_id: str, command: str, force: bool) -> None:
+    """H57: mirror the guard `scripts/session.sh start` already has around
+    line 227 ("item $id is already done") at the CLI layer too. Before this,
+    `start`/`block`/`todo` had no such check, so a mistyped id that happened
+    to land on a done item would silently un-tick it (via `TodoDoc.set_state`
+    clearing `done`/`done_at`/`commit`, see H55) with a real git commit on
+    top, where the old masking bug at least made it a visible no-op. `reopen`
+    is the actual command for deliberately reopening a done item (it clears
+    `done` without stamping a new `[state: ...]` tag, see `TodoDoc.set_done`),
+    so that is what this names rather than a generic "unset done" hand-wave;
+    --force is the deliberate override for a caller who already knows what
+    they're doing."""
+    if force:
+        return
+    snapshot = backlog.load()
+    item = snapshot.todo.item(item_id)  # raises BacklogError if unknown
+    if item.to_dict()["state"] == "done":
+        raise backlog.BacklogError(
+            f"{item_id} is already done; use "
+            f"'backend/.venv/bin/python scripts/backlog.py reopen {item_id}' to deliberately reopen it, "
+            f"or pass --force to '{command}' if you mean to do this anyway."
+        )
+
+
 def _state_display(item: dict) -> str:
     if item["state"] == "review" and item.get("branch"):
         return f"review:{item['branch']}"
@@ -172,26 +215,31 @@ def cmd_add(args: argparse.Namespace) -> None:
 
 
 def cmd_start(args: argparse.Namespace) -> None:
+    _refuse_if_done(args.item_id, "start", args.force)
     result, committed = backlog.set_state(args.item_id, "in-progress", branch=args.branch, actor=args.actor)
     _print_result(args.item_id, result, committed)
 
 
 def cmd_block(args: argparse.Namespace) -> None:
+    _refuse_if_done(args.item_id, "block", args.force)
     result, committed = backlog.set_state(args.item_id, "blocked", reason=args.reason, actor=args.actor)
     _print_result(args.item_id, result, committed)
 
 
 def cmd_review(args: argparse.Namespace) -> None:
+    _refuse_if_done(args.item_id, "review", args.force)
     result, committed = backlog.set_review(args.item_id, args.branch, actor=args.actor, uat_review=args.uat_review)
     _print_result(args.item_id, result, committed)
 
 
 def cmd_reject(args: argparse.Namespace) -> None:
+    _refuse_if_done(args.item_id, "reject", args.force)
     result, committed = backlog.set_rejected(args.item_id, args.reason, actor=args.actor)
     _print_result(args.item_id, result, committed)
 
 
 def cmd_uat(args: argparse.Namespace) -> None:
+    _refuse_if_done(args.item_id, "uat", args.force)
     result, committed = backlog.set_uat(args.item_id, args.link, actor=args.actor)
     _print_result(args.item_id, result, committed)
 
@@ -202,6 +250,7 @@ def cmd_approve(args: argparse.Namespace) -> None:
 
 
 def cmd_todo(args: argparse.Namespace) -> None:
+    _refuse_if_done(args.item_id, "todo", args.force)
     result, committed = backlog.set_state(args.item_id, "todo", actor=args.actor)
     _print_result(args.item_id, result, committed)
 
@@ -300,12 +349,24 @@ def build_parser() -> argparse.ArgumentParser:
             "Omit for a plain 'mark in progress' with no worktree, e.g. a manual start from the board."
         ),
     )
+    p_start.add_argument(
+        "--force",
+        action="store_true",
+        help="Override the done-item guard (H57): start on a done item normally refuses, "
+        "pointing at 'reopen' instead.",
+    )
     add_actor(p_start)
     p_start.set_defaults(func=cmd_start)
 
     p_block = sub.add_parser("block", help="Mark an item blocked, with a reason.")
     p_block.add_argument("item_id")
     p_block.add_argument("reason")
+    p_block.add_argument(
+        "--force",
+        action="store_true",
+        help="Override the done-item guard (H57): block on a done item normally refuses, "
+        "pointing at 'reopen' instead.",
+    )
     add_actor(p_block)
     p_block.set_defaults(func=cmd_block)
 
@@ -317,6 +378,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Flag this as a design round: integrate lands a clean merge in uat instead of done.",
     )
+    p_review.add_argument(
+        "--force",
+        action="store_true",
+        help="Override the done-item guard (H57): review on a done item normally refuses, "
+        "pointing at 'reopen' instead.",
+    )
     add_actor(p_review)
     p_review.set_defaults(func=cmd_review)
 
@@ -325,6 +392,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_reject.add_argument("item_id")
     p_reject.add_argument("reason")
+    p_reject.add_argument(
+        "--force",
+        action="store_true",
+        help="Override the done-item guard (H57): reject on a done item normally refuses, "
+        "pointing at 'reopen' instead.",
+    )
     add_actor(p_reject)
     p_reject.set_defaults(func=cmd_reject)
 
@@ -333,6 +406,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_uat.add_argument("item_id")
     p_uat.add_argument("--link", required=True)
+    p_uat.add_argument(
+        "--force",
+        action="store_true",
+        help="Override the done-item guard (H57): uat on a done item normally refuses, "
+        "pointing at 'reopen' instead.",
+    )
     add_actor(p_uat)
     p_uat.set_defaults(func=cmd_uat)
 
@@ -347,6 +426,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_todo = sub.add_parser("todo", help="Reset an item to to-do (clears any state tag, including a rejection).")
     p_todo.add_argument("item_id")
+    p_todo.add_argument(
+        "--force",
+        action="store_true",
+        help="Override the done-item guard (H57): todo on a done item normally refuses, "
+        "pointing at 'reopen' instead.",
+    )
     add_actor(p_todo)
     p_todo.set_defaults(func=cmd_todo)
 
