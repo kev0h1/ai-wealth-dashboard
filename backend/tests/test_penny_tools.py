@@ -1367,11 +1367,41 @@ _BASICS_KEYS = [
 def test_explain_conscious_spending_plan_returns_text():
     """The three reference explainers added alongside the money-shape work
     (2026-09-02): Ramit Sethi's Conscious Spending Plan, the 50/30/20 rule,
-    and pay-yourself-first. All reference-only, no advice."""
+    and pay-yourself-first. All reference-only, no advice.
+
+    G80 (2026-09-16): reframed to lead on UK terms rather than a US author
+    and his book (Kevin: opening this from the reference shapes row read as
+    American even with the honest caveat), and the takeaway's "Insights"
+    reference retired 2026-09-04 -> now points at Spend, where the money
+    shape actually lives."""
     result = asyncio.run(execute_tool("kevin", "explain", {"topic": "conscious-spending-plan"}))
     assert result["topic"] == "conscious-spending-plan"
     assert len(result["text"]) > 20
-    assert "Insights" in result["text"]  # ties back to the app's own shape, not a grade
+    assert "Spend" in result["text"]  # ties back to the app's own shape, not a grade
+    assert "Insights" not in result["text"]  # retired page, no longer where the shape lives
+    assert "—" not in result["text"] and "–" not in result["text"]
+    # Leads on UK terms, not a US author/book: "take-home pay" (the UK framing)
+    # appears before the book's title in the text.
+    assert result["text"].index("take-home pay") < result["text"].index("I Will Teach You To Be Rich")
+
+
+def test_explain_conscious_spending_plan_has_no_us_account_terms():
+    """G80: the fault Kevin named was specifically 401(k)/Roth IRA reading
+    American, even in an otherwise-honest caveat. Regression guard so a
+    future edit can't reintroduce US account-type terms into UK-facing
+    money-basics copy."""
+    result = asyncio.run(execute_tool("kevin", "explain", {"topic": "conscious-spending-plan"}))
+    lowered = result["text"].lower()
+    for term in ("401(k)", "401k", "roth ira"):
+        assert term not in lowered, f"US account-type term {term!r} reintroduced into conscious-spending-plan"
+
+
+def test_explain_fifty_thirty_twenty_leads_on_uk_terms():
+    """G80: same UK-first framing decision applied to the other US-sourced
+    reference shape (Elizabeth Warren / All Your Worth)."""
+    result = asyncio.run(execute_tool("kevin", "explain", {"topic": "fifty-thirty-twenty"}))
+    assert "take-home pay" in result["text"]
+    assert result["text"].index("take-home pay") < result["text"].index("Elizabeth Warren")
     assert "—" not in result["text"] and "–" not in result["text"]
 
 
@@ -1409,6 +1439,91 @@ def test_money_basics_content_has_no_em_or_en_dash():
             text = card[field]
             assert "—" not in text, f"{card['id']}.{field} has an em-dash: {text!r}"
             assert "–" not in text, f"{card['id']}.{field} has an en-dash: {text!r}"
+
+
+def test_money_basics_content_has_no_us_account_type_terms():
+    """G80 (2026-09-16): Kevin called out 401(k)/Roth IRA specifically as
+    reading American, even inside an otherwise-honest attribution. Scans
+    every money-basics card (not just conscious-spending-plan) so a future
+    edit to any entry can't quietly reintroduce a US account type."""
+    from app.content.money_basics import MONEY_BASICS
+
+    banned = ("401(k)", "401k", "roth ira")
+    for card in MONEY_BASICS:
+        for field in ("title", "body", "takeaway"):
+            lowered = card[field].lower()
+            for term in banned:
+                assert term.lower() not in lowered, (
+                    f"{card['id']}.{field} names US account type {term!r}: {card[field]!r}"
+                )
+
+
+# ── 5d. explain(topic) — no references to retired app surfaces (G80) ─────
+# Kevin, 2026-09-14: opening the Conscious Spending Plan explainer from the
+# reference shapes row pointed the user at "Insights", a page retired
+# 2026-09-04 (now a redirect to /spend/shape or /tax). The same drift
+# turned up three more times in this file's own tool descriptions/comments
+# and once as a literal "This is your Debt page" for a page deleted
+# 2026-08-05 (folded into /cards). Fixed at the source; this test scans the
+# live copy so a future edit that reintroduces either phrase fails loudly
+# instead of silently shipping a dead reference again.
+_RETIRED_SURFACE_PHRASES = (
+    "Insights page",
+    "Insights list",
+    "Insights tab",
+    "This is your Debt page",
+    "This is Grow.",
+)
+
+
+def test_explain_copy_has_no_retired_surface_references():
+    """Every registered explain(topic) reply, scanned for phrases that name
+    a page the app no longer serves as a standalone surface."""
+    for key, text in penny_tools_module._ALL_EXPLAIN_COPY.items():
+        for phrase in _RETIRED_SURFACE_PHRASES:
+            assert phrase not in text, f"explain({key!r}) references a retired surface: {phrase!r}"
+
+
+def test_explain_upcoming_and_planning_are_both_covered_and_distinct():
+    """The Planning/Upcoming split (2026-09-04, CLAUDE.md surface map):
+    /planning is long-horizon only, /upcoming is this-pay-period only.
+    Before G80 the "planning" explain topic still described the pay-period
+    content (bills/income before payday) and "upcoming" had no entry at
+    all -- a real, live screen with zero explain coverage."""
+    planning = asyncio.run(execute_tool("kevin", "explain", {"topic": "planning"}))
+    upcoming = asyncio.run(execute_tool("kevin", "explain", {"topic": "upcoming"}))
+    assert "error" not in planning and "error" not in upcoming
+    assert "long-term" in planning["text"]
+    assert "payday" in upcoming["text"]
+    assert planning["text"] != upcoming["text"]
+
+
+def test_explain_debt_topic_points_at_cards_not_a_dead_debt_page():
+    result = asyncio.run(execute_tool("kevin", "explain", {"topic": "debt"}))
+    assert "error" not in result
+    assert "Cards" in result["text"]
+    assert "Debt page" not in result["text"]
+
+
+def test_explain_insights_topic_describes_current_surfaces():
+    """The "insights" explain key is unreachable from any live screen
+    (PennyAskContext keeps it only for a design twin's typecheck, see
+    frontend/lib/pennyScreenConfig.tsx) but is still a valid free-text
+    explain(topic) target, so its copy must not lie about where things
+    live if it is ever reached."""
+    result = asyncio.run(execute_tool("kevin", "explain", {"topic": "insights"}))
+    assert "error" not in result
+    assert "Home" in result["text"]
+    assert "Spend" in result["text"]
+
+
+def test_explain_topic_resolves_for_realistic_phrasing_variants():
+    """Realistic model-picked topic strings: exact key, and the one case
+    variance `_exec_explain` is documented to tolerate (it lowercases the
+    key but does not normalise separators)."""
+    for topic in ("conscious-spending-plan", "Conscious-Spending-Plan", "FIFTY-THIRTY-TWENTY"):
+        result = asyncio.run(execute_tool("kevin", "explain", {"topic": topic}))
+        assert "error" not in result, f"{topic!r} should resolve, case-insensitively"
 
 
 # ── 6. Enrichment — debt / bills / insights ──────────────────────────────
