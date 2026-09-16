@@ -21,6 +21,7 @@
     "check:preference-save": "node --no-warnings --experimental-strip-types scripts/preference-save.test.mjs",
     "check:preferences-snapshot": "node --no-warnings --experimental-strip-types scripts/preferences-snapshot.test.mjs",
     "check:penny-screen-views": "node --no-warnings --experimental-strip-types scripts/penny-screen-views.test.mjs",
+    "check:cash-walk": "node --no-warnings --experimental-strip-types scripts/cash-walk.test.mjs",
     "check:accounts-pinned": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/accounts-pinned.test.mjs"
   },
   "dependencies": {
