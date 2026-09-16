@@ -3900,6 +3900,16 @@ async def compute_safe_to_spend(uid: str) -> dict:
         float(b["amount"]) for b in raw_window_bills
         if _is_pooled_spendable_transfer(b)
     ), 2)
+    # G109 follow-up: the credit-card charges `_touches_pooled_cash` just
+    # excluded from the cash walk, threaded into step 6c's reserve
+    # separately from `window_bills` (see `card_growth_by_card`'s own
+    # `excluded_card_charges` doc) so a forecasted-but-not-yet-POSTED charge
+    # on a card with no learned repayment is still reserved for, not simply
+    # dropped because the walk (correctly) no longer sees it either.
+    card_charges_excluded_from_walk = [
+        b for b in raw_window_bills
+        if not _is_pooled_spendable_transfer(b) and not _touches_pooled_cash(b)
+    ]
     # Pre-payday income: exclude items that look like the salary itself
     # (we identify the payday salary as income arriving ON or AFTER next_payday;
     # any income strictly before that day can legitimately boost the balance)
@@ -3980,7 +3990,9 @@ async def compute_safe_to_spend(uid: str) -> dict:
     try:
         from app.services.net_position import card_growth_by_card
         _period_start, _ = get_pay_period_for_date(_today_d, _pay_cfg)
-        card_rows = await card_growth_by_card(uid, _period_start, _today_d, window_bills)
+        card_rows = await card_growth_by_card(
+            uid, _period_start, _today_d, window_bills, card_charges_excluded_from_walk,
+        )
         if card_rows is None:
             raise RuntimeError("card growth could not be verified")
 
@@ -4012,10 +4024,25 @@ async def compute_safe_to_spend(uid: str) -> dict:
             for row in card_rows
             if str(row["account_id"]) not in learned_card_ids
         ), 2)
+        # G109 follow-up: a forecasted charge that has not yet POSTED is
+        # invisible to `growth` above (transaction-history based), so an
+        # unlearned card whose only exposure this period is that charge
+        # would otherwise be reserved £0 — the exact dangerous failure mode
+        # the backlog item names. Summed separately, deliberately OUTSIDE
+        # the growth/card_growth_total cap just below: it describes money
+        # not yet reflected in that observed fact at all, so capping it
+        # against an unrelated figure would silently discard it again.
+        unlearned_future_charges = round(sum(
+            float(row.get("future_unposted_charges", 0.0))
+            for row in card_rows
+            if str(row["account_id"]) not in learned_card_ids
+        ), 2)
         # A paydown on another card offsets portfolio growth. The cautious
         # reserve can never exceed the user's actual net card-balance growth,
         # otherwise the separate card fact and the arithmetic would diverge.
-        card_growth_reserved = round(min(card_growth_total, unlearned_growth), 2)
+        card_growth_reserved = round(
+            min(card_growth_total, unlearned_growth) + unlearned_future_charges, 2
+        )
         if card_growth_reserved:
             safe_to_spend = round(safe_to_spend - card_growth_reserved, 2)
     except Exception:

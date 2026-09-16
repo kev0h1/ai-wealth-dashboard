@@ -1523,6 +1523,19 @@ export default function PlanningPage() {
                     <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
                       stays in your accounts
                     </p>
+                  ) : item.is_credit_card ? (
+                    // G109 fix-up: a card charge no longer decrements `running`
+                    // (doesNotTouchCash above), so without this branch its row
+                    // would fall through to the plain "After: £X left" caption
+                    // below with the SAME figure as the row before it -- the
+                    // exact frozen/repeated-balance misread the isSettling
+                    // comment above already flags for a different case. One
+                    // quiet word, same caption ramp as "settling"/"stays in
+                    // your accounts", is the honest answer: this charge sits
+                    // on the card, not against the cash pool this column walks.
+                    <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                      on your card
+                    </p>
                   ) : (
                     <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
                       After: <span className="font-mono tabular-nums">{item.balance_after >= 0 ? "" : "−"}{sym}{Math.abs(item.balance_after).toLocaleString("en-GB", { maximumFractionDigits: 0 })}</span> {item.balance_after < 0 ? "short" : "left"}
