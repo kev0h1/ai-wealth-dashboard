@@ -38,7 +38,7 @@ Commands:
                                         Refuses a done item (H57) unless
                                         --force is passed; use "reopen" to
                                         deliberately reopen one instead.
-    review <id> --branch <name> [--uat-review]
+    review <id> --branch <name> [--uat-review] [--force]
                                         Mark an item in review on a branch
                                         (see docs/ops/BACKLOG.md "Branch per
                                         item" — scripts/session.sh finish
@@ -47,7 +47,10 @@ Commands:
                                         round: scripts/integrate.py lands a
                                         clean merge in "uat" instead of
                                         "done" (see the "uat" command below).
-    reject <id> "<reason>"              Reject an item sitting in review,
+                                        Refuses a done item (H57) unless
+                                        --force is passed; use "reopen" to
+                                        deliberately reopen one instead.
+    reject <id> "<reason>" [--force]    Reject an item sitting in review,
                                         with a reason (required). Use this
                                         the moment a reviewer finds a defect
                                         in work sitting in review, leaving it
@@ -56,8 +59,11 @@ Commands:
                                         from a concurrent session. Keeps the
                                         item's branch so the reviewer can see
                                         which branch was refused; start or
-                                        todo moves it back out again.
-    uat <id> --link <url>               Move an item into "uat": a design
+                                        todo moves it back out again. Refuses
+                                        a done item (H57) unless --force is
+                                        passed; use "reopen" to deliberately
+                                        reopen one instead.
+    uat <id> --link <url> [--force]     Move an item into "uat": a design
                                         round has landed on a rebuilt UAT
                                         and is waiting on Kevin's review, not
                                         on the next integrate pass ("uat" is
@@ -70,7 +76,10 @@ Commands:
                                         any other host is rejected. Normally
                                         set automatically by
                                         scripts/integrate.py; this command
-                                        is for a manual retrofit.
+                                        is for a manual retrofit. Refuses a
+                                        done item (H57) unless --force is
+                                        passed; use "reopen" to deliberately
+                                        reopen one instead.
     approve <id> "<choice>"             Record which variant Kevin picked
                                         from a "uat" round (required) as a
                                         dated note, and move the item back
@@ -218,16 +227,19 @@ def cmd_block(args: argparse.Namespace) -> None:
 
 
 def cmd_review(args: argparse.Namespace) -> None:
+    _refuse_if_done(args.item_id, "review", args.force)
     result, committed = backlog.set_review(args.item_id, args.branch, actor=args.actor, uat_review=args.uat_review)
     _print_result(args.item_id, result, committed)
 
 
 def cmd_reject(args: argparse.Namespace) -> None:
+    _refuse_if_done(args.item_id, "reject", args.force)
     result, committed = backlog.set_rejected(args.item_id, args.reason, actor=args.actor)
     _print_result(args.item_id, result, committed)
 
 
 def cmd_uat(args: argparse.Namespace) -> None:
+    _refuse_if_done(args.item_id, "uat", args.force)
     result, committed = backlog.set_uat(args.item_id, args.link, actor=args.actor)
     _print_result(args.item_id, result, committed)
 
@@ -366,6 +378,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Flag this as a design round: integrate lands a clean merge in uat instead of done.",
     )
+    p_review.add_argument(
+        "--force",
+        action="store_true",
+        help="Override the done-item guard (H57): review on a done item normally refuses, "
+        "pointing at 'reopen' instead.",
+    )
     add_actor(p_review)
     p_review.set_defaults(func=cmd_review)
 
@@ -374,6 +392,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_reject.add_argument("item_id")
     p_reject.add_argument("reason")
+    p_reject.add_argument(
+        "--force",
+        action="store_true",
+        help="Override the done-item guard (H57): reject on a done item normally refuses, "
+        "pointing at 'reopen' instead.",
+    )
     add_actor(p_reject)
     p_reject.set_defaults(func=cmd_reject)
 
@@ -382,6 +406,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_uat.add_argument("item_id")
     p_uat.add_argument("--link", required=True)
+    p_uat.add_argument(
+        "--force",
+        action="store_true",
+        help="Override the done-item guard (H57): uat on a done item normally refuses, "
+        "pointing at 'reopen' instead.",
+    )
     add_actor(p_uat)
     p_uat.set_defaults(func=cmd_uat)
 

@@ -31,10 +31,14 @@ A TODO.md item line looks like this:
   used to read the other way round, when a state-setting write on a done
   item was a silent no-op instead). `set_state` always clears the item's
   done marker first, since every state it can assign is a non-done state,
-  so calling `start`/`block`/`todo` (or `set_state` directly) on a done
-  item un-ticks it and erases its done date and commit; `scripts/backlog.py`
-  refuses to do this unless `--force` is passed, pointing at `reopen`
-  instead (see "The CLI" below). The `review`
+  so calling `start`/`block`/`todo`/`review`/`reject`/`uat` (or
+  `set_state` directly) on a done item un-ticks it and erases its done
+  date and commit; `scripts/backlog.py` refuses to do this on all six
+  unless `--force` is passed, pointing at `reopen` instead (see "The CLI"
+  below). Either way, the item's outgoing done date/commit and the state
+  it moved to are not lost: a one-line dated note records them (H57),
+  using the same "To do" / "In progress" labels the board itself shows,
+  not the raw internal state key. The `review`
   state and its branch are set by `scripts/session.sh finish` and
   consumed by `scripts/integrate.py`, see "Branch per item" below.
   `in-progress` can carry its own `[branch: <name>]` tag too (H31): set
@@ -137,14 +141,21 @@ either file. It exposes:
 
 - `load(todo_path=None, compliance_path=None)`, read-only snapshot with
   `.items()` and `.questions()` returning plain dicts ready to serialise.
-- `set_done(item_id, done, commit=None, actor="claude")`
+- `set_done(item_id, done, commit=None, actor="claude")`: `done=False`
+  (reopen) clears `done_at`/`commit` and leaves the state at to do; if the
+  item was done going in, it appends the same one-line audit note
+  `set_state` does below (shared helper `_append_done_cleared_note`,
+  H57), since `reopen` is the command the CLI guard's own refusal message
+  and this doc point operators at, making it the single most likely
+  accidental way out of Done.
 - `set_state(item_id, state, reason=None, branch=None, link=None, uat_review=False, actor="claude")`:
   always clears the item's `done`/`done_at`/`commit` first, since every
   `state` this can assign is a non-done state by construction (H55); if
   the item was done going in, it also appends a one-line dated note
-  recording the outgoing done date/commit and the state it moved to,
-  since git history of `TODO.md` isn't a real recovery path for Kevin on
-  his phone (H57).
+  recording the outgoing done date/commit and the state it moved to (in
+  the board's own display label, e.g. "In progress", not the raw
+  `in-progress` state key), since git history of `TODO.md` isn't a real
+  recovery path for Kevin on his phone (H57).
   `state` is `"todo"`, `"in-progress"` (optionally takes `branch`, see
   below), `"blocked"` (needs `reason`), `"review"` (needs `branch`),
   `"rejected"` (needs `reason`; retains the item's existing branch unless
@@ -213,13 +224,13 @@ successful write or a manual `git add && git commit`.
 ```bash
 backend/.venv/bin/python scripts/backlog.py list
 backend/.venv/bin/python scripts/backlog.py add A "New item title" --owner claude
-backend/.venv/bin/python scripts/backlog.py start <id> [--branch <name>]
-backend/.venv/bin/python scripts/backlog.py block <id> "<reason>"
-backend/.venv/bin/python scripts/backlog.py review <id> --branch feature-<id>-<slug> [--uat-review]
-backend/.venv/bin/python scripts/backlog.py reject <id> "<reason>"
-backend/.venv/bin/python scripts/backlog.py uat <id> --link <url>
+backend/.venv/bin/python scripts/backlog.py start <id> [--branch <name>] [--force]
+backend/.venv/bin/python scripts/backlog.py block <id> "<reason>" [--force]
+backend/.venv/bin/python scripts/backlog.py review <id> --branch feature-<id>-<slug> [--uat-review] [--force]
+backend/.venv/bin/python scripts/backlog.py reject <id> "<reason>" [--force]
+backend/.venv/bin/python scripts/backlog.py uat <id> --link <url> [--force]
 backend/.venv/bin/python scripts/backlog.py approve <id> "<choice>"
-backend/.venv/bin/python scripts/backlog.py todo <id>
+backend/.venv/bin/python scripts/backlog.py todo <id> [--force]
 backend/.venv/bin/python scripts/backlog.py done <id> --commit <sha>
 backend/.venv/bin/python scripts/backlog.py reopen <id>
 backend/.venv/bin/python scripts/backlog.py note <id> "<text>"
@@ -237,11 +248,15 @@ guard on: an `in-progress` item is only startable again through
 `scripts/session.sh start` when it has NO branch recorded, see "Branch
 per item" below.
 
-`start`, `block` and `todo` refuse an item whose state is `done` unless
-`--force` is passed (H57), mirroring the guard `scripts/session.sh start`
-already had; the refusal names `reopen` as the command for deliberately
-reopening a done item, since that is the one that just clears the done
-marker without stamping a new `[state: ...]` tag on top of it.
+`start`, `block`, `todo`, `review`, `reject` and `uat` all refuse an item
+whose state is `done` unless `--force` is passed (H57), mirroring the
+guard `scripts/session.sh start` already had; the refusal names `reopen`
+as the command for deliberately reopening a done item, since that is the
+one that just clears the done marker without stamping a new
+`[state: ...]` tag on top of it. `review` was the correction round's
+sharpest finding (H57 F1): it both un-ticks the item and records a
+branch, which the next integrate pass would then pick up as a fresh merge
+candidate on an item that was already shipped.
 
 `priority` defaults to `p3` when never set. `unblocks` takes a
 comma-separated list of question ids (`Q5,Q6`); pass an empty string

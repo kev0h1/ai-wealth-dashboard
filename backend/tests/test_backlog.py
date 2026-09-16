@@ -968,7 +968,10 @@ def test_set_state_on_done_item_appends_audit_note_and_clears_done():
     assert note.actor == "claude"
     assert "2026-09-01" in note.text
     assert "abc1230" in note.text
-    assert "in-progress" in note.text
+    # H57 finding F3: the note names the board's own display label ("In
+    # progress"), not the raw internal state key ("in-progress").
+    assert "In progress" in note.text
+    assert "in-progress" not in note.text
 
     line = doc.lines[item.line_no]
     assert "(done" not in line
@@ -1001,6 +1004,68 @@ def test_public_set_state_on_done_item_writes_audit_note_with_actor(paths, mock_
     assert item["notes"][0]["actor"] == "kevin"
     assert "2026-09-01" in item["notes"][0]["text"]
     assert "abc1230" in item["notes"][0]["text"]
+
+
+def test_set_done_reopen_on_done_item_appends_audit_note_with_display_label():
+    # H57 finding F2/F3: `reopen` (set_done(False)) is the single most
+    # likely accidental way out of Done (both the CLI refusal message and
+    # the board's Done -> To do drag point at it), so it must leave the
+    # same audit trail `set_state` does, in the board's own "To do" label
+    # rather than the raw "todo" state key.
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    item = doc.set_done("A2", False, actor="claude")
+
+    assert item.done is False
+    assert item.done_at is None
+    assert item.commit is None
+    assert item.state == "todo"
+
+    assert len(item.notes) == 1
+    note = item.notes[0]
+    assert note.actor == "claude"
+    assert "2026-09-01" in note.text
+    assert "abc1230" in note.text
+    assert "To do" in note.text
+    assert "todo" not in note.text
+
+
+def test_set_done_reopen_on_non_done_item_does_not_append_a_note():
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    item = doc.set_done("A1", False, actor="claude")
+    assert item.notes == []
+
+
+def test_set_done_marking_done_does_not_append_a_clearing_note():
+    # The `done=True` branch is not a "leaving done" transition, so it
+    # must never write a "cleared done" note, including when marking an
+    # already-done item done again with a new commit.
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    item = doc.set_done("A2", True, commit="newsha01", actor="claude")
+    assert item.notes == []
+
+
+def test_set_done_then_set_state_on_same_doc_does_not_double_write_a_note():
+    # Defence in depth for H57 finding F2's "keep the two note paths from
+    # double-writing" requirement: even if a future caller chained both
+    # writes on the same TodoDoc, the second call reads the item's `done`
+    # flag fresh (already False after the first clear) and must not write
+    # a second note for the same transition.
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    doc.set_done("A2", False, actor="claude")
+    item = doc.set_state("A2", "blocked", reason="testing double-write", actor="claude")
+    assert len(item.notes) == 1
+
+
+def test_public_set_done_reopen_on_done_item_writes_audit_note_with_actor(paths, mock_git):
+    todo_path, _ = paths
+    repo_root = todo_path.parent
+    item, committed = backlog.set_done("A2", False, actor="kevin", todo_path=todo_path, repo_root=repo_root)
+    assert committed is True
+    assert item["done_at"] is None
+    assert item["commit"] is None
+    assert len(item["notes"]) == 1
+    assert item["notes"][0]["actor"] == "kevin"
+    assert "To do" in item["notes"][0]["text"]
 
 
 def test_public_set_rejected_writes_file_and_commit_message(paths, mock_git):
@@ -1393,11 +1458,11 @@ def _make_board_root(tmp_path: Path, todo_text: str) -> Path:
     return board_root
 
 
-def _cli_show(board_root: Path, item_id: str) -> subprocess.CompletedProcess:
+def _run_cli(board_root: Path, *args: str) -> subprocess.CompletedProcess:
     env = dict(os.environ)
     env["BACKLOG_ROOT"] = str(board_root)
     return subprocess.run(
-        [sys.executable, str(SCRIPTS_BACKLOG), "show", item_id],
+        [sys.executable, str(SCRIPTS_BACKLOG), *args],
         cwd=board_root,
         env=env,
         capture_output=True,
@@ -1408,7 +1473,7 @@ def _cli_show(board_root: Path, item_id: str) -> subprocess.CompletedProcess:
 
 def test_cli_show_todo_item(tmp_path):
     board_root = _make_board_root(tmp_path, SHOW_FIXTURE)
-    result = _cli_show(board_root, "H1")
+    result = _run_cli(board_root, "show", "H1")
     assert result.returncode == 0, result.stderr
     data = json.loads(result.stdout)
     assert data["id"] == "H1"
@@ -1419,7 +1484,7 @@ def test_cli_show_todo_item(tmp_path):
 
 def test_cli_show_in_progress_item(tmp_path):
     board_root = _make_board_root(tmp_path, SHOW_FIXTURE)
-    result = _cli_show(board_root, "H2")
+    result = _run_cli(board_root, "show", "H2")
     assert result.returncode == 0, result.stderr
     data = json.loads(result.stdout)
     assert data["state"] == "in-progress"
@@ -1427,7 +1492,7 @@ def test_cli_show_in_progress_item(tmp_path):
 
 def test_cli_show_blocked_item_with_reason(tmp_path):
     board_root = _make_board_root(tmp_path, SHOW_FIXTURE)
-    result = _cli_show(board_root, "H3")
+    result = _run_cli(board_root, "show", "H3")
     assert result.returncode == 0, result.stderr
     data = json.loads(result.stdout)
     assert data["state"] == "blocked"
@@ -1436,7 +1501,7 @@ def test_cli_show_blocked_item_with_reason(tmp_path):
 
 def test_cli_show_blocked_item_without_reason(tmp_path):
     board_root = _make_board_root(tmp_path, SHOW_FIXTURE)
-    result = _cli_show(board_root, "H4")
+    result = _run_cli(board_root, "show", "H4")
     assert result.returncode == 0, result.stderr
     data = json.loads(result.stdout)
     assert data["state"] == "blocked"
@@ -1445,7 +1510,7 @@ def test_cli_show_blocked_item_without_reason(tmp_path):
 
 def test_cli_show_review_item_includes_branch(tmp_path):
     board_root = _make_board_root(tmp_path, SHOW_FIXTURE)
-    result = _cli_show(board_root, "H5")
+    result = _run_cli(board_root, "show", "H5")
     assert result.returncode == 0, result.stderr
     data = json.loads(result.stdout)
     assert data["state"] == "review"
@@ -1454,7 +1519,7 @@ def test_cli_show_review_item_includes_branch(tmp_path):
 
 def test_cli_show_done_item(tmp_path):
     board_root = _make_board_root(tmp_path, SHOW_FIXTURE)
-    result = _cli_show(board_root, "H6")
+    result = _run_cli(board_root, "show", "H6")
     assert result.returncode == 0, result.stderr
     data = json.loads(result.stdout)
     assert data["state"] == "done"
@@ -1463,7 +1528,7 @@ def test_cli_show_done_item(tmp_path):
 
 def test_cli_show_unknown_item_errors(tmp_path):
     board_root = _make_board_root(tmp_path, SHOW_FIXTURE)
-    result = _cli_show(board_root, "H999")
+    result = _run_cli(board_root, "show", "H999")
     assert result.returncode == 1
     assert "not a known backlog item" in result.stderr
 
@@ -1476,19 +1541,6 @@ def test_cli_show_unknown_item_errors(tmp_path):
 # silently un-tick it via `TodoDoc.set_state`'s H55 clearing, with a real
 # git commit on top, where before it was at least a visible no-op.
 # ---------------------------------------------------------------------
-
-
-def _run_cli(board_root: Path, *args: str) -> subprocess.CompletedProcess:
-    env = dict(os.environ)
-    env["BACKLOG_ROOT"] = str(board_root)
-    return subprocess.run(
-        [sys.executable, str(SCRIPTS_BACKLOG), *args],
-        cwd=board_root,
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
 
 
 def test_cli_start_on_done_item_refuses_without_force(tmp_path):
@@ -1558,6 +1610,78 @@ def test_cli_reopen_is_not_blocked_by_the_guard(tmp_path):
     assert result.returncode == 0, result.stderr
     saved = (board_root / "TODO.md").read_text(encoding="utf-8")
     assert "- [ ] **H6." in saved
+
+
+# ---------------------------------------------------------------------
+# H57 correction round, finding F1: the done-item guard originally only
+# covered start/block/todo, but reject/review/uat reach set_state through
+# their own wrappers exactly the same way and are just as capable of
+# silently un-ticking a done item. `review` is the dangerous one: it also
+# records a branch, which the next integrate pass would then pick up as a
+# fresh merge candidate on an item that was already shipped.
+# ---------------------------------------------------------------------
+
+
+def test_cli_review_on_done_item_refuses_without_force(tmp_path):
+    board_root = _make_board_root(tmp_path, SHOW_FIXTURE)
+    result = _run_cli(board_root, "review", "H6", "--branch", "feature-H6-thing")
+    assert result.returncode == 1
+    assert "already done" in result.stderr
+    assert "reopen H6" in result.stderr
+    saved = (board_root / "TODO.md").read_text(encoding="utf-8")
+    h6_line = next(line for line in saved.splitlines() if "**H6." in line)
+    assert h6_line.startswith("- [x]")
+    assert "[branch:" not in h6_line
+    assert "[state: review" not in h6_line
+
+
+def test_cli_review_on_done_item_succeeds_with_force(tmp_path):
+    board_root = _make_board_root(tmp_path, SHOW_FIXTURE)
+    result = _run_cli(board_root, "review", "H6", "--branch", "feature-H6-thing", "--force")
+    assert result.returncode == 0, result.stderr
+    saved = (board_root / "TODO.md").read_text(encoding="utf-8")
+    assert "- [ ] **H6." in saved
+    assert "[state: review: feature-H6-thing]" in saved
+
+
+def test_cli_reject_on_done_item_refuses_without_force(tmp_path):
+    board_root = _make_board_root(tmp_path, SHOW_FIXTURE)
+    result = _run_cli(board_root, "reject", "H6", "found a defect")
+    assert result.returncode == 1
+    assert "already done" in result.stderr
+    assert "reopen H6" in result.stderr
+    saved = (board_root / "TODO.md").read_text(encoding="utf-8")
+    assert "- [x] **H6." in saved
+
+
+def test_cli_reject_on_done_item_succeeds_with_force(tmp_path):
+    board_root = _make_board_root(tmp_path, SHOW_FIXTURE)
+    result = _run_cli(board_root, "reject", "H6", "found a defect", "--force")
+    assert result.returncode == 0, result.stderr
+    saved = (board_root / "TODO.md").read_text(encoding="utf-8")
+    assert "- [ ] **H6." in saved
+    assert "[state: rejected: found a defect]" in saved
+
+
+def test_cli_uat_on_done_item_refuses_without_force(tmp_path):
+    board_root = _make_board_root(tmp_path, SHOW_FIXTURE)
+    result = _run_cli(board_root, "uat", "H6", "--link", "https://uat.wealth.auriqltd.co.uk/design")
+    assert result.returncode == 1
+    assert "already done" in result.stderr
+    assert "reopen H6" in result.stderr
+    saved = (board_root / "TODO.md").read_text(encoding="utf-8")
+    assert "- [x] **H6." in saved
+
+
+def test_cli_uat_on_done_item_succeeds_with_force(tmp_path):
+    board_root = _make_board_root(tmp_path, SHOW_FIXTURE)
+    result = _run_cli(
+        board_root, "uat", "H6", "--link", "https://uat.wealth.auriqltd.co.uk/design", "--force"
+    )
+    assert result.returncode == 0, result.stderr
+    saved = (board_root / "TODO.md").read_text(encoding="utf-8")
+    assert "- [ ] **H6." in saved
+    assert "[state: uat: https://uat.wealth.auriqltd.co.uk/design]" in saved
 
 
 # ---------------------------------------------------------------------
@@ -2028,7 +2152,7 @@ def test_cli_start_with_branch_flag_round_trips(tmp_path):
     assert "[state: in-progress]" in saved
     assert "[branch: feature-A1-first-item]" in saved
 
-    show_result = _cli_show(board_root, "A1")
+    show_result = _run_cli(board_root, "show", "A1")
     data = json.loads(show_result.stdout)
     assert data["state"] == "in-progress"
     assert data["branch"] == "feature-A1-first-item"

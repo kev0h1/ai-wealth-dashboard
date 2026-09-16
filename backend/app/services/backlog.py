@@ -116,6 +116,20 @@ GIT_AUTHOR = "Sorted Ops <ops@auriqltd.co.uk>"
 GIT_TIMEOUT = 15
 
 ITEM_STATES = ("todo", "in-progress", "blocked", "review", "rejected", "uat")
+# Human-facing labels for a state key, matching the board's own vocabulary
+# (frontend/lib/goLive.ts BOARD_COLUMNS) exactly, so an audit note written
+# by set_state/set_done (H57) reads "moved to In progress" the way the
+# board itself says it, not the raw "in-progress" state key (H57 finding
+# F3: interpolating the raw key read backwards from how every other label
+# on the page is written).
+STATE_DISPLAY_LABEL = {
+    "todo": "To do",
+    "in-progress": "In progress",
+    "blocked": "Blocked",
+    "review": "In review",
+    "rejected": "Rejected",
+    "uat": "UAT",
+}
 QUESTION_STATUSES = ("ready", "needs-kevin", "blocked-deploy", "submitted")
 OWNERS = ("kevin", "claude", "codex")
 PRIORITIES = ("p1", "p2", "p3")
@@ -594,8 +608,56 @@ class TodoDoc:
         self.lines[item.line_no] = _render_item_line(item)
         item.raw_line = self.lines[item.line_no]
 
-    def set_done(self, item_id: str, done: bool, commit: Optional[str] = None) -> BacklogItem:
+    def _append_done_cleared_note(
+        self,
+        item: BacklogItem,
+        item_id: str,
+        outgoing_done_at: Optional[str],
+        outgoing_commit: Optional[str],
+        destination_label: str,
+        actor: str,
+    ) -> BacklogItem:
+        """Shared by `set_done` (reopen) and `set_state` (H57): appends the
+        one-line audit note recording what an outgoing done item's
+        done_at/commit were, and where the item landed instead, in the
+        board's own display vocabulary (`STATE_DISPLAY_LABEL`, H57 finding
+        F3) rather than a raw internal state key. `_collapse_note_text`
+        bounds this to one line under NOTE_CAP, so it can't corrupt the
+        item's own line the way raw multi-line text did before H27.
+
+        Both callers read `item.done` fresh off `self.item(item_id)` at
+        their own entry, and this always reparses and refreshes
+        `self.items` before returning, so if a caller ever chained both
+        writes on the same `TodoDoc` (they don't today, see H57's F2/F3
+        fix report), the second call would see `done` already False and
+        skip its own note rather than writing a second one for the same
+        transition."""
+        cleared_bits = outgoing_done_at or "unknown date"
+        if outgoing_commit:
+            cleared_bits += f", {outgoing_commit}"
+        note_text = f"cleared done ({cleared_bits}); moved to {destination_label}"
+        note_line = f"  - note ({today_str()}, {actor}): {_collapse_note_text(note_text)}"
+        insert_at = item.line_no + 1 + len(item.notes)
+        self.lines.insert(insert_at, note_line)
+        reparsed = TodoDoc.parse(self.text())
+        self.items = reparsed.items
+        self.section_headings = reparsed.section_headings
+        return self.items[item_id]
+
+    def set_done(
+        self, item_id: str, done: bool, commit: Optional[str] = None, actor: str = "claude"
+    ) -> BacklogItem:
         item = self.item(item_id)
+        # H57 finding F2: `reopen` (done -> False) is the command the guard
+        # in `scripts/backlog.py`'s refusal message and docs/ops/BACKLOG.md
+        # both point operators at, and the Done -> To do board drag maps
+        # onto it too (see BoardView.tsx), so it is actually the single
+        # most likely accidental way out of Done — the exact path that had
+        # no audit trail at all until this fix, while the rarer CLI/drag
+        # paths through `set_state` already got one.
+        was_done = item.done
+        outgoing_done_at = item.done_at
+        outgoing_commit = item.commit
         item.done = done
         if done:
             item.done_at = today_str()
@@ -606,6 +668,10 @@ class TodoDoc:
             item.done_at = None
             item.commit = None
         self._rewrite(item)
+        if was_done and not done:
+            item = self._append_done_cleared_note(
+                item, item_id, outgoing_done_at, outgoing_commit, STATE_DISPLAY_LABEL["todo"], actor
+            )
         return item
 
     def set_state(
@@ -714,23 +780,11 @@ class TodoDoc:
             # The audit trail H55 left out: done_at/commit above are gone
             # from `item` and about to be gone from disk the moment this
             # write lands, so record what was cleared and where the item
-            # went instead, as a normal dated note — same shape as any
-            # other note, so it shows up in the item's history on
-            # /ops/go-live like anything else. `_collapse_note_text`
-            # (called by the raw insert below, same as `add_note`) bounds
-            # this to one line under NOTE_CAP, so it can't corrupt the
-            # item's own line the way raw multi-line text did before H27.
-            cleared_bits = outgoing_done_at or "unknown date"
-            if outgoing_commit:
-                cleared_bits += f", {outgoing_commit}"
-            note_text = f"cleared done ({cleared_bits}); moved to {state}"
-            note_line = f"  - note ({today_str()}, {actor}): {_collapse_note_text(note_text)}"
-            insert_at = item.line_no + 1 + len(item.notes)
-            self.lines.insert(insert_at, note_line)
-            reparsed = TodoDoc.parse(self.text())
-            self.items = reparsed.items
-            self.section_headings = reparsed.section_headings
-            item = self.items[item_id]
+            # went instead — see `_append_done_cleared_note` above, shared
+            # with `set_done`'s reopen path (H57 finding F2).
+            item = self._append_done_cleared_note(
+                item, item_id, outgoing_done_at, outgoing_commit, STATE_DISPLAY_LABEL[state], actor
+            )
         return item
 
     def add_item(self, section: str, title: str, owner: Optional[str] = None) -> BacklogItem:
@@ -1123,7 +1177,7 @@ def set_done(
     resolved_root = repo_root or _repo_root()
     with _locked(resolved_root):
         doc = TodoDoc.load(resolved_path)
-        item = doc.set_done(item_id, done, commit=commit)
+        item = doc.set_done(item_id, done, commit=commit, actor=actor)
         doc.save(resolved_path)
     action = "done" if done else "reopened"
     committed = _git_commit_and_push([resolved_path], f"backlog: {item_id} {action} by {actor}", resolved_root)
