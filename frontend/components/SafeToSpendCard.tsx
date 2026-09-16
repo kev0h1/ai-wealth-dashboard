@@ -8,6 +8,7 @@ import { usePreferences } from "@/components/PreferencesContext";
 import { setPennyScreenView } from "@/components/PennySheetProvider";
 import { zeroSafe, deriveSafeToSpendHeadline, buildSafeToSpendView } from "@/lib/pennyScreenViews";
 import { spendFromHeroLine, spendFromAlternativeLine, type SpendFromResult } from "@/lib/spendFromAccount";
+import { BankBadge, accountBrand } from "@/components/AccountMiniCard";
 import MoneyText from "@/components/MoneyText";
 
 interface SafeToSpendCardProps {
@@ -282,9 +283,19 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
   // it deliberately never reads as a slice of it (see lib/spendFromAccount.ts's
   // own doc comment on why). `needsAttention` drives a signifier dot, never
   // a text/money colour change (amber lives in the signifier only).
-  const spendFromLine = spendFrom ? spendFromHeroLine(spendFrom, amount) : null;
+  //
+  // G111, variant A (Kevin's decision, 2026-09-16): the bank badge and bank
+  // name now appear inline on this line too, so "In Main G: £25 spare"
+  // becomes "In Main G (Chase): £25 spare" with Chase's mark beside it —
+  // the reason G111 exists is he could not tell which bank held the cash
+  // from the account name alone. Current accounts only, so the savings-pot
+  // kind (and its second, conflict line) can no longer occur here; see
+  // lib/spendFromAccount.ts's header comment for why that silence, when no
+  // current account has spare but a savings pot does, is deliberate.
+  const spendFromBrand = spendFrom?.kind === "account" ? accountBrand(spendFrom.best.account) : null;
+  const spendFromLine = spendFrom ? spendFromHeroLine(spendFrom, amount, spendFromBrand?.label) : null;
   const spendFromAltLine = spendFrom ? spendFromAlternativeLine(spendFrom, amount) : null;
-  const spendFromNeedsAttention = spendFrom?.kind === "savings_pot" || spendFrom?.kind === "none";
+  const spendFromNeedsAttention = spendFrom?.kind === "none";
 
   const pace = data.pace;
   const showPace = pace != null && ["comfortable", "on_pace", "ahead", "early"].includes(pace.state) && pace.sustainable != null;
@@ -342,6 +353,15 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
         <p className="mt-1.5 flex items-start gap-1.5 text-[12px] leading-snug text-slate-500 dark:text-slate-400 text-pretty">
           {spendFromNeedsAttention && (
             <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" aria-hidden="true" />
+          )}
+          {spendFrom?.kind === "account" && spendFromBrand && (
+            <BankBadge
+              logoSrc={spendFromBrand.logoSrc}
+              initials={spendFromBrand.initials}
+              altText={`${spendFromBrand.label} logo`}
+              brandBg={spendFromBrand.background}
+              size={18}
+            />
           )}
           <MoneyText text={spendFromLine} />
         </p>

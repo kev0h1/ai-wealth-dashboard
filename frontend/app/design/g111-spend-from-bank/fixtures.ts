@@ -153,6 +153,7 @@ function toSpendFromAccount(entry: { account: Account; headroom: number }): Spen
     name: entry.account.name,
     provider: entry.account.provider,
     headroom: entry.headroom,
+    account: entry.account,
   };
 }
 

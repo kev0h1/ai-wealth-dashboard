@@ -9,7 +9,23 @@
 // Settings' cover-plan sources card already shows via GET /today/cover-plan,
 // now also returned by plain GET /today (see lib/api.ts's TodayResponse).
 //
-// Three things this file exists to get right (see the G110 backlog item):
+// G111 (Kevin's decision, 2026-09-16, variant A + current accounts only):
+// this line now considers CURRENT accounts only. A savings pot, however
+// much headroom it carries, is never a candidate here at all — it is
+// filtered out of the pool before ranking even starts, the same structural
+// spirit as the credit-card exclusion below (never entered into the
+// candidate list, not merely scored low). Excluding savings removes the
+// ordering conflict the G111 design round was built to expose (current
+// accounts rank before savings, but a savings pot can hold more), so the
+// old `savings_pot` result kind, its `moveTo` field, and the "move it"
+// copy branch are gone, not dormant. The deliberate consequence, which
+// Kevin has been told: when no current account has spare but a savings pot
+// does, this line says nothing has spare while money sits in savings. That
+// silence is intentional — moving money out of savings is handled by the
+// cover-plan move card on a different surface, not here.
+//
+// Two things this file exists to get right (see the G110/G111 backlog
+// items):
 //   1. A per-account headroom figure is NOT a slice of the pooled
 //      Safe-to-Spend headline — the headline also deducts buffer, envelopes
 //      and commitments across the WHOLE pool, this is one account's own
@@ -21,13 +37,9 @@
 //      braces, `is_credit_card_account`) — reinforced here by also
 //      requiring `cover_source_eligible !== false` (G55's own flag,
 //      SettingsPage.tsx's established pattern) before an account is even
-//      considered, and by only ever ranking accounts `sourceClass`
-//      resolves to "current" or "savings".
-//   3. When the best headroom sits in a savings pot, the honest answer is
-//      to name it as something to MOVE, never as somewhere to tap a card —
-//      `moveTo` names the best current account to move it into (the same
-//      current-class ranking the cover-plan source finder itself uses,
-//      current before savings — see companion.py's `_find_legs_for_destination`).
+//      considered, and (as of G111) by only ever ranking accounts
+//      `sourceClass` resolves to "current" — a savings account is excluded
+//      the same way a credit card is: never admitted to the candidate list.
 
 import type { Account, AccountEligibility } from "./api";
 import { sourceClass } from "./coverPlanSourceClass";
@@ -43,21 +55,20 @@ export type SpendFromAccount = {
   name: string;
   provider: string;
   headroom: number;
+  // The full account, carried through so the render layer (SafeToSpendCard,
+  // the /design preview) can resolve a bank badge/name via
+  // components/AccountMiniCard.tsx's accountBrand() without this plain
+  // (non-JSX) module importing that component itself.
+  account: Account;
 };
 
 export type SpendFromResult =
   | { kind: "unavailable" }
   | { kind: "none" }
-  | { kind: "account"; best: SpendFromAccount; alternative: SpendFromAccount | null }
-  | {
-      kind: "savings_pot";
-      best: SpendFromAccount;
-      moveTo: SpendFromAccount | null;
-      alternative: SpendFromAccount | null;
-    };
+  | { kind: "account"; best: SpendFromAccount; alternative: SpendFromAccount | null };
 
 function toSpendFromAccount(a: Account, headroom: number): SpendFromAccount {
-  return { accountId: a.id, name: a.name, provider: a.provider, headroom };
+  return { accountId: a.id, name: a.name, provider: a.provider, headroom, account: a };
 }
 
 function rankByHeadroom(
@@ -74,6 +85,10 @@ function rankByHeadroom(
  * next alternative. `accountEligibility` is `TodayResponse.account_eligibility`
  * (or `CoverPlanResponse.account_eligibility`, same shape); `accounts` is
  * the user's full account list (`GET /accounts`, e.g. `getAccountsCached()`).
+ *
+ * Current accounts only (G111): a savings account never enters `candidates`
+ * in the first place, so it can never be `best`, `alternative`, or any other
+ * part of the result, regardless of how much headroom it carries.
  */
 export function bestSpendAccount(
   accountEligibility: Record<string, AccountEligibility> | null | undefined,
@@ -85,41 +100,24 @@ export function bestSpendAccount(
   // re-deriving "is this a candidate at all" from type/subtype strings —
   // same reasoning SettingsPage.tsx already established. Also requires a
   // live eligibility entry to exist for the account (accounts the source
-  // finder never considers, e.g. a different currency, have none).
+  // finder never considers, e.g. a different currency, have none). G111:
+  // also requires `sourceClass` to resolve to "current" — a savings
+  // account is filtered out right here, structurally, the same gate that
+  // keeps a credit card out (never in `candidates` at all, not scored and
+  // discarded later).
   const candidates = accounts.filter(
-    (a) => a.cover_source_eligible !== false && accountEligibility[a.id] != null,
+    (a) =>
+      a.cover_source_eligible !== false &&
+      accountEligibility[a.id] != null &&
+      sourceClass(a) === "current",
   );
 
-  const currentRanked = rankByHeadroom(
-    candidates.filter((a) => sourceClass(a) === "current"),
-    accountEligibility,
-  );
-  const savingsRanked = rankByHeadroom(
-    candidates.filter((a) => sourceClass(a) === "savings"),
-    accountEligibility,
-  );
+  const currentRanked = rankByHeadroom(candidates, accountEligibility);
 
   const usableCurrent = currentRanked.filter((a) => a.headroom >= SPEND_FROM_HEADROOM_FLOOR);
   if (usableCurrent.length > 0) {
     const [best, next] = usableCurrent;
-    const nextSavings = savingsRanked[0];
-    const alternative =
-      next ?? (nextSavings && nextSavings.headroom >= SPEND_FROM_HEADROOM_FLOOR ? nextSavings : null);
-    return { kind: "account", best, alternative };
-  }
-
-  const usableSavings = savingsRanked.filter((a) => a.headroom >= SPEND_FROM_HEADROOM_FLOOR);
-  if (usableSavings.length > 0) {
-    return {
-      kind: "savings_pot",
-      best: usableSavings[0],
-      // The natural place to move it into: the current account closest to
-      // usable, even though (by construction of this branch) none clears
-      // the floor — the same current-class ranking the cover-plan source
-      // finder itself checks first, before ever reaching savings.
-      moveTo: currentRanked[0] ?? null,
-      alternative: usableSavings[1] ?? null,
-    };
+    return { kind: "account", best, alternative: next ?? null };
   }
 
   return { kind: "none" };
@@ -141,10 +139,18 @@ export function bestSpendAccount(
  * therefore carries a plain qualifier naming the narrower scope and the
  * headline it is NOT part of, in the headline's own words ("Safe to
  * Spend", matching the card's label). No em dashes, per DESIGN.md.
+ *
+ * G111, variant A: the bank identity is now part of the same sentence
+ * ("In Main G (Chase): ..."), not left for the reader to infer from the
+ * account name alone. `bankLabel` is optional and resolved by the caller
+ * (accountBrand(result.best.account).label) so this module stays free of
+ * any JSX/React import; when omitted the parenthetical is simply left out
+ * rather than the sentence breaking.
  */
 export function spendFromHeroLine(
   result: SpendFromResult,
   amount: (value: number) => string,
+  bankLabel?: string | null,
 ): string | null {
   switch (result.kind) {
     case "unavailable":
@@ -152,17 +158,14 @@ export function spendFromHeroLine(
     case "none":
       // The sharpest version of the same confusion: the headline can read
       // "£46 safe" while no single account has anything spare. Says which
-      // question was asked rather than leaving the two to collide.
+      // question was asked rather than leaving the two to collide. This is
+      // also, as of G111, what the line says when the only spare money
+      // sits in a savings pot: deliberate, see this file's header comment.
       return "No single account has spare to spend from right now. Checked account by account, not against your full Safe to Spend.";
-    case "account":
-      return `In ${result.best.name}: ${amount(result.best.headroom)} spare right now. This account only, not your full Safe to Spend.`;
-    case "savings_pot":
-      // Qualifier sits directly after the figure it bounds, before the
-      // "move it" instruction, so the scope is fixed at the moment the
-      // number is read rather than a sentence later.
-      return result.moveTo
-        ? `${amount(result.best.headroom)} spare sits in ${result.best.name}, this pot only, not your full Safe to Spend. Move it to ${result.moveTo.name} before you spend it.`
-        : `${amount(result.best.headroom)} spare sits in ${result.best.name}, this pot only, not your full Safe to Spend. Move it to a current account before you spend it.`;
+    case "account": {
+      const bank = bankLabel ? ` (${bankLabel})` : "";
+      return `In ${result.best.name}${bank}: ${amount(result.best.headroom)} spare right now. This account only, not your full Safe to Spend.`;
+    }
   }
 }
 
@@ -173,7 +176,7 @@ export function spendFromAlternativeLine(
   result: SpendFromResult,
   amount: (value: number) => string,
 ): string | null {
-  if (result.kind !== "account" && result.kind !== "savings_pot") return null;
+  if (result.kind !== "account") return null;
   if (!result.alternative) return null;
   // Same scope qualifier as the hero line, in its shortest honest form:
   // this line sits inside the "How we got £X" ledger, which itemises the
