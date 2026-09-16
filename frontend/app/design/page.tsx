@@ -22,6 +22,24 @@ type PreviewRoute = {
 };
 
 const ROUTES: PreviewRoute[] = [
+  {
+    slug: "g111-spend-from-bank",
+    name: "g111-spend-from-bank",
+    description:
+      "G111 round on Home's G110 spend-from line, after Kevin saw it live: he can't tell which bank holds the cash (\"Main G\" names an account, not Chase) and asked whether the account with the most runway should lead, which conflicts with the shipped current-before-savings rule exactly when a savings pot holds the most · variant current is the exact shipped line/disclosure unchanged, for comparison, and in the conflict state stays silent about the savings pot entirely, which is the gap the others close · A adds a bank badge + bank name inline and gives the conflict its own full second line with its own badge and the existing amber attention dot · B is a small two-row ledger (badge, name, a neutral kind tag, mono figure), a second row appears only in the conflict state so the card stays as quiet as today otherwise · C is the quietest, a 14px bank mark folded into the existing sentence, a conflict extends the same paragraph with one clause behind the one attention dot the shipped card already uses, no new signifier · every variant/state keeps \"This account only, not your full Safe to Spend.\" (or the none state's own sentence) verbatim · reuses accountBrand()/bankLogoSrc()/BankBadge from components/AccountMiniCard.tsx so bank marks render identically to everywhere else they already appear, local bundled assets only, no third-party image request · fixtures modeled on Kevin's real Home figures (hero £226, Main G/Chase £25, Kevin Mbithi Maingi/Monzo £24) plus a conflict fixture (House deposit savings pot, £180) and an unbundled-bank fixture (Metro Bank, initials fallback) · static fixtures only, no API calls or production edits · ?variant=current|a|b|c&state=leads|conflict|none|unbundled&mode=light|dark",
+    states: [
+      { label: "Current leads", value: "leads" },
+      { label: "Savings holds more", value: "conflict" },
+      { label: "Nothing has spare", value: "none" },
+      { label: "Bank has no logo", value: "unbundled" },
+    ],
+    variants: [
+      { label: "Current · shipped", value: "current" },
+      { label: "A · Badge + own line", value: "a" },
+      { label: "B · Ledger rows", value: "b" },
+      { label: "C · Inline mark", value: "c" },
+    ],
+  },
   { slug: "g99-month-story-canvas", name: "g99-month-story-canvas", description: "G99 Canvas Before Cards review for the Month story · A anchored spotlight / B quiet centre / C close focus · the real production StoryPlayer renders fixture data through its supported design-review props, retaining its immersive dark canvas, playback controls, reduced-motion treatment and return path · no API calls or mutations · ?variant=a|b|c&state=interactive", states: [{ label: "Interactive story", value: "interactive" }], variants: [{ label: "A · Anchored spotlight", value: "a" }, { label: "B · Quiet centre", value: "b" }, { label: "C · Close focus", value: "c" }] },
   { slug: "g98-month-canvas", name: "g98-month-canvas", description: "G98 Canvas Before Cards review for Month · A reading / B evidence rail / C editorial ledger · monthly verdict and explanation live on the canvas, with reconciled evidence earning its boundary and a preserved path to the month story · static fixtures, no API calls or mutations · ?variant=a|b|c&state=ahead|steady|short|empty|loading|error&mode=light|dark", states: [{ label: "Ahead", value: "ahead" }, { label: "Steady", value: "steady" }, { label: "Short", value: "short" }, { label: "History building", value: "empty" }, { label: "Loading", value: "loading" }, { label: "Error", value: "error" }], variants: [{ label: "A · Reading", value: "a" }, { label: "B · Evidence rail", value: "b" }, { label: "C · Editorial ledger", value: "c" }] },
   {slug:"mcp-activity-canvas-before-cards",name:"mcp-activity-canvas-before-cards",description:"G101 Canvas Before Cards review for MCP activity · A private log / B grouped audit view / C focused filters · activity context and filters live on canvas, with date-grouped audit logs and pagination in earned containers · fixture-only, no API calls or production edits · state axis matches the actual MCP activity page: ready with rows, ready empty, loading and error. Tier availability is handled in Connected assistants by hiding the route link, not by rendering an activity-page upsell · ?variant=a|b|c&state=enabled|empty|loading|error&mode=light|dark",states:[{label:"Enabled",value:"enabled"},{label:"Empty",value:"empty"},{label:"Loading",value:"loading"},{label:"Error",value:"error"}],variants:[{label:"A · Private log",value:"a"},{label:"B · Grouped",value:"b"},{label:"C · Focused",value:"c"}]},
