@@ -16,6 +16,7 @@ import {
   MailOpen,
   ReceiptText,
 } from "lucide-react";
+import FixtureBottomNav from "../_components/FixtureBottomNav";
 import { FIXTURES, fmtC, fmtC2, type PlanningFixture } from "../planning/fixtures";
 
 type Variant = "a" | "b" | "c";
@@ -114,7 +115,7 @@ function RunwayHero({ data, treatment }: { data: PlanningFixture; treatment: Var
           </p>
           <p className="mt-3 max-w-xl text-sm leading-6 text-slate-600 dark:text-slate-300">
             {short
-              ? `${money(data.spendableNow)} is available now, with ${money(data.billsTotal)} due before pay lands.`
+              ? `${money(data.spendableNow)} is available now, with ${money(data.billsTotal)} due before payday.`
               : `${money(data.spendableNow)} is available now and the bills due before payday are covered.`}
           </p>
         </div>
@@ -257,7 +258,7 @@ function ActionPanel({ data }: { data: PlanningFixture }) {
 
 function HiddenPredictions() {
   return (
-    <main id="upcoming-main" className="mx-auto w-full max-w-2xl px-4 py-8 sm:px-6 sm:py-10">
+    <main id="upcoming-main" className="mx-auto w-full max-w-2xl px-4 pb-[calc(8.5rem+env(safe-area-inset-bottom))] pt-8 sm:px-6 sm:pt-10 lg:pb-10">
       <header>
         <h1 className="text-[28px] font-bold tracking-[-0.035em] text-slate-950 dark:text-white">Set-aside predictions</h1>
         <p className="mt-2 max-w-xl text-sm leading-6 text-slate-600 dark:text-slate-300">Two predictions are quiet, not deleted. Your runway and envelopes still use everything that remains active.</p>
@@ -295,7 +296,7 @@ export default function UpcomingCanvasClient() {
         {state === "hidden" ? (
           <HiddenPredictions />
         ) : (
-          <main id="upcoming-main" className="mx-auto w-full max-w-5xl px-4 pb-16 pt-7 sm:px-6 sm:pt-10">
+          <main id="upcoming-main" className="mx-auto w-full max-w-5xl px-4 pb-[calc(8.5rem+env(safe-area-inset-bottom))] pt-7 sm:px-6 sm:pt-10 lg:pb-16">
             <PageHeader data={data} />
 
             {variant === "a" && (
@@ -321,7 +322,7 @@ export default function UpcomingCanvasClient() {
                       <CalendarDays size={17} className="text-slate-500 dark:text-slate-400" aria-hidden="true" />
                       <h2 id="dates-heading" className="text-base font-bold text-slate-950 dark:text-white">What changes when</h2>
                     </div>
-                    <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">Bills leave over the next five days. The envelope begins when pay lands on {data.paydayLabel}.</p>
+                    <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">Bills leave over the next five days. The envelope begins on {data.paydayLabel}.</p>
                   </section>
                 </aside>
               </div>
@@ -343,6 +344,7 @@ export default function UpcomingCanvasClient() {
           </main>
         )}
       </div>
+      <FixtureBottomNav active="Upcoming" />
     </div>
   );
 }
