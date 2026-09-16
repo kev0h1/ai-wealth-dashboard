@@ -616,6 +616,7 @@ class TodoDoc:
         branch: Optional[str] = None,
         link: Optional[str] = None,
         uat_review: bool = False,
+        actor: str = "claude",
     ) -> BacklogItem:
         if state not in ITEM_STATES:
             raise BacklogError(f"invalid state: {state!r} (must be one of {ITEM_STATES})")
@@ -651,6 +652,16 @@ class TodoDoc:
         # correction round). Since every state this method sets is a
         # non-done state by construction, clearing done unconditionally is
         # always correct here, not just for the picker's callers.
+        #
+        # H57: git history of TODO.md is not a real recovery path for
+        # Kevin looking at this from his phone, so before the clear below
+        # destroys the outgoing done_at/commit, remember them here so a
+        # one-line audit note can be appended once the new state has
+        # landed — the only record of "this item used to be done, and
+        # here is what got cleared" that survives in the file itself.
+        was_done = item.done
+        outgoing_done_at = item.done_at
+        outgoing_commit = item.commit
         item.done = False
         item.done_at = None
         item.commit = None
@@ -699,6 +710,27 @@ class TodoDoc:
             item.link = None
             item.uat_review = False
         self._rewrite(item)
+        if was_done:
+            # The audit trail H55 left out: done_at/commit above are gone
+            # from `item` and about to be gone from disk the moment this
+            # write lands, so record what was cleared and where the item
+            # went instead, as a normal dated note — same shape as any
+            # other note, so it shows up in the item's history on
+            # /ops/go-live like anything else. `_collapse_note_text`
+            # (called by the raw insert below, same as `add_note`) bounds
+            # this to one line under NOTE_CAP, so it can't corrupt the
+            # item's own line the way raw multi-line text did before H27.
+            cleared_bits = outgoing_done_at or "unknown date"
+            if outgoing_commit:
+                cleared_bits += f", {outgoing_commit}"
+            note_text = f"cleared done ({cleared_bits}); moved to {state}"
+            note_line = f"  - note ({today_str()}, {actor}): {_collapse_note_text(note_text)}"
+            insert_at = item.line_no + 1 + len(item.notes)
+            self.lines.insert(insert_at, note_line)
+            reparsed = TodoDoc.parse(self.text())
+            self.items = reparsed.items
+            self.section_headings = reparsed.section_headings
+            item = self.items[item_id]
         return item
 
     def add_item(self, section: str, title: str, owner: Optional[str] = None) -> BacklogItem:
@@ -1114,7 +1146,9 @@ def set_state(
     resolved_root = repo_root or _repo_root()
     with _locked(resolved_root):
         doc = TodoDoc.load(resolved_path)
-        item = doc.set_state(item_id, state, reason=reason, branch=branch, link=link, uat_review=uat_review)
+        item = doc.set_state(
+            item_id, state, reason=reason, branch=branch, link=link, uat_review=uat_review, actor=actor
+        )
         doc.save(resolved_path)
     action = {
         "in-progress": (f"started (branch {branch})" if branch else "started"),
@@ -1200,7 +1234,7 @@ def set_approved(
         if item.state != "uat":
             raise BacklogError(f"{item_id} is not awaiting uat review (state: {item.state})")
         doc.add_note(item_id, f"approved: {choice_clean}", actor)
-        item = doc.set_state(item_id, "in-progress")
+        item = doc.set_state(item_id, "in-progress", actor=actor)
         doc.save(resolved_path)
     committed = _git_commit_and_push(
         [resolved_path], f"backlog: {item_id} approved ({choice_clean}) by {actor}", resolved_root

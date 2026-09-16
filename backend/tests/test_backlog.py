@@ -944,6 +944,65 @@ def test_mark_done_from_rejected_clears_state_reason_and_branch():
     assert doc.items["A1"].to_dict()["reason"] is None
 
 
+# ---------------------------------------------------------------------
+# H57: `TodoDoc.set_state` already clears an outgoing done item's
+# done/done_at/commit (H55, above). It must also leave a one-line audit
+# note behind before doing so, since git history of TODO.md is not a real
+# recovery path for Kevin looking at the board from his phone.
+# ---------------------------------------------------------------------
+
+
+def test_set_state_on_done_item_appends_audit_note_and_clears_done():
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    # A2 is the fixture's already-done item: "[x] **A2. Second item.**
+    # [owner: kevin] Already done text. (done 2026-09-01, abc1230)".
+    item = doc.set_state("A2", "in-progress", actor="claude")
+
+    assert item.done is False
+    assert item.done_at is None
+    assert item.commit is None
+    assert item.state == "in-progress"
+
+    assert len(item.notes) == 1
+    note = item.notes[0]
+    assert note.actor == "claude"
+    assert "2026-09-01" in note.text
+    assert "abc1230" in note.text
+    assert "in-progress" in note.text
+
+    line = doc.lines[item.line_no]
+    assert "(done" not in line
+    assert "[state: in-progress]" in line
+
+    # The note is a normal single-line note, not raw text that falls out
+    # of NOTE_RE on the next parse (see H27/H46) — reparsing must find it.
+    reparsed = backlog.TodoDoc.parse(doc.text())
+    assert len(reparsed.items["A2"].notes) == 1
+    assert reparsed.items["A2"].notes[0].text == note.text
+
+
+def test_set_state_on_non_done_item_does_not_append_a_note():
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    item = doc.set_state("A1", "blocked", reason="waiting on Kevin")
+    assert item.notes == []
+
+
+def test_public_set_state_on_done_item_writes_audit_note_with_actor(paths, mock_git):
+    todo_path, _ = paths
+    repo_root = todo_path.parent
+    item, committed = backlog.set_state(
+        "A2", "blocked", reason="needs redoing", actor="kevin", todo_path=todo_path, repo_root=repo_root
+    )
+    assert committed is True
+    assert item["state"] == "blocked"
+    assert item["done_at"] is None
+    assert item["commit"] is None
+    assert len(item["notes"]) == 1
+    assert item["notes"][0]["actor"] == "kevin"
+    assert "2026-09-01" in item["notes"][0]["text"]
+    assert "abc1230" in item["notes"][0]["text"]
+
+
 def test_public_set_rejected_writes_file_and_commit_message(paths, mock_git):
     todo_path, _ = paths
     repo_root = todo_path.parent
@@ -1407,6 +1466,98 @@ def test_cli_show_unknown_item_errors(tmp_path):
     result = _cli_show(board_root, "H999")
     assert result.returncode == 1
     assert "not a known backlog item" in result.stderr
+
+
+# ---------------------------------------------------------------------
+# H57: `scripts/backlog.py start`/`block`/`todo` refuse a done item unless
+# --force is passed, mirroring the guard `scripts/session.sh start` already
+# has around its own "done" case. Before this, the raw CLI had no such
+# check, so a mistyped id landing on a done item (H6 in SHOW_FIXTURE) would
+# silently un-tick it via `TodoDoc.set_state`'s H55 clearing, with a real
+# git commit on top, where before it was at least a visible no-op.
+# ---------------------------------------------------------------------
+
+
+def _run_cli(board_root: Path, *args: str) -> subprocess.CompletedProcess:
+    env = dict(os.environ)
+    env["BACKLOG_ROOT"] = str(board_root)
+    return subprocess.run(
+        [sys.executable, str(SCRIPTS_BACKLOG), *args],
+        cwd=board_root,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+
+def test_cli_start_on_done_item_refuses_without_force(tmp_path):
+    board_root = _make_board_root(tmp_path, SHOW_FIXTURE)
+    result = _run_cli(board_root, "start", "H6")
+    assert result.returncode == 1
+    assert "already done" in result.stderr
+    assert "reopen H6" in result.stderr
+    saved = (board_root / "TODO.md").read_text(encoding="utf-8")
+    assert "- [x] **H6." in saved
+    assert "(done 2026-09-01, abc1234)" in saved
+
+
+def test_cli_start_on_done_item_succeeds_with_force(tmp_path):
+    board_root = _make_board_root(tmp_path, SHOW_FIXTURE)
+    result = _run_cli(board_root, "start", "H6", "--force")
+    assert result.returncode == 0, result.stderr
+    saved = (board_root / "TODO.md").read_text(encoding="utf-8")
+    assert "- [ ] **H6." in saved
+    assert "[state: in-progress]" in saved
+    assert "(done" not in saved
+    assert "- note (" in saved  # the audit note left behind by set_state
+
+
+def test_cli_block_on_done_item_refuses_without_force(tmp_path):
+    board_root = _make_board_root(tmp_path, SHOW_FIXTURE)
+    result = _run_cli(board_root, "block", "H6", "some reason")
+    assert result.returncode == 1
+    assert "already done" in result.stderr
+    assert "reopen H6" in result.stderr
+    saved = (board_root / "TODO.md").read_text(encoding="utf-8")
+    assert "- [x] **H6." in saved
+
+
+def test_cli_todo_on_done_item_refuses_without_force(tmp_path):
+    board_root = _make_board_root(tmp_path, SHOW_FIXTURE)
+    result = _run_cli(board_root, "todo", "H6")
+    assert result.returncode == 1
+    assert "already done" in result.stderr
+    assert "reopen H6" in result.stderr
+    saved = (board_root / "TODO.md").read_text(encoding="utf-8")
+    assert "- [x] **H6." in saved
+
+
+def test_cli_todo_on_done_item_succeeds_with_force(tmp_path):
+    board_root = _make_board_root(tmp_path, SHOW_FIXTURE)
+    result = _run_cli(board_root, "todo", "H6", "--force")
+    assert result.returncode == 0, result.stderr
+    saved = (board_root / "TODO.md").read_text(encoding="utf-8")
+    assert "- [ ] **H6." in saved
+
+
+def test_cli_start_on_not_done_item_is_unaffected_by_the_guard(tmp_path):
+    board_root = _make_board_root(tmp_path, SHOW_FIXTURE)
+    result = _run_cli(board_root, "start", "H1")
+    assert result.returncode == 0, result.stderr
+    saved = (board_root / "TODO.md").read_text(encoding="utf-8")
+    assert "[state: in-progress]" in saved
+
+
+def test_cli_reopen_is_not_blocked_by_the_guard(tmp_path):
+    # `reopen` is the command the guard's refusal message points at — it
+    # must keep working un-gated, since it's the deliberate way to reopen
+    # a done item on purpose.
+    board_root = _make_board_root(tmp_path, SHOW_FIXTURE)
+    result = _run_cli(board_root, "reopen", "H6")
+    assert result.returncode == 0, result.stderr
+    saved = (board_root / "TODO.md").read_text(encoding="utf-8")
+    assert "- [ ] **H6." in saved
 
 
 # ---------------------------------------------------------------------

@@ -25,8 +25,16 @@ A TODO.md item line looks like this:
   clears the done marker and leaves the state at to do.
 - `[state: in-progress]`, `[state: blocked: <reason>]`,
   `[state: review: feature-<ID>-<slug>]`, `[state: rejected: <reason>]` or
-  `[state: uat: <link>]` is the workflow state. Absent means to do. It is
-  meaningless once the item is done (the checkbox wins). The `review`
+  `[state: uat: <link>]` is the workflow state. Absent means to do. While
+  the item is done, this tag is never rendered on the line (the checkbox
+  wins) — but writing to it is not meaningless (H55/H57 correction: that
+  used to read the other way round, when a state-setting write on a done
+  item was a silent no-op instead). `set_state` always clears the item's
+  done marker first, since every state it can assign is a non-done state,
+  so calling `start`/`block`/`todo` (or `set_state` directly) on a done
+  item un-ticks it and erases its done date and commit; `scripts/backlog.py`
+  refuses to do this unless `--force` is passed, pointing at `reopen`
+  instead (see "The CLI" below). The `review`
   state and its branch are set by `scripts/session.sh finish` and
   consumed by `scripts/integrate.py`, see "Branch per item" below.
   `in-progress` can carry its own `[branch: <name>]` tag too (H31): set
@@ -131,6 +139,12 @@ either file. It exposes:
   `.items()` and `.questions()` returning plain dicts ready to serialise.
 - `set_done(item_id, done, commit=None, actor="claude")`
 - `set_state(item_id, state, reason=None, branch=None, link=None, uat_review=False, actor="claude")`:
+  always clears the item's `done`/`done_at`/`commit` first, since every
+  `state` this can assign is a non-done state by construction (H55); if
+  the item was done going in, it also appends a one-line dated note
+  recording the outgoing done date/commit and the state it moved to,
+  since git history of `TODO.md` isn't a real recovery path for Kevin on
+  his phone (H57).
   `state` is `"todo"`, `"in-progress"` (optionally takes `branch`, see
   below), `"blocked"` (needs `reason`), `"review"` (needs `branch`),
   `"rejected"` (needs `reason`; retains the item's existing branch unless
@@ -222,6 +236,12 @@ manual start from the board. This is also what `start` narrows its own
 guard on: an `in-progress` item is only startable again through
 `scripts/session.sh start` when it has NO branch recorded, see "Branch
 per item" below.
+
+`start`, `block` and `todo` refuse an item whose state is `done` unless
+`--force` is passed (H57), mirroring the guard `scripts/session.sh start`
+already had; the refusal names `reopen` as the command for deliberately
+reopening a done item, since that is the one that just clears the done
+marker without stamping a new `[state: ...]` tag on top of it.
 
 `priority` defaults to `p3` when never set. `unblocks` takes a
 comma-separated list of question ids (`Q5,Q6`); pass an empty string
