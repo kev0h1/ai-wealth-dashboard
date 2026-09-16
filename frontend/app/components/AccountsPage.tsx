@@ -204,25 +204,27 @@ const MANUAL_KIND: Record<ManualAccountType, AccountKind> = {
  *  below. Shape-matches the real list view (header hero incl. net-worth
  *  block, find bar, lens chips, a handful of ledger rows) at the same
  *  positions and approximate heights, so the swap to real content doesn't
- *  itself shift anything. BottomNav is mounted once in app/layout.tsx
- *  (G79) rather than by this page, so it's already real (never a
- *  placeholder) and navigation stays available while the page settles
- *  with no extra work here. No entrance animation on the blocks
- *  themselves beyond the shared `animate-pulse` shimmer — this codebase's
- *  rule against visibility-gating cascades. */
+ *  itself shift anything. The header block sits directly on the canvas
+ *  (no card) to match the live header (Canvas Before Cards, G87 Variant A).
+ *  BottomNav is mounted once in app/layout.tsx (G79) rather than by this
+ *  page, so it's already real (never a placeholder) and navigation stays
+ *  available while the page settles with no extra work here. No entrance
+ *  animation on the blocks themselves beyond the shared `animate-pulse`
+ *  shimmer — this codebase's rule against visibility-gating cascades. */
 function AccountsSkeleton() {
   return (
     <div className="min-h-dvh pb-[calc(9rem+env(safe-area-inset-bottom,0px))]" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }} aria-hidden="true">
-      <div className="mx-4 mt-4 rounded-3xl px-4 pt-5 pb-5 glass-card animate-pulse">
+      <div className="px-4 pt-4 animate-pulse">
         <div className="mb-4">
-          <div className="h-5 w-24 rounded bg-slate-200 dark:bg-slate-700" />
-          <div className="flex items-start justify-between gap-3 mt-3">
+          <div className="h-6 w-24 rounded bg-slate-200 dark:bg-slate-700" />
+          <div className="h-3 w-56 rounded bg-slate-200 dark:bg-slate-700 mt-2" />
+          <div className="flex items-start justify-between gap-3 mt-5">
             <div className="min-w-0 space-y-2">
               <div className="h-2.5 w-20 rounded bg-slate-200 dark:bg-slate-700" />
-              <div className="h-7 w-32 rounded bg-slate-200 dark:bg-slate-700" />
+              <div className="h-8 w-36 rounded bg-slate-200 dark:bg-slate-700" />
               <div className="h-2.5 w-40 rounded bg-slate-200 dark:bg-slate-700" />
             </div>
-            <div className="w-9 h-9 rounded-full bg-slate-200 dark:bg-slate-700 flex-shrink-0" />
+            <div className="w-11 h-11 rounded-full bg-slate-200 dark:bg-slate-700 flex-shrink-0" />
           </div>
         </div>
         <div className="h-[42px] rounded-xl bg-slate-200 dark:bg-slate-700" />
@@ -2032,8 +2034,13 @@ export default function AccountsPage() {
     return (
       <div className="min-h-dvh pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8 lg:max-w-6xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
         {/* Header — mini statement: back + compact icon actions, reconnect
-            banner only when genuinely expired, then balance-forward block. */}
-        <div className="mx-4 mt-4 rounded-3xl px-4 pt-5 pb-6 glass-card">
+            banner only when genuinely expired, then balance-forward block.
+            Canvas Before Cards (G87, Variant A "Quiet position", Kevin
+            approved 2026-09-16): the header lives directly on the canvas,
+            closed off by the horizontal rule below rather than a card
+            boundary — the transaction/category panel underneath keeps its
+            own card. */}
+        <div className="px-4 pt-4">
           <div className="flex items-center justify-between mb-4 gap-2">
             <button
               onClick={handleBack}
@@ -2161,6 +2168,10 @@ export default function AccountsPage() {
           <p className="mt-2 text-[13px] text-slate-500 dark:text-slate-400">
             {accountKindLabel(accountKind(selectedAccount))} · {selectedAccount.provider}
           </p>
+          {/* The horizontal rule Kevin asked to keep (G87 approval,
+              2026-09-16): it closes off the canvas header in place of the
+              card boundary that used to do that job. */}
+          <div className="mt-5 border-t border-slate-300/80 dark:border-slate-700" />
         </div>
 
         {pinMsg && (
@@ -2443,16 +2454,21 @@ export default function AccountsPage() {
           screen the same way the bank account detail does; the zero-state
           (no investments yet) keeps the hero, since its cold-start "Add
           contract note" flow is the only way to create a first investment
-          account without a statement. relative + z-30 so this card's own
-          backdrop-filter stacking context (from .glass-card) doesn't trap
-          the "+ Add" popover beneath later siblings (find bar, lens chips,
-          sticky group headers) that paint after it in DOM order. */}
+          account without a statement. Canvas Before Cards (G87, Variant A
+          "Quiet position", Kevin approved 2026-09-16): the title, net
+          worth reading and its context line sit directly on the canvas,
+          not in a card — the account-group cards below already carry the
+          evidence, so nothing here repeats as a second hero. relative +
+          z-30 so the "+ Add" popover stacks above later siblings (find
+          bar, lens chips, sticky group headers) that paint after it in
+          DOM order. */}
       {(tab === "Banks" || investmentAccounts.length === 0) && (
       <div
-        className="relative z-30 mx-4 mt-4 rounded-3xl px-4 pt-5 pb-5 glass-card"
+        className="relative z-30 px-4 pt-4 pb-6"
       >
         <div className="mb-4">
-          <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Accounts</h1>
+          <h1 className="text-[26px] font-bold leading-tight tracking-[-0.03em] text-slate-950 dark:text-white">Accounts</h1>
+          <p className="mt-1 max-w-[62ch] text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-400">Everything you own and owe, in one position.</p>
           {kpis && (() => {
             const cardTotal = accounts
               .filter(a => {
@@ -2463,13 +2479,17 @@ export default function AccountsPage() {
               .reduce((sum, a) => sum + Math.abs(Math.min(a.balance, 0)), 0);
             // Net worth is a position, not a risk — it stays hero-white even
             // when negative (Red Is Risk keeps red for genuine risk states).
-            // Quieter than the old 3xl treatment: present, not shouting.
+            // Canvas Before Cards (DESIGN.md 2026-09-15): the page title,
+            // this reading, and its context line sit directly on the
+            // canvas — no card boundary — since account-group cards below
+            // already carry the evidence (G87, Kevin approved Variant A
+            // "Quiet position" 2026-09-16).
             return (
-              <div data-tutorial-id="tutorial-networth" className="flex items-start justify-between gap-3 mt-3">
+              <div data-tutorial-id="tutorial-networth" className="flex items-start justify-between gap-3 mt-5">
                 <div className="min-w-0">
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Net worth</p>
                   <p
-                    className="mt-1 text-2xl font-bold tracking-tight money text-slate-900 dark:text-slate-100 leading-none"
+                    className="mt-1 text-[34px] font-bold leading-none tracking-[-0.035em] money text-slate-950 dark:text-white"
                     aria-label={hideNetWorth ? "Balance hidden" : undefined}
                   >
                     {hideNetWorth
@@ -2494,9 +2514,9 @@ export default function AccountsPage() {
                 <button
                   onClick={() => setHideNetWorth(!hideNetWorth)}
                   aria-label={hideNetWorth ? "Show balance" : "Hide balance"}
-                  className="w-9 h-9 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-700 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors flex-shrink-0 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                  className="w-11 h-11 flex items-center justify-center rounded-full bg-slate-200/70 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-300/70 dark:hover:bg-slate-700 transition-colors flex-shrink-0 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
                 >
-                  {hideNetWorth ? <EyeOff size={16} /> : <Eye size={16} />}
+                  {hideNetWorth ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>
               </div>
             );
@@ -2690,9 +2710,9 @@ export default function AccountsPage() {
             are now folded into the unified estate list below; the
             "Investments" tab value still exists internally as the drill-in
             view an investment row navigates to (see handleEstateRowClick),
-            reachable via the existing ?tab=Investments deep link too. No
-            trailing spacer here — the card's own pb-5 is the only space
-            below the Add button/upload row; don't reintroduce dead space. */}
+            reachable via the existing ?tab=Investments deep link too. The
+            header block's own pb-6 is the only space below the Add
+            button/upload row; don't reintroduce dead space here. */}
       </div>
       )}
 
