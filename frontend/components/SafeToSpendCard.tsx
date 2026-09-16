@@ -7,6 +7,7 @@ import { SafeToSpend } from "@/lib/api";
 import { usePreferences } from "@/components/PreferencesContext";
 import { setPennyScreenView } from "@/components/PennySheetProvider";
 import { zeroSafe, deriveSafeToSpendHeadline, buildSafeToSpendView } from "@/lib/pennyScreenViews";
+import { spendFromHeroLine, spendFromAlternativeLine, type SpendFromResult } from "@/lib/spendFromAccount";
 import MoneyText from "@/components/MoneyText";
 
 interface SafeToSpendCardProps {
@@ -14,6 +15,10 @@ interface SafeToSpendCardProps {
   loading?: boolean;
   error?: boolean;
   onRetry?: () => void;
+  // G110 — one quiet line naming the best account to spend from, plus (in
+  // the "How we got £X" disclosure) the next alternative. Optional/absent
+  // is a plain no-render, same as every other degraded-data path here.
+  spendFrom?: SpendFromResult | null;
 }
 
 function fmt(value: number): string {
@@ -154,7 +159,7 @@ function CardBalanceFact({
   );
 }
 
-export default function SafeToSpendCard({ data, loading, error, onRetry }: SafeToSpendCardProps) {
+export default function SafeToSpendCard({ data, loading, error, onRetry, spendFrom }: SafeToSpendCardProps) {
   const { hideNetWorth, preferencesReady } = usePreferences();
   const router = useRouter();
   const hidden = hideNetWorth || !preferencesReady;
@@ -273,6 +278,14 @@ export default function SafeToSpendCard({ data, loading, error, onRetry }: SafeT
     ? `The cash forecast found ${amount(cashRunway)}, then held back ${amount(cardReserve)} for an unconfirmed card repayment.`
     : `After ${listPhrase(contextParts)}.`;
 
+  // G110 — the figure above is the whole pool; this names ONE account, so
+  // it deliberately never reads as a slice of it (see lib/spendFromAccount.ts's
+  // own doc comment on why). `needsAttention` drives a signifier dot, never
+  // a text/money colour change (amber lives in the signifier only).
+  const spendFromLine = spendFrom ? spendFromHeroLine(spendFrom, amount) : null;
+  const spendFromAltLine = spendFrom ? spendFromAlternativeLine(spendFrom, amount) : null;
+  const spendFromNeedsAttention = spendFrom?.kind === "savings_pot" || spendFrom?.kind === "none";
+
   const pace = data.pace;
   const showPace = pace != null && ["comfortable", "on_pace", "ahead", "early"].includes(pace.state) && pace.sustainable != null;
   const freshnessLabel = syncAgeLabel(data.last_synced);
@@ -324,6 +337,15 @@ export default function SafeToSpendCard({ data, loading, error, onRetry }: SafeT
       </h2>
 
       <p className="mt-2 text-[13px] leading-snug text-slate-500 dark:text-slate-400 text-pretty"><MoneyText text={heroContext} /></p>
+
+      {spendFromLine && (
+        <p className="mt-1.5 flex items-start gap-1.5 text-[12px] leading-snug text-slate-500 dark:text-slate-400 text-pretty">
+          {spendFromNeedsAttention && (
+            <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" aria-hidden="true" />
+          )}
+          <MoneyText text={spendFromLine} />
+        </p>
+      )}
 
       {cardGrowth > 0 && (
         <CardBalanceFact
@@ -379,6 +401,10 @@ export default function SafeToSpendCard({ data, loading, error, onRetry }: SafeT
 
             {(data.pooled_transfers_excluded ?? 0) > 0 && (
               <p className="mt-3 text-xs leading-relaxed text-slate-500 dark:text-slate-400 text-pretty">Transfers between your own included accounts do not change the total, so they are left out of this calculation.</p>
+            )}
+
+            {spendFromAltLine && (
+              <p className="mt-3 text-xs leading-relaxed text-slate-500 dark:text-slate-400 text-pretty"><MoneyText text={spendFromAltLine} /></p>
             )}
           </div>
         </details>

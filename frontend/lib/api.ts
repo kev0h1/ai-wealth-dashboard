@@ -1413,11 +1413,6 @@ export type CompanionItem = {
   } | null;
 };
 
-export type TodayResponse = {
-  status: "ok";
-  items: CompanionItem[];
-};
-
 /**
  * Per-account read of the cover-plan source finder's own usability test
  * (backend `_account_usable_by_finder`, G50, 2026-09-12). `short` mirrors
@@ -1434,13 +1429,20 @@ export type TodayResponse = {
  * destination being funded, it's toggled off, it's already been used
  * elsewhere this request) — those describe one specific funding attempt,
  * not a standing fact about the account, so they're out of scope for this
- * destination-independent read. Present on `GET /today/cover-plan` only.
+ * destination-independent read. G110 (2026-09-16): present on plain
+ * `GET /today` too (Home's "spend from" line, lib/spendFromAccount.ts),
+ * not just `GET /today/cover-plan` — same underlying snapshot, one more
+ * key on a response Home already fetches every load, no extra backend work.
  */
 export type AccountEligibility = { short: boolean; headroom: number };
 
-export type CoverPlanResponse = TodayResponse & {
+export type TodayResponse = {
+  status: "ok";
+  items: CompanionItem[];
   account_eligibility?: Record<string, AccountEligibility>;
 };
+
+export type CoverPlanResponse = TodayResponse;
 
 export type SavingsAccountOption = {
   account_id: string;

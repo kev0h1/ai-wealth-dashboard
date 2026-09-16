@@ -6,8 +6,7 @@ import type { Account } from "@/lib/api";
 import { accountBrand, BankBadge } from "@/components/AccountMiniCard";
 import MoneyText from "@/components/MoneyText";
 import Toggle from "@/components/Toggle";
-
-type SourceClass = "current" | "savings";
+import { sourceClass, type SourceClass } from "@/lib/coverPlanSourceClass";
 
 type SourceGroup = {
   kind: SourceClass;
@@ -65,14 +64,6 @@ const NO_SHORT_ACCOUNTS = new Set<string>();
 
 function maskMoney(text: string, hidden: boolean): string {
   return hidden ? text.replace(/[~−+-]?£[\d,]+(?:\.\d+)?/gi, "£••••") : text;
-}
-
-function sourceClass(account: Account): SourceClass {
-  const type = (account.type ?? "").toLowerCase();
-  const subtype = (account.subtype ?? "").toLowerCase();
-  return type.includes("saving") || subtype.includes("saving") || subtype.includes("isa")
-    ? "savings"
-    : "current";
 }
 
 // The engine's own eligibility, not whichever move card happens to be live

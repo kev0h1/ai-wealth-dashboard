@@ -32,8 +32,17 @@ async def get_today(payday_preview: int = 0, user: dict = Depends(current_user))
         if cached is not None:
             return cached
         v = await response_cache.snapshot(uid)
-    items = await compute_today_items(uid, payday_preview=preview)
-    payload = {"status": "ok", "items": items}
+    # G110 (2026-09-16): Home's Safe-to-Spend card names the best account to
+    # spend from, straight from the SAME `account_eligibility` snapshot
+    # `/today/cover-plan` already exposes to Settings (see that handler's
+    # own docstring) — a pure, non-mutating read `compute_today_items`
+    # already does on every call, so this adds no extra computation, only
+    # one more key on a response Home already fetches every load.
+    account_eligibility: dict = {}
+    items = await compute_today_items(
+        uid, payday_preview=preview, account_eligibility_out=account_eligibility,
+    )
+    payload = {"status": "ok", "items": items, "account_eligibility": account_eligibility}
     if not preview:
         await response_cache.aput("today", uid, payload, version=v)
     return payload
