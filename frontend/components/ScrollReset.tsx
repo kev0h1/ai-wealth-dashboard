@@ -2,6 +2,7 @@
 import { Suspense, useEffect, useLayoutEffect, useRef } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { trackRoute, savedScrollFor, restoreScroll } from "@/lib/scrollRestore";
+import { classifyNavigation } from "@/lib/scrollNavDetect";
 
 // Forward navigation (tapping a Link/tab, router.push/replace) starts at the
 // top — that's the one Next.js already does for PUSH by default, and the
@@ -20,16 +21,31 @@ import { trackRoute, savedScrollFor, restoreScroll } from "@/lib/scrollRestore";
 // pathname-change effect — before our listener's callback ever executes,
 // so the flag isn't set yet when it's read (verified directly: the
 // pathname effect observably ran ~5ms before our own `popstate` callback
-// fired). `window.history.length` sidesteps this entirely: it's read
-// synchronously inside the pathname effect itself, no listener race
-// possible. A PUSH always grows it (a new entry is appended); a POP never
-// does (traversal moves within the existing stack) — true for both real
-// back/forward and Next's TRAVERSE handling of it.
+// fired).
+//
+// It also deliberately does NOT use `window.history.length` (the previous
+// approach here, G108): length never shrinks on a real back — traversal
+// moves the position within the existing stack, it doesn't remove entries —
+// and a push performed AFTER a back truncates whatever was ahead and
+// appends exactly one entry, so the count nets out unchanged too. Both
+// cases read as "length didn't grow," which the old code took to mean POP.
+// That's exactly backwards for the second case: tap a nav icon right after
+// going back once, and it misreads the fresh push as a traversal and
+// restores wherever the user had scrolled to on that route last time,
+// dropping them at the bottom instead of the top they expect (Kevin's
+// report: "whenever I click on a nav icon it goes to the end of the page").
+// It also degrades permanently once a tab's real history length hits the
+// browser's cap, at which point it stops growing at all. See
+// lib/scrollNavDetect.ts for the replacement (a stamp on `history.state`
+// whose mere presence — not a length or index comparison — is read
+// straight off Next.js's own push-vs-traverse contract) and
+// scripts/scroll-nav-detect.test.mjs for a test that fails against this
+// old length-based algorithm and passes against the new one.
 function ScrollResetInner() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const search = searchParams.toString();
-  const lastHistoryLength = useRef<number | null>(null);
+  const navSeq = useRef(0);
 
   // Take manual control of scroll restoration once, up front, so the
   // browser's native one-shot POP restore never fights the gated restore
@@ -59,15 +75,27 @@ function ScrollResetInner() {
   }, [pathname, search]);
 
   useEffect(() => {
-    const length = window.history.length;
-    const isPop = lastHistoryLength.current != null && length <= lastHistoryLength.current;
-    lastHistoryLength.current = length;
+    // Read AFTER Next's own HistoryUpdater has already run for this
+    // navigation (its useInsertionEffect commits strictly before this
+    // passive effect, on every render, for every component), so
+    // window.history.state reflects the finished push/replace/traverse,
+    // not an in-between state.
+    const { isPop, stampedState } = classifyNavigation(window.history.state, navSeq.current + 1);
     if (isPop) {
       const saved = savedScrollFor(pathname, search);
       if (saved != null) {
         restoreScroll(saved);
         return;
       }
+    } else {
+      navSeq.current += 1;
+      // Not a real navigation of the URL (no `url` argument) — just stamps
+      // the current entry's state so a future traversal back to it is
+      // recognised. Goes through Next's patched `history.replaceState`
+      // (app-router.js), which merges Next's own __NA/
+      // __PRIVATE_NEXTJS_INTERNALS_TREE fields back in, so this can't
+      // corrupt the router's own state.
+      window.history.replaceState(stampedState, "");
     }
     // Covers real forward navigation, the initial page load, and the rare
     // case of a POP landing on a route with nothing saved for it yet — all
