@@ -160,18 +160,53 @@ export function formatDate(iso: string): string {
   return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 }
 
+// F20: seconds included (not just hour:minute) so two calls in the same
+// minute — a real pattern in Kevin's own log, e.g. two `get_category_spend`
+// reads four seconds apart — read as the distinct requests they are
+// instead of stacking as identical-looking rows. The alternative (grouping
+// same-tool repeats within a minute behind a "x2" count) would hide which
+// exact request a "Details" tap is describing and complicates the
+// cursor-paginated list (a repeat pair can straddle a page boundary);
+// showing the real, already-available precision is the lower-risk fix.
 export function formatDateTime(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   const date = d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-  const time = d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
+  const time = d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
   return `${date}, ${time}`;
 }
 
-// No shared TOOL_LABELS map exists yet (grepped, nothing else needs one) —
-// "get_safe_to_spend" -> "get safe to spend" reads fine for an audit log.
+// F20: a real map, not `tool.replace(/_/g, " ")` — the old fallback read
+// as a function name with the underscores knocked out ("get category
+// spend"), not English. Every tool `/mcp` can actually dispatch (F3's
+// `TOOL_SCHEMAS` minus `search_transactions`, see backend/app/routers/mcp.py's
+// `_EXCLUDED_TOOLS`) has an entry here; an unmapped name (a future tool
+// added to MCP before this map is updated) still falls back to the old
+// underscore-strip rather than showing nothing.
+const TOOL_LABELS: Record<string, string> = {
+  get_safe_to_spend: "safe to spend figure",
+  get_upcoming_bills: "upcoming bills",
+  get_accounts: "connected accounts",
+  get_spend_verdict: "spend verdict",
+  get_savings_position: "savings position",
+  get_debt_position: "debt position",
+  get_goals: "goals",
+  check_affordability: "affordability check",
+  get_category_spend: "category spend",
+  get_insights: "savings insights",
+  explain: "explanation",
+  get_tax_position: "tax position",
+  get_today_brief: "today's brief",
+  get_recurring_payments: "recurring payments",
+  get_account_activity: "account activity",
+  get_mirror: "Mirror portrait",
+  get_fill_candidates: "allocation fill options",
+  calculate: "calculation",
+  preview_trend_intent: "overspend preview",
+};
+
 export function toolLabel(tool: string): string {
-  return tool.replace(/_/g, " ");
+  return TOOL_LABELS[tool] ?? tool.replace(/_/g, " ");
 }
 
 export default function ConnectedAssistantsCard({

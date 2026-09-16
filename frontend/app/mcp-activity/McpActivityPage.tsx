@@ -11,12 +11,14 @@
 // tiebreaker) is a cursor, not a page-count — see backend/app/routers/mcp.py
 // get_mcp_audit's docstring for why a plain "row N of M" pager does not fit.
 //
-// Always fetches `month: "all"` (GET /mcp/audit's TTL-bounded full history),
-// unlike the card's own current-month-only call.
+// F20: fetches `month: "all"` (GET /mcp/audit's TTL-bounded full history)
+// by default, unlike the card's own current-month-only call, but the "Time
+// range" fieldset below is a real, working toggle onto `month: "YYYY-MM"`
+// for the current month — see currentYearMonth()'s comment.
 
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Check, Filter } from "lucide-react";
+import { ArrowLeft, Check } from "lucide-react";
 import { api, type McpAuditCall } from "@/lib/api";
 import { formatDateTime, toolLabel } from "@/components/ConnectedAssistantsCard";
 import Spinner from "@/components/Spinner";
@@ -24,6 +26,34 @@ import Spinner from "@/components/Spinner";
 const PAGE_SIZE = 20;
 
 type LoadState = "loading" | "ready" | "error";
+
+// F20: `client: "session"` is backend/app/routers/mcp.py's F3 session-bearer
+// stopgap — Kevin's own signed-in app reading his data through the same
+// tool dispatch a real MCP client uses (see resolve_mcp_principal's own
+// comment). It is a real, read-only access and stays in the log (an audit
+// log that quietly dropped some of its own reads would be worse than one
+// with an odd label), but it is not a connected assistant: Kevin has one
+// (Claude), not two. Kept out of the "N connected assistants" count and
+// given its own display name rather than sitting next to "Claude" as if
+// it were a peer assistant.
+const SESSION_CLIENT = "session";
+
+function clientDisplayName(client: string): string {
+  return client === SESSION_CLIENT ? "You, in the app" : client;
+}
+
+// F20: the endpoint already supports a real per-month scope (`month`,
+// backend/app/routers/mcp.py get_mcp_audit — "all" drops the year_month
+// filter, an explicit "YYYY-MM" narrows to it), this page just never used
+// anything but "all". A client-side filter over the loaded page would only
+// filter whatever page is already in hand (this list is cursor-paginated,
+// not fully loaded), so the toggle below re-fetches from the server.
+function currentYearMonth(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+type MonthScope = "all" | "month";
 
 // Local calendar day (not UTC) so "Today"/"Yesterday" match the device
 // clock, same as every other date heading in the app.
@@ -78,6 +108,7 @@ export default function McpActivityPage() {
   const router = useRouter();
 
   const [clientFilter, setClientFilter] = useState<string | null>(null);
+  const [monthScope, setMonthScope] = useState<MonthScope>("all");
   const [clients, setClients] = useState<string[]>([]);
   const [items, setItems] = useState<McpAuditCall[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -87,9 +118,10 @@ export default function McpActivityPage() {
   // `${ts}-${index in that render}` since a row has no server-issued id.
   const [openRow, setOpenRow] = useState<string | null>(null);
 
-  const loadFirstPage = useCallback((client: string | null) => {
+  const loadFirstPage = useCallback((client: string | null, scope: MonthScope) => {
     setState("loading");
-    api.getMcpAudit("all", PAGE_SIZE, { client: client || undefined })
+    const month = scope === "all" ? "all" : currentYearMonth();
+    api.getMcpAudit(month, PAGE_SIZE, { client: client || undefined })
       .then((r) => {
         setItems(r.calls);
         setNextCursor(r.next_cursor);
@@ -99,12 +131,13 @@ export default function McpActivityPage() {
       .catch(() => setState("error"));
   }, []);
 
-  useEffect(() => { loadFirstPage(clientFilter); }, [clientFilter, loadFirstPage]);
+  useEffect(() => { loadFirstPage(clientFilter, monthScope); }, [clientFilter, monthScope, loadFirstPage]);
 
   function handleLoadMore() {
     if (!nextCursor || loadingMore) return;
     setLoadingMore(true);
-    api.getMcpAudit("all", PAGE_SIZE, { client: clientFilter || undefined, cursor: nextCursor })
+    const month = monthScope === "all" ? "all" : currentYearMonth();
+    api.getMcpAudit(month, PAGE_SIZE, { client: clientFilter || undefined, cursor: nextCursor })
       .then((r) => {
         setItems((prev) => [...prev, ...r.calls]);
         setNextCursor(r.next_cursor);
@@ -114,6 +147,16 @@ export default function McpActivityPage() {
   }
 
   const groups = groupByDay(items);
+  // F20: only real OAuth-connected assistants count toward "N connected
+  // assistants" — Kevin's own session rows are real reads, not a second
+  // assistant. Session sorts last in the filter row so the real
+  // assistants read first.
+  const assistantClients = clients.filter((c) => c !== SESSION_CLIENT);
+  const sortedClients = [...clients].sort((a, b) => {
+    if (a === SESSION_CLIENT) return 1;
+    if (b === SESSION_CLIENT) return -1;
+    return a.localeCompare(b);
+  });
 
   return (
     <div className="min-h-dvh pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8 lg:max-w-2xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
@@ -148,9 +191,20 @@ export default function McpActivityPage() {
         {state === "ready" && items.length > 0 && (
           <p className="mt-3 border-l-2 border-emerald-500 pl-3 text-sm leading-6 text-slate-600 dark:text-slate-300">
             <strong className="text-slate-900 dark:text-slate-100">
-              {clients.length} connected assistant{clients.length === 1 ? "" : "s"}.
+              {assistantClients.length > 0
+                ? `${assistantClients.length} connected assistant${assistantClients.length === 1 ? "" : "s"}.`
+                : "No assistant connected yet."}
             </strong>{" "}
             Every request is read-only. Latest record: {formatLatestRecord(items[0].ts)}.
+          </p>
+        )}
+        {/* F20: explains the "You, in the app" rows/chip below — they are
+            Kevin's own signed-in app reading his data (see SESSION_CLIENT's
+            comment above), not hidden, just named honestly and kept out of
+            the assistant count above. */}
+        {clients.includes(SESSION_CLIENT) && (
+          <p className="mt-2 text-xs leading-5 text-slate-400 dark:text-slate-500">
+            Rows marked &quot;You, in the app&quot; are Sorted itself reading your data on your own behalf, not a connected assistant.
           </p>
         )}
 
@@ -167,9 +221,9 @@ export default function McpActivityPage() {
                   : "border border-slate-200 bg-white text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
               }`}
             >
-              All assistants
+              All activity
             </button>
-            {clients.map((c) => (
+            {sortedClients.map((c) => (
               <button
                 type="button"
                 key={c}
@@ -181,21 +235,46 @@ export default function McpActivityPage() {
                     : "border border-slate-200 bg-white text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
                 }`}
               >
-                {c}
+                {clientDisplayName(c)}
               </button>
             ))}
-            {/* Informational, not interactive: GET /mcp/audit is always
-                called with month="all" (this page's whole point is the
-                full TTL-bounded history, not one month at a time), so
-                there is no second time scope to switch to yet. Wiring a
-                real per-month toggle needs a client-side month picker
-                that re-fetches from the server (not a filter over the
-                page already in hand, which would silently only filter
-                the loaded page) — left out of this item, see report. */}
-            <span className="inline-flex min-h-11 items-center gap-1 px-2 text-sm text-slate-500 dark:text-slate-400">
-              <Filter size={15} aria-hidden="true" />
+          </fieldset>
+        )}
+
+        {/* F20: a real, server-side date scope (previously a decorative
+            "All time" span next to the filter chips that never did
+            anything, its own comment admitting the endpoint was always
+            called with month="all"). Both options re-fetch GET /mcp/audit
+            with a different `month` value rather than filtering the page
+            already in hand, which would only affect the loaded page under
+            cursor pagination, not the true full-month set. */}
+        {clients.length > 0 && (
+          <fieldset className="mt-3 flex flex-wrap items-center gap-2">
+            <legend className="mb-2 text-sm font-semibold text-slate-700 dark:text-slate-200">Time range</legend>
+            <button
+              type="button"
+              onClick={() => setMonthScope("all")}
+              aria-pressed={monthScope === "all"}
+              className={`min-h-11 rounded-xl px-3 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+                monthScope === "all"
+                  ? "bg-indigo-600 text-white"
+                  : "border border-slate-200 bg-white text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+              }`}
+            >
               All time
-            </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setMonthScope("month")}
+              aria-pressed={monthScope === "month"}
+              className={`min-h-11 rounded-xl px-3 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+                monthScope === "month"
+                  ? "bg-indigo-600 text-white"
+                  : "border border-slate-200 bg-white text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+              }`}
+            >
+              This month
+            </button>
           </fieldset>
         )}
 
@@ -210,7 +289,7 @@ export default function McpActivityPage() {
             <p className="text-sm text-slate-600 dark:text-slate-400">Could not load the activity log.</p>
             <button
               type="button"
-              onClick={() => loadFirstPage(clientFilter)}
+              onClick={() => loadFirstPage(clientFilter, monthScope)}
               className="mt-2 text-[13px] font-semibold text-indigo-600 dark:text-indigo-400 active:opacity-70 transition-opacity"
             >
               Try again
@@ -221,7 +300,9 @@ export default function McpActivityPage() {
         {state === "ready" && items.length === 0 && (
           <div className="py-8 text-center">
             <p className="text-sm text-slate-600 dark:text-slate-400">
-              {clientFilter ? `No activity from ${clientFilter} yet` : "No activity yet"}
+              {clientFilter
+                ? `No activity from ${clientDisplayName(clientFilter)}${monthScope === "month" ? " this month" : ""} yet`
+                : monthScope === "month" ? "No activity this month yet" : "No activity yet"}
             </p>
           </div>
         )}
@@ -255,7 +336,7 @@ export default function McpActivityPage() {
                           <span className="min-w-0 flex-1">
                             <span className="block text-sm text-slate-800 dark:text-slate-100 truncate">{toolLabel(call.tool)}</span>
                             <span className="block text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                              {call.client} · {formatDateTime(call.ts)}
+                              {clientDisplayName(call.client)} · {formatDateTime(call.ts)}
                             </span>
                           </span>
                           <span className="flex-shrink-0 text-xs font-semibold text-indigo-600 dark:text-indigo-400">
@@ -266,7 +347,7 @@ export default function McpActivityPage() {
                           <div className="border-t border-slate-100 px-4 py-3 text-xs leading-5 text-slate-600 dark:border-slate-700 dark:text-slate-300">
                             <p>
                               <strong className="text-slate-900 dark:text-slate-100">Scope:</strong>{" "}
-                              Read-only {toolLabel(call.tool)} request from {call.client}. No write action was made.
+                              Read-only {toolLabel(call.tool)} request from {clientDisplayName(call.client)}. No write action was made.
                             </p>
                             {!call.ok && (
                               <p className="mt-1">This request did not complete successfully.</p>
