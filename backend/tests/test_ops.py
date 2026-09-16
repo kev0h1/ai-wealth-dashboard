@@ -212,6 +212,56 @@ def test_item_action_todo_resets_in_progress_item(tmp_path, monkeypatch, mock_gi
     asyncio.run(_run())
 
 
+def test_item_action_start_block_reject_clear_done_flag_on_a_done_item(tmp_path, monkeypatch, mock_git):
+    # H55 correction round: `TodoDoc.set_state` (which "start"/"block" and
+    # `set_rejected`, which wraps it for "reject", both go through) used to
+    # leave `item.done` untouched. `to_dict()` always reports state "done"
+    # while that flag is true, and `_render_item_line` suppresses the
+    # whole `[state: ...]` tag while it's true too, so calling any of
+    # these three actions on an already-done item silently no-opped from
+    # the API response's point of view, even though the intended state was
+    # written underneath. This is what let the /ops/go-live "Move to"
+    # picker's In progress/Blocked/Rejected chips appear to do nothing
+    # when tapped on a done item. See the comment on `TodoDoc.set_state`.
+    monkeypatch.setattr(ops, "PRIMARY_EMAIL", "kevin.maingi12@gmail.com")
+    _write_repo(tmp_path)
+    monkeypatch.setattr(ops, "_repo_root", lambda: tmp_path)
+    user = {"email": "kevin.maingi12@gmail.com"}
+
+    async def _run():
+        # start
+        result = await ops.go_live_item_action("H3", ItemActionRequest(action="done"), user=user)
+        assert next(i for i in result["items"] if i["id"] == "H3")["state"] == "done"
+        result = await ops.go_live_item_action("H3", ItemActionRequest(action="start"), user=user)
+        item = next(i for i in result["items"] if i["id"] == "H3")
+        assert item["state"] == "in-progress"
+
+        # block
+        result = await ops.go_live_item_action("H3", ItemActionRequest(action="done"), user=user)
+        assert next(i for i in result["items"] if i["id"] == "H3")["state"] == "done"
+        result = await ops.go_live_item_action(
+            "H3", ItemActionRequest(action="block", reason="waiting on Kevin"), user=user
+        )
+        item = next(i for i in result["items"] if i["id"] == "H3")
+        assert item["state"] == "blocked"
+        assert item["reason"] == "waiting on Kevin"
+
+        # reject
+        result = await ops.go_live_item_action("H3", ItemActionRequest(action="done"), user=user)
+        assert next(i for i in result["items"] if i["id"] == "H3")["state"] == "done"
+        result = await ops.go_live_item_action(
+            "H3", ItemActionRequest(action="reject", reason="wrong approach"), user=user
+        )
+        item = next(i for i in result["items"] if i["id"] == "H3")
+        assert item["state"] == "rejected"
+        assert item["reason"] == "wrong approach"
+
+        saved = (tmp_path / "TODO.md").read_text(encoding="utf-8")
+        assert "- [x]" not in saved
+
+    asyncio.run(_run())
+
+
 def test_item_action_block_without_reason_is_400(tmp_path, monkeypatch, mock_git):
     monkeypatch.setattr(ops, "PRIMARY_EMAIL", "kevin.maingi12@gmail.com")
     _write_repo(tmp_path)

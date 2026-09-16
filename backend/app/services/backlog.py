@@ -636,6 +636,24 @@ class TodoDoc:
         # write a loopback URL to disk either.
         normalised_link = normalise_preview_link(link) if state == "uat" else None
         item = self.item(item_id)
+        # `state` here is always one of ITEM_STATES above, which never
+        # includes "done" — done is the separate `item.done` flag set by
+        # `set_done`, not a value this method ever receives. `to_dict()`
+        # reports `state = "done" if self.done else self.state` and
+        # `_render_item_line` suppresses the whole `[state: ...]` tag while
+        # `done` is true, so writing a new state here without also
+        # clearing `done` left the flag masking it: every caller of
+        # `set_state`/`set_rejected` (an ops.py action, a CLI command, a
+        # session finish, integrate marking an item blocked, an approve)
+        # would silently no-op on an already-done item, which is exactly
+        # what let the /ops/go-live "Move to" picker's In progress/Blocked/
+        # Rejected chips appear to do nothing on a done item (H55
+        # correction round). Since every state this method sets is a
+        # non-done state by construction, clearing done unconditionally is
+        # always correct here, not just for the picker's callers.
+        item.done = False
+        item.done_at = None
+        item.commit = None
         item.state = state
         item.reason = sanitised_reason if state in ("blocked", "rejected") else None
         if state == "review":
