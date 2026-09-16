@@ -510,6 +510,12 @@ def test_propose_dismiss_insight_happy_path(monkeypatch):
     assert result["kind"] == "dismiss_insight"
     assert result["params"] == {"insight_id": "i1"}
     assert len(fake_proposals.docs) == 1
+    # G80: the consequence text used to say "still visible on the Insights
+    # list" -- the Insights page retired 2026-09-04, and no such list
+    # exists any more (tips now surface on Home and per-category on Spend).
+    assert "Insights list" not in result["consequence"]
+    assert "Insights page" not in result["consequence"]
+    assert "Spend" in result["consequence"]
 
 
 def test_propose_pin_insight_missing_pinned_is_tool_error(monkeypatch):
@@ -538,6 +544,9 @@ def test_propose_pin_insight_unpin_happy_path(monkeypatch):
     assert result["proposal"] is True
     assert result["params"] == {"insight_id": "i1", "pinned": False}
     assert len(fake_proposals.docs) == 1
+    # G80: same retired-"Insights list" phrasing fixed on the pin consequence.
+    assert "Insights list" not in result["consequence"]
+    assert "Insights page" not in result["consequence"]
 
 
 def test_propose_save_insight_context_happy_path(monkeypatch):
