@@ -68,12 +68,12 @@ function account(overrides) {
   check(
     "hero line names the account and its own headroom, distinct from any pooled figure",
     spendFromHeroLine(result, amount),
-    "In Barclays Current: £142 spare right now.",
+    "In Barclays Current: £142 spare right now. This account only, not your full Safe to Spend.",
   );
   check(
     "alternative line names the second account",
     spendFromAlternativeLine(result, amount),
-    "Next best: HSBC Current, £38 spare.",
+    "Next best: HSBC Current, £38 spare in that account.",
   );
 }
 
@@ -94,7 +94,7 @@ function account(overrides) {
   check(
     "the copy says move it, never spend from it",
     spendFromHeroLine(result, amount),
-    "£340 spare sits in ISA Saver. Move it to Barclays Current before you spend it.",
+    "£340 spare sits in ISA Saver, this pot only, not your full Safe to Spend. Move it to Barclays Current before you spend it.",
   );
 }
 
@@ -113,7 +113,7 @@ function account(overrides) {
   check(
     "the copy is honest that nothing is currently reachable",
     spendFromHeroLine(result, amount),
-    "No single account has spare to spend from right now.",
+    "No single account has spare to spend from right now. Checked account by account, not against your full Safe to Spend.",
   );
 }
 
@@ -149,6 +149,43 @@ check("SPEND_FROM_HEADROOM_FLOOR mirrors _account_usable_by_finder's own floor",
 // ── No data yet ──────────────────────────────────────────────────────────────
 check("missing eligibility data renders nothing rather than a false 'none'", bestSpendAccount(undefined, []).kind, "unavailable");
 check("hero line is omitted (not a fallback sentence) while data is unavailable", spendFromHeroLine({ kind: "unavailable" }, amount), null);
+
+// ── Scope qualifier: the G110 review defect, as a rule not three strings ────
+// Per-account headroom is structurally UNBOUNDED relative to the pooled
+// headline (it deducts only that account's own bills and a flat buffer,
+// the headline deducts buffer, envelopes and commitments across the whole
+// pool), so "£120 spare" will routinely sit under "£46 safe". EVERY branch
+// that renders a figure must therefore say so in words, not leave the
+// account name and the word "spare" to imply it. Asserted over every
+// reachable SpendFromResult kind, so a new branch added later cannot ship
+// an unqualified figure just because nobody added a string check for it.
+{
+  const cases = [
+    ["account", { kind: "account", best: { accountId: "a", name: "A", provider: "p", headroom: 120 }, alternative: null }],
+    ["savings_pot (with a destination)", { kind: "savings_pot", best: { accountId: "s", name: "S", provider: "p", headroom: 120 }, moveTo: { accountId: "a", name: "A", provider: "p", headroom: 1 }, alternative: null }],
+    ["savings_pot (no destination)", { kind: "savings_pot", best: { accountId: "s", name: "S", provider: "p", headroom: 120 }, moveTo: null, alternative: null }],
+    ["none", { kind: "none" }],
+  ];
+  for (const [label, result] of cases) {
+    const line = spendFromHeroLine(result, amount);
+    check(`${label}: hero line is rendered`, typeof line, "string");
+    check(
+      `${label}: hero line states its scope against the pooled headline by name`,
+      /not (your full|against your full) Safe to Spend/.test(line ?? ""),
+      true,
+    );
+    check(`${label}: hero line uses no em dash (DESIGN.md)`, (line ?? "").includes("\u2014"), false);
+  }
+  const alt = spendFromAlternativeLine(
+    { kind: "account", best: { accountId: "a", name: "A", provider: "p", headroom: 120 }, alternative: { accountId: "b", name: "B", provider: "p", headroom: 38 } },
+    amount,
+  );
+  check(
+    "the disclosure's alternative line scopes its figure to one account too",
+    /spare in that account/.test(alt ?? ""),
+    true,
+  );
+}
 
 if (failures > 0) {
   console.error(`\n${failures} failure(s).`);

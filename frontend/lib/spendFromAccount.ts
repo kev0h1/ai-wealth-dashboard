@@ -126,7 +126,22 @@ export function bestSpendAccount(
 }
 
 /** One quiet line under the Safe-to-Spend hero. Never implies the figure is
- * part of the pooled headline above it — always names the account. */
+ * part of the pooled headline above it: it names the account AND states the
+ * difference in scope outright.
+ *
+ * G110 review, 2026-09-16: naming the account was not enough. Per-account
+ * headroom deducts only that account's own bills and a flat buffer
+ * (`_account_headroom`, backend/app/services/companion.py), while the
+ * headline above also deducts buffer, envelopes and commitments across the
+ * WHOLE pool, so the per-account figure is structurally UNBOUNDED relative
+ * to the headline and will routinely exceed it ("£120 spare" sitting under
+ * "£46 safe"). Leaving the account name and the word "spare" to carry that
+ * distinction is implication, not statement, and it recreates exactly the
+ * figure inconsistencies the item was written to avoid. Every branch below
+ * therefore carries a plain qualifier naming the narrower scope and the
+ * headline it is NOT part of, in the headline's own words ("Safe to
+ * Spend", matching the card's label). No em dashes, per DESIGN.md.
+ */
 export function spendFromHeroLine(
   result: SpendFromResult,
   amount: (value: number) => string,
@@ -135,13 +150,19 @@ export function spendFromHeroLine(
     case "unavailable":
       return null;
     case "none":
-      return "No single account has spare to spend from right now.";
+      // The sharpest version of the same confusion: the headline can read
+      // "£46 safe" while no single account has anything spare. Says which
+      // question was asked rather than leaving the two to collide.
+      return "No single account has spare to spend from right now. Checked account by account, not against your full Safe to Spend.";
     case "account":
-      return `In ${result.best.name}: ${amount(result.best.headroom)} spare right now.`;
+      return `In ${result.best.name}: ${amount(result.best.headroom)} spare right now. This account only, not your full Safe to Spend.`;
     case "savings_pot":
+      // Qualifier sits directly after the figure it bounds, before the
+      // "move it" instruction, so the scope is fixed at the moment the
+      // number is read rather than a sentence later.
       return result.moveTo
-        ? `${amount(result.best.headroom)} spare sits in ${result.best.name}. Move it to ${result.moveTo.name} before you spend it.`
-        : `${amount(result.best.headroom)} spare sits in ${result.best.name}. Move it to a current account before you spend it.`;
+        ? `${amount(result.best.headroom)} spare sits in ${result.best.name}, this pot only, not your full Safe to Spend. Move it to ${result.moveTo.name} before you spend it.`
+        : `${amount(result.best.headroom)} spare sits in ${result.best.name}, this pot only, not your full Safe to Spend. Move it to a current account before you spend it.`;
   }
 }
 
@@ -154,5 +175,9 @@ export function spendFromAlternativeLine(
 ): string | null {
   if (result.kind !== "account" && result.kind !== "savings_pot") return null;
   if (!result.alternative) return null;
-  return `Next best: ${result.alternative.name}, ${amount(result.alternative.headroom)} spare.`;
+  // Same scope qualifier as the hero line, in its shortest honest form:
+  // this line sits inside the "How we got £X" ledger, which itemises the
+  // POOLED calculation, so an unqualified "£38 spare" reads as one of that
+  // ledger's own rows.
+  return `Next best: ${result.alternative.name}, ${amount(result.alternative.headroom)} spare in that account.`;
 }

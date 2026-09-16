@@ -435,6 +435,9 @@ cmd_finish() {
   log "checking pooled cash-walk predicates in $worktree_dir/frontend..."
   (cd "$worktree_dir/frontend" && npm run -s check:cash-walk)
 
+  log "checking spend-from-account ranking and scope copy in $worktree_dir/frontend..."
+  (cd "$worktree_dir/frontend" && npm run -s check:spend-from-account)
+
   log "pushing $branch..."
   git -C "$worktree_dir" push -u origin "$branch"
 
