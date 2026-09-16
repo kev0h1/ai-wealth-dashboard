@@ -16,7 +16,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Check } from "lucide-react";
+import { ArrowLeft, Check, Filter } from "lucide-react";
 import { api, type McpAuditCall } from "@/lib/api";
 import { formatDateTime, toolLabel } from "@/components/ConnectedAssistantsCard";
 import Spinner from "@/components/Spinner";
@@ -63,6 +63,17 @@ function groupByDay(items: McpAuditCall[]): { key: string; heading: string; rows
   return groups;
 }
 
+// G101 (variant A, see app/design/mcp-activity-canvas-before-cards):
+// the context line's "Latest record: today at 10:42" phrasing, built from
+// the same day-heading logic as the row groups above so "today"/"yesterday"
+// always agree with the rows underneath it.
+function formatLatestRecord(iso: string): string {
+  const heading = formatDayHeading(iso);
+  const time = new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
+  const dayPart = heading === "Today" || heading === "Yesterday" ? heading.toLowerCase() : `on ${heading}`;
+  return `${dayPart} at ${time}`;
+}
+
 export default function McpActivityPage() {
   const router = useRouter();
 
@@ -72,6 +83,9 @@ export default function McpActivityPage() {
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [state, setState] = useState<LoadState>("loading");
   const [loadingMore, setLoadingMore] = useState(false);
+  // G101 variant A: which row's "Details" panel is open, keyed by
+  // `${ts}-${index in that render}` since a row has no server-issued id.
+  const [openRow, setOpenRow] = useState<string | null>(null);
 
   const loadFirstPage = useCallback((client: string | null) => {
     setState("loading");
@@ -120,39 +134,71 @@ export default function McpActivityPage() {
             <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Activity log</h1>
           </div>
         </div>
+      </div>
+
+      <div className="px-4 pt-4">
+        {/* G101 variant A: canvas header copy (description + context line),
+            ported from app/design/mcp-activity-canvas-before-cards. The
+            context line only appears once there is a real row to describe
+            (state "ready" with at least one item), so it never states a
+            "latest record" that does not exist. */}
+        <p className="text-sm leading-6 text-slate-600 dark:text-slate-400">
+          Check which connected assistant made each request, when it happened and the read-only scope recorded for it.
+        </p>
+        {state === "ready" && items.length > 0 && (
+          <p className="mt-3 border-l-2 border-emerald-500 pl-3 text-sm leading-6 text-slate-600 dark:text-slate-300">
+            <strong className="text-slate-900 dark:text-slate-100">
+              {clients.length} connected assistant{clients.length === 1 ? "" : "s"}.
+            </strong>{" "}
+            Every request is read-only. Latest record: {formatLatestRecord(items[0].ts)}.
+          </p>
+        )}
 
         {clients.length > 0 && (
-          <div className="px-4 pb-3 flex items-center gap-1.5 flex-wrap">
+          <fieldset className="mt-4 flex flex-wrap items-center gap-2">
+            <legend className="mb-2 text-sm font-semibold text-slate-700 dark:text-slate-200">Filter activity</legend>
             <button
               type="button"
               onClick={() => setClientFilter(null)}
-              className={`flex-shrink-0 min-h-[28px] px-2.5 py-0.5 rounded-full text-[11px] font-semibold transition-colors ${
+              aria-pressed={clientFilter === null}
+              className={`min-h-11 rounded-xl px-3 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
                 clientFilter === null
-                  ? "bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-300"
-                  : "bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300"
+                  ? "bg-indigo-600 text-white"
+                  : "border border-slate-200 bg-white text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
               }`}
             >
               All assistants
             </button>
             {clients.map((c) => (
               <button
-                key={c}
                 type="button"
+                key={c}
                 onClick={() => setClientFilter(c)}
-                className={`flex-shrink-0 min-h-[28px] px-2.5 py-0.5 rounded-full text-[11px] font-semibold transition-colors ${
+                aria-pressed={clientFilter === c}
+                className={`min-h-11 rounded-xl px-3 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
                   clientFilter === c
-                    ? "bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-300"
-                    : "bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300"
+                    ? "bg-indigo-600 text-white"
+                    : "border border-slate-200 bg-white text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
                 }`}
               >
                 {c}
               </button>
             ))}
-          </div>
+            {/* Informational, not interactive: GET /mcp/audit is always
+                called with month="all" (this page's whole point is the
+                full TTL-bounded history, not one month at a time), so
+                there is no second time scope to switch to yet. Wiring a
+                real per-month toggle needs a client-side month picker
+                that re-fetches from the server (not a filter over the
+                page already in hand, which would silently only filter
+                the loaded page) — left out of this item, see report. */}
+            <span className="inline-flex min-h-11 items-center gap-1 px-2 text-sm text-slate-500 dark:text-slate-400">
+              <Filter size={15} aria-hidden="true" />
+              All time
+            </span>
+          </fieldset>
         )}
-      </div>
 
-      <div className="px-4 pt-4">
         {state === "loading" && (
           <div className="flex items-center justify-center py-16">
             <Spinner size={32} />
@@ -188,23 +234,48 @@ export default function McpActivityPage() {
                   {group.heading}
                 </p>
                 <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden divide-y divide-slate-50 dark:divide-slate-700">
-                  {group.rows.map((call, i) => (
-                    <div key={i} className="flex items-center gap-3 px-4 py-3 min-h-[44px]">
-                      {call.ok ? (
-                        <Check size={14} className="flex-shrink-0 text-slate-400 dark:text-slate-500" aria-hidden="true" />
-                      ) : (
-                        <span className="flex-shrink-0 text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
-                          Failed
-                        </span>
-                      )}
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm text-slate-800 dark:text-slate-100 truncate">{toolLabel(call.tool)}</p>
-                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                          {call.client} · {formatDateTime(call.ts)}
-                        </p>
+                  {group.rows.map((call, i) => {
+                    const rowId = `${call.ts}-${i}`;
+                    const isOpen = openRow === rowId;
+                    return (
+                      <div key={rowId}>
+                        <button
+                          type="button"
+                          onClick={() => setOpenRow(isOpen ? null : rowId)}
+                          aria-expanded={isOpen}
+                          className="flex w-full items-center gap-3 px-4 py-3 min-h-[44px] text-left hover:bg-slate-50 dark:hover:bg-slate-700/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500"
+                        >
+                          {call.ok ? (
+                            <Check size={14} className="flex-shrink-0 text-slate-400 dark:text-slate-500" aria-hidden="true" />
+                          ) : (
+                            <span className="flex-shrink-0 text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                              Failed
+                            </span>
+                          )}
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-sm text-slate-800 dark:text-slate-100 truncate">{toolLabel(call.tool)}</span>
+                            <span className="block text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                              {call.client} · {formatDateTime(call.ts)}
+                            </span>
+                          </span>
+                          <span className="flex-shrink-0 text-xs font-semibold text-indigo-600 dark:text-indigo-400">
+                            Details
+                          </span>
+                        </button>
+                        {isOpen && (
+                          <div className="border-t border-slate-100 px-4 py-3 text-xs leading-5 text-slate-600 dark:border-slate-700 dark:text-slate-300">
+                            <p>
+                              <strong className="text-slate-900 dark:text-slate-100">Scope:</strong>{" "}
+                              Read-only {toolLabel(call.tool)} request from {call.client}. No write action was made.
+                            </p>
+                            {!call.ok && (
+                              <p className="mt-1">This request did not complete successfully.</p>
+                            )}
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             ))}
@@ -217,7 +288,7 @@ export default function McpActivityPage() {
                   disabled={loadingMore}
                   className="min-h-[44px] px-5 rounded-xl bg-white dark:bg-slate-800 shadow-sm text-sm font-medium text-slate-600 dark:text-slate-300 disabled:opacity-60 active:scale-95 transition-transform"
                 >
-                  {loadingMore ? "Loading…" : "Load more"}
+                  {loadingMore ? "Loading…" : "Show older activity"}
                 </button>
               </div>
             )}
