@@ -45,10 +45,10 @@ import {
   type AccountsPreviewState,
 } from "./fixtures";
 
-type Variant = "a" | "b" | "c";
+type Variant = "a" | "a1" | "a2" | "b" | "c";
 type Mode = "light" | "dark";
 
-const VARIANTS: Variant[] = ["a", "b", "c"];
+const VARIANTS: Variant[] = ["a", "a1", "a2", "b", "c"];
 const LENSES: EstateLens[] = ["All", "Current", "Savings", "Credit", "Investment", "Owed"];
 
 const VARIANT_NOTES: Record<Variant, { title: string; thesis: string; rule: string; tradeoff: string }> = {
@@ -57,6 +57,18 @@ const VARIANT_NOTES: Record<Variant, { title: string; thesis: string; rule: stri
     thesis: "Net worth gets one clear reading. The account-group subtotals below explain its make-up where the user can inspect and act on each position.",
     rule: "The header answers one question only. Existing account ledgers carry the evidence, so the same figures are not repeated as a second hero.",
     tradeoff: "It is the calmest and most direct option, but the full composition is understood by scanning the group headings rather than one summary.",
+  },
+  a1: {
+    title: "A1 · Quiet position, pinned group restored",
+    thesis: "Variant A's list gets back the Pinned band the live Accounts page already has above Current: pinned accounts appear there and again inside their own group, so a tap on “Pin to Home” is confirmed without leaving the page.",
+    rule: "The band mirrors the live page exactly, same label, same row component, same order, nothing invented. The duplication is deliberate: it is what today's app already does.",
+    tradeoff: "Confirms the pin immediately, but the same account is now shown twice and the list gains a whole extra section for what is otherwise a one-line change.",
+  },
+  a2: {
+    title: "A2 · Quiet position, pinned marked in place",
+    thesis: "No extra band. A pinned account stays exactly where it already sits, inside its own group, and carries a small marker instead. The list stays the length it already is.",
+    rule: "The marker is a small indigo dot, not the ledger row's amber star: a pin is neither a Watch nor a Risk state (DESIGN.md), and the app already has a neutral/indigo pin idiom on Home's account grid to match.",
+    tradeoff: "Keeps the list at its current length and avoids duplication, but the only confirmation that pinning worked is a small dot next to the row, easy to miss next to a named group.",
   },
   b: {
     title: "B · Own and owe",
@@ -101,7 +113,7 @@ function PositionContext({ estate, hidden, variant }: { estate: Estate; hidden: 
     return null;
   }
 
-  if (variant === "a") {
+  if (variant === "a" || variant === "a1" || variant === "a2") {
     return null;
   }
 
@@ -279,7 +291,7 @@ function EstateControls({ query, onQuery, lens, onLens }: { query: string; onQue
   );
 }
 
-function AccountGroupCard({ group, hidden, collapsed, onToggle, onSelect, fixed = false }: { group: EstateGroup; hidden: boolean; collapsed: boolean; onToggle: () => void; onSelect: (row: EstateRow) => void; fixed?: boolean }) {
+function AccountGroupCard({ group, hidden, collapsed, onToggle, onSelect, fixed = false, markPinned = false }: { group: EstateGroup; hidden: boolean; collapsed: boolean; onToggle: () => void; onSelect: (row: EstateRow) => void; fixed?: boolean; markPinned?: boolean }) {
   const headerContent = (
     <>
       <span>
@@ -309,7 +321,22 @@ function AccountGroupCard({ group, hidden, collapsed, onToggle, onSelect, fixed 
       )}
       {!collapsed && (
         <div className="divide-y divide-slate-100 border-t border-slate-100 dark:divide-slate-700 dark:border-slate-700">
-          {group.rows.map((row) => (
+          {group.rows.map((row) => markPinned ? (
+            <div key={row.id} className="flex items-stretch">
+              <span aria-hidden="true" className="flex w-4 shrink-0 items-center justify-center">
+                {row.pinned && <span className="size-1.5 rounded-full bg-indigo-500 dark:bg-indigo-400" />}
+              </span>
+              <div className="min-w-0 flex-1">
+                <AccountLedgerRow
+                  row={row}
+                  pinned={false}
+                  onClick={onSelect}
+                  termsPill={termsForRow(row)}
+                  onTermsClick={row.kind === "Credit" ? () => onSelect(row) : undefined}
+                />
+              </div>
+            </div>
+          ) : (
             <AccountLedgerRow
               key={row.id}
               row={row}
@@ -352,14 +379,89 @@ function EmptyEstate({ onChoose }: { onChoose: (label: string) => void }) {
   );
 }
 
-function DesignNote({ variant }: { variant: Variant }) {
+// Mirrors HomePage.tsx's topPickAccounts: pinned bank accounts first, then
+// backfilled by balance (Current before Savings) up to three, then one
+// investment appended unconditionally — Home's own investment slot is not
+// pin-aware today, so a pinned investment (see fixtures.ts's pinnedIds)
+// does not move it. Illustrative only: this recomputes the same shape
+// Home would show, it never reads or writes real Home state.
+function homeConsequenceRows(estate: Estate): EstateRow[] {
+  const picks: EstateRow[] = [];
+  const seen = new Set<string>();
+  const add = (row?: EstateRow) => {
+    if (row && !seen.has(row.id)) {
+      seen.add(row.id);
+      picks.push(row);
+    }
+  };
+  const bankRows = estate.rows.filter((row) => row.source === "bank" && row.kind !== "Credit" && row.kind !== "Offline");
+  estate.pinned.filter((row) => row.source === "bank" && row.kind !== "Credit").forEach(add);
+  const current = bankRows.filter((row) => row.kind === "Current").sort((a, b) => b.balance - a.balance);
+  const savings = bankRows.filter((row) => row.kind === "Savings").sort((a, b) => b.balance - a.balance);
+  for (const row of [...current, ...savings]) {
+    if (picks.length >= 3) break;
+    add(row);
+  }
+  const investment = estate.rows.find((row) => row.source === "investment");
+  if (investment) picks.push(investment);
+  return picks;
+}
+
+/** The consequence of pinning lives on Home, not here — this fixture makes
+ *  that visible next to A1/A2 so Kevin can judge the actual trade rather
+ *  than take it on faith. It is explicitly labelled as illustrative and
+ *  never wired to any real preferences or account data. */
+function HomeConsequenceFixture({ estate, hidden }: { estate: Estate; hidden: boolean }) {
+  const rows = homeConsequenceRows(estate);
+  if (rows.length === 0) return null;
+  return (
+    <div className="mt-4 rounded-xl border border-dashed border-indigo-200 bg-indigo-50/50 p-3 dark:border-indigo-400/25 dark:bg-indigo-400/5">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.05em] text-indigo-700 dark:text-indigo-300">On Home &middot; illustrative fixture, not live data</p>
+      <p className="mt-1 text-[12px] leading-5 text-slate-600 dark:text-slate-400">Home lists pinned accounts first, backfills up to three by balance, then adds one investment.</p>
+      <div className="mt-2.5 divide-y divide-indigo-100 dark:divide-indigo-400/10">
+        {rows.map((row) => (
+          <div key={row.id} className="flex min-h-8 items-center justify-between gap-3 py-1">
+            <span className="flex min-w-0 items-center gap-1.5">
+              {row.pinned && <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-indigo-500 dark:bg-indigo-400" />}
+              <span className="truncate text-[12.5px] font-medium text-slate-800 dark:text-slate-200">{row.name}</span>
+            </span>
+            <span className="money shrink-0 text-[12.5px] font-semibold text-slate-700 dark:text-slate-300">{hidden ? "£••••" : money(row.balance)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DesignNote({ variant, estate, hidden }: { variant: Variant; estate?: Estate; hidden?: boolean }) {
   const note = VARIANT_NOTES[variant];
+  const showConsequence = (variant === "a1" || variant === "a2") && estate && estate.rows.length > 0;
   return (
     <section className="rounded-2xl border border-dashed border-slate-300 p-4 dark:border-slate-700" aria-label="Design direction">
       <h2 className="text-[14px] font-bold text-indigo-700 dark:text-indigo-300">{note.title}</h2>
       <p className="mt-2 text-[13px] leading-5 text-slate-700 dark:text-slate-300">{note.thesis}</p>
       <p className="mt-2 text-[12px] leading-5 text-slate-600 dark:text-slate-400"><span className="font-semibold text-slate-800 dark:text-slate-200">Rule:</span> {note.rule}</p>
       <p className="mt-1 text-[12px] leading-5 text-slate-600 dark:text-slate-400"><span className="font-semibold text-slate-800 dark:text-slate-200">Trade-off:</span> {note.tradeoff}</p>
+      {showConsequence && <HomeConsequenceFixture estate={estate!} hidden={!!hidden} />}
+    </section>
+  );
+}
+
+function PinnedBand({ rows, hidden, onSelect }: { rows: EstateRow[]; hidden: boolean; onSelect: (row: EstateRow) => void }) {
+  return (
+    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:shadow-none" aria-label="Pinned accounts">
+      <p className="px-4 pt-3 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Pinned</p>
+      <div className="mt-1 divide-y divide-slate-100 dark:divide-slate-700">
+        {rows.map((row) => (
+          <AccountLedgerRow
+            key={row.id}
+            row={row}
+            onClick={onSelect}
+            termsPill={termsForRow(row)}
+            onTermsClick={row.kind === "Credit" ? () => onSelect(row) : undefined}
+          />
+        ))}
+      </div>
     </section>
   );
 }
@@ -411,24 +513,41 @@ function FilteredCard({ rows, hidden, onSelect }: { rows: EstateRow[]; hidden: b
   return <AccountGroupCard group={group} hidden={hidden} collapsed={false} onToggle={() => {}} onSelect={onSelect} fixed />;
 }
 
-function VariantAList(props: ListSharedProps) {
+/** Variant A and its two pinned-treatment sub-variants (A1 restores the
+ *  live Pinned band, A2 marks the row in place) share this one list shell
+ *  — only the pinned handling below differs, everything else (header,
+ *  controls, groups) is identical to Variant A on purpose, since A1/A2 are
+ *  a comparison of ONE change, not a fourth design direction. */
+function VariantAFamilyList(props: ListSharedProps & { variant: "a" | "a1" | "a2" }) {
+  const { variant } = props;
   const groups = allGroups(props.estate);
+  const showPinnedBand = variant === "a1";
+  const markPinned = variant === "a2";
   return (
     <div className="mx-auto w-full max-w-4xl px-4 pt-6 sm:px-6 lg:px-8">
-      <AccountsCanvasHeader {...props} variant="a" />
+      <AccountsCanvasHeader {...props} variant={variant} />
       <div className="mt-8 space-y-3">
         <PreviewNotice message={props.notice} />
         <ReconnectArea estate={props.estate} onReconnect={props.onReconnect} />
         {props.estate.rows.length === 0 ? <EmptyEstate onChoose={props.onChooseAdd} /> : (
           <>
             <EstateControls query={props.query} onQuery={props.onQuery} lens={props.lens} onLens={props.onLens} />
-            {props.filtering ? <FilteredCard rows={props.filteredRows} hidden={props.hidden} onSelect={props.onSelect} /> : groups.map((group) => (
-              <AccountGroupCard key={group.label} group={group} hidden={props.hidden} collapsed={props.collapsed[group.label] ?? group.label === "Inactive"} onToggle={() => props.onToggleGroup(group.label)} onSelect={props.onSelect} />
-            ))}
+            {props.filtering ? (
+              <FilteredCard rows={props.filteredRows} hidden={props.hidden} onSelect={props.onSelect} />
+            ) : (
+              <>
+                {showPinnedBand && props.estate.pinned.length > 0 && (
+                  <PinnedBand rows={props.estate.pinned} hidden={props.hidden} onSelect={props.onSelect} />
+                )}
+                {groups.map((group) => (
+                  <AccountGroupCard key={group.label} group={group} hidden={props.hidden} collapsed={props.collapsed[group.label] ?? group.label === "Inactive"} onToggle={() => props.onToggleGroup(group.label)} onSelect={props.onSelect} markPinned={markPinned} />
+                ))}
+              </>
+            )}
           </>
         )}
       </div>
-      <div className="mt-12"><DesignNote variant="a" /></div>
+      <div className="mt-12"><DesignNote variant={variant} estate={props.estate} hidden={props.hidden} /></div>
     </div>
   );
 }
@@ -606,11 +725,11 @@ function DetailPanel({ fixture, notice, onAction }: { fixture: AccountDetailFixt
   );
 }
 
-function DetailPage({ fixture, variant, hidden, onToggleHidden, onBack, notice, onAction }: { fixture: AccountDetailFixture; variant: Variant; hidden: boolean; onToggleHidden: () => void; onBack: () => void; notice: string | null; onAction: (label: string) => void }) {
+function DetailPage({ fixture, variant, hidden, onToggleHidden, onBack, notice, onAction, estate }: { fixture: AccountDetailFixture; variant: Variant; hidden: boolean; onToggleHidden: () => void; onBack: () => void; notice: string | null; onAction: (label: string) => void; estate: Estate }) {
   if (variant === "c") {
-    return <div className="mx-auto grid w-full max-w-6xl grid-cols-[minmax(0,1fr)] items-start gap-10 px-4 pt-6 sm:px-6 lg:grid-cols-[minmax(290px,0.8fr)_minmax(0,1.55fr)] lg:gap-16 lg:px-8"><div className="min-w-0 lg:sticky lg:top-6"><DetailCanvasHeader fixture={fixture} hidden={hidden} onToggleHidden={onToggleHidden} onBack={onBack} onAction={onAction} variant={variant} /><div className="mt-10 hidden lg:block"><DesignNote variant={variant} /></div></div><div className="min-w-0 space-y-8 lg:pt-14"><DetailPanel fixture={fixture} notice={notice} onAction={onAction} /><div className="lg:hidden"><DesignNote variant={variant} /></div></div></div>;
+    return <div className="mx-auto grid w-full max-w-6xl grid-cols-[minmax(0,1fr)] items-start gap-10 px-4 pt-6 sm:px-6 lg:grid-cols-[minmax(290px,0.8fr)_minmax(0,1.55fr)] lg:gap-16 lg:px-8"><div className="min-w-0 lg:sticky lg:top-6"><DetailCanvasHeader fixture={fixture} hidden={hidden} onToggleHidden={onToggleHidden} onBack={onBack} onAction={onAction} variant={variant} /><div className="mt-10 hidden lg:block"><DesignNote variant={variant} estate={estate} hidden={hidden} /></div></div><div className="min-w-0 space-y-8 lg:pt-14"><DetailPanel fixture={fixture} notice={notice} onAction={onAction} /><div className="lg:hidden"><DesignNote variant={variant} estate={estate} hidden={hidden} /></div></div></div>;
   }
-  return <div className={`mx-auto w-full px-4 pt-6 sm:px-6 lg:px-8 ${variant === "a" ? "max-w-3xl" : "max-w-4xl"}`}><DetailCanvasHeader fixture={fixture} hidden={hidden} onToggleHidden={onToggleHidden} onBack={onBack} onAction={onAction} variant={variant} /><div className="mt-5"><DetailPanel fixture={fixture} notice={notice} onAction={onAction} /></div><div className="mt-12"><DesignNote variant={variant} /></div></div>;
+  return <div className={`mx-auto w-full px-4 pt-6 sm:px-6 lg:px-8 ${variant === "a" || variant === "a1" || variant === "a2" ? "max-w-3xl" : "max-w-4xl"}`}><DetailCanvasHeader fixture={fixture} hidden={hidden} onToggleHidden={onToggleHidden} onBack={onBack} onAction={onAction} variant={variant} /><div className="mt-5"><DetailPanel fixture={fixture} notice={notice} onAction={onAction} /></div><div className="mt-12"><DesignNote variant={variant} estate={estate} hidden={hidden} /></div></div>;
 }
 
 function PreviewControls({ variant, mode, state }: { variant: Variant; mode: Mode; state: AccountsPreviewState }) {
@@ -618,10 +737,12 @@ function PreviewControls({ variant, mode, state }: { variant: Variant; mode: Mod
     const params = new URLSearchParams({ variant: next.variant ?? variant, mode: next.mode ?? mode, state: next.state ?? state });
     return `?${params.toString()}`;
   };
+  const variantLabel = (item: Variant) =>
+    item === "a" ? "Quiet" : item === "a1" ? "Pinned group" : item === "a2" ? "Pinned marker" : item === "b" ? "Own / owe" : "Breakdown";
   return (
     <nav aria-label="G87 design preview controls" className="fixed inset-x-0 bottom-0 z-[80] border-t border-white/10 bg-slate-950/95 px-3 py-2 text-white shadow-xl" style={{ paddingBottom: "max(8px, env(safe-area-inset-bottom, 0px))" }}>
       <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-1.5">
-        {VARIANTS.map((item) => <a key={item} href={hrefFor({ variant: item })} aria-current={variant === item ? "page" : undefined} className={`inline-flex min-h-11 items-center rounded-xl px-3 text-[12px] font-semibold transition-colors active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 motion-reduce:transition-none ${variant === item ? "bg-white text-slate-950" : "text-slate-300 hover:bg-white/10"}`}>{item.toUpperCase()} · {item === "a" ? "Quiet" : item === "b" ? "Own / owe" : "Breakdown"}</a>)}
+        {VARIANTS.map((item) => <a key={item} href={hrefFor({ variant: item })} aria-current={variant === item ? "page" : undefined} className={`inline-flex min-h-11 items-center rounded-xl px-3 text-[12px] font-semibold transition-colors active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 motion-reduce:transition-none ${variant === item ? "bg-white text-slate-950" : "text-slate-300 hover:bg-white/10"}`}>{item.toUpperCase()} · {variantLabel(item)}</a>)}
         <label className="ml-auto flex min-h-11 items-center rounded-xl bg-white/10 px-2.5 text-[12px] text-slate-300 focus-within:ring-2 focus-within:ring-indigo-400">
           <span className="sr-only">Preview Accounts state</span>
           <select name="preview-state" value={state} onChange={(event) => window.location.assign(hrefFor({ state: event.target.value as AccountsPreviewState }))} className="cursor-pointer bg-slate-800 pr-1 font-semibold text-white outline-none">
@@ -726,7 +847,7 @@ export default function AccountsCanvasBeforeCardsClient() {
         terms: { label: "0% until Mar 2027", risk: false },
       };
     }
-    content = <DetailPage fixture={fixture} variant={variant} hidden={hidden} onToggleHidden={() => setHidden((value) => !value)} onBack={() => router.push(hrefForState("estate"))} notice={notice} onAction={chooseAction} />;
+    content = <DetailPage fixture={fixture} variant={variant} hidden={hidden} onToggleHidden={() => setHidden((value) => !value)} onBack={() => router.push(hrefForState("estate"))} notice={notice} onAction={chooseAction} estate={estate} />;
   } else {
     const shared: ListSharedProps = {
       estate,
@@ -749,7 +870,9 @@ export default function AccountsCanvasBeforeCardsClient() {
       notice,
       onReconnect: reconnect,
     };
-    content = variant === "b" ? <VariantBList {...shared} /> : variant === "c" ? <VariantCList {...shared} /> : <VariantAList {...shared} />;
+    if (variant === "b") content = <VariantBList {...shared} />;
+    else if (variant === "c") content = <VariantCList {...shared} />;
+    else content = <VariantAFamilyList {...shared} variant={variant} />;
   }
 
   return (
