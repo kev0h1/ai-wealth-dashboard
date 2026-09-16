@@ -3,7 +3,8 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import dynamic from "next/dynamic";
 import { ChevronRight } from "lucide-react";
-import { api, ApiError, Account, Transaction, InvestmentAccount, SafeToSpend, CompanionItem, NeedleSummary } from "@/lib/api";
+import { api, ApiError, Account, AccountEligibility, Transaction, InvestmentAccount, SafeToSpend, CompanionItem, NeedleSummary } from "@/lib/api";
+import { bestSpendAccount } from "@/lib/spendFromAccount";
 import SafeToSpendCard from "@/components/SafeToSpendCard";
 import AccountLedgerRow from "@/components/AccountLedgerRow";
 import { bankToRow, investmentToRow } from "@/lib/accountsEstate";
@@ -198,6 +199,10 @@ export default function HomePage() {
   const pinnedIds = useHomePinnedAccounts();
   const { pinned: pinnedCards } = useHomePinnedCards();
   const [companionItems, setCompanionItems] = useState<CompanionItem[]>(homeCache?.companionItems ?? []);
+  // G110 — per-account headroom snapshot from the same GET /today response,
+  // joined against `accounts` (above) by lib/spendFromAccount.ts to name
+  // the best account to spend from under the Safe-to-Spend hero.
+  const [accountEligibility, setAccountEligibility] = useState<Record<string, AccountEligibility> | undefined>(homeCache?.accountEligibility);
   // Fed by HomeBrief's onClearedChange (see BriefBodyProps.onClearedChange
   // in HomeBrief.tsx) — HomeBriefClearedRow is mounted here, below
   // SafeToSpendCard, as HomeBrief's own sibling rather than its child, so
@@ -279,8 +284,8 @@ export default function HomePage() {
   // very first cold load can never seed the cache with empty/default data.
   useEffect(() => {
     if (!revealedRef.current) return;
-    setHomeCache({ accounts, investmentAccounts, safeToSpend, companionItems, recentTxns, needle, needleStatus });
-  }, [accounts, investmentAccounts, safeToSpend, companionItems, recentTxns, needle, needleStatus]);
+    setHomeCache({ accounts, investmentAccounts, safeToSpend, companionItems, accountEligibility, recentTxns, needle, needleStatus });
+  }, [accounts, investmentAccounts, safeToSpend, companionItems, accountEligibility, recentTxns, needle, needleStatus]);
 
   const loadData = useCallback(async () => {
     const requestId = ++loadRequestRef.current;
@@ -325,7 +330,10 @@ export default function HomePage() {
           if (requestId === loadRequestRef.current) setStsLoading(false);
         });
       todayP.then((v) => {
-        if (requestId === loadRequestRef.current) setCompanionItems(v.items);
+        if (requestId === loadRequestRef.current) {
+          setCompanionItems(v.items);
+          setAccountEligibility(v.account_eligibility);
+        }
       }).catch(() => {});
       recentTxP
         .then((r) => { if (requestId === loadRequestRef.current) setRecentTxns(r.items); })
@@ -535,6 +543,14 @@ export default function HomePage() {
     Math.max(0, accounts.length - topPickAccounts.length) +
     Math.max(0, investmentAccounts.length - 1);
 
+  // G110 — surfaced, not computed: joins the per-account headroom snapshot
+  // (accountEligibility, off the same GET /today the companion brief
+  // already uses) against the account list already fetched above.
+  const spendFrom = useMemo(
+    () => bestSpendAccount(accountEligibility, accounts),
+    [accountEligibility, accounts],
+  );
+
   const expiredProviders = useMemo(() => {
     const grouped = new Map<string, { provider: string; provider_id?: string; source?: string; account_count: number }>();
     for (const a of accounts) {
@@ -713,6 +729,7 @@ export default function HomePage() {
                   loading={stsLoading}
                   error={stsError}
                   onRetry={() => { setStsError(false); setStsLoading(true); loadData(); }}
+                  spendFrom={spendFrom}
                 />
               )}
 

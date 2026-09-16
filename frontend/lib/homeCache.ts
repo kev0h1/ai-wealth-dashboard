@@ -1,4 +1,4 @@
-import { Account, CompanionItem, InvestmentAccount, NeedleSummary, SafeToSpend, Transaction } from "@/lib/api";
+import { Account, AccountEligibility, CompanionItem, InvestmentAccount, NeedleSummary, SafeToSpend, Transaction } from "@/lib/api";
 
 // Module-level warm-paint cache for HomePage.tsx — lives here (rather than
 // inline in the component) so it can be invalidated from outside the Home
@@ -18,6 +18,11 @@ export type HomeCacheSnapshot = {
   investmentAccounts: InvestmentAccount[];
   safeToSpend: SafeToSpend | null;
   companionItems: CompanionItem[];
+  // G110: the same per-account headroom snapshot GET /today/cover-plan
+  // already exposed to Settings, now also on plain GET /today — cached
+  // alongside companionItems (both come off the same response) so a warm
+  // Home mount shows the "spend from" line immediately, not a beat later.
+  accountEligibility: Record<string, AccountEligibility> | undefined;
   recentTxns: Transaction[];
   needle: NeedleSummary | null;
   needleStatus: "loading" | "ready" | "failed";
