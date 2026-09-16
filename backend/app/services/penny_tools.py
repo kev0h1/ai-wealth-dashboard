@@ -167,8 +167,8 @@ def _explain_tool_description() -> str:
         "answering from its own understanding of the app. Five kinds "
         "of topic, all in one flat namespace: "
         "(a) a SCREEN or general-information topic ('what does this "
-        "page show') — home, spend, planning, insights, tax, grow, "
-        "debt, accounts, isa_capability, saving_vs_investing, "
+        "page show') — home, spend, planning, upcoming, insights, tax, "
+        "grow, debt, accounts, isa_capability, saving_vs_investing, "
         f"categorisation{mcp_clause}. "
         "(b) a JARGON TERM the app uses ('what does X mean', 'what is "
         "an aim') — moved, carried_vs_float, aim, reserved, dormant, "
@@ -426,8 +426,9 @@ TOOL_SCHEMAS = [
             "description": (
                 "The user's savings insights: general-information tips generated "
                 "from their own transactions (a bill that's crept up, a cheaper "
-                "alternative, a pattern worth knowing about), the same list shown "
-                "on their Insights page, ranked the same way. Use this for "
+                "alternative, a pattern worth knowing about), the same ones "
+                "surfaced on Home and, filtered by category, on the transactions "
+                "page, ranked the same way. Use this for "
                 "questions about insights, tips, saving ideas, or 'what's the "
                 "best insight'. Rank 1 IS the top/best insight, never re-rank. "
                 "Quote each tip's own figures verbatim, never recompute them."
@@ -1866,9 +1867,10 @@ PROPOSE_TOOL_SCHEMAS = [
             "name": "propose_dismiss_insight",
             "description": (
                 "Propose dismissing one insight from the Home spotlight "
-                "for 30 days (it stays visible on the Insights list). "
-                "`insight_ref` may be an id or title from get_insights, an "
-                "ambiguous title returns a list to disambiguate from."
+                "for 30 days (it stays visible under its category on "
+                "Spend). `insight_ref` may be an id or title from "
+                "get_insights, an ambiguous title returns a list to "
+                "disambiguate from."
             ),
             "parameters": {
                 "type": "object",
@@ -1883,8 +1885,9 @@ PROPOSE_TOOL_SCHEMAS = [
             "name": "propose_pin_insight",
             "description": (
                 "Propose pinning (or unpinning) an insight: pinned, it "
-                "stays at the top of the Insights list and stops its "
-                "30-day expiry; unpinned, it expires normally again. "
+                "stays at the top wherever it shows, Home spotlight or "
+                "its category on Spend, and stops its 30-day expiry; "
+                "unpinned, it expires normally again. "
                 "`insight_ref` may be an id or title from get_insights, an "
                 "ambiguous title returns a list to disambiguate from."
             ),
@@ -2945,7 +2948,7 @@ def _insights_rank_key(d: dict) -> tuple:
     (savings_insights.py's own nested `_rank_key`, not importable — pinned,
     then verified, then the largest parsed £ estimate, then the largest
     triggering monthly spend) so "the best insight" here can never disagree
-    with what the Insights page shows first."""
+    with the order those same insights show in on Home or Spend."""
     from app.routers.analytics import _parse_saving_amount
 
     estimate = _parse_saving_amount(d.get("savings_estimate")) or 0.0
@@ -2988,8 +2991,9 @@ async def _exec_get_insights(uid: str) -> dict:
         # savings_insights.py): title/body/savings_estimate go through the
         # same freshness gate GET /savings-insights uses (_serialize_insight
         # nulls them once a category's `content_valid_until` has passed), so
-        # Penny can never narrate a stale researched body the Insights page
-        # itself would already be showing as a quiet, compact row.
+        # Penny can never narrate a stale researched body GET
+        # /savings-insights itself would already be showing as a quiet,
+        # compact row.
         from app.routers.savings_insights import _serialize_insight
         result["insights"] = [
             {
@@ -3297,16 +3301,25 @@ _PAGE_EXPLAINER_COPY: dict[str, str] = {
         "so it's kept out of these figures."
     ),
     "planning": (
-        "This is Planning. It lays out what's coming before your next "
-        "payday, upcoming bills and expected income, and the runway that "
-        "leaves you. Anything that hasn't happened yet is an expectation "
-        "based on your own patterns, never a certainty."
+        "This is Planning, your long-term view. It sets out a priority "
+        "ladder for spare money, essentials first, then a buffer, then "
+        "pension, then investing, with any debt repayments accounted for "
+        "ahead of all of it, alongside your debt position and any "
+        "long-term goals you've set. What's due before your next payday "
+        "lives on Upcoming instead."
+    ),
+    "upcoming": (
+        "This is Upcoming. It lays out what's coming before your next "
+        "payday, bills and expected income, and the runway that leaves "
+        "you. Anything that hasn't happened yet is an expectation based "
+        "on your own patterns, never a certainty."
     ),
     "insights": (
-        "These are Insights. They're spotlights generated from your own "
-        "transactions, things like a bill that's crept up in price or a "
-        "pattern worth knowing about. This page also holds your Tax and "
-        "Receipts tabs alongside the spending spotlights."
+        "Insights moved: spotlights generated from your own transactions, "
+        "things like a bill that's crept up in price or a pattern worth "
+        "knowing about, now surface on Home and under each category on "
+        "Spend. Tax and Receipts are their own pages now too, no longer "
+        "tabs alongside them."
     ),
     "tax": (
         "This is Tax. It works from figures you've told it about your "
@@ -3315,16 +3328,16 @@ _PAGE_EXPLAINER_COPY: dict[str, str] = {
         "questions here."
     ),
     "grow": (
-        "This is Grow. It sets out a priority ladder for spare money, "
+        "Grow's priority ladder for spare money now lives on Planning: "
         "essentials first, then a buffer, then pension, then investing, "
-        "with any debt repayments accounted for ahead of all of it. It's a "
-        "general order to consider, not a fixed instruction."
+        "with any debt repayments accounted for ahead of all of it. It's "
+        "a general order to consider, not a fixed instruction."
     ),
     "debt": (
-        "This is your Debt page. It separates what you carry on cards from "
-        "month to month from spending you clear in full, and tracks the "
-        "pace you're clearing the carried balance at. It also flags 0% "
-        "deals so you can see when a promotional rate might be worth "
+        "Debt tracking now lives on Cards. It separates what you carry "
+        "from month to month from spending you clear in full, and tracks "
+        "the pace you're clearing the carried balance at. It also flags "
+        "0% deals so you can see when a promotional rate might be worth "
         "watching."
     ),
     "accounts": (
@@ -6518,8 +6531,8 @@ async def _exec_propose_dismiss_insight(uid: str, insight_ref=None) -> dict:
 
     summary = f"Dismiss the '{insight.get('title')}' insight from your Home spotlight"
     consequence = (
-        "Stops it showing on Home for 30 days, still visible on the Insights list; it can "
-        "return early if something material changes."
+        "Stops it showing on Home for 30 days, still visible under its category on Spend; "
+        "it can return early if something material changes."
     )
     params = {"insight_id": insight.get("insight_id")}
     return await _create_proposal(uid, "dismiss_insight", params, summary, consequence)
@@ -6541,7 +6554,7 @@ async def _exec_propose_pin_insight(uid: str, insight_ref=None, pinned=None) -> 
     already = bool(insight.get("pinned", False)) == pinned
     summary = f"{verb} the '{insight.get('title')}' insight" + (" (already set this way)" if already else "")
     consequence = (
-        "Pinning keeps it at the top of your Insights list and stops its 30-day expiry; "
+        "Pinning keeps it at the top wherever it shows and stops its 30-day expiry; "
         "unpinning lets it expire normally again."
     )
     params = {"insight_id": insight.get("insight_id"), "pinned": pinned}

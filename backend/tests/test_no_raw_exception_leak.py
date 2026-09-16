@@ -82,21 +82,25 @@ ALLOWLIST: set[tuple[str, int]] = {
     # (app.routers.allocations, app.routers.commitments, app.routers.card_terms,
     # app.routers.allocations.fill_candidates, app.routers.transactions
     # source-scope resolution), never a caught system/library exception.
-    ("app/services/penny_tools.py", 3857),
-    ("app/services/penny_tools.py", 3922),  # ValueError from compute_intent_preview, see above
-    ("app/services/penny_tools.py", 4425),
-    ("app/services/penny_tools.py", 4445),
-    ("app/services/penny_tools.py", 4481),
-    ("app/services/penny_tools.py", 4504),
-    ("app/services/penny_tools.py", 4646),
-    ("app/services/penny_tools.py", 4651),
-    ("app/services/penny_tools.py", 4656),
-    ("app/services/penny_tools.py", 4743),
-    ("app/services/penny_tools.py", 4748),
-    ("app/services/penny_tools.py", 4753),
-    ("app/services/penny_tools.py", 5694),
-    ("app/services/penny_tools.py", 6349),
-    ("app/services/penny_tools.py", 6363),
+    # G80 (2026-09-16) shifted every line below by +13: the reframed
+    # money-basics/page-explainer copy sweep added lines earlier in this
+    # file (the "upcoming" explain entry and expanded insights/debt/grow
+    # copy), none of these are new exception sites.
+    ("app/services/penny_tools.py", 3870),
+    ("app/services/penny_tools.py", 3935),  # ValueError from compute_intent_preview, see above
+    ("app/services/penny_tools.py", 4438),
+    ("app/services/penny_tools.py", 4458),
+    ("app/services/penny_tools.py", 4494),
+    ("app/services/penny_tools.py", 4517),
+    ("app/services/penny_tools.py", 4659),
+    ("app/services/penny_tools.py", 4664),
+    ("app/services/penny_tools.py", 4669),
+    ("app/services/penny_tools.py", 4756),
+    ("app/services/penny_tools.py", 4761),
+    ("app/services/penny_tools.py", 4766),
+    ("app/services/penny_tools.py", 5707),
+    ("app/services/penny_tools.py", 6362),
+    ("app/services/penny_tools.py", 6376),
     # app.services.billing._handle_checkout_completed: `str(exc)` here is an
     # authored ValueError message from grant_pack (see above), returned as
     # the body of a Stripe *webhook* response — read by Stripe's own retry
