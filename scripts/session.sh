@@ -420,6 +420,9 @@ cmd_finish() {
   log "checking design preview index in $worktree_dir/frontend..."
   (cd "$worktree_dir/frontend" && npm run -s check:design-index)
 
+  log "checking BANK_META logoFile entries against public/banks/ in $worktree_dir/frontend..."
+  (cd "$worktree_dir/frontend" && npm run -s check:bank-logos)
+
   log "checking /design previews for real data access in $worktree_dir/frontend..."
   (cd "$worktree_dir/frontend" && npm run -s check:design-no-live-data)
 
