@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Check, ChevronLeft, Filter } from "lucide-react";
+import FixtureBottomNav from "../_components/FixtureBottomNav";
 
 type Variant = "a" | "b" | "c";
 // This mirrors McpActivityPage. Plan availability is resolved by
@@ -59,7 +60,7 @@ export default function McpActivityCanvasClient() {
   const shown = records.filter((row) => filter === "All assistants" || row.assistant === filter);
   const endReached = showOlder && filter === "All assistants";
 
-  return <div className={`${dark ? "dark" : ""} min-h-screen bg-[#f0f2f7] pb-32 text-slate-900 dark:bg-slate-900 dark:text-slate-100`}>
+  return <div className={`${dark ? "dark" : ""} min-h-screen bg-[#f0f2f7] pb-56 text-slate-900 dark:bg-slate-900 dark:text-slate-100 lg:pb-24`} style={{ "--design-controls-clearance": "108px" } as React.CSSProperties}>
     <a href="#activity" className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[60] focus:rounded-lg focus:bg-white focus:px-3 focus:py-2 focus:text-sm focus:font-semibold">Skip to activity</a>
     <main id="activity" className="mx-auto max-w-4xl px-5 py-8 sm:px-9">
       <a href="/settings" className="inline-flex min-h-11 items-center gap-1 text-sm font-semibold text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-300"><ChevronLeft size={16} aria-hidden="true" />Back to Settings</a>
@@ -73,6 +74,7 @@ export default function McpActivityCanvasClient() {
       </fieldset>
       {visibleState === "loading" ? <div className="mt-8 space-y-3" aria-label="Loading activity"><div className="h-32 rounded-2xl bg-slate-200 motion-safe:animate-pulse dark:bg-slate-700" /><div className="h-32 rounded-2xl bg-slate-200 motion-safe:animate-pulse dark:bg-slate-700" /></div> : visibleState === "empty" ? <section className="mt-10 border-y border-slate-200 py-8 dark:border-slate-700"><h2 className="text-lg font-bold">No activity yet</h2><p className="mt-2 text-sm text-slate-600 dark:text-slate-400">When an assistant uses Sorted, its request will appear here.</p></section> : visibleState === "error" ? <section className="mt-10 border-y border-slate-200 py-8 dark:border-slate-700"><h2 className="text-lg font-bold">Activity could not load</h2><p className="mt-2 text-sm text-slate-600 dark:text-slate-400">Check your connection, then try again. No assistant data has changed.</p><button type="button" onClick={() => setRetried(true)} className="mt-4 min-h-11 rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">Try again</button></section> : <section className="mt-8 space-y-5" aria-labelledby="chronology-heading"><h2 id="chronology-heading" className="text-lg font-bold">Chronology</h2>{retried && <p role="status" className="text-sm font-medium text-emerald-700 dark:text-emerald-300">Activity history restored.</p>}<ActivityRows rows={shown} variant={variant} />{shown.length === 0 && <div className="border-y border-slate-200 py-6 dark:border-slate-700"><h3 className="text-lg font-bold">No matching activity</h3><p className="mt-2 text-sm text-slate-600 dark:text-slate-400">There are no records for this filter. Choose another assistant to see the activity history.</p></div>}{shown.length > 0 && !showOlder && <button type="button" onClick={() => setShowOlder(true)} className="mx-auto flex min-h-11 items-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-slate-700 dark:bg-slate-800">Show older activity</button>}{endReached && <p className="border-y border-slate-200 py-4 text-center text-sm text-slate-600 dark:border-slate-700 dark:text-slate-400">End of activity history</p>}</section>}
     </main>
+    <FixtureBottomNav />
     <Switcher variant={variant} state={state} dark={dark} />
   </div>;
 }

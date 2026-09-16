@@ -15,8 +15,28 @@ const TABS = [
  * The production component reads cached status and can call the API, so it
  * must not be mounted on /design. Callers may identify the active primary
  * route; pages outside the primary tabs leave every rail item neutral.
+ *
+ * The Penny centre button defaults to a plain `/penny` link, matching what
+ * most previews need. A round that already renders its own fixture-only
+ * Penny chat panel in place (real production opens Penny as an in-place
+ * sheet, not a navigation) can pass `onPennyClick`/`pennyExpanded` to wire
+ * the shared button to that panel instead of writing a second nav bar.
  */
-export default function FixtureBottomNav({ active }: { active?: "Home" | "Spend" | "Upcoming" | "Planning" }) {
+export default function FixtureBottomNav({
+  active,
+  onPennyClick,
+  pennyExpanded,
+  pennyControls,
+}: {
+  active?: "Home" | "Spend" | "Upcoming" | "Planning";
+  onPennyClick?: () => void;
+  pennyExpanded?: boolean;
+  pennyControls?: string;
+}) {
+  const pennyButtonClassName =
+    "absolute -top-7 left-1/2 z-10 flex size-14 -translate-x-1/2 touch-manipulation items-center justify-center rounded-2xl [-webkit-tap-highlight-color:transparent] transition-transform active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 motion-reduce:transition-none dark:focus-visible:ring-offset-slate-900";
+  const pennyButtonStyle = { background: BRAND_GRADIENT, boxShadow: "0 4px 14px rgba(79,70,229,0.35)" } as const;
+
   return (
     <>
       <div
@@ -28,14 +48,24 @@ export default function FixtureBottomNav({ active }: { active?: "Home" | "Spend"
         className="fixed inset-x-0 bottom-[calc(max(env(safe-area-inset-bottom,0px),10px)+var(--design-controls-clearance,0px))] z-50 flex justify-center lg:hidden"
       >
         <div className="relative w-[calc(100%-28px)] max-w-[402px]">
-          <Link
-            href="/penny"
-            aria-label="Penny"
-            className="absolute -top-7 left-1/2 z-10 flex size-14 -translate-x-1/2 touch-manipulation items-center justify-center rounded-2xl [-webkit-tap-highlight-color:transparent] transition-transform active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 motion-reduce:transition-none dark:focus-visible:ring-offset-slate-900"
-            style={{ background: BRAND_GRADIENT, boxShadow: "0 4px 14px rgba(79,70,229,0.35)" }}
-          >
-            <PennyMark size={22} className="text-white" />
-          </Link>
+          {onPennyClick ? (
+            <button
+              type="button"
+              onClick={onPennyClick}
+              aria-label="Penny"
+              aria-expanded={pennyExpanded}
+              aria-pressed={pennyExpanded}
+              aria-controls={pennyControls}
+              className={`cursor-pointer ${pennyButtonClassName}`}
+              style={pennyButtonStyle}
+            >
+              <PennyMark size={22} className="text-white" />
+            </button>
+          ) : (
+            <Link href="/penny" aria-label="Penny" className={pennyButtonClassName} style={pennyButtonStyle}>
+              <PennyMark size={22} className="text-white" />
+            </Link>
+          )}
 
           <div className="glass-rail relative rounded-[22px]">
             <div className="relative grid h-16 grid-cols-5 px-1.5">
