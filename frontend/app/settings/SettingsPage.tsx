@@ -12,7 +12,6 @@ import {
   ChevronRight,
   Moon,
   Landmark,
-  ShieldCheck,
   Database,
   UserRound,
   HelpCircle,
@@ -45,9 +44,9 @@ import CoverPlanSourcesCard, { type LiveCoverRoute } from "@/components/CoverPla
 import { createSerialQueue } from "@/lib/serialQueue";
 import { useRouter } from "next/navigation";
 import SettingsGroupSection from "./SettingsGroupSection";
+import { SettingsHelpCard, SettingsSecurityCard, SettingsTutorialsCard } from "./SettingsSupportCards";
 
 const INDIGO = "#4f46e5";
-const EMERALD = "#10b981";
 const AMBER = "#f59e0b";
 const RED = "#ef4444";
 
@@ -1502,20 +1501,7 @@ export default function SettingsPage() {
 
   const securityCard = (
         bioState?.supported ? (
-          <div id="settings-security" className="glass-card rounded-2xl overflow-hidden scroll-mt-4">
-            <SectionHeader icon={ShieldCheck} hex={EMERALD} title="Security" />
-            <div className="flex items-center justify-between px-4 py-3.5">
-              <div>
-                <p className="text-sm font-medium text-slate-800 dark:text-slate-100">Biometric unlock</p>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Require fingerprint or face to open the app</p>
-              </div>
-              <Toggle
-                checked={bioState.enabled}
-                onChange={toggleBiometrics}
-                label="Biometric login"
-              />
-            </div>
-          </div>
+          <SettingsSecurityCard enabled={bioState.enabled} onChange={toggleBiometrics} />
         ) : null
   );
 
@@ -1603,47 +1589,11 @@ export default function SettingsPage() {
   );
 
   const tutorialsCard = (
-        <div className="glass-card rounded-2xl overflow-hidden">
-          <SectionHeader icon={HelpCircle} hex={INDIGO} title="How Sorted works" subtitle="Replay any screen's tour" />
-          {TUTORIAL_FLOWS.map((flow, i) => (
-            <button
-              key={flow.id}
-              type="button"
-              onClick={() => startFlow(flow.id)}
-              className={`w-full min-h-[44px] flex items-center justify-between gap-3 px-4 py-3.5 text-left active:opacity-70 transition-opacity${
-                i > 0 ? " border-t border-slate-100 dark:border-slate-700" : ""
-              }`}
-            >
-              <span className="min-w-0">
-                <span className="block text-sm font-medium text-slate-800 dark:text-slate-100">{flow.label}</span>
-                <span className="block text-xs text-slate-500 dark:text-slate-400 mt-0.5">{flow.blurb}</span>
-              </span>
-              <ChevronRight size={16} className="flex-shrink-0 text-slate-400 dark:text-slate-500" />
-            </button>
-          ))}
-        </div>
+        <SettingsTutorialsCard flows={TUTORIAL_FLOWS} onStart={startFlow} />
   );
 
   const helpCard = (
-        <div className="glass-card rounded-2xl overflow-hidden">
-          <SectionHeader icon={HelpCircle} hex={INDIGO} title="Help" />
-          <button
-            type="button"
-            onClick={() => router.push("/terms")}
-            className="w-full min-h-[44px] flex items-center justify-between gap-3 px-4 py-3.5 text-left active:opacity-70 transition-opacity"
-          >
-            <span className="text-sm font-medium text-slate-800 dark:text-slate-100">Terms &amp; Conditions</span>
-            <ChevronRight size={16} className="flex-shrink-0 text-slate-400 dark:text-slate-500" />
-          </button>
-          <button
-            type="button"
-            onClick={() => router.push("/privacy")}
-            className="w-full min-h-[44px] flex items-center justify-between gap-3 px-4 py-3.5 border-t border-slate-100 dark:border-slate-700 text-left active:opacity-70 transition-opacity"
-          >
-            <span className="text-sm font-medium text-slate-800 dark:text-slate-100">Privacy Policy</span>
-            <ChevronRight size={16} className="flex-shrink-0 text-slate-400 dark:text-slate-500" />
-          </button>
-        </div>
+        <SettingsHelpCard onTerms={() => router.push("/terms")} onPrivacy={() => router.push("/privacy")} />
   );
 
   const leaveDeleteCard = (
