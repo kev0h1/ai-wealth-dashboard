@@ -17,6 +17,7 @@
     "check:nav-coverage": "node --no-warnings --experimental-strip-types scripts/check-nav-coverage.mjs",
     "check:preferences-version": "node --no-warnings --experimental-strip-types scripts/preferences-version.test.mjs",
     "check:serial-queue": "node --no-warnings --experimental-strip-types scripts/serial-queue.test.mjs",
+    "check:scroll-nav-detect": "node --no-warnings --experimental-strip-types scripts/scroll-nav-detect.test.mjs",
     "check:preference-save": "node --no-warnings --experimental-strip-types scripts/preference-save.test.mjs",
     "check:preferences-snapshot": "node --no-warnings --experimental-strip-types scripts/preferences-snapshot.test.mjs",
     "check:penny-screen-views": "node --no-warnings --experimental-strip-types scripts/penny-screen-views.test.mjs",
