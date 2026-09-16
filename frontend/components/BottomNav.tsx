@@ -8,6 +8,7 @@ import { api } from "@/lib/api";
 import PennyMark from "@/components/PennyMark";
 import { PAYDAY_DOT_CACHE_KEY } from "@/lib/paydayWindow";
 import { usePennySheet, type PennyAskContext } from "@/components/PennySheetProvider";
+import { isNavExemptPath } from "@/lib/navExemptRoutes";
 
 // State badge (not seen-clearable): bills due in 7 days their account can't cover
 function useAtRiskCount(): number {
@@ -136,6 +137,16 @@ export default function BottomNav() {
   // comment), so it should read as pressed/active for as long as that's
   // true, not just while the user is on the hub page underneath it.
   const pennyActive = pathname === "/penny" || pennySheetOpen;
+
+  // G79: BottomNav is now mounted once, globally, in app/layout.tsx (a
+  // sibling of components/Sidebar.tsx) rather than per-page — every route
+  // gets it by default. The ONLY way a route can be without it is by
+  // matching lib/navExemptRoutes.ts, the single named, reasoned exemption
+  // list (also read by scripts/check-nav-coverage.mjs so a silent,
+  // undocumented exemption fails session-finish). Do not add a second,
+  // ad hoc `pathname === ...` early return here — every exemption belongs
+  // in that one file, not scattered through this component.
+  if (isNavExemptPath(pathname)) return null;
 
   return (
     <>

@@ -78,7 +78,7 @@ export default function ShapePage({ shape: previewShape }: { shape?: MoneyShape 
   const askPenny = (ask: string) => openPennySheet({ screen: "spend", ask });
 
   return (
-    <div className="min-h-dvh pb-10 lg:max-w-2xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
+    <div className="min-h-dvh pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8 lg:max-w-2xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       {/* Sticky back header — same convention as TransactionsPage.tsx (the
           app's other single-column drill-in). */}
       <div className="sticky top-0 z-10 bg-[#f0f2f7]/90 dark:bg-[#0f172a]/90 backdrop-blur-sm border-b border-slate-200/60 dark:border-slate-700/60">

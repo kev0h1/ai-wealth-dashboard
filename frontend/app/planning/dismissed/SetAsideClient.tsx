@@ -36,7 +36,6 @@ import { api, DismissedUserRow, DismissedEngineRow } from "@/lib/api";
 import { BankBadge } from "@/components/AccountMiniCard";
 import { bankBadgeProps } from "./bankBadge";
 import Spinner from "@/components/Spinner";
-import BottomNav from "@/components/BottomNav";
 
 type Row =
   | ({ provenance: "user" } & DismissedUserRow)
@@ -272,8 +271,6 @@ export default function SetAsideClient() {
           </div>
         </div>
       )}
-
-      <BottomNav />
     </div>
   );
 }

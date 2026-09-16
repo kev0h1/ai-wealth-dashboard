@@ -12,7 +12,6 @@ import { getPayPeriodWithConfig } from "@/lib/payPeriod";
 import { useCategoryIcons } from "@/components/IconProvider";
 import { getCategoryIcon } from "@/lib/categoryIcons";
 import { useRouter, useSearchParams } from "next/navigation";
-import BottomNav from "@/components/BottomNav";
 import Spinner from "@/components/Spinner";
 import { useTutorialReady } from "@/components/TutorialContext";
 import { setPennyScreenView } from "@/components/PennySheetProvider";
@@ -1966,8 +1965,6 @@ export default function PlanningPage() {
           onSave={(c) => { setPayPeriodConfig(c); setSettingsOpen(false); }}
         />
       )}
-
-      <BottomNav />
     </div>
   );
 }

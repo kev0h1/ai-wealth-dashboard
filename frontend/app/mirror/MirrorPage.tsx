@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { ChevronLeft, RefreshCw } from "lucide-react";
 import { api, MirrorPortrait, MirrorTrait, ActiveAim } from "@/lib/api";
 import { goBack } from "@/lib/goBack";
-import BottomNav from "@/components/BottomNav";
 import AimSheet from "@/components/AimSheet";
 import PennyMark from "@/components/PennyMark";
 
@@ -335,8 +334,6 @@ export default function MirrorPage() {
           onSaved={refreshAims}
         />
       )}
-
-      <BottomNav />
     </div>
   );
 }

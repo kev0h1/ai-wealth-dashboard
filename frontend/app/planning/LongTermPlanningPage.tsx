@@ -6,7 +6,6 @@ import { ChevronRight, CreditCard, Plus, ShieldCheck, Target } from "lucide-reac
 import { useRouter } from "next/navigation";
 import { api, type Account, type Commitment, type DebtPlanSummary } from "@/lib/api";
 import { getAccountsCached } from "@/lib/accountsCache";
-import BottomNav from "@/components/BottomNav";
 import MoneyText from "@/components/MoneyText";
 import { usePreferences } from "@/components/PreferencesContext";
 import { useTutorialReady } from "@/components/TutorialContext";
@@ -212,7 +211,6 @@ export default function LongTermPlanningPage() {
       </main>
 
       {editingGoal !== undefined && <CommitmentSheet accounts={accounts} commitment={editingGoal} onClose={() => setEditingGoal(undefined)} onSaved={() => { setEditingGoal(undefined); loadGoals(); }} onCancelled={() => { setEditingGoal(undefined); loadGoals(); }} />}
-      <BottomNav />
     </div>
   );
 }

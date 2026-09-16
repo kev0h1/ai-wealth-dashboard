@@ -18,7 +18,6 @@ import { useCategoryIcons } from "@/components/IconProvider";
 import { getCategoryColour } from "@/lib/categories";
 import { getCategoryIcon } from "@/lib/categoryIcons";
 import SegmentedControl from "@/components/SegmentedControl";
-import BottomNav from "@/components/BottomNav";
 import Spinner from "@/components/Spinner";
 import MonoConnectWidget from "@/components/MonoConnect";
 import StatementUpload from "@/components/StatementUpload";
@@ -205,10 +204,12 @@ const MANUAL_KIND: Record<ManualAccountType, AccountKind> = {
  *  below. Shape-matches the real list view (header hero incl. net-worth
  *  block, find bar, lens chips, a handful of ledger rows) at the same
  *  positions and approximate heights, so the swap to real content doesn't
- *  itself shift anything. BottomNav renders for real (never a placeholder)
- *  so navigation stays available while the page settles. No entrance
- *  animation on the blocks themselves beyond the shared `animate-pulse`
- *  shimmer — this codebase's rule against visibility-gating cascades. */
+ *  itself shift anything. BottomNav is mounted once in app/layout.tsx
+ *  (G79) rather than by this page, so it's already real (never a
+ *  placeholder) and navigation stays available while the page settles
+ *  with no extra work here. No entrance animation on the blocks
+ *  themselves beyond the shared `animate-pulse` shimmer — this codebase's
+ *  rule against visibility-gating cascades. */
 function AccountsSkeleton() {
   return (
     <div className="min-h-dvh pb-[calc(9rem+env(safe-area-inset-bottom,0px))]" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }} aria-hidden="true">
@@ -250,8 +251,6 @@ function AccountsSkeleton() {
           ))}
         </div>
       </div>
-
-      <BottomNav />
     </div>
   );
 }
@@ -2421,7 +2420,6 @@ export default function AccountsPage() {
         )}
 
         {modals}
-        <BottomNav />
       </div>
     );
   }
@@ -3529,8 +3527,6 @@ export default function AccountsPage() {
       )}
 
       {modals}
-
-      <BottomNav />
     </div>
   );
 }

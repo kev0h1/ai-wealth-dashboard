@@ -19,7 +19,6 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, Check } from "lucide-react";
 import { api, type McpAuditCall } from "@/lib/api";
 import { formatDateTime, toolLabel } from "@/components/ConnectedAssistantsCard";
-import BottomNav from "@/components/BottomNav";
 import Spinner from "@/components/Spinner";
 
 const PAGE_SIZE = 20;
@@ -229,8 +228,6 @@ export default function McpActivityPage() {
           </div>
         )}
       </div>
-
-      <BottomNav />
     </div>
   );
 }

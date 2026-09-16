@@ -9,7 +9,6 @@ import PennyMark from "@/components/PennyMark";
 import { PennyPromptBar } from "@/components/PennyConversation";
 import { usePennySheet } from "@/components/PennySheetProvider";
 import { usePreferences } from "@/components/PreferencesContext";
-import BottomNav from "@/components/BottomNav";
 import { BriefBody, BriefSkeleton, PaydayPlanSection } from "@/components/HomeBrief";
 import { isActionableCompanionItem } from "@/lib/companionItems";
 import { isPaydayWindowActive, writePaydayDotCache } from "@/lib/paydayWindow";
@@ -130,23 +129,22 @@ export default function PennyPage() {
       // which floated above BottomNav even on desktop (no lg:hidden on that
       // wrapper in components/PennyConversation.tsx's full-page mode). That
       // composer no longer renders on this page at all, so the extra
-      // clearance is vestigial — back to the standard value every other
-      // BottomNav-bearing page uses.
+      // clearance is vestigial — back to the standard value every page
+      // uses now that BottomNav is mounted once in app/layout.tsx (G79)
+      // rather than per-page.
       className="relative isolate min-h-dvh pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8"
       style={{ paddingTop: "env(safe-area-inset-top, 0px)" } as React.CSSProperties}
     >
       {/* rise-in lives on this inner content wrapper, not the outer
-          min-h-dvh/isolate one above — BottomNav (rendered as this outer
-          div's sibling-at-the-end, below) is `fixed`, and CSS animations
-          with a non-"none" transform in their keyframes (riseIn ends at
-          translateY(0), kept alive forever by fill-mode "both") establish a
-          containing block for fixed descendants. Putting rise-in on the
-          outer div trapped BottomNav inside it instead of the viewport, so
-          on a long /penny page the nav scrolled away with the content
-          instead of staying pinned. Every other rise-in page (Home, Month,
-          Cards, Debt plan, Mirror) already keeps rise-in off the
-          BottomNav-bearing ancestor for the same reason — this just brings
-          Penny in line.
+          min-h-dvh/isolate one above. CSS animations with a non-"none"
+          transform in their keyframes (riseIn ends at translateY(0), kept
+          alive forever by fill-mode "both") establish a containing block
+          for `position: fixed` descendants — a real hazard on this page's
+          own history (see below), even though BottomNav itself can no
+          longer be caught by it: G79 hoisted BottomNav out of every page
+          and into app/layout.tsx, mounted once as a sibling of #app-shell,
+          so it's never a descendant of this (or any) page's own wrappers
+          any more and needs no clearance from them.
 
           History (kept for whoever next touches this div): this page used
           to also render PennyConversation inline, section e, and that
@@ -155,15 +153,18 @@ export default function PennyPage() {
           transformed/filtered ancestor, so a rise-in wrapper around it
           trapped that composer too (caught on iPhone Safari) — the fix at
           the time was keeping the conversation as a SIBLING of this div,
-          never nested inside it. That conversation has since moved into
-          the app-wide bottom sheet (components/PennySheetProvider.tsx) and
-          no longer renders on this page at all (see section e below, now
-          just an entry point with no fixed descendant of its own) — so the
-          specific hazard that shaped this div's boundary is gone. Collapsing
-          this wrapper back into the outer div was deliberately NOT done
-          here even so: the outer div still carries BottomNav as a sibling
-          below, and that reasoning (the first paragraph above) is
-          independent of the conversation and still holds on its own. */}
+          never nested inside it (and, back when BottomNav was still
+          rendered per-page rather than in app/layout.tsx, keeping THAT as
+          a sibling of this div too, for the identical reason). The
+          conversation has since moved into the app-wide bottom sheet
+          (components/PennySheetProvider.tsx) and no longer renders on this
+          page at all (see section e below, now just an entry point with no
+          fixed descendant of its own), and BottomNav has since moved out
+          of this page entirely (see above) — so neither hazard this
+          wrapper's boundary was originally drawn around still applies
+          here. Collapsing it back into the outer div is a no-op cleanup
+          outside this ticket's scope, not left in place because it's
+          still load-bearing. */}
       <div className="px-4 pt-6 lg:px-0 lg:pt-6 lg:max-w-2xl lg:mx-auto rise-in" style={{ "--rise-index": 0 } as React.CSSProperties}>
         {/* a. Header — Penny's own gradient mark, the only gradient surface
             on this screen besides the nav button that led here. The context
@@ -287,8 +288,6 @@ export default function PennyPage() {
           />
         </div>
       </div>
-
-      <BottomNav />
     </div>
   );
 }
