@@ -164,7 +164,7 @@ def test_a_charge_on_a_credit_card_does_not_reduce_the_walk(monkeypatch):
     accounts = [{"balance": 603.0, "type": "bank", "subtype": "CURRENT", "currency": "GBP"}]
     _wire_bills_and_accounts(monkeypatch, bills, accounts)
 
-    async def no_growth(_uid, _start, _today, _bills):
+    async def no_growth(_uid, _start, _today, _bills, _excluded=None):
         return []
 
     monkeypatch.setattr(net_position, "card_growth_by_card", no_growth)
@@ -190,7 +190,7 @@ def test_a_repayment_to_that_card_does_reduce_the_walk(monkeypatch):
     accounts = [{"balance": 603.0, "type": "bank", "subtype": "CURRENT", "currency": "GBP"}]
     _wire_bills_and_accounts(monkeypatch, bills, accounts)
 
-    async def no_growth(_uid, _start, _today, _bills):
+    async def no_growth(_uid, _start, _today, _bills, _excluded=None):
         return []
 
     monkeypatch.setattr(net_position, "card_growth_by_card", no_growth)
@@ -224,7 +224,7 @@ def test_charge_and_its_repayment_together_reduce_cash_only_once(monkeypatch):
     accounts = [{"balance": 603.0, "type": "bank", "subtype": "CURRENT", "currency": "GBP"}]
     _wire_bills_and_accounts(monkeypatch, bills, accounts)
 
-    async def no_growth(_uid, _start, _today, _bills):
+    async def no_growth(_uid, _start, _today, _bills, _excluded=None):
         return []
 
     monkeypatch.setattr(net_position, "card_growth_by_card", no_growth)
@@ -258,7 +258,7 @@ def test_a_movement_between_two_pooled_accounts_does_not_reduce_cash(monkeypatch
     accounts = [{"balance": 603.0, "type": "bank", "subtype": "CURRENT", "currency": "GBP"}]
     _wire_bills_and_accounts(monkeypatch, bills, accounts)
 
-    async def no_growth(_uid, _start, _today, _bills):
+    async def no_growth(_uid, _start, _today, _bills, _excluded=None):
         return []
 
     monkeypatch.setattr(net_position, "card_growth_by_card", no_growth)
@@ -283,15 +283,27 @@ def test_reserve_still_catches_growth_with_no_predicted_repayment(monkeypatch):
     bill no longer reaches `window_bills` at all (G109's fix), it can no
     longer be mismatched as a "scheduled" repayment against its own card
     (the pre-existing double-count guard in card_growth_by_card), so the
-    fail-closed reserve still reserves the FULL £200 growth rather than
-    quietly discounting it by the £180 future charge.
+    fail-closed reserve still reserves the full £200 PAST growth rather
+    than quietly discounting it by the £180 future charge, AND (G109
+    follow-up) the £180 charge itself, which has not POSTED yet and so is
+    invisible to `growth` (transaction-history based), is reserved
+    separately via `card_charges_excluded_from_walk` -- £200 + £180 = £380,
+    not just £200. Without that follow-up, the £180 would be caught by
+    NEITHER the cash walk (correctly excluded, it's not cash leaving yet)
+    NOR the reserve (nothing has posted yet), overstating cash by £180.
     """
     _wire_common(monkeypatch, recurring_spend=[])  # no card_dest_account_id anywhere -> unlearned
     bills = [{
         # A future occurrence of the SAME recurring charge that produced
         # this period's growth — is_credit_card true, no card_dest link.
-        "name": "Anthropic", "days_away": 20, "amount": 180.0,
-        "expected_date": "2026-10-06", "kind": "discretionary",
+        # days_away MUST stay inside the window (`raw_window_bills` keeps
+        # `0 <= days_away < days_until_payday`, which is 15 under this
+        # fixture's default pay config): a charge dated after payday never
+        # reaches `window_bills` for the ordinary calendar reason and would
+        # make this test pass without exercising either the exclusion or
+        # the reserve.
+        "name": "Anthropic", "days_away": 10, "amount": 180.0,
+        "expected_date": "2026-09-26", "kind": "discretionary",
         "account_id": "amex", "is_credit_card": True,
     }]
     accounts = [{"balance": 100.0, "type": "bank", "subtype": "CURRENT", "currency": "GBP"}]
@@ -315,10 +327,52 @@ def test_reserve_still_catches_growth_with_no_predicted_repayment(monkeypatch):
 
     # window_bills passed the £180 future charge through with is_credit_card
     # excluded from the walk (bills_total stays 0), so nothing already
-    # accounted for it — the reserve must carry the full £200, not £20
-    # (200 - 180, the pre-fix mismatch).
+    # accounted for it via the walk — the reserve must carry the full £200
+    # PAST growth (not £20 = 200 - 180, the pre-fix double-count-guard
+    # mismatch) PLUS the £180 not-yet-posted future charge on top.
     assert result["bills_total"] == 0.0
     assert result["card_growth_total"] == 200.0
-    assert result["card_growth_reserved"] == 200.0
-    assert result["safe_to_spend"] == -100.0
+    assert result["card_growth_reserved"] == 380.0
+    assert result["safe_to_spend"] == -280.0
     assert result["state"] == "short"
+
+
+def test_reserve_catches_a_not_yet_posted_charge_even_with_zero_past_growth(monkeypatch):
+    """The purest form of the gap: a card with NO transaction history at
+    all this period (growth=0 — e.g. a brand new card, or one that simply
+    hasn't been used until today) whose only exposure is a single
+    forecasted charge that has not posted yet. Before the G109 follow-up,
+    `card_growth_by_card` would skip this card entirely (net_change == 0
+    and new_spend == 0 with no `future_unposted_charges` field to check),
+    so the reserve would sit at £0 while a real, predicted charge sat
+    completely unaccounted for — cash overstated by the full amount.
+    """
+    _wire_common(monkeypatch, recurring_spend=[])
+    bills = [{
+        "name": "New Phone Contract", "days_away": 3, "amount": 45.0,
+        "expected_date": "2026-09-19", "kind": "commitment",
+        "account_id": "newcard", "is_credit_card": True,
+    }]
+    accounts = [{"balance": 200.0, "type": "bank", "subtype": "CURRENT", "currency": "GBP"}]
+    _wire_bills_and_accounts(monkeypatch, bills, accounts)
+
+    async def fake_card_ids(_uid):
+        return {"newcard"}
+
+    async def fake_txns(_uid, _start, _end, account_ids=None):
+        return []  # nothing has posted on this card yet this period
+
+    def fake_delta(_txns):
+        return 0.0
+
+    monkeypatch.setattr(needle, "_credit_card_account_ids", fake_card_ids)
+    monkeypatch.setattr(needle, "_txns_for_period", fake_txns)
+    monkeypatch.setattr(needle, "_card_delta", fake_delta)
+    monkeypatch.setattr(categories, "get_category_kinds", _fake_kinds)
+
+    result = asyncio.run(analytics.compute_safe_to_spend(UID))
+
+    assert result["bills_total"] == 0.0  # the charge never enters the cash walk
+    assert result["card_growth_total"] == 0.0  # nothing has posted — the descriptive fact stays honest
+    assert result["card_growth_reserved"] == 45.0  # but the forecasted charge is still reserved for
+    assert result["safe_to_spend"] == 155.0  # 200 - 45, not 200

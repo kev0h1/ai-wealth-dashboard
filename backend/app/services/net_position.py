@@ -95,6 +95,7 @@ async def card_growth_by_card(
     period_start: date,
     today: date,
     window_bills: list[dict] | None = None,
+    excluded_card_charges: list[dict] | None = None,
 ) -> list[dict] | None:
     """Return positive card growth separately for each card.
 
@@ -111,6 +112,26 @@ async def card_growth_by_card(
     value means a paydown on one card offsets growth on another in the
     user-facing total, while the fallback reserve can still be applied to
     the exact unlearned card rather than guessed across the portfolio.
+
+    `excluded_card_charges` (G109 follow-up, 2026-09-16): the bills
+    `_touches_pooled_cash` excluded from `window_bills` because they sit ON
+    a credit card — forecasted but not yet POSTED (no matching real
+    transaction exists yet, so `growth` below, which is `_card_delta` over
+    ACTUAL transactions, cannot see them). Without this, an unlearned card
+    (no forecast repayment — see `unpaid_growth`'s own callers) whose only
+    exposure this period is a charge that hasn't posted yet would be
+    invisible to BOTH the cash walk (correctly excluded, it's not cash
+    leaving yet) AND this reserve (nothing has posted, so `growth` is still
+    zero) — exactly the dangerous failure mode the G109 backlog item names:
+    "removing the charge without the reserve catching it would overstate
+    cash." Summed per card into `future_unposted_charges`, a row field
+    present only when non-zero (so a caller/test that never passes this
+    argument sees byte-identical rows to before). Deliberately NOT netted
+    against `scheduled` or capped by `growth`/`card_growth_total` the way
+    `unpaid_growth` is: it describes money the user's own bank does not
+    know about yet either, so there is no "observed" figure to reconcile it
+    against — the caller (`compute_safe_to_spend`, step 6c) adds it to the
+    unlearned-card reserve AFTER that cap, not inside it.
 
     The helper performs the same account and transaction reads as the old
     aggregate implementation, then groups in memory. ``None`` means the
@@ -155,6 +176,12 @@ async def card_growth_by_card(
             if matched_id:
                 scheduled[matched_id] += float(bill.get("amount") or 0.0)
 
+        future_unposted: dict[str, float] = {card_id: 0.0 for card_id in card_ids}
+        for bill in (excluded_card_charges or []):
+            account_id = str(bill.get("account_id") or "")
+            if account_id in card_ids:
+                future_unposted[account_id] += float(bill.get("amount") or 0.0)
+
         rows: list[dict] = []
         for card_id in sorted(card_ids):
             card_txns = by_card[card_id]
@@ -165,16 +192,20 @@ async def card_growth_by_card(
                 if t.get("transaction_type") == "debit"
                 and not is_non_spend(kind_map, t.get("custom_category") or t.get("category") or "Other")
             ), 2)
-            if net_change == 0 and new_spend == 0:
+            future_charges_for_card = round(future_unposted.get(card_id, 0.0), 2)
+            if net_change == 0 and new_spend == 0 and future_charges_for_card <= 0:
                 continue
             growth = round(max(0.0, net_change), 2)
-            rows.append({
+            row = {
                 "account_id": card_id,
                 "net_change": net_change,
                 "growth": growth,
                 "unpaid_growth": round(max(0.0, growth - scheduled[card_id]), 2),
                 "new_spend": new_spend,
-            })
+            }
+            if future_charges_for_card > 0:
+                row["future_unposted_charges"] = future_charges_for_card
+            rows.append(row)
         return rows
     except Exception:
         log.exception("card_growth_by_card failed for %s", uid)
