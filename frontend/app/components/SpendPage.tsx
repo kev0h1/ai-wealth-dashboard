@@ -25,7 +25,6 @@ import { getAccountsCached } from "@/lib/accountsCache";
 import { usePeriodSwipe } from "@/lib/usePeriodSwipe";
 import { isHomeCurrency } from "@/lib/currency";
 import { CategoryData } from "@/components/CategoryRow";
-import BottomNav from "@/components/BottomNav";
 import Spinner from "@/components/Spinner";
 import SpendVerdictView from "@/components/SpendVerdictView";
 import { SpendJourneySummary, SpendPeriodBar, type RecentPeriodOption, SpendHeroSkeleton } from "@/components/SpendHeader";
@@ -172,9 +171,11 @@ function computeInitialPeriod(restoredUi: SpendUiState): { start: Date; end: Dat
  *  weighted Out/In/Moved instrument, the reading line), the Breakdown/
  *  Charts toggle, a notable-card, and the majority-list rows, at the same
  *  positions and approximate heights, so swapping in the real tree doesn't
- *  itself shift anything. BottomNav renders for real (never a placeholder)
- *  so navigation stays available while the page settles. No entrance
- *  animation beyond the shared `animate-pulse` shimmer — this codebase's
+ *  itself shift anything. BottomNav is mounted once in app/layout.tsx
+ *  (G79) rather than by this page, so it's already real (never a
+ *  placeholder) and navigation stays available while the page settles
+ *  with no extra work here. No entrance animation beyond the shared
+ *  `animate-pulse` shimmer — this codebase's
  *  rule against visibility-gating cascades. Never shown on a warm-cache
  *  revisit (BACK-nav) — see `initialHadWarmVerdict` in SpendPage.
  *
@@ -222,8 +223,6 @@ function SpendSkeleton() {
           ))}
         </div>
       </div>
-
-      <BottomNav />
     </div>
   );
 }
@@ -1291,8 +1290,6 @@ export default function SpendPage() {
           </p>
         </div>
       )}
-
-      <BottomNav />
     </div>
   );
 }

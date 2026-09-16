@@ -143,7 +143,7 @@ export default function ReceiptsPage() {
         </div>
       </div>
 
-      <div className="px-4 py-4 pb-28 space-y-2">
+      <div className="px-4 py-4 pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8 space-y-2">
         {scanning && (
           <div className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 text-sm font-semibold text-white">
             <Camera size={16} />

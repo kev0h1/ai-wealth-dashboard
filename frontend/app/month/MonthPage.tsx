@@ -12,7 +12,6 @@ import PennyMark from "@/components/PennyMark";
 import MoneyText from "@/components/MoneyText";
 import { usePreferences } from "@/components/PreferencesContext";
 import SegmentedControl from "@/components/SegmentedControl";
-import BottomNav from "@/components/BottomNav";
 import { goBack } from "@/lib/goBack";
 
 // ── Whisper label ─────────────────────────────────────────────────────────────
@@ -165,7 +164,6 @@ export default function MonthPage() {
           <SkeletonCard />
           <SkeletonCard />
         </div>
-        <BottomNav />
       </div>
     );
   }
@@ -211,7 +209,6 @@ export default function MonthPage() {
             </p>
           </div>
         </div>
-        <BottomNav />
       </main>
     );
   }
@@ -595,7 +592,6 @@ export default function MonthPage() {
         )}
 
       </div>
-      <BottomNav />
     </main>
   );
 }

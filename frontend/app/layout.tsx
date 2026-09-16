@@ -3,6 +3,7 @@ import { Figtree, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./Providers";
 import Sidebar from "@/components/Sidebar";
+import BottomNav from "@/components/BottomNav";
 import ScrollReset from "@/components/ScrollReset";
 import ServiceWorkerRegistrar from "@/components/ServiceWorkerRegistrar";
 import NativePushResync from "@/components/NativePushResync";
@@ -114,6 +115,30 @@ export default function RootLayout({
             <TutorialOffer />
             <ScrollReset />
             <Sidebar />
+            {/* G79: mounted once, here, as Sidebar's sibling — every route
+                gets the nav by default now, instead of each of the ~15 page
+                components that used to render <BottomNav /> individually
+                needing to remember to (app/spend/shape/ShapePage.tsx never
+                did, which is what this fix closes off structurally). Placed
+                outside PennySheetProvider/#app-shell exactly like Sidebar
+                above: BottomNav's own usePennySheet() call is a module-level
+                useSyncExternalStore singleton (see PennySheetProvider.tsx's
+                own "STATE MODEL" comment for why — Sidebar hit the identical
+                DOM-nesting problem first), not a React Context, so it does
+                not need to be a descendant of PennySheetProvider to reach
+                the sheet's open/close state. The only routes that don't get
+                it are the small, named, reasoned list in
+                lib/navExemptRoutes.ts (design previews, legal pages, the
+                OAuth consent screen, the full-screen month-story player, the
+                two owner-only /ops pages, and the two blank client
+                redirects) — guarded against silent drift by
+                scripts/check-nav-coverage.mjs. Auth-gated states
+                (signed-out, onboarding, the web-product lock) still show no
+                nav at all, same as Sidebar: components/AuthProvider.tsx
+                substitutes the whole subtree below it (this Sidebar/BottomNav
+                pair included) with LoginScreen/Onboarding/AppOnlyPage before
+                a session exists, so there's nothing extra to gate here. */}
+            <BottomNav />
             {/* PennySheetProvider wraps #app-shell rather than nesting
                 inside it: it renders <PennySheet /> (a portal to
                 document.body, so its actual DOM position is unaffected

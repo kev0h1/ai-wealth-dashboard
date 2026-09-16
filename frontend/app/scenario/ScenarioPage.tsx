@@ -36,7 +36,6 @@ import { api, ScenarioItem, ScenarioRunResponse } from "@/lib/api";
 import { usePreferences } from "@/components/PreferencesContext";
 import { usePennySheet } from "@/components/PennySheetProvider";
 import { goBack } from "@/lib/goBack";
-import BottomNav from "@/components/BottomNav";
 import MoneyText from "@/components/MoneyText";
 
 // ── Formatting helpers ──────────────────────────────────────────────────────
@@ -504,7 +503,6 @@ export default function ScenarioPage() {
           </div>
         )}
       </div>
-      <BottomNav />
     </div>
   );
 }

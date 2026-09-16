@@ -37,7 +37,6 @@ import {
   isLockEnabled as isBiometricLockEnabled,
   setLockEnabled as setBiometricLockEnabled,
 } from "@/lib/biometrics";
-import BottomNav from "@/components/BottomNav";
 import { useTutorial, TUTORIAL_FLOWS } from "@/components/TutorialContext";
 import Toggle from "@/components/Toggle";
 import ConfirmDialog from "@/components/ConfirmDialog";
@@ -1817,8 +1816,6 @@ export default function SettingsPage() {
         onConfirm={handleTurnOffPennyConsent}
         onCancel={() => setPennyConsentOffOpen(false)}
       />
-
-      <BottomNav />
     </div>
   );
 }

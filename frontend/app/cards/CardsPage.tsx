@@ -12,7 +12,6 @@ import { getCategoryColour } from "@/lib/categories";
 import { getCategoryIcon } from "@/lib/categoryIcons";
 import { useCategoryIcons } from "@/components/IconProvider";
 import { usePreferences } from "@/components/PreferencesContext";
-import BottomNav from "@/components/BottomNav";
 import MoneyText from "@/components/MoneyText";
 
 // ── Whisper label ─────────────────────────────────────────────────────────────
@@ -123,7 +122,6 @@ export default function CardsPage() {
           <SkeletonCard />
           <SkeletonCard />
         </div>
-        <BottomNav />
       </div>
     );
   }
@@ -151,7 +149,6 @@ export default function CardsPage() {
             </p>
           </div>
         </div>
-        <BottomNav />
       </div>
     );
   }
@@ -485,7 +482,6 @@ export default function CardsPage() {
         )}
 
       </div>
-      <BottomNav />
     </div>
   );
 }

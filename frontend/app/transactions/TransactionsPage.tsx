@@ -15,7 +15,6 @@ import { ArrowLeft, Search, X, ChevronLeft, ChevronRight } from "lucide-react";
 import { api, Transaction, Account, type SavingsInsight } from "@/lib/api";
 import TransactionRow from "@/components/TransactionRow";
 import TeachingSheet from "@/components/TeachingSheet";
-import BottomNav from "@/components/BottomNav";
 import Spinner from "@/components/Spinner";
 import { TipsLine } from "@/components/TipsLine";
 import { openTipsFor, tipsForMerchants } from "@/lib/spendTips";
@@ -526,8 +525,6 @@ export default function TransactionsPage() {
           onUpdated={handleTxUpdated}
         />
       )}
-
-      <BottomNav />
     </div>
   );
 }

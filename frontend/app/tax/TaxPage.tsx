@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import BottomNav from "@/components/BottomNav";
 import Spinner from "@/components/Spinner";
 import { api } from "@/lib/api";
 import { goBack } from "@/lib/goBack";
@@ -92,7 +91,6 @@ function LoadingState({ embedded }: { embedded: boolean }) {
   return (
     <div className="min-h-dvh pb-32 lg:pb-12" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       {spinner}
-      <BottomNav />
     </div>
   );
 }
@@ -331,7 +329,6 @@ export default function TaxPage({
         Skip to Tax content
       </a>
       <main id="tax-main" tabIndex={-1}>{canvas}</main>
-      <BottomNav />
     </div>
   );
 }

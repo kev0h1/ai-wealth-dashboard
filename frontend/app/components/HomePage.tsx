@@ -9,7 +9,6 @@ import AccountLedgerRow from "@/components/AccountLedgerRow";
 import { bankToRow, investmentToRow } from "@/lib/accountsEstate";
 import TransactionRow from "@/components/TransactionRow";
 import TeachingSheet from "@/components/TeachingSheet";
-import BottomNav from "@/components/BottomNav";
 import { usePreferences } from "@/components/PreferencesContext";
 import { useAuth } from "@/components/AuthProvider";
 import { useRouter } from "next/navigation";
@@ -917,8 +916,6 @@ export default function HomePage() {
           account={accounts.find(a => a.id === selectedTx.account_id)}
         />
       )}
-
-      <BottomNav />
     </div>
   );
 }

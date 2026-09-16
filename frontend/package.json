@@ -13,6 +13,7 @@
     "check:design-no-live-data": "node scripts/check-design-no-live-data.mjs",
     "check:build-mobile-guard": "bash scripts/build-mobile-guard.test.sh",
     "check:legal-content": "node scripts/legal-content.test.mjs",
+    "check:nav-coverage": "node --no-warnings --experimental-strip-types scripts/check-nav-coverage.mjs",
     "check:preferences-version": "node --no-warnings --experimental-strip-types scripts/preferences-version.test.mjs",
     "check:serial-queue": "node --no-warnings --experimental-strip-types scripts/serial-queue.test.mjs",
     "check:preference-save": "node --no-warnings --experimental-strip-types scripts/preference-save.test.mjs",

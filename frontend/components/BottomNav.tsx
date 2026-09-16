@@ -8,6 +8,7 @@ import { api } from "@/lib/api";
 import PennyMark from "@/components/PennyMark";
 import { PAYDAY_DOT_CACHE_KEY } from "@/lib/paydayWindow";
 import { usePennySheet, type PennyAskContext } from "@/components/PennySheetProvider";
+import { isNavExemptPath } from "@/lib/navExemptRoutes";
 
 // State badge (not seen-clearable): bills due in 7 days their account can't cover
 function useAtRiskCount(): number {
@@ -75,10 +76,11 @@ export function screenForPathname(pathname: string | null): PennyAskContext["scr
   switch (pathname) {
     case "/": return "home";
     case "/spend": return "spend";
-    // /spend/shape is a drill-in page (like /transactions) with no
-    // BottomNav instance of its own — this case only matters to Sidebar.tsx's
-    // desktop Penny trigger, which derives its screen context from the
-    // current pathname regardless of whether BottomNav itself is mounted.
+    // /spend/shape is a drill-in page (like /transactions). It used to have
+    // no BottomNav instance of its own, which is exactly the gap G79 closed
+    // (see lib/navExemptRoutes.ts): BottomNav is now mounted once, globally,
+    // in app/layout.tsx, so this mapping also drives the mobile rail on
+    // this route, not just Sidebar.tsx's desktop Penny trigger.
     case "/spend/shape": return "spend";
     case "/upcoming": return "upcoming";
     case "/planning": return "planning";
@@ -97,9 +99,10 @@ export function screenForPathname(pathname: string | null): PennyAskContext["scr
     case "/grow": return "grow";
     // Was "/debt-plan" (DebtPlanPage.tsx rendered this BottomNav itself)
     // until that page was retired 2026-08-30 — CardsPage.tsx (/cards) is
-    // its successor and renders this BottomNav too, so the "debt" screen
-    // context (lib/pennyScreenConfig.tsx's `debt` entry) now keys off it
-    // instead.
+    // its successor, so the "debt" screen context (lib/pennyScreenConfig.tsx's
+    // `debt` entry) now keys off it instead. Since G79, CardsPage.tsx no
+    // longer renders BottomNav itself either; it gets the rail from
+    // app/layout.tsx's single global mount like every other non-exempt route.
     case "/cards": return "debt";
     // Added 2026-08-26, once PennySheetProvider.tsx's `PennyAskContext["screen"]`
     // union gained "accounts" — lib/pennyScreenConfig.tsx already had a real
@@ -136,6 +139,16 @@ export default function BottomNav() {
   // comment), so it should read as pressed/active for as long as that's
   // true, not just while the user is on the hub page underneath it.
   const pennyActive = pathname === "/penny" || pennySheetOpen;
+
+  // G79: BottomNav is now mounted once, globally, in app/layout.tsx (a
+  // sibling of components/Sidebar.tsx) rather than per-page — every route
+  // gets it by default. The ONLY way a route can be without it is by
+  // matching lib/navExemptRoutes.ts, the single named, reasoned exemption
+  // list (also read by scripts/check-nav-coverage.mjs so a silent,
+  // undocumented exemption fails session-finish). Do not add a second,
+  // ad hoc `pathname === ...` early return here — every exemption belongs
+  // in that one file, not scattered through this component.
+  if (isNavExemptPath(pathname)) return null;
 
   return (
     <>
