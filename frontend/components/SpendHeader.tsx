@@ -28,7 +28,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, Settings2, SlidersHorizontal, Search, Info, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Settings2, Search, Info, X } from "lucide-react";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { useSheetA11y } from "@/lib/useSheetA11y";
 import TransactionRow from "@/components/TransactionRow";
@@ -302,7 +302,28 @@ export function SpendPeriodBar(props: SpendHeaderProps) {
 
   return (
     <>
-      <header className="flex flex-wrap items-center gap-x-3 gap-y-3 pb-4">
+      {/* Deliberately laid out, not wrap-rescued, at the 390px iPhone width
+          (G82): title + pay-period nav + Search all fit one row there and
+          at 375px (measured, see the G82 session notes) — tightening the
+          period pill's max-width and dropping a redundant fourth control
+          (see below) makes room without shrinking anything below its 44px
+          tap target. flex-wrap stays on only as the graceful fallback for
+          widths this app doesn't target (DESIGN.md's 430px mobile shell) —
+          at 320px (an iPhone SE plus one notch of display zoom) the title
+          keeps its natural, fully-legible size and drops to its own line
+          above the nav+Search row, rather than being truncated into
+          unreadable fragments; nothing is ever cropped mid-word.
+          The former fourth control here — a "Spend settings" gear — was
+          dead weight: its onClick only ever called setSheetOpen(true),
+          exactly what tapping the period-label pill already does, so it was
+          a second button for the same action, not a second function. That
+          slot now belongs to Search, and it renders unconditionally (the
+          `hidden … sm:flex` classes that hid it below 640px, the larger of
+          G82's two faults, are gone) — one direct entry point in the row;
+          the PeriodSheet's own "Search transactions" menu item (below,
+          reached via the period pill) is a second, slower path, not a
+          competing one. */}
+      <header className="flex flex-wrap items-center gap-1.5 pb-4">
         <div className="mr-auto">
           <h1 className="text-[28px] font-bold leading-none tracking-[-0.03em] text-slate-950 dark:text-white">Spend</h1>
           <p className="mt-1 text-[13px] text-slate-600 dark:text-slate-400">
@@ -310,7 +331,7 @@ export function SpendPeriodBar(props: SpendHeaderProps) {
           </p>
         </div>
 
-        <nav aria-label="Pay period" className="flex min-h-11 items-center rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800">
+        <nav aria-label="Pay period" className="flex min-h-11 shrink-0 items-center rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800">
           <button
             type="button"
             aria-label="Previous pay period"
@@ -323,7 +344,7 @@ export function SpendPeriodBar(props: SpendHeaderProps) {
           <button
             type="button"
             onClick={() => setSheetOpen(true)}
-            className="min-h-11 max-w-[190px] truncate border-x border-slate-200 px-3 text-[13px] font-semibold text-slate-800 transition-colors hover:bg-slate-50 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 motion-reduce:transition-none dark:border-slate-700 dark:text-slate-100 dark:hover:bg-slate-700"
+            className="min-h-11 max-w-[104px] truncate border-x border-slate-200 px-2 text-[13px] font-semibold text-slate-800 transition-colors hover:bg-slate-50 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 motion-reduce:transition-none dark:border-slate-700 dark:text-slate-100 dark:hover:bg-slate-700 sm:max-w-[190px] sm:px-3"
           >
             {periodLabel.replace(" → ", " to ")}
           </button>
@@ -338,19 +359,10 @@ export function SpendPeriodBar(props: SpendHeaderProps) {
           </button>
         </nav>
 
-        <button
-          type="button"
-          onClick={() => setSheetOpen(true)}
-          aria-label="Spend settings"
-          className="flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-50 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 motion-reduce:transition-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
-        >
-          <SlidersHorizontal size={17} aria-hidden="true" />
-        </button>
-
         <Link
           href="/transactions"
           aria-label="Search transactions"
-          className="hidden min-h-11 min-w-11 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-50 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 motion-reduce:transition-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 sm:flex"
+          className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-50 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 motion-reduce:transition-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
         >
           <Search size={17} aria-hidden="true" />
         </Link>
