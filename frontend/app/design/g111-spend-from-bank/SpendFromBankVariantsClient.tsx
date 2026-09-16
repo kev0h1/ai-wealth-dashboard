@@ -166,7 +166,11 @@ function CurrentBlock({ state }: { state: StateSlug }) {
   const result = toBaselineResult(fixture);
   const line = spendFromHeroLine(result, amount);
   const altLine = spendFromAlternativeLine(result, amount);
-  const needsAttention = result.kind === "savings_pot" || result.kind === "none";
+  // G111 shipped: current accounts only, so lib/spendFromAccount.ts's
+  // SpendFromResult no longer has a "savings_pot" kind at all (toBaselineResult
+  // above only ever returns "none" or "account" here too) — this baseline
+  // ("current", the "before" variant) now only needs to flag "none".
+  const needsAttention = result.kind === "none";
   if (!line) return null;
   return (
     <div data-testid="spend-from-block">
