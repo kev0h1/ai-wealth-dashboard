@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { ArrowLeft, Check, ChevronRight, CircleAlert, LoaderCircle, Send } from "lucide-react";
 import PennyMark from "@/components/PennyMark";
+import FixtureBottomNav from "../_components/FixtureBottomNav";
 
 type Variant = "a" | "b" | "c";
 type State = "ready" | "loading" | "error" | "allowance";
@@ -38,9 +39,9 @@ export default function G93PennyCanvasClient() {
   const submitFixtureQuestion = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); if (question.trim()) setFixtureReply(`Preview reply to “${question.trim()}”. No question was sent to Penny.`); };
   const runQuickQuestion = (prompt: string) => setFixtureReply(`Preview quick answer to “${prompt}”. Quick questions remain available at the message cap; no request was sent.`);
 
-  return <main className={`${dark ? "dark" : ""} min-h-dvh bg-[#f0f2f7] text-slate-900 dark:bg-[#0f172a] dark:text-slate-100`}>
+  return <main className={`${dark ? "dark" : ""} min-h-dvh bg-[#f0f2f7] text-slate-900 dark:bg-[#0f172a] dark:text-slate-100`} style={{ "--design-controls-clearance": "108px" } as React.CSSProperties}>
     <a href="#thread" className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-xl focus:bg-slate-950 focus:px-4 focus:py-3 focus:text-white">Skip to conversation</a>
-    <div className="mx-auto max-w-5xl px-4 pb-32 pt-6 sm:px-6">
+    <div className="mx-auto max-w-5xl px-4 pb-56 pt-6 sm:px-6 lg:pb-24">
       <header className="mb-8"><a href="/design" className="inline-flex min-h-11 items-center gap-1 text-sm font-semibold text-slate-600 hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-400"><ArrowLeft size={16} aria-hidden="true" />Design rounds</a><h1 className="mt-4 text-balance text-[30px] font-bold tracking-[-.04em] text-slate-950 dark:text-white">Penny, on the canvas</h1><p className="mt-2 max-w-[65ch] text-sm leading-6 text-slate-600 dark:text-slate-400">Conversation leads. A boundary appears only when Penny offers an action, confirmation or evidence.</p></header>
       <section id="thread" aria-label="Penny conversation" aria-busy={state === "loading"} className={variant === "b" ? "grid gap-8 lg:grid-cols-[minmax(0,1fr)_19rem]" : "mx-auto max-w-2xl"}>
         <div className="space-y-6">
@@ -56,6 +57,7 @@ export default function G93PennyCanvasClient() {
       <form onSubmit={submitFixtureQuestion} className="mx-auto mt-10 flex max-w-2xl gap-2 border-t border-slate-200 pt-5 dark:border-slate-700"><label className="sr-only" htmlFor="ask">Ask Penny in this preview</label><input id="ask" name="ask" value={question} onChange={(event) => setQuestion(event.target.value)} disabled={composerDisabled} placeholder={state === "allowance" ? "Your allowance resets on 1 October…" : "Try a local preview question…"} className="min-h-11 min-w-0 flex-1 rounded-xl border border-slate-300 bg-white px-3 text-sm placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800"/><button type="submit" aria-label="Show local preview reply" disabled={composerDisabled || !question.trim()} className="grid h-11 w-11 place-items-center rounded-xl bg-gradient-to-br from-indigo-600 to-violet-600 text-white hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-50 active:scale-95"><Send size={17} aria-hidden="true" /></button></form>
       <p className="mx-auto mt-2 max-w-2xl text-xs text-slate-600 dark:text-slate-400">Preview only. Questions here are never sent to Penny.</p>
     </div>
+    <FixtureBottomNav />
     <nav aria-label="Preview controls" className="fixed bottom-3 left-1/2 z-20 flex max-w-[calc(100vw-24px)] -translate-x-1/2 gap-1 overflow-x-auto rounded-2xl bg-slate-950 p-1.5 shadow-xl">{(["a", "b", "c"] as Variant[]).map((value) => <a key={value} href={href({ variant: value })} className={`grid min-h-11 min-w-11 shrink-0 place-items-center rounded-xl text-xs font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white ${value === variant ? "bg-indigo-600 text-white" : "text-slate-300"}`}>{value.toUpperCase()}</a>)}{states.map((value) => <a key={value} href={href({ state: value })} className={`inline-flex min-h-11 shrink-0 items-center rounded-xl px-2 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white ${value === state ? "bg-white/15 text-white" : "text-slate-300"}`}>{value}</a>)}<a href={href({ mode: dark ? "light" : "dark" })} className="inline-flex min-h-11 shrink-0 items-center rounded-xl px-2 text-xs font-semibold text-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white">{dark ? "Light" : "Dark"}</a></nav>
   </main>;
 }

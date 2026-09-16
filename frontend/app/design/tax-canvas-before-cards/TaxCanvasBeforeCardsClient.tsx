@@ -1,25 +1,21 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   AlertCircle,
   ArrowLeft,
-  CalendarClock,
   CalendarDays,
   CheckCircle2,
   ChevronDown,
-  Home,
   Info,
-  PieChart,
-  Target,
   X,
 } from "lucide-react";
 import MoneyText from "@/components/MoneyText";
 import PennyMark from "@/components/PennyMark";
 import TaxCanvas from "@/app/tax/TaxCanvas";
 import { BRAND_GRADIENT } from "@/lib/brand";
+import FixtureBottomNav from "../_components/FixtureBottomNav";
 import {
   getTaxPreviewModel,
   TAX_PREVIEW_STATES,
@@ -329,7 +325,7 @@ function PennyChatPreview({ open, onClose }: { open: boolean; onClose: () => voi
   if (!open) return null;
 
   return (
-    <div className="fixed inset-x-0 bottom-[calc(110px+env(safe-area-inset-bottom,0px)+var(--g86-preview-clearance))] z-[70] px-3 lg:inset-x-auto lg:bottom-[calc(24px+var(--g86-preview-clearance))] lg:left-auto lg:right-6 lg:px-0">
+    <div className="fixed inset-x-0 bottom-[calc(110px+env(safe-area-inset-bottom,0px)+var(--design-controls-clearance,0px))] z-[70] px-3 lg:inset-x-auto lg:bottom-[calc(24px+var(--design-controls-clearance,0px))] lg:left-auto lg:right-6 lg:px-0">
       <section
         id="g86-penny-chat"
         role="dialog"
@@ -388,64 +384,6 @@ function PennyChatPreview({ open, onClose }: { open: boolean; onClose: () => voi
         </div>
       </section>
     </div>
-  );
-}
-
-const PREVIEW_NAV_TABS = [
-  { href: "/", label: "Home", Icon: Home, slot: 0 },
-  { href: "/spend?view=period", label: "Spend", Icon: PieChart, slot: 1 },
-  { href: "/upcoming", label: "Upcoming", Icon: CalendarClock, slot: 3 },
-  { href: "/planning", label: "Planning", Icon: Target, slot: 4 },
-];
-
-function PreviewBottomNav({ pennyOpen, onTogglePenny }: { pennyOpen: boolean; onTogglePenny: () => void }) {
-  return (
-    <>
-      <div
-        aria-hidden="true"
-        className="nav-scrim pointer-events-none fixed inset-x-0 bottom-[var(--g86-preview-clearance)] z-40 h-[116px] lg:hidden"
-      />
-      <nav
-        aria-label="Primary"
-        className="fixed inset-x-0 bottom-[calc(max(env(safe-area-inset-bottom,0px),10px)+var(--g86-preview-clearance))] z-50 flex justify-center lg:hidden"
-      >
-        <div className="relative w-[calc(100%-28px)] max-w-[402px]">
-          <button
-            type="button"
-            onClick={onTogglePenny}
-            aria-label="Penny"
-            aria-controls="g86-penny-chat"
-            aria-expanded={pennyOpen}
-            aria-pressed={pennyOpen}
-            className="absolute -top-7 left-1/2 z-10 flex size-14 -translate-x-1/2 cursor-pointer touch-manipulation items-center justify-center rounded-2xl [-webkit-tap-highlight-color:transparent] transition-transform active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 motion-reduce:transition-none dark:focus-visible:ring-offset-slate-900"
-            style={{
-              background: BRAND_GRADIENT,
-              boxShadow: pennyOpen
-                ? "0 4px 14px rgba(79,70,229,0.35), 0 0 0 6px rgba(79,70,229,0.18)"
-                : "0 4px 14px rgba(79,70,229,0.35)",
-            }}
-          >
-            <PennyMark size={22} className="text-white" />
-          </button>
-
-          <div className="glass-rail relative rounded-[22px]">
-            <div className="relative grid h-16 grid-cols-5 px-1.5">
-              {PREVIEW_NAV_TABS.map((tab) => (
-                <Link
-                  key={tab.label}
-                  href={tab.href}
-                  style={{ gridColumnStart: tab.slot + 1 }}
-                  className="relative z-10 flex min-h-11 touch-manipulation flex-col items-center justify-center gap-0.5 rounded-2xl [-webkit-tap-highlight-color:transparent] transition-transform active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 motion-reduce:transition-none"
-                >
-                  <tab.Icon size={22} strokeWidth={1.8} className="text-slate-500 dark:text-slate-400" aria-hidden="true" />
-                  <span className="text-[11px] font-medium leading-none text-slate-500 dark:text-slate-400">{tab.label}</span>
-                </Link>
-              ))}
-            </div>
-          </div>
-        </div>
-      </nav>
-    </>
   );
 }
 
@@ -699,7 +637,7 @@ export default function TaxCanvasBeforeCardsClient() {
       className={mode === "dark" ? "dark" : ""}
       style={{
         colorScheme: mode,
-        "--g86-preview-clearance": hideControls ? "0px" : "108px",
+        "--design-controls-clearance": hideControls ? "0px" : "108px",
       } as React.CSSProperties}
     >
       <div className={`min-h-dvh bg-[#f0f2f7] text-slate-950 selection:bg-indigo-200 selection:text-indigo-950 dark:bg-[#0f172a] dark:text-slate-100 dark:selection:bg-indigo-500/40 dark:selection:text-white ${hideControls ? "pb-32" : "pb-60"} lg:pb-28`} style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
@@ -709,7 +647,7 @@ export default function TaxCanvasBeforeCardsClient() {
         </a>
         <main id="g86-main" tabIndex={-1}>{content}</main>
         <PennyChatPreview open={pennyOpen} onClose={closePenny} />
-        <PreviewBottomNav pennyOpen={pennyOpen} onTogglePenny={togglePenny} />
+        <FixtureBottomNav onPennyClick={togglePenny} pennyExpanded={pennyOpen} pennyControls="g86-penny-chat" />
         {!hideControls && <PreviewControls variant={variant} mode={mode} state={state} />}
       </div>
     </div>

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Check, ChevronRight, Eye, Target } from "lucide-react";
+import FixtureBottomNav from "../_components/FixtureBottomNav";
 
 type Variant = "a" | "b" | "c";
 type State = "portrait" | "aim" | "empty";
@@ -55,7 +56,7 @@ export default function MirrorCanvasClient() {
   const revealSecond = variant !== "c" || open === "treats" || open === "saver";
   const choose = (id: string, choice: Choice) => setChoices((current) => ({ ...current, [id]: choice }));
 
-  return <main className={`${dark ? "dark" : ""} min-h-dvh bg-[#f0f2f7] pb-32 text-slate-900 dark:bg-slate-900 dark:text-slate-100`}>
+  return <main className={`${dark ? "dark" : ""} min-h-dvh bg-[#f0f2f7] pb-56 text-slate-900 dark:bg-slate-900 dark:text-slate-100 lg:pb-24`} style={{ "--design-controls-clearance": "108px" } as React.CSSProperties}>
     <div className="mx-auto max-w-4xl px-5 py-8">
       <h1 className="text-balance text-3xl font-bold tracking-tight">How your money behaves</h1>
       <p className="mt-3 max-w-2xl text-[15px] leading-relaxed text-slate-600 dark:text-slate-300">What pattern has emerged, and is it one you want to keep? This is a personal reading, not a score or a judgement.</p>
@@ -73,6 +74,7 @@ export default function MirrorCanvasClient() {
         {aimCategory && <section className="mt-10 max-w-2xl rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800" aria-labelledby="aim-title"><Target aria-hidden="true" size={18} className="text-indigo-600 dark:text-indigo-400" /><h2 id="aim-title" className="mt-2 font-bold">Your chosen aim</h2><p className="mt-1 text-sm leading-relaxed text-slate-600 dark:text-slate-300"><span className="font-mono tabular-nums">£74</span> of your <span className="font-mono tabular-nums">£120</span> {aimCategory} aim · 8 days left</p><Link href="/planning" className="mt-3 inline-flex min-h-11 items-center gap-1 text-sm font-semibold text-indigo-700 underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-300">Take this aim to Planning <ChevronRight size={15} /></Link></section>}
       </>}
     </div>
+    <FixtureBottomNav />
     <PreviewBar variant={variant} state={state} dark={dark} />
   </main>;
 }
