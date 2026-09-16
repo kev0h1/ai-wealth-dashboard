@@ -1165,6 +1165,56 @@ def _is_pooled_spendable_transfer(item: dict) -> bool:
     return item.get("kind") == MOVEMENT and item.get("dest_account_spendable") is True
 
 
+def _touches_pooled_cash(item: dict) -> bool:
+    """Return true when `item` (an `upcoming_bills` entry) is a genuine
+    change to the pooled spendable-cash total, i.e. it belongs in a
+    running-balance cash walk (Safe-to-Spend's own window, Planning's
+    runway).
+
+    G109 (2026-09-16, owner-reported: a £180 Anthropic charge on the Amex
+    dropped projected cash from £603 to £423 with no cash moving, then the
+    separate Amex repayment from Barclays dropped it again): the cash-led
+    rule from G16, extended to the bills walk. Three categories, split by
+    the POOL BOUNDARY rather than by whether something is labelled a
+    transfer:
+      - a charge ON a credit card (`is_credit_card`) does NOT touch cash —
+        no money has left any bank account yet, only a limit moved.
+      - a payment TO a card is a plain debit on the paying (non-card)
+        account and stays IN the walk — it is not caught by
+        `_is_pooled_spendable_transfer` because its destination (the card)
+        is never `dest_account_spendable`, so it needs no special case here.
+      - a movement between two pooled spendable accounts is a no-op,
+        `_is_pooled_spendable_transfer` above.
+
+    Excluding every credit-card-related item wholesale would be worse than
+    the bug it fixes: it would drop the repayment too, so cash would never
+    fall for card spending at all, overstating what the user can spend. This
+    predicate only ever excludes the CHARGE side; a repayment's own account
+    is the paying current/savings account, never the card, so it is
+    untouched by the `is_credit_card` check below.
+
+    THIS IS THE SINGLE FILTER for what enters a pooled cash-balance walk.
+    `compute_safe_to_spend`'s `window_bills` is its only caller; that same
+    list is also what `card_growth_by_card` receives as `window_bills`, so
+    excluding a card's own charges here also stops
+    `net_position.card_growth_by_card`'s double-count guard from crediting
+    a future CHARGE against that card's own unpaid growth (it can now only
+    match a genuine forecast repayment via `card_dest_account_id`) — the
+    fail-closed `card_growth_reserved` fallback (Safe-to-Spend step 6c)
+    picks up the full unpaid growth for any card with spending but no
+    predicted repayment, so cash still falls, just once, and via the
+    reserve rather than a phantom charge subtraction.
+
+    Deliberately separate from `is_assessable_bill`: that predicate asks
+    "is there reliable balance data to run a PER-ACCOUNT shortfall walk",
+    and also excludes bills with no `account_balance` at all — a different
+    question a pooled cash walk must not inherit (a bill on an account
+    missing from the live balance map is still a real future debit against
+    the pool; the pool walk needs no per-account balance to know that).
+    """
+    return not item.get("is_credit_card")
+
+
 async def _safe_to_spend_accounts(uid: str) -> list[dict]:
     """Live UK account pool source for Safe-to-Spend.
 
@@ -3836,12 +3886,30 @@ async def compute_safe_to_spend(uid: str) -> dict:
     ]
     # The seed is the pooled balance of every spendable account, so a traced
     # transfer between two accounts in that same pool must remove neither leg.
-    # This is the backend equivalent of Planning's isPooledNoOp rule.
-    window_bills = [b for b in raw_window_bills if not _is_pooled_spendable_transfer(b)]
+    # This is the backend equivalent of Planning's isPooledNoOp rule. G109:
+    # a bill sitting ON a credit card is excluded too — see
+    # `_touches_pooled_cash`'s docstring; this is the single filter that
+    # decides what enters the cash walk below AND what `card_growth_by_card`
+    # (step 6c) receives as its own `window_bills`, so both stay consistent
+    # with one change here.
+    window_bills = [
+        b for b in raw_window_bills
+        if not _is_pooled_spendable_transfer(b) and _touches_pooled_cash(b)
+    ]
     pooled_transfers_excluded = round(sum(
         float(b["amount"]) for b in raw_window_bills
         if _is_pooled_spendable_transfer(b)
     ), 2)
+    # G109 follow-up: the credit-card charges `_touches_pooled_cash` just
+    # excluded from the cash walk, threaded into step 6c's reserve
+    # separately from `window_bills` (see `card_growth_by_card`'s own
+    # `excluded_card_charges` doc) so a forecasted-but-not-yet-POSTED charge
+    # on a card with no learned repayment is still reserved for, not simply
+    # dropped because the walk (correctly) no longer sees it either.
+    card_charges_excluded_from_walk = [
+        b for b in raw_window_bills
+        if not _is_pooled_spendable_transfer(b) and not _touches_pooled_cash(b)
+    ]
     # Pre-payday income: exclude items that look like the salary itself
     # (we identify the payday salary as income arriving ON or AFTER next_payday;
     # any income strictly before that day can legitimately boost the balance)
@@ -3922,7 +3990,9 @@ async def compute_safe_to_spend(uid: str) -> dict:
     try:
         from app.services.net_position import card_growth_by_card
         _period_start, _ = get_pay_period_for_date(_today_d, _pay_cfg)
-        card_rows = await card_growth_by_card(uid, _period_start, _today_d, window_bills)
+        card_rows = await card_growth_by_card(
+            uid, _period_start, _today_d, window_bills, card_charges_excluded_from_walk,
+        )
         if card_rows is None:
             raise RuntimeError("card growth could not be verified")
 
@@ -3954,10 +4024,25 @@ async def compute_safe_to_spend(uid: str) -> dict:
             for row in card_rows
             if str(row["account_id"]) not in learned_card_ids
         ), 2)
+        # G109 follow-up: a forecasted charge that has not yet POSTED is
+        # invisible to `growth` above (transaction-history based), so an
+        # unlearned card whose only exposure this period is that charge
+        # would otherwise be reserved £0 — the exact dangerous failure mode
+        # the backlog item names. Summed separately, deliberately OUTSIDE
+        # the growth/card_growth_total cap just below: it describes money
+        # not yet reflected in that observed fact at all, so capping it
+        # against an unrelated figure would silently discard it again.
+        unlearned_future_charges = round(sum(
+            float(row.get("future_unposted_charges", 0.0))
+            for row in card_rows
+            if str(row["account_id"]) not in learned_card_ids
+        ), 2)
         # A paydown on another card offsets portfolio growth. The cautious
         # reserve can never exceed the user's actual net card-balance growth,
         # otherwise the separate card fact and the arithmetic would diverge.
-        card_growth_reserved = round(min(card_growth_total, unlearned_growth), 2)
+        card_growth_reserved = round(
+            min(card_growth_total, unlearned_growth) + unlearned_future_charges, 2
+        )
         if card_growth_reserved:
             safe_to_spend = round(safe_to_spend - card_growth_reserved, 2)
     except Exception:

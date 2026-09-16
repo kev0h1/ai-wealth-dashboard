@@ -16,6 +16,7 @@ import Spinner from "@/components/Spinner";
 import { useTutorialReady } from "@/components/TutorialContext";
 import { setPennyScreenView } from "@/components/PennySheetProvider";
 import { buildUpcomingRunwayView, type UpcomingRunwayInput } from "@/lib/pennyScreenViews";
+import { isPooledNoOp, doesNotTouchCash } from "@/lib/cashWalk";
 import MoneyText from "@/components/MoneyText";
 
 // Editing flows are not needed to understand the initial runway. Keeping them
@@ -28,25 +29,10 @@ const PayPeriodSettingsSheet = dynamic(() => import("@/components/PayPeriodSetti
 const AllocationSheet = dynamic(() => import("@/components/AllocationSheet"));
 const SetAsideSheet = dynamic(() => import("@/components/SetAsideSheet"));
 
-/**
- * A traced internal transfer whose destination lands inside the same
- * spendable pool as its source is a POOLED NO-OP: the money never enters or
- * leaves the "everywhere" total tracked by the pooled walk in
- * upcomingBlock (below), it only reallocates within it. Strict `=== true`:
- * a missing or null `dest_account_spendable` means the destination was
- * never traced (untraced movement, or one bound for a savings pot), so it
- * keeps the ordinary debiting behaviour rather than guessing. This is the
- * single place allowed to interpret the dest_account_spendable pair, every
- * pooled-walk consumer below must call this rather than re-deriving the
- * rule inline, so the definition of "no-op" cannot drift between them. Per-
- * account walks (atRiskWalks, accountShortfalls) do NOT use this: a
- * destination account genuinely receives the money, so per-account risk
- * still needs both legs regardless of this flag, see the comment on
- * internal_inflows consumption further down.
- */
-function isPooledNoOp(item: { kind?: string; dest_account_spendable?: boolean | null }): boolean {
-  return item.kind === "movement" && item.dest_account_spendable === true;
-}
+// isPooledNoOp and doesNotTouchCash (the single pooled-cash-walk predicates
+// used throughout this component, including in JSX further down) now live
+// in lib/cashWalk.ts so a framework-free node test can import the exact
+// production functions — see scripts/cash-walk.test.mjs.
 
 // ── Deep-link day target (?day=YYYY-MM-DD) ─────────────────────────────────
 const DAY_PARAM_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -1014,15 +1000,17 @@ export default function PlanningPage() {
             // non-red copy shown elsewhere in this row.
             const isMovement = item.kind === "movement";
             // Every kind still debits `running` here EXCEPT a pooled
-            // no-op transfer (see the block comment above): a genuine
-            // commitment/discretionary/movement is real money leaving the
-            // pool and can still genuinely bounce a later bill, so it
-            // stays in the simulation, but a traced transfer between two
-            // of the user's own spendable accounts never left the pool in
-            // the first place, so skipping its debit here (rather than
-            // debiting it and crediting the destination leg elsewhere) is
-            // the only way the running total stays honest row by row.
-            if (!isPooledNoOp(item)) {
+            // no-op transfer (see the block comment above) or a charge on a
+            // credit card (G109, see doesNotTouchCash's own doc comment): a
+            // genuine commitment/discretionary/movement is real money
+            // leaving the pool and can still genuinely bounce a later bill,
+            // so it stays in the simulation, but a traced transfer between
+            // two of the user's own spendable accounts never left the pool
+            // in the first place, and a card charge hasn't touched cash yet
+            // either, so skipping its debit here (rather than debiting it
+            // and crediting the destination leg elsewhere) is the only way
+            // the running total stays honest row by row.
+            if (!doesNotTouchCash(item)) {
               running -= item.amount;
             }
             const acctBalance = item.account_balance ?? null;
@@ -1064,20 +1052,25 @@ export default function PlanningPage() {
           const d = new Date(item.expected_date);
           return d < nextPaydayMidnight;
         });
-        // Excludes pooled no-op bills before summing, same isPooledNoOp
-        // rule as the running walk above and the same reason: a bill that's
-        // actually a traced standing order into another of the user's own
-        // SPENDABLE accounts hasn't left the pool this runway figure is
-        // drawn from, so it was never a real reduction to begin with, there
-        // is no separate credit to net back in (that was the old, more
-        // roundabout approach: sum every bill, then subtract the traced
-        // inflows back out; this is the same arithmetic result but honest
-        // about what it means, the no-op bill just isn't "a bill" for this
-        // total). A standing order into SAVINGS, or an untraced movement,
-        // is the opposite case: that money genuinely leaves this pool, so
-        // it must keep reducing the runway and stays in the sum.
+        // Excludes pooled no-op bills and credit-card charges before
+        // summing, same doesNotTouchCash rule as the running walk above and
+        // the same reason: a bill that's actually a traced standing order
+        // into another of the user's own SPENDABLE accounts hasn't left the
+        // pool this runway figure is drawn from, so it was never a real
+        // reduction to begin with, there is no separate credit to net back
+        // in (that was the old, more roundabout approach: sum every bill,
+        // then subtract the traced inflows back out; this is the same
+        // arithmetic result but honest about what it means, the no-op bill
+        // just isn't "a bill" for this total). A standing order into
+        // SAVINGS, or an untraced movement, is the opposite case: that
+        // money genuinely leaves this pool, so it must keep reducing the
+        // runway and stays in the sum. G109: a charge sitting ON a credit
+        // card is excluded the same way — no cash has left any bank account
+        // yet, only a limit moved; the repayment TO the card is a plain
+        // debit on the paying account and is unaffected, it keeps reducing
+        // this total as before.
         const runwayBillsTotal = billsBeforePayday
-          .filter(b => !isPooledNoOp(b))
+          .filter(b => !doesNotTouchCash(b))
           .reduce((s, b) => s + b.amount, 0);
         // Income landing before payday belongs in the same equation as the
         // row-by-row ledger below. Previously rows credited it while the hero
@@ -1529,6 +1522,19 @@ export default function PlanningPage() {
                   ) : isPooledNoOp(item) ? (
                     <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
                       stays in your accounts
+                    </p>
+                  ) : item.is_credit_card ? (
+                    // G109 fix-up: a card charge no longer decrements `running`
+                    // (doesNotTouchCash above), so without this branch its row
+                    // would fall through to the plain "After: £X left" caption
+                    // below with the SAME figure as the row before it -- the
+                    // exact frozen/repeated-balance misread the isSettling
+                    // comment above already flags for a different case. One
+                    // quiet word, same caption ramp as "settling"/"stays in
+                    // your accounts", is the honest answer: this charge sits
+                    // on the card, not against the cash pool this column walks.
+                    <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                      on your card
                     </p>
                   ) : (
                     <p className="text-xs font-medium text-slate-500 dark:text-slate-400">

@@ -234,7 +234,7 @@ def test_safe_to_spend_returns_lowest_projected_balance_and_reconciles_cash(monk
     async def allocations(_uid):
         return 4.0, 1
 
-    async def card_growth(_uid, _start, _today, _bills):
+    async def card_growth(_uid, _start, _today, _bills, _excluded=None):
         return [
             {"account_id": "card1", "net_change": 63.0, "growth": 63.0, "unpaid_growth": 63.0},
             {"account_id": "card2", "net_change": -60.0, "growth": 0.0, "unpaid_growth": 0.0},
@@ -294,7 +294,7 @@ def test_safe_to_spend_reserves_only_growth_without_a_learned_repayment(monkeypa
     async def no_allocations(_uid):
         return 0.0, 0
 
-    async def unlearned_growth(_uid, _start, _today, _bills):
+    async def unlearned_growth(_uid, _start, _today, _bills, _excluded=None):
         return [
             {"account_id": "card1", "net_change": 200.0, "growth": 200.0, "unpaid_growth": 200.0},
             {"account_id": "card2", "net_change": -50.0, "growth": 0.0, "unpaid_growth": 0.0},
@@ -347,7 +347,7 @@ def test_safe_to_spend_fails_closed_when_card_growth_cannot_be_verified(monkeypa
     async def no_allocations(_uid):
         return 0.0, 0
 
-    async def failed_growth(_uid, _start, _today, _bills):
+    async def failed_growth(_uid, _start, _today, _bills, _excluded=None):
         return None
 
     async def monthly_cashflow(_uid, _region, _cutoff):
@@ -392,7 +392,7 @@ def test_safe_to_spend_marks_a_known_reserve_failure_degraded(monkeypatch):
     async def no_allocations(_uid):
         return 0.0, 0
 
-    async def no_card_growth(_uid, _start, _today, _bills):
+    async def no_card_growth(_uid, _start, _today, _bills, _excluded=None):
         return []
 
     async def monthly_cashflow(_uid, _region, _cutoff):
@@ -551,7 +551,7 @@ def test_safe_to_spend_pins_against_a_fixed_transaction_fixture(monkeypatch):
     async def fake_allocations(_uid):
         return 30.5, 1
 
-    async def fake_card_growth(_uid, _period_start, _today, _window_bills):
+    async def fake_card_growth(_uid, _period_start, _today, _window_bills, _excluded=None):
         return [
             {"account_id": "cardA", "net_change": 120.0, "growth": 120.0,
              "unpaid_growth": 120.0, "new_spend": 90.0},

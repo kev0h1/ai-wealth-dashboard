@@ -432,6 +432,9 @@ cmd_finish() {
   log "checking bottom nav coverage in $worktree_dir/frontend..."
   (cd "$worktree_dir/frontend" && npm run -s check:nav-coverage)
 
+  log "checking pooled cash-walk predicates in $worktree_dir/frontend..."
+  (cd "$worktree_dir/frontend" && npm run -s check:cash-walk)
+
   log "pushing $branch..."
   git -C "$worktree_dir" push -u origin "$branch"
 
