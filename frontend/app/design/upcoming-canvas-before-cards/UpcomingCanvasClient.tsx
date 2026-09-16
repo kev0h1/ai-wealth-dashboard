@@ -1,34 +1,350 @@
 "use client";
 
-// G90 fixture-only design round. This intentionally does not import the live
-// page because Upcoming fetches its own data; the fixtures preserve its runway,
-// bill-risk and hidden-predictions branches without any API calls or writes.
+// G90 fixture-only design round. Upcoming owns authenticated fetching and
+// editing, so this preview keeps the owner's real shortfall-shaped fixture
+// without calling the API. The selected treatment will be folded into the
+// production page before this becomes a regression gate.
 import Link from "next/link";
 import { useEffect } from "react";
 import { useSearchParams } from "next/navigation";
-import { AlertTriangle, ChevronRight, EyeOff, Landmark, ReceiptText } from "lucide-react";
-import { FIXTURES, fmtC, type PlanningFixture } from "../planning/fixtures";
+import {
+  AlertTriangle,
+  CalendarDays,
+  ChevronDown,
+  ChevronRight,
+  EyeOff,
+  MailOpen,
+  ReceiptText,
+} from "lucide-react";
+import FixtureBottomNav from "../_components/FixtureBottomNav";
+import { FIXTURES, fmtC, fmtC2, type PlanningFixture } from "../planning/fixtures";
 
 type Variant = "a" | "b" | "c";
 type State = "short" | "healthy" | "hidden";
-const label: Record<Variant, string> = { a: "A · runway", b: "B · sequence", c: "C · briefing" };
 
-function money(n: number) { return fmtC(n); }
-function Runway({ data, compact = false }: { data: PlanningFixture; compact?: boolean }) {
-  const short = data.runway < 0;
-  return <section className={compact ? "" : "py-2"} aria-labelledby="runway-title">
-    {compact ? <h2 id="runway-title" className="text-xl font-bold tracking-tight text-slate-950 dark:text-slate-50">Upcoming</h2> : <h1 id="runway-title" className="text-xl font-bold tracking-tight text-slate-950 dark:text-slate-50">Upcoming</h1>}
-    <p className="mt-1 max-w-xl text-sm text-slate-600 dark:text-slate-300">Your money between now and {data.paydayLabel}. This is a forecast, not a transfer.</p>
-    <div className="mt-7 flex items-end justify-between gap-5 border-b border-slate-200 pb-5 dark:border-slate-700">
-      <div><p className="text-[11px] font-semibold uppercase tracking-[.12em] text-slate-500">Projected at payday</p><p className={`mt-1 font-mono text-4xl font-bold tracking-tight tabular-nums ${short ? "text-rose-600 dark:text-rose-400" : "text-slate-950 dark:text-slate-50"}`}>{money(data.runway)}</p></div>
-      <p className="pb-1 text-right text-xs text-slate-500 dark:text-slate-400">{data.daysToPayday} days left<br />{money(data.spendableNow)} available now</p>
-    </div>
-    {short ? <p className="mt-4 flex max-w-xl gap-2 text-sm text-slate-700 dark:text-slate-200"><AlertTriangle className="mt-0.5 shrink-0 text-rose-500" size={16} aria-hidden />Barclays could be short by <span className="font-mono font-semibold">£231.30</span> before payday. Review the two payments below.</p> : <p className="mt-4 max-w-xl text-sm text-slate-600 dark:text-slate-300">Bills and set-asides fit inside this pay period. Keep an eye on the dates, then carry on.</p>}
-  </section>;
+const variants: Array<{ key: Variant; label: string }> = [
+  { key: "a", label: "Five-day reading" },
+  { key: "b", label: "Money path" },
+  { key: "c", label: "Action first" },
+];
+
+function money(value: number) {
+  return fmtC(value);
 }
-function Calculation({ data }: { data: PlanningFixture }) { return <details className="group mt-8 border-y border-slate-200 py-3 dark:border-slate-700"><summary className="flex min-h-11 cursor-pointer list-none items-center justify-between text-sm font-semibold text-slate-900 dark:text-slate-100">Full calculation <ChevronRight size={17} className="transition-transform group-open:rotate-90" /></summary><div className="grid grid-cols-[1fr_auto] gap-y-2 pt-3 text-sm text-slate-600 dark:text-slate-300"><span>Spendable now</span><span className="font-mono">{money(data.spendableNow)}</span><span>Bills due</span><span className="font-mono">−{money(data.billsTotal)}</span><span className="border-t border-slate-200 pt-2 font-semibold text-slate-900 dark:border-slate-700 dark:text-slate-100">Projected at payday</span><span className="border-t border-slate-200 pt-2 font-mono font-bold text-slate-900 dark:border-slate-700 dark:text-slate-100">{money(data.runway)}</span></div></details>; }
-function Bills({ data }: { data: PlanningFixture }) { return <section className="mt-9" aria-labelledby="bills-title"><div className="mb-3 flex items-baseline justify-between"><h2 id="bills-title" className="text-base font-bold text-slate-950 dark:text-slate-50">Payments to watch</h2><span className="text-xs text-slate-500">This pay period</span></div><div className="rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">{data.rows.filter(r => !r.isMovement).slice(0, 4).map((row, i) => <button type="button" key={row.id} className={`flex min-h-16 w-full items-center gap-3 px-4 text-left ${i ? "border-t border-slate-100 dark:border-slate-700" : ""}`}><span className={`grid h-8 w-8 place-items-center rounded-lg ${row.risk === "genuine" ? "bg-rose-100 text-rose-600 dark:bg-rose-950/50" : "bg-slate-100 text-slate-500 dark:bg-slate-700"}`}><ReceiptText size={15} /></span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold text-slate-900 dark:text-slate-100">{row.name}</span><span className="block text-xs text-slate-500">{row.dateLabel} · {row.bank}</span></span><span className={`font-mono text-sm font-semibold ${row.risk === "genuine" ? "text-rose-600 dark:text-rose-400" : "text-slate-900 dark:text-slate-100"}`}>−{money(row.amount)}</span></button>)}</div></section>; }
-function Plans({ data }: { data: PlanningFixture }) { return <section className="mt-9" aria-labelledby="plans-title"><h2 id="plans-title" className="text-base font-bold text-slate-950 dark:text-slate-50">Plans in motion</h2><p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Bounded commitments that already have a job.</p><div className="mt-3 space-y-2">{data.goals.map(g => <button type="button" key={g.name} className="flex min-h-16 w-full items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 text-left shadow-sm dark:border-slate-700 dark:bg-slate-800"><Landmark size={17} className="text-indigo-600 dark:text-indigo-400" /><span className="flex-1"><span className="block text-sm font-semibold text-slate-900 dark:text-slate-100">{g.name}</span><span className="text-xs text-slate-500">{money(g.perPeriod)} each pay period · {g.periodsLeft} left</span></span><ChevronRight size={17} className="text-slate-400" /></button>)}</div></section>; }
-function Hidden() { return <main className="mx-auto min-h-screen max-w-2xl bg-[#f0f2f7] px-5 py-10 text-slate-900 dark:bg-slate-900 dark:text-slate-100 sm:px-9"><h1 className="text-xl font-bold">Upcoming</h1><div className="mt-10 max-w-xl"><EyeOff className="text-slate-400" size={25} /><h2 className="mt-4 text-2xl font-bold tracking-tight">2 predictions set aside</h2><p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">These individual predictions are quiet for now. Your runway, bills and other upcoming activity continue to appear as normal.</p><a href="/upcoming/dismissed" className="mt-6 inline-flex min-h-11 items-center rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white hover:bg-indigo-700 focus-visible:ring-2 focus-visible:ring-indigo-500">Review set-aside predictions</a><p className="mt-4 text-xs text-slate-500">You can review or restore each prediction from the set-aside list.</p></div></main>; }
-export default function UpcomingCanvasClient() { const p = useSearchParams(); const v = (["a","b","c"] as string[]).includes(p.get("variant") ?? "") ? p.get("variant") as Variant : "a"; const state = (["short","healthy","hidden"] as string[]).includes(p.get("state") ?? "") ? p.get("state")! as State : "short"; const dark = p.get("mode") === "dark"; useEffect(() => { document.documentElement.classList.toggle("dark", dark); }, [dark]); if(state === "hidden") return <><Hidden /><Controls v={v} state={state} dark={dark}/></>; const data=FIXTURES[state]; return <div className="min-h-screen bg-[#f0f2f7] pb-52 dark:bg-slate-900"><main className="mx-auto max-w-5xl px-5 py-8 sm:px-9"><div className={v === "b" ? "grid gap-10 lg:grid-cols-[minmax(0,1fr)_280px]" : "max-w-2xl"}><div>{v === "c" ? <><h1 className="text-3xl font-bold tracking-tight text-slate-950 dark:text-slate-50">You have {data.daysToPayday} days until payday.</h1><p className="mt-3 text-lg text-slate-600 dark:text-slate-300">{data.runway < 0 ? "Two payments need your attention before then." : "Your planned payments are covered."}</p><Runway data={data} compact /></> : <Runway data={data}/>}<Calculation data={data}/><Bills data={data}/><Plans data={data}/></div>{v === "b" && <aside className="border-t border-slate-200 pt-6 dark:border-slate-700 lg:border-l lg:border-t-0 lg:pl-7 lg:pt-1"><p className="text-sm font-semibold">Read this in order</p><ol className="mt-4 space-y-4 text-sm text-slate-600 dark:text-slate-300"><li>1. Your runway</li><li>2. The calculation behind it</li><li>3. Payments needing attention</li><li>4. Existing plans</li></ol></aside>}</div></main><Controls v={v} state={state} dark={dark}/></div>; }
-function Controls({v,state,dark}:{v:Variant;state:State;dark:boolean}) { const href=(variant:Variant,s:State,m:boolean)=>`?variant=${variant}&state=${s}&mode=${m?"dark":"light"}`; const base="inline-flex min-h-11 items-center justify-center rounded-xl px-3 py-2 hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900"; return <nav aria-label="Preview controls" className="fixed inset-x-0 bottom-3 z-50 mx-auto flex max-w-[96vw] flex-wrap justify-center gap-1 rounded-2xl bg-slate-900/95 p-1.5 text-[11px] shadow-xl">{(["a","b","c"] as Variant[]).map(x=><Link key={x} href={href(x,state,dark)} className={`${base} ${x===v?"bg-indigo-600 text-white":"text-slate-300"}`}>{label[x]}</Link>)}{(["short","healthy","hidden"] as State[]).map(x=><Link key={x} href={href(v,x,dark)} className={`${base} text-slate-300`}>{x}</Link>)}<Link href={href(v,state,!dark)} className={`${base} text-slate-300`}>{dark?"light":"dark"}</Link></nav>; }
+
+function PreviewToolbar({ variant, state, dark }: { variant: Variant; state: State; dark: boolean }) {
+  const href = (nextVariant: Variant, nextState: State, nextDark: boolean) =>
+    `?variant=${nextVariant}&state=${nextState}&mode=${nextDark ? "dark" : "light"}`;
+
+  return (
+    <nav aria-label="G90 design preview controls" className="border-b border-white/10 bg-slate-950 px-3 py-2 text-white">
+      <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-center gap-1 sm:justify-start">
+        <span className="mr-2 shrink-0 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-400">Preview</span>
+        {variants.map((item) => (
+          <Link
+            key={item.key}
+            href={href(item.key, state, dark)}
+            aria-current={item.key === variant ? "page" : undefined}
+            aria-label={`Variant ${item.key.toUpperCase()}: ${item.label}`}
+            className={`inline-flex min-h-11 shrink-0 items-center rounded-xl px-3 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white active:scale-95 motion-reduce:transition-none ${
+              item.key === variant ? "bg-white text-slate-950" : "text-slate-300 hover:bg-white/10 hover:text-white"
+            }`}
+          >
+            {item.key.toUpperCase()}
+          </Link>
+        ))}
+        <div className="flex basis-full items-center justify-center gap-1 sm:basis-auto sm:justify-start">
+          <span className="mx-1 hidden h-6 w-px shrink-0 bg-white/15 sm:block" aria-hidden="true" />
+          {(["short", "healthy", "hidden"] as State[]).map((item) => (
+            <Link
+              key={item}
+              href={href(variant, item, dark)}
+              aria-current={item === state ? "page" : undefined}
+              className={`inline-flex min-h-11 shrink-0 items-center rounded-xl px-3 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white ${
+                item === state ? "bg-slate-700 text-white" : "text-slate-300 hover:bg-white/10 hover:text-white"
+              }`}
+            >
+              {item === "short" ? "My figures" : item === "healthy" ? "Covered" : "Set aside"}
+            </Link>
+          ))}
+          <Link
+            href={href(variant, state, !dark)}
+            className="inline-flex min-h-11 shrink-0 items-center rounded-xl px-3 text-xs font-semibold text-slate-300 hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+          >
+            {dark ? "Light" : "Dark"}
+          </Link>
+        </div>
+      </div>
+    </nav>
+  );
+}
+
+function PageHeader({ data }: { data: PlanningFixture }) {
+  return (
+    <header className="flex items-start justify-between gap-4">
+      <div className="min-w-0">
+        <h1 className="text-[28px] font-bold leading-tight tracking-[-0.035em] text-slate-950 dark:text-white">Before payday</h1>
+        <p className="mt-1.5 text-sm leading-5 text-slate-600 dark:text-slate-300">
+          {data.paydayLabel} · {data.daysToPayday} days to go
+        </p>
+      </div>
+      <Link
+        href="/upcoming/dismissed"
+        aria-label="Review set-aside predictions"
+        className="inline-flex size-11 shrink-0 items-center justify-center rounded-xl text-slate-500 transition-colors hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 active:scale-95 dark:text-slate-400 dark:hover:bg-slate-800"
+      >
+        <EyeOff size={19} aria-hidden="true" />
+      </Link>
+    </header>
+  );
+}
+
+function RunwayHero({ data, treatment }: { data: PlanningFixture; treatment: Variant }) {
+  const short = data.runway < 0;
+  const account = data.shortfalls[0];
+  return (
+    <section
+      aria-labelledby="runway-heading"
+      className={`rounded-3xl p-5 shadow-sm sm:p-6 ${short ? "border border-rose-200 bg-rose-50/80 dark:border-rose-800 dark:bg-rose-950/25" : "glass-hero"}`}
+    >
+      <div className={treatment === "b" ? "grid gap-5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end" : ""}>
+        <div>
+          <h2 id="runway-heading" className="text-base font-bold text-slate-950 dark:text-white">Projected at payday</h2>
+          <p className={`mt-3 font-mono text-[40px] font-bold leading-none tracking-[-0.04em] tabular-nums ${short ? "text-rose-600 dark:text-rose-400" : "text-slate-950 dark:text-white"}`}>
+            {money(data.runway)}
+          </p>
+          <p className="mt-3 max-w-xl text-sm leading-6 text-slate-600 dark:text-slate-300">
+            {short
+              ? `${money(data.spendableNow)} is available now, with ${money(data.billsTotal)} due before payday.`
+              : `${money(data.spendableNow)} is available now and the bills due before payday are covered.`}
+          </p>
+        </div>
+        {treatment === "b" && (
+          <dl className="grid grid-cols-2 gap-x-5 gap-y-2 border-t border-slate-200 pt-4 text-sm dark:border-slate-700 sm:border-l sm:border-t-0 sm:pl-5 sm:pt-0">
+            <dt className="text-slate-500 dark:text-slate-400">Available</dt>
+            <dd className="text-right font-mono font-semibold tabular-nums text-slate-950 dark:text-white">{money(data.spendableNow)}</dd>
+            <dt className="text-slate-500 dark:text-slate-400">Bills</dt>
+            <dd className="text-right font-mono font-semibold tabular-nums text-slate-950 dark:text-white">−{money(data.billsTotal)}</dd>
+            <dt className="font-semibold text-slate-800 dark:text-slate-200">At payday</dt>
+            <dd className={`text-right font-mono font-bold tabular-nums ${short ? "text-rose-600 dark:text-rose-400" : "text-slate-950 dark:text-white"}`}>{money(data.runway)}</dd>
+          </dl>
+        )}
+      </div>
+
+      {short && account && (
+        <div className="mt-5 border-t border-rose-200 pt-4 dark:border-rose-800/80">
+          <div className="flex items-start gap-2.5">
+            <AlertTriangle size={17} className="mt-0.5 shrink-0 text-rose-500" aria-hidden="true" />
+            <p className="text-sm leading-5 text-slate-700 dark:text-slate-200">
+              <span className="font-semibold">{account.bank}</span> could be short by{" "}
+              <span className="font-mono font-semibold tabular-nums">{fmtC2(account.shortfall)}</span>. The payments marked below are the ones to review.
+            </p>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function Calculation({ data }: { data: PlanningFixture }) {
+  return (
+    <details className="group mt-5 border-y border-slate-300/80 dark:border-slate-700">
+      <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-100 [&::-webkit-details-marker]:hidden">
+        How the forecast works
+        <ChevronDown size={17} className="transition-transform group-open:rotate-180 motion-reduce:transition-none" aria-hidden="true" />
+      </summary>
+      <dl className="grid grid-cols-[minmax(0,1fr)_auto] gap-y-2 border-t border-slate-200 py-3 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300">
+        <dt>Available now</dt>
+        <dd className="font-mono tabular-nums text-slate-950 dark:text-white">{money(data.spendableNow)}</dd>
+        <dt>Bills before payday</dt>
+        <dd className="font-mono tabular-nums text-slate-950 dark:text-white">−{money(data.billsTotal)}</dd>
+        <dt>Still to put in envelopes</dt>
+        <dd className="font-mono tabular-nums text-slate-950 dark:text-white">£0</dd>
+        <dt className="mt-1 border-t border-slate-200 pt-2 font-semibold text-slate-950 dark:border-slate-700 dark:text-white">Projected at payday</dt>
+        <dd className="mt-1 border-t border-slate-200 pt-2 font-mono font-bold tabular-nums text-slate-950 dark:border-slate-700 dark:text-white">{money(data.runway)}</dd>
+      </dl>
+    </details>
+  );
+}
+
+function Envelope({ data, quiet = false }: { data: PlanningFixture; quiet?: boolean }) {
+  const plan = data.goals[0];
+  if (!plan) return null;
+  return (
+    <section className={quiet ? "" : "mt-8"} aria-labelledby="envelope-heading">
+      <div className="flex items-end justify-between gap-3 px-1">
+        <div>
+          <h2 id="envelope-heading" className="text-base font-bold text-slate-950 dark:text-white">Your envelope</h2>
+          <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Visible now, even though it starts with your next pay.</p>
+        </div>
+        <span className="shrink-0 text-xs font-semibold text-slate-500 dark:text-slate-400">Starts {data.paydayLabel}</span>
+      </div>
+      <div className="mt-3 flex min-h-[76px] w-full items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-indigo-50 text-indigo-600 dark:bg-indigo-400/10 dark:text-indigo-300">
+          <MailOpen size={19} aria-hidden="true" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-semibold text-slate-950 dark:text-white">{plan.name}</span>
+          <span className="mt-0.5 block text-xs leading-5 text-slate-500 dark:text-slate-400">
+            {money(plan.perPeriod)} each pay period · {money(plan.amount)} target · {plan.periodsLeft} periods
+          </span>
+        </span>
+        <span className="shrink-0 text-right">
+          <span className="block font-mono text-sm font-bold tabular-nums text-slate-950 dark:text-white">£0</span>
+          <span className="block text-[10px] text-slate-500 dark:text-slate-400">this period</span>
+        </span>
+      </div>
+    </section>
+  );
+}
+
+function Bills({ data, limit }: { data: PlanningFixture; limit?: number }) {
+  const rows = data.rows.filter((row) => !row.isMovement && !row.nextPeriod).slice(0, limit ?? 5);
+  return (
+    <section className="mt-8" aria-labelledby="payments-heading">
+      <div className="flex items-end justify-between gap-3 px-1">
+        <div>
+          <h2 id="payments-heading" className="text-base font-bold text-slate-950 dark:text-white">Before payday</h2>
+          <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">The payments behind the forecast, in date order.</p>
+        </div>
+        <span className="shrink-0 text-xs text-slate-500 dark:text-slate-400">{rows.length} shown</span>
+      </div>
+      <div className="mt-3 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        {rows.map((row, index) => {
+          const risk = row.risk === "genuine";
+          return (
+            <div
+              key={row.id}
+              className={`flex min-h-[68px] w-full items-center gap-3 px-4 py-3 text-left ${index ? "border-t border-slate-100 dark:border-slate-700" : ""}`}
+            >
+              <span className={`grid size-9 shrink-0 place-items-center rounded-xl ${risk ? "bg-rose-100 text-rose-600 dark:bg-rose-400/10 dark:text-rose-300" : "bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-300"}`}>
+                <ReceiptText size={16} aria-hidden="true" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-semibold text-slate-950 dark:text-white">{row.name}</span>
+                <span className="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">{row.dateLabel} · {row.bank}</span>
+              </span>
+              <span className={`shrink-0 font-mono text-sm font-semibold tabular-nums ${risk ? "text-rose-600 dark:text-rose-400" : "text-slate-950 dark:text-white"}`}>−{money(row.amount)}</span>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function ActionPanel({ data }: { data: PlanningFixture }) {
+  const account = data.shortfalls[0];
+  if (!account) {
+    return (
+      <section className="mt-6 border-y border-slate-300/80 py-5 dark:border-slate-700">
+        <h2 className="text-base font-bold text-slate-950 dark:text-white">Nothing needs changing</h2>
+        <p className="mt-1 text-sm leading-6 text-slate-600 dark:text-slate-300">Your bills and envelope fit before payday.</p>
+      </section>
+    );
+  }
+  return (
+    <section className="mt-6 border-y border-slate-300/80 py-5 dark:border-slate-700" aria-labelledby="action-heading">
+      <h2 id="action-heading" className="text-base font-bold text-slate-950 dark:text-white">First, protect Barclays</h2>
+      <p className="mt-1 max-w-xl text-sm leading-6 text-slate-600 dark:text-slate-300">
+        It needs <span className="font-mono font-semibold tabular-nums text-slate-950 dark:text-white">{fmtC2(account.shortfall)}</span> before the marked payments leave. Your envelope starts next payday, so it is not causing this gap.
+      </p>
+      <a href="#payments-heading" className="mt-3 inline-flex min-h-11 items-center gap-1 rounded-xl px-3 text-sm font-semibold text-indigo-600 hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 active:scale-95 dark:text-indigo-300 dark:hover:bg-indigo-500/10">
+        Review those payments <ChevronRight size={16} aria-hidden="true" />
+      </a>
+    </section>
+  );
+}
+
+function HiddenPredictions() {
+  return (
+    <main id="upcoming-main" className="mx-auto w-full max-w-2xl px-4 pb-[calc(8.5rem+env(safe-area-inset-bottom))] pt-8 sm:px-6 sm:pt-10 lg:pb-10">
+      <header>
+        <h1 className="text-[28px] font-bold tracking-[-0.035em] text-slate-950 dark:text-white">Set-aside predictions</h1>
+        <p className="mt-2 max-w-xl text-sm leading-6 text-slate-600 dark:text-slate-300">Two predictions are quiet, not deleted. Your runway and envelopes still use everything that remains active.</p>
+      </header>
+      <section className="mt-10 border-y border-slate-300/80 py-6 dark:border-slate-700">
+        <EyeOff size={24} className="text-slate-400" aria-hidden="true" />
+        <h2 className="mt-4 text-xl font-bold text-slate-950 dark:text-white">2 predictions set aside</h2>
+        <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">Restore either prediction when it belongs in the forecast again.</p>
+        <a href="/upcoming/dismissed" className="mt-5 inline-flex min-h-11 items-center rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 active:scale-95">Review predictions</a>
+      </section>
+    </main>
+  );
+}
+
+export default function UpcomingCanvasClient() {
+  const params = useSearchParams();
+  const rawVariant = params.get("variant");
+  const variant: Variant = rawVariant === "b" || rawVariant === "c" ? rawVariant : "a";
+  const rawState = params.get("state");
+  const state: State = rawState === "healthy" || rawState === "hidden" ? rawState : "short";
+  const dark = params.get("mode") === "dark";
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", dark);
+    document.querySelector('meta[name="color-scheme"]')?.setAttribute("content", dark ? "dark" : "light");
+  }, [dark]);
+
+  const data = state === "hidden" ? FIXTURES.short : FIXTURES[state];
+
+  return (
+    <div className={dark ? "dark" : ""} style={{ colorScheme: dark ? "dark" : "light" }}>
+      <div className="min-h-dvh bg-[#f0f2f7] text-slate-900 selection:bg-indigo-200 selection:text-slate-950 dark:bg-[#0f172a] dark:text-slate-100 dark:selection:bg-indigo-500/40 dark:selection:text-white">
+        <a href="#upcoming-main" className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-xl focus:bg-slate-950 focus:px-4 focus:py-3 focus:text-white">Skip to Upcoming preview</a>
+        <PreviewToolbar variant={variant} state={state} dark={dark} />
+        {state === "hidden" ? (
+          <HiddenPredictions />
+        ) : (
+          <main id="upcoming-main" className="mx-auto w-full max-w-5xl px-4 pb-[calc(8.5rem+env(safe-area-inset-bottom))] pt-7 sm:px-6 sm:pt-10 lg:pb-16">
+            <PageHeader data={data} />
+
+            {variant === "a" && (
+              <div className="mx-auto mt-6 max-w-2xl">
+                <RunwayHero data={data} treatment={variant} />
+                <Calculation data={data} />
+                <Envelope data={data} />
+                <Bills data={data} />
+              </div>
+            )}
+
+            {variant === "b" && (
+              <div className="mt-6 grid gap-8 lg:grid-cols-[minmax(0,1.1fr)_minmax(320px,.9fr)] lg:items-start">
+                <div>
+                  <RunwayHero data={data} treatment={variant} />
+                  <Calculation data={data} />
+                  <Bills data={data} />
+                </div>
+                <aside className="space-y-8 lg:sticky lg:top-6 lg:border-l lg:border-slate-300/80 lg:pl-8 dark:lg:border-slate-700">
+                  <Envelope data={data} quiet />
+                  <section className="border-t border-slate-300/80 pt-6 dark:border-slate-700" aria-labelledby="dates-heading">
+                    <div className="flex items-center gap-2">
+                      <CalendarDays size={17} className="text-slate-500 dark:text-slate-400" aria-hidden="true" />
+                      <h2 id="dates-heading" className="text-base font-bold text-slate-950 dark:text-white">What changes when</h2>
+                    </div>
+                    <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">Bills leave over the next five days. The envelope begins on {data.paydayLabel}.</p>
+                  </section>
+                </aside>
+              </div>
+            )}
+
+            {variant === "c" && (
+              <div className="mx-auto mt-6 max-w-2xl">
+                <RunwayHero data={data} treatment={variant} />
+                <ActionPanel data={data} />
+                <Envelope data={data} />
+                <Bills data={data} limit={4} />
+                <Calculation data={data} />
+              </div>
+            )}
+
+            <p className="mx-auto mt-10 max-w-2xl border-t border-slate-300/80 pt-5 text-xs leading-5 text-slate-500 dark:border-slate-700 dark:text-slate-400">
+              Fixture-only design preview using the values from the reviewed phone state. No bank data, envelopes or predictions change here.
+            </p>
+          </main>
+        )}
+      </div>
+      <FixtureBottomNav active="Upcoming" />
+    </div>
+  );
+}
