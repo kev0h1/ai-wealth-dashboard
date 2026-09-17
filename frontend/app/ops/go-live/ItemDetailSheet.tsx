@@ -32,8 +32,8 @@
 // a mistaken state, and a mistaken *reason* is exactly the same kind of
 // mistake.
 
-import { useEffect, useState } from "react";
-import { X } from "lucide-react";
+import { useState } from "react";
+import { ChevronDown, X } from "lucide-react";
 import type { api } from "@/lib/api";
 import {
   BOARD_COLUMNS,
@@ -45,7 +45,23 @@ import {
   type GoLiveItemState,
   type GoLivePriority,
 } from "@/lib/goLive";
+import { useSheetA11y } from "@/lib/useSheetA11y";
 import { PriorityPill, StatePill } from "./Badges";
+
+// Word-safe single-line preview: cuts at the last space at or before
+// `maxLength` rather than mid-word, then appends a real ellipsis
+// character (H71). Plain CSS `truncate` alone clips wherever the box
+// happens to end, which can land inside a word; this keeps the visible
+// fragment always whole words before the browser's own overflow clipping
+// (still applied as a `truncate` class, in case the box is narrower than
+// expected) ever gets a chance to act.
+function truncateWords(text: string, maxLength: number): string {
+  if (text.length <= maxLength) return text;
+  const cut = text.slice(0, maxLength);
+  const lastSpace = cut.lastIndexOf(" ");
+  const safe = (lastSpace > 0 ? cut.slice(0, lastSpace) : cut).trimEnd();
+  return `${safe}…`;
+}
 
 type ActionBody = Parameters<typeof api.goLiveItemAction>[1];
 type SaveNote = { ok: boolean; text: string } | null;
@@ -98,14 +114,26 @@ export function ItemDetailSheet({
   // Which reason input the "Move to" row has revealed, if any — null means
   // neither is showing. Tapping the same chip again collapses it.
   const [revealed, setRevealed] = useState<"blocked" | "rejected" | null>(null);
+  // Notes default COLLAPSED (H71): an item can carry several long
+  // paragraph notes (its audit trail), which pushed every actual control
+  // below the fold. The state tag's own reason (StatePill, above) is
+  // deliberately NOT part of this collapse — a rejection/block reason is
+  // an instruction, not history, so it always stays visible.
+  const [notesExpanded, setNotesExpanded] = useState(false);
 
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  // H71: focus trap, Escape, background scroll lock (position-fixed with
+  // scroll-offset restore, not the naive overflow:hidden) and back-to-close
+  // (Android hardware back / browser back closes the sheet and returns to
+  // the board scroll position) all come from the shared hook now, replacing
+  // the partial Escape-only handler this file used to carry on its own.
+  // `close` — not the raw `onClose` prop — is the one path every in-app
+  // affordance below (X button, backdrop tap) must call, so a hardware
+  // back press and an in-app close run the exact same code (see
+  // lib/useSheetA11y.ts's file header for the full reasoning).
+  const { ref: panelRef, close } = useSheetA11y<HTMLDivElement>(onClose, {
+    lockScroll: true,
+    backToClose: true,
+  });
 
   const done = item.state === "done";
 
@@ -138,45 +166,81 @@ export function ItemDetailSheet({
     onAction(actionForMoveTo(target, done));
   }
 
+  const newestNote = item.notes.length > 0 ? item.notes[item.notes.length - 1] : null;
+
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 sm:items-center" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 sm:items-center" onClick={close}>
       <div
-        className="glass-card max-h-[85vh] w-full max-w-md overflow-y-auto rounded-t-3xl p-5 sm:rounded-3xl"
+        className="glass-card flex max-h-[85vh] w-full max-w-md flex-col overflow-hidden rounded-t-3xl sm:rounded-3xl"
         onClick={(e) => e.stopPropagation()}
+        ref={panelRef}
       >
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="money text-xs font-bold text-slate-400 dark:text-slate-500">{item.id}</p>
-            <h3 className="mt-0.5 text-sm font-semibold text-pretty text-slate-800 dark:text-slate-100">{item.title}</h3>
+        {/* Sticky header (H71): the id, title and the close X — the only
+            visible close affordance — must stay on screen while the body
+            below scrolls, so this is a genuine flex header outside the
+            scroll container rather than a `sticky` element inside it. */}
+        <div className="shrink-0 border-b border-slate-100 p-5 pb-3 dark:border-white/10">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="money text-xs font-bold text-slate-400 dark:text-slate-500">{item.id}</p>
+              <h3 className="mt-0.5 text-sm font-semibold text-pretty text-slate-800 dark:text-slate-100">{item.title}</h3>
+            </div>
+            <button
+              type="button"
+              onClick={close}
+              aria-label="Close"
+              className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 dark:text-slate-500 dark:hover:bg-white/5"
+            >
+              <X size={16} aria-hidden="true" />
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="flex min-h-9 min-w-9 shrink-0 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 dark:text-slate-500 dark:hover:bg-white/5"
-          >
-            <X size={16} aria-hidden="true" />
-          </button>
+
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <PriorityPill priority={item.priority} />
+            <StatePill item={item} />
+          </div>
         </div>
 
-        <div className="mt-2 flex flex-wrap items-center gap-1.5">
-          <PriorityPill priority={item.priority} />
-          <StatePill item={item} />
-        </div>
+        {/* Scrollable body */}
+        <div className="overflow-y-auto p-5 pt-3">
+          {item.text && <p className="text-xs leading-relaxed text-pretty text-slate-600 dark:text-slate-300">{item.text}</p>}
 
-        {item.text && <p className="mt-3 text-xs leading-relaxed text-pretty text-slate-600 dark:text-slate-300">{item.text}</p>}
+          {newestNote && (
+            <div className={`space-y-1 border-t border-slate-100 pt-3 dark:border-white/10 ${item.text ? "mt-3" : ""}`}>
+              <button
+                type="button"
+                onClick={() => setNotesExpanded((v) => !v)}
+                aria-expanded={notesExpanded}
+                aria-controls="item-detail-notes-list"
+                className="flex min-h-11 w-full items-center justify-between gap-2 text-left"
+              >
+                <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Notes ({item.notes.length})</span>
+                <ChevronDown
+                  size={14}
+                  className={`shrink-0 text-slate-400 transition-transform dark:text-slate-500 ${notesExpanded ? "rotate-180" : ""}`}
+                  aria-hidden="true"
+                />
+              </button>
 
-        {item.notes.length > 0 && (
-          <ul className="mt-3 space-y-1 border-t border-slate-100 pt-3 dark:border-white/10">
-            {item.notes.map((note, idx) => (
-              <li key={idx} className="text-[11px] leading-relaxed text-slate-400 dark:text-slate-500">
-                <span className="money font-semibold">{note.date}</span> ({note.actor}): {note.text}
-              </li>
-            ))}
-          </ul>
-        )}
+              {!notesExpanded && (
+                <p className="truncate text-[11px] leading-relaxed text-slate-400 dark:text-slate-500">
+                  <span className="money font-semibold">{newestNote.date}</span> ({newestNote.actor}): {truncateWords(newestNote.text, 100)}
+                </p>
+              )}
 
-        <div className="mt-4 space-y-4 border-t border-slate-100 pt-4 dark:border-white/10">
+              {notesExpanded && (
+                <ul id="item-detail-notes-list" className="space-y-1">
+                  {item.notes.map((note, idx) => (
+                    <li key={idx} className="text-[11px] leading-relaxed text-slate-400 dark:text-slate-500">
+                      <span className="money font-semibold">{note.date}</span> ({note.actor}): {note.text}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+
+          <div className="mt-4 space-y-4 border-t border-slate-100 pt-4 dark:border-white/10">
           <div>
             <label className="mb-1 block text-xs font-semibold text-slate-500 dark:text-slate-400">Move to</label>
             <div className="flex flex-wrap gap-1.5">
@@ -407,6 +471,7 @@ export function ItemDetailSheet({
               {saveNote.text}
             </p>
           )}
+          </div>
         </div>
       </div>
     </div>
