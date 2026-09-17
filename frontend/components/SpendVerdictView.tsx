@@ -247,7 +247,7 @@ function AimBlock({ category, multiple, suggestedAim, checkpoint, sym, onChanged
               placeholder={String(Math.round(suggestedAim!))}
               value={customValue}
               onChange={e => { setCustomValue(e.target.value); setSaveError(false); }}
-              className="text-[12px] text-slate-900 dark:text-slate-100 bg-transparent outline-none w-16"
+              className="text-[12px] text-slate-900 dark:text-slate-100 bg-transparent outline-none w-16 [@media(pointer:coarse)]:w-24"
             />
           </div>
           <button
