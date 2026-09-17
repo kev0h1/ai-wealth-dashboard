@@ -24,6 +24,7 @@ import {
   buildSafeToSpendView,
   buildSpendPeriodView,
   buildUpcomingRunwayView,
+  buildTaxView,
 } from "../lib/pennyScreenViews.ts";
 
 let failures = 0;
@@ -182,6 +183,62 @@ const verdict = {
 {
   const view = buildUpcomingRunwayView({ runway: 0, runwayStatus: "even", isCalendarMonth: false });
   check("upcoming verdict for exactly covered", view.verdict, "Exactly covered");
+}
+
+// ── Tax view (B41) ─────────────────────────────────────────────────────
+
+{
+  // The 60%-trap/fully-tapered shape: PensionLever's stat row renders, so
+  // the three lever figures publish alongside the verdict headline.
+  const view = buildTaxView({
+    heroHeadline: "You're in the 60% tax trap.",
+    taxYearLabel: "2026/27",
+    daysLeft: 201,
+    showCalculation: true,
+    pensionNeededTotal: 8000,
+    taxSaving: 4800,
+    effectiveCost: 3200,
+  });
+  check("tax route", view.route, "/tax");
+  check("tax scope names the tax year and days left", view.scope, "2026/27 tax year, 201 days left");
+  check("tax verdict is the hero headline verbatim", view.verdict, "You're in the 60% tax trap.");
+  check("tax figures carry the three lever stats", view.figures, [
+    { key: "pension_needed", label: "Extra needed", value: "£8,000" },
+    { key: "tax_saved", label: "Tax saved", value: "£4,800" },
+    { key: "effective_cost", label: "Costs you", value: "£3,200" },
+  ]);
+}
+
+{
+  // A "safe" verdict (higher-rate-but-untapered, or basic-rate): no stat
+  // row renders on screen, so no figures publish, but the headline and
+  // scope still do.
+  const view = buildTaxView({
+    heroHeadline: "You get 40% back on pension & Gift Aid.",
+    taxYearLabel: "2026/27",
+    daysLeft: 201,
+    showCalculation: false,
+    pensionNeededTotal: 0,
+    taxSaving: 0,
+    effectiveCost: 0,
+  });
+  check("tax safe-branch verdict still publishes", view.verdict, "You get 40% back on pension & Gift Aid.");
+  check("tax safe-branch publishes no figures", view.figures, []);
+}
+
+{
+  // Exactly one day left uses the singular, matching ordinary English
+  // rather than "1 days left".
+  const view = buildTaxView({
+    heroHeadline: "Your allowances reset on 5 Apr.",
+    taxYearLabel: "2026/27",
+    daysLeft: 1,
+    showCalculation: false,
+    pensionNeededTotal: 0,
+    taxSaving: 0,
+    effectiveCost: 0,
+  });
+  check("tax scope singularises exactly one day left", view.scope, "2026/27 tax year, 1 day left");
 }
 
 if (failures > 0) {

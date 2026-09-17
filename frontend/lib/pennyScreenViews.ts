@@ -146,3 +146,54 @@ export function buildUpcomingRunwayView(input: UpcomingRunwayInput): PennyScreen
     asOf: new Date().toISOString(),
   };
 }
+
+// ── Tax (B41) ────────────────────────────────────────────────────────────
+// Only the primitive fields buildTaxView actually needs, NOT app/tax/
+// TaxCanvas.tsx's own `TaxCanvasModel` type — that type lives in a "use
+// client" .tsx file, and importing even a type from one would defeat the
+// whole point of this module being plain, framework-free .ts (see this
+// file's header comment on why: Node's `--experimental-strip-types` can't
+// parse JSX/TSX, which is what makes scripts/penny-screen-views.test.mjs
+// possible). Same reasoning `UpcomingRunwayInput` above already follows,
+// for the same reason (PlanningPage.tsx's runway locals).
+export type TaxViewInput = {
+  heroHeadline: string;
+  taxYearLabel: string;
+  daysLeft: number;
+  /** Mirrors TaxCanvas.tsx's PensionLever `model.leverStatus === "action"`
+   * gate exactly — the ONE place Tax renders labelled £ figures (the
+   * "Extra needed / Tax saved / Costs you" stat row), only shown in the
+   * 60%-trap and fully-tapered cases. The "safe" branches (higher-rate but
+   * untapered, or basic-rate) show no such row, so no figures publish
+   * either — caller passes `false` there. */
+  showCalculation: boolean;
+  pensionNeededTotal: number;
+  taxSaving: number;
+  effectiveCost: number;
+};
+
+/** Tax's verdict headline + (only when TaxCanvas.tsx's PensionLever
+ * actually renders its stat row) the three lever figures. Callers publish
+ * `null` instead of calling this at all for the "no income declared" state
+ * (EmptyIncome renders instead of any of these) and while loading — see
+ * app/tax/TaxPage.tsx's own publish effect. No `hidden`/balances-masking
+ * parameter, unlike `buildSafeToSpendView`: TaxCanvas.tsx never masks
+ * these figures on screen regardless of the hide-balances preference (no
+ * "£••••" anywhere in that file, unlike SafeToSpendCard.tsx), so there is
+ * nothing on-screen for this view to mirror-hide — same as
+ * `buildSpendPeriodView`/`buildUpcomingRunwayView` above, neither of which
+ * take one either. */
+export function buildTaxView(input: TaxViewInput): PennyScreenView {
+  const { heroHeadline, taxYearLabel, daysLeft, showCalculation, pensionNeededTotal, taxSaving, effectiveCost } = input;
+  return {
+    route: "/tax",
+    scope: `${taxYearLabel} tax year, ${daysLeft} day${daysLeft === 1 ? "" : "s"} left`,
+    verdict: heroHeadline,
+    figures: showCalculation ? [
+      { key: "pension_needed", label: "Extra needed", value: fmtGbp(pensionNeededTotal) },
+      { key: "tax_saved", label: "Tax saved", value: fmtGbp(taxSaving) },
+      { key: "effective_cost", label: "Costs you", value: fmtGbp(effectiveCost) },
+    ] : [],
+    asOf: new Date().toISOString(),
+  };
+}
