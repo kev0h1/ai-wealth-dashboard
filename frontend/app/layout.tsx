@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { PRE_PAINT_NAV_SCRIPT } from "@/lib/navExemptRoutes";
 import { Figtree, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./Providers";
@@ -78,17 +79,25 @@ export default function RootLayout({
             __html: `try{if(localStorage.getItem('wd_dark')==='1'){document.documentElement.classList.add('dark');var m=document.querySelector('meta[name="color-scheme"]');if(m)m.setAttribute('content','dark')}}catch(e){}`,
           }}
         />
-        {/* Public legal pages (/terms, /privacy) render with no nav chrome —
-            anonymous visitors and regulators only, never the sidebar or the
-            app-shell's desktop margin reserved for it. Same pre-paint,
-            class-on-<html> technique as the dark-mode script above, so
-            there's no flash of the shell before this applies. See the
-            `html.legal-page` rule in globals.css. */}
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `try{if(location.pathname==='/terms'||location.pathname==='/privacy'){document.documentElement.classList.add('legal-page')}}catch(e){}`,
-          }}
-        />
+        {/* Pre-paint <html> classes for the nav-exempt routes (H75). The
+            script itself is BUILT from lib/navExemptRoutes.ts — the same
+            file BottomNav.tsx and Sidebar.tsx read, and the same
+            normalisation normaliseNavPath applies — rather than written out
+            here, so the list exists in one place and cannot drift between
+            a runtime check and a pre-paint one. This layout is a server
+            component, so importing it costs nothing at runtime; the string
+            is inlined into the HTML at build time.
+
+            Why pre-paint rather than an effect: the same reason as the
+            dark-mode class above. `nav-exempt` hides the desktop rail AND
+            releases the 16rem of margin-left #app-shell reserves for it
+            (globals.css), so doing it after hydration would flash the full
+            shell, with a 256px gutter, on every exempt route. Client-side
+            route changes are the half this script cannot see, and
+            components/Sidebar.tsx's effect keeps the class in sync there.
+            `legal-page` continues to mark the two published legal
+            documents, which are full-bleed at every width. */}
+        <script dangerouslySetInnerHTML={{ __html: PRE_PAINT_NAV_SCRIPT }} />
       </head>
       <body className="relative isolate min-h-full bg-[#f0f2f7] dark:bg-[#0f172a] antialiased">
         <Providers>

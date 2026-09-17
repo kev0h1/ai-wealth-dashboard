@@ -194,6 +194,40 @@ body {
   }
 }
 
+/* ── Nav-exempt routes: no rail, and none of its reserved space ───────────
+   H75. `nav-exempt` is set on <html> pre-paint by app/layout.tsx's script,
+   which is BUILT from lib/navExemptRoutes.ts (the one exemption list), and
+   kept in sync across client-side route changes by components/Sidebar.tsx.
+
+   The pair matters: the rail is `position: fixed`, so the 16rem margin-left
+   above is purely space RESERVED for it. Hiding the rail without releasing
+   the margin leaves a 256px dead gutter with the content 128px off centre —
+   which is exactly what shipped for a few hours on Kevin's own /ops/go-live
+   board, plus /design, /ops/broadcast and /oauth/consent, when Sidebar
+   started honouring the list and this rule did not exist yet. Never change
+   one of these without the other; scripts/check-nav-coverage.mjs fails if
+   this rule goes missing.
+
+   Deliberately scoped to >= 1024px, unlike html.legal-page below: below lg
+   there is no rail and no reserved margin to release, and #app-shell's base
+   430px phone shell is load-bearing there (the /ops/go-live board's own
+   mobile layout, H56, is designed inside it). Releasing max-width at every
+   width would silently widen the board and every /design preview on tablets
+   between 430px and 1024px. The legal documents DO want full bleed at every
+   width, which is what keeps `legal-page` a separate, genuinely
+   legal-specific class rather than a duplicate of this one. */
+html.nav-exempt aside {
+  display: none;
+}
+
+@media (min-width: 1024px) {
+  html.nav-exempt #app-shell {
+    max-width: none;
+    margin-left: 0;
+    margin-right: 0;
+  }
+}
+
 /* H56 (2026-09-17), scoped pending H61: the /ops/go-live page sets
    data-ops-board on <html> for its own mounted lifetime (see the
    mount/unmount effect in app/ops/go-live/page.tsx, following the same
@@ -811,16 +845,16 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 .glass-sheet { background: #ffffff; border-top: 1px solid #f1f5f9; }
 .dark .glass-sheet { background: #0f172a; border-top: 1px solid #334155; }
 
-/* ── Public legal pages (/terms, /privacy) — no nav chrome ────────────────
-   Anonymous visitors and regulators only: never render the desktop sidebar
-   (components/Sidebar.tsx — the only <aside> in the app, per the comment
-   above on `aside nav::-webkit-scrollbar`) or reserve its margin. The
-   `legal-page` class is set on <html> pre-paint by an inline script in
-   app/layout.tsx (same technique as the cached dark-mode class), so this
-   never flashes the normal shell first. */
-html.legal-page aside {
-  display: none;
-}
+/* ── Public legal pages (/terms, /privacy) — full bleed at every width ────
+   Anonymous visitors and regulators only. The rail and its reserved margin
+   are handled by `html.nav-exempt` above now (H75) — both pages are on the
+   same exemption list, and hiding the rail here as well would have been two
+   mechanisms for one decision. What is left is the part that really is
+   specific to a published legal document: it is a wall of text that runs
+   full width at EVERY viewport, where an exempt app route keeps #app-shell's
+   normal 430px phone shell below lg. The `legal-page` class is still set on
+   <html> pre-paint (see lib/navExemptRoutes.ts's PRE_PAINT_NAV_SCRIPT, which
+   carries both classes), so this never flashes a narrower shell first. */
 html.legal-page #app-shell {
   max-width: none;
   margin-left: 0;

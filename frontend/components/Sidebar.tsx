@@ -1,12 +1,14 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { Home, PieChart, Settings, CalendarClock, Target } from "lucide-react";
 import PennyMark from "@/components/PennyMark";
 import { BRAND_GRADIENT } from "@/lib/brand";
 import { usePennySheet } from "@/components/PennySheetProvider";
 import { screenForPathname } from "@/components/BottomNav";
+import { isNavExemptPath } from "@/lib/navExemptRoutes";
 
 const TABS = [
   { href: "/", matchPath: "/", label: "Home", Icon: Home },
@@ -29,6 +31,61 @@ export default function Sidebar() {
   // not reimplemented, so mobile and desktop agree on what "screen" means
   // for the same URL.
   const { open, close, isOpen } = usePennySheet();
+
+  // H75: the desktop rail obeys the SAME exemption list as the bottom rail
+  // (lib/navExemptRoutes.ts). It did not until now, which was an oversight
+  // rather than a desktop carve-out: that list was written with this rail
+  // in mind — read /month/story's own reason, "the nav rail would sit
+  // underneath/behind the takeover" — and /terms and /privacy only escaped
+  // it here by a second, unrelated mechanism (globals.css's old
+  // `html.legal-page aside` rule), which covered two of the nine entries
+  // and nothing else.
+  //
+  // "Desktop only" is not a reason to keep it either: a tablet in landscape
+  // is >= lg, and the Board Android app (H66) is a WebView over the same
+  // bundled export, so on a tablet this rail appears inside an app that is
+  // meant to contain nothing but /ops/go-live — with Home/Spend/Upcoming/
+  // Planning links that would navigate the user straight out of the board
+  // and into the bundled Sorted routes, with no way back to it.
+  //
+  // What each exempt route loses with the rail, checked route by route
+  // before changing it: /ops/go-live and /ops/broadcast link to each other
+  // in-page, /grow and /insights are client-side redirect stubs,
+  // /month/story is a full-screen takeover with its own close control, and
+  // /terms, /privacy and /oauth/consent have no in-app navigation at all.
+  // /design/* is the one real loss and it is accepted rather than
+  // unnoticed: the index is nothing BUT navigation into ~80 previews and
+  // only a handful of those carry a back link, so at >= lg a preview now
+  // has no in-app way back except the browser's own back button. Previews
+  // are review artefacts, not product, and Kevin reviews them on a phone,
+  // where this rail has never rendered at all; if that ever stops being
+  // true, give the previews a back link rather than giving the design
+  // subtree the product's nav.
+  const navExempt = isNavExemptPath(pathname);
+
+  // The `nav-exempt` class on <html> is what releases the 16rem of
+  // margin-left #app-shell reserves for this rail (globals.css) — hiding a
+  // `position: fixed` rail without releasing its reserved space leaves a
+  // 256px dead gutter, which is the regression this effect and that rule
+  // exist as a pair to prevent. app/layout.tsx's pre-paint script (built
+  // from the same list, see lib/navExemptRoutes.ts) sets it on a full page
+  // load, before first paint; this effect is the other half, because that
+  // script never runs again on a client-side route change, and this
+  // component already has to compute the answer to decide whether to
+  // render. The cleanup removes it when this component unmounts, which is
+  // what a sign-out does: components/AuthProvider.tsx renders LoginScreen
+  // in place of every descendant, this rail included.
+  useEffect(() => {
+    const root = document.documentElement;
+    if (!navExempt) {
+      root.classList.remove("nav-exempt");
+      return;
+    }
+    root.classList.add("nav-exempt");
+    return () => root.classList.remove("nav-exempt");
+  }, [navExempt]);
+
+  if (navExempt) return null;
 
   return (
     <aside className="hidden lg:flex fixed top-0 left-0 h-full w-64 flex-col bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-700 z-40">

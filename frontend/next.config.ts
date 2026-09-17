@@ -114,7 +114,8 @@ const MOBILE_EXPORT = !!process.env.MOBILE_EXPORT;
 // Chrome, console inspected — see the A27 backlog item for the transcript):
 // a HASH-only script-src does NOT work on this app, and the reason is not
 // this app's own code. The two `dangerouslySetInnerHTML` `<script>` tags in
-// app/layout.tsx (dark mode pre-paint class, legal-page pre-paint class)
+// app/layout.tsx (dark mode pre-paint class, nav-exempt/legal-page
+// pre-paint class)
 // ARE the only inline scripts this app AUTHORS (grepped, still true), and
 // their hashes are listed below for documentation/defence-in-depth — but
 // Next.js's own App Router injects ADDITIONAL inline scripts on every page
@@ -141,8 +142,12 @@ const MOBILE_EXPORT = !!process.env.MOBILE_EXPORT;
 // This app's own two inline scripts, for the record (not used in the CSP
 // itself — see below for why): app/layout.tsx's dark-mode pre-paint class
 // script hashes to 'sha256-J/QwB0zj3eeOw1RuRZ77XPxpqMrdt6AMmA0OQZc2XC4=',
-// the legal-page pre-paint class script to
-// 'sha256-d9/MY23eM/fNI6bKlH73G3eSuqJz3gcpwVDR1Sm971c='. Per the CSP spec, a
+// the nav-exempt/legal-page pre-paint class script to
+// 'sha256-w6fPoAFT7WoyZc6NWLvzBup5yAk9LrNRck5SQoI2Tm4=' (H75 changed this
+// one: it is now BUILT from lib/navExemptRoutes.ts rather than written out
+// in layout.tsx, so its content, and therefore this hash, changes whenever
+// the exemption list does — one more reason these hashes are documentation
+// and not the CSP itself). Per the CSP spec, a
 // script-src that carries ANY hash-source or nonce-source makes browsers
 // IGNORE 'unsafe-inline' entirely (it only exists as a fallback for browsers
 // too old to understand hash/nonce sources) — so listing these hashes
