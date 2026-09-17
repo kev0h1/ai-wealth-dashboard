@@ -747,10 +747,15 @@ needed.
   `board` (Board, `co.uk.auriqltd.sorted.board`, a separate ops-board app,
   see `capacitor-spike/scripts/apply-board-flavor.sh`). `signingConfig` and
   `keystore.properties` are shared across both flavours, so the paths below
-  now carry the flavour name (`bundleRelease`/`assembleDebug` still exist as
-  aggregate tasks and still work; they now also build Board's variant
-  alongside Sorted's, which is harmless but changes the plain, unqualified
-  task's output path — use the flavour-qualified task for Sorted alone).
+  now carry the flavour name. `bundleRelease`/`assembleDebug` still exist
+  as aggregate tasks, but calling them "harmless" would be wrong (review
+  round 4, 2026-09-17): they now also build Board's variant alongside
+  Sorted's, and Board's own preBuild depends on `verifyBoardWebAssets`
+  (see `README.md`'s Board section), which throws if
+  `build-board-web-assets.sh` hasn't been run — so the plain, unqualified
+  `assembleDebug` can fail the WHOLE build over a Board-only precondition
+  even when all you wanted was Sorted's own APK. Use the flavour-qualified
+  task (`assembleSortedDebug`/`bundleSortedRelease`) for Sorted alone.
 
 Build the signed AAB (from `capacitor-spike/android`, keystore.properties
 must be present). Each of the three snippets below anchors via `git

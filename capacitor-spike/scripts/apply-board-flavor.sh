@@ -65,7 +65,6 @@ ANDROID_DIR="${SPIKE_DIR}/android"
 PROJECT_GRADLE="${ANDROID_DIR}/build.gradle"
 APP_GRADLE="${ANDROID_DIR}/app/build.gradle"
 ROOT_GOOGLE_SERVICES_JSON="${ANDROID_DIR}/app/google-services.json"
-SORTED_GOOGLE_SERVICES_JSON="${ANDROID_DIR}/app/src/sorted/google-services.json"
 CANONICAL_GOOGLE_SERVICES_JSON="${SPIKE_DIR}/google-services.json"
 BOARD_STRINGS_XML="${ANDROID_DIR}/app/src/board/res/values/strings.xml"
 
@@ -132,6 +131,19 @@ fi
 # in the same invocation — no separate re-run needed.
 python3 "${SCRIPT_DIR}/ensure-wealthdash-manifest.py" "${ANDROID_DIR}"
 echo "[2/6] wealthdash:// deep-link intent-filter placement done (see above)."
+
+# H66 review round 4 (2026-09-17): SORTED_GOOGLE_SERVICES_JSON is
+# resolved via the ONE shared helper also called by
+# setup-android-push.sh, rather than a literal hardcoded independently
+# in each script -- that exact divergence (this script's restore
+# target disagreeing with setup-android-push.sh's own legacy
+# plugin-apply fallback, which still checked the module root
+# unconditionally) is a real defect a review found in
+# setup-android-push.sh alone; see resolve-google-services-path.py's
+# header comment for the full writeup. Computed here, AFTER step 1
+# has run, so the resolver sees the "board" flavour it just added and
+# correctly resolves to the flavour-scoped path.
+SORTED_GOOGLE_SERVICES_JSON="${ANDROID_DIR}/app/$(python3 "${SCRIPT_DIR}/resolve-google-services-path.py" "${ANDROID_DIR}")"
 
 # --- 3. google-services.json presence check + restore/move ---
 # MUST run before step 4 (plugin apply + strategy config), same invariant
@@ -292,10 +304,18 @@ new_block = (
 )
 
 # Legacy conditional block, as written by setup-android-push.sh step 4 (or
-# a stock Capacitor template's own equivalent).
+# a stock Capacitor template's own equivalent). The file('...') path is
+# matched generically (any quoted string), not hardcoded to the
+# module-root literal (review round 4, 2026-09-17): setup-android-push.sh
+# now resolves that path itself via resolve-google-services-path.py, so
+# depending on exactly when it last ran relative to this script it may
+# have written EITHER 'google-services.json' or
+# 'src/sorted/google-services.json' into this block -- this regex must
+# recognise both, or a run order this rigid wouldn't leave both the old
+# conditional AND the new unconditional-apply block present at once.
 legacy_pattern = re.compile(
     r"\ntry \{\s*\n"
-    r"\s*def servicesJSON = file\('google-services\.json'\)\s*\n"
+    r"\s*def servicesJSON = file\('[^']*google-services\.json'\)\s*\n"
     r"\s*if \(servicesJSON\.text\) \{\s*\n"
     r"\s*apply plugin: 'com\.google\.gms\.google-services'\s*\n"
     r"\s*\}\s*\n"

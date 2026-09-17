@@ -30,14 +30,6 @@ ANDROID_DIR="${SPIKE_DIR}/android"
 PROJECT_GRADLE="${ANDROID_DIR}/build.gradle"
 APP_GRADLE="${ANDROID_DIR}/app/build.gradle"
 MANIFEST="${ANDROID_DIR}/app/src/main/AndroidManifest.xml"
-# H66: scoped to the "sorted" product flavour's own source set, not the
-# module root, so the "board" flavour's google-services search finds no
-# file at all (see app/build.gradle's googleServices{missingGoogleServicesStrategy}
-# comment) instead of finding this one and failing to match
-# co.uk.auriqltd.sorted.board against it. A pre-H66 checkout would have had
-# this at ${ANDROID_DIR}/app/google-services.json (module root); that path
-# no longer exists post-H66.
-GOOGLE_SERVICES_JSON="${ANDROID_DIR}/app/src/sorted/google-services.json"
 CANONICAL_GOOGLE_SERVICES_JSON="${SPIKE_DIR}/google-services.json"
 RES_DIR="${ANDROID_DIR}/app/src/main/res"
 CANONICAL_NOTIFICATION_ICON_DIR="${SPIKE_DIR}/assets/notification-icon"
@@ -49,6 +41,24 @@ if [[ ! -d "${ANDROID_DIR}" ]]; then
   echo "ERROR: ${ANDROID_DIR} does not exist. Run 'npx cap add android' first." >&2
   exit 1
 fi
+
+# H66 review round 4 (2026-09-17): GOOGLE_SERVICES_JSON is resolved via
+# the ONE shared helper both this script and apply-board-flavor.sh call,
+# rather than a literal hardcoded here AND a second, independently
+# hardcoded literal in step 4's Groovy-writing logic below -- that exact
+# divergence (this variable pointing at the flavour-scoped path while
+# step 4's fallback block still checked the module root, unconditionally)
+# is the defect this round fixes: running this script alone restored the
+# file to src/sorted/, wrote a Groovy check that only ever looks at the
+# module root, found nothing, silently swallowed the exception, and never
+# applied the plugin at all -- a green build with FCM push silently dead.
+# See resolve-google-services-path.py's own header comment for the full
+# incident writeup. Before the "board" flavour exists, this correctly
+# resolves to the module root, exactly this project's pre-H66 shape (and
+# the only correct answer for someone who wants Sorted with working push
+# and no Board at all).
+GOOGLE_SERVICES_RELATIVE="$(python3 "${SCRIPT_DIR}/resolve-google-services-path.py" "${ANDROID_DIR}")"
+GOOGLE_SERVICES_JSON="${ANDROID_DIR}/app/${GOOGLE_SERVICES_RELATIVE}"
 
 # --- 1. Project-level build.gradle: add the google-services classpath ---
 # Harmless with or without google-services.json — just makes the plugin
@@ -178,18 +188,24 @@ PYEOF
     # guarded on google-services.json existing (belt-and-braces on top of
     # the step-3 check above) so the file stays self-contained/robust even
     # if someone deletes the JSON after this script has already run once.
-    cat >> "${APP_GRADLE}" <<'EOF'
+    # The file('...') path below is GOOGLE_SERVICES_RELATIVE, the SAME
+    # resolved value step 3 just restored the file to (review round 4,
+    # 2026-09-17 -- this embedded literal disagreeing with step 3's actual
+    # restore target was the defect). Deliberately an UNQUOTED heredoc so
+    # bash interpolates it; there is nothing else in this block for bash
+    # to misinterpret.
+    cat >> "${APP_GRADLE}" <<GRADLESNIPPET_EOF
 
 try {
-    def servicesJSON = file('google-services.json')
+    def servicesJSON = file('${GOOGLE_SERVICES_RELATIVE}')
     if (servicesJSON.text) {
         apply plugin: 'com.google.gms.google-services'
     }
 } catch(Exception e) {
     logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
 }
-EOF
-    echo "[4/7] app/build.gradle: appended guarded 'apply plugin: com.google.gms.google-services' block."
+GRADLESNIPPET_EOF
+    echo "[4/7] app/build.gradle: appended guarded 'apply plugin: com.google.gms.google-services' block (checking ${GOOGLE_SERVICES_RELATIVE})."
   fi
 fi
 
