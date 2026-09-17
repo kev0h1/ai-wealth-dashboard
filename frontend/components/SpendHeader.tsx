@@ -419,7 +419,7 @@ export function SpendJourneySummary(props: SpendHeaderProps) {
         <MoneyText text={verdict.reading} />
       </p>
 
-      <dl className={`mt-7 grid ${hasMoved ? "grid-cols-3" : "grid-cols-2"} gap-3 border-t border-slate-400/25 py-4 dark:border-white/10 lg:grid-cols-1 lg:gap-0 lg:divide-y lg:divide-slate-200 lg:py-0 dark:lg:divide-white/10`}>
+      <dl className={`mt-7 grid ${hasMoved ? "grid-cols-3" : "grid-cols-2"} gap-3 border-t border-slate-400/25 py-4 dark:border-white/10 lg:grid-cols-1 lg:gap-0 lg:divide-y lg:divide-slate-200/70 lg:py-0 dark:lg:divide-white/10`}>
         <div className="lg:flex lg:items-end lg:justify-between lg:py-4">
           <dt className="text-[10px] font-semibold uppercase tracking-[0.06em] text-slate-600 dark:text-slate-400">In</dt>
           <dd>
