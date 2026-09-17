@@ -539,6 +539,22 @@ export default function HomePage() {
     return picks.slice(0, 3);
   }, [accounts, pinnedIds]);
 
+  // G106 (2026-09-18): the single investment slot below must honour a pin
+  // the same way topPickAccounts does for bank accounts — `home_pinned_accounts`
+  // is one flat list of ids shared across every account kind (AccountsPage's
+  // "Pin to Home" control on an investment row writes to it via the same
+  // togglePin as a bank row), but the slot used to render unconditionally
+  // via `investmentAccounts.slice(0, 1)`, so pinning an ISA never changed
+  // what Home showed: the array's first entry (typically the SIPP) always
+  // won. A pinned investment now wins the slot; with no pin, or a pin that
+  // doesn't resolve to an investment the user still holds, this falls back
+  // to the previous behaviour (the first entry) so nothing regresses for a
+  // user who has never pinned an investment.
+  const topPickInvestment = useMemo(
+    () => investmentAccounts.find((inv) => pinnedIds.includes(inv.id)) ?? investmentAccounts[0],
+    [investmentAccounts, pinnedIds],
+  );
+
   const hiddenAccountCount =
     Math.max(0, accounts.length - topPickAccounts.length) +
     Math.max(0, investmentAccounts.length - 1);
@@ -854,14 +870,14 @@ export default function HomePage() {
                       />
                     </div>
                   ))}
-                  {investmentAccounts.slice(0, 1).map((inv) => (
-                    <div key={inv.id} className={topPickAccounts.length > 0 ? "border-t border-slate-100 dark:border-white/5" : ""}>
+                  {topPickInvestment && (
+                    <div key={topPickInvestment.id} className={topPickAccounts.length > 0 ? "border-t border-slate-100 dark:border-white/5" : ""}>
                       <AccountLedgerRow
-                        row={investmentToRow(inv)}
+                        row={investmentToRow(topPickInvestment, pinnedIds)}
                         onClick={() => router.push("/accounts?tab=Investments")}
                       />
                     </div>
-                  ))}
+                  )}
                   {hiddenAccountCount > 0 && (
                     <button
                       onClick={() => router.push("/accounts")}
