@@ -10,21 +10,26 @@ literal path hardcoded in each of setup-android-push.sh (which restores
 the file) and apply-board-flavor.sh (which also restores/migrates it) --
 a real defect, found independently by review after two prior rounds
 missed it: setup-android-push.sh's restore step (its "step 3") was moved
-to the flavour-scoped path by an earlier H66 round, but the SAME
-script's legacy apply-plugin fallback (its "step 4", the `try { def
-servicesJSON = file('google-services.json') ... }` block it writes into
-app/build.gradle when no `plugins {}` block exists yet) still hardcoded
-the module-root literal. Running setup-android-push.sh ALONE on a fresh
+to the flavour-scoped path by an earlier H66 round, but `app/build.gradle`'s
+legacy apply-plugin fallback (the `try { def servicesJSON =
+file('google-services.json') ... }` block) still checked the module-root
+literal unconditionally. Running setup-android-push.sh ALONE on a fresh
 project -- its own original, board-agnostic purpose, wanted by anyone
 who just wants Sorted with working push and no Board at all --
-restored the file to src/sorted/, then wrote a Groovy check that only
-ever looks at the module root, finds nothing, silently swallows the
-exception (logged at INFO), and the plugin is never applied at all.
-Green build, dead FCM push, no error anywhere. Two prior review rounds
-missed this because both rounds tested with apply-board-flavor.sh always
-run somewhere in the sequence, which replaces that whole legacy block
-with a flavour-aware, unconditional-apply-plus-WARN pattern before the
-gap could surface.
+restored the file to src/sorted/, while that module-root check found
+nothing, silently swallowed the exception (logged at INFO), and the
+plugin was never applied at all. Green build, dead FCM push, no error
+anywhere. (Review round 5, F4, 2026-09-17: that check is not necessarily
+something setup-android-push.sh's own step 4 writes each run -- on this
+project's real shape, a stock Capacitor template already ships that
+exact block, so step 4's grep guard skips and writes nothing; the
+load-bearing half of the original defect was step 3's restore TARGET
+disagreeing with whichever copy of that check happened to exist,
+regardless of which script put it there.) Two prior review rounds missed
+this because both rounds tested with apply-board-flavor.sh always run
+somewhere in the sequence, which replaces that whole legacy block with a
+flavour-aware, unconditional-apply-plus-WARN pattern before the gap
+could surface.
 
 The invariant this script encodes: as long as the "board" flavour
 (productFlavors in app/build.gradle) does not exist yet, Gradle has no
