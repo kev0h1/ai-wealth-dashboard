@@ -200,13 +200,16 @@ body {
    document.documentElement pattern FilterBar.tsx already uses for
    --go-live-filter-h) so its own FilterBar and MobileRibbonBoard sticky
    elements genuinely pin below `lg`, without touching #app-shell's
-   overflow-x anywhere else in the app. `max-width: 1023.98px` keeps
-   this mutually exclusive with the `>= 1024px` override above rather
-   than competing with it on specificity. Do NOT simplify this into the
-   base #app-shell rule above without doing the H61 audit first — that
-   audit is what "every descendant sticky element in the app"
-   un-inerting at once actually needs. */
-@media (max-width: 1023.98px) {
+   overflow-x anywhere else in the app. `not all and (min-width: 1024px)`
+   (rather than `max-width: 1023.98px`) closes exactly against the
+   `>= 1024px` override above with no gap band between the two queries
+   at fractional zoom/DPI widths, and stays consistent with
+   BoardView.tsx's own `useIsDesktop` matchMedia, which uses the same
+   `(min-width: 1024px)` boundary. Do NOT simplify this into the base
+   #app-shell rule above without doing the H61 audit first — that audit
+   is what "every descendant sticky element in the app" un-inerting at
+   once actually needs. */
+@media not all and (min-width: 1024px) {
   html[data-ops-board] #app-shell {
     overflow-x: clip;
   }

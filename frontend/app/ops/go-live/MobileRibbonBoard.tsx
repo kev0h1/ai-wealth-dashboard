@@ -129,8 +129,19 @@ export function CollapsedSection({
 // design round's uat chip covers the parallel "Kevin needs to pick"
 // case) — dropping it from the ribbon left a rejected item reachable
 // from no section with no filter active, while HeaderHero still prints
-// its count above the board (found auditing H56, 2026-09-17; the fifth
-// chip fits inside the existing overflow-x-auto strip at 390px).
+// its count above the board (found auditing H56, 2026-09-17).
+//
+// Measured at a true 390px: the five chips overflow the strip by 58px
+// (scrollWidth 448 vs clientWidth 390), and the fifth ("UAT") sits past
+// the right edge until the strip is scrolled — it does NOT fit. Kept
+// horizontally scrollable rather than shrinking chip text below
+// DESIGN.md's 10-11px Label floor or wrapping to a second row (which
+// would cost this strip exactly the vertical space Kevin's "ribbon
+// only" decision on FilterBar was trying to reclaim): AccountsPage.tsx's
+// "Lens chips" row is the same shape (a compact filter-chip strip that
+// scrolls rather than wraps or shrinks) already shipped elsewhere in
+// this app, so this isn't a new pattern being introduced, and the fifth
+// chip stays one swipe away rather than permanently hidden.
 const RIBBON_STATES: { key: GoLiveFilterState; label: string }[] = [
   { key: "in-progress", label: "In progress" },
   { key: "blocked", label: "Blocked" },
@@ -139,15 +150,21 @@ const RIBBON_STATES: { key: GoLiveFilterState; label: string }[] = [
   { key: "uat", label: "UAT" },
 ];
 
-// Same sticky offset pattern as BoardView.tsx's DESKTOP_HEADER_TOP: reads
-// the real rendered height FilterBar.tsx publishes as `--go-live-filter-h`
-// on <html> (a ResizeObserver-backed CSS var, not a guessed pixel value),
-// so the ribbon strip sticks exactly beneath the filter bar rather than
-// under it. Same caution applies here as there: nothing between this
-// element and the page's own scroll container may set `overflow-hidden`,
-// or that ancestor becomes the sticky containing block and the offset is
-// measured from the wrong edge.
-const RIBBON_STICKY_TOP = "var(--go-live-filter-h, 96px)";
+// This strip pins to the top of the scroll container itself (`top-0`),
+// not beneath FilterBar.tsx (Kevin's decision, H56, 2026-09-17): once
+// sticky genuinely started working below `lg`, FilterBar plus this strip
+// together would have permanently occupied roughly 28% of a 390px-tall
+// phone viewport (185px measured FilterBar height + this strip). Below
+// `lg`, FilterBar now scrolls away with the rest of the page content
+// (see its own className comment in FilterBar.tsx) and only this strip
+// stays pinned, so there is no filter bar height left to sit under —
+// `var(--go-live-filter-h, ...)` would be the wrong offset here now (it
+// still exists, published unconditionally, but only DesktopBoardGrid's
+// column headers in BoardView.tsx consume it, at `lg` and up, where this
+// component never renders at all). Nothing between this element and the
+// page's own scroll container may set `overflow-hidden`, or that
+// ancestor becomes the sticky containing block and `top-0` is measured
+// from the wrong edge.
 
 export type MobileRibbonBoardProps = {
   filters: GoLiveFilters;
@@ -197,8 +214,7 @@ export function MobileRibbonBoard({
       <div
         role="group"
         aria-label="Filter by status"
-        className="sticky z-10 -mx-6 flex items-center gap-1.5 overflow-x-auto bg-[#f0f2f7]/95 px-6 py-2 backdrop-blur dark:bg-[#0f172a]/95"
-        style={{ top: RIBBON_STICKY_TOP }}
+        className="sticky top-0 z-10 -mx-6 flex items-center gap-1.5 overflow-x-auto bg-[#f0f2f7]/95 px-6 py-2 backdrop-blur dark:bg-[#0f172a]/95"
       >
         {RIBBON_STATES.map((s) => {
           const active = filters.states.includes(s.key);

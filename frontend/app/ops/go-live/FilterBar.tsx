@@ -36,7 +36,11 @@ export function FilterBar({ filters, onChange }: { filters: GoLiveFilters; onCha
   // measured height down through page.tsx) can sit their `sticky` offset
   // exactly under it, rather than guessing a fixed pixel value that drifts
   // whenever this bar's content wraps differently (active filters, window
-  // width, font loading, etc).
+  // width, font loading, etc). Still published unconditionally below
+  // `lg` even though this bar itself no longer pins there (see the
+  // className comment below) — desktop is the only consumer left, but it
+  // still needs a live measurement, not a guess, whenever the window
+  // crosses back up over the `lg` breakpoint.
   const barRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = barRef.current;
@@ -56,7 +60,17 @@ export function FilterBar({ filters, onChange }: { filters: GoLiveFilters; onCha
   return (
     <div
       ref={barRef}
-      className="sticky top-0 z-20 -mx-6 mb-6 border-b border-slate-200 bg-[#f0f2f7]/90 px-6 py-3 backdrop-blur dark:border-white/10 dark:bg-[#0f172a]/90 xl:-mx-10 xl:px-10"
+      // `lg:sticky lg:top-0` (H56, Kevin's decision, 2026-09-17): now that
+      // sticky genuinely works below `lg` (see globals.css's
+      // `html[data-ops-board] #app-shell` rule), this bar plus the ribbon
+      // counts strip beneath it would together permanently occupy ~28%
+      // of a 390px-wide phone viewport (185px measured + the strip).
+      // Kevin's call: below `lg` this bar scrolls away with the rest of
+      // the content, only the ribbon strip stays pinned (its own `top-0`
+      // now pins to the scroll container directly, not beneath this bar
+      // — see MobileRibbonBoard.tsx). At `lg` and up this keeps pinning
+      // exactly as it always has, unchanged.
+      className="z-20 -mx-6 mb-6 border-b border-slate-200 bg-[#f0f2f7]/90 px-6 py-3 backdrop-blur dark:border-white/10 dark:bg-[#0f172a]/90 lg:sticky lg:top-0 xl:-mx-10 xl:px-10"
     >
       <div className="mx-auto max-w-2xl space-y-2.5 lg:max-w-none">
         <div className="flex flex-wrap items-center gap-2">
