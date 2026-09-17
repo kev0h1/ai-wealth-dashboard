@@ -6,6 +6,8 @@ import { createPreferenceSaver } from "@/lib/preferenceSave";
 import { createSerialQueue } from "@/lib/serialQueue";
 import { fetchGatedSnapshot, applyWholeDocument, makeFieldReconcile } from "@/lib/preferencesSnapshot";
 import { shouldAcceptPreferencesSnapshot } from "@/lib/preferencesVersion";
+import { invalidateVerdictCache } from "@/lib/verdictCache";
+import { invalidateMoneyShapeCache } from "@/lib/moneyShape";
 
 export type Region = "UK" | "Kenya";
 
@@ -301,6 +303,28 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   // the `skip` map it passes to applyWholeDocument (see loadPreferences'
   // own comment below, and the G62 review #1 note above
   // fetchPreferencesSnapshot).
+  // G83 fix-round (2026-09-18 review): PATCH /preferences wipes the user's
+  // WHOLE server-side response cache regardless of which single field
+  // changed (see response_cache.invalidate's own docstring — a
+  // name-scoped call still bumps the one global per-user version), so a
+  // client-side rule that mirrors that exactly — invalidate both the
+  // verdict and money-shape caches on ANY successful preferences write,
+  // not just the field that happens to matter today — is not overreach,
+  // it is matching the server's own behaviour. The alternative (enumerate
+  // "region and payPeriodConfig affect verdict, the other four don't") is
+  // exactly the kind of per-field judgement call that produced the
+  // original gap: region gates the Kenya unsupported-verdict branch and
+  // payPeriodConfig moves period boundaries today, but a future field
+  // (or a future change to what an existing field feeds into) would
+  // silently need the same wiring re-discovered. One choke point, all six
+  // savers below pass it as `onSuccess`, costs one extra client-side
+  // cache clear on darkMode/hideNetWorth toggles that don't actually need
+  // it — negligible next to a stale four-figure verdict.
+  const invalidateSpendCaches = useCallback(() => {
+    invalidateVerdictCache();
+    invalidateMoneyShapeCache();
+  }, []);
+
   const hideNetWorthSaver = useRef(createPreferenceSaver<boolean>({
     queue: createSerialQueue(),
     getCurrent: () => hideNetWorthRef.current,
@@ -309,6 +333,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     reconcile: makeFieldReconcile<boolean>(fetchPreferencesSnapshot, "hide_net_worth"),
     noteVersion: notePreferencesVersion,
     onError: makeFieldErrorHandler("hide_net_worth"),
+    onSuccess: invalidateSpendCaches,
   })).current;
 
   const darkModeSaver = useRef(createPreferenceSaver<boolean>({
@@ -319,6 +344,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     reconcile: makeFieldReconcile<boolean>(fetchPreferencesSnapshot, "dark_mode"),
     noteVersion: notePreferencesVersion,
     onError: makeFieldErrorHandler("dark_mode"),
+    onSuccess: invalidateSpendCaches,
   })).current;
 
   const payPeriodConfigSaver = useRef(createPreferenceSaver<PayPeriodConfig>({
@@ -329,6 +355,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     reconcile: makeFieldReconcile<PayPeriodConfig>(fetchPreferencesSnapshot, "pay_period_config"),
     noteVersion: notePreferencesVersion,
     onError: makeFieldErrorHandler("pay_period_config"),
+    onSuccess: invalidateSpendCaches,
   })).current;
 
   const regionSaver = useRef(createPreferenceSaver<Region>({
@@ -339,6 +366,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     reconcile: makeFieldReconcile<Region>(fetchPreferencesSnapshot, "region"),
     noteVersion: notePreferencesVersion,
     onError: makeFieldErrorHandler("region"),
+    onSuccess: invalidateSpendCaches,
   })).current;
 
   const debtTargetMonthsSaver = useRef(createPreferenceSaver<number>({
@@ -349,6 +377,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     reconcile: makeFieldReconcile<number>(fetchPreferencesSnapshot, "debt_target_months"),
     noteVersion: notePreferencesVersion,
     onError: makeFieldErrorHandler("debt_target_months"),
+    onSuccess: invalidateSpendCaches,
   })).current;
 
   const debtTrackingStartSaver = useRef(createPreferenceSaver<string>({
@@ -359,6 +388,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     reconcile: makeFieldReconcile<string>(fetchPreferencesSnapshot, "debt_tracking_start"),
     noteVersion: notePreferencesVersion,
     onError: makeFieldErrorHandler("debt_tracking_start"),
+    onSuccess: invalidateSpendCaches,
   })).current;
 
   const loadPreferences = useCallback((): Promise<Record<string, any> | null> => {

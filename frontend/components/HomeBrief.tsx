@@ -6,6 +6,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { RefreshCw, AlertTriangle, AlertCircle, TrendingDown, X, ChevronRight, ChevronDown, UserRound, CalendarDays, CreditCard, Check, CheckCircle2, Clock3, ArrowRight, ArrowRightLeft, Circle } from "lucide-react";
 import type { CompanionItem, PlanDest, PlanDestBill, SafeToSpend, UnfundedMoveEntry } from "@/lib/api";
 import { api } from "@/lib/api";
+import { invalidateVerdictCache } from "@/lib/verdictCache";
 import { useAuth } from "@/components/AuthProvider";
 import PaydayPlanCard from "@/components/PaydayPlanCard";
 import PennyMark from "@/components/PennyMark";
@@ -1598,6 +1599,12 @@ export function RhythmCard({ item, router, maskAmounts, onRefresh, previewMode =
     }
     try {
       await api.recordTrendIntent(category, answer);
+      // G83 fix-round: this card's one_off/new_normal answer changes the
+      // SAME category_intent_col row /spend/verdict's notables read (same
+      // gap as SpendPage's own handleFileNewNormal/onIntent) — a later
+      // Spend visit within the TTL window must not repaint the pre-answer
+      // verdict.
+      invalidateVerdictCache();
       setConfirmed(answer);
       onRefresh?.();
     } catch {

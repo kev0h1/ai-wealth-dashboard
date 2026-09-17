@@ -11,6 +11,7 @@ import Onboarding from "@/components/Onboarding";
 import { invalidateTransactionsCache } from "@/lib/useAllTransactions";
 import { clearHomeCache } from "@/lib/homeCache";
 import { invalidateVerdictCache } from "@/lib/verdictCache";
+import { invalidateMoneyShapeCache } from "@/lib/moneyShape";
 import { invalidateSignalsCache } from "@/lib/signalsCache";
 import { clearHomeDismissedAdvice } from "@/lib/homeDismissedAdvice";
 import { PAYDAY_DOT_CACHE_KEY } from "@/lib/paydayWindow";
@@ -132,6 +133,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     invalidateTransactionsCache();
     clearHomeCache();
     invalidateVerdictCache();
+    invalidateMoneyShapeCache();
     invalidateSignalsCache();
 
     // Same reasoning for user-scoped localStorage entries that aren't
