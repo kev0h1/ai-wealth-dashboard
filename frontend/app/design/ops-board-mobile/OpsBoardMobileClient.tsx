@@ -340,6 +340,19 @@ function Inner() {
     return () => clearTimeout(t);
   }, [mode]);
 
+  // Mirrors the exact mount/unmount effect app/ops/go-live/page.tsx runs
+  // (H56, scoped pending H61 — see globals.css's `html[data-ops-board]
+  // #app-shell` rule): this preview's whole job is to stand in for what
+  // Kevin sees on the real page, so it needs to set the same attribute
+  // to genuinely exercise the same scoped sticky fix, not a different
+  // one. Cleanup on unmount for the same reason production's does.
+  useEffect(() => {
+    document.documentElement.setAttribute("data-ops-board", "");
+    return () => {
+      document.documentElement.removeAttribute("data-ops-board");
+    };
+  }, []);
+
   const [items, setItems] = useState<GoLiveItem[]>(ALL_FIXTURE_ITEMS);
   const [filters, setFilters] = useState<GoLiveFilters>(DEFAULT_GO_LIVE_FILTERS);
   const [selected, setSelected] = useState<GoLiveItem | null>(null);

@@ -164,23 +164,25 @@ body {
 }
 
 /* App shell centering — mobile-first, uncapped on desktop.
-   `overflow-x: clip` (not `hidden`) below `lg`: `hidden` makes an element
-   a scroll container, which becomes the nearest ancestor a descendant
-   `position: sticky` measures its containing block against — every
-   sticky element in the app (FilterBar.tsx's own `sticky top-0`, H56's
-   ribbon counts strip, etc.) was silently inert below `lg` because of
-   this, not because of anything wrong in the sticky element itself.
-   `clip` still prevents horizontal overflow/scroll (the reason this rule
-   exists) but does not establish a scroll container, so descendant
-   sticky works again. Found and fixed 2026-09-17 auditing H56; see H
-   section TODO.md for the follow-up item to audit every existing sticky
-   element now that this is fixed app-wide. */
+   `overflow-x: hidden` below `lg` makes #app-shell a scroll container,
+   which becomes the nearest ancestor a descendant `position: sticky`
+   measures its containing block against — every sticky element bound
+   to it (FilterBar.tsx's own `sticky top-0`, H56's ribbon counts strip,
+   etc.) is liable to misbehave because of this, not because of anything
+   wrong in the sticky element itself. `overflow-x: clip` fixes it
+   (prevents the same horizontal overflow without establishing a scroll
+   container), confirmed by H56 (2026-09-17), but flipping it HERE would
+   change it app-wide, below `lg`, for every page at once, with no way
+   to sweep the result (every authenticated route) from this sandbox.
+   H61 is the deliberate, audited version of that change; do not
+   pre-empt it by widening the scoped override below into this base
+   rule. */
 #app-shell {
   max-width: 430px;
   margin: 0 auto;
   min-height: 100dvh;
   position: relative;
-  overflow-x: clip;
+  overflow-x: hidden;
 }
 
 @media (min-width: 1024px) {
@@ -189,6 +191,24 @@ body {
     margin-left: 16rem; /* 256px sidebar width */
     margin-right: 0;
     overflow-x: visible;
+  }
+}
+
+/* H56 (2026-09-17), scoped pending H61: the /ops/go-live page sets
+   data-ops-board on <html> for its own mounted lifetime (see the
+   mount/unmount effect in app/ops/go-live/page.tsx, following the same
+   document.documentElement pattern FilterBar.tsx already uses for
+   --go-live-filter-h) so its own FilterBar and MobileRibbonBoard sticky
+   elements genuinely pin below `lg`, without touching #app-shell's
+   overflow-x anywhere else in the app. `max-width: 1023.98px` keeps
+   this mutually exclusive with the `>= 1024px` override above rather
+   than competing with it on specificity. Do NOT simplify this into the
+   base #app-shell rule above without doing the H61 audit first — that
+   audit is what "every descendant sticky element in the app"
+   un-inerting at once actually needs. */
+@media (max-width: 1023.98px) {
+  html[data-ops-board] #app-shell {
+    overflow-x: clip;
   }
 }
 
