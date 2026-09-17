@@ -944,6 +944,41 @@ def test_review_items_excludes_uat_and_rejected_only_review_is_a_candidate(monke
     assert all(c["state"] == "review" for c in candidates)
 
 
+def test_review_items_excludes_cancelled_even_with_a_branch(monkeypatch):
+    """H80: a cancelled item, even one that retains a branch from a live
+    worktree it was cancelled out of (see backend/app/services/backlog.py
+    set_cancelled), must never be picked up as a merge candidate —
+    `_review_items()` only ever selects items in state `review`, exactly
+    the same safety property the existing uat/rejected test above proves,
+    exercised separately here because "even with a branch recorded" is the
+    exact shape Part 4 of H80 calls out (a cancelled in-progress/review
+    item keeps its branch purely so it stays visible, not so integrate can
+    find it)."""
+
+    class _FakeSnapshot:
+        def items(self):
+            return [
+                {"id": "H1", "state": "review", "branch": "feature-H1-thing", "title": "Review candidate"},
+                {
+                    "id": "H4",
+                    "state": "cancelled",
+                    "branch": "feature-H4-thing",
+                    "reason": "superseded",
+                    "title": "Cancelled, but keeps its branch visible",
+                },
+            ]
+
+    monkeypatch.setattr(integrate.backlog, "load", lambda: _FakeSnapshot())
+
+    candidates = integrate._review_items()
+
+    print("synthetic board: H1=review (branch attached), H4=cancelled (also has a branch attached)")
+    print("candidates returned by _review_items():", candidates)
+
+    assert [c["id"] for c in candidates] == ["H1"]
+    assert all(c["state"] == "review" for c in candidates)
+
+
 def _fake_sh_factory(extra=None):
     def fake_sh(cmd, cwd=integrate.REPO_ROOT, timeout=integrate.GIT_TIMEOUT):
         if extra is not None:

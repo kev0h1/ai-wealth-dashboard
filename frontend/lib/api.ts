@@ -1595,7 +1595,8 @@ export type GoLiveItemAction =
   | { action: "priority"; priority: "p1" | "p2" | "p3" }
   | { action: "unblocks"; questions: string[] }
   | { action: "uat"; link: string }
-  | { action: "approve"; choice: string };
+  | { action: "approve"; choice: string }
+  | { action: "cancel"; reason: string };
 
 /** Thrown by get<T>/post<T> on a non-2xx response. Carries the HTTP
  * `status` and the raw `detail` from the JSON error body (if any) so a

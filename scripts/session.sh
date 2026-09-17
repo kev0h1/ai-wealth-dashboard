@@ -224,6 +224,16 @@ decide_start_state() {
       err "item $id is rejected${reason:+: $reason}; resolve it first with 'backend/.venv/bin/python scripts/backlog.py start $id' (clears the rejection, moves it to in-progress with no branch) or 'todo $id', then run scripts/session.sh start $id again."
       return 1
       ;;
+    cancelled)
+      # H80: Kevin decided this should not happen at all, distinct from a
+      # rejection (defective, needs fixing) or a block (can't proceed
+      # yet). Reversible exactly like rejected: 'start'/'todo' on the CLI
+      # clears the cancellation before a fresh session.sh start attaches.
+      local reason
+      reason="$(jq -r '.reason // empty' <<<"$item_data")"
+      err "item $id is cancelled${reason:+: $reason}; Kevin decided this should not happen. Resolve it first with 'backend/.venv/bin/python scripts/backlog.py start $id' (clears the cancellation, moves it to in-progress with no branch) or 'todo $id', then run scripts/session.sh start $id again."
+      return 1
+      ;;
     done)
       err "item $id is already done; pass --title \"...\" to open a new item instead of reusing a completed one."
       return 1

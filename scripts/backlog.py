@@ -88,6 +88,36 @@ Commands:
                                         implements the winner on a fresh
                                         branch. Only valid on an item
                                         currently in "uat".
+    cancel <id> "<reason>"              Kevin-only: cancel an item because
+                                        this work should not happen at all
+                                        (obsolete, superseded, or simply not
+                                        wanted) — distinct from "rejected"
+                                        (a reviewer found a defect, fix it)
+                                        and "blocked" (can't proceed yet).
+                                        The reason is required and is
+                                        written as BOTH the one-line
+                                        "[state: cancelled: ...]" tag AND a
+                                        full dated note automatically. Only
+                                        actor "kevin" may run this (pass
+                                        --actor kevin); any other actor is
+                                        refused with no change to the
+                                        board — an agent that thinks
+                                        something should be cancelled
+                                        should instead leave a note
+                                        recommending it and let Kevin
+                                        decide. Refuses a done item
+                                        outright (no --force override:
+                                        cancelling something already done
+                                        is meaningless). If the item had a
+                                        live branch attached, it is
+                                        retained on the item and recorded
+                                        in its own note along with the
+                                        exact command to clean up the
+                                        worktree (scripts/session.sh
+                                        abandon <id>) — the branch/worktree
+                                        itself is never touched. start or
+                                        todo reverses a cancellation
+                                        exactly like a rejection.
     todo <id> [--force]                 Reset an item to to-do (clears any
                                         state tag, including a rejection;
                                         used by session.sh abandon). Refuses
@@ -182,6 +212,8 @@ def _state_display(item: dict) -> str:
         return f"review:{item['branch']}"
     if item["state"] == "rejected" and item.get("branch"):
         return f"rejected:{item['branch']}"
+    if item["state"] == "cancelled" and item.get("branch"):
+        return f"cancelled:{item['branch']}"
     return item["state"]
 
 
@@ -247,6 +279,23 @@ def cmd_uat(args: argparse.Namespace) -> None:
 def cmd_approve(args: argparse.Namespace) -> None:
     result, committed = backlog.set_approved(args.item_id, args.choice, actor=args.actor)
     _print_result(args.item_id, result, committed)
+
+
+def cmd_cancel(args: argparse.Namespace) -> None:
+    # No _refuse_if_done/--force here (unlike start/block/review/reject/
+    # uat above): a cancel on a done item is refused outright, by
+    # backend.services.backlog.TodoDoc.set_state itself, with no override
+    # — see H80. The kevin-only actor check lives at that same layer too,
+    # so a non-kevin --actor (or the "claude" default) makes NO change to
+    # the board; this command never needs its own duplicate guard for
+    # either rule.
+    result, committed = backlog.set_cancelled(args.item_id, args.reason, actor=args.actor)
+    _print_result(args.item_id, result, committed)
+    if result.get("branch"):
+        print(
+            f"  a live branch, {result['branch']}, was attached — clean it up from the shared tree with "
+            f"'scripts/session.sh abandon {args.item_id}' (never auto-run; the worktree is untouched)."
+        )
 
 
 def cmd_todo(args: argparse.Namespace) -> None:
@@ -423,6 +472,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_approve.add_argument("choice")
     add_actor(p_approve)
     p_approve.set_defaults(func=cmd_approve)
+
+    p_cancel = sub.add_parser(
+        "cancel",
+        help="Kevin-only: cancel an item (this work should not happen at all), with a reason.",
+    )
+    p_cancel.add_argument("item_id")
+    p_cancel.add_argument("reason")
+    add_actor(p_cancel)
+    p_cancel.set_defaults(func=cmd_cancel)
 
     p_todo = sub.add_parser("todo", help="Reset an item to to-do (clears any state tag, including a rejection).")
     p_todo.add_argument("item_id")

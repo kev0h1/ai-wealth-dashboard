@@ -63,6 +63,21 @@ unrecorded.
   `backend/.venv/bin/python scripts/backlog.py reject <ID> "<reason>"`
   requires a reason and keeps the item's branch so the next person can
   see which one was refused. `start` or `todo` moves it back out again.
+- There is also a `cancelled` state (H80): Kevin's own call that a piece
+  of work should not happen at all — obsolete, superseded, or simply not
+  wanted — distinct from `rejected` (a defect, fix it) and `blocked`
+  (can't proceed yet). This is **kevin-only, enforced in code, not just
+  documented**: `backend/app/services/backlog.py`'s `TodoDoc.set_state`
+  refuses to set this state for any actor other than `kevin`, so a Codex
+  session can never decide work is unnecessary and cancel it, exactly the
+  same restriction a Claude session has. If you believe an item should be
+  cancelled, say so with a note instead —
+  `backend/.venv/bin/python scripts/backlog.py note <ID> "recommend
+  cancelling: <why>"` — and let Kevin run
+  `backend/.venv/bin/python scripts/backlog.py cancel <ID> "<reason>"
+  --actor kevin` (or use the Cancel control on `/ops/go-live`) himself.
+  `start` or `todo` reverses a cancellation exactly like a rejection; a
+  cancelled item is closed but never counted as done.
 - Never commit `backend/.env` or any other key/secret file. Never edit
   files outside this repository.
 - Copy rules apply to every user-facing string you write: no em dashes,

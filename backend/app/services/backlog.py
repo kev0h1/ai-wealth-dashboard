@@ -13,7 +13,8 @@ Model on a TODO.md item line:
       - note (2026-09-06, kevin): a note about A1.
 
 `[state: ...]` is one of `in-progress`, `blocked: <reason>`,
-`review: <branch>`, `rejected: <reason>`, or `uat: <link>` (see
+`review: <branch>`, `rejected: <reason>`, `uat: <link>`, or
+`cancelled: <reason>` (see
 docs/ops/BACKLOG.md "Branch per item" — a session finishing work on a
 worktree branch sends the item to review with the branch name attached,
 and `scripts/integrate.py` either merges it to `done`, to `uat` (a
@@ -44,7 +45,21 @@ the whole point, so it can never be merged a second time. `approve <id>
 "<choice>"` records which variant Kevin picked as a dated note and moves
 the item back to `in-progress` with its owner unchanged, so the same
 agent implements the winner on a fresh branch. See H31 and
-docs/ops/BACKLOG.md. The checkbox carries done/not-done, independent of
+docs/ops/BACKLOG.md. `cancelled` (H80) is Kevin's own call that a piece of
+work should not happen at all — obsolete, superseded, or simply not
+wanted — distinct from `rejected` (a reviewer found a defect, fix it) and
+`blocked` (can't proceed yet): closed, but never `[x]` and never counted
+as done. It requires a reason (`[state: cancelled: <reason>]`, capped at
+REASON_CAP=200 like blocked/rejected, plus a full uncapped-up-to-NOTE_CAP
+note written automatically alongside it) and is kevin-only, enforced by
+`TodoDoc.set_state` refusing any other `actor` — an agent must never
+decide work is unnecessary, it can only leave a note recommending
+cancellation. Cancelling an already-done item is refused outright (no
+override): a done item already happened, there is nothing left to
+declare should not happen. `start` or `todo` reverses it exactly like
+`rejected`. See `set_cancelled` below.
+
+The checkbox carries done/not-done, independent of
 the state tag — marking an item done clears any state tag. A done item
 gets a trailing `(done 2026-09-06, abc1234)` marker (commit hash optional,
 and for an integrated item is the merge commit on main). Notes are
@@ -115,7 +130,7 @@ COMPLIANCE_PATH = _compliance_path()
 GIT_AUTHOR = "Sorted Ops <ops@auriqltd.co.uk>"
 GIT_TIMEOUT = 15
 
-ITEM_STATES = ("todo", "in-progress", "blocked", "review", "rejected", "uat")
+ITEM_STATES = ("todo", "in-progress", "blocked", "review", "rejected", "uat", "cancelled")
 # Human-facing labels for a state key, matching the board's own vocabulary
 # (frontend/lib/goLive.ts BOARD_COLUMNS) exactly, so an audit note written
 # by set_state/set_done (H57) reads "moved to In progress" the way the
@@ -129,6 +144,7 @@ STATE_DISPLAY_LABEL = {
     "review": "In review",
     "rejected": "Rejected",
     "uat": "UAT",
+    "cancelled": "Cancelled",
 }
 QUESTION_STATUSES = ("ready", "needs-kevin", "blocked-deploy", "submitted")
 OWNERS = ("kevin", "claude", "codex")
@@ -136,6 +152,27 @@ PRIORITIES = ("p1", "p2", "p3")
 DEFAULT_PRIORITY = "p3"
 REASON_CAP = 200
 NOTE_CAP = 1500  # see _collapse_note_text below (H46)
+
+# H80: `cancelled` is Kevin's own call that a piece of work should not
+# happen at all (obsolete, superseded, or simply not wanted) — distinct
+# from `rejected` (a reviewer found a defect, fix it) and `blocked` (can't
+# proceed yet). An agent must never be able to decide work is unnecessary,
+# so this is enforced in code, not just documented: `TodoDoc.set_state`
+# refuses to set `state="cancelled"` unless `actor` is exactly this value.
+# This reuses the same self-declared-identity mechanism every other actor
+# check in this codebase already relies on (the `--actor` flag on
+# scripts/backlog.py, `BACKLOG_AGENT` for scripts/session.sh's owner
+# guard) rather than inventing a second one — there is no stronger
+# per-caller identity anywhere in this CLI. The real hard barrier against
+# an agent silently doing this is `/ops/go-live` (backend/app/routers/
+# ops.py), which is gated by actual account-owner auth
+# (`_require_owner`/`current_user`) and always attributes its own writes
+# to `_PAGE_ACTOR = "kevin"` regardless of who is typing — so cancelling
+# through the browser is genuinely kevin-only, and cancelling through this
+# CLI requires an agent to deliberately override the default `--actor
+# claude` to lie about who it is, exactly as visible/auditable in the git
+# history as any other actor-attributed write here.
+CANCEL_ACTOR = "kevin"
 
 # H31: the only host a `uat` preview link is ever allowed to point at.
 # Kevin opens these links from his phone, not this VPS's loopback
@@ -259,7 +296,7 @@ ITEM_RE = re.compile(
     r"(?P<tail>.*)$"
 )
 OWNER_RE = re.compile(r"\[owner:\s*(kevin|claude|codex)\]")
-STATE_RE = re.compile(r"\[state:\s*(in-progress|blocked|review|rejected|uat)(?::\s*([^\]]*))?\]")
+STATE_RE = re.compile(r"\[state:\s*(in-progress|blocked|review|rejected|uat|cancelled)(?::\s*([^\]]*))?\]")
 PRIORITY_RE = re.compile(r"\[priority:\s*(p1|p2|p3)\]")
 UNBLOCKS_RE = re.compile(r"\[unblocks:\s*([^\]]*)\]")
 # A rejected (or uat) item's branch is stored separately from `[state:
@@ -383,14 +420,14 @@ class BacklogItem:
     text: str
     owner: Optional[str]
     done: bool
-    state: str  # "todo" | "in-progress" | "blocked" | "review" | "rejected" | "uat" (meaningless once done)
+    state: str  # "todo" | "in-progress" | "blocked" | "review" | "rejected" | "uat" | "cancelled" (meaningless once done)
     reason: Optional[str]
     done_at: Optional[str]
     commit: Optional[str]
     line_no: int
     raw_line: str
     notes: list[BacklogNote] = field(default_factory=list)
-    branch: Optional[str] = None  # set when state == "review", "rejected", "uat", or "in-progress" with a live worktree attached (see H31 "start after approve")
+    branch: Optional[str] = None  # set when state == "review", "rejected", "uat", "cancelled", or "in-progress" with a live worktree attached (see H31 "start after approve")
     priority: str = DEFAULT_PRIORITY  # "p1" | "p2" | "p3", defaults to p3 when absent
     unblocks: list[str] = field(default_factory=list)  # question ids this item unblocks
     link: Optional[str] = None  # preview link, set when state == "uat" (see H31)
@@ -405,8 +442,8 @@ class BacklogItem:
             "text": self.text,
             "owner": self.owner,
             "state": state,
-            "reason": self.reason if state in ("blocked", "rejected") else None,
-            "branch": self.branch if state in ("review", "rejected", "uat", "in-progress") else None,
+            "reason": self.reason if state in ("blocked", "rejected", "cancelled") else None,
+            "branch": self.branch if state in ("review", "rejected", "uat", "cancelled", "in-progress") else None,
             "link": self.link if state == "uat" else None,
             "uat_review": self.uat_review if state == "review" else False,
             "done_at": self.done_at,
@@ -473,7 +510,7 @@ def _parse_item_line(match: "re.Match[str]", section: str, line_no: int, raw_lin
     if state_m:
         state = state_m.group(1)
         detail = (state_m.group(2) or "").strip() or None
-        if state in ("blocked", "rejected"):
+        if state in ("blocked", "rejected", "cancelled"):
             reason = detail
         elif state == "review":
             branch = detail
@@ -491,12 +528,12 @@ def _parse_item_line(match: "re.Match[str]", section: str, line_no: int, raw_lin
         owner=owner,
         done=done,
         state=state,
-        reason=reason if state in ("blocked", "rejected") else None,
+        reason=reason if state in ("blocked", "rejected", "cancelled") else None,
         done_at=done_at if done else None,
         commit=commit if done else None,
         line_no=line_no,
         raw_line=raw_line,
-        branch=branch if state in ("review", "rejected", "uat", "in-progress") else None,
+        branch=branch if state in ("review", "rejected", "uat", "cancelled", "in-progress") else None,
         priority=priority,
         unblocks=unblocks,
         link=link if state == "uat" else None,
@@ -526,6 +563,15 @@ def _render_item_line(item: BacklogItem) -> str:
                 segments.append(f"[branch: {item.branch}]")
         elif item.state == "uat":
             segments.append(f"[state: uat: {item.link or ''}]")
+            if item.branch:
+                segments.append(f"[branch: {item.branch}]")
+        elif item.state == "cancelled":
+            # Same shape as rejected/uat: the reason lives in the
+            # `[state: cancelled: ...]` slot itself, so a live branch (a
+            # worktree that was in-progress or review when Kevin cancelled
+            # it) is retained in a separate `[branch: ...]` tag rather than
+            # lost — see set_cancelled() below and H80.
+            segments.append(f"[state: cancelled: {item.reason or ''}]")
             if item.branch:
                 segments.append(f"[branch: {item.branch}]")
         elif item.state == "in-progress":
@@ -692,6 +738,30 @@ class TodoDoc:
             raise BacklogError("reason is required to set state to rejected")
         if state == "uat" and not link:
             raise BacklogError("link is required to set state to uat")
+        if state == "cancelled":
+            if not reason or not reason.strip():
+                raise BacklogError("a reason is required to cancel an item")
+            # H80: kevin-only, enforced here (the lowest level — every
+            # caller, `scripts/backlog.py cancel`, `/ops/go-live`'s action
+            # route and any future wrapper, funnels through this one
+            # check) rather than merely documented, because an agent must
+            # never be the one deciding a piece of work is unnecessary.
+            # This is the exact same self-declared `actor` mechanism every
+            # other identity check in this codebase already uses (see
+            # CANCEL_ACTOR's own comment above for why that is the
+            # strongest lever available here, and why /ops/go-live's real
+            # account-owner auth is the actual hard barrier for the
+            # browser path). An agent that believes something should be
+            # cancelled must leave a note recommending it instead
+            # (`scripts/backlog.py note <id> "recommend cancelling: ..."`)
+            # and let Kevin decide.
+            if actor != CANCEL_ACTOR:
+                raise BacklogError(
+                    f"cancel is kevin-only: actor {actor!r} may not cancel an item. An agent must not "
+                    "decide work is unnecessary — leave a note recommending cancellation instead "
+                    f"('scripts/backlog.py note {item_id} \"recommend cancelling: <why>\"') and let Kevin "
+                    f"cancel it himself with --actor {CANCEL_ACTOR}."
+                )
         # Sanitise before storing so a raw multi-line reason (e.g. command
         # output passed straight through from scripts/integrate.py) can
         # never corrupt the item's one-line `[state: ...]` tag — see
@@ -703,6 +773,21 @@ class TodoDoc:
         # write a loopback URL to disk either.
         normalised_link = normalise_preview_link(link) if state == "uat" else None
         item = self.item(item_id)
+        if state == "cancelled" and item.done:
+            # H80, Kevin's stated view: cancelling something already done
+            # is meaningless — a done item already happened, there is
+            # nothing left to declare "should not happen". Unlike the H57
+            # done-item guard on start/block/review/reject/uat (which
+            # exists only to stop an accidental un-tick and can be
+            # overridden with --force), this refusal has no override: if
+            # an already-done item genuinely needs undoing, `reopen` is
+            # the deliberate command for that, and the item can be
+            # cancelled afterwards if it still should be.
+            raise BacklogError(
+                f"{item_id} is already done; cancelling a done item is meaningless. Use "
+                f"'backend/.venv/bin/python scripts/backlog.py reopen {item_id}' first if it genuinely "
+                "needs undoing."
+            )
         # `state` here is always one of ITEM_STATES above, which never
         # includes "done" — done is the separate `item.done` flag set by
         # `set_done`, not a value this method ever receives. `to_dict()`
@@ -732,7 +817,7 @@ class TodoDoc:
         item.done_at = None
         item.commit = None
         item.state = state
-        item.reason = sanitised_reason if state in ("blocked", "rejected") else None
+        item.reason = sanitised_reason if state in ("blocked", "rejected", "cancelled") else None
         if state == "review":
             item.branch = branch
             item.link = None
@@ -742,6 +827,16 @@ class TodoDoc:
             # retain whatever branch the item already had (the branch it's
             # being rejected on) unless the caller explicitly passes a
             # different one; going to any other state below clears it.
+            item.branch = branch or item.branch
+            item.link = None
+            item.uat_review = False
+        elif state == "cancelled":
+            # H80: Kevin can cancel an item from any live state, including
+            # in-progress or review with a genuinely live worktree
+            # attached — that branch/worktree is never touched by this
+            # (see set_cancelled() below), so retain it the same way
+            # rejected/uat do, purely so it stays visible on the item
+            # rather than silently vanishing.
             item.branch = branch or item.branch
             item.link = None
             item.uat_review = False
@@ -1313,6 +1408,63 @@ def set_rejected(
     `scripts/integrate.py` never selects a `rejected` item as a merge
     candidate."""
     return set_state(item_id, "rejected", reason=reason, actor=actor, todo_path=todo_path, repo_root=repo_root)
+
+
+def set_cancelled(
+    item_id: str,
+    reason: str,
+    actor: str = "claude",
+    *,
+    todo_path: Optional[Path] = None,
+    repo_root: Optional[Path] = None,
+) -> tuple[dict, bool]:
+    """Kevin-only (H80): cancel `item_id` because this work should not
+    happen at all — obsolete, superseded, or simply not wanted — distinct
+    from `rejected` (a reviewer found a defect, fix it) and `blocked`
+    (can't proceed yet). `TodoDoc.set_state` is where the real enforcement
+    lives (requires `actor == CANCEL_ACTOR`, requires a non-empty reason,
+    refuses an already-done item outright); this wrapper composes with
+    that rather than duplicating it, the same shape as `set_rejected`/
+    `set_uat` above.
+
+    H54/Part 3: a caller's reason must survive both the short one-line
+    `[state: cancelled: ...]` tag (capped at REASON_CAP=200 via
+    `one_line_reason`, same as blocked/rejected) AND a full, separately
+    capped note (NOTE_CAP=1500 via `add_note`/`_collapse_note_text`) — a
+    200-character state tag must never be the only place a reason
+    survives. If the item had a branch attached (genuinely live if it was
+    `in-progress`/`review` when Kevin cancelled it), that branch is
+    written into ITS OWN separate note too, along with the exact cleanup
+    command, rather than sharing a note with the reason: a very long
+    reason competing with the branch/cleanup text for the same 1500-char
+    budget could otherwise truncate the actual reason to make room for the
+    cleanup notice, which is worse than two shorter notes. Neither the
+    worktree nor the branch is ever touched, merged, or deleted here —
+    only surfaced."""
+    if not reason or not reason.strip():
+        raise BacklogError("a reason is required to cancel an item")
+    resolved_path = todo_path or _todo_path()
+    resolved_root = repo_root or _repo_root()
+    reason_clean = reason.strip()
+    with _locked(resolved_root):
+        doc = TodoDoc.load(resolved_path)
+        prior_branch = doc.item(item_id).branch
+        doc.set_state(item_id, "cancelled", reason=reason_clean, actor=actor)
+        doc.add_note(item_id, f"cancelled: {reason_clean}", actor)
+        if prior_branch:
+            doc.add_note(
+                item_id,
+                f"a live branch, {prior_branch}, was attached when this was cancelled; the branch and its "
+                f"worktree are untouched — clean it up from the shared tree with "
+                f"'scripts/session.sh abandon {item_id}' when ready.",
+                actor,
+            )
+        item = doc.item(item_id)
+        doc.save(resolved_path)
+    committed = _git_commit_and_push(
+        [resolved_path], f"backlog: {item_id} cancelled by {actor}", resolved_root
+    )
+    return item.to_dict(), committed
 
 
 def add_item(
