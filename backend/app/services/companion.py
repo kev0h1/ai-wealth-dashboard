@@ -2995,28 +2995,54 @@ async def compute_today_items(
     # per move); resolves itself on the next compute once every listed move
     # is skipped or observed, rather than lingering.
     #
-    # `_regular_move_gate` is computed here, OUTSIDE the try/except below,
-    # deliberately: section 6's emission loop (further down, no try/except
-    # of its own) reads it unconditionally, and previously would have run
-    # its OWN independent computation regardless of whether the unfunded_move
-    # block below succeeded or raised. Computing the shared gate inside that
-    # try would mean a failure anywhere in unfunded_move's OWN logic (after
-    # the gate call) still leaves it bound (fine), but a failure DURING the
-    # gate call itself would leave `_regular_move_gate` unbound and crash
-    # section 6 too — a strictly worse blast radius than before, where
-    # section 6 was fully independent of the shadow. Keeping the gate call
-    # outside preserves that independence: if it raises, this propagates the
-    # same way section 6's own inline computation would have before G71.
-    _regular_move_gate = await _gate_regular_move_cards(
-        shortfalls=shortfalls,
-        suppress_moves=_suppress_moves,
-        legs_by_dest=legs_by_dest,
-        uncovered_by_dest=uncovered_by_dest,
-        dest_bucketed=dest_bucketed,
-        window_end=window_end,
-        dismissed=dismissed,
-        uid=uid,
-    )
+    # `_regular_move_gate` is computed here, OUTSIDE the unfunded_move
+    # try/except below, deliberately: section 6's emission loop (further
+    # down, no try/except of its own, same as pre-G71) reads it
+    # unconditionally, so it must be bound by the time that loop runs
+    # regardless of what the unfunded_move block below does with it.
+    #
+    # G84: this call has its OWN try/except, separate from unfunded_move's,
+    # for a reason that isn't obvious from the code alone. Pre-G71, section
+    # 5d ran its own hand-copied shadow of this gate INSIDE the try below,
+    # so a transient failure there was caught and degraded only
+    # unfunded_move — section 6 ran an entirely independent probe of its
+    # own afterwards and could still succeed, and so could every unrelated
+    # section after it (windows, needle, cliff, trajectory, ...), each
+    # wrapped in its own try/except further down. G71 correctly merged the
+    # two hand-aligned copies into this one shared call so they can no
+    # longer silently disagree under a race — but simply moving that call
+    # inside the unfunded_move try wouldn't restore the old isolation
+    # either: section 6 reads the SAME _regular_move_gate value, so a
+    # caught-and-swallowed failure there would leave section 6 crashing on
+    # an unbound name anyway, and an uncaught one would crash the whole
+    # request — including every downstream section that used to be
+    # completely insulated from this gate's failures by its own try/except.
+    # A single shared computation cannot fail for one caller while
+    # succeeding for the other; that asymmetry is what a duplicated probe
+    # bought, and duplicating it back is exactly the race G71 removed. What
+    # CAN be restored is the isolation that actually matters most: a
+    # transient failure here degrades both of this gate's callers together
+    # (no unfunded_move card, no regular move/plan cards this compute — a
+    # symmetric, honest degrade instead of one surviving by luck) without
+    # taking down the rest of the Home brief. Falling back to an empty gate
+    # (nothing dismissed, nothing done, nothing emitted) makes both callers'
+    # existing "no card for this destination" code paths handle it exactly
+    # like a quiet compute with no qualifying destinations — no separate
+    # branch needed in either caller.
+    try:
+        _regular_move_gate = await _gate_regular_move_cards(
+            shortfalls=shortfalls,
+            suppress_moves=_suppress_moves,
+            legs_by_dest=legs_by_dest,
+            uncovered_by_dest=uncovered_by_dest,
+            dest_bucketed=dest_bucketed,
+            window_end=window_end,
+            dismissed=dismissed,
+            uid=uid,
+        )
+    except Exception as _gate_exc:
+        log.warning("regular move card gate failed for %s: %s", uid, _gate_exc)
+        _regular_move_gate = _RegularMoveCardGate({}, {}, 0)
 
     unfunded_move_items: list[dict] = []
     try:
