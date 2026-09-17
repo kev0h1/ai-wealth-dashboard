@@ -164,6 +164,8 @@ A muted slate stage where one indigo voice and a single-saturation category pale
 - **Caption** (400, 12px): The quiet step below Body, supporting text directly under a card's main line (pace sentences, consequence lines, cause lines on Spend notable cards). Not a Label, it is sentence case, not uppercase, and it is not tracked wide.
 - **Label** (600, 10-11px, +0.05em, UPPERCASE): Section markers ("PAY PERIOD", "YOUR GOALS"), metric captions. Always muted (#94a3b8), never ink.
 
+**Platform exception — form fields on touch (G81, 2026-09-14).** Any focusable `input`, `textarea` or `select` renders at 16px minimum on coarse-pointer (touch) devices, overriding whatever step its own class would otherwise put it on. This is not a hierarchy choice: iOS Safari auto-zooms the page on focus for any field below 16px and never restores the previous scale, and disabling that behaviour via the viewport meta (`maximum-scale`/`user-scalable`) is a banned WCAG anti-pattern (see `app/layout.tsx`'s viewport export). The rule lives in `frontend/app/globals.css` scoped to `@media (pointer: coarse)`, so desktop/mouse pointers keep each field's documented type-scale step unchanged. If an audit finds a form field below 16px on a phone, this is why, and the fix is not to shrink it back down.
+
 ### Named Rules
 **The Numbers Lead Rule.** On any card the money figure is the visually heaviest element; its label sits above or beside it in whisper-label style. If a label outweighs its number, the hierarchy is wrong.
 
