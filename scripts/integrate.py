@@ -18,7 +18,12 @@ line per rejected item and counts them in the summary, so a rejection
 that keeps a branch out of a merge is visible in the run's own output
 rather than a silent absence (see H25 — before this, a rejection that
 only existed in conversation was invisible to a concurrent integrate
-pass, which merged the rejected branch anyway).
+pass, which merged the rejected branch anyway). A `cancelled` item (H80)
+is never a merge candidate for the same reason, even one that still
+carries a `[branch: ...]` tag (retained deliberately by `set_cancelled`
+so a live worktree stays visible, not so integrate can find it): each
+pass prints one `[skipped-cancelled]` line per cancelled item and counts
+them in the summary too, mirroring `[skipped-rejected]`.
 
   1. Warns (but does not block) if the recorded branch doesn't start with
      `feature-<ID>` for that item's id — branches are named
@@ -179,6 +184,21 @@ def _rejected_items() -> list[dict]:
     so a skip-because-rejected never reads as a silent absence."""
     snapshot = backlog.load()
     items = [i for i in snapshot.items() if i.get("state") == "rejected"]
+    items.sort(key=lambda i: _id_sort_key(i["id"]))
+    return items
+
+
+def _cancelled_items() -> list[dict]:
+    """H80 correction round (LOW): items Kevin has cancelled, mirroring
+    `_rejected_items()` above for the same reason. `_review_items()`
+    already excludes these outright -- a cancelled item's state is
+    `cancelled`, not `review`, even when it still carries a `branch` tag
+    (see `set_cancelled`, which deliberately retains a live worktree's
+    branch purely so it stays visible) -- so this exists purely for
+    visibility, so a skip-because-cancelled never reads as a silent
+    absence the way an unlabelled skip did for rejected before H25."""
+    snapshot = backlog.load()
+    items = [i for i in snapshot.items() if i.get("state") == "cancelled"]
     items.sort(key=lambda i: _id_sort_key(i["id"]))
     return items
 
@@ -845,18 +865,30 @@ def integrate_once(allow_branch: Optional[str] = None) -> int:
 
             items = _review_items()
             rejected = _rejected_items()
+            cancelled = _cancelled_items()
             for item in rejected:
                 branch_note = f", branch {item['branch']}" if item.get("branch") else ""
                 print(
                     f"[skipped-rejected] {item['id']}: rejected "
                     f"({item.get('reason') or 'no reason recorded'}){branch_note}, not eligible for merge"
                 )
+            for item in cancelled:
+                branch_note = f", branch {item['branch']}" if item.get("branch") else ""
+                print(
+                    f"[skipped-cancelled] {item['id']}: cancelled "
+                    f"({item.get('reason') or 'no reason recorded'}){branch_note}, not eligible for merge"
+                )
 
             if not items:
+                not_eligible_bits = []
                 if rejected:
+                    not_eligible_bits.append(f"{len(rejected)} item(s) rejected")
+                if cancelled:
+                    not_eligible_bits.append(f"{len(cancelled)} item(s) cancelled")
+                if not_eligible_bits:
                     print(
                         f"nothing to integrate (no board items in review state; "
-                        f"{len(rejected)} item(s) rejected, not eligible)"
+                        f"{', '.join(not_eligible_bits)}, not eligible)"
                     )
                 else:
                     print("nothing to integrate (no board items in review state)")
@@ -879,7 +911,7 @@ def integrate_once(allow_branch: Optional[str] = None) -> int:
             print()
             print(
                 f"Summary: {len(merged)} merged, {len(blocked)} blocked, {len(skipped)} skipped, "
-                f"{len(rejected)} rejected (not eligible for merge)."
+                f"{len(rejected)} rejected, {len(cancelled)} cancelled (not eligible for merge)."
             )
             return 0
     except IntegrateError as exc:

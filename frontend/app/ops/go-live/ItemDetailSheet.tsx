@@ -222,9 +222,10 @@ export function ItemDetailSheet({
             header's real height to a constant 118px regardless of title
             length, so the cap only exists as a backstop and costs
             nothing to raise. NOTE: pinning this row does NOT, on its
-            own, keep a block/reject reason readable — StatePill (below)
-            truncates its own `Blocked: <reason>` / `Rejected: <reason>`
-            text at `max-w-[220px]`, so a long reason still gets cut off
+            own, keep a block/reject/cancel reason readable — StatePill
+            (below) truncates its own `Blocked: <reason>` /
+            `Rejected: <reason>` / `Cancelled: <reason>` text at
+            `max-w-[220px]`, so a long reason still gets cut off
             here exactly like the title used to. The FULL reason is
             rendered separately, unclamped, in the scrollable body next
             to the repeated title — see below — which is the actual fix
@@ -267,9 +268,9 @@ export function ItemDetailSheet({
             accessibility tree), so a screen reader would otherwise hear
             the same title twice in a row: once as the dialog's name,
             then again as the first thing read in the body. The full
-            block/reject reason (see the header comment above) renders
-            right after it, NOT hidden — StatePill above only shows a
-            220px-truncated version. */}
+            block/reject/cancel reason (see the header comment above)
+            renders right after it, NOT hidden — StatePill above only
+            shows a 220px-truncated version. */}
         <div className="min-h-0 flex-1 overflow-y-auto p-5 pt-3">
           <p aria-hidden="true" className="text-sm font-semibold text-pretty text-slate-800 dark:text-slate-100">
             {item.title}
@@ -472,7 +473,7 @@ export function ItemDetailSheet({
                     type="text"
                     value={cancelReason}
                     onChange={(e) => setCancelReason(e.target.value)}
-                    placeholder="Reason — this should not happen at all"
+                    placeholder="Reason, this should not happen at all"
                     className="min-h-9 flex-1 rounded-lg border border-slate-200 bg-slate-50 px-2 text-xs text-slate-800 focus:border-indigo-400 focus:outline-none dark:border-white/10 dark:bg-slate-900 dark:text-slate-100"
                   />
                   <button

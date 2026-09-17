@@ -66,18 +66,32 @@ unrecorded.
 - There is also a `cancelled` state (H80): Kevin's own call that a piece
   of work should not happen at all — obsolete, superseded, or simply not
   wanted — distinct from `rejected` (a defect, fix it) and `blocked`
-  (can't proceed yet). This is **kevin-only, enforced in code, not just
-  documented**: `backend/app/services/backlog.py`'s `TodoDoc.set_state`
-  refuses to set this state for any actor other than `kevin`, so a Codex
-  session can never decide work is unnecessary and cancel it, exactly the
-  same restriction a Claude session has. If you believe an item should be
-  cancelled, say so with a note instead —
+  (can't proceed yet). Be precise about how this is actually gated (H80
+  correction round): `/ops/go-live`'s Cancel control is the genuinely
+  **kevin-only** path, because that page is gated by real account-owner
+  auth end to end and hardcodes the actor to `kevin` regardless of who is
+  signed in. `backend/app/services/backlog.py`'s `TodoDoc.set_state`
+  refuses to set this state for any CLI `--actor` other than `kevin`
+  (plus a `BACKLOG_AGENT` environment check, since a session's
+  `BACKLOG_AGENT` is set once by the harness that starts it, not typed
+  per command) — that is **enforced in code against forgetting, not
+  against intent**: nothing stops a session typing `--actor kevin` on
+  purpose, so do not treat it as a hard barrier. Either way, a Codex
+  session must never decide work is unnecessary and cancel it on its own,
+  exactly the same restriction a Claude session has: if you believe an
+  item should be cancelled, say so with a note instead —
   `backend/.venv/bin/python scripts/backlog.py note <ID> "recommend
   cancelling: <why>"` — and let Kevin run
   `backend/.venv/bin/python scripts/backlog.py cancel <ID> "<reason>"
   --actor kevin` (or use the Cancel control on `/ops/go-live`) himself.
-  `start` or `todo` reverses a cancellation exactly like a rejection; a
-  cancelled item is closed but never counted as done.
+  UNLIKE `rejected`, plain `start`/`todo` no longer reverses a
+  cancellation by themselves: both now refuse a cancelled item unless
+  `--force` is passed (`start <ID> --force` or `todo <ID> --force` from
+  the shared tree), so reopening one is always a visible, deliberate
+  choice, never a silent side effect of another command (this closed a
+  real bug where `scripts/session.sh finish`/`abandon` could push a
+  cancelled item into review or back to to-do without anyone deciding
+  to). A cancelled item is closed but never counted as done.
 - Never commit `backend/.env` or any other key/secret file. Never edit
   files outside this repository.
 - Copy rules apply to every user-facing string you write: no em dashes,

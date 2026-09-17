@@ -979,6 +979,30 @@ def test_review_items_excludes_cancelled_even_with_a_branch(monkeypatch):
     assert all(c["state"] == "review" for c in candidates)
 
 
+def test_cancelled_items_returns_only_cancelled_state_sorted_by_id(monkeypatch):
+    """H80 correction round (LOW): mirrors the existing rejected-items
+    shape -- `_cancelled_items()` exists purely for visibility
+    ([skipped-cancelled] lines + the summary count), so a skip caused by a
+    cancellation never reads as a silent absence, the same fix H25 made
+    for rejected."""
+
+    class _FakeSnapshot:
+        def items(self):
+            return [
+                {"id": "H9", "state": "cancelled", "reason": "superseded", "branch": "feature-H9-thing"},
+                {"id": "H2", "state": "cancelled", "reason": "not wanted"},
+                {"id": "H1", "state": "review", "branch": "feature-H1-thing"},
+                {"id": "H3", "state": "rejected", "reason": "wrong approach"},
+            ]
+
+    monkeypatch.setattr(integrate.backlog, "load", lambda: _FakeSnapshot())
+
+    cancelled = integrate._cancelled_items()
+
+    assert [c["id"] for c in cancelled] == ["H2", "H9"]
+    assert all(c["state"] == "cancelled" for c in cancelled)
+
+
 def _fake_sh_factory(extra=None):
     def fake_sh(cmd, cwd=integrate.REPO_ROOT, timeout=integrate.GIT_TIMEOUT):
         if extra is not None:

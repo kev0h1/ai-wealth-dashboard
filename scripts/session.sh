@@ -225,13 +225,15 @@ decide_start_state() {
       return 1
       ;;
     cancelled)
-      # H80: Kevin decided this should not happen at all, distinct from a
-      # rejection (defective, needs fixing) or a block (can't proceed
-      # yet). Reversible exactly like rejected: 'start'/'todo' on the CLI
-      # clears the cancellation before a fresh session.sh start attaches.
+      # H80 correction round: Kevin decided this should not happen at
+      # all, distinct from a rejection (defective, needs fixing) or a
+      # block (can't proceed yet). UNLIKE rejected, reopening a cancelled
+      # item is deliberately NOT a side-effect-free 'start'/'todo' any
+      # more (HIGH 1/HIGH 2 fix): both now refuse a cancelled item unless
+      # --force is passed, so this is always a visible, active choice.
       local reason
       reason="$(jq -r '.reason // empty' <<<"$item_data")"
-      err "item $id is cancelled${reason:+: $reason}; Kevin decided this should not happen. Resolve it first with 'backend/.venv/bin/python scripts/backlog.py start $id' (clears the cancellation, moves it to in-progress with no branch) or 'todo $id', then run scripts/session.sh start $id again."
+      err "item $id is cancelled${reason:+: $reason}; Kevin decided this should not happen. If it is genuinely being reopened on purpose, resolve it first with 'backend/.venv/bin/python scripts/backlog.py start $id --force' (clears the cancellation, moves it to in-progress with no branch) or 'todo $id --force', then run scripts/session.sh start $id again. Otherwise leave it cancelled."
       return 1
       ;;
     done)
@@ -395,6 +397,33 @@ cmd_finish() {
     esac
   done
 
+  # H80 correction round (HIGH 1): refuse to finish a cancelled item
+  # before running any tests or pushing anything, the same way
+  # decide_start_state already refuses to start one. Read straight off
+  # the board (item_json -> backlog.py show), never this worktree's own
+  # stale checked-out copy of TODO.md. Before this fix, finish had no
+  # state check at all: it ran `backlog.py review` with the CLI's default
+  # actor claude, and that command only checked the done flag
+  # (_refuse_if_done), so a session mid-flight, unaware Kevin had
+  # cancelled the item out from under it, would push the branch and land
+  # it in review anyway, one integrate pass away from being merged and
+  # ticked done -- exactly the scenario set_cancelled's own deliberate
+  # branch-retention makes possible. scripts/backlog.py's own
+  # `_refuse_if_cancelled` now backs this up at the CLI layer too (review
+  # refuses a cancelled item without --force), so this check is a
+  # friendlier, earlier message, not the only guard.
+  local item_data
+  if item_data="$(item_json "$id")"; then
+    local item_state
+    item_state="$(jq -r '.state' <<<"$item_data")"
+    if [[ "$item_state" == "cancelled" ]]; then
+      local reason
+      reason="$(jq -r '.reason // empty' <<<"$item_data")"
+      err "item $id is cancelled${reason:+: $reason}; Kevin decided this should not happen, so it cannot be finished into review. If it is genuinely being reopened on purpose, run 'backend/.venv/bin/python scripts/backlog.py start $id --force' (or 'todo $id --force') from the shared tree first, then finish again once it is back in progress. Otherwise leave it cancelled and clean up this worktree with 'scripts/session.sh abandon $id' instead."
+      exit 1
+    fi
+  fi
+
   local worktree_dir
   worktree_dir="$(find_worktree_for_id "$id")"
   if [[ -z "$worktree_dir" ]]; then
@@ -478,15 +507,39 @@ cmd_abandon() {
   local branch
   branch="$(git -C "$worktree_dir" rev-parse --abbrev-ref HEAD)"
 
+  # H80 correction round (HIGH 2): read the item's state BEFORE touching
+  # the worktree, so cleanup can branch on it below. set_cancelled's own
+  # note recommends this exact command to clean up a live worktree left
+  # behind by a cancellation, so this must never itself un-cancel the
+  # item -- before this fix it unconditionally ran `backlog.py todo`,
+  # which wiped the cancelled state and put the item back in to-do
+  # (startable again, back in the progress denominator), turning the
+  # recommended cleanup step into a silent un-cancel.
+  local item_state=""
+  local item_data
+  if item_data="$(item_json "$id")"; then
+    item_state="$(jq -r '.state' <<<"$item_data")"
+  fi
+
   log "removing worktree $worktree_dir..."
   git -C "$SHARED_TREE" worktree remove --force "$worktree_dir"
   log "deleting local branch $branch..."
   git -C "$SHARED_TREE" branch -D "$branch" 2>/dev/null || true
 
-  (cd "$SHARED_TREE" && "$VENV_PY" "$BACKLOG_PY" note "$id" "session abandoned, branch $branch discarded")
-  (cd "$SHARED_TREE" && "$VENV_PY" "$BACKLOG_PY" todo "$id")
-
-  echo "abandoned $id (worktree and branch $branch removed, item reset to to-do)"
+  if [[ "$item_state" == "cancelled" ]]; then
+    # Stays cancelled: SKIP the `todo` call entirely (see above), and
+    # clear the now-dangling `[branch: ...]` tag left pointing at the
+    # branch just deleted (`clear-branch`, not actor-gated -- this is
+    # routine cleanup of a stale reference, not a decision about the
+    # item's own state the way un-cancelling it would be).
+    (cd "$SHARED_TREE" && "$VENV_PY" "$BACKLOG_PY" note "$id" "session abandoned, branch $branch discarded; item stays cancelled, not reopened")
+    (cd "$SHARED_TREE" && "$VENV_PY" "$BACKLOG_PY" clear-branch "$id")
+    echo "abandoned $id (worktree and branch $branch removed); $id stays cancelled. To reopen it on purpose, run 'backend/.venv/bin/python scripts/backlog.py start $id --force' or 'todo $id --force' from the shared tree."
+  else
+    (cd "$SHARED_TREE" && "$VENV_PY" "$BACKLOG_PY" note "$id" "session abandoned, branch $branch discarded")
+    (cd "$SHARED_TREE" && "$VENV_PY" "$BACKLOG_PY" todo "$id")
+    echo "abandoned $id (worktree and branch $branch removed, item reset to to-do)"
+  fi
 }
 
 cmd_list() {

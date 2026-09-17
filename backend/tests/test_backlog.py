@@ -2329,14 +2329,75 @@ def test_cli_cancel_on_done_item_refuses_with_no_force_option_at_all(tmp_path):
     assert force_result.returncode != 0
 
 
-def test_cli_cancel_then_start_reverses_it_exactly_like_rejected(tmp_path):
+def test_cli_cancel_then_start_without_force_is_refused(tmp_path):
+    # H80 correction round (HIGH 1/HIGH 2 fix): UNLIKE rejected, plain
+    # start/todo no longer reverses a cancellation by itself -- this is
+    # exactly the guard that stops scripts/session.sh finish/abandon from
+    # silently un-cancelling an item as a side effect of another command.
+    board_root = _make_board_root(tmp_path, SHOW_FIXTURE)
+    cancel_result = _run_cli(board_root, "cancel", "H1", "superseded", "--actor", "kevin")
+    assert cancel_result.returncode == 0, cancel_result.stderr
+
+    start_result = _run_cli(board_root, "start", "H1")
+    assert start_result.returncode == 1
+    assert "is cancelled" in start_result.stderr
+    assert "--force" in start_result.stderr
+    saved = (board_root / "TODO.md").read_text(encoding="utf-8")
+    assert "[state: cancelled:" in saved
+
+
+def test_cli_cancel_then_todo_without_force_is_refused(tmp_path):
+    board_root = _make_board_root(tmp_path, SHOW_FIXTURE)
+    cancel_result = _run_cli(board_root, "cancel", "H1", "superseded", "--actor", "kevin")
+    assert cancel_result.returncode == 0, cancel_result.stderr
+
+    todo_result = _run_cli(board_root, "todo", "H1")
+    assert todo_result.returncode == 1
+    assert "is cancelled" in todo_result.stderr
+    assert "--force" in todo_result.stderr
+    saved = (board_root / "TODO.md").read_text(encoding="utf-8")
+    assert "[state: cancelled:" in saved
+
+
+def test_cli_cancel_then_review_without_force_is_refused(tmp_path):
+    board_root = _make_board_root(tmp_path, SHOW_FIXTURE)
+    cancel_result = _run_cli(board_root, "cancel", "H1", "superseded", "--actor", "kevin")
+    assert cancel_result.returncode == 0, cancel_result.stderr
+
+    review_result = _run_cli(board_root, "review", "H1", "--branch", "feature-H1-thing")
+    assert review_result.returncode == 1
+    assert "is cancelled" in review_result.stderr
+    assert "--force" in review_result.stderr
+    saved = (board_root / "TODO.md").read_text(encoding="utf-8")
+    h1_line = next(line for line in saved.splitlines() if "**H1." in line)
+    assert "[state: cancelled:" in h1_line
+    assert "[state: review" not in h1_line
+
+
+def test_cli_cancel_then_done_without_force_is_refused(tmp_path):
+    board_root = _make_board_root(tmp_path, SHOW_FIXTURE)
+    cancel_result = _run_cli(board_root, "cancel", "H1", "superseded", "--actor", "kevin")
+    assert cancel_result.returncode == 0, cancel_result.stderr
+
+    done_result = _run_cli(board_root, "done", "H1")
+    assert done_result.returncode == 1
+    assert "is cancelled" in done_result.stderr
+    assert "--force" in done_result.stderr
+    saved = (board_root / "TODO.md").read_text(encoding="utf-8")
+    h1_line = next(line for line in saved.splitlines() if "**H1." in line)
+    assert h1_line.startswith("- [ ] ")
+
+
+def test_cli_cancel_then_start_with_force_reverses_it(tmp_path):
+    # The deliberate, visible reopen path: --force is required, but it
+    # still works exactly like rejected's plain start/todo did.
     board_root = _make_board_root(tmp_path, SHOW_FIXTURE)
     cancel_result = _run_cli(board_root, "cancel", "H1", "superseded", "--actor", "kevin")
     assert cancel_result.returncode == 0, cancel_result.stderr
     saved = (board_root / "TODO.md").read_text(encoding="utf-8")
     assert "[state: cancelled:" in saved
 
-    start_result = _run_cli(board_root, "start", "H1")
+    start_result = _run_cli(board_root, "start", "H1", "--force")
     assert start_result.returncode == 0, start_result.stderr
     saved = (board_root / "TODO.md").read_text(encoding="utf-8")
     h1_line = next(line for line in saved.splitlines() if "**H1." in line)
@@ -2344,16 +2405,128 @@ def test_cli_cancel_then_start_reverses_it_exactly_like_rejected(tmp_path):
     assert "[state: in-progress]" in h1_line
 
 
-def test_cli_cancel_then_todo_reverses_it(tmp_path):
+def test_cli_cancel_then_todo_with_force_reverses_it(tmp_path):
     board_root = _make_board_root(tmp_path, SHOW_FIXTURE)
     cancel_result = _run_cli(board_root, "cancel", "H1", "superseded", "--actor", "kevin")
     assert cancel_result.returncode == 0, cancel_result.stderr
 
-    todo_result = _run_cli(board_root, "todo", "H1")
+    todo_result = _run_cli(board_root, "todo", "H1", "--force")
     assert todo_result.returncode == 0, todo_result.stderr
     saved = (board_root / "TODO.md").read_text(encoding="utf-8")
     h1_line = next(line for line in saved.splitlines() if "**H1." in line)
     assert "[state:" not in h1_line
+
+
+# ---------------------------------------------------------------------
+# MEDIUM 4 (H80 correction round): defence-in-depth actor check.
+# BACKLOG_AGENT is set once per session by the harness, not typed per
+# command the way --actor is, so a session that inherited
+# BACKLOG_AGENT=claude/codex must actively override its own environment
+# (not just pass --actor kevin) to make set_state agree it is kevin.
+# ---------------------------------------------------------------------
+
+
+def test_set_state_cancelled_refuses_when_backlog_agent_env_disagrees(monkeypatch):
+    monkeypatch.setenv("BACKLOG_AGENT", "claude")
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    # actor="kevin" alone is not enough once BACKLOG_AGENT says otherwise.
+    with pytest.raises(backlog.BacklogError, match="kevin-only"):
+        doc.set_state("A1", "cancelled", reason="not wanted", actor="kevin")
+    assert doc.items["A1"].state == "todo"
+
+
+def test_set_state_cancelled_allows_when_backlog_agent_env_is_kevin(monkeypatch):
+    monkeypatch.setenv("BACKLOG_AGENT", "kevin")
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    item = doc.set_state("A1", "cancelled", reason="not wanted", actor="kevin")
+    assert item.state == "cancelled"
+
+
+def test_set_state_cancelled_allows_when_backlog_agent_env_unset(monkeypatch):
+    monkeypatch.delenv("BACKLOG_AGENT", raising=False)
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    item = doc.set_state("A1", "cancelled", reason="not wanted", actor="kevin")
+    assert item.state == "cancelled"
+
+
+# ---------------------------------------------------------------------
+# MEDIUM 5 (H80 correction round): the module-level `set_state` wrapper's
+# action dict must have a "cancelled" key, or a caller using that
+# documented public mutator directly (not set_cancelled's own wrapper)
+# writes the file, releases the lock, and only then raises KeyError,
+# leaving the item cancelled on disk with no commit message and the
+# caller seeing a crash instead of a result.
+# ---------------------------------------------------------------------
+
+
+def test_public_set_state_cancelled_directly_does_not_raise_keyerror(paths, mock_git):
+    todo_path, _ = paths
+    repo_root = todo_path.parent
+    item, committed = backlog.set_state(
+        "A1", "cancelled", reason="not wanted", actor="kevin", todo_path=todo_path, repo_root=repo_root
+    )
+    assert committed is True
+    assert item["state"] == "cancelled"
+    commit_call = mock_git.call_args_list[1]
+    assert "backlog: A1 cancelled (not wanted) by kevin" in commit_call.args[0]
+
+
+# ---------------------------------------------------------------------
+# clear_branch (H80 correction round, HIGH 2 support): tidies a dangling
+# [branch: ...] tag after the branch/worktree it named has actually been
+# deleted (scripts/session.sh abandon on a cancelled item). Not
+# actor-gated, touches nothing but the branch field.
+# ---------------------------------------------------------------------
+
+
+def test_clear_branch_removes_branch_tag_only():
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    doc.set_state("A1", "in-progress", branch="feature-A1-first-item")
+    doc.set_state("A1", "cancelled", reason="superseded", actor="kevin")
+    assert doc.items["A1"].branch == "feature-A1-first-item"
+
+    item = doc.clear_branch("A1")
+    assert item.branch is None
+    assert item.state == "cancelled"
+    assert item.reason == "superseded"
+    line = doc.lines[item.line_no]
+    assert "[branch:" not in line
+    assert "[state: cancelled: superseded]" in line
+
+
+def test_public_clear_branch_writes_file_and_commit_message(paths, mock_git):
+    todo_path, _ = paths
+    repo_root = todo_path.parent
+    backlog.set_state("A1", "in-progress", branch="feature-A1-first-item", todo_path=todo_path, repo_root=repo_root)
+    backlog.set_cancelled("A1", "superseded", actor="kevin", todo_path=todo_path, repo_root=repo_root)
+    mock_git.reset_mock()
+
+    item, committed = backlog.clear_branch("A1", actor="claude", todo_path=todo_path, repo_root=repo_root)
+    assert committed is True
+    assert item["branch"] is None
+    assert item["state"] == "cancelled"
+    commit_call = mock_git.call_args_list[1]
+    assert "backlog: A1 branch tag cleared by claude" in commit_call.args[0]
+
+
+def test_cli_clear_branch_removes_tag_not_actor_gated(tmp_path):
+    board_root = _make_board_root(tmp_path, SHOW_FIXTURE)
+    result = _run_cli(board_root, "start", "H1", "--branch", "feature-H1-thing")
+    assert result.returncode == 0, result.stderr
+    cancel_result = _run_cli(board_root, "cancel", "H1", "superseded", "--actor", "kevin")
+    assert cancel_result.returncode == 0, cancel_result.stderr
+    saved = (board_root / "TODO.md").read_text(encoding="utf-8")
+    assert "[branch: feature-H1-thing]" in saved
+
+    # No --actor at all (defaults to claude) -- clear-branch is routine
+    # cleanup, not a decision about the item's state, so it is not
+    # kevin-only.
+    clear_result = _run_cli(board_root, "clear-branch", "H1")
+    assert clear_result.returncode == 0, clear_result.stderr
+    saved = (board_root / "TODO.md").read_text(encoding="utf-8")
+    h1_line = next(line for line in saved.splitlines() if "**H1." in line)
+    assert "[branch:" not in h1_line
+    assert "[state: cancelled: superseded]" in h1_line
 
 
 # ---------------------------------------------------------------------

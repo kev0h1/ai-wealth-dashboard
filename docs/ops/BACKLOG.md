@@ -114,23 +114,29 @@ A TODO.md item line looks like this:
   fix it) and `blocked` (can't proceed yet, but the work still stands).
   Closed, but never done: cancelling an item never ticks its checkbox and
   is never counted as done or as outstanding by any progress figure on
-  the board (`frontend/lib/goLive.ts` `itemTotals` excludes a cancelled
-  item from both sides of the count entirely, so cancelling something
-  never moves the percentage Kevin reads on `/ops/go-live`). Kevin-only,
-  enforced in code, not just documented: an agent must never be the one
-  deciding a piece of work is unnecessary, so `TodoDoc.set_state`
-  (`backend/app/services/backlog.py`) refuses to set this state unless
-  `actor` is exactly `"kevin"` — the same self-declared-identity mechanism
-  every other actor check in this codebase already relies on (the
-  `--actor` flag on `scripts/backlog.py`, `BACKLOG_AGENT` for
-  `scripts/session.sh`'s owner guard), reused rather than a second
-  mechanism invented for this one state. `/ops/go-live`
+  the board (`frontend/lib/goLive.ts` `itemTotals` AND `headerFigures`'
+  `p1Open` both exclude a cancelled item, so cancelling something never
+  moves the percentage or the P1-open count Kevin reads on
+  `/ops/go-live`). An agent must never be the one deciding a piece of
+  work is unnecessary — be precise about how that is actually gated
+  (H80 correction round), because the honest version matters more than
+  the reassuring one: `TodoDoc.set_state` (`backend/app/services/
+  backlog.py`) refuses to set this state unless `actor` is exactly
+  `"kevin"` (and, defence in depth, unless the calling session's
+  `BACKLOG_AGENT` environment value, if any, is also `"kevin"` — that
+  variable is set once per session by the harness that starts it, not
+  typed per command the way `--actor` is), but both checks are the same
+  self-declared-identity mechanism every other actor check in this
+  codebase already relies on (the `--actor` flag on `scripts/backlog.py`,
+  `BACKLOG_AGENT` for `scripts/session.sh`'s own owner guard) — nothing
+  stops a caller typing `--actor kevin` on purpose, so on the CLI this is
+  a guard against forgetting, not a barrier against intent. `/ops/go-live`
   (`backend/app/routers/ops.py`) is the one path where this is a genuine
-  hard barrier rather than a self-declared flag: the page is gated by
-  real account-owner auth (`_require_owner`) and always attributes its
-  own writes to `_PAGE_ACTOR = "kevin"`, so cancelling through the browser
-  is truly kevin-only. An agent that believes something should be
-  cancelled leaves a note recommending it instead
+  hard barrier: the page is gated by real account-owner auth
+  (`_require_owner`) and always attributes its own writes to
+  `_PAGE_ACTOR = "kevin"` regardless of who is signed in, so cancelling
+  through the browser is truly kevin-only. An agent that believes
+  something should be cancelled leaves a note recommending it instead
   (`scripts/backlog.py note <id> "recommend cancelling: <why>"`) and lets
   Kevin decide. `cancelled` requires a reason, the same way `rejected`
   does, written as BOTH the short one-line `[state: cancelled: <reason>]`
@@ -154,12 +160,42 @@ A TODO.md item line looks like this:
   `scripts/integrate.py`'s own merge-candidate selection
   (`_review_items()`) only ever looks at `review` state, so a cancelled
   item, even one that still carries a branch, is never a merge candidate,
-  same as `rejected`/`uat`. `start` or `todo` reverses a cancellation
-  exactly like `rejected` (clearing both the reason and the retained
-  branch); mobile `/ops/go-live` collapses a cancelled item at the bottom
-  of the board beside To do and Done, behind its own count, rather than a
-  sixth chip on the ribbon counts strip, which already overflows a true
-  390px width with its current five (see "The page" below).
+  same as `rejected`/`uat` — each pass still prints one
+  `[skipped-cancelled]` line per cancelled item and counts them in its
+  summary, mirroring `[skipped-rejected]` (H25), so a skip caused by a
+  cancellation is never a silent absence either.
+
+  UNLIKE `rejected`, plain `start`/`todo` do NOT reverse a cancellation by
+  themselves (H80 correction round, closing two real bugs proven by
+  execution): `scripts/backlog.py`'s `review`/`done`/`todo`/`start`
+  commands all now refuse a cancelled item unless `--force` is passed
+  (`_refuse_if_cancelled`, alongside the existing H57 `_refuse_if_done`
+  guard). Before this fix, `scripts/session.sh finish` ran `backlog.py
+  review` with no state check at all, so a session mid-flight, unaware
+  Kevin had cancelled its item, would push the branch and land it in
+  review anyway, one integrate pass away from being merged and ticked
+  done; and `scripts/session.sh abandon` unconditionally ran `backlog.py
+  todo`, which silently un-cancelled the very item its cleanup was meant
+  to tidy up after — the recommended cleanup command was un-cancelling
+  the ticket. `scripts/session.sh finish` now refuses outright on a
+  cancelled item before running any tests or pushing anything, pointing
+  at `start`/`todo --force` or `abandon`; `scripts/session.sh abandon` now
+  branches on state, so a cancelled item's worktree/branch are still
+  removed but the item itself stays `cancelled` (the `todo` call is
+  skipped) with its now-dangling `[branch: ...]` tag cleared
+  (`scripts/backlog.py clear-branch`, not actor-gated: it only tidies a
+  reference to something already physically deleted). The reopen path
+  for a cancelled item that genuinely needs to come back therefore still
+  exists and is meant to be discoverable from three places: the CLI's own
+  refusal message on `start`/`todo`/`review`/`done`, `scripts/session.sh
+  start`'s refusal message (`decide_start_state`), and here — run
+  `backend/.venv/bin/python scripts/backlog.py start <id> --force` (or
+  `todo <id> --force`) from the shared tree, then `scripts/session.sh
+  start <id>` attaches a fresh worktree to it exactly as it would after
+  an `approve`. Mobile `/ops/go-live` collapses a cancelled item at the
+  bottom of the board beside To do and Done, behind its own count, rather
+  than a sixth chip on the ribbon counts strip, which already overflows a
+  true 390px width with its current five (see "The page" below).
 - `[owner: kevin]`, `[owner: claude]` or `[owner: codex]` says who is
   doing the work. Each agent only starts items it owns: a Claude session
   only starts `[owner: claude]` items, a Codex session only starts
@@ -297,12 +333,13 @@ backend/.venv/bin/python scripts/backlog.py uat <id> --link <url> [--force]
 backend/.venv/bin/python scripts/backlog.py approve <id> "<choice>"
 backend/.venv/bin/python scripts/backlog.py cancel <id> "<reason>" --actor kevin
 backend/.venv/bin/python scripts/backlog.py todo <id> [--force]
-backend/.venv/bin/python scripts/backlog.py done <id> --commit <sha>
+backend/.venv/bin/python scripts/backlog.py done <id> --commit <sha> [--force]
 backend/.venv/bin/python scripts/backlog.py reopen <id>
 backend/.venv/bin/python scripts/backlog.py note <id> "<text>"
 backend/.venv/bin/python scripts/backlog.py owner <id> kevin|claude
 backend/.venv/bin/python scripts/backlog.py priority <id> p1|p2|p3
 backend/.venv/bin/python scripts/backlog.py unblocks <id> Q5,Q6
+backend/.venv/bin/python scripts/backlog.py clear-branch <id>
 backend/.venv/bin/python scripts/backlog.py status Q7 ready|needs-kevin|blocked-deploy|submitted
 ```
 
@@ -328,6 +365,31 @@ something already done is meaningless (a done item already happened,
 there is nothing left to declare should not happen), so `reopen` is the
 only way past this one, not a flag.
 
+`start`, `review`, `todo` and `done` ALSO refuse an item whose state is
+`cancelled` unless `--force` is passed (`_refuse_if_cancelled`, H80
+correction round, added alongside `_refuse_if_done` above rather than as
+a one-off patch on any single command). This closed two real bugs, both
+proven by execution before the fix: `scripts/session.sh finish` ran
+`review` with no state check at all, so a session unaware Kevin had
+cancelled its item would push the branch straight into `review`; and
+`scripts/session.sh abandon` ran `todo` unconditionally, silently
+un-cancelling the very item its own cleanup note recommended running it
+on. Unlike the `done`-item guard, this is a genuinely different
+asymmetry from `rejected`: reopening a `rejected` item with plain
+`start`/`todo` is correct, because rejected means fix it and come back;
+reopening a `cancelled` item is not supposed to be a side effect of
+anything, so it now always needs `--force`, a visible, deliberate choice.
+`scripts/session.sh finish` refuses a cancelled item outright before
+running any tests or pushing anything; `scripts/session.sh abandon` on a
+cancelled item removes the worktree/branch and adds a note but does NOT
+call `todo`, and instead clears the item's now-dangling `[branch: ...]`
+tag with the new `clear-branch <id>` command (not actor-gated: it only
+tidies a reference to a branch that has already been physically
+deleted). To reopen a cancelled item on purpose, run `start <id> --force`
+or `todo <id> --force` from the shared tree, then `scripts/session.sh
+start <id>` attaches a fresh worktree exactly as it would after an
+`approve`.
+
 `priority` defaults to `p3` when never set. `unblocks` takes a
 comma-separated list of question ids (`Q5,Q6`); pass an empty string
 (`unblocks <id> ""`) to clear it. `reject` requires a reason, use it the
@@ -345,12 +407,16 @@ calls automatically on a clean design-round merge, use it directly only
 to retrofit an item. `approve <id> "<choice>"` requires the item to
 currently be in `uat`, records the choice as a note, and moves it back to
 `in-progress` with its owner unchanged. `cancel <id> "<reason>"` (H80)
-requires a reason and is kevin-only: any actor other than `kevin` is
-refused with no change to the board at all, and an agent that thinks
-something should be cancelled should run `note <id> "recommend
-cancelling: <why>"` instead and let Kevin run `cancel` himself. There is
-no `--force` for `cancel` — an already-done item is refused outright, use
-`reopen` first if it genuinely needs undoing.
+requires a reason; any CLI actor other than `kevin` (or a `BACKLOG_AGENT`
+environment value that disagrees, defence in depth) is refused with no
+change to the board at all, though this is a guard against forgetting
+rather than a barrier against intent, since `--actor` is self-declared
+like every actor flag on this CLI — see "cancelled" above for the honest
+version and why `/ops/go-live` is the actually enforced path. An agent
+that thinks something should be cancelled should run `note <id>
+"recommend cancelling: <why>"` instead and let Kevin run `cancel`
+himself. There is no `--force` for `cancel` itself — an already-done item
+is refused outright, use `reopen` first if it genuinely needs undoing.
 
 Every command takes `--actor kevin|claude` (defaults to `claude`), which
 is what shows up in the commit message and any note. Sessions should

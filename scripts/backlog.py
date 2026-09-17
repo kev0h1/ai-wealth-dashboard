@@ -33,7 +33,13 @@ Commands:
                                         with no worktree attached. Refuses a
                                         done item (H57) unless --force is
                                         passed; use "reopen" to deliberately
-                                        reopen one instead.
+                                        reopen one instead. Also refuses a
+                                        cancelled item (H80) unless --force
+                                        is passed: this is the deliberate
+                                        way to reopen one on purpose (unlike
+                                        "rejected", reopening a cancelled
+                                        item is never a silent side effect
+                                        of another command).
     block <id> "<reason>" [--force]     Mark an item blocked, with a reason.
                                         Refuses a done item (H57) unless
                                         --force is passed; use "reopen" to
@@ -50,6 +56,11 @@ Commands:
                                         Refuses a done item (H57) unless
                                         --force is passed; use "reopen" to
                                         deliberately reopen one instead.
+                                        Also refuses a cancelled item (H80)
+                                        unless --force is passed: without
+                                        this, scripts/session.sh finish on a
+                                        worktree Kevin had cancelled would
+                                        silently push it into review.
     reject <id> "<reason>" [--force]    Reject an item sitting in review,
                                         with a reason (required). Use this
                                         the moment a reviewer finds a defect
@@ -91,44 +102,61 @@ Commands:
     cancel <id> "<reason>"              Kevin-only: cancel an item because
                                         this work should not happen at all
                                         (obsolete, superseded, or simply not
-                                        wanted) — distinct from "rejected"
+                                        wanted), distinct from "rejected"
                                         (a reviewer found a defect, fix it)
                                         and "blocked" (can't proceed yet).
                                         The reason is required and is
                                         written as BOTH the one-line
                                         "[state: cancelled: ...]" tag AND a
-                                        full dated note automatically. Only
-                                        actor "kevin" may run this (pass
-                                        --actor kevin); any other actor is
-                                        refused with no change to the
-                                        board — an agent that thinks
-                                        something should be cancelled
-                                        should instead leave a note
-                                        recommending it and let Kevin
-                                        decide. Refuses a done item
-                                        outright (no --force override:
+                                        full dated note automatically. Actor
+                                        "kevin" is the guard against typing
+                                        --actor kevin by accident, not a
+                                        hard barrier against intent (nothing
+                                        stops a caller lying about who it
+                                        is); the genuinely enforced kevin-
+                                        only path is the Cancel control on
+                                        /ops/go-live, which is real account-
+                                        owner auth end to end. An agent that
+                                        thinks something should be cancelled
+                                        should leave a note recommending it
+                                        and let Kevin decide. Refuses a done
+                                        item outright (no --force override:
                                         cancelling something already done
                                         is meaningless). If the item had a
-                                        live branch attached, it is
-                                        retained on the item and recorded
-                                        in its own note along with the
-                                        exact command to clean up the
-                                        worktree (scripts/session.sh
-                                        abandon <id>) — the branch/worktree
-                                        itself is never touched. start or
-                                        todo reverses a cancellation
-                                        exactly like a rejection.
+                                        live branch attached, it is retained
+                                        on the item and recorded in its own
+                                        note along with the exact command to
+                                        clean up the worktree
+                                        (scripts/session.sh abandon <id>),
+                                        the branch/worktree itself is never
+                                        touched. Unlike "rejected", start or
+                                        todo does NOT reverse a cancellation
+                                        by itself any more (H80 correction):
+                                        both now refuse a cancelled item
+                                        unless --force is passed, so
+                                        reopening one is always a visible,
+                                        deliberate choice, never a silent
+                                        side effect of another command (e.g.
+                                        scripts/session.sh abandon's cleanup
+                                        no longer un-cancels an item).
     todo <id> [--force]                 Reset an item to to-do (clears any
                                         state tag, including a rejection;
                                         used by session.sh abandon). Refuses
                                         a done item (H57) unless --force is
                                         passed; use "reopen" to deliberately
-                                        reopen one instead.
-    done <id> [--commit <sha>] [--merge <sha>]
+                                        reopen one instead. Also refuses a
+                                        cancelled item (H80) unless --force
+                                        is passed, for the same reason.
+    done <id> [--commit <sha>] [--merge <sha>] [--force]
                                         Tick an item done. --merge is an
                                         alias for --commit for the case
                                         where the id is the merge commit on
                                         main (scripts/integrate.py uses it).
+                                        Refuses a cancelled item (H80)
+                                        unless --force is passed: reopen it
+                                        first (start/todo --force) rather
+                                        than completing work Kevin decided
+                                        should not happen.
     reopen <id>                         Untick a done item.
     note <id> "<text>"                  Add a dated note under an item.
     owner <id> kevin|claude|codex       Change who owns an item.
@@ -137,6 +165,13 @@ Commands:
     unblocks <id> Q5,Q6                 Set the questions an item unblocks
                                         (comma-separated ids; empty string
                                         clears the tag).
+    clear-branch <id>                   Clear a dangling "[branch: ...]" tag
+                                        after its branch/worktree has
+                                        actually been deleted (H80;
+                                        scripts/session.sh abandon uses this
+                                        on a cancelled item so the tag never
+                                        outlives the branch it names). Not
+                                        actor-gated.
     status Q7 ready|needs-kevin|blocked-deploy|submitted
                                         Set a questionnaire question's status.
     lint [--apply]                      Scan TODO.md for H38-shaped damage:
@@ -207,6 +242,41 @@ def _refuse_if_done(item_id: str, command: str, force: bool) -> None:
         )
 
 
+def _refuse_if_cancelled(item_id: str, command: str, force: bool) -> None:
+    """H80 correction round (HIGH 1/HIGH 2): mirrors `_refuse_if_done`
+    above, but for `cancelled`. Before this, `review`/`done`/`todo`/`start`
+    had no idea an item might be cancelled, so a session that ran
+    `scripts/session.sh finish` on a worktree Kevin had cancelled out from
+    under it (mid-session, unaware) would push the branch and land the
+    item straight in `review` with only `_refuse_if_done`'s done-flag
+    check standing between it and the next integrate pass merging and
+    ticking it done; and `scripts/session.sh abandon`'s own cleanup call
+    (`todo`), the exact command `set_cancelled`'s own note recommends,
+    would silently un-cancel the item as a side effect of tidying up its
+    worktree. `--force` is the same deliberate override `_refuse_if_done`
+    already uses: a cancelled item genuinely being reopened on purpose
+    still reaches `start`/`todo` this way (see docs/ops/BACKLOG.md
+    "cancelled state" for the full reopen path), it just can no longer
+    happen as an unlabelled side effect of some other command. Unlike
+    `rejected` (which means "fix it and come back", so plain `start`/
+    `todo` reversing it with no extra flag is correct), `cancelled` means
+    Kevin decided this should not happen at all, so reopening it is
+    deliberately made to need a visible, active choice."""
+    if force:
+        return
+    snapshot = backlog.load()
+    item = snapshot.todo.item(item_id)  # raises BacklogError if unknown
+    if item.to_dict()["state"] == "cancelled":
+        reason = item.to_dict().get("reason") or ""
+        detail = f": {reason}" if reason else ""
+        raise backlog.BacklogError(
+            f"{item_id} is cancelled{detail}; Kevin decided this should not happen. Pass --force to "
+            f"'{command}' if it is genuinely being reopened on purpose (the same command still records "
+            f"the transition normally), or leave it cancelled and use "
+            f"'scripts/session.sh abandon {item_id}' to clean up a live worktree without reopening it."
+        )
+
+
 def _state_display(item: dict) -> str:
     if item["state"] == "review" and item.get("branch"):
         return f"review:{item['branch']}"
@@ -248,6 +318,7 @@ def cmd_add(args: argparse.Namespace) -> None:
 
 def cmd_start(args: argparse.Namespace) -> None:
     _refuse_if_done(args.item_id, "start", args.force)
+    _refuse_if_cancelled(args.item_id, "start", args.force)
     result, committed = backlog.set_state(args.item_id, "in-progress", branch=args.branch, actor=args.actor)
     _print_result(args.item_id, result, committed)
 
@@ -260,6 +331,7 @@ def cmd_block(args: argparse.Namespace) -> None:
 
 def cmd_review(args: argparse.Namespace) -> None:
     _refuse_if_done(args.item_id, "review", args.force)
+    _refuse_if_cancelled(args.item_id, "review", args.force)
     result, committed = backlog.set_review(args.item_id, args.branch, actor=args.actor, uat_review=args.uat_review)
     _print_result(args.item_id, result, committed)
 
@@ -282,13 +354,16 @@ def cmd_approve(args: argparse.Namespace) -> None:
 
 
 def cmd_cancel(args: argparse.Namespace) -> None:
-    # No _refuse_if_done/--force here (unlike start/block/review/reject/
-    # uat above): a cancel on a done item is refused outright, by
-    # backend.services.backlog.TodoDoc.set_state itself, with no override
-    # — see H80. The kevin-only actor check lives at that same layer too,
-    # so a non-kevin --actor (or the "claude" default) makes NO change to
-    # the board; this command never needs its own duplicate guard for
-    # either rule.
+    # No _refuse_if_done/_refuse_if_cancelled/--force here (unlike
+    # start/block/review/reject/uat above): a cancel on a done item is
+    # refused outright, by backend.services.backlog.TodoDoc.set_state
+    # itself, with no override, see H80. The kevin-only actor check lives
+    # at that same layer too (also checking BACKLOG_AGENT, defence in
+    # depth), so a non-kevin --actor (or the "claude" default) makes NO
+    # change to the board; this command never needs its own duplicate
+    # guard for either rule. Re-cancelling an already-cancelled item is
+    # fine (lets a reason be corrected), so there is nothing to refuse
+    # there either.
     result, committed = backlog.set_cancelled(args.item_id, args.reason, actor=args.actor)
     _print_result(args.item_id, result, committed)
     if result.get("branch"):
@@ -300,11 +375,13 @@ def cmd_cancel(args: argparse.Namespace) -> None:
 
 def cmd_todo(args: argparse.Namespace) -> None:
     _refuse_if_done(args.item_id, "todo", args.force)
+    _refuse_if_cancelled(args.item_id, "todo", args.force)
     result, committed = backlog.set_state(args.item_id, "todo", actor=args.actor)
     _print_result(args.item_id, result, committed)
 
 
 def cmd_done(args: argparse.Namespace) -> None:
+    _refuse_if_cancelled(args.item_id, "done", args.force)
     sha = args.commit or args.merge
     result, committed = backlog.set_done(args.item_id, True, commit=sha, actor=args.actor)
     _print_result(args.item_id, result, committed)
@@ -333,6 +410,11 @@ def cmd_priority(args: argparse.Namespace) -> None:
 def cmd_unblocks(args: argparse.Namespace) -> None:
     questions = [q.strip() for q in args.questions.split(",") if q.strip()]
     result, committed = backlog.set_unblocks(args.item_id, questions, actor=args.actor)
+    _print_result(args.item_id, result, committed)
+
+
+def cmd_clear_branch(args: argparse.Namespace) -> None:
+    result, committed = backlog.clear_branch(args.item_id, actor=args.actor)
     _print_result(args.item_id, result, committed)
 
 
@@ -497,6 +579,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_done.add_argument("item_id")
     p_done.add_argument("--commit", default=None)
     p_done.add_argument("--merge", default=None, help="Alias for --commit (the integrate merge commit sha).")
+    p_done.add_argument(
+        "--force",
+        action="store_true",
+        help="H80: override the cancelled-item guard (done on a cancelled item normally refuses, "
+        "pointing at start/todo --force or scripts/session.sh abandon instead).",
+    )
     add_actor(p_done)
     p_done.set_defaults(func=cmd_done)
 
@@ -530,6 +618,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_unblocks.add_argument("questions", help="e.g. 'Q5,Q6' or '' to clear.")
     add_actor(p_unblocks)
     p_unblocks.set_defaults(func=cmd_unblocks)
+
+    p_clear_branch = sub.add_parser(
+        "clear-branch",
+        help="H80: clear a dangling [branch: ...] tag after its branch/worktree has actually been "
+        "deleted (scripts/session.sh abandon uses this on a cancelled item). Not actor-gated.",
+    )
+    p_clear_branch.add_argument("item_id")
+    add_actor(p_clear_branch)
+    p_clear_branch.set_defaults(func=cmd_clear_branch)
 
     p_status = sub.add_parser("status", help="Set a questionnaire question's status.")
     p_status.add_argument("item_id")

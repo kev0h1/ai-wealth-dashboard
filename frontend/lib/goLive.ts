@@ -378,7 +378,14 @@ export function headerFigures(
   items: GoLiveItem[]
 ): { p1Open: number; blocked: number; inReview: number; rejected: number; uat: number } {
   return {
-    p1Open: items.filter((i) => i.priority === "p1" && i.state !== "done").length,
+    // H80 correction round (MEDIUM 3): "open" here must mean "not done AND
+    // not cancelled" -- itemTotals() already excludes a cancelled item
+    // from both sides of the done/total count for the same reason (it is
+    // closed but not done, so it must never read as outstanding either).
+    // Without this a cancelled P1 kept inflating this figure, which made
+    // docs/ops/BACKLOG.md's "never counted as done or as outstanding by
+    // any progress figure" untrue.
+    p1Open: items.filter((i) => i.priority === "p1" && i.state !== "done" && i.state !== "cancelled").length,
     blocked: items.filter((i) => i.state === "blocked").length,
     inReview: items.filter((i) => i.state === "review").length,
     rejected: items.filter((i) => i.state === "rejected").length,
