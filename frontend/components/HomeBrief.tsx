@@ -771,7 +771,14 @@ interface CliffCardProps {
 // gradient marks advice surfaces; these state facts). Amber mark only:
 // approaching/projected risk, not materialised risk — red stays strictly
 // reserved for materialised risk (Red-is-Risk rule). Icon varies by type:
-// AlertTriangle for cliff, TrendingDown for trajectory. The ✕ only renders
+// AlertTriangle for cliff, TrendingDown for trajectory. Trajectory earns the
+// same watch mark as cliff: companion.py only ever emits a trajectory item
+// for a "drifting" or "bad" debt verdict — a "good" verdict stays silent
+// (no item at all), so a trajectory item is never good news dressed up
+// neutral, it is always a projected-risk reading. Rhythm items stay neutral,
+// they state an observed pattern, not a risk. The mark is the small amber
+// dot in KindLabel, not the label text or headline (Amber Lives In The
+// Signifier, DESIGN.md). The ✕ only renders
 // when `dismissible` (Home) — a local, Home-only hide; Penny never renders it.
 export function CliffCard({ item, maskAmounts, dismissible, onHomeDismiss }: CliffCardProps) {
   const isTrajectory = item.type === "trajectory";
@@ -798,7 +805,7 @@ export function CliffCard({ item, maskAmounts, dismissible, onHomeDismiss }: Cli
       <div className="flex items-start gap-3 pr-9">
         <BriefIcon><Icon size={16} /></BriefIcon>
         <div className="min-w-0 flex-1">
-          <KindLabel tone={item.type === "cliff" ? "watch" : "neutral"}>{label}</KindLabel>
+          <KindLabel tone={item.type === "cliff" || item.type === "trajectory" ? "watch" : "neutral"}>{label}</KindLabel>
           <p className="mt-1 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-white">
             <MoneyText text={maskAmounts(item.headline)} />
           </p>
