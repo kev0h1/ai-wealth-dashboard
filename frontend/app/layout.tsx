@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { PRE_PAINT_NAV_SCRIPT } from "@/lib/navExemptRoutes";
 import { Figtree, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./Providers";
@@ -78,30 +79,25 @@ export default function RootLayout({
             __html: `try{if(localStorage.getItem('wd_dark')==='1'){document.documentElement.classList.add('dark');var m=document.querySelector('meta[name="color-scheme"]');if(m)m.setAttribute('content','dark')}}catch(e){}`,
           }}
         />
-        {/* Public legal pages (/terms, /privacy) render with no nav chrome —
-            anonymous visitors and regulators only, never the sidebar or the
-            app-shell's desktop margin reserved for it. Same pre-paint,
-            class-on-<html> technique as the dark-mode script above, so
-            there's no flash of the shell before this applies. See the
-            `html.legal-page` rule in globals.css.
+        {/* Pre-paint <html> classes for the nav-exempt routes (H75). The
+            script itself is BUILT from lib/navExemptRoutes.ts — the same
+            file BottomNav.tsx and Sidebar.tsx read, and the same
+            normalisation normaliseNavPath applies — rather than written out
+            here, so the list exists in one place and cannot drift between
+            a runtime check and a pre-paint one. This layout is a server
+            component, so importing it costs nothing at runtime; the string
+            is inlined into the HTML at build time.
 
-            H75: this compared location.pathname === '/terms' exactly, which
-            is the same bug as the nav exemption's was — in the Capacitor
-            static export these pages are reached as the literal files the
-            export emits (/terms.html), so the class was never added and the
-            exported legal pages rendered the desktop sidebar and its
-            reserved margin. The normalisation below is lib/navExemptRoutes.
-            ts's normaliseNavPath, hand-inlined: this is a stringified
-            pre-paint script in <head> that runs before any module of ours
-            has loaded, so it cannot import that helper, and leaving the
-            exact comparison was not an option. Keep the two in step — strip
-            a trailing ".html", then a "/index" left behind by it, then a
-            trailing slash. */}
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `try{var p=location.pathname;if(p.slice(-5)==='.html'){p=p.slice(0,-5);if(p.slice(-6)==='/index'){p=p.slice(0,-5)}}if(p.length>1&&p.slice(-1)==='/'){p=p.slice(0,-1)}if(p==='/terms'||p==='/privacy'){document.documentElement.classList.add('legal-page')}}catch(e){}`,
-          }}
-        />
+            Why pre-paint rather than an effect: the same reason as the
+            dark-mode class above. `nav-exempt` hides the desktop rail AND
+            releases the 16rem of margin-left #app-shell reserves for it
+            (globals.css), so doing it after hydration would flash the full
+            shell, with a 256px gutter, on every exempt route. Client-side
+            route changes are the half this script cannot see, and
+            components/Sidebar.tsx's effect keeps the class in sync there.
+            `legal-page` continues to mark the two published legal
+            documents, which are full-bleed at every width. */}
+        <script dangerouslySetInnerHTML={{ __html: PRE_PAINT_NAV_SCRIPT }} />
       </head>
       <body className="relative isolate min-h-full bg-[#f0f2f7] dark:bg-[#0f172a] antialiased">
         <Providers>

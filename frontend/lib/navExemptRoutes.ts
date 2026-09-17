@@ -109,8 +109,8 @@ export const NAV_EXEMPT_ROUTES: NavExemptRoute[] = [
 // changes, and break scripts/check-nav-coverage.mjs's "every entry resolves
 // to a real page.tsx" check (there is no app/ops/go-live.html/page.tsx).
 //
-// The normalisation is deliberately narrow: only the two shapes that mean
-// "the same route, spelled as a file" are folded away.
+// The normalisation is deliberately narrow: only the shapes below, all of
+// which mean "the same route, spelled as a file", are folded away.
 //   1. a trailing ".html"  — "/ops/go-live.html" -> "/ops/go-live"  (the
 //      export's shape today: next.config.ts does not set trailingSlash, so
 //      the export emits ops/go-live.html, not ops/go-live/index.html)
@@ -148,3 +148,54 @@ export function isNavExemptPath(pathname: string | null | undefined): boolean {
       : normalised === path
   );
 }
+
+// ── Pre-paint <html> classes ─────────────────────────────────────────────
+//
+// The exemption list has to be answerable BEFORE React runs, not just at
+// render time, because hiding the rail is only half of hiding the rail:
+// #app-shell reserves 16rem of margin-left for it at >= 1024px (globals.css),
+// and that margin is pure reserved space, since the rail itself is
+// `position: fixed`. Remove the rail without releasing the margin and an
+// exempt route renders with a 256px dead gutter and its content pushed
+// 128px off centre — measured on /design, /ops/go-live, /ops/broadcast and
+// /oauth/consent before this was added. The release has to happen pre-paint
+// for the same reason the dark-mode class does: doing it in an effect would
+// flash the full shell first.
+//
+// So this module builds the <head> script, rather than app/layout.tsx
+// hand-writing one. layout.tsx is a server component (no "use client"), so
+// it can import this constant and interpolate it; the list, the
+// normalisation and the matching rule then exist in exactly one file. The
+// earlier version of this fix hand-inlined the normalisation in layout.tsx
+// with a comment on each side asking a future reader to keep the two in
+// step — which is the same class of promise that let components/Sidebar.tsx
+// ignore this list entirely until H75, i.e. the bug this item exists to fix.
+// scripts/check-nav-coverage.mjs now EXECUTES this script against the same
+// case table it runs isNavExemptPath over, so the two cannot drift silently.
+//
+// Two classes come out of it:
+//   `nav-exempt`  on every route in the list above — hides the rail
+//                 pre-paint and releases its reserved margin (globals.css).
+//                 components/Sidebar.tsx keeps it in sync across client-side
+//                 route changes, which this script cannot see.
+//   `legal-page`  on the published legal documents only. What is left under
+//                 that class is now genuinely legal-specific: those two
+//                 pages are full-bleed at EVERY width, where an exempt app
+//                 route keeps the normal 430px phone shell below lg.
+export const LEGAL_PAGE_ROUTES = ["/terms", "/privacy"];
+
+// The normalisation above, as the few characters of ES5 a pre-paint script
+// can run. Kept next to normaliseNavPath deliberately; check-nav-coverage
+// asserts the two agree on every case in its table rather than trusting
+// this comment.
+const PRE_PAINT_NORMALISE_JS =
+  "if(p.slice(-5)==='.html'){p=p.slice(0,-5);if(p.slice(-6)==='/index'){p=p.slice(0,-5)}}" +
+  "if(p.length>1&&p.slice(-1)==='/'){p=p.slice(0,-1)}";
+
+export const PRE_PAINT_NAV_SCRIPT =
+  `try{var p=location.pathname;${PRE_PAINT_NORMALISE_JS}` +
+  `var E=${JSON.stringify(NAV_EXEMPT_ROUTES.map(({ path }) => path))},` +
+  `L=${JSON.stringify(LEGAL_PAGE_ROUTES)},c=document.documentElement.classList,i,q;` +
+  `for(i=0;i<E.length;i++){q=E[i];` +
+  `if(q.slice(-1)==='/'?(p===q.slice(0,-1)||p.indexOf(q)===0):p===q){c.add('nav-exempt');break}}` +
+  `if(L.indexOf(p)>-1){c.add('legal-page')}}catch(e){}`;
