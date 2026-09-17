@@ -143,7 +143,8 @@ echo "[2/6] wealthdash:// deep-link intent-filter placement done (see above)."
 # header comment for the full writeup. Computed here, AFTER step 1
 # has run, so the resolver sees the "board" flavour it just added and
 # correctly resolves to the flavour-scoped path.
-SORTED_GOOGLE_SERVICES_JSON="${ANDROID_DIR}/app/$(python3 "${SCRIPT_DIR}/resolve-google-services-path.py" "${ANDROID_DIR}")"
+SORTED_GOOGLE_SERVICES_RELATIVE="$(python3 "${SCRIPT_DIR}/resolve-google-services-path.py" "${ANDROID_DIR}")"
+SORTED_GOOGLE_SERVICES_JSON="${ANDROID_DIR}/app/${SORTED_GOOGLE_SERVICES_RELATIVE}"
 
 # --- 3. google-services.json presence check + restore/move ---
 # MUST run before step 4 (plugin apply + strategy config), same invariant
@@ -184,7 +185,7 @@ if [[ -f "${ROOT_GOOGLE_SERVICES_JSON}" ]]; then
     else
       backup="${ROOT_GOOGLE_SERVICES_JSON}.bak"
       mv "${ROOT_GOOGLE_SERVICES_JSON}" "${backup}"
-      echo "[3/6] google-services.json: module-root copy DIFFERS from the sorted-flavour copy at ${SORTED_GOOGLE_SERVICES_JSON} -- moved the module-root copy to ${backup} rather than guessing which is current. If it's a newer Firebase-console download, review it and replace ${SORTED_GOOGLE_SERVICES_JSON} yourself, then remove ${backup}."
+      echo "[3/6] google-services.json: module-root copy DIFFERS from the sorted-flavour copy at ${SORTED_GOOGLE_SERVICES_JSON} -- moved the module-root copy to ${backup} rather than guessing which is current. It may be a newer Firebase-console download dropped at the conventional location, or a copy this script's sibling setup-android-push.sh itself left there; review it and replace ${SORTED_GOOGLE_SERVICES_JSON} yourself if it's the newer one, then remove ${backup}."
     fi
   else
     mkdir -p "$(dirname "${SORTED_GOOGLE_SERVICES_JSON}")"
@@ -253,15 +254,24 @@ PYEOF
     echo "      (added GoogleServicesPlugin import)"
   fi
 
-  python3 - "${APP_GRADLE}" <<'PYEOF'
+  python3 - "${APP_GRADLE}" "${SORTED_GOOGLE_SERVICES_RELATIVE}" <<'PYEOF'
 import re, sys
-path = sys.argv[1]
+path, sorted_relative = sys.argv[1], sys.argv[2]
 with open(path) as f:
     content = f.read()
 
 fatality_block = (
     "\n"
     "// Restore fatality for Sorted specifically: WARN above is what lets\n"
+    # (comment continues unchanged below; the f-strings further down
+    # interpolate sorted_relative -- resolve-google-services-path.py's own
+    # output, passed in as argv[2] -- rather than hardcoding the path a
+    # second time, review round 5 finding F2, 2026-09-17: the same
+    # hardcoded-path shape that caused the bug this whole file exists to
+    # fix, even though this one is unreachable in a wrong state today
+    # since it is written only after step 1 adds productFlavors and wired
+    # solely to Sorted's own preBuild.
+
     "// Board ship with no Firebase project by design, but Sorted's FCM\n"
     "// push must not be able to go silently dead behind a green build.\n"
     "// This is a registered task wired ONLY into Sorted's own preBuild —\n"
@@ -270,17 +280,17 @@ fatality_block = (
     "// invocation of this project (assembleBoardDebug, `./gradlew tasks`,\n"
     "// `clean`, IDE sync...). Board is unaffected on both counts: it\n"
     "// never looks for this file, and it never runs Sorted's preBuild.\n"
-    "tasks.register('verifySortedGoogleServices') {\n"
-    "    doLast {\n"
-    "        if (!file('src/sorted/google-services.json').exists()) {\n"
-    "            throw new GradleException(\n"
-    "                \"app/src/sorted/google-services.json is missing. Sorted's FCM push \" +\n"
-    "                \"needs it; run scripts/setup-android-push.sh (from capacitor-spike/) \" +\n"
-    "                \"to restore it from the canonical copy.\"\n"
-    "            )\n"
-    "        }\n"
-    "    }\n"
-    "}\n"
+    f"tasks.register('verifySortedGoogleServices') {{\n"
+    f"    doLast {{\n"
+    f"        if (!file('{sorted_relative}').exists()) {{\n"
+    f"            throw new GradleException(\n"
+    f"                \"app/{sorted_relative} is missing. Sorted's FCM push \" +\n"
+    f"                \"needs it; run scripts/setup-android-push.sh (from capacitor-spike/) \" +\n"
+    f"                \"to restore it from the canonical copy.\"\n"
+    f"            )\n"
+    f"        }}\n"
+    f"    }}\n"
+    f"}}\n"
     "\n"
     "afterEvaluate {\n"
     "    tasks.matching { it.name ==~ /pre(Sorted)(Debug|Release)Build/ }.configureEach {\n"

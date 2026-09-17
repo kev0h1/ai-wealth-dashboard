@@ -53,7 +53,7 @@ not work end-to-end:
 
 | Prerequisite | Used by | Where it lives |
 |---|---|---|
-| `google-services.json` | Android app build | `capacitor-spike/google-services.json` (canonical, held locally, deliberately untracked — see `.gitignore` and commit `3cc286b`) and `capacitor-spike/android/app/src/sorted/google-services.json` (gitignored working copy, flavour-scoped since H66, restored from the canonical file by `setup-android-push.sh`) |
+| `google-services.json` | Android app build | `capacitor-spike/google-services.json` (canonical, held locally, deliberately untracked — see `.gitignore` and commit `3cc286b`) and a gitignored working copy whose path is resolved by `scripts/resolve-google-services-path.py` — `capacitor-spike/android/app/google-services.json` (module root) before the "board" flavour exists, `capacitor-spike/android/app/src/sorted/google-services.json` once `apply-board-flavor.sh` has added it, restored to whichever is current by `setup-android-push.sh` |
 | Service-account key (`FCM_PROJECT_ID` + `FCM_SERVICE_ACCOUNT_JSON`/`_PATH`) | Backend, to send pushes via FCM | Backend env/secrets (not in git) |
 
 ## Build flow
@@ -69,8 +69,12 @@ bash scripts/setup-android-push.sh
 
 # 2a. H66 (2026-09-17): add the "board" product flavour (Board, a separate
 # ops-board app sharing this same project — see README.md). Idempotent.
-# Also moves google-services.json into src/sorted/ (flavour-scoped), which
-# setup-android-push.sh's own restore step (above) now targets directly.
+# Also migrates google-services.json from the module root into src/sorted/
+# (flavour-scoped) now that the flavour it needs exists — before this
+# step runs, step 2 above correctly restores/finds the file at the module
+# root instead (see scripts/resolve-google-services-path.py, the one
+# place both scripts get this answer from, so they cannot disagree about
+# it again).
 bash scripts/apply-board-flavor.sh
 
 # 2b. Restore the brand launcher icons (cap add android regenerates stock icons — this restores the brand set)
@@ -107,7 +111,13 @@ Sorted's APK lands at
 Board's APK lands at
 `capacitor-spike/android/app/build/outputs/apk/board/debug/app-board-debug.apk`.
 The plain `assembleDebug` (no flavour qualifier) still exists as an
-aggregate task and builds both.
+aggregate task and builds both — but it is not harmless to run
+unqualified (same correction as DEPLOY.md's "Android release signing"
+section): Board's own preBuild depends on `verifyBoardWebAssets`, which
+throws if `build-board-web-assets.sh` hasn't been run, so the unqualified
+task can fail the whole build over a Board-only precondition even when
+only Sorted's own APK was wanted. Use `assembleSortedDebug` for Sorted
+alone.
 
 ## What `setup-android-push.sh` patches
 
@@ -134,9 +144,13 @@ the script exits non-zero.
    `<uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>`
    if missing (required at runtime on Android 13+ for notifications to
    show at all). Also harmless without `google-services.json`.
-3. **`android/app/src/sorted/google-services.json`** (H66: flavour-scoped,
-   not the module root — see `apply-board-flavor.sh`'s header comment for
-   why a module-root copy breaks the Board flavour), checked first, and
+3. **`android/app/<resolved path>/google-services.json`**, where
+   `<resolved path>` comes from `scripts/resolve-google-services-path.py`
+   (H66; see its own header comment): the module root before the "board"
+   flavour exists, `src/sorted/` once `apply-board-flavor.sh` has added it
+   — NOT unconditionally `src/sorted/`, which would be wrong (and silently
+   break FCM push, not loudly) on a correctly configured Sorted-only
+   project with no Board flavour at all. Checked first, and
    restored if missing. `android/` is gitignored and wiped by every `npx
    cap add android`, so this working copy never survives regeneration. If
    it's absent but the canonical copy at `capacitor-spike/google-services.json`
@@ -216,7 +230,7 @@ the script exits non-zero.
 grep "com.google.gms:google-services" android/build.gradle
 grep "com.google.gms.google-services" android/app/build.gradle
 grep "POST_NOTIFICATIONS" android/app/src/main/AndroidManifest.xml
-ls android/app/src/sorted/google-services.json  # H66: flavour-scoped, not the module root
+ls "android/app/$(python3 scripts/resolve-google-services-path.py android)"  # H66: asks the resolver rather than hardcoding an answer that is only sometimes true
 
 # Notification icon: all five densities should be present
 ls android/app/src/main/res/drawable-*/ic_stat_notify.png

@@ -49,14 +49,19 @@ fi
 # divergence (this variable pointing at the flavour-scoped path while
 # step 4's fallback block still checked the module root, unconditionally)
 # is the defect this round fixes: running this script alone restored the
-# file to src/sorted/, wrote a Groovy check that only ever looks at the
-# module root, found nothing, silently swallowed the exception, and never
-# applied the plugin at all -- a green build with FCM push silently dead.
-# See resolve-google-services-path.py's own header comment for the full
-# incident writeup. Before the "board" flavour exists, this correctly
-# resolves to the module root, exactly this project's pre-H66 shape (and
-# the only correct answer for someone who wants Sorted with working push
-# and no Board at all).
+# file to src/sorted/, and the module-root check that finds nothing,
+# silently swallows the exception, and never applies the plugin at all is
+# in `app/build.gradle` (H66 review round 5, F4, 2026-09-17: NOT
+# necessarily one step 4 below wrote this run -- on this project's real
+# shape a stock Capacitor template already ships that exact check, so
+# step 4's own grep guard skips and writes nothing; the load-bearing half
+# of this defect is step 3's restore TARGET, not step 4's writing logic,
+# whichever of the two put the check there). A green build, dead FCM
+# push, no error anywhere either way. See resolve-google-services-path.py's
+# own header comment for the full incident writeup. Before the "board"
+# flavour exists, this correctly resolves to the module root, exactly
+# this project's pre-H66 shape (and the only correct answer for someone
+# who wants Sorted with working push and no Board at all).
 GOOGLE_SERVICES_RELATIVE="$(python3 "${SCRIPT_DIR}/resolve-google-services-path.py" "${ANDROID_DIR}")"
 GOOGLE_SERVICES_JSON="${ANDROID_DIR}/app/${GOOGLE_SERVICES_RELATIVE}"
 
@@ -124,6 +129,36 @@ fi
 # MUST run before step 4 (plugin application). Applying the google-services
 # plugin without this file present is a hard Gradle config-time error that
 # would otherwise persist across re-runs once the plugin block is written.
+#
+# Module-root cleanup (review round 5, F3, 2026-09-17): once the "board"
+# flavour exists, GOOGLE_SERVICES_RELATIVE/GOOGLE_SERVICES_JSON resolve to
+# the flavour-scoped path, but nothing here used to look at or clear a
+# module-root copy that could still turn up there -- the conventional
+# place a fresh Firebase-console download lands, or a leftover from
+# before the flavour existed. Re-running this script (documented as
+# always safe) with both copies present would otherwise leave them both
+# in place, and the google-services plugin's unconditional module-root
+# fallback throws "No matching client found for package name
+# co.uk.auriqltd.sorted.board" for every Board build -- the mirror image
+# of the defect this script's step 3/4 split was fixed for. Mirrors
+# apply-board-flavor.sh's own cmp/rm-or-.bak handling for the identical
+# situation (that script's step 3).
+MODULE_ROOT_GOOGLE_SERVICES_JSON="${ANDROID_DIR}/app/google-services.json"
+if [[ "${GOOGLE_SERVICES_RELATIVE}" != "google-services.json" ]] && [[ -f "${MODULE_ROOT_GOOGLE_SERVICES_JSON}" ]]; then
+  if [[ -f "${GOOGLE_SERVICES_JSON}" ]] && cmp -s "${MODULE_ROOT_GOOGLE_SERVICES_JSON}" "${GOOGLE_SERVICES_JSON}"; then
+    rm -f "${MODULE_ROOT_GOOGLE_SERVICES_JSON}"
+    echo "[3/7] google-services.json: removed leftover module-root copy (byte-identical to the flavour-scoped copy already at ${GOOGLE_SERVICES_JSON}; may be one this script's own sibling apply-board-flavor.sh left behind or would itself move)."
+  elif [[ -f "${GOOGLE_SERVICES_JSON}" ]]; then
+    backup="${MODULE_ROOT_GOOGLE_SERVICES_JSON}.bak"
+    mv "${MODULE_ROOT_GOOGLE_SERVICES_JSON}" "${backup}"
+    echo "[3/7] google-services.json: module-root copy DIFFERS from the flavour-scoped copy at ${GOOGLE_SERVICES_JSON} -- moved the module-root copy to ${backup} rather than guessing which is current. It may be a newer Firebase-console download dropped at the conventional location, or a copy this script's sibling apply-board-flavor.sh itself left there; review it and replace ${GOOGLE_SERVICES_JSON} yourself if it's the newer one, then remove ${backup}."
+  else
+    mkdir -p "$(dirname "${GOOGLE_SERVICES_JSON}")"
+    mv "${MODULE_ROOT_GOOGLE_SERVICES_JSON}" "${GOOGLE_SERVICES_JSON}"
+    echo "[3/7] google-services.json: moved module-root copy -> ${GOOGLE_SERVICES_JSON} (flavour already configured)."
+  fi
+fi
+
 if [[ -f "${GOOGLE_SERVICES_JSON}" ]]; then
   echo "[3/7] google-services.json: found at ${GOOGLE_SERVICES_JSON}."
 elif [[ -f "${CANONICAL_GOOGLE_SERVICES_JSON}" ]]; then
