@@ -1213,10 +1213,15 @@ export default function SettingsPage() {
             />
           </div>
           {/* G60: PreferencesContext's setDarkMode now reverts and reconciles
-              on a failed save (see lib/preferenceSave.ts); this is the one
-              message from that context-wide fix with somewhere to be shown —
-              darkMode is the only one of the context's six server-backed
-              fields with a control on this page. Same ink-plus-amber-dot
+              on a failed save (see lib/preferenceSave.ts); darkMode is the
+              only one of the context's six server-backed fields with a
+              control on THIS page, but H69 added a second wired consumer of
+              this same slot, the board toggle in
+              app/ops/go-live/HeaderHero.tsx, which renders the identical
+              message with the identical pattern when dark_mode fails —
+              PreferencesSaveError's own docstring covers why one slot
+              showing in two places at once is not the conflict the
+              single-slot design guards against. Same ink-plus-amber-dot
               pattern as notifSaveMsg/childBenefitSaveMsg below, not a whole
               coloured sentence (DESIGN.md:142). */}
           {preferencesSaveError?.field === "dark_mode" && (

@@ -96,11 +96,13 @@ import { MessageSquare, Search } from "lucide-react";
 import {
   DEFAULT_GO_LIVE_FILTERS,
   filterItems,
+  itemTotals,
   type GoLiveFilters,
   type GoLiveItem,
   type GoLiveItemState,
 } from "@/lib/goLive";
 import { FilterBar } from "@/app/ops/go-live/FilterBar";
+import { HeaderHero } from "@/app/ops/go-live/HeaderHero";
 import { ItemDetailSheet } from "@/app/ops/go-live/ItemDetailSheet";
 import { OwnerInitialChip, PriorityPill, StatePill, UnblocksTags } from "@/app/ops/go-live/Badges";
 import { CollapsedSection, ItemRow, MobileRibbonBoard, SectionHeading } from "@/app/ops/go-live/MobileRibbonBoard";
@@ -109,10 +111,8 @@ import {
   DONE_SAMPLE,
   DONE_TOTAL_COUNT,
   IN_FLIGHT,
-  IN_FLIGHT_TOTAL_COUNT,
   TODO_SAMPLE,
   TODO_TOTAL_COUNT,
-  TOTAL_ITEM_COUNT,
 } from "./fixtures";
 
 type Variant = "live-now" | "ribbon" | "waiting";
@@ -331,13 +331,78 @@ function Inner() {
     ? (rawVariant as Variant)
     : "ribbon";
   const mode: Mode = params.get("mode") === "dark" ? "dark" : "light";
+  // Set by the effect below when this browser cannot read or write
+  // `wd_dark` at all, so ?mode= cannot be honoured; drives the visible
+  // fallback note rather than a silent wrong-theme render or a reload loop.
+  const [modeApplyFailed, setModeApplyFailed] = useState(false);
 
+  // H69 (rejected-round fix): this used to flip document.documentElement's
+  // class and the color-scheme meta directly off the ?mode= query param, a
+  // SECOND, independent "is dark" source from the one HeaderHero's new
+  // toggle reads (PreferencesContext's darkMode, sourced from `wd_dark`).
+  // The two disagreed on ?mode=dark: the page painted dark while the
+  // toggle, reading real context state, still reported unchecked, exactly
+  // the control-versus-theme divergence this gate exists to catch. The fix
+  // is for ?mode= to seed the SAME single source rather than bypass it:
+  // write `wd_dark` to match the requested mode, then reload once so
+  // PreferencesContext's synchronous useState initialiser and the existing
+  // no-flash inline script (app/layout.tsx) both pick it up before this
+  // tree mounts — the same path a real toggle, persisted, then reloaded
+  // would take. Document class and the theme-color/color-scheme metas are
+  // then kept correct by PreferencesContext's own effect and
+  // components/ThemeColor.tsx (both mounted app-wide via app/layout.tsx),
+  // not by anything in this file.
+  //
+  // Second-round fix: the reload used to sit outside the write's own try,
+  // so a throwing setItem (storage disabled, blocked by a privacy setting,
+  // or full) still triggered a reload; `current` would then still not
+  // equal `desired` after that reload, so it reloaded again, forever. The
+  // reload is now gated on the write actually having succeeded (`wrote`),
+  // so a persistent failure to write is a single silent no-op attempt per
+  // `mode` change, never a loop. When it fails, this renders honestly
+  // rather than pretending: `modeApplyFailed` drives an on-page note (see
+  // the JSX below) saying the requested mode could not be applied, and
+  // the page is left in whatever theme this device's storage already
+  // holds, rather than a reload loop or a silently wrong theme.
   useEffect(() => {
-    const t = setTimeout(() => {
-      document.documentElement.classList.toggle("dark", mode === "dark");
-      document.querySelector('meta[name="color-scheme"]')?.setAttribute("content", mode === "dark" ? "dark" : "only light");
-    }, 0);
-    return () => clearTimeout(t);
+    // Deferred a microtask: every branch below calls setModeApplyFailed
+    // synchronously, which react-hooks/set-state-in-effect flags if
+    // called directly here. queueMicrotask moves the calls out of the
+    // effect's own synchronous execution without changing behaviour
+    // (still runs before the next paint, and window.location.reload()
+    // below is unaffected either way) — see LongTermPlanningPage.tsx's
+    // and GrowPanel.tsx's mount effects for the same fix and fuller
+    // rationale.
+    queueMicrotask(() => {
+      let current: string | null = null;
+      let readOk = true;
+      try {
+        current = window.localStorage.getItem("wd_dark");
+      } catch {
+        readOk = false;
+      }
+      if (!readOk) {
+        setModeApplyFailed(true);
+        return;
+      }
+      const desired = mode === "dark" ? "1" : "0";
+      if (current === desired) {
+        setModeApplyFailed(false);
+        return;
+      }
+      let wrote = false;
+      try {
+        window.localStorage.setItem("wd_dark", desired);
+        wrote = true;
+      } catch {
+        wrote = false;
+      }
+      if (wrote) {
+        window.location.reload();
+      } else {
+        setModeApplyFailed(true);
+      }
+    });
   }, [mode]);
 
   // Mirrors the exact mount/unmount effect app/ops/go-live/page.tsx runs
@@ -356,6 +421,9 @@ function Inner() {
   const [items, setItems] = useState<GoLiveItem[]>(ALL_FIXTURE_ITEMS);
   const [filters, setFilters] = useState<GoLiveFilters>(DEFAULT_GO_LIVE_FILTERS);
   const [selected, setSelected] = useState<GoLiveItem | null>(null);
+
+  // Computed once, not inline twice at the HeaderHero call site below.
+  const backlogTotals = useMemo(() => itemTotals(items), [items]);
 
   const inFlightIds = useMemo(() => new Set(IN_FLIGHT.map((i) => i.id)), []);
   const todoIds = useMemo(() => new Set(TODO_SAMPLE.map((i) => i.id)), []);
@@ -399,11 +467,33 @@ function Inner() {
   // gate like this one anyway). Keep this flat; do not reintroduce a
   // wrapper div between this element and FilterBar.
   return (
-    <div className={mode === "dark" ? "dark" : ""} style={{ colorScheme: mode }}>
+    <div>
       <div className="mx-auto min-h-dvh w-full max-w-[430px] bg-[#f0f2f7] px-6 pb-32 dark:bg-[#0f172a]">
         <div className="pt-5">
           <p className="mb-1 text-center text-[11px] text-slate-400 dark:text-slate-500">
             Illustrative /ops/go-live phone preview. Fixture data read from TODO.md, 2026-09-16/17 — see fixtures.ts.
+          </p>
+          {/* H69 (second rejected-round fix), a judgement call, not an
+              oversight: this preview's own ?mode= link seeds the SAME
+              `wd_dark` key the real, signed-in app reads (see the effect
+              above), because HeaderHero is the real production component
+              and its toggle reads real PreferencesContext state, which is
+              itself sourced from that same key — there is no way to hand
+              this preview a look-alike theme without either forking
+              PreferencesContext just for this route (reintroducing the
+              exact "preview can drift from production" risk CLAUDE.md's
+              design-work section exists to close, just moved from markup
+              to state) or living with the divergence Blocker 2 fixed.
+              Accepted deliberately: the write is local to this device
+              only, it is a theme flag and nothing sensitive, and it
+              self-corrects the next time this device loads any
+              authenticated page while signed in (PreferencesContext's own
+              mount fetch applies the server's real dark_mode over
+              whatever is local). Said here, plainly, so opening this link
+              is not a surprise: it can leave your device's own Sorted and
+              Board theme changed until you are next signed in somewhere. */}
+          <p className="mb-1 text-center text-[11px] text-slate-400 dark:text-slate-500">
+            Opening this preview with a mode link changes this device&apos;s real board theme too, because it uses the same local setting the signed in app reads. It only affects colours and corrects itself next time you are signed in.
           </p>
           {/* H56 (2026-09-17): this variant reproduces the phone board,
               whose defining behaviour (the ribbon strip pinned to the
@@ -422,10 +512,42 @@ function Inner() {
           </p>
           <div className="mb-1">
             <h1 className="text-[20px] font-bold text-slate-900 dark:text-white">Go-live board</h1>
-            <p className="mt-0.5 text-[11px] uppercase tracking-wide text-slate-400 dark:text-slate-500">
-              {TOTAL_ITEM_COUNT} items · {IN_FLIGHT_TOTAL_COUNT} in flight
-            </p>
           </div>
+          {/* H69: the real production HeaderHero, fed this preview's own
+              fixture items and their real itemTotals() — the same header
+              production page.tsx renders, carrying the new dark-mode
+              toggle. Rendering hand-authored markup here instead of the
+              shipped component would let this preview drift from the real
+              header the way CLAUDE.md's "Design work" section warns
+              about; this is a genuine gate, not a copy. The count line
+              this replaced (a separate fixture-derived total) is dropped:
+              it read as a second, contradictory count sitting directly
+              above the real hero's own "N of M done" from the same
+              fixture set. */}
+          <div className="mt-5">
+            <HeaderHero items={items} done={backlogTotals.done} total={backlogTotals.total} />
+          </div>
+          {modeApplyFailed && (
+            <p
+              role="status"
+              aria-live="polite"
+              className="mt-2 text-center text-[11px] text-slate-400 dark:text-slate-500"
+            >
+              This browser is not allowing local storage, so the mode in the link above could not be applied. The toggle and theme below show this device&apos;s own current setting instead.
+            </p>
+          )}
+          {/* CLAUDE.md's own exception: a component that fetches/writes
+              through its own props chain rather than taking everything as
+              props cannot be fully exercised unauthenticated. HeaderHero's
+              toggle reads real PreferencesContext state (so its ON/OFF
+              display is genuine), but saving goes through
+              api.updatePreferences, which this signed-out route cannot
+              satisfy, so a tap here reverts within a few hundred
+              milliseconds. Say so rather than let a reviewer think a
+              successful tap here proves the save path works. */}
+          <p className="mt-2 text-center text-[11px] text-slate-400 dark:text-slate-500">
+            This preview is not signed in, so tapping the dark mode toggle shows its state only. The save to the server fails here and the switch reverts; toggling for real only works from the signed in board.
+          </p>
         </div>
 
         <FilterBar filters={filters} onChange={setFilters} />
