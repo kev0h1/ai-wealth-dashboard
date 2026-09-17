@@ -138,10 +138,13 @@ export function CollapsedSection({
 // DESIGN.md's 10-11px Label floor or wrapping to a second row (which
 // would cost this strip exactly the vertical space Kevin's "ribbon
 // only" decision on FilterBar was trying to reclaim): AccountsPage.tsx's
-// "Lens chips" row is the same shape (a compact filter-chip strip that
-// scrolls rather than wraps or shrinks) already shipped elsewhere in
-// this app, so this isn't a new pattern being introduced, and the fifth
-// chip stays one swipe away rather than permanently hidden.
+// "Lens chips" row is a comparable shape already shipped elsewhere in
+// this app (a compact filter-chip strip that scrolls rather than wraps
+// or shrinks, though it additionally hides its own scrollbar, which
+// this strip does not), so this isn't a wholly new interaction pattern,
+// and the fifth chip stays one swipe away rather than permanently
+// hidden — the 21px slice of "UAT" visible at the right edge is itself
+// the affordance that more chips exist.
 const RIBBON_STATES: { key: GoLiveFilterState; label: string }[] = [
   { key: "in-progress", label: "In progress" },
   { key: "blocked", label: "Blocked" },
@@ -149,22 +152,6 @@ const RIBBON_STATES: { key: GoLiveFilterState; label: string }[] = [
   { key: "rejected", label: "Rejected" },
   { key: "uat", label: "UAT" },
 ];
-
-// This strip pins to the top of the scroll container itself (`top-0`),
-// not beneath FilterBar.tsx (Kevin's decision, H56, 2026-09-17): once
-// sticky genuinely started working below `lg`, FilterBar plus this strip
-// together would have permanently occupied roughly 28% of a 390px-tall
-// phone viewport (185px measured FilterBar height + this strip). Below
-// `lg`, FilterBar now scrolls away with the rest of the page content
-// (see its own className comment in FilterBar.tsx) and only this strip
-// stays pinned, so there is no filter bar height left to sit under —
-// `var(--go-live-filter-h, ...)` would be the wrong offset here now (it
-// still exists, published unconditionally, but only DesktopBoardGrid's
-// column headers in BoardView.tsx consume it, at `lg` and up, where this
-// component never renders at all). Nothing between this element and the
-// page's own scroll container may set `overflow-hidden`, or that
-// ancestor becomes the sticky containing block and `top-0` is measured
-// from the wrong edge.
 
 export type MobileRibbonBoardProps = {
   filters: GoLiveFilters;
@@ -211,6 +198,23 @@ export function MobileRibbonBoard({
 
   return (
     <div className="space-y-3">
+      {/* This strip pins to the top of the scroll container itself
+          (`top-0`), not beneath FilterBar.tsx (Kevin's decision, H56,
+          2026-09-17): once sticky genuinely started working below `lg`,
+          FilterBar plus this strip together would have permanently
+          occupied roughly 28% of a 390x844 phone viewport (185px
+          measured FilterBar height + this strip, against an 844px-tall
+          viewport). Below `lg`, FilterBar now scrolls away with the rest
+          of the page content (see its own className comment in
+          FilterBar.tsx) and only this strip stays pinned, so there is no
+          filter bar height left to sit under — `var(--go-live-filter-h,
+          ...)` would be the wrong offset here now (it still exists,
+          published unconditionally, but only DesktopBoardGrid's column
+          headers in BoardView.tsx consume it, at `lg` and up, where this
+          component never renders at all). Nothing between this element
+          and the page's own scroll container may set `overflow-hidden`,
+          or that ancestor becomes the sticky containing block and
+          `top-0` is measured from the wrong edge. */}
       <div
         role="group"
         aria-label="Filter by status"

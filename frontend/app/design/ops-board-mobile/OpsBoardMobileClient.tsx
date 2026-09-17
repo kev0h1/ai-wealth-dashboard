@@ -402,8 +402,23 @@ function Inner() {
     <div className={mode === "dark" ? "dark" : ""} style={{ colorScheme: mode }}>
       <div className="mx-auto min-h-dvh w-full max-w-[430px] bg-[#f0f2f7] px-6 pb-32 dark:bg-[#0f172a]">
         <div className="pt-5">
-          <p className="mb-3 text-center text-[11px] text-slate-400 dark:text-slate-500">
+          <p className="mb-1 text-center text-[11px] text-slate-400 dark:text-slate-500">
             Illustrative /ops/go-live phone preview. Fixture data read from TODO.md, 2026-09-16/17 — see fixtures.ts.
+          </p>
+          {/* H56 (2026-09-17): this variant reproduces the phone board,
+              whose defining behaviour (the ribbon strip pinned to the
+              top of the scroll container) only exists below the lg
+              breakpoint in production (BoardView.tsx gates
+              MobileRibbonBoard behind isDesktop). This preview's own
+              variant switch is not breakpoint-gated the same way, so at
+              a laptop width the strip sits underneath FilterBar (which
+              pins at lg and up) and appears to vanish. That is a preview
+              limitation, not a production defect, and it is a known,
+              boarded follow-up (a width-constrained iframe is the real
+              fix); this note exists so a reviewer opening it on a
+              laptop is not misled by it. */}
+          <p className="mb-3 text-center text-[11px] text-slate-400 dark:text-slate-500">
+            View at a phone width. This reproduces the phone board, so at wider widths the ribbon strip sits underneath the filter bar and is not visible, which cannot happen on the real board.
           </p>
           <div className="mb-1">
             <h1 className="text-[20px] font-bold text-slate-900 dark:text-white">Go-live board</h1>
