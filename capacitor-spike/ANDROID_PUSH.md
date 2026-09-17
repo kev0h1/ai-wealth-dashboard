@@ -53,7 +53,7 @@ not work end-to-end:
 
 | Prerequisite | Used by | Where it lives |
 |---|---|---|
-| `google-services.json` | Android app build | `capacitor-spike/google-services.json` (committed, canonical) and `capacitor-spike/android/app/google-services.json` (gitignored working copy, restored from the canonical file by `setup-android-push.sh`) |
+| `google-services.json` | Android app build | `capacitor-spike/google-services.json` (canonical, held locally, deliberately untracked — see `.gitignore` and commit `3cc286b`) and `capacitor-spike/android/app/src/sorted/google-services.json` (gitignored working copy, flavour-scoped since H66, restored from the canonical file by `setup-android-push.sh`) |
 | Service-account key (`FCM_PROJECT_ID` + `FCM_SERVICE_ACCOUNT_JSON`/`_PATH`) | Backend, to send pushes via FCM | Backend env/secrets (not in git) |
 
 ## Build flow
@@ -67,8 +67,17 @@ npx cap add android
 # 2. Patch it for FCM (idempotent — safe to re-run)
 bash scripts/setup-android-push.sh
 
+# 2a. H66 (2026-09-17): add the "board" product flavour (Board, a separate
+# ops-board app sharing this same project — see README.md). Idempotent.
+# Also moves google-services.json into src/sorted/ (flavour-scoped), which
+# setup-android-push.sh's own restore step (above) now targets directly.
+bash scripts/apply-board-flavor.sh
+
 # 2b. Restore the brand launcher icons (cap add android regenerates stock icons — this restores the brand set)
 bash scripts/apply-icons.sh
+
+# 2c. Board's own distinct-colourway icon set (H66; src/board/res/ overlay only)
+bash scripts/apply-board-icons.sh
 
 # 3. Build the frontend static export
 cd ../frontend
@@ -79,16 +88,26 @@ npm run build:mobile
 rm -rf ../capacitor-spike/www/* && cp -r out/* ../capacitor-spike/www/
 cd ../capacitor-spike
 
-# 5. Sync the web assets + native deps into the Android project
+# 4a. Board's own copy of the same export, redirecting to /ops/go-live (H66)
+bash scripts/build-board-web-assets.sh
+
+# 5. Sync the web assets + native deps into the Android project (Sorted's
+# src/main/assets/public/ only — Board's src/board/assets/ is untouched by
+# `cap sync`, see step 4a)
 npx cap sync android
 
-# 6. Build the APK
+# 6. Build the APKs
 cd android
-./gradlew assembleDebug
+./gradlew assembleSortedDebug
+./gradlew assembleBoardDebug
 ```
 
-The APK lands at
-`capacitor-spike/android/app/build/outputs/apk/debug/app-debug.apk`.
+Sorted's APK lands at
+`capacitor-spike/android/app/build/outputs/apk/sorted/debug/app-sorted-debug.apk`.
+Board's APK lands at
+`capacitor-spike/android/app/build/outputs/apk/board/debug/app-board-debug.apk`.
+The plain `assembleDebug` (no flavour qualifier) still exists as an
+aggregate task and builds both.
 
 ## What `setup-android-push.sh` patches
 
@@ -115,15 +134,20 @@ the script exits non-zero.
    `<uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>`
    if missing (required at runtime on Android 13+ for notifications to
    show at all). Also harmless without `google-services.json`.
-3. **`android/app/google-services.json`**, checked first, and restored if
-   missing. `android/` is gitignored and wiped by every `npx cap add
-   android`, so this working copy never survives regeneration. If it's
-   absent but the canonical, committed `capacitor-spike/google-services.json`
-   exists, the script copies it into place and proceeds. Only if **neither**
-   copy exists does the script print the Firebase setup steps above and
-   exit non-zero **before** touching `app/build.gradle`'s plugin block,
-   since nothing about FCM can work without the file and the script will
-   never fabricate one.
+3. **`android/app/src/sorted/google-services.json`** (H66: flavour-scoped,
+   not the module root — see `apply-board-flavor.sh`'s header comment for
+   why a module-root copy breaks the Board flavour), checked first, and
+   restored if missing. `android/` is gitignored and wiped by every `npx
+   cap add android`, so this working copy never survives regeneration. If
+   it's absent but the canonical copy at `capacitor-spike/google-services.json`
+   exists (held locally, deliberately untracked — not committed, see
+   `.gitignore` and commit `3cc286b`, so a fresh clone starts without it and
+   needs the Firebase console steps below) the script copies it into
+   place and proceeds. Only if **neither** copy exists does the
+   script print the Firebase setup steps above and exit non-zero
+   **before** touching `app/build.gradle`'s plugin block, since nothing
+   about FCM can work without the file and the script will never
+   fabricate one.
 4. **`android/app/build.gradle`** — applies the
    `com.google.gms.google-services` plugin, only once step 3 has confirmed
    the JSON exists. Detects whether the file uses a modern `plugins { }`
@@ -192,7 +216,7 @@ the script exits non-zero.
 grep "com.google.gms:google-services" android/build.gradle
 grep "com.google.gms.google-services" android/app/build.gradle
 grep "POST_NOTIFICATIONS" android/app/src/main/AndroidManifest.xml
-ls android/app/google-services.json
+ls android/app/src/sorted/google-services.json  # H66: flavour-scoped, not the module root
 
 # Notification icon: all five densities should be present
 ls android/app/src/main/res/drawable-*/ic_stat_notify.png

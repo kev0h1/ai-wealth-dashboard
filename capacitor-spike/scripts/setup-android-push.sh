@@ -30,7 +30,6 @@ ANDROID_DIR="${SPIKE_DIR}/android"
 PROJECT_GRADLE="${ANDROID_DIR}/build.gradle"
 APP_GRADLE="${ANDROID_DIR}/app/build.gradle"
 MANIFEST="${ANDROID_DIR}/app/src/main/AndroidManifest.xml"
-GOOGLE_SERVICES_JSON="${ANDROID_DIR}/app/google-services.json"
 CANONICAL_GOOGLE_SERVICES_JSON="${SPIKE_DIR}/google-services.json"
 RES_DIR="${ANDROID_DIR}/app/src/main/res"
 CANONICAL_NOTIFICATION_ICON_DIR="${SPIKE_DIR}/assets/notification-icon"
@@ -42,6 +41,24 @@ if [[ ! -d "${ANDROID_DIR}" ]]; then
   echo "ERROR: ${ANDROID_DIR} does not exist. Run 'npx cap add android' first." >&2
   exit 1
 fi
+
+# H66 review round 4 (2026-09-17): GOOGLE_SERVICES_JSON is resolved via
+# the ONE shared helper both this script and apply-board-flavor.sh call,
+# rather than a literal hardcoded here AND a second, independently
+# hardcoded literal in step 4's Groovy-writing logic below -- that exact
+# divergence (this variable pointing at the flavour-scoped path while
+# step 4's fallback block still checked the module root, unconditionally)
+# is the defect this round fixes: running this script alone restored the
+# file to src/sorted/, wrote a Groovy check that only ever looks at the
+# module root, found nothing, silently swallowed the exception, and never
+# applied the plugin at all -- a green build with FCM push silently dead.
+# See resolve-google-services-path.py's own header comment for the full
+# incident writeup. Before the "board" flavour exists, this correctly
+# resolves to the module root, exactly this project's pre-H66 shape (and
+# the only correct answer for someone who wants Sorted with working push
+# and no Board at all).
+GOOGLE_SERVICES_RELATIVE="$(python3 "${SCRIPT_DIR}/resolve-google-services-path.py" "${ANDROID_DIR}")"
+GOOGLE_SERVICES_JSON="${ANDROID_DIR}/app/${GOOGLE_SERVICES_RELATIVE}"
 
 # --- 1. Project-level build.gradle: add the google-services classpath ---
 # Harmless with or without google-services.json — just makes the plugin
@@ -114,6 +131,7 @@ elif [[ -f "${CANONICAL_GOOGLE_SERVICES_JSON}" ]]; then
   # copy won't survive a regeneration. The canonical copy at
   # capacitor-spike/google-services.json is committed and survives that,
   # so restore the working copy from it instead of hard-stopping.
+  mkdir -p "$(dirname "${GOOGLE_SERVICES_JSON}")"
   cp "${CANONICAL_GOOGLE_SERVICES_JSON}" "${GOOGLE_SERVICES_JSON}"
   echo "[3/7] google-services.json: restored from canonical copy at ${CANONICAL_GOOGLE_SERVICES_JSON}."
 else
@@ -170,18 +188,24 @@ PYEOF
     # guarded on google-services.json existing (belt-and-braces on top of
     # the step-3 check above) so the file stays self-contained/robust even
     # if someone deletes the JSON after this script has already run once.
-    cat >> "${APP_GRADLE}" <<'EOF'
+    # The file('...') path below is GOOGLE_SERVICES_RELATIVE, the SAME
+    # resolved value step 3 just restored the file to (review round 4,
+    # 2026-09-17 -- this embedded literal disagreeing with step 3's actual
+    # restore target was the defect). Deliberately an UNQUOTED heredoc so
+    # bash interpolates it; there is nothing else in this block for bash
+    # to misinterpret.
+    cat >> "${APP_GRADLE}" <<GRADLESNIPPET_EOF
 
 try {
-    def servicesJSON = file('google-services.json')
+    def servicesJSON = file('${GOOGLE_SERVICES_RELATIVE}')
     if (servicesJSON.text) {
         apply plugin: 'com.google.gms.google-services'
     }
 } catch(Exception e) {
     logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
 }
-EOF
-    echo "[4/7] app/build.gradle: appended guarded 'apply plugin: com.google.gms.google-services' block."
+GRADLESNIPPET_EOF
+    echo "[4/7] app/build.gradle: appended guarded 'apply plugin: com.google.gms.google-services' block (checking ${GOOGLE_SERVICES_RELATIVE})."
   fi
 fi
 
@@ -313,50 +337,27 @@ fi
 # Google sign-in opens the OAuth flow in a Chrome Custom Tab. The backend's
 # /auth/google/mobile-callback answers with an HTML page (see
 # backend/app/routers/auth.py) that navigates to wealthdash://auth-done to
-# hand control back to the app. Without this intent-filter on MainActivity,
-# Android has no app registered for that scheme, so the Custom Tab is left on
-# a dead page and the user has to quit and reopen the app to see the signed-in
-# state. This is unrelated to push notifications but lives in this script
-# because it patches the same gitignored, regenerated manifest.
+# hand control back to the app. Without this intent-filter registered
+# somewhere, Android has no app for that scheme, so the Custom Tab is left
+# on a dead page and the user has to quit and reopen the app to see the
+# signed-in state. This is unrelated to push notifications but lives in
+# this script because it patches the same gitignored, regenerated project.
+#
+# H66 (review finding P1/FIX1, 2026-09-17 round 2): delegated to a shared,
+# order-independent script (ensure-wealthdash-manifest.py) also called
+# from apply-board-flavor.sh, rather than duplicating flavour-detection
+# logic here. See that script's own header comment for the full reasoning
+# -- in short, whether this belongs in src/main or the sorted-flavour
+# overlay depends on whether the "board" flavour exists *right now*, which
+# can change on either side of this script running relative to
+# apply-board-flavor.sh, in either order, any number of times.
 if [[ ! -f "${MANIFEST}" ]]; then
   echo "ERROR: ${MANIFEST} not found." >&2
   exit 1
 fi
 
-if grep -q 'android:scheme="wealthdash"' "${MANIFEST}"; then
-  echo "[7/7] AndroidManifest.xml: wealthdash:// deep-link intent-filter already present — skipping."
-else
-  python3 - "${MANIFEST}" <<'PYEOF'
-import sys
-path = sys.argv[1]
-with open(path) as f:
-    content = f.read()
-marker = (
-    '            <intent-filter>\n'
-    '                <action android:name="android.intent.action.MAIN" />\n'
-    '                <category android:name="android.intent.category.LAUNCHER" />\n'
-    '            </intent-filter>\n'
-)
-idx = content.find(marker)
-if idx == -1:
-    print("ERROR: could not find MAIN/LAUNCHER intent-filter to anchor insertion", file=sys.stderr)
-    sys.exit(1)
-insert_at = idx + len(marker)
-insertion = (
-    "\n"
-    "            <intent-filter>\n"
-    '                <action android:name="android.intent.action.VIEW" />\n'
-    '                <category android:name="android.intent.category.DEFAULT" />\n'
-    '                <category android:name="android.intent.category.BROWSABLE" />\n'
-    '                <data android:scheme="wealthdash" />\n'
-    "            </intent-filter>\n"
-)
-content = content[:insert_at] + insertion + content[insert_at:]
-with open(path, "w") as f:
-    f.write(content)
-PYEOF
-  echo "[7/7] AndroidManifest.xml: added wealthdash:// deep-link intent-filter to MainActivity."
-fi
+python3 "${SCRIPT_DIR}/ensure-wealthdash-manifest.py" "${ANDROID_DIR}"
+echo "[7/7] wealthdash:// deep-link intent-filter placement done (see above)."
 
 echo
 echo "Android push setup complete."

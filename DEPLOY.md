@@ -742,23 +742,60 @@ needed.
 - C11 (open): Kevin adds this keystore to Codemagic as a code-signing asset
   once an Android Codemagic workflow exists (there is currently no Android
   CI, see `capacitor-spike/ANDROID_PUSH.md`).
+- H66 (2026-09-17): the project now builds two Gradle product flavours,
+  `sorted` (Sorted, `co.uk.auriqltd.sorted`, everything above unchanged) and
+  `board` (Board, `co.uk.auriqltd.sorted.board`, a separate ops-board app,
+  see `capacitor-spike/scripts/apply-board-flavor.sh`). `signingConfig` and
+  `keystore.properties` are shared across both flavours, so the paths below
+  now carry the flavour name. `bundleRelease`/`assembleDebug` still exist
+  as aggregate tasks, but calling them "harmless" would be wrong (review
+  round 4, 2026-09-17): they now also build Board's variant alongside
+  Sorted's, and Board's own preBuild depends on `verifyBoardWebAssets`
+  (see `README.md`'s Board section), which throws if
+  `build-board-web-assets.sh` hasn't been run — so the plain, unqualified
+  `assembleDebug` can fail the WHOLE build over a Board-only precondition
+  even when all you wanted was Sorted's own APK. Use the flavour-qualified
+  task (`assembleSortedDebug`/`bundleSortedRelease`) for Sorted alone.
 
 Build the signed AAB (from `capacitor-spike/android`, keystore.properties
-must be present):
+must be present). Each of the three snippets below anchors via `git
+rev-parse --show-toplevel` rather than a bare relative `cd
+capacitor-spike/...`, so each is safe to run on its own AND safe to paste
+straight after the one before it: a bare relative `cd` would work the
+first time (from a fresh shell at the repo root) but fail on the next
+snippet, since the previous one leaves you inside `capacitor-spike/android`
+and neither `capacitor-spike/android` nor `capacitor-spike` exists inside
+that directory (review finding P3/FIX4, 2026-09-17 round 3 — an earlier
+version applied this fix to only the third snippet, so reading top to
+bottom the second one still failed the same way the third used to):
 
 ```bash
-cd capacitor-spike/android
-./gradlew bundleRelease
-# output: app/build/outputs/bundle/release/app-release.aab
+cd "$(git rev-parse --show-toplevel)/capacitor-spike/android"
+./gradlew bundleSortedRelease
+# output: app/build/outputs/bundle/sortedRelease/app-sorted-release.aab
 ```
 
 Rebuild the debug APK and publish it to the UAT download link (unsigned
 debug build, separate from the Play upload key above):
 
 ```bash
-cd capacitor-spike/android
-./gradlew assembleDebug
-cp app/build/outputs/apk/debug/app-debug.apk /var/www/wealth-downloads/wealth.apk
+cd "$(git rev-parse --show-toplevel)/capacitor-spike/android"
+./gradlew assembleSortedDebug
+cp app/build/outputs/apk/sorted/debug/app-sorted-debug.apk /var/www/wealth-downloads/wealth.apk
+```
+
+Board's own debug APK (see `capacitor-spike/README.md` for the full build
+flow, including the web-asset and icon steps that must run first;
+`build-board-web-assets.sh` refreshes `src/board/assets/` from `www/`, and
+`app/build.gradle`'s `verifyBoardWebAssets` task fails the build if that
+step is skipped or the copy is stale relative to `www/`):
+
+```bash
+cd "$(git rev-parse --show-toplevel)/capacitor-spike"
+bash scripts/build-board-web-assets.sh
+cd android
+./gradlew assembleBoardDebug
+cp app/build/outputs/apk/board/debug/app-board-debug.apk /var/www/wealth-downloads/board.apk
 ```
 
 ## Mobile: Codemagic TestFlight builds

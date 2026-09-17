@@ -1,0 +1,26 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!--
+    Board app COMPOSITE icon (icon-board.png source) — H66 (2026-09-17).
+    Same framing as settle-glyph-flat-composite.svg (full-scale glyph,
+    flat #0f172a Midnight Canvas background, no inset, no glow) — this is
+    what renders the legacy square/round launcher icons for the Board
+    flavour. See settle-glyph-board-foreground.svg for why the gradient is
+    amber -> burnt orange rather than Sorted's reserved indigo -> violet.
+  -->
+  <defs>
+    <linearGradient id="boardGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f59e0b" />
+      <stop offset="100%" stop-color="#c2410c" />
+    </linearGradient>
+  </defs>
+
+  <rect x="0" y="0" width="1024" height="1024" fill="#0f172a" />
+
+  <g>
+    <rect x="292" y="257" width="475" height="119" rx="28.6" fill="#475569"
+      transform="rotate(6.86 529.5 316.5)" />
+    <rect x="241" y="447" width="505" height="119" rx="28.5" fill="#475569"
+      transform="rotate(-6.84 493.5 506.5)" />
+    <rect x="232" y="637" width="559" height="129" rx="31.5" fill="url(#boardGradient)" />
+  </g>
+</svg>
