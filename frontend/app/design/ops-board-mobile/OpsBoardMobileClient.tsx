@@ -111,10 +111,8 @@ import {
   DONE_SAMPLE,
   DONE_TOTAL_COUNT,
   IN_FLIGHT,
-  IN_FLIGHT_TOTAL_COUNT,
   TODO_SAMPLE,
   TODO_TOTAL_COUNT,
-  TOTAL_ITEM_COUNT,
 } from "./fixtures";
 
 type Variant = "live-now" | "ribbon" | "waiting";
@@ -334,12 +332,39 @@ function Inner() {
     : "ribbon";
   const mode: Mode = params.get("mode") === "dark" ? "dark" : "light";
 
+  // H69 (rejected-round fix): this used to flip document.documentElement's
+  // class and the color-scheme meta directly off the ?mode= query param, a
+  // SECOND, independent "is dark" source from the one HeaderHero's new
+  // toggle reads (PreferencesContext's darkMode, sourced from `wd_dark`).
+  // The two disagreed on ?mode=dark: the page painted dark while the
+  // toggle, reading real context state, still reported unchecked, exactly
+  // the control-versus-theme divergence this gate exists to catch. The fix
+  // is for ?mode= to seed the SAME single source rather than bypass it:
+  // write `wd_dark` to match the requested mode, then reload once so
+  // PreferencesContext's synchronous useState initialiser and the existing
+  // no-flash inline script (app/layout.tsx) both pick it up before this
+  // tree mounts — the same path a real toggle, persisted, then reloaded
+  // would take. Document class and the theme-color/color-scheme metas are
+  // then kept correct by PreferencesContext's own effect and
+  // components/ThemeColor.tsx (both mounted app-wide via app/layout.tsx),
+  // not by anything in this file. Once wd_dark already matches `mode`,
+  // this is a no-op, so switching modes never loops.
   useEffect(() => {
-    const t = setTimeout(() => {
-      document.documentElement.classList.toggle("dark", mode === "dark");
-      document.querySelector('meta[name="color-scheme"]')?.setAttribute("content", mode === "dark" ? "dark" : "only light");
-    }, 0);
-    return () => clearTimeout(t);
+    let current: string | null = null;
+    try {
+      current = window.localStorage.getItem("wd_dark");
+    } catch {
+      /* ignore */
+    }
+    const desired = mode === "dark" ? "1" : "0";
+    if (current !== desired) {
+      try {
+        window.localStorage.setItem("wd_dark", desired);
+      } catch {
+        /* ignore */
+      }
+      window.location.reload();
+    }
   }, [mode]);
 
   // Mirrors the exact mount/unmount effect app/ops/go-live/page.tsx runs
@@ -358,6 +383,9 @@ function Inner() {
   const [items, setItems] = useState<GoLiveItem[]>(ALL_FIXTURE_ITEMS);
   const [filters, setFilters] = useState<GoLiveFilters>(DEFAULT_GO_LIVE_FILTERS);
   const [selected, setSelected] = useState<GoLiveItem | null>(null);
+
+  // Computed once, not inline twice at the HeaderHero call site below.
+  const backlogTotals = useMemo(() => itemTotals(items), [items]);
 
   const inFlightIds = useMemo(() => new Set(IN_FLIGHT.map((i) => i.id)), []);
   const todoIds = useMemo(() => new Set(TODO_SAMPLE.map((i) => i.id)), []);
@@ -401,7 +429,7 @@ function Inner() {
   // gate like this one anyway). Keep this flat; do not reintroduce a
   // wrapper div between this element and FilterBar.
   return (
-    <div className={mode === "dark" ? "dark" : ""} style={{ colorScheme: mode }}>
+    <div>
       <div className="mx-auto min-h-dvh w-full max-w-[430px] bg-[#f0f2f7] px-6 pb-32 dark:bg-[#0f172a]">
         <div className="pt-5">
           <p className="mb-1 text-center text-[11px] text-slate-400 dark:text-slate-500">
@@ -424,20 +452,33 @@ function Inner() {
           </p>
           <div className="mb-1">
             <h1 className="text-[20px] font-bold text-slate-900 dark:text-white">Go-live board</h1>
-            <p className="mt-0.5 text-[11px] uppercase tracking-wide text-slate-400 dark:text-slate-500">
-              {TOTAL_ITEM_COUNT} items · {IN_FLIGHT_TOTAL_COUNT} in flight
-            </p>
           </div>
           {/* H69: the real production HeaderHero, fed this preview's own
               fixture items and their real itemTotals() — the same header
               production page.tsx renders, carrying the new dark-mode
-              toggle. Rendering the hand-authored markup above it would let
-              this preview drift from the shipped header the way
-              CLAUDE.md's "Design work" section warns about; this is a
-              genuine gate, not a copy. */}
+              toggle. Rendering hand-authored markup here instead of the
+              shipped component would let this preview drift from the real
+              header the way CLAUDE.md's "Design work" section warns
+              about; this is a genuine gate, not a copy. The count line
+              this replaced (a separate fixture-derived total) is dropped:
+              it read as a second, contradictory count sitting directly
+              above the real hero's own "N of M done" from the same
+              fixture set. */}
           <div className="mt-5">
-            <HeaderHero items={items} done={itemTotals(items).done} total={itemTotals(items).total} />
+            <HeaderHero items={items} done={backlogTotals.done} total={backlogTotals.total} />
           </div>
+          {/* CLAUDE.md's own exception: a component that fetches/writes
+              through its own props chain rather than taking everything as
+              props cannot be fully exercised unauthenticated. HeaderHero's
+              toggle reads real PreferencesContext state (so its ON/OFF
+              display is genuine), but saving goes through
+              api.updatePreferences, which this signed-out route cannot
+              satisfy, so a tap here reverts within a few hundred
+              milliseconds. Say so rather than let a reviewer think a
+              successful tap here proves the save path works. */}
+          <p className="mt-2 text-center text-[11px] text-slate-400 dark:text-slate-500">
+            This preview is not signed in, so tapping the dark mode toggle shows its state only. The save to the server fails here and the switch reverts; toggling for real only works from the signed in board.
+          </p>
         </div>
 
         <FilterBar filters={filters} onChange={setFilters} />

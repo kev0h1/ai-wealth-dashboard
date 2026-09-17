@@ -10,16 +10,20 @@ import { shouldAcceptPreferencesSnapshot } from "@/lib/preferencesVersion";
 export type Region = "UK" | "Kenya";
 
 /** G60: which of this context's six server-backed setters last failed to
- * save, and what to tell the user. A single slot, not one per field — only
- * `dark_mode` has a wired consumer today (the toggle in SettingsPage.tsx),
- * so a second field failing while an unrelated one's message is still
- * showing is not a scenario any current screen can even present; should a
- * future control for hideNetWorth/payPeriodConfig/region/debtTargetMonths/
- * debtTrackingStart want its own message, widening this to a per-field map
- * is a small change, not a redesign of the mechanism. Every one of the six
- * setters still fully reverts-and-reconciles on failure regardless of
- * whether anything reads this field — the correctness guarantee never
- * depends on a message being shown. */
+ * save, and what to tell the user. A single slot, not one per field —
+ * `dark_mode` is the only field with a wired consumer of this error today,
+ * but it now has TWO (the toggle in SettingsPage.tsx, and H69's toggle in
+ * app/ops/go-live/HeaderHero.tsx), both reading the same slot and the same
+ * message when the same field fails, which is consistent rather than a
+ * conflict: two screens showing the identical dark_mode failure at once is
+ * not the "two different fields' messages competing for one slot" case
+ * this single-slot design exists to avoid. Should a future control for
+ * hideNetWorth/payPeriodConfig/region/debtTargetMonths/debtTrackingStart
+ * want its own message, widening this to a per-field map is a small
+ * change, not a redesign of the mechanism. Every one of the six setters
+ * still fully reverts-and-reconciles on failure regardless of whether
+ * anything reads this field — the correctness guarantee never depends on
+ * a message being shown. */
 export interface PreferencesSaveError {
   field: string;
   message: string;
