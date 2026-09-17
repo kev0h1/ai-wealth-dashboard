@@ -1,21 +1,10 @@
 import type { ReactNode } from "react";
+import { CURRENCY_TOKEN, isCurrencyToken } from "@/lib/moneyText";
 
-/**
- * Money is mono: anything carrying a £ renders in JetBrains Mono with
- * tabular figures, all other text stays in Figtree. Matches any of ~£,
- * −£ (Unicode minus), -£, +£, or bare £ followed by either a run of
- * digits (with an optional k/m abbreviation suffix, e.g. £340k, £1.20m)
- * or a run of mask bullets (e.g. £•••• from maskAmounts() when the
- * hide-balances preference is on), so it never grabs dates, percentages,
- * or plain counts, and never falls through to Figtree just because the
- * figure is masked or abbreviated.
- */
-const CURRENCY_TOKEN = /([~−+-]?£(?:[\d,]+(?:\.\d+)?[km]?|•+))/gi;
-const CURRENCY_TOKEN_EXACT = /^[~−+-]?£(?:[\d,]+(?:\.\d+)?[km]?|•+)$/i;
-
-function isCurrencyToken(part: string): boolean {
-  return CURRENCY_TOKEN_EXACT.test(part);
-}
+// Tokenising regex + comma/full-stop handling live in lib/moneyText.ts
+// (G112, 2026-09-16) so they can be unit-tested with a plain Node script;
+// see that file's header comment for the money-is-mono rule and the
+// comma/decimal fix, and scripts/money-text-comma.test.mjs for the tests.
 
 export default function MoneyText({
   text,

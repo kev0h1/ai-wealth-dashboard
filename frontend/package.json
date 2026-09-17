@@ -23,7 +23,8 @@
     "check:penny-screen-views": "node --no-warnings --experimental-strip-types scripts/penny-screen-views.test.mjs",
     "check:cash-walk": "node --no-warnings --experimental-strip-types scripts/cash-walk.test.mjs",
     "check:spend-from-account": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/spend-from-account.test.mjs",
-    "check:accounts-pinned": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/accounts-pinned.test.mjs"
+    "check:accounts-pinned": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/accounts-pinned.test.mjs",
+    "check:money-text-comma": "node --no-warnings --experimental-strip-types scripts/money-text-comma.test.mjs"
   },
   "dependencies": {
     "@aparajita/capacitor-biometric-auth": "^10.0.0",
