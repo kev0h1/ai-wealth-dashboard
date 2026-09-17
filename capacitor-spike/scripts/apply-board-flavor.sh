@@ -155,8 +155,25 @@ echo "[2/6] wealthdash:// deep-link intent-filter placement done (see above)."
 # matching client found for package name co.uk.auriqltd.sorted.board".
 if [[ -f "${ROOT_GOOGLE_SERVICES_JSON}" ]]; then
   if [[ -f "${SORTED_GOOGLE_SERVICES_JSON}" ]]; then
-    rm -f "${ROOT_GOOGLE_SERVICES_JSON}"
-    echo "[3/6] google-services.json: removed leftover module-root copy (sorted-flavour copy already present at ${SORTED_GOOGLE_SERVICES_JSON})."
+    # Do NOT blindly rm the module-root copy (review finding P3/FIX1,
+    # 2026-09-17 round 3): the module root is exactly where the Firebase
+    # console drops a freshly downloaded google-services.json, so the
+    # realistic case is Kevin downloading a NEW config there while a STALE
+    # copy still sits at the sorted-flavour path -- deleting the root
+    # unconditionally would silently keep the stale one and throw away the
+    # new one, with no backup. Compare content first: only when the two
+    # are byte-identical is the root copy definitely redundant cruft safe
+    # to remove outright; otherwise move it aside rather than guess which
+    # one is "right" (matches the strings.xml refusal a few steps below --
+    # never silently destroy a file this script didn't itself just write).
+    if cmp -s "${ROOT_GOOGLE_SERVICES_JSON}" "${SORTED_GOOGLE_SERVICES_JSON}"; then
+      rm -f "${ROOT_GOOGLE_SERVICES_JSON}"
+      echo "[3/6] google-services.json: removed leftover module-root copy (byte-identical to the sorted-flavour copy already at ${SORTED_GOOGLE_SERVICES_JSON})."
+    else
+      backup="${ROOT_GOOGLE_SERVICES_JSON}.bak"
+      mv "${ROOT_GOOGLE_SERVICES_JSON}" "${backup}"
+      echo "[3/6] google-services.json: module-root copy DIFFERS from the sorted-flavour copy at ${SORTED_GOOGLE_SERVICES_JSON} -- moved the module-root copy to ${backup} rather than guessing which is current. If it's a newer Firebase-console download, review it and replace ${SORTED_GOOGLE_SERVICES_JSON} yourself, then remove ${backup}."
+    fi
   else
     mkdir -p "$(dirname "${SORTED_GOOGLE_SERVICES_JSON}")"
     mv "${ROOT_GOOGLE_SERVICES_JSON}" "${SORTED_GOOGLE_SERVICES_JSON}"
@@ -404,8 +421,14 @@ tasks.register('verifyBoardWebAssets') {
         // where the repo happens to be checked out. This MUST match
         // build-board-web-assets.sh's own hash command exactly, or a
         // byte-identical export still reports as stale.
+        // wwwDir is passed as $1 to `bash -c`, not interpolated into the
+        // quoted command string (nit fix, 2026-09-17 round 3): a repo path
+        // containing a single quote would otherwise break the embedded
+        // 'cd '${wwwDir}'' quoting. Passing it as a positional argument
+        // lets bash handle arbitrary characters in the path correctly.
         def proc = ["bash", "-c",
-            "cd '${wwwDir}' && export LC_ALL=C && find . -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum"
+            'cd "$1" && export LC_ALL=C && find . -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum',
+            "bash", wwwDir.toString()
         ].execute()
         def out = proc.text
         proc.waitFor()

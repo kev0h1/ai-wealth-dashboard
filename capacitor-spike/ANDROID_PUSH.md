@@ -53,7 +53,7 @@ not work end-to-end:
 
 | Prerequisite | Used by | Where it lives |
 |---|---|---|
-| `google-services.json` | Android app build | `capacitor-spike/google-services.json` (committed, canonical) and `capacitor-spike/android/app/src/sorted/google-services.json` (gitignored working copy, flavour-scoped since H66, restored from the canonical file by `setup-android-push.sh`) |
+| `google-services.json` | Android app build | `capacitor-spike/google-services.json` (canonical, held locally, deliberately untracked — see `.gitignore` and commit `3cc286b`) and `capacitor-spike/android/app/src/sorted/google-services.json` (gitignored working copy, flavour-scoped since H66, restored from the canonical file by `setup-android-push.sh`) |
 | Service-account key (`FCM_PROJECT_ID` + `FCM_SERVICE_ACCOUNT_JSON`/`_PATH`) | Backend, to send pushes via FCM | Backend env/secrets (not in git) |
 
 ## Build flow
@@ -139,9 +139,11 @@ the script exits non-zero.
    why a module-root copy breaks the Board flavour), checked first, and
    restored if missing. `android/` is gitignored and wiped by every `npx
    cap add android`, so this working copy never survives regeneration. If
-   it's absent but the canonical, committed
-   `capacitor-spike/google-services.json` exists, the script copies it
-   into place and proceeds. Only if **neither** copy exists does the
+   it's absent but the canonical copy at `capacitor-spike/google-services.json`
+   exists (held locally, deliberately untracked — not committed, see
+   `.gitignore` and commit `3cc286b`, so a fresh clone starts without it and
+   needs the Firebase console steps below) the script copies it into
+   place and proceeds. Only if **neither** copy exists does the
    script print the Firebase setup steps above and exit non-zero
    **before** touching `app/build.gradle`'s plugin block, since nothing
    about FCM can work without the file and the script will never

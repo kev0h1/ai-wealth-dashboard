@@ -41,8 +41,15 @@ setup-android-push.sh alone, after the flavour already exists and the
 filter has already been migrated to the overlay, would find nothing in
 src/main and blindly re-insert it there -- recreating the exact bug in
 the opposite direction. Centralising the decision here, called from both
-scripts, converges to the same correct state no matter which one runs,
-in which order, or how many times.
+scripts, converges to the same correct placement no matter which one
+runs, in which order, or how many times -- flavour-forward (once the
+board flavour has ever existed, the filter lives in the overlay, and
+stays there through any number of later calls). Rolling the flavour back
+off also cleans up a stale overlay, but only when it is exactly our own
+known template (review finding P3/FIX3, 2026-09-17 round 3): a
+non-matching overlay is left in place, inert, with a note printed, on
+the same "never silently destroy an unrecognised file" principle this
+script applies everywhere else.
 """
 import sys
 from pathlib import Path
@@ -148,8 +155,24 @@ def main():
         else:
             print(f"{main_manifest}: no wealthdash:// intent-filter present -- skipping.")
 
-        if sorted_manifest.exists() and has_wealthdash(sorted_manifest.read_text()):
-            print(f"{sorted_manifest}: wealthdash:// deep-link intent-filter already present -- skipping.")
+        if sorted_manifest.exists():
+            if has_wealthdash(sorted_manifest.read_text()):
+                print(f"{sorted_manifest}: wealthdash:// deep-link intent-filter already present -- skipping.")
+            else:
+                # Refuse rather than silently rewrite (review finding
+                # P3/FIX2, 2026-09-17 round 3, same wording/reasoning as
+                # apply-board-flavor.sh's strings.xml refusal): this file
+                # already exists but lacks the expected scheme, which could
+                # mean a hand edit (e.g. an extra meta-data entry) rather
+                # than a file safe to regenerate wholesale.
+                print(
+                    f"ERROR: {sorted_manifest} already exists but does not contain the "
+                    'expected android:scheme="wealthdash" intent-filter. Refusing to '
+                    "overwrite a file that may carry a hand edit -- add the intent-filter "
+                    "to it yourself (or remove the file) and re-run.",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
         else:
             sorted_manifest.parent.mkdir(parents=True, exist_ok=True)
             sorted_manifest.write_text(SORTED_OVERLAY_TEMPLATE.format(block=WEALTHDASH_BLOCK))
@@ -166,6 +189,27 @@ def main():
             main_text = insert_into_main(main_text, main_manifest)
             main_manifest.write_text(main_text)
             print(f"added wealthdash:// deep-link intent-filter to {main_manifest} (board flavour not configured yet)")
+
+        # Clean up a stale overlay left over from a rollback off flavours
+        # (review finding P3/FIX3, 2026-09-17 round 3): src/sorted/ is not
+        # an honoured source set at all once productFlavors is gone, so
+        # any file there is inert -- but only remove it when it is
+        # EXACTLY our own known template (never guess at a hand edit, same
+        # rule as everywhere else in this script). If it exists in some
+        # other shape, leave it alone and say so, rather than silently
+        # deleting something that might not be ours.
+        if sorted_manifest.exists():
+            expected = SORTED_OVERLAY_TEMPLATE.format(block=WEALTHDASH_BLOCK)
+            if sorted_manifest.read_text() == expected:
+                sorted_manifest.unlink()
+                print(f"removed stale {sorted_manifest} (board flavour no longer configured, and it exactly matched our own template)")
+            else:
+                print(
+                    f"NOTE: {sorted_manifest} exists but the board flavour is not configured, "
+                    "so it is inert; leaving it in place since its content does not exactly "
+                    "match our own template (it may carry a hand edit) -- remove it by hand if "
+                    "it is no longer wanted."
+                )
 
 
 if __name__ == "__main__":

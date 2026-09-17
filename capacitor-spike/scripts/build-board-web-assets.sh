@@ -143,7 +143,14 @@ HTMLEOF
 echo "wrote $BOARD_PUBLIC_DIR/index.html (redirect shim -> /ops/go-live.html)"
 
 mkdir -p "$BOARD_ASSETS_DIR"
-BOARD_CONFIG_TMP="$(mktemp "$BOARD_ASSETS_DIR/.capacitor.config.json.XXXXXX")"
+# Temp file lives directly under $BOARD_DIR (src/board/), NOT inside
+# $BOARD_ASSETS_DIR (nit fix, 2026-09-17 round 3): assets/ is a
+# recognised source-set subdirectory Gradle bundles into the APK, so a
+# stray temp file left there by a hard-killed process (the EXIT trap
+# can't catch SIGKILL) could ship as a spurious asset. src/board/ itself
+# is invisible to the Android build, matching the same principle the
+# .www-stamp file already follows.
+BOARD_CONFIG_TMP="$(mktemp "$BOARD_DIR/.capacitor.config.json.XXXXXX")"
 trap 'rm -f "$BOARD_CONFIG_TMP"' EXIT
 if jq --arg appId "$BOARD_APPLICATION_ID" --arg appName "Board" \
   '.appId = $appId | .appName = $appName' \

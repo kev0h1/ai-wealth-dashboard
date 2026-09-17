@@ -753,10 +753,19 @@ needed.
   task's output path — use the flavour-qualified task for Sorted alone).
 
 Build the signed AAB (from `capacitor-spike/android`, keystore.properties
-must be present):
+must be present). Each of the three snippets below anchors via `git
+rev-parse --show-toplevel` rather than a bare relative `cd
+capacitor-spike/...`, so each is safe to run on its own AND safe to paste
+straight after the one before it: a bare relative `cd` would work the
+first time (from a fresh shell at the repo root) but fail on the next
+snippet, since the previous one leaves you inside `capacitor-spike/android`
+and neither `capacitor-spike/android` nor `capacitor-spike` exists inside
+that directory (review finding P3/FIX4, 2026-09-17 round 3 — an earlier
+version applied this fix to only the third snippet, so reading top to
+bottom the second one still failed the same way the third used to):
 
 ```bash
-cd capacitor-spike/android
+cd "$(git rev-parse --show-toplevel)/capacitor-spike/android"
 ./gradlew bundleSortedRelease
 # output: app/build/outputs/bundle/sortedRelease/app-sorted-release.aab
 ```
@@ -765,25 +774,19 @@ Rebuild the debug APK and publish it to the UAT download link (unsigned
 debug build, separate from the Play upload key above):
 
 ```bash
-cd capacitor-spike/android
+cd "$(git rev-parse --show-toplevel)/capacitor-spike/android"
 ./gradlew assembleSortedDebug
 cp app/build/outputs/apk/sorted/debug/app-sorted-debug.apk /var/www/wealth-downloads/wealth.apk
 ```
 
 Board's own debug APK (see `capacitor-spike/README.md` for the full build
-flow, including the web-asset and icon steps that must run first):
+flow, including the web-asset and icon steps that must run first;
+`build-board-web-assets.sh` refreshes `src/board/assets/` from `www/`, and
+`app/build.gradle`'s `verifyBoardWebAssets` task fails the build if that
+step is skipped or the copy is stale relative to `www/`):
 
 ```bash
-# cd via git rev-parse rather than a bare relative `cd capacitor-spike`
-# (review finding P3, 2026-09-17 round 2): read straight after the two
-# snippets above, which both end inside capacitor-spike/android, a bare
-# `cd capacitor-spike` from there looks for a nonexistent
-# capacitor-spike/android/capacitor-spike and fails. This works
-# regardless of which directory you're currently in.
 cd "$(git rev-parse --show-toplevel)/capacitor-spike"
-# refreshes src/board/assets/ from www/; app/build.gradle's
-# verifyBoardWebAssets task fails the build if this step is skipped or
-# the copy is stale relative to www/
 bash scripts/build-board-web-assets.sh
 cd android
 ./gradlew assembleBoardDebug
