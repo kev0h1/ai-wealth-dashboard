@@ -469,7 +469,15 @@ function Inner() {
           )}
         </div>
 
-        <Switcher variant={variant} mode={mode} />
+        {/* H71: hidden while a sheet is open. At z-[60] (above the sheet's
+            z-50, on purpose, so it can always be reached over the rest of
+            this preview's content) it also sat on top of ItemDetailSheet
+            whenever one opened, obstructing its bottom ~150px — the H56
+            reviewer had to remove it from the DOM by hand just to
+            screenshot the sheet. This preview is the designated gate for
+            ItemDetailSheet's own phone behaviour, so a control that blocks
+            seeing it defeats that gate. */}
+        {!selected && <Switcher variant={variant} mode={mode} />}
       </div>
 
       {selected && (

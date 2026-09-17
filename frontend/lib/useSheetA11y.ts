@@ -41,14 +41,17 @@ import { useCallback, useEffect, useRef, useState } from "react";
 //
 // Both are OFF by default so the existing ~30 call sites (12 named in H71's
 // brief plus a handful more found while wiring this in) are behaviourally
-// unchanged. A caller opts in with a second argument:
+// unchanged. A caller opts in with a second argument, which changes the
+// return shape from a plain ref callback to a `{ ref, close }` handle:
 //
-//   const panelRef = useSheetA11y<HTMLDivElement>(onClose, { lockScroll: true, backToClose: true });
+//   const { ref: panelRef, close } = useSheetA11y<HTMLDivElement>(onClose, { lockScroll: true, backToClose: true });
 //
-// or, when backToClose is requested, by using the `{ ref, close }` form
-// (see the overloads below) and calling `close()` from every affordance
-// that closes the sheet (X button, backdrop, Escape) INSTEAD of the raw
-// `onClose` — see the `close` doc comment for why that matters.
+// `close()` — not the raw `onClose` prop — is what every affordance that
+// closes the sheet (X button, backdrop, Escape) must call from then on;
+// see the `close` doc comment on SheetA11yHandle below for why that
+// matters. Passing no second argument at all keeps the original
+// single-value return (a bare ref callback), so every existing call site
+// is untouched.
 //
 // Scroll lock (`lockScroll`): the naive `body { overflow: hidden }` (still
 // used by lib/useLockBodyScroll.ts, a separate, older hook already wired
@@ -64,9 +67,22 @@ import { useCallback, useEffect, useRef, useState } from "react";
 // Captures/restores whatever inline styles were already on `body` (rather
 // than assuming they were empty), so nested lock/unlock pairs (sheet A
 // open, sheet B opens on top of it, B closes, A closes) compose correctly
-// as a stack: each lock's cleanup puts the body back exactly how it found
-// it, which for a nested lock is the OUTER lock's own fixed/negative-top
-// styles, not the page's original ones.
+// as a stack on RESTORE: each lock's cleanup puts the body back exactly
+// how it found it, which for a nested lock is the OUTER lock's own
+// fixed/negative-top styles, not the page's original ones. CAPTURE needs
+// its own care: `window.scrollY` reads 0 the instant `body` is
+// `position: fixed` (measured directly — there is no more scrollable
+// content once body leaves the flow), so a second, nested lock reading
+// `window.scrollY` fresh would capture 0 instead of the real pre-lock
+// offset. The effect below detects an already-locked body and reads the
+// true offset back out of its existing `top: -{scrollY}px` instead.
+// Desktop also gets a scrollbar-width compensation: removing the
+// document scrollbar via `position: fixed` narrows the viewport's
+// content box, which visibly shifts anything sized against `100vw` (the
+// kanban board behind this very sheet does, at desktop widths) by the
+// scrollbar's width the instant the sheet opens. Compensating with
+// `padding-right` equal to that width holds the layout still; phones use
+// overlay scrollbars so this is normally a 0px no-op there.
 //
 // Back-to-close (`backToClose`): opening pushes one history entry; the
 // browser or Android hardware back button (both surface as a `popstate`
@@ -136,6 +152,13 @@ export function useSheetA11y<T extends HTMLElement>(
   // would consume two entries instead of one). Reset whenever the
   // backToClose effect below (re)starts, i.e. each time the sheet opens.
   const closingRef = useRef(false);
+  // Per-instance generation counter for the Strict Mode guard below — a
+  // ref rather than a module-level counter, since it has to distinguish
+  // "this same hook instance's effect ran again" from "some unrelated
+  // sheet elsewhere mounted in between" (a ref survives Strict Mode's
+  // fake unmount/remount because it's the same fiber; a module-level
+  // counter would be incremented by every sheet in the app).
+  const generationRef = useRef(0);
 
   // requestClose is what both this hook's own Escape handling and the
   // returned `close()` call — a single implementation for "the user asked
@@ -180,20 +203,37 @@ export function useSheetA11y<T extends HTMLElement>(
   // always mounted but return null internally until `open` flips.
   useEffect(() => {
     if (!el || !lockScroll) return;
-    const scrollY = window.scrollY;
     const body = document.body.style;
-    const prev = { position: body.position, top: body.top, left: body.left, right: body.right, width: body.width };
+    const alreadyLocked = body.position === "fixed";
+    // If a lock is already active (a nested sheet), recover the TRUE
+    // offset from its `top` rather than reading `window.scrollY` fresh —
+    // see the file header comment: it reads 0 the moment body is fixed.
+    const scrollY = alreadyLocked ? -(parseFloat(body.top || "0") || 0) : window.scrollY;
+    const scrollbarGap = alreadyLocked ? 0 : window.innerWidth - document.documentElement.clientWidth;
+    const prev = {
+      position: body.position,
+      top: body.top,
+      left: body.left,
+      right: body.right,
+      width: body.width,
+      paddingRight: body.paddingRight,
+    };
     body.position = "fixed";
     body.top = `-${scrollY}px`;
     body.left = "0";
     body.right = "0";
     body.width = "100%";
+    if (scrollbarGap > 0) {
+      const existingPadRight = parseFloat(getComputedStyle(document.body).paddingRight) || 0;
+      body.paddingRight = `${existingPadRight + scrollbarGap}px`;
+    }
     return () => {
       body.position = prev.position;
       body.top = prev.top;
       body.left = prev.left;
       body.right = prev.right;
       body.width = prev.width;
+      body.paddingRight = prev.paddingRight;
       window.scrollTo(0, scrollY);
     };
   }, [el, lockScroll]);
@@ -206,6 +246,25 @@ export function useSheetA11y<T extends HTMLElement>(
   useEffect(() => {
     if (!el || !backToClose) return;
     closingRef.current = false;
+    const myGeneration = ++generationRef.current;
+
+    // Forward-navigation guard: if the entry we're about to build on
+    // already carries a marker from some EARLIER sheet that has since
+    // fully closed (the user pressed back to close it, then pressed
+    // forward again — forward history isn't cleared by back()), that
+    // marker is stale: nothing is listening for it any more. Left in
+    // place, an unrelated later back press landing on it would look like
+    // a dead back press to whoever presses it (Kevin's original
+    // complaint) rather than closing anything, since sheetHistoryStack no
+    // longer contains it. `replaceState` clears it without moving the
+    // session-history position or firing `popstate`.
+    const currentState = history.state as Record<string, unknown> | null;
+    if (currentState?.__sheetA11yId && !sheetHistoryStack.includes(currentState.__sheetA11yId as string)) {
+      const cleaned: Record<string, unknown> = { ...currentState };
+      delete cleaned.__sheetA11yId;
+      history.replaceState(cleaned, "");
+    }
+
     const id = `sheet-${++sheetHistoryIdSeq}`;
     sheetHistoryStack.push(id);
     history.pushState({ ...(history.state ?? {}), __sheetA11yId: id }, "");
@@ -229,20 +288,35 @@ export function useSheetA11y<T extends HTMLElement>(
         if (idx !== -1) sheetHistoryStack.splice(idx, 1);
         // Unmounted without a pop ever consuming our entry (e.g. some
         // other state change stopped rendering this sheet without going
-        // through `close()`). Consume it now so it doesn't dangle — the
-        // listener above is already removed, so this does not re-trigger
-        // onClose a second time for THIS sheet. Known limitation, left
-        // for H72 to check per sheet: if another sheet is simultaneously
-        // open and nested inside this one, the popstate this triggers
-        // will land on whatever is now the topmost entry in
-        // sheetHistoryStack, i.e. that other sheet, and close it too,
-        // since a real browser history entry is genuinely being consumed
-        // here and popstate carries no way to say "this pop doesn't count
-        // for anyone". Harmless for a sheet with no nested child (true of
-        // ItemDetailSheet today), but worth the same explicit check H72
-        // already calls for before turning this on for a sheet that can
-        // have another sheet open inside it.
-        history.back();
+        // through `close()`). Consume it so it doesn't dangle — but only
+        // once we're sure this is a REAL unmount, not React 18/19 Strict
+        // Mode's dev-only double-invoke, which runs this same cleanup
+        // then immediately re-runs this same effect (mount -> cleanup ->
+        // mount, same synchronous pass, specifically to surface missing
+        // cleanup — verified with `npm run dev`: unpatched, this cleanup's
+        // history.back() fires, its async popstate arrives after the
+        // remount has already pushed a NEW entry, and lands on that new
+        // entry's listener, closing the sheet the instant it opens).
+        // `myGeneration` is a ref-backed counter (refs survive Strict
+        // Mode's fake unmount/remount, since it's the same fiber) — if a
+        // newer generation has already started by the time this
+        // microtask runs (it always has, by then, since Strict Mode's
+        // remount happens synchronously, before microtasks flush), this
+        // is that phantom cleanup and the corrective back() is skipped.
+        // Skipping it leaves one harmless extra entry in dev only;
+        // production never double-invokes effects, so this path is only
+        // ever "genuine unmount, no newer generation" there.
+        // Reading the LIVE ref value inside this microtask, rather than a
+        // variable captured at cleanup time, is the point: this is the
+        // generation-mismatch check that detects a newer mount having
+        // already happened by the time the microtask runs. Copying it to
+        // a variable up front (the usual fix for this lint rule) would
+        // always match myGeneration and defeat the guard entirely.
+        queueMicrotask(() => {
+          // eslint-disable-next-line react-hooks/exhaustive-deps
+          if (generationRef.current !== myGeneration) return;
+          history.back();
+        });
       }
     };
   }, [el, backToClose]);
