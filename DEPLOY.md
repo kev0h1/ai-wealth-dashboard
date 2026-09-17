@@ -774,7 +774,13 @@ Board's own debug APK (see `capacitor-spike/README.md` for the full build
 flow, including the web-asset and icon steps that must run first):
 
 ```bash
-cd capacitor-spike
+# cd via git rev-parse rather than a bare relative `cd capacitor-spike`
+# (review finding P3, 2026-09-17 round 2): read straight after the two
+# snippets above, which both end inside capacitor-spike/android, a bare
+# `cd capacitor-spike` from there looks for a nonexistent
+# capacitor-spike/android/capacitor-spike and fails. This works
+# regardless of which directory you're currently in.
+cd "$(git rev-parse --show-toplevel)/capacitor-spike"
 # refreshes src/board/assets/ from www/; app/build.gradle's
 # verifyBoardWebAssets task fails the build if this step is skipped or
 # the copy is stale relative to www/

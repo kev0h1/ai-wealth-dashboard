@@ -53,7 +53,7 @@ not work end-to-end:
 
 | Prerequisite | Used by | Where it lives |
 |---|---|---|
-| `google-services.json` | Android app build | `capacitor-spike/google-services.json` (committed, canonical) and `capacitor-spike/android/app/google-services.json` (gitignored working copy, restored from the canonical file by `setup-android-push.sh`) |
+| `google-services.json` | Android app build | `capacitor-spike/google-services.json` (committed, canonical) and `capacitor-spike/android/app/src/sorted/google-services.json` (gitignored working copy, flavour-scoped since H66, restored from the canonical file by `setup-android-push.sh`) |
 | Service-account key (`FCM_PROJECT_ID` + `FCM_SERVICE_ACCOUNT_JSON`/`_PATH`) | Backend, to send pushes via FCM | Backend env/secrets (not in git) |
 
 ## Build flow
@@ -134,15 +134,18 @@ the script exits non-zero.
    `<uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>`
    if missing (required at runtime on Android 13+ for notifications to
    show at all). Also harmless without `google-services.json`.
-3. **`android/app/google-services.json`**, checked first, and restored if
-   missing. `android/` is gitignored and wiped by every `npx cap add
-   android`, so this working copy never survives regeneration. If it's
-   absent but the canonical, committed `capacitor-spike/google-services.json`
-   exists, the script copies it into place and proceeds. Only if **neither**
-   copy exists does the script print the Firebase setup steps above and
-   exit non-zero **before** touching `app/build.gradle`'s plugin block,
-   since nothing about FCM can work without the file and the script will
-   never fabricate one.
+3. **`android/app/src/sorted/google-services.json`** (H66: flavour-scoped,
+   not the module root — see `apply-board-flavor.sh`'s header comment for
+   why a module-root copy breaks the Board flavour), checked first, and
+   restored if missing. `android/` is gitignored and wiped by every `npx
+   cap add android`, so this working copy never survives regeneration. If
+   it's absent but the canonical, committed
+   `capacitor-spike/google-services.json` exists, the script copies it
+   into place and proceeds. Only if **neither** copy exists does the
+   script print the Firebase setup steps above and exit non-zero
+   **before** touching `app/build.gradle`'s plugin block, since nothing
+   about FCM can work without the file and the script will never
+   fabricate one.
 4. **`android/app/build.gradle`** — applies the
    `com.google.gms.google-services` plugin, only once step 3 has confirmed
    the JSON exists. Detects whether the file uses a modern `plugins { }`
@@ -211,7 +214,7 @@ the script exits non-zero.
 grep "com.google.gms:google-services" android/build.gradle
 grep "com.google.gms.google-services" android/app/build.gradle
 grep "POST_NOTIFICATIONS" android/app/src/main/AndroidManifest.xml
-ls android/app/google-services.json
+ls android/app/src/sorted/google-services.json  # H66: flavour-scoped, not the module root
 
 # Notification icon: all five densities should be present
 ls android/app/src/main/res/drawable-*/ic_stat_notify.png

@@ -30,10 +30,6 @@ ANDROID_DIR="${SPIKE_DIR}/android"
 PROJECT_GRADLE="${ANDROID_DIR}/build.gradle"
 APP_GRADLE="${ANDROID_DIR}/app/build.gradle"
 MANIFEST="${ANDROID_DIR}/app/src/main/AndroidManifest.xml"
-# H66: the wealthdash:// deep-link intent-filter (step 7) is written to a
-# "sorted"-flavour manifest OVERLAY, not this main one — see step 7's own
-# header comment for why (both apps would otherwise register the scheme).
-SORTED_MANIFEST="${ANDROID_DIR}/app/src/sorted/AndroidManifest.xml"
 # H66: scoped to the "sorted" product flavour's own source set, not the
 # module root, so the "board" flavour's google-services search finds no
 # file at all (see app/build.gradle's googleServices{missingGoogleServicesStrategy}
@@ -325,87 +321,27 @@ fi
 # Google sign-in opens the OAuth flow in a Chrome Custom Tab. The backend's
 # /auth/google/mobile-callback answers with an HTML page (see
 # backend/app/routers/auth.py) that navigates to wealthdash://auth-done to
-# hand control back to the app. Without this intent-filter on MainActivity,
-# Android has no app registered for that scheme, so the Custom Tab is left on
-# a dead page and the user has to quit and reopen the app to see the signed-in
-# state. This is unrelated to push notifications but lives in this script
-# because it patches the same gitignored, regenerated manifest.
+# hand control back to the app. Without this intent-filter registered
+# somewhere, Android has no app for that scheme, so the Custom Tab is left
+# on a dead page and the user has to quit and reopen the app to see the
+# signed-in state. This is unrelated to push notifications but lives in
+# this script because it patches the same gitignored, regenerated project.
 #
-# H66 (2026-09-17, review finding P1/FIX2): this is written to a
-# "sorted"-flavour manifest OVERLAY (${SORTED_MANIFEST}), NOT src/main's
-# manifest. If it lived in src/main, the "board" flavour would inherit it
-# too, so BOTH installed apps would register wealthdash://. With two
-# handlers and no App Links verification, Android shows a disambiguation
-# chooser (or routes to whatever was defaulted), so signing in on Sorted
-# then tapping into Board can strand Sorted's Custom Tab on a dead page —
-# a regression to Sorted on the one device guaranteed to have both apps
-# installed. The manifest merger unions a flavour overlay's elements into
-# the ones matched by key attribute (here, <activity android:name=
-# ".MainActivity">) from src/main, so this overlay only needs the
-# intent-filter itself, not a full copy of the activity.
+# H66 (review finding P1/FIX1, 2026-09-17 round 2): delegated to a shared,
+# order-independent script (ensure-wealthdash-manifest.py) also called
+# from apply-board-flavor.sh, rather than duplicating flavour-detection
+# logic here. See that script's own header comment for the full reasoning
+# -- in short, whether this belongs in src/main or the sorted-flavour
+# overlay depends on whether the "board" flavour exists *right now*, which
+# can change on either side of this script running relative to
+# apply-board-flavor.sh, in either order, any number of times.
 if [[ ! -f "${MANIFEST}" ]]; then
   echo "ERROR: ${MANIFEST} not found." >&2
   exit 1
 fi
 
-# Migration: an earlier (pre-fix) version of this script wrote the
-# intent-filter into src/main's manifest directly. Strip it out if still
-# there, so a project patched by an old run of this script converges to
-# the same sorted-only shape as a fresh one.
-if grep -q 'android:scheme="wealthdash"' "${MANIFEST}"; then
-  python3 - "${MANIFEST}" <<'PYEOF'
-import sys
-path = sys.argv[1]
-with open(path) as f:
-    content = f.read()
-block = (
-    "\n"
-    "            <intent-filter>\n"
-    '                <action android:name="android.intent.action.VIEW" />\n'
-    '                <category android:name="android.intent.category.DEFAULT" />\n'
-    '                <category android:name="android.intent.category.BROWSABLE" />\n'
-    '                <data android:scheme="wealthdash" />\n'
-    "            </intent-filter>\n"
-)
-if block not in content:
-    print("ERROR: android:scheme=\"wealthdash\" found in src/main's manifest but not in the exact previously-written shape; remove it by hand before re-running.", file=sys.stderr)
-    sys.exit(1)
-content = content.replace(block, "", 1)
-with open(path, "w") as f:
-    f.write(content)
-PYEOF
-  echo "[7/7] AndroidManifest.xml: migrated wealthdash:// intent-filter out of src/main (it now lives in the sorted-flavour overlay only)."
-fi
-
-if grep -q 'android:scheme="wealthdash"' "${SORTED_MANIFEST}" 2>/dev/null; then
-  echo "[7/7] src/sorted/AndroidManifest.xml: wealthdash:// deep-link intent-filter already present — skipping."
-else
-  mkdir -p "$(dirname "${SORTED_MANIFEST}")"
-  cat > "${SORTED_MANIFEST}" <<'XMLEOF'
-<?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <!--
-      H66: sorted-flavour-only overlay. The manifest merger unions this
-      <activity>'s children into src/main's same-named activity (matched
-      by android:name) rather than replacing it, so MainActivity keeps its
-      MAIN/LAUNCHER intent-filter from src/main and gains this one only
-      for "sorted" variants. See setup-android-push.sh step 7 for why this
-      must not live in src/main (the board flavour would inherit it too).
-    -->
-    <application>
-        <activity android:name=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="wealthdash" />
-            </intent-filter>
-        </activity>
-    </application>
-</manifest>
-XMLEOF
-  echo "[7/7] src/sorted/AndroidManifest.xml: wrote wealthdash:// deep-link intent-filter overlay (sorted flavour only)."
-fi
+python3 "${SCRIPT_DIR}/ensure-wealthdash-manifest.py" "${ANDROID_DIR}"
+echo "[7/7] wealthdash:// deep-link intent-filter placement done (see above)."
 
 echo
 echo "Android push setup complete."
