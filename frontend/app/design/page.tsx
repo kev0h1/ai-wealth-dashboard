@@ -26,11 +26,16 @@ const ROUTES: PreviewRoute[] = [
     slug: "ops-board-mobile",
     name: "ops-board-mobile",
     description:
-      "H56 Focus-first round for /ops/go-live on a phone: below lg the real board scrolls two axes through 300 cards across 8 section lanes and 7 state columns, burying the dozen items actually in flight. Kevin's chosen direction (2026-09-16): in-flight items (in-progress, blocked, review, uat) as full readable cards at the top, to do and done collapsed behind their counts and reachable through search, kanban columns desktop-only, no drag, a tap opens the detail sheet · live-now is every in-flight item as one full card under a single heading · ribbon leads with a sticky tappable counts strip over denser single-line rows · waiting groups by who moves next, Waiting on you (uat, blocked, review) before In motion (in-progress) · real StatePill, PriorityPill, OwnerInitialChip, UnblocksTags, FilterBar and ItemDetailSheet from app/ops/go-live, fed a dated fixture slice of TODO.md (fixtures.ts) including several full-paragraph titles · typing in the real search bar or picking a state chip genuinely filters the fixture set via lib/goLive's own filterItems · static fixtures only, no API calls or mutations · ?variant=live-now|ribbon|waiting&mode=light|dark",
+      "H56 Focus-first round for /ops/go-live on a phone, Kevin's pick landed (2026-09-17): ribbon (sticky tappable counts strip over dense single-line rows) is the pick, folded into production as app/ops/go-live/MobileRibbonBoard.tsx, which BoardView.tsx now mounts below lg in place of the old two-axis lane-strip scroll through 300 cards across 8 sections and 7 states. The ribbon variant here imports and renders that same production component with fixture data through its real props, a genuine gate per CLAUDE.md, not a copy: its counts strip drives the same filters.states FilterBar.tsx owns via the shared toggleValue helper, kanban stays desktop-only, and there is no drag, a tap opens the real detail sheet · live-now (every in-flight item as one full card under a heading) and waiting (grouped Waiting on you before In motion) are reference-only, hand-authored, not picked, kept for comparison and marked as such in the switcher · every variant still shares real StatePill (with a compact mode that drops the free-text reason/branch on dense rows), PriorityPill, OwnerInitialChip, UnblocksTags, FilterBar and ItemDetailSheet from app/ops/go-live, fed a dated fixture slice of TODO.md (fixtures.ts) including several full-paragraph titles · typing in the real search bar or picking a state chip genuinely filters the fixture set via lib/goLive's own filterItems · static fixtures only, no API calls or mutations · ?variant=live-now|ribbon|waiting&mode=light|dark",
     states: [{ label: "Interactive board", value: "interactive" }],
+    // Ribbon leads the list (Kevin's pick, H56, 2026-09-17): PreviewCard's
+    // bottom "light"/"dark" links default to `variants[0]`, so ordering
+    // this first is what makes the index's own default tap land on the
+    // real production component rather than one of the two not-picked,
+    // hand-authored references.
     variants: [
-      { label: "Live now", value: "live-now" },
       { label: "Ribbon", value: "ribbon" },
+      { label: "Live now", value: "live-now" },
       { label: "Waiting on", value: "waiting" },
     ],
   },

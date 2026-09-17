@@ -313,6 +313,16 @@ export function saveGoLiveUi(ui: GoLiveUiState): void {
   }
 }
 
+/** Toggles `value` in/out of `list`, preserving order. Shared by every
+ *  multi-select chip row on the go-live board (FilterBar's priority/state
+ *  chips, MobileRibbonBoard's status ribbon) so a chip's "is this
+ *  selected" reading and its click handler are always driven by the one
+ *  `filters` object the page owns, never a private copy of the same
+ *  selection. */
+export function toggleValue<T>(list: T[], value: T): T[] {
+  return list.includes(value) ? list.filter((v) => v !== value) : [...list, value];
+}
+
 function matchesSearch(haystack: string, search: string): boolean {
   const q = search.trim().toLowerCase();
   if (!q) return true;

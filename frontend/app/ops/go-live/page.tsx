@@ -77,6 +77,27 @@ export default function GoLivePage() {
     setUi(loadGoLiveUi());
   }, []);
 
+  // H56 (2026-09-17), scoped pending H61: sets a data attribute on <html>
+  // for exactly this page's mounted lifetime, matched by the
+  // `html[data-ops-board] #app-shell { overflow-x: clip }` rule in
+  // globals.css. #app-shell's own overflow-x is `hidden` everywhere else
+  // in the app (a scroll container, which shadows descendant `position:
+  // sticky` below `lg`) — `clip` fixes that for this page's own FilterBar
+  // and MobileRibbonBoard, without changing it app-wide, because that
+  // wider change needs its own deliberate, audited pass (H61) rather than
+  // riding in on this item. Same document.documentElement pattern
+  // FilterBar.tsx already uses for --go-live-filter-h. The cleanup on
+  // unmount is load-bearing: leaving the attribute behind after a
+  // client-side route change away from /ops/go-live would make the
+  // override effectively global again by accident, the exact thing this
+  // scoping exists to avoid — do not remove or condition this cleanup.
+  useEffect(() => {
+    document.documentElement.setAttribute("data-ops-board", "");
+    return () => {
+      document.documentElement.removeAttribute("data-ops-board");
+    };
+  }, []);
+
   const updateFilters = useCallback((next: GoLiveFilters) => {
     setFilters(next);
     saveGoLiveFilters(next);
@@ -182,6 +203,13 @@ export default function GoLivePage() {
   );
 
   const filteredItems = useMemo(() => (data ? filterItems(data.items, filters) : []), [data, filters]);
+  // Owner/priority/search only, `states` excluded — the always-live source
+  // BoardView's mobile ribbon uses for its own status counts and default
+  // in-flight rows (H56), so picking one ribbon chip never zeroes the
+  // other three counts the way filtering `items` itself down to just that
+  // one state would.
+  const scopeFilters = useMemo(() => ({ ...filters, states: [] }), [filters]);
+  const scopeItems = useMemo(() => (data ? filterItems(data.items, scopeFilters) : []), [data, scopeFilters]);
   const filteredQuestions = useMemo(
     () => (data ? filterQuestions(data.questions, data.items, filters) : []),
     [data, filters]
@@ -316,6 +344,9 @@ export default function GoLivePage() {
               ) : (
                 <BoardView
                   items={filteredItems}
+                  scopeItems={scopeItems}
+                  filters={filters}
+                  onFiltersChange={updateFilters}
                   todoMarkdown={data.files.todo?.markdown}
                   lanes={filters.lanes}
                   onLanesChange={(lanes) => updateFilters({ ...filters, lanes })}

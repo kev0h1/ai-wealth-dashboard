@@ -2,48 +2,44 @@
 
 // TEMPORARY PREVIEW — H56 (backlog item H56), design round only.
 //
-// /ops/go-live is unusable on a phone: below `lg`, BoardView.tsx renders
-// each of the 8 section lanes as a horizontally-scrolling strip of 7
-// state columns, so a phone visit is a two-axis scroll through a 300-card
-// grid, and the dozen or so items actually in flight (in-progress,
-// blocked, review, uat) are buried among roughly 280 to-dos and dones.
-// Kevin already chose the direction on 2026-09-16, "Focus first": the top
-// of the phone screen answers "what is happening" with the in-flight
-// items as full readable cards, to do and done collapse behind their
-// counts below (reachable through the existing search and filter, not a
-// second board), kanban columns stay desktop-only, and there is no drag
-// on a phone — a tap opens the detail sheet, the only place a state
-// changes (H55, running alongside this item, adds an explicit "Move to"
-// state picker inside that same sheet; this preview does not duplicate
-// or pre-empt it, it just renders the sheet as it stands today so H55's
-// picker appears automatically once that branch merges).
+// /ops/go-live is unusable on a phone: below `lg`, BoardView.tsx used to
+// render each of the 8 section lanes as a horizontally-scrolling strip of
+// 7 state columns, so a phone visit was a two-axis scroll through a
+// 300-card grid, and the dozen or so items actually in flight
+// (in-progress, blocked, review, uat) were buried among roughly 280
+// to-dos and dones.
 //
-// Three variants, all on the Focus-first direction, differing only in
-// how the in-flight items are presented and how the long tail is tucked
-// away:
+// KEVIN'S PICK (2026-09-17): ribbon. It is by far the most scannable of
+// the three, putting all twelve in-flight items on one screen above a
+// sticky state-count strip, which is exactly what this item asked for;
+// live-now and waiting render the full item title on every card, and
+// because this board's titles are paragraph-length a single card can
+// fill the whole screen (A38 does), which undercuts the goal of
+// surfacing what is in flight.
 //
-//   live-now — every in-flight item as one full card under a single
-//              "Live now" heading, in the order TODO.md already lists
-//              them (in-progress, then review, then blocked, then uat).
-//              The simplest reading: one list, nothing to parse before
-//              you start reading cards.
-//   ribbon   — a sticky one-line status ribbon of counts (in progress /
-//              blocked / review / uat) leads, tappable as a filter, over
-//              denser single-line rows rather than full cards — more
-//              items readable per scroll, at the cost of the reason/link
-//              text a full card shows inline (still one tap away in the
-//              detail sheet). Modelled on Height/Shortcut's status strip
-//              as primary navigation.
-//   waiting  — ordered by who is being waited on rather than by TODO.md's
-//              natural order: "Waiting on you" (uat, blocked, review —
-//              every state where the next move is Kevin's) leads as full
-//              cards, "In motion" (in-progress — Claude/Codex already
-//              working, nothing needed from Kevin yet) follows as
-//              quieter, more compact cards. Modelled on Linear's "what
-//              needs me" framing and Things 3's curated views over one
-//              flat list.
+// The pick is now implemented: this route's `ribbon` variant imports and
+// renders `MobileRibbonBoard` (app/ops/go-live/MobileRibbonBoard.tsx),
+// the production component BoardView.tsx now mounts below `lg`, fed this
+// preview's fixture data through its real props (`filters`,
+// `onFiltersChange`, `hasActiveFilter`, `filteredItems`, `scopeItems`,
+// `todoTotalCount`/`todoSampleItems`, `doneTotalCount`/`doneSampleItems`,
+// `onOpen`) — the same contract page.tsx/BoardView.tsx feed it live. This
+// is a real gate, not a copy: if the shipped component drifts from what
+// Kevin approved, this preview drifts with it, per CLAUDE.md's "Design
+// work" section.
 //
-// Every variant shares the same real production pieces rather than
+// `live-now` and `waiting` were the two variants Kevin did NOT pick.
+// They stay in this file, clearly labelled "not picked" in the switcher
+// below, as hand-authored references only — that layout (full-card
+// presentation, either flat or grouped by who's waited on) never shipped
+// as a production component, so there is nothing for them to import.
+// They still share `ItemRow`/`CollapsedSection`/`SectionHeading` with the
+// ribbon variant (imported from MobileRibbonBoard.tsx, not re-authored
+// here) for their own to-do/done collapse and filtered-results list,
+// since that part of the old single-file version was never
+// variant-specific.
+//
+// Every variant still shares the same real production pieces rather than
 // re-authoring them: StatePill, PriorityPill, OwnerInitialChip and
 // UnblocksTags from app/ops/go-live/Badges.tsx render every card's state,
 // priority, owner and unblocks exactly as the desktop board does;
@@ -55,11 +51,9 @@
 // FilterBar.tsx (also plain props, no fetch) is the real search/filter
 // control — typing in it or picking a state chip genuinely filters this
 // preview's whole fixture set (filterItems from lib/goLive, the same
-// pure function the real board calls), which is what "reachable through
-// the existing search and filter" means concretely. The curated
-// Focus-first layouts below (the full/dense/grouped card presentation
-// itself) are hand-authored, because that layout does not exist in
-// production yet — this round is proposing it.
+// pure function the real board calls, and for the ribbon variant the
+// exact same `filters.states` FilterBar itself owns, via the shared
+// `toggleValue` helper).
 //
 // Fixture data (fixtures.ts) is a real, dated slice of TODO.md, including
 // several full-paragraph titles (this board's hardest, and most common,
@@ -98,7 +92,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { ChevronDown, MessageSquare, Search } from "lucide-react";
+import { MessageSquare, Search } from "lucide-react";
 import {
   DEFAULT_GO_LIVE_FILTERS,
   filterItems,
@@ -109,6 +103,7 @@ import {
 import { FilterBar } from "@/app/ops/go-live/FilterBar";
 import { ItemDetailSheet } from "@/app/ops/go-live/ItemDetailSheet";
 import { OwnerInitialChip, PriorityPill, StatePill, UnblocksTags } from "@/app/ops/go-live/Badges";
+import { CollapsedSection, ItemRow, MobileRibbonBoard, SectionHeading } from "@/app/ops/go-live/MobileRibbonBoard";
 import {
   ALL_FIXTURE_ITEMS,
   DONE_SAMPLE,
@@ -123,10 +118,10 @@ import {
 type Variant = "live-now" | "ribbon" | "waiting";
 type Mode = "light" | "dark";
 
-const VARIANTS: { value: Variant; label: string }[] = [
-  { value: "live-now", label: "Live now" },
-  { value: "ribbon", label: "Ribbon" },
-  { value: "waiting", label: "Waiting on" },
+const VARIANTS: { value: Variant; label: string; pickedLabel?: string }[] = [
+  { value: "live-now", label: "Live now", pickedLabel: "Live now · not picked" },
+  { value: "ribbon", label: "Ribbon · picked" },
+  { value: "waiting", label: "Waiting on", pickedLabel: "Waiting on · not picked" },
 ];
 
 type ActionBody = Parameters<typeof ItemDetailSheet>[0]["onAction"] extends (body: infer B) => void ? B : never;
@@ -174,17 +169,12 @@ function applyAction(item: GoLiveItem, body: ActionBody): GoLiveItem {
 }
 
 // ---------------------------------------------------------------------
-// Shared building blocks
+// Shared building blocks — SectionHeading, ItemRow and CollapsedSection
+// now live in app/ops/go-live/MobileRibbonBoard.tsx (imported above)
+// rather than being re-authored here, since ribbon uses the production
+// component directly and live-now/waiting still need the same pieces for
+// their own to-do/done collapse and filtered-results list.
 // ---------------------------------------------------------------------
-
-function SectionHeading({ children, count }: { children: React.ReactNode; count: number }) {
-  return (
-    <div className="flex items-center justify-between px-0.5">
-      <h2 className="text-base font-bold text-slate-800 dark:text-slate-100">{children}</h2>
-      <span className="money text-xs font-semibold text-slate-400 dark:text-slate-500">{count}</span>
-    </div>
-  );
-}
 
 /** A full, readable card: every field a card can carry, no truncation on
  *  the title (the whole point of the Focus-first screen is that a dozen
@@ -221,76 +211,6 @@ function ItemCard({ item, onOpen, compact }: { item: GoLiveItem; onOpen: () => v
   );
 }
 
-/** One dense row: a single truncated title line (`truncate`, never
- *  `line-clamp`, so even H55/G105/G111's full-paragraph titles collapse
- *  to one ellipsised line rather than wrapping the row open — this was
- *  caught in screenshot review, see the H56 report) with the id and
- *  priority pinned either side, and a second, smaller line for state
- *  (StatePill already self-truncates at 220px for a long "Blocked:
- *  <reason>" pill). Two lines total is still far denser than a full
- *  card, which runs a whole paragraph plus a footer row. */
-function ItemRow({ item, onOpen }: { item: GoLiveItem; onOpen: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className="glass-card flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left transition-transform active:scale-[0.99]"
-    >
-      <OwnerInitialChip owner={item.owner} />
-      <span className="min-w-0 flex-1">
-        <span className="flex items-baseline gap-1.5">
-          <span className="money shrink-0 text-[10px] font-bold text-slate-400 dark:text-slate-500">{item.id}</span>
-          <span className="min-w-0 truncate text-xs font-semibold text-slate-800 dark:text-slate-100">{item.title}</span>
-        </span>
-        <span className="mt-1 flex flex-wrap items-center gap-1.5">
-          <StatePill item={item} />
-        </span>
-      </span>
-      <PriorityPill priority={item.priority} />
-    </button>
-  );
-}
-
-/** The collapsed "To do" / "Done" section: a tap reveals a representative
- *  sample (the real count leads the row; the sample below it is
- *  explicitly labelled as a sample, since a phone screen was never going
- *  to hold 65 or 219 rows) plus a pointer at the search bar above, which
- *  is the real, complete way to reach any one of them. */
-function CollapsedSection({
-  label,
-  totalCount,
-  sample,
-  onOpen,
-}: {
-  label: string;
-  totalCount: number;
-  sample: GoLiveItem[];
-  onOpen: (item: GoLiveItem) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="glass-card rounded-2xl p-3">
-      <button type="button" onClick={() => setOpen((v) => !v)} className="flex min-h-9 w-full items-center justify-between gap-3">
-        <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">{label}</span>
-        <span className="flex shrink-0 items-center gap-2">
-          <span className="money text-xs font-semibold text-slate-500 dark:text-slate-400">{totalCount}</span>
-          <ChevronDown size={16} className={`text-slate-400 transition-transform ${open ? "rotate-180" : ""}`} aria-hidden="true" />
-        </span>
-      </button>
-      {open && (
-        <div className="mt-3 space-y-2 border-t border-slate-100 pt-3 dark:border-white/10">
-          <p className="px-0.5 text-[11px] leading-relaxed text-slate-400 dark:text-slate-500">
-            A sample of {sample.length} of {totalCount}. Use search or a state filter above to reach the rest.
-          </p>
-          {sample.map((item) => (
-            <ItemRow key={item.id} item={item} onOpen={() => onOpen(item)} />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ---------------------------------------------------------------------
 // Variant A — Live now: one heading, every in-flight item a full card
 // ---------------------------------------------------------------------
@@ -309,77 +229,10 @@ function LiveNowVariant({ items, onOpen }: { items: GoLiveItem[]; onOpen: (item:
 }
 
 // ---------------------------------------------------------------------
-// Variant B — Ribbon: sticky counts strip, tappable as a filter, over
-// dense rows
+// Variant B — Ribbon: Kevin's pick. Rendered by the production
+// MobileRibbonBoard component directly (see Inner() below), not
+// hand-authored here.
 // ---------------------------------------------------------------------
-
-const RIBBON_STATES: { key: GoLiveItemState; label: string }[] = [
-  { key: "in-progress", label: "In progress" },
-  { key: "blocked", label: "Blocked" },
-  { key: "review", label: "In review" },
-  { key: "uat", label: "UAT" },
-];
-
-function RibbonVariant({
-  items,
-  onOpen,
-  filterBarOffset,
-}: {
-  items: GoLiveItem[];
-  onOpen: (item: GoLiveItem) => void;
-  filterBarOffset: string;
-}) {
-  const [active, setActive] = useState<GoLiveItemState | "all">("all");
-  const counts = useMemo(() => {
-    const c: Record<string, number> = { all: items.length };
-    for (const s of RIBBON_STATES) c[s.key] = items.filter((i) => i.state === s.key).length;
-    return c;
-  }, [items]);
-  const visible = active === "all" ? items : items.filter((i) => i.state === active);
-
-  return (
-    <div className="space-y-3">
-      <div
-        className="sticky z-10 -mx-4 flex items-center gap-1.5 overflow-x-auto bg-[#f0f2f7]/95 px-4 py-2 backdrop-blur dark:bg-[#0f172a]/95"
-        style={{ top: filterBarOffset }}
-      >
-        <button
-          type="button"
-          onClick={() => setActive("all")}
-          className={`min-h-8 shrink-0 rounded-full px-3 text-[11px] font-bold transition-colors ${
-            active === "all"
-              ? "bg-indigo-600 text-white"
-              : "bg-slate-100 text-slate-600 dark:bg-white/5 dark:text-slate-300"
-          }`}
-        >
-          All <span className="money">{counts.all}</span>
-        </button>
-        {RIBBON_STATES.map((s) => (
-          <button
-            key={s.key}
-            type="button"
-            onClick={() => setActive(s.key)}
-            className={`min-h-8 shrink-0 rounded-full px-3 text-[11px] font-bold transition-colors ${
-              active === s.key
-                ? "bg-indigo-600 text-white"
-                : "bg-slate-100 text-slate-600 dark:bg-white/5 dark:text-slate-300"
-            }`}
-          >
-            {s.label} <span className="money">{counts[s.key]}</span>
-          </button>
-        ))}
-      </div>
-      <div className="space-y-1.5">
-        {visible.map((item) => (
-          <ItemRow key={item.id} item={item} onOpen={() => onOpen(item)} />
-        ))}
-        {visible.length === 0 && (
-          <p className="px-1 py-6 text-center text-xs text-slate-400 dark:text-slate-500">Nothing in this state right now.</p>
-        )}
-      </div>
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------
 // Variant C — Waiting on: grouped by who moves next, Kevin's group leads
@@ -454,7 +307,7 @@ function Switcher({ variant, mode }: { variant: Variant; mode: Mode }) {
               v.value === variant ? "bg-indigo-600 text-white" : "text-slate-400"
             }`}
           >
-            {v.label}
+            {v.pickedLabel ?? v.label}
           </a>
         ))}
         <a
@@ -471,9 +324,12 @@ function Switcher({ variant, mode }: { variant: Variant; mode: Mode }) {
 function Inner() {
   const params = useSearchParams();
   const rawVariant = params.get("variant");
+  // Defaults to ribbon, not live-now: ribbon is Kevin's pick and the only
+  // variant backed by a real production component, so it is the one worth
+  // landing on when no ?variant= is given (H56 audit, 2026-09-17).
   const variant: Variant = (["live-now", "ribbon", "waiting"] as string[]).includes(rawVariant ?? "")
     ? (rawVariant as Variant)
-    : "live-now";
+    : "ribbon";
   const mode: Mode = params.get("mode") === "dark" ? "dark" : "light";
 
   useEffect(() => {
@@ -483,6 +339,19 @@ function Inner() {
     }, 0);
     return () => clearTimeout(t);
   }, [mode]);
+
+  // Mirrors the exact mount/unmount effect app/ops/go-live/page.tsx runs
+  // (H56, scoped pending H61 — see globals.css's `html[data-ops-board]
+  // #app-shell` rule): this preview's whole job is to stand in for what
+  // Kevin sees on the real page, so it needs to set the same attribute
+  // to genuinely exercise the same scoped sticky fix, not a different
+  // one. Cleanup on unmount for the same reason production's does.
+  useEffect(() => {
+    document.documentElement.setAttribute("data-ops-board", "");
+    return () => {
+      document.documentElement.removeAttribute("data-ops-board");
+    };
+  }, []);
 
   const [items, setItems] = useState<GoLiveItem[]>(ALL_FIXTURE_ITEMS);
   const [filters, setFilters] = useState<GoLiveFilters>(DEFAULT_GO_LIVE_FILTERS);
@@ -498,6 +367,11 @@ function Inner() {
   const hasActiveFilter =
     filters.search.trim() !== "" || filters.states.length > 0 || filters.priorities.length > 0 || filters.owner !== "all";
   const filtered = useMemo(() => filterItems(items, filters), [items, filters]);
+  // Owner/priority/search only, `states` excluded — the same scope
+  // MobileRibbonBoard's production caller (BoardView.tsx) feeds it, so
+  // this preview's ribbon chips exercise the identical props contract.
+  const scopeFilters = useMemo(() => ({ ...filters, states: [] as GoLiveFilters["states"] }), [filters]);
+  const scopeItems = useMemo(() => filterItems(items, scopeFilters), [items, scopeFilters]);
 
   function handleOpen(item: GoLiveItem) {
     setSelected(item);
@@ -509,12 +383,42 @@ function Inner() {
     setSelected(next);
   }
 
+  // FilterBar (and, inside it, MobileRibbonBoard's own ribbon strip) is a
+  // direct child of this outer min-h-dvh div, with no wrapper div in
+  // between, deliberately mirroring production page.tsx's structure
+  // (FilterBar is a literal JSX child of `<main className="min-h-dvh ...
+  // px-6 ...">`, not of a nested wrapper). An earlier version of this
+  // preview wrapped FilterBar in its own separate `mx-auto max-w-[430px]
+  // px-6` div, which is NOT what production does, and that mismatch was
+  // enough to break FilterBar's `sticky top-0` in this Chrome build (found
+  // 2026-09-17 auditing H56: an empty, classless wrapper div reproduced
+  // the same break, and removing it — confirmed by direct DOM bisection —
+  // was the only thing that fixed it; the exact CSS mechanism was not
+  // fully identified, but the fix converges the preview onto the same DOM
+  // shape production already uses, which is the honest baseline for a
+  // gate like this one anyway). Keep this flat; do not reintroduce a
+  // wrapper div between this element and FilterBar.
   return (
     <div className={mode === "dark" ? "dark" : ""} style={{ colorScheme: mode }}>
-      <div className="min-h-dvh bg-[#f0f2f7] pb-32 dark:bg-[#0f172a]">
-        <div className="mx-auto w-full max-w-[430px] px-4 pt-5">
-          <p className="mb-3 text-center text-[11px] text-slate-400 dark:text-slate-500">
+      <div className="mx-auto min-h-dvh w-full max-w-[430px] bg-[#f0f2f7] px-6 pb-32 dark:bg-[#0f172a]">
+        <div className="pt-5">
+          <p className="mb-1 text-center text-[11px] text-slate-400 dark:text-slate-500">
             Illustrative /ops/go-live phone preview. Fixture data read from TODO.md, 2026-09-16/17 — see fixtures.ts.
+          </p>
+          {/* H56 (2026-09-17): this variant reproduces the phone board,
+              whose defining behaviour (the ribbon strip pinned to the
+              top of the scroll container) only exists below the lg
+              breakpoint in production (BoardView.tsx gates
+              MobileRibbonBoard behind isDesktop). This preview's own
+              variant switch is not breakpoint-gated the same way, so at
+              a laptop width the strip sits underneath FilterBar (which
+              pins at lg and up) and appears to vanish. That is a preview
+              limitation, not a production defect, and it is a known,
+              boarded follow-up (a width-constrained iframe is the real
+              fix); this note exists so a reviewer opening it on a
+              laptop is not misled by it. */}
+          <p className="mb-3 text-center text-[11px] text-slate-400 dark:text-slate-500">
+            View at a phone width. This reproduces the phone board, so at wider widths the ribbon strip sits underneath the filter bar and is not visible, which cannot happen on the real board.
           </p>
           <div className="mb-1">
             <h1 className="text-[20px] font-bold text-slate-900 dark:text-white">Go-live board</h1>
@@ -524,19 +428,33 @@ function Inner() {
           </div>
         </div>
 
-        <div className="mx-auto w-full max-w-[430px] px-4">
-          <FilterBar filters={filters} onChange={setFilters} />
-        </div>
+        <FilterBar filters={filters} onChange={setFilters} />
 
-        <div className="mx-auto w-full max-w-[430px] space-y-4 px-4">
-          {hasActiveFilter ? (
+        <div className="space-y-4">
+          {variant === "ribbon" ? (
+            // Kevin's pick, rendered by the real production component with
+            // fixture data through its real props — a genuine gate, not a
+            // copy. `filters`/`onFiltersChange` here stand in for the page
+            // state `page.tsx` owns in production; everything downstream
+            // (the ribbon's own counts, its filtered-results path) is the
+            // exact same code MobileRibbonBoard.tsx runs on the real board.
+            <MobileRibbonBoard
+              filters={filters}
+              onFiltersChange={setFilters}
+              hasActiveFilter={hasActiveFilter}
+              filteredItems={filtered}
+              scopeItems={scopeItems}
+              todoTotalCount={TODO_TOTAL_COUNT}
+              todoSampleItems={todoSampleItems}
+              doneTotalCount={DONE_TOTAL_COUNT}
+              doneSampleItems={doneSampleItems}
+              onOpen={handleOpen}
+            />
+          ) : hasActiveFilter ? (
             <FilteredResults items={filtered} onOpen={handleOpen} />
           ) : (
             <>
               {variant === "live-now" && <LiveNowVariant items={inFlightItems} onOpen={handleOpen} />}
-              {variant === "ribbon" && (
-                <RibbonVariant items={inFlightItems} onOpen={handleOpen} filterBarOffset="var(--go-live-filter-h, 120px)" />
-              )}
               {variant === "waiting" && <WaitingVariant items={inFlightItems} onOpen={handleOpen} />}
 
               <div className="space-y-2.5 pt-1">
@@ -544,8 +462,8 @@ function Inner() {
                   <Search size={12} aria-hidden="true" />
                   <span>Everything else is here, not on the board</span>
                 </div>
-                <CollapsedSection label="To do" totalCount={TODO_TOTAL_COUNT} sample={todoSampleItems} onOpen={handleOpen} />
-                <CollapsedSection label="Done" totalCount={DONE_TOTAL_COUNT} sample={doneSampleItems} onOpen={handleOpen} />
+                <CollapsedSection label="To do" totalCount={TODO_TOTAL_COUNT} sampleItems={todoSampleItems} onOpen={handleOpen} />
+                <CollapsedSection label="Done" totalCount={DONE_TOTAL_COUNT} sampleItems={doneSampleItems} onOpen={handleOpen} />
               </div>
             </>
           )}

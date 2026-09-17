@@ -1,57 +1,65 @@
 "use client";
 
-// Kanban board: columns To do / In progress / Blocked / In review /
-// Rejected / Done, swimlanes by section or owner (toggle), each lane
-// collapsible and
-// showing counts per column. Below `lg` this scrolls horizontally per lane,
-// with the lane label sticky on the left of that scroller. At `lg` and up
-// it switches to a true CSS grid instead — lane label as a fixed-width
-// first column, five equal columns, column headers sticky to the top of
-// the board, no horizontal scroll needed at 1280px+ — see
-// `DesktopBoardGrid` below. The two layouts are mutually exclusive in the
-// DOM (gated by `useIsDesktop`, not just CSS `hidden`/`lg:` classes):
-// dnd-kit registers every mounted draggable/droppable by id regardless of
-// visibility, so rendering both trees at once would double-register every
-// card and cell id and corrupt collision detection.
+// Board view: two entirely different DOM trees depending on the `lg`
+// breakpoint (1024px), gated by `useIsDesktop` below (a `matchMedia`
+// hook, not just CSS `hidden`/`lg:` classes).
 //
-// Drag and drop (dnd-kit): a card can be dragged straight onto a column
+// At `lg` and up: a true kanban CSS grid — lane label as a fixed-width
+// first column, one equal column per `BOARD_COLUMNS` entry, column
+// headers sticky to the top of the board — see `DesktopBoardGrid` below.
+// Cards are dnd-kit draggables and can be dropped straight onto a column
 // cell as a shortcut for the state change a tap into the detail sheet
-// would otherwise require. Every state change is still a normal item
-// action under the hood (drops are optimistic, then reconciled from the
-// server response like every other action on this page) — dragging never
-// bypasses `onAction`. See the drop-mapping comment above `handleDragEnd`
-// for the exact column/lane rules. Tapping a card without dragging still
-// opens `ItemDetailSheet` as before.
+// would otherwise require; see the drop-mapping comment above
+// `handleDragEnd` for the exact column/lane rules. `DndContext` (sensors,
+// collision detection, `DragOverlay`) wraps only this desktop branch.
 //
-// Collision detection: `pointerWithin` first, `closestCenter` as a
-// fallback only when the pointer isn't literally over any droppable (e.g.
-// dropped in the gap between cells). `closestCenter` alone compares
-// droppable *rect centres* to the pointer, not containment — with cells of
-// very different heights (a tall "In progress" column full of cards next
-// to a short, maybe-empty "To do" column) the pointer can be visually
-// inside "To do" while its centre is still numerically closer to "In
-// progress"'s much taller rect, so the drop silently lands on the wrong
-// column. That is the root cause behind cards getting stuck in In
-// progress when dragged back to To do. `pointerWithin` checks actual
-// pointer containment first, which fixes it.
+// Below `lg` (H56, 2026-09-17, Kevin's "ribbon" pick from
+// frontend/app/design/ops-board-mobile/): `MobileRibbonBoard.tsx`, a
+// sticky status-count strip over dense single-line rows, replacing the
+// old per-section horizontally-scrolling lane strip that made a phone
+// visit a two-axis scroll through a roughly 300-card grid. There is no
+// drag on this tree at all — a tap opens `ItemDetailSheet` exactly as the
+// desktop grid does, whose "Move to" state picker (H55) is the only route
+// to a state change on a phone — so this tree registers zero dnd-kit
+// draggables or droppables and is rendered completely outside
+// `<DndContext>`, not just visually hidden from it. That is simpler than
+// the old reason the two trees had to stay DOM-mutually-exclusive
+// (dnd-kit registers every mounted draggable/droppable by id regardless
+// of visibility, so two trees with real cards in both would
+// double-register every id and corrupt collision detection): now there is
+// only ever one tree with any draggables in it, full stop.
 //
-// Touch scrolling vs. drag (H55): `Card` uses `touch-manipulation`
-// (`touch-action: manipulation`), NOT `touch-none`. `touch-action: none`
-// tells the browser this element never scrolls, so a finger landing on a
-// card could never pan the page at all — every scroll gesture that
-// started on a card silently became a drag instead, because the finger
-// had nowhere to move within `TouchSensor`'s tolerance. `manipulation`
-// leaves normal panning (and the lane's horizontal scroll) to the
-// browser, and it's the delay plus tolerance on `TouchSensor` below
-// (400ms held, under 5px of movement) that tells deliberate-press-and-
-// hold apart from an ordinary scroll: a scroll moves the finger past the
-// tolerance (or the browser starts panning) well before 400ms elapses,
-// which cancels the pending drag. Do not put `touch-none` back on this
-// element; `touch-action: none` is only correct for an immediate-
-// activation TouchSensor with no delay.
+// Collision detection (desktop only): `pointerWithin` first,
+// `closestCenter` as a fallback only when the pointer isn't literally over
+// any droppable (e.g. dropped in the gap between cells). `closestCenter`
+// alone compares droppable *rect centres* to the pointer, not containment
+// — with cells of very different heights (a tall "In progress" column
+// full of cards next to a short, maybe-empty "To do" column) the pointer
+// can be visually inside "To do" while its centre is still numerically
+// closer to "In progress"'s much taller rect, so the drop silently lands
+// on the wrong column. That is the root cause behind cards getting stuck
+// in In progress when dragged back to To do. `pointerWithin` checks
+// actual pointer containment first, which fixes it.
+//
+// Touch scrolling vs. drag (H55, desktop only): `Card` uses
+// `touch-manipulation` (`touch-action: manipulation`), NOT `touch-none`.
+// `touch-action: none` tells the browser this element never scrolls, so a
+// finger landing on a card could never pan the page at all — every scroll
+// gesture that started on a card silently became a drag instead, because
+// the finger had nowhere to move within `TouchSensor`'s tolerance.
+// `manipulation` leaves normal panning to the browser, and it's the delay
+// plus tolerance on `TouchSensor` below (400ms held, under 5px of
+// movement) that tells deliberate-press-and-hold apart from an ordinary
+// scroll: a scroll moves the finger past the tolerance (or the browser
+// starts panning) well before 400ms elapses, which cancels the pending
+// drag. Do not put `touch-none` back on this element; `touch-action: none`
+// is only correct for an immediate-activation TouchSensor with no delay.
+// (Desktop-only in practice now: a mouse pointer never triggers
+// `TouchSensor`, but the constraint is left as-is since desktop can still
+// be driven by a touchscreen.)
 
 import { Fragment, useEffect, useState } from "react";
-import { ChevronDown, MessageSquare } from "lucide-react";
+import { MessageSquare } from "lucide-react";
 import {
   DndContext,
   DragOverlay,
@@ -74,6 +82,8 @@ import {
   OWNER_LABEL,
   groupItemsByOwner,
   groupItemsBySection,
+  itemFilterState,
+  type GoLiveFilters,
   type GoLiveItem,
   type GoLiveItemState,
   type GoLiveLaneMode,
@@ -81,6 +91,7 @@ import {
 } from "@/lib/goLive";
 import { OwnerInitialChip, PriorityPill, UnblocksTags } from "./Badges";
 import { ItemDetailSheet } from "./ItemDetailSheet";
+import { MobileRibbonBoard } from "./MobileRibbonBoard";
 
 type ActionBody = Parameters<typeof api.goLiveItemAction>[1];
 type SaveNote = { ok: boolean; text: string } | null;
@@ -102,14 +113,6 @@ function parseCellId(id: string): { laneKey: string; column: GoLiveItemState } {
   const sep = id.lastIndexOf("::");
   return { laneKey: id.slice(0, sep), column: id.slice(sep + 2) as GoLiveItemState };
 }
-
-/** The always-visible drop target rendered at the left edge of the screen
- *  while a card is being dragged on a narrow (non-desktop) layout, so a
- *  user doesn't have to scroll a horizontally-scrolling lane all the way
- *  back to its first column mid-drag. Distinct from every real cell id so
- *  it can never collide with one; `handleDragEnd` maps it onto "that
- *  item's own lane, To do column" explicitly. */
-const EDGE_TODO_DROP_ID = "__edge-todo__";
 
 function sourceLaneFor(item: GoLiveItem, lanes: GoLiveLaneMode): string {
   return lanes === "section" ? item.section : item.owner ?? "unassigned";
@@ -265,84 +268,6 @@ function ColumnCell({
   );
 }
 
-function LaneRow({
-  laneKey,
-  label,
-  allItems,
-  effectiveLane,
-  effectiveColumn,
-  activeItem,
-  lanes,
-  onOpen,
-}: {
-  laneKey: string;
-  label: string;
-  allItems: GoLiveItem[];
-  effectiveLane: (item: GoLiveItem) => string;
-  effectiveColumn: (item: GoLiveItem) => GoLiveItemState;
-  activeItem: GoLiveItem | undefined;
-  lanes: GoLiveLaneMode;
-  onOpen: (item: GoLiveItem) => void;
-}) {
-  const [open, setOpen] = useState(true);
-
-  // Placement uses the *effective* (optimistic-aware) lane/column, computed
-  // over the whole board's items, so a card that was just dropped
-  // elsewhere shows there immediately even though this lane's real
-  // (server-truth) membership hasn't changed yet.
-  const cellItems = (column: GoLiveItemState) =>
-    allItems.filter((item) => effectiveLane(item) === laneKey && effectiveColumn(item) === column);
-  const counts = BOARD_COLUMNS.map((col) => cellItems(col.key).length);
-  const laneTotal = counts.reduce((a, b) => a + b, 0);
-
-  return (
-    <div className="glass-card rounded-2xl p-3">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="flex min-h-9 w-full items-center justify-between gap-3 text-left"
-      >
-        <span className="text-sm font-semibold text-pretty text-slate-800 dark:text-slate-100">{label}</span>
-        <span className="flex shrink-0 items-center gap-2">
-          <span className="money text-xs font-semibold text-slate-500 dark:text-slate-400">{laneTotal}</span>
-          <ChevronDown
-            size={16}
-            className={`shrink-0 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`}
-            aria-hidden="true"
-          />
-        </span>
-      </button>
-
-      {open && (
-        <div className="mt-2 flex gap-3 overflow-x-auto pb-1">
-          {BOARD_COLUMNS.map((col, idx) => (
-            <div key={col.key} className="w-[220px] shrink-0">
-              <p className="mb-1.5 flex items-center justify-between px-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-400 dark:text-slate-500">
-                {col.label}
-                <span className="money">{counts[idx]}</span>
-              </p>
-              {col.key === "review" && (
-                <p className="mb-1.5 px-0.5 text-[10px] text-slate-400 dark:text-slate-500">Set automatically when work finishes</p>
-              )}
-              {col.key === "uat" && (
-                <p className="mb-1.5 px-0.5 text-[10px] text-slate-400 dark:text-slate-500">Set when a design round lands</p>
-              )}
-              <ColumnCell
-                laneKey={laneKey}
-                column={col.key}
-                items={cellItems(col.key)}
-                activeItem={activeItem}
-                lanes={lanes}
-                onOpen={onOpen}
-              />
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // Sticky header offset for the desktop grid: `FilterBar.tsx` measures its
 // own rendered height with a ResizeObserver and publishes it as
 // `--go-live-filter-h` on <html>, so the column headers stick exactly
@@ -450,27 +375,6 @@ function DesktopBoardGrid({
           ))}
         </Fragment>
       ))}
-    </div>
-  );
-}
-
-/** Fixed 56px strip at the left edge of the viewport, shown only while a
- *  card is being dragged on a narrow (non-desktop) layout. Lets a user
- *  drop a card back onto To do without first scrolling its horizontally-
- *  scrolling lane all the way left. Droppable id is `EDGE_TODO_DROP_ID`,
- *  handled specially in `handleDragEnd` as "this item's own lane, To do". */
-function EdgeTodoDropTarget() {
-  const { setNodeRef, isOver } = useDroppable({ id: EDGE_TODO_DROP_ID });
-  return (
-    <div
-      ref={setNodeRef}
-      className={`fixed inset-y-0 left-0 z-40 flex w-14 items-center justify-center border-r-2 border-dashed p-1.5 text-center text-[10px] font-semibold leading-tight transition-colors ${
-        isOver
-          ? "border-indigo-400 bg-indigo-50/95 text-indigo-700 dark:border-indigo-600 dark:bg-indigo-950/80 dark:text-indigo-200"
-          : "border-slate-300 bg-white/85 text-slate-400 dark:border-white/15 dark:bg-slate-900/85 dark:text-slate-500"
-      }`}
-    >
-      Drop here for To do
     </div>
   );
 }
@@ -635,6 +539,9 @@ type ToastState = { seq: number; itemId: string; message: string; undo: ActionBo
 
 export function BoardView({
   items,
+  scopeItems,
+  filters,
+  onFiltersChange,
   todoMarkdown,
   lanes,
   onLanesChange,
@@ -642,7 +549,19 @@ export function BoardView({
   saveNotes,
   onAction,
 }: {
+  /** The full owner/priority/state/search filter applied — what the
+   *  desktop grid renders, and what `MobileRibbonBoard` renders as its
+   *  flat "Results" list the moment a filter (including a ribbon state
+   *  chip) is active. */
   items: GoLiveItem[];
+  /** Owner/priority/search only, `states` excluded — the honest, always-
+   *  live source for `MobileRibbonBoard`'s own ribbon counts and its
+   *  default (no active filter) in-flight rows, so picking one ribbon
+   *  chip never zeroes the other three counts. Unused on the desktop
+   *  grid, which has no ribbon. */
+  scopeItems: GoLiveItem[];
+  filters: GoLiveFilters;
+  onFiltersChange: (next: GoLiveFilters) => void;
   todoMarkdown?: string;
   lanes: GoLiveLaneMode;
   onLanesChange: (lanes: GoLiveLaneMode) => void;
@@ -669,6 +588,17 @@ export function BoardView({
       : groupItemsByOwner(items).map((g) => ({ key: g.key, label: g.label, items: g.items }));
 
   const activeItem = activeId ? items.find((i) => i.id === activeId) : undefined;
+
+  // MobileRibbonBoard inputs. `scopeItems` isn't paginated in production
+  // (it's the whole board, owner/priority/search-filtered), so the To
+  // do/Done sample arrays below are just the full matching arrays — see
+  // MobileRibbonBoard.tsx's own CollapsedSection doc for why that means no
+  // "sample of N" caveat renders here (it only does in the /design
+  // preview, which deliberately passes a smaller curated slice).
+  const hasActiveFilter =
+    filters.owner !== "all" || filters.priorities.length > 0 || filters.states.length > 0 || filters.search.trim() !== "";
+  const todoItems = scopeItems.filter((item) => itemFilterState(item) === "open");
+  const doneItems = scopeItems.filter((item) => itemFilterState(item) === "done");
 
   function effectiveLane(item: GoLiveItem): string {
     const opt = optimisticPlacement[item.id];
@@ -732,9 +662,8 @@ export function BoardView({
   // changed, then the column action above, in sequence — except into
   // Blocked, where "owner" fires immediately but "block" waits for the
   // reason. Dropping into "unassigned" is refused (no un-assign action).
-  // The edge "Drop here for To do" target (mobile only, see
-  // `EdgeTodoDropTarget`) maps onto the dragged item's own lane's To do
-  // cell, so it goes through this exact same mapping.
+  // This handler only ever fires from inside the desktop `DndContext`
+  // (H56): the mobile tree (`MobileRibbonBoard`) has no draggables at all.
   // --------------------------------------------------------------------
   function handleDragEnd(event: DragEndEvent) {
     setActiveId(null);
@@ -745,8 +674,7 @@ export function BoardView({
     if (!item) return;
 
     const sourceLane = sourceLaneFor(item, lanes);
-    const { laneKey: targetLane, column: targetColumn } =
-      over.id === EDGE_TODO_DROP_ID ? { laneKey: sourceLane, column: "todo" as GoLiveItemState } : parseCellId(String(over.id));
+    const { laneKey: targetLane, column: targetColumn } = parseCellId(String(over.id));
 
     const laneChanged = targetLane !== sourceLane;
     const columnChanged = targetColumn !== item.state;
@@ -803,43 +731,59 @@ export function BoardView({
 
   // Keep `selected` pointed at the freshest copy of the item after a write
   // replaces `items` from the server response, so the sheet doesn't show
-  // stale state while it's still open.
-  const liveSelected = selected ? items.find((i) => i.id === selected.id) ?? null : null;
+  // stale state while it's still open. Falls back to the last known
+  // `selected` object (not null) when the id no longer matches anything
+  // in `items` (H56, found by independent audit 2026-09-17): `items` is
+  // the fully filtered set, and on the mobile ribbon board a state chip
+  // is a one-tap primary gesture, so tapping a row under a "Blocked"
+  // filter and then using the sheet's own "Move to In progress" makes the
+  // item stop matching that filter mid-action — without this fallback
+  // `liveSelected` went null and the sheet vanished under the user's
+  // finger with no confirmation anything saved. Only clears on `onClose`,
+  // which resets `selected` to null directly.
+  const liveSelected = selected ? items.find((i) => i.id === selected.id) ?? selected : null;
   const blockDraftItem = blockDraft ? items.find((i) => i.id === blockDraft.itemId) ?? null : null;
 
   return (
     <div>
-      <div className="mb-3 flex items-center justify-end gap-1.5">
-        <span className="text-[11px] font-semibold text-slate-400 dark:text-slate-500">Lanes</span>
-        <div className="flex min-h-8 items-center rounded-full bg-slate-100 p-0.5 dark:bg-white/5">
-          {(["section", "owner"] as GoLiveLaneMode[]).map((mode) => (
-            <button
-              key={mode}
-              type="button"
-              onClick={() => onLanesChange(mode)}
-              className={`min-h-7 rounded-full px-2.5 text-[11px] font-semibold capitalize ${
-                lanes === mode
-                  ? "bg-white text-slate-800 shadow-sm dark:bg-slate-700 dark:text-slate-100"
-                  : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
-              }`}
-            >
-              {mode}
-            </button>
-          ))}
+      {/* The Lanes (section/owner) toggle only means anything for the
+          desktop kanban grid — MobileRibbonBoard has no lane concept at
+          all, it's a single always-visible list keyed on state, not
+          section/owner. Hiding it below `lg` avoids showing Kevin a
+          control on his phone that would silently do nothing there. */}
+      {isDesktop && (
+        <div className="mb-3 flex items-center justify-end gap-1.5">
+          <span className="text-[11px] font-semibold text-slate-400 dark:text-slate-500">Lanes</span>
+          <div className="flex min-h-8 items-center rounded-full bg-slate-100 p-0.5 dark:bg-white/5">
+            {(["section", "owner"] as GoLiveLaneMode[]).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => onLanesChange(mode)}
+                className={`min-h-7 rounded-full px-2.5 text-[11px] font-semibold capitalize ${
+                  lanes === mode
+                    ? "bg-white text-slate-800 shadow-sm dark:bg-slate-700 dark:text-slate-100"
+                    : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                }`}
+              >
+                {mode}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
-      {laneGroups.length === 0 ? (
-        <p className="text-sm text-slate-500 dark:text-slate-400">No items match the current filters.</p>
-      ) : (
-        <DndContext
-          sensors={sensors}
-          collisionDetection={collisionDetectionStrategy}
-          autoScroll={{ threshold: { x: 0.25, y: 0.2 } }}
-          onDragStart={handleDragStart}
-          onDragEnd={handleDragEnd}
-        >
-          {isDesktop ? (
+      {isDesktop ? (
+        laneGroups.length === 0 ? (
+          <p className="text-sm text-slate-500 dark:text-slate-400">No items match the current filters.</p>
+        ) : (
+          <DndContext
+            sensors={sensors}
+            collisionDetection={collisionDetectionStrategy}
+            autoScroll={{ threshold: { x: 0.25, y: 0.2 } }}
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+          >
             <DesktopBoardGrid
               laneGroups={laneGroups}
               allItems={items}
@@ -849,26 +793,22 @@ export function BoardView({
               lanes={lanes}
               onOpen={setSelected}
             />
-          ) : (
-            <div className="space-y-3">
-              {laneGroups.map((lane) => (
-                <LaneRow
-                  key={lane.key}
-                  laneKey={lane.key}
-                  label={lane.label}
-                  allItems={items}
-                  effectiveLane={effectiveLane}
-                  effectiveColumn={effectiveColumn}
-                  activeItem={activeItem}
-                  lanes={lanes}
-                  onOpen={setSelected}
-                />
-              ))}
-            </div>
-          )}
-          {activeItem && !isDesktop && <EdgeTodoDropTarget />}
-          <DragOverlay dropAnimation={null}>{activeItem ? <CardOverlay item={activeItem} /> : null}</DragOverlay>
-        </DndContext>
+            <DragOverlay dropAnimation={null}>{activeItem ? <CardOverlay item={activeItem} /> : null}</DragOverlay>
+          </DndContext>
+        )
+      ) : (
+        <MobileRibbonBoard
+          filters={filters}
+          onFiltersChange={onFiltersChange}
+          hasActiveFilter={hasActiveFilter}
+          filteredItems={items}
+          scopeItems={scopeItems}
+          todoTotalCount={todoItems.length}
+          todoSampleItems={todoItems}
+          doneTotalCount={doneItems.length}
+          doneSampleItems={doneItems}
+          onOpen={setSelected}
+        />
       )}
 
       {liveSelected && (

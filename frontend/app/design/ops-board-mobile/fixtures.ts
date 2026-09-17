@@ -20,9 +20,15 @@
 // exactly as of this snapshot.
 //
 // IN_FLIGHT is every item TODO.md currently has in in-progress, blocked,
-// review or uat (a fair sample of the uat run, which numbers eleven on
-// its own — trimmed to seven so the list reads like Kevin's actual dozen
-// rather than reproducing the whole Canvas Before Cards sweep). TODO_SAMPLE
+// review, rejected or uat (a fair sample of the uat run, which numbers
+// eleven on its own — trimmed to seven so the list reads like Kevin's
+// actual dozen rather than reproducing the whole Canvas Before Cards
+// sweep). G94 (rejected) is included in full, not trimmed: it is the
+// board's only rejected item right now, and its absence from this fixture
+// set is exactly what let a real regression (rejected items rendering in
+// no section of the ribbon board, HIGH 2 of the 2026-09-17 independent
+// audit) ship past both the preview and a first reviewer — the gate can
+// only catch a class of bug it has a fixture for. TODO_SAMPLE
 // and DONE_SAMPLE are a representative slice of the remaining items, used
 // to populate the collapsed "To do" / "Done" sections when a variant
 // expands them; TODO_TOTAL_COUNT and DONE_TOTAL_COUNT are the real counts
@@ -215,6 +221,17 @@ export const IN_FLIGHT: GoLiveItem[] = [
       },
     ],
   }),
+  item({
+    id: "G94",
+    section: "G",
+    title:
+      "Canvas Before Cards review 9 of 16, Settings: produce two or three coded variants that remove any unearned profile hero and improve canvas orientation while retaining card boundaries for related controls, permissions and destructive actions; verify long-page navigation and all responsive themes before production changes",
+    owner: "codex",
+    state: "rejected",
+    reason:
+      "Independent re-review 2026-09-17, built from the real components with production card counts and screenshotted at phone and desktop widths. The two named fixes ARE in: a group with zero cards now r...",
+    branch: "feature-G94-fold-in-approved-variant-c",
+  }),
 ];
 
 // ---------------------------------------------------------------------
@@ -376,11 +393,11 @@ export const DONE_SAMPLE: GoLiveItem[] = [
 export const ALL_FIXTURE_ITEMS: GoLiveItem[] = [...IN_FLIGHT, ...TODO_SAMPLE, ...DONE_SAMPLE];
 
 // Real count of in-flight items in TODO.md on this snapshot: 2 in-progress
-// + 3 blocked + 0 review + 11 uat = 16. IN_FLIGHT above trims the uat
-// slice to 7 so this preview's "Live now" reads like Kevin's actual dozen
-// rather than reproducing the entire eleven-item Canvas Before Cards
-// sweep, but TOTAL_ITEM_COUNT below uses the real total so the collapsed
-// counts stay honest about the board's real scale.
-export const IN_FLIGHT_TOTAL_COUNT = 16;
+// + 3 blocked + 0 review + 1 rejected + 11 uat = 17. IN_FLIGHT above trims
+// the uat slice to 7 so this preview's "Live now" reads like Kevin's
+// actual dozen rather than reproducing the entire eleven-item Canvas
+// Before Cards sweep, but TOTAL_ITEM_COUNT below uses the real total so
+// the collapsed counts stay honest about the board's real scale.
+export const IN_FLIGHT_TOTAL_COUNT = 17;
 
 export const TOTAL_ITEM_COUNT = TODO_TOTAL_COUNT + DONE_TOTAL_COUNT + IN_FLIGHT_TOTAL_COUNT;
