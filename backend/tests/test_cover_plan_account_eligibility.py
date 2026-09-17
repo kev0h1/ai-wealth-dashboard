@@ -269,7 +269,9 @@ def test_account_at_exactly_zero_headroom_is_short(monkeypatch):
     eligibility = {}
     _run(monkeypatch, [], accounts=accounts, account_eligibility_out=eligibility)
 
-    assert eligibility["src_zero"] == {"short": True, "headroom": 0.0}
+    assert eligibility["src_zero"] == {
+        "short": True, "headroom": 0.0, "spend_from_headroom": 0.0,
+    }
 
 
 def test_account_headroom_just_under_five_is_short(monkeypatch):
@@ -282,7 +284,9 @@ def test_account_headroom_just_under_five_is_short(monkeypatch):
     eligibility = {}
     _run(monkeypatch, [], accounts=accounts, account_eligibility_out=eligibility)
 
-    assert eligibility["src_just_under"] == {"short": True, "headroom": 4.99}
+    assert eligibility["src_just_under"] == {
+        "short": True, "headroom": 4.99, "spend_from_headroom": 4.99,
+    }
 
 
 def test_account_headroom_of_exactly_five_is_not_short(monkeypatch):
@@ -292,7 +296,9 @@ def test_account_headroom_of_exactly_five_is_not_short(monkeypatch):
     eligibility = {}
     _run(monkeypatch, [], accounts=accounts, account_eligibility_out=eligibility)
 
-    assert eligibility["src_exactly_five"] == {"short": False, "headroom": 5.0}
+    assert eligibility["src_exactly_five"] == {
+        "short": False, "headroom": 5.0, "spend_from_headroom": 5.0,
+    }
 
 
 def test_account_below_zero_headroom_is_short(monkeypatch):
@@ -309,7 +315,9 @@ def test_account_with_ample_headroom_is_not_short(monkeypatch):
     eligibility = {}
     _run(monkeypatch, [], accounts=accounts, account_eligibility_out=eligibility)
 
-    assert eligibility["src_ample"] == {"short": False, "headroom": 190.0}
+    assert eligibility["src_ample"] == {
+        "short": False, "headroom": 190.0, "spend_from_headroom": 190.0,
+    }
 
 
 # ── Class-aware second gate: current accounts only, not savings/offline ────
@@ -435,14 +443,24 @@ def test_real_engine_never_picks_a_leg_at_4_99_headroom_but_does_at_5_00(monkeyp
     eligibility = {}
     items = _run(monkeypatch, bills, accounts=accounts, account_eligibility_out=eligibility)
 
-    assert eligibility["cand_4_99"] == {"short": True, "headroom": 4.99}
-    assert eligibility["cand_5_00"] == {"short": False, "headroom": 5.0}
-
     move = _find(items, "move")
     assert move is not None
     leg_source_ids = {m["move_map"]["from"]["account_id"] for m in move["moves"]}
     assert "cand_4_99" not in leg_source_ids
     assert "cand_5_00" in leg_source_ids
+
+    # cand_4_99 is never a leg source (excluded below the floor), so its
+    # G114 `spend_from_headroom` equals its standing headroom unchanged.
+    # cand_5_00 IS the live move's source, funding the whole £5 leg the
+    # small bill needs — G114 must reserve that £5 out of its spend-from
+    # figure, dropping it from 5.0 to 0.0, while `headroom` (the standing
+    # figure Settings reads) stays exactly 5.0.
+    assert eligibility["cand_4_99"] == {
+        "short": True, "headroom": 4.99, "spend_from_headroom": 4.99,
+    }
+    assert eligibility["cand_5_00"] == {
+        "short": False, "headroom": 5.0, "spend_from_headroom": 0.0,
+    }
 
 
 # ── Snapshot timing: taken before any leg-picking mutates source_capacity ──
@@ -465,5 +483,92 @@ def test_eligibility_snapshot_unaffected_by_which_destination_gets_funded_first(
 
     assert _find(items, "move") is not None
     # Standing headroom (200 - 10), not reduced by the ~60 this request
-    # goes on to draw from it to fund `premier`.
-    assert eligibility["src_ample"] == {"short": False, "headroom": 190.0}
+    # goes on to draw from it to fund `premier` — this is the `headroom`
+    # key's job. `spend_from_headroom` (G114) is the opposite: it DOES
+    # reserve that £60, since this is the live move's only source and the
+    # card funding `premier` will actually be shown.
+    assert eligibility["src_ample"] == {
+        "short": False, "headroom": 190.0, "spend_from_headroom": 130.0,
+    }
+
+
+# ── G114 (Kevin, 2026-09-17): spend-from headroom vs a live cover-plan move ──
+#
+# Real bug, reproduced on Kevin's own live data 2026-09-17: the cover plan
+# recommends moving £20 out of his Monzo current account to protect three
+# payments (£133) at his Barclays Premier account, while Home's spend-from
+# line (lib/spendFromAccount.ts, fed by `account_eligibility[id].headroom`)
+# told him the SAME Monzo account had ~£24 spare to spend — the app talking
+# him out of its own cover plan. `headroom` is `_account_headroom`'s
+# standing figure (bills/income netted off, £10 buffer) and is correct for
+# Settings' "can this account ever be a source" question; it says nothing
+# about a move ALREADY claiming part of it this request. `spend_from_headroom`
+# is the second figure this item adds: `headroom` less the total of any
+# live (actually-displayed) move-card legs sourced from this account.
+
+def test_spend_from_headroom_drops_by_the_live_move_leg_sourced_from_it(monkeypatch):
+    """One source (`monzo`) funds the whole shortfall at `dest`, matching
+    Kevin's real shape. `spend_from_headroom` for `monzo` must be its
+    standing headroom LESS the leg amount the live move card is actually
+    taking out of it; `headroom` itself must be untouched, since Settings
+    still needs the standing figure.
+
+    This test FAILS against the pre-fix code: before G114,
+    `account_eligibility_out[sid]` only ever had `short`/`headroom` and
+    `headroom` was never reduced by a live move's own leg, so
+    `eligibility["monzo"]["spend_from_headroom"]` either KeyErrors (field
+    doesn't exist) or, once seeded to equal `headroom` at snapshot time and
+    never corrected, stays at the FULL standing figure — asserted explicitly
+    below via the strict `<` comparison, not just presence of the key."""
+    accounts = [
+        _account("dest", 124.0, name="Premier Current Account", provider="barclays"),
+        _account("monzo", 200.0, name="Kevin Mbithi Maingi", provider="monzo"),
+    ]
+    bills = [_bill("Direct debit", 2, 133.0, "dest", 124.0, kind="commitment")]
+    eligibility = {}
+    items = _run(monkeypatch, bills, accounts=accounts, account_eligibility_out=eligibility)
+
+    move = _find(items, "move")
+    assert move is not None
+    leg = next(m for m in move["moves"] if m["move_map"]["from"]["account_id"] == "monzo")
+    leg_amount = leg["amount"]
+    assert leg_amount > 0
+
+    standing_headroom = eligibility["monzo"]["headroom"]
+    assert "spend_from_headroom" in eligibility["monzo"]
+    assert eligibility["monzo"]["spend_from_headroom"] == round(standing_headroom - leg_amount, 2)
+    # The exact bug this closes: spending `standing_headroom` (what the
+    # pre-fix spend-from line offered) would make this account's own live
+    # move card impossible.
+    assert eligibility["monzo"]["spend_from_headroom"] < standing_headroom
+
+
+def test_spend_from_headroom_unreserved_once_its_move_card_is_dismissed(monkeypatch):
+    """A move card the user has already dismissed is no longer "live" —
+    nothing is shown that recommends taking money out of its source, so
+    G114's reservation must not apply. First compute run (persist=False,
+    nothing written) discovers the real item id the engine assigns; the
+    second run pre-seeds `companion_items_col` with that id marked
+    dismissed, exactly as `dismiss_item` would leave it, and confirms both
+    that the card no longer renders AND that its source's
+    `spend_from_headroom` is back to the full standing `headroom`."""
+    accounts = [
+        _account("dest", 124.0, name="Premier Current Account", provider="barclays"),
+        _account("src", 200.0, name="Source", provider="hsbc"),
+    ]
+    bills = [_bill("Direct debit", 2, 133.0, "dest", 124.0, kind="commitment")]
+
+    first_items = _run(monkeypatch, bills, accounts=accounts, account_eligibility_out={})
+    first_move = _find(first_items, "move")
+    assert first_move is not None
+    item_id = first_move["id"]
+
+    async def _fake_dismissed(uid):
+        return {item_id}
+
+    monkeypatch.setattr(companion, "_get_dismissed", _fake_dismissed)
+    eligibility = {}
+    items = _run(monkeypatch, bills, accounts=accounts, account_eligibility_out=eligibility)
+
+    assert _find(items, "move") is None  # dismissed, nothing live
+    assert eligibility["src"]["spend_from_headroom"] == eligibility["src"]["headroom"]

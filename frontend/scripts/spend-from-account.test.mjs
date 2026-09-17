@@ -240,8 +240,68 @@ check("hero line is omitted (not a fallback sentence) while data is unavailable"
   );
 }
 
+// ── G114 (2026-09-17): ranking reads spend_from_headroom, not the standing
+// headroom, so an account a live cover-plan move is already drawing from is
+// never offered back to the user. Reproduces Kevin's real shape: Monzo has
+// £23.74 standing headroom (ranks #1) but a live move needs £20 out of it,
+// leaving £3.74 spend-from headroom, below the £5 floor. ──────────────────
+{
+  const accounts = [
+    account({ id: "monzo", name: "Kevin Mbithi Maingi", subtype: "CURRENT", cover_source_eligible: true }),
+    account({ id: "natwest", name: "The Number One", subtype: "CURRENT", cover_source_eligible: true }),
+  ];
+  const eligibility = {
+    // Monzo's live move card is already taking £20 out of its £23.74
+    // standing headroom (spend_from_headroom = 3.74, below the floor).
+    monzo: { short: false, headroom: 23.74, spend_from_headroom: 3.74 },
+    natwest: { short: true, headroom: 2.68, spend_from_headroom: 2.68 },
+  };
+  const result = bestSpendAccount(eligibility, accounts);
+  check(
+    "G114: an account whose live move leg drops it below the floor is not offered, even though its standing headroom clears it",
+    result.kind,
+    "none",
+  );
+  check(
+    "G114: the honest 'nothing spare' line is shown rather than naming Monzo off its standing £23.74",
+    spendFromHeroLine(result, amount),
+    "No single account has spare to spend from right now. Checked account by account, not against your full Safe to Spend.",
+  );
+}
+
+// A second current account with real spend-from headroom still ranks
+// normally once the reserved account is excluded — G114 only removes what a
+// live move already claims, it does not suppress the rest of the ranking.
+{
+  const accounts = [
+    account({ id: "monzo", name: "Kevin Mbithi Maingi", subtype: "CURRENT", cover_source_eligible: true }),
+    account({ id: "hsbc", name: "HSBC Current", subtype: "CURRENT", cover_source_eligible: true }),
+  ];
+  const eligibility = {
+    // Monzo standing headroom (90) would rank #1, but a live £88 move leaves
+    // only £2 spend-from headroom — below the floor, so HSBC's real £30
+    // spend-from headroom must win instead.
+    monzo: { short: false, headroom: 90, spend_from_headroom: 2 },
+    hsbc: { short: false, headroom: 30, spend_from_headroom: 30 },
+  };
+  const result = bestSpendAccount(eligibility, accounts);
+  check("G114: the account with real spend-from headroom wins over one whose standing figure is higher but already claimed", result.kind, "account");
+  check("G114: HSBC is named, not Monzo's higher but already-claimed standing headroom", result.best?.name, "HSBC Current");
+  check("G114: the figure shown is the spend-from figure (£30), not any standing figure", result.best?.headroom, 30);
+}
+
+// Backward compatibility: a payload predating G114 (no spend_from_headroom
+// key at all, e.g. a stale cached /today response) must fall back to the
+// standing headroom rather than treating the account as having nothing.
+{
+  const accounts = [account({ id: "hsbc", name: "HSBC Current", subtype: "CURRENT", cover_source_eligible: true })];
+  const eligibility = { hsbc: { short: false, headroom: 38 } };
+  const result = bestSpendAccount(eligibility, accounts);
+  check("G114: a pre-G114 payload with no spend_from_headroom field falls back to headroom", result.best?.headroom, 38);
+}
+
 if (failures > 0) {
   console.error(`\n${failures} failure(s).`);
   process.exit(1);
 }
-console.log("\nAll spend-from-account (G110/G111) checks passed.");
+console.log("\nAll spend-from-account (G110/G111/G114) checks passed.");
