@@ -8,12 +8,18 @@
 // (components/SpendVerdictView.tsx, NotableCard ~line 364 vs. the warm
 // mini-row ~line 596) — fix the WHOLE period view, not just the chip.
 //
-//   /design/spend-period-round?variant=current|a|b|c&mode=light|dark
+//   /design/spend-period-round?variant=a|b|c&mode=light|dark
+//
+// Variant B (Tiered dashboard, unified row) shipped — see G38. The
+// "current" baseline tab that compared these three against the live page as
+// it stood pre-round (Baseline.tsx, rendering the pre-redesign default-
+// exported components/SpendHeader.tsx) was retired with it (backlog G73):
+// that old instrument-header component is gone from SpendHeader.tsx,
+// superseded in production by SpendJourneySummary, so it could no longer
+// serve as an honest "as shipped" comparison. A, B and C stay as the
+// record of what was compared before the pick.
 //
 // Variant summary:
-//   current — the live page, unmodified (Baseline.tsx renders the real
-//     SpendHeader/SpendVerdictView/SpendShapeCard against this route's own
-//     fixture). Shows the named inconsistency exactly as shipped.
 //   A — "One ledger, ranked": the hero/grouped-tile split is gone, every
 //     notable (needs-a-look and running-warm alike) is one row in one
 //     ranked list, one row template throughout the whole page.
@@ -45,16 +51,14 @@
 
 import { useEffect } from "react";
 import { useSearchParams } from "next/navigation";
-import Baseline from "./Baseline";
 import VariantA from "./VariantA";
 import VariantB from "./VariantB";
 import VariantC from "./VariantC";
 
-type Variant = "current" | "a" | "b" | "c";
+type Variant = "a" | "b" | "c";
 type Mode = "light" | "dark";
 
 const VARIANTS: { key: Variant; label: string }[] = [
-  { key: "current", label: "Current" },
   { key: "a", label: "A" },
   { key: "b", label: "B" },
   { key: "c", label: "C" },
@@ -93,7 +97,7 @@ function Switcher({ variant, mode }: { variant: Variant; mode: Mode }) {
 function Inner() {
   const params = useSearchParams();
   const rawVariant = params.get("variant");
-  const variant: Variant = (["current", "a", "b", "c"] as string[]).includes(rawVariant ?? "") ? (rawVariant as Variant) : "current";
+  const variant: Variant = (["a", "b", "c"] as string[]).includes(rawVariant ?? "") ? (rawVariant as Variant) : "a";
   const mode: Mode = params.get("mode") === "dark" ? "dark" : "light";
 
   useEffect(() => {
@@ -108,17 +112,17 @@ function Inner() {
     <div className={mode === "dark" ? "dark" : ""} style={{ colorScheme: mode }}>
       <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-32">
         <p className="pt-4 px-4 text-[11px] text-slate-400 dark:text-slate-500 text-center">
-          Illustrative figures, not real balances. G38 design round, {variant === "current" ? "current live page" : `variant ${variant.toUpperCase()}`}.
+          Illustrative figures, not real balances. G38 design round, variant {variant.toUpperCase()}. Variant B shipped
+          (backlog G38); the &quot;Current&quot; baseline tab that compared against the live page was retired with it
+          (backlog G73) since components/SpendHeader.tsx&apos;s old instrument-header default export it rendered is
+          gone, superseded by SpendJourneySummary.
         </p>
 
-        {variant === "current" && <Baseline />}
-        {variant !== "current" && (
-          <div className="mx-auto max-w-xl px-4 pt-4">
-            {variant === "a" && <VariantA />}
-            {variant === "b" && <VariantB />}
-            {variant === "c" && <VariantC />}
-          </div>
-        )}
+        <div className="mx-auto max-w-xl px-4 pt-4">
+          {variant === "a" && <VariantA />}
+          {variant === "b" && <VariantB />}
+          {variant === "c" && <VariantC />}
+        </div>
 
         <Switcher variant={variant} mode={mode} />
       </div>
