@@ -50,20 +50,20 @@ import { PriorityPill, StatePill } from "./Badges";
 
 // Word-safe single-line preview: cuts at the last space at or before
 // `maxLength` rather than mid-word, then appends a real ellipsis
-// character (H71). This has to be the ONLY thing doing the cutting: an
-// audit measured the preview paragraph's rendered clientWidth at 348px
-// at a true 390px, against a 100-character budget's scrollWidth of
-// 599px, so CSS `text-overflow: ellipsis` was clipping on top of this
-// every time (mid-word, plus a second ellipsis stacked on the real one).
-// 55 is calibrated to that same measurement (roughly 6px/character at
-// this 11px size, so ~58 characters is the real fit; 55 leaves a small
-// margin) and the render below deliberately does NOT use the `truncate`
-// utility (which sets `text-overflow: ellipsis`) — only `overflow-hidden
-// whitespace-nowrap`, so if some pathological case (a very wide glyph, a
-// note with no spaces at all) still overflows, it hard-clips with no
-// second ellipsis rather than silently reintroducing the bug this
-// comment describes.
-const NOTE_PREVIEW_BUDGET = 55;
+// character (H71, corrected after review). This is a DOM-size guard, not
+// a width calculation, and `truncate` (CSS `text-overflow: ellipsis`,
+// restored below) is deliberately still applied on top of it: when CSS
+// is what actually clips the line, the JS-appended ellipsis sits past
+// the clip point and is never painted, so there is no stacked/second
+// ellipsis — proved on this exact markup by forcing `text-overflow:
+// ellipsis` at runtime with the budget untouched and observing one clean
+// ellipsis. A fixed character count cannot track the available pixel
+// width anyway (this sheet is ~348px at a true 390px but 406px at the
+// `sm:` centred-modal `max-w-md` width, and glyph width varies by
+// content), so CSS owns the real clipping; this budget only exists as a
+// cheap backstop against pathologically long single notes reaching the
+// DOM at all (hence "generous", not tuned to any particular box).
+const NOTE_PREVIEW_BUDGET = 100;
 function truncateWords(text: string, maxLength: number): string {
   if (text.length <= maxLength) return text;
   const cut = text.slice(0, maxLength);
@@ -197,16 +197,28 @@ export function ItemDetailSheet({
             A38 is the median case, not an edge one. Pinning the whole
             title recreated Kevin's original complaint in a worse form:
             at 390x500 (landscape, or the note-input keyboard open) it
-            pushed the state reason, Move to, and every input below the
-            fold with nothing to scroll them into view. The title still
-            gets a `line-clamp-2` line here for orientation while
-            scrolled, with the full text repeated, unclamped, at the top
-            of the scrollable body below. `max-h-[34vh]` (a viewport unit,
-            not a `%` of this flex column's own auto/max-height, which
-            CSS would resolve as "none" against an indefinite parent
-            height) plus `overflow-hidden` is the hard cap so the header
-            itself can never eat the panel regardless of content. */}
-        <div className="flex max-h-[34vh] shrink-0 flex-col overflow-hidden border-b border-slate-100 p-5 pb-3 dark:border-white/10">
+            pushed Move to and every input below the fold with nothing to
+            scroll them into view. The title still gets a `line-clamp-2`
+            line here for orientation while scrolled, with the full text
+            repeated, unclamped, at the top of the scrollable body below.
+            `max-h-[50vh]` (a viewport unit, not a `%` of this flex
+            column's own auto/max-height, which CSS would resolve as
+            "none" against an indefinite parent height) plus
+            `overflow-hidden` is the hard cap so the header itself can
+            never eat the panel regardless of content — raised from an
+            earlier 34vh, which clipped this pill row by 2px at a real
+            390x340 measurement; `line-clamp-2` already bounds the
+            header's real height to a constant 118px regardless of title
+            length, so the cap only exists as a backstop and costs
+            nothing to raise. NOTE: pinning this row does NOT, on its
+            own, keep a block/reject reason readable — StatePill (below)
+            truncates its own `Blocked: <reason>` / `Rejected: <reason>`
+            text at `max-w-[220px]`, so a long reason still gets cut off
+            here exactly like the title used to. The FULL reason is
+            rendered separately, unclamped, in the scrollable body next
+            to the repeated title — see below — which is the actual fix
+            for keeping it reachable, not this pinning. */}
+        <div className="flex max-h-[50vh] shrink-0 flex-col overflow-hidden border-b border-slate-100 p-5 pb-3 dark:border-white/10">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <p className="money text-xs font-bold text-slate-400 dark:text-slate-500">{item.id}</p>
@@ -236,9 +248,28 @@ export function ItemDetailSheet({
             the whole panel before this fix — without it, overflow-y-auto
             here would not actually kick in until content exceeded that
             content-driven minimum. The full title repeats here,
-            unclamped, since the header above only shows two lines. */}
+            unclamped, since the header above only shows two lines;
+            `aria-hidden` on it because `aria-labelledby` on the panel
+            already names the dialog from the header's h3 (whose
+            accessible text is the full, unclamped title regardless of
+            its visual `line-clamp-2` — CSS clamping doesn't touch the
+            accessibility tree), so a screen reader would otherwise hear
+            the same title twice in a row: once as the dialog's name,
+            then again as the first thing read in the body. The full
+            block/reject reason (see the header comment above) renders
+            right after it, NOT hidden — StatePill above only shows a
+            220px-truncated version. */}
         <div className="min-h-0 flex-1 overflow-y-auto p-5 pt-3">
-          <p className="text-sm font-semibold text-pretty text-slate-800 dark:text-slate-100">{item.title}</p>
+          <p aria-hidden="true" className="text-sm font-semibold text-pretty text-slate-800 dark:text-slate-100">
+            {item.title}
+          </p>
+
+          {item.reason && (
+            <div className="mt-2">
+              <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">Reason</p>
+              <p className="mt-0.5 text-xs leading-relaxed text-pretty text-slate-700 dark:text-slate-200">{item.reason}</p>
+            </div>
+          )}
 
           {item.text && <p className="mt-2 text-xs leading-relaxed text-pretty text-slate-600 dark:text-slate-300">{item.text}</p>}
 
@@ -264,7 +295,7 @@ export function ItemDetailSheet({
               </button>
 
               {!notesExpanded && (
-                <p className="overflow-hidden whitespace-nowrap text-[11px] leading-relaxed text-slate-400 dark:text-slate-500">
+                <p className="truncate text-[11px] leading-relaxed text-slate-400 dark:text-slate-500">
                   <span className="money font-semibold">{newestNote.date}</span> ({newestNote.actor}): {truncateWords(newestNote.text, NOTE_PREVIEW_BUDGET)}
                 </p>
               )}
@@ -298,7 +329,12 @@ export function ItemDetailSheet({
                       {...(hasReason
                         ? {
                             "aria-expanded": revealed === col.key,
-                            "aria-controls": `move-to-${col.key}-reason`,
+                            // Only set aria-controls when the reason
+                            // input it names is actually in the DOM
+                            // (revealed below renders it conditionally on
+                            // this same check) — otherwise it dangles the
+                            // same way the notes toggle's used to.
+                            ...(revealed === col.key ? { "aria-controls": `move-to-${col.key}-reason` } : {}),
                           }
                         : {})}
                       className={`min-h-11 rounded-full border px-3 text-xs font-semibold disabled:opacity-50 ${

@@ -209,6 +209,14 @@ export function useSheetA11y<T extends HTMLElement>(
     // offset from its `top` rather than reading `window.scrollY` fresh —
     // see the file header comment: it reads 0 the moment body is fixed.
     const scrollY = alreadyLocked ? -(parseFloat(body.top || "0") || 0) : window.scrollY;
+    // Measured HERE, before `body.position` is set to "fixed" below:
+    // fixing it removes the document scrollbar, so `clientWidth` no
+    // longer reflects the un-fixed layout once that happens. The
+    // `paddingRight` this gap drives is itself applied AFTER `position:
+    // fixed` further down (plain code-flow ordering, grouped with the
+    // other fixed-position styles it offsets — style properties on the
+    // same object don't care what order they're set in, so that part has
+    // no functional effect either way).
     const scrollbarGap = alreadyLocked ? 0 : window.innerWidth - document.documentElement.clientWidth;
     const prev = {
       position: body.position,
@@ -248,23 +256,15 @@ export function useSheetA11y<T extends HTMLElement>(
     closingRef.current = false;
     const myGeneration = ++generationRef.current;
 
-    // Forward-navigation guard: if the entry we're about to build on
-    // already carries a marker from some EARLIER sheet that has since
-    // fully closed (the user pressed back to close it, then pressed
-    // forward again — forward history isn't cleared by back()), that
-    // marker is stale: nothing is listening for it any more. Left in
-    // place, an unrelated later back press landing on it would look like
-    // a dead back press to whoever presses it (Kevin's original
-    // complaint) rather than closing anything, since sheetHistoryStack no
-    // longer contains it. `replaceState` clears it without moving the
-    // session-history position or firing `popstate`.
-    const currentState = history.state as Record<string, unknown> | null;
-    if (currentState?.__sheetA11yId && !sheetHistoryStack.includes(currentState.__sheetA11yId as string)) {
-      const cleaned: Record<string, unknown> = { ...currentState };
-      delete cleaned.__sheetA11yId;
-      history.replaceState(cleaned, "");
-    }
-
+    // (H71, corrected after review: this effect used to also replaceState
+    // away a "stale" __sheetA11yId that a forward-navigation could leave
+    // on the current entry before pushing a new one. Removed — it was a
+    // no-op: pushState always truncates any forward history beyond the
+    // current position before appending its own entry, so a stale marker
+    // sitting on a now-inert forward entry is discarded by the push below
+    // regardless, and nothing ever reads it in the meantime since no
+    // listener is registered for it. There was no dangling-entry case for
+    // it to actually prevent.)
     const id = `sheet-${++sheetHistoryIdSeq}`;
     sheetHistoryStack.push(id);
     history.pushState({ ...(history.state ?? {}), __sheetA11yId: id }, "");
@@ -288,32 +288,33 @@ export function useSheetA11y<T extends HTMLElement>(
         if (idx !== -1) sheetHistoryStack.splice(idx, 1);
         // Unmounted without a pop ever consuming our entry (e.g. some
         // other state change stopped rendering this sheet without going
-        // through `close()`). Consume it so it doesn't dangle — but only
-        // once we're sure this is a REAL unmount, not React 18/19 Strict
-        // Mode's dev-only double-invoke, which runs this same cleanup
-        // then immediately re-runs this same effect (mount -> cleanup ->
-        // mount, same synchronous pass, specifically to surface missing
-        // cleanup — verified with `npm run dev`: unpatched, this cleanup's
-        // history.back() fires, its async popstate arrives after the
-        // remount has already pushed a NEW entry, and lands on that new
-        // entry's listener, closing the sheet the instant it opens).
-        // `myGeneration` is a ref-backed counter (refs survive Strict
-        // Mode's fake unmount/remount, since it's the same fiber) — if a
-        // newer generation has already started by the time this
-        // microtask runs (it always has, by then, since Strict Mode's
-        // remount happens synchronously, before microtasks flush), this
-        // is that phantom cleanup and the corrective back() is skipped.
-        // Skipping it leaves one harmless extra entry in dev only;
-        // production never double-invokes effects, so this path is only
-        // ever "genuine unmount, no newer generation" there.
-        // Reading the LIVE ref value inside this microtask, rather than a
-        // variable captured at cleanup time, is the point: this is the
-        // generation-mismatch check that detects a newer mount having
-        // already happened by the time the microtask runs. Copying it to
-        // a variable up front (the usual fix for this lint rule) would
-        // always match myGeneration and defeat the guard entirely.
+        // through `close()`). Consume it so it doesn't dangle. Deferred
+        // by one microtask and guarded by `myGeneration` (a ref-backed
+        // per-instance counter, since a ref survives React 18/19 Strict
+        // Mode's dev-only mount -> cleanup -> mount double-invoke, being
+        // the same fiber) purely as a DEFENSIVE measure against that
+        // double-invoke: in theory, if this cleanup ran as Strict Mode's
+        // phantom half of that cycle rather than a real unmount, a newer
+        // generation would already exist by the time the microtask
+        // fires, and skipping the corrective back() avoids it landing on
+        // whatever the remount pushed instead. In practice, built a
+        // standalone jsdom + react-dom/client harness against this
+        // file's real source under <React.StrictMode> (independent of
+        // Next's dev server, whose HMR socket does not connect in this
+        // sandbox) and could NOT reproduce that failure: this effect is
+        // gated on `el` (state set via a ref callback), so during the
+        // literal Strict-Mode-doubled mount pass `el` is still null and
+        // this whole effect body early-returns both times; by the time
+        // `el` goes true, on a later, non-doubled render, Strict Mode's
+        // mount-only double-invoke window has already passed. The guard
+        // is kept anyway since it costs nothing in production (Strict
+        // Mode never double-invokes there) and might still earn its keep
+        // against some other real-remount path (Fast Refresh, say) this
+        // harness didn't model — reading the LIVE ref value here, not a
+        // variable captured at cleanup time, is what makes it a check at
+        // all: it needs to see whatever the CURRENT generation is by the
+        // time the microtask actually runs.
         queueMicrotask(() => {
-          // eslint-disable-next-line react-hooks/exhaustive-deps
           if (generationRef.current !== myGeneration) return;
           history.back();
         });
