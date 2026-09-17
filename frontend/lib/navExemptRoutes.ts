@@ -81,9 +81,61 @@ export const NAV_EXEMPT_ROUTES: NavExemptRoute[] = [
   },
 ];
 
+// H75 (Kevin, 2026-09-17): the entries above are written the way a route is
+// spelled in the browser ("/ops/go-live"), but a route is not always REACHED
+// that way. The Board Android app (H66) bundles the same Next static export
+// this repo builds with `npm run build:mobile`, and Capacitor's local asset
+// server resolves request paths to asset files by exact filename with no
+// extension guessing, so Board's start shim sends the WebView to the literal
+// file the export emits: "/ops/go-live.html". usePathname() then reports
+// "/ops/go-live.html", the old exact `pathname === path` comparison missed,
+// and BottomNav rendered over a private owner-only admin board it is
+// explicitly exempted from.
+//
+// That is a whole class, not one route: EVERY entry in this list is matched
+// the same way, so any of them reached as a literal exported file has the
+// same hole, and the Sorted app bundles the same export. So the pathname is
+// normalised here, once, in the matcher — never by adding a second ".html"
+// twin of each entry, which would double the list, drift the moment an entry
+// changes, and break scripts/check-nav-coverage.mjs's "every entry resolves
+// to a real page.tsx" check (there is no app/ops/go-live.html/page.tsx).
+//
+// The normalisation is deliberately narrow: only the two shapes that mean
+// "the same route, spelled as a file" are folded away.
+//   1. a trailing ".html"  — "/ops/go-live.html" -> "/ops/go-live"  (the
+//      export's shape today: next.config.ts does not set trailingSlash, so
+//      the export emits ops/go-live.html, not ops/go-live/index.html)
+//   2. a trailing "/index" left behind by step 1 — "/ops/go-live/index.html"
+//      -> "/ops/go-live" (the shape the export would emit if trailingSlash
+//      were ever turned on; stripped ONLY when it came from a ".html" file,
+//      so a hypothetical real route literally named ".../index" is untouched)
+//   3. a trailing slash — "/ops/go-live/" -> "/ops/go-live"
+// Nothing else is touched: no case folding, no segment rewriting, no
+// prefix-matching an entry that didn't already prefix-match. A pathname that
+// merely starts with an entry's text ("/growth", "/terms-and-conditions")
+// still does not match, exactly as before.
+export function normaliseNavPath(pathname: string): string {
+  let normalised = pathname;
+  if (normalised.endsWith(".html")) {
+    normalised = normalised.slice(0, -".html".length);
+    if (normalised.endsWith("/index")) {
+      // Leave the trailing "/" for the next step to remove, so "/index.html"
+      // collapses to "/" rather than to the empty string.
+      normalised = normalised.slice(0, -"index".length);
+    }
+  }
+  if (normalised.length > 1 && normalised.endsWith("/")) {
+    normalised = normalised.slice(0, -1);
+  }
+  return normalised === "" ? "/" : normalised;
+}
+
 export function isNavExemptPath(pathname: string | null | undefined): boolean {
   if (!pathname) return false;
+  const normalised = normaliseNavPath(pathname);
   return NAV_EXEMPT_ROUTES.some(({ path }) =>
-    path.endsWith("/") ? pathname === path.slice(0, -1) || pathname.startsWith(path) : pathname === path
+    path.endsWith("/")
+      ? normalised === path.slice(0, -1) || normalised.startsWith(path)
+      : normalised === path
   );
 }
