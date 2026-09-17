@@ -83,10 +83,23 @@ export default function RootLayout({
             app-shell's desktop margin reserved for it. Same pre-paint,
             class-on-<html> technique as the dark-mode script above, so
             there's no flash of the shell before this applies. See the
-            `html.legal-page` rule in globals.css. */}
+            `html.legal-page` rule in globals.css.
+
+            H75: this compared location.pathname === '/terms' exactly, which
+            is the same bug as the nav exemption's was — in the Capacitor
+            static export these pages are reached as the literal files the
+            export emits (/terms.html), so the class was never added and the
+            exported legal pages rendered the desktop sidebar and its
+            reserved margin. The normalisation below is lib/navExemptRoutes.
+            ts's normaliseNavPath, hand-inlined: this is a stringified
+            pre-paint script in <head> that runs before any module of ours
+            has loaded, so it cannot import that helper, and leaving the
+            exact comparison was not an option. Keep the two in step — strip
+            a trailing ".html", then a "/index" left behind by it, then a
+            trailing slash. */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `try{if(location.pathname==='/terms'||location.pathname==='/privacy'){document.documentElement.classList.add('legal-page')}}catch(e){}`,
+            __html: `try{var p=location.pathname;if(p.slice(-5)==='.html'){p=p.slice(0,-5);if(p.slice(-6)==='/index'){p=p.slice(0,-5)}}if(p.length>1&&p.slice(-1)==='/'){p=p.slice(0,-1)}if(p==='/terms'||p==='/privacy'){document.documentElement.classList.add('legal-page')}}catch(e){}`,
           }}
         />
       </head>

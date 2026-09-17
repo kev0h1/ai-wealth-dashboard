@@ -10,15 +10,24 @@
 // as a sibling of components/Sidebar.tsx — every route gets it by default,
 // structurally, with no per-page opt-in possible any more. The only way a
 // route can now lack the nav is by matching an entry in this list, so this
-// list IS the exemption mechanism, and it is read by two independent
+// list IS the exemption mechanism, and it is read by three independent
 // consumers that must never drift apart:
 //   1. components/BottomNav.tsx (`isNavExemptPath`) — decides at runtime
 //      whether to render on the current pathname.
-//   2. scripts/check-nav-coverage.mjs — run at session-finish (like
+//   2. components/Sidebar.tsx (`isNavExemptPath`) — the desktop rail, the
+//      same decision on the same list. Added by H75: it did not consult
+//      this list at all until then, so every entry below still got the
+//      desktop rail (except /terms and /privacy, which escaped by
+//      globals.css's separate `html.legal-page aside` rule). An entry here
+//      now means "no primary navigation on this route", both rails, which
+//      is what the reasons below were already written to mean.
+//   3. scripts/check-nav-coverage.mjs — run at session-finish (like
 //      check:design-index, check:legal-content) — fails if this list's
-//      entries no longer correspond to a real route, or if a real,
-//      non-design route imports the real BottomNav a second time (which
-//      would double-render it, the opposite failure).
+//      entries no longer correspond to a real route, if either rail stops
+//      consulting the list, if `isNavExemptPath` stops exempting a listed
+//      route in any shape it can be reached in, or if a real, non-design
+//      route imports the real BottomNav a second time (which would
+//      double-render it, the opposite failure).
 //
 // Signed-in-but-gated states (LoginScreen, Onboarding, AppOnlyPage) are
 // deliberately NOT listed here: they're not routes, they're what

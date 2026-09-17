@@ -26,7 +26,18 @@
 //      needs its own default export) default-imports the real
 //      components/BottomNav — this is the regression that would put TWO
 //      navs on one route, the mirror-image failure of the original bug.
-//   4. isNavExemptPath actually EXEMPTS each listed entry in every shape
+//   4. BOTH rails consult the list: components/BottomNav.tsx (the phone
+//      rail) and components/Sidebar.tsx (the desktop rail) each import
+//      isNavExemptPath and bail on a match. Added by H75: Sidebar never
+//      consulted the list at all, so every route below still got the
+//      desktop rail; an entry in that list means "no primary navigation
+//      here", which is both rails or it means nothing.
+//   5. app/layout.tsx's pre-paint legal-page script normalises the
+//      pathname the same way (it is a stringified <head> script, so it
+//      cannot import normaliseNavPath and hand-inlines it instead) — an
+//      exact `location.pathname === '/terms'` there is the same bug in a
+//      second place, and shows the sidebar on the exported legal pages.
+//   6. isNavExemptPath actually EXEMPTS each listed entry in every shape
 //      that route can be reached in — including "/ops/go-live.html", the
 //      literal filename a Next static export emits and the exact path the
 //      Board Android app's start shim loads. Added by H75: checks 1-3 all
@@ -126,7 +137,45 @@ if (doubleMounts.length > 0) {
   }
 }
 
-// ── 4: the matcher exempts every listed entry, in every reachable shape ──
+// ── 4 & 5: both rails obey the list, and the pre-paint script normalises ─
+
+const railFiles = [
+  ["components/BottomNav.tsx", "the phone rail"],
+  ["components/Sidebar.tsx", "the desktop rail"],
+];
+const EXEMPT_IMPORT_RE = /import\s*\{[^}]*\bisNavExemptPath\b[^}]*\}\s*from\s*["']@\/lib\/navExemptRoutes["']/;
+const EXEMPT_GUARD_RE = /if\s*\(\s*isNavExemptPath\(\s*pathname\s*\)\s*\)\s*return\s+null\s*;/;
+
+for (const [relFile, what] of railFiles) {
+  const full = path.join(frontendRoot, relFile);
+  if (!exists(full)) {
+    failures.push(`${relFile} is missing — this script expects ${what} to live here and to consult lib/navExemptRoutes.ts.`);
+    continue;
+  }
+  const source = readFileSync(full, "utf8");
+  if (!EXEMPT_IMPORT_RE.test(source) || !EXEMPT_GUARD_RE.test(source)) {
+    failures.push(
+      `${relFile} (${what}) does not consult lib/navExemptRoutes.ts — expected an \`isNavExemptPath\` import from "@/lib/navExemptRoutes" and an \`if (isNavExemptPath(pathname)) return null;\` guard. An entry in that list means "no primary navigation on this route", which is BOTH rails: until H75 the desktop rail ignored the list entirely and rendered over every exempted route, including the owner-only /ops/go-live board (and on a tablet the Board Android app is >= lg, so that rail links straight out of the board).`
+    );
+  }
+}
+
+// app/layout.tsx's pre-paint legal-page script: same normalisation, inlined.
+const layoutSource = readFileSync(layoutFile, "utf8");
+const legalScript = layoutSource
+  .split("\n")
+  .find((line) => line.includes("legal-page") && line.includes("location.pathname"));
+if (!legalScript) {
+  failures.push(
+    `app/layout.tsx: could not find the pre-paint legal-page script (a line mentioning both "legal-page" and "location.pathname") — if it moved, move this check with it; it is the second place a route is matched by pathname.`
+  );
+} else if (!legalScript.includes(".html") || !legalScript.includes("slice")) {
+  failures.push(
+    `app/layout.tsx: the pre-paint legal-page script compares location.pathname without normalising it. That is the H75 bug in a second place: the static export serves /terms.html, the class is never added, and the exported legal pages render the desktop sidebar and its reserved margin. It is a stringified <head> script so it cannot import normaliseNavPath — hand-inline the same three steps (strip a trailing ".html", then a "/index" left by it, then a trailing slash).`
+  );
+}
+
+// ── 6: the matcher exempts every listed entry, in every reachable shape ──
 //
 // Table-driven, generated from the list itself so it cannot go stale: a new
 // exemption is covered the moment it is added. Each case is [pathname,
@@ -220,7 +269,7 @@ if (!isNavExemptPath("/ops/go-live.html")) {
 
 if (failures.length === 0) {
   console.log(
-    `check:nav-coverage OK (${NAV_EXEMPT_ROUTES.length} named nav exemptions verified, ${candidateFiles.length} files checked for a duplicate BottomNav mount, ${matcherCases.length} isNavExemptPath cases asserted)`
+    `check:nav-coverage OK (${NAV_EXEMPT_ROUTES.length} named nav exemptions verified, ${railFiles.length} rails confirmed to consult the list, ${candidateFiles.length} files checked for a duplicate BottomNav mount, ${matcherCases.length} isNavExemptPath cases asserted)`
   );
   process.exit(0);
 }

@@ -7,6 +7,7 @@ import PennyMark from "@/components/PennyMark";
 import { BRAND_GRADIENT } from "@/lib/brand";
 import { usePennySheet } from "@/components/PennySheetProvider";
 import { screenForPathname } from "@/components/BottomNav";
+import { isNavExemptPath } from "@/lib/navExemptRoutes";
 
 const TABS = [
   { href: "/", matchPath: "/", label: "Home", Icon: Home },
@@ -29,6 +30,29 @@ export default function Sidebar() {
   // not reimplemented, so mobile and desktop agree on what "screen" means
   // for the same URL.
   const { open, close, isOpen } = usePennySheet();
+
+  // H75: the desktop rail obeys the SAME exemption list as the bottom rail
+  // (lib/navExemptRoutes.ts). It did not until now, which was an oversight
+  // rather than a desktop carve-out: that list was written with this rail
+  // in mind — read /month/story's own reason, "the nav rail would sit
+  // underneath/behind the takeover" — and /terms and /privacy only escaped
+  // it here by a second, unrelated mechanism (globals.css's
+  // `html.legal-page aside { display: none }`), which covers two of the
+  // nine entries and nothing else.
+  //
+  // "Desktop only" is not a reason to keep it either: a tablet in landscape
+  // is >= lg, and the Board Android app (H66) is a WebView over the same
+  // bundled export, so on a tablet this rail appears inside an app that is
+  // meant to contain nothing but /ops/go-live — with Home/Spend/Upcoming/
+  // Planning links that would navigate the user straight out of the board
+  // and into the bundled Sorted routes, with no way back to it.
+  //
+  // Checked before changing it: no exempt route depends on this rail to be
+  // navigable. /ops/go-live and /ops/broadcast link to each other in-page,
+  // /grow and /insights are client-side redirect stubs, /month/story is a
+  // full-screen takeover with its own close control, and /design/*,
+  // /terms, /privacy and /oauth/consent have no in-app navigation at all.
+  if (isNavExemptPath(pathname)) return null;
 
   return (
     <aside className="hidden lg:flex fixed top-0 left-0 h-full w-64 flex-col bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-700 z-40">
