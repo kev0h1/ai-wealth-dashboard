@@ -84,3 +84,7 @@ frontend/.screens/
 
 # Integrate run-lock — runtime artifact from scripts/integrate.py, never content.
 .integrate.lock
+
+# Pentest raw evidence (A43) — never committed; sanitised summaries live under
+# docs/security/pentest-runs/ instead.
+.pentest-evidence/
