@@ -25,6 +25,10 @@ Build Board's debug APK and publish it alongside Sorted's, under a clearly
 distinct filename — never overwrite `wealth.apk`:
 
 ```bash
+# from capacitor-spike/ — refreshes src/board/assets/ from www/;
+# app/build.gradle's verifyBoardWebAssets task fails the build if this
+# step is skipped or the copy is stale relative to www/
+bash scripts/build-board-web-assets.sh
 cd android
 ./gradlew assembleBoardDebug
 cp app/build/outputs/apk/board/debug/app-board-debug.apk /var/www/wealth-downloads/board.apk
