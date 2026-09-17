@@ -441,6 +441,9 @@ cmd_finish() {
   log "checking verdict/money-shape client TTL caches in $worktree_dir/frontend..."
   (cd "$worktree_dir/frontend" && npm run -s check:verdict-cache)
 
+  log "checking category-edit cache invalidation in $worktree_dir/frontend..."
+  (cd "$worktree_dir/frontend" && npm run -s check:category-mutations)
+
   log "pushing $branch..."
   git -C "$worktree_dir" push -u origin "$branch"
 

@@ -6,6 +6,7 @@ import { X, ChevronDown, ChevronRight, Fuel, ReceiptText } from "lucide-react";
 import FuelSavingsCard from "@/components/FuelSavingsCard";
 import GroceryBasketCard from "@/components/GroceryBasketCard";
 import { Transaction, api, Checkpoint } from "@/lib/api";
+import { invalidateVerdictCache } from "@/lib/verdictCache";
 import { useColours } from "@/components/ColourProvider";
 import { getCategoryColour } from "@/lib/categories";
 import { getCategoryIcon } from "@/lib/categoryIcons";
@@ -106,6 +107,10 @@ function DoorBlock({ door }: { door: DoorProps }) {
             onClick={async () => {
               try {
                 await api.recordTrendIntent(category, "one_off");
+                // G83 fix-round: same category_intent_col write as
+                // SpendPage's own intent handlers — see HomeBrief.tsx's
+                // identical comment.
+                invalidateVerdictCache();
                 setLocalIntent("one_off");
                 setLocalDoorEngaged(true);
                 onChanged();
@@ -121,6 +126,7 @@ function DoorBlock({ door }: { door: DoorProps }) {
             onClick={async () => {
               try {
                 await api.recordTrendIntent(category, "new_normal");
+                invalidateVerdictCache();
                 setLocalIntent("new_normal");
                 setLocalDoorEngaged(true);
                 onChanged();
