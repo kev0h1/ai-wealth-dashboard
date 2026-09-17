@@ -96,7 +96,7 @@ export function CollapsedSection({
   const isSample = sampleItems.length < totalCount;
   return (
     <div className="glass-card rounded-2xl p-3">
-      <button type="button" onClick={() => setOpen((v) => !v)} className="flex min-h-9 w-full items-center justify-between gap-3">
+      <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="flex min-h-9 w-full items-center justify-between gap-3">
         <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">{label}</span>
         <span className="flex shrink-0 items-center gap-2">
           <span className="money text-xs font-semibold text-slate-500 dark:text-slate-400">{totalCount}</span>
@@ -123,10 +123,19 @@ export function CollapsedSection({
 // The ribbon board itself
 // ---------------------------------------------------------------------
 
+// All four live-flow states plus Rejected: the old lane strip rendered
+// every BOARD_COLUMNS entry, and Rejected is the one state whose whole
+// purpose is "a reviewer found a defect, this needs your decision" (a
+// design round's uat chip covers the parallel "Kevin needs to pick"
+// case) — dropping it from the ribbon left a rejected item reachable
+// from no section with no filter active, while HeaderHero still prints
+// its count above the board (found auditing H56, 2026-09-17; the fifth
+// chip fits inside the existing overflow-x-auto strip at 390px).
 const RIBBON_STATES: { key: GoLiveFilterState; label: string }[] = [
   { key: "in-progress", label: "In progress" },
   { key: "blocked", label: "Blocked" },
   { key: "review", label: "In review" },
+  { key: "rejected", label: "Rejected" },
   { key: "uat", label: "UAT" },
 ];
 
@@ -186,6 +195,8 @@ export function MobileRibbonBoard({
   return (
     <div className="space-y-3">
       <div
+        role="group"
+        aria-label="Filter by status"
         className="sticky z-10 -mx-6 flex items-center gap-1.5 overflow-x-auto bg-[#f0f2f7]/95 px-6 py-2 backdrop-blur dark:bg-[#0f172a]/95"
         style={{ top: RIBBON_STICKY_TOP }}
       >

@@ -78,9 +78,13 @@ export function StatePill({ item, compact = false }: { item: GoLiveItem; compact
   if (item.state === "uat") {
     // Same amber treatment as Blocked/Rejected, never red: a design round
     // waiting on Kevin's choice is not a failure of anything (see H31 and
-    // DESIGN.md "The Red Is Risk Rule").
+    // DESIGN.md "The Red Is Risk Rule"). Fixed text, no free-text
+    // reason/branch appended, so no `truncate`/`max-w` here (H56 audit,
+    // 2026-09-17): those belonged to the broken inline-flex truncation
+    // pattern the other three branches were just fixed out of, and this
+    // one never needed them since its string never varies.
     return (
-      <span className="inline-flex max-w-[220px] shrink-0 items-center truncate rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+      <span className="inline-flex shrink-0 items-center rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
         UAT, waiting on you
       </span>
     );

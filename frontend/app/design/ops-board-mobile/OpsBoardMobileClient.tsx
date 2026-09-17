@@ -324,9 +324,12 @@ function Switcher({ variant, mode }: { variant: Variant; mode: Mode }) {
 function Inner() {
   const params = useSearchParams();
   const rawVariant = params.get("variant");
+  // Defaults to ribbon, not live-now: ribbon is Kevin's pick and the only
+  // variant backed by a real production component, so it is the one worth
+  // landing on when no ?variant= is given (H56 audit, 2026-09-17).
   const variant: Variant = (["live-now", "ribbon", "waiting"] as string[]).includes(rawVariant ?? "")
     ? (rawVariant as Variant)
-    : "live-now";
+    : "ribbon";
   const mode: Mode = params.get("mode") === "dark" ? "dark" : "light";
 
   useEffect(() => {
@@ -367,10 +370,25 @@ function Inner() {
     setSelected(next);
   }
 
+  // FilterBar (and, inside it, MobileRibbonBoard's own ribbon strip) is a
+  // direct child of this outer min-h-dvh div, with no wrapper div in
+  // between, deliberately mirroring production page.tsx's structure
+  // (FilterBar is a literal JSX child of `<main className="min-h-dvh ...
+  // px-6 ...">`, not of a nested wrapper). An earlier version of this
+  // preview wrapped FilterBar in its own separate `mx-auto max-w-[430px]
+  // px-6` div, which is NOT what production does, and that mismatch was
+  // enough to break FilterBar's `sticky top-0` in this Chrome build (found
+  // 2026-09-17 auditing H56: an empty, classless wrapper div reproduced
+  // the same break, and removing it — confirmed by direct DOM bisection —
+  // was the only thing that fixed it; the exact CSS mechanism was not
+  // fully identified, but the fix converges the preview onto the same DOM
+  // shape production already uses, which is the honest baseline for a
+  // gate like this one anyway). Keep this flat; do not reintroduce a
+  // wrapper div between this element and FilterBar.
   return (
     <div className={mode === "dark" ? "dark" : ""} style={{ colorScheme: mode }}>
-      <div className="min-h-dvh bg-[#f0f2f7] pb-32 dark:bg-[#0f172a]">
-        <div className="mx-auto w-full max-w-[430px] px-4 pt-5">
+      <div className="mx-auto min-h-dvh w-full max-w-[430px] bg-[#f0f2f7] px-6 pb-32 dark:bg-[#0f172a]">
+        <div className="pt-5">
           <p className="mb-3 text-center text-[11px] text-slate-400 dark:text-slate-500">
             Illustrative /ops/go-live phone preview. Fixture data read from TODO.md, 2026-09-16/17 — see fixtures.ts.
           </p>
@@ -382,11 +400,9 @@ function Inner() {
           </div>
         </div>
 
-        <div className="mx-auto w-full max-w-[430px] px-4">
-          <FilterBar filters={filters} onChange={setFilters} />
-        </div>
+        <FilterBar filters={filters} onChange={setFilters} />
 
-        <div className="mx-auto w-full max-w-[430px] space-y-4 px-4">
+        <div className="space-y-4">
           {variant === "ribbon" ? (
             // Kevin's pick, rendered by the real production component with
             // fixture data through its real props — a genuine gate, not a

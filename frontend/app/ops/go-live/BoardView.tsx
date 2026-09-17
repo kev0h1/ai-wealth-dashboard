@@ -731,8 +731,17 @@ export function BoardView({
 
   // Keep `selected` pointed at the freshest copy of the item after a write
   // replaces `items` from the server response, so the sheet doesn't show
-  // stale state while it's still open.
-  const liveSelected = selected ? items.find((i) => i.id === selected.id) ?? null : null;
+  // stale state while it's still open. Falls back to the last known
+  // `selected` object (not null) when the id no longer matches anything
+  // in `items` (H56, found by independent audit 2026-09-17): `items` is
+  // the fully filtered set, and on the mobile ribbon board a state chip
+  // is a one-tap primary gesture, so tapping a row under a "Blocked"
+  // filter and then using the sheet's own "Move to In progress" makes the
+  // item stop matching that filter mid-action — without this fallback
+  // `liveSelected` went null and the sheet vanished under the user's
+  // finger with no confirmation anything saved. Only clears on `onClose`,
+  // which resets `selected` to null directly.
+  const liveSelected = selected ? items.find((i) => i.id === selected.id) ?? selected : null;
   const blockDraftItem = blockDraft ? items.find((i) => i.id === blockDraft.itemId) ?? null : null;
 
   return (
