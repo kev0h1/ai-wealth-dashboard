@@ -54,6 +54,11 @@ export type WidgetId = "category_pie" | "daily_bars" | "period_compare" | "size_
 // means the person has removed every chart, so never repopulate it here.
 export const DEFAULT_WIDGETS: WidgetId[] = ["category_pie", "daily_bars", "pace_curve", "period_compare"];
 
+// Mirrors backend/app/routers/preferences.py's DEFAULT_HOME_PINNED_WIDGET.
+// The two previews below import this rather than repeating the string so a
+// backend default change can't drift silently out of what they show.
+export const DEFAULT_HOME_PINNED_WIDGET: WidgetId = "period_compare";
+
 const WIDGET_META: Record<WidgetId, { title: string; description: string; Icon: typeof ChartPie }> = {
   category_pie: {
     title: "Category breakdown",

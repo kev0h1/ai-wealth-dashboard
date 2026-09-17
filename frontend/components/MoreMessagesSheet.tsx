@@ -50,7 +50,7 @@ import { useState } from "react";
 import { X } from "lucide-react";
 import { usePennyUsage, formatPennyResetDate } from "@/components/PennySheetProvider";
 import { api } from "@/lib/api";
-import { canPurchaseInApp, PURCHASE_UNAVAILABLE_LABEL } from "@/lib/nativeAuth";
+import { usePurchaseAvailability, PURCHASE_UNAVAILABLE_LABEL } from "@/lib/nativeAuth";
 import type { SubscriptionTopupPack } from "@wealth/shared";
 
 const LEGACY_FALLBACK_PACKS: SubscriptionTopupPack[] = [
@@ -150,8 +150,13 @@ export default function MoreMessagesSheet({ onClose }: { onClose: () => void }) 
   const billingLive = info?.billing_live ?? false;
   // B26: neither row can ever become a real button on a native build, see
   // this file's top comment — computed once and fed into every row's
-  // status below rather than re-checked per row.
-  const purchasingAllowed = canPurchaseInApp();
+  // status below rather than re-checked per row. B40: usePurchaseAvailability()
+  // starts "unknown" through SSR and the first client render and only
+  // resolves to "web"/"native" after mount, so `rowStatus` below can never
+  // land on "buy" during the server-render/hydration gap the way a direct
+  // canPurchaseInApp() call in render could — "unknown" takes the same
+  // !== "web" branch as "native".
+  const purchasingAllowed = usePurchaseAvailability() === "web";
   const rowStatus: PurchaseRowStatus = !purchasingAllowed ? "unavailable" : billingLive ? "buy" : "soon";
   // Hide the Max row entirely once the user is already on it — there is
   // nothing to move to.

@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import { Browser } from "@capacitor/browser";
 import { App } from "@capacitor/app";
@@ -56,6 +57,49 @@ export function canPurchaseInApp(): boolean {
 // vague.
 export const PURCHASE_UNAVAILABLE_SENTENCE = "Paid plans are not available in this app.";
 export const PURCHASE_UNAVAILABLE_LABEL = "Not available in this app";
+
+// B40: canPurchaseInApp() above resolves to "web" (purchasable) during
+// server-side rendering — not via its own catch block (SSR never throws
+// here), but because there is no Capacitor bridge in the Node build, so
+// `Capacitor.isNativePlatform()` cleanly returns false there, which is
+// indistinguishable, from inside that function, from a genuine web
+// visitor. That has been safe in practice only because every purchase
+// surface (PlanPicker, YourPlanCard, MoreMessagesSheet,
+// ConnectedAssistantsCard) happens to gate its purchase UI behind an
+// async fetch that has not resolved by the time React hydrates in the
+// browser, so the wrong SSR value was never the one a user could act
+// on — an accident of the current code, not a guarantee a future
+// surface that renders synchronously would inherit.
+//
+// usePurchaseAvailability() is the render-safe replacement for calling
+// canPurchaseInApp() directly inside a component body: it starts at
+// "unknown" on both the server render and the first client render (so
+// there is no hydration mismatch and no race), and only resolves to
+// "web" or "native" inside an effect. Effects never run during SSR, and
+// by the time this one does run, the real Capacitor bridge — injected
+// synchronously by the native WebView before any app JS executes — is
+// already there. Every purchase surface must treat "unknown" the same
+// as "native" (hidden/disabled), never the same as "web": that is what
+// makes a synchronously-rendered future surface fail closed instead of
+// inheriting this bug.
+//
+// This is belt-and-braces alongside B31's server-side backstop
+// (`_reject_native_platform` in backend/app/routers/billing.py, applied
+// via `platformHeaders()` in lib/api.ts): that check runs fresh at fetch
+// time, always after mount and always in response to a real user
+// action, so it was never exposed to this SSR race and already refuses
+// a native client's checkout call regardless of what the UI showed.
+// This fix stops the UI from ever offering that call in the first
+// place; B31 is what stops it if some future surface offers it anyway.
+export type PurchaseAvailability = "unknown" | "web" | "native";
+
+export function usePurchaseAvailability(): PurchaseAvailability {
+  const [availability, setAvailability] = useState<PurchaseAvailability>("unknown");
+  useEffect(() => {
+    setAvailability(canPurchaseInApp() ? "web" : "native");
+  }, []);
+  return availability;
+}
 
 // Sign in with Apple is only offered on iOS native builds — there's no
 // Google-style cross-platform web fallback worth building for a single-user

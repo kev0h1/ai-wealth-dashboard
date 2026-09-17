@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import Spinner from "@/components/Spinner";
 import { api } from "@/lib/api";
 import { goBack } from "@/lib/goBack";
+import { setPennyScreenView } from "@/components/PennySheetProvider";
+import { buildTaxView } from "@/lib/pennyScreenViews";
 import TaxCanvas, { type TaxAction, type TaxCanvasModel, type TaxYear } from "./TaxCanvas";
 
 const PERSONAL_ALLOWANCE = 12_570;
@@ -146,8 +148,6 @@ export default function TaxPage({
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [skipFetch]);
-
-  if (loading) return <LoadingState embedded={embedded} />;
 
   const taxYear = getTaxYear();
   let model: TaxCanvasModel;
@@ -307,6 +307,45 @@ export default function TaxPage({
       taxYear,
     };
   }
+
+  // Penny screen context (B39) — published via `buildTaxView`
+  // (lib/pennyScreenViews.ts), fed the SAME `model` fields TaxCanvas.tsx's
+  // own VerdictCanvas/PensionLever render below, so the headline and the
+  // three lever figures Penny can quote back can never disagree with what
+  // is actually on screen. `showCalculation` mirrors PensionLever's own
+  // `model.leverStatus === "action"` gate exactly — the "Extra needed /
+  // Tax saved / Costs you" row only renders in the 60%-trap and
+  // fully-tapered cases, so the figures only publish then too; the "safe"
+  // branches (higher-rate-but-untapered, basic-rate) still publish the
+  // verdict headline and tax-year scope, just with no figures, matching
+  // what's rendered. Published as `null` while loading (nothing to quote
+  // yet) or with no income declared (EmptyIncome renders instead of the
+  // verdict/lever at all) — an unconditional hook call, placed above the
+  // `embedded`/loading early returns below for the same reason
+  // SafeToSpendCard.tsx's own view-publish effect is: it must run on
+  // every render, including the ones that return before ever building
+  // `canvas`. Skipped entirely while `embedded` — that mode is for a
+  // FUTURE host page embedding this canvas at a different route, and
+  // publishing "tax" as the current screen would be wrong there (no
+  // caller does this today; see this file's own `TaxPageProps` comment).
+  useEffect(() => {
+    if (embedded) return;
+    if (loading || !model.hasIncome) {
+      setPennyScreenView("tax", null);
+      return;
+    }
+    setPennyScreenView("tax", buildTaxView({
+      heroHeadline: model.heroHeadline,
+      taxYearLabel: model.taxYear.label,
+      daysLeft: model.taxYear.daysLeft,
+      showCalculation: model.leverStatus === "action",
+      pensionNeededTotal: model.pensionNeededTotal,
+      taxSaving: model.taxSaving,
+      effectiveCost: model.effectiveCost,
+    }));
+  }, [embedded, loading, model]);
+
+  if (loading) return <LoadingState embedded={embedded} />;
 
   const canvas = (
     <TaxCanvas

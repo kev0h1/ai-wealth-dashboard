@@ -28,7 +28,7 @@ import { BarChart3, WalletCards } from "lucide-react";
 import SpendVerdictView from "@/components/SpendVerdictView";
 import { SpendJourneySummary, SpendPeriodBar, type RecentPeriodOption } from "@/components/SpendHeader";
 import SpendJourneyNav, { type SpendJourneyDestination } from "@/components/SpendJourneyNav";
-import SpendTrends, { DEFAULT_WIDGETS } from "@/components/SpendTrends";
+import SpendTrends, { DEFAULT_HOME_PINNED_WIDGET, DEFAULT_WIDGETS } from "@/components/SpendTrends";
 import TeachingSheet from "@/components/TeachingSheet";
 import PayPeriodSettingsSheet from "@/components/PayPeriodSettingsSheet";
 import CategorisationRulesSheet from "@/components/CategorisationRulesSheet";
@@ -327,7 +327,7 @@ export default function SpendLiveClient({ hidePreviewControls = false }: { hideP
                 <p className="mt-1 max-w-2xl text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-400">Choose what appears here, drag the handle to reorder, or pin one chart to Home.</p>
               <SpendTrends
                 embedded
-                preview={{ widgets: DEFAULT_WIDGETS, pinnedWidget: "period_compare" }}
+                preview={{ widgets: DEFAULT_WIDGETS, pinnedWidget: DEFAULT_HOME_PINNED_WIDGET }}
                 periodTxns={PREVIEW_CHART_PERIOD_TXNS}
                 allTxns={PREVIEW_CHART_TRANSACTIONS}
                   periodStart={new Date(verdict.period.start)}

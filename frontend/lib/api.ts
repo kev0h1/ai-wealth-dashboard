@@ -1434,7 +1434,21 @@ export type CompanionItem = {
  * not just `GET /today/cover-plan` — same underlying snapshot, one more
  * key on a response Home already fetches every load, no extra backend work.
  */
-export type AccountEligibility = { short: boolean; headroom: number };
+// G114 (2026-09-17): `headroom` is the STANDING figure — bills/income netted
+// off, unaffected by any live cover-plan move — which is what Settings'
+// cover-plan sources card legitimately wants ("can this account ever be a
+// source"). `spend_from_headroom` is a second, narrower figure: `headroom`
+// less any amount a currently-displayed cover-plan move card is already
+// taking out of this account. Home's spend-from line (lib/spendFromAccount.ts)
+// must read `spend_from_headroom`, not `headroom` — spending the standing
+// figure can make the account's own live move card impossible. Optional so
+// older cached payloads (pre-G114) degrade to the standing figure rather
+// than breaking; see spendFromAccount.ts's rankByHeadroom for the fallback.
+export type AccountEligibility = {
+  short: boolean;
+  headroom: number;
+  spend_from_headroom?: number;
+};
 
 export type TodayResponse = {
   status: "ok";

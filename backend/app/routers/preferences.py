@@ -108,32 +108,60 @@ async def _cas_set_cover_plan_excluded_accounts(uid: str, excluded_ids: list, re
 
     The Settings side is fixed by moving to true delta ops
     (cover_plan_exclude_add/remove below, $addToSet/$pull -- atomic,
-    idempotent, never need to read the array first). But Penny's proposal
+    idempotent, never need to read the array first). Penny's proposal
     genuinely needs "set the exclusion list to EXACTLY these accounts"
     (account_refs names a full desired set, not a delta), so that shape is
     kept here rather than removed -- made safe with an optimistic
     compare-and-swap retry loop on `version` instead of an unconditional
     $set: read the current version, write conditioned on that exact
     version, and if another writer's version bump beat us to it (matched
-    nothing), retry against the fresh version. Our own target (excluded_ids)
-    is a literal desired final state handed to us by the caller, not derived
-    from the array we read, so retrying with the identical value against a
-    newer version is correct, not stale.
+    nothing), retry against the fresh version.
+
+    G77 FIX: the caller's `excluded_ids` is only meaningful relative to the
+    array THIS function's own first read saw -- it is "the array I read,
+    with my intended accounts added/removed", not an unconditional literal.
+    The pre-fix version forgot that and resent `excluded_ids` UNCHANGED on
+    every retry, so a retry that re-read a NEWER array (because a concurrent
+    Settings toggle landed in between) still overwrote it with the stale
+    target, silently discarding that concurrent change -- a lost update,
+    just a deterministic one instead of a racy one. Fixed by capturing the
+    delta (added_ids / removed_ids) against the FIRST read once, then on
+    every attempt -- including retries -- re-deriving the target by
+    re-applying that same delta onto whatever the array actually is right
+    now, rather than resending the first attempt's literal. A concurrent
+    add/remove of some OTHER account is therefore preserved through any
+    number of retries; only the accounts this caller actually asked to
+    change are guaranteed to land in the state it asked for.
     """
+    baseline_ids = None
+    added_ids: set = set()
+    removed_ids: set = set()
     for _ in range(_COVER_PLAN_CAS_MAX_ATTEMPTS):
         doc = await preferences_col.find_one({"user_id": uid})
-        set_body = {**rest_of_body, "cover_plan_excluded_accounts": excluded_ids, "user_id": uid}
         if doc is None:
             # No document at all yet for this field to race over -- a
             # concurrent first-ever write for the same user is vanishingly
             # unlikely, and even then the loser of the upsert would simply
             # retry as a normal versioned update on its next attempt.
+            set_body = {**rest_of_body, "cover_plan_excluded_accounts": excluded_ids, "user_id": uid}
             await preferences_col.update_one(
                 {"user_id": uid},
                 {"$set": set_body, "$inc": {"version": 1}},
                 upsert=True,
             )
             return
+        current_ids = sorted({str(a) for a in (doc.get("cover_plan_excluded_accounts") or [])})
+        if baseline_ids is None:
+            # First read only: this IS the array `excluded_ids` was computed
+            # against, so the delta between them is exactly what the caller
+            # intends to change. Captured once -- later retries re-apply
+            # this same delta rather than recomputing it against a doc the
+            # caller never saw.
+            baseline_ids = current_ids
+            added_ids = set(excluded_ids) - set(baseline_ids)
+            removed_ids = set(baseline_ids) - set(excluded_ids)
+        target_ids = sorted((set(current_ids) | added_ids) - removed_ids)
+        set_body = {**rest_of_body, "cover_plan_excluded_accounts": target_ids, "user_id": uid}
         # A real MongoDB equality filter {"version": 0} does NOT match a
         # document where "version" is simply absent (a legacy doc from
         # before G45 added the counter, never $inc'd since) -- doc.get
@@ -143,7 +171,6 @@ async def _cas_set_cover_plan_excluded_accounts(uid: str, excluded_ids: list, re
         # Python-side default that would otherwise always mismatch and
         # exhaust every retry attempt for these legacy docs.
         version_query = doc["version"] if "version" in doc else {"$exists": False}
-        current_version = doc.get("version", 0)
         result = await preferences_col.update_one(
             {"user_id": uid, "version": version_query},
             {"$set": set_body, "$inc": {"version": 1}},
@@ -152,7 +179,10 @@ async def _cas_set_cover_plan_excluded_accounts(uid: str, excluded_ids: list, re
             return
         # Someone else wrote (a delta toggle, or another full-list-set)
         # between our read and our write -- version moved under us, loop
-        # and retry against the fresh state.
+        # and retry: re-read the array and re-apply added_ids/removed_ids
+        # onto WHATEVER it now is, rather than resending target_ids from
+        # this attempt (which was only correct against the doc we just lost
+        # the race against).
     raise HTTPException(
         status_code=409,
         detail="Could not save cover-plan exclusions, too many concurrent changes. Try again.",
