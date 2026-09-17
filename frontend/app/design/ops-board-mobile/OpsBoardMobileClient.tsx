@@ -96,11 +96,13 @@ import { MessageSquare, Search } from "lucide-react";
 import {
   DEFAULT_GO_LIVE_FILTERS,
   filterItems,
+  itemTotals,
   type GoLiveFilters,
   type GoLiveItem,
   type GoLiveItemState,
 } from "@/lib/goLive";
 import { FilterBar } from "@/app/ops/go-live/FilterBar";
+import { HeaderHero } from "@/app/ops/go-live/HeaderHero";
 import { ItemDetailSheet } from "@/app/ops/go-live/ItemDetailSheet";
 import { OwnerInitialChip, PriorityPill, StatePill, UnblocksTags } from "@/app/ops/go-live/Badges";
 import { CollapsedSection, ItemRow, MobileRibbonBoard, SectionHeading } from "@/app/ops/go-live/MobileRibbonBoard";
@@ -425,6 +427,16 @@ function Inner() {
             <p className="mt-0.5 text-[11px] uppercase tracking-wide text-slate-400 dark:text-slate-500">
               {TOTAL_ITEM_COUNT} items · {IN_FLIGHT_TOTAL_COUNT} in flight
             </p>
+          </div>
+          {/* H69: the real production HeaderHero, fed this preview's own
+              fixture items and their real itemTotals() — the same header
+              production page.tsx renders, carrying the new dark-mode
+              toggle. Rendering the hand-authored markup above it would let
+              this preview drift from the shipped header the way
+              CLAUDE.md's "Design work" section warns about; this is a
+              genuine gate, not a copy. */}
+          <div className="mt-5">
+            <HeaderHero items={items} done={itemTotals(items).done} total={itemTotals(items).total} />
           </div>
         </div>
 
