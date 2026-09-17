@@ -2007,14 +2007,27 @@ async def compute_today_items(
         # Snapshot BEFORE any `_find_legs_for_destination` call below
         # consumes `source_capacity` in place — this reports each account's
         # standing headroom/usability, not what's left after this request
-        # happens to have funded other destinations first.
+        # happens to have funded other destinations first. `headroom` stays
+        # this standing figure for good: Settings' cover-plan sources card
+        # (GET /today/cover-plan) legitimately wants "can this account ever
+        # be a source", independent of what today's live plan happens to be
+        # doing with it, and must never see it move once a plan claims some
+        # of it (G114, 2026-09-17). `spend_from_headroom` is seeded to the
+        # same value here and corrected below, once the live move cards are
+        # known, to a SECOND figure: what's left after reserving any amount
+        # an actually-displayed cover-plan move card is taking out of this
+        # account. Home's spend-from line (lib/spendFromAccount.ts) must
+        # read that second figure, not `headroom` — see the G114 note next
+        # to `reserved_by_live_move` below for why.
         for _acc in all_uk_accounts + offline_accounts:
             _sid = _acc["_str_id"]
             if _sid not in source_capacity:
                 continue  # not source-eligible at all — see the population loop above (credit card, or none of current/savings/offline)
+            _headroom = round(_account_headroom(_sid), 2)
             account_eligibility_out[_sid] = {
                 "short": not _account_usable_by_finder(_acc),
-                "headroom": round(_account_headroom(_sid), 2),
+                "headroom": _headroom,
+                "spend_from_headroom": _headroom,
             }
 
     # ── Shared source finder (G42, 2026-09-11; fewest-legs G43, 2026-09-11;
@@ -3017,6 +3030,37 @@ async def compute_today_items(
         dismissed=dismissed,
         uid=uid,
     )
+
+    # G114 (Kevin, 2026-09-17): a live cover-plan move card is itself an
+    # obligation on its source account, the same way that account's own
+    # bills already are — spending the headroom it needs makes the move it
+    # is recommending impossible and the payments it protects lose their
+    # cover. Reserve each source's total contribution across every
+    # move-card destination that will ACTUALLY be shown this request (gated
+    # by `_regular_move_gate.will_emit_by_dest` — a dismissed or capped-out
+    # destination's legs already consumed `source_capacity` above but never
+    # reach the user as a live recommendation, so they reserve nothing
+    # here). This corrects `spend_from_headroom` only; `headroom` above is
+    # untouched, because Settings' cover-plan sources card (GET
+    # /today/cover-plan) legitimately wants the standing figure, unaffected
+    # by what today's live plan happens to be doing with the account — see
+    # that field's own seeding comment above for why this is two named
+    # figures, not one mutated in place.
+    if account_eligibility_out is not None:
+        reserved_by_live_move: dict[str, float] = {}
+        for _dest, _will_emit in _regular_move_gate.will_emit_by_dest.items():
+            if not _will_emit:
+                continue
+            for _leg in legs_by_dest.get(_dest, []):
+                _src_id = _leg["move_map"]["from"]["account_id"]
+                reserved_by_live_move[_src_id] = (
+                    reserved_by_live_move.get(_src_id, 0.0) + float(_leg["amount"])
+                )
+        for _sid, _reserved in reserved_by_live_move.items():
+            _entry = account_eligibility_out.get(_sid)
+            if _entry is None:
+                continue
+            _entry["spend_from_headroom"] = round(_entry["headroom"] - _reserved, 2)
 
     unfunded_move_items: list[dict] = []
     try:
