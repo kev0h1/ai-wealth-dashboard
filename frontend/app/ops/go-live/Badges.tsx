@@ -24,7 +24,7 @@ function formatDoneDate(iso: string): string {
   }
 }
 
-export function StatePill({ item }: { item: GoLiveItem }) {
+export function StatePill({ item, compact = false }: { item: GoLiveItem; compact?: boolean }) {
   if (item.state === "todo") return null;
   if (item.state === "in-progress") {
     return (
@@ -34,16 +34,34 @@ export function StatePill({ item }: { item: GoLiveItem }) {
     );
   }
   if (item.state === "blocked") {
+    // `compact` (dense one-line rows, e.g. MobileRibbonBoard's ItemRow)
+    // drops the free-text reason entirely rather than truncating it: a
+    // phone-width row has no room for both an id, a title and a reason
+    // fragment, and a mid-string cut (even an ellipsised one) is still
+    // noise next to the state word itself. The full reason stays one tap
+    // away in ItemDetailSheet, which is why its own truncation (the inner
+    // `truncate` span below) has to actually work — see the H56 fix note
+    // on that inner span.
     return (
-      <span className="inline-flex max-w-[220px] shrink-0 items-center truncate rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
-        Blocked{item.reason ? `: ${item.reason}` : ""}
+      <span className="inline-flex max-w-[220px] min-w-0 shrink-0 items-center rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+        {/* `truncate` (overflow-hidden + text-overflow:ellipsis +
+            white-space:nowrap) has no effect applied directly to an
+            `inline-flex` container's own raw text children: text-overflow
+            only renders on a block-level box, and a flex container's
+            direct text is laid out as an anonymous flex item, not a block
+            box, so the browser clipped mid-word with no "…" (H56, found
+            2026-09-17 rendering this exact pill on UAT). Moving `truncate`
+            (plus `min-w-0`, so the flex item can actually shrink below its
+            content size) onto this inner span — which flex blockifies —
+            fixes it: the ellipsis now renders for real. */}
+        <span className="min-w-0 truncate">Blocked{!compact && item.reason ? `: ${item.reason}` : ""}</span>
       </span>
     );
   }
   if (item.state === "review") {
     return (
-      <span className="inline-flex max-w-[220px] shrink-0 items-center truncate rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300">
-        In review{item.branch ? `: ${item.branch}` : ""}
+      <span className="inline-flex max-w-[220px] min-w-0 shrink-0 items-center rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300">
+        <span className="min-w-0 truncate">In review{!compact && item.branch ? `: ${item.branch}` : ""}</span>
       </span>
     );
   }
@@ -52,8 +70,8 @@ export function StatePill({ item }: { item: GoLiveItem }) {
     // reviewer found something and this needs a decision, not that
     // anything has failed (DESIGN.md "The Red Is Risk Rule").
     return (
-      <span className="inline-flex max-w-[220px] shrink-0 items-center truncate rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
-        Rejected{item.reason ? `: ${item.reason}` : ""}
+      <span className="inline-flex max-w-[220px] min-w-0 shrink-0 items-center rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+        <span className="min-w-0 truncate">Rejected{!compact && item.reason ? `: ${item.reason}` : ""}</span>
       </span>
     );
   }

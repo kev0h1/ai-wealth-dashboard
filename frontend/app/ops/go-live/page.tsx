@@ -182,6 +182,13 @@ export default function GoLivePage() {
   );
 
   const filteredItems = useMemo(() => (data ? filterItems(data.items, filters) : []), [data, filters]);
+  // Owner/priority/search only, `states` excluded — the always-live source
+  // BoardView's mobile ribbon uses for its own status counts and default
+  // in-flight rows (H56), so picking one ribbon chip never zeroes the
+  // other three counts the way filtering `items` itself down to just that
+  // one state would.
+  const scopeFilters = useMemo(() => ({ ...filters, states: [] }), [filters]);
+  const scopeItems = useMemo(() => (data ? filterItems(data.items, scopeFilters) : []), [data, scopeFilters]);
   const filteredQuestions = useMemo(
     () => (data ? filterQuestions(data.questions, data.items, filters) : []),
     [data, filters]
@@ -316,6 +323,9 @@ export default function GoLivePage() {
               ) : (
                 <BoardView
                   items={filteredItems}
+                  scopeItems={scopeItems}
+                  filters={filters}
+                  onFiltersChange={updateFilters}
                   todoMarkdown={data.files.todo?.markdown}
                   lanes={filters.lanes}
                   onLanesChange={(lanes) => updateFilters({ ...filters, lanes })}

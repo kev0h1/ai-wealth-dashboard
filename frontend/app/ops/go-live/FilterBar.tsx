@@ -14,6 +14,7 @@ import {
   OWNER_ORDER,
   PRIORITY_LABEL,
   PRIORITY_ORDER,
+  toggleValue,
   type GoLiveFilterState,
   type GoLiveFilters,
   type GoLiveOwner,
@@ -24,10 +25,6 @@ const OWNER_OPTIONS: { value: "all" | GoLiveOwner; label: string }[] = [
   { value: "all", label: "All" },
   ...OWNER_ORDER.map((owner) => ({ value: owner, label: OWNER_LABEL[owner] })),
 ];
-
-function toggleValue<T>(list: T[], value: T): T[] {
-  return list.includes(value) ? list.filter((v) => v !== value) : [...list, value];
-}
 
 export function FilterBar({ filters, onChange }: { filters: GoLiveFilters; onChange: (next: GoLiveFilters) => void }) {
   const hasActiveFilters =
