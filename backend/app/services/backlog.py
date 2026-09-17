@@ -1557,29 +1557,46 @@ def set_uncancelled(
     todo_path: Optional[Path] = None,
     repo_root: Optional[Path] = None,
 ) -> tuple[dict, bool]:
-    """The only way out of `cancelled` (H80 correction round, reviewer
-    round 2): a dedicated verb, not a `--force` flag on `start`/`todo`/
-    etc. The reviewer's own framing is the reason this exists in this
-    shape -- the guard's job was never to make reopening hard (Kevin may
-    change his mind), it is to make reopening ATTRIBUTABLE. A `--force`
-    escape produces a board commit indistinguishable from an ordinary
-    start/todo, with nothing recording that a cancellation was overridden
-    or why, and it hands a caller the exact token to type while asking it
-    to judge whether the reopen is "genuine", which it cannot. This is the
-    same shape H57's own `_refuse_if_done` already prefers for its primary
-    route: `reopen`, not `--force`, is what that guard's own message
-    points at first. Requires a reason, exactly as `cancel`/`reject` do
-    (raises before anything is written if missing); records it as a dated
-    note (not a state-tag reason -- `todo` carries no reason slot); and
-    moves the item to `todo`, clearing the cancelled reason and any
-    retained branch tag the same way any other transition into `todo`
-    already does. Not actor-gated: unlike cancelling (an agent must never
-    decide work is unnecessary), reopening cancelled work is not something
-    only Kevin may decide, since he may have told any session directly to
-    bring it back; what matters is that the reversal is recorded, not who
-    performed it. Raises if the item isn't currently `cancelled`."""
+    """The only way out of `cancelled` (H80 correction round): a dedicated
+    verb, not a `--force` flag on `start`/`todo`/etc. The guard's job was
+    never to make reopening hard (Kevin may change his mind), it is to
+    make reopening ATTRIBUTABLE. A `--force` escape produces a board
+    commit indistinguishable from an ordinary start/todo, with nothing
+    recording that a cancellation was overridden or why, and it hands a
+    caller the exact token to type while asking it to judge whether the
+    reopen is "genuine", which it cannot. This is the same shape H57's own
+    `_refuse_if_done` already prefers for its primary route: `reopen`, not
+    `--force`, is what that guard's own message points at first. Requires
+    a reason, exactly as `cancel`/`reject` do (raises before anything is
+    written if missing); records it as a dated note (not a state-tag
+    reason -- `todo` carries no reason slot); and moves the item to
+    `todo`, clearing the cancelled reason and any retained branch tag the
+    same way any other transition into `todo` already does.
+
+    Kevin-only (H80 final round), the same shape as `cancel`, reversed:
+    a cancellation is Kevin's own input, deciding a ticket should not
+    happen. If an agent could uncancel and then work the item, that
+    decision would be undone by the same class of actor the cancel guard
+    exists to stop -- and a note recording the reversal only tells Kevin
+    afterwards, which is not the same as him deciding it. So this refuses
+    any `actor` other than `kevin`, on the CLI, with the same honest
+    framing `cancel` gets: self-declared, a guard against an agent
+    forgetting who it is, not a barrier against intent (nothing stops a
+    caller typing `--actor kevin` on purpose) -- `/ops/go-live` is the
+    only place this is genuinely enforced, since that page hardcodes the
+    actor to `kevin` behind real account-owner auth. An agent that meets
+    a cancelled item should leave a note recommending it be reopened and
+    let Kevin do it, not decide the reopen itself. Raises if the item
+    isn't currently `cancelled`."""
     if not reason or not reason.strip():
         raise BacklogError("a reason is required to uncancel an item")
+    if actor != CANCEL_ACTOR:
+        raise BacklogError(
+            f"uncancel is kevin-only: actor {actor!r} may not uncancel an item. An agent must not decide "
+            f"a cancelled item should be reopened, leave a note recommending it instead "
+            f"('scripts/backlog.py note {item_id} \"recommend reopening: <why>\"') and let Kevin uncancel "
+            f"it himself with --actor {CANCEL_ACTOR}."
+        )
     resolved_path = todo_path or _todo_path()
     resolved_root = repo_root or _repo_root()
     reason_clean = reason.strip()

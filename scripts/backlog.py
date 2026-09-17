@@ -151,7 +151,18 @@ Commands:
                                         attributable record of who did it
                                         and why, the same shape "reopen"
                                         already gives the done/not-done
-                                        boundary.
+                                        boundary. Kevin-only on the CLI,
+                                        the same shape and the same honest
+                                        framing as "cancel" (actor "kevin"
+                                        is a guard against forgetting, not
+                                        a barrier against intent; --actor
+                                        kevin is required): reopening a
+                                        cancelled item is Kevin's own call,
+                                        the same way cancelling it was, so
+                                        an agent that meets one should
+                                        leave a note recommending it be
+                                        reopened and let Kevin run this
+                                        himself.
     todo <id> [--force]                 Reset an item to to-do (clears any
                                         state tag, including a rejection;
                                         used by session.sh abandon on a
@@ -282,7 +293,14 @@ def _refuse_if_cancelled(item_id: str, command: str) -> None:
     attributable record a flag cannot. `uncancel <id> "<why>"` is that
     verb for cancelled: it is the only way out, on the CLI (`/ops/go-live`
     and its ItemDetailSheet "Move to" chips are a different, owner-only-
-    auth path this guard does not cover, see docs/ops/BACKLOG.md)."""
+    auth path this guard does not cover, see docs/ops/BACKLOG.md).
+
+    `uncancel` is Kevin's call, the same way `cancel` is (H80 final
+    round): a cancellation is Kevin's own input, deciding a ticket should
+    not happen, so an agent must not be the one to undo that decision
+    either -- an agent that meets a cancelled item should stop, not
+    reopen it. This refusal message says so and points at leaving a note
+    instead, rather than just naming the command."""
     snapshot = backlog.load()
     item = snapshot.todo.item(item_id)  # raises BacklogError if unknown
     if item.to_dict()["state"] == "cancelled":
@@ -290,9 +308,11 @@ def _refuse_if_cancelled(item_id: str, command: str) -> None:
         detail = f": {reason}" if reason else ""
         raise backlog.BacklogError(
             f"{item_id} is cancelled{detail}; Kevin decided this should not happen. '{command}' cannot "
-            f"move it out of cancelled, and there is no override for this one. The only way out is "
-            f"'backend/.venv/bin/python scripts/backlog.py uncancel {item_id} \"<why>\"', which requires "
-            f"a reason and leaves its own record of who reversed the cancellation and why."
+            f"move it out of cancelled, and there is no override for this one. Reopening it is Kevin's "
+            f"call: leave a note recommending it be reopened "
+            f"('scripts/backlog.py note {item_id} \"recommend reopening: <why>\"') and let Kevin run "
+            f"'backend/.venv/bin/python scripts/backlog.py uncancel {item_id} \"<why>\" --actor kevin' "
+            f"himself."
         )
 
 
@@ -395,13 +415,18 @@ def cmd_cancel(args: argparse.Namespace) -> None:
 
 
 def cmd_uncancel(args: argparse.Namespace) -> None:
-    # The only way out of `cancelled` (reviewer round 2): a dedicated verb,
-    # not a --force flag, exactly the shape H57's `_refuse_if_done` already
-    # uses for its own primary route (`reopen`, not --force). Requires a
-    # reason the same way `cancel`/`reject` do, and writes a dated note, so
-    # reversing Kevin's cancellation always leaves its own attributable
-    # record of who did it and why, rather than a commit indistinguishable
-    # from an ordinary start/todo.
+    # The only way out of `cancelled`: a dedicated verb, not a --force
+    # flag, exactly the shape H57's `_refuse_if_done` already uses for its
+    # own primary route (`reopen`, not --force). Requires a reason the
+    # same way `cancel`/`reject` do, and writes a dated note, so reversing
+    # Kevin's cancellation always leaves its own attributable record of
+    # who did it and why, rather than a commit indistinguishable from an
+    # ordinary start/todo. Kevin-only (H80 final round), the same shape as
+    # `cancel`: reopening a cancelled item is Kevin's own call to make,
+    # the same way cancelling it was -- an agent must not be the one to
+    # undo that decision either. backlog.set_uncancelled enforces this
+    # (self-declared --actor, same honest guard-not-barrier framing as
+    # cancel); this command never needs its own duplicate check.
     result, committed = backlog.set_uncancelled(args.item_id, args.reason, actor=args.actor)
     _print_result(args.item_id, result, committed)
 
@@ -599,7 +624,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_uncancel = sub.add_parser(
         "uncancel",
-        help="The only way out of cancelled: reverse it, with a reason (required, leaves its own note).",
+        help="Kevin-only: the only way out of cancelled, reverse it with a reason (required, leaves its own note).",
     )
     p_uncancel.add_argument("item_id")
     p_uncancel.add_argument("reason")

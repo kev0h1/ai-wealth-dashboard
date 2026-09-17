@@ -2478,9 +2478,9 @@ def test_public_set_uncancelled_requires_a_reason(paths, mock_git):
     repo_root = todo_path.parent
     backlog.set_cancelled("A1", "not wanted", actor="kevin", todo_path=todo_path, repo_root=repo_root)
     with pytest.raises(backlog.BacklogError):
-        backlog.set_uncancelled("A1", "", actor="claude", todo_path=todo_path, repo_root=repo_root)
+        backlog.set_uncancelled("A1", "", actor="kevin", todo_path=todo_path, repo_root=repo_root)
     with pytest.raises(backlog.BacklogError):
-        backlog.set_uncancelled("A1", "   ", actor="claude", todo_path=todo_path, repo_root=repo_root)
+        backlog.set_uncancelled("A1", "   ", actor="kevin", todo_path=todo_path, repo_root=repo_root)
     reloaded = backlog.TodoDoc.load(todo_path)
     assert reloaded.items["A1"].state == "cancelled"
 
@@ -2490,7 +2490,7 @@ def test_public_set_uncancelled_requires_the_item_to_currently_be_cancelled(path
     repo_root = todo_path.parent
     # A1 is plain todo in the fixture, never cancelled.
     with pytest.raises(backlog.BacklogError, match="not cancelled"):
-        backlog.set_uncancelled("A1", "bringing it back", actor="claude", todo_path=todo_path, repo_root=repo_root)
+        backlog.set_uncancelled("A1", "bringing it back", actor="kevin", todo_path=todo_path, repo_root=repo_root)
 
 
 def test_public_set_uncancelled_moves_to_todo_and_writes_a_dated_note(paths, mock_git):
@@ -2500,26 +2500,66 @@ def test_public_set_uncancelled_moves_to_todo_and_writes_a_dated_note(paths, moc
     mock_git.reset_mock()
 
     item, committed = backlog.set_uncancelled(
-        "A1", "actually still needed", actor="claude", todo_path=todo_path, repo_root=repo_root
+        "A1", "actually still needed", actor="kevin", todo_path=todo_path, repo_root=repo_root
     )
     assert committed is True
     assert item["state"] == "todo"
     assert item["reason"] is None
     assert item["notes"][-1]["text"] == "uncancelled: actually still needed"
-    assert item["notes"][-1]["actor"] == "claude"
+    assert item["notes"][-1]["actor"] == "kevin"
     commit_call = mock_git.call_args_list[1]
-    assert "backlog: A1 uncancelled by claude" in commit_call.args[0]
+    assert "backlog: A1 uncancelled by kevin" in commit_call.args[0]
 
 
-def test_public_set_uncancelled_not_actor_gated(paths, mock_git):
-    # Unlike cancel: reopening cancelled work is not restricted to kevin,
-    # since what matters is that the reversal is attributable, not who
-    # performed it.
+# ---------------------------------------------------------------------
+# Kevin-only (H80 final round): the reviewer's original "attribution, not
+# restriction" framing for uncancel was overruled -- a cancellation is
+# Kevin's own input, deciding a ticket should not happen, and if an agent
+# could uncancel and then work the item, that decision would be undone by
+# the same class of actor the cancel guard exists to stop. Mirrors
+# cancel's own actor tests exactly: an agent actor is refused with the
+# board unchanged, kevin succeeds, and the refusal names the recommended
+# note.
+# ---------------------------------------------------------------------
+
+
+def test_public_set_uncancelled_refuses_a_non_kevin_actor_and_writes_nothing(paths, mock_git):
     todo_path, _ = paths
     repo_root = todo_path.parent
     backlog.set_cancelled("A1", "superseded", actor="kevin", todo_path=todo_path, repo_root=repo_root)
+    mock_git.reset_mock()
+
+    with pytest.raises(backlog.BacklogError, match="kevin-only") as exc_info:
+        backlog.set_uncancelled("A1", "still needed", actor="claude", todo_path=todo_path, repo_root=repo_root)
+    # The refusal names the recommended note, the same shape cancel's own
+    # refusal does.
+    assert "recommend reopening" in str(exc_info.value)
+    mock_git.assert_not_called()
+    reloaded = backlog.TodoDoc.load(todo_path)
+    assert reloaded.items["A1"].state == "cancelled"
+    assert reloaded.items["A1"].reason == "superseded"
+
+
+def test_public_set_uncancelled_refuses_codex_actor_too(paths, mock_git):
+    todo_path, _ = paths
+    repo_root = todo_path.parent
+    backlog.set_cancelled("A1", "superseded", actor="kevin", todo_path=todo_path, repo_root=repo_root)
+    mock_git.reset_mock()
+
+    with pytest.raises(backlog.BacklogError, match="kevin-only"):
+        backlog.set_uncancelled("A1", "still needed", actor="codex", todo_path=todo_path, repo_root=repo_root)
+    mock_git.assert_not_called()
+    reloaded = backlog.TodoDoc.load(todo_path)
+    assert reloaded.items["A1"].state == "cancelled"
+
+
+def test_public_set_uncancelled_accepts_kevin(paths, mock_git):
+    todo_path, _ = paths
+    repo_root = todo_path.parent
+    backlog.set_cancelled("A1", "superseded", actor="kevin", todo_path=todo_path, repo_root=repo_root)
+
     item, committed = backlog.set_uncancelled(
-        "A1", "still needed", actor="codex", todo_path=todo_path, repo_root=repo_root
+        "A1", "still needed", actor="kevin", todo_path=todo_path, repo_root=repo_root
     )
     assert committed is True
     assert item["state"] == "todo"
@@ -2530,9 +2570,26 @@ def test_cli_uncancel_requires_a_reason(tmp_path):
     cancel_result = _run_cli(board_root, "cancel", "H1", "superseded", "--actor", "kevin")
     assert cancel_result.returncode == 0, cancel_result.stderr
 
-    result = _run_cli(board_root, "uncancel", "H1")
+    result = _run_cli(board_root, "uncancel", "H1", "--actor", "kevin")
     # argparse itself rejects the missing positional "reason" arg.
     assert result.returncode != 0
+
+
+def test_cli_uncancel_non_kevin_actor_refused_and_writes_nothing(tmp_path):
+    board_root = _make_board_root(tmp_path, SHOW_FIXTURE)
+    cancel_result = _run_cli(board_root, "cancel", "H1", "superseded", "--actor", "kevin")
+    assert cancel_result.returncode == 0, cancel_result.stderr
+    before = (board_root / "TODO.md").read_text(encoding="utf-8")
+
+    # No --actor at all: the CLI's own default is "claude", so an agent
+    # that forgets to think about who it is still gets refused, not a
+    # silent uncancel.
+    result = _run_cli(board_root, "uncancel", "H1", "actually still needed")
+    assert result.returncode == 1
+    assert "kevin-only" in result.stderr
+    assert "recommend reopening" in result.stderr
+    after = (board_root / "TODO.md").read_text(encoding="utf-8")
+    assert after == before  # no change to the board at all
 
 
 def test_cli_uncancel_is_the_only_way_out_and_leaves_a_note(tmp_path):
@@ -2540,8 +2597,7 @@ def test_cli_uncancel_is_the_only_way_out_and_leaves_a_note(tmp_path):
     cancel_result = _run_cli(board_root, "cancel", "H1", "superseded", "--actor", "kevin")
     assert cancel_result.returncode == 0, cancel_result.stderr
 
-    # No --actor at all (defaults to claude): uncancel is not actor-gated.
-    uncancel_result = _run_cli(board_root, "uncancel", "H1", "actually still needed")
+    uncancel_result = _run_cli(board_root, "uncancel", "H1", "actually still needed", "--actor", "kevin")
     assert uncancel_result.returncode == 0, uncancel_result.stderr
     saved = (board_root / "TODO.md").read_text(encoding="utf-8")
     h1_line = next(line for line in saved.splitlines() if "**H1." in line)

@@ -205,10 +205,16 @@ A TODO.md item line looks like this:
   `--force`, is what that guard's message leads with): `scripts/backlog.py
   uncancel <id> "<why>"` is the only way out of `cancelled` on the CLI. It
   requires a reason exactly as `cancel`/`reject` do, writes it as a dated
-  note, and moves the item to `todo` — not actor-gated (reopening
-  cancelled work is not the same decision as cancelling it: what matters
-  is that the reversal is attributable, not who performed it). Before this
-  round's first fix, `scripts/session.sh finish` ran `backlog.py review`
+  note, and moves the item to `todo` — kevin-only on the CLI, the same
+  shape and the same honest framing as `cancel` itself (H80 final round):
+  a cancellation is Kevin's own input, deciding a ticket should not
+  happen, and if an agent could uncancel and then work the item, that
+  decision would be undone by the same class of actor the cancel guard
+  exists to stop — a note recording the reversal only tells Kevin
+  afterwards, which is not the same as him deciding it. An agent that
+  meets a cancelled item leaves a note recommending it be reopened
+  instead and lets Kevin run `uncancel` himself. Before this round's
+  first fix, `scripts/session.sh finish` ran `backlog.py review`
   with no state check at all, so a session mid-flight, unaware Kevin had
   cancelled its item, would push the branch and land it in review anyway,
   one integrate pass away from being merged and ticked done; and
@@ -366,7 +372,7 @@ backend/.venv/bin/python scripts/backlog.py reject <id> "<reason>" [--force]
 backend/.venv/bin/python scripts/backlog.py uat <id> --link <url> [--force]
 backend/.venv/bin/python scripts/backlog.py approve <id> "<choice>"
 backend/.venv/bin/python scripts/backlog.py cancel <id> "<reason>" --actor kevin
-backend/.venv/bin/python scripts/backlog.py uncancel <id> "<why>"
+backend/.venv/bin/python scripts/backlog.py uncancel <id> "<why>" --actor kevin
 backend/.venv/bin/python scripts/backlog.py todo <id> [--force]
 backend/.venv/bin/python scripts/backlog.py done <id> --commit <sha>
 backend/.venv/bin/python scripts/backlog.py reopen <id>
@@ -426,19 +432,22 @@ and come back; reopening a `cancelled` item is a decision, not a side
 effect, so it now needs its own dedicated verb rather than a flag —
 `scripts/backlog.py uncancel <id> "<why>"` requires a reason, writes a
 dated note, and moves the item to `todo`; it is the only way out, on the
-CLI (see "cancelled state" above for the `/ops/go-live` caveat).
-`scripts/session.sh finish` refuses a cancelled item outright before
-running any tests or pushing anything, and treats a failed board read the
-same way (errs and exits, rather than silently proceeding);
-`scripts/session.sh abandon` on a cancelled item removes the
-worktree/branch and adds a note but does NOT call `todo`, and instead
-clears the item's now-dangling `[branch: ...]` tag with the
+CLI, and is itself kevin-only (see "cancelled state" above for the exact
+honest framing, and the `/ops/go-live` caveat). An agent that meets a
+cancelled item leaves a note recommending it be reopened rather than
+reaching for `uncancel` itself. `scripts/session.sh finish` refuses a
+cancelled item outright before running any tests or pushing anything, and
+treats a failed board read the same way (errs and exits, rather than
+silently proceeding); `scripts/session.sh abandon` on a cancelled item
+removes the worktree/branch and adds a note but does NOT call `todo`, and
+instead clears the item's now-dangling `[branch: ...]` tag with the
 `clear-branch <id>` command (not actor-gated, but refuses unless the item
 is currently `cancelled`, so it can never be pointed at a `review` item
 and strip the branch `scripts/integrate.py` finds it by). To reopen a
-cancelled item on purpose, run `backend/.venv/bin/python scripts/backlog.py
-uncancel <id> "<why>"` from the shared tree, then `scripts/session.sh
-start <id>` attaches a fresh worktree to the now-`todo` item.
+cancelled item on purpose, Kevin runs `backend/.venv/bin/python
+scripts/backlog.py uncancel <id> "<why>" --actor kevin` from the shared
+tree, then `scripts/session.sh start <id>` attaches a fresh worktree to
+the now-`todo` item.
 
 `priority` defaults to `p3` when never set. `unblocks` takes a
 comma-separated list of question ids (`Q5,Q6`); pass an empty string
@@ -467,8 +476,9 @@ that thinks something should be cancelled should run `note <id>
 himself. There is no override for `cancel` itself — an already-done item
 is refused outright, use `reopen` first if it genuinely needs undoing.
 `uncancel <id> "<why>"` requires a reason too and is the only way back
-out of `cancelled` on the CLI (see "cancelled" above); unlike `cancel` it
-is not actor-gated.
+out of `cancelled` on the CLI (see "cancelled" above); like `cancel`, it
+is kevin-only on the CLI, same honest framing, same required
+`--actor kevin`.
 
 Every command takes `--actor kevin|claude` (defaults to `claude`), which
 is what shows up in the commit message and any note. Sessions should

@@ -235,10 +235,13 @@ decide_start_state() {
       # out is the dedicated 'uncancel' verb, which requires a reason and
       # leaves its own attributable record, rather than a --force flag
       # that would produce a commit indistinguishable from an ordinary
-      # start/todo.
+      # start/todo. Reopening a cancelled item is Kevin's own call, the
+      # same way cancelling it was (uncancel is kevin-only, H80 final
+      # round): this session should leave a note recommending it, not run
+      # uncancel itself.
       local reason
       reason="$(jq -r '.reason // empty' <<<"$item_data")"
-      err "item $id is cancelled${reason:+: $reason}; Kevin decided this should not happen. If it is genuinely being reopened on purpose, resolve it first with 'backend/.venv/bin/python scripts/backlog.py uncancel $id \"<why>\"' (moves it to to-do, with a note recording why), then run scripts/session.sh start $id again. Otherwise leave it cancelled."
+      err "item $id is cancelled${reason:+: $reason}; Kevin decided this should not happen. Reopening it is Kevin's call: leave a note recommending it ('backend/.venv/bin/python scripts/backlog.py note $id \"recommend reopening: <why>\"') and let Kevin run 'scripts/backlog.py uncancel $id \"<why>\" --actor kevin' himself, then start $id again once it is back in progress."
       return 1
       ;;
     done)
@@ -441,7 +444,7 @@ cmd_finish() {
   if [[ "$item_state" == "cancelled" ]]; then
     local reason
     reason="$(jq -r '.reason // empty' <<<"$item_data")"
-    err "item $id is cancelled${reason:+: $reason}; Kevin decided this should not happen, so it cannot be finished into review. If it is genuinely being reopened on purpose, run 'backend/.venv/bin/python scripts/backlog.py uncancel $id \"<why>\"' from the shared tree first, then finish again once it is back in progress. Otherwise leave it cancelled and clean up this worktree with 'scripts/session.sh abandon $id' instead."
+    err "item $id is cancelled${reason:+: $reason}; Kevin decided this should not happen, so it cannot be finished into review. Reopening it is Kevin's call: leave a note recommending it ('backend/.venv/bin/python scripts/backlog.py note $id \"recommend reopening: <why>\"') and let Kevin run 'scripts/backlog.py uncancel $id \"<why>\" --actor kevin' himself from the shared tree, then finish again once it is back in progress. Otherwise leave it cancelled and clean up this worktree with 'scripts/session.sh abandon $id' instead."
     exit 1
   fi
 
@@ -558,7 +561,7 @@ cmd_abandon() {
     # item's own state the way un-cancelling it would be).
     (cd "$SHARED_TREE" && "$VENV_PY" "$BACKLOG_PY" note "$id" "session abandoned, branch $branch discarded; item stays cancelled, not reopened")
     (cd "$SHARED_TREE" && "$VENV_PY" "$BACKLOG_PY" clear-branch "$id")
-    echo "abandoned $id (worktree and branch $branch removed); $id stays cancelled. To reopen it on purpose, run 'backend/.venv/bin/python scripts/backlog.py uncancel $id \"<why>\"' from the shared tree."
+    echo "abandoned $id (worktree and branch $branch removed); $id stays cancelled. Reopening it is Kevin's call: leave a note recommending it if you think it should come back, and let Kevin run 'backend/.venv/bin/python scripts/backlog.py uncancel $id \"<why>\" --actor kevin' from the shared tree."
   else
     (cd "$SHARED_TREE" && "$VENV_PY" "$BACKLOG_PY" note "$id" "session abandoned, branch $branch discarded")
     (cd "$SHARED_TREE" && "$VENV_PY" "$BACKLOG_PY" todo "$id")

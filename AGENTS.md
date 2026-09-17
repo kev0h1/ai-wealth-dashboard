@@ -98,11 +98,17 @@ unrecorded.
   an ordinary start/todo with no record a cancellation was overridden or
   why. The only way out is `scripts/backlog.py uncancel <ID> "<why>"`,
   which requires a reason (like `cancel`/`reject` do), writes a dated
-  note, and moves the item to `todo` — not actor-gated, since what
-  matters is that the reversal is attributable, not who performed it.
-  This closed a real bug where `scripts/session.sh finish`/`abandon`
-  could push a cancelled item into review or back to to-do without
-  anyone deciding to, and a "reject then start" laundering path that
+  note, and moves the item to `todo` — kevin-only, the same shape and the
+  same honest framing as `cancel` itself: a cancellation is Kevin's own
+  input, deciding a ticket should not happen, so a Codex session must not
+  be the one to undo that decision either. If you meet a cancelled item,
+  leave a note recommending it be reopened
+  (`backend/.venv/bin/python scripts/backlog.py note <ID> "recommend
+  reopening: <why>"`) and let Kevin run `uncancel` himself, rather than
+  reaching for it directly. This closed a real bug where
+  `scripts/session.sh finish`/`abandon` could push a cancelled item into
+  review or back to to-do without anyone deciding to, and a "reject then
+  start" laundering path that
   needed no flag at all. A cancelled item is closed but never counted as
   done.
 - Never commit `backend/.env` or any other key/secret file. Never edit
