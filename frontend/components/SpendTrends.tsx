@@ -1422,8 +1422,9 @@ export function PinnedWidgetCard({
     const hit = cachedVerdict(0);
     if (hit) {
       // Shared with SpendPage.tsx via lib/verdictCache.ts — a recent Spend
-      // visit means this paints with no fetch at all (TTL 90s, matches the
-      // server's own /spend/verdict cache window).
+      // visit means this paints with no fetch at all (VERDICT_TTL_MS, 90s —
+      // a client-side policy, see that constant's own comment for why it
+      // does not need to match anything server-side).
       setPaceSeries(hit.pace_series);
       setPaceStatus("ok");
       return;

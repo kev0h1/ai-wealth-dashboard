@@ -438,6 +438,9 @@ cmd_finish() {
   log "checking spend-from-account ranking and scope copy in $worktree_dir/frontend..."
   (cd "$worktree_dir/frontend" && npm run -s check:spend-from-account)
 
+  log "checking verdict/money-shape client TTL caches in $worktree_dir/frontend..."
+  (cd "$worktree_dir/frontend" && npm run -s check:verdict-cache)
+
   log "pushing $branch..."
   git -C "$worktree_dir" push -u origin "$branch"
 

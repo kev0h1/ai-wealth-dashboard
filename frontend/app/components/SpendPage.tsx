@@ -367,8 +367,14 @@ export default function SpendPage() {
     setPennyScreenView("spend", buildSpendPeriodView(verdict));
   }, [verdict, verdictLoading]);
   // `silent` = we already have something on screen for this offset (cache
-  // or a previous fetch) — revalidate in the background without flipping
-  // the spinner back on, and never blank a good verdict on a transient error.
+  // or a previous fetch) — never flip the spinner back on, and never blank
+  // a good verdict on a transient error. G83 (2026-09-18): calling this
+  // when a fresh cache hit already exists no longer makes a second network
+  // request — fetchVerdictData itself now checks the same TTL cachedVerdict
+  // reads below and resolves from it directly, so the call on the `if (hit)`
+  // branch just re-confirms what's already on screen (belt-and-braces
+  // against a hit expiring in the gap between the two calls) rather than
+  // the real "revalidate against the server" it used to be.
   const fetchVerdict = useCallback((offset: number, silent = false) => {
     verdictOffsetRef.current = offset;
     if (!silent) setVerdictLoading(true);
