@@ -1003,6 +1003,30 @@ def test_cancelled_items_returns_only_cancelled_state_sorted_by_id(monkeypatch):
     assert all(c["state"] == "cancelled" for c in cancelled)
 
 
+def test_review_items_missing_branch_returns_only_review_state_with_no_branch(monkeypatch):
+    """MEDIUM 1 (H80 correction round, reviewer round 3): purely for
+    visibility, mirroring _rejected_items/_cancelled_items -- proves this
+    catches a `review` item with no branch (which `_review_items()`
+    silently drops) without also catching a normal `review` item that DOES
+    have one, or a `cancelled`/`rejected` item."""
+
+    class _FakeSnapshot:
+        def items(self):
+            return [
+                {"id": "H1", "state": "review", "branch": "feature-H1-thing", "title": "Normal review candidate"},
+                {"id": "H7", "state": "review", "branch": None, "title": "Review, branch stripped somehow"},
+                {"id": "H3", "state": "review", "title": "Review, branch key entirely absent"},
+                {"id": "H9", "state": "cancelled", "branch": "feature-H9-thing", "reason": "superseded"},
+            ]
+
+    monkeypatch.setattr(integrate.backlog, "load", lambda: _FakeSnapshot())
+
+    missing = integrate._review_items_missing_branch()
+
+    assert [i["id"] for i in missing] == ["H3", "H7"]
+    assert all(i["state"] == "review" for i in missing)
+
+
 def _fake_sh_factory(extra=None):
     def fake_sh(cmd, cwd=integrate.REPO_ROOT, timeout=integrate.GIT_TIMEOUT):
         if extra is not None:

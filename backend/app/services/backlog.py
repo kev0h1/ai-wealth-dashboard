@@ -51,21 +51,27 @@ wanted — distinct from `rejected` (a reviewer found a defect, fix it) and
 `blocked` (can't proceed yet): closed, but never `[x]` and never counted
 as done. It requires a reason (`[state: cancelled: <reason>]`, capped at
 REASON_CAP=200 like blocked/rejected, plus a full uncapped-up-to-NOTE_CAP
-note written automatically alongside it) and refuses any `actor` other
-than `kevin` (plus a `BACKLOG_AGENT` environment check, defence in depth)
-— an agent must never decide work is unnecessary, it can only leave a
-note recommending cancellation; see `CANCEL_ACTOR`'s own comment below for
-how honestly this is (and isn't) enforced. Cancelling an already-done
-item is refused outright (no override): a done item already happened,
-there is nothing left to declare should not happen. UNLIKE `rejected`,
-`start`/`todo` do NOT reverse a cancellation by themselves any more (H80
-correction round): `scripts/backlog.py`'s own `_refuse_if_cancelled`
-guard refuses a cancelled item on `review`/`done`/`todo`/`start` unless
-`--force` is passed, so reopening one is always a visible, deliberate
-choice (`start <id> --force` or `todo <id> --force` from the shared
-tree), never a silent side effect of another command — this closes the
-exact hole where `scripts/session.sh finish`/`abandon` used to reopen a
-cancelled item without anyone deciding to. See `set_cancelled` below.
+note written automatically alongside it) and refuses any CLI `actor`
+other than `kevin` — an agent must never decide work is unnecessary, it
+can only leave a note recommending cancellation; see `CANCEL_ACTOR`'s own
+comment below for how honestly this is (and isn't) enforced (on the CLI
+alone; `/ops/go-live` is the one genuinely enforced path). Cancelling an
+already-done item is refused outright (no override): a done item already
+happened, there is nothing left to declare should not happen. UNLIKE
+`rejected`, `start`/`todo` do NOT reverse a cancellation by themselves any
+more (H80 correction round): on the CLI, `scripts/backlog.py`'s own
+`_refuse_if_cancelled` guard refuses a cancelled item on `start`/`block`/
+`review`/`reject`/`uat`/`todo`/`done` with NO override at all — the only
+way out is the dedicated `uncancel <id> "<why>"` verb (requires a reason,
+writes a dated note, moves the item to `todo`), the same shape H57's
+`reopen` already gives the done/not-done boundary, chosen over a --force
+flag specifically so reversing a cancellation always leaves its own
+attributable record rather than a commit indistinguishable from an
+ordinary start/todo. This closes the exact hole where
+`scripts/session.sh finish`/`abandon` used to reopen a cancelled item
+without anyone deciding to, and the "reject then start" two-command
+laundering path that needed no flag at all. See `set_cancelled` and
+`set_uncancelled` below.
 
 The checkbox carries done/not-done, independent of
 the state tag — marking an item done clears any state tag. A done item
@@ -161,21 +167,23 @@ DEFAULT_PRIORITY = "p3"
 REASON_CAP = 200
 NOTE_CAP = 1500  # see _collapse_note_text below (H46)
 
-# H80 correction round (MEDIUM 4): `cancelled` is Kevin's own call that a
-# piece of work should not happen at all (obsolete, superseded, or simply
-# not wanted) — distinct from `rejected` (a reviewer found a defect, fix
-# it) and `blocked` (can't proceed yet). An agent must never be the one
+# H80 correction round: `cancelled` is Kevin's own call that a piece of
+# work should not happen at all (obsolete, superseded, or simply not
+# wanted) — distinct from `rejected` (a reviewer found a defect, fix it)
+# and `blocked` (can't proceed yet). An agent must never be the one
 # deciding a piece of work is unnecessary, but be honest about how this is
 # actually gated: `TodoDoc.set_state` refuses to set `state="cancelled"`
 # unless `actor` is exactly this value, which is the same self-declared
 # string every other actor check in this codebase already relies on (the
-# `--actor` flag on scripts/backlog.py, `BACKLOG_AGENT` for
-# scripts/session.sh's owner guard) — nothing stops a caller typing
+# `--actor` flag on scripts/backlog.py) — nothing stops a caller typing
 # `--actor kevin` on purpose, so this check by itself is a guard against
-# forgetting, not a barrier against intent. `os.environ.get("BACKLOG_AGENT")`
-# is checked too, for defence in depth (a session's `BACKLOG_AGENT` is set
-# once by the harness, not typed per command), but that is still a guard,
-# not a barrier, for the same reason. The one place this genuinely IS
+# forgetting, not a barrier against intent. (A `BACKLOG_AGENT` environment
+# check was added here for "defence in depth" and removed in the same
+# correction round: it made every Codex session's `finish` fail dozens of
+# unrelated tests, since AGENTS.md has Codex sessions export
+# BACKLOG_AGENT=codex and `scripts/session.sh finish` runs the backend
+# suite in that same environment, and it bought nothing anyway — `env -u
+# BACKLOG_AGENT` defeats it in one token.) The one place this genuinely IS
 # enforced is `/ops/go-live` (backend/app/routers/ops.py), which is gated
 # by real account-owner auth (`_require_owner`/`current_user`) and always
 # attributes its own writes to `_PAGE_ACTOR = "kevin"` regardless of who
@@ -751,39 +759,33 @@ class TodoDoc:
         if state == "cancelled":
             if not reason or not reason.strip():
                 raise BacklogError("a reason is required to cancel an item")
-            # H80 correction round (MEDIUM 4): the honest version. `actor`
-            # here is the same self-declared string every actor check in
-            # this codebase already relies on (`--actor` on
-            # scripts/backlog.py, `BACKLOG_AGENT` for scripts/session.sh's
-            # owner guard) — nothing stops a caller typing `--actor kevin`
-            # on purpose, so this check alone is a guard against
-            # forgetting, not a barrier against intent, and CLAUDE.md /
-            # AGENTS.md must say so plainly rather than claim it is
-            # enforced. The one place this genuinely IS enforced is
-            # `/ops/go-live` (`backend/app/routers/ops.py`): that page is
-            # gated by real account-owner auth (`_require_owner`/
-            # `current_user`) and hardcodes `_PAGE_ACTOR = "kevin"` for
-            # every write regardless of who is signed in, so a browser
-            # call can never disagree about who is cancelling.
+            # H80 correction round (reviewer round 3): `actor` here is the
+            # same self-declared string every actor check in this codebase
+            # already relies on (the `--actor` flag on scripts/backlog.py)
+            # — nothing stops a caller typing `--actor kevin` on purpose,
+            # so this check alone is a guard against forgetting, not a
+            # barrier against intent. CLAUDE.md/AGENTS.md say so plainly
+            # rather than claim it is enforced. The one place this
+            # genuinely IS enforced is `/ops/go-live`
+            # (`backend/app/routers/ops.py`): that page is gated by real
+            # account-owner auth (`_require_owner`/`current_user`) and
+            # hardcodes `_PAGE_ACTOR = "kevin"` for every write regardless
+            # of who is signed in, so a browser call can never disagree
+            # about who is cancelling.
             #
-            # Defence in depth, still not a barrier: `BACKLOG_AGENT` is
-            # set once per session by the harness that starts it (see
-            # `scripts/session.sh`'s own `caller_agent="${BACKLOG_AGENT:-
-            # claude}"`), not typed per command the way `--actor` is, so a
-            # session that inherited `BACKLOG_AGENT=claude`/`codex` would
-            # have to actively override its own environment (not just
-            # type a flag) to make this check alone agree it is kevin.
-            # Checked here, not only in the CLI, so it applies to any
-            # future caller of this function too.
-            env_agent = os.environ.get("BACKLOG_AGENT")
-            if env_agent and env_agent != CANCEL_ACTOR:
-                raise BacklogError(
-                    f"cancel is kevin-only: this session's BACKLOG_AGENT is {env_agent!r}, not kevin, so it "
-                    "may not cancel an item even with --actor kevin. An agent must not decide work is "
-                    "unnecessary, leave a note recommending cancellation instead "
-                    f"('scripts/backlog.py note {item_id} \"recommend cancelling: <why>\"') and let Kevin "
-                    f"cancel it himself."
-                )
+            # A `BACKLOG_AGENT` environment check was tried here as
+            # further "defence in depth" and removed in the same
+            # correction round: `scripts/session.sh finish` runs the whole
+            # backend test suite in the session's own environment, and
+            # AGENTS.md tells every Codex session to export
+            # `BACKLOG_AGENT=codex`, so it made every Codex session's
+            # `finish` on every branch fail dozens of unrelated tests with
+            # a confusing "kevin-only" message whose actual cause was an
+            # environment variable — including this delta's own tests, and
+            # a false positive against Kevin himself running the CLI from
+            # a shell an agent harness had already set BACKLOG_AGENT=claude
+            # in. It also bought nothing: `env -u BACKLOG_AGENT` defeats it
+            # in one token. Not reintroduced.
             if actor != CANCEL_ACTOR:
                 raise BacklogError(
                     f"cancel is kevin-only: actor {actor!r} may not cancel an item. An agent must not "
@@ -1012,8 +1014,27 @@ class TodoDoc:
         field), and is not actor-gated: clearing a reference to something
         that has already been physically deleted is routine cleanup, not
         a decision about the item's own workflow state the way cancelling
-        one is."""
+        one is.
+
+        MEDIUM 1 (reviewer round 2): refuses unless the item is currently
+        `cancelled` -- its only real caller's case
+        (`scripts/session.sh abandon` on a cancelled item). Without this,
+        calling it on a `review` item (the state that actually needs its
+        branch to be found) would strip the one field
+        `scripts/integrate.py`'s `_review_items()` filters on (state
+        `review` AND a branch), silently dropping it from every future
+        integrate pass with no `[skipped-*]` line anywhere to explain why
+        -- exactly the H25 "silent absence" shape this whole state exists
+        to avoid repeating, just by a different route (a stray
+        `clear-branch` call rather than a stray board edit)."""
         item = self.item(item_id)
+        if item.state != "cancelled":
+            raise BacklogError(
+                f"{item_id} is not cancelled (state: {item.state}); clear-branch only tidies a dangling "
+                "branch tag left on a cancelled item after its worktree has actually been deleted, "
+                "clearing it on any other state risks dropping a branch scripts/integrate.py still needs "
+                "(e.g. a review item's branch is how it's found as a merge candidate at all)."
+            )
         item.branch = None
         self._rewrite(item)
         return item
@@ -1479,14 +1500,14 @@ def set_cancelled(
     happen at all — obsolete, superseded, or simply not wanted — distinct
     from `rejected` (a reviewer found a defect, fix it) and `blocked`
     (can't proceed yet). `TodoDoc.set_state` is where the real checks live
-    (requires `actor == CANCEL_ACTOR` and, defence in depth, a
-    `BACKLOG_AGENT` environment value that isn't some other agent;
-    requires a non-empty reason; refuses an already-done item outright);
-    this wrapper composes with that rather than duplicating it, the same
-    shape as `set_rejected`/`set_uat` above. See `CANCEL_ACTOR`'s own
-    comment for how honestly "kevin-only" holds here: the CLI's `--actor`
-    is self-declared, so this is a guard against forgetting, not a
-    barrier against intent; `/ops/go-live` is the actual enforced path.
+    (requires `actor == CANCEL_ACTOR`; requires a non-empty reason;
+    refuses an already-done item outright); this wrapper composes with
+    that rather than duplicating it, the same shape as `set_rejected`/
+    `set_uat` above. See `CANCEL_ACTOR`'s own comment for how honestly
+    "kevin-only" holds here: the CLI's `--actor` is self-declared, so this
+    is a guard against forgetting, not a barrier against intent;
+    `/ops/go-live` is the actual enforced path. See `set_uncancelled`
+    below for the only way back out of `cancelled`.
 
     H54/Part 3: a caller's reason must survive both the short one-line
     `[state: cancelled: ...]` tag (capped at REASON_CAP=200 via
@@ -1524,6 +1545,55 @@ def set_cancelled(
         doc.save(resolved_path)
     committed = _git_commit_and_push(
         [resolved_path], f"backlog: {item_id} cancelled by {actor}", resolved_root
+    )
+    return item.to_dict(), committed
+
+
+def set_uncancelled(
+    item_id: str,
+    reason: str,
+    actor: str = "claude",
+    *,
+    todo_path: Optional[Path] = None,
+    repo_root: Optional[Path] = None,
+) -> tuple[dict, bool]:
+    """The only way out of `cancelled` (H80 correction round, reviewer
+    round 2): a dedicated verb, not a `--force` flag on `start`/`todo`/
+    etc. The reviewer's own framing is the reason this exists in this
+    shape -- the guard's job was never to make reopening hard (Kevin may
+    change his mind), it is to make reopening ATTRIBUTABLE. A `--force`
+    escape produces a board commit indistinguishable from an ordinary
+    start/todo, with nothing recording that a cancellation was overridden
+    or why, and it hands a caller the exact token to type while asking it
+    to judge whether the reopen is "genuine", which it cannot. This is the
+    same shape H57's own `_refuse_if_done` already prefers for its primary
+    route: `reopen`, not `--force`, is what that guard's own message
+    points at first. Requires a reason, exactly as `cancel`/`reject` do
+    (raises before anything is written if missing); records it as a dated
+    note (not a state-tag reason -- `todo` carries no reason slot); and
+    moves the item to `todo`, clearing the cancelled reason and any
+    retained branch tag the same way any other transition into `todo`
+    already does. Not actor-gated: unlike cancelling (an agent must never
+    decide work is unnecessary), reopening cancelled work is not something
+    only Kevin may decide, since he may have told any session directly to
+    bring it back; what matters is that the reversal is recorded, not who
+    performed it. Raises if the item isn't currently `cancelled`."""
+    if not reason or not reason.strip():
+        raise BacklogError("a reason is required to uncancel an item")
+    resolved_path = todo_path or _todo_path()
+    resolved_root = repo_root or _repo_root()
+    reason_clean = reason.strip()
+    with _locked(resolved_root):
+        doc = TodoDoc.load(resolved_path)
+        item = doc.item(item_id)
+        if item.state != "cancelled":
+            raise BacklogError(f"{item_id} is not cancelled (state: {item.state})")
+        doc.set_state(item_id, "todo", actor=actor)
+        doc.add_note(item_id, f"uncancelled: {reason_clean}", actor)
+        item = doc.item(item_id)
+        doc.save(resolved_path)
+    committed = _git_commit_and_push(
+        [resolved_path], f"backlog: {item_id} uncancelled by {actor}", resolved_root
     )
     return item.to_dict(), committed
 
@@ -1618,7 +1688,11 @@ def clear_branch(
     """See `TodoDoc.clear_branch` above for the full rationale (H80): tidies
     a `[branch: ...]` tag left dangling after the branch/worktree it named
     was actually deleted (`scripts/session.sh abandon` on a cancelled
-    item). Not actor-gated."""
+    item). Not actor-gated, but refuses (writes nothing) unless the item
+    is currently `cancelled` (MEDIUM 1, reviewer round 2) -- calling this
+    on, say, a `review` item would strip the one field
+    `scripts/integrate.py` finds it by, silently dropping it from every
+    future merge pass."""
     resolved_path = todo_path or _todo_path()
     resolved_root = repo_root or _repo_root()
     with _locked(resolved_root):

@@ -5,15 +5,28 @@ cancelled item must remove the worktree/branch without un-cancelling the
 item (no `todo` call), instead clearing its now-dangling `[branch: ...]`
 tag.
 
+What the `finish` tests actually prove (reviewer round 3 correction, so
+this is stated precisely rather than implied): the fake worktree here has
+no `backend/`/`frontend/` directories at all, so even the PRE-fix
+`cmd_finish` would have died at its own pytest step long before reaching
+`git push` -- these tests do not, and could not, reproduce a real push
+being attempted and blocked. What they legitimately assert is (1) the new
+guard fires and exits 1 with the expected message BEFORE any of
+`cmd_finish`'s later steps run at all (i.e. strictly upstream of where a
+push would happen), and (2), as a positive fact about the resulting
+state, that the branch is absent from `origin` and the item is untouched
+afterwards. Together these are the guard actually firing early, not a
+simulation of "a push was attempted and rejected".
+
 Same sandboxing convention as `test_session_start_guard.py`: a disposable
 local "shared tree" (bare repo as `origin` plus a clone) under `tmp_path`,
 `SHARED_TREE`/`BACKLOG_PY`/`VENV_PY`/`WORKTREES_ROOT` reassigned after
 sourcing the real `scripts/session.sh`, and `BACKLOG_ROOT` pointing
 `scripts/backlog.py` at a throwaway `TODO.md`. `BACKLOG_PY` is this
-worktree's own `scripts/backlog.py` (the one with `cancel`/`clear-branch`
-and the `_refuse_if_cancelled` guard), not the shared tree's, since the
-guard depends on it and the real shared tree won't have it until
-`integrate.py` merges this branch.
+worktree's own `scripts/backlog.py` (the one with `cancel`/`uncancel`/
+`clear-branch` and the `_refuse_if_cancelled` guard), not the shared
+tree's, since the guard depends on it and the real shared tree won't have
+it until `integrate.py` merges this branch.
 
 Unlike `test_session_start_guard.py`, these tests need a real worktree to
 exist (both `cmd_finish` and `cmd_abandon` operate on one), so each test
@@ -195,7 +208,9 @@ def test_finish_refuses_a_cancelled_item_before_pushing_anything(tmp_path):
     assert item["branch"] == branch
 
     # Proves the bug this closes: before the fix, `finish` had no state
-    # check at all and would have pushed the branch and called `review`.
+    # check at all, so it would have gone on to run its pytest/tsc/npm
+    # steps and, in a real worktree, push. Here the guard fires and exits
+    # 1 immediately, before any of those steps run.
     result = _run_session_cmd(tmp_path, board_root, shared_tree, worktrees_root, "finish", "H1")
 
     assert result.returncode == 1, result.stdout + result.stderr
@@ -203,7 +218,9 @@ def test_finish_refuses_a_cancelled_item_before_pushing_anything(tmp_path):
     assert "superseded" in result.stderr
     assert "abandon" in result.stderr
 
-    # No push happened: the branch never reached origin.
+    # A fact about the resulting state, not a claim that this sandbox
+    # reproduced a real push attempt (see the module docstring): the
+    # branch is absent from origin.
     ls_remote = subprocess.run(
         ["git", "ls-remote", "--heads", "origin", branch], cwd=shared_tree, capture_output=True, text=True,
     )
@@ -222,9 +239,12 @@ def test_finish_refuses_a_cancelled_item_before_pushing_anything(tmp_path):
 
 def test_finish_still_works_on_a_non_cancelled_item(tmp_path):
     # Belt and braces: the new guard must not false-positive on an
-    # ordinary in-progress item. Runs the real backend test suite from
-    # inside a from-scratch worktree, so this one is intentionally the
-    # slow test in this file.
+    # ordinary in-progress item. This does NOT run the real backend test
+    # suite -- the fake worktree has no backend/frontend directories at
+    # all, so cmd_finish's own pytest step fails immediately once it gets
+    # there; this test only asserts that failure isn't "is cancelled"
+    # (the guard itself did not misfire), and does not care what happens
+    # after that.
     shared_tree = _make_fake_shared_tree(tmp_path)
     board_root = _make_board_root(tmp_path, GUARD_FIXTURE)
     worktrees_root = tmp_path / "worktrees"

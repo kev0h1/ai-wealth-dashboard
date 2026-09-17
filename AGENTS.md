@@ -66,32 +66,45 @@ unrecorded.
 - There is also a `cancelled` state (H80): Kevin's own call that a piece
   of work should not happen at all — obsolete, superseded, or simply not
   wanted — distinct from `rejected` (a defect, fix it) and `blocked`
-  (can't proceed yet). Be precise about how this is actually gated (H80
-  correction round): `/ops/go-live`'s Cancel control is the genuinely
-  **kevin-only** path, because that page is gated by real account-owner
-  auth end to end and hardcodes the actor to `kevin` regardless of who is
-  signed in. `backend/app/services/backlog.py`'s `TodoDoc.set_state`
-  refuses to set this state for any CLI `--actor` other than `kevin`
-  (plus a `BACKLOG_AGENT` environment check, since a session's
-  `BACKLOG_AGENT` is set once by the harness that starts it, not typed
-  per command) — that is **enforced in code against forgetting, not
-  against intent**: nothing stops a session typing `--actor kevin` on
-  purpose, so do not treat it as a hard barrier. Either way, a Codex
-  session must never decide work is unnecessary and cancel it on its own,
-  exactly the same restriction a Claude session has: if you believe an
-  item should be cancelled, say so with a note instead —
+  (can't proceed yet). Be precise about how this is actually gated,
+  because two prior correction rounds overclaimed it: `/ops/go-live`'s
+  Cancel control is the genuinely **kevin-only** path, because that page
+  is gated by real account-owner auth end to end and hardcodes the actor
+  to `kevin` regardless of who is signed in — but that same page's
+  `ItemDetailSheet` "Move to" chips (To do, In progress, Done, Blocked)
+  fire straight through on a cancelled item with no refusal at all, since
+  the page calls the service layer directly rather than through the CLI's
+  guard; accepted, since it is still Kevin's own tap, but the guard below
+  is CLI-only, not universal. `backend/app/services/backlog.py`'s
+  `TodoDoc.set_state` refuses to set this state for any CLI `--actor`
+  other than `kevin` — that is a guard against forgetting, not against
+  intent: nothing stops a session typing `--actor kevin` on purpose, so
+  do not treat it as a hard barrier. (A `BACKLOG_AGENT` environment check
+  was tried here too and removed: it broke every Codex `finish`, since
+  this file has every Codex session export `BACKLOG_AGENT=codex` and
+  `scripts/session.sh finish` runs the whole suite in that same
+  environment, and it bought nothing besides — `env -u BACKLOG_AGENT`
+  defeats it in one token.) Either way, a Codex session must never decide
+  work is unnecessary and cancel it on its own, exactly the same
+  restriction a Claude session has: if you believe an item should be
+  cancelled, say so with a note instead —
   `backend/.venv/bin/python scripts/backlog.py note <ID> "recommend
   cancelling: <why>"` — and let Kevin run
   `backend/.venv/bin/python scripts/backlog.py cancel <ID> "<reason>"
   --actor kevin` (or use the Cancel control on `/ops/go-live`) himself.
-  UNLIKE `rejected`, plain `start`/`todo` no longer reverses a
-  cancellation by themselves: both now refuse a cancelled item unless
-  `--force` is passed (`start <ID> --force` or `todo <ID> --force` from
-  the shared tree), so reopening one is always a visible, deliberate
-  choice, never a silent side effect of another command (this closed a
-  real bug where `scripts/session.sh finish`/`abandon` could push a
-  cancelled item into review or back to to-do without anyone deciding
-  to). A cancelled item is closed but never counted as done.
+  On the CLI, `start`, `block`, `review`, `reject`, `uat`, `todo` and
+  `done` all refuse a cancelled item outright, with NO override at all —
+  not a `--force` flag, which left a board commit indistinguishable from
+  an ordinary start/todo with no record a cancellation was overridden or
+  why. The only way out is `scripts/backlog.py uncancel <ID> "<why>"`,
+  which requires a reason (like `cancel`/`reject` do), writes a dated
+  note, and moves the item to `todo` — not actor-gated, since what
+  matters is that the reversal is attributable, not who performed it.
+  This closed a real bug where `scripts/session.sh finish`/`abandon`
+  could push a cancelled item into review or back to to-do without
+  anyone deciding to, and a "reject then start" laundering path that
+  needed no flag at all. A cancelled item is closed but never counted as
+  done.
 - Never commit `backend/.env` or any other key/secret file. Never edit
   files outside this repository.
 - Copy rules apply to every user-facing string you write: no em dashes,

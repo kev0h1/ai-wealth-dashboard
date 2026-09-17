@@ -219,13 +219,19 @@ async def go_live_item_action(item_id: str, body: ItemActionRequest, user: dict 
             if not body.reason:
                 raise HTTPException(400, "reason is required to cancel an item")
             # H80: this page is owner-only end to end (_require_owner
-            # above), so _PAGE_ACTOR is genuinely "kevin" here regardless
-            # of what an unauthenticated caller might claim — the same
-            # real account-owner auth every other write on this route
-            # already relies on. backlog.set_cancelled still enforces the
+            # above), so _PAGE_ACTOR is hardcoded "kevin" regardless of
+            # what an unauthenticated caller might claim — the same real
+            # account-owner auth every other write on this route already
+            # relies on. backlog.set_cancelled still enforces the
             # actor/reason/not-already-done rules itself either way (see
-            # TodoDoc.set_state), this call just can never fail that
-            # check from the browser.
+            # TodoDoc.set_state); this call passes its own actor check
+            # today because _PAGE_ACTOR and TodoDoc.CANCEL_ACTOR both
+            # happen to be the literal string "kevin", not because the
+            # route is structurally guaranteed to agree with that
+            # constant forever — a correction round already found one
+            # overclaim in this area (the BACKLOG_AGENT check, removed),
+            # so this comment states what is true today rather than what
+            # can "never" fail.
             _, committed = backlog.set_cancelled(
                 item_id, body.reason, actor=_PAGE_ACTOR, todo_path=todo_path, repo_root=root
             )
