@@ -67,8 +67,17 @@ npx cap add android
 # 2. Patch it for FCM (idempotent — safe to re-run)
 bash scripts/setup-android-push.sh
 
+# 2a. H66 (2026-09-17): add the "board" product flavour (Board, a separate
+# ops-board app sharing this same project — see README.md). Idempotent.
+# Also moves google-services.json into src/sorted/ (flavour-scoped), which
+# setup-android-push.sh's own restore step (above) now targets directly.
+bash scripts/apply-board-flavor.sh
+
 # 2b. Restore the brand launcher icons (cap add android regenerates stock icons — this restores the brand set)
 bash scripts/apply-icons.sh
+
+# 2c. Board's own distinct-colourway icon set (H66; src/board/res/ overlay only)
+bash scripts/apply-board-icons.sh
 
 # 3. Build the frontend static export
 cd ../frontend
@@ -79,16 +88,26 @@ npm run build:mobile
 rm -rf ../capacitor-spike/www/* && cp -r out/* ../capacitor-spike/www/
 cd ../capacitor-spike
 
-# 5. Sync the web assets + native deps into the Android project
+# 4a. Board's own copy of the same export, redirecting to /ops/go-live (H66)
+bash scripts/build-board-web-assets.sh
+
+# 5. Sync the web assets + native deps into the Android project (Sorted's
+# src/main/assets/public/ only — Board's src/board/assets/ is untouched by
+# `cap sync`, see step 4a)
 npx cap sync android
 
-# 6. Build the APK
+# 6. Build the APKs
 cd android
-./gradlew assembleDebug
+./gradlew assembleSortedDebug
+./gradlew assembleBoardDebug
 ```
 
-The APK lands at
-`capacitor-spike/android/app/build/outputs/apk/debug/app-debug.apk`.
+Sorted's APK lands at
+`capacitor-spike/android/app/build/outputs/apk/sorted/debug/app-sorted-debug.apk`.
+Board's APK lands at
+`capacitor-spike/android/app/build/outputs/apk/board/debug/app-board-debug.apk`.
+The plain `assembleDebug` (no flavour qualifier) still exists as an
+aggregate task and builds both.
 
 ## What `setup-android-push.sh` patches
 

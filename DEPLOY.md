@@ -742,14 +742,23 @@ needed.
 - C11 (open): Kevin adds this keystore to Codemagic as a code-signing asset
   once an Android Codemagic workflow exists (there is currently no Android
   CI, see `capacitor-spike/ANDROID_PUSH.md`).
+- H66 (2026-09-17): the project now builds two Gradle product flavours,
+  `sorted` (Sorted, `co.uk.auriqltd.sorted`, everything above unchanged) and
+  `board` (Board, `co.uk.auriqltd.sorted.board`, a separate ops-board app,
+  see `capacitor-spike/scripts/apply-board-flavor.sh`). `signingConfig` and
+  `keystore.properties` are shared across both flavours, so the paths below
+  now carry the flavour name (`bundleRelease`/`assembleDebug` still exist as
+  aggregate tasks and still work; they now also build Board's variant
+  alongside Sorted's, which is harmless but changes the plain, unqualified
+  task's output path — use the flavour-qualified task for Sorted alone).
 
 Build the signed AAB (from `capacitor-spike/android`, keystore.properties
 must be present):
 
 ```bash
 cd capacitor-spike/android
-./gradlew bundleRelease
-# output: app/build/outputs/bundle/release/app-release.aab
+./gradlew bundleSortedRelease
+# output: app/build/outputs/bundle/sortedRelease/app-sorted-release.aab
 ```
 
 Rebuild the debug APK and publish it to the UAT download link (unsigned
@@ -757,8 +766,17 @@ debug build, separate from the Play upload key above):
 
 ```bash
 cd capacitor-spike/android
-./gradlew assembleDebug
-cp app/build/outputs/apk/debug/app-debug.apk /var/www/wealth-downloads/wealth.apk
+./gradlew assembleSortedDebug
+cp app/build/outputs/apk/sorted/debug/app-sorted-debug.apk /var/www/wealth-downloads/wealth.apk
+```
+
+Board's own debug APK (see `capacitor-spike/README.md` for the full build
+flow, including the web-asset and icon steps that must run first):
+
+```bash
+cd capacitor-spike/android
+./gradlew assembleBoardDebug
+cp app/build/outputs/apk/board/debug/app-board-debug.apk /var/www/wealth-downloads/board.apk
 ```
 
 ## Mobile: Codemagic TestFlight builds

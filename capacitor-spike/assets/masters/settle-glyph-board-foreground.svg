@@ -1,0 +1,55 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!--
+    Board app adaptive-icon FOREGROUND layer — H66 (2026-09-17).
+
+    Same glyph geometry as settle-glyph-flat-foreground.svg (identical bar
+    shapes, identical 0.85x inset scale about canvas centre for the
+    adaptive-icon safe zone) so the Board launcher icon reads as the same
+    settle-mark family as Sorted at a glance.
+
+    The ONLY change is the accent bar's gradient: amber -> burnt orange
+    instead of Sorted's indigo -> violet. DESIGN.md's Penny Gradient Rule
+    reserves the indigo->violet gradient for the AI adviser alone ("any
+    surface wearing it must be a place the user can get advice"); Board is
+    an internal ops tool with no Penny surface, so it must NOT wear that
+    gradient, and needs to be unmistakably distinct from Sorted's icon
+    "mid-scroll" in the app switcher/launcher per Kevin's brief. Named
+    `boardGradient` (not `brandGradient`) so it's never confused with the
+    reserved id if these files are ever diffed side by side.
+
+    Transparent canvas — no background rect, no glow, matching Kevin's
+    2026-08-27 "flat glyph, full stop" decision for the Sorted icon too.
+  -->
+  <defs>
+    <linearGradient id="boardGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f59e0b" />
+      <stop offset="100%" stop-color="#c2410c" />
+    </linearGradient>
+  </defs>
+
+  <g transform="translate(512,512) scale(0.85) translate(-512,-512)">
+    <!-- Top slate bar — tilts clockwise, "unsettled" -->
+    <rect
+      x="292" y="257"
+      width="475" height="119"
+      rx="28.6"
+      fill="#475569"
+      transform="rotate(6.86 529.5 316.5)"
+    />
+    <!-- Middle slate bar — tilts counter-clockwise, opposing lean -->
+    <rect
+      x="241" y="447"
+      width="505" height="119"
+      rx="28.5"
+      fill="#475569"
+      transform="rotate(-6.84 493.5 506.5)"
+    />
+    <!-- Bottom gradient bar — flat, widest, the "settled" state -->
+    <rect
+      x="232" y="637"
+      width="559" height="129"
+      rx="31.5"
+      fill="url(#boardGradient)"
+    />
+  </g>
+</svg>

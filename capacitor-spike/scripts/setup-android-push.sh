@@ -30,7 +30,14 @@ ANDROID_DIR="${SPIKE_DIR}/android"
 PROJECT_GRADLE="${ANDROID_DIR}/build.gradle"
 APP_GRADLE="${ANDROID_DIR}/app/build.gradle"
 MANIFEST="${ANDROID_DIR}/app/src/main/AndroidManifest.xml"
-GOOGLE_SERVICES_JSON="${ANDROID_DIR}/app/google-services.json"
+# H66: scoped to the "sorted" product flavour's own source set, not the
+# module root, so the "board" flavour's google-services search finds no
+# file at all (see app/build.gradle's googleServices{missingGoogleServicesStrategy}
+# comment) instead of finding this one and failing to match
+# co.uk.auriqltd.sorted.board against it. A pre-H66 checkout would have had
+# this at ${ANDROID_DIR}/app/google-services.json (module root); that path
+# no longer exists post-H66.
+GOOGLE_SERVICES_JSON="${ANDROID_DIR}/app/src/sorted/google-services.json"
 CANONICAL_GOOGLE_SERVICES_JSON="${SPIKE_DIR}/google-services.json"
 RES_DIR="${ANDROID_DIR}/app/src/main/res"
 CANONICAL_NOTIFICATION_ICON_DIR="${SPIKE_DIR}/assets/notification-icon"
@@ -114,6 +121,7 @@ elif [[ -f "${CANONICAL_GOOGLE_SERVICES_JSON}" ]]; then
   # copy won't survive a regeneration. The canonical copy at
   # capacitor-spike/google-services.json is committed and survives that,
   # so restore the working copy from it instead of hard-stopping.
+  mkdir -p "$(dirname "${GOOGLE_SERVICES_JSON}")"
   cp "${CANONICAL_GOOGLE_SERVICES_JSON}" "${GOOGLE_SERVICES_JSON}"
   echo "[3/7] google-services.json: restored from canonical copy at ${CANONICAL_GOOGLE_SERVICES_JSON}."
 else
