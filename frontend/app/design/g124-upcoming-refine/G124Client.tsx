@@ -97,7 +97,7 @@ function RedRuleNote({ redRule, variant, state, mode }: { redRule: RedRule; vari
       <p className="font-semibold">Preview note, not page content</p>
       {redRule === "unified" ? (
         <p className="mt-0.5">
-          This variant reddens the panel below when the projection itself goes negative. The LIVE /upcoming page today only reddens the panel when a specific account is flagged short (`genuineShortfalls`) — a negative projection alone does not currently tint the panel there, only the figure. This is a deliberate proposal, not a reproduction of live behaviour.
+          This variant reddens the panel below when the projection itself goes negative. The LIVE /upcoming page today only reddens the panel when a specific account is flagged short (`genuineShortfalls`). A negative projection alone does not currently tint the panel there, only the figure. This is a deliberate proposal, not a reproduction of live behaviour.
         </p>
       ) : (
         <p className="mt-0.5">
