@@ -58,12 +58,12 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { SlidersHorizontal, X } from "lucide-react";
 import type { Account } from "@/lib/api";
 import { getAccountsCached } from "@/lib/accountsCache";
 import { FIXTURE_EMPTY, FIXTURE_LONG, FIXTURE_POPULATED } from "./fixtures";
 import type { SearchFilters } from "./dataSource";
 import { hasActiveFilters } from "./dataSource";
+import { FilterChips, FilterTrigger } from "./FilterChips";
 import FilterSheet, { draftFromFilters, type FilterDraft } from "./FilterSheet";
 import VariantA from "./VariantA";
 import VariantB from "./VariantB";
@@ -128,19 +128,6 @@ function Switcher({
       </Link>
     </nav>
   );
-}
-
-// Formats the period chip exactly like TransactionsPage.tsx's own
-// formatPeriodChip — verbatim port so the chip reads identically whether
-// the date window arrived by deep link or by FilterSheet.
-function formatPeriodChip(from: string | null, to: string | null): string {
-  const fmt = (iso: string) => {
-    const d = new Date(iso + "T00:00:00");
-    return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-  };
-  if (from && to) return `${fmt(from)} → ${fmt(to)}`;
-  if (from) return `From ${fmt(from)}`;
-  return `Until ${fmt(to!)}`;
 }
 
 export default function G119Client() {
@@ -325,18 +312,7 @@ export default function G119Client() {
                 Grouped by day. Tap a payment to see it, and change it.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => setFilterOpen(true)}
-              aria-label="Open filters"
-              className={`min-h-[44px] min-w-[44px] flex-shrink-0 flex items-center justify-center rounded-full shadow-sm transition-colors ${
-                filtersActive
-                  ? "bg-indigo-600 text-white"
-                  : "bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-300"
-              }`}
-            >
-              <SlidersHorizontal size={17} aria-hidden="true" />
-            </button>
+            <FilterTrigger active={filtersActive} onOpen={() => setFilterOpen(true)} variant="solid" />
           </header>
 
           {/* Active-filter chips — one code path for deep-linked and
@@ -345,56 +321,21 @@ export default function G119Client() {
               exactly like one set here. Grouping matches
               TransactionsPage.tsx: category+label+txn_type clear together,
               merchants and the date window are each independently
-              removable. */}
-          {filtersActive && (
-            <div className="mb-4 flex items-center gap-1.5 flex-wrap">
-              {(categoryFilter || (categoriesFilter && categoriesFilter.length > 0)) && (
-                <button
-                  type="button"
-                  onClick={clearCategoryFilter}
-                  aria-label={`Remove ${categoryLabel ?? categoryFilter ?? categoriesFilter!.join(", ")} filter`}
-                  className="flex-shrink-0 inline-flex items-center gap-1 min-h-[28px] px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 text-[11px] font-semibold active:opacity-70 transition-opacity"
-                >
-                  {categoryLabel ?? categoryFilter ?? categoriesFilter!.join(", ")}
-                  <X size={10} />
-                </button>
-              )}
-              {txnType && !categoryFilter && !(categoriesFilter && categoriesFilter.length > 0) && (
-                <button
-                  type="button"
-                  onClick={() => router.replace(urlFor({ txnType: null }))}
-                  aria-label="Remove direction filter"
-                  className="flex-shrink-0 inline-flex items-center gap-1 min-h-[28px] px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 text-[11px] font-semibold active:opacity-70 transition-opacity"
-                >
-                  {txnType === "debit" ? "Money out" : "Money in"}
-                  <X size={10} />
-                </button>
-              )}
-              {merchantsFilter && merchantsFilter.length > 0 && (
-                <button
-                  type="button"
-                  onClick={clearMerchantsFilter}
-                  aria-label={`Remove ${merchantsFilter.join(", ")} filter`}
-                  className="flex-shrink-0 inline-flex items-center gap-1 min-h-[28px] px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 text-[11px] font-semibold active:opacity-70 transition-opacity"
-                >
-                  {merchantsFilter[0]}
-                  {merchantsFilter.length > 1 && ` +${merchantsFilter.length - 1}`}
-                  <X size={10} />
-                </button>
-              )}
-              {(periodFrom || periodTo) && (
-                <button
-                  type="button"
-                  onClick={clearPeriodFilter}
-                  aria-label="Remove period filter, widen to all history"
-                  className="flex-shrink-0 inline-flex items-center gap-1 min-h-[28px] px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 text-[11px] font-semibold active:opacity-70 transition-opacity"
-                >
-                  {formatPeriodChip(periodFrom, periodTo)}
-                  <X size={10} />
-                </button>
-              )}
-            </div>
-          )}
+              removable. Rendered via the shared FilterChips
+              (treatment="legacy") extracted for the G119 filter-pill round
+              — same markup and classes as before this extraction, byte for
+              byte, since this is the reference Kevin is comparing his pick
+              against and must keep showing the defect he flagged. */}
+          <FilterChips
+            filters={filters}
+            categoryLabel={categoryLabel}
+            onClearCategory={clearCategoryFilter}
+            onClearDirection={() => router.replace(urlFor({ txnType: null }))}
+            onClearMerchants={clearMerchantsFilter}
+            onClearPeriod={clearPeriodFilter}
+            treatment="legacy"
+            className="mb-4"
+          />
 
           {state === "loading" ? (
             <div className="space-y-3" aria-label="Loading transactions">
