@@ -23,15 +23,24 @@
 // G124Client.tsx and fixtures.ts). The panel below no longer takes a
 // `panelNegative` prop at all: it always renders the same neutral
 // `glass-hero` surface and border it had in the positive state, negative
-// included. Red now appears only as highlights: the headline figure
-// (`figureNegative`, unchanged — always `runway < 0`), the "N accounts
-// short" badge, and the "<bank> is short by £X before payday" attribution
-// line and its border. That reads closer to DESIGN.md's Red Is Risk Rule
-// ("if everything is fine, a screen may contain no red at all" — and
-// conversely, a real risk earns a signifier, not a flooded surface) and
-// Figures Are Ink; Amber Lives In The Signifier (the same reasoning
-// extends to red: it marks the figure and its own small badge/line, never
-// a whole panel) than either the unified or the live rule offered.
+// included.
+//
+// G127 (Kevin, round three): "for the hero card only the figure of 184 and
+// the 1 account short but the other highlights don't need to be red" —
+// narrower again. Red now lives in exactly two places: the headline figure
+// (`figureNegative`, unchanged — always `runway < 0`, and its "short" unit
+// word plus the identical "Projected balance" restatement inside Full
+// calculation travel with it, since they are the same figure, not a
+// separate highlight) and the "N accounts short" badge. The attribution
+// paragraph, its border and the "Review" link are neutral now, each reusing
+// a colour already established elsewhere on this same card (the row-name
+// neutral for the sentence, the Full-calculation hairline for the border,
+// the Full-calculation link colour for Review) rather than a new shade.
+// That reads closer to DESIGN.md's Red Is Risk Rule ("if everything is
+// fine, a screen may contain no red at all" — and conversely, a real risk
+// earns a signifier, not a flooded surface) and Figures Are Ink; Amber
+// Lives In The Signifier (the same reasoning extends to red: it marks the
+// figure and its own small badge, never a whole panel or a run of prose).
 export interface HeroScenario {
   isCalendarMonth: boolean;
   daysToPayday: number;
@@ -70,13 +79,17 @@ export default function HeroCard({ scenario, runway }: { scenario: HeroScenario;
   return (
     <div
       data-tutorial-id="tutorial-planning-left"
+      aria-labelledby="runway-heading"
       className="glass-hero rounded-3xl p-5 shadow-sm sm:p-6"
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+          {/* G127 ask #2 — a real heading now, matching codex's
+              UpcomingCanvasClient.tsx line 112 (`text-base font-bold`),
+              not the xs/uppercase micro-label it replaces. */}
+          <h2 id="runway-heading" className="mb-1 text-base font-bold text-slate-950 dark:text-white">
             {isCalendarMonth ? "Projected at month end" : "Projected at payday"}
-          </p>
+          </h2>
           <div className="flex items-baseline gap-2">
             <p
               aria-label={`${Math.round(Math.abs(runway)).toLocaleString("en-GB")} pounds ${figureNegative ? "short" : "left"}`}
@@ -157,9 +170,16 @@ export default function HeroCard({ scenario, runway }: { scenario: HeroScenario;
       )}
 
       {genuineShortfalls.length > 0 && (
-        <div className="mt-3 border-t border-rose-200/70 pt-3 dark:border-rose-800/60">
+        // G127: the border and the sentence below are neutral now — the
+        // border reuses the exact hairline the timing-risk block below
+        // already uses (`border-slate-200/70 dark:border-white/10`), and
+        // the sentence reuses the row-name neutral DayGroups.tsx already
+        // uses for important-but-not-figure text
+        // (`text-slate-800 dark:text-slate-100`). Red stays on the figure
+        // and the badge only; not a third shade invented for this line.
+        <div className="mt-3 border-t border-slate-200/70 pt-3 dark:border-white/10">
           {genuineShortfalls.map((a) => (
-            <p key={a.accountId} className="text-[13px] leading-snug text-rose-900 dark:text-rose-100">
+            <p key={a.accountId} className="text-[13px] leading-snug text-slate-800 dark:text-slate-100">
               <span className="font-semibold">{a.bank}</span> is short by{" "}
               <span className="font-mono tabular-nums font-semibold">{sym}{fmt2(a.shortfall)}</span> before payday.
             </p>
@@ -168,7 +188,9 @@ export default function HeroCard({ scenario, runway }: { scenario: HeroScenario;
             <p className="text-xs text-slate-500 dark:text-slate-400">
               Payments can take a day or two to appear, so a very recent one may not be counted yet.
             </p>
-            <span className="flex min-h-[44px] shrink-0 items-center gap-0.5 px-2 -my-2.5 text-[13px] font-semibold text-rose-600 dark:text-rose-400">
+            {/* Neutral now — reuses the same indigo already used for the
+                Full calculation link just above, not a new colour. */}
+            <span className="flex min-h-[44px] shrink-0 items-center gap-0.5 px-2 -my-2.5 text-[13px] font-semibold text-indigo-600 dark:text-indigo-400">
               Review <ChevronRightIcon />
             </span>
           </div>
