@@ -6,7 +6,12 @@
 // the existing infrastructure in place." This round is NOT a rebuild —
 // PlanningPage.tsx stays exactly as it is — it takes exactly three things
 // from G90 and Kevin's own follow-up notes:
-//   1. The hero adopts G90's bounded-panel styling; content unchanged.
+//   1. The hero adopts G90's bounded-panel styling; content unchanged. ONE
+//      exception, called out deliberately rather than folded in quietly:
+//      which condition reddens the panel is a genuine behaviour change, not
+//      styling, so it's switchable (`?redRule=unified|live`, default
+//      unified) with a plain-worded note rendered directly above the hero
+//      — see RedRuleNote below and HeroCard.tsx's own doctrine comment.
 //   2. Same-day payments group into one bounded day card (the G122
 //      transactions-hub grammar), not a separate floating card per row.
 //   3. Set-aside content density/polish — three different answers.
@@ -26,13 +31,27 @@ import HeroCard from "./HeroCard";
 import DayGroups from "./DayGroups";
 import { SetAsideA, SetAsideB, SetAsideC } from "./setAsideVariants";
 import {
-  ALLOCATIONS, HERO_POSITIVE, HERO_NEGATIVE, RUNWAY_POSITIVE, RUNWAY_NEGATIVE,
+  ALLOCATIONS, HERO_POSITIVE, HERO_NEGATIVE, HERO_DIVERGENT,
+  RUNWAY_POSITIVE, RUNWAY_NEGATIVE, RUNWAY_DIVERGENT,
   BILLS_POSITIVE, BILLS_NEGATIVE,
 } from "./fixtures";
 
 type Variant = "a" | "b" | "c";
 type Mode = "light" | "dark";
-type HeroState = "positive" | "negative";
+// "divergent" is a third, direct-link-only state (not in the main
+// Switcher's positive/negative toggle, and not in the design index's
+// registered `states`): a negative projection with no single account
+// flagged genuinely short, the one scenario where redRule=unified and
+// redRule=live actually produce a different panel colour. See fixtures.ts's
+// own comment on HERO_DIVERGENT for why positive/negative don't cover this.
+type HeroState = "positive" | "negative" | "divergent";
+// "unified" (default): panel reddens on `runway < 0`, this preview's own
+// recommendation (see HeroCard.tsx's doctrine comment). "live": panel
+// reddens only on `genuineShortfalls.length > 0`, matching what
+// PlanningPage.tsx actually does today. Kept switchable, not just
+// documented, specifically so this can be judged on the same fixture data
+// rather than taken on trust — see RedRuleNote below.
+type RedRule = "unified" | "live";
 
 const VARIANTS: { value: Variant; label: string }[] = [
   { value: "a", label: "A · Tightened" },
@@ -44,41 +63,77 @@ const VARIANTS: { value: Variant; label: string }[] = [
 // `?mode=dark&state=<value>&variant=<value>` — `state` is a fixed param
 // name the index hard-codes for every preview, so this reads/writes
 // `state` (not a bespoke `hero` key) to stay wired to that index.
-function Switcher({ variant, state, mode }: { variant: Variant; state: HeroState; mode: Mode }) {
-  const href = (v: Variant, s: HeroState, m: Mode) => `?variant=${v}&state=${s}&mode=${m}`;
+function Switcher({ variant, state, mode, redRule }: { variant: Variant; state: HeroState; mode: Mode; redRule: RedRule }) {
+  const href = (v: Variant, s: HeroState, m: Mode, r: RedRule) => `?variant=${v}&state=${s}&mode=${m}&redRule=${r}`;
   const base = "inline-flex min-h-[44px] shrink-0 items-center justify-center rounded-full px-3.5 text-[11px] font-semibold transition-colors active:scale-95";
   return (
     <nav aria-label="Preview controls" className="fixed inset-x-0 bottom-3 z-50 mx-auto flex max-w-[calc(100vw-16px)] flex-nowrap gap-1 overflow-x-auto rounded-2xl bg-slate-900/95 p-1.5 shadow-xl">
       {VARIANTS.map((v) => (
-        <Link key={v.value} href={href(v.value, state, mode)} className={`${base} ${v.value === variant ? "bg-indigo-600 text-white" : "text-slate-200 hover:bg-slate-800"}`}>
+        <Link key={v.value} href={href(v.value, state, mode, redRule)} className={`${base} ${v.value === variant ? "bg-indigo-600 text-white" : "text-slate-200 hover:bg-slate-800"}`}>
           {v.label}
         </Link>
       ))}
-      <Link href={href(variant, state === "positive" ? "negative" : "positive", mode)} className={`${base} text-slate-200 hover:bg-slate-800`}>
+      <Link href={href(variant, state === "positive" ? "negative" : "positive", mode, redRule)} className={`${base} text-slate-200 hover:bg-slate-800`}>
         {state === "positive" ? "Show short" : "Show left"}
       </Link>
-      <Link href={href(variant, state, mode === "dark" ? "light" : "dark")} className={`${base} text-slate-200 hover:bg-slate-800`}>
+      <Link href={href(variant, state, mode, redRule === "unified" ? "live" : "unified")} className={`${base} ${redRule === "live" ? "bg-amber-500/90 text-slate-950" : "text-slate-200 hover:bg-slate-800"}`}>
+        Red: {redRule === "unified" ? "Unified" : "Live"}
+      </Link>
+      <Link href={href(variant, state, mode === "dark" ? "light" : "dark", redRule)} className={`${base} text-slate-200 hover:bg-slate-800`}>
         {mode === "dark" ? "Light" : "Dark"}
       </Link>
     </nav>
   );
 }
 
+// Plainly worded, sits directly above the hero — NOT styled like the hero
+// itself (dashed amber advisory, not a glass panel), so it reads as preview
+// scaffolding a reviewer needs to read, never as page content Kevin would
+// see live. See HeroCard.tsx's own doctrine comment for the full reasoning.
+function RedRuleNote({ redRule, variant, state, mode }: { redRule: RedRule; variant: Variant; state: HeroState; mode: Mode }) {
+  const otherHref = `?variant=${variant}&state=${state}&mode=${mode}&redRule=${redRule === "unified" ? "live" : "unified"}`;
+  return (
+    <div className="rounded-xl border border-dashed border-amber-300 bg-amber-50/70 px-3 py-2.5 text-xs leading-snug text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/20 dark:text-amber-200">
+      <p className="font-semibold">Preview note, not page content</p>
+      {redRule === "unified" ? (
+        <p className="mt-0.5">
+          This variant reddens the panel below when the projection itself goes negative. The LIVE /upcoming page today only reddens the panel when a specific account is flagged short (`genuineShortfalls`) — a negative projection alone does not currently tint the panel there, only the figure. This is a deliberate proposal, not a reproduction of live behaviour.
+        </p>
+      ) : (
+        <p className="mt-0.5">
+          Showing the LIVE rule: the panel reddens only when a specific account is flagged short, matching PlanningPage.tsx today. Toggle back to see this preview&apos;s own recommendation, where the panel agrees with the figure on any negative projection.
+        </p>
+      )}
+      <Link href={otherHref} className="mt-1 inline-block font-semibold underline underline-offset-2">
+        {redRule === "unified" ? "Compare against the live rule →" : "Back to this preview's recommendation →"}
+      </Link>
+    </div>
+  );
+}
+
 export default function G124Client() {
   const params = useSearchParams();
   const variant: Variant = (["a", "b", "c"] as string[]).includes(params.get("variant") ?? "") ? (params.get("variant") as Variant) : "a";
-  const state: HeroState = params.get("state") === "negative" ? "negative" : "positive";
+  const stateParam = params.get("state");
+  const state: HeroState = stateParam === "negative" ? "negative" : stateParam === "divergent" ? "divergent" : "positive";
   const mode: Mode = params.get("mode") === "dark" ? "dark" : "light";
+  const redRule: RedRule = params.get("redRule") === "live" ? "live" : "unified";
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", mode === "dark");
     document.querySelector('meta[name="color-scheme"]')?.setAttribute("content", mode === "dark" ? "dark" : "only light");
   }, [mode]);
 
-  const scenario = state === "negative" ? HERO_NEGATIVE : HERO_POSITIVE;
-  const runway = state === "negative" ? RUNWAY_NEGATIVE : RUNWAY_POSITIVE;
-  const bills = state === "negative" ? BILLS_NEGATIVE : BILLS_POSITIVE;
+  const scenario = state === "negative" ? HERO_NEGATIVE : state === "divergent" ? HERO_DIVERGENT : HERO_POSITIVE;
+  const runway = state === "negative" ? RUNWAY_NEGATIVE : state === "divergent" ? RUNWAY_DIVERGENT : RUNWAY_POSITIVE;
+  const bills = state === "positive" ? BILLS_POSITIVE : BILLS_NEGATIVE; // "divergent" reuses the negative day list; its own point is the hero panel, not the ledger below.
   const SetAsideComponent = variant === "a" ? SetAsideA : variant === "b" ? SetAsideB : SetAsideC;
+  // See HeroCard.tsx's own doctrine comment and RedRuleNote above: this is
+  // the one deliberate behaviour change out of the three asks, kept
+  // switchable rather than folded in silently. Only the PANEL follows
+  // redRule — the figure itself always follows `runway < 0` inside
+  // HeroCard, matching production, regardless of which rule is selected.
+  const panelNegative = redRule === "live" ? scenario.genuineShortfalls.length > 0 : runway < 0;
 
   return (
     <div className={mode === "dark" ? "dark" : ""} style={{ colorScheme: mode }}>
@@ -96,7 +151,8 @@ export default function G124Client() {
           </div>
 
           <div className="space-y-4">
-            <HeroCard scenario={scenario} runway={runway} />
+            <RedRuleNote redRule={redRule} variant={variant} state={state} mode={mode} />
+            <HeroCard scenario={scenario} runway={runway} panelNegative={panelNegative} />
 
             <section aria-labelledby="set-aside-heading">
               <div className="mb-2 flex min-h-11 items-center justify-between gap-3 px-1">
@@ -116,7 +172,7 @@ export default function G124Client() {
             </section>
           </div>
         </main>
-        <Switcher variant={variant} state={state} mode={mode} />
+        <Switcher variant={variant} state={state} mode={mode} redRule={redRule} />
       </div>
     </div>
   );

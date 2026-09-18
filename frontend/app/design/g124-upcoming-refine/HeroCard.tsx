@@ -13,24 +13,33 @@
 // text-[38px] — a bespoke hero-figure size is established practice on this
 // app's single "the one big number" surfaces, not a new liberty taken here).
 //
-// JUDGEMENT CALL (the one the brief asked to make deliberately, see the
-// G124 report for the full reasoning): the live PlanningPage.tsx today
-// tints the WHOLE panel red only when `genuineShortfalls.length > 0` (a
-// specific account is genuinely short), while the headline FIGURE itself
-// already turns rose independently whenever `runwayNegative` (the pooled
-// projection crosses zero) — two related but not identical triggers that
-// can disagree. G90 collapses this to one signal: the panel reddens exactly
-// when the figure is negative. This preview follows G90's simpler, single
-// signal (`negative` prop below, driven by the same runway-crosses-zero
-// test) because a negative pooled projection at payday IS itself a genuine
-// financial risk per the Red Is Risk Rule, independent of whether any one
-// account's own walk also flags short — and because keeping the panel and
-// the figure in visual agreement (both red, or neither) reads more honestly
-// than a rose figure sitting inside an otherwise-neutral panel. The
-// separate "N accounts short / N timing risks" badge, which is the more
-// granular per-account signal, is preserved completely unchanged as its own
-// small signifier — this decision only changes what colours the big panel,
-// never removes the account-level detail.
+// JUDGEMENT CALL, made visible rather than folded in quietly (coordinator
+// review, 2026-09-18): the live PlanningPage.tsx today tints the WHOLE
+// panel red only when `genuineShortfalls.length > 0` (a specific account is
+// genuinely short — the "live" rule below), while the headline FIGURE
+// itself already turns rose independently whenever `runwayNegative` (the
+// pooled projection crosses zero) — two related but not identical triggers
+// that can disagree. G90 collapses this to one signal: the panel reddens
+// exactly when the figure is negative (the "unified" rule below, and this
+// preview's default).
+//
+// This is a genuine behaviour change, not styling, so it is NOT folded in
+// silently: `panelNegative` is computed by the caller (G124Client.tsx) from
+// whichever rule the `?redRule=unified|live` param selects, and
+// G124Client renders a plain-worded note directly above this card plus a
+// toggle so Kevin can compare both rules on the same fixture data rather
+// than take it on trust that this preview reproduces the live page's
+// current behaviour. My own reasoning for defaulting to "unified": a
+// negative pooled projection at payday IS itself a genuine financial risk
+// per the Red Is Risk Rule, independent of whether any one account's own
+// walk also flags short, and keeping the panel and the figure in visual
+// agreement (both red, or neither) reads more honestly than a rose figure
+// sitting inside an otherwise-neutral panel. That is my recommendation,
+// not a decision I'm entitled to make unilaterally — see the note above
+// this card in the rendered page. The separate "N accounts short / N
+// timing risks" badge, the more granular per-account signal, is preserved
+// completely unchanged either way — this only ever changes what colours
+// the big panel, never the account-level detail.
 export interface HeroScenario {
   isCalendarMonth: boolean;
   daysToPayday: number;
@@ -52,19 +61,33 @@ function fmt2(n: number) {
   return n.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-export default function HeroCard({ scenario, runway }: { scenario: HeroScenario; runway: number }) {
+// `panelNegative` is computed by the CALLER (G124Client.tsx, from the
+// `?redRule=unified|live` param) rather than inside this component — see
+// the doctrine comment above for why that decision is deliberately kept
+// visible and reviewable rather than hidden inside this card.
+//
+// `figureNegative` (the big number's own colour, the "short"/"left" word,
+// and the matching "Projected balance" row inside Full calculation) is
+// NOT part of that toggle — it is always `runway < 0`, exactly like the
+// live PlanningPage.tsx today, regardless of which rule is coloring the
+// panel. Only the PANEL background/border is the thing under debate; the
+// figure's own colour was never in question, and collapsing both under one
+// prop would make the "live" comparison state lie about what "live" does
+// (production's figure always reflects runwayNegative, panel tint is the
+// only thing genuineShortfalls gates).
+export default function HeroCard({ scenario, runway, panelNegative }: { scenario: HeroScenario; runway: number; panelNegative: boolean }) {
   const {
     isCalendarMonth, daysToPayday, paydayLabel, spendableNow,
     runwayIncomeTotal, runwayBillsTotal, allocationsRemainingTotal,
     savingsNow, genuineShortfalls, timingShortfalls,
   } = scenario;
-  const negative = runway < 0;
+  const figureNegative = runway < 0;
 
   return (
     <div
       data-tutorial-id="tutorial-planning-left"
       className={`rounded-3xl p-5 shadow-sm sm:p-6 ${
-        negative
+        panelNegative
           ? "border border-rose-200 bg-rose-50/80 dark:border-rose-800 dark:bg-rose-950/25"
           : "glass-hero"
       }`}
@@ -76,15 +99,15 @@ export default function HeroCard({ scenario, runway }: { scenario: HeroScenario;
           </p>
           <div className="flex items-baseline gap-2">
             <p
-              aria-label={`${Math.round(Math.abs(runway)).toLocaleString("en-GB")} pounds ${negative ? "short" : "left"}`}
+              aria-label={`${Math.round(Math.abs(runway)).toLocaleString("en-GB")} pounds ${figureNegative ? "short" : "left"}`}
               className={`font-mono text-[40px] font-bold leading-none tracking-[-0.04em] tabular-nums ${
-                negative ? "text-rose-600 dark:text-rose-400" : "text-slate-950 dark:text-white"
+                figureNegative ? "text-rose-600 dark:text-rose-400" : "text-slate-950 dark:text-white"
               }`}
             >
-              <span aria-hidden="true">{negative ? "−" : ""}{sym}{fmt(Math.abs(runway))}</span>
+              <span aria-hidden="true">{figureNegative ? "−" : ""}{sym}{fmt(Math.abs(runway))}</span>
             </p>
-            <span className={`text-sm font-semibold ${negative ? "text-rose-600 dark:text-rose-400" : "text-slate-600 dark:text-slate-300"}`}>
-              {negative ? "short" : "left"}
+            <span className={`text-sm font-semibold ${figureNegative ? "text-rose-600 dark:text-rose-400" : "text-slate-600 dark:text-slate-300"}`}>
+              {figureNegative ? "short" : "left"}
             </span>
           </div>
           <p className="mt-1 text-xs leading-snug text-slate-500 dark:text-slate-400">
@@ -134,8 +157,8 @@ export default function HeroCard({ scenario, runway }: { scenario: HeroScenario;
           )}
           <div className="mt-1 flex items-center justify-between gap-4 border-t border-slate-200/80 pt-2 font-semibold dark:border-white/10">
             <dt>Projected balance</dt>
-            <dd className={`font-mono tabular-nums ${negative ? "text-rose-600 dark:text-rose-400" : "text-slate-900 dark:text-slate-100"}`}>
-              {negative ? "−" : ""}{sym}{fmt(Math.abs(runway))}
+            <dd className={`font-mono tabular-nums ${figureNegative ? "text-rose-600 dark:text-rose-400" : "text-slate-900 dark:text-slate-100"}`}>
+              {figureNegative ? "−" : ""}{sym}{fmt(Math.abs(runway))}
             </dd>
           </div>
         </dl>
