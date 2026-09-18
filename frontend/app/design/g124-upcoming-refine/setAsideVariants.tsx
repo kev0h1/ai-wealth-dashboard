@@ -157,12 +157,22 @@ export function SetAsideC({ allocations }: { allocations: PreviewAllocation[] })
                   {tag && <span className="shrink-0 text-[11px] font-medium text-slate-400 dark:text-slate-500">{tag}</span>}
                 </div>
                 {/* DESIGN.md "Progress Bars" signature component, not
-                    currently used on this card — every budget/goal/plan is
+                    currently used on this card, every budget/goal/plan is
                     meant to render one; this variant is the answer that
-                    actually does. */}
+                    actually does. Fill is indigo, not amber: the doc's own
+                    spec ties amber to a PACE judgement ("amber when above
+                    pace"), and there is no pace here, an envelope simply
+                    accumulates toward its target over the pay period, never
+                    "behind" or "ahead". Colouring it amber regardless of
+                    fill level would borrow the caution signifier for a
+                    neutral fact on every single row, which is the opposite
+                    of "colour is information, never decoration". Indigo
+                    matches the Wallet icon chip's own colour on this same
+                    row, so the fill reads as this row's identity, not a
+                    warning. */}
                 <div className="mt-1.5 h-1.5 w-full max-w-[180px] overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
                   <div
-                    className="h-full rounded-full bg-amber-400"
+                    className="h-full rounded-full bg-indigo-500 dark:bg-indigo-400"
                     style={{ width: `${pct}%` }}
                   />
                 </div>
