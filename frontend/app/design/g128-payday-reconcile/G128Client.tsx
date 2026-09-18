@@ -96,7 +96,7 @@ function PreviewControls({ view, state, mode }: { view: View; state: FixtureStat
 
 export default function G128Client() {
   const params = useSearchParams();
-  const rawView = params.get("view");
+  const rawView = params.get("view") ?? params.get("variant");
   const view: View = rawView === "a" || rawView === "b" ? rawView : "baseline";
   const rawState = params.get("state");
   const state: FixtureState =
