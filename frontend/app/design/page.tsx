@@ -123,6 +123,14 @@ const ROUTES: PreviewRoute[] = [
     variants: [{ label: "A · Five-day reading", value: "a" }, { label: "B · Money path", value: "b" }, { label: "C · Action first", value: "c" }],
   },
   {
+    slug: "g124-upcoming-refine",
+    name: "g124-upcoming-refine",
+    description:
+      "G124: Kevin reviewed G90 (upcoming-canvas-before-cards) against the LIVE /upcoming page — \"good and clean but it changes too much of the existing infrastructure in place\" — so this round is NOT a rebuild. PlanningPage.tsx is untouched; this takes exactly three things from G90/Kevin's notes: (1) the hero adopts G90's bounded-panel styling (rounded-3xl p-5/sm:p-6, text-[40px] figure) with every piece of live CONTENT unchanged, and the panel now reddens on the same `runway < 0` test that already colours the figure, a deliberate unification of G90's single-signal red trigger with the live page's own separate genuineShortfalls/runwayNegative triggers, see HeroCard.tsx's own doctrine comment; (2) same-day payments group into one bounded day section adopting the G122 transactions-hub grammar verbatim (rounded-2xl bordered section, divide-y hairline rows) in place of a floating glass-card per row, preserving the payday-boundary divider, the settling sub-cluster and data-day-key; (3) three different answers to Kevin's \"Set aside... makes it cluttered\" note (a bare-number title, a shouty truncated raw bank string, a hedge-tilde/minus collision) — A tightened ledger (typography/truncation fixed in place) / B compact chip (the raw feed identity moves into a small pill) / C progressive disclosure (title + amount + a progress bar by default, cadence and the fed-by line open on tap). FIXTURE-ONLY and disclosed as such: PlanningPage.tsx's hero figure, risk flags and day-group walk are computed inline inside one large authenticated page component with no importable boundary, so this hand-authors markup against representative fixtures rather than rendering PlanningPage.tsx — see fixtures.ts's own header. No API calls, no production edits · ?variant=a|b|c&state=positive|negative&mode=light|dark",
+    states: [{ label: "Projected: left", value: "positive" }, { label: "Projected: short", value: "negative" }],
+    variants: [{ label: "A · Tightened", value: "a" }, { label: "B · Chip", value: "b" }, { label: "C · Disclosure", value: "c" }],
+  },
+  {
     slug: "tax-canvas-before-cards",
     name: "tax-canvas-before-cards",
     description:
