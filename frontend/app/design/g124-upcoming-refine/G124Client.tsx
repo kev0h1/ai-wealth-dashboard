@@ -46,72 +46,72 @@
 //      groups — see DayGroups.tsx's own doctrine comment for the three
 //      interval rules and why Today/Tomorrow keep their word.
 //
+// G131 fold-in, part one (Kevin approved variant A + the cluster interval
+// rule, 2026-09-18): the hero and the day-card/divider/marker grammar are
+// no longer reimplemented here — they render the SAME shared components
+// and pure functions PlanningPage.tsx now imports (components/upcoming/
+// UpcomingHeroCard.tsx, components/upcoming/UpcomingDayCard.tsx,
+// components/upcoming/UpcomingDivider.tsx, lib/upcomingMarkers.ts), so this
+// preview can't drift from what shipped on those three pieces. The "gap"
+// and "rhythm" interval rules and the switcher that compared them against
+// "cluster" are gone — Kevin picked cluster, nothing else ships.
+//
+// G131 fold-in, part two: "design A looks good" was Kevin's pick of the
+// Set-aside treatment too (setAsideVariants.tsx's own header named A, B, C
+// as three answers to Kevin's "Set aside... makes it cluttered" note) — a
+// gap the first fold-in pass missed, since its own brief never named the
+// Set-aside block. Variant A ("today's shape, kept, with the typography/
+// truncation fixes applied in place") is folded into PlanningPage.tsx's
+// PlansSection; B (compact chip) and C (progressive disclosure) do not
+// ship and are removed here the same way "gap"/"rhythm" were — the A/B/C
+// switcher and setAsideVariants.tsx/setAsideHelpers.ts are gone.
+// components/upcoming/SetAsideList.tsx is the one shared component both
+// this preview and PlanningPage.tsx render; lib/setAsideDisplay.ts holds
+// the humanising logic (title case, word-safe truncation, the card-string
+// collapse) both consume.
+//
 // FIXTURE-ONLY, disclosed prominently (see fixtures.ts's own header and the
 // G124 report): PlanningPage.tsx's hero figure, risk flags and day-group
 // walk are all computed inline inside one large authenticated page
-// component with no importable boundary at the right granularity, so this
-// preview hand-authors markup against representative fixtures rather than
-// rendering PlanningPage.tsx. It does not prove PlanningPage.tsx's live
-// behaviour; it proposes what the three requested pieces should look like.
+// component with no importable boundary at the right granularity for the
+// ROW itself (see DayGroups.tsx's own note on why `Row` stays hand-authored
+// against representative fixtures). The hero, the day-card/divider/marker
+// shell AND the Set-aside list are the real production components as of
+// this fold-in.
 import { useEffect } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { EyeOff } from "lucide-react";
-import HeroCard from "./HeroCard";
+import UpcomingHeroCard from "@/components/upcoming/UpcomingHeroCard";
+import SetAsideList from "@/components/upcoming/SetAsideList";
 import DayGroups from "./DayGroups";
-import { SetAsideA, SetAsideB, SetAsideC } from "./setAsideVariants";
 import {
   ALLOCATIONS, HERO_POSITIVE, HERO_NEGATIVE,
   RUNWAY_POSITIVE, RUNWAY_NEGATIVE,
   BILLS_POSITIVE, BILLS_NEGATIVE,
 } from "./fixtures";
 
-type Variant = "a" | "b" | "c";
 type Mode = "light" | "dark";
 type HeroState = "positive" | "negative";
-// G127 ask #3 — the three switchable answers to "when does a relative
-// marker appear on the canvas". See DayGroups.tsx's own doctrine comment
-// for what each one does and why.
-type IntervalRule = "gap" | "rhythm" | "cluster";
 
-const VARIANTS: { value: Variant; label: string }[] = [
-  { value: "a", label: "A · Tightened" },
-  { value: "b", label: "B · Chip" },
-  { value: "c", label: "C · Disclosure" },
-];
-
-const INTERVAL_RULES: { value: IntervalRule; label: string }[] = [
-  { value: "gap", label: "At a gap" },
-  { value: "rhythm", label: "At a rhythm" },
-  { value: "cluster", label: "At a cluster" },
-];
+function formatDate(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+}
 
 // The index page (app/design/page.tsx, PreviewCard) always links here as
-// `?mode=dark&state=<value>&variant=<value>` — `state` is a fixed param
-// name the index hard-codes for every preview, so this reads/writes
-// `state` (not a bespoke `hero` key) to stay wired to that index. `interval`
-// is this round's own addition, appended the same way as `variant`/`mode`.
-function Switcher({ variant, state, mode, interval }: { variant: Variant; state: HeroState; mode: Mode; interval: IntervalRule }) {
-  const href = (v: Variant, s: HeroState, m: Mode, i: IntervalRule) => `?variant=${v}&state=${s}&mode=${m}&interval=${i}`;
+// `?mode=dark&state=<value>` — `state` is a fixed param name the index
+// hard-codes for every preview, so this reads/writes `state` (not a
+// bespoke `hero` key) to stay wired to that index.
+function Switcher({ state, mode }: { state: HeroState; mode: Mode }) {
+  const href = (s: HeroState, m: Mode) => `?state=${s}&mode=${m}`;
   const base = "inline-flex min-h-[44px] shrink-0 items-center justify-center rounded-full px-3.5 text-[11px] font-semibold transition-colors active:scale-95";
   return (
     <nav aria-label="Preview controls" className="fixed inset-x-0 bottom-3 z-50 mx-auto flex max-w-[calc(100vw-16px)] flex-nowrap gap-1 overflow-x-auto rounded-2xl bg-slate-900/95 p-1.5 shadow-xl">
-      {VARIANTS.map((v) => (
-        <Link key={v.value} href={href(v.value, state, mode, interval)} className={`${base} ${v.value === variant ? "bg-indigo-600 text-white" : "text-slate-200 hover:bg-slate-800"}`}>
-          {v.label}
-        </Link>
-      ))}
-      <span className="mx-0.5 my-1 w-px shrink-0 bg-white/15" aria-hidden="true" />
-      {INTERVAL_RULES.map((r) => (
-        <Link key={r.value} href={href(variant, state, mode, r.value)} aria-current={r.value === interval ? "true" : undefined} className={`${base} ${r.value === interval ? "bg-indigo-600 text-white" : "text-slate-200 hover:bg-slate-800"}`}>
-          {r.label}
-        </Link>
-      ))}
-      <span className="mx-0.5 my-1 w-px shrink-0 bg-white/15" aria-hidden="true" />
-      <Link href={href(variant, state === "positive" ? "negative" : "positive", mode, interval)} className={`${base} text-slate-200 hover:bg-slate-800`}>
+      <Link href={href(state === "positive" ? "negative" : "positive", mode)} className={`${base} text-slate-200 hover:bg-slate-800`}>
         {state === "positive" ? "Show short" : "Show left"}
       </Link>
-      <Link href={href(variant, state, mode === "dark" ? "light" : "dark", interval)} className={`${base} text-slate-200 hover:bg-slate-800`}>
+      <Link href={href(state, mode === "dark" ? "light" : "dark")} className={`${base} text-slate-200 hover:bg-slate-800`}>
         {mode === "dark" ? "Light" : "Dark"}
       </Link>
     </nav>
@@ -120,12 +120,8 @@ function Switcher({ variant, state, mode, interval }: { variant: Variant; state:
 
 export default function G124Client() {
   const params = useSearchParams();
-  const variant: Variant = (["a", "b", "c"] as string[]).includes(params.get("variant") ?? "") ? (params.get("variant") as Variant) : "a";
   const state: HeroState = params.get("state") === "negative" ? "negative" : "positive";
   const mode: Mode = params.get("mode") === "dark" ? "dark" : "light";
-  // Default "cluster" — closest to Kevin's own framing ("ideally when you
-  // have a clutter of payments"); all three stay one tap apart to compare.
-  const interval: IntervalRule = (["gap", "rhythm", "cluster"] as string[]).includes(params.get("interval") ?? "") ? (params.get("interval") as IntervalRule) : "cluster";
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", mode === "dark");
@@ -134,12 +130,12 @@ export default function G124Client() {
 
   const scenario = state === "negative" ? HERO_NEGATIVE : HERO_POSITIVE;
   const runway = state === "negative" ? RUNWAY_NEGATIVE : RUNWAY_POSITIVE;
+  const runwayStatus = runway < 0 ? "short" : runway > 0 ? "left" : "even";
   const bills = state === "positive" ? BILLS_POSITIVE : BILLS_NEGATIVE;
-  const SetAsideComponent = variant === "a" ? SetAsideA : variant === "b" ? SetAsideB : SetAsideC;
 
   return (
     <div className={mode === "dark" ? "dark" : ""} style={{ colorScheme: mode }}>
-      <div className="min-h-dvh bg-[#f0f2f7] pb-56 dark:bg-[#0f172a]">
+      <div className="min-h-dvh bg-[#f0f2f7] pb-32 dark:bg-[#0f172a]">
         <main className="mx-auto max-w-xl px-4 py-6">
           {/* G127 ask #2 — matches codex's PageHeader (UpcomingCanvasClient.tsx
               lines 84-98) exactly: no eyebrow, items-start (not
@@ -158,14 +154,34 @@ export default function G124Client() {
           </div>
 
           <div className="space-y-4">
-            <HeroCard scenario={scenario} runway={runway} />
+            <UpcomingHeroCard
+              isCalendarMonth={scenario.isCalendarMonth}
+              daysToPayday={scenario.daysToPayday}
+              paydayLabel={scenario.paydayLabel}
+              spendableNow={scenario.spendableNow}
+              runwayIncomeTotal={scenario.runwayIncomeTotal}
+              runwayBillsTotal={scenario.runwayBillsTotal}
+              allocationsRemainingTotal={scenario.allocationsRemainingTotal}
+              savingsNow={scenario.savingsNow}
+              runway={runway}
+              runwayStatus={runwayStatus}
+              genuineShortfalls={scenario.genuineShortfalls}
+              timingShortfalls={scenario.timingShortfalls}
+              formatDate={formatDate}
+              // No live row to jump to in a static preview — production
+              // wires this to PlanningPage.tsx's own highlight-and-scroll
+              // behaviour (see UpcomingHeroCard's own prop doc).
+              onReview={() => {}}
+            />
 
             <section aria-labelledby="set-aside-heading">
               <div className="mb-2 flex min-h-11 items-center justify-between gap-3 px-1">
                 <h2 id="set-aside-heading" className="text-sm font-semibold text-slate-800 dark:text-slate-100">Set aside this period</h2>
                 <span className="min-h-11 rounded-lg px-2 py-2.5 text-xs font-semibold text-indigo-600 dark:text-indigo-400">+ Add</span>
               </div>
-              <SetAsideComponent allocations={ALLOCATIONS} />
+              {/* No live edit sheet in a static preview — production wires
+                  this to PlanningPage.tsx's own AllocationSheet. */}
+              <SetAsideList items={ALLOCATIONS} onEdit={() => {}} />
               <p className="mt-2 px-1 text-xs text-slate-500 dark:text-slate-400">Only the amount still to reserve reduces the forecast above.</p>
             </section>
 
@@ -174,11 +190,11 @@ export default function G124Client() {
                 <h2 id="upcoming-ledger-heading" className="text-sm font-semibold text-slate-800 dark:text-slate-100">Upcoming</h2>
                 <p className="text-xs text-slate-500 dark:text-slate-400">&ldquo;After&rdquo; is your projected cash</p>
               </div>
-              <DayGroups items={bills} paydayLabel={scenario.paydayLabel} intervalRule={interval} />
+              <DayGroups items={bills} paydayLabel={scenario.paydayLabel} />
             </section>
           </div>
         </main>
-        <Switcher variant={variant} state={state} mode={mode} interval={interval} />
+        <Switcher state={state} mode={mode} />
       </div>
     </div>
   );
