@@ -116,6 +116,21 @@ const ROUTES: PreviewRoute[] = [
     ],
   },
   {
+    slug: "g88-home-real",
+    name: "g88-home-real",
+    description:
+      "G88 companion round: the same A/B/C Canvas Before Cards shells judged against Kevin's OWN real Home data instead of invented fixtures (his explicit, repeated request; the data subject's own decision) · his actual state is Tight at £135.16, not On track at £428, so the hero is the REAL production SafeToSpendCard fed his real payload through its data prop, showing the true amber \"Tight\" chip and its \"See your cards\" recovery link (card debt over £1,000) · the three supporting cards are the real MoveCard, CelebrationCard and CliffCard (CliffCard also renders his real trajectory item, £24,896 carried across 6 cards) fed his three real companion.py items, not replica markup · every real figure lives in one commented module, realFixtures.ts, cross-checked against /tmp/g88_real.json · the old \"This pay period\" IN/OUT/MOVED strip is REMOVED (not carried over as invented numbers) because those figures were not part of the Home dump this preview is scoped to · FixtureBottomNav renders on every state so the Penny gradient button sits beside the real hero · no API calls, preference writes only affect this preview's local hide-balances demo · ?variant=a|b|c&state=tight|hidden&mode=light|dark",
+    states: [
+      { label: "Kevin's real state (Tight)", value: "tight" },
+      { label: "Balances hidden", value: "hidden" },
+    ],
+    variants: [
+      { label: "A · Reading line", value: "a" },
+      { label: "B · Today board", value: "b" },
+      { label: "C · Rhythm", value: "c" },
+    ],
+  },
+  {
     slug: "upcoming-canvas-before-cards",
     name: "upcoming-canvas-before-cards",
     description: "G90 Upcoming second round after phone review · uses the owner's £612 available, £771 due, −£159 payday forecast and £231.30 Barclays account gap · the Summer holiday envelope is visibly an envelope and honestly starts with the next pay, so it does not alter the current-period arithmetic · A five-day reading / B money path / C action first · preview controls occupy their own top bar instead of obscuring page content · includes covered and set-aside-predictions states · fixture-only, no API calls or production edits · ?variant=a|b|c&state=short|healthy|hidden&mode=light|dark",
