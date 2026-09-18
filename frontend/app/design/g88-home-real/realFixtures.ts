@@ -8,9 +8,31 @@
 // here is invented. If Kevin's figures need refreshing later, re-dump and
 // replace only this file; nothing else in this preview should need to change.
 //
-// TO REMOVE REAL DATA: delete this file's contents and either point the
-// preview at synthetic fixtures (see ../home-brief-cards/productionFixtures.ts
-// for the pattern) or delete the g88-home-real route entirely.
+// AUTHORISATION (2026-09-18): Kevin was told, in these exact terms, before
+// this file was written: that /design is auth-exempt and publicly
+// reachable with no login; and that this specific payload contains his own
+// full legal name and the names of his real account holders (his own
+// accounts and destinations named in the move item below). Told this, and
+// with the standing G128 rejection over the same question put to him
+// directly, he chose to publish his real data anyway — consistent with his
+// same-day decision on G128 ("let's merge with the live data it's fine").
+// This is the data subject's own decision, not a default a session reached
+// on his behalf.
+//
+// DO NOT ANONYMISE THIS FILE without asking Kevin first. A future session
+// "helpfully" scrubbing his name or account names out of this file, on the
+// reasoning that a public route shouldn't carry real personal data, would
+// be overriding a decision he already made with the facts in front of him.
+// G128 carries this identical warning for the identical reason: this is a
+// foreseeable next-session mistake, not a hypothetical one.
+//
+// TO REMOVE REAL DATA (a different, later decision, e.g. once this round
+// is no longer needed on a public URL): delete this file's contents and
+// either point the preview at synthetic fixtures (see
+// ../home-brief-cards/productionFixtures.ts for the pattern) or delete the
+// g88-home-real route entirely. Nothing else references these real values
+// by literal figure — see the no-live-figures note on this route's entry
+// in ../page.tsx — so this file is genuinely the one place to edit.
 import type { SafeToSpend, CompanionItem } from "@/lib/api";
 
 // Kevin's data was captured Friday 2026-09-18 (verified: date -d 2026-09-18

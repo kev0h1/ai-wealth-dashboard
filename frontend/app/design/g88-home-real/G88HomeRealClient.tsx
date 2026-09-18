@@ -46,7 +46,7 @@
 // `#app-shell > aside` or a dedicated class) so no future production
 // component that happens to use a semantic <aside> loses content the
 // same way on any nav-exempt route.
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import SafeToSpendCard from "@/components/SafeToSpendCard";
@@ -65,8 +65,12 @@ const variants: Record<Variant, { name: string; summary: string }> = {
   c: { name: "Rhythm", summary: "A pay-period rhythm that separates what is now from what is watched." },
 };
 
+// Short enough that the control bar's three groups (variant / state / mode)
+// fit on one row at 390px without wrapping (see PreviewControls below) —
+// the full "Kevin's real state (Tight)" phrasing lives on the /design
+// index card instead, where there is room for it.
 const states: { key: State; label: string }[] = [
-  { key: "tight", label: "Kevin's real state (Tight)" },
+  { key: "tight", label: "Real: Tight" },
   { key: "hidden", label: "Balances hidden" },
 ];
 
@@ -86,8 +90,15 @@ function PreviewControls({
   query: (next: Partial<{ variant: Variant; state: State; mode: Mode }>) => string;
 }) {
   return (
-    <nav aria-label="G88 real-data preview controls" className="border-b border-white/10 bg-slate-950 px-3 py-2 text-white lg:ml-64">
-      <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-1.5">
+    // Deliberately tight: three groups (variant / state / mode) must sit on
+    // one row at 390px, the width Kevin actually reviews at (a wrapped
+    // "Light"/"Dark" onto its own line here read as broken, not deliberate
+    // — flagged and fixed). Touch targets stay at the 44px min-h/min-w
+    // DESIGN.md requires; only horizontal padding and gaps were trimmed,
+    // and the state label was shortened (full wording lives on the
+    // /design index card, which has room for it).
+    <nav aria-label="G88 real-data preview controls" className="border-b border-white/10 bg-slate-950 px-2 py-2 text-white lg:ml-64">
+      <div className="mx-auto flex max-w-6xl items-center justify-center gap-1">
         <div className="flex shrink-0 gap-1">
           {(["a", "b", "c"] as Variant[]).map((key) => (
             <a
@@ -101,12 +112,12 @@ function PreviewControls({
             </a>
           ))}
         </div>
-        <label className="flex min-h-11 min-w-0 items-center rounded-xl bg-white/10 px-2 text-xs text-slate-300 focus-within:ring-2 focus-within:ring-indigo-400">
+        <label className="flex min-h-11 min-w-0 items-center rounded-xl bg-white/10 px-1.5 text-xs text-slate-300 focus-within:ring-2 focus-within:ring-indigo-400">
           <span className="sr-only">Preview Home state</span>
           <select
             value={state}
             onChange={(event) => window.location.assign(query({ state: event.target.value as State }))}
-            className="max-w-[168px] cursor-pointer bg-slate-800 pr-1 font-semibold text-white outline-none"
+            className="max-w-[122px] cursor-pointer bg-slate-800 pr-1 text-[11px] font-semibold text-white outline-none"
           >
             {states.map(({ key, label }) => (
               <option key={key} value={key}>
@@ -117,7 +128,7 @@ function PreviewControls({
         </label>
         <a
           href={query({ mode: mode === "dark" ? "light" : "dark" })}
-          className="inline-flex min-h-11 shrink-0 items-center rounded-xl px-3 text-xs font-semibold text-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 active:scale-95 hover:bg-white/10"
+          className="inline-flex min-h-11 shrink-0 items-center rounded-xl px-2.5 text-xs font-semibold text-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 active:scale-95 hover:bg-white/10"
         >
           {mode === "dark" ? "Light" : "Dark"}
         </a>
@@ -154,7 +165,29 @@ export default function G88HomeRealClient() {
   const query = (next: Partial<{ variant: Variant; state: State; mode: Mode }>) =>
     `?variant=${next.variant ?? variant}&state=${next.state ?? state}&mode=${next.mode ?? mode}`;
 
-  const hero = <SafeToSpendCard data={REAL_SAFE_TO_SPEND} loading={false} error={false} />;
+  // Coordinator correction: at 1440px, variant B's left (hero) column ended
+  // about a third of the way down once the This-pay-period strip was
+  // removed, because the hero was the column's only content. Rather than
+  // inventing anything to pad it, this opens SafeToSpendCard's own real
+  // "How we got £X" disclosure by default IN THIS VARIANT ONLY — the exact
+  // same cash-calculation ledger the card already renders on click,
+  // already built entirely from Kevin's real payload, just not collapsed.
+  // SafeToSpendCard has no defaultOpen prop, so this is a narrow,
+  // preview-local DOM nudge (native <details>.open, the same end state a
+  // click produces) rather than a fork of the component's own markup.
+  const heroRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (variant !== "b") return;
+    heroRef.current?.querySelectorAll("details").forEach((node) => {
+      node.open = true;
+    });
+  }, [variant, state, mode]);
+
+  const hero = (
+    <div ref={heroRef}>
+      <SafeToSpendCard data={REAL_SAFE_TO_SPEND} loading={false} error={false} />
+    </div>
+  );
 
   const cardCommon = { maskAmounts, dismissible: true, onHomeDismiss: noopDismiss };
   const cards = (
@@ -168,7 +201,16 @@ export default function G88HomeRealClient() {
         </div>
         <span className="shrink-0 text-xs text-slate-500 dark:text-slate-400">3 cards</span>
       </div>
-      <div className={variant === "b" ? "grid gap-3 lg:grid-cols-2" : "space-y-3"}>
+      {/* Coordinator correction: variant B previously forced these real,
+          content-rich cards into an inner two-column grid, which at 1440px
+          squeezed each card to roughly 220px wide — well below the width
+          the same cards already handle cleanly at 390px mobile — and
+          mangled their text (bank-icon collisions, three-line wraps, a
+          six-line trajectory headline). These are the real production
+          cards, not simple fixture tiles the original canvas round used
+          two-up; they stay single-column at every width, and the outer
+          column ratio below gives this rail more of the row instead. */}
+      <div className="space-y-3">
         <MoveCard item={REAL_MOVE_ITEM} hideNetWorth={hidden} previewMode {...cardCommon} />
         <CelebrationCard item={REAL_CELEBRATION_ITEM} router={router} {...cardCommon} />
         <CliffCard item={REAL_TRAJECTORY_ITEM} {...cardCommon} />
@@ -178,7 +220,11 @@ export default function G88HomeRealClient() {
 
   const layout =
     variant === "b" ? (
-      <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(320px,.8fr)]">
+      // Ratio flipped from the canvas round's 1fr/.8fr (hero-heavy) to
+      // .9fr/1.1fr (cards-heavy): the cards column now carries the wider,
+      // content-heavier real cards, and the hero column carries its own
+      // expanded calculation (above) instead of the removed period strip.
+      <div className="grid gap-8 lg:grid-cols-[minmax(320px,.9fr)_minmax(420px,1.1fr)]">
         <div className="space-y-8">{hero}</div>
         <div className="space-y-8 lg:border-l lg:border-slate-200 lg:pl-8 dark:lg:border-slate-700">{cards}</div>
       </div>
