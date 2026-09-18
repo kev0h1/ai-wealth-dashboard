@@ -55,8 +55,8 @@ function pad(n: number): string {
 }
 
 // Naive local-date-only ISO strings, matching the shape the real API sends
-// (see grouping.ts's comment on why grouping goes through dateToUTCDay
-// rather than trusting `new Date(iso)` directly).
+// (see lib/transactionGrouping.ts's comment on why grouping goes through
+// dateToUTCDay rather than trusting `new Date(iso)` directly).
 function isoDaysAgo(days: number): string {
   const d = new Date();
   d.setUTCHours(0, 0, 0, 0);
