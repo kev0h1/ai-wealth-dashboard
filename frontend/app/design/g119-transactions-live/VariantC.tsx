@@ -19,7 +19,7 @@ import { getCategoryColour } from "@/lib/categories";
 import { useColours } from "@/components/ColourProvider";
 import { formatCurrency } from "@/lib/currency";
 import { fetchTransactionsPage, type Source, type SearchFilters, EMPTY_FILTERS } from "./dataSource";
-import { groupByDay } from "./grouping";
+import { groupByDay } from "@/lib/transactionGrouping";
 import DetailPanel from "./DetailPanel";
 
 const PAGE_SIZE = 20;

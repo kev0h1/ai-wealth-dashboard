@@ -24,6 +24,12 @@ interface TransactionRowProps {
   // default so Home/Accounts/Spend keep their existing merchant-favicon
   // look untouched.
   iconVariant?: "merchant" | "category";
+  // G122: true everywhere except the day-grouped transactions hub. Once
+  // rows sit under a day heading ("13 September") the row's own date is a
+  // repeat, not new information — Kevin's approved G119 row reads merchant,
+  // category, amount only in that context. Default true preserves every
+  // other caller (Home, Accounts, Spend, CategorySheet…) exactly as before.
+  showDate?: boolean;
 }
 
 // Map merchant name keywords to known domains for favicon lookup
@@ -144,6 +150,7 @@ export default function TransactionRow({
   onClick,
   showAccount = false,
   iconVariant = "merchant",
+  showDate = true,
 }: TransactionRowProps) {
   const { colours } = useColours();
   const { icons: iconOverrides } = useCategoryIcons();
@@ -177,8 +184,9 @@ export default function TransactionRow({
           {displayName(transaction)}
         </p>
         <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-          {formatDate(transaction.date)}
-          {transaction.category ? ` · ${transaction.category}` : ""}
+          {showDate
+            ? `${formatDate(transaction.date)}${transaction.category ? ` · ${transaction.category}` : ""}`
+            : (transaction.category || "Other")}
         </p>
       </div>
 

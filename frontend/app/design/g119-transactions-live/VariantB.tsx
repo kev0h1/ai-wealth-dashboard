@@ -5,7 +5,7 @@
 // sentinel, with a manual "Load more" fallback for anyone who never
 // triggers it, e.g. reduced-motion/keyboard-only) instead of replacing the
 // page wholesale, so groupByDay merges correctly across loads (see
-// grouping.ts). Tapping a row does not open an overlay: the row itself
+// lib/transactionGrouping.ts). Tapping a row does not open an overlay: the row itself
 // expands in place (an accordion) to show DetailPanel with layout="inline"
 // directly beneath it, pushing the rest of the list down rather than
 // covering it — a lighter-weight, more "in the list" feeling than A's
@@ -21,7 +21,7 @@ import { getCategoryColour } from "@/lib/categories";
 import { useColours } from "@/components/ColourProvider";
 import { formatCurrency } from "@/lib/currency";
 import { fetchTransactionsPage, type Source, type SearchFilters, EMPTY_FILTERS } from "./dataSource";
-import { groupByDay } from "./grouping";
+import { groupByDay } from "@/lib/transactionGrouping";
 import DetailPanel from "./DetailPanel";
 
 const PAGE_SIZE = 20;

@@ -22,6 +22,7 @@ import { getAccountsCached } from "@/lib/accountsCache";
 import { FilterChips, FilterTrigger } from "@/components/TransactionFilterChips";
 import FilterSheet, { draftFromFilters, type FilterDraft } from "@/components/TransactionFilterSheet";
 import type { SearchFilters } from "@/lib/transactionFilters";
+import { groupByDay } from "@/lib/transactionGrouping";
 
 const PAGE_SIZE = 20;
 
@@ -444,10 +445,11 @@ export default function TransactionsPage() {
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 pointer-events-none" />
           <input
             type="search"
+            enterKeyHint="search"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search transactions…"
-            className="w-full pl-9 pr-9 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 dark:placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm"
+            className="w-full pl-9 pr-9 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 dark:placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm [&::-webkit-search-cancel-button]:hidden"
           />
           {searchQuery && (
             <button
@@ -519,8 +521,19 @@ export default function TransactionsPage() {
           </div>
         ) : (
           <>
+            {/* G122: day-group headings ("13 September"), matching the G119
+                preview's approved Variant A grammar — grouping now lives in
+                lib/transactionGrouping.ts, shared verbatim with
+                app/design/g119-transactions-live/VariantA.tsx so this page
+                can't silently drift from what Kevin approved. Grouping is
+                built from THIS PAGE's current items only, so it re-groups
+                fresh on every page change; a calendar day that straddles a
+                page boundary legitimately reopens its own heading on the
+                next page (see transactionGrouping.ts's own comment) — every
+                row still renders exactly once, under whichever page's
+                heading it falls on, which is the disclosed limit of
+                page-based Prev/Next paging, not a lost or duplicated row. */}
             <div
-              className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden"
               onTouchStart={(e) => {
                 swipeTouchStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
               }}
@@ -535,7 +548,7 @@ export default function TransactionsPage() {
               }}
             >
               {items.length === 0 ? (
-                <div className="py-8 text-center">
+                <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden py-8 text-center">
                   <p className="text-sm text-slate-600 dark:text-slate-400">
                     {searchQuery || categoryFilter || (categoriesFilter && categoriesFilter.length > 0) || merchantsFilter
                       ? `No payments matching ${searchQuery ? `"${searchQuery}"` : (categoryLabel ?? categoryFilter ?? (categoriesFilter && categoriesFilter.length > 0 ? categoriesFilter.join(", ") : merchantsFilter!.join(", ")))}`
@@ -555,9 +568,16 @@ export default function TransactionsPage() {
                   )}
                 </div>
               ) : (
-                <div className="divide-y divide-slate-50 dark:divide-slate-700">
-                  {items.map((tx) => (
-                    <TransactionRow key={tx.id} transaction={tx} onClick={() => setSelectedTx(tx)} iconVariant="category" />
+                <div className="space-y-4">
+                  {groupByDay(items).map((g) => (
+                    <section key={g.key} className="rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800 overflow-hidden">
+                      <h2 className="px-4 pt-4 pb-1 text-sm font-bold text-slate-950 dark:text-slate-50">{g.heading}</h2>
+                      <div className="divide-y divide-slate-100 dark:divide-slate-700">
+                        {g.rows.map((tx) => (
+                          <TransactionRow key={tx.id} transaction={tx} onClick={() => setSelectedTx(tx)} iconVariant="category" showDate={false} />
+                        ))}
+                      </div>
+                    </section>
                   ))}
                 </div>
               )}

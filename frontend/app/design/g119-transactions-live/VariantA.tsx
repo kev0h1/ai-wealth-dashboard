@@ -8,9 +8,10 @@
 // group-level toggle, not a fixed teaching sentence.
 //
 // Page-based paging means a calendar day that straddles a page boundary can
-// legitimately reopen its heading on the next page (see grouping.ts's own
-// comment) — left visible on purpose so the pagination recommendation in
-// this route's report has a working example to point at, not just a claim.
+// legitimately reopen its heading on the next page (see
+// lib/transactionGrouping.ts's own comment) — left visible on purpose so
+// the pagination recommendation in this route's report has a working
+// example to point at, not just a claim.
 //
 // Row treatment (Kevin's UAT-review request, now folded into production):
 // the colour bar is replaced with the real category icon here — variant A
@@ -22,13 +23,18 @@
 // pretty. TransactionRow resolves the chip itself (getCategoryIcon +
 // useCategoryIcons, icon at full colour strength inside a `${colour}26`
 // tint) at 28px/14px sized down for a row, unchanged from before this fold.
+//
+// G122: `showDate={false}` — the day is now in the group heading, so the
+// row itself only needs merchant, category and amount; TransactionRow's
+// own subtitle drops the date for any caller that passes this, the same
+// prop the production hub now passes (app/transactions/TransactionsPage.tsx).
 
 import { useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { Account, Transaction } from "@/lib/api";
 import TransactionRow from "@/components/TransactionRow";
 import { fetchTransactionsPage, type Source, type SearchFilters, EMPTY_FILTERS } from "./dataSource";
-import { groupByDay } from "./grouping";
+import { groupByDay } from "@/lib/transactionGrouping";
 import DetailPanel from "./DetailPanel";
 
 const PAGE_SIZE = 20;
@@ -93,7 +99,7 @@ export default function VariantA({
               <h2 className="px-4 pt-4 pb-1 text-sm font-bold text-slate-950 dark:text-slate-50">{g.heading}</h2>
               <div className="divide-y divide-slate-100 dark:divide-slate-700">
                 {g.rows.map((tx) => (
-                  <TransactionRow key={tx.id} transaction={tx} iconVariant="category" onClick={() => setOpen(tx)} />
+                  <TransactionRow key={tx.id} transaction={tx} iconVariant="category" showDate={false} onClick={() => setOpen(tx)} />
                 ))}
               </div>
             </section>
