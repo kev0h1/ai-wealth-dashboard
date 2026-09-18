@@ -1,80 +1,45 @@
 "use client";
 
-// G124 ask #2 — same-day payments grouped into ONE bounded day card,
-// adopting the G122 transactions-hub grammar verbatim:
-// `<section className="rounded-2xl border ... bg-white shadow-sm ...
-// overflow-hidden">` with a heading and `divide-y` hairline rows
-// (app/transactions/TransactionsPage.tsx lines ~572-580), replacing
-// PlanningPage.tsx's current per-payment floating `glass-card` under a bare
-// "TODAY" / "3 DAYS" label.
+// G131 fold-in note (Kevin approved variant A + the cluster interval rule,
+// 2026-09-18): the bounded day-card shell, the divider/marker grammar and
+// the cluster-interval algorithm are now the SAME production pieces
+// PlanningPage.tsx renders — UpcomingDayCard, UpcomingDivider and
+// computeClusterMarkers below are imported, not reimplemented, so those
+// three can't drift from what shipped. See each one's own doctrine
+// comment (components/upcoming/UpcomingDayCard.tsx,
+// components/upcoming/UpcomingDivider.tsx, lib/upcomingMarkers.ts).
 //
-// What this preserves from PlanningPage.tsx's renderGroups (lines
-// ~1551-1619), because losing any of it is a regression per the brief:
-//   - the payday-boundary divider ("Next pay period · from <date>"),
-//     rendered as a plain-canvas hairline divider BETWEEN bounded day
-//     sections, never inside one — it is a boundary between periods, not a
-//     day's own content.
-//   - the settling sub-cluster: bank-side pending debits are pulled out of
-//     the ordinary row list into their own quiet "Settling" group at the
-//     end of the day's section, never interleaved with live rows.
-//   - `data-day-key` on each day's own container.
-//   - each row stays individually identifiable (name/amount/status), ready
-//     for SwipeDismissRow to wrap it in production — see this file's own
-//     note above the row renderer for why that wrap isn't reproduced here.
+// What's still fixture-only, disclosed prominently rather than presented as
+// proof of the shipped page: the ROW itself (`Row` below). PlanningPage.tsx's
+// `renderRow` is a large, page-scoped closure over ~10 pieces of live state
+// and business logic (the risk walk that decides flagged/timingRisk,
+// `whyOpen` disclosure state, the planned/predicted edit sheets, dismiss and
+// skip handlers, the highlight-and-scroll target) — extracting it into a
+// standalone props-only component is a real refactor beyond this fold-in's
+// scope, not something reasonably done alongside the hero/day-card/marker
+// work. `Row` below is a hand-authored visual match against representative
+// fixtures, kept in sync by hand, not an import. Its settling treatment
+// (the ONLY thing this file changed row-wise for G131) mirrors
+// PlanningPage.tsx's corrected version: the long "Left earlier today, still
+// settling" line under the payment name is gone, and the right-hand slot
+// under the figure reads "Settling" (capitalised) where a live row's
+// "After: £X left" caption sits.
 //
-// What this does NOT reproduce, disclosed explicitly (see also the G124
-// report): PlanningPage.tsx's actual risk-flag computation (the
-// account-by-account running-balance walk that decides `flagged` /
-// `timingRisk` / `at_risk`) is a large, page-only simulation, not an
-// importable function. Each fixture row below carries a fixed flag
-// (`flagged`/`timingRisk`/`isSettling`) chosen by hand to demonstrate every
-// visual state that walk can produce, rather than being computed by any
-// walk of this preview's own.
-//
-// G127 ask #3 (Kevin: "instead of like 10 days time should we have the
-// date and then perhaps at certain intervals on the canvas we can say 10
-// days, ideally when you have a clutter of payments"):
-//   - Every day heading now carries its absolute date (`g.dateLabel`).
-//     "Today" and "Tomorrow" keep their word too, prefixed onto the date
-//     ("Today · Fri 18 Sep") rather than replaced by it — Kevin's own
-//     caution was that a bare date for today may read worse than the word,
-//     and the word is genuinely more useful at that distance. Every other
-//     heading is now the bare date alone; the "N days" count that used to
-//     sit there is gone from headings entirely, per the brief.
-//   - The relative sense of time doesn't disappear, it moves onto the
-//     canvas as an occasional marker between day sections, reusing the
-//     exact divider grammar the payday boundary already established
-//     (hairline / centred label / hairline) rather than a second style —
-//     see <Divider> below. `intervalRule` picks which of three genuinely
-//     different answers to "when does a marker appear" is live; this is
-//     deliberately left switchable rather than decided here, see
-//     G124Client.tsx's Switcher and the G127 report for how to compare
-//     them:
-//       "gap"     — fires when the jump to the next group is >= 7 days.
-//       "rhythm"  — fires at fixed horizons from today (1/2/4 weeks),
-//                   regardless of clustering, skipping a horizon a real
-//                   group already sits on.
-//       "cluster" — fires before a run of 3+ day-groups each <= 2 days
-//                   apart, closest to Kevin's own "clutter of payments"
-//                   phrasing; its label counts the payments and the run's
-//                   span instead of a bare day count, since the point of
-//                   this one is "how much is coming and how tight", not
-//                   "how far away".
-//     If a rule's marker would land on the exact same seam as the
-//     payday-boundary divider, the two are merged into that one divider
-//     rather than stacked — "do not end up with two competing divider
-//     styles on one screen" holds even when two different facts want to
-//     sit at the same seam.
+// The "gap" and "rhythm" interval rules, and the switcher that compared all
+// three, are gone from this preview as of the fold-in — Kevin picked
+// "cluster" (G127, 2026-09-18), and per the brief neither losing rule nor
+// the switcher ships anywhere, including here.
 import { AlertTriangle, AlertCircle, Clock } from "lucide-react";
 import { useColours } from "@/components/ColourProvider";
 import { getCategoryColour } from "@/lib/categories";
 import { useCategoryIcons } from "@/components/IconProvider";
 import { getCategoryIcon } from "@/lib/categoryIcons";
+import { computeClusterMarkers } from "@/lib/upcomingMarkers";
+import UpcomingDayCard from "@/components/upcoming/UpcomingDayCard";
+import UpcomingDivider from "@/components/upcoming/UpcomingDivider";
 import type { PreviewItem } from "./fixtures";
 
 const sym = "£";
-
-export type IntervalRule = "gap" | "rhythm" | "cluster";
 
 interface DayGroup {
   word?: "Today" | "Tomorrow";
@@ -112,112 +77,6 @@ function headingText(g: DayGroup): string {
   return g.word ? `${g.word} · ${g.dateLabel}` : g.dateLabel;
 }
 
-interface Marker {
-  beforeDayKeyIso: string;
-  label: string;
-}
-
-// The three switchable answers to "when does a relative marker appear".
-// Each takes the same sorted group list and returns at most one marker per
-// seam; the render loop below merges a marker with the payday boundary
-// when both land on the same seam, rather than showing both.
-function computeMarkers(groups: DayGroup[], rule: IntervalRule): Marker[] {
-  const markers: Marker[] = [];
-
-  if (rule === "gap") {
-    const GAP_THRESHOLD_DAYS = 7;
-    for (let i = 1; i < groups.length; i++) {
-      const gap = groups[i].dayOffset - groups[i - 1].dayOffset;
-      if (gap >= GAP_THRESHOLD_DAYS) {
-        markers.push({ beforeDayKeyIso: groups[i].dayKeyIso, label: `${groups[i].dayOffset} days` });
-      }
-    }
-    return markers;
-  }
-
-  if (rule === "rhythm") {
-    const HORIZONS: { days: number; label: string }[] = [
-      { days: 7, label: "1 week" },
-      { days: 14, label: "2 weeks" },
-      { days: 28, label: "4 weeks" },
-    ];
-    for (const h of HORIZONS) {
-      // A real group already sitting exactly on the horizon speaks for
-      // itself via its own date — no redundant marker needed.
-      if (groups.some((g) => g.dayOffset === h.days)) continue;
-      const next = groups.find((g) => g.dayOffset > h.days);
-      if (next && !markers.some((m) => m.beforeDayKeyIso === next.dayKeyIso)) {
-        markers.push({ beforeDayKeyIso: next.dayKeyIso, label: h.label });
-      }
-    }
-    return markers;
-  }
-
-  // "cluster" — a run of 3 or more day-groups each within 2 days of the
-  // last counts as a clutter; the marker introduces the run, at its first
-  // day. A run starting at the very first group is skipped — nothing
-  // precedes "Today" for a marker to sit in front of.
-  const RUN_MIN_GROUPS = 3;
-  const TIGHT_GAP_DAYS = 2;
-  let i = 0;
-  while (i < groups.length) {
-    let j = i;
-    while (j + 1 < groups.length && groups[j + 1].dayOffset - groups[j].dayOffset <= TIGHT_GAP_DAYS) j++;
-    const runLength = j - i + 1;
-    if (runLength >= RUN_MIN_GROUPS && i > 0) {
-      const span = groups[j].dayOffset - groups[i].dayOffset;
-      const paymentCount = groups.slice(i, j + 1).reduce((n, g) => n + g.active.length + g.settling.length, 0);
-      markers.push({
-        beforeDayKeyIso: groups[i].dayKeyIso,
-        label: `${paymentCount} payments in ${span} ${span === 1 ? "day" : "days"}`,
-      });
-    }
-    i = j + 1;
-  }
-  return markers;
-}
-
-// The one divider style on this canvas — the payday boundary established
-// it, every interval marker reuses it verbatim, only the label changes.
-//
-// G127 round-three fix (rejected round): at a seam where an interval
-// marker and the payday boundary used to be CONCATENATED into one label
-// ("5 payments in 3 days · Next pay period, from Fri 25 Sep"), the merged
-// string was too long for a 390px screen — the label wrapped to two lines
-// and, because both hairlines are `flex-1` with a zero flex-basis, a flex
-// row with negative free space allocates that overflow entirely onto the
-// only sibling with a non-zero basis (the label): the hairlines collapsed
-// to ~0px and the divider read as stray left-aligned text
-// (/tmp/g127fix-shots/... "cluster" seam, before this fix).
-//
-// Chosen fix — "the payday boundary owns the divider" (of the three
-// options weighed: two-line hairlines, a shorter merged phrasing, or this
-// one): the visible hairline/label row ALWAYS carries only the payday
-// text, which is short and fixed-shape ("Next pay period · from <date>")
-// and therefore reliably fits one line at any width this app supports.
-// When a marker lands on the same seam, its own label becomes a quiet
-// caption underneath, not squeezed into the same flex row. This keeps
-// exactly one divider *style* on the canvas (a shorter phrasing would
-// still be a second, fatter risk every time a fixture grows; two-line
-// hairlines would make the divider itself variable-height and still
-// depend on the label's wrapped shape at the widest marker text any rule
-// can produce). The combined meaning stays available to assistive tech via
-// the row's aria-label, which still concatenates both facts.
-function Divider({ label, sublabel }: { label: string; sublabel?: string }) {
-  return (
-    <div className="py-1.5">
-      <div role="separator" aria-label={sublabel ? `${sublabel} · ${label}` : label} className="flex items-center gap-3">
-        <div className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
-        <span className="shrink-0 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">{label}</span>
-        <div className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
-      </div>
-      {sublabel && (
-        <p className="mt-1 text-center text-xs font-medium text-slate-400 dark:text-slate-500">{sublabel}</p>
-      )}
-    </div>
-  );
-}
-
 function Row({ item }: { item: PreviewItem }) {
   const { colours } = useColours();
   const { icons: iconOverrides } = useCategoryIcons();
@@ -253,9 +112,12 @@ function Row({ item }: { item: PreviewItem }) {
         {item.accountLabel && (
           <p className="truncate text-xs text-slate-400 dark:text-slate-500">{item.accountLabel}</p>
         )}
-        {item.isSettling && (
-          <p className="truncate text-xs text-slate-500 dark:text-slate-400">Left earlier today, still settling</p>
-        )}
+        {/* G131 correction — the long "Left earlier today, still settling"
+            line that used to sit here is gone. This reversed an earlier
+            reading of Kevin's instruction that had removed the right-hand
+            "Settling" caption instead and kept this line; his 2026-09-18
+            correction is precise: this line goes, the right-hand slot
+            below the figure stays. */}
       </div>
 
       <div className="shrink-0 text-right">
@@ -277,7 +139,15 @@ function Row({ item }: { item: PreviewItem }) {
         {item.amountBasis === "balance_estimate" && (
           <p className="text-[10px] font-medium text-slate-400 dark:text-slate-500">estimated</p>
         )}
-        {item.isSettling ? null : item.poolNote ? (
+        {/* G131 correction — "Settling" (capitalised) is the ONE right-hand
+            status word a settling row carries now, in the same slot
+            "After: £X left" occupies on a live row. It used to render
+            nothing here (null) while carrying the long descriptive line
+            under the payment name instead — the opposite of what shipped;
+            see PlanningPage.tsx's own corrected renderRow. */}
+        {item.isSettling ? (
+          <p className="text-xs font-medium text-slate-400 dark:text-slate-500">Settling</p>
+        ) : item.poolNote ? (
           <p className="text-xs font-medium text-slate-500 dark:text-slate-400">{item.poolNote}</p>
         ) : item.balanceAfter != null ? (
           <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
@@ -289,9 +159,11 @@ function Row({ item }: { item: PreviewItem }) {
   );
 }
 
-export default function DayGroups({ items, paydayLabel, intervalRule }: { items: PreviewItem[]; paydayLabel: string; intervalRule: IntervalRule }) {
+export default function DayGroups({ items, paydayLabel }: { items: PreviewItem[]; paydayLabel: string }) {
   const groups = groupItems(items);
-  const markers = computeMarkers(groups, intervalRule);
+  const markers = computeClusterMarkers(
+    groups.map((g) => ({ dayOffset: g.dayOffset, dayKeyIso: g.dayKeyIso, itemCount: g.active.length + g.settling.length }))
+  );
   let paydayDividerInserted = false;
   const nodes: React.ReactNode[] = [];
 
@@ -300,54 +172,27 @@ export default function DayGroups({ items, paydayLabel, intervalRule }: { items:
     const marker = markers.find((m) => m.beforeDayKeyIso === g.dayKeyIso);
 
     if (isPaydaySeam) {
-      // One divider per seam: when an interval marker lands on the exact
-      // same seam as the payday boundary, the payday text keeps the
-      // hairline/label row (see the Divider doctrine comment above for why
-      // — it is short and fixed-shape, so it always fits one line), and the
-      // marker's own label becomes a subordinate caption underneath rather
-      // than concatenating into the same row.
-      nodes.push(<Divider key="payday-boundary" label={`Next pay period · from ${paydayLabel}`} sublabel={marker?.label} />);
+      nodes.push(
+        <UpcomingDivider
+          key="payday-boundary"
+          label={`Next pay period · from ${paydayLabel}`}
+          ariaLabel={`Next pay period, from ${paydayLabel}`}
+          sublabel={marker?.label}
+        />
+      );
       paydayDividerInserted = true;
     } else if (marker) {
-      nodes.push(<Divider key={`marker-${marker.beforeDayKeyIso}`} label={marker.label} />);
+      nodes.push(<UpcomingDivider key={`marker-${marker.beforeDayKeyIso}`} label={marker.label} />);
     }
 
     nodes.push(
-      // G122's bounded day-section grammar, adopted verbatim
-      // (app/transactions/TransactionsPage.tsx): rounded-2xl bordered
-      // section, a plain heading, hairline `divide-y` rows inside — the
-      // structural change this ask is actually about. `data-day-key`
-      // preserved for parity with PlanningPage.tsx's own scroll-to-day
-      // deep link (?day=YYYY-MM-DD). The heading itself is G127 ask #3 —
-      // the absolute date (plus the Today/Tomorrow word where it applies),
-      // see headingText() and the doctrine comment above.
-      <section
+      <UpcomingDayCard
         key={g.dayKeyIso}
-        data-day-key={g.dayKeyIso}
-        className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800"
-      >
-        <h2 className="px-4 pb-1 pt-4 text-sm font-bold text-slate-950 dark:text-slate-50">{headingText(g)}</h2>
-        {g.active.length > 0 && (
-          <div className="divide-y divide-slate-100 dark:divide-slate-700">
-            {g.active.map((item) => <Row key={item.id} item={item} />)}
-          </div>
-        )}
-        {g.settling.length > 0 && (
-          // Kevin, G124 revision (2026-09-18): "I don't think it needs a
-          // title just the icon and the settling under the payment is
-          // enough" — the SETTLING section title is gone, but the settling
-          // rows still sit in their own trailing block (a plain border
-          // stands in for the boundary the title used to carry) so they
-          // keep sorting to the end of the day's group, not interleaved
-          // with live rows. See groupItems() above and PlanningPage.tsx's
-          // own comment on why that ordering exists.
-          <div className={g.active.length > 0 ? "border-t border-slate-100 dark:border-slate-700" : ""}>
-            <div className="divide-y divide-slate-100 dark:divide-slate-700">
-              {g.settling.map((item) => <Row key={item.id} item={item} />)}
-            </div>
-          </div>
-        )}
-      </section>
+        dayKeyIso={g.dayKeyIso}
+        heading={headingText(g)}
+        activeRows={g.active.map((item) => <Row key={item.id} item={item} />)}
+        settlingRows={g.settling.map((item) => <Row key={item.id} item={item} />)}
+      />
     );
   }
 
