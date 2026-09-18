@@ -1,22 +1,24 @@
 // G124 — Upcoming refine, fixture data.
 //
-// This preview is FIXTURE-ONLY, deliberately. PlanningPage.tsx's own
-// rendering (the hero figure, the day-group walk, the risk flags, the
-// AllocationCards block) all live inline inside one large authenticated
-// page component — none of it is exported as an importable piece, and the
-// figures depend on a same-page running-balance simulation across every
-// connected account (see PlanningPage.tsx's own IIFE around "const groups =
-// groupByDay(displayItems)"). Reproducing that walk here to fetch and
-// recompute live data would mean duplicating a large, carefully-commented
-// piece of business logic in a second place it can silently drift from, or
-// refactoring production to expose it — both out of scope for a styling
-// round. See the G124 report for the full disclosure: this preview
-// hand-authors markup against representative fixtures, it does not render
-// PlanningPage.tsx or prove its live behaviour.
+// The day-group items below (PreviewItem) are still FIXTURE-ONLY,
+// disclosed as such: PlanningPage.tsx's hero figure, day-group walk and
+// risk flags are computed inline inside one large authenticated page
+// component with no importable boundary at the row granularity (see
+// PlanningPage.tsx's own IIFE around "const groups = groupByDay
+// (displayItems)"), so this preview hand-authors representative bill/
+// income fixtures rather than rendering that walk.
+//
+// The Set-aside allocations below (ALLOCATIONS) are NOT fixture-only in
+// that sense any more (G131 fold-in): they're written directly in
+// SetAsideItem's shape and rendered through the SAME shared
+// components/upcoming/SetAsideList.tsx component PlanningPage.tsx renders,
+// so that piece of the preview is real production markup against
+// representative data, not a parallel reimplementation.
 //
 // Every figure below is invented and self-consistent (the "Full
 // calculation" rows sum to the headline), not sourced from any real
 // account.
+import type { SetAsideItem } from "@/components/upcoming/SetAsideList";
 
 export type PreviewItem = {
   id: string;
@@ -46,65 +48,64 @@ export type PreviewItem = {
   planned?: boolean;
 };
 
-export type PreviewAllocation = {
-  id: string;
-  rawName: string; // as typed by the user when the envelope was created — can be a bare number
-  amountPerPeriod: number;
-  filledThisPeriod: number;
-  remaining: number;
-  recurrence: "every_period" | "once";
-  pending?: boolean;
-  completed?: boolean;
-  feedRaw: string; // raw matched-transaction description, exactly as the bank/backend hands it back
-  createdViaPenny?: boolean;
-};
-
-export const ALLOCATIONS: PreviewAllocation[] = [
+// G131 fold-in: this fixture is now written directly in SetAsideItem's own
+// shape (components/upcoming/SetAsideList.tsx) rather than a preview-only
+// PreviewAllocation type with differently-named fields — the same
+// production component this preview renders takes this exact prop shape,
+// so there is no adapter/mapping step to drift.
+export const ALLOCATIONS: SetAsideItem[] = [
   // Kevin's own example: a bare-number title, and a long shouty raw bank
   // description used as the "fed by" match string.
   {
     id: "alloc-50",
-    rawName: "50",
+    name: "50",
     amountPerPeriod: 200,
     filledThisPeriod: 120,
     remaining: 80,
     recurrence: "every_period",
-    feedRaw: "INTEREST PAID GROSS FOR PERIOD 3 TO 05 09 2026 ISA REWARD",
+    pending: false,
+    completed: false,
+    feedLabel: "INTEREST PAID GROSS FOR PERIOD 3 TO 05 09 2026 ISA REWARD",
   },
   // Kevin's other example: a card-like raw descriptor with an embedded
   // masked account number.
   {
     id: "alloc-amex",
-    rawName: "Card repayment",
+    name: "Card repayment",
     amountPerPeriod: 350,
     filledThisPeriod: 350,
     remaining: 0,
     recurrence: "every_period",
-    feedRaw: "AMERICAN EXPRESS 3751-4360-XXXXXX PAYMENT REF 88213",
+    pending: false,
+    completed: false,
+    feedLabel: "AMERICAN EXPRESS 3751-4360-XXXXXX PAYMENT REF 88213",
   },
   {
     id: "alloc-holiday",
-    rawName: "Portugal trip",
+    name: "Portugal trip",
     amountPerPeriod: 150,
     filledThisPeriod: 450,
     remaining: 0,
     recurrence: "every_period",
+    pending: false,
     completed: false,
-    feedRaw: "Manual set aside",
+    feedLabel: null,
     createdViaPenny: true,
   },
   {
     id: "alloc-car",
-    rawName: "Car insurance renewal",
+    name: "Car insurance renewal",
     amountPerPeriod: 480,
     filledThisPeriod: 0,
     remaining: 480,
     recurrence: "once",
     pending: true,
+    completed: false,
     // A real feed account, not a placeholder — the "pending" state is
     // conveyed by `statusFor`'s own "nothing reserved yet" detail line,
     // not by faking the Fed-by line with status prose.
-    feedRaw: "HSBC current account",
+    feedLabel: "HSBC current account",
+    pendingStartsLabel: "5 Oct",
   },
 ];
 

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, useRef, type ReactNode } from "react";
 import dynamic from "next/dynamic";
-import { AlertTriangle, AlertCircle, Clock, ChevronRight, ChevronDown, EyeOff, Wallet, X } from "lucide-react";
+import { AlertTriangle, AlertCircle, Clock, ChevronDown, EyeOff, X } from "lucide-react";
 import { api, Account, Allocation, CashflowData } from "@/lib/api";
 import { getAccountsCached } from "@/lib/accountsCache";
 import { usePreferences } from "@/components/PreferencesContext";
@@ -18,10 +18,10 @@ import { setPennyScreenView } from "@/components/PennySheetProvider";
 import { buildUpcomingRunwayView, type UpcomingRunwayInput } from "@/lib/pennyScreenViews";
 import { isPooledNoOp, doesNotTouchCash } from "@/lib/cashWalk";
 import { computeClusterMarkers } from "@/lib/upcomingMarkers";
-import MoneyText from "@/components/MoneyText";
 import UpcomingHeroCard from "@/components/upcoming/UpcomingHeroCard";
 import UpcomingDayCard from "@/components/upcoming/UpcomingDayCard";
 import UpcomingDivider from "@/components/upcoming/UpcomingDivider";
+import SetAsideList, { type SetAsideItem } from "@/components/upcoming/SetAsideList";
 
 // Editing flows are not needed to understand the initial runway. Keeping them
 // out of the first Planning bundle makes the forecast usable sooner while the
@@ -90,69 +90,32 @@ function billKeyMatchesName(key: string | null, name: string): boolean {
 // actually subtracts; the supporting line keeps filled/target figures and
 // recurrence visible without making the user reconstruct that relationship.
 // Pending entries show no money figure because nothing is reserved yet.
-function AllocationCards({
-  allocations,
-  error,
-  accounts,
-  onEdit,
-}: {
-  allocations: Allocation[] | null;
-  error: boolean;
-  accounts: Account[];
-  onEdit: (a: Allocation) => void;
-}) {
-  const fmtC = (n: number) => "£" + Math.round(n).toLocaleString("en-GB");
-  if (error) return null;
-  const active = (allocations ?? []).filter((a) => a.active);
-
-  if (active.length === 0) return null;
-  return (
-    <div className="glass-card divide-y divide-slate-200/70 overflow-hidden rounded-2xl dark:divide-white/10" data-tutorial-id="tutorial-planning-allocations">
-      {active.map((a) => {
-        const feedAccount = accounts.find((acc) => acc.id === a.fill_account_id);
-        const feedLabel = a.fill_display_name || feedAccount?.name;
-        const rhythmLabel = a.recurrence === "once" ? "this period only" : "every pay period";
-        const startsLabel = new Date(a.period_start).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-        const remaining = Math.max(0, a.remaining);
-        const complete = a.completed || remaining < 0.5;
-        const detail = a.pending
-          ? `Starts ${startsLabel} · nothing reserved yet`
-          : complete
-            ? `Fully set aside · ${rhythmLabel}`
-            : `${fmtC(a.filled_this_period)} of ${fmtC(a.amount_per_period)} set aside · ${rhythmLabel}`;
-        const amount = a.pending ? null : complete ? "£0" : `−${fmtC(remaining)}`;
-
-        return (
-          <button
-            key={a.id}
-            type="button"
-            onClick={() => onEdit(a)}
-            aria-label={`${a.name}: ${a.pending ? `starts ${startsLabel}` : complete ? "fully set aside" : `${fmtC(remaining)} still to reserve`}. Edit pay-period plan`}
-            className="flex min-h-[62px] w-full items-center gap-3 px-3.5 py-2.5 text-left transition-colors hover:bg-slate-50/80 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 dark:hover:bg-white/[0.035]"
-          >
-            <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-500 dark:bg-indigo-400/10 dark:text-indigo-300">
-              <Wallet size={15} aria-hidden="true" />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="flex items-center gap-1.5">
-                <span className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">{a.name}</span>
-                {a.created_via === "penny" && <span className="shrink-0 text-[10px] text-slate-400 dark:text-slate-500">with Penny</span>}
-              </span>
-              <MoneyText text={detail} className="mt-0.5 block truncate text-xs text-slate-500 dark:text-slate-400" />
-              {feedLabel && <span className="mt-0.5 block truncate text-[11px] text-slate-400 dark:text-slate-500">Fed by {feedLabel}{a.match_type === "description_contains" ? " · similar payments" : ""}</span>}
-            </span>
-            {amount && (
-              <span className="shrink-0 text-right">
-                <span className="block font-mono text-sm font-semibold tabular-nums text-slate-900 dark:text-slate-100">{amount}</span>
-                <span className="block text-[10px] text-slate-400 dark:text-slate-500">to reserve</span>
-              </span>
-            )}
-            <ChevronRight size={15} className="shrink-0 text-slate-400 dark:text-slate-500" aria-hidden="true" />
-          </button>
-        );
-      })}
-    </div>
-  );
+//
+// G131 fold-in (g124-upcoming-refine, variant A, the "raw-string clutter"
+// hygiene fix): the row rendering itself now lives in the shared
+// components/upcoming/SetAsideList.tsx, imported by both this page and
+// that surface's design preview. This function only resolves PlanningPage's
+// own Allocation + Account data down to the SetAsideItem shape that shared
+// component actually takes — the same "props, not raw fetches" boundary
+// UpcomingHeroCard/UpcomingDayCard already use.
+function toSetAsideItem(a: Allocation, accounts: Account[]): SetAsideItem {
+  const feedAccount = accounts.find((acc) => acc.id === a.fill_account_id);
+  const feedLabel = a.fill_display_name || feedAccount?.name || null;
+  const startsLabel = new Date(a.period_start).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  return {
+    id: a.id,
+    name: a.name,
+    feedLabel,
+    feedSuffix: a.match_type === "description_contains" ? " · similar payments" : undefined,
+    amountPerPeriod: a.amount_per_period,
+    filledThisPeriod: a.filled_this_period,
+    remaining: a.remaining,
+    recurrence: a.recurrence,
+    pending: a.pending,
+    completed: a.completed,
+    pendingStartsLabel: a.pending ? startsLabel : undefined,
+    createdViaPenny: a.created_via === "penny",
+  };
 }
 
 // One section and one creation door for the two current-period plan types:
@@ -201,7 +164,13 @@ function PlansSection({
           <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Add an envelope or one-off payment for this pay period.</p>
         </div>
       ) : (
-        <AllocationCards allocations={allocations} error={allocationsError} accounts={accounts} onEdit={onEditAllocation} />
+        <SetAsideList
+          items={activeAllocations.map((a) => toSetAsideItem(a, accounts))}
+          onEdit={(id) => {
+            const a = activeAllocations.find((x) => x.id === id);
+            if (a) onEditAllocation(a);
+          }}
+        />
       )}
       {!loading && !allocationsError && !empty && <p className="mt-2 px-1 text-xs text-slate-500 dark:text-slate-400">Only the amount still to reserve reduces the forecast above.</p>}
     </section>
