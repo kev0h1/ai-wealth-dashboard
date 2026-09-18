@@ -13,33 +13,25 @@
 // text-[38px] — a bespoke hero-figure size is established practice on this
 // app's single "the one big number" surfaces, not a new liberty taken here).
 //
-// JUDGEMENT CALL, made visible rather than folded in quietly (coordinator
-// review, 2026-09-18): the live PlanningPage.tsx today tints the WHOLE
-// panel red only when `genuineShortfalls.length > 0` (a specific account is
-// genuinely short — the "live" rule below), while the headline FIGURE
-// itself already turns rose independently whenever `runwayNegative` (the
-// pooled projection crosses zero) — two related but not identical triggers
-// that can disagree. G90 collapses this to one signal: the panel reddens
-// exactly when the figure is negative (the "unified" rule below, and this
-// preview's default).
-//
-// This is a genuine behaviour change, not styling, so it is NOT folded in
-// silently: `panelNegative` is computed by the caller (G124Client.tsx) from
-// whichever rule the `?redRule=unified|live` param selects, and
-// G124Client renders a plain-worded note directly above this card plus a
-// toggle so Kevin can compare both rules on the same fixture data rather
-// than take it on trust that this preview reproduces the live page's
-// current behaviour. My own reasoning for defaulting to "unified": a
-// negative pooled projection at payday IS itself a genuine financial risk
-// per the Red Is Risk Rule, independent of whether any one account's own
-// walk also flags short, and keeping the panel and the figure in visual
-// agreement (both red, or neither) reads more honestly than a rose figure
-// sitting inside an otherwise-neutral panel. That is my recommendation,
-// not a decision I'm entitled to make unilaterally — see the note above
-// this card in the rendered page. The separate "N accounts short / N
-// timing risks" badge, the more granular per-account signal, is preserved
-// completely unchanged either way — this only ever changes what colours
-// the big panel, never the account-level detail.
+// G124 REVISION (Kevin, 2026-09-18, on the live UAT previews): "the red is
+// too much, I think we need to tone it down maybe just highlights instead
+// of the whole hero card being red." This settles and supersedes the
+// unified-vs-live red-rule question this file used to carry switchable via
+// `?redRule=unified|live` — neither panel tint was wanted, so the toggle,
+// the RedRuleNote it was explained by, and the HERO_DIVERGENT fixture that
+// existed only to demonstrate the two rules disagreeing are all gone (see
+// G124Client.tsx and fixtures.ts). The panel below no longer takes a
+// `panelNegative` prop at all: it always renders the same neutral
+// `glass-hero` surface and border it had in the positive state, negative
+// included. Red now appears only as highlights: the headline figure
+// (`figureNegative`, unchanged — always `runway < 0`), the "N accounts
+// short" badge, and the "<bank> is short by £X before payday" attribution
+// line and its border. That reads closer to DESIGN.md's Red Is Risk Rule
+// ("if everything is fine, a screen may contain no red at all" — and
+// conversely, a real risk earns a signifier, not a flooded surface) and
+// Figures Are Ink; Amber Lives In The Signifier (the same reasoning
+// extends to red: it marks the figure and its own small badge/line, never
+// a whole panel) than either the unified or the live rule offered.
 export interface HeroScenario {
   isCalendarMonth: boolean;
   daysToPayday: number;
@@ -61,21 +53,13 @@ function fmt2(n: number) {
   return n.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-// `panelNegative` is computed by the CALLER (G124Client.tsx, from the
-// `?redRule=unified|live` param) rather than inside this component — see
-// the doctrine comment above for why that decision is deliberately kept
-// visible and reviewable rather than hidden inside this card.
-//
 // `figureNegative` (the big number's own colour, the "short"/"left" word,
 // and the matching "Projected balance" row inside Full calculation) is
-// NOT part of that toggle — it is always `runway < 0`, exactly like the
-// live PlanningPage.tsx today, regardless of which rule is coloring the
-// panel. Only the PANEL background/border is the thing under debate; the
-// figure's own colour was never in question, and collapsing both under one
-// prop would make the "live" comparison state lie about what "live" does
-// (production's figure always reflects runwayNegative, panel tint is the
-// only thing genuineShortfalls gates).
-export default function HeroCard({ scenario, runway, panelNegative }: { scenario: HeroScenario; runway: number; panelNegative: boolean }) {
+// always `runway < 0`, exactly like the live PlanningPage.tsx today. The
+// panel itself no longer takes any negative/positive prop — see the
+// doctrine comment above, it is the same neutral `glass-hero` surface
+// regardless of state.
+export default function HeroCard({ scenario, runway }: { scenario: HeroScenario; runway: number }) {
   const {
     isCalendarMonth, daysToPayday, paydayLabel, spendableNow,
     runwayIncomeTotal, runwayBillsTotal, allocationsRemainingTotal,
@@ -86,11 +70,7 @@ export default function HeroCard({ scenario, runway, panelNegative }: { scenario
   return (
     <div
       data-tutorial-id="tutorial-planning-left"
-      className={`rounded-3xl p-5 shadow-sm sm:p-6 ${
-        panelNegative
-          ? "border border-rose-200 bg-rose-50/80 dark:border-rose-800 dark:bg-rose-950/25"
-          : "glass-hero"
-      }`}
+      className="glass-hero rounded-3xl p-5 shadow-sm sm:p-6"
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">

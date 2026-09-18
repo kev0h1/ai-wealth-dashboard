@@ -96,7 +96,6 @@ function Row({ item }: { item: PreviewItem }) {
         {item.accountLabel && (
           <p className="truncate text-xs text-slate-400 dark:text-slate-500">{item.accountLabel}</p>
         )}
-        <p className={`text-xs ${item.nextPeriod ? "text-slate-400 dark:text-slate-500" : "text-slate-500 dark:text-slate-400"}`}>{item.dateLabel}</p>
         {item.isSettling && (
           <p className="truncate text-xs text-slate-500 dark:text-slate-400">Left earlier today, still settling</p>
         )}
@@ -121,7 +120,7 @@ function Row({ item }: { item: PreviewItem }) {
         {item.amountBasis === "balance_estimate" && (
           <p className="text-[10px] font-medium text-slate-400 dark:text-slate-500">estimated</p>
         )}
-        {item.poolNote ? (
+        {item.isSettling ? null : item.poolNote ? (
           <p className="text-xs font-medium text-slate-500 dark:text-slate-400">{item.poolNote}</p>
         ) : item.balanceAfter != null ? (
           <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
@@ -169,8 +168,15 @@ export default function DayGroups({ items, paydayLabel }: { items: PreviewItem[]
           </div>
         )}
         {g.settling.length > 0 && (
+          // Kevin, G124 revision (2026-09-18): "I don't think it needs a
+          // title just the icon and the settling under the payment is
+          // enough" — the SETTLING section title is gone, but the settling
+          // rows still sit in their own trailing block (a plain border
+          // stands in for the boundary the title used to carry) so they
+          // keep sorting to the end of the day's group, not interleaved
+          // with live rows. See groupItems() above and PlanningPage.tsx's
+          // own comment on why that ordering exists.
           <div className={g.active.length > 0 ? "border-t border-slate-100 dark:border-slate-700" : ""}>
-            <p className="px-4 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Settling</p>
             <div className="divide-y divide-slate-100 dark:divide-slate-700">
               {g.settling.map((item) => <Row key={item.id} item={item} />)}
             </div>

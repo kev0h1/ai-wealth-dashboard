@@ -134,31 +134,6 @@ export const HERO_NEGATIVE = {
 export const RUNWAY_NEGATIVE =
   HERO_NEGATIVE.spendableNow + HERO_NEGATIVE.runwayIncomeTotal - HERO_NEGATIVE.runwayBillsTotal - HERO_NEGATIVE.allocationsRemainingTotal;
 
-// ── Divergent hero scenario (redRule comparison only) ───────────────────
-// A negative pooled projection with NO single account flagged genuinely
-// short — plausible when a shortfall is spread thin across several
-// accounts rather than concentrated in one. This is the one scenario where
-// the two red-panel rules actually disagree: "unified" (runway<0) reddens
-// the panel, "live" (genuineShortfalls) does not. HERO_NEGATIVE above
-// deliberately keeps a genuine shortfall too (both rules agree there),
-// because that scenario also needs to demonstrate the attribution
-// sentence/badge content — this one exists purely so the ?redRule=unified
-// vs ?redRule=live comparison has something real to show.
-export const HERO_DIVERGENT = {
-  isCalendarMonth: false,
-  daysToPayday: 5,
-  paydayLabel: "Fri 25 Sep",
-  spendableNow: 260,
-  runwayIncomeTotal: 0,
-  runwayBillsTotal: 340,
-  allocationsRemainingTotal: 0,
-  savingsNow: 180,
-  genuineShortfalls: [] as { accountId: string; bank: string; shortfall: number }[],
-  timingShortfalls: [] as { accountId: string; bank: string; dueDate?: string }[],
-};
-export const RUNWAY_DIVERGENT =
-  HERO_DIVERGENT.spendableNow + HERO_DIVERGENT.runwayIncomeTotal - HERO_DIVERGENT.runwayBillsTotal - HERO_DIVERGENT.allocationsRemainingTotal;
-
 // ── Day groups (shared shape for both hero scenarios; only the negative
 // scenario's Today group carries the flagged genuine-shortfall row that the
 // hero's own attribution sentence refers to) ────────────────────────────
