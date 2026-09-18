@@ -31,7 +31,15 @@ function toTitleCase(s: string): string {
     .split(/(\s+)/)
     .map((word) => {
       if (KNOWN_ACRONYMS.has(word.toUpperCase())) return word.toUpperCase();
-      return word.toLowerCase().replace(/^[a-z]/, (m) => m.toUpperCase());
+      const lower = word.toLocaleLowerCase();
+      if (lower.length === 0) return lower;
+      // Unicode-aware capitaliser: `.replace(/^[a-z]/, ...)` is an
+      // ASCII-only character class, so an accented capital ("ÜBER TAXI
+      // LONDON") never matched it and stayed lower-cased ("über"). Using
+      // toLocaleUpperCase on just the first code point (rather than a
+      // regex class) capitalises any letter the locale knows how to
+      // upper-case, not only a-z.
+      return lower.charAt(0).toLocaleUpperCase() + lower.slice(1);
     })
     .join("");
 }
