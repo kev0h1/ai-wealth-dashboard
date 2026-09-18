@@ -18,7 +18,7 @@ import type { Account, Transaction } from "@/lib/api";
 import { getCategoryColour } from "@/lib/categories";
 import { useColours } from "@/components/ColourProvider";
 import { formatCurrency } from "@/lib/currency";
-import { fetchTransactionsPage, type Source } from "./dataSource";
+import { fetchTransactionsPage, type Source, type SearchFilters, EMPTY_FILTERS } from "./dataSource";
 import { groupByDay } from "./grouping";
 import DetailPanel from "./DetailPanel";
 
@@ -51,9 +51,11 @@ function Row({ tx, colours, onClick }: { tx: Transaction; colours: Record<string
 export default function VariantC({
   forcedFixture,
   accounts,
+  filters = EMPTY_FILTERS,
 }: {
   forcedFixture: Transaction[] | null;
   accounts: Account[];
+  filters?: SearchFilters;
 }) {
   const { colours } = useColours();
   const [items, setItems] = useState<Transaction[]>([]);
@@ -65,22 +67,24 @@ export default function VariantC({
   const [loadingMore, setLoadingMore] = useState(false);
   const [open, setOpen] = useState<Transaction | null>(null);
 
+  // A changed filter (deep-linked or user-applied via the sheet) restarts
+  // the accumulated list from page 1, same as forcedFixture already does.
   useEffect(() => {
     setItems([]); setPage(1); setLoading(true); setOpen(null);
-    fetchTransactionsPage(1, PAGE_SIZE, forcedFixture).then(({ result, source: src }) => {
+    fetchTransactionsPage(1, PAGE_SIZE, forcedFixture, filters).then(({ result, source: src }) => {
       setItems(result.items);
       setTotal(result.total);
       setPages(result.pages);
       setSource(src);
       setLoading(false);
     });
-  }, [forcedFixture]);
+  }, [forcedFixture, filters]);
 
   function loadMore() {
     if (loadingMore || page >= pages) return;
     setLoadingMore(true);
     const next = page + 1;
-    fetchTransactionsPage(next, PAGE_SIZE, forcedFixture).then(({ result }) => {
+    fetchTransactionsPage(next, PAGE_SIZE, forcedFixture, filters).then(({ result }) => {
       setItems((prev) => [...prev, ...result.items]);
       setPage(next);
       setLoadingMore(false);

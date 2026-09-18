@@ -20,7 +20,7 @@ import type { Account, Transaction } from "@/lib/api";
 import { getCategoryColour } from "@/lib/categories";
 import { useColours } from "@/components/ColourProvider";
 import { formatCurrency } from "@/lib/currency";
-import { fetchTransactionsPage, type Source } from "./dataSource";
+import { fetchTransactionsPage, type Source, type SearchFilters, EMPTY_FILTERS } from "./dataSource";
 import { groupByDay } from "./grouping";
 import DetailPanel from "./DetailPanel";
 
@@ -65,9 +65,11 @@ function Row({
 export default function VariantB({
   forcedFixture,
   accounts,
+  filters = EMPTY_FILTERS,
 }: {
   forcedFixture: Transaction[] | null;
   accounts: Account[];
+  filters?: SearchFilters;
 }) {
   const { colours } = useColours();
   const [items, setItems] = useState<Transaction[]>([]);
@@ -81,22 +83,24 @@ export default function VariantB({
   const [showTop, setShowTop] = useState(false);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
+  // A changed filter (deep-linked or user-applied via the sheet) restarts
+  // the accumulated list from page 1, same as forcedFixture already does.
   useEffect(() => {
     setItems([]); setPage(1); setLoading(true);
-    fetchTransactionsPage(1, PAGE_SIZE, forcedFixture).then(({ result, source: src }) => {
+    fetchTransactionsPage(1, PAGE_SIZE, forcedFixture, filters).then(({ result, source: src }) => {
       setItems(result.items);
       setTotal(result.total);
       setPages(result.pages);
       setSource(src);
       setLoading(false);
     });
-  }, [forcedFixture]);
+  }, [forcedFixture, filters]);
 
   function loadMore() {
     if (loadingMore || page >= pages) return;
     setLoadingMore(true);
     const next = page + 1;
-    fetchTransactionsPage(next, PAGE_SIZE, forcedFixture).then(({ result }) => {
+    fetchTransactionsPage(next, PAGE_SIZE, forcedFixture, filters).then(({ result }) => {
       setItems((prev) => [...prev, ...result.items]);
       setPage(next);
       setLoadingMore(false);
@@ -112,7 +116,7 @@ export default function VariantB({
     observer.observe(el);
     return () => observer.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, page, pages, forcedFixture]);
+  }, [loading, page, pages, forcedFixture, filters]);
 
   useEffect(() => {
     function onScroll() { setShowTop(window.scrollY > 800); }
