@@ -36,13 +36,35 @@
 // api.patchTransaction / api.resolveMovement / api.addRule / any other
 // mutating api.* function — grep app/design/g119-transactions-live for
 // "patchTransaction|resolveMovement|addRule|deleteRule" to verify.
+//
+// UAT-review revision (Kevin, after seeing the merged preview):
+//   1. Variant A's row now shows the real category icon instead of the
+//      colour bar (VariantA.tsx) — B/C keep the bar for comparison.
+//   2. The filter control ("that three-line thing") is back — a
+//      SlidersHorizontal button opening FilterSheet.tsx — and it now
+//      genuinely filters (the old G92 preview's version never did; see
+//      FilterSheet.tsx's own docstring for why account-scope isn't one of
+//      its dimensions).
+//   3. Deep-linked filters (?category=/?categories=/?label=/?merchants=/
+//      ?from=/?to=/?txn_type=, the same params TransactionsPage.tsx reads)
+//      now seed this same filter state and render as the same removable
+//      chips a user-applied filter renders as — one code path, so a filter
+//      that arrived from another page is indistinguishable from one set
+//      here. Chip grouping is ported verbatim from TransactionsPage.tsx:
+//      category + categoryLabel + txnType clear together as ONE unit (a
+//      multi-category deep link always carries a direction with it),
+//      merchants and the date window are each independently removable.
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import { SlidersHorizontal, X } from "lucide-react";
 import type { Account } from "@/lib/api";
 import { getAccountsCached } from "@/lib/accountsCache";
 import { FIXTURE_EMPTY, FIXTURE_LONG, FIXTURE_POPULATED } from "./fixtures";
+import type { SearchFilters } from "./dataSource";
+import { hasActiveFilters } from "./dataSource";
+import FilterSheet, { draftFromFilters, type FilterDraft } from "./FilterSheet";
 import VariantA from "./VariantA";
 import VariantB from "./VariantB";
 import VariantC from "./VariantC";
@@ -64,8 +86,19 @@ const STATES: { value: ReviewState; label: string }[] = [
   { value: "loading", label: "Loading" },
 ];
 
-function Switcher({ variant, state, mode }: { variant: Variant; state: ReviewState; mode: Mode }) {
-  const href = (v: Variant, s: ReviewState, m: Mode) => `?variant=${v}&state=${s}&mode=${m}`;
+function Switcher({
+  variant, state, mode, filterQuery,
+}: {
+  variant: Variant; state: ReviewState; mode: Mode;
+  // Every non-switcher param (category/categories/label/merchants/from/to/
+  // txn_type) as an already-encoded querystring fragment (no leading `?`
+  // or `&`) — carried through every switcher link so changing variant/
+  // state/mode never silently drops an active filter, deep-linked or
+  // user-applied.
+  filterQuery: string;
+}) {
+  const href = (v: Variant, s: ReviewState, m: Mode) =>
+    `?variant=${v}&state=${s}&mode=${m}${filterQuery ? `&${filterQuery}` : ""}`;
   const base = "inline-flex min-h-[44px] shrink-0 items-center justify-center rounded-full px-3.5 text-[11px] font-semibold transition-colors active:scale-95";
   return (
     <nav
@@ -97,8 +130,22 @@ function Switcher({ variant, state, mode }: { variant: Variant; state: ReviewSta
   );
 }
 
+// Formats the period chip exactly like TransactionsPage.tsx's own
+// formatPeriodChip — verbatim port so the chip reads identically whether
+// the date window arrived by deep link or by FilterSheet.
+function formatPeriodChip(from: string | null, to: string | null): string {
+  const fmt = (iso: string) => {
+    const d = new Date(iso + "T00:00:00");
+    return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  };
+  if (from && to) return `${fmt(from)} → ${fmt(to)}`;
+  if (from) return `From ${fmt(from)}`;
+  return `Until ${fmt(to!)}`;
+}
+
 export default function G119Client() {
   const params = useSearchParams();
+  const router = useRouter();
   const variant: Variant = (["a", "b", "c"] as string[]).includes(params.get("variant") ?? "")
     ? (params.get("variant") as Variant)
     : "a";
@@ -108,6 +155,38 @@ export default function G119Client() {
   const mode: Mode = params.get("mode") === "dark" ? "dark" : "light";
 
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [filterOpen, setFilterOpen] = useState(false);
+
+  // Deep-linked filter state — the exact same param names and shapes
+  // TransactionsPage.tsx reads (?category=/?categories=/?label=/
+  // ?merchants=/?from=/?to=/?txn_type=), re-seeded whenever `params`
+  // changes (App Router keeps this component instance alive across
+  // client-side param-only navigations, same reasoning as
+  // TransactionsPage.tsx's own re-seed effect below). A filter applied
+  // through FilterSheet writes into this SAME state via the URL, so a
+  // deep-linked filter and a user-applied one are one code path, not two.
+  const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
+  const [categoriesFilter, setCategoriesFilter] = useState<string[] | null>(null);
+  const [categoryLabel, setCategoryLabel] = useState<string | null>(null);
+  const [merchantsFilter, setMerchantsFilter] = useState<string[] | null>(null);
+  const [periodFrom, setPeriodFrom] = useState<string | null>(null);
+  const [periodTo, setPeriodTo] = useState<string | null>(null);
+  const [txnType, setTxnType] = useState<"debit" | "credit" | null>(null);
+
+  useEffect(() => {
+    setCategoryFilter(params.get("category"));
+    const cats = params.getAll("categories");
+    setCategoriesFilter(cats.length > 0 ? cats : null);
+    setCategoryLabel(params.get("label"));
+    const raw = params.get("merchants");
+    const names = raw ? raw.split(",").map((s) => s.trim()).filter(Boolean) : [];
+    setMerchantsFilter(names.length > 0 ? names : null);
+    setPeriodFrom(params.get("from"));
+    setPeriodTo(params.get("to"));
+    const t = params.get("txn_type");
+    setTxnType(t === "debit" || t === "credit" ? t : null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params]);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", mode === "dark");
@@ -135,19 +214,188 @@ export default function G119Client() {
 
   const VariantComponent = variant === "a" ? VariantA : variant === "b" ? VariantB : VariantC;
 
+  const filters: SearchFilters = {
+    category: categoryFilter,
+    categories: categoriesFilter,
+    merchants: merchantsFilter,
+    from: periodFrom,
+    to: periodTo,
+    txnType,
+  };
+
+  // Rebuilds the URL from whichever filter state remains, always keeping
+  // variant/state/mode — the same "rebuild from overrides, keep everything
+  // else" shape as TransactionsPage.tsx's own urlFor, extended with this
+  // preview's own switcher params so applying/clearing a filter never
+  // knocks the reviewer back to variant A / light mode.
+  function urlFor(overrides: {
+    category?: string | null;
+    categories?: string[] | null;
+    merchants?: string[] | null;
+    from?: string | null;
+    to?: string | null;
+    label?: string | null;
+    txnType?: "debit" | "credit" | null;
+  }) {
+    const cat = overrides.category !== undefined ? overrides.category : categoryFilter;
+    const cats = overrides.categories !== undefined ? overrides.categories : categoriesFilter;
+    const merch = overrides.merchants !== undefined ? overrides.merchants : merchantsFilter;
+    const from = overrides.from !== undefined ? overrides.from : periodFrom;
+    const to = overrides.to !== undefined ? overrides.to : periodTo;
+    const label = overrides.label !== undefined ? overrides.label : categoryLabel;
+    const tt = overrides.txnType !== undefined ? overrides.txnType : txnType;
+    const qs = new URLSearchParams();
+    qs.set("variant", variant);
+    qs.set("state", state);
+    qs.set("mode", mode);
+    if (cats && cats.length > 0) {
+      for (const c of cats) qs.append("categories", c);
+    } else if (cat) {
+      qs.set("category", cat);
+    }
+    if (merch && merch.length > 0) qs.set("merchants", merch.join(","));
+    if (from) qs.set("from", from);
+    if (to) qs.set("to", to);
+    if (label) qs.set("label", label);
+    if (tt) qs.set("txn_type", tt);
+    return `?${qs.toString()}`;
+  }
+
+  // Category + label + txn_type are one filter unit — mirrors
+  // TransactionsPage.tsx's clearCategoryFilter exactly: a multi-category
+  // deep link always carries a direction alongside it, so the chip's X
+  // clears all three together rather than leaving a stuck scope behind.
+  function clearCategoryFilter() {
+    router.replace(urlFor({ category: null, categories: null, label: null, txnType: null }));
+  }
+  function clearMerchantsFilter() {
+    router.replace(urlFor({ merchants: null }));
+  }
+  function clearPeriodFilter() {
+    router.replace(urlFor({ from: null, to: null }));
+  }
+  function clearAllFilters() {
+    router.replace(urlFor({ category: null, categories: null, label: null, txnType: null, merchants: null, from: null, to: null }));
+    setFilterOpen(false);
+  }
+
+  // FilterSheet applies one merged draft (category/merchant/date/direction
+  // all at once, "Show results") rather than one param at a time — still
+  // funnelled through the same urlFor/router.replace path, so the result
+  // is indistinguishable from a deep link carrying the same combination.
+  function applyFilterDraft(draft: FilterDraft) {
+    const cats = draft.categories;
+    const merch = draft.merchant.split(",").map((s) => s.trim()).filter(Boolean);
+    router.replace(urlFor({
+      category: cats.length === 1 ? cats[0] : null,
+      categories: cats.length > 1 ? cats : null,
+      label: null,
+      merchants: merch.length > 0 ? merch : null,
+      from: draft.from,
+      to: draft.to,
+      txnType: draft.txnType,
+    }));
+    setFilterOpen(false);
+  }
+
+  const filtersActive = hasActiveFilters(filters);
+
+  // The active filter, as a querystring fragment WITHOUT variant/state/
+  // mode — handed to Switcher so its variant/state/mode links carry the
+  // filter forward instead of silently dropping it (urlFor always sets
+  // variant/state/mode itself, so this strips just those three keys back
+  // out rather than duplicating the field list a second time).
+  const filterQueryParams = new URLSearchParams(urlFor({}).slice(1));
+  filterQueryParams.delete("variant");
+  filterQueryParams.delete("state");
+  filterQueryParams.delete("mode");
+  const filterQuery = filterQueryParams.toString();
+
   return (
     <div className={mode === "dark" ? "dark" : ""} style={{ colorScheme: mode }}>
       <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-56">
         <main className="mx-auto max-w-2xl px-4 py-8">
-          <header className="mb-5">
-            <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium uppercase tracking-wide">
-              Every payment
-            </p>
-            <h1 className="text-2xl font-bold tracking-tight text-slate-950 dark:text-slate-50">Transactions</h1>
-            <p className="mt-1 text-sm text-slate-600 dark:text-slate-300 leading-snug">
-              Grouped by day. Tap a payment to see it, and change it.
-            </p>
+          <header className="mb-3 flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium uppercase tracking-wide">
+                Every payment
+              </p>
+              <h1 className="text-2xl font-bold tracking-tight text-slate-950 dark:text-slate-50">Transactions</h1>
+              <p className="mt-1 text-sm text-slate-600 dark:text-slate-300 leading-snug">
+                Grouped by day. Tap a payment to see it, and change it.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setFilterOpen(true)}
+              aria-label="Open filters"
+              className={`min-h-[44px] min-w-[44px] flex-shrink-0 flex items-center justify-center rounded-full shadow-sm transition-colors ${
+                filtersActive
+                  ? "bg-indigo-600 text-white"
+                  : "bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-300"
+              }`}
+            >
+              <SlidersHorizontal size={17} aria-hidden="true" />
+            </button>
           </header>
+
+          {/* Active-filter chips — one code path for deep-linked and
+              user-applied filters (both just write into the same state via
+              the URL), so a filter that arrived from another page renders
+              exactly like one set here. Grouping matches
+              TransactionsPage.tsx: category+label+txn_type clear together,
+              merchants and the date window are each independently
+              removable. */}
+          {filtersActive && (
+            <div className="mb-4 flex items-center gap-1.5 flex-wrap">
+              {(categoryFilter || (categoriesFilter && categoriesFilter.length > 0)) && (
+                <button
+                  type="button"
+                  onClick={clearCategoryFilter}
+                  aria-label={`Remove ${categoryLabel ?? categoryFilter ?? categoriesFilter!.join(", ")} filter`}
+                  className="flex-shrink-0 inline-flex items-center gap-1 min-h-[28px] px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 text-[11px] font-semibold active:opacity-70 transition-opacity"
+                >
+                  {categoryLabel ?? categoryFilter ?? categoriesFilter!.join(", ")}
+                  <X size={10} />
+                </button>
+              )}
+              {txnType && !categoryFilter && !(categoriesFilter && categoriesFilter.length > 0) && (
+                <button
+                  type="button"
+                  onClick={() => router.replace(urlFor({ txnType: null }))}
+                  aria-label="Remove direction filter"
+                  className="flex-shrink-0 inline-flex items-center gap-1 min-h-[28px] px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 text-[11px] font-semibold active:opacity-70 transition-opacity"
+                >
+                  {txnType === "debit" ? "Money out" : "Money in"}
+                  <X size={10} />
+                </button>
+              )}
+              {merchantsFilter && merchantsFilter.length > 0 && (
+                <button
+                  type="button"
+                  onClick={clearMerchantsFilter}
+                  aria-label={`Remove ${merchantsFilter.join(", ")} filter`}
+                  className="flex-shrink-0 inline-flex items-center gap-1 min-h-[28px] px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 text-[11px] font-semibold active:opacity-70 transition-opacity"
+                >
+                  {merchantsFilter[0]}
+                  {merchantsFilter.length > 1 && ` +${merchantsFilter.length - 1}`}
+                  <X size={10} />
+                </button>
+              )}
+              {(periodFrom || periodTo) && (
+                <button
+                  type="button"
+                  onClick={clearPeriodFilter}
+                  aria-label="Remove period filter, widen to all history"
+                  className="flex-shrink-0 inline-flex items-center gap-1 min-h-[28px] px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 text-[11px] font-semibold active:opacity-70 transition-opacity"
+                >
+                  {formatPeriodChip(periodFrom, periodTo)}
+                  <X size={10} />
+                </button>
+              )}
+            </div>
+          )}
+
           {state === "loading" ? (
             <div className="space-y-3" aria-label="Loading transactions">
               <div className="h-24 animate-pulse rounded-2xl bg-slate-200 dark:bg-slate-700" />
@@ -155,10 +403,18 @@ export default function G119Client() {
               <div className="h-32 animate-pulse rounded-2xl bg-slate-200 dark:bg-slate-700" />
             </div>
           ) : (
-            <VariantComponent key={`${variant}-${state}`} forcedFixture={forcedFixture} accounts={accounts} />
+            <VariantComponent key={`${variant}-${state}`} forcedFixture={forcedFixture} accounts={accounts} filters={filters} />
           )}
         </main>
-        <Switcher variant={variant} state={state} mode={mode} />
+        <Switcher variant={variant} state={state} mode={mode} filterQuery={filterQuery} />
+        {filterOpen && (
+          <FilterSheet
+            initial={draftFromFilters(filters)}
+            onApply={applyFilterDraft}
+            onClearAll={clearAllFilters}
+            onClose={() => setFilterOpen(false)}
+          />
+        )}
       </div>
     </div>
   );
