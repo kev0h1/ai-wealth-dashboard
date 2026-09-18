@@ -30,6 +30,41 @@
 // (`flagged`/`timingRisk`/`isSettling`) chosen by hand to demonstrate every
 // visual state that walk can produce, rather than being computed by any
 // walk of this preview's own.
+//
+// G127 ask #3 (Kevin: "instead of like 10 days time should we have the
+// date and then perhaps at certain intervals on the canvas we can say 10
+// days, ideally when you have a clutter of payments"):
+//   - Every day heading now carries its absolute date (`g.dateLabel`).
+//     "Today" and "Tomorrow" keep their word too, prefixed onto the date
+//     ("Today · Fri 18 Sep") rather than replaced by it — Kevin's own
+//     caution was that a bare date for today may read worse than the word,
+//     and the word is genuinely more useful at that distance. Every other
+//     heading is now the bare date alone; the "N days" count that used to
+//     sit there is gone from headings entirely, per the brief.
+//   - The relative sense of time doesn't disappear, it moves onto the
+//     canvas as an occasional marker between day sections, reusing the
+//     exact divider grammar the payday boundary already established
+//     (hairline / centred label / hairline) rather than a second style —
+//     see <Divider> below. `intervalRule` picks which of three genuinely
+//     different answers to "when does a marker appear" is live; this is
+//     deliberately left switchable rather than decided here, see
+//     G124Client.tsx's Switcher and the G127 report for how to compare
+//     them:
+//       "gap"     — fires when the jump to the next group is >= 7 days.
+//       "rhythm"  — fires at fixed horizons from today (1/2/4 weeks),
+//                   regardless of clustering, skipping a horizon a real
+//                   group already sits on.
+//       "cluster" — fires before a run of 3+ day-groups each <= 2 days
+//                   apart, closest to Kevin's own "clutter of payments"
+//                   phrasing; its label counts the payments and the run's
+//                   span instead of a bare day count, since the point of
+//                   this one is "how much is coming and how tight", not
+//                   "how far away".
+//     If a rule's marker would land on the exact same seam as the
+//     payday-boundary divider, the two are merged into that one divider
+//     rather than stacked — "do not end up with two competing divider
+//     styles on one screen" holds even when two different facts want to
+//     sit at the same seam.
 import { AlertTriangle, AlertCircle, Clock } from "lucide-react";
 import { useColours } from "@/components/ColourProvider";
 import { getCategoryColour } from "@/lib/categories";
@@ -39,8 +74,12 @@ import type { PreviewItem } from "./fixtures";
 
 const sym = "£";
 
+export type IntervalRule = "gap" | "rhythm" | "cluster";
+
 interface DayGroup {
-  label: string;
+  word?: "Today" | "Tomorrow";
+  dateLabel: string;
+  dayOffset: number;
   dayKeyIso: string;
   nextPeriod: boolean;
   active: PreviewItem[];
@@ -50,15 +89,133 @@ interface DayGroup {
 function groupItems(items: PreviewItem[]): DayGroup[] {
   const groups: DayGroup[] = [];
   for (const item of items) {
-    let g = groups.find((g) => g.label === item.dayLabel);
+    let g = groups.find((g) => g.dayKeyIso === item.dayKeyIso);
     if (!g) {
-      g = { label: item.dayLabel, dayKeyIso: item.dayKeyIso, nextPeriod: !!item.nextPeriod, active: [], settling: [] };
+      g = {
+        word: item.dayLabel,
+        dateLabel: item.dateLabel,
+        dayOffset: item.dayOffset,
+        dayKeyIso: item.dayKeyIso,
+        nextPeriod: !!item.nextPeriod,
+        active: [],
+        settling: [],
+      };
       groups.push(g);
     }
     if (item.isSettling) g.settling.push(item);
     else g.active.push(item);
   }
-  return groups;
+  return groups.sort((a, b) => a.dayOffset - b.dayOffset);
+}
+
+function headingText(g: DayGroup): string {
+  return g.word ? `${g.word} · ${g.dateLabel}` : g.dateLabel;
+}
+
+interface Marker {
+  beforeDayKeyIso: string;
+  label: string;
+}
+
+// The three switchable answers to "when does a relative marker appear".
+// Each takes the same sorted group list and returns at most one marker per
+// seam; the render loop below merges a marker with the payday boundary
+// when both land on the same seam, rather than showing both.
+function computeMarkers(groups: DayGroup[], rule: IntervalRule): Marker[] {
+  const markers: Marker[] = [];
+
+  if (rule === "gap") {
+    const GAP_THRESHOLD_DAYS = 7;
+    for (let i = 1; i < groups.length; i++) {
+      const gap = groups[i].dayOffset - groups[i - 1].dayOffset;
+      if (gap >= GAP_THRESHOLD_DAYS) {
+        markers.push({ beforeDayKeyIso: groups[i].dayKeyIso, label: `${groups[i].dayOffset} days` });
+      }
+    }
+    return markers;
+  }
+
+  if (rule === "rhythm") {
+    const HORIZONS: { days: number; label: string }[] = [
+      { days: 7, label: "1 week" },
+      { days: 14, label: "2 weeks" },
+      { days: 28, label: "4 weeks" },
+    ];
+    for (const h of HORIZONS) {
+      // A real group already sitting exactly on the horizon speaks for
+      // itself via its own date — no redundant marker needed.
+      if (groups.some((g) => g.dayOffset === h.days)) continue;
+      const next = groups.find((g) => g.dayOffset > h.days);
+      if (next && !markers.some((m) => m.beforeDayKeyIso === next.dayKeyIso)) {
+        markers.push({ beforeDayKeyIso: next.dayKeyIso, label: h.label });
+      }
+    }
+    return markers;
+  }
+
+  // "cluster" — a run of 3 or more day-groups each within 2 days of the
+  // last counts as a clutter; the marker introduces the run, at its first
+  // day. A run starting at the very first group is skipped — nothing
+  // precedes "Today" for a marker to sit in front of.
+  const RUN_MIN_GROUPS = 3;
+  const TIGHT_GAP_DAYS = 2;
+  let i = 0;
+  while (i < groups.length) {
+    let j = i;
+    while (j + 1 < groups.length && groups[j + 1].dayOffset - groups[j].dayOffset <= TIGHT_GAP_DAYS) j++;
+    const runLength = j - i + 1;
+    if (runLength >= RUN_MIN_GROUPS && i > 0) {
+      const span = groups[j].dayOffset - groups[i].dayOffset;
+      const paymentCount = groups.slice(i, j + 1).reduce((n, g) => n + g.active.length + g.settling.length, 0);
+      markers.push({
+        beforeDayKeyIso: groups[i].dayKeyIso,
+        label: `${paymentCount} payments in ${span} ${span === 1 ? "day" : "days"}`,
+      });
+    }
+    i = j + 1;
+  }
+  return markers;
+}
+
+// The one divider style on this canvas — the payday boundary established
+// it, every interval marker reuses it verbatim, only the label changes.
+//
+// G127 round-three fix (rejected round): at a seam where an interval
+// marker and the payday boundary used to be CONCATENATED into one label
+// ("5 payments in 3 days · Next pay period, from Fri 25 Sep"), the merged
+// string was too long for a 390px screen — the label wrapped to two lines
+// and, because both hairlines are `flex-1` with a zero flex-basis, a flex
+// row with negative free space allocates that overflow entirely onto the
+// only sibling with a non-zero basis (the label): the hairlines collapsed
+// to ~0px and the divider read as stray left-aligned text
+// (/tmp/g127fix-shots/... "cluster" seam, before this fix).
+//
+// Chosen fix — "the payday boundary owns the divider" (of the three
+// options weighed: two-line hairlines, a shorter merged phrasing, or this
+// one): the visible hairline/label row ALWAYS carries only the payday
+// text, which is short and fixed-shape ("Next pay period · from <date>")
+// and therefore reliably fits one line at any width this app supports.
+// When a marker lands on the same seam, its own label becomes a quiet
+// caption underneath, not squeezed into the same flex row. This keeps
+// exactly one divider *style* on the canvas (a shorter phrasing would
+// still be a second, fatter risk every time a fixture grows; two-line
+// hairlines would make the divider itself variable-height and still
+// depend on the label's wrapped shape at the widest marker text any rule
+// can produce). The combined meaning stays available to assistive tech via
+// the row's aria-label, which still concatenates both facts.
+function Divider({ label, sublabel }: { label: string; sublabel?: string }) {
+  return (
+    <div className="py-1.5">
+      <div role="separator" aria-label={sublabel ? `${sublabel} · ${label}` : label} className="flex items-center gap-3">
+        <div className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
+        <span className="shrink-0 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">{label}</span>
+        <div className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
+      </div>
+      {sublabel && (
+        <p className="mt-1 text-center text-xs font-medium text-slate-400 dark:text-slate-500">{sublabel}</p>
+      )}
+    </div>
+  );
 }
 
 function Row({ item }: { item: PreviewItem }) {
@@ -132,21 +289,27 @@ function Row({ item }: { item: PreviewItem }) {
   );
 }
 
-export default function DayGroups({ items, paydayLabel }: { items: PreviewItem[]; paydayLabel: string }) {
+export default function DayGroups({ items, paydayLabel, intervalRule }: { items: PreviewItem[]; paydayLabel: string; intervalRule: IntervalRule }) {
   const groups = groupItems(items);
-  let dividerInserted = false;
+  const markers = computeMarkers(groups, intervalRule);
+  let paydayDividerInserted = false;
   const nodes: React.ReactNode[] = [];
 
   for (const g of groups) {
-    if (g.nextPeriod && !dividerInserted) {
-      nodes.push(
-        <div key="payday-boundary" role="separator" aria-label={`Next pay period, from ${paydayLabel}`} className="flex items-center gap-3 py-1.5">
-          <div className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
-          <span className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Next pay period · from {paydayLabel}</span>
-          <div className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
-        </div>
-      );
-      dividerInserted = true;
+    const isPaydaySeam = g.nextPeriod && !paydayDividerInserted;
+    const marker = markers.find((m) => m.beforeDayKeyIso === g.dayKeyIso);
+
+    if (isPaydaySeam) {
+      // One divider per seam: when an interval marker lands on the exact
+      // same seam as the payday boundary, the payday text keeps the
+      // hairline/label row (see the Divider doctrine comment above for why
+      // — it is short and fixed-shape, so it always fits one line), and the
+      // marker's own label becomes a subordinate caption underneath rather
+      // than concatenating into the same row.
+      nodes.push(<Divider key="payday-boundary" label={`Next pay period · from ${paydayLabel}`} sublabel={marker?.label} />);
+      paydayDividerInserted = true;
+    } else if (marker) {
+      nodes.push(<Divider key={`marker-${marker.beforeDayKeyIso}`} label={marker.label} />);
     }
 
     nodes.push(
@@ -155,13 +318,15 @@ export default function DayGroups({ items, paydayLabel }: { items: PreviewItem[]
       // section, a plain heading, hairline `divide-y` rows inside — the
       // structural change this ask is actually about. `data-day-key`
       // preserved for parity with PlanningPage.tsx's own scroll-to-day
-      // deep link (?day=YYYY-MM-DD).
+      // deep link (?day=YYYY-MM-DD). The heading itself is G127 ask #3 —
+      // the absolute date (plus the Today/Tomorrow word where it applies),
+      // see headingText() and the doctrine comment above.
       <section
-        key={g.label}
+        key={g.dayKeyIso}
         data-day-key={g.dayKeyIso}
         className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800"
       >
-        <h2 className="px-4 pb-1 pt-4 text-sm font-bold text-slate-950 dark:text-slate-50">{g.label}</h2>
+        <h2 className="px-4 pb-1 pt-4 text-sm font-bold text-slate-950 dark:text-slate-50">{headingText(g)}</h2>
         {g.active.length > 0 && (
           <div className="divide-y divide-slate-100 dark:divide-slate-700">
             {g.active.map((item) => <Row key={item.id} item={item} />)}
