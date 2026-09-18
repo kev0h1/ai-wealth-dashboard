@@ -24,8 +24,14 @@ export type PreviewItem = {
   name: string;
   category: string;
   amount: number;
-  dayLabel: string; // "Today" | "Tomorrow" | "N days" — matches PlanningPage's own groupByDay label
-  dayKeyIso: string; // stand-in for PlanningPage's `expected_date`, used as data-day-key
+  // G127 ask #3: the day heading now carries the absolute date (see
+  // dateLabel below) always, so this only carries the special-case word
+  // for the two days close enough that a bare date reads worse than the
+  // word (Kevin: "a bare date for today may be worse than the word") —
+  // every other day is dateLabel alone, no "N days" count on the heading.
+  dayLabel?: "Today" | "Tomorrow";
+  dayOffset: number; // days from today — drives grouping and every interval rule's maths in DayGroups.tsx
+  dayKeyIso: string; // stand-in for PlanningPage's `expected_date`, used as data-day-key and as the group key
   dateLabel: string; // "Thu 18 Sep"
   nextPeriod?: boolean;
   flagged?: boolean; // genuine risk — red icon, red amount
@@ -141,6 +147,18 @@ function items(base: PreviewItem[]): PreviewItem[] {
   return base;
 }
 
+// Extended for G127 ask #3: the original 4-day horizon (today/tomorrow/3
+// days/9 days, one item each bar today) was too short to show a gap, a
+// rhythm horizon or a genuine cluster doing anything different from one
+// another — every group was a single bill a day or so apart, so any
+// interval rule looked the same. This runs the horizon out to a month with
+// a deliberately uneven shape: a quiet run near payday (day 8-11, four
+// payments on nearly consecutive days — the boundary into the next pay
+// period now sits at the FRONT of that run, day 8, not day 9, so it's the
+// true first day of the new period), a 9-day silence, a second three-day
+// run (day 20-22), then one more silence out to a one-off at day 30. See
+// DayGroups.tsx for how "gap", "rhythm" and "cluster" each read this same
+// shape differently.
 export const BILLS_POSITIVE: PreviewItem[] = items([
   {
     id: "b-council-tax",
@@ -149,6 +167,7 @@ export const BILLS_POSITIVE: PreviewItem[] = items([
     category: "Bills",
     amount: 145,
     dayLabel: "Today",
+    dayOffset: 0,
     dayKeyIso: "2026-09-18",
     dateLabel: "Fri 18 Sep",
     accountLabel: "Monzo",
@@ -161,6 +180,7 @@ export const BILLS_POSITIVE: PreviewItem[] = items([
     category: "Subscriptions",
     amount: 8.99,
     dayLabel: "Today",
+    dayOffset: 0,
     dayKeyIso: "2026-09-18",
     dateLabel: "Fri 18 Sep",
     accountLabel: "Monzo",
@@ -173,6 +193,7 @@ export const BILLS_POSITIVE: PreviewItem[] = items([
     category: "Debt",
     amount: 99.8,
     dayLabel: "Today",
+    dayOffset: 0,
     dayKeyIso: "2026-09-18",
     dateLabel: "Fri 18 Sep",
     isSettling: true,
@@ -186,6 +207,7 @@ export const BILLS_POSITIVE: PreviewItem[] = items([
     category: "Income",
     amount: 1850,
     dayLabel: "Tomorrow",
+    dayOffset: 1,
     dayKeyIso: "2026-09-19",
     dateLabel: "Sat 19 Sep",
     balanceAfter: 2936,
@@ -196,7 +218,7 @@ export const BILLS_POSITIVE: PreviewItem[] = items([
     name: "Spotify",
     category: "Subscriptions",
     amount: 11.99,
-    dayLabel: "3 days",
+    dayOffset: 3,
     dayKeyIso: "2026-09-21",
     dateLabel: "Mon 21 Sep",
     accountLabel: "Monzo",
@@ -208,7 +230,7 @@ export const BILLS_POSITIVE: PreviewItem[] = items([
     name: "Gym membership",
     category: "Health",
     amount: 32,
-    dayLabel: "3 days",
+    dayOffset: 3,
     dayKeyIso: "2026-09-21",
     dateLabel: "Mon 21 Sep",
     accountLabel: "Monzo",
@@ -220,7 +242,7 @@ export const BILLS_POSITIVE: PreviewItem[] = items([
     name: "Barclaycard repayment",
     category: "Debt",
     amount: 99.8,
-    dayLabel: "3 days",
+    dayOffset: 3,
     dayKeyIso: "2026-09-21",
     dateLabel: "Mon 21 Sep",
     isCreditCard: true,
@@ -229,17 +251,119 @@ export const BILLS_POSITIVE: PreviewItem[] = items([
     poolNote: "on your card",
   },
   {
+    // First day of the next pay period — carries `nextPeriod`, not Rent
+    // any more (see the comment above the array).
+    id: "b-prime",
+    type: "bill",
+    name: "Amazon Prime",
+    category: "Subscriptions",
+    amount: 8.99,
+    dayOffset: 8,
+    dayKeyIso: "2026-09-26",
+    dateLabel: "Sat 26 Sep",
+    nextPeriod: true,
+    accountLabel: "Monzo",
+    balanceAfter: 2883,
+  },
+  {
     id: "b-rent",
     type: "bill",
     name: "Rent",
     category: "Bills",
     amount: 950,
-    dayLabel: "9 days",
+    dayOffset: 9,
     dayKeyIso: "2026-09-27",
     dateLabel: "Sun 27 Sep",
-    nextPeriod: true,
     accountLabel: "Monzo",
-    balanceAfter: 1942,
+    balanceAfter: 1933,
+  },
+  {
+    id: "b-car-insurance",
+    type: "bill",
+    name: "Car insurance",
+    category: "Bills",
+    amount: 42,
+    dayOffset: 10,
+    dayKeyIso: "2026-09-28",
+    dateLabel: "Mon 28 Sep",
+    accountLabel: "Monzo",
+    balanceAfter: 1891,
+  },
+  {
+    id: "b-gym-2",
+    type: "bill",
+    name: "Gym membership",
+    category: "Health",
+    amount: 32,
+    dayOffset: 11,
+    dayKeyIso: "2026-09-29",
+    dateLabel: "Tue 29 Sep",
+    accountLabel: "Monzo",
+    balanceAfter: 1859,
+  },
+  {
+    id: "b-spotify-2",
+    type: "bill",
+    name: "Spotify",
+    category: "Subscriptions",
+    amount: 11.99,
+    dayOffset: 11,
+    dayKeyIso: "2026-09-29",
+    dateLabel: "Tue 29 Sep",
+    accountLabel: "Monzo",
+    balanceAfter: 1847,
+  },
+  {
+    // 9-day silence between here and the day-11 group — the "gap" rule's
+    // own demonstration.
+    id: "b-netflix-2",
+    type: "bill",
+    name: "Netflix",
+    category: "Subscriptions",
+    amount: 8.99,
+    dayOffset: 20,
+    dayKeyIso: "2026-10-08",
+    dateLabel: "Thu 8 Oct",
+    accountLabel: "Monzo",
+    balanceAfter: 1838,
+  },
+  {
+    id: "b-broadband",
+    type: "bill",
+    name: "Broadband",
+    category: "Bills",
+    amount: 34,
+    dayOffset: 21,
+    dayKeyIso: "2026-10-09",
+    dateLabel: "Fri 9 Oct",
+    accountLabel: "Monzo",
+    balanceAfter: 1804,
+  },
+  {
+    id: "b-council-tax-2",
+    type: "bill",
+    name: "Council Tax",
+    category: "Bills",
+    amount: 145,
+    dayOffset: 22,
+    dayKeyIso: "2026-10-10",
+    dateLabel: "Sat 10 Oct",
+    accountLabel: "Monzo",
+    balanceAfter: 1659,
+  },
+  {
+    // A month out — an isolated one-off with an 8-day silence on either
+    // side, testing the far end of the "rhythm" horizon.
+    id: "b-car-insurance-renewal",
+    type: "bill",
+    name: "Car insurance renewal",
+    category: "Bills",
+    amount: 480,
+    dayOffset: 30,
+    dayKeyIso: "2026-10-18",
+    dateLabel: "Sun 18 Oct",
+    accountLabel: "Monzo",
+    balanceAfter: 1179,
   },
 ]);
 
@@ -251,6 +375,7 @@ export const BILLS_NEGATIVE: PreviewItem[] = items([
     category: "Bills",
     amount: 145,
     dayLabel: "Today",
+    dayOffset: 0,
     dayKeyIso: "2026-09-18",
     dateLabel: "Fri 18 Sep",
     flagged: true,
@@ -264,6 +389,7 @@ export const BILLS_NEGATIVE: PreviewItem[] = items([
     category: "Subscriptions",
     amount: 8.99,
     dayLabel: "Today",
+    dayOffset: 0,
     dayKeyIso: "2026-09-18",
     dateLabel: "Fri 18 Sep",
     accountLabel: "Monzo",
@@ -276,6 +402,7 @@ export const BILLS_NEGATIVE: PreviewItem[] = items([
     category: "Debt",
     amount: 99.8,
     dayLabel: "Today",
+    dayOffset: 0,
     dayKeyIso: "2026-09-18",
     dateLabel: "Fri 18 Sep",
     isSettling: true,
@@ -289,6 +416,7 @@ export const BILLS_NEGATIVE: PreviewItem[] = items([
     category: "Bills",
     amount: 38,
     dayLabel: "Tomorrow",
+    dayOffset: 1,
     dayKeyIso: "2026-09-19",
     dateLabel: "Sat 19 Sep",
     timingRisk: true,
@@ -301,7 +429,7 @@ export const BILLS_NEGATIVE: PreviewItem[] = items([
     name: "Rent",
     category: "Bills",
     amount: 950,
-    dayLabel: "10 days",
+    dayOffset: 10,
     dayKeyIso: "2026-09-28",
     dateLabel: "Mon 28 Sep",
     nextPeriod: true,
