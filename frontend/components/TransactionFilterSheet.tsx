@@ -1,22 +1,20 @@
 "use client";
 
-// The "three-line" filter control Kevin remembered from the old G92
-// preview (app/design/transactions-canvas-before-cards/TransactionsCanvasClient.tsx
-// imported `Filter`/`SlidersHorizontal` for it) — G92's own version never
-// filtered anything (a button with no sheet behind it). This is that
-// control rebuilt for real: every dimension here is one GET
-// /transactions/search actually accepts (see dataSource.ts's own
-// SearchFilters docstring) — category (multi-select), merchant name
-// (free text, same substring-OR the backend's `merchants` param does),
-// a date window (quick presets + custom from/to), and direction (money
-// in/out, `txn_type`). There is no account-scope control: the endpoint
-// this preview calls has no account parameter (it deliberately spans
-// every account), so a control for it would be fake.
+// The transactions hub's filter sheet — folded in from the G119 design
+// round (app/design/g119-transactions-live/FilterSheet.tsx). Every
+// dimension here is one GET /transactions/search actually accepts (see
+// lib/transactionFilters.ts's own SearchFilters docstring): category
+// (multi-select), merchant name (free text, same substring-OR the
+// backend's `merchants` param does), a date window (quick presets + custom
+// from/to), and direction (money in/out, `txn_type`). There is no
+// account-scope control: the endpoint this sheet's results feed has no
+// account parameter (it deliberately spans every account), so a control
+// for it would be fake.
 
 import { useState } from "react";
 import { X } from "lucide-react";
 import { useCategories } from "@/components/CategoriesContext";
-import type { SearchFilters } from "./dataSource";
+import type { SearchFilters } from "@/lib/transactionFilters";
 
 const MONEY_DIRECTIONS: { value: "debit" | "credit" | null; label: string }[] = [
   { value: null, label: "All" },
@@ -106,7 +104,7 @@ export default function FilterSheet({
           type="button"
           onClick={onClose}
           aria-label="Close filters"
-          className="absolute top-3 right-3 w-11 h-11 flex items-center justify-center rounded-full text-slate-400 dark:text-slate-500 active:scale-95 transition-transform"
+          className="absolute top-3 right-3 w-11 h-11 flex items-center justify-center rounded-full text-slate-400 dark:text-slate-500 active:scale-95 motion-reduce:active:scale-100 transition-transform motion-reduce:transition-none"
         >
           <X size={18} />
         </button>
@@ -127,7 +125,8 @@ export default function FilterSheet({
                 key={d.label}
                 type="button"
                 onClick={() => setTxnType(d.value)}
-                className={`min-h-[44px] rounded-xl border text-[13px] font-semibold transition-colors ${
+                aria-pressed={txnType === d.value}
+                className={`min-h-[44px] rounded-xl border text-[13px] font-semibold transition-colors motion-reduce:transition-none ${
                   txnType === d.value
                     ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300"
                     : "border-slate-200 dark:border-slate-600 text-slate-500 dark:text-slate-400"
@@ -148,7 +147,8 @@ export default function FilterSheet({
                 key={p.label}
                 type="button"
                 onClick={() => { setFrom(p.from); setTo(p.to); }}
-                className={`min-h-[44px] px-3 flex items-center rounded-full text-[13px] font-semibold active:scale-95 transition-transform ${
+                aria-pressed={activePreset?.label === p.label}
+                className={`min-h-[44px] px-3 flex items-center rounded-full text-[13px] font-semibold active:scale-95 motion-reduce:active:scale-100 transition-transform motion-reduce:transition-none ${
                   activePreset?.label === p.label
                     ? "bg-indigo-600 text-white"
                     : "bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200"
@@ -206,7 +206,8 @@ export default function FilterSheet({
                   key={c}
                   type="button"
                   onClick={() => toggleCategory(c)}
-                  className={`min-h-[44px] px-3 flex items-center rounded-full text-[13px] font-semibold active:scale-95 transition-transform ${
+                  aria-pressed={active}
+                  className={`min-h-[44px] px-3 flex items-center rounded-full text-[13px] font-semibold active:scale-95 motion-reduce:active:scale-100 transition-transform motion-reduce:transition-none ${
                     active
                       ? "bg-indigo-600 text-white ring-2 ring-indigo-300 dark:ring-indigo-400/40"
                       : "bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200"
@@ -229,7 +230,7 @@ export default function FilterSheet({
             <button
               type="button"
               onClick={apply}
-              className="flex-1 min-h-[44px] rounded-xl bg-indigo-600 text-white text-[14px] font-semibold active:scale-95 transition-transform"
+              className="flex-1 min-h-[44px] rounded-xl bg-indigo-600 text-white text-[14px] font-semibold active:scale-95 motion-reduce:active:scale-100 transition-transform motion-reduce:transition-none"
             >
               Show results
             </button>

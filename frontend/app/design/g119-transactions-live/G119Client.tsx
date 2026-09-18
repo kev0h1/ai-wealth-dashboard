@@ -61,10 +61,15 @@ import { useRouter, useSearchParams } from "next/navigation";
 import type { Account } from "@/lib/api";
 import { getAccountsCached } from "@/lib/accountsCache";
 import { FIXTURE_EMPTY, FIXTURE_LONG, FIXTURE_POPULATED } from "./fixtures";
-import type { SearchFilters } from "./dataSource";
-import { hasActiveFilters } from "./dataSource";
-import { FilterChips, FilterTrigger } from "./FilterChips";
-import FilterSheet, { draftFromFilters, type FilterDraft } from "./FilterSheet";
+import type { SearchFilters } from "@/lib/transactionFilters";
+import { hasActiveFilters } from "@/lib/transactionFilters";
+// This route deliberately keeps its own reference render at
+// treatment="legacy" / variant="solid" — the pill and puck Kevin flagged
+// and rejected — so it still shows what he compared his pick against.
+// Everything else (the chip vocabulary itself, the sheet) now comes from
+// the PRODUCTION components, same as g119-filter-pill.
+import { FilterChips, FilterTrigger } from "@/components/TransactionFilterChips";
+import FilterSheet, { draftFromFilters, type FilterDraft } from "@/components/TransactionFilterSheet";
 import VariantA from "./VariantA";
 import VariantB from "./VariantB";
 import VariantC from "./VariantC";
@@ -248,12 +253,18 @@ export default function G119Client() {
     return `?${qs.toString()}`;
   }
 
-  // Category + label + txn_type are one filter unit — mirrors
-  // TransactionsPage.tsx's clearCategoryFilter exactly: a multi-category
-  // deep link always carries a direction alongside it, so the chip's X
-  // clears all three together rather than leaving a stuck scope behind.
+  // Category + label + txn_type are one filter unit ONLY when categoryLabel
+  // is set — mirrors TransactionsPage.tsx's clearCategoryFilter exactly
+  // (see its own comment for the full reasoning / the G119 review bug this
+  // guards against). Labelled: clear all three together. Unlabelled: any
+  // txn_type present was composed independently in FilterSheet and gets
+  // its own chip/onClearDirection now — leave it alone.
   function clearCategoryFilter() {
-    router.replace(urlFor({ category: null, categories: null, label: null, txnType: null }));
+    if (categoryLabel) {
+      router.replace(urlFor({ category: null, categories: null, label: null, txnType: null }));
+    } else {
+      router.replace(urlFor({ category: null, categories: null, label: null }));
+    }
   }
   function clearMerchantsFilter() {
     router.replace(urlFor({ merchants: null }));

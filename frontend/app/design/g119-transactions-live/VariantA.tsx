@@ -12,66 +12,26 @@
 // comment) — left visible on purpose so the pagination recommendation in
 // this route's report has a working example to point at, not just a claim.
 //
-// Row treatment (Kevin's UAT-review request): the colour bar is replaced
-// with the real category icon here — variant A only, B/C keep the bar so
-// the three stay comparable side by side. Same chip pattern DetailPanel.tsx
-// already renders in its own header (getCategoryIcon + useCategoryIcons,
-// icon at full colour strength inside a `${colour}26` tint, never a flooded
-// surface — DESIGN.md's category-colour rule), just sized down for a row
-// (28px chip / 14px icon vs. the detail header's 36px/16px) so it sits
-// inside the existing 64px row without changing row height. getCategoryIcon
-// already degrades a category with no explicit/keyword mapping to the
-// generic Tag icon (lib/categoryIcons.ts's own resolution order), so an
-// unmapped category still renders a real, on-brand chip, never a blank.
+// Row treatment (Kevin's UAT-review request, now folded into production):
+// the colour bar is replaced with the real category icon here — variant A
+// only, B/C keep the bar so the three stay comparable side by side. This
+// now renders the PRODUCTION components/TransactionRow.tsx directly with
+// `iconVariant="category"` rather than a hand-authored copy of its markup,
+// so this preview is a genuine gate — if the shipped row drifts from what
+// Kevin approved, this preview drifts with it instead of silently staying
+// pretty. TransactionRow resolves the chip itself (getCategoryIcon +
+// useCategoryIcons, icon at full colour strength inside a `${colour}26`
+// tint) at 28px/14px sized down for a row, unchanged from before this fold.
 
 import { useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { Account, Transaction } from "@/lib/api";
-import { getCategoryColour } from "@/lib/categories";
-import { getCategoryIcon } from "@/lib/categoryIcons";
-import { useColours } from "@/components/ColourProvider";
-import { useCategoryIcons } from "@/components/IconProvider";
-import { formatCurrency } from "@/lib/currency";
+import TransactionRow from "@/components/TransactionRow";
 import { fetchTransactionsPage, type Source, type SearchFilters, EMPTY_FILTERS } from "./dataSource";
 import { groupByDay } from "./grouping";
 import DetailPanel from "./DetailPanel";
 
 const PAGE_SIZE = 20;
-const MINUS = "−";
-
-function Row({
-  tx, colours, iconOverrides, onClick,
-}: {
-  tx: Transaction; colours: Record<string, string>; iconOverrides: Record<string, string>; onClick: () => void;
-}) {
-  const colour = getCategoryColour(tx.category, colours);
-  const CategoryIcon = getCategoryIcon(tx.category, iconOverrides);
-  const isCredit = tx.transaction_type === "credit";
-  const name = tx.merchant_name || tx.description || "Unknown";
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="w-full min-h-[64px] flex items-center gap-3 px-4 py-3 text-left active:bg-slate-50 dark:active:bg-slate-700/40 transition-colors"
-    >
-      <span
-        className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
-        style={{ backgroundColor: `${colour}26` }}
-        aria-hidden="true"
-      >
-        <CategoryIcon size={14} style={{ color: colour }} />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-semibold text-slate-900 dark:text-slate-100">{name}</span>
-        <span className="block truncate text-xs text-slate-500 dark:text-slate-300">{tx.category || "Other"}</span>
-      </span>
-      <span className="font-mono text-sm font-semibold tabular-nums text-slate-900 dark:text-slate-100 flex-shrink-0">
-        {isCredit ? "+" : MINUS}
-        {formatCurrency(tx.amount, tx.currency)}
-      </span>
-    </button>
-  );
-}
 
 export default function VariantA({
   forcedFixture,
@@ -82,8 +42,6 @@ export default function VariantA({
   accounts: Account[];
   filters?: SearchFilters;
 }) {
-  const { colours } = useColours();
-  const { icons: iconOverrides } = useCategoryIcons();
   const [page, setPage] = useState(1);
   const [items, setItems] = useState<Transaction[]>([]);
   const [total, setTotal] = useState(0);
@@ -135,7 +93,7 @@ export default function VariantA({
               <h2 className="px-4 pt-4 pb-1 text-sm font-bold text-slate-950 dark:text-slate-50">{g.heading}</h2>
               <div className="divide-y divide-slate-100 dark:divide-slate-700">
                 {g.rows.map((tx) => (
-                  <Row key={tx.id} tx={tx} colours={colours} iconOverrides={iconOverrides} onClick={() => setOpen(tx)} />
+                  <TransactionRow key={tx.id} transaction={tx} iconVariant="category" onClick={() => setOpen(tx)} />
                 ))}
               </div>
             </section>

@@ -59,11 +59,16 @@ import { useSearchParams } from "next/navigation";
 import type { Account } from "@/lib/api";
 import { getAccountsCached } from "@/lib/accountsCache";
 import { FIXTURE_POPULATED } from "../g119-transactions-live/fixtures";
-import type { SearchFilters } from "../g119-transactions-live/dataSource";
-import { EMPTY_FILTERS } from "../g119-transactions-live/dataSource";
-import FilterSheet, { draftFromFilters, type FilterDraft } from "../g119-transactions-live/FilterSheet";
+import type { SearchFilters } from "@/lib/transactionFilters";
+import { EMPTY_FILTERS } from "@/lib/transactionFilters";
 import VariantA from "../g119-transactions-live/VariantA";
-import { FilterChips, FilterTrigger, FilterBar } from "../g119-transactions-live/FilterChips";
+// Every treatment/trigger this round compares now comes from the
+// PRODUCTION components (folded in once Kevin approved treatment "tint" /
+// the ghost trigger) rather than a preview-local copy, so a screenshot
+// here is a screenshot of the real shipped markup, not a fork that could
+// quietly drift from it.
+import FilterSheet, { draftFromFilters, type FilterDraft } from "@/components/TransactionFilterSheet";
+import { FilterChips, FilterTrigger, FilterBar } from "@/components/TransactionFilterChips";
 
 type Treatment = "a" | "b" | "c";
 type Mode = "light" | "dark";
@@ -177,8 +182,16 @@ export default function FilterPillClient() {
     (filters.merchants && filters.merchants.length > 0) || filters.from || filters.to || filters.txnType,
   );
 
+  // Mirrors TransactionsPage.tsx's clearCategoryFilter: clear txn_type
+  // alongside category ONLY when categoryLabel names them as one concept.
+  // This preview's own state presets never seed a label, but the handler
+  // stays correct for when a future preset (or a real deep link rendered
+  // through this same chip vocabulary) does.
   function clearCategory() {
-    setFilters((f) => ({ ...f, category: null, categories: null, txnType: null }));
+    setFilters((f) => ({
+      ...f, category: null, categories: null,
+      txnType: categoryLabel ? null : f.txnType,
+    }));
     setCategoryLabel(null);
   }
   function clearDirection() {

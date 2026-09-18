@@ -1,106 +1,43 @@
 "use client";
 
-// Shared active-filter chip vocabulary — extracted from G119Client.tsx so a
-// genuine gate exists for G119's follow-up round (the filter-pill fix):
-// the new preview at app/design/g119-filter-pill imports these SAME
-// components, so a screenshot of a chip there is a screenshot of the real
-// markup, not a hand-authored copy that could quietly drift from what
-// ships. G119Client.tsx itself keeps calling this with treatment="legacy",
-// which reproduces its pre-existing look byte for byte (same classes,
-// same 28px height) — this file is a pure refactor for G119Client, not a
-// visual change to it; Kevin hasn't picked a replacement yet, so the
-// reference round he's comparing against must keep showing the exact
-// defect he flagged.
+// The active-filter chip vocabulary for the transactions hub
+// (app/transactions/TransactionsPage.tsx) — folded in from the G119 design
+// round (Kevin's approved pick, "Treatment A (tint)": indigo-50 fill,
+// indigo-500 hairline, indigo-700 text, demoted outlined trigger with an
+// active dot, 44px chips). Originally built and screenshotted at
+// app/design/g119-filter-pill/FilterPillClient.tsx and
+// app/design/g119-transactions-live/FilterChips.tsx; both previews now
+// import THIS file rather than keeping their own copy, so a screenshot of
+// a chip there is a screenshot of the real production markup.
 //
-// The one deliberate exception: formatPeriodChip now uses the date-chip
-// copy Kevin settled on for this round ("Since 11 Sept" / "11 Sept to 24
-// Sept" / "Until 11 Sept") rather than the old "From …" / "… → …" text —
-// a copy correction, not a visual one, and CLAUDE.md's copy rules apply to
-// every surface a string like this renders on, not just new ones.
+// The border is load-bearing: bg-indigo-50 alone measures ~1.00:1 against
+// the #f0f2f7 page canvas (no better than the bg-slate-100 pill this
+// replaces), so the indigo-500/400 hairline and the indigo-700/300 text are
+// what actually make the chip read as a surface — do not drop the border
+// "to simplify" (measured 3.99:1 light / 5.98:1 dark against the canvas,
+// see this round's own report).
+//
+// `treatment="legacy"` is kept only so app/design/g119-transactions-live's
+// own G119Client.tsx can keep showing Kevin's flagged defect (the
+// bg-slate-100 invisible pill) as the reference he compared his pick
+// against — it is not used anywhere in production.
 
 import { X, SlidersHorizontal } from "lucide-react";
-import type { SearchFilters } from "./dataSource";
+// The pure filter-chip LOGIC (formatPeriodChip, buildChipItems and its
+// types) lives in lib/transactionFilters.ts, not here — this file only
+// renders it. That split is what lets
+// scripts/transaction-filter-chips.test.mjs (plain-Node, no JSX transform
+// available) exercise the real buildChipItems directly, the same
+// "extract the logic so a .tsx component isn't the only way to reach it"
+// pattern lib/categoryMutations.ts already uses for CategoriesContext.tsx.
+// Re-exported here so nothing importing these from this file has to change.
+export {
+  formatPeriodChip, buildChipItems,
+  type ChipItem, type BuildChipItemsArgs,
+} from "@/lib/transactionFilters";
+import { buildChipItems, type ChipItem, type BuildChipItemsArgs } from "@/lib/transactionFilters";
 
 export type ChipTreatment = "legacy" | "tint" | "surface";
-
-// Formats the period chip. British English, no em dashes, no arrows — a
-// bounded window reads "11 Sept to 24 Sept" (Kevin: "use 'to', not an
-// en dash or arrow"), an open-ended lower bound reads "Since 11 Sept" (not
-// "From 11 Sept").
-export function formatPeriodChip(from: string | null, to: string | null): string {
-  const fmt = (iso: string) => {
-    const d = new Date(iso + "T00:00:00");
-    return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-  };
-  if (from && to) return `${fmt(from)} to ${fmt(to)}`;
-  if (from) return `Since ${fmt(from)}`;
-  return `Until ${fmt(to!)}`;
-}
-
-export interface ChipItem {
-  key: "category" | "direction" | "merchant" | "period";
-  label: string;
-  ariaLabel: string;
-  onClear: () => void;
-  // "merchant" carried its own indigo tint even before this round (the
-  // other three shared one slate tone) — kept only so treatment="legacy"
-  // can reproduce that exact, pre-existing asymmetry. Every other
-  // treatment renders all four kinds identically; the fix is that every
-  // active filter now reads as the same kind of object, not a hierarchy
-  // of some chips mattering more than others.
-  kind: "primary" | "merchant";
-}
-
-export interface BuildChipItemsArgs {
-  filters: SearchFilters;
-  categoryLabel: string | null;
-  onClearCategory: () => void;
-  onClearDirection: () => void;
-  onClearMerchants: () => void;
-  onClearPeriod: () => void;
-}
-
-// Ordering and grouping ported verbatim from G119Client.tsx (itself a port
-// of TransactionsPage.tsx:236): category + label + txn_type clear as ONE
-// unit via onClearCategory; a direction chip only ever appears when no
-// category is set (mutually exclusive in the UI, not just visually) and
-// clears independently via onClearDirection; merchants and the date window
-// each clear independently.
-export function buildChipItems({
-  filters, categoryLabel, onClearCategory, onClearDirection, onClearMerchants, onClearPeriod,
-}: BuildChipItemsArgs): ChipItem[] {
-  const items: ChipItem[] = [];
-  const hasCategory = Boolean(filters.category || (filters.categories && filters.categories.length > 0));
-  if (hasCategory) {
-    const label = categoryLabel ?? filters.category ?? filters.categories!.join(", ");
-    items.push({ key: "category", label, ariaLabel: `Remove ${label} filter`, onClear: onClearCategory, kind: "primary" });
-  } else if (filters.txnType) {
-    const label = filters.txnType === "debit" ? "Money out" : "Money in";
-    items.push({ key: "direction", label, ariaLabel: "Remove direction filter", onClear: onClearDirection, kind: "primary" });
-  }
-  if (filters.merchants && filters.merchants.length > 0) {
-    const label = filters.merchants.length > 1
-      ? `${filters.merchants[0]} +${filters.merchants.length - 1}`
-      : filters.merchants[0];
-    items.push({
-      key: "merchant",
-      label,
-      ariaLabel: `Remove ${filters.merchants.join(", ")} filter`,
-      onClear: onClearMerchants,
-      kind: "merchant",
-    });
-  }
-  if (filters.from || filters.to) {
-    items.push({
-      key: "period",
-      label: formatPeriodChip(filters.from, filters.to),
-      ariaLabel: "Remove period filter, widen to all history",
-      onClear: onClearPeriod,
-      kind: "primary",
-    });
-  }
-  return items;
-}
 
 function chipClasses(treatment: ChipTreatment, kind: ChipItem["kind"]): string {
   if (treatment === "legacy") {
@@ -109,20 +46,20 @@ function chipClasses(treatment: ChipTreatment, kind: ChipItem["kind"]): string {
       : "min-h-[28px] px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 text-[11px] font-semibold active:opacity-70 transition-opacity";
   }
   if (treatment === "tint") {
-    // Selected-state tint (frontend/components/Sidebar.tsx:117's own
+    // Selected-state tint (frontend/components/Sidebar.tsx's own
     // active-nav vocabulary), plus the border the fill alone can't
     // supply: indigo-50 fill measures ~1.0:1 against the #f0f2f7 canvas,
     // no better than the slate-100 it replaces, so the boundary that
     // actually makes the pill readable as a surface is the indigo-500
     // (light) / indigo-400 (dark) hairline, which clears WCAG 1.4.11's
-    // 3:1 non-text contrast threshold (measured 3.99:1 / 5.98:1 — see
-    // this route's own report).
+    // 3:1 non-text contrast threshold.
     return "min-h-[44px] px-3.5 py-2 rounded-full border border-indigo-500 dark:border-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 text-[13px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1";
   }
   // "surface" — the app's real card material (Card White / Slate Card),
   // the same pattern every other "this is an object" on this canvas uses:
   // shadow-sm in light (the One Shadow Rule), a hairline + tone contrast
-  // in dark, never a heavier shadow.
+  // in dark, never a heavier shadow. Not currently used in production
+  // (Kevin picked "tint"), kept for the g119-filter-pill reference preview.
   return "min-h-[44px] px-3.5 py-2 rounded-full border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-[13px] font-semibold shadow-sm dark:shadow-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1";
 }
 
@@ -141,7 +78,7 @@ export function FilterChips({
   onClearMerchants,
   onClearPeriod,
   onClearAll,
-  treatment = "legacy",
+  treatment = "tint",
   className,
 }: BuildChipItemsArgs & {
   onClearAll?: () => void;
@@ -184,18 +121,18 @@ export function FilterChips({
 
 export type TriggerVariant = "solid" | "ghost";
 
-// The filter-open control. "solid" reproduces G119Client's existing
-// indigo-600 rounded puck verbatim (unchanged there — Kevin flagged its
-// silhouette, not removed it, and the reference round must keep showing
-// what he saw). "ghost" demotes it to a hairline-bordered control whose
-// only "active" signal is a colour shift plus a small dot, so it stops
-// borrowing Penny's solid-gradient FAB silhouette (colour alone, indigo,
-// is fine per DESIGN.md; the round shape plus a full solid fill together
-// is what reads as "AI lives here").
+// The filter-open control. "ghost" is Kevin's pick: a hairline-bordered
+// circular button whose only "active" signal is a colour shift plus a
+// small dot, never a solid puck (a solid indigo circle read as Penny's FAB
+// silhouette in the round he rejected — colour alone, indigo, is fine per
+// DESIGN.md; the round shape plus a full solid fill together is what reads
+// as "AI lives here"). "solid" is kept only for the g119-transactions-live
+// reference preview, which still shows the rejected control for
+// comparison; production never uses it.
 export function FilterTrigger({
   active,
   onOpen,
-  variant = "solid",
+  variant = "ghost",
 }: {
   active: boolean;
   onOpen: () => void;
@@ -234,14 +171,10 @@ export function FilterTrigger({
   );
 }
 
-// Variant C — "a filter bar": trigger, active chips and Clear all as ONE
-// bounded row rather than a separate puck plus a loose chip cloud, so the
-// "two places saying one thing" problem (a solid trigger announcing
-// "filters are on" right next to a chip that says the same thing) is
-// solved structurally rather than by styling either element harder. Only
-// rendered when at least one filter is active — with none active there is
-// nothing for a strip to announce, so the header falls back to the same
-// idle FilterTrigger every other treatment uses.
+// The G119 round's "filter bar" alternative (treatment C: trigger, chips
+// and Clear all as one bounded strip) — Kevin picked "tint" instead, so
+// this is not used in production. Kept only so the g119-filter-pill
+// reference preview can keep showing all three treatments he compared.
 export function FilterBar({
   filters,
   categoryLabel,
