@@ -179,12 +179,41 @@ function computeMarkers(groups: DayGroup[], rule: IntervalRule): Marker[] {
 
 // The one divider style on this canvas — the payday boundary established
 // it, every interval marker reuses it verbatim, only the label changes.
-function Divider({ label }: { label: string }) {
+//
+// G127 round-three fix (rejected round): at a seam where an interval
+// marker and the payday boundary used to be CONCATENATED into one label
+// ("5 payments in 3 days · Next pay period, from Fri 25 Sep"), the merged
+// string was too long for a 390px screen — the label wrapped to two lines
+// and, because both hairlines are `flex-1` with a zero flex-basis, a flex
+// row with negative free space allocates that overflow entirely onto the
+// only sibling with a non-zero basis (the label): the hairlines collapsed
+// to ~0px and the divider read as stray left-aligned text
+// (/tmp/g127fix-shots/... "cluster" seam, before this fix).
+//
+// Chosen fix — "the payday boundary owns the divider" (of the three
+// options weighed: two-line hairlines, a shorter merged phrasing, or this
+// one): the visible hairline/label row ALWAYS carries only the payday
+// text, which is short and fixed-shape ("Next pay period · from <date>")
+// and therefore reliably fits one line at any width this app supports.
+// When a marker lands on the same seam, its own label becomes a quiet
+// caption underneath, not squeezed into the same flex row. This keeps
+// exactly one divider *style* on the canvas (a shorter phrasing would
+// still be a second, fatter risk every time a fixture grows; two-line
+// hairlines would make the divider itself variable-height and still
+// depend on the label's wrapped shape at the widest marker text any rule
+// can produce). The combined meaning stays available to assistive tech via
+// the row's aria-label, which still concatenates both facts.
+function Divider({ label, sublabel }: { label: string; sublabel?: string }) {
   return (
-    <div role="separator" aria-label={label} className="flex items-center gap-3 py-1.5">
-      <div className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
-      <span className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">{label}</span>
-      <div className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
+    <div className="py-1.5">
+      <div role="separator" aria-label={sublabel ? `${sublabel} · ${label}` : label} className="flex items-center gap-3">
+        <div className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
+        <span className="shrink-0 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">{label}</span>
+        <div className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
+      </div>
+      {sublabel && (
+        <p className="mt-1 text-center text-xs font-medium text-slate-400 dark:text-slate-500">{sublabel}</p>
+      )}
     </div>
   );
 }
@@ -272,10 +301,12 @@ export default function DayGroups({ items, paydayLabel, intervalRule }: { items:
 
     if (isPaydaySeam) {
       // One divider per seam: when an interval marker lands on the exact
-      // same seam as the payday boundary, its label folds into this same
-      // divider instead of a second one stacking beside it.
-      const label = marker ? `${marker.label} · Next pay period, from ${paydayLabel}` : `Next pay period · from ${paydayLabel}`;
-      nodes.push(<Divider key="payday-boundary" label={label} />);
+      // same seam as the payday boundary, the payday text keeps the
+      // hairline/label row (see the Divider doctrine comment above for why
+      // — it is short and fixed-shape, so it always fits one line), and the
+      // marker's own label becomes a subordinate caption underneath rather
+      // than concatenating into the same row.
+      nodes.push(<Divider key="payday-boundary" label={`Next pay period · from ${paydayLabel}`} sublabel={marker?.label} />);
       paydayDividerInserted = true;
     } else if (marker) {
       nodes.push(<Divider key={`marker-${marker.beforeDayKeyIso}`} label={marker.label} />);
