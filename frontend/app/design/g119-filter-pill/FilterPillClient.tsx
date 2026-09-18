@@ -182,8 +182,16 @@ export default function FilterPillClient() {
     (filters.merchants && filters.merchants.length > 0) || filters.from || filters.to || filters.txnType,
   );
 
+  // Mirrors TransactionsPage.tsx's clearCategoryFilter: clear txn_type
+  // alongside category ONLY when categoryLabel names them as one concept.
+  // This preview's own state presets never seed a label, but the handler
+  // stays correct for when a future preset (or a real deep link rendered
+  // through this same chip vocabulary) does.
   function clearCategory() {
-    setFilters((f) => ({ ...f, category: null, categories: null, txnType: null }));
+    setFilters((f) => ({
+      ...f, category: null, categories: null,
+      txnType: categoryLabel ? null : f.txnType,
+    }));
     setCategoryLabel(null);
   }
   function clearDirection() {

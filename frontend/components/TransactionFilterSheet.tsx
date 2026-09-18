@@ -104,7 +104,7 @@ export default function FilterSheet({
           type="button"
           onClick={onClose}
           aria-label="Close filters"
-          className="absolute top-3 right-3 w-11 h-11 flex items-center justify-center rounded-full text-slate-400 dark:text-slate-500 active:scale-95 transition-transform"
+          className="absolute top-3 right-3 w-11 h-11 flex items-center justify-center rounded-full text-slate-400 dark:text-slate-500 active:scale-95 motion-reduce:active:scale-100 transition-transform motion-reduce:transition-none"
         >
           <X size={18} />
         </button>
@@ -125,7 +125,8 @@ export default function FilterSheet({
                 key={d.label}
                 type="button"
                 onClick={() => setTxnType(d.value)}
-                className={`min-h-[44px] rounded-xl border text-[13px] font-semibold transition-colors ${
+                aria-pressed={txnType === d.value}
+                className={`min-h-[44px] rounded-xl border text-[13px] font-semibold transition-colors motion-reduce:transition-none ${
                   txnType === d.value
                     ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300"
                     : "border-slate-200 dark:border-slate-600 text-slate-500 dark:text-slate-400"
@@ -146,7 +147,8 @@ export default function FilterSheet({
                 key={p.label}
                 type="button"
                 onClick={() => { setFrom(p.from); setTo(p.to); }}
-                className={`min-h-[44px] px-3 flex items-center rounded-full text-[13px] font-semibold active:scale-95 transition-transform ${
+                aria-pressed={activePreset?.label === p.label}
+                className={`min-h-[44px] px-3 flex items-center rounded-full text-[13px] font-semibold active:scale-95 motion-reduce:active:scale-100 transition-transform motion-reduce:transition-none ${
                   activePreset?.label === p.label
                     ? "bg-indigo-600 text-white"
                     : "bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200"
@@ -204,7 +206,8 @@ export default function FilterSheet({
                   key={c}
                   type="button"
                   onClick={() => toggleCategory(c)}
-                  className={`min-h-[44px] px-3 flex items-center rounded-full text-[13px] font-semibold active:scale-95 transition-transform ${
+                  aria-pressed={active}
+                  className={`min-h-[44px] px-3 flex items-center rounded-full text-[13px] font-semibold active:scale-95 motion-reduce:active:scale-100 transition-transform motion-reduce:transition-none ${
                     active
                       ? "bg-indigo-600 text-white ring-2 ring-indigo-300 dark:ring-indigo-400/40"
                       : "bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200"
@@ -227,7 +230,7 @@ export default function FilterSheet({
             <button
               type="button"
               onClick={apply}
-              className="flex-1 min-h-[44px] rounded-xl bg-indigo-600 text-white text-[14px] font-semibold active:scale-95 transition-transform"
+              className="flex-1 min-h-[44px] rounded-xl bg-indigo-600 text-white text-[14px] font-semibold active:scale-95 motion-reduce:active:scale-100 transition-transform motion-reduce:transition-none"
             >
               Show results
             </button>

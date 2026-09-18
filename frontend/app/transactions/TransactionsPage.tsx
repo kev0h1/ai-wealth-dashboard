@@ -237,17 +237,28 @@ export default function TransactionsPage() {
     return qs ? `/transactions?${qs}` : "/transactions";
   }
 
-  // Category, label and txn_type are one filter unit (a multi-category deep-
-  // link like "money you moved" always carries all three together) — clear
-  // them together so the chip's X never leaves a stuck debit-only scope or a
-  // stale label behind. Clearing wipes both the scalar and multi-category
-  // state so a genuinely unfiltered list results either way.
+  // Category, label and txn_type are one filter unit ONLY when categoryLabel
+  // is set — a deep link like "Money you moved" (or the overspent-only
+  // "Everything that went out", MoneyShapeHero.tsx's jobHref) always names
+  // all three together, so the chip's X must clear them together, never
+  // leaving a stuck debit-only scope or a stale label behind. When
+  // categoryLabel is absent, any txn_type present was composed
+  // independently in FilterSheet.tsx (G119 review fix) and now renders as
+  // its OWN chip with its own onClearDirection — this must leave it alone,
+  // or picking "Bills" + "Money out" together would make the category chip's
+  // X silently drop the direction filter too, the exact bug the review
+  // caught (see TransactionFilterChips.tsx's buildChipItems docstring).
   function clearCategoryFilter() {
+    const clearingLabelledUnit = Boolean(categoryLabel);
     setCategoryFilter(null);
     setCategoriesFilter(null);
     setCategoryLabel(null);
-    setTxnType(null);
-    router.replace(urlFor({ category: null, categories: null, label: null, txnType: null }));
+    if (clearingLabelledUnit) {
+      setTxnType(null);
+      router.replace(urlFor({ category: null, categories: null, label: null, txnType: null }));
+    } else {
+      router.replace(urlFor({ category: null, categories: null, label: null }));
+    }
   }
 
   function clearMerchantsFilter() {

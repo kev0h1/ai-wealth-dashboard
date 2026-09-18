@@ -23,88 +23,21 @@
 // against — it is not used anywhere in production.
 
 import { X, SlidersHorizontal } from "lucide-react";
-import type { SearchFilters } from "@/lib/transactionFilters";
+// The pure filter-chip LOGIC (formatPeriodChip, buildChipItems and its
+// types) lives in lib/transactionFilters.ts, not here — this file only
+// renders it. That split is what lets
+// scripts/transaction-filter-chips.test.mjs (plain-Node, no JSX transform
+// available) exercise the real buildChipItems directly, the same
+// "extract the logic so a .tsx component isn't the only way to reach it"
+// pattern lib/categoryMutations.ts already uses for CategoriesContext.tsx.
+// Re-exported here so nothing importing these from this file has to change.
+export {
+  formatPeriodChip, buildChipItems,
+  type ChipItem, type BuildChipItemsArgs,
+} from "@/lib/transactionFilters";
+import { buildChipItems, type ChipItem, type BuildChipItemsArgs } from "@/lib/transactionFilters";
 
 export type ChipTreatment = "legacy" | "tint" | "surface";
-
-// Formats the period chip. British English, no em dashes, no arrows — a
-// bounded window reads "11 Sept to 24 Sept" (Kevin: "use 'to', not an
-// en dash or arrow"), an open-ended lower bound reads "Since 11 Sept" (not
-// "From 11 Sept").
-export function formatPeriodChip(from: string | null, to: string | null): string {
-  const fmt = (iso: string) => {
-    const d = new Date(iso + "T00:00:00");
-    return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-  };
-  if (from && to) return `${fmt(from)} to ${fmt(to)}`;
-  if (from) return `Since ${fmt(from)}`;
-  return `Until ${fmt(to!)}`;
-}
-
-export interface ChipItem {
-  key: "category" | "direction" | "merchant" | "period";
-  label: string;
-  ariaLabel: string;
-  onClear: () => void;
-  // "merchant" carried its own indigo tint even before this round (the
-  // other three shared one slate tone) — kept only so treatment="legacy"
-  // can reproduce that exact, pre-existing asymmetry. Every other
-  // treatment renders all four kinds identically; the fix is that every
-  // active filter now reads as the same kind of object, not a hierarchy
-  // of some chips mattering more than others.
-  kind: "primary" | "merchant";
-}
-
-export interface BuildChipItemsArgs {
-  filters: SearchFilters;
-  categoryLabel: string | null;
-  onClearCategory: () => void;
-  onClearDirection: () => void;
-  onClearMerchants: () => void;
-  onClearPeriod: () => void;
-}
-
-// Ordering and grouping preserved verbatim from TransactionsPage.tsx's own
-// original logic: category + label + txn_type clear as ONE unit via
-// onClearCategory; a direction chip only ever appears when no category is
-// set (mutually exclusive in the UI, not just visually) and clears
-// independently via onClearDirection; merchants and the date window each
-// clear independently.
-export function buildChipItems({
-  filters, categoryLabel, onClearCategory, onClearDirection, onClearMerchants, onClearPeriod,
-}: BuildChipItemsArgs): ChipItem[] {
-  const items: ChipItem[] = [];
-  const hasCategory = Boolean(filters.category || (filters.categories && filters.categories.length > 0));
-  if (hasCategory) {
-    const label = categoryLabel ?? filters.category ?? filters.categories!.join(", ");
-    items.push({ key: "category", label, ariaLabel: `Remove ${label} filter`, onClear: onClearCategory, kind: "primary" });
-  } else if (filters.txnType) {
-    const label = filters.txnType === "debit" ? "Money out" : "Money in";
-    items.push({ key: "direction", label, ariaLabel: "Remove direction filter", onClear: onClearDirection, kind: "primary" });
-  }
-  if (filters.merchants && filters.merchants.length > 0) {
-    const label = filters.merchants.length > 1
-      ? `${filters.merchants[0]} +${filters.merchants.length - 1}`
-      : filters.merchants[0];
-    items.push({
-      key: "merchant",
-      label,
-      ariaLabel: `Remove ${filters.merchants.join(", ")} filter`,
-      onClear: onClearMerchants,
-      kind: "merchant",
-    });
-  }
-  if (filters.from || filters.to) {
-    items.push({
-      key: "period",
-      label: formatPeriodChip(filters.from, filters.to),
-      ariaLabel: "Remove period filter, widen to all history",
-      onClear: onClearPeriod,
-      kind: "primary",
-    });
-  }
-  return items;
-}
 
 function chipClasses(treatment: ChipTreatment, kind: ChipItem["kind"]): string {
   if (treatment === "legacy") {
