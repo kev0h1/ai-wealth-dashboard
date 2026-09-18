@@ -19,6 +19,9 @@ import Spinner from "@/components/Spinner";
 import { TipsLine } from "@/components/TipsLine";
 import { openTipsFor, tipsForMerchants } from "@/lib/spendTips";
 import { getAccountsCached } from "@/lib/accountsCache";
+import { FilterChips, FilterTrigger } from "@/components/TransactionFilterChips";
+import FilterSheet, { draftFromFilters, type FilterDraft } from "@/components/TransactionFilterSheet";
+import type { SearchFilters } from "@/lib/transactionFilters";
 
 const PAGE_SIZE = 20;
 
@@ -82,6 +85,12 @@ export default function TransactionsPage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
+  // G119: the filter sheet's own open/close state — there was previously no
+  // filter-opening control at all on this page, chips only ever arrived via
+  // deep-link params. Kevin's approved trigger (ghost, demoted from the
+  // solid puck that read as Penny's FAB) opens the same FilterSheet the
+  // design round built.
+  const [filterOpen, setFilterOpen] = useState(false);
   // Loaded through the shared accounts cache (lib/accountsCache.ts) so
   // TeachingSheet can resolve selectedTx's bank/badge the same way Home and
   // Spend do (G37) — fetched once on mount, never blocking the transaction
@@ -255,6 +264,59 @@ export default function TransactionsPage() {
     router.replace(urlFor({ from: null, to: null }));
   }
 
+  // G119: a direction-only filter (no category) is new — the filter sheet
+  // can now set txn_type on its own, which needs its own independent chip
+  // and its own clear, distinct from clearCategoryFilter's "category+label+
+  // txn_type as one unit" (that unit still applies whenever a category IS
+  // set; this only fires for the standalone "Money out"/"Money in" chip
+  // FilterChips renders when there's no category alongside it).
+  function clearDirection() {
+    setTxnType(null);
+    router.replace(urlFor({ txnType: null }));
+  }
+
+  // "Clear all" — shown by FilterChips once more than one chip is active.
+  // Wipes every filter dimension in one go, same one-tap-to-widen principle
+  // as clearPeriodFilter above.
+  function clearAllFilters() {
+    setCategoryFilter(null);
+    setCategoriesFilter(null);
+    setCategoryLabel(null);
+    setTxnType(null);
+    setMerchantsFilter(null);
+    setPeriodFrom(null);
+    setPeriodTo(null);
+    router.replace(urlFor({
+      category: null, categories: null, label: null, txnType: null,
+      merchants: null, from: null, to: null,
+    }));
+    setFilterOpen(false);
+  }
+
+  // FilterSheet applies one merged draft (category/merchant/date/direction
+  // all at once, "Show results") rather than one param at a time. A
+  // sheet-applied category is always user-picked, never a deep-link label,
+  // so categoryLabel resets to null here (the label only means "this
+  // exact display text came from wherever the deep link named it").
+  function applyFilterDraft(draft: FilterDraft) {
+    const merch = draft.merchant.split(",").map((s) => s.trim()).filter(Boolean);
+    const cat = draft.categories.length === 1 ? draft.categories[0] : null;
+    const cats = draft.categories.length > 1 ? draft.categories : null;
+    setCategoryFilter(cat);
+    setCategoriesFilter(cats);
+    setCategoryLabel(null);
+    setMerchantsFilter(merch.length > 0 ? merch : null);
+    setPeriodFrom(draft.from);
+    setPeriodTo(draft.to);
+    setTxnType(draft.txnType);
+    router.replace(urlFor({
+      category: cat, categories: cats, label: null,
+      merchants: merch.length > 0 ? merch : null,
+      from: draft.from, to: draft.to, txnType: draft.txnType,
+    }));
+    setFilterOpen(false);
+  }
+
   function handleTxUpdated(updated: Transaction, additionalIds?: string[]) {
     setItems((prev) => prev.map((t) => {
       if (t.id === updated.id) return { ...t, category: updated.category };
@@ -263,22 +325,30 @@ export default function TransactionsPage() {
     }));
   }
 
-  function formatPeriodChip(from: string | null, to: string | null): string {
-    const fmt = (iso: string) => {
-      const d = new Date(iso + "T00:00:00");
-      return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-    };
-    if (from && to) return `${fmt(from)} → ${fmt(to)}`;
-    if (from) return `From ${fmt(from)}`;
-    return `Until ${fmt(to!)}`;
-  }
-
   const hasPeriodFilter = Boolean(periodFrom || periodTo);
   // With a period chip applied the line must not claim "all time" — the chip
   // itself states the exact range, this only states the account scope.
   const scopeLine = hasPeriodFilter
     ? "Searching all accounts"
     : "Searching everything · all accounts, all time";
+
+  // G119: the same SearchFilters shape FilterChips/FilterSheet/FilterTrigger
+  // share with the design round's own preview — built fresh each render
+  // from this page's existing (deep-link-or-user-set) filter state so a
+  // deep-linked filter and a sheet-applied one render through the exact
+  // same chips, unchanged from before this fold-in.
+  const filters: SearchFilters = {
+    category: categoryFilter,
+    categories: categoriesFilter,
+    merchants: merchantsFilter,
+    from: periodFrom,
+    to: periodTo,
+    txnType,
+  };
+  const filtersActive = Boolean(
+    categoryFilter || (categoriesFilter && categoriesFilter.length > 0) ||
+    (merchantsFilter && merchantsFilter.length > 0) || periodFrom || periodTo || txnType,
+  );
 
   // The collapsed tips line's own data — computed here (not inline in the
   // JSX) so `!loading` and a `key={tipsLineCategory}` remount can both gate
@@ -343,12 +413,18 @@ export default function TransactionsPage() {
           >
             <ArrowLeft size={18} className="text-slate-500 dark:text-slate-400" />
           </button>
-          <div>
+          <div className="flex-1 min-w-0">
             <p className="text-xs text-slate-600 dark:text-slate-400 font-medium uppercase tracking-wide">
               Every payment
             </p>
             <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Search</h1>
           </div>
+          {/* G119: the filter trigger, Kevin's approved "ghost" demoted
+              control — a hairline-bordered circle with a small active dot,
+              never the solid indigo puck (that read as Penny's FAB). There
+              was previously no filter-opening control on this page at all;
+              its chips only ever arrived via deep-link params. */}
+          <FilterTrigger active={filtersActive} onOpen={() => setFilterOpen(true)} />
         </div>
       </div>
 
@@ -376,43 +452,31 @@ export default function TransactionsPage() {
 
         <div className="mt-2 flex items-center justify-between gap-2 min-h-[28px] flex-wrap">
           <p className="text-[11px] text-slate-600 dark:text-slate-400">{scopeLine}</p>
-          <div className="flex items-center gap-1.5 flex-wrap">
-            {(categoryFilter || (categoriesFilter && categoriesFilter.length > 0)) && (
-              <button
-                type="button"
-                onClick={clearCategoryFilter}
-                aria-label={`Remove ${categoryLabel ?? categoryFilter ?? categoriesFilter!.join(", ")} filter`}
-                className="flex-shrink-0 inline-flex items-center gap-1 min-h-[28px] px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 text-[11px] font-semibold active:opacity-70 transition-opacity"
-              >
-                {categoryLabel ?? categoryFilter ?? categoriesFilter!.join(", ")}
-                <X size={10} />
-              </button>
-            )}
-            {merchantsFilter && merchantsFilter.length > 0 && (
-              <button
-                type="button"
-                onClick={clearMerchantsFilter}
-                aria-label={`Remove ${merchantsFilter.join(", ")} filter`}
-                className="flex-shrink-0 inline-flex items-center gap-1 min-h-[28px] px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 text-[11px] font-semibold active:opacity-70 transition-opacity"
-              >
-                {merchantsFilter[0]}
-                {merchantsFilter.length > 1 && ` +${merchantsFilter.length - 1}`}
-                <X size={10} />
-              </button>
-            )}
-            {hasPeriodFilter && (
-              <button
-                type="button"
-                onClick={clearPeriodFilter}
-                aria-label="Remove period filter, widen to all history"
-                className="flex-shrink-0 inline-flex items-center gap-1 min-h-[28px] px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 text-[11px] font-semibold active:opacity-70 transition-opacity"
-              >
-                {formatPeriodChip(periodFrom, periodTo)}
-                <X size={10} />
-              </button>
-            )}
-          </div>
         </div>
+
+        {/* G119: Kevin's approved "tint" treatment — indigo-50 fill,
+            indigo-500 hairline border, indigo-700 text (dark:
+            indigo-900/30 fill, indigo-400 border). The border is load-
+            bearing: the fill alone measures ~1.00:1 against this page's
+            #f0f2f7 canvas, no better than the old bg-slate-100 pill it
+            replaces (that was the flagged defect, ~1.02:1, effectively
+            invisible). 44px chips, whole chip is the tap target, "Clear
+            all" once more than one is active. Renders category+label+
+            txn_type as ONE clearable unit (clearCategoryFilter), merchants
+            and the date window independently — same grouping this page
+            has always used, now shared with the design round's own
+            preview via components/TransactionFilterChips.tsx. */}
+        <FilterChips
+          filters={filters}
+          categoryLabel={categoryLabel}
+          onClearCategory={clearCategoryFilter}
+          onClearDirection={clearDirection}
+          onClearMerchants={clearMerchantsFilter}
+          onClearPeriod={clearPeriodFilter}
+          onClearAll={clearAllFilters}
+          treatment="tint"
+          className="mt-2"
+        />
 
         {/* Mounted only once `tips` is non-empty AND the list itself has
             settled (`!loading`) — never inserted above a payments list that
@@ -482,7 +546,7 @@ export default function TransactionsPage() {
               ) : (
                 <div className="divide-y divide-slate-50 dark:divide-slate-700">
                   {items.map((tx) => (
-                    <TransactionRow key={tx.id} transaction={tx} onClick={() => setSelectedTx(tx)} />
+                    <TransactionRow key={tx.id} transaction={tx} onClick={() => setSelectedTx(tx)} iconVariant="category" />
                   ))}
                 </div>
               )}
@@ -523,6 +587,15 @@ export default function TransactionsPage() {
           account={accounts.find(a => a.id === selectedTx.account_id)}
           onClose={() => setSelectedTx(null)}
           onUpdated={handleTxUpdated}
+        />
+      )}
+
+      {filterOpen && (
+        <FilterSheet
+          initial={draftFromFilters(filters)}
+          onApply={applyFilterDraft}
+          onClearAll={clearAllFilters}
+          onClose={() => setFilterOpen(false)}
         />
       )}
     </div>

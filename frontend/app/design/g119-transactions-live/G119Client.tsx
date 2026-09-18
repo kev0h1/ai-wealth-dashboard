@@ -61,10 +61,15 @@ import { useRouter, useSearchParams } from "next/navigation";
 import type { Account } from "@/lib/api";
 import { getAccountsCached } from "@/lib/accountsCache";
 import { FIXTURE_EMPTY, FIXTURE_LONG, FIXTURE_POPULATED } from "./fixtures";
-import type { SearchFilters } from "./dataSource";
-import { hasActiveFilters } from "./dataSource";
-import { FilterChips, FilterTrigger } from "./FilterChips";
-import FilterSheet, { draftFromFilters, type FilterDraft } from "./FilterSheet";
+import type { SearchFilters } from "@/lib/transactionFilters";
+import { hasActiveFilters } from "@/lib/transactionFilters";
+// This route deliberately keeps its own reference render at
+// treatment="legacy" / variant="solid" — the pill and puck Kevin flagged
+// and rejected — so it still shows what he compared his pick against.
+// Everything else (the chip vocabulary itself, the sheet) now comes from
+// the PRODUCTION components, same as g119-filter-pill.
+import { FilterChips, FilterTrigger } from "@/components/TransactionFilterChips";
+import FilterSheet, { draftFromFilters, type FilterDraft } from "@/components/TransactionFilterSheet";
 import VariantA from "./VariantA";
 import VariantB from "./VariantB";
 import VariantC from "./VariantC";

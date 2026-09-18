@@ -24,45 +24,20 @@
 //     identity or a service credential.
 import { api, type Transaction, type PagedTransactions } from "@/lib/api";
 import { FIXTURE_POPULATED } from "./fixtures";
+// SearchFilters/EMPTY_FILTERS/hasActiveFilters now live in
+// lib/transactionFilters.ts (folded into production once Kevin approved
+// this round — app/transactions/TransactionsPage.tsx and
+// components/TransactionFilterChips.tsx/TransactionFilterSheet.tsx share
+// the SAME definition). Re-exported here so every file in this preview
+// that already imports them from "./dataSource" keeps working unchanged.
+export { type SearchFilters, EMPTY_FILTERS, hasActiveFilters } from "@/lib/transactionFilters";
+import { type SearchFilters, EMPTY_FILTERS } from "@/lib/transactionFilters";
 
 export type Source = "live" | "fixture";
 
 export interface PageResult {
   result: PagedTransactions;
   source: Source;
-}
-
-// The same filter dimensions GET /transactions/search actually accepts
-// (backend/app/routers/transactions.py `_search_query`) — no more, no
-// less. There is deliberately no `accountId`/account-scope field here: the
-// global search endpoint this preview and the real TransactionsPage.tsx
-// both call spans every source collection for the user (its own docstring:
-// "every source a user has connected") and has no account parameter at
-// all — only the per-account `get_transactions` route does. Inventing an
-// account filter here would draw a control the backend cannot serve.
-export interface SearchFilters {
-  category: string | null;
-  categories: string[] | null;
-  merchants: string[] | null;
-  from: string | null;
-  to: string | null;
-  txnType: "debit" | "credit" | null;
-}
-
-export const EMPTY_FILTERS: SearchFilters = {
-  category: null,
-  categories: null,
-  merchants: null,
-  from: null,
-  to: null,
-  txnType: null,
-};
-
-export function hasActiveFilters(f: SearchFilters): boolean {
-  return Boolean(
-    f.category || (f.categories && f.categories.length > 0) ||
-    (f.merchants && f.merchants.length > 0) || f.from || f.to || f.txnType,
-  );
 }
 
 function paginate(items: Transaction[], page: number, pageSize: number): PagedTransactions {

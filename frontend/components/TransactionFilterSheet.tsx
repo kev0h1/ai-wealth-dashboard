@@ -1,22 +1,20 @@
 "use client";
 
-// The "three-line" filter control Kevin remembered from the old G92
-// preview (app/design/transactions-canvas-before-cards/TransactionsCanvasClient.tsx
-// imported `Filter`/`SlidersHorizontal` for it) — G92's own version never
-// filtered anything (a button with no sheet behind it). This is that
-// control rebuilt for real: every dimension here is one GET
-// /transactions/search actually accepts (see dataSource.ts's own
-// SearchFilters docstring) — category (multi-select), merchant name
-// (free text, same substring-OR the backend's `merchants` param does),
-// a date window (quick presets + custom from/to), and direction (money
-// in/out, `txn_type`). There is no account-scope control: the endpoint
-// this preview calls has no account parameter (it deliberately spans
-// every account), so a control for it would be fake.
+// The transactions hub's filter sheet — folded in from the G119 design
+// round (app/design/g119-transactions-live/FilterSheet.tsx). Every
+// dimension here is one GET /transactions/search actually accepts (see
+// lib/transactionFilters.ts's own SearchFilters docstring): category
+// (multi-select), merchant name (free text, same substring-OR the
+// backend's `merchants` param does), a date window (quick presets + custom
+// from/to), and direction (money in/out, `txn_type`). There is no
+// account-scope control: the endpoint this sheet's results feed has no
+// account parameter (it deliberately spans every account), so a control
+// for it would be fake.
 
 import { useState } from "react";
 import { X } from "lucide-react";
 import { useCategories } from "@/components/CategoriesContext";
-import type { SearchFilters } from "./dataSource";
+import type { SearchFilters } from "@/lib/transactionFilters";
 
 const MONEY_DIRECTIONS: { value: "debit" | "credit" | null; label: string }[] = [
   { value: null, label: "All" },
