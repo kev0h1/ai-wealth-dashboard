@@ -89,7 +89,7 @@ frontend/.screens/
 # docs/security/pentest-runs/ instead.
 .pentest-evidence/
 
-# Pentest ROE env file (A47) — the private per-run identity-to-pseudonym
+# Pentest ROE env file (A47): the private per-run identity-to-pseudonym
 # mapping and per-window session tokens (docs/security/pentest-runs/
 # roe-env.template shows the shape; never commit the filled-in file). It
 # belongs inside .pentest-evidence/<run-id>/ (already ignored above), but is
