@@ -29,6 +29,21 @@
 // three, are gone from this preview as of the fold-in — Kevin picked
 // "cluster" (G127, 2026-09-18), and per the brief neither losing rule nor
 // the switcher ships anywhere, including here.
+//
+// G133 (regression fix, 2026-09-19): `Row` still stays a hand-authored
+// fixture match for the reasons above, but its swipe-to-dismiss wrap no
+// longer does. SwipeDismissRow was a self-contained, props-only component
+// (no coupling to PlanningPage's live state) even before this fix, so it
+// has been extracted to components/upcoming/SwipeDismissRow.tsx and is now
+// imported here verbatim, the same instance PlanningPage.tsx renders. This
+// closes the actual gap G133 exposed: a mid-swipe screenshot of this
+// preview previously could not have caught the transparent-sliding-layer
+// regression, because the preview never wrapped its rows in the reveal at
+// all. It does now, so the reveal-occlusion contract between
+// SwipeDismissRow and whatever surface hosts it is exercised here going
+// forward. Dismissal here just hides the fixture row locally (dismissedIds
+// below); no backend or shared state involved.
+import { useState } from "react";
 import { AlertTriangle, AlertCircle, Clock } from "lucide-react";
 import { useColours } from "@/components/ColourProvider";
 import { getCategoryColour } from "@/lib/categories";
@@ -37,6 +52,7 @@ import { getCategoryIcon } from "@/lib/categoryIcons";
 import { computeClusterMarkers } from "@/lib/upcomingMarkers";
 import UpcomingDayCard from "@/components/upcoming/UpcomingDayCard";
 import UpcomingDivider from "@/components/upcoming/UpcomingDivider";
+import SwipeDismissRow from "@/components/upcoming/SwipeDismissRow";
 import type { PreviewItem } from "./fixtures";
 
 const sym = "£";
@@ -160,7 +176,12 @@ function Row({ item }: { item: PreviewItem }) {
 }
 
 export default function DayGroups({ items, paydayLabel }: { items: PreviewItem[]; paydayLabel: string }) {
-  const groups = groupItems(items);
+  // G133: local-only dismiss so the preview's swipe reveal has somewhere
+  // to go, matching production's "row slides off, then resolves" shape
+  // without wiring any real deletion.
+  const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
+  const visibleItems = items.filter((item) => !dismissedIds.has(item.id));
+  const groups = groupItems(visibleItems);
   const markers = computeClusterMarkers(
     groups.map((g) => ({ dayOffset: g.dayOffset, dayKeyIso: g.dayKeyIso, itemCount: g.active.length + g.settling.length }))
   );
@@ -190,8 +211,24 @@ export default function DayGroups({ items, paydayLabel }: { items: PreviewItem[]
         key={g.dayKeyIso}
         dayKeyIso={g.dayKeyIso}
         heading={headingText(g)}
-        activeRows={g.active.map((item) => <Row key={item.id} item={item} />)}
-        settlingRows={g.settling.map((item) => <Row key={item.id} item={item} />)}
+        activeRows={g.active.map((item) => (
+          <SwipeDismissRow
+            key={item.id}
+            label={item.planned ? "Delete" : "Not recurring"}
+            onDismiss={() => setDismissedIds((prev) => new Set(prev).add(item.id))}
+          >
+            <Row item={item} />
+          </SwipeDismissRow>
+        ))}
+        settlingRows={g.settling.map((item) => (
+          <SwipeDismissRow
+            key={item.id}
+            label={item.planned ? "Delete" : "Not recurring"}
+            onDismiss={() => setDismissedIds((prev) => new Set(prev).add(item.id))}
+          >
+            <Row item={item} />
+          </SwipeDismissRow>
+        ))}
       />
     );
   }
