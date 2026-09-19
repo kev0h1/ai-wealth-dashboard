@@ -23,6 +23,19 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "g134-home-inventory",
+    name: "g134-home-inventory",
+    description:
+      "G134 — a CATALOGUE of the entire Home surface, not an art-direction round: every zone in Home's real render order (app/components/HomePage.tsx), every brief-card kind in its dismissible state (labelled with its real component name and the condition that makes it appear, in BriefBody's own fixed order — celebration, cliff, trajectory, rhythm, rhythm-info, intent_pace, unfunded_move, ask, needle, other, move; move renders last), all ten SafeToSpendCard states, plus ReconnectStrip, PaydayPlanSection (entry row / active / executed), HomeBriefClearedRow, ThisMonthStrip, PinnedWidgetCard, AccountLedgerRow and TransactionRow/TeachingSheet — every one a real production component fed fixture data through its real props, previewMode where the component takes one. A separate realistic-stacks section runs real BriefBody at 1/2/3/everything cards via the Stack control. Self-fetching components with no props escape hatch (UpcomingBillsStrip, HomeInsightSpotlight, OfferCard, FuelSavingsCard, GroceryBasketCard) are named and explained in the page's own copy rather than forked. Static fixtures only, no API calls · ?mode=light|dark&balances=visible|hidden&stack=one|two|three|all",
+    states: [
+      { label: "Stack: everything", value: "stack-all" },
+      { label: "Stack: one card", value: "stack-one" },
+      { label: "Stack: two cards", value: "stack-two" },
+      { label: "Stack: three cards", value: "stack-three" },
+      { label: "Balances hidden", value: "balances-hidden" },
+    ],
+  },
+  {
     slug: "ops-board-mobile",
     name: "ops-board-mobile",
     description:
