@@ -20,11 +20,14 @@ precondition list and exactly one place that ever pushes to `release`.
   Railway has no separate "production branch" setting the way Vercel
   does, it deploys whatever branch its Source setting names.
 - **Atlas**: MongoDB M0 (see `DEPLOY.md`), production only. UAT does not
-  use Atlas and never has: it runs its own local `mongod` on this VPS
-  (`backend/.env`'s `MONGO_URI` points at `mongodb://localhost:27017`,
-  with no authentication configured). **UAT and production do not share a
-  database, or any data**, in either direction. **Redis**: the Railway
-  Redis plugin, referenced by both Railway services via
+  use Atlas: it runs its own local `mongod` on this VPS (`backend/.env`'s
+  `MONGO_URI` points at `mongodb://localhost:27017`, with no
+  authentication configured). That local `mongod` was the one-time
+  source, not a live copy: `DEPLOY.md`'s "Migrate the data" step dumped
+  it and restored the dump into Atlas M0 when production was first stood
+  up, a one-off `mongorestore`, not an ongoing link. **UAT and production
+  do not share a database, or any data**, in either direction. **Redis**:
+  the Railway Redis plugin, referenced by both Railway services via
   `${{Redis.REDIS_URL}}`, production only; UAT runs its own local,
   Docker-proxied `redis:7-alpine` container on this VPS. The two Redis
   instances are as separate as the two Mongo instances above.
