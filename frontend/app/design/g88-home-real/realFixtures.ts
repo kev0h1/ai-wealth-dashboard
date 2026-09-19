@@ -1,6 +1,6 @@
-// G88 real-data fixture module (single source, per CLAUDE.md: "confine
-// every real figure to ONE clearly-commented fixture module so it can be
-// swapped out in a single edit later"). Kevin's actual Home payload as of
+// G88 real-data fixture module: every real figure is confined to this ONE
+// clearly-commented module so it can be swapped out in a single edit
+// later. Kevin's actual Home payload as of
 // 2026-09-18 18:00 UTC, dumped from the live API to /tmp/g88_real.json and
 // reshaped into the exact SafeToSpend / CompanionItem types SafeToSpendCard
 // and HomeBrief's card components already consume. Every value below is

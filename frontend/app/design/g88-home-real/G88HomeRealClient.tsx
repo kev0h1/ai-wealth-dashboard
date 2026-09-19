@@ -10,10 +10,50 @@
 // fed Kevin's real payload through its actual `data` prop — it takes data
 // as a prop rather than fetching it internally, so no fetch/fixture-fork was
 // needed to close the "hand-authored hero markup" gap the earlier round left
-// open. hideNetWorth/preferencesReady come from the real PreferencesContext
-// (already the pattern used by app/design/v1, v2 and v3), toggled from this
-// page's own `state` axis so the "balances hidden" variation is genuine,
-// not a second hand-rolled masking path.
+// open.
+//
+// G88 rejection fix (defect 1, 2026-09-19): SafeToSpendCard computes its own
+// mask as `hideNetWorth || !preferencesReady`, both read from the real
+// PreferencesContext (components/PreferencesContext.tsx). The preferred fix
+// checked first was rendering this subtree inside that Context's own
+// Provider, supplying hideNetWorth/preferencesReady derived straight from
+// the `state` param — but PreferencesContext.tsx exports only the
+// PreferencesProvider component (which manages its own state internally and
+// takes no override props) and the usePreferences() hook, never the
+// underlying Context object, so there is nothing to feed a value through
+// from outside that module without editing it, which is out of scope here.
+//
+// The actual defect: this preview calls the real setHideNetWorth() to drive
+// the real context (below), which optimistically applies the value, then
+// PATCHes /preferences to persist it. For a signed-out visitor that PATCH
+// 401s; PreferencesContext's own failure handling then refetches
+// /preferences to reconcile, which also 401s for a signed-out visitor, and
+// with no server truth to fall back to, reverts to `previous` — which for a
+// fresh visitor is `true` (hidden). That is why `state=tight` and
+// `state=hidden` used to render identically: both settled back to hidden
+// once that round trip finished.
+//
+// PreferencesProvider wraps the ENTIRE app (app/Providers.tsx), so its own
+// mount effect fires its first real GET /preferences long before this route's
+// own JS chunk has even loaded — this page's content sits behind
+// `<Suspense>` (useSearchParams requires it), so it hydrates in a separate,
+// later commit than the app shell. A read-side fix that only answers that
+// very first GET is consequently too late; there is no way to win that race
+// from inside this component. What CAN be won from in here is the WRITE this
+// component itself is about to make: a fetch stand-in, installed in a
+// layout effect (so it is active before this component's own later passive
+// effects, including the setHideNetWorth one below, can fire — React always
+// commits a subtree's layout effects before its passive effects) and scoped
+// to exactly this component's mounted lifetime, intercepts only requests to
+// /preferences and answers every one — read or write — with
+// `hide_net_worth` equal to whatever `state` currently asks for. That makes
+// the setHideNetWorth() write below always succeed, so its optimistic apply
+// never gets reverted, regardless of whether a real session exists. Restored
+// on unmount so no other page ever sees a patched fetch; every unrelated
+// request passes straight through to the real network unmodified.
+// PreferencesContext.tsx and SafeToSpendCard.tsx run their own real,
+// unforked code throughout — this is a network-layer stand-in for the
+// missing session, not a DOM nudge and not a stored preference.
 //
 // The supporting cards are the real exported MoveCard / CelebrationCard /
 // CliffCard from components/HomeBrief.tsx (CliffCard is also what renders
@@ -46,13 +86,19 @@
 // `#app-shell > aside` or a dedicated class) so no future production
 // component that happens to use a semantic <aside> loses content the
 // same way on any nav-exempt route.
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import SafeToSpendCard from "@/components/SafeToSpendCard";
 import { MoveCard, CelebrationCard, CliffCard } from "@/components/HomeBrief";
 import { usePreferences } from "@/components/PreferencesContext";
 import FixtureBottomNav from "../_components/FixtureBottomNav";
+
+// SSR renders this client component on the server too, where
+// useLayoutEffect is a no-op and React warns about it; useEffect there
+// instead is silent and irrelevant, since the fetch stand-in below only
+// ever needs to exist in the browser.
+const useIsomorphicLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 import { REAL_SAFE_TO_SPEND, REAL_MOVE_ITEM, REAL_CELEBRATION_ITEM, REAL_TRAJECTORY_ITEM, REAL_DATA_DATE_LABEL } from "./realFixtures";
 
 type Variant = "a" | "b" | "c";
@@ -154,10 +200,38 @@ export default function G88HomeRealClient() {
     document.documentElement.classList.toggle("dark", mode === "dark");
   }, [mode]);
 
+  // See this file's header comment (G88 rejection fix, defect 1). Installed
+  // BEFORE the setHideNetWorth effect below via useIsomorphicLayoutEffect,
+  // so that write's PATCH always lands on this stand-in, not the real
+  // network, and always succeeds — no real session, no stored preference,
+  // and no dependence on a write actually reaching a server.
+  useIsomorphicLayoutEffect(() => {
+    if (typeof window === "undefined") return;
+    const nativeFetch = window.fetch.bind(window);
+    const isPreferencesRequest = (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      return /\/preferences(?:[/?]|$)/.test(url);
+    };
+    let version = 0;
+    window.fetch = (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      if (!isPreferencesRequest(input)) return nativeFetch(input, init);
+      version += 1;
+      return new Response(JSON.stringify({ hide_net_worth: hidden, version }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as typeof window.fetch;
+    return () => {
+      window.fetch = nativeFetch;
+    };
+  }, [hidden]);
+
   // Drives the REAL PreferencesContext hideNetWorth flag so SafeToSpendCard's
   // own masking logic runs for real, rather than a second hand-rolled mask
-  // living only in this preview. Same pattern app/design/v1, v2 and v3 use
-  // for their own hide-balances toggle.
+  // living only in this preview. The fetch stand-in installed just above
+  // (same component, same commit, layout effect before passive effect) is
+  // what makes this write land correctly for a signed-out visitor instead
+  // of reverting — see this file's header comment.
   useEffect(() => {
     if (preferencesReady) setHideNetWorth(hidden);
   }, [hidden, preferencesReady, setHideNetWorth]);
