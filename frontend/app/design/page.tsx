@@ -116,6 +116,21 @@ const ROUTES: PreviewRoute[] = [
     ],
   },
   {
+    slug: "g88-home-real",
+    name: "g88-home-real",
+    description:
+      "G88 companion round: the same A/B/C Canvas Before Cards shells judged against Kevin's OWN real Home data instead of invented fixtures (his explicit, repeated request, authorised knowing /design is public and unauthenticated — see realFixtures.ts's header for the full authorisation note; the data subject's own decision, not this session's default) · his actual verdict state is Tight, not the earlier round's invented On-track figure, so the hero is the REAL production SafeToSpendCard fed his real payload through its data prop, showing the true amber \"Tight\" chip and its \"See your cards\" recovery link (driven by his real card debt) · the three supporting cards are the real MoveCard, CelebrationCard and CliffCard (CliffCard also renders his real debt-trajectory item) fed his three real companion.py items, not replica markup · every real figure lives in ONE commented module, realFixtures.ts, cross-checked line by line against the source dump, deliberately not repeated as literal numbers anywhere else on this page (including here) so pulling his data later is a genuine one-file edit · the old \"This pay period\" IN/OUT/MOVED strip is REMOVED (not carried over as invented numbers) because those figures were not part of the Home dump this preview is scoped to · variant B's two-column board opens the hero's own \"How we got\" breakdown by default so the left column has real content, not empty space, and stacks cards single-column at a wider share of the row so real card markup does not get squeezed · FixtureBottomNav renders on every state so the Penny gradient button sits beside the real hero · no API calls · the hide-balances state is answered entirely inside this preview, via a fetch stand-in for /preferences scoped to this component's mount and torn down on unmount, so it never reads or writes a real stored preference, signed in or not, and \"tight\" vs \"hidden\" render the real hero figure vs the real mask for any visitor · ?variant=a|b|c&state=tight|hidden&mode=light|dark",
+    states: [
+      { label: "Kevin's real state (Tight)", value: "tight" },
+      { label: "Balances hidden", value: "hidden" },
+    ],
+    variants: [
+      { label: "A · Reading line", value: "a" },
+      { label: "B · Today board", value: "b" },
+      { label: "C · Rhythm", value: "c" },
+    ],
+  },
+  {
     slug: "upcoming-canvas-before-cards",
     name: "upcoming-canvas-before-cards",
     description: "G90 Upcoming second round after phone review · uses the owner's £612 available, £771 due, −£159 payday forecast and £231.30 Barclays account gap · the Summer holiday envelope is visibly an envelope and honestly starts with the next pay, so it does not alter the current-period arithmetic · A five-day reading / B money path / C action first · preview controls occupy their own top bar instead of obscuring page content · includes covered and set-aside-predictions states · fixture-only, no API calls or production edits · ?variant=a|b|c&state=short|healthy|hidden&mode=light|dark",
