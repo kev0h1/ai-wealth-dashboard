@@ -21,6 +21,7 @@ import { computeClusterMarkers } from "@/lib/upcomingMarkers";
 import UpcomingHeroCard from "@/components/upcoming/UpcomingHeroCard";
 import UpcomingDayCard from "@/components/upcoming/UpcomingDayCard";
 import UpcomingDivider from "@/components/upcoming/UpcomingDivider";
+import SwipeDismissRow from "@/components/upcoming/SwipeDismissRow";
 import SetAsideList, { type SetAsideItem } from "@/components/upcoming/SetAsideList";
 
 // Editing flows are not needed to understand the initial runway. Keeping them
@@ -1855,82 +1856,8 @@ export default function PlanningPage() {
   );
 }
 
-// G131 (g124-upcoming-refine fold-in) — this row is now folded into one
-// bounded UpcomingDayCard per day (rounded-2xl border, overflow-hidden,
-// hairline divide-y rows) instead of rendering as its own floating card.
-// Giving this shell its own rounded-2xl corners, as it did before, would
-// show rounded corners peeking out of the middle of a straight-edged
-// bounded card wherever a mid-list row gets swiped — the exact clash this
-// fold-in's own brief flagged. Fix: this shell (and the reveal panel
-// behind it) render with SQUARE corners now, full stop, no per-row
-// position tracking needed — the day-card's own `overflow-hidden
-// rounded-2xl` on its outer `<section>` clips the first row's top corners
-// and the last row's bottom corners into its curve automatically, exactly
-// as it already does for the card's own background and border. Every
-// interior seam is already square, matching the divide-y hairlines either
-// side of it. SwipeDismissRow has exactly one call site (renderRow above),
-// so this isn't a compromise for some other, still-floating usage.
-function SwipeDismissRow({ onDismiss, children, label = "Not recurring" }: { onDismiss: () => void; children: React.ReactNode; label?: string }) {
-  const [dx, setDx] = useState(0);
-  const [dragging, setDragging] = useState(false);
-  const start = useRef<{ x: number; y: number; t: number } | null>(null);
-  const axis = useRef<"none" | "h" | "v">("none");
-  const shellRef = useRef<HTMLDivElement>(null);
-
-  function onTouchStart(e: React.TouchEvent) {
-    start.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now() };
-    axis.current = "none";
-  }
-
-  function onTouchMove(e: React.TouchEvent) {
-    if (!start.current) return;
-    const mx = e.touches[0].clientX - start.current.x;
-    const my = e.touches[0].clientY - start.current.y;
-    if (axis.current === "none") {
-      if (Math.abs(mx) < 8 && Math.abs(my) < 8) return;
-      axis.current = Math.abs(mx) > Math.abs(my) * 1.5 ? "h" : "v";
-      if (axis.current === "h") setDragging(true);
-    }
-    if (axis.current !== "h") return;
-    setDx(Math.min(0, mx));
-  }
-
-  function onTouchEnd() {
-    if (!start.current) { setDragging(false); return; }
-    const width = shellRef.current?.offsetWidth ?? 320;
-    const elapsed = Date.now() - start.current.t;
-    const flick = elapsed < 250 && dx < -60;
-    start.current = null;
-    setDragging(false);
-    if (dx < -width * 0.4 || flick) {
-      setDx(-width - 24);
-      setTimeout(onDismiss, 180);
-    } else {
-      setDx(0);
-    }
-    axis.current = "none";
-  }
-
-  return (
-    <div ref={shellRef} className="relative overflow-hidden">
-      <div
-        className="absolute inset-0 bg-rose-500 flex items-center justify-end gap-1.5 pr-4"
-        style={{ opacity: Math.min(1, Math.abs(dx) / 80) }}
-      >
-        <X size={14} className="text-white" />
-        <span className="text-xs font-semibold text-white">{label}</span>
-      </div>
-      <div
-        style={{
-          transform: `translateX(${dx}px)`,
-          transition: dragging ? "none" : "transform 180ms ease-out",
-        }}
-        onTouchStart={onTouchStart}
-        onTouchMove={onTouchMove}
-        onTouchEnd={onTouchEnd}
-      >
-        {children}
-      </div>
-    </div>
-  );
-}
+// G133: SwipeDismissRow moved to components/upcoming/SwipeDismissRow.tsx
+// (imported above) so the g124-upcoming-refine design preview can share
+// the exact same component instead of never demonstrating swipe at all.
+// See that file's doctrine comment for the full history and the surface
+// fix.
