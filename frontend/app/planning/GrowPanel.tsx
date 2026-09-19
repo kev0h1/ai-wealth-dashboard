@@ -813,11 +813,6 @@ export function PlanningComposition({
           <p className="mt-1 text-[13px] leading-5 text-slate-600 dark:text-slate-400">Keep this month in view, then follow the live priority. Debt and goals stay as proof and choices.</p>
         </div>
         {strip}
-        <nav aria-label="Planning sections" className="flex flex-wrap gap-x-4 gap-y-2 px-1 text-[13px] font-semibold text-indigo-700 dark:text-indigo-300">
-          <a href="#priorities" className="rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">Priority</a>
-          <a href="#debt" className="rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">Debt</a>
-          <a href="#commitments" className="rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">Goals</a>
-        </nav>
       </div>
       <div className="mt-8 space-y-4 border-t border-slate-300/80 pt-8 dark:border-slate-700 lg:mt-0 lg:border-l lg:border-t-0 lg:pl-10 lg:pt-0">
         <section id="priorities" className="scroll-mt-4" aria-labelledby="planning-priorities-heading">

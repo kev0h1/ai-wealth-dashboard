@@ -2007,14 +2007,27 @@ async def compute_today_items(
         # Snapshot BEFORE any `_find_legs_for_destination` call below
         # consumes `source_capacity` in place — this reports each account's
         # standing headroom/usability, not what's left after this request
-        # happens to have funded other destinations first.
+        # happens to have funded other destinations first. `headroom` stays
+        # this standing figure for good: Settings' cover-plan sources card
+        # (GET /today/cover-plan) legitimately wants "can this account ever
+        # be a source", independent of what today's live plan happens to be
+        # doing with it, and must never see it move once a plan claims some
+        # of it (G114, 2026-09-17). `spend_from_headroom` is seeded to the
+        # same value here and corrected below, once the live move cards are
+        # known, to a SECOND figure: what's left after reserving any amount
+        # an actually-displayed cover-plan move card is taking out of this
+        # account. Home's spend-from line (lib/spendFromAccount.ts) must
+        # read that second figure, not `headroom` — see the G114 note next
+        # to `reserved_by_live_move` below for why.
         for _acc in all_uk_accounts + offline_accounts:
             _sid = _acc["_str_id"]
             if _sid not in source_capacity:
                 continue  # not source-eligible at all — see the population loop above (credit card, or none of current/savings/offline)
+            _headroom = round(_account_headroom(_sid), 2)
             account_eligibility_out[_sid] = {
                 "short": not _account_usable_by_finder(_acc),
-                "headroom": round(_account_headroom(_sid), 2),
+                "headroom": _headroom,
+                "spend_from_headroom": _headroom,
             }
 
     # ── Shared source finder (G42, 2026-09-11; fewest-legs G43, 2026-09-11;
@@ -2995,28 +3008,85 @@ async def compute_today_items(
     # per move); resolves itself on the next compute once every listed move
     # is skipped or observed, rather than lingering.
     #
-    # `_regular_move_gate` is computed here, OUTSIDE the try/except below,
-    # deliberately: section 6's emission loop (further down, no try/except
-    # of its own) reads it unconditionally, and previously would have run
-    # its OWN independent computation regardless of whether the unfunded_move
-    # block below succeeded or raised. Computing the shared gate inside that
-    # try would mean a failure anywhere in unfunded_move's OWN logic (after
-    # the gate call) still leaves it bound (fine), but a failure DURING the
-    # gate call itself would leave `_regular_move_gate` unbound and crash
-    # section 6 too — a strictly worse blast radius than before, where
-    # section 6 was fully independent of the shadow. Keeping the gate call
-    # outside preserves that independence: if it raises, this propagates the
-    # same way section 6's own inline computation would have before G71.
-    _regular_move_gate = await _gate_regular_move_cards(
-        shortfalls=shortfalls,
-        suppress_moves=_suppress_moves,
-        legs_by_dest=legs_by_dest,
-        uncovered_by_dest=uncovered_by_dest,
-        dest_bucketed=dest_bucketed,
-        window_end=window_end,
-        dismissed=dismissed,
-        uid=uid,
-    )
+    # `_regular_move_gate` is computed here, OUTSIDE the unfunded_move
+    # try/except below, deliberately: section 6's emission loop (further
+    # down, no try/except of its own, same as pre-G71) reads it
+    # unconditionally, so it must be bound by the time that loop runs
+    # regardless of what the unfunded_move block below does with it.
+    #
+    # G84: this call has its OWN try/except, separate from unfunded_move's,
+    # for a reason that isn't obvious from the code alone. Pre-G71, section
+    # 5d ran its own hand-copied shadow of this gate INSIDE the try below,
+    # so a transient failure there was caught and degraded only
+    # unfunded_move — section 6 ran an entirely independent probe of its
+    # own afterwards and could still succeed, and so could every unrelated
+    # section after it (windows, needle, cliff, trajectory, ...), each
+    # wrapped in its own try/except further down. G71 correctly merged the
+    # two hand-aligned copies into this one shared call so they can no
+    # longer silently disagree under a race — but simply moving that call
+    # inside the unfunded_move try wouldn't restore the old isolation
+    # either: section 6 reads the SAME _regular_move_gate value, so a
+    # caught-and-swallowed failure there would leave section 6 crashing on
+    # an unbound name anyway, and an uncaught one would crash the whole
+    # request — including every downstream section that used to be
+    # completely insulated from this gate's failures by its own try/except.
+    # A single shared computation cannot fail for one caller while
+    # succeeding for the other; that asymmetry is what a duplicated probe
+    # bought, and duplicating it back is exactly the race G71 removed. What
+    # CAN be restored is the isolation that actually matters most: a
+    # transient failure here degrades both of this gate's callers together
+    # (no unfunded_move card, no regular move/plan cards this compute — a
+    # symmetric, honest degrade instead of one surviving by luck) without
+    # taking down the rest of the Home brief. Falling back to an empty gate
+    # (nothing dismissed, nothing done, nothing emitted) makes both callers'
+    # existing "no card for this destination" code paths handle it exactly
+    # like a quiet compute with no qualifying destinations — no separate
+    # branch needed in either caller.
+    try:
+        _regular_move_gate = await _gate_regular_move_cards(
+            shortfalls=shortfalls,
+            suppress_moves=_suppress_moves,
+            legs_by_dest=legs_by_dest,
+            uncovered_by_dest=uncovered_by_dest,
+            dest_bucketed=dest_bucketed,
+            window_end=window_end,
+            dismissed=dismissed,
+            uid=uid,
+        )
+    except Exception as _gate_exc:
+        log.warning("regular move card gate failed for %s: %s", uid, _gate_exc)
+        _regular_move_gate = _RegularMoveCardGate({}, {}, 0)
+
+    # G114 (Kevin, 2026-09-17): a live cover-plan move card is itself an
+    # obligation on its source account, the same way that account's own
+    # bills already are — spending the headroom it needs makes the move it
+    # is recommending impossible and the payments it protects lose their
+    # cover. Reserve each source's total contribution across every
+    # move-card destination that will ACTUALLY be shown this request (gated
+    # by `_regular_move_gate.will_emit_by_dest` — a dismissed or capped-out
+    # destination's legs already consumed `source_capacity` above but never
+    # reach the user as a live recommendation, so they reserve nothing
+    # here). This corrects `spend_from_headroom` only; `headroom` above is
+    # untouched, because Settings' cover-plan sources card (GET
+    # /today/cover-plan) legitimately wants the standing figure, unaffected
+    # by what today's live plan happens to be doing with the account — see
+    # that field's own seeding comment above for why this is two named
+    # figures, not one mutated in place.
+    if account_eligibility_out is not None:
+        reserved_by_live_move: dict[str, float] = {}
+        for _dest, _will_emit in _regular_move_gate.will_emit_by_dest.items():
+            if not _will_emit:
+                continue
+            for _leg in legs_by_dest.get(_dest, []):
+                _src_id = _leg["move_map"]["from"]["account_id"]
+                reserved_by_live_move[_src_id] = (
+                    reserved_by_live_move.get(_src_id, 0.0) + float(_leg["amount"])
+                )
+        for _sid, _reserved in reserved_by_live_move.items():
+            _entry = account_eligibility_out.get(_sid)
+            if _entry is None:
+                continue
+            _entry["spend_from_headroom"] = round(_entry["headroom"] - _reserved, 2)
 
     unfunded_move_items: list[dict] = []
     try:

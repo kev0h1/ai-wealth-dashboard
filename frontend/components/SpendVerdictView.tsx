@@ -25,6 +25,7 @@ import { ChevronDown, ChevronUp, ChevronRight, PiggyBank, CreditCard, TrendingUp
 import { getCategoryColour } from "@/lib/categories";
 import { getCategoryIcon } from "@/lib/categoryIcons";
 import { api } from "@/lib/api";
+import { invalidateVerdictCache } from "@/lib/verdictCache";
 import type {
   Checkpoint,
   SpendVerdict,
@@ -247,7 +248,7 @@ function AimBlock({ category, multiple, suggestedAim, checkpoint, sym, onChanged
               placeholder={String(Math.round(suggestedAim!))}
               value={customValue}
               onChange={e => { setCustomValue(e.target.value); setSaveError(false); }}
-              className="text-[12px] text-slate-900 dark:text-slate-100 bg-transparent outline-none w-16"
+              className="text-[12px] text-slate-900 dark:text-slate-100 bg-transparent outline-none w-16 [@media(pointer:coarse)]:w-24"
             />
           </div>
           <button
@@ -1100,6 +1101,15 @@ export default function SpendVerdictView({ verdict, colours, onOpenCategory, cat
     if (!txnId) return;
     try {
       await api.dismissUnresolvedAsk(txnId);
+      // G83 fix-round: this session's own `askDismissed` local state
+      // already hides the card instantly regardless of cache state, but a
+      // Home->Spend->Home lap within the TTL window would otherwise
+      // remount this component (resetting that local state) and repaint
+      // the ask from the still-fresh cached verdict — dismissed_unresolved_
+      // asks is read straight off preferences_col by compute_spend_verdict,
+      // outside the six PATCH /preferences fields PreferencesContext's own
+      // blunt invalidation covers, so this needs its own call.
+      invalidateVerdictCache();
     } catch {
       // Best-effort persistence — worst case this exact ask can resurface
       // on a later visit; it must never re-show it on THIS one, so the

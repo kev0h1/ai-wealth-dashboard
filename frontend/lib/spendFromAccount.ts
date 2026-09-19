@@ -75,8 +75,18 @@ function rankByHeadroom(
   accounts: Account[],
   eligibility: Record<string, AccountEligibility>,
 ): SpendFromAccount[] {
+  // G114 (2026-09-17): rank on `spend_from_headroom`, not the standing
+  // `headroom` — a live cover-plan move card can already be claiming part
+  // of an account's standing headroom, and this line answers "how much may
+  // I spend from this account right now" which must net that out. Falls
+  // back to `headroom` only for an entry that predates the field (a stale
+  // cached response), never silently drops the account.
   return accounts
-    .map((a) => toSpendFromAccount(a, eligibility[a.id]?.headroom ?? 0))
+    .map((a) => {
+      const entry = eligibility[a.id];
+      const headroom = entry?.spend_from_headroom ?? entry?.headroom ?? 0;
+      return toSpendFromAccount(a, headroom);
+    })
     .sort((a, b) => b.headroom - a.headroom);
 }
 

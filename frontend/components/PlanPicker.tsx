@@ -3,7 +3,7 @@
 import { useMemo, useState, type KeyboardEvent } from "react";
 import { Check, ChevronDown, Crown, FileText, Globe, Landmark, Link2, Zap } from "lucide-react";
 import { api } from "@/lib/api";
-import { canPurchaseInApp, PURCHASE_UNAVAILABLE_SENTENCE } from "@/lib/nativeAuth";
+import { usePurchaseAvailability, PURCHASE_UNAVAILABLE_SENTENCE } from "@/lib/nativeAuth";
 import type {
   SubscriptionBillingPeriod,
   SubscriptionBillingPeriodDetail,
@@ -209,8 +209,13 @@ export default function PlanPicker({
   // untouched by this, it never talks to Stripe. B29: `nativeOverride`
   // only exists for the design preview (see the prop's own doc comment);
   // every real caller leaves it undefined, so this reduces to the
-  // original `canPurchaseInApp()` call everywhere it matters.
-  const purchasingAllowed = nativeOverride === undefined ? canPurchaseInApp() : !nativeOverride;
+  // real availability everywhere it matters. B40: real availability comes
+  // from usePurchaseAvailability(), not a direct canPurchaseInApp() call,
+  // so this starts (and, on the server, stays) "unknown" — never "web" —
+  // until an effect resolves it against the real Capacitor bridge after
+  // mount; see that hook's own comment.
+  const availability = usePurchaseAvailability();
+  const purchasingAllowed = nativeOverride === undefined ? availability === "web" : !nativeOverride;
 
   // B22: the exact disclosure the trial control needs adjacent to it —
   // the amount, the named charge date, and a cancel-any-time line naming

@@ -1136,3 +1136,57 @@ def test_no_viable_source_suggestion_carries_no_sources(monkeypatch):
         "Top up the account, make the move if you already have, or skip it for this month."
         in _find(items, "unfunded_move")["body"]
     )
+
+
+# ── G84: the single shared gate G71 introduced (`_gate_regular_move_cards`,
+# section 5d) is called OUTSIDE any try/except of its own, whereas the two
+# hand-aligned copies it replaced were not symmetric: section 5d's shadow
+# copy used to sit INSIDE the unfunded_move try/except (so a transient
+# failure there degraded only unfunded_move), while section 6's own probe
+# was already uncaught (a failure there already failed the whole request,
+# same as today). Because compute_today_items has many OTHER sections after
+# this one, each wrapped in its own independent try/except (windows, needle,
+# ask, cliff, trajectory, ...), an uncaught failure in the shared gate call
+# now takes all of THOSE down too, not just section 5d's card — a strictly
+# wider blast radius than existed before G71 for a transient error in this
+# specific spot. Fixed by giving the shared gate call its own try/except,
+# falling back to an empty gate (nothing emitted) on failure so both callers
+# degrade together (a symmetric, honest "no cover-plan cards this compute"
+# instead of one surviving by luck) without the exception propagating past
+# this point and killing every unrelated section of the brief.
+def test_regular_move_gate_failure_does_not_crash_the_whole_brief(monkeypatch):
+    """A transient failure inside the shared `_gate_regular_move_cards` call
+    must not raise out of `compute_today_items` — it must degrade (no
+    regular move/plan cards this compute) rather than fail the entire Home
+    brief, restoring the isolation section 5d's OWN try/except used to give
+    a database hiccup here before G71 merged the two probes into one call
+    sitting outside any try/except. Fails against the pre-G84 code (the bare
+    `await _gate_regular_move_cards(...)` with no try/except around it): the
+    injected RuntimeError propagates straight out of compute_today_items and
+    asyncio.run(...) re-raises it, erroring this test instead of letting it
+    reach the assertions below."""
+    accounts = [_account("premier", 10.0, name="Premier Current")]
+    bills = [
+        _mv_bill("PREMIER MOVE", 40.0, "premier", pending=True,
+                 days_past_due=2, original_date="2026-09-02"),
+        _commitment_bill("Council Tax", 50.0, "premier", days_away=1),
+    ]
+
+    async def _boom(**kwargs):
+        raise RuntimeError("transient companion_items_col failure")
+
+    monkeypatch.setattr(companion, "_gate_regular_move_cards", _boom)
+
+    # This fixture normally produces exactly one regular "move" card (see
+    # test_mixed_account_without_a_safe_source_still_has_one_skippable_card,
+    # same accounts/bills). If the gate failure were uncaught, the line
+    # below would raise and this test would error before reaching a single
+    # assertion.
+    items, _ = _run(monkeypatch, bills, accounts=accounts)
+
+    assert isinstance(items, list)
+    moves = [item for item in items if item["type"] == "move"]
+    assert moves == [], (
+        "the regular move card must degrade to absent on a gate failure, "
+        "not be emitted from a half-failed gate"
+    )

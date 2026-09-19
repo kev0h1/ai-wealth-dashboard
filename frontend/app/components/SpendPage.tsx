@@ -367,8 +367,14 @@ export default function SpendPage() {
     setPennyScreenView("spend", buildSpendPeriodView(verdict));
   }, [verdict, verdictLoading]);
   // `silent` = we already have something on screen for this offset (cache
-  // or a previous fetch) — revalidate in the background without flipping
-  // the spinner back on, and never blank a good verdict on a transient error.
+  // or a previous fetch) — never flip the spinner back on, and never blank
+  // a good verdict on a transient error. G83 (2026-09-18): calling this
+  // when a fresh cache hit already exists no longer makes a second network
+  // request — fetchVerdictData itself now checks the same TTL cachedVerdict
+  // reads below and resolves from it directly, so the call on the `if (hit)`
+  // branch just re-confirms what's already on screen (belt-and-braces
+  // against a hit expiring in the gap between the two calls) rather than
+  // the real "revalidate against the server" it used to be.
   const fetchVerdict = useCallback((offset: number, silent = false) => {
     verdictOffsetRef.current = offset;
     if (!silent) setVerdictLoading(true);
@@ -377,6 +383,19 @@ export default function SpendPage() {
       .catch(() => { if (verdictOffsetRef.current === offset && !silent) setVerdict(null); })
       .finally(() => { if (verdictOffsetRef.current === offset) setVerdictLoading(false); });
   }, []);
+  // G83 fix-round (2026-09-18 review): `payPeriodConfig` is a dependency —
+  // NOT just `periodOffset` — because the two are not interchangeable.
+  // Moving payday mid-cycle changes what date range offset 0 actually
+  // covers without necessarily changing the `periodOffset` NUMBER itself
+  // (the "re-initialise period" effect below resets periodOffset to 0,
+  // which is a no-op re-render when it was already 0), so without this,
+  // a config edit while viewing the current period never re-ran this
+  // effect at all — the screen kept showing the OLD boundaries' verdict
+  // indefinitely, not just for one TTL window. cachedVerdict(periodOffset)
+  // below still governs whether this repaints instantly from a hit or
+  // shows the loading state; PreferencesContext's payPeriodConfig saver
+  // invalidates the verdict cache itself once the save actually lands, so
+  // a hit here is only ever this SAME (still-current) config's data.
   useEffect(() => {
     verdictOffsetRef.current = periodOffset;
     const hit = cachedVerdict(periodOffset);
@@ -388,7 +407,7 @@ export default function SpendPage() {
       setVerdict(null);
       fetchVerdict(periodOffset);
     }
-  }, [periodOffset, fetchVerdict]);
+  }, [periodOffset, fetchVerdict, payPeriodConfig]);
 
   // The closing SpendShapeCard's own GET /money-shape — independent of the
   // period fetch above (the shape is the user's own recent-period pattern,
@@ -488,6 +507,11 @@ export default function SpendPage() {
     try {
       await api.deleteIntent(category);
       refetchSignals();
+      // G83 fix-round: an undone one_off/new_normal answer changes which
+      // notables/majority rows this verdict shows — without clearing the
+      // cache first, fetchVerdict's own TTL check would just repaint the
+      // still-fresh PRE-undo verdict for up to 90s.
+      invalidateVerdictCache();
       fetchVerdict(periodOffset);
     } catch {
       // The delete didn't actually land server-side — put the card back to
@@ -514,6 +538,10 @@ export default function SpendPage() {
     try {
       await api.recordTrendIntent(category, "new_normal");
       refetchSignals();
+      // G83 fix-round: filing "new normal" changes this category's notable
+      // treatment for the rest of the period — see handleUndo's identical
+      // comment above.
+      invalidateVerdictCache();
       fetchVerdict(periodOffset);
       handleResolved(category, "new_normal");
       setConsentFor(null);
@@ -1103,7 +1131,12 @@ export default function SpendPage() {
                 sym={sym}
                 onAimChanged={refetchSignals}
                 onIntent={(category, answer) => api.recordTrendIntent(category, answer)
-                  .then(() => { refetchSignals(); fetchVerdict(periodOffset); })}
+                  // G83 fix-round: same "the cache would otherwise repaint
+                  // the pre-decision verdict" gap as handleUndo/
+                  // handleFileNewNormal above — this is the one_off/
+                  // new_normal answer path reached from SpendVerdictView's
+                  // own inline controls rather than the consent sheet.
+                  .then(() => { refetchSignals(); invalidateVerdictCache(); fetchVerdict(periodOffset); })}
                 resolved={resolved}
                 onResolved={handleResolved}
                 onNewNormalRequest={(category) => { setFileError(false); setConsentFor(category); }}
@@ -1217,6 +1250,11 @@ export default function SpendPage() {
           onRecategorise={(tx) => { setAskHandoffTxId(null); setSelectedTx(tx); }}
           onChanged={() => {
             fetchMiscategorisedCount(periodOffset);
+            // G83 fix-round: a dismiss / transfer-pair confirm-reject here
+            // can change what "money you moved"/notables show, same as any
+            // other transaction-affecting write — without this the TTL
+            // cache would just repaint the pre-change verdict.
+            invalidateVerdictCache();
             fetchVerdict(periodOffset);
           }}
           accounts={accounts}

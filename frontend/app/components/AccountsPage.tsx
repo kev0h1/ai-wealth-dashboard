@@ -206,18 +206,28 @@ const MANUAL_KIND: Record<ManualAccountType, AccountKind> = {
  *  positions and approximate heights, so the swap to real content doesn't
  *  itself shift anything. The header block sits directly on the canvas
  *  (no card) to match the live header (Canvas Before Cards, G87 Variant A).
- *  BottomNav is mounted once in app/layout.tsx (G79) rather than by this
- *  page, so it's already real (never a placeholder) and navigation stays
- *  available while the page settles with no extra work here. No entrance
- *  animation on the blocks themselves beyond the shared `animate-pulse`
- *  shimmer — this codebase's rule against visibility-gating cascades. */
+ *  Reshaped again for G113 to match the header/group-card changes below:
+ *  the "+ Add" placeholder now sits inline beside the title instead of a
+ *  full-width bar underneath, and the row placeholders sit inside one
+ *  bounded group-card shape (header row + divided rows) instead of a bare
+ *  glass-card list with a floating label above it. BottomNav is mounted
+ *  once in app/layout.tsx (G79) rather than by this page, so it's already
+ *  real (never a placeholder) and navigation stays available while the
+ *  page settles with no extra work here. No entrance animation on the
+ *  blocks themselves beyond the shared `animate-pulse` shimmer — this
+ *  codebase's rule against visibility-gating cascades. */
 function AccountsSkeleton() {
   return (
     <div className="min-h-dvh pb-[calc(9rem+env(safe-area-inset-bottom,0px))]" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }} aria-hidden="true">
       <div className="px-4 pt-4 animate-pulse">
         <div className="mb-4">
-          <div className="h-6 w-24 rounded bg-slate-200 dark:bg-slate-700" />
-          <div className="h-3 w-56 rounded bg-slate-200 dark:bg-slate-700 mt-2" />
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="h-6 w-24 rounded bg-slate-200 dark:bg-slate-700" />
+              <div className="h-3 w-56 rounded bg-slate-200 dark:bg-slate-700 mt-2" />
+            </div>
+            <div className="h-11 w-24 rounded-xl bg-slate-200 dark:bg-slate-700 flex-shrink-0" />
+          </div>
           <div className="flex items-start justify-between gap-3 mt-5">
             <div className="min-w-0 space-y-2">
               <div className="h-2.5 w-20 rounded bg-slate-200 dark:bg-slate-700" />
@@ -227,7 +237,6 @@ function AccountsSkeleton() {
             <div className="w-11 h-11 rounded-full bg-slate-200 dark:bg-slate-700 flex-shrink-0" />
           </div>
         </div>
-        <div className="h-[42px] rounded-xl bg-slate-200 dark:bg-slate-700" />
       </div>
 
       <div className="px-4 pt-4 space-y-3">
@@ -237,20 +246,26 @@ function AccountsSkeleton() {
             <div key={l} className="h-11 w-20 rounded-full bg-slate-200 dark:bg-slate-700 animate-pulse flex-shrink-0" />
           ))}
         </div>
-        <div className="glass-card rounded-2xl overflow-hidden animate-pulse">
-          {[0, 1, 2, 3, 4].map((i) => (
-            <div
-              key={i}
-              className={`min-h-[60px] flex items-center gap-3 px-4 py-2.5 ${i > 0 ? "border-t border-slate-100 dark:border-white/5" : ""}`}
-            >
-              <div className="w-9 h-9 rounded-xl bg-slate-200 dark:bg-slate-700 flex-shrink-0" />
-              <div className="min-w-0 flex-1 space-y-1.5">
-                <div className="h-3.5 w-32 rounded bg-slate-200 dark:bg-slate-700" />
-                <div className="h-2.5 w-20 rounded bg-slate-200 dark:bg-slate-700" />
-              </div>
-              <div className="h-3.5 w-14 rounded bg-slate-200 dark:bg-slate-700 flex-shrink-0" />
+        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:shadow-none animate-pulse">
+          <div className="flex min-h-16 items-center justify-between gap-3 px-4">
+            <div className="space-y-1.5">
+              <div className="h-3.5 w-20 rounded bg-slate-200 dark:bg-slate-700" />
+              <div className="h-2.5 w-16 rounded bg-slate-200 dark:bg-slate-700" />
             </div>
-          ))}
+            <div className="h-3.5 w-14 rounded bg-slate-200 dark:bg-slate-700" />
+          </div>
+          <div className="divide-y divide-slate-100 border-t border-slate-100 dark:divide-slate-700 dark:border-slate-700">
+            {[0, 1, 2, 3, 4].map((i) => (
+              <div key={i} className="min-h-[60px] flex items-center gap-3 px-4 py-2.5">
+                <div className="w-9 h-9 rounded-xl bg-slate-200 dark:bg-slate-700 flex-shrink-0" />
+                <div className="min-w-0 flex-1 space-y-1.5">
+                  <div className="h-3.5 w-32 rounded bg-slate-200 dark:bg-slate-700" />
+                  <div className="h-2.5 w-20 rounded bg-slate-200 dark:bg-slate-700" />
+                </div>
+                <div className="h-3.5 w-14 rounded bg-slate-200 dark:bg-slate-700 flex-shrink-0" />
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>
@@ -2467,8 +2482,102 @@ export default function AccountsPage() {
         className="relative z-30 px-4 pt-4 pb-6"
       >
         <div className="mb-4">
-          <h1 className="text-[26px] font-bold leading-tight tracking-[-0.03em] text-slate-950 dark:text-white">Accounts</h1>
-          <p className="mt-1 max-w-[62ch] text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-400">Everything you own and owe, in one position.</p>
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h1 className="text-[26px] font-bold leading-tight tracking-[-0.03em] text-slate-950 dark:text-white">Accounts</h1>
+              <p className="mt-1 max-w-[62ch] text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-400">Everything you own and owe, in one position.</p>
+            </div>
+            {/* "+ Add" inline beside the title (G113 — matches the ratified
+                preview's AccountsCanvasHeader). Was previously a full-width
+                primary button below net worth: louder than the preview and
+                pushing the whole list down. Condensed from the old 3/4-
+                button row (header Variant B) still holds — every
+                destination below is the same handler the separate buttons
+                used to call, only the entry point and position changed. */}
+            {tab === "Banks" && (
+              <div className="relative shrink-0" ref={addMenuRef}>
+                <button
+                  data-tutorial-id="tutorial-add-account"
+                  onClick={() => setAddMenuOpen(v => !v)}
+                  className="inline-flex min-h-11 items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-all px-4 rounded-xl text-sm font-semibold text-white"
+                  aria-expanded={addMenuOpen}
+                  aria-haspopup="menu"
+                >
+                  <Plus size={15} />
+                  Add
+                  <ChevronDown size={13} className={`opacity-70 transition-transform ${addMenuOpen ? "rotate-180" : ""}`} />
+                </button>
+                {addMenuOpen && (
+                  <div
+                    role="menu"
+                    className="absolute right-0 top-[calc(100%+6px)] z-30 w-56 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-slate-100 dark:border-white/10 py-1 divide-y divide-slate-100 dark:divide-white/5 overflow-hidden"
+                  >
+                    {region === "UK" ? (
+                      <>
+                        <AddMenuItem
+                          tutorialId="tutorial-add-bank"
+                          icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
+                          label="Add Bank"
+                          onClick={() => { setAddMenuOpen(false); setShowBankPicker("finexer"); }}
+                        />
+                        {TRUELAYER_PICKER && (
+                          <AddMenuItem
+                            icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
+                            label="Add Bank via TrueLayer"
+                            onClick={() => { setAddMenuOpen(false); setShowBankPicker("truelayer"); }}
+                          />
+                        )}
+                        <AddMenuItem
+                          tutorialId="tutorial-add-statement"
+                          icon={<Upload size={14} className="text-slate-400 flex-shrink-0" />}
+                          label="Statement"
+                          onClick={() => { setAddMenuOpen(false); setShowMpesaUpload(true); }}
+                        />
+                        <AddMenuItem
+                          tutorialId="tutorial-add-investment"
+                          icon={<TrendingUp size={14} className="text-slate-400 flex-shrink-0" />}
+                          label="Investment"
+                          onClick={() => { setAddMenuOpen(false); setShowInvestmentUpload(true); }}
+                        />
+                        <AddMenuItem
+                          tutorialId="tutorial-add-offline"
+                          icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
+                          label="Offline"
+                          onClick={() => { setAddMenuOpen(false); openAddManual(); }}
+                        />
+                      </>
+                    ) : (
+                      <>
+                        <MonoConnectWidget onSuccess={handleMonoSuccess}>
+                          {(open, monoLoading) => (
+                            <AddMenuItem
+                              tutorialId="tutorial-add-bank"
+                              icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
+                              label={monoLoading ? "Opening…" : "Mono"}
+                              disabled={monoLoading}
+                              onClick={() => { setAddMenuOpen(false); open(); }}
+                            />
+                          )}
+                        </MonoConnectWidget>
+                        <AddMenuItem
+                          tutorialId="tutorial-add-statement"
+                          icon={<Upload size={14} className="text-slate-400 flex-shrink-0" />}
+                          label="Statement"
+                          onClick={() => { setAddMenuOpen(false); setShowMpesaUpload(true); }}
+                        />
+                        <AddMenuItem
+                          tutorialId="tutorial-add-offline"
+                          icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
+                          label="Offline"
+                          onClick={() => { setAddMenuOpen(false); openAddManual(); }}
+                        />
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
           {kpis && (() => {
             const cardTotal = accounts
               .filter(a => {
@@ -2523,93 +2632,12 @@ export default function AccountsPage() {
           })()}
         </div>
 
-        {/* Context-aware action: one primary "+ Add" — condensed from the
-            old 3/4-button row (header Variant B). Every destination below is
-            the exact same handler the separate buttons used to call; only
-            the entry point changed. */}
-        {tab === "Banks" ? (
-          <div className="relative" ref={addMenuRef}>
-            <button
-              data-tutorial-id="tutorial-add-account"
-              onClick={() => setAddMenuOpen(v => !v)}
-              className="w-full flex items-center justify-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-all px-4 py-2.5 rounded-xl text-sm font-semibold text-white"
-              aria-expanded={addMenuOpen}
-              aria-haspopup="menu"
-            >
-              <Plus size={15} />
-              Add
-              <ChevronDown size={13} className={`opacity-70 transition-transform ${addMenuOpen ? "rotate-180" : ""}`} />
-            </button>
-            {addMenuOpen && (
-              <div
-                role="menu"
-                className="absolute left-0 right-0 top-[calc(100%+6px)] z-30 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-slate-100 dark:border-white/10 py-1 divide-y divide-slate-100 dark:divide-white/5 overflow-hidden"
-              >
-                {region === "UK" ? (
-                  <>
-                    <AddMenuItem
-                      tutorialId="tutorial-add-bank"
-                      icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
-                      label="Add Bank"
-                      onClick={() => { setAddMenuOpen(false); setShowBankPicker("finexer"); }}
-                    />
-                    {TRUELAYER_PICKER && (
-                      <AddMenuItem
-                        icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
-                        label="Add Bank via TrueLayer"
-                        onClick={() => { setAddMenuOpen(false); setShowBankPicker("truelayer"); }}
-                      />
-                    )}
-                    <AddMenuItem
-                      tutorialId="tutorial-add-statement"
-                      icon={<Upload size={14} className="text-slate-400 flex-shrink-0" />}
-                      label="Statement"
-                      onClick={() => { setAddMenuOpen(false); setShowMpesaUpload(true); }}
-                    />
-                    <AddMenuItem
-                      tutorialId="tutorial-add-investment"
-                      icon={<TrendingUp size={14} className="text-slate-400 flex-shrink-0" />}
-                      label="Investment"
-                      onClick={() => { setAddMenuOpen(false); setShowInvestmentUpload(true); }}
-                    />
-                    <AddMenuItem
-                      tutorialId="tutorial-add-offline"
-                      icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
-                      label="Offline"
-                      onClick={() => { setAddMenuOpen(false); openAddManual(); }}
-                    />
-                  </>
-                ) : (
-                  <>
-                    <MonoConnectWidget onSuccess={handleMonoSuccess}>
-                      {(open, monoLoading) => (
-                        <AddMenuItem
-                          tutorialId="tutorial-add-bank"
-                          icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
-                          label={monoLoading ? "Opening…" : "Mono"}
-                          disabled={monoLoading}
-                          onClick={() => { setAddMenuOpen(false); open(); }}
-                        />
-                      )}
-                    </MonoConnectWidget>
-                    <AddMenuItem
-                      tutorialId="tutorial-add-statement"
-                      icon={<Upload size={14} className="text-slate-400 flex-shrink-0" />}
-                      label="Statement"
-                      onClick={() => { setAddMenuOpen(false); setShowMpesaUpload(true); }}
-                    />
-                    <AddMenuItem
-                      tutorialId="tutorial-add-offline"
-                      icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
-                      label="Offline"
-                      onClick={() => { setAddMenuOpen(false); openAddManual(); }}
-                    />
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-        ) : (
+        {/* Investments-tab (legacy internal drill-in, reached only via
+            ?tab=Investments deep link now the tab bar itself is gone — see
+            the comment below) still gets its own upload / cold-start
+            controls here; the "+ Add" menu for the default Banks tab now
+            lives inline beside the title above (G113). */}
+        {tab !== "Banks" && (
           <div>
             <div className="flex gap-2">
               <button
@@ -2866,48 +2894,114 @@ export default function AccountsPage() {
                   </div>
                 ) : (
                   <>
-                    {/* Pinned band */}
+                    {/* Pinned band (G113 — matches the ratified preview's
+                        PinnedBand exactly: one bounded card, "Pinned" label
+                        inside it, not a bare uppercase label floating above
+                        unbounded rows). A pinned account also appears again
+                        inside its own kind-group below — that duplication
+                        is deliberate (A1, Kevin approved 2026-09-16) and is
+                        what check:accounts-pinned pins down via
+                        buildEstate() directly. */}
                     {estate.pinned.length > 0 && (
-                      <div>
-                        <p className="px-1 mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Pinned</p>
-                        <div className="glass-card rounded-2xl overflow-hidden">
-                          {estate.pinned.map((row, i) => (
-                            <div key={row.id} className={i > 0 ? "border-t border-slate-100 dark:border-white/5" : ""}>
-                              <AccountLedgerRow row={row} onClick={handleEstateRowClick} {...estateTermsProps(row)} />
-                            </div>
+                      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:shadow-none" aria-label="Pinned accounts">
+                        <p className="px-4 pt-3 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Pinned</p>
+                        <div className="mt-1 divide-y divide-slate-100 dark:divide-slate-700">
+                          {estate.pinned.map((row) => (
+                            <AccountLedgerRow key={row.id} row={row} onClick={handleEstateRowClick} {...estateTermsProps(row)} />
                           ))}
                         </div>
-                      </div>
+                      </section>
                     )}
 
-                    {/* Collapsible groups — sticky header, chevron, subtotal */}
+                    {/* Collapsible groups (G113 — matches the ratified
+                        preview's AccountGroupCard: header AND rows inside
+                        ONE bounded section with a border/radius/shadow, the
+                        group name at 15px bold with the count as an 11px
+                        subtitle beneath it, "one group, one object" instead
+                        of a detached floating label.
+
+                        The header keeps its sticky (top-0) behaviour —
+                        Kevin holds 23 bank accounts, several of them cards
+                        in the same "Credit" group, so a group's own rows
+                        can run well past one screen and losing the sticky
+                        label mid-scroll would mean losing track of which
+                        group and subtotal you're looking at. Getting this
+                        to coexist with "one bounded card" took a real fix,
+                        not just nesting: `overflow-hidden` on the section
+                        (needed to clip the rows list to the card's rounded
+                        corners) independently breaks `position: sticky` for
+                        any descendant, confirmed empirically in headless
+                        Chrome (a stuck header stayed pinned with
+                        `overflow-hidden` removed from the section, and
+                        scrolled away with it present, at every viewport
+                        width) — this is standard CSS: an `overflow: hidden`
+                        ancestor becomes the sticky element's scrolling
+                        containing block, and since the SECTION itself never
+                        scrolls (only the page does), the header can never
+                        enter its "stuck" state inside one. So the section
+                        below carries NO overflow-hidden; instead the header
+                        rounds its own top corners (full corners while
+                        collapsed, since it is then the only visible content)
+                        and the existing rows-collapse wrapper (already
+                        `overflow-hidden` for its height/opacity animation)
+                        rounds its own bottom corners — two shapes that tile
+                        exactly into the section's own rounded outline, so it
+                        still reads as one bounded object at rest and while
+                        scrolling, with the header genuinely able to stick.
+
+                        One more thing this does NOT fix: `#app-shell` sets
+                        `overflow-x: hidden` below the `lg` (1024px)
+                        breakpoint (app/globals.css, H56's comment on that
+                        rule), which independently makes IT the sticky
+                        containing block for every descendant sticky element
+                        in the app on mobile — the same pre-existing,
+                        already-tracked defect (H61 is the planned app-wide,
+                        audited fix; its own comment explicitly says not to
+                        pre-empt it from a single sandboxed item) that
+                        already silently broke this exact header's
+                        stickiness before G113 touched it. Confirmed in
+                        headless Chrome: at 1280px (`#app-shell`'s
+                        `overflow-x` computes to `visible` there) the header
+                        now sticks correctly with this fix in place; below
+                        1024px it still does not, for that separate, older,
+                        out-of-scope reason. G113 does not widen its own
+                        fix into #app-shell's rule — that is exactly the
+                        one-sandbox pre-emption H61's own comment warns
+                        against. At rest, or for any group short enough to
+                        fit on screen (most of them), none of this matters:
+                        it simply reads as the one bounded object the
+                        preview specifies. */}
                     {estate.groups.length === 0 ? (
-                      <div className="glass-card rounded-2xl px-4 py-10 text-center text-sm text-slate-400 dark:text-slate-500">
+                      <div className="rounded-2xl border border-slate-200 bg-white px-4 py-10 text-center text-sm text-slate-400 shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-500 dark:shadow-none">
                         No accounts in this view
                       </div>
                     ) : (
                       estate.groups.map((group) => {
                         const isCollapsed = collapsedGroups[group.label] ?? (group.kind === "Credit" && group.count > 4);
                         return (
-                          <div key={group.label}>
+                          <section
+                            key={group.label}
+                            className="rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:shadow-none"
+                            aria-label={`${group.label} accounts`}
+                          >
                             <button
                               type="button"
                               onClick={() => toggleEstateGroup(group.label)}
                               aria-expanded={!isCollapsed}
-                              className="sticky top-0 z-10 mb-1.5 w-full flex items-center justify-between gap-2 rounded-xl px-3 py-2.5 bg-slate-50/95 dark:bg-slate-900/90 backdrop-blur-sm border border-slate-100/80 dark:border-white/5 shadow-sm"
+                              className={`sticky top-0 z-10 flex min-h-16 w-full items-center justify-between gap-3 bg-white px-4 text-left transition-colors hover:bg-slate-50 active:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 dark:bg-slate-800 dark:hover:bg-slate-700/60 dark:active:bg-slate-700 ${isCollapsed ? "rounded-2xl" : "rounded-t-2xl"}`}
                             >
-                              <span className="flex items-baseline gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                                {group.label}
-                                <span className="text-slate-400 dark:text-slate-600 font-medium normal-case">· {group.count}</span>
+                              <span>
+                                <span role="heading" aria-level={2} className="block text-[15px] font-bold text-slate-900 dark:text-slate-100">{group.label}</span>
+                                <span className="mt-0.5 block text-[11px] text-slate-500 dark:text-slate-400">{group.count} {group.count === 1 ? "account" : "accounts"}</span>
                               </span>
-                              <span className="flex items-center gap-1.5">
-                                <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 money">
+                              <span className="flex items-center gap-2">
+                                <span className="money text-[14px] font-semibold text-slate-800 dark:text-slate-200">
                                   {hideNetWorth
-                                    ? "••••"
+                                    ? "£••••"
                                     : `${group.subtotal < 0 ? "-" : ""}£${Math.abs(Math.round(group.subtotal)).toLocaleString("en-GB")}`}
                                 </span>
                                 <ChevronDown
-                                  size={14}
+                                  size={16}
                                   className={`text-slate-400 dark:text-slate-500 transition-transform duration-200 motion-reduce:transition-none ${isCollapsed ? "" : "rotate-180"}`}
                                   aria-hidden="true"
                                 />
@@ -2919,41 +3013,47 @@ export default function AccountsPage() {
                               }`}
                             >
                               <div
-                                className={`overflow-hidden transition-opacity duration-200 motion-reduce:transition-none motion-reduce:duration-0 ${
+                                className={`overflow-hidden rounded-b-2xl transition-opacity duration-200 motion-reduce:transition-none motion-reduce:duration-0 ${
                                   isCollapsed ? "opacity-0" : "opacity-100"
                                 }`}
                               >
-                                <div className="glass-card rounded-2xl overflow-hidden">
-                                  {group.rows.map((row, i) => (
-                                    <div key={row.id} className={i > 0 ? "border-t border-slate-100 dark:border-white/5" : ""}>
-                                      <AccountLedgerRow row={row} onClick={handleEstateRowClick} {...estateTermsProps(row)} />
-                                    </div>
+                                <div className="divide-y divide-slate-100 border-t border-slate-100 dark:divide-slate-700 dark:border-slate-700">
+                                  {group.rows.map((row) => (
+                                    <AccountLedgerRow key={row.id} row={row} onClick={handleEstateRowClick} {...estateTermsProps(row)} />
                                   ))}
                                 </div>
                               </div>
                             </div>
-                          </div>
+                          </section>
                         );
                       })
                     )}
 
                     {/* Inactive — dormant £0 accounts, collapsed by default.
                         A stale account keeps its connection-status dot here;
-                        the provider action stays in the strip above. */}
+                        the provider action stays in the strip above. Same
+                        bounded-card treatment as the groups above (G113),
+                        for the same reason: it shared the identical header
+                        class before this change and should keep matching
+                        it now — including the no-overflow-hidden-on-the-
+                        section / rounded-corners-on-the-header-and-rows-
+                        wrapper split that keeps `position: sticky` actually
+                        working (see the long comment on the groups above
+                        for why). */}
                     {inactiveRows.length > 0 && (
-                      <div>
+                      <section className="rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:shadow-none" aria-label="Inactive accounts">
                         <button
                           type="button"
                           onClick={() => setInactiveOpen(o => !o)}
                           aria-expanded={inactiveOpen}
-                          className="sticky top-0 z-10 mb-1.5 w-full flex items-center justify-between gap-2 rounded-xl px-3 py-2.5 bg-slate-50/95 dark:bg-slate-900/90 backdrop-blur-sm border border-slate-100/80 dark:border-white/5 shadow-sm"
+                          className={`sticky top-0 z-10 flex min-h-16 w-full items-center justify-between gap-3 bg-white px-4 text-left transition-colors hover:bg-slate-50 active:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 dark:bg-slate-800 dark:hover:bg-slate-700/60 dark:active:bg-slate-700 ${inactiveOpen ? "rounded-t-2xl" : "rounded-2xl"}`}
                         >
-                          <span className="flex items-baseline gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
-                            Inactive
-                            <span className="text-slate-400 dark:text-slate-600 font-medium normal-case">· {inactiveRows.length}</span>
+                          <span>
+                            <span role="heading" aria-level={2} className="block text-[15px] font-bold text-slate-900 dark:text-slate-100">Inactive</span>
+                            <span className="mt-0.5 block text-[11px] text-slate-500 dark:text-slate-400">{inactiveRows.length} {inactiveRows.length === 1 ? "account" : "accounts"}</span>
                           </span>
                           <ChevronDown
-                            size={14}
+                            size={16}
                             className={`text-slate-400 dark:text-slate-500 transition-transform duration-200 motion-reduce:transition-none ${inactiveOpen ? "rotate-180" : ""}`}
                             aria-hidden="true"
                           />
@@ -2964,20 +3064,18 @@ export default function AccountsPage() {
                           }`}
                         >
                           <div
-                            className={`overflow-hidden transition-opacity duration-200 motion-reduce:transition-none motion-reduce:duration-0 ${
+                            className={`overflow-hidden rounded-b-2xl transition-opacity duration-200 motion-reduce:transition-none motion-reduce:duration-0 ${
                               inactiveOpen ? "opacity-100" : "opacity-0"
                             }`}
                           >
-                            <div className="glass-card rounded-2xl overflow-hidden">
-                              {inactiveRows.map((row, i) => (
-                                <div key={row.id} className={i > 0 ? "border-t border-slate-100 dark:border-white/5" : ""}>
-                                  <AccountLedgerRow row={row} onClick={handleEstateRowClick} />
-                                </div>
+                            <div className="divide-y divide-slate-100 border-t border-slate-100 dark:divide-slate-700 dark:border-slate-700">
+                              {inactiveRows.map((row) => (
+                                <AccountLedgerRow key={row.id} row={row} onClick={handleEstateRowClick} />
                               ))}
                             </div>
                           </div>
                         </div>
-                      </div>
+                      </section>
                     )}
                   </>
                 )}
