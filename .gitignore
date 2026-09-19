@@ -88,3 +88,13 @@ frontend/.screens/
 # Pentest raw evidence (A43) — never committed; sanitised summaries live under
 # docs/security/pentest-runs/ instead.
 .pentest-evidence/
+
+# Pentest ROE env file (A47) — the private per-run identity-to-pseudonym
+# mapping and per-window session tokens (docs/security/pentest-runs/
+# roe-env.template shows the shape; never commit the filled-in file). It
+# belongs inside .pentest-evidence/<run-id>/ (already ignored above), but is
+# ignored by name too as a second line of defence in case it ever lands
+# somewhere else; scripts/check_pentest_evidence.py is the structural
+# backstop that catches it regardless of location or a bypassed .gitignore.
+roe.env
+*.roe.env
