@@ -182,6 +182,44 @@ def test_no_resolvable_consent_id_logged_as_skipped(monkeypatch):
     assert fake_events.docs[0]["skip_reason"] == "no consent_id"
 
 
+# ── 2b. Replay (A57, FIN-02 local-fixture half) ──────────────────────────
+
+def test_replaying_a_valid_finexer_delivery_twice_only_ever_triggers_the_same_idempotent_resync(monkeypatch):
+    """Mirrors test_truelayer_webhook.py's
+    test_replaying_a_valid_delivery_twice_only_ever_triggers_the_same_idempotent_resync,
+    which existed for TrueLayer but had no Finexer counterpart before this
+    run (A57, WP9). Finexer's webhook route has no delivery-level dedup by
+    event id either (see finexer_webhook()'s own docstring: it is
+    deliberately event-type-agnostic and relies on task_sync_finexer being
+    idempotent per-consent, per finexer_sync_pipeline's own module
+    docstring). So the expected secure property is the same as TrueLayer's:
+    replaying an identical, correctly-secreted delivery causes two log
+    entries and two enqueues for the SAME consent/user, never a different
+    one and never more than triggering task_sync_finexer (itself
+    idempotent), never a duplicated financial side effect."""
+    fake_consents, fake_events = _setup(
+        monkeypatch,
+        consents=[{"_id": "c10", "user_id": "kevin@example.com", "status": "authorized"}],
+    )
+    calls = _spy_enqueue(monkeypatch)
+
+    payload = {"type": "transaction.created", "consent_id": "c10"}
+    first = asyncio.run(webhooks_module.finexer_webhook(SECRET, _FakeRequest(payload)))
+    second = asyncio.run(webhooks_module.finexer_webhook(SECRET, _FakeRequest(payload)))
+
+    assert first == {"ok": True}
+    assert second == {"ok": True}
+    assert len(calls) == 2
+    assert all(
+        c == {"task": "task_sync_finexer", "consent_id": "c10", "user_id": "kevin@example.com"}
+        for c in calls
+    )
+    assert len(fake_events.docs) == 2
+    assert all(d["status"] == "queued" for d in fake_events.docs)
+    # Consent doc itself is untouched by a non-revoke replay.
+    assert fake_consents.docs[0]["status"] == "authorized"
+
+
 # ── 3. Known consent + arbitrary event type → sync enqueued ─────────────
 
 def test_known_consent_arbitrary_event_type_enqueues_sync(monkeypatch):
