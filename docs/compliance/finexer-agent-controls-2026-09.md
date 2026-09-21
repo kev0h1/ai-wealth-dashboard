@@ -162,7 +162,7 @@ Retention: account and transaction data deleted within 30 days of closure, withd
 
 ## Q11 Security and incident controls, testing
 
-Status: blocked-deploy
+Status: ready
 
 ```text
 Confirmed; the controls in our Security and Incident Response Policy are implemented in production: bank tokens encrypted at rest (AES/Fernet), key held only in platform secrets outside source control; signed, time-limited session tokens on every request; sign-in only via verified Google/Apple identities, registration allow-listed until launch; TLS in transit; restricted CORS; rate limiting on auth/webhook routes; HMAC verification on Finexer webhooks; API docs disabled; MongoDB Atlas access controls; encrypted nightly backups, 30-day retention; platform logging on Vercel, Railway, Atlas.
