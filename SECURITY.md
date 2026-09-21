@@ -2,7 +2,7 @@
 
 **Owner:** Kevin Maingi, Founder / Information Security Manager
 **Applies to:** the Auriq Wealth product (web app, iOS/Android apps) and all supporting infrastructure operated by AURIQ LTD.
-**Status:** Version 1.10 — last reviewed 2026-09-14. Reviewed at least annually and after any material incident or architecture change.
+**Status:** Version 1.11, last reviewed 2026-09-21. Reviewed at least annually and after any material incident or architecture change.
 
 This document is the company's primary security policy. It exists to satisfy our obligations as a registered agent of Finexer LTD for Account Information Services (AIS) and under UK GDPR / the Data Protection Act 2018. It covers our security controls, our incident-response process, and our data-breach procedures.
 
@@ -88,6 +88,122 @@ answer itself (not edited by this pass) and
 `docs/security/pentest-scope-2026-09.md` /
 `docs/security/oauth-threat-model.md` for the pentest-readiness evidence
 Q11 can also cite.
+
+## 3b. Internal security testing, 2026-09-19/20 (A45)
+
+**What this was.** AURIQ LTD performed an internal security assessment of
+Sorted, executed by this project's own AI agents (Claude and Codex working
+sessions), under a signed rules-of-engagement record
+(`docs/security/pentest-runs/roe-record.md`, authorised by Kevin,
+2026-09-20). Test identities are referred to only by pseudonym (PT-A, PT-B,
+PT-C); real identifiers live only in a gitignored, non-committed file. This
+was internal testing and was not an independent third-party or CREST
+engagement. The separate, future external engagement (board item A7, a
+CREST-accredited penetration test) remains open and is booked ahead of
+public launch; this round is its internal precursor, not a substitute for
+it.
+
+**What was executed.** Seven work packages ran on 2026-09-19 and
+2026-09-20, each recording its own sanitised evidence under
+`docs/security/pentest-runs/<run-id>/`:
+
+| Work package | Scope | Board item |
+|---|---|---|
+| WP1 | Web shell and `/design` preview routes | A48 |
+| WP3 | API tenant and object authorisation, including account deletion | A50 |
+| WP4 | API input handling, uploads, business-logic ordering | A51 |
+| WP5 | OAuth 2.1 authorisation server | A52 |
+| WP7a | Android app shell, static analysis only | A54 |
+| WP9 | Finexer and TrueLayer boundary | A57 |
+| WP11 | OpenRouter and Penny trust boundary | A59 |
+
+WP0 (A47) built the evidence and rules-of-engagement harness ahead of these
+seven. Findings raised during execution were triaged against a
+single-reviewer (same-model) pass; WP12, the cross-model review where a
+Codex session checks every Claude-run package and vice versa (board item
+A60), has not yet started, so no finding below has had its severity or
+validity checked by the other model yet. Final severities remain the ISM's
+to confirm per section 3a.
+
+**Not yet executed**, and not reflected in the findings below because no
+test has been run: WP2 (general API rate-limiting, CORS and error-handling
+hardening, A49), WP6 (the MCP connector, A53), WP7b (Android dynamic
+testing on a device, A55) and WP10 (the Stripe fail-closed boundary, A58).
+WP8 (iOS, A56) has had only a static, repository-level review; dynamic iOS
+testing has not run. All four sit open on the internal backlog with no
+recorded test run; none of the four surfaces they cover should be read as
+cleared by this round.
+
+**Findings.** Every finding below is currently open; none has been
+remediated (Kevin's deliberate choice was to report first and fix after,
+see each item's own board note). Severities use section 3's bands and are
+provisional pending the ISM's sign-off and the still-owed cross-model
+review above.
+
+*High (P2): three findings, one root cause. The account-deletion path
+does not disconnect a customer's bank connection before erasing local
+data.*
+
+| Item | Finding | Status |
+|---|---|---|
+| A82 | Account deletion never revokes the Finexer consent first, orphaning it at the provider | Open |
+| A83 | `GET /connections` does not list live Finexer connections, hiding the very connection A82's disconnect-first step needs | Open |
+| A84 | A deleted account's session token is not invalidated and remains usable for up to 7 days; it has been shown able to write persistent data that reattaches if the account is later recreated with the same email | Open |
+
+*Medium (P3)*
+
+| Item | Finding | Status |
+|---|---|---|
+| A73 | OAuth consent page under-emphasises the true redirect host relative to the connector's self-reported name | Open |
+| A74 | Refresh-token rotation does not cascade-revoke the sibling access token from the same grant (pre-documented gap) | Open |
+| A79 | Bank narrative text is sent to OpenRouter for categorisation and Penny read tools, unredacted (pre-documented design concern) | Open |
+| A88 | Finexer consent callback accepts a missing `state` parameter (defence-in-depth gap only; no cross-account path exists because binding is fixed at session-gated consent creation) | Open |
+| A89 | Webhook path-secret comparison is not constant-time (no practical timing exploit identified; the secret also functions as a long random URL segment) | Open |
+
+*Low (P4)*
+
+| Item | Finding | Status |
+|---|---|---|
+| A76 | `/design/*` preview routes are publicly indexable (no `robots.txt`/`X-Robots-Tag`) | Open |
+| A77 | The native-purchase `X-Client-Platform` header check can be bypassed by omitting it (billing is not live; pre-documented) | Open |
+| A80 | No global/service-wide OpenRouter spend ceiling exists, only a per-user monthly allowance | Open |
+| A81 | The per-user LLM allowance check fails open, not closed, on an internal lookup error (documented, deliberate trade-off) | Open |
+| A85 | `PATCH /preferences` has no optimistic-concurrency check and accepts an unadvertised field (mass assignment) | Open |
+| A86 | The commitment state machine allows out-of-order transitions and has no create-time idempotency check | Open |
+
+A75 (a frontend-only distribution flag with no backend equivalent) is a
+product-intent question for Kevin, not a severity-rated security finding.
+
+**Headline.** No Critical findings. Three High findings, all one
+deletion-lifecycle workstream (A82/A83/A84), none yet remediated.
+Everything else found is Medium or Low. All findings above remain open.
+
+**Scope caveats, stated plainly.** This round has real, acknowledged gaps
+that a reader of the findings list above should not have to infer:
+
+- The cross-model (Codex) review of every Claude-run package, and the
+  Claude review of every Codex-run package (WP12, A60), has not started.
+- Two Finexer/TrueLayer cases could not be completed: `FIN-06` (webhook
+  payload retention) and the accepted-delivery live halves of `FIN-01` and
+  `TL-02`, because this testing session has no production database read
+  path and no provider-approved sandbox consent exists.
+- iOS dynamic testing (WP8) has not run. The methodology's default is to
+  defer it to the external A7 engagement; Kevin has since confirmed he has
+  a TestFlight build and a device and could run it himself instead, but
+  that decision and the run itself remain open.
+- A temporary `OPEN_SIGNUP` window on production (opened and closed on
+  2026-09-19, board item A63, to create test identities) was not audited
+  for unexpected registrations during the roughly 36-minute window it was
+  open.
+- WP2, WP6, WP7b and WP10 (see "Not yet executed" above) have not been
+  executed at all; their surfaces (general API hardening, the MCP
+  connector, Android dynamic behaviour, and the Stripe billing boundary)
+  carry no internal test coverage from this round.
+
+This section is the evidence Q11 ("Security and incident controls,
+testing") cites for the internal testing programme; see
+`docs/compliance/finexer-agent-controls-2026-09.md` for the questionnaire
+answer and `docs/security/pentest-runs/` for the sanitised per-run records.
 
 ## 4. Incident response process
 
@@ -184,3 +300,4 @@ This policy is reviewed at least annually, and after any material incident, chan
 | 1.8 | 2026-09-08 | Contact address changed to info@auriqltd.co.uk. |
 | 1.9 | 2026-09-10 | Fresh dependency audit ahead of the production deploy (release-20260910-1137); recorded below. |
 | 1.10 | 2026-09-14 | A26 pentest-readiness pass: added the remediation SLA (§3a); dependency/container scanning moved from a one-off manual audit to CI (`.github/workflows/security-scan.yml`); added public `security.txt` (RFC 9116); OAuth 2.1 authorisation server threat-modelled for the first time (`docs/security/oauth-threat-model.md`) and a concurrent-redemption race in the authorization-code and refresh-token exchange fixed; added webhook replay/forgery tests for TrueLayer (previously untested) alongside the existing Finexer/Stripe coverage; confirmed bank tokens are Fernet-encrypted at rest for TrueLayer connections (read-only check against live UAT data) and found Yapily's dormant consent-token storage is not (flagged, not fixed — see `docs/security/pentest-scope-2026-09.md`); added a CI guard against `/design` preview routes reaching real data, and found six existing preview files already do (flagged, not fixed, same document). |
+| 1.11 | 2026-09-21 | A45 draft: added §3b recording the internal security testing round of 2026-09-19/20 (seven work packages, findings by severity, all currently open) and its scope caveats, folded into Q11 as a proposed answer pending Kevin's sign-off. |
