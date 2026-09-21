@@ -125,10 +125,41 @@ def test_openapi_route_table_excludes_truelayer_in_production():
     assert not any("truelayer" in p for p in schema_paths)
 
 
-def test_health_does_not_claim_truelayer_is_configured_in_production():
+def test_health_does_not_claim_truelayer_is_configured_in_production(monkeypatch):
+    """`TRUELAYER_CLIENT_ID` MUST be forced to a non-empty value here.
+
+    Without it this test is vacuous: the credential is unset in every
+    session worktree (`backend/.env` lives in the shared tree only), so
+    `bool(TRUELAYER_CLIENT_ID)` is already False and the assertion passes
+    against the unfixed code too — verified by reverting `/health` to
+    `bool(TRUELAYER_CLIENT_ID)` and watching all 19 tests in this file still
+    pass. The case that actually matters is production TODAY: the
+    credentials ARE still sitting on both Railway services, and `/health`
+    must not report the provider as configured when the route table does not
+    contain it. `/health` resolves the name from `app.main`'s module globals
+    at call time, so patching it there is what the running app sees."""
+    monkeypatch.setattr(main_module, "TRUELAYER_CLIENT_ID", "tl-client-id-present-in-this-test")
     client = TestClient(_build(False))
     body = client.get("/health").json()
     assert body["truelayer_configured"] is False
+    # Finexer is unaffected: production's real provider still reports itself.
+    assert "finexer_configured" in body
+
+
+def test_health_reports_truelayer_configured_on_uat_when_credentials_are_set(monkeypatch):
+    """The counterpart, so the assertion above cannot pass merely because
+    `truelayer_configured` is hardwired to False."""
+    monkeypatch.setattr(main_module, "TRUELAYER_CLIENT_ID", "tl-client-id-present-in-this-test")
+    client = TestClient(_build(True))
+    assert client.get("/health").json()["truelayer_configured"] is True
+
+
+def test_health_reports_not_configured_on_uat_without_credentials(monkeypatch):
+    """And "enabled" alone is not "configured": UAT with no client id still
+    reports False, so the flag cannot paper over missing credentials."""
+    monkeypatch.setattr(main_module, "TRUELAYER_CLIENT_ID", None)
+    client = TestClient(_build(True))
+    assert client.get("/health").json()["truelayer_configured"] is False
 
 
 # ── UAT: present, proving the wiring is not simply always-off ──────────────

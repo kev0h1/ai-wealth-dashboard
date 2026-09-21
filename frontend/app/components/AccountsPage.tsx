@@ -339,7 +339,7 @@ export default function AccountsPage() {
   const isSyncing = searchParams.get("syncing") === "1";
   // A67: does this plan include connecting a bank? Resolved alongside the
   // page rather than gating it — see lib/openBankingAccess.ts.
-  const openBanking = useOpenBankingAccess();
+  const canConnectBank = useOpenBankingAccess();
 
   // Offline (manually-tracked) accounts
   const [manualAccounts, setManualAccounts] = useState<ManualAccount[]>([]);
@@ -941,9 +941,13 @@ export default function AccountsPage() {
       // UAT-only provider, in which case repairing it must go back to the
       // provider that owns the consent (Finexer would create a duplicate
       // connection instead of reviving the dead one). `isLegacyBankSource`
-      // is always false in a production build, so this is "always Finexer"
-      // there. The old test was inverted: anything not explicitly Finexer,
-      // including an account with no source at all, went to TrueLayer.
+      // resolves a MISSING `source` to the legacy provider, because that is
+      // the backend's own convention — `finexer_sync.py` is the only writer
+      // of that field and `card_terms.py:122` reads it as
+      // `a.get("source") or "truelayer"`. See that function's doc comment.
+      // Always false in a production build, so this is "always Finexer"
+      // there. This branch was already correct before A67; what A67 fixed
+      // was the provider-less connect CTAs elsewhere, not this one.
       const source = (account as (Account & { source?: string }) | undefined)?.source;
       const { auth_url } = isLegacyBankSource(source)
         ? await api.legacyBankConnectLink(providerId)
@@ -2546,7 +2550,7 @@ export default function AccountsPage() {
                             itself is worse than a menu that only offers what
                             this plan can actually do. Statement, Investment
                             and Offline below are on every plan. */}
-                        {openBanking.allowed && (
+                        {canConnectBank && (
                           <AddMenuItem
                             tutorialId="tutorial-add-bank"
                             icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
@@ -2554,7 +2558,7 @@ export default function AccountsPage() {
                             onClick={() => { setAddMenuOpen(false); setShowBankPicker("finexer"); }}
                           />
                         )}
-                        {openBanking.allowed && LEGACY_BANK_AVAILABLE && (
+                        {canConnectBank && LEGACY_BANK_AVAILABLE && (
                           <AddMenuItem
                             icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
                             label={LEGACY_BANK_MENU_LABEL}
@@ -2813,7 +2817,7 @@ export default function AccountsPage() {
                 <p className="text-slate-400 dark:text-slate-500 text-sm mb-5">
                   {region !== "UK"
                     ? "Connect via Mono or upload a bank statement (M-Pesa, Equity, KCB, NCBA…) to get started."
-                    : openBanking.allowed
+                    : canConnectBank
                       ? "Connect your bank via Open Banking, or upload a PDF/CSV statement."
                       : "Upload a PDF or CSV statement to get started."}
                 </p>
@@ -2830,7 +2834,7 @@ export default function AccountsPage() {
                   // known to be included. Nothing ever appears and then
                   // disappears; see lib/openBankingAccess.ts.
                   <div className="flex flex-col gap-2 items-center">
-                    {openBanking.allowed && (
+                    {canConnectBank && (
                       <button
                         onClick={() => setShowBankPicker("finexer")}
                         className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-all text-white font-semibold px-5 py-3 rounded-xl text-sm"
@@ -2842,7 +2846,7 @@ export default function AccountsPage() {
                     <button
                       onClick={() => setShowMpesaUpload(true)}
                       className={`inline-flex items-center gap-2 active:scale-95 transition-all font-semibold px-5 py-3 rounded-xl text-sm ${
-                        openBanking.allowed
+                        canConnectBank
                           ? "bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 hover:bg-slate-50 text-slate-700 dark:text-slate-200"
                           : "bg-indigo-600 hover:bg-indigo-700 text-white"
                       }`}

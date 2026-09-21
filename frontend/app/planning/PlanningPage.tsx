@@ -272,6 +272,15 @@ export default function PlanningPage() {
       cancelIdleCallback?: (handle: number) => void;
     };
     const loadSecondary = () => {
+      // G135 (2026-09-21), audited and deliberately not changed here: this
+      // page has no notion of a fresh user. It fetches accounts but never
+      // tests `.length`, and its empty states are about a pay period having
+      // no data, not about having nothing connected at all, so a brand-new
+      // user sees empty figures rather than a "connect something" route.
+      // G135 fixed the two surfaces that DID claim to lead somewhere (Home's
+      // fresh-user card, app/planning/GrowPanel.tsx's empty ladder). Giving
+      // this page one is a new empty state needing a design round, not a
+      // route fix. Do not re-investigate; propose it to Kevin instead.
       getAccountsCached().catch(() => [] as Account[]).then(setAccounts);
       // Allocations are additive and must never block the forecast.
       api.listAllocations().then(setAllocations).catch(() => setAllocationsError(true));

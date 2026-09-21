@@ -35,7 +35,8 @@ import { fetchVerdictData } from "@/lib/verdictCache";
 import { getAccountsCached, invalidateAccounts } from "@/lib/accountsCache";
 import { useHomePinnedAccounts } from "@/lib/homePinnedAccounts";
 import { isLegacyBankSource } from "@/lib/legacyBankProvider";
-import { useOpenBankingAccess, type OpenBankingAccess } from "@/lib/openBankingAccess";
+import { useOpenBankingAccess } from "@/lib/openBankingAccess";
+import BankPickerSheet from "@/components/BankPickerSheet";
 
 // Recharts-backed pinned widget (~448KB) is rare on Home (opt-in pin) — keep
 // it out of the initial route chunk.
@@ -157,36 +158,58 @@ function HomeSkeleton({ firstName }: { firstName?: string }) {
  *  drifted into near-identical copies of the same markup and only one of
  *  them was ever going to get fixed.
  *
- *  A67 — tier: `openBanking.allowed` decides whether Connect a bank is
- *  offered at all. The Statements plan has no open banking (the server
- *  answers those connect endpoints with a 402), so offering the button there
- *  was an invitation to a dead end. While the plan is still resolving
- *  (`ready` false, `allowed` false) the card shows the upload route, which
- *  every plan has, and Connect appears when it is known to be available —
- *  additive, so no control ever flashes up and disappears.
+ *  A67 — tier: `canConnect` decides whether Connect a bank is offered at
+ *  all. The Statements plan has no open banking (the server answers those
+ *  connect endpoints with a 402), so offering the button there was an
+ *  invitation to a dead end. While the plan is still resolving the card
+ *  shows the upload route, which every plan has, and Connect appears once it
+ *  is known to be available — additive, so no control ever flashes up and
+ *  disappears. See lib/openBankingAccess.ts.
+ *
+ *  A67 — provider: `onConnect` opens the Finexer bank picker rather than
+ *  requesting a connect link directly. The direct call would have gone to
+ *  `api.finexerConnectLink(undefined)`, i.e. `create_consent(provider=None)`,
+ *  which POSTs /consents with no provider at all — a shape no previously
+ *  live caller ever used (the picker passes `bank.id`, ReconnectStrip passes
+ *  `provider_id`, and the only zero-argument caller before A67 went to
+ *  TrueLayer). Choosing the bank first keeps this button on the exact path
+ *  Accounts already uses, instead of betting the single most important
+ *  button in the app on an unverified Finexer API shape.
  *
  *  G135 — route: every path out of this card used to be the bank-connect
  *  OAuth flow, and Home suppresses the whole "Your estate" block (with its
  *  "Manage" link) for a fresh user, so a user who could not or did not want
  *  to connect a bank had no way to reach /accounts at all, which is where
  *  statement upload and offline accounts live. The secondary link below is
- *  that missing door. */
+ *  that missing door.
+ *
+ *  G135, the rest of the audit, recorded so nobody repeats it: Planning's
+ *  own dead-end was fixed too (app/planning/GrowPanel.tsx's empty ladder was
+ *  a paragraph telling the user to connect an account, with no link). Spend
+ *  (app/components/SpendPage.tsx) and Upcoming (app/planning/PlanningPage.tsx)
+ *  were checked and deliberately left alone: neither has any notion of a
+ *  fresh user at all — both fetch accounts but never test `.length`, and
+ *  their empty states are about a pay period having no data, not about
+ *  having nothing connected. Giving them one is a new empty state needing a
+ *  design round, not a route fix. Outside Home, /accounts is also absent
+ *  from BottomNav and Sidebar, Settings only scroll-anchors to an in-page
+ *  section, and lib/pennyScreenConfig.tsx carries its "Your accounts" link
+ *  in the `home` config only — all IA decisions for Kevin, not this item. */
 function FirstAccountCard({
-  openBanking,
+  canConnect,
   onConnect,
   onUploadStatement,
   onOtherWays,
   tutorialId,
   ctaTutorialId,
 }: {
-  openBanking: OpenBankingAccess;
+  canConnect: boolean;
   onConnect: () => void;
   onUploadStatement: () => void;
   onOtherWays: () => void;
   tutorialId?: string;
   ctaTutorialId?: string;
 }) {
-  const canConnect = openBanking.allowed;
   return (
     <div data-tutorial-id={tutorialId} className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-5">
       <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-1">
@@ -644,14 +667,20 @@ export default function HomePage() {
     return [...grouped.values()];
   }, [accounts]);
 
-  // A67: Finexer is the default and the only provider production has. The
-  // legacy branch exists so that REPAIRING an existing legacy connection on
-  // UAT goes back to the provider that owns it (sending it to Finexer would
-  // create a second, duplicate connection rather than refresh the dead one).
-  // `isLegacyBankSource` is always false in a production build, so this
-  // reduces to "always Finexer" there. Before this change the test was
-  // inverted — anything not explicitly Finexer, including the no-arguments
-  // "Connect a bank" call below, fell through to TrueLayer.
+  // A67: reconnect REPAIRS one named connection, so it must go back to the
+  // provider that owns that consent — sending an expired TrueLayer account
+  // to Finexer would create a second, duplicate connection rather than
+  // revive the dead one. `isLegacyBankSource` resolves a missing `source` to
+  // the legacy provider, which is the backend's own convention (see that
+  // function's doc comment for the evidence); it is always false in a
+  // production build, so this reduces to "always Finexer" there.
+  //
+  // What A67 actually fixed here was NOT this branch, which was already
+  // right. It was the zero-argument `handleReconnect()` behind the
+  // fresh-user "Connect a bank": with no account to reason about it fell
+  // through the same else and started a TrueLayer consent for a brand new
+  // user. That call site no longer exists — the fresh-user card opens the
+  // Finexer bank picker instead, so a provider is always chosen.
   async function handleReconnect(providerId?: string, source?: string) {
     try {
       const { auth_url } = isLegacyBankSource(source)
@@ -675,7 +704,10 @@ export default function HomePage() {
   // A67: does this plan include connecting a bank at all? Resolved off to
   // the side, never blocking the page — see lib/openBankingAccess.ts for why
   // the pending state shows Upload Statement rather than Connect.
-  const openBanking = useOpenBankingAccess();
+  const canConnectBank = useOpenBankingAccess();
+  // A67: the fresh-user card opens the same Finexer picker Accounts uses, so
+  // a provider is always chosen before a consent is created.
+  const [showBankPicker, setShowBankPicker] = useState(false);
   // Undefined while accounts are still loading (so PaydayPlanSection's
   // hasAccounts guard doesn't prematurely suppress a real user's entry row
   // before their accounts have arrived) — settles to a real boolean once
@@ -775,8 +807,8 @@ export default function HomePage() {
           {isFreshUser && (
             <div className="px-4 lg:px-0 mt-6">
               <FirstAccountCard
-                openBanking={openBanking}
-                onConnect={() => handleReconnect()}
+                canConnect={canConnectBank}
+                onConnect={() => setShowBankPicker(true)}
                 onUploadStatement={() => router.push("/accounts?add=statement")}
                 onOtherWays={() => router.push("/accounts")}
                 tutorialId="tutorial-home-fresh"
@@ -916,8 +948,8 @@ export default function HomePage() {
                 </div>
               ) : accounts.length === 0 ? (
                 <FirstAccountCard
-                  openBanking={openBanking}
-                  onConnect={() => handleReconnect()}
+                  canConnect={canConnectBank}
+                  onConnect={() => setShowBankPicker(true)}
                   onUploadStatement={() => router.push("/accounts?add=statement")}
                   onOtherWays={() => router.push("/accounts")}
                 />
@@ -1009,6 +1041,15 @@ export default function HomePage() {
           onUpdated={handleTxUpdated}
           account={accounts.find(a => a.id === selectedTx.account_id)}
         />
+      )}
+
+      {/* A67: the fresh-user "Connect a bank" opens this rather than
+          requesting a connect link with no bank chosen. The sheet sends the
+          browser to the consent URL itself, so there is nothing to do on
+          close beyond dismissing it. Same component and same provider the
+          Accounts empty state uses. */}
+      {showBankPicker && (
+        <BankPickerSheet provider="finexer" onClose={() => setShowBankPicker(false)} />
       )}
     </div>
   );

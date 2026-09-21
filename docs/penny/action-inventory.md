@@ -352,7 +352,7 @@ Owner/admin-only: `goLiveItemAction`, `goLiveQuestionStatus` (surface `app/ops/g
 
 Penny transport, not a user action: `canI` (`POST /can-i`), `pennyChip` (`POST /penny/chip`).
 
-Unwired write methods exported from api.ts with no caller in frontend/ (dead or awaiting a UI, excluded from counts): `syncAccounts`, `autoCategorise`, `dismissMiscategorised`, `deleteSavingsGoal`, `newChatSession`, `yapilySync`, `deleteYapilyConnection`, `monoSync`, `deleteMonoConnection`, `setAccountRate`, `parseRule`, `setTransactionPlanned`, `labelBill`, `deleteBillLabel`, `pinSavingsInsight`, `refreshSavingsInsights`, `markInsightsViewed`, `confirmIncomeStream`, `rejectIncomeStream`, `setManualIncome`, `deleteIncomeStream`; `yapilyRequisition`'s caller `components/YapilyConnect.tsx` is not imported by any page.
+Unwired write methods exported from api.ts with no caller in frontend/ (dead or awaiting a UI, excluded from counts): `syncAccounts`, `autoCategorise`, `dismissMiscategorised`, `deleteSavingsGoal`, `newChatSession`, `yapilySync`, `deleteYapilyConnection`, `monoSync`, `deleteMonoConnection`, `setAccountRate`, `parseRule`, `setTransactionPlanned`, `labelBill`, `deleteBillLabel`, `pinSavingsInsight`, `refreshSavingsInsights`, `markInsightsViewed`, `confirmIncomeStream`, `rejectIncomeStream`, `setManualIncome`, `deleteIncomeStream`. `yapilyRequisition` and `yapilyInstitutions` also have no caller at all: their only one was `components/YapilyConnect.tsx`, which was never imported by any page and was deleted in A67 (2026-09-21) along with `app/components/ConnectBankButton.tsx`, the other dead connect component.
 
 ## 6. Side findings
 

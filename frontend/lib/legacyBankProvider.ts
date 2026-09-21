@@ -42,10 +42,32 @@ export const LEGACY_BANK_SUBTITLE = LEGACY_BANK_AVAILABLE
   ? `Secure open banking · Powered by ${LEGACY_BANK_NAME}`
   : "";
 
-/** True when `source` (an Account's own `source` field, as the API reports
- *  it) names the legacy provider. Always false in a production build, where
- *  LEGACY_BANK_ID is "" and no account's source can be the empty string —
- *  so a production reconnect always routes to Finexer. */
+/** True when `source` (an Account's own `source` field, as GET /accounts
+ *  reports it) belongs to the legacy provider.
+ *
+ *  **A MISSING `source` MEANS LEGACY, not "unknown".** This is the backend's
+ *  own convention, not a guess: `services/finexer_sync.py:629` is the ONLY
+ *  place in the codebase that ever writes a `source` onto a bank account, and
+ *  it writes `"finexer"`. `services/truelayer_sync.py` writes no `source` key
+ *  at all (neither of its two `accounts_col.update_one` calls has one), and
+ *  `routers/card_terms.py:122` spells the rule out in full:
+ *  `a.get("source") or "truelayer"`. `routers/accounts.py:165` spreads the
+ *  raw document, so the field simply is not there for a TrueLayer account.
+ *  Verified against the live UAT database (read-only): the distinct set of
+ *  `source` values across `accounts` is `['finexer']` — 7 documents with
+ *  "finexer", 34 with no `source` field, and zero with "truelayer".
+ *
+ *  So the comparison resolves a missing value to the legacy id first, exactly
+ *  as `card_terms.py` does, rather than testing `source === LEGACY_BANK_ID`:
+ *  the literal string "truelayer" is never in the data, so that test would
+ *  have been false for every real account and would have sent every expired
+ *  TrueLayer reconnect on UAT into a NEW Finexer consent instead of repairing
+ *  the dead one. A source this build does not recognise (e.g. "finexer",
+ *  "mono") is not legacy.
+ *
+ *  Always false in a production build: LEGACY_BANK_AVAILABLE is false there,
+ *  so a production reconnect is always Finexer whatever the data says. */
 export function isLegacyBankSource(source: string | undefined | null): boolean {
-  return LEGACY_BANK_AVAILABLE && source === LEGACY_BANK_ID;
+  if (!LEGACY_BANK_AVAILABLE) return false;
+  return (source || LEGACY_BANK_ID) === LEGACY_BANK_ID;
 }

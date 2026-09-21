@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, useEffect } from "react";
-import { Wallet, ChevronRight, Check, Building2, ShieldCheck } from "lucide-react";
+import { Wallet, ChevronRight, Check, Building2, ShieldCheck, Upload } from "lucide-react";
 import { api, type SubscriptionInfo } from "@/lib/api";
 import PennyMark from "@/components/PennyMark";
 import PlanPicker from "@/components/PlanPicker";
@@ -14,6 +14,7 @@ import {
   setLockEnabled as setBiometricLockEnabled,
 } from "@/lib/biometrics";
 import BankPickerSheet from "@/components/BankPickerSheet";
+import { getSubscriptionCached, useOpenBankingAccess } from "@/lib/openBankingAccess";
 
 interface OnboardingProps {
   defaultName?: string;
@@ -79,6 +80,14 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
   const [bioVerifying, setBioVerifying] = useState(false);
   const [bioError, setBioError] = useState<string | null>(null);
   const [planInfo, setPlanInfo] = useState<SubscriptionInfo | null | undefined>(undefined);
+  // A67: does the plan the user just picked include open banking? The bank
+  // step is the very next screen after the plan step, and its own copy
+  // offers "Statements is free and selected for you" — so a user who takes
+  // the free plan was being walked straight into the 402 this item exists
+  // to remove, on the first screen of the app. Reads the same cached
+  // subscription the plan step above fetched, which PlanPicker invalidates
+  // on selection, so this reflects the plan just chosen.
+  const canConnectBank = useOpenBankingAccess();
 
   useEffect(() => {
     if (isNativePlatform()) {
@@ -105,9 +114,13 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
     queueMicrotask(() => setStep(billingResult === "success" ? "income" : "plan"));
   }, []);
 
+  // A67: goes through the SHARED cached getter rather than api.getSubscription()
+  // directly, so the plan step and the bank step's own open-banking check
+  // below are one request between them, not two. PlanPicker invalidates that
+  // cache when a plan is selected, so the bank step sees the new plan.
   useEffect(() => {
     if (step !== "plan" || planInfo !== undefined) return;
-    api.getSubscription()
+    getSubscriptionCached()
       .then(setPlanInfo)
       .catch(() => setPlanInfo(null));
   }, [planInfo, step]);
@@ -578,27 +591,38 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
   }
 
   // ── bank ───────────────────────────────────────────────────────────────────
+  // A67: on a plan with no open banking (Statements, the free plan offered
+  // one screen earlier), this step becomes a statements step instead of a
+  // bank-connect one. It is not skipped outright: STEP_DOTS treats it as one
+  // of the six, and dropping it would renumber the progress dots mid-signup.
+  // The open-banking trust badges go with it, since read-only access,
+  // bank-grade encryption and revoke-anytime are all claims about a consent
+  // this user is not being asked for.
   return (
     <Shell dotIndex={dotIndex}>
       <div className="text-center mb-6">
         <div className={`inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-4 ${bankAdded ? "bg-emerald-50 dark:bg-emerald-900/30" : "bg-blue-50 dark:bg-blue-900/30"}`}>
           {bankAdded
             ? <Check size={28} className="text-emerald-500" strokeWidth={2.5} />
-            : <Building2 size={28} className="text-blue-500" />
+            : canConnectBank
+              ? <Building2 size={28} className="text-blue-500" />
+              : <Upload size={28} className="text-blue-500" />
           }
         </div>
         <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">
-          {bankAdded ? "Bank connected!" : "Connect your first bank"}
+          {bankAdded ? "Bank connected!" : canConnectBank ? "Connect your first bank" : "Add your first statement"}
         </h2>
         <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
           {bankAdded
             ? "Your transactions are syncing in the background."
-            : "Link your account in seconds via secure open banking. Wealth can only read data, it can never move your money."
+            : canConnectBank
+              ? "Link your account in seconds via secure open banking. Wealth can only read data, it can never move your money."
+              : "Your plan works from statements you upload. Head to the Accounts screen once you are in, and upload a PDF or CSV to get started."
           }
         </p>
       </div>
 
-      {!bankAdded && (
+      {!bankAdded && canConnectBank && (
         <div className="grid grid-cols-3 gap-2 mb-6">
           {[
             { badge: "🔒", text: "Read-only access" },
@@ -614,17 +638,17 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
       )}
 
       <button
-        onClick={() => bankAdded ? bankDoneNext() : setShowSheet(true)}
+        onClick={() => (bankAdded || !canConnectBank) ? bankDoneNext() : setShowSheet(true)}
         className={`w-full py-3.5 rounded-2xl text-sm font-semibold text-white transition-all active:scale-[0.98] mb-3 ${
           bankAdded
             ? "bg-emerald-500 hover:bg-emerald-600"
             : "bg-indigo-600 hover:bg-indigo-700 shadow-md shadow-indigo-200 dark:shadow-none"
         }`}
       >
-        {bankAdded ? "Let's go ›" : "Connect a bank"}
+        {(bankAdded || !canConnectBank) ? "Let's go ›" : "Connect a bank"}
       </button>
 
-      {!bankAdded && (
+      {!bankAdded && canConnectBank && (
         <button
           onClick={bankDoneNext}
           className="w-full py-2.5 text-sm text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 transition-colors"

@@ -3,6 +3,7 @@
 import { useMemo, useState, type KeyboardEvent } from "react";
 import { Check, ChevronDown, Crown, FileText, Globe, Landmark, Link2, Zap } from "lucide-react";
 import { api } from "@/lib/api";
+import { invalidateOpenBankingAccess } from "@/lib/openBankingAccess";
 import { usePurchaseAvailability, PURCHASE_UNAVAILABLE_SENTENCE } from "@/lib/nativeAuth";
 import type {
   SubscriptionBillingPeriod,
@@ -278,6 +279,13 @@ export default function PlanPicker({
           return;
         }
         if (current !== "statements") await api.selectFreePlan();
+        // A67: the plan just changed, so the shared GET /subscription cache
+        // is stale. Signup's very next step is the bank step, which asks
+        // that cache whether this plan includes open banking — without this
+        // it would answer from the pre-selection snapshot for up to the full
+        // TTL and offer Connect a bank to someone who just chose the free
+        // plan. See lib/openBankingAccess.ts.
+        invalidateOpenBankingAccess();
         onContinue?.();
         return;
       }

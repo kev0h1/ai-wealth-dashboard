@@ -16,12 +16,22 @@
 // what a bundler emitted). What CAN be pinned here, and is, is the
 // derivation this file does from the two values next.config.ts inlines:
 // that empty inputs produce an unavailable provider with empty labels and
-// no source ever matching as legacy, and that non-empty inputs produce the
-// exact strings the Accounts menu and the picker sheet render. If someone
-// later makes LEGACY_BANK_AVAILABLE default to true, or lets an account
-// with no `source` match as legacy (which is how the ORIGINAL defect
-// worked: the test was inverted, so anything not explicitly Finexer fell
-// through to TrueLayer), this fails.
+// NO source matching as legacy at all, and that non-empty inputs produce
+// the exact strings the Accounts menu and the picker sheet render.
+//
+// The subtle one, and the one an earlier version of this file got exactly
+// backwards: on a UAT build a MISSING `source` MUST match as legacy. That
+// is the backend's convention, verified in the code and against the live
+// UAT database — `services/finexer_sync.py:629` is the only writer of that
+// field and writes "finexer"; `services/truelayer_sync.py` writes no
+// `source` at all; `routers/card_terms.py:122` reads it as
+// `a.get("source") or "truelayer"`; and the distinct set of values in the
+// `accounts` collection is `['finexer']`, with 34 documents carrying no
+// `source` and zero carrying "truelayer". A rule of `source === "truelayer"`
+// would therefore be false for every real account, and every expired
+// TrueLayer reconnect would silently start a NEW Finexer consent instead of
+// repairing the dead one. The production half must stay unconditional
+// regardless: absent provider, nothing matches, whatever the data says.
 //
 // Each case re-imports the module with a fresh cache-busting query string,
 // because the constants are resolved once at module scope from
@@ -59,11 +69,12 @@ async function load(id, name) {
   check("production: no menu label", m.LEGACY_BANK_MENU_LABEL, "");
   check("production: no sheet subtitle", m.LEGACY_BANK_SUBTITLE, "");
   check("production: no identifier", m.LEGACY_BANK_ID, "");
+  // The whole point of the AVAILABLE guard: with LEGACY_BANK_ID == "", the
+  // "missing means legacy" rule below would otherwise match EVERY account
+  // (`(undefined || "") === ""`), routing every production reconnect to a
+  // provider that does not exist in this build. Nothing is legacy here.
   check("production: undefined source is not legacy", m.isLegacyBankSource(undefined), false);
   check("production: null source is not legacy", m.isLegacyBankSource(null), false);
-  // The one that matters: with LEGACY_BANK_ID == "", a naive `source ===
-  // LEGACY_BANK_ID` would match an account whose source really is the empty
-  // string. The AVAILABLE guard is what stops it.
   check("production: empty-string source is not legacy", m.isLegacyBankSource(""), false);
   check("production: a finexer source is not legacy", m.isLegacyBankSource("finexer"), false);
   check("production: the name is still not legacy", m.isLegacyBankSource("truelayer"), false);
@@ -102,7 +113,11 @@ async function load(id, name) {
   check("uat: its own source matches", m.isLegacyBankSource("truelayer"), true);
   check("uat: a finexer source does not match", m.isLegacyBankSource("finexer"), false);
   check("uat: an unknown source does not match", m.isLegacyBankSource("mono"), false);
-  check("uat: undefined source does not match", m.isLegacyBankSource(undefined), false);
+  // The real-data cases. A TrueLayer account carries NO `source` field, so
+  // these three are what every actual legacy reconnect looks like.
+  check("uat: MISSING source matches (this is what real data looks like)", m.isLegacyBankSource(undefined), true);
+  check("uat: null source matches", m.isLegacyBankSource(null), true);
+  check("uat: empty-string source matches", m.isLegacyBankSource(""), true);
 }
 
 if (failures > 0) {
