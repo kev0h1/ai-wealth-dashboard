@@ -756,6 +756,39 @@ def test_delete_connection_revokes_every_token_for_that_client(monkeypatch):
     assert tokens.docs["h3"]["revoked_at"] is None  # a different client, untouched
 
 
+def test_delete_connection_by_a_different_user_matches_nothing(monkeypatch):
+    """A52 (2026-09-20, pentest OAUTH-08): the previous test above only ever
+    exercises the SAME user deleting their own connection for a different
+    client_id. It never exercises a different user attempting to delete a
+    client_id they never granted — the exact cross-tenant shape the
+    reconciled pentest catalogue's OAUTH-08 flagged as a genuine coverage
+    gap. Live-run against UAT on 2026-09-20 confirmed the code's own
+    `{"uid": uid, "client_id": client_id, ...}` filter already matches zero
+    documents for a client_id a caller never granted, leaving the true
+    owner's tokens completely untouched. This test pins that OBSERVED
+    behaviour (a record of what the code currently does), not a new
+    control; see docs/security/pentest-runs/A52-2026-09-20/records.md,
+    OAUTH-08."""
+    now = datetime.now(timezone.utc)
+    _, _, tokens, _ = _install_fakes(monkeypatch, seed_tokens=[
+        {"_id": "h1", "kind": "access", "client_id": "claude-1", "client_name": "Claude",
+         "uid": "victim@example.com", "scopes": ["accounts:read"], "created_at": now,
+         "expires_at": now + timedelta(hours=1), "last_used_at": None, "revoked_at": None,
+         "pair_id": "p1", "origin_code_hash": "x"},
+        {"_id": "h2", "kind": "refresh", "client_id": "claude-1", "client_name": "Claude",
+         "uid": "victim@example.com", "scopes": ["accounts:read"], "created_at": now,
+         "expires_at": now + timedelta(days=29), "last_used_at": None, "revoked_at": None,
+         "pair_id": "p1", "origin_code_hash": "x"},
+    ])
+    # A different user attempts to delete "claude-1" — a client_id they
+    # never granted anything to (it belongs to "victim@example.com" above).
+    result = _run(oauth.revoke_connection("claude-1", user={"email": "attacker@example.com"}))
+    assert result["revoked"] == 0
+    # The victim's own tokens for that exact client_id remain completely untouched.
+    assert tokens.docs["h1"]["revoked_at"] is None
+    assert tokens.docs["h2"]["revoked_at"] is None
+
+
 # ── resolve_mcp_principal accepting a real OAuth access token ───────────
 
 def _seed_access_token(tokens: _FakeCollection, *, scopes, revoked_at=None, expires_delta=timedelta(hours=1)):
