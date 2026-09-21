@@ -132,7 +132,7 @@ Status: ready
 ```text
 Confirmed; the arrangements are as described at onboarding, with the additions below.
 
-Data shared with the AI gateway (OpenRouter, routing to Amazon Bedrock, Google, Anthropic or Microsoft Azure): merchant name, a truncated transaction description, amount and direction, and the customer's first name (only to recognise their own name in transfer descriptions). For the in-app assistant: the customer's question plus the derived figures needed to answer it.
+Data shared with the AI gateway (OpenRouter, routing to Amazon Bedrock, Google, Anthropic or Microsoft Azure): merchant name, a truncated transaction description, amount and direction, and the customer's name (only to recognise their own name in transfer descriptions). For the in-app assistant: the customer's question plus the derived figures needed to answer it.
 
 Never shared with AI providers: account numbers, sort codes, IBANs, card numbers, bank access or refresh tokens, Finexer consent or customer identifiers, credentials, email addresses, dates of birth or addresses.
 
@@ -140,8 +140,7 @@ No training: every request carries a routing preference of "data collection: den
 
 International transfers: hosting is in the EU (Railway EU West, MongoDB Atlas Frankfurt) under UK adequacy; US processing by AI providers is under the UK IDTA or Addendum, as stated in Privacy Policy section 7.
 
-Changes since onboarding: (1) Sign in with Apple; Apple receives only the sign-in event and we receive a verified email or Apple relay address. (2) Apple and Google push services carry only a device token and notification text, never transaction data. (3) Planned, not live: the connected assistant feature described in Q2. The customer's chosen AI provider then receives account information at the customer's own instruction, under the customer's contract with that provider; it is not a sub-processor of ours. Sharing is limited to what the assistant requests through named read-only scopes, identifiers are masked, calls are rate-limited and logged, and access can be revoked at any time. The Privacy Policy will gain a section "AI assistants you connect" before launch.
-[KEVIN: confirm nothing else changed in the list given at onboarding.]
+Changes since onboarding: (1) Sign in with Apple; Apple receives only the sign-in event and we receive a verified email or Apple relay address. (2) Apple and Google push services carry only a device token and notification text, never transaction data. (3) Planned, not live: the connected assistant feature described in Q2. The customer's chosen AI provider then receives account information at the customer's own instruction, under the customer's contract with that provider; it is not a sub-processor of ours. Sharing is limited to what the assistant requests through named read-only scopes, identifiers are masked, calls are rate-limited and logged, and access can be revoked at any time. The Privacy Policy already contains an "AI assistants you connect" section for this; it is withheld from the published policy while the feature is off and appears automatically when it is enabled.
 ```
 
 ## Q10 Retention, deletion and consent withdrawal
