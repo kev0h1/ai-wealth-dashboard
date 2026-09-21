@@ -84,7 +84,7 @@ A. Terms and Conditions, section 2 "Regulatory status" at https://wealth.auriqlt
 B. Privacy Policy, section 1 "Our regulated status" at https://wealth.auriqltd.co.uk/privacy: same disclosure, and section 4 describing the open banking consent through Finexer.
 C. In-app bank connection step: the disclosure line "Account information is provided by Finexer LTD, authorised by the FCA. AURIQ LTD acts as Finexer's agent." is shown in the connect-bank sheet and the sign-in footer (`frontend/lib/regulatoryCopy.ts`, single source of truth for both), live in production. [KEVIN: screenshot of this line still to be captured, see A6.]
 
-[KEVIN: the FRN field on this form is blank. The published wording says "registered agent" in the present tense. Confirm with Finexer that the agent registration will appear on the register before go-live, or agree interim wording such as "AURIQ LTD has applied to be registered as an agent of Finexer LTD; the account information service is provided under Finexer LTD's authorisation."]
+FRN: 1062474. AURIQ LTD is a registered agent of Finexer LTD on the FCA Financial Services Register under this reference; Finexer LTD is the authorised principal for the account information service.
 ```
 
 ## Q7 Terms and Privacy Policy
@@ -197,14 +197,14 @@ Business continuity and disaster recovery: the service runs on managed platforms
 
 Regulatory incident reporting: our policy requires that any breach of our systems, non-compliance, suspected money-laundering or other relevant incident is reported to Finexer as soon as practicable and within 24 hours of becoming aware, with ICO notification within 72 hours where a personal-data breach meets the threshold, and affected customers notified without undue delay where high risk exists. The Information Security Manager (Kevin Maingi) owns this process.
 
-There are no other material regulatory, security or operational matters to bring to Finexer's attention. [KEVIN: if the FRN is still pending, or if any earlier issue was disclosed to Finexer, mention it here.]
+There are no other material regulatory, security or operational matters to bring to Finexer's attention. [KEVIN: if any earlier issue was disclosed to Finexer, mention it here.]
 ```
 
 ## Prerequisites before submitting
 
 1. Done 2026-09-10. Deployed to production (Vercel frontend and both Railway services), tagged `release-20260910-1137`. `/terms` and `/privacy` return 200, API docs are disabled (404), and the Finexer webhook receiver is live.
 2. Done. The legacy PIN login and the localStorage account-number/sort-code item are both closed in source and deployed; verified again 2026-09-11: `frontend/components/LoginOverlay.tsx` and `frontend/app/login/` no longer exist and nothing references them, and `reconnect_expected` in localStorage now stores only the provider, account id and a masked last four digits (`frontend/app/components/AccountsPage.tsx`). Dependency audit re-run 2026-09-11: backend and frontend production dependencies both 0 known advisories (SECURITY.md section 2).
-3. The in-app agent disclosure line is added and live (connect-bank sheet and sign-in footer). Verified again 2026-09-11 against `frontend/lib/regulatoryCopy.ts`, `LoginScreen.tsx` and `BankPickerSheet.tsx`: the wording matches exactly and renders unconditionally on both screens. Still outstanding: decide the FRN wording (A5).
+3. The in-app agent disclosure line is added and live (connect-bank sheet and sign-in footer). Verified again 2026-09-11 against `frontend/lib/regulatoryCopy.ts`, `LoginScreen.tsx` and `BankPickerSheet.tsx`: the wording matches exactly and renders unconditionally on both screens. FRN confirmed by Kevin 2026-09-21: AURIQ LTD is on the FCA register as a registered agent of Finexer LTD, FRN 1062474, so the published "registered agent" wording stands. Whether to quote the FRN on the legal pages and in the in-app line is still Kevin's call (A5).
 4. The Privacy Policy is updated for Sign in with Apple and live, confirmed 2026-09-11 by fetching the production page: the account-details paragraph names Apple's Hide My Email relay behaviour and the sub-processor table lists Apple. Root `TERMS.md` and `PRIVACY.md` are now reconciled with `frontend/content/` (A22, 2026-09-11); the root `.pdf` copies remain stale exports, but submission uses PDFs exported directly from the live site (Q7), so this does not block submission.
 5. Create the Play Console record so the Q4 Play URL exists (A9, still open).
 6. Capture the Q5 recording and Q6 screenshots on production (A6, still open).
