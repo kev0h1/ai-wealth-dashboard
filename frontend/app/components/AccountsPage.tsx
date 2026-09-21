@@ -949,7 +949,27 @@ export default function AccountsPage() {
       // there. This branch was already correct before A67; what A67 fixed
       // was the provider-less connect CTAs elsewhere, not this one.
       const source = (account as (Account & { source?: string }) | undefined)?.source;
-      const { auth_url } = isLegacyBankSource(source)
+      const legacy = isLegacyBankSource(source);
+      // A67: a Finexer connect link needs a provider. `finexerConnectLink(undefined)`
+      // reaches `create_consent(provider=None)`, which POSTs /consents with
+      // only `customer` and `return_url` — a shape nothing in this codebase
+      // verifies Finexer accepts, and which `test_finexer_link.py` only
+      // proves we can PASS, because it mocks `create_consent` itself. A null
+      // provider is reachable, not hypothetical: `truelayer_sync.py:347/401`
+      // write `acc.get("provider", {}).get("provider_id")` and
+      // `finexer_sync.py:623` writes a nullable `provider_code`, so an
+      // upstream payload that omits it stores None, and `ReconnectProvider`
+      // types `provider_id` optional all the way through. No live account on
+      // UAT is in that state today, but "no live example yet" is not a
+      // guarantee. So rather than document the hole, close it: fall back to
+      // the bank picker and let the user name their bank. The legacy branch
+      // needs no such guard, `/auth/truelayer/link` with no provider is a
+      // supported shape that shows TrueLayer's own chooser.
+      if (!legacy && !providerId) {
+        setShowBankPicker("finexer");
+        return;
+      }
+      const { auth_url } = legacy
         ? await api.legacyBankConnectLink(providerId)
         : await api.finexerConnectLink(providerId);
       window.location.href = auth_url;

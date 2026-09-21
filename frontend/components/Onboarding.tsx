@@ -617,7 +617,7 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
             ? "Your transactions are syncing in the background."
             : canConnectBank
               ? "Link your account in seconds via secure open banking. Wealth can only read data, it can never move your money."
-              : "Your plan works from statements you upload. Head to the Accounts screen once you are in, and upload a PDF or CSV to get started."
+              : "Your plan works from statements you upload. Tap Upload a statement on the next screen to add your first one."
           }
         </p>
       </div>

@@ -36,6 +36,20 @@ import { getAccountsCached, invalidateAccounts } from "@/lib/accountsCache";
 import { useHomePinnedAccounts } from "@/lib/homePinnedAccounts";
 import { isLegacyBankSource } from "@/lib/legacyBankProvider";
 import { useOpenBankingAccess } from "@/lib/openBankingAccess";
+// A67: a STATIC import, deliberately, after measuring the alternative.
+// Lazy-loading this the way PinnedWidgetCard below is lazy-loaded was tried
+// and reverted: it does not remove anything from Home's first load, because
+// the chunk BankPickerSheet lands in (53KB, also carrying useLockBodyScroll,
+// AGENT_DISCLOSURE and other shared utilities) is a SHARED chunk listed as
+// first-load for 113 routes, /accounts among them, and /accounts imports the
+// sheet statically for its "Add" menu, a primary action there. Measured
+// against two real production builds of this exact tree: static import,
+// route / firstLoadUncompressedJsBytes = 1,029,282; `dynamic(..., { ssr:
+// false })` = 1,029,439, i.e. 157 bytes LARGER for the dynamic wrapper, with
+// the same chunk still in the list. Making this a genuine saving would mean
+// lazy-loading it on /accounts too and hoping Turbopack then splits that
+// shared chunk, which is a change to another screen's primary action for an
+// unproven gain. Not worth it; recorded here so nobody re-tries it blind.
 import BankPickerSheet from "@/components/BankPickerSheet";
 
 // Recharts-backed pinned widget (~448KB) is rare on Home (opt-in pin) — keep
@@ -682,8 +696,28 @@ export default function HomePage() {
   // user. That call site no longer exists — the fresh-user card opens the
   // Finexer bank picker instead, so a provider is always chosen.
   async function handleReconnect(providerId?: string, source?: string) {
+    const legacy = isLegacyBankSource(source);
+    // A67: a Finexer connect link needs a provider. `finexerConnectLink(undefined)`
+    // reaches `create_consent(provider=None)`, which POSTs /consents with
+    // only `customer` and `return_url` — a shape nothing in this codebase
+    // verifies Finexer accepts, and which `test_finexer_link.py` only
+    // proves we can PASS, because it mocks `create_consent` itself. A null
+    // provider is reachable, not hypothetical: `truelayer_sync.py:347/401`
+    // write `acc.get("provider", {}).get("provider_id")` and
+    // `finexer_sync.py:623` writes a nullable `provider_code`, so an
+    // upstream payload that omits it stores None, and `ReconnectProvider`
+    // types `provider_id` optional all the way through. No live account on
+    // UAT is in that state today, but "no live example yet" is not a
+    // guarantee. So rather than document the hole, close it: fall back to
+    // the bank picker and let the user name their bank. The legacy branch
+    // needs no such guard, `/auth/truelayer/link` with no provider is a
+    // supported shape that shows TrueLayer's own chooser.
+    if (!legacy && !providerId) {
+      setShowBankPicker(true);
+      return;
+    }
     try {
-      const { auth_url } = isLegacyBankSource(source)
+      const { auth_url } = legacy
         ? await api.legacyBankConnectLink(providerId)
         : await api.finexerConnectLink(providerId);
       window.location.href = auth_url;

@@ -15,28 +15,62 @@
 // needs no change here. `tier` is only the fallback for an older API
 // response that carries no `limits` block at all.
 //
-// Caching mirrors lib/accountsCache.ts (module-level value + in-flight
-// promise + TTL, invalidated explicitly on write) for the same reason: Home,
-// Accounts and Onboarding all need this, and the answer changes only when a
-// plan changes. Onboarding's plan step reads the SAME cached subscription
-// (it needs the full object, not just this one bit) and invalidates it after
-// selecting a plan, so signup makes one request, not two, and the bank step
-// immediately afterwards sees the plan that was just chosen.
+// ── Why this is a notifying store, not just a cache ─────────────────────
+//
+// The cache itself mirrors lib/accountsCache.ts (module-level value +
+// in-flight promise + TTL, invalidated explicitly on write). What that
+// pattern does NOT give you, and what this module needs, is a way to tell an
+// ALREADY-MOUNTED reader that the answer changed.
+//
+// Signup is exactly that case and it is not a corner: `AuthProvider` mounts
+// `Onboarding` once (AuthProvider.tsx:190) and every step after that is a
+// `setStep` inside that same instance, with no navigation anywhere in the
+// file. So the plan step and the bank step are the same mount. A user on
+// today's configuration (DEFAULT_TIER unset, so "max") reads `max` at mount,
+// accepts the free Statements plan the very next screen offers, and then
+// meets a bank step still rendering "Connect your first bank" — because
+// clearing a cache nothing re-reads changes nothing. Picking a bank there
+// returns 402, which is the precise defect A67 exists to remove.
+//
+// So `invalidateOpenBankingAccess` both clears the cache and NOTIFIES every
+// live reader. The alternative considered was to leave the store inert and
+// have Onboarding derive the answer from the `planInfo` it already holds.
+// That was rejected: it fixes one screen and leaves the exported
+// `invalidateOpenBankingAccess` a function whose name promises something it
+// does not do, for the next caller to trip over the same way. Note that Home
+// and Accounts are correct today only incidentally, because they mount after
+// signup, and the paid path only because PlanPicker's
+// `window.location.assign(checkoutUrl)` remounts the world. None of that is
+// a guarantee anyone wrote down.
+//
+// `watchOpenBankingAccess` below holds the whole read/invalidate/re-read
+// cycle with no React in it, so it can be driven directly by
+// scripts/open-banking-access.test.mjs; the hook is a one-line binding of it
+// to component state.
 
 import { useEffect, useState } from "react";
-import { api, SubscriptionInfo } from "@/lib/api";
+// `SubscriptionInfo` is imported with `import type` rather than folded into
+// the value import above (the style lib/accountsCache.ts uses): Node's
+// --experimental-strip-types does not elide a type name sitting in a value
+// import clause, so scripts/open-banking-access.test.mjs would fail to load
+// this module at all with "does not provide an export named".
+import { api } from "@/lib/api";
+import type { SubscriptionInfo } from "@/lib/api";
 
 export const OPEN_BANKING_TTL_MS = 5 * 60_000;
 
 let cache: { data: SubscriptionInfo; at: number } | null = null;
 let inflight: Promise<SubscriptionInfo> | null = null;
+const readers = new Set<() => void>();
 
-/** Call after anything that changes the user's plan (Onboarding's plan
- *  selection does), so the next read is forced fresh rather than serving the
- *  pre-change snapshot for up to the full TTL. */
+/** Call after anything that changes the user's plan (PlanPicker's free-plan
+ *  selection does). Clears the cache AND re-reads it on behalf of every
+ *  mounted reader, so a component that is already on screen sees the new
+ *  plan rather than the snapshot it happened to mount with. */
 export function invalidateOpenBankingAccess() {
   cache = null;
   inflight = null;
+  for (const read of [...readers]) read();
 }
 
 /** The shared, deduped GET /subscription. Exported so a caller that needs
@@ -61,6 +95,33 @@ export function openBankingAllowed(sub: SubscriptionInfo): boolean {
   return sub.limits ? sub.limits.open_banking !== false : sub.tier !== "statements";
 }
 
+/** Reads the answer now, and again on every `invalidateOpenBankingAccess()`,
+ *  calling `onChange` each time it settles. Returns an unsubscribe.
+ *
+ *  A failed read settles to TRUE — an unreachable subscription endpoint must
+ *  not lock a paying user out of connecting their bank, and the server still
+ *  enforces the real gate either way.
+ *
+ *  A re-read does NOT reset to false first: it keeps reporting the previous
+ *  answer until the new one lands, so a paid user never sees Connect a Bank
+ *  blink out and back. The only caller of invalidate today is a move TO the
+ *  free plan, whose re-read resolves during the step after it, long before
+ *  the bank step is reached. */
+export function watchOpenBankingAccess(onChange: (allowed: boolean) => void): () => void {
+  let cancelled = false;
+  const read = () => {
+    getSubscriptionCached()
+      .then((sub) => { if (!cancelled) onChange(openBankingAllowed(sub)); })
+      .catch(() => { if (!cancelled) onChange(true); });
+  };
+  readers.add(read);
+  read();
+  return () => {
+    cancelled = true;
+    readers.delete(read);
+  };
+}
+
 /** Whether this plan includes connecting a bank.
  *
  *  Returns a plain boolean, deliberately, with no separate "still loading"
@@ -75,19 +136,9 @@ export function openBankingAllowed(sub: SubscriptionInfo): boolean {
  *  documented contract nothing obeys.
  *
  *  Nothing here blocks rendering: the caller renders immediately, then
- *  re-renders once the answer lands. A failed fetch settles to TRUE — an
- *  unreachable subscription endpoint must not lock a paying user out of
- *  connecting their bank, and the server still enforces the real gate. */
+ *  re-renders once the answer lands, and again if the plan changes under it. */
 export function useOpenBankingAccess(): boolean {
   const [allowed, setAllowed] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    getSubscriptionCached()
-      .then((sub) => { if (!cancelled) setAllowed(openBankingAllowed(sub)); })
-      .catch(() => { if (!cancelled) setAllowed(true); });
-    return () => { cancelled = true; };
-  }, []);
-
+  useEffect(() => watchOpenBankingAccess(setAllowed), []);
   return allowed;
 }
