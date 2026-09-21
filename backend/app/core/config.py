@@ -376,11 +376,6 @@ if FCM_SERVICE_ACCOUNT_JSON:
 
 FCM_CONFIGURED: bool = bool(FCM_PROJECT_ID and FCM_SERVICE_ACCOUNT_JSON and _FCM_SA_PARSEABLE)
 
-# ── Mono (Kenya) ──────────────────────────────────────────────────────────────
-MONO_SECRET_KEY = os.getenv("MONO_SECRET_KEY", "")
-MONO_PUBLIC_KEY  = os.getenv("MONO_PUBLIC_KEY", "")
-MONO_API_URL     = "https://api.withmono.com/v2"
-
 # ── Yapily ────────────────────────────────────────────────────────────────────
 YAPILY_APP_UUID = os.getenv("YAPILY_APP_UUID", "")
 YAPILY_SECRET   = os.getenv("YAPILY_SECRET", "")

@@ -4,7 +4,6 @@ Design notes
 ------------
 * connections_col.last_synced  — written datetime.utcnow() (naive UTC) by TrueLayer sync
 * finexer_consents_col.last_synced — written datetime.utcnow() (naive UTC) by Finexer sync
-* mono_connections_col.last_synced — written datetime.now() (naive LOCAL) by Mono sync
 
 We do NOT use accounts_col.updated_at because:
   1. TrueLayer writes it as datetime.now() (naive local) but Finexer writes datetime.utcnow()
@@ -15,7 +14,7 @@ We do NOT use accounts_col.updated_at because:
 from datetime import datetime, timezone
 from typing import Optional
 
-from app.db.collections import connections_col, finexer_consents_col, mono_connections_col
+from app.db.collections import connections_col, finexer_consents_col
 
 
 async def last_bank_sync(uid: str) -> Optional[datetime]:
@@ -43,16 +42,5 @@ async def last_bank_sync(uid: str) -> Optional[datetime]:
         ts = doc.get("last_synced")
         if isinstance(ts, datetime):
             candidates.append(ts.replace(tzinfo=timezone.utc))
-
-    # Mono — naive LOCAL stored in mono_connections_col
-    # .astimezone(timezone.utc) on a naive datetime treats it as local time (correct here)
-    async for doc in mono_connections_col.find(
-        {"user_id": uid, "last_synced": {"$exists": True, "$ne": None}},
-        {"last_synced": 1},
-    ):
-        ts = doc.get("last_synced")
-        if isinstance(ts, datetime):
-            # naive local → aware UTC
-            candidates.append(ts.astimezone(timezone.utc))
 
     return max(candidates) if candidates else None

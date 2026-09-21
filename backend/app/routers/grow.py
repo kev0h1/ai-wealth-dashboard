@@ -25,7 +25,6 @@ from app.db.collections import (
     preferences_col,
     savings_goals_col,
 )
-from app.services.region import get_user_region
 from app.routers.card_terms import _promos_from_legacy
 from app.routers.savings import _current_savings, _target_amount
 from app.services.cashflow import monthly_cashflow_cached
@@ -252,7 +251,6 @@ async def grow_view(user: dict = Depends(current_user)):
         return cached
     v = await response_cache.snapshot(uid)
 
-    region = await get_user_region(uid)
     cutoff = datetime.now() - timedelta(days=90)
 
     # ── Income preferences (single read — powers the pension rungs) ──────────
@@ -286,7 +284,7 @@ async def grow_view(user: dict = Depends(current_user)):
     period_gate = _period_gate(_sts)
 
     # ── Surplus & buffer (reuses savings.py helpers) ─────────────────────────
-    cf = await monthly_cashflow_cached(uid, region, cutoff)
+    cf = await monthly_cashflow_cached(uid, cutoff)
     monthly_income = cf["income"]
     monthly_spending = cf["spending"]
     monthly_debt = cf["debt"]

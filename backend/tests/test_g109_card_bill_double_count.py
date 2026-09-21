@@ -44,7 +44,6 @@ import app.services.categories as categories
 import app.services.income as income_service
 import app.services.needle as needle
 import app.services.net_position as net_position
-import app.services.region as region_service
 from app.services.categories import BUILTIN_CATEGORY_KINDS
 
 UID = "kevin@example.com"
@@ -89,22 +88,18 @@ def _wire_common(monkeypatch, *, recurring_spend=None):
     }))
     monkeypatch.setattr(analytics, "card_terms_col", _ListCol([]))
 
-    async def uk(_uid):
-        return "UK"
-
     async def no_commitments(_uid):
         return 0, 0
 
     async def no_allocations(_uid):
         return 0.0, 0
 
-    async def monthly_cashflow(_uid, _region, _cutoff):
+    async def monthly_cashflow(_uid, _cutoff):
         return {"spending": 0.0, "n_months": 3}
 
     async def no_sync(_uid):
         return None
 
-    monkeypatch.setattr(region_service, "get_user_region", uk)
     monkeypatch.setattr(commitments_router, "total_reserved_slices", no_commitments)
     monkeypatch.setattr(allocations_router, "total_reserved_remaining", no_allocations)
     monkeypatch.setattr(cashflow_service, "monthly_cashflow_cached", monthly_cashflow)

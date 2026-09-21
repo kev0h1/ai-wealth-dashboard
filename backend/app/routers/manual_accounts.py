@@ -12,23 +12,18 @@ from app.db.collections import (
     manual_accounts_col, manual_transactions_col, savings_goals_col,
     manual_account_rules_col, manual_account_mirrors_col,
     transactions_col, statement_transactions_col, yapily_transactions_col,
-    mono_transactions_col, mpesa_transactions_col,
     accounts_col, statement_accounts_col, yapily_accounts_col,
-    mono_accounts_col, mpesa_accounts_col,
 )
 from app.services.manual_account_rules import apply_rules, reverse_rule, account_key
-from app.services.region import get_user_region
 
 _SOURCE_TXN_COLLECTIONS = [
     transactions_col, statement_transactions_col, yapily_transactions_col,
-    mono_transactions_col, mpesa_transactions_col,
 ]
 
 # Account collections a rule may be scoped to — the connected (real) accounts
-# whose transactions the five source collections above hold.
+# whose transactions the three source collections above hold.
 _SOURCE_ACCOUNT_COLLECTIONS = [
     accounts_col, statement_accounts_col, yapily_accounts_col,
-    mono_accounts_col, mpesa_accounts_col,
 ]
 
 router = APIRouter(tags=["manual-accounts"])
@@ -175,7 +170,7 @@ def _entry_to_txn(t: dict, currency: str) -> dict:
 async def list_manual_transactions(acc_id: str, user: dict = Depends(current_user)):
     uid = user["email"]
     await _require_account(uid, acc_id)
-    currency = "KES" if await get_user_region(uid) == "Kenya" else "GBP"
+    currency = "GBP"
 
     entries = [
         _entry_to_txn(t, currency) for t in
@@ -226,7 +221,7 @@ async def add_manual_transaction(acc_id: str, body: dict, user: dict = Depends(c
         {"$inc": {"balance": _signed(fields["amount"], fields["transaction_type"])},
          "$set": {"updated_at": datetime.now()}},
     )
-    currency = "KES" if await get_user_region(uid) == "Kenya" else "GBP"
+    currency = "GBP"
     return _entry_to_txn(doc, currency)
 
 
@@ -246,7 +241,7 @@ async def update_manual_transaction(acc_id: str, tx_id: str, body: dict, user: d
             {"$inc": {"balance": round(new_delta - old_delta, 2)},
              "$set": {"updated_at": datetime.now()}},
         )
-    currency = "KES" if await get_user_region(uid) == "Kenya" else "GBP"
+    currency = "GBP"
     return _entry_to_txn({**existing, **fields}, currency)
 
 

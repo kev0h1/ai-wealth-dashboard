@@ -4,7 +4,6 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends
 
 from app.core.auth import current_user
-from app.services.region import get_user_region
 from app.services.cashflow import monthly_cashflow_cached
 
 router = APIRouter(tags=["tax"])
@@ -23,9 +22,8 @@ async def get_annualised_income(user: dict = Depends(current_user)):
     null as "unknown" and hide income-gated content rather than guess.
     """
     uid = user["email"]
-    region = await get_user_region(uid)
     cutoff = datetime.now() - timedelta(days=90)
-    cf = await monthly_cashflow_cached(uid, region, cutoff)
+    cf = await monthly_cashflow_cached(uid, cutoff)
     monthly_income = cf.get("income") or 0.0
     if monthly_income <= 0:
         return {"annualised_income": None}

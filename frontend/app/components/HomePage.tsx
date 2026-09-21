@@ -255,7 +255,7 @@ export default function HomePage() {
   const router = useRouter();
   const { user } = useAuth();
   const firstName = user?.name?.split(" ")[0]?.trim();
-  const { hideNetWorth, preferencesReady, payPeriodConfig, region, homePinnedWidget } = usePreferences();
+  const { hideNetWorth, preferencesReady, payPeriodConfig, homePinnedWidget } = usePreferences();
   const { colours } = useColours();
   // Read once per render so every initializer/guard below sees the same
   // snapshot — see lib/homeCache.ts for what this cache is and why it's
@@ -612,8 +612,8 @@ export default function HomePage() {
   // Spending totals are home-currency only; the recent list still shows
   // foreign-currency transactions with their own symbol
   const homeTxns = useMemo(
-    () => transactions.filter(t => isHomeCurrency(t.currency, region)),
-    [transactions, region]
+    () => transactions.filter(t => isHomeCurrency(t.currency)),
+    [transactions]
   );
 
   // Micro pot-shuffles (round-ups, penny transfers) aren't "activity" worth

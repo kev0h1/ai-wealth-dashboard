@@ -43,11 +43,11 @@ _RELAY_DOMAIN = "@privaterelay.appleid.com"
 # name (see account_has_data) rather than bound at import time, same
 # reasoning as erase_user's own dir()-based sweep.
 _ACCOUNT_DATA_COLLECTIONS = (
-    "connections_col", "finexer_consents_col", "yapily_consents_col", "mono_connections_col",
-    "accounts_col", "statement_accounts_col", "mpesa_accounts_col", "manual_accounts_col",
-    "mono_accounts_col", "yapily_accounts_col", "investment_accounts_col",
-    "transactions_col", "statement_transactions_col", "mpesa_transactions_col",
-    "mono_transactions_col", "yapily_transactions_col", "manual_transactions_col",
+    "connections_col", "finexer_consents_col", "yapily_consents_col",
+    "accounts_col", "statement_accounts_col", "manual_accounts_col",
+    "yapily_accounts_col", "investment_accounts_col",
+    "transactions_col", "statement_transactions_col",
+    "yapily_transactions_col", "manual_transactions_col",
 )
 
 # Activity-stamp throttle: `current_user` (app.core.auth) calls stamp_activity
@@ -81,8 +81,8 @@ async def erase_user(uid: str) -> dict[str, int]:
 
 async def account_has_data(uid: str) -> bool:
     """True if `uid` owns any connection, consent, account, or transaction
-    row anywhere (TrueLayer, Finexer, Yapily, Mono, M-Pesa, statement
-    upload, manual, or investment) — the bar erase_orphaned_relay_account
+    row anywhere (TrueLayer, Finexer, Yapily, statement upload, manual, or
+    investment) — the bar erase_orphaned_relay_account
     below refuses to cross ("never delete an account with data").
 
     Looked up fresh from app.db.collections by name each call (like

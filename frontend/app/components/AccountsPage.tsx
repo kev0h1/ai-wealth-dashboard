@@ -19,7 +19,6 @@ import { getCategoryColour } from "@/lib/categories";
 import { getCategoryIcon } from "@/lib/categoryIcons";
 import SegmentedControl from "@/components/SegmentedControl";
 import Spinner from "@/components/Spinner";
-import MonoConnectWidget from "@/components/MonoConnect";
 import StatementUpload from "@/components/StatementUpload";
 import InvestmentUpload from "@/components/InvestmentUpload";
 import BankPickerSheet from "@/components/BankPickerSheet";
@@ -280,7 +279,7 @@ export default function AccountsPage() {
   // Set to true for exactly one effect run after we strip ?id= via router.replace
   // so the else-branch (clear selectedAccountId) doesn't fire on our own replace.
   const consumedDeepLink = useRef(false);
-  const { hideNetWorth, setHideNetWorth, region } = usePreferences();
+  const { hideNetWorth, setHideNetWorth } = usePreferences();
   const [kpis, setKpis] = useState<KPIs | null>(null);
   const { colours } = useColours();
   const { icons: iconOverrides } = useCategoryIcons();
@@ -295,7 +294,7 @@ export default function AccountsPage() {
   const [tab, setTab] = useState<"Banks" | "Investments">(
     searchParams.get("tab") === "Investments" ? "Investments" : "Banks"
   );
-  const [showMpesaUpload, setShowMpesaUpload] = useState(false);
+  const [showStatementUpload, setShowStatementUpload] = useState(false);
   // A67: "legacy" is the UAT-only provider (lib/legacyBankProvider.ts); it
   // is absent from a production build, so it is only ever set behind
   // LEGACY_BANK_AVAILABLE. Finexer is what every other entry point opens.
@@ -453,7 +452,7 @@ export default function AccountsPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("add") === "statement") {
-      setShowMpesaUpload(true);
+      setShowStatementUpload(true);
       params.delete("add");
       const rest = params.toString();
       router.replace(rest ? `/accounts?${rest}` : "/accounts", { scroll: false });
@@ -914,16 +913,11 @@ export default function AccountsPage() {
   // effect if anything had ever called it would have been to start a
   // TrueLayer consent. Removed along with the `connecting` state it owned.
 
-  function handleMonoSuccess() {
-    invalidateAccounts();
-    loadAccounts();
-  }
-
   function handleStatementSuccess() {
     invalidateAccounts();
     loadAccounts();
     if (selectedAccountId) loadAccountTxns(selectedAccountId, true);
-    setShowMpesaUpload(false);
+    setShowStatementUpload(false);
   }
 
   async function handleReconnect(providerId?: string, account?: Account) {
@@ -1346,7 +1340,6 @@ export default function AccountsPage() {
       .catch(() => {});
   }
 
-  // Backend already filters by region — accounts contains only the right source.
   // Manual (offline) accounts come back in /accounts too; they're shown in their
   // own editable section, so keep them out of the connected-bank list.
   const bankAccounts = useMemo(() => accounts.filter(a => !a.manual), [accounts]);
@@ -1566,10 +1559,10 @@ export default function AccountsPage() {
         </div>,
         document.body
       )}
-      {showMpesaUpload && (
+      {showStatementUpload && (
         <StatementUpload
           onSuccess={handleStatementSuccess}
-          onClose={() => setShowMpesaUpload(false)}
+          onClose={() => setShowStatementUpload(false)}
         />
       )}
       {manualModalOpen && modalsMounted && createPortal(
@@ -2143,7 +2136,7 @@ export default function AccountsPage() {
               )}
               {isStatement && (
                 <button
-                  onClick={() => setShowMpesaUpload(true)}
+                  onClick={() => setShowStatementUpload(true)}
                   aria-label="Add statement"
                   className="w-11 h-11 flex items-center justify-center rounded-xl bg-slate-100 dark:bg-white/[0.08] hover:bg-slate-200 dark:hover:bg-white/[0.14] text-slate-600 dark:text-slate-300 transition-colors"
                 >
@@ -2579,76 +2572,46 @@ export default function AccountsPage() {
                     role="menu"
                     className="absolute right-0 top-[calc(100%+6px)] z-30 w-56 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-slate-100 dark:border-white/10 py-1 divide-y divide-slate-100 dark:divide-white/5 overflow-hidden"
                   >
-                    {region === "UK" ? (
-                      <>
-                        {/* A67: Add Bank is hidden outright on a plan with
-                            no open banking (Statements), rather than shown
-                            and answered with a 402 when tapped. Hidden, not
-                            disabled: a greyed-out row that never explains
-                            itself is worse than a menu that only offers what
-                            this plan can actually do. Statement, Investment
-                            and Offline below are on every plan. */}
-                        {canConnectBank && (
-                          <AddMenuItem
-                            tutorialId="tutorial-add-bank"
-                            icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
-                            label="Add Bank"
-                            onClick={() => { setAddMenuOpen(false); setShowBankPicker("finexer"); }}
-                          />
-                        )}
-                        {canConnectBank && LEGACY_BANK_AVAILABLE && (
-                          <AddMenuItem
-                            icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
-                            label={LEGACY_BANK_MENU_LABEL}
-                            onClick={() => { setAddMenuOpen(false); setShowBankPicker("legacy"); }}
-                          />
-                        )}
-                        <AddMenuItem
-                          tutorialId="tutorial-add-statement"
-                          icon={<Upload size={14} className="text-slate-400 flex-shrink-0" />}
-                          label="Statement"
-                          onClick={() => { setAddMenuOpen(false); setShowMpesaUpload(true); }}
-                        />
-                        <AddMenuItem
-                          tutorialId="tutorial-add-investment"
-                          icon={<TrendingUp size={14} className="text-slate-400 flex-shrink-0" />}
-                          label="Investment"
-                          onClick={() => { setAddMenuOpen(false); setShowInvestmentUpload(true); }}
-                        />
-                        <AddMenuItem
-                          tutorialId="tutorial-add-offline"
-                          icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
-                          label="Offline"
-                          onClick={() => { setAddMenuOpen(false); openAddManual(); }}
-                        />
-                      </>
-                    ) : (
-                      <>
-                        <MonoConnectWidget onSuccess={handleMonoSuccess}>
-                          {(open, monoLoading) => (
-                            <AddMenuItem
-                              tutorialId="tutorial-add-bank"
-                              icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
-                              label={monoLoading ? "Opening…" : "Mono"}
-                              disabled={monoLoading}
-                              onClick={() => { setAddMenuOpen(false); open(); }}
-                            />
-                          )}
-                        </MonoConnectWidget>
-                        <AddMenuItem
-                          tutorialId="tutorial-add-statement"
-                          icon={<Upload size={14} className="text-slate-400 flex-shrink-0" />}
-                          label="Statement"
-                          onClick={() => { setAddMenuOpen(false); setShowMpesaUpload(true); }}
-                        />
-                        <AddMenuItem
-                          tutorialId="tutorial-add-offline"
-                          icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
-                          label="Offline"
-                          onClick={() => { setAddMenuOpen(false); openAddManual(); }}
-                        />
-                      </>
+                    {/* A67: Add Bank is hidden outright on a plan with no
+                        open banking (Statements), rather than shown and
+                        answered with a 402 when tapped. Hidden, not
+                        disabled: a greyed-out row that never explains itself
+                        is worse than a menu that only offers what this plan
+                        can actually do. Statement, Investment and Offline
+                        below are on every plan. */}
+                    {canConnectBank && (
+                      <AddMenuItem
+                        tutorialId="tutorial-add-bank"
+                        icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
+                        label="Add Bank"
+                        onClick={() => { setAddMenuOpen(false); setShowBankPicker("finexer"); }}
+                      />
                     )}
+                    {canConnectBank && LEGACY_BANK_AVAILABLE && (
+                      <AddMenuItem
+                        icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
+                        label={LEGACY_BANK_MENU_LABEL}
+                        onClick={() => { setAddMenuOpen(false); setShowBankPicker("legacy"); }}
+                      />
+                    )}
+                    <AddMenuItem
+                      tutorialId="tutorial-add-statement"
+                      icon={<Upload size={14} className="text-slate-400 flex-shrink-0" />}
+                      label="Statement"
+                      onClick={() => { setAddMenuOpen(false); setShowStatementUpload(true); }}
+                    />
+                    <AddMenuItem
+                      tutorialId="tutorial-add-investment"
+                      icon={<TrendingUp size={14} className="text-slate-400 flex-shrink-0" />}
+                      label="Investment"
+                      onClick={() => { setAddMenuOpen(false); setShowInvestmentUpload(true); }}
+                    />
+                    <AddMenuItem
+                      tutorialId="tutorial-add-offline"
+                      icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
+                      label="Offline"
+                      onClick={() => { setAddMenuOpen(false); openAddManual(); }}
+                    />
                   </div>
                 )}
               </div>
@@ -2679,7 +2642,7 @@ export default function AccountsPage() {
                   >
                     {hideNetWorth
                       ? "••••••"
-                      : `${kpis.net_worth < 0 ? "−" : ""}${region === "Kenya" ? "KES " : "£"}${Math.abs(kpis.net_worth).toLocaleString("en-GB", { maximumFractionDigits: 0 })}`}
+                      : `${kpis.net_worth < 0 ? "−" : ""}£${Math.abs(kpis.net_worth).toLocaleString("en-GB", { maximumFractionDigits: 0 })}`}
                   </p>
                   {/* The two stats + counts, whispered onto one line. No
                       month-over-month trend here — KPIs carries only a
@@ -2853,69 +2816,43 @@ export default function AccountsPage() {
                 </div>
                 <p className="text-slate-800 dark:text-slate-100 font-semibold mb-1">No banks connected</p>
                 <p className="text-slate-400 dark:text-slate-500 text-sm mb-5">
-                  {region !== "UK"
-                    ? "Connect via Mono or upload a bank statement (M-Pesa, Equity, KCB, NCBA…) to get started."
-                    : canConnectBank
-                      ? "Connect your bank via Open Banking, or upload a PDF/CSV statement."
-                      : "Upload a PDF or CSV statement to get started."}
+                  {canConnectBank
+                    ? "Connect your bank via Open Banking, or upload a PDF/CSV statement."
+                    : "Upload a PDF or CSV statement to get started."}
                 </p>
-                {region === "UK" ? (
-                  // A67. Two changes here. The connect button used to open
-                  // the TrueLayer picker (`setShowBankPicker("truelayer")`)
-                  // while the Add menu three screens up opened Finexer — the
-                  // single worst instance of TrueLayer-by-default, since
-                  // this is the first thing a user with no accounts sees.
-                  // And Upload Statement now LEADS: it is the action every
-                  // plan has, so it is what shows while the plan is still
-                  // resolving and the only one on a Statements plan, with
-                  // Connect a Bank revealed above it once open banking is
-                  // known to be included. Nothing ever appears and then
-                  // disappears; see lib/openBankingAccess.ts.
-                  <div className="flex flex-col gap-2 items-center">
-                    {canConnectBank && (
-                      <button
-                        onClick={() => setShowBankPicker("finexer")}
-                        className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-all text-white font-semibold px-5 py-3 rounded-xl text-sm"
-                      >
-                        <Plus size={16} />
-                        Connect a Bank
-                      </button>
-                    )}
+                {/* A67. Two changes here. The connect button used to open
+                    the TrueLayer picker (`setShowBankPicker("truelayer")`)
+                    while the Add menu three screens up opened Finexer — the
+                    single worst instance of TrueLayer-by-default, since
+                    this is the first thing a user with no accounts sees.
+                    And Upload Statement now LEADS: it is the action every
+                    plan has, so it is what shows while the plan is still
+                    resolving and the only one on a Statements plan, with
+                    Connect a Bank revealed above it once open banking is
+                    known to be included. Nothing ever appears and then
+                    disappears; see lib/openBankingAccess.ts. */}
+                <div className="flex flex-col gap-2 items-center">
+                  {canConnectBank && (
                     <button
-                      onClick={() => setShowMpesaUpload(true)}
-                      className={`inline-flex items-center gap-2 active:scale-95 transition-all font-semibold px-5 py-3 rounded-xl text-sm ${
-                        canConnectBank
-                          ? "bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 hover:bg-slate-50 text-slate-700 dark:text-slate-200"
-                          : "bg-indigo-600 hover:bg-indigo-700 text-white"
-                      }`}
-                    >
-                      <Upload size={16} />
-                      Upload Statement
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex flex-col gap-2 items-center">
-                    <MonoConnectWidget onSuccess={handleMonoSuccess}>
-                      {(open, monoLoading) => (
-                        <button
-                          onClick={open}
-                          disabled={monoLoading}
-                          className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-all text-white font-semibold px-5 py-3 rounded-xl text-sm"
-                        >
-                          <Plus size={16} />
-                          {monoLoading ? "Opening…" : "Connect via Mono"}
-                        </button>
-                      )}
-                    </MonoConnectWidget>
-                    <button
-                      onClick={() => setShowMpesaUpload(true)}
+                      onClick={() => setShowBankPicker("finexer")}
                       className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-all text-white font-semibold px-5 py-3 rounded-xl text-sm"
                     >
-                      <Upload size={16} />
-                      Upload Bank Statement
+                      <Plus size={16} />
+                      Connect a Bank
                     </button>
-                  </div>
-                )}
+                  )}
+                  <button
+                    onClick={() => setShowStatementUpload(true)}
+                    className={`inline-flex items-center gap-2 active:scale-95 transition-all font-semibold px-5 py-3 rounded-xl text-sm ${
+                      canConnectBank
+                        ? "bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 hover:bg-slate-50 text-slate-700 dark:text-slate-200"
+                        : "bg-indigo-600 hover:bg-indigo-700 text-white"
+                    }`}
+                  >
+                    <Upload size={16} />
+                    Upload Statement
+                  </button>
+                </div>
               </div>
             ) : (
               <>
@@ -3198,7 +3135,7 @@ export default function AccountsPage() {
                   {manualAccounts.map((acc) => {
                     const meta = MANUAL_TYPES.find(t => t.value === acc.account_type) ?? MANUAL_TYPES[0];
                     const isCredit = acc.account_type === "credit_card";
-                    const currency = region === "Kenya" ? "KES " : "£";
+                    const currency = "£";
                     const accountForDetail = accounts.find(a => a.id === acc.id);
                     return (
                       <div

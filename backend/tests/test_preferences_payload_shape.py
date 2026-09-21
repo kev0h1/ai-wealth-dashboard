@@ -76,7 +76,6 @@ EXPECTED_KEYS = {
     "hide_net_worth",
     "dark_mode",
     "pay_period_config",
-    "region",
     "debt_target_months",
     "notification_prefs",
     "income_bracket",

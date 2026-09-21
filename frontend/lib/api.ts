@@ -3,7 +3,7 @@ import { getToken } from "./auth";
 import { LEGACY_BANK_AVAILABLE, LEGACY_BANK_ID } from "./legacyBankProvider";
 import type { GoLiveItem, GoLiveQuestion, GoLiveOwner } from "./goLive";
 import type {
-  Account, Transaction, MonoAccount, MpesaAccount, KPIs, Insight,
+  Account, Transaction, KPIs, Insight,
   SavingsInsight, WorkflowStep, WorkflowDef, ChallengeProgress, Challenge,
   ChallengesData, InvestmentAccount, InvestmentHolding, InvestmentNote, BudgetItem,
   DebtInsights, DebtBurndown, UserPreferences, CategoryRule, BillLabel,
@@ -14,7 +14,7 @@ import type {
   MoneyShapePeriodEntry, MoneyShapeAverageEntry,
 } from "@wealth/shared";
 export type {
-  Account, Transaction, MonoAccount, MpesaAccount, KPIs, Insight,
+  Account, Transaction, KPIs, Insight,
   SavingsInsight, WorkflowStep, WorkflowDef, ChallengeProgress, Challenge,
   ChallengesData, InvestmentAccount, InvestmentHolding, InvestmentNote, BudgetItem,
   DebtInsights, DebtBurndown, UserPreferences, CategoryRule, BillLabel,
@@ -611,8 +611,6 @@ export type Pace = {
 export type SafeToSpend =
   | {
       status: "insufficient_data";
-      calculation_status?: "unsupported" | "unavailable";
-      unavailable_components?: string[];
     }
   | {
       status: "ok";
@@ -2876,49 +2874,11 @@ export const api = {
       headers: authHeaders(),
     }).then((r) => toJson<{ deleted: string }>(r)),
 
-  // Mono (Kenya open banking)
-  monoPublicKey: () => get<{ public_key: string }>("/auth/mono/public-key"),
-  monoExchange: (code: string) => post<{ message: string; account_id: string }>("/auth/mono/exchange", { code }),
-  monoSync: () => post<{ message: string }>("/mono/sync", {}),
-  getMonoAccounts: () => get<MonoAccount[]>("/mono/accounts"),
-  getMonoTransactions: (id: string) => get<Transaction[]>(`/mono/accounts/${id}/transactions`),
-  deleteMonoConnection: (id: string) =>
-    fetch(`${API_BASE}/mono/connections/${id}`, {
-      method: "DELETE",
-      headers: authHeaders(),
-    }).then((r) => toJson<{ deleted: boolean }>(r)),
-
-  // M-Pesa CSV upload (legacy — kept for backward compat)
-  uploadMpesa: (file: File, password?: string) => {
+  // Bank statement upload (any UK bank, PDF or CSV)
+  uploadStatement: async (file: File, password?: string) => {
     const form = new FormData();
     form.append("file", file);
     if (password) form.append("password", password);
-    return fetch(`${API_BASE}/mpesa/upload`, {
-      method: "POST",
-      headers: authHeaders(),
-      body: form,
-    }).then(async r => {
-      if (!r.ok) {
-        const fallback = `${r.status}`;
-        let detail: unknown = fallback;
-        try {
-          const body = await r.json();
-          if (body?.detail) detail = body.detail;
-        } catch {
-          try { detail = (await r.text()) || fallback; } catch { /* ignore */ }
-        }
-        throw new Error(humanizeErrorDetail(detail, fallback));
-      }
-      return r.json() as Promise<{ inserted: number; account_id: string }>;
-    });
-  },
-
-  // Generic bank statement upload (any bank, any region)
-  uploadStatement: async (file: File, password?: string, region = "Kenya") => {
-    const form = new FormData();
-    form.append("file", file);
-    if (password) form.append("password", password);
-    form.append("region", region);
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 150_000); // 2.5 min
@@ -3160,8 +3120,6 @@ export const api = {
       method: "DELETE",
       headers: authHeaders(),
     }).then((r) => toJson<{ deleted: string }>(r)),
-  getMpesaAccounts: () => get<MpesaAccount[]>("/mpesa/accounts"),
-  getMpesaTransactions: (id: string) => get<Transaction[]>(`/mpesa/accounts/${id}/transactions`),
   getAccountRate: (accountId: string) => get<{ apr: number | null }>(`/accounts/${encodeURIComponent(accountId)}/rate`),
   setAccountRate: (accountId: string, apr: number | null) =>
     fetch(`${API_BASE}/accounts/${encodeURIComponent(accountId)}/rate`, {

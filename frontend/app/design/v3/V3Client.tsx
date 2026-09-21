@@ -580,8 +580,8 @@ export default function V3Client() {
     reload,
   } = useHomeTopData();
 
-  const { hideNetWorth, setHideNetWorth, region } = usePreferences();
-  const sym = region === "Kenya" ? "KES " : "£";
+  const { hideNetWorth, setHideNetWorth } = usePreferences();
+  const sym = "£";
 
   // Stat chips: only render when spendable_now is available
   const okSpend =

@@ -52,8 +52,8 @@ function PulseLine({ w }: { w: string }) {
 
 export default function V1Client() {
   const router = useRouter();
-  const { hideNetWorth: hidden, setHideNetWorth, region } = usePreferences();
-  const sym = region === "Kenya" ? "KES " : "£";
+  const { hideNetWorth: hidden, setHideNetWorth } = usePreferences();
+  const sym = "£";
 
   const {
     loading,

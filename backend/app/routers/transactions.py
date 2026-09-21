@@ -17,7 +17,7 @@ from app.core.llm import openrouter_chat
 from app.core.models import Transaction
 from app.db.collections import (
     transactions_col, accounts_col, yapily_accounts_col, yapily_transactions_col,
-    mono_transactions_col, mpesa_transactions_col, statement_transactions_col,
+    statement_transactions_col,
     commitments_col, manual_accounts_col, teaching_events_col,
 )
 from app.services.categorisation import (
@@ -56,7 +56,7 @@ async def oldest_transaction(user: dict = Depends(current_user)):
     uid = user["email"]
     oldest = None
     for col in (transactions_col, yapily_transactions_col,
-                mono_transactions_col, statement_transactions_col):
+                statement_transactions_col):
         doc = await col.find_one({"user_id": uid}, {"date": 1}, sort=[("date", 1)])
         if doc and doc.get("date") and (oldest is None or doc["date"] < oldest):
             oldest = doc["date"]
@@ -65,10 +65,6 @@ async def oldest_transaction(user: dict = Depends(current_user)):
 
 async def _txn_source(account_id: str, uid: str):
     """Which collection holds this account's transactions."""
-    if account_id.startswith("mono-"):
-        return mono_transactions_col
-    if account_id.startswith("mpesa-"):
-        return mpesa_transactions_col
     if account_id.startswith("statement-"):
         return statement_transactions_col
     if await yapily_accounts_col.find_one({"_id": account_id, "user_id": uid}, {"_id": 1}):
@@ -178,8 +174,7 @@ async def all_transactions(days: int = 365, user: dict = Depends(current_user)):
     23-account user) and filtered client-side."""
     uid    = user["email"]
     cutoff = datetime.now() - timedelta(days=min(days, 730))
-    cols = (transactions_col, yapily_transactions_col,
-            statement_transactions_col, mono_transactions_col, mpesa_transactions_col)
+    cols = (transactions_col, yapily_transactions_col, statement_transactions_col)
     results = await asyncio.gather(
         *(c.find({"user_id": uid, "date": {"$gte": cutoff}}).to_list(None) for c in cols)
     )
@@ -345,8 +340,7 @@ async def search_transactions(
     fetch_n   = page * page_size
 
     query = _search_query(uid, q, category, days, merchants, date_from, date_to, txn_type, categories)
-    cols  = (transactions_col, yapily_transactions_col,
-             statement_transactions_col, mono_transactions_col, mpesa_transactions_col)
+    cols  = (transactions_col, yapily_transactions_col, statement_transactions_col)
 
     counts, per_collection = await asyncio.gather(
         asyncio.gather(*(c.count_documents(query) for c in cols)),

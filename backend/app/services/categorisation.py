@@ -13,7 +13,7 @@ from app.core.llm import openrouter_chat
 from app.db.collections import (
     transactions_col, accounts_col, user_rules_col, user_profiles_col,
     merchant_categories_col, confirmed_transfer_pairs_col,
-    statement_transactions_col, mono_transactions_col, mpesa_transactions_col,
+    statement_transactions_col,
 )
 from app.services.categories import get_category_kinds, kind_of, MOVEMENT, BUILTIN_CATEGORY_KINDS, NON_SPEND_KINDS
 # G39: the mortgage/car-finance savings insights (app.routers.savings_insights)
@@ -1376,7 +1376,7 @@ async def categorise_others_bg(uid: str) -> int:
     # instead of being limited to the 19 shared built-ins.
     allowed_cats = await user_allowed_categories(uid)
 
-    col_map = [transactions_col, statement_transactions_col, mono_transactions_col, mpesa_transactions_col]
+    col_map = [transactions_col, statement_transactions_col]
     # Structural / money-to-self categories (Transfer, Savings, Debt, Investment) are
     # assigned deterministically by earlier passes (Pass 2 / 2.6) and must never be
     # something the LLM guesses at — exclude them from the list it's allowed to pick.

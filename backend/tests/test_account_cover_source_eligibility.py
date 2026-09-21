@@ -69,10 +69,7 @@ def test_manual_accounts_keep_real_class_and_credit_is_ineligible():
 
 
 def test_uk_account_listing_marks_engine_sources_and_statement_accounts(monkeypatch):
-    async def uk_region(_uid):
-        return "UK"
 
-    monkeypatch.setattr(accounts_router, "get_user_region", uk_region)
     monkeypatch.setattr(
         accounts_router,
         "accounts_col",
@@ -136,14 +133,11 @@ def test_uk_credit_card_eligibility_matches_the_real_engine_classifier(monkeypat
     -- if either side's exclusion test ever changes, this test changes
     with it instead of silently going stale.
     """
-    async def uk_region(_uid):
-        return "UK"
 
     credit_doc = {**_account("cc", name="Amex Platinum", subtype="CREDIT_CARD"), "type": "credit_card"}
     current_doc = _account("current", name="Everyday current")
     savings_doc = _account("savings", name="Rainy day", subtype="SAVINGS")
 
-    monkeypatch.setattr(accounts_router, "get_user_region", uk_region)
     monkeypatch.setattr(
         accounts_router, "accounts_col",
         _Collection([credit_doc, current_doc, savings_doc]),
@@ -193,8 +187,6 @@ def test_yapily_credit_card_is_ineligible_despite_never_setting_subtype(monkeypa
     no money moves), which is precisely why this is easy to miss without a
     fixture shaped like the real sync output.
     """
-    async def uk_region(_uid):
-        return "UK"
 
     # Shape matches yapily_sync.py's real write for a credit card exactly:
     # type="credit_card" (provider enum, lowercased), no subtype key.
@@ -204,7 +196,6 @@ def test_yapily_credit_card_is_ineligible_despite_never_setting_subtype(monkeypa
         "institution_id": "Open Bank", "consent": "consent-1", "status": "connected",
     }
 
-    monkeypatch.setattr(accounts_router, "get_user_region", uk_region)
     monkeypatch.setattr(accounts_router, "accounts_col", _Collection())
     monkeypatch.setattr(accounts_router, "statement_accounts_col", _Collection())
     monkeypatch.setattr(
@@ -244,8 +235,6 @@ def test_settings_eligibility_matches_the_engines_full_source_predicate(monkeypa
     diverge, rather than only for the one shape this review happened to
     catch.
     """
-    async def uk_region(_uid):
-        return "UK"
 
     loan_doc = {
         "_id": "loan", "user_id": "kevin", "name": "Personal loan",
@@ -258,7 +247,6 @@ def test_settings_eligibility_matches_the_engines_full_source_predicate(monkeypa
         "status": "connected",
     }
 
-    monkeypatch.setattr(accounts_router, "get_user_region", uk_region)
     monkeypatch.setattr(accounts_router, "accounts_col", _Collection([loan_doc, blank_doc]))
     monkeypatch.setattr(accounts_router, "statement_accounts_col", _Collection())
     monkeypatch.setattr(accounts_router, "yapily_consents_col", _Collection())

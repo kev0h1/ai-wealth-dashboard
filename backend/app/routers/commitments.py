@@ -87,7 +87,6 @@ from app.services.debt_plan import (
     month_label_to_human,
 )
 from app.services.pay_period import get_pay_period_for_date, period_rhythm_label
-from app.services.region import get_user_region
 
 logger = logging.getLogger(__name__)
 
@@ -407,7 +406,7 @@ async def _feasibility_ctx(uid: str) -> tuple[float, float] | None:
     """(monthly_surplus, available_savings) for feasibility, or None on failure.
 
     monthly_surplus reuses savings._cashflow (income − spending − debt, backed
-    by the 6h cashflow cache) with the grow.py region/cutoff idiom.
+    by the 6h cashflow cache) with the grow.py cutoff idiom.
     available_savings reuses savings._current_savings with the user's
     safety-net goal accounts — the same pot split Safe-to-Spend shows. Chosen
     over recomputing a bespoke split because it is a handful of indexed
@@ -415,9 +414,8 @@ async def _feasibility_ctx(uid: str) -> tuple[float, float] | None:
     sees as "savings" elsewhere.
     """
     try:
-        region = await get_user_region(uid)
         cutoff = datetime.now() - timedelta(days=90)
-        _income, _spending, surplus = await _cashflow(uid, region, cutoff)
+        _income, _spending, surplus = await _cashflow(uid, cutoff)
         goal = await savings_goals_col.find_one({"_id": uid})
         savings_total = await _current_savings(uid, goal)
         return float(surplus), float(savings_total)

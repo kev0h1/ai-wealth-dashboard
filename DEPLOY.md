@@ -496,7 +496,7 @@ scripts/env_drift.py` to check the two against what Railway actually has.
 | `ALLOWED_EMAILS` | from `backend/.env` | comma-separated allowlist, the seed list; see "Sign-up mode" below for day-to-day invites |
 | `OPEN_SIGNUP` | unset (defaults false) | see "Sign-up mode" below |
 | `FUEL_FINDER_CLIENT_ID` / `_SECRET` | from `backend/.env` | fuel prices |
-| `MONO_*`, `YAPILY_*` | from `backend/.env` | only if using the Kenya region |
+| `YAPILY_*` | from `backend/.env` | only if using the dormant Yapily provider |
 | `SENTRY_DSN` | optional | error monitoring |
 | `API_PUBLIC_URL` | optional, defaults to `https://api.wealth.auriqltd.co.uk` | the API's own domain, reached directly by Capacitor mobile builds (`build:mobile:prod`); added to CORS alongside `APP_URL` |
 | `STRIPE_SECRET_KEY` | Stripe dashboard, test mode first | B5 billing, unset today, see "Stripe setup checklist" below |
