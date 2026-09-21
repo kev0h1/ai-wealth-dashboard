@@ -479,11 +479,23 @@ scripts/session.sh list
   `AGENTS.md`.
 - `abandon [--worktree <path>]` deletes the worktree and its local branch
   and resets the item to to-do with a note, for a session that didn't pan
-  out. A worktree that is detached, or whose branch is already gone, is
-  still removed (only the branch deletion is skipped) so a stuck session
-  can always clean up. `--worktree` names the directory explicitly and is
-  the way past a refused resolution; the path must be under
-  `/root/worktrees`.
+  out. A detached worktree is removed with an accurate note and no
+  attempt to delete a branch called `HEAD`. A leftover directory that is
+  no longer a git worktree is not matched and is not removed here: clear
+  it by hand with `rm -rf`, nothing in `session.sh` deletes arbitrary
+  directories.
+
+  `--worktree <path>` names the directory explicitly and is the way past
+  a refused resolution. The path is normalised before it is checked, so
+  it cannot be walked back out of `/root/worktrees` with `..` (a plain
+  string prefix test let `/root/worktrees/../../tmp/g70-review` through,
+  and that is a live checkout). It removes the worktree **only**: the
+  board is reset for `<ID>` just when the named worktree is the session
+  `<ID>` actually records. Clearing a stale duplicate therefore never
+  touches the live item, which it used to: run on today's G94
+  (`rejected`, `feature-G94-fold-in-approved-variant-c` recorded, one
+  stale sibling) it would have reset G94 to `todo`, cleared its recorded
+  branch and noted the wrong branch as discarded.
 - **Resolving `<ID>` to a worktree** (H85). `finish` and `abandon` do not
   guess. The branch the board records for `<ID>` is the authority: git
   knows which worktree has that branch checked out (`git worktree list
@@ -513,6 +525,23 @@ scripts/session.sh list
   tree, both orderings of the ambiguous case) by
   `backend/tests/test_session_worktree_resolve.py`, which the backend
   suite — and therefore `finish` itself — runs.
+
+  Three bounds keep "the board is the authority" from becoming its own
+  hazard. A recorded branch checked out **outside** `/root/worktrees`
+  (the shared tree, a scratch clone) is refused. A recorded branch
+  checked out in a worktree that is **not one of `<ID>`'s own** name
+  candidates, while such candidates exist, is refused too: a mistyped or
+  copy-pasted `[branch: ...]` tag would otherwise have `finish` push
+  another item's branch and mark this one in review against it, and
+  `integrate.py` already warns that recorded branches drift from their
+  id. And a failed board read is never flattened into "no branch
+  recorded", because that would silently downgrade the rule back to the
+  name match it replaced; `finish` and `abandon` stop instead. A
+  directory with no `.git` entry is not a worktree and is not a
+  candidate at all, so an `rm -rf`'d or half-pruned session cannot make
+  an id ambiguous, and a worktree git still lists but whose directory is
+  gone is refused with a pointer to `git worktree prune` rather than
+  resolved to a path that does not exist.
 
 **Integrate** (`scripts/integrate.py`, run with `backend/.venv/bin/python`
 from the shared tree):

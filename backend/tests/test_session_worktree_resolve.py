@@ -416,3 +416,307 @@ def test_ids_do_not_prefix_match_each_other(tmp_path, fixture_env):
     res = _resolve(tmp_path, board_root, shared_tree, worktrees_root, "G128", verb="abandon")
     assert res.returncode == 0, res.output
     assert res.worktree == str(worktrees_root / "feature-G128")
+
+
+# =====================================================================
+# Coverage for the commands themselves, not just the resolver: cmd_
+# abandon, --worktree, cmd_list and worktree_id_of_path. The first round
+# of this item tested resolve_session_worktree only, and every defect
+# review found afterwards lived in code these tests never executed.
+# =====================================================================
+
+CMD_DRIVER = """#!/usr/bin/env bash
+set -uo pipefail
+_SESSION_SH="$1"; shift
+_FAKE_SHARED="$1"; shift
+_FAKE_BACKLOG_PY="$1"; shift
+_FAKE_VENV_PY="$1"; shift
+_FAKE_WORKTREES="$1"; shift
+
+source "$_SESSION_SH" "" >/dev/null
+
+SHARED_TREE="$_FAKE_SHARED"
+BACKLOG_PY="$_FAKE_BACKLOG_PY"
+VENV_PY="$_FAKE_VENV_PY"
+WORKTREES_ROOT="$_FAKE_WORKTREES"
+
+"$@"
+"""
+
+
+def _run_cmd(
+    tmp_path: Path,
+    board_root: Path,
+    shared_tree: Path,
+    worktrees_root: Path,
+    *argv: str,
+    backlog_py: str | None = None,
+) -> subprocess.CompletedProcess:
+    driver = tmp_path / "cmd_driver.sh"
+    driver.write_text(CMD_DRIVER, encoding="utf-8")
+
+    env = dict(os.environ)
+    env["BACKLOG_ROOT"] = str(board_root)
+    env.pop("BACKLOG_AGENT", None)
+
+    return subprocess.run(
+        [
+            "bash",
+            str(driver),
+            str(SESSION_SH),
+            str(shared_tree),
+            backlog_py or str(BACKLOG_PY),
+            str(VENV_PY),
+            str(worktrees_root),
+            *argv,
+        ],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+
+
+def _show(board_root: Path, item_id: str) -> dict:
+    import json
+
+    env = dict(os.environ)
+    env["BACKLOG_ROOT"] = str(board_root)
+    result = subprocess.run(
+        [str(VENV_PY), str(BACKLOG_PY), "show", item_id],
+        cwd=board_root,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)
+
+
+# ---------------------------------------------------------------------
+# --worktree: the escape hatch must not become a foot-gun
+# ---------------------------------------------------------------------
+
+
+def test_abandon_worktree_rejects_a_path_that_escapes_the_root_with_dotdot(tmp_path, fixture_env):
+    """`--worktree` guarded the path with a plain string prefix test, so
+    <root>/worktrees/../elsewhere/precious passed it and was deleted,
+    contents and branch and all. That shape is real on this host:
+    /tmp/g70-review is reachable as /root/worktrees/../../tmp/g70-review."""
+    board_root, shared_tree, worktrees_root = fixture_env
+    worktrees_root.mkdir()
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    precious = elsewhere / "precious"
+    _git("worktree", "add", "-q", "-b", "feature-precious", str(precious), "main", cwd=shared_tree)
+    (precious / "treasure.txt").write_text("do not delete", encoding="utf-8")
+
+    traversal = str(worktrees_root / ".." / "elsewhere" / "precious")
+    result = _run_cmd(tmp_path, board_root, shared_tree, worktrees_root, "cmd_abandon", "G127", "--worktree", traversal)
+
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert "not under" in result.stderr, result.stdout + result.stderr
+    assert precious.is_dir(), "the traversal path was removed despite the guard"
+    assert (precious / "treasure.txt").exists()
+
+
+def test_abandon_worktree_does_not_reset_the_board_for_a_stale_duplicate(tmp_path, fixture_env):
+    """Removing a stale duplicate is what --worktree is advertised for, by
+    the usage text, BACKLOG.md and the refusal hint alike. Applied to a
+    live item it used to also reset that item to todo, clear its recorded
+    branch and write a note naming the wrong branch, i.e. corrupt exactly
+    the item you were trying to unblock."""
+    board_root, shared_tree, worktrees_root = fixture_env
+    _add_worktree(shared_tree, worktrees_root, "feature-G127-round3-fix", "feature-G127-round3-fix")
+    stale = _add_worktree(shared_tree, worktrees_root, "feature-G127-upcoming-round3", "feature-G127-upcoming-round3")
+
+    result = _run_cmd(tmp_path, board_root, shared_tree, worktrees_root, "cmd_abandon", "G127", "--worktree", str(stale))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not stale.exists()
+
+    data = _show(board_root, "G127")
+    assert data["state"] == "in-progress", "the live item was reset by cleaning up a stale sibling"
+    assert data["branch"] == "feature-G127-round3-fix"
+    assert not any("upcoming-round3" in n["text"] for n in data["notes"]), data["notes"]
+
+
+def test_abandon_worktree_still_resets_the_board_for_the_recorded_session(tmp_path, fixture_env):
+    """The other half: when the named worktree IS the item's recorded
+    session, --worktree behaves like a normal abandon."""
+    board_root, shared_tree, worktrees_root = fixture_env
+    live = _add_worktree(shared_tree, worktrees_root, "feature-G127-round3-fix", "feature-G127-round3-fix")
+
+    result = _run_cmd(tmp_path, board_root, shared_tree, worktrees_root, "cmd_abandon", "G127", "--worktree", str(live))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not live.exists()
+
+    data = _show(board_root, "G127")
+    assert data["state"] == "todo"
+
+
+def test_abandon_worktree_without_a_value_explains_itself(tmp_path, fixture_env):
+    """`shift 2` on a missing value exits 1 under set -e with nothing
+    printed at all, which reads as a crash."""
+    board_root, shared_tree, worktrees_root = fixture_env
+    worktrees_root.mkdir()
+
+    result = _run_cmd(tmp_path, board_root, shared_tree, worktrees_root, "cmd_abandon", "G127", "--worktree")
+    assert result.returncode != 0
+    assert "--worktree" in result.stderr, result.stdout + result.stderr
+
+
+def test_abandon_resolved_path_resets_the_board_as_before(tmp_path, fixture_env):
+    board_root, shared_tree, worktrees_root = fixture_env
+    live = _add_worktree(shared_tree, worktrees_root, "feature-G127-round3-fix", "feature-G127-round3-fix")
+
+    result = _run_cmd(tmp_path, board_root, shared_tree, worktrees_root, "cmd_abandon", "G127")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not live.exists()
+    assert _show(board_root, "G127")["state"] == "todo"
+
+
+def test_abandon_removes_a_detached_worktree_and_notes_it_accurately(tmp_path, fixture_env):
+    """A detached worktree was always removable (rev-parse --abbrev-ref
+    prints HEAD and exits 0); what was wrong was the note claiming a
+    branch called HEAD was discarded, and a pointless `git branch -D
+    HEAD`."""
+    board_root, shared_tree, worktrees_root = fixture_env
+    path = _add_detached_worktree(shared_tree, worktrees_root, "feature-G128-detached")
+
+    result = _run_cmd(tmp_path, board_root, shared_tree, worktrees_root, "cmd_abandon", "G128")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not path.exists()
+
+    data = _show(board_root, "G128")
+    assert data["state"] == "todo"
+    assert any("no branch checked out" in n["text"] for n in data["notes"]), data["notes"]
+    assert not any("branch HEAD" in n["text"] for n in data["notes"]), data["notes"]
+
+
+# ---------------------------------------------------------------------
+# Resolution holes found on review
+# ---------------------------------------------------------------------
+
+
+def test_a_recorded_branch_belonging_to_another_item_is_refused(tmp_path):
+    """Making the board unconditionally authoritative removed the one
+    bound the old resolver did have: it could only ever pick a worktree
+    whose NAME matched the id. A mistyped or copy-pasted branch tag would
+    otherwise resolve to another item's live worktree, and finish would
+    push that branch and mark this item in review against it.
+    integrate.py already warns that recorded branches drift from their
+    id, so this state occurs."""
+    fixture = BOARD_FIXTURE.replace("[branch: feature-G127-round3-fix]", "[branch: feature-G999-someone-elses-work]")
+    board_root = _make_board_root(tmp_path, fixture=fixture)
+    shared_tree = _make_fake_shared_tree(tmp_path)
+    worktrees_root = tmp_path / "worktrees"
+    _add_worktree(shared_tree, worktrees_root, "feature-G999-someone-elses-work", "feature-G999-someone-elses-work")
+    _add_worktree(shared_tree, worktrees_root, "feature-G127-mine", "feature-G127-mine")
+
+    res = _resolve(tmp_path, board_root, shared_tree, worktrees_root, "G127")
+    assert res.returncode != 0, res.output
+    assert "feature-G999-someone-elses-work" in res.stderr
+    assert res.worktree != str(worktrees_root / "feature-G999-someone-elses-work")
+
+
+def test_a_leftover_plain_directory_does_not_create_ambiguity(tmp_path, fixture_env):
+    """An rm -rf'd or half-pruned worktree leaves a plain directory. It is
+    not a worktree, so it must not make the id ambiguous: it used to
+    trigger "2 worktrees match its id", and the --worktree escape the
+    refusal recommends cannot clear it either (git worktree remove says
+    "is not a working tree")."""
+    board_root, shared_tree, worktrees_root = fixture_env
+    live = _add_worktree(shared_tree, worktrees_root, "feature-G128-live", "feature-G128-live")
+    (worktrees_root / "feature-G128-stale-leftover").mkdir()
+
+    res = _resolve(tmp_path, board_root, shared_tree, worktrees_root, "G128")
+    assert res.returncode == 0, res.output
+    assert res.worktree == str(live)
+
+
+def test_a_prunable_worktree_is_refused_not_resolved_to_a_missing_path(tmp_path, fixture_env):
+    """git still lists a worktree whose directory was deleted until
+    someone prunes. Resolving to it returned a path that does not exist,
+    and finish then died on a raw git error."""
+    board_root, shared_tree, worktrees_root = fixture_env
+    path = _add_worktree(shared_tree, worktrees_root, "feature-G127-round3-fix", "feature-G127-round3-fix")
+    shutil.rmtree(path)
+
+    res = _resolve(tmp_path, board_root, shared_tree, worktrees_root, "G127")
+    assert res.returncode != 0, res.output
+    assert "prune" in res.stderr, res.output
+    assert res.worktree != str(path)
+
+
+def test_an_unreadable_board_is_fatal_rather_than_silently_name_matching(tmp_path, fixture_env):
+    """If `backlog.py show` fails at runtime, treating that as "no branch
+    recorded" silently downgrades the board-is-authority rule back to a
+    worktree-name match, which is the pre-H85 bug."""
+    board_root, shared_tree, worktrees_root = fixture_env
+    _add_worktree(shared_tree, worktrees_root, "feature-G127-upcoming-round3", "feature-G127-upcoming-round3")
+
+    driver = tmp_path / "cmd_driver.sh"
+    driver.write_text(CMD_DRIVER, encoding="utf-8")
+    env = dict(os.environ)
+    env["BACKLOG_ROOT"] = str(board_root)
+    env.pop("BACKLOG_AGENT", None)
+    result = subprocess.run(
+        [
+            "bash",
+            str(driver),
+            str(SESSION_SH),
+            str(shared_tree),
+            str(tmp_path / "no-such-backlog.py"),
+            str(VENV_PY),
+            str(worktrees_root),
+            "resolve_session_worktree",
+            "G127",
+            "finish",
+        ],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert "board" in result.stderr.lower(), result.stdout + result.stderr
+    assert str(worktrees_root / "feature-G127-upcoming-round3") not in result.stdout
+
+
+# ---------------------------------------------------------------------
+# list
+# ---------------------------------------------------------------------
+
+
+def test_list_warns_about_duplicate_ids_entirely_on_stderr(tmp_path, fixture_env):
+    board_root, shared_tree, worktrees_root = fixture_env
+    _add_worktree(shared_tree, worktrees_root, "feature-G128-a", "feature-G128-a")
+    _add_worktree(shared_tree, worktrees_root, "feature-G128-b", "feature-G128-b")
+
+    result = _run_cmd(tmp_path, board_root, shared_tree, worktrees_root, "cmd_list")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "G128 has more than one worktree" in result.stderr
+    # stdout stays the plain worktree table: one line per worktree, no
+    # blank separator lines orphaned from the warning they belong to.
+    assert all(line.strip() for line in result.stdout.splitlines()), repr(result.stdout)
+    assert len(result.stdout.splitlines()) == 2, repr(result.stdout)
+
+
+def test_worktree_id_of_path_only_claims_real_ids(tmp_path, fixture_env):
+    board_root, shared_tree, worktrees_root = fixture_env
+    worktrees_root.mkdir()
+    cases = {
+        "/root/worktrees/feature-G127-round3-fix": "G127",
+        "/root/worktrees/feature-H85": "H85",
+        "/root/worktrees/item-G127-old-naming": "G127",
+        "/root/worktrees/feature-G1287-other": "G1287",
+        "/root/worktrees/story-preview-qa": "",
+        "/root/worktrees/feature-notanid": "",
+    }
+    for path, expected in cases.items():
+        result = _run_cmd(tmp_path, board_root, shared_tree, worktrees_root, "worktree_id_of_path", path)
+        assert result.returncode == 0, result.stderr
+        assert result.stdout == expected, f"{path} -> {result.stdout!r}, expected {expected!r}"

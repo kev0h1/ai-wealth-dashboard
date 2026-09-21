@@ -39,6 +39,22 @@ unrecorded.
   green: `scripts/session.sh finish <ID>`. This pushes the branch and
   marks the item in review. It refuses to run if the worktree is dirty or
   either check fails, fix that first rather than forcing it through.
+- `finish` and `abandon` resolve `<ID>` to a worktree through the branch
+  the board records for it, never through a name match (item H85). They
+  print the worktree and branch they resolved to before doing anything,
+  and refuse, listing what they found, rather than guessing: when no
+  worktree is on the recorded branch, when that branch is checked out
+  somewhere that is not one of `<ID>`'s own worktrees, or when `<ID>`
+  records no branch and more than one worktree carries its id. If you hit
+  one of those refusals, read it: it names the fix. `abandon <ID>
+  --worktree <path>` clears a stale duplicate and, because the named
+  worktree is not the session the board records, leaves the item itself
+  untouched. The full model, and the 2026-09-18 incident that caused it
+  (a stale worktree resolved first, so `finish` pushed a branch that had
+  already been rejected and marked the item `review` against it), is in
+  `docs/ops/BACKLOG.md` under "Resolving `<ID>` to a worktree", which is
+  also where the rest of the board's state machine and the `add` / `review`
+  / `reject` / `uat` / `approve` commands are documented.
 - `npm run build` (Turbopack) in a worktree now works unmodified:
   `frontend/next.config.ts` widens `turbopack.root` to `/root` whenever it
   detects `frontend/node_modules` is a symlink pointing outside the
