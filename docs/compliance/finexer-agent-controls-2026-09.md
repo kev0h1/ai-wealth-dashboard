@@ -164,15 +164,14 @@ Retention: account and transaction data deleted within 30 days of closure, withd
 Status: blocked-deploy
 
 ```text
-Confirmed; the controls in our Security and Incident Response Policy are implemented in production: bank tokens encrypted at rest (AES via Fernet), key held only in platform secrets; all secrets outside source control; signed, time-limited session tokens verified on every request; sign-in only via verified Google or Apple identities, registration allow-listed until launch; TLS in transit; restricted CORS; rate limiting on authentication and webhook routes; HMAC signature verification on Finexer webhooks; API documentation and introspection disabled in production; MongoDB Atlas with network access controls; encrypted nightly backups with 30-day retention; platform logging on Vercel, Railway and Atlas.
+Confirmed; the controls in our Security and Incident Response Policy are implemented in production: bank tokens encrypted at rest (AES/Fernet), key held only in platform secrets outside source control; signed, time-limited session tokens on every request; sign-in only via verified Google/Apple identities, registration allow-listed until launch; TLS in transit; restricted CORS; rate limiting on auth/webhook routes; HMAC verification on Finexer webhooks; API docs disabled; MongoDB Atlas access controls; encrypted nightly backups, 30-day retention; platform logging on Vercel, Railway, Atlas.
 
-Testing completed prior to launch:
-- Automated backend test suite of over 1,150 tests run on every change, including tests for the webhook signature verification, sign-in gating and safe-to-spend hardening.
-- Internal security review of authentication, session handling, data hygiene on logout, and the webhook receiver (August and September 2026).
-- Dependency vulnerability audit, dated 2026-09-10, re-audited 2026-09-11. Backend (`pip-audit` 2.10.1, 81 pkgs): 0 known advisories. Frontend production (`npm audit --omit=dev`): 0 advisories; a moderate baseline-browser-mapping finding from 2026-09-10 was fixed by upgrading the transitive dependency. Full `npm audit` incl. dev tooling: 5 advisories (1 low, 1 moderate, 3 high), all dev-only, never shipped.
-- No independent penetration test has been commissioned at this stage. [KEVIN: decide whether to commission one; Finexer may expect it.]
+Testing completed:
+- Automated backend test suite (1,150+ tests) on every change; internal review of auth, session and logout hygiene, webhook receiver (Aug/Sep 2026); CI-automated dependency scanning (SECURITY.md 2).
+- Internal security testing, 2026-09: ten of twelve work packages run by this project's own AI agents (Claude, Codex) under a signed ROE (2026-09-20): web shell, API boundaries/limits, tenant/deletion, input handling, OAuth 2.1, MCP, Android (static), Finexer/TrueLayer, Stripe, OpenRouter/Penny. Internal only, not an independent third-party or CREST engagement. No Critical findings. Four High: three form one deletion-lifecycle issue (deletion does not revoke the Finexer consent, connections list hides it, deleted sessions stay valid up to 7 days and can write data); the fourth is an MCP prompt-injection gap, UAT-only (connector off in production). All four open. Rest Medium/Low/Info. Android/iOS dynamic testing not yet run, deferred to A7; cross-model review outstanding. Detail: SECURITY.md, docs/security/pentest-runs/.
+- No independently commissioned (third-party/CREST) test has taken place. [KEVIN: decide whether to commission one; A7 stays open ahead of launch.]
 
-Outstanding findings: none rated Critical or High. Two Medium items from internal review are closed and live in production: the legacy PIN-entry login (hardcoded PIN, unreferenced) was deleted, and the client-side reconnect cache that held a raw account number and sort code in localStorage now stores only the provider, account id and a masked last four digits.
+Outstanding: the four High findings above, all open, none remediated (SECURITY.md 3b). Two earlier Medium items (legacy PIN login, reconnect-cache data) remain closed, unchanged since last submission.
 ```
 
 ## Q12 Insurance
