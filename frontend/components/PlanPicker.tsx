@@ -284,8 +284,19 @@ export default function PlanPicker({
         // that cache whether this plan includes open banking — without this
         // it would answer from the pre-selection snapshot for up to the full
         // TTL and offer Connect a bank to someone who just chose the free
-        // plan. See lib/openBankingAccess.ts.
-        invalidateOpenBankingAccess();
+        // plan.
+        //
+        // AWAITED, not fire and forget. `onContinue()` below is a
+        // synchronous `setStep("income")`, and the income step can be left
+        // with a single tap (`Onboarding.skipIncome` is just
+        // `setStep("bank")`), so the bank step can render one commit and one
+        // tap later — faster than a cold `GET /subscription` on a
+        // single-worker API. Unawaited, the user sees "Connect your first
+        // bank" swap to the statements copy mid-signup, and can reach a 402
+        // in the gap. The button stays busy for the extra round trip, which
+        // is the right trade on a screen that has just taken a decision.
+        // See lib/openBankingAccess.ts.
+        await invalidateOpenBankingAccess();
         onContinue?.();
         return;
       }

@@ -61,16 +61,39 @@ export const OPEN_BANKING_TTL_MS = 5 * 60_000;
 
 let cache: { data: SubscriptionInfo; at: number } | null = null;
 let inflight: Promise<SubscriptionInfo> | null = null;
-const readers = new Set<() => void>();
+const readers = new Set<() => Promise<void>>();
+
+// Bumped by every invalidation. A read captures the generation it was issued
+// under and drops its own result if that generation is no longer current.
+// Without it, "last to RESOLVE wins" rather than "last to be ISSUED wins":
+// invalidation nulls `inflight` while an earlier read is still in the air,
+// so that earlier read's `.then` would still write `cache` and still notify,
+// and a stale answer would then sit in the cache for the full TTL. Not
+// reachable through today's call graph, but silent and sticky if it ever is,
+// and this module's own contract invites a caller that would hit it.
+let generation = 0;
 
 /** Call after anything that changes the user's plan (PlanPicker's free-plan
  *  selection does). Clears the cache AND re-reads it on behalf of every
  *  mounted reader, so a component that is already on screen sees the new
- *  plan rather than the snapshot it happened to mount with. */
-export function invalidateOpenBankingAccess() {
+ *  plan rather than the snapshot it happened to mount with.
+ *
+ *  RETURNS A PROMISE THAT CALLERS MUST AWAIT before navigating onward.
+ *  Signup is the reason: `PlanPicker`'s free-plan branch invalidates and then
+ *  advances to the income step, which is one synchronous `setStep` and one
+ *  user tap away from the bank step (`Onboarding.skipIncome` is exactly
+ *  `setStep("bank")`, and `saveIncome` with an empty field falls straight
+ *  through without saving). Against a single-worker API where a cold
+ *  `GET /subscription` over 500 ms is ordinary, a fire-and-forget
+ *  invalidation loses that race often enough to matter: the bank step paints
+ *  "Connect your first bank", then swaps to the statements copy when the
+ *  read lands, and in the gap a tap reaches a 402. Awaiting closes the
+ *  window. */
+export function invalidateOpenBankingAccess(): Promise<void> {
   cache = null;
   inflight = null;
-  for (const read of [...readers]) read();
+  generation += 1;
+  return Promise.all([...readers].map((read) => read())).then(() => undefined);
 }
 
 /** The shared, deduped GET /subscription. Exported so a caller that needs
@@ -81,12 +104,19 @@ export function getSubscriptionCached(): Promise<SubscriptionInfo> {
     return Promise.resolve(cache.data);
   }
   if (!inflight) {
-    inflight = api.getSubscription()
-      .then((data) => {
-        cache = { data, at: Date.now() };
-        return data;
-      })
-      .finally(() => { inflight = null; });
+    const gen = generation;
+    const pending: Promise<SubscriptionInfo> = api.getSubscription().then((data) => {
+      // Superseded reads return their data to whoever is holding this exact
+      // promise, but never become the cached answer for anyone else.
+      if (gen === generation) cache = { data, at: Date.now() };
+      return data;
+    });
+    // Deliberately not `.finally`: that would clear `inflight` even when it
+    // no longer refers to this promise, so a read issued in the window
+    // between an invalidation and the superseded promise settling would
+    // start a third, redundant request.
+    pending.catch(() => {}).then(() => { if (inflight === pending) inflight = null; });
+    inflight = pending;
   }
   return inflight;
 }
@@ -109,13 +139,21 @@ export function openBankingAllowed(sub: SubscriptionInfo): boolean {
  *  the bank step is reached. */
 export function watchOpenBankingAccess(onChange: (allowed: boolean) => void): () => void {
   let cancelled = false;
-  const read = () => {
-    getSubscriptionCached()
-      .then((sub) => { if (!cancelled) onChange(openBankingAllowed(sub)); })
-      .catch(() => { if (!cancelled) onChange(true); });
+  // `cancelled` covers a read that is STILL IN FLIGHT when the caller
+  // unsubscribes (React unmount): deleting the closure from `readers` stops
+  // FUTURE invalidations reaching it, but does nothing about a request
+  // already in the air, whose `.then` would otherwise call `onChange` and,
+  // from the hook, setState on an unmounted component. `generation` is the
+  // separate case: a read superseded by an invalidation must not report an
+  // answer the caller has already been told is out of date.
+  const read = (): Promise<void> => {
+    const gen = generation;
+    return getSubscriptionCached()
+      .then((sub) => { if (!cancelled && gen === generation) onChange(openBankingAllowed(sub)); })
+      .catch(() => { if (!cancelled && gen === generation) onChange(true); });
   };
   readers.add(read);
-  read();
+  void read();
   return () => {
     cancelled = true;
     readers.delete(read);

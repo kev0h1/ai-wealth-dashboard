@@ -720,7 +720,14 @@ export default function HomePage() {
       const { auth_url } = legacy
         ? await api.legacyBankConnectLink(providerId)
         : await api.finexerConnectLink(providerId);
-      window.location.href = auth_url;
+      // `location.assign()`, not `location.href = ...`: introducing a state
+      // setter into this function brought it under the React compiler's
+      // `react-hooks/immutability` rule, which reads the assignment as
+      // modifying a value defined outside the component. A method call is
+      // not a mutation, so it does not trip, and it is the shape
+      // components/PlanPicker.tsx already uses for exactly this. Identical
+      // navigation semantics.
+      window.location.assign(auth_url);
     } catch (err) {
       alert(err instanceof ApiError ? err.message : "Failed to start reconnection. Please try again.");
     }

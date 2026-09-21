@@ -928,15 +928,6 @@ export default function AccountsPage() {
 
   async function handleReconnect(providerId?: string, account?: Account) {
     try {
-      // Save the connection id and a masked last-4 (never the full account
-      // number or sort code) so we can validate after OAuth return.
-      if (account?.account_number) {
-        localStorage.setItem("reconnect_expected", JSON.stringify({
-          provider: account.provider,
-          account_id: account.id,
-          last4: account.account_number.slice(-4),
-        }));
-      }
       // A67: Finexer unless this specific account belongs to the legacy
       // UAT-only provider, in which case repairing it must go back to the
       // provider that owns the consent (Finexer would create a duplicate
@@ -972,6 +963,23 @@ export default function AccountsPage() {
       const { auth_url } = legacy
         ? await api.legacyBankConnectLink(providerId)
         : await api.finexerConnectLink(providerId);
+      // A67: written HERE, immediately before navigating, not at the top of
+      // this function. It used to be written first, which was safe only
+      // while every path through here ended in a redirect. It no longer
+      // does: the provider-less branch above opens a picker instead, and the
+      // link call itself can throw. Either left an orphaned record that the
+      // next loadAccounts() consumes (see the "reconnect_expected" read
+      // above), warning "We couldn't find your <provider> account ••••NNNN
+      // in what was reconnected" about a reconnection that never started.
+      // Saves the connection id and a masked last 4, never the full account
+      // number or sort code.
+      if (account?.account_number) {
+        localStorage.setItem("reconnect_expected", JSON.stringify({
+          provider: account.provider,
+          account_id: account.id,
+          last4: account.account_number.slice(-4),
+        }));
+      }
       window.location.href = auth_url;
     } catch (err) {
       alert(err instanceof ApiError ? err.message : "Failed to start reconnection. Please try again.");
@@ -1517,6 +1525,16 @@ export default function AccountsPage() {
   // Modals shared by both the list and detail views (same component scope).
   const modals = (
     <>
+      {/* A67: lives in `modals`, which is rendered by BOTH the account-detail
+          early return (`if (selectedAccount)`) and the list view below it,
+          rather than only in the list render. The detail view's Reconnect
+          can open this picker (see handleReconnect's provider-less fallback),
+          and from inside that early return a sheet mounted further down the
+          list branch never renders at all: the tap would do nothing, no
+          sheet, no spinner, no error. */}
+      {showBankPicker && (
+        <BankPickerSheet provider={showBankPicker} onClose={() => setShowBankPicker(null)} />
+      )}
       {cardTermsOpen && (
         <CardTermsSheet
           cards={cardTermsCards}
@@ -3717,9 +3735,6 @@ export default function AccountsPage() {
         />
       )}
 
-      {showBankPicker && (
-        <BankPickerSheet provider={showBankPicker} onClose={() => setShowBankPicker(null)} />
-      )}
 
       {modals}
     </div>

@@ -131,6 +131,108 @@ check("falls back to tier when limits is absent",
   stop();
 }
 
+// ── invalidation is awaitable, which is what closes the signup race ──────
+//
+// `PlanPicker` awaits this before advancing to the income step, which is one
+// synchronous setStep and one tap from the bank step. If the returned promise
+// resolved before the re-read landed, the bank step could still paint the
+// pre-selection answer.
+
+{
+  await invalidateOpenBankingAccess();
+  tier = "max";
+  const seen = [];
+  const stop = watchOpenBankingAccess((allowed) => seen.push(allowed));
+  await settled();
+  check("awaitable: reader starts on the paid plan", seen, [true]);
+
+  tier = "statements";
+  let release;
+  api.getSubscription = () => new Promise((r) => { release = () => r(subscriptionFor(tier)); });
+  const done = invalidateOpenBankingAccess();
+  let resolved = false;
+  void done.then(() => { resolved = true; });
+  await settled();
+  check("awaitable: does not resolve while the re-read is in flight", resolved, false);
+  check("awaitable: and has not reported anything yet", seen, [true]);
+
+  release();
+  await done;
+  check("awaitable: resolves only once the new answer has landed", seen, [true, false]);
+
+  stop();
+  api.getSubscription = async () => { calls += 1; return subscriptionFor(tier); };
+}
+
+// ── a read superseded mid-flight must not win, nor poison the cache ──────
+//
+// Invalidation nulls `inflight` while an earlier read is still in the air.
+// Without a generation guard the winner is whichever promise RESOLVES last,
+// not whichever was ISSUED last, and the stale answer then sits in the cache
+// for the full TTL.
+
+{
+  await invalidateOpenBankingAccess();
+  tier = "max";
+  let releaseSlow;
+  api.getSubscription = () => new Promise((r) => { releaseSlow = () => r(subscriptionFor("max")); });
+  const seen = [];
+  const stop = watchOpenBankingAccess((allowed) => seen.push(allowed));
+  await settled();
+  check("superseded: the slow first read has reported nothing yet", seen, []);
+
+  // The plan changes and a second, fast read is issued.
+  tier = "statements";
+  api.getSubscription = async () => subscriptionFor("statements");
+  await invalidateOpenBankingAccess();
+  check("superseded: the fresh read reports the new plan", seen, [false]);
+
+  // Only now does the original, superseded read come back.
+  releaseSlow();
+  await settled();
+  check("superseded: the stale read does not report", seen, [false]);
+  check(
+    "superseded: nor does it overwrite the cache",
+    (await getSubscriptionCached()).tier,
+    "statements",
+  );
+  stop();
+}
+
+// ── a read still IN FLIGHT at unsubscribe must not report ────────────────
+//
+// Removing `readers.delete(read)` is caught by the "unsubscribed readers"
+// case far above. This is the other half, and the one `cancelled` actually
+// exists for: a request already in the air when React unmounts the
+// component, whose `.then` would otherwise setState on an unmounted tree.
+
+{
+  await invalidateOpenBankingAccess();
+  let release;
+  api.getSubscription = () => new Promise((r) => { release = () => r(subscriptionFor("max")); });
+  const seen = [];
+  const stop = watchOpenBankingAccess((allowed) => seen.push(allowed));
+  await settled();
+  check("in-flight at unmount: nothing reported while pending", seen, []);
+  stop();
+  release();
+  await settled();
+  check("in-flight at unmount: a resolving read does not report", seen, []);
+}
+
+{
+  await invalidateOpenBankingAccess();
+  let fail;
+  api.getSubscription = () => new Promise((_, reject) => { fail = () => reject(new Error("network down")); });
+  const seen = [];
+  const stop = watchOpenBankingAccess((allowed) => seen.push(allowed));
+  await settled();
+  stop();
+  fail();
+  await settled();
+  check("in-flight at unmount: a REJECTING read does not report either", seen, []);
+}
+
 if (failures > 0) {
   console.error(`\nopen-banking-access.test.mjs: ${failures} failure(s)`);
   process.exit(1);
