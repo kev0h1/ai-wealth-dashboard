@@ -625,68 +625,24 @@ def test_planned_one_off_never_carries_dest_fields(monkeypatch):
     assert "dest_account_spendable" not in bill
 
 
-# ── Task 2 (Chase/mono tracing): investigated against live UAT data, NOT
+# ── Task 2 (Chase tracing): investigated against live UAT data, NOT
 # shipped. Full findings are in the handoff report, summarised here so a
 # future reader does not have to re-run the same probes:
 #
-# `mono_accounts_col`/`mono_transactions_col` hold zero documents for ANY
-# user in the live UAT database (verified with a direct read-only query),
-# and the Chase account behind the owner's report ("KEVIN MAINGI
-# CHASEACCOUNT STO") is a Finexer-sourced row already inside `accounts_col`
-# (provider "Chase UK", source "finexer"), already inside `account_map` and
-# `raw` today. Widening `_compute_cashflow_patterns` to also read
-# `mono_accounts_col`/`mono_transactions_col` would therefore be a pure
-# no-op against real data and would not fix the reported bug. The real
-# cause, confirmed by running `_compute_cashflow_patterns` against live
-# data: a same-day, same-amount coincidence with an unrelated series
-# ("KEVIN MAINGI STARLING STO", also a real recurring transfer) makes the
-# greedy matcher's account_id/id tiebreak award the one real destination
-# credit inconsistently across the two occurrences that have one, so
-# neither series ever reaches the evidence gate's 2-match bar. That is a
-# separate, deliberate fix, out of this task's scope.
+# The Chase account behind the owner's report ("KEVIN MAINGI CHASEACCOUNT
+# STO") is a Finexer-sourced row already inside `accounts_col` (provider
+# "Chase UK", source "finexer"), already inside `account_map` and `raw`
+# today. The real cause, confirmed by running `_compute_cashflow_patterns`
+# against live data: a same-day, same-amount coincidence with an unrelated
+# series ("KEVIN MAINGI STARLING STO", also a real recurring transfer)
+# makes the greedy matcher's account_id/id tiebreak award the one real
+# destination credit inconsistently across the two occurrences that have
+# one, so neither series ever reaches the evidence gate's 2-match bar.
+# That is a separate, deliberate fix, out of this task's scope.
 #
-# The two tests below document, rather than exercise, the mono account-doc
-# SHAPE `mono_sync.sync_mono_connection` actually writes (see
-# app/services/mono_sync.py), so a future widening starts from a verified
-# shape instead of an assumed one: no `subtype` field is ever written, only
-# `type` (the Mono API's own type string, lowercased with spaces turned to
-# underscores).
-
-def test_mono_account_shape_transaction_account_classified_spendable():
-    """A mono bank-type account with no dedicated subtype (mono_sync.py never
-    writes one) falls through to the same "no subtype, not a credit card"
-    default an ordinary current account would use."""
-    acct = {"name": "Main G", "type": "current_account", "balance": 50.0,
-            "currency": "GBP", "provider": "Mono"}
-    assert analytics._account_pool_kind(acct) == "spendable"
-    assert analytics.is_credit_card_account(acct) is False
-
-
-def test_mono_account_shape_savings_type_not_recognised_as_savings():
-    """Documents a known, pre-existing gap rather than a new one:
-    `mono_sync.py` writes `type`, never `subtype`, so a savings-type mono
-    account is NOT bucketed into the savings pool by `_account_pool_kind`
-    (which only ever inspects `subtype` for its "saving" test) -- it falls
-    through to the same spendable default as any other no-subtype account.
-    `_account_pool_kind`'s own docstring already calls this out ("covers
-    e.g. Mono accounts, which don't populate subtype today"). Flagged here
-    so a future mono-savings widening does not silently assume `subtype`
-    exists."""
-    acct = {"name": "Round up", "type": "savings_account", "balance": 0.0,
-            "currency": "GBP", "provider": "Mono"}
-    assert analytics._account_pool_kind(acct) == "spendable"
-
-
-def test_mono_account_shape_credit_card_excluded():
-    """A mono credit-card-type account is excluded on the `type` field
-    alone (mono_sync.py lowercases and underscores the Mono API's `type`);
-    `is_credit_card_account`/`_account_pool_kind`'s credit exclusion never
-    depends on `subtype`, so this classifies correctly even though mono
-    never populates it."""
-    acct = {"name": "Credit Card", "type": "credit_card", "balance": -100.0,
-            "currency": "GBP", "provider": "Mono"}
-    assert analytics._account_pool_kind(acct) is None
-    assert analytics.is_credit_card_account(acct) is True
+# A98 (2026-09-21) removed the three Mono account-shape tests that used to
+# sit here. They only documented the doc shape `mono_sync.py` wrote, and
+# that module and the whole Kenya region are gone.
 
 
 def test_upcoming_income_unaffected_by_internal_inflows(monkeypatch):

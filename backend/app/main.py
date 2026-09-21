@@ -19,8 +19,8 @@ from app.core.security_headers import security_headers_middleware
 from app.db.collections import (
     connections_col, accounts_col, transactions_col, preferences_col,
     chat_sessions_col, episodic_memory_col, user_categories_col,
-    budgets_col, mono_connections_col, mono_accounts_col, mono_transactions_col,
-    statement_transactions_col, mpesa_transactions_col,
+    budgets_col,
+    statement_transactions_col,
     savings_insights_col, savings_labels_col,
     subscriptions_col, subscription_usage_col, statement_uploads_col,
     yapily_consents_col, yapily_accounts_col, yapily_transactions_col,
@@ -39,7 +39,7 @@ from app.services.categorisation import apply_rules_bulk, RAW_TRUELAYER_CATEGORI
 from app.services import data_version
 
 from app.routers import (
-    auth, truelayer, yapily, mono, accounts as accounts_router,
+    auth, truelayer, yapily, accounts as accounts_router,
     transactions as transactions_router, preferences, push, categories,
     analytics, chat, statements, investments, challenges,
     savings_insights, savings, admin, manual_accounts, profile, money_basics,
@@ -69,7 +69,7 @@ def _routers(mcp_connector_enabled: bool) -> list:
     tests (tests/test_mcp_connector_flag.py) can build a throwaway app with
     either value of the flag without reloading this module."""
     routers = [
-        auth.router, truelayer.router, yapily.router, mono.router,
+        auth.router, truelayer.router, yapily.router,
         accounts_router.router, transactions_router.router, preferences.router,
         push.router, categories.router, analytics.router,
         chat.router, statements.router, investments.router,
@@ -337,9 +337,6 @@ async def _create_indexes():
     await _ensure_index(yapily_transactions_col, [("user_id", 1), ("date", -1)])
     await _ensure_index(statement_transactions_col, [("account_id", 1), ("user_id", 1), ("date", -1)])
     await _ensure_index(statement_transactions_col, [("user_id", 1), ("date", -1)])
-    await _ensure_index(mpesa_transactions_col, [("account_id", 1), ("user_id", 1), ("date", -1)])
-    await _ensure_index(mpesa_transactions_col, [("user_id", 1), ("date", -1)])
-    await _ensure_index(mono_transactions_col, [("account_id", 1), ("user_id", 1), ("date", -1)])
     await _ensure_index(accounts_col, "connection_id")
     await _ensure_index(accounts_col, "user_id")
     await _ensure_index(connections_col, "user_id")
@@ -349,9 +346,6 @@ async def _create_indexes():
     await _ensure_index(episodic_memory_col, "user_id", unique=True)
     await _ensure_index(user_categories_col, "user_id", unique=True)
     await _ensure_index(budgets_col, [("user_id", 1), ("region", 1)], unique=True)
-    await _ensure_index(mono_connections_col, "user_id")
-    await _ensure_index(mono_accounts_col, "user_id")
-    await _ensure_index(mono_transactions_col, [("user_id", 1), ("date", -1)])
     await _ensure_index(savings_insights_col, "expires_at", expireAfterSeconds=0, sparse=True)
     await _ensure_index(savings_insights_col, [("user_id", 1), ("category", 1)])
     await _ensure_index(savings_labels_col, [("user_id", 1), ("merchant_key", 1)], unique=True)

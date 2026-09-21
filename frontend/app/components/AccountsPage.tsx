@@ -19,7 +19,6 @@ import { getCategoryColour } from "@/lib/categories";
 import { getCategoryIcon } from "@/lib/categoryIcons";
 import SegmentedControl from "@/components/SegmentedControl";
 import Spinner from "@/components/Spinner";
-import MonoConnectWidget from "@/components/MonoConnect";
 import StatementUpload from "@/components/StatementUpload";
 import InvestmentUpload from "@/components/InvestmentUpload";
 import BankPickerSheet from "@/components/BankPickerSheet";
@@ -279,7 +278,7 @@ export default function AccountsPage() {
   // Set to true for exactly one effect run after we strip ?id= via router.replace
   // so the else-branch (clear selectedAccountId) doesn't fire on our own replace.
   const consumedDeepLink = useRef(false);
-  const { hideNetWorth, setHideNetWorth, region } = usePreferences();
+  const { hideNetWorth, setHideNetWorth } = usePreferences();
   const [kpis, setKpis] = useState<KPIs | null>(null);
   const { colours } = useColours();
   const { icons: iconOverrides } = useCategoryIcons();
@@ -295,7 +294,7 @@ export default function AccountsPage() {
   const [tab, setTab] = useState<"Banks" | "Investments">(
     searchParams.get("tab") === "Investments" ? "Investments" : "Banks"
   );
-  const [showMpesaUpload, setShowMpesaUpload] = useState(false);
+  const [showStatementUpload, setShowStatementUpload] = useState(false);
   const [showBankPicker, setShowBankPicker] = useState<null | "truelayer" | "finexer">(null);
   // Header Variant B: the four/three "add" actions condense into one primary
   // button that opens this menu — same handlers/routes, just one entry point.
@@ -897,16 +896,11 @@ export default function AccountsPage() {
     }
   }
 
-  function handleMonoSuccess() {
-    invalidateAccounts();
-    loadAccounts();
-  }
-
   function handleStatementSuccess() {
     invalidateAccounts();
     loadAccounts();
     if (selectedAccountId) loadAccountTxns(selectedAccountId, true);
-    setShowMpesaUpload(false);
+    setShowStatementUpload(false);
   }
 
   async function handleReconnect(providerId?: string, account?: Account) {
@@ -1289,7 +1283,6 @@ export default function AccountsPage() {
       .catch(() => {});
   }
 
-  // Backend already filters by region — accounts contains only the right source.
   // Manual (offline) accounts come back in /accounts too; they're shown in their
   // own editable section, so keep them out of the connected-bank list.
   const bankAccounts = useMemo(() => accounts.filter(a => !a.manual), [accounts]);
@@ -1499,10 +1492,10 @@ export default function AccountsPage() {
         </div>,
         document.body
       )}
-      {showMpesaUpload && (
+      {showStatementUpload && (
         <StatementUpload
           onSuccess={handleStatementSuccess}
-          onClose={() => setShowMpesaUpload(false)}
+          onClose={() => setShowStatementUpload(false)}
         />
       )}
       {manualModalOpen && modalsMounted && createPortal(
@@ -2076,7 +2069,7 @@ export default function AccountsPage() {
               )}
               {isStatement && (
                 <button
-                  onClick={() => setShowMpesaUpload(true)}
+                  onClick={() => setShowStatementUpload(true)}
                   aria-label="Add statement"
                   className="w-11 h-11 flex items-center justify-center rounded-xl bg-slate-100 dark:bg-white/[0.08] hover:bg-slate-200 dark:hover:bg-white/[0.14] text-slate-600 dark:text-slate-300 transition-colors"
                 >
@@ -2512,67 +2505,37 @@ export default function AccountsPage() {
                     role="menu"
                     className="absolute right-0 top-[calc(100%+6px)] z-30 w-56 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-slate-100 dark:border-white/10 py-1 divide-y divide-slate-100 dark:divide-white/5 overflow-hidden"
                   >
-                    {region === "UK" ? (
-                      <>
-                        <AddMenuItem
-                          tutorialId="tutorial-add-bank"
-                          icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
-                          label="Add Bank"
-                          onClick={() => { setAddMenuOpen(false); setShowBankPicker("finexer"); }}
-                        />
-                        {TRUELAYER_PICKER && (
-                          <AddMenuItem
-                            icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
-                            label="Add Bank via TrueLayer"
-                            onClick={() => { setAddMenuOpen(false); setShowBankPicker("truelayer"); }}
-                          />
-                        )}
-                        <AddMenuItem
-                          tutorialId="tutorial-add-statement"
-                          icon={<Upload size={14} className="text-slate-400 flex-shrink-0" />}
-                          label="Statement"
-                          onClick={() => { setAddMenuOpen(false); setShowMpesaUpload(true); }}
-                        />
-                        <AddMenuItem
-                          tutorialId="tutorial-add-investment"
-                          icon={<TrendingUp size={14} className="text-slate-400 flex-shrink-0" />}
-                          label="Investment"
-                          onClick={() => { setAddMenuOpen(false); setShowInvestmentUpload(true); }}
-                        />
-                        <AddMenuItem
-                          tutorialId="tutorial-add-offline"
-                          icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
-                          label="Offline"
-                          onClick={() => { setAddMenuOpen(false); openAddManual(); }}
-                        />
-                      </>
-                    ) : (
-                      <>
-                        <MonoConnectWidget onSuccess={handleMonoSuccess}>
-                          {(open, monoLoading) => (
-                            <AddMenuItem
-                              tutorialId="tutorial-add-bank"
-                              icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
-                              label={monoLoading ? "Opening…" : "Mono"}
-                              disabled={monoLoading}
-                              onClick={() => { setAddMenuOpen(false); open(); }}
-                            />
-                          )}
-                        </MonoConnectWidget>
-                        <AddMenuItem
-                          tutorialId="tutorial-add-statement"
-                          icon={<Upload size={14} className="text-slate-400 flex-shrink-0" />}
-                          label="Statement"
-                          onClick={() => { setAddMenuOpen(false); setShowMpesaUpload(true); }}
-                        />
-                        <AddMenuItem
-                          tutorialId="tutorial-add-offline"
-                          icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
-                          label="Offline"
-                          onClick={() => { setAddMenuOpen(false); openAddManual(); }}
-                        />
-                      </>
+                    <AddMenuItem
+                      tutorialId="tutorial-add-bank"
+                      icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
+                      label="Add Bank"
+                      onClick={() => { setAddMenuOpen(false); setShowBankPicker("finexer"); }}
+                    />
+                    {TRUELAYER_PICKER && (
+                      <AddMenuItem
+                        icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
+                        label="Add Bank via TrueLayer"
+                        onClick={() => { setAddMenuOpen(false); setShowBankPicker("truelayer"); }}
+                      />
                     )}
+                    <AddMenuItem
+                      tutorialId="tutorial-add-statement"
+                      icon={<Upload size={14} className="text-slate-400 flex-shrink-0" />}
+                      label="Statement"
+                      onClick={() => { setAddMenuOpen(false); setShowStatementUpload(true); }}
+                    />
+                    <AddMenuItem
+                      tutorialId="tutorial-add-investment"
+                      icon={<TrendingUp size={14} className="text-slate-400 flex-shrink-0" />}
+                      label="Investment"
+                      onClick={() => { setAddMenuOpen(false); setShowInvestmentUpload(true); }}
+                    />
+                    <AddMenuItem
+                      tutorialId="tutorial-add-offline"
+                      icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
+                      label="Offline"
+                      onClick={() => { setAddMenuOpen(false); openAddManual(); }}
+                    />
                   </div>
                 )}
               </div>
@@ -2603,7 +2566,7 @@ export default function AccountsPage() {
                   >
                     {hideNetWorth
                       ? "••••••"
-                      : `${kpis.net_worth < 0 ? "−" : ""}${region === "Kenya" ? "KES " : "£"}${Math.abs(kpis.net_worth).toLocaleString("en-GB", { maximumFractionDigits: 0 })}`}
+                      : `${kpis.net_worth < 0 ? "−" : ""}£${Math.abs(kpis.net_worth).toLocaleString("en-GB", { maximumFractionDigits: 0 })}`}
                   </p>
                   {/* The two stats + counts, whispered onto one line. No
                       month-over-month trend here — KPIs carries only a
@@ -2777,50 +2740,24 @@ export default function AccountsPage() {
                 </div>
                 <p className="text-slate-800 dark:text-slate-100 font-semibold mb-1">No banks connected</p>
                 <p className="text-slate-400 dark:text-slate-500 text-sm mb-5">
-                  {region === "UK"
-                    ? "Connect your bank via Open Banking, or upload a PDF/CSV statement."
-                    : "Connect via Mono or upload a bank statement (M-Pesa, Equity, KCB, NCBA…) to get started."}
+                  Connect your bank via Open Banking, or upload a PDF/CSV statement.
                 </p>
-                {region === "UK" ? (
-                  <div className="flex flex-col gap-2 items-center">
-                    <button
-                      onClick={() => setShowBankPicker("truelayer")}
-                      className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-all text-white font-semibold px-5 py-3 rounded-xl text-sm"
-                    >
-                      <Plus size={16} />
-                      Connect a Bank
-                    </button>
-                    <button
-                      onClick={() => setShowMpesaUpload(true)}
-                      className="inline-flex items-center gap-2 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 hover:bg-slate-50 active:scale-95 transition-all text-slate-700 dark:text-slate-200 font-semibold px-5 py-3 rounded-xl text-sm"
-                    >
-                      <Upload size={16} />
-                      Upload Statement
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex flex-col gap-2 items-center">
-                    <MonoConnectWidget onSuccess={handleMonoSuccess}>
-                      {(open, monoLoading) => (
-                        <button
-                          onClick={open}
-                          disabled={monoLoading}
-                          className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-all text-white font-semibold px-5 py-3 rounded-xl text-sm"
-                        >
-                          <Plus size={16} />
-                          {monoLoading ? "Opening…" : "Connect via Mono"}
-                        </button>
-                      )}
-                    </MonoConnectWidget>
-                    <button
-                      onClick={() => setShowMpesaUpload(true)}
-                      className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-all text-white font-semibold px-5 py-3 rounded-xl text-sm"
-                    >
-                      <Upload size={16} />
-                      Upload Bank Statement
-                    </button>
-                  </div>
-                )}
+                <div className="flex flex-col gap-2 items-center">
+                  <button
+                    onClick={() => setShowBankPicker("truelayer")}
+                    className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-all text-white font-semibold px-5 py-3 rounded-xl text-sm"
+                  >
+                    <Plus size={16} />
+                    Connect a Bank
+                  </button>
+                  <button
+                    onClick={() => setShowStatementUpload(true)}
+                    className="inline-flex items-center gap-2 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 hover:bg-slate-50 active:scale-95 transition-all text-slate-700 dark:text-slate-200 font-semibold px-5 py-3 rounded-xl text-sm"
+                  >
+                    <Upload size={16} />
+                    Upload Statement
+                  </button>
+                </div>
               </div>
             ) : (
               <>
@@ -3103,7 +3040,7 @@ export default function AccountsPage() {
                   {manualAccounts.map((acc) => {
                     const meta = MANUAL_TYPES.find(t => t.value === acc.account_type) ?? MANUAL_TYPES[0];
                     const isCredit = acc.account_type === "credit_card";
-                    const currency = region === "Kenya" ? "KES " : "£";
+                    const currency = "£";
                     const accountForDetail = accounts.find(a => a.id === acc.id);
                     return (
                       <div

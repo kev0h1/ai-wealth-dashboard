@@ -4,9 +4,7 @@ import { useEffect, useState } from "react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { CalendarClock, TrendingUp, TrendingDown } from "lucide-react";
 import { api, CashflowData } from "@/lib/api";
-import { usePreferences } from "@/components/PreferencesContext";
 
-const SYM: Record<string, string> = { UK: "£", Kenya: "KSh " };
 
 function fmt(n: number, sym: string) {
   return `${sym}${n.toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
@@ -33,8 +31,7 @@ const CustomTooltip = ({ active, payload, label, sym }: { active?: boolean; payl
 };
 
 export default function CashFlowCard() {
-  const { region } = usePreferences();
-  const sym = SYM[region] ?? "£";
+  const sym = "£";
   const [data, setData] = useState<CashflowData | null>(null);
   const [loading, setLoading] = useState(true);
 

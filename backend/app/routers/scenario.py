@@ -28,7 +28,6 @@ from app.core.config import OPENROUTER_API_KEY
 from app.core.llm import openrouter_chat
 from app.services.cashflow import monthly_cashflow_cached
 from app.services.copy_style import house_style as _house_style
-from app.services.region import get_user_region
 
 router = APIRouter(tags=["scenario"])
 
@@ -189,9 +188,8 @@ async def _median_monthly_income(uid: str) -> float | None:
     monthly_surplus figure reads through, so a prefilled "your income" is
     never a different number from what the rest of the app would quote."""
     try:
-        region = await get_user_region(uid)
         cutoff = datetime.now() - timedelta(days=90)
-        data = await monthly_cashflow_cached(uid, region, cutoff)
+        data = await monthly_cashflow_cached(uid, cutoff)
         income = data.get("income")
         return round(float(income), 2) if income else None
     except Exception:

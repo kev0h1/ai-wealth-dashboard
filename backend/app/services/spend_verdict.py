@@ -45,7 +45,6 @@ from app.services.categories import (
 )
 from app.services.categorisation import canonical_merchant_key
 from app.services.pace import compute_category_signals, get_total_pace_curve_fn
-from app.services.region import get_user_region
 from app.services.spend_impact import compute_spend_impact
 from app.services import response_cache
 
@@ -142,15 +141,14 @@ def _movement_bucket(category: str) -> str:
 async def _load_period_txns(uid: str, start: date, end: date) -> list[dict]:
     """Every debit/credit transaction in [start, end], normalised, filtered
     to the user's home currency (matching SpendPage's `categories`/`summary`
-    memos — a foreign-currency row, e.g. a KES M-Pesa line on a UK account,
-    must never inflate the verdict's pills/notables/majority/unresolved
-    figures beyond what the tiles above them show; fix-round LOW finding).
+    memos — a foreign-currency row must never inflate the verdict's
+    pills/notables/majority/unresolved figures beyond what the tiles above
+    them show; fix-round LOW finding).
 
     Returns [{"date", "category", "amount" (always positive), "debit" (bool),
     "description", "merchant_name", "merchant_key", "id", "account_id"}].
     """
-    region = await get_user_region(uid)
-    home_currency = "KES" if region == "Kenya" else "GBP"
+    home_currency = "GBP"
     start_dt = datetime(start.year, start.month, start.day)
     end_dt = datetime(end.year, end.month, end.day, 23, 59, 59)
     raw_docs: list[dict] = []

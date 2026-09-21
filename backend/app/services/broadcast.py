@@ -137,8 +137,8 @@ async def _real_user_ids() -> list[str]:
     """The actual broadcast candidate pool (B24): `_all_user_ids()`,
     narrowed to identities `app.services.retention.account_has_data`
     confirms hold a real connection, consent, account, or transaction row
-    somewhere (TrueLayer, Finexer, Yapily, Mono, M-Pesa, statement upload,
-    manual, or investment). That function is not new or invented for this
+    somewhere (TrueLayer, Finexer, Yapily, statement upload, manual, or
+    investment). That function is not new or invented for this
     filter — it is the codebase's own existing bar for "this identity has
     real data", already used to decide erase_orphaned_relay_account's own
     "never delete an account with data" guard. Reusing it here means a

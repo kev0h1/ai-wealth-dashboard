@@ -955,10 +955,7 @@ class _FakeCollection:
 
 
 def test_category_txn_rows_filters_foreign_currency_rows(monkeypatch):
-    async def fake_region(uid):
-        return "UK"
 
-    monkeypatch.setattr(penny_tools_module, "get_user_region", fake_region)
     monkeypatch.setattr(penny_tools_module, "transactions_col", _FakeCollection([
         {"amount": 50.0, "category": "Groceries", "currency": "GBP", "merchant_name": "Tesco"},
         {"amount": 999.0, "category": "Groceries", "currency": "KES", "merchant_name": "Naivas"},
@@ -1120,12 +1117,9 @@ def _patch_affordability_common(monkeypatch, safe_to_spend, days_until_payday=10
 
     monkeypatch.setattr(affordability_module, "compute_safe_to_spend", fake_sts)
 
-    async def fake_region(uid):
-        return "UK"
 
-    monkeypatch.setattr(affordability_module, "get_user_region", fake_region)
 
-    async def fake_cashflow(uid, region, cutoff):
+    async def fake_cashflow(uid, cutoff):
         return (0.0, 0.0, 0.0)
 
     monkeypatch.setattr(affordability_module, "_cashflow", fake_cashflow)

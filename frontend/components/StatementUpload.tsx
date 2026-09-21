@@ -4,7 +4,6 @@ import { useRef, useState } from "react";
 import { Upload, X, CheckCircle, FileText, Eye, EyeOff, Loader2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
-import { usePreferences } from "@/components/PreferencesContext";
 
 interface StatementUploadProps {
   onSuccess: () => void;
@@ -13,7 +12,6 @@ interface StatementUploadProps {
 
 export default function StatementUpload({ onSuccess, onClose }: StatementUploadProps) {
   useLockBodyScroll();
-  const { region } = usePreferences();
   const fileRef = useRef<HTMLInputElement>(null);
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -27,13 +25,9 @@ export default function StatementUpload({ onSuccess, onClose }: StatementUploadP
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const subtitle = region === "UK"
-    ? "Barclays, HSBC, Monzo, Lloyds, NatWest, Revolut and more"
-    : "M-Pesa, Equity, KCB, NCBA, Stanbic, Absa, Co-op and more";
+  const subtitle = "Barclays, HSBC, Monzo, Lloyds, NatWest, Revolut and more";
 
-  const passwordHint = region === "UK"
-    ? "Some bank PDFs are password-protected. Leave blank if not applicable."
-    : "M-Pesa and some bank PDFs are password-protected. Leave blank if not applicable.";
+  const passwordHint = "Some bank PDFs are password-protected. Leave blank if not applicable.";
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0] ?? null;
@@ -46,7 +40,7 @@ export default function StatementUpload({ onSuccess, onClose }: StatementUploadP
     setUploading(true);
     setError(null);
     try {
-      const res = await api.uploadStatement(selectedFile, password || undefined, region);
+      const res = await api.uploadStatement(selectedFile, password || undefined);
       setResult({
         inserted: res.inserted,
         skipped: res.skipped,

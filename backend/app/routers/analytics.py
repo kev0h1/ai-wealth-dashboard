@@ -26,13 +26,12 @@ from app.core.models import KPIResponse, Insight
 from app.db.collections import (
     accounts_col, transactions_col, yapily_accounts_col, yapily_transactions_col,
     yapily_consents_col,
-    statement_accounts_col, investment_accounts_col, mono_accounts_col, mpesa_accounts_col,
-    mono_transactions_col, mpesa_transactions_col, statement_transactions_col,
+    statement_accounts_col, investment_accounts_col,
+    statement_transactions_col,
     preferences_col, savings_insights_col, cashflow_cache_col, upcoming_overrides_col,
     upcoming_rules_col, planned_expenses_col, investment_notes_col,
     confirmed_transfer_pairs_col, pending_transactions_col, card_terms_col,
 )
-from app.services.region import get_user_region, get_kenya_transactions
 from app.services.pay_period import get_pay_period_for_date, prev_pay_period
 from app.services import response_cache
 from app.services.sync_freshness import last_bank_sync
@@ -193,32 +192,13 @@ def _avg_monthly_burn(debits: list, fallback: float = 1000.0) -> float:
 @router.get("/kpis", response_model=KPIResponse)
 async def get_kpis(user: dict = Depends(current_user)):
     uid    = user["email"]
-    region = await get_user_region(uid)
     cutoff = datetime.now() - timedelta(days=90)
     _last_sync = await last_bank_sync(uid)
-
-    if region == "Kenya":
-        mono_accs  = await mono_accounts_col.find({"user_id": uid}).to_list(None)
-        mpesa_accs = await mpesa_accounts_col.find({"user_id": uid}).to_list(None)
-        stmt_accs  = await statement_accounts_col.find({"user_id": uid}).to_list(None)
-        all_accs   = mono_accs + mpesa_accs + stmt_accs
-        if not all_accs:
-            return KPIResponse(net_worth=0, cash=0, runway=0, investments=0, pensions=0, last_updated=_last_sync)
-        net_worth = sum(a.get("balance", 0) for a in all_accs)
-        cash      = net_worth
-        debits    = await get_kenya_transactions(uid, cutoff)
-        debits    = [d for d in debits if d.get("transaction_type") == "debit"]
-        avg_spend = _avg_monthly_burn(debits)
-        runway    = cash / avg_spend if avg_spend else 0
-        return KPIResponse(
-            net_worth=net_worth, cash=cash, runway=round(runway, 1),
-            investments=0, pensions=0, last_updated=_last_sync,
-        )
 
     accounts      = await accounts_col.find({"user_id": uid}).to_list(None)
     yapily_accs   = await yapily_accounts_col.find({"user_id": uid}).to_list(None)
     stmt_accs_all = await statement_accounts_col.find({"user_id": uid}).to_list(None)
-    # GBP net worth only — a KES statement upload must not be summed as £
+    # GBP net worth only — a non-GBP statement account must not be summed as £
     stmt_accs     = [a for a in stmt_accs_all if str(a.get("currency", "GBP")).upper() == "GBP"]
     inv_accs      = await investment_accounts_col.find({"user_id": uid}).to_list(None)
     # Aggregate contract notes since each account's statement date (display_value semantics)
@@ -1072,8 +1052,8 @@ def _account_pool_kind(acc: dict) -> str | None:
       - subtype contains "saving" (case-insensitive) -> "savings"
       - everything else -> "spendable" (accounts with no subtype and no
         credit marker fall back to spendable, so the figure is never
-        silently zero -- covers e.g. Mono accounts, which don't populate
-        subtype today)
+        silently zero -- covers e.g. statement-upload accounts, which
+        don't populate subtype today)
 
     Pulled out of `_split_balances` so `_learn_transfer_destinations` can
     classify an inflow's DESTINATION account against the exact same rule
@@ -2014,7 +1994,6 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
     all_accounts = (
         await accounts_col.find({"user_id": uid}, acct_proj).to_list(None)
         + await yapily_accounts_col.find({"user_id": uid}, acct_proj).to_list(None)
-        + await mono_accounts_col.find({"user_id": uid}, acct_proj).to_list(None)
     )
     available_balance = round(sum(
         float(a.get("balance", 0))
@@ -2165,9 +2144,8 @@ async def compute_and_cache_cashflow(uid: str, clear_ai_cache: bool = True) -> N
         # per-request callers (safe-to-spend, debt, savings) read it for free.
         try:
             from app.services.cashflow import monthly_cashflow as _mcf
-            _region = await get_user_region(uid)
-            _cf = await _mcf(uid, _region, datetime.now() - timedelta(days=90))
-            data["monthly_cf"] = {"data": _cf, "region": _region, "computed_at": datetime.now()}
+            _cf = await _mcf(uid, datetime.now() - timedelta(days=90))
+            data["monthly_cf"] = {"data": _cf, "computed_at": datetime.now()}
         except Exception as _mcf_e:
             print(f"[cashflow_cache] monthly_cf refresh failed for {uid}: {_mcf_e}")
         await cashflow_cache_col.update_one(
@@ -3792,10 +3770,6 @@ async def compute_safe_to_spend(uid: str) -> dict:
        an unconfirmed card bill.
     8. estimated = True when history is thin (n_months < 2).
 
-    Kenya note: this pooled cash runway currently has UK-provider and GBP
-    semantics. It must return insufficient_data for Kenya rather than claim
-    a zero-cash UK result from an unsupported account universe.
-
     NOTE — `net_position` (period_net's period-to-date income/outflow/
     card-growth flow frame) is deliberately NOT computed here, unlike
     card_growth_unpaid above, and is NOT attached to this endpoint's
@@ -3815,21 +3789,10 @@ async def compute_safe_to_spend(uid: str) -> dict:
     from app.services.pay_period import _next_payday as _calc_next_payday
     from app.services.pay_period import period_rhythm_label as _period_rhythm_label
     from app.services.cashflow import monthly_cashflow_cached as _monthly_cashflow
-    from app.services.region import get_user_region as _get_region
     from bson import ObjectId
 
     # ── 1. Payday ──────────────────────────────────────────────────────────────
     _prefs    = await preferences_col.find_one({"user_id": uid}) or {}
-    _region   = await _get_region(uid)
-    if _region == "Kenya":
-        # This endpoint's balance pool deliberately understands only UK GBP
-        # connected accounts. Returning an ordinary `ok` response seeded at
-        # £0 for a Kenya user is materially worse than withholding a verdict.
-        return {
-            "status": "insufficient_data",
-            "calculation_status": "unsupported",
-            "unavailable_components": ["kenya_spendable_cash"],
-        }
     _pay_cfg  = _prefs.get("pay_period_config", {"type": "calendar_month"})
     _today_d  = _date_cls.today()
 
@@ -4095,7 +4058,7 @@ async def compute_safe_to_spend(uid: str) -> dict:
     # pace, spend_impact and Can I all reason over the same period boundary.
     from datetime import datetime as _dt
     _cutoff = _dt.now() - _td(days=90)
-    _cf = await _monthly_cashflow(uid, _region, _cutoff)
+    _cf = await _monthly_cashflow(uid, _cutoff)
     monthly_spend = _cf.get("spending", 0.0)
     tight_threshold = max(100.0, monthly_spend * 0.10)
 

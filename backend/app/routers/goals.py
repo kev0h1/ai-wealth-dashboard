@@ -12,7 +12,6 @@ from fastapi import APIRouter, Depends
 
 from app.core.auth import current_user
 from app.db.collections import accounts_col, debt_plans_col, savings_goals_col
-from app.services.region import get_user_region
 
 router = APIRouter(tags=["goals"])
 
@@ -23,10 +22,10 @@ async def _current_total_debt(uid: str) -> float:
     return round(sum(abs(a["balance"]) for a in cc), 2)
 
 
-async def goals_summary(uid: str, region: str) -> list[dict]:
+async def goals_summary(uid: str) -> list[dict]:
     """Up to two headline goals; pillars without a plan/goal are omitted."""
     goals: list[dict] = []
-    sym = "KSh " if region == "Kenya" else "£"
+    sym = "£"
 
     # Debt — the plan's end state is the goal: balance to zero by the target date
     plan = await debt_plans_col.find_one({"_id": uid})
@@ -51,7 +50,7 @@ async def goals_summary(uid: str, region: str) -> list[dict]:
     if goal:
         from app.routers.savings import _cashflow, _target_amount, _current_savings
         cutoff = datetime.now() - timedelta(days=90)
-        _inc, monthly_spending, _sur = await _cashflow(uid, region, cutoff)
+        _inc, monthly_spending, _sur = await _cashflow(uid, cutoff)
         target = _target_amount(goal, monthly_spending)
         if target > 0:
             current = await _current_savings(uid, goal)
@@ -88,5 +87,4 @@ def goals_context_text(goals: list[dict]) -> str:
 
 @router.get("/goals/summary")
 async def get_goals_summary(user: dict = Depends(current_user)):
-    region = await get_user_region(user["email"])
-    return {"goals": await goals_summary(user["email"], region)}
+    return {"goals": await goals_summary(user["email"])}

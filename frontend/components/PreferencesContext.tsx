@@ -9,9 +9,7 @@ import { shouldAcceptPreferencesSnapshot } from "@/lib/preferencesVersion";
 import { invalidateVerdictCache } from "@/lib/verdictCache";
 import { invalidateMoneyShapeCache } from "@/lib/moneyShape";
 
-export type Region = "UK" | "Kenya";
-
-/** G60: which of this context's six server-backed setters last failed to
+/** G60: which of this context's five server-backed setters last failed to
  * save, and what to tell the user. A single slot, not one per field —
  * `dark_mode` is the only field with a wired consumer of this error today,
  * but it now has TWO (the toggle in SettingsPage.tsx, and H69's toggle in
@@ -20,7 +18,7 @@ export type Region = "UK" | "Kenya";
  * conflict: two screens showing the identical dark_mode failure at once is
  * not the "two different fields' messages competing for one slot" case
  * this single-slot design exists to avoid. Should a future control for
- * hideNetWorth/payPeriodConfig/region/debtTargetMonths/debtTrackingStart
+ * hideNetWorth/payPeriodConfig/debtTargetMonths/debtTrackingStart
  * want its own message, widening this to a per-field map is a small
  * change, not a redesign of the mechanism. Every one of the six setters
  * still fully reverts-and-reconciles on failure regardless of whether
@@ -38,7 +36,6 @@ interface Prefs {
   preferencesReady: boolean;
   darkMode: boolean;
   payPeriodConfig: PayPeriodConfig;
-  region: Region;
   debtTargetMonths: number;
   debtTrackingStart: string;
   spendWidgets: string[] | null;
@@ -55,7 +52,6 @@ interface PrefsCtx extends Prefs {
   setHideNetWorth: (v: boolean) => void;
   setDarkMode: (v: boolean) => void;
   setPayPeriodConfig: (c: PayPeriodConfig) => void;
-  setRegion: (r: Region) => void;
   setDebtTargetMonths: (n: number) => void;
   setDebtTrackingStart: (s: string) => void;
   setSpendWidgets: (v: string[]) => void;
@@ -102,7 +98,6 @@ const Ctx = createContext<PrefsCtx>({
   preferencesReady: false,
   darkMode: false,
   payPeriodConfig: DEFAULT_PAY_PERIOD_CONFIG,
-  region: "UK",
   debtTargetMonths: 12,
   debtTrackingStart: todayYM(),
   spendWidgets: null,
@@ -113,7 +108,6 @@ const Ctx = createContext<PrefsCtx>({
   setHideNetWorth: () => {},
   setDarkMode: () => {},
   setPayPeriodConfig: () => {},
-  setRegion: () => {},
   setDebtTargetMonths: () => {},
   setDebtTrackingStart: () => {},
   setSpendWidgets: () => {},
@@ -140,7 +134,6 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     try { return localStorage.getItem("wd_dark") === "1"; } catch { return false; }
   });
   const [payPeriodConfig, setPayPeriodConfigState] = useState<PayPeriodConfig>(DEFAULT_PAY_PERIOD_CONFIG);
-  const [region, setRegionState] = useState<Region>("UK");
   const [debtTargetMonths, setDebtTargetMonthsState] = useState(12);
   const [debtTrackingStart, setDebtTrackingStartState] = useState(todayYM());
   const [spendWidgets, setSpendWidgetsState] = useState<string[] | null>(null);
@@ -175,12 +168,6 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   const applyPayPeriodConfig = useCallback((v: PayPeriodConfig) => {
     payPeriodConfigRef.current = v;
     setPayPeriodConfigState(v);
-  }, []);
-
-  const regionRef = useRef(region);
-  const applyRegion = useCallback((v: Region) => {
-    regionRef.current = v;
-    setRegionState(v);
   }, []);
 
   const debtTargetMonthsRef = useRef(debtTargetMonths);
@@ -313,8 +300,8 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   // it is matching the server's own behaviour. The alternative (enumerate
   // "region and payPeriodConfig affect verdict, the other four don't") is
   // exactly the kind of per-field judgement call that produced the
-  // original gap: region gates the Kenya unsupported-verdict branch and
-  // payPeriodConfig moves period boundaries today, but a future field
+  // original gap: payPeriodConfig moves period boundaries today, but a
+  // future field
   // (or a future change to what an existing field feeds into) would
   // silently need the same wiring re-discovered. One choke point, all six
   // savers below pass it as `onSuccess`, costs one extra client-side
@@ -358,17 +345,6 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     onSuccess: invalidateSpendCaches,
   })).current;
 
-  const regionSaver = useRef(createPreferenceSaver<Region>({
-    queue: createSerialQueue(),
-    getCurrent: () => regionRef.current,
-    apply: applyRegion,
-    save: (v) => api.updatePreferences({ region: v } as any),
-    reconcile: makeFieldReconcile<Region>(fetchPreferencesSnapshot, "region"),
-    noteVersion: notePreferencesVersion,
-    onError: makeFieldErrorHandler("region"),
-    onSuccess: invalidateSpendCaches,
-  })).current;
-
   const debtTargetMonthsSaver = useRef(createPreferenceSaver<number>({
     queue: createSerialQueue(),
     getCurrent: () => debtTargetMonthsRef.current,
@@ -400,7 +376,6 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
           applyHideNetWorth,
           applyDarkMode,
           applyPayPeriodConfig,
-          applyRegion,
           applyDebtTargetMonths,
           applyDebtTrackingStart,
           setSpendWidgets: setSpendWidgetsState,
@@ -418,7 +393,6 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
           hideNetWorth: () => hideNetWorthSaver.isSaving.current,
           darkMode: () => darkModeSaver.isSaving.current,
           payPeriodConfig: () => payPeriodConfigSaver.isSaving.current,
-          region: () => regionSaver.isSaving.current,
           debtTargetMonths: () => debtTargetMonthsSaver.isSaving.current,
           debtTrackingStart: () => debtTrackingStartSaver.isSaving.current,
         }
@@ -427,8 +401,8 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     });
   }, [
     fetchPreferencesSnapshot,
-    applyHideNetWorth, applyDarkMode, applyPayPeriodConfig, applyRegion, applyDebtTargetMonths, applyDebtTrackingStart,
-    hideNetWorthSaver, darkModeSaver, payPeriodConfigSaver, regionSaver, debtTargetMonthsSaver, debtTrackingStartSaver,
+    applyHideNetWorth, applyDarkMode, applyPayPeriodConfig, applyDebtTargetMonths, applyDebtTrackingStart,
+    hideNetWorthSaver, darkModeSaver, payPeriodConfigSaver, debtTargetMonthsSaver, debtTrackingStartSaver,
   ]);
 
   useEffect(() => {
@@ -448,7 +422,6 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   const setHideNetWorth = useCallback((v: boolean) => { void hideNetWorthSaver.run(v); }, [hideNetWorthSaver]);
   const setDarkMode = useCallback((v: boolean) => { void darkModeSaver.run(v); }, [darkModeSaver]);
   const setPayPeriodConfig = useCallback((c: PayPeriodConfig) => { void payPeriodConfigSaver.run(c); }, [payPeriodConfigSaver]);
-  const setRegion = useCallback((r: Region) => { void regionSaver.run(r); }, [regionSaver]);
   const setDebtTargetMonths = useCallback((n: number) => { void debtTargetMonthsSaver.run(n); }, [debtTargetMonthsSaver]);
   const setDebtTrackingStart = useCallback((s: string) => { void debtTrackingStartSaver.run(s); }, [debtTrackingStartSaver]);
 
@@ -471,9 +444,9 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
 
   return (
     <Ctx.Provider value={{
-      hideNetWorth, preferencesReady, darkMode, payPeriodConfig, region, debtTargetMonths, debtTrackingStart,
+      hideNetWorth, preferencesReady, darkMode, payPeriodConfig, debtTargetMonths, debtTrackingStart,
       spendWidgets, homePinnedWidget, debtBurndownOverrides, rawPrefs, preferencesSaveError,
-      setHideNetWorth, setDarkMode, setPayPeriodConfig, setRegion, setDebtTargetMonths, setDebtTrackingStart,
+      setHideNetWorth, setDarkMode, setPayPeriodConfig, setDebtTargetMonths, setDebtTrackingStart,
       setSpendWidgets, setHomePinnedWidget, setDebtBurndownOverrides, refreshPreferences,
       notePreferencesVersion,
     }}>

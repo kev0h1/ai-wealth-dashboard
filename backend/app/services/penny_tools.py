@@ -78,8 +78,7 @@ from app.core.config import MCP_CONNECTOR_ENABLED
 from app.db.collections import (
     accounts_col, behaviour_portrait_col, card_terms_col, cashflow_cache_col,
     connections_col, finexer_consents_col, manual_account_rules_col,
-    manual_accounts_col, mono_transactions_col, mpesa_transactions_col,
-    penny_proposals_col, preferences_col, savings_goals_col,
+    manual_accounts_col, penny_proposals_col, preferences_col, savings_goals_col,
     savings_insights_col, savings_labels_col, statement_transactions_col,
     transactions_col, yapily_accounts_col, yapily_transactions_col,
 )
@@ -100,7 +99,6 @@ from app.services.companion import compute_today_items
 from app.services.behaviour import compute_portrait as _compute_portrait
 from app.services.checkpoints import list_active as _list_active_checkpoints
 from app.services.debt_plan import get_debt_plan_cached
-from app.services.region import get_user_region
 from app.services.safe_calc import evaluate as _safe_calc_evaluate
 from app.services.spend_verdict import compute_spend_verdict
 from app.services.sync_freshness import last_bank_sync
@@ -2138,12 +2136,11 @@ async def _exec_get_recurring_payments(uid: str) -> dict:
     return result
 
 
-# Same five source collections GET /transactions/search gathers across —
-# reused verbatim rather than a new hardcoded tuple, so a new source added to
-# that endpoint is automatically picked up here too.
+# Same source collections GET /transactions/search gathers across — reused
+# verbatim rather than a new hardcoded tuple, so a new source added to that
+# endpoint is automatically picked up here too.
 _SEARCH_COLLECTIONS = (
     transactions_col, yapily_transactions_col, statement_transactions_col,
-    mono_transactions_col, mpesa_transactions_col,
 )
 _SEARCH_CAP = 20
 
@@ -2371,9 +2368,8 @@ async def _exec_get_account_activity(
             }
 
     try:
-        region = await get_user_region(uid)
         kind_map = await get_category_kinds(uid)
-        home_currency = "KES" if region == "Kenya" else "GBP"
+        home_currency = "GBP"
         end_dt = to_dt or datetime.now()
         start_dt = from_dt or (end_dt - timedelta(days=days))
         targets = [target] if target else accs[:_ACTIVITY_ACCOUNT_CAP]
@@ -2604,10 +2600,9 @@ async def _exec_get_spend_verdict(uid: str, period_offset: int) -> dict:
 
 async def _exec_get_savings_position(uid: str) -> dict:
     try:
-        region = await get_user_region(uid)
         cutoff = datetime.now() - timedelta(days=90)
         goal = await savings_goals_col.find_one({"_id": uid})
-        monthly_income, monthly_spending, monthly_surplus = await _cashflow(uid, region, cutoff)
+        monthly_income, monthly_spending, monthly_surplus = await _cashflow(uid, cutoff)
         current = await _current_savings(uid, goal)
         target = _target_amount(goal, monthly_spending)
     except Exception:
@@ -2835,16 +2830,15 @@ async def _exec_check_affordability(uid: str, amount, timeframe) -> dict:
 #
 # Audit fix, 2026-08-26: this used to have no currency filter at all, while
 # _load_period_txns (spend_verdict.py) drops any row whose `currency` isn't
-# the user's home currency (a foreign-currency row, e.g. a KES M-Pesa line on
-# a UK account, must never inflate a total beyond what the Spend page's own
+# the user's home currency (a foreign-currency row must never inflate a
+# total beyond what the Spend page's own
 # tiles show — that module's own docstring, "fix-round LOW finding"). Without
 # the same filter here, `last_n_months`/`top_merchants` could disagree with
 # `this_period` (which DOES go through the engine's filtered aggregate) for
-# the exact same category — reusing the identical region-aware mechanism
+# the exact same category — reusing the identical home-currency mechanism
 # _load_period_txns uses, not a re-derived approximation of it.
 async def _category_txn_rows(uid: str, category: str, start: datetime, end: datetime) -> list[dict]:
-    region = await get_user_region(uid)
-    home_currency = "KES" if region == "Kenya" else "GBP"
+    home_currency = "GBP"
     rows: list[dict] = []
     for col in (transactions_col, yapily_transactions_col):
         async for doc in col.find(
@@ -4953,21 +4947,21 @@ _RECAT_PROJ = {
 
 
 async def _find_transaction_doc_by_id(uid: str, transaction_id: str) -> dict | None:
-    """Looks `transaction_id` up across the SAME 5 source collections
+    """Looks `transaction_id` up across the SAME source collections
     search_transactions/get_account_activity read from (see
     `_SEARCH_COLLECTIONS`), so an id either of those tools handed back
     always resolves to SOMETHING here — but only a hit in `transactions_col`
     is ACTIONABLE: `PATCH /transactions/{id}` and the rule-application
     machinery (`apply_single_rule`/`count_rule_matches`,
     app.services.categorisation) both only ever touch `transactions_col`,
-    never the other 4 (Yapily/statement/Mono/M-Pesa). A hit there is real
+    never the other two (Yapily/statement). A hit there is real
     but out of reach for this tool; returns the sentinel dict
     `{"_out_of_reach": True}` so the caller can return an honest error
     instead of silently building a proposal that would no-op on execute."""
     doc = await transactions_col.find_one({"_id": transaction_id, "user_id": uid}, _RECAT_PROJ)
     if doc is not None:
         return doc
-    for col in (yapily_transactions_col, statement_transactions_col, mono_transactions_col, mpesa_transactions_col):
+    for col in (yapily_transactions_col, statement_transactions_col):
         other = await col.find_one({"_id": transaction_id, "user_id": uid}, {"_id": 1})
         if other is not None:
             return {"_out_of_reach": True}

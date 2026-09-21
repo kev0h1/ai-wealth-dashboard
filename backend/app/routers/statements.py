@@ -1,4 +1,4 @@
-"""M-Pesa and bank statement upload endpoints."""
+"""Bank statement upload endpoints."""
 import re
 from datetime import datetime
 
@@ -6,28 +6,21 @@ from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile
 
 from app.core.auth import current_user
 from app.core.subscription import check_statement_upload_allowed, record_statement_upload
-from app.db.collections import (
-    mpesa_accounts_col, mpesa_transactions_col,
-    statement_accounts_col, statement_transactions_col,
-)
+from app.db.collections import statement_accounts_col, statement_transactions_col
 from app.services.categorisation import rule_categorise
-from app.services.pdf import extract_pdf_text, llm_parse_mpesa, llm_parse_statement
-from app.services.region import get_user_region
+from app.services.pdf import extract_pdf_text, llm_parse_statement
 
 router = APIRouter(tags=["statements"])
 
+# A98 dropped the Kenya-only names (M-Pesa, Equity, KCB, NCBA, Stanbic, DTB,
+# Family, I&M). The remaining entries all name banks that trade in the UK, and
+# the table is deliberately left otherwise intact: `_bank_slug` feeds the
+# statement account's `_id`, so removing a name an existing account was
+# created under would fork it into a duplicate.
 BANK_SLUG_MAP: dict[str, str] = {
-    "m-pesa": "mpesa", "mpesa": "mpesa", "safaricom": "mpesa",
-    "equity": "equity", "equity bank": "equity",
-    "kcb": "kcb", "kenya commercial bank": "kcb",
-    "ncba": "ncba", "ncba bank": "ncba",
-    "stanbic": "stanbic", "stanbic bank": "stanbic",
     "absa": "absa",
     "co-op": "coop", "cooperative bank": "coop", "co-operative bank": "coop",
-    "dtb": "dtb", "diamond trust bank": "dtb",
     "standard chartered": "stanchart",
-    "family bank": "family",
-    "i&m bank": "imbank", "im bank": "imbank",
 }
 
 
@@ -50,131 +43,10 @@ def _statement_dedup_key(account_id: str, ref, date: str, txn_type: str, descrip
     return digest
 
 
-@router.post("/mpesa/upload")
-async def mpesa_upload(
-    file: UploadFile,
-    password: str = Form(default=""),
-    user: dict = Depends(current_user),
-):
-    uid      = user["email"]
-    await check_statement_upload_allowed(uid)
-    content  = await file.read()
-    filename = (file.filename or "").lower()
-
-    if filename.endswith(".pdf") or content[:4] == b"%PDF":
-        raw_text = await extract_pdf_text(content, password=password)
-        if not raw_text.strip():
-            raise HTTPException(422, "Could not extract text, check the PDF password")
-    else:
-        try:
-            raw_text = content.decode("utf-8-sig")
-        except UnicodeDecodeError:
-            raw_text = content.decode("latin-1")
-
-    if not raw_text.strip():
-        raise HTTPException(422, "Could not extract text from file")
-
-    rows = await llm_parse_mpesa(raw_text, uid)
-    if not isinstance(rows, list):
-        raise HTTPException(422, "LLM did not return a list of transactions")
-
-    acc_id          = f"mpesa-{uid}"
-    conn_id         = f"mpesa-conn-{uid}"
-    imported        = 0
-    latest_balance: float | None = None
-
-    for i, row in enumerate(rows):
-        if not isinstance(row, dict):
-            continue
-        receipt  = str(row.get("receipt") or f"mpesa-{uid}-{i}")
-        raw_date = row.get("date", "")
-        try:
-            txn_date = datetime.fromisoformat(str(raw_date).replace("Z", "+00:00"))
-        except Exception:
-            txn_date = datetime.now()
-        try:
-            amount = float(row.get("amount", 0))
-        except (TypeError, ValueError):
-            continue
-        if amount <= 0:
-            continue
-
-        txn_type    = "credit" if str(row.get("type", "debit")).lower() == "credit" else "debit"
-        description = str(row.get("description", ""))
-        bal         = row.get("balance")
-        if bal is not None:
-            try:
-                latest_balance = float(bal)
-            except (TypeError, ValueError):
-                pass
-
-        cat = rule_categorise("", description)
-        await mpesa_transactions_col.update_one(
-            {"_id": receipt},
-            {"$set": {
-                "account_id": acc_id, "user_id": uid, "date": txn_date,
-                "amount": amount, "currency": "KES", "description": description,
-                "merchant_name": None, "category": cat, "transaction_type": txn_type,
-            }, "$setOnInsert": {"custom_category": None}},
-            upsert=True,
-        )
-        imported += 1
-
-    await mpesa_accounts_col.update_one(
-        {"_id": acc_id},
-        {"$set": {
-            "_id": acc_id, "user_id": uid, "name": "M-Pesa", "type": "mobile_money",
-            "balance": latest_balance or 0, "currency": "KES", "provider": "MPESA",
-            "status": "connected", "updated_at": datetime.now(),
-        }},
-        upsert=True,
-    )
-    await mpesa_accounts_col.update_one(
-        {"_id": conn_id},
-        {"$set": {"_id": conn_id, "user_id": uid, "provider_type": "mpesa"}},
-        upsert=True,
-    )
-    await record_statement_upload(
-        uid, kind="mpesa", filename=(file.filename or ""), region="Kenya", account_id=acc_id,
-    )
-    return {"inserted": imported, "account_id": acc_id, "balance": latest_balance}
-
-
-@router.get("/mpesa/accounts")
-async def get_mpesa_accounts(user: dict = Depends(current_user)):
-    uid  = user["email"]
-    accs = await mpesa_accounts_col.find({"user_id": uid, "type": "mobile_money"}).to_list(None)
-    return [
-        {"id": a["_id"], "name": a.get("name", "M-Pesa"), "type": a.get("type", "mobile_money"),
-         "balance": a.get("balance", 0), "currency": a.get("currency", "KES"),
-         "provider": a.get("provider", "MPESA"), "status": a.get("status", "connected")}
-        for a in accs
-    ]
-
-
-@router.get("/mpesa/accounts/{account_id}/transactions")
-async def get_mpesa_transactions(account_id: str, user: dict = Depends(current_user)):
-    uid = user["email"]
-    acc = await mpesa_accounts_col.find_one({"_id": account_id, "user_id": uid})
-    if not acc:
-        raise HTTPException(404, "M-Pesa account not found")
-    txns = await mpesa_transactions_col.find(
-        {"account_id": account_id, "user_id": uid}
-    ).sort("date", -1).to_list(500)
-    return [
-        {"id": t["_id"], "account_id": t["account_id"], "date": t["date"].isoformat(),
-         "amount": t["amount"], "currency": "KES", "description": t.get("description", ""),
-         "merchant_name": t.get("merchant_name"), "category": t.get("custom_category") or t.get("category"),
-         "custom_category": t.get("custom_category"), "transaction_type": t.get("transaction_type", "debit")}
-        for t in txns
-    ]
-
-
 @router.post("/statement/upload")
 async def statement_upload(
     file: UploadFile,
     password: str = Form(default=""),
-    region: str = Form(default="Kenya"),
     user: dict = Depends(current_user),
 ):
     uid      = user["email"]
@@ -199,16 +71,18 @@ async def statement_upload(
     parsed         = await llm_parse_statement(raw_text, uid)
     bank_name      = str(parsed.get("bank_name") or "Unknown Bank")
     account_number = str(parsed.get("account_number") or "")
-    currency       = str(parsed.get("currency") or "KES")
+    # A98: this used to default to KES, which then tripped the Kenya-only
+    # guard below for any statement the parser found no explicit currency
+    # line on (see the A51 pentest run's incidental finding). GBP is the
+    # only supported home currency now.
+    currency       = str(parsed.get("currency") or "GBP")
     rows           = parsed.get("transactions", [])
 
-    user_region = await get_user_region(uid)
-    is_mpesa    = "mpesa" in bank_name.lower() or "m-pesa" in bank_name.lower() or currency == "KES"
-    if user_region != "Kenya" and is_mpesa:
+    is_mpesa = "mpesa" in bank_name.lower() or "m-pesa" in bank_name.lower() or currency == "KES"
+    if is_mpesa:
         raise HTTPException(
             422,
-            "M-PESA / KES statements can only be uploaded in Kenya region. "
-            "Switch your region to Kenya in Settings to upload this statement.",
+            "M-PESA and KES statements are not supported. Upload a UK bank statement instead.",
         )
 
     if not isinstance(rows, list):
@@ -288,7 +162,9 @@ async def statement_upload(
     account_update: dict = {
         "_id": acc_id, "user_id": uid, "name": acc_name, "type": "bank",
         "currency": currency, "provider": slug.upper(), "account_number": account_number,
-        "region": region, "status": "connected", "updated_at": datetime.now(),
+        # A98: kept as a literal "UK" so these docs keep matching the
+        # `region: "UK"` filter GET /accounts has always applied to them.
+        "region": "UK", "status": "connected", "updated_at": datetime.now(),
     }
     if should_update_balance:
         account_update["balance"]      = resolved_balance
@@ -300,7 +176,7 @@ async def statement_upload(
 
     await record_statement_upload(
         uid, kind=("pdf" if is_pdf else "csv"), filename=(file.filename or ""),
-        region=region, account_id=acc_id,
+        account_id=acc_id,
     )
 
     return {

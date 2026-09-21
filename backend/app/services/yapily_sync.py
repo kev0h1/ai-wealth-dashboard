@@ -174,4 +174,4 @@ async def sync_yapily_consent(consent_token: str, user_id: str):
                 })
 
     if yapily_new_txns and not yapily_is_initial and user_id and user_id != "unknown":
-        asyncio.create_task(notify_after_sync(user_id, "UK", yapily_new_txns))
+        asyncio.create_task(notify_after_sync(user_id, yapily_new_txns))

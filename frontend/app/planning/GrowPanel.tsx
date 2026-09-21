@@ -829,8 +829,8 @@ export function PlanningComposition({
 
 export default function GrowPanel({ onLoaded, debtSlot, goalsSlot, stripSlot }: GrowPanelProps) {
   const router = useRouter();
-  const { region, hideNetWorth } = usePreferences();
-  const sym = region === "Kenya" ? "KES " : "£";
+  const { hideNetWorth } = usePreferences();
+  const sym = "£";
   const [view, setView] = useState<GrowView | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);

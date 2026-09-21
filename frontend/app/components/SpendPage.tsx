@@ -228,7 +228,7 @@ function SpendSkeleton() {
 }
 
 export default function SpendPage() {
-  const { payPeriodConfig, setPayPeriodConfig, region, rawPrefs, hideNetWorth, spendWidgets } = usePreferences();
+  const { payPeriodConfig, setPayPeriodConfig, rawPrefs, hideNetWorth, spendWidgets } = usePreferences();
   const { colours } = useColours();
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -808,12 +808,12 @@ export default function SpendPage() {
   // statement import) show in the list with their own symbol but must not be
   // summed into home-currency figures
   const homeTxns = useMemo(
-    () => periodTxns.filter(tx => isHomeCurrency(tx.currency, region)),
-    [periodTxns, region]
+    () => periodTxns.filter(tx => isHomeCurrency(tx.currency)),
+    [periodTxns]
   );
   const homeAllTxns = useMemo(
-    () => allTransactions.filter(tx => isHomeCurrency(tx.currency, region)),
-    [allTransactions, region]
+    () => allTransactions.filter(tx => isHomeCurrency(tx.currency)),
+    [allTransactions]
   );
 
   // NOTE: the top-region Spent/Income/Net figures come from `verdict.pills`
@@ -991,7 +991,7 @@ export default function SpendPage() {
     fetchVerdict(periodOffset);
   }
 
-  const sym = region === "Kenya" ? "KES " : "£";
+  const sym = "£";
   const wholeMoney = (value: number) => `${value < 0 ? "−" : ""}${sym}${Math.abs(Math.round(value)).toLocaleString("en-GB")}`;
   const latestPace = verdict ? [...(verdict.pace_series ?? [])].reverse().find((point) => point.usual != null) : undefined;
   const paceDifference = verdict && latestPace?.usual != null ? verdict.pills.spent - latestPace.usual : null;
@@ -1149,7 +1149,7 @@ export default function SpendPage() {
                     account_id: largest.account_id ?? "",
                     date: largest.date,
                     amount: largest.amount,
-                    currency: region === "Kenya" ? "KES" : "GBP",
+                    currency: "GBP",
                     description: largest.raw_description,
                     merchant_name: largest.display_name || undefined,
                     category: "Other",

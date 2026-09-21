@@ -62,12 +62,10 @@ async def get_preferences(user: dict = Depends(current_user)):
     # `doc.get(key, default)` against an empty dict when there's no document,
     # which is exactly what the old no-document branch was hand-duplicating.
     doc = await preferences_col.find_one({"user_id": user["email"]}) or {}
-    region = doc.get("region", "UK")
     result = {
         "hide_net_worth":     doc.get("hide_net_worth", False),
         "dark_mode":          doc.get("dark_mode", False),
         "pay_period_config":  doc.get("pay_period_config", {"type": "calendar_month"}),
-        "region":             region,
         "debt_target_months": doc.get("debt_target_months", 12),
         "notification_prefs": _notif_prefs(doc),
         "income_bracket":     doc.get("income_bracket", ""),
@@ -263,7 +261,7 @@ async def update_preferences(body: dict, user: dict = Depends(current_user)):
         )
     doc = await preferences_col.find_one({"user_id": uid})
 
-    # Preferences include Safe-to-Spend inputs (notably region, pay-period
+    # Preferences include Safe-to-Spend inputs (notably the pay-period
     # configuration and the user buffer). A successful patch must never leave
     # a cached spending permission on screen. Full invalidation is
     # deliberately the safe default: some less-obvious preference fields feed

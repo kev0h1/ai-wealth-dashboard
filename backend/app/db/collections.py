@@ -38,19 +38,10 @@ notification_state_col  = db["notification_state"]
 # survives month-to-month statement drift.
 confirmed_transfer_pairs_col = db["confirmed_transfer_pairs"]
 
-# Mono (Kenya)
-mono_connections_col    = db["mono_connections"]
-mono_accounts_col       = db["mono_accounts"]
-mono_transactions_col   = db["mono_transactions"]
-
-# M-Pesa
-mpesa_accounts_col      = db["mpesa_accounts"]
-mpesa_transactions_col  = db["mpesa_transactions"]
-
-# Bank statements (UK + Kenya)
+# Bank statements
 statement_accounts_col      = db["statement_accounts"]
 statement_transactions_col  = db["statement_transactions"]
-# One doc per successful statement/M-Pesa upload (app.core.subscription
+# One doc per successful statement upload (app.core.subscription
 # check_statement_upload_allowed / record_statement_upload) — counts
 # against the Statements tier's statement_uploads_per_month cap.
 statement_uploads_col       = db["statement_uploads"]

@@ -123,7 +123,6 @@ reconciled against that real total.
 | Pull older transaction history | `app/settings/SettingsPage.tsx:545` | `POST /accounts/sync-history` (`syncHistory`) | none | gap |
 | Disconnect / delete a bank account | `app/components/AccountsPage.tsx:920` | `DELETE /accounts/{id}` (`deleteAccount`) | none | gap |
 | **Disconnect a whole bank connection** *(new row, B16)* | no UI surface found (see section 6) | `DELETE /connections/{id}` (`delete_connection`; no api.ts method exists for this route today) | `propose_disconnect_bank` (B16) | covered, not counted in section 3's UI-write totals (no api.ts caller exists) |
-| Complete a Mono (Kenya) connection | `components/MonoConnect.tsx:60` | `POST /auth/mono/exchange` (`monoExchange`) | none | gap |
 | Pin / unpin an account on Home | `app/components/AccountsPage.tsx:758` | `PATCH /preferences {home_pinned_accounts}` (`updatePreferences`) | `get_accounts` exposes `pinned` | partial |
 | Create an offline (manual) account | `app/components/AccountsPage.tsx:962` | `POST /manual-accounts` (`createManualAccount`) | `propose_create_offline_account` (B16) | covered |
 | Edit an offline account (name/balance/type) | `app/components/AccountsPage.tsx:959` | `PATCH /manual-accounts/{id}` (`updateManualAccount`) | `propose_update_offline_account` (B16) | covered |
@@ -204,7 +203,6 @@ reconciled against that real total.
 | Toggle "hide net worth" | `components/PreferencesContext.tsx:117` | `PATCH /preferences` (`updatePreferences`) | `propose_set_hide_balances` (B15) | covered |
 | Toggle dark mode | `components/PreferencesContext.tsx:123` | `PATCH /preferences` | none | gap (deliberate) |
 | Set the pay-period boundary | `components/PreferencesContext.tsx:128`, `components/Onboarding.tsx:165` | `PATCH /preferences {pay_period_config}` | `propose_set_pay_period` (B15) | covered |
-| Set region | `components/PreferencesContext.tsx:133` | `PATCH /preferences {region}` | none | gap |
 | Set debt target months | `components/PreferencesContext.tsx:138` | `PATCH /preferences {debt_target_months}` | `propose_set_debt_target` (B15) | covered |
 | Set debt tracking start | `components/PreferencesContext.tsx:143` | `PATCH /preferences {debt_tracking_start}` | `propose_set_debt_tracking_start` (B15) | covered |
 | Set income value | `app/settings/SettingsPage.tsx:354`, `components/Onboarding.tsx:179` | `PATCH /preferences {income_value}` | `get_tax_position` reads it, `propose_set_income` (B15) writes it | covered |
@@ -241,7 +239,6 @@ reconciled against that real total.
 | Scan a grocery receipt | `app/receipts/ReceiptsPage.tsx:75`, `components/GroceryBasketCard.tsx:75` | `POST /baskets/scan-receipt` (`scanReceipt`) | none | gap (deliberate) |
 | Delete a scanned basket | `app/receipts/ReceiptsPage.tsx:67`, `components/GroceryBasketCard.tsx:119` | `DELETE /baskets/{id}` (`deleteBasket`) | none | gap (deliberate) |
 | Upload a bank statement | `components/StatementUpload.tsx:49` | `POST /statement/upload` (`uploadStatement`) | none | gap (deliberate) |
-| Upload an M-Pesa CSV | `components/MpesaUpload.tsx:28` | `POST /mpesa/upload` (`uploadMpesa`) | none | gap (deliberate) |
 | Upload an investment statement | `components/InvestmentUpload.tsx:38` | `POST /investment/upload` (`uploadInvestmentStatement`) | none | gap (deliberate) |
 | Upload a contract note to an account | `app/components/AccountsPage.tsx:1218` | `POST /investment/accounts/{id}/notes/upload` (`uploadInvestmentNote`) | none | gap (deliberate) |
 | Upload a contract note (cold start) | `app/components/AccountsPage.tsx:1254` | `POST /investment/notes/upload` (`uploadInvestmentNoteColdStart`) | none | gap (deliberate) |
@@ -262,6 +259,12 @@ reconciled against that real total.
 | **Remove a merchant's bill-type label** *(new row, B17)* | no UI surface found (`deleteBillLabel` in api.ts has no caller, see section 5) | `DELETE /savings-insights/labels/{merchantKey}` (`deleteBillLabel`) | `propose_remove_merchant_label` (B17) | covered, not counted in section 3's UI-write totals (no api.ts caller exists) |
 
 ## 3. Counts
+
+Revised 2026-09-21 (A98, Kenya region removed): three gap rows disappeared
+with the feature rather than being covered — Mono exchange and the M-Pesa
+CSV upload (both endpoints deleted) and the region preference (the field
+no longer exists). Every count below is restated for their removal: total
+UI write actions 90 → 87, gaps 35 → 32.
 
 Revised 2026-09-08 (B14, B12 stage 1 shipped): edit/delete twins for the
 seven originally-covered creates (planned, allocation, commitment,
@@ -296,6 +299,8 @@ undercounted this): sync history, delete a single bank account (a
 narrower, per-account capability `propose_disconnect_bank` deliberately
 does not replicate), Mono exchange, refresh investment prices, and delete
 an investment account were never in this stage's scope and remain gaps.
+(Mono exchange has since been deleted outright by A98; the B16 arithmetic
+above is left as it stood on 2026-09-08.)
 
 Revised again 2026-09-08 (B17, B12 stages 4-5 shipped): `propose_set_card_terms`
 moved 1 row from partial to covered (card terms — every field now, not
@@ -318,17 +323,17 @@ same cost-control reasoning PENNY_TOOLS.md's B17 paragraph gives.
 
 | | Count |
 |---|---|
-| Total UI write actions (api.ts write methods with at least one caller, excluding auth/push/admin plumbing) | 90 |
+| Total UI write actions (api.ts write methods with at least one caller, excluding auth/push/admin plumbing) | 87 |
 | Covered | 39 |
 | Partial | 15 |
-| Gap | 35 |
+| Gap | 32 |
 | n/a (Penny's own consent and proposal plumbing) | 1 counted (grant consent); execute/cancel excluded |
 
 The 39 covered: `patchTransaction`, `addRule`, `dismissRecurring`, `restoreRecurring`, `addPlanned`, `createCommitment`, `setMirrorChoice`, `skipUpcomingOccurrence`, `editUpcoming`, `clearUpcomingOverride`, `deleteAllocation`, `deletePlanned`, `cancelCommitment`, `cancelCheckpoint`, `updatePreferences` used for `hide_net_worth`, `pay_period_config`, `debt_target_months`, `debt_tracking_start`, `income_value`, `pension_annual`, `has_child_benefit`, `cover_plan_excluded_accounts`, `syncAll`, `createManualAccount`, `updateManualAccount`, `deleteManualAccount`, `addManualTransaction`, `updateManualTransaction`, `deleteManualTransaction`, `createManualAccountRule`, `updateManualAccountRule`, `deleteManualAccountRule`, `saveCardTerms`, `dismissSpotlightInsight`, `markInsightOpened`, `saveInsightContext`, `recordTrendIntent`, `intentPreview`, `deleteIntent`. (`propose_disconnect_bank`/`propose_pin_insight`/`propose_label_merchant`/`propose_remove_merchant_label` are four further covered capabilities on top of these 39 — see the paragraphs above for why they aren't counted here.)
 
-## 4. Gaps grouped (35)
+## 4. Gaps grouped (32)
 
-Accounts and connections (5): sync history, delete a single bank account, Mono exchange, refresh investment prices, delete investment account.
+Accounts and connections (4): sync history, delete a single bank account, refresh investment prices, delete investment account.
 
 Transactions and categories (7): undo a rule, resolve a movement, add custom category, delete custom category, dismiss miscategorised series, confirm transfer pair, dismiss transfer pair (the last three deliberate).
 
@@ -338,9 +343,9 @@ Plans, commitments, goals (3): add/edit/delete an offline savings pot.
 
 Cards and terms (1): card-terms lookup (deliberate, B17 — see above).
 
-Settings and preferences (9): profile save, delete account, dark mode, region, notification prefs, spend-widget order, home widget pin, home card pins, test push. (Hide net worth, pay-period config, debt target months, debt tracking start and cover-plan exclusions moved to covered under B15; region stays a gap, it was never in B15's scope — see PENNY_TOOLS.md's B15 note.)
+Settings and preferences (8): profile save, delete account, dark mode, notification prefs, spend-widget order, home widget pin, home card pins, test push. (Hide net worth, pay-period config, debt target months, debt tracking start and cover-plan exclusions moved to covered under B15; the region preference was a gap until A98 deleted the field outright.)
 
-Receipts, statements, uploads (8): scan receipt, delete basket, upload statement, upload M-Pesa CSV, upload investment statement, upload contract note, upload contract note cold-start, delete contract note.
+Receipts, statements, uploads (7): scan receipt, delete basket, upload statement, upload investment statement, upload contract note, upload contract note cold-start, delete contract note.
 
 Other (0): every row in this group (mark insight opened, save insight context, record trend intent, intent preview, undo intent) moved to covered under B17.
 
@@ -352,7 +357,7 @@ Owner/admin-only: `goLiveItemAction`, `goLiveQuestionStatus` (surface `app/ops/g
 
 Penny transport, not a user action: `canI` (`POST /can-i`), `pennyChip` (`POST /penny/chip`).
 
-Unwired write methods exported from api.ts with no caller in frontend/ (dead or awaiting a UI, excluded from counts): `syncAccounts`, `autoCategorise`, `dismissMiscategorised`, `deleteSavingsGoal`, `newChatSession`, `yapilySync`, `deleteYapilyConnection`, `monoSync`, `deleteMonoConnection`, `setAccountRate`, `parseRule`, `setTransactionPlanned`, `labelBill`, `deleteBillLabel`, `pinSavingsInsight`, `refreshSavingsInsights`, `markInsightsViewed`, `confirmIncomeStream`, `rejectIncomeStream`, `setManualIncome`, `deleteIncomeStream`; `yapilyRequisition`'s caller `components/YapilyConnect.tsx` is not imported by any page.
+Unwired write methods exported from api.ts with no caller in frontend/ (dead or awaiting a UI, excluded from counts): `syncAccounts`, `autoCategorise`, `dismissMiscategorised`, `deleteSavingsGoal`, `newChatSession`, `yapilySync`, `deleteYapilyConnection`, `setAccountRate`, `parseRule`, `setTransactionPlanned`, `labelBill`, `deleteBillLabel`, `pinSavingsInsight`, `refreshSavingsInsights`, `markInsightsViewed`, `confirmIncomeStream`, `rejectIncomeStream`, `setManualIncome`, `deleteIncomeStream`; `yapilyRequisition`'s caller `components/YapilyConnect.tsx` is not imported by any page.
 
 ## 6. Side findings
 
@@ -369,7 +374,6 @@ These need a native picker, touch account existence or consent itself, or are pu
 - Scan a grocery receipt (`POST /baskets/scan-receipt`)
 - Delete a scanned basket (`DELETE /baskets/{id}`)
 - Upload a bank statement (`POST /statement/upload`)
-- Upload an M-Pesa CSV (`POST /mpesa/upload`)
 - Upload an investment statement (`POST /investment/upload`)
 - Upload a contract note to an account (`POST /investment/accounts/{id}/notes/upload`)
 - Upload a contract note (cold start) (`POST /investment/notes/upload`)
@@ -381,7 +385,6 @@ These need a native picker, touch account existence or consent itself, or are pu
 - Dismiss a flagged own-transfer series (`POST /transactions/dismiss-miscategorised-series`)
 - Confirm a transfer pair (`POST /transactions/confirm-transfer-pair`)
 - Dismiss a transfer-pair suggestion (`POST /transactions/dismiss-transfer-pair`)
-- Complete a Mono (Kenya) connection (`POST /auth/mono/exchange`)
 - Send a test push (`POST /push/test`)
 - Toggle dark mode (`PATCH /preferences`, dark mode field)
 - Reorder Spend "over time" widgets (`PATCH /preferences {spend_widgets}`)

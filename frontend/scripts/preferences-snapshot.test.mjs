@@ -4,11 +4,11 @@
 // modules (lib/preferencesSnapshot.ts, lib/preferenceSave.ts,
 // lib/serialQueue.ts) rather than a re-implementation of any of them.
 //
-// THE DEFECT, FIRST PASS (G62): components/PreferencesContext.tsx's six
-// field savers (hide_net_worth, dark_mode, pay_period_config, region,
+// THE DEFECT, FIRST PASS (G62): components/PreferencesContext.tsx's five
+// field savers (hide_net_worth, dark_mode, pay_period_config,
 // debt_target_months, debt_tracking_start) each run a failure-path
 // `reconcile()` after a failed save. Before the first fix, every one of
-// those six called `refreshPreferences()`, which fetches GET /preferences
+// those five called `refreshPreferences()`, which fetches GET /preferences
 // AND applies every field to local state as a side effect — so if field A
 // is still mid-PATCH (optimistically applied, save() not yet settled) when
 // field B's save fails, B's reconcile fetch could carry a STALE value for A
@@ -22,19 +22,19 @@
 //
 // First fix: `loadPreferences` was split into `fetchGatedSnapshot`
 // (fetch + version-gate only, never applies anything) and
-// `applyWholeDocument` (applies every field), and each of the six fields'
+// `applyWholeDocument` (applies every field), and each of the five fields'
 // OWN `reconcile` was rewired (via `makeFieldReconcile` below) to call the
 // scoped fetch alone, extracting only its own key.
 //
-// THE DEFECT, REVIEW #1 (G62): that first pass only rewired the six
+// THE DEFECT, REVIEW #1 (G62): that first pass only rewired the five
 // fields' OWN reconciles. `refreshPreferences()` still composes the fetch
 // WITH `applyWholeDocument`, and it has FOUR OTHER callers, all in
 // app/settings/SettingsPage.tsx — the Penny consent revoke (B13, ~line
 // 379), and the failure-path reconciles of the child benefit (G58, ~line
 // 730), cover-plan (G45, ~line 790) and notification prefs (G52, ~line
-// 841) toggles — none of which reconcile one of the six fields above, so
+// 841) toggles — none of which reconcile one of the five fields above, so
 // none were touched by the first pass. Every one of those four can still
-// land mid-save on one of the six fields and stomp it: flip dark mode (its
+// land mid-save on one of the five fields and stomp it: flip dark mode (its
 // PATCH in flight, version not yet bumped), then let a notification toggle
 // fail in that window — its catch calls refreshPreferences(), which
 // reapplies dark mode from a snapshot that still passes the freshness
@@ -43,7 +43,7 @@
 // Second fix: `applyWholeDocument` now takes an optional per-field `skip`
 // map, and `loadPreferences` (which both the mount effect and
 // `refreshPreferences()` — and so all four callers above — go through)
-// builds it from each of the six savers' own `isSaving` flag
+// builds it from each of the five savers' own `isSaving` flag
 // (`createPreferenceSaver` already exposes this). A field currently
 // authoring its own value is left untouched by ANY whole-document apply,
 // regardless of who triggered it, closing the hole for every caller,
@@ -56,17 +56,17 @@
 //     proving the first fix: "bug" mode reconstructs the pre-fix shape,
 //     "fixed" mode drives the REAL `makeFieldReconcile`.
 //  3. The SECOND scenario (review #1's hole): a caller that is not any of
-//     the six fields' own reconcile — modelling SettingsPage.tsx's four
+//     the five fields' own reconcile — modelling SettingsPage.tsx's four
 //     `refreshPreferences()` callers — invokes the real `applyWholeDocument`
 //     while field A is mid-save, once with no `skip` guard (the exact
 //     shape every one of those four callers exercised before review #1's
 //     fix) and once with the real skip guard wired, proving A survives
 //     only when the guard is present.
 //  4. STATIC checks on the real components/PreferencesContext.tsx source:
-//     every one of its six reconcile lines must build from the real
+//     every one of its five reconcile lines must build from the real
 //     `makeFieldReconcile(fetchPreferencesSnapshot, ...)` and never call
 //     `refreshPreferences()`; and its `loadPreferences` must call
-//     `applyWholeDocument` with a skip map that reads every one of the six
+//     `applyWholeDocument` with a skip map that reads every one of the five
 //     savers' `isSaving.current` — this is what actually fails if either
 //     fix is reverted, since scenarios 2 and 3 only prove the underlying
 //     primitives, not which shape the real file wires up.
@@ -105,7 +105,6 @@ const noopCallbacks = () => ({
   applyHideNetWorth: () => {},
   applyDarkMode: () => {},
   applyPayPeriodConfig: () => {},
-  applyRegion: () => {},
   applyDebtTargetMonths: () => {},
   applyDebtTrackingStart: () => {},
   setSpendWidgets: () => {},
@@ -140,7 +139,7 @@ async function testMakeFieldReconcileExtractsOnlyItsOwnKey() {
   const reconcileDarkMode = makeFieldReconcile(async () => ({ hide_net_worth: true, dark_mode: false }), "dark_mode");
   check("makeFieldReconcile extracts exactly the requested key", (await reconcileDarkMode()) === false);
 
-  const reconcileMissing = makeFieldReconcile(async () => ({ hide_net_worth: true }), "region");
+  const reconcileMissing = makeFieldReconcile(async () => ({ hide_net_worth: true }), "debt_target_months");
   check("makeFieldReconcile returns undefined for a key absent from the snapshot", (await reconcileMissing()) === undefined);
 
   const reconcileNoServer = makeFieldReconcile(async () => null, "dark_mode");
@@ -153,7 +152,6 @@ function testApplyWholeDocumentAppliesEveryFieldWithNoSkip() {
     applyHideNetWorth: (v) => applied.push(["hide_net_worth", v]),
     applyDarkMode: (v) => applied.push(["dark_mode", v]),
     applyPayPeriodConfig: (v) => applied.push(["pay_period_config", v]),
-    applyRegion: (v) => applied.push(["region", v]),
     applyDebtTargetMonths: (v) => applied.push(["debt_target_months", v]),
     applyDebtTrackingStart: (v) => applied.push(["debt_tracking_start", v]),
     setSpendWidgets: (v) => applied.push(["spend_widgets", v]),
@@ -162,14 +160,14 @@ function testApplyWholeDocumentAppliesEveryFieldWithNoSkip() {
     setRawPrefs: (v) => applied.push(["rawPrefs", v]),
   };
   applyWholeDocument(
-    { hide_net_worth: true, dark_mode: false, region: "UK", spend_widgets: ["a"], home_pinned_widget: "w" },
+    { hide_net_worth: true, dark_mode: false, debt_target_months: 18, spend_widgets: ["a"], home_pinned_widget: "w" },
     cb
   );
   check(
     "applyWholeDocument with no skip map applies every field (mount hydration's shape — nothing is in flight yet)",
     applied.some((e) => e[0] === "hide_net_worth" && e[1] === true) &&
       applied.some((e) => e[0] === "dark_mode" && e[1] === false) &&
-      applied.some((e) => e[0] === "region" && e[1] === "UK") &&
+      applied.some((e) => e[0] === "debt_target_months" && e[1] === 18) &&
       applied.some((e) => e[0] === "rawPrefs")
   );
 }
@@ -180,16 +178,16 @@ function testApplyWholeDocumentSkipsOnlyTheGuardedField() {
     ...noopCallbacks(),
     applyHideNetWorth: (v) => applied.push(["hide_net_worth", v]),
     applyDarkMode: (v) => applied.push(["dark_mode", v]),
-    applyRegion: (v) => applied.push(["region", v]),
+    applyDebtTargetMonths: (v) => applied.push(["debt_target_months", v]),
   };
   applyWholeDocument(
-    { hide_net_worth: true, dark_mode: false, region: "UK" },
+    { hide_net_worth: true, dark_mode: false, debt_target_months: 18 },
     cb,
     { darkMode: () => true } // only dark_mode is "saving"
   );
   check("a field whose skip guard returns true is never applied", !applied.some((e) => e[0] === "dark_mode"));
   check("a field with no skip guard (or one returning false) is still applied", applied.some((e) => e[0] === "hide_net_worth"));
-  check("an unrelated field is unaffected by another field's skip guard", applied.some((e) => e[0] === "region"));
+  check("an unrelated field is unaffected by another field's skip guard", applied.some((e) => e[0] === "debt_target_months"));
 }
 
 // ── Part 2: field B's OWN failure reconciling must never touch field A —
@@ -257,7 +255,7 @@ async function runOwnFieldReconcileScenario(mode) {
     },
     reconcile:
       mode === "bug"
-        ? // The shape every one of the six reconciles had BEFORE the first
+        ? // The shape every one of the five reconciles had BEFORE the first
           // fix: fetch, then apply the WHOLE document with no skip guard
           // (as refreshPreferences()/loadPreferences() did before either
           // fix), THEN separately extract this field's own value.
@@ -406,7 +404,7 @@ async function runExternalCallerScenario(withGuard) {
 // "dark_mode", darkModeSaver wired to reconcile "hide_net_worth"; or the
 // skip map's `hideNetWorth` guard reading `darkModeSaver.isSaving.current`
 // and vice versa) — every expected substring is still present, just
-// attached to the wrong field. That is exactly the six-near-identical-
+// attached to the wrong field. That is exactly the five-near-identical-
 // lines mistake this item exists to catch, so every check below binds a
 // field's key to its OWN saver, not to the set of keys/savers in the file
 // as a whole.
@@ -455,13 +453,12 @@ function extractCallbackBody(src, fnName) {
   return extractBalanced(src, braceIndex, "{", "}");
 }
 
-// The six fields, each with: its server-document key, its saver variable
+// The five fields, each with: its server-document key, its saver variable
 // name, and the key it should use in loadPreferences' skip map.
 const FIELD_SAVER_PAIRS = [
   { key: "hide_net_worth", saverVar: "hideNetWorthSaver", skipKey: "hideNetWorth" },
   { key: "dark_mode", saverVar: "darkModeSaver", skipKey: "darkMode" },
   { key: "pay_period_config", saverVar: "payPeriodConfigSaver", skipKey: "payPeriodConfig" },
-  { key: "region", saverVar: "regionSaver", skipKey: "region" },
   { key: "debt_target_months", saverVar: "debtTargetMonthsSaver", skipKey: "debtTargetMonths" },
   { key: "debt_tracking_start", saverVar: "debtTrackingStartSaver", skipKey: "debtTrackingStart" },
 ];
@@ -469,7 +466,7 @@ const FIELD_SAVER_PAIRS = [
 function testRealContextFileWiresEachFieldToMakeFieldReconcile() {
   const contextSrc = readFileSync(path.join(frontendRoot, "components/PreferencesContext.tsx"), "utf-8");
 
-  // Whole-file sanity: exactly six reconcile-via-makeFieldReconcile call
+  // Whole-file sanity: exactly five reconcile-via-makeFieldReconcile call
   // sites, covering exactly the expected keys. This does NOT by itself
   // prove each key is wired to its own saver — a swap between two fields'
   // keys leaves the count and the set both unchanged — which is what the
@@ -477,9 +474,9 @@ function testRealContextFileWiresEachFieldToMakeFieldReconcile() {
   const reconcileLines = [
     ...contextSrc.matchAll(/reconcile:\s*makeFieldReconcile<[^>]+>\(fetchPreferencesSnapshot,\s*"([a-z_]+)"\)/g),
   ].map((m) => m[1]);
-  check("components/PreferencesContext.tsx wires exactly six fields through makeFieldReconcile", reconcileLines.length === 6);
+  check("components/PreferencesContext.tsx wires exactly five fields through makeFieldReconcile", reconcileLines.length === 5);
   check(
-    "the six fields wired are exactly the expected set",
+    "the five fields wired are exactly the expected set",
     JSON.stringify([...reconcileLines].sort()) === JSON.stringify(FIELD_SAVER_PAIRS.map((f) => f.key).sort())
   );
   check(
@@ -521,9 +518,9 @@ function testRealLoadPreferencesGuardsEverySaverWithIsSaving() {
   // key and the saver substring somewhere in the function. A copy-paste
   // swap — pairing `hideNetWorth` with `darkModeSaver.isSaving.current`
   // and `darkMode` with `hideNetWorthSaver.isSaving.current` — leaves
-  // every one of the six `<saver>.isSaving.current` substrings present
+  // every one of the five `<saver>.isSaving.current` substrings present
   // (the exact regression this item exists to close) but fails every one
-  // of the checks below, because none of the six pairings would match.
+  // of the checks below, because none of the five pairings would match.
   for (const { saverVar, skipKey } of FIELD_SAVER_PAIRS) {
     const pairPattern = new RegExp(`\\b${skipKey}\\s*:\\s*\\(\\)\\s*=>\\s*${saverVar}\\.isSaving\\.current\\b`);
     check(

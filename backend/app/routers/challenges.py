@@ -9,7 +9,6 @@ from app.db.collections import (
     challenges_col,
     transactions_col, yapily_transactions_col,
 )
-from app.services.region import get_user_region, get_kenya_transactions
 
 router = APIRouter(tags=["challenges"])
 
@@ -45,9 +44,6 @@ def _day_bounds():
 
 
 async def _get_debit_txns_challenge(uid: str, since: datetime) -> list:
-    region = await get_user_region(uid)
-    if region == "Kenya":
-        return await get_kenya_transactions(uid, since)
     tl  = await transactions_col.find({"user_id": uid, "transaction_type": "debit", "date": {"$gte": since}}).to_list(None)
     yap = await yapily_transactions_col.find({"user_id": uid, "transaction_type": "debit", "date": {"$gte": since}}).to_list(None)
     return tl + yap
@@ -103,9 +99,8 @@ async def _get_challenge_stats(uid: str) -> dict:
 async def _generate_all_challenges(uid: str) -> list[dict]:
     week_start, week_end = _week_bounds()
     day_start,  day_end  = _day_bounds()
-    region   = await get_user_region(uid)
-    currency = "KES" if region == "Kenya" else "GBP"
-    min_weekly = 500 if region == "Kenya" else 5
+    currency = "GBP"
+    min_weekly = 5
 
     four_weeks_ago = week_start - timedelta(days=28)
     raw_txns       = await _get_debit_txns_challenge(uid, four_weeks_ago)

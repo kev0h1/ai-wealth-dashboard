@@ -67,28 +67,6 @@ export interface Transaction {
   planned?: boolean;
 }
 
-export interface MonoAccount {
-  id: string;
-  name: string;
-  type: string;
-  balance: number;
-  currency: string;
-  provider: string;
-  status: string;
-  source: "mono";
-}
-
-export interface MpesaAccount {
-  id: string;
-  name: string;
-  type: string;
-  balance: number;
-  currency: string;
-  provider: string;
-  status: string;
-  source: "mpesa";
-}
-
 export interface KPIs {
   net_worth: number;
   cash: number;
@@ -582,7 +560,6 @@ export interface DebtBurndown {
 export interface UserPreferences {
   hide_net_worth: boolean;
   dark_mode?: boolean;
-  region?: string;
   pay_period_config?: unknown;
 }
 

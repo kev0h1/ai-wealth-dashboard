@@ -10,7 +10,7 @@ web
 
 ## Users
 
-UK consumers who connect their real bank accounts (via open banking) and want their money handled without spreadsheet labour. Today that's the founder and a small invited circle, but the product is deliberately built for a paying public audience — subscription tiers exist and every screen must earn the instant trust of a stranger handing over bank access. Users arrive in everyday moments (checking the phone after payday, worrying about an upcoming bill) and on mobile as often as desktop; the same responsive web UI ships inside the Android/iOS WebView app. A secondary Kenya region (M-Pesa, Mono) is supported but the UK experience leads.
+UK consumers who connect their real bank accounts (via open banking) and want their money handled without spreadsheet labour. Today that's the founder and a small invited circle, but the product is deliberately built for a paying public audience — subscription tiers exist and every screen must earn the instant trust of a stranger handing over bank access. Users arrive in everyday moments (checking the phone after payday, worrying about an upcoming bill) and on mobile as often as desktop; the same responsive web UI ships inside the Android/iOS WebView app.
 
 ## Product Purpose
 

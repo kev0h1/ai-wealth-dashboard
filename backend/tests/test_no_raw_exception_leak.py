@@ -85,22 +85,25 @@ ALLOWLIST: set[tuple[str, int]] = {
     # G80 (2026-09-16) shifted every line below by +13: the reframed
     # money-basics/page-explainer copy sweep added lines earlier in this
     # file (the "upcoming" explain entry and expanded insights/debt/grow
-    # copy), none of these are new exception sites.
-    ("app/services/penny_tools.py", 3870),
-    ("app/services/penny_tools.py", 3935),  # ValueError from compute_intent_preview, see above
-    ("app/services/penny_tools.py", 4438),
-    ("app/services/penny_tools.py", 4458),
-    ("app/services/penny_tools.py", 4494),
-    ("app/services/penny_tools.py", 4517),
-    ("app/services/penny_tools.py", 4659),
-    ("app/services/penny_tools.py", 4664),
-    ("app/services/penny_tools.py", 4669),
-    ("app/services/penny_tools.py", 4756),
-    ("app/services/penny_tools.py", 4761),
-    ("app/services/penny_tools.py", 4766),
-    ("app/services/penny_tools.py", 5707),
-    ("app/services/penny_tools.py", 6362),
-    ("app/services/penny_tools.py", 6376),
+    # copy), none of these are new exception sites. A98 (2026-09-21) then
+    # shifted every line below by -6, removing the Kenya region's
+    # get_user_region import and its two KES/GBP home-currency branches
+    # earlier in this file; likewise not new exception sites.
+    ("app/services/penny_tools.py", 3864),
+    ("app/services/penny_tools.py", 3929),  # ValueError from compute_intent_preview, see above
+    ("app/services/penny_tools.py", 4432),
+    ("app/services/penny_tools.py", 4452),
+    ("app/services/penny_tools.py", 4488),
+    ("app/services/penny_tools.py", 4511),
+    ("app/services/penny_tools.py", 4653),
+    ("app/services/penny_tools.py", 4658),
+    ("app/services/penny_tools.py", 4663),
+    ("app/services/penny_tools.py", 4750),
+    ("app/services/penny_tools.py", 4755),
+    ("app/services/penny_tools.py", 4760),
+    ("app/services/penny_tools.py", 5701),
+    ("app/services/penny_tools.py", 6356),
+    ("app/services/penny_tools.py", 6370),
     # app.services.billing._handle_checkout_completed: `str(exc)` here is an
     # authored ValueError message from grant_pack (see above), returned as
     # the body of a Stripe *webhook* response — read by Stripe's own retry
