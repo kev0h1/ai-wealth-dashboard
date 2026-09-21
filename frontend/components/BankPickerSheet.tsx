@@ -7,6 +7,7 @@ import { api, ApiError } from "@/lib/api";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { useSheetOpen } from "@/lib/useSheetOpen";
 import { AGENT_DISCLOSURE } from "@/lib/regulatoryCopy";
+import { LEGACY_BANK_SUBTITLE } from "@/lib/legacyBankProvider";
 
 interface Bank {
   id: string;
@@ -18,11 +19,15 @@ interface BankPickerSheetProps {
   onClose: () => void;
   /** Called the moment a bank is selected and OAuth is about to open. */
   onConnecting?: () => void;
-  /** Which provider's bank list + connect link to use. Defaults to TrueLayer. */
-  provider?: "truelayer" | "finexer";
+  /** Which provider's bank list + connect link to use. Defaults to Finexer,
+   *  the only provider production has (A67). "legacy" is the UAT-only
+   *  provider described in `lib/legacyBankProvider.ts`; it is absent from a
+   *  production build, so a caller may only pass it behind
+   *  LEGACY_BANK_AVAILABLE. */
+  provider?: "finexer" | "legacy";
 }
 
-export default function BankPickerSheet({ onClose, onConnecting, provider = "truelayer" }: BankPickerSheetProps) {
+export default function BankPickerSheet({ onClose, onConnecting, provider = "finexer" }: BankPickerSheetProps) {
   useLockBodyScroll();
   useSheetOpen();
   const [banks, setBanks] = useState<Bank[]>([]);
@@ -34,7 +39,7 @@ export default function BankPickerSheet({ onClose, onConnecting, provider = "tru
   const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const fetchProviders = provider === "finexer" ? api.finexerProviders() : api.truelayerProviders();
+    const fetchProviders = provider === "legacy" ? api.legacyBankProviders() : api.finexerProviders();
     fetchProviders
       .then(list => setBanks([...list].sort((a, b) => a.name.localeCompare(b.name))))
       .catch(() => setError("Failed to load banks"))
@@ -63,9 +68,9 @@ export default function BankPickerSheet({ onClose, onConnecting, provider = "tru
     setConnecting(bank.id);
     setError(null);
     try {
-      const { auth_url } = provider === "finexer"
-        ? await api.finexerConnectLink(bank.id)
-        : await api.connectLink(bank.id);
+      const { auth_url } = provider === "legacy"
+        ? await api.legacyBankConnectLink(bank.id)
+        : await api.finexerConnectLink(bank.id);
       // In the React Native WebView, open OAuth in the native browser so banks
       // that redirect to their own app (e.g. Starling) work correctly.
       onConnecting?.();
@@ -100,7 +105,7 @@ export default function BankPickerSheet({ onClose, onConnecting, provider = "tru
           <div>
             <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">Add a Bank</h2>
             <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
-              {provider === "finexer" ? "Secure open banking · Powered by Finexer" : "Secure open banking · Powered by TrueLayer"}
+              {provider === "legacy" ? LEGACY_BANK_SUBTITLE : "Secure open banking · Powered by Finexer"}
             </p>
           </div>
           <button

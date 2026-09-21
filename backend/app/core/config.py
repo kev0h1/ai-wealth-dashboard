@@ -262,6 +262,51 @@ TRUELAYER_AUTH_URL       = "https://auth.truelayer.com"
 TRUELAYER_API_URL        = "https://api.truelayer.com"
 TRUELAYER_REDIRECT_URI   = os.getenv("TRUELAYER_REDIRECT_URI", "http://localhost:8000/auth/truelayer/callback")
 
+
+# A67: TrueLayer is a UAT-only provider. Finexer is the only provider
+# production ever talks to.
+#
+# Deliberately NOT its own env flag, unlike MCP_CONNECTOR_ENABLED above.
+# Kevin's decision on this item was that "behind a flag is not enough if
+# the flag could be switched on in production, so enforce absence rather
+# than rely on configuration" — a `TRUELAYER_ENABLED` var would be exactly
+# the switch he ruled out. So this is DERIVED from APP_URL, the public host
+# this process is actually serving, which is the one thing this codebase
+# already uses to tell the environments apart (it is the CORS origin, the
+# OAuth/webhook base, and `app.services.backlog.PUBLIC_UAT_HOST` is the
+# same UAT host string spelled out again). Production's APP_URL is
+# https://wealth.auriqltd.co.uk, so the TrueLayer routes are absent there
+# today, before and regardless of whether the TRUELAYER_* credentials are
+# ever cleared off Railway (`scripts/release.py check` is what pushes for
+# that clearing; see its `verdict_truelayer_absent`).
+#
+# Fails CLOSED: the allow-list below is of non-production hosts, so an
+# unrecognised or malformed APP_URL mounts nothing, rather than an
+# allow-everything-but-production rule where a typo'd production APP_URL
+# would quietly turn TrueLayer back on in production. localhost is included
+# so a developer running the API directly still has the provider available.
+NON_PRODUCTION_APP_HOSTS = frozenset({
+    "uat.wealth.auriqltd.co.uk",
+    "localhost",
+    "127.0.0.1",
+})
+
+
+def _is_non_production(app_url: str) -> bool:
+    """True when `app_url`'s host is one this app may treat as UAT/local.
+
+    Factored out (rather than inlined) for the same reason `_parse_flag`
+    and `_origin_of` above are: it lets tests exercise the rule itself
+    against explicit inputs, instead of asserting on TRUELAYER_ENABLED,
+    which is fixed at import time from whatever APP_URL the process
+    happened to have (set in `backend/.env` on UAT, which the shared tree
+    loads and a session worktree does not)."""
+    host = (urlsplit(app_url).hostname or "").strip().lower()
+    return host in NON_PRODUCTION_APP_HOSTS
+
+
+TRUELAYER_ENABLED = _is_non_production(APP_URL)
+
 # ── VAPID / Web Push ──────────────────────────────────────────────────────────
 VAPID_SUBJECT   = os.getenv("VAPID_SUBJECT", "mailto:admin@wealthdashboard.app")
 _vapid_key_file = _BACKEND_DIR / ".vapid_private_key"

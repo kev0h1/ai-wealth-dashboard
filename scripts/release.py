@@ -63,6 +63,23 @@ DEPLOY_POLL_INTERVAL_S = 15
 MCP_RAILWAY_VAR = "MCP_CONNECTOR_ENABLED"
 MCP_VERCEL_VAR = "NEXT_PUBLIC_MCP_CONNECTOR"
 
+# A67: TrueLayer is a UAT-only provider; Finexer is the only one production
+# talks to. The code already enforces absence on its own (the backend mounts
+# no TrueLayer routes unless APP_URL is a non-production host, see
+# app.core.config.TRUELAYER_ENABLED, and a production frontend build inlines
+# no TrueLayer identifier at all, see frontend/next.config.ts) — this check
+# closes the remaining half: credentials lingering on live infrastructure
+# for a provider production is not allowed to use. Expected RED until Kevin
+# clears these four names off both Railway services himself; that is his own
+# step on live infrastructure, not something this tool does.
+TRUELAYER_RAILWAY_VARS = [
+    "TRUELAYER_CLIENT_ID",
+    "TRUELAYER_CLIENT_SECRET",
+    "TRUELAYER_REDIRECT_URI",
+    "TRUELAYER_WEBHOOK_SECRET",
+]
+TRUELAYER_VERCEL_VAR = "NEXT_PUBLIC_TRUELAYER_PICKER"
+
 # C10: after a successful deploy, best-effort trigger the production
 # TestFlight build via the Codemagic API. See docs/ops/ENV.md's "Release
 # tooling" section for CODEMAGIC_API_TOKEN / CODEMAGIC_APP_ID and
@@ -435,6 +452,38 @@ def verdict_mcp_flag(railway_present: dict, vercel_present: Optional[bool]) -> C
     return CheckItem("mcp_flag", "MCP connector stays absent in prod", "green", "absent everywhere, as required")
 
 
+# ── (j) TrueLayer absent in production (A67) ─────────────────────────────
+
+
+def verdict_truelayer_absent(
+    railway_present: dict[str, list[str]], vercel_present: Optional[bool]
+) -> CheckItem:
+    """RED if any TrueLayer credential is still set on either Railway
+    production service, or if NEXT_PUBLIC_TRUELAYER_PICKER is set on Vercel
+    production. Same shape as `verdict_mcp_flag` above: `railway_present`
+    maps each service to the subset of TRUELAYER_RAILWAY_VARS actually set
+    there, `vercel_present` is whether the picker flag is set (None/False
+    when it isn't, or when the lookup failed and we have nothing to judge)."""
+    offenders = []
+    for service in sorted(railway_present):
+        names = railway_present[service]
+        if names:
+            offenders.append(f"{service} ({', '.join(sorted(names))})")
+    if vercel_present:
+        offenders.append(f"vercel ({TRUELAYER_VERCEL_VAR})")
+    if offenders:
+        return CheckItem(
+            "truelayer_absent", "TrueLayer stays absent in prod", "red",
+            f"TrueLayer configuration still set on: {'; '.join(offenders)}; "
+            "TrueLayer is a UAT-only provider (A67), Finexer is the only one "
+            "production uses, so clear these off production before releasing",
+        )
+    return CheckItem(
+        "truelayer_absent", "TrueLayer stays absent in prod", "green",
+        "no TrueLayer credentials or picker flag in production, as required",
+    )
+
+
 # ── check orchestration ──────────────────────────────────────────────────
 
 
@@ -487,21 +536,31 @@ def run_check(
     exists, is_ancestor = release_ancestor_state(repo_root, timeout)
     items.append(verdict_release_ancestor(exists, is_ancestor))
 
+    # One fetch per service/target, shared by the MCP (A17) and TrueLayer
+    # (A67) absence checks below — they ask different questions of the same
+    # name lists, so fetching twice would just double the remote round trips.
     railway_mcp_present = {}
+    railway_truelayer_present: dict[str, list[str]] = {}
     for service in RAILWAY_SERVICES:
         try:
             names = env_drift.fetch_railway_names(service, timeout=timeout)
             railway_mcp_present[service] = MCP_RAILWAY_VAR in names
+            railway_truelayer_present[service] = [n for n in TRUELAYER_RAILWAY_VARS if n in names]
         except env_drift.RemoteError:
             railway_mcp_present[service] = False
+            railway_truelayer_present[service] = []
     vercel_mcp_present = None
+    vercel_truelayer_present = None
     try:
         workdir = link_vercel(timeout)
         vercel_names = env_drift.fetch_vercel_names("production", workdir, timeout=timeout)
         vercel_mcp_present = MCP_VERCEL_VAR in vercel_names
+        vercel_truelayer_present = TRUELAYER_VERCEL_VAR in vercel_names
     except env_drift.RemoteError:
         vercel_mcp_present = False
+        vercel_truelayer_present = False
     items.append(verdict_mcp_flag(railway_mcp_present, vercel_mcp_present))
+    items.append(verdict_truelayer_absent(railway_truelayer_present, vercel_truelayer_present))
 
     return items
 
