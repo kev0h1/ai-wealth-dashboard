@@ -221,6 +221,10 @@ testing") cites for the internal testing programme; see
 `docs/compliance/finexer-agent-controls-2026-09.md` for the questionnaire
 answer and `docs/security/pentest-runs/` for the sanitised per-run records.
 
+**Sign-off.** Signed off by Kevin, 2026-09-21, given as a written
+attestation in a working session with Claude ('Happy to sign this'), not a
+handwritten or cryptographic signature.
+
 ## 4. Incident response process
 
 Every incident follows this lifecycle. The ISM leads; timings below are targets.
