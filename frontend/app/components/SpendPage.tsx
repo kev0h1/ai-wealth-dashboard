@@ -585,6 +585,15 @@ export default function SpendPage() {
   const loadData = useCallback(async () => {
     try {
       await ensureAuth();
+      // G135 (2026-09-21), audited and deliberately not changed here: this
+      // page has no notion of a fresh user. It fetches accounts but never
+      // tests `.length`, and its empty states are about a pay period having
+      // no data, not about having nothing connected at all, so a brand-new
+      // user sees empty figures rather than a "connect something" route.
+      // G135 fixed the two surfaces that DID claim to lead somewhere (Home's
+      // fresh-user card, app/planning/GrowPanel.tsx's empty ladder). Giving
+      // this page one is a new empty state needing a design round, not a
+      // route fix. Do not re-investigate; propose it to Kevin instead.
       const accs = await getAccountsCached().catch(() => [] as Account[]);
       setAccounts(accs);
     } catch {}

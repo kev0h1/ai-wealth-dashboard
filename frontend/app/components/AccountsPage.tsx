@@ -30,7 +30,8 @@ import { getAccountsCached, invalidateAccounts } from "@/lib/accountsCache";
 import { writeHomePinnedAccounts } from "@/lib/homePinnedAccounts";
 import MoneyText from "@/components/MoneyText";
 import { useTutorialAction, useTutorialReady } from "@/components/TutorialContext";
-import { TRUELAYER_PICKER } from "@/lib/featureFlags";
+import { LEGACY_BANK_AVAILABLE, LEGACY_BANK_MENU_LABEL, isLegacyBankSource } from "@/lib/legacyBankProvider";
+import { useOpenBankingAccess } from "@/lib/openBankingAccess";
 
 /** One row inside the condensed "+ Add" menu (header Variant B). Mirrors the
  *  MenuItem pattern already used by SpendTrends' widget overflow menu. */
@@ -290,12 +291,14 @@ export default function AccountsPage() {
   const [page, setPage] = useState(1);
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
   const [loadingTxns, setLoadingTxns] = useState<string | null>(null);
-  const [connecting, setConnecting] = useState(false);
   const [tab, setTab] = useState<"Banks" | "Investments">(
     searchParams.get("tab") === "Investments" ? "Investments" : "Banks"
   );
   const [showStatementUpload, setShowStatementUpload] = useState(false);
-  const [showBankPicker, setShowBankPicker] = useState<null | "truelayer" | "finexer">(null);
+  // A67: "legacy" is the UAT-only provider (lib/legacyBankProvider.ts); it
+  // is absent from a production build, so it is only ever set behind
+  // LEGACY_BANK_AVAILABLE. Finexer is what every other entry point opens.
+  const [showBankPicker, setShowBankPicker] = useState<null | "finexer" | "legacy">(null);
   // Header Variant B: the four/three "add" actions condense into one primary
   // button that opens this menu — same handlers/routes, just one entry point.
   const [addMenuOpen, setAddMenuOpen] = useState(false);
@@ -333,6 +336,9 @@ export default function AccountsPage() {
   const [uploadingColdStart, setUploadingColdStart] = useState(false);
   const coldStartFileRef = useRef<HTMLInputElement>(null);
   const isSyncing = searchParams.get("syncing") === "1";
+  // A67: does this plan include connecting a bank? Resolved alongside the
+  // page rather than gating it — see lib/openBankingAccess.ts.
+  const canConnectBank = useOpenBankingAccess();
 
   // Offline (manually-tracked) accounts
   const [manualAccounts, setManualAccounts] = useState<ManualAccount[]>([]);
@@ -432,6 +438,22 @@ export default function AccountsPage() {
       setCardTermsStartId(ct === "1" ? null : ct);
       setCardTermsOpen(true);
       params.delete("cardTerms");
+      const rest = params.toString();
+      router.replace(rest ? `/accounts?${rest}` : "/accounts", { scroll: false });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname, searchParams]);
+
+  // G135/A67: ?add=statement opens the statement upload straight away, so
+  // Home's fresh-user card can offer "Upload a statement" as a real
+  // destination rather than dropping the user on a page and leaving them to
+  // find the Add menu. Same live-URL read + strip pattern as ?cardTerms
+  // above.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("add") === "statement") {
+      setShowStatementUpload(true);
+      params.delete("add");
       const rest = params.toString();
       router.replace(rest ? `/accounts?${rest}` : "/accounts", { scroll: false });
     }
@@ -885,16 +907,11 @@ export default function AccountsPage() {
     }
   }
 
-  async function handleConnectBank() {
-    setConnecting(true);
-    try {
-      const { auth_url } = await api.connectLink();
-      window.location.href = auth_url;
-    } catch (err) {
-      setConnecting(false);
-      alert(err instanceof ApiError ? err.message : "Failed to connect. Please try again.");
-    }
-  }
+  // A67: `handleConnectBank` lived here and called the TrueLayer link with
+  // no bank chosen. Nothing referenced it (verified by grep across the whole
+  // frontend) — it was a leftover from before the picker sheet, and its only
+  // effect if anything had ever called it would have been to start a
+  // TrueLayer consent. Removed along with the `connecting` state it owned.
 
   function handleStatementSuccess() {
     invalidateAccounts();
@@ -905,8 +922,51 @@ export default function AccountsPage() {
 
   async function handleReconnect(providerId?: string, account?: Account) {
     try {
-      // Save the connection id and a masked last-4 (never the full account
-      // number or sort code) so we can validate after OAuth return.
+      // A67: Finexer unless this specific account belongs to the legacy
+      // UAT-only provider, in which case repairing it must go back to the
+      // provider that owns the consent (Finexer would create a duplicate
+      // connection instead of reviving the dead one). `isLegacyBankSource`
+      // resolves a MISSING `source` to the legacy provider, because that is
+      // the backend's own convention — `finexer_sync.py` is the only writer
+      // of that field and `card_terms.py:122` reads it as
+      // `a.get("source") or "truelayer"`. See that function's doc comment.
+      // Always false in a production build, so this is "always Finexer"
+      // there. This branch was already correct before A67; what A67 fixed
+      // was the provider-less connect CTAs elsewhere, not this one.
+      const source = (account as (Account & { source?: string }) | undefined)?.source;
+      const legacy = isLegacyBankSource(source);
+      // A67: a Finexer connect link needs a provider. `finexerConnectLink(undefined)`
+      // reaches `create_consent(provider=None)`, which POSTs /consents with
+      // only `customer` and `return_url` — a shape nothing in this codebase
+      // verifies Finexer accepts, and which `test_finexer_link.py` only
+      // proves we can PASS, because it mocks `create_consent` itself. A null
+      // provider is reachable, not hypothetical: `truelayer_sync.py:347/401`
+      // write `acc.get("provider", {}).get("provider_id")` and
+      // `finexer_sync.py:623` writes a nullable `provider_code`, so an
+      // upstream payload that omits it stores None, and `ReconnectProvider`
+      // types `provider_id` optional all the way through. No live account on
+      // UAT is in that state today, but "no live example yet" is not a
+      // guarantee. So rather than document the hole, close it: fall back to
+      // the bank picker and let the user name their bank. The legacy branch
+      // needs no such guard, `/auth/truelayer/link` with no provider is a
+      // supported shape that shows TrueLayer's own chooser.
+      if (!legacy && !providerId) {
+        setShowBankPicker("finexer");
+        return;
+      }
+      const { auth_url } = legacy
+        ? await api.legacyBankConnectLink(providerId)
+        : await api.finexerConnectLink(providerId);
+      // A67: written HERE, immediately before navigating, not at the top of
+      // this function. It used to be written first, which was safe only
+      // while every path through here ended in a redirect. It no longer
+      // does: the provider-less branch above opens a picker instead, and the
+      // link call itself can throw. Either left an orphaned record that the
+      // next loadAccounts() consumes (see the "reconnect_expected" read
+      // above), warning "We couldn't find your <provider> account ••••NNNN
+      // in what was reconnected" about a reconnection that never started.
+      // Saves the connection id and a masked last 4, never the full account
+      // number or sort code.
       if (account?.account_number) {
         localStorage.setItem("reconnect_expected", JSON.stringify({
           provider: account.provider,
@@ -914,9 +974,6 @@ export default function AccountsPage() {
           last4: account.account_number.slice(-4),
         }));
       }
-      const { auth_url } = (account as (Account & { source?: string }) | undefined)?.source === "finexer"
-        ? await api.finexerConnectLink(providerId)
-        : await api.connectLink(providerId);
       window.location.href = auth_url;
     } catch (err) {
       alert(err instanceof ApiError ? err.message : "Failed to start reconnection. Please try again.");
@@ -1461,6 +1518,16 @@ export default function AccountsPage() {
   // Modals shared by both the list and detail views (same component scope).
   const modals = (
     <>
+      {/* A67: lives in `modals`, which is rendered by BOTH the account-detail
+          early return (`if (selectedAccount)`) and the list view below it,
+          rather than only in the list render. The detail view's Reconnect
+          can open this picker (see handleReconnect's provider-less fallback),
+          and from inside that early return a sheet mounted further down the
+          list branch never renders at all: the tap would do nothing, no
+          sheet, no spinner, no error. */}
+      {showBankPicker && (
+        <BankPickerSheet provider={showBankPicker} onClose={() => setShowBankPicker(null)} />
+      )}
       {cardTermsOpen && (
         <CardTermsSheet
           cards={cardTermsCards}
@@ -2505,17 +2572,26 @@ export default function AccountsPage() {
                     role="menu"
                     className="absolute right-0 top-[calc(100%+6px)] z-30 w-56 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-slate-100 dark:border-white/10 py-1 divide-y divide-slate-100 dark:divide-white/5 overflow-hidden"
                   >
-                    <AddMenuItem
-                      tutorialId="tutorial-add-bank"
-                      icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
-                      label="Add Bank"
-                      onClick={() => { setAddMenuOpen(false); setShowBankPicker("finexer"); }}
-                    />
-                    {TRUELAYER_PICKER && (
+                    {/* A67: Add Bank is hidden outright on a plan with no
+                        open banking (Statements), rather than shown and
+                        answered with a 402 when tapped. Hidden, not
+                        disabled: a greyed-out row that never explains itself
+                        is worse than a menu that only offers what this plan
+                        can actually do. Statement, Investment and Offline
+                        below are on every plan. */}
+                    {canConnectBank && (
+                      <AddMenuItem
+                        tutorialId="tutorial-add-bank"
+                        icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
+                        label="Add Bank"
+                        onClick={() => { setAddMenuOpen(false); setShowBankPicker("finexer"); }}
+                      />
+                    )}
+                    {canConnectBank && LEGACY_BANK_AVAILABLE && (
                       <AddMenuItem
                         icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
-                        label="Add Bank via TrueLayer"
-                        onClick={() => { setAddMenuOpen(false); setShowBankPicker("truelayer"); }}
+                        label={LEGACY_BANK_MENU_LABEL}
+                        onClick={() => { setAddMenuOpen(false); setShowBankPicker("legacy"); }}
                       />
                     )}
                     <AddMenuItem
@@ -2740,19 +2816,38 @@ export default function AccountsPage() {
                 </div>
                 <p className="text-slate-800 dark:text-slate-100 font-semibold mb-1">No banks connected</p>
                 <p className="text-slate-400 dark:text-slate-500 text-sm mb-5">
-                  Connect your bank via Open Banking, or upload a PDF/CSV statement.
+                  {canConnectBank
+                    ? "Connect your bank via Open Banking, or upload a PDF/CSV statement."
+                    : "Upload a PDF or CSV statement to get started."}
                 </p>
+                {/* A67. Two changes here. The connect button used to open
+                    the TrueLayer picker (`setShowBankPicker("truelayer")`)
+                    while the Add menu three screens up opened Finexer — the
+                    single worst instance of TrueLayer-by-default, since
+                    this is the first thing a user with no accounts sees.
+                    And Upload Statement now LEADS: it is the action every
+                    plan has, so it is what shows while the plan is still
+                    resolving and the only one on a Statements plan, with
+                    Connect a Bank revealed above it once open banking is
+                    known to be included. Nothing ever appears and then
+                    disappears; see lib/openBankingAccess.ts. */}
                 <div className="flex flex-col gap-2 items-center">
-                  <button
-                    onClick={() => setShowBankPicker("truelayer")}
-                    className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-all text-white font-semibold px-5 py-3 rounded-xl text-sm"
-                  >
-                    <Plus size={16} />
-                    Connect a Bank
-                  </button>
+                  {canConnectBank && (
+                    <button
+                      onClick={() => setShowBankPicker("finexer")}
+                      className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-all text-white font-semibold px-5 py-3 rounded-xl text-sm"
+                    >
+                      <Plus size={16} />
+                      Connect a Bank
+                    </button>
+                  )}
                   <button
                     onClick={() => setShowStatementUpload(true)}
-                    className="inline-flex items-center gap-2 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 hover:bg-slate-50 active:scale-95 transition-all text-slate-700 dark:text-slate-200 font-semibold px-5 py-3 rounded-xl text-sm"
+                    className={`inline-flex items-center gap-2 active:scale-95 transition-all font-semibold px-5 py-3 rounded-xl text-sm ${
+                      canConnectBank
+                        ? "bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 hover:bg-slate-50 text-slate-700 dark:text-slate-200"
+                        : "bg-indigo-600 hover:bg-indigo-700 text-white"
+                    }`}
                   >
                     <Upload size={16} />
                     Upload Statement
@@ -3577,9 +3672,6 @@ export default function AccountsPage() {
         />
       )}
 
-      {showBankPicker && (
-        <BankPickerSheet provider={showBankPicker} onClose={() => setShowBankPicker(null)} />
-      )}
 
       {modals}
     </div>

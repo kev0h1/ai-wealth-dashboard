@@ -1,5 +1,6 @@
 import { Capacitor } from "@capacitor/core";
 import { getToken } from "./auth";
+import { LEGACY_BANK_AVAILABLE, LEGACY_BANK_ID } from "./legacyBankProvider";
 import type { GoLiveItem, GoLiveQuestion, GoLiveOwner } from "./goLive";
 import type {
   Account, Transaction, KPIs, Insight,
@@ -2324,8 +2325,20 @@ export const api = {
     return res.json();
   },
   insights: () => get<Insight[]>("/insights"),
-  truelayerProviders: () => get<{ id: string; name: string; logo: string }[]>("/auth/truelayer/providers"),
-  connectLink: (provider?: string) => get<{ auth_url: string }>(`/auth/truelayer/link${provider ? `?provider=${encodeURIComponent(provider)}` : ""}`),
+  // A67: the legacy (UAT-only) provider's two endpoints. Named and pathed
+  // off LEGACY_BANK_ID rather than spelled out, because an object property
+  // is never tree-shaken — `truelayerProviders:` and `/auth/truelayer/link`
+  // shipped in the production bundle verbatim before this change, whether
+  // or not anything called them. With LEGACY_BANK_ID inlined as "" in a
+  // production build there is no such path to ship. Both refuse outright
+  // when the provider is absent, so a caller that forgets to check
+  // LEGACY_BANK_AVAILABLE fails closed instead of requesting "/auth//link".
+  legacyBankProviders: () => LEGACY_BANK_AVAILABLE
+    ? get<{ id: string; name: string; logo: string }[]>(`/auth/${LEGACY_BANK_ID}/providers`)
+    : Promise.reject(new Error("This bank connection method is not available.")),
+  legacyBankConnectLink: (provider?: string) => LEGACY_BANK_AVAILABLE
+    ? get<{ auth_url: string }>(`/auth/${LEGACY_BANK_ID}/link${provider ? `?provider=${encodeURIComponent(provider)}` : ""}`)
+    : Promise.reject(new Error("This bank connection method is not available.")),
   finexerProviders: () => get<{ id: string; name: string; logo: string; bg_colors?: string[] }[]>("/auth/finexer/providers"),
   finexerConnectLink: (provider?: string) => get<{ auth_url: string; connection_id: string }>(`/auth/finexer/link${provider ? `?provider=${encodeURIComponent(provider)}` : ""}`),
   mockData: () => get<unknown>("/test/mock-data"),

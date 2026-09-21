@@ -3,14 +3,15 @@
 // inlined at build time, so these are plain module-scope constants, not
 // something read at request time.
 
-// TrueLayer picker flag (backlog A16). The Accounts "Add" menu's legacy
-// "Add Bank via TrueLayer" entry only renders when this is "on". "Add Bank"
-// (Finexer) is the one connect path everywhere else; TrueLayer stays
-// reachable on UAT (the VPS frontend service and UAT mobile builds) so it
-// can still be exercised, but is hidden on Vercel prod and the prod mobile
-// build. Set `NEXT_PUBLIC_TRUELAYER_PICKER=on` to show it; leave it unset to
-// hide it.
-export const TRUELAYER_PICKER = process.env.NEXT_PUBLIC_TRUELAYER_PICKER === "on";
+// The legacy bank-picker flag (backlog A16, `NEXT_PUBLIC_TRUELAYER_PICKER`)
+// used to live here as a `TRUELAYER_PICKER` boolean. A67 moved it: it is now
+// read in `next.config.ts`, which inlines the provider's identifier and
+// display name as build-time constants that `lib/legacyBankProvider.ts`
+// derives everything from. The reason is measured, not stylistic — with the
+// flag as a module constant here, a production build still shipped the
+// entire menu entry, its label and the provider's endpoint paths, gated only
+// by a `&&` that never fired. Import from `@/lib/legacyBankProvider`
+// instead; the operator-facing env var name has not changed.
 
 // MCP connector flag (backlog A17). The connector (F2 OAuth authorisation
 // server + F3 /mcp Streamable HTTP endpoint) is built but not yet part of

@@ -27,7 +27,7 @@ Columns:
   Production cell above, not this word, that `env_drift.py` actually
   parses.
 
-Last verified against live infrastructure: 2026-09-08 (`backend/.env`
+Last verified against live infrastructure: 2026-09-08 (TrueLayer rows re-specified 2026-09-21, A67) (`backend/.env`
 names, `railway variables --service ai-wealth-dashboard|worker --kv`,
 `vercel env ls production|preview`, project `kev0h1s-projects/ai-wealth-dashboard`).
 
@@ -54,10 +54,10 @@ names, `railway variables --service ai-wealth-dashboard|worker --kv`,
 | `MCP_ONLY` | `core/config.py`, `app/main.py` (`build_app`'s `mcp_only` param) | absent | absent | optional (F10); not read by either of today's two Railway services (`ai-wealth-dashboard`, `worker`) or UAT — it's meant for a THIRD, not-yet-deployed Railway service on a dedicated `mcp` hostname that would run this same image with only the connector (oauth + mcp routers, plus `/health`) mounted, sharing Mongo/Redis with the main services, to isolate assistant traffic once the first Connect customer or visible load arrives. `MCP_ONLY=true` implies `MCP_CONNECTOR_ENABLED=true` (coerced with a startup warning if that var isn't also set there). See DEPLOY.md's "MCP-only service mode". |
 | `MCP_AUDIT_TTL_DAYS` | `core/config.py` | absent (default 90 is correct) | absent (default 90 is correct) | optional; how long `/mcp` connector audit rows (`mcp_calls` collection) are kept before the TTL index reaps them. Does not affect the monthly call allowance, which is tracked separately in `mcp_call_counters` and never expires. |
 | `SESSION_SECRET` | `core/config.py` | absent (falls back to `backend/.session_secret`, gitignored) | present | optional on UAT (file fallback), present on Railway because there is no persistent filesystem between deploys. |
-| `TRUELAYER_CLIENT_ID` | `core/config.py` | present | present | required; bank connect. |
-| `TRUELAYER_CLIENT_SECRET` | `core/config.py` | present | present | required; bank connect. |
-| `TRUELAYER_WEBHOOK_SECRET` | `core/config.py` | absent (falls back to `backend/.webhook_secret`) | present | optional on UAT (file fallback), present on Railway (no persistent filesystem). |
-| `TRUELAYER_REDIRECT_URI` | `core/config.py` | present | present | required; must match the TrueLayer console redirect URI. |
+| `TRUELAYER_CLIENT_ID` | `core/config.py` | present | **absent, must stay absent** (A67) | required on UAT only; TrueLayer is a UAT-only provider and Finexer is the only one production connects through. Not a flag: `core/config.py`'s `TRUELAYER_ENABLED` is derived from `APP_URL`'s host, so production mounts no TrueLayer routes whatever these variables say (see `app/main.py`'s `_routers`). Still set on both Railway services today; clearing them is Kevin's own step on live infrastructure, and `scripts/release.py check`'s `truelayer_absent` row is RED until he does, which is the intended state, not a broken check. |
+| `TRUELAYER_CLIENT_SECRET` | `core/config.py` | present | **absent, must stay absent** (A67) | see `TRUELAYER_CLIENT_ID` above. |
+| `TRUELAYER_WEBHOOK_SECRET` | `core/config.py` | absent (falls back to `backend/.webhook_secret`) | **absent, must stay absent** (A67) | optional on UAT (file fallback). Production mounts no `POST /webhooks/truelayer/{secret}` route at all (A67 split it onto `webhooks.truelayer_router`), so there is nothing there for this secret to gate. See `TRUELAYER_CLIENT_ID` above. |
+| `TRUELAYER_REDIRECT_URI` | `core/config.py` | present | **absent, must stay absent** (A67) | required on UAT only; must match the TrueLayer console redirect URI. See `TRUELAYER_CLIENT_ID` above. |
 | `VAPID_SUBJECT` | `core/config.py` | absent (default `mailto:admin@wealthdashboard.app`) | absent (same default) | optional; a real contact address is nicer but not required. |
 | `VAPID_PRIVATE_KEY` | `core/config.py` | absent (falls back to `backend/.vapid_private_key`) | present | optional on UAT (file fallback), present on Railway (no persistent filesystem). |
 | `APNS_KEY_ID` | `core/config.py` | present | present (required, currently absent, see "Known drift" below) | required for iOS push in production. |
@@ -174,7 +174,7 @@ forever.
 | `BACKEND_URL` | `next.config.ts` (API rewrite target), `app/auth/*/callback/route.ts` | absent (defaults to `http://localhost:8000`, correct on this VPS) | present | required on Vercel: serverless functions can't reach `localhost`; optional on UAT because the default is already correct. |
 | `NEXT_PUBLIC_API_URL` | `lib/api.ts` | absent (defaults to `/api`, proxied by the rewrite) | absent (same default) | optional; leave unset everywhere. |
 | `NEXT_PUBLIC_BUILD_TAG` | `lib/buildTag.ts`, `next.config.ts` | absent (computed automatically from git SHA) | absent (computed from `VERCEL_GIT_COMMIT_SHA`) | optional; only set to override the computed build tag. |
-| `NEXT_PUBLIC_TRUELAYER_PICKER` | `lib/featureFlags.ts` | present (`on`) | absent | flag; UAT keeps the legacy TrueLayer picker reachable for testing, production hides it (Finexer-only). |
+| `NEXT_PUBLIC_TRUELAYER_PICKER` | `next.config.ts` (A67 moved it here from `lib/featureFlags.ts`) | present (`on`) | **absent, must stay absent** (A67) | flag; UAT keeps the legacy TrueLayer picker reachable for testing, production does not have it at all. Read at config-load time and inlined as `NEXT_PUBLIC_LEGACY_BANK_ID` / `NEXT_PUBLIC_LEGACY_BANK_NAME` (empty strings when off) rather than as a boolean a component branches on, because a boolean did not achieve absence: a production build still shipped the menu entry, its "Add Bank via TrueLayer" label and `/auth/truelayer/*` endpoint paths verbatim, gated only by a `&&`. `frontend/lib/legacyBankProvider.ts` derives everything from those two values. `frontend/scripts/build-mobile.sh` and `codemagic.yaml` set this exactly as before; only the module that reads it changed. Not set on Vercel production, and `scripts/release.py check` now goes RED if it ever is. |
 | `NEXT_PUBLIC_MCP_CONNECTOR` | `lib/featureFlags.ts` | present (`on`) | **absent, must stay absent** | flag; A17 doctrine: the MCP connector UI must stay off in production until sign-off. UAT having it on is expected and fine. Mobile builds (Codemagic, local Android APK) don't read `frontend/.env.local` at all, `frontend/scripts/build-mobile.sh` sets this itself per `MOBILE_TARGET`/`MOBILE_API_BASE` (same UAT-on/prod-off split), and `codemagic.yaml`'s `ios-capacitor` workflow sets it explicitly too, `ios-capacitor-prod` never does (F17, 2026-09-10; before that the flag could never reach a mobile bundle at all). |
 | `NEXT_PUBLIC_MCP_URL` | `lib/featureFlags.ts` | absent today (default `https://api.wealth.auriqltd.co.uk/mcp`); should be set to `https://uat.wealth.auriqltd.co.uk/api/mcp` alongside `NEXT_PUBLIC_MCP_CONNECTOR=on` | absent (same default) | optional (F8); the connect-instructions URL shown in Settings' "Connected assistants" empty state, mirrors the backend's `MCP_PUBLIC_URL`. Same mobile-build story as `NEXT_PUBLIC_MCP_CONNECTOR` above: `build-mobile.sh` and the `ios-capacitor` Codemagic workflow set it to `https://uat.wealth.auriqltd.co.uk/api/mcp` for UAT mobile targets, unset (falls back to the prod default, harmless since the connector is off) for prod (F17). |
 | `NEXT_PUBLIC_WEB_PRODUCT` | `lib/webProduct.ts` | absent | absent today; DEPLOY.md says set `off` on Vercel production once the app-download gate is wanted | optional; not currently set anywhere. |
@@ -331,6 +331,21 @@ A27 backlog note.
 - **`TOKEN_KEY`** (Railway only) and **`MONGO_DB`** (UAT only) are
   orphaned names nothing in `backend/app` reads; see the legacy-scripts
   table above.
+- **`TRUELAYER_CLIENT_ID`, `TRUELAYER_CLIENT_SECRET`,
+  `TRUELAYER_REDIRECT_URI`, `TRUELAYER_WEBHOOK_SECRET`** are still set on
+  both Railway services and are now expected `absent` there (A67,
+  2026-09-21), so `env_drift.py` reports them as `unexpected` rather than
+  `ok`. That is real drift to be worked off, not a manifest mistake:
+  TrueLayer is a UAT-only provider. Clearing them off Railway is Kevin's
+  own step on live infrastructure; nothing in this repo does it, and
+  `scripts/release.py check` shows a RED `truelayer_absent` row until it
+  happens. Production is already safe in the meantime — the backend mounts
+  no TrueLayer routes when `APP_URL` is the production host, and a
+  production frontend build contains no TrueLayer identifier at all — so
+  these are unused credentials sitting on live infrastructure, not a live
+  code path. This entry also resolves the contradiction this file used to
+  carry, where the four backend rows said `present` in production while the
+  `NEXT_PUBLIC_TRUELAYER_PICKER` row said production was Finexer-only.
 - Vercel was previously unverifiable from this VPS because the CLI
   wasn't linked; it now is (`vercel link --yes --project
   ai-wealth-dashboard` from a scratch directory, never `frontend/`), and
