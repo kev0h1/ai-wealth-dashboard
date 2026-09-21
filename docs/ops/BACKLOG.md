@@ -526,7 +526,7 @@ scripts/session.sh list
   `backend/tests/test_session_worktree_resolve.py`, which the backend
   suite — and therefore `finish` itself — runs.
 
-  Three bounds keep "the board is the authority" from becoming its own
+  Several bounds keep "the board is the authority" from becoming its own
   hazard. A recorded branch checked out **outside** `/root/worktrees`
   (the shared tree, a scratch clone) is refused. A recorded branch
   checked out in a worktree that is **not one of `<ID>`'s own** name
@@ -550,7 +550,23 @@ scripts/session.sh list
   candidate at all, so an `rm -rf`'d or half-pruned session cannot make
   an id ambiguous, and a worktree git still lists but whose directory is
   gone is refused with a pointer to `git worktree prune` rather than
-  resolved to a path that does not exist.
+  resolved to a path that does not exist. If `git worktree list
+  --porcelain` itself fails, that too is a refusal, with git's own
+  message on stderr rather than only an exit status.
+
+  Two failure-mode notes worth keeping in mind when editing this code.
+  A refusal must be *returned*, not merely printed: bash suppresses
+  `errexit` inside a command substitution whose assignment status is
+  tested, and both call sites are of that shape, so a bare assignment
+  prints the refusal and then carries on. And the worktree listing is
+  captured whole rather than piped into `awk ... exit`: under
+  `set -o pipefail` that `exit` closes the pipe mid-write, so git takes
+  SIGPIPE and the pipeline returns 141 *on the success path* once the
+  listing passes git's 4096-byte stdout buffer, which on this host is
+  roughly 25 worktrees away and grows every time a stale one is left
+  behind. A typo'd id is told it is not on the board, not that the
+  board is unreadable; the two are distinguished by what `backlog.py`
+  said, since both exit 1.
 
 **Integrate** (`scripts/integrate.py`, run with `backend/.venv/bin/python`
 from the shared tree):

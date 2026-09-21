@@ -44,21 +44,29 @@ unrecorded.
   print the worktree and branch they resolved to before doing anything,
   and refuse, listing what they found, rather than guessing: when no
   worktree is on the recorded branch, when that branch is checked out
-  somewhere that is not one of `<ID>`'s own worktrees, or when `<ID>`
-  records no branch and more than one worktree carries its id. If you hit
-  one of those refusals, read it: it names the fix. `abandon <ID>
-  --worktree <path>` names one explicitly. It always removes that
-  worktree; whether it also resets `<ID>` on the board depends on what
-  you named. If the worktree is the session `<ID>` records, the item is
-  reset as a normal abandon would. If it is a stale duplicate, another
-  branch, or an item that records no branch at all, the item is left
-  untouched and the command prints the deliberate `backlog.py todo
-  <ID>` to run if you did want it reset. The full model, and the 2026-09-18 incident that caused it
-  (a stale worktree resolved first, so `finish` pushed a branch that had
-  already been rejected and marked the item `review` against it), is in
+  somewhere that is not one of `<ID>`'s own worktrees, when `<ID>`
+  records no branch and more than one worktree carries its id, when the
+  board cannot be read at all, or when git cannot list the shared tree's
+  worktrees. If you hit one of those refusals, read it: it names the
+  fix, and a refusal is always a stop, never a warning it then works
+  around.
+- `abandon <ID> --worktree <path>` names a worktree explicitly, which is
+  the way past a refused resolution. It refuses a path that is not under
+  `/root/worktrees` (normalised, so `..` does not get you out), is not a
+  directory, or is not a git worktree. Otherwise it removes that
+  worktree, and whether it ALSO resets `<ID>` on the board depends on
+  what you named. Only if the worktree is on the branch `<ID>` records
+  is the item reset the way a plain `abandon` would. If it is a stale
+  duplicate, another branch, an item that records no branch, or the
+  board could not be read, the item is left untouched and the command
+  prints the deliberate `backlog.py todo <ID>` to run if you did want it
+  reset.
+- The full model, and the 2026-09-18 incident behind it (a stale
+  worktree resolved first, so `finish` pushed a branch that had already
+  been rejected and marked the item `review` against it), is in
   `docs/ops/BACKLOG.md` under "Resolving `<ID>` to a worktree", which is
-  also where the rest of the board's state machine and the `add` / `review`
-  / `reject` / `uat` / `approve` commands are documented.
+  also where the rest of the board's state machine and the `add` /
+  `review` / `reject` / `uat` / `approve` commands are documented.
 - `npm run build` (Turbopack) in a worktree now works unmodified:
   `frontend/next.config.ts` widens `turbopack.root` to `/root` whenever it
   detects `frontend/node_modules` is a symlink pointing outside the

@@ -194,23 +194,43 @@ recorded_branch_for_id() {
   # DeprecationWarnings, and PYTHONWARNINGS or a future Python makes
   # that live). Merging them concatenated the noise ahead of the JSON
   # and broke the parse of a perfectly good read.
-  local id="$1" data branch errfile status=0
-  errfile="$(mktemp "${TMPDIR:-/tmp}/session-board-read.XXXXXX")"
+  local id="$1" data branch errfile status=0 rc=0
+  errfile="$(mktemp "${TMPDIR:-/tmp}/session-board-read.XXXXXX")" || return 1
+  # Removed on every path below, and by this trap if the session is
+  # interrupted mid-read, which otherwise leaks a 0-byte file. The trap
+  # is cleared again at the single exit point, so it never outlives this
+  # function; nothing else in this script installs one.
+  trap 'rm -f "$errfile"' EXIT INT TERM
+
   data="$(cd "$SHARED_TREE" && "$VENV_PY" "$BACKLOG_PY" show "$id" 2>"$errfile")" || status=$?
   if [[ "$status" -ne 0 ]]; then
-    err "could not read item $id from the board ($BACKLOG_PY show $id exited $status):"
-    while IFS= read -r line; do err "  $line"; done < "$errfile"
-    rm -f "$errfile"
-    err "refusing to continue: with the board unreadable the recorded branch is unknown, and falling back to a worktree-name match is the pre-H85 bug (item H85)."
-    return 1
-  fi
-  rm -f "$errfile"
-  if ! branch="$(jq -r '.branch // empty' <<<"$data" 2>/dev/null)"; then
+    # Both failures exit 1, so the status cannot tell them apart: the
+    # board being unreadable and the id simply not existing are
+    # distinguished by what backlog.py said. A typo is the most common
+    # way anyone reaches this path, and telling them the board is
+    # broken, citing an incident about stale worktrees, sends them
+    # somewhere useless.
+    if grep -q "is not a known backlog item" "$errfile"; then
+      err "item $id is not on the board:"
+      while IFS= read -r line; do err "  $line"; done < "$errfile"
+      err "check the id (scripts/backlog.py list), or open it first with 'scripts/session.sh start <ID> --title \"...\"'."
+    else
+      err "could not read the board ($BACKLOG_PY show $id exited $status):"
+      while IFS= read -r line; do err "  $line"; done < "$errfile"
+      err "refusing to continue: with the board unreadable the recorded branch is unknown, and falling back to a worktree-name match is the pre-H85 bug (item H85)."
+    fi
+    rc=1
+  elif ! branch="$(jq -r '.branch // empty' <<<"$data" 2>/dev/null)"; then
     err "could not parse the board's JSON for item $id:"
     printf '%s\n' "$data" >&2
-    return 1
+    rc=1
+  else
+    printf '%s' "$branch"
   fi
-  printf '%s' "$branch"
+
+  trap - EXIT INT TERM
+  rm -f "$errfile"
+  return "$rc"
 }
 
 # ── Worktree resolution (item H85) ─────────────────────────────────────
@@ -315,12 +335,32 @@ worktree_dir_for_branch() {
   # impossible rather than unlikely: git will not let two worktrees have
   # the same branch checked out, so when the board records a branch there
   # is exactly one possible answer and no guessing to do.
-  local branch="$1"
-  git -C "$SHARED_TREE" worktree list --porcelain 2>/dev/null \
-    | awk -v want="refs/heads/$branch" '
-        /^worktree /   { dir = substr($0, 10) }
-        $0 == "branch " want { print dir; exit }
-      '
+  #
+  # Deliberately NOT `git ... | awk '...{print dir; exit}'`. Under
+  # `set -o pipefail`, awk's `exit` closes the pipe the instant it
+  # matches, so if git has not finished writing it takes SIGPIPE and the
+  # pipeline returns 141 on the SUCCESS path with the right answer
+  # already printed. That was harmless only while the status was thrown
+  # away; the moment a caller checked it, it became an intermittent hard
+  # refusal of finish and abandon for every id, above git's 4096-byte
+  # stdout buffer. Since stale worktrees accumulating is the premise of
+  # this whole item, the listing only ever grows. Two independent
+  # changes: git's output is captured whole (no pipeline at all, so
+  # nothing can SIGPIPE) and awk reads to the end instead of exiting
+  # early, which costs nothing because there is at most one match.
+  #
+  # git's stderr is left on this script's own stderr rather than sent to
+  # /dev/null, so a genuine failure can say what went wrong instead of
+  # only "exited N".
+  local branch="$1" listing status=0
+  listing="$(git -C "$SHARED_TREE" worktree list --porcelain)" || status=$?
+  if [[ "$status" -ne 0 ]]; then
+    return "$status"
+  fi
+  awk -v want="refs/heads/$branch" '
+    /^worktree /                     { dir = substr($0, 10) }
+    $0 == "branch " want && !seen    { print dir; seen = 1 }
+  ' <<<"$listing"
 }
 
 describe_candidates() {
@@ -360,7 +400,8 @@ resolve_worktree_for_id() {
     local dir git_status=0
     dir="$(worktree_dir_for_branch "$recorded_branch")" || git_status=$?
     if [[ "$git_status" -ne 0 ]]; then
-      err "could not list the shared tree's worktrees (git -C $SHARED_TREE worktree list exited $git_status), so the branch the board records for $id cannot be located."
+      err "could not list the shared tree's worktrees (git -C $SHARED_TREE worktree list --porcelain exited $git_status, its own message is above), so the worktree holding branch $recorded_branch cannot be located."
+      err "refusing to $verb: without that listing the only thing left to go on is the worktree name, which is the pre-H85 bug (item H85)."
       return 1
     fi
     if [[ -n "$dir" ]]; then

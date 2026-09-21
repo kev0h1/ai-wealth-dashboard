@@ -202,15 +202,22 @@ BACKLOG_PY="$_FAKE_BACKLOG_PY"
 VENV_PY="$_FAKE_VENV_PY"
 WORKTREES_ROOT="$_FAKE_WORKTREES"
 
+# Deliberately the SAME shape cmd_finish and cmd_abandon use, rather
+# than a bare call. Bash suppresses errexit inside a command
+# substitution whose enclosing assignment's status is tested, so a bare
+# call runs these tests with errexit ACTIVE, the opposite of
+# production, and that is precisely the blind spot that hid a refusal
+# which printed and then carried on.
 if declare -F resolve_session_worktree >/dev/null; then
-  resolve_session_worktree "$@"
+  resolved="$(resolve_session_worktree "$@")" || exit 1
 else
   # Pre-H85 session.sh: the old resolver took an id only, printed the
   # first `find` hit, and never consulted the board. Kept so this test
   # can be pointed at an old copy via SESSION_SH_UNDER_TEST and show the
   # original failure instead of a missing-function error.
-  find_worktree_for_id "$1"
+  resolved="$(find_worktree_for_id "$1")" || exit 1
 fi
+printf '%s\n' "$resolved"
 """
 
 
@@ -231,7 +238,15 @@ class Resolution:
         return self.stdout + self.stderr
 
 
-def _resolve(tmp_path: Path, board_root: Path, shared_tree: Path, worktrees_root: Path, item_id: str, verb: str = "finish") -> Resolution:
+def _resolve(
+    tmp_path: Path,
+    board_root: Path,
+    shared_tree: Path,
+    worktrees_root: Path,
+    item_id: str,
+    verb: str = "finish",
+    backlog_py: str | None = None,
+) -> Resolution:
     driver = tmp_path / "resolve_driver.sh"
     driver.write_text(DRIVER, encoding="utf-8")
 
@@ -245,7 +260,7 @@ def _resolve(tmp_path: Path, board_root: Path, shared_tree: Path, worktrees_root
             str(driver),
             str(SESSION_SH),
             str(shared_tree),
-            str(BACKLOG_PY),
+            backlog_py or str(BACKLOG_PY),
             str(VENV_PY),
             str(worktrees_root),
             item_id,
@@ -714,37 +729,27 @@ def test_a_prunable_worktree_is_refused_not_resolved_to_a_missing_path(tmp_path,
 def test_an_unreadable_board_is_fatal_rather_than_silently_name_matching(tmp_path, fixture_env):
     """If `backlog.py show` fails at runtime, treating that as "no branch
     recorded" silently downgrades the board-is-authority rule back to a
-    worktree-name match, which is the pre-H85 bug."""
+    worktree-name match, which is the pre-H85 bug.
+
+    Driven through _resolve, i.e. the same `resolved="$(...)" || exit 1`
+    shape production uses. An earlier version of this test called
+    resolve_session_worktree as a driver's final bare command, where
+    errexit does fire, and so passed against code that printed the
+    refusal and then carried on."""
     board_root, shared_tree, worktrees_root = fixture_env
     _add_worktree(shared_tree, worktrees_root, "feature-G127-upcoming-round3", "feature-G127-upcoming-round3")
 
-    driver = tmp_path / "cmd_driver.sh"
-    driver.write_text(CMD_DRIVER, encoding="utf-8")
-    env = dict(os.environ)
-    env["BACKLOG_ROOT"] = str(board_root)
-    env.pop("BACKLOG_AGENT", None)
-    result = subprocess.run(
-        [
-            "bash",
-            str(driver),
-            str(SESSION_SH),
-            str(shared_tree),
-            str(tmp_path / "no-such-backlog.py"),
-            str(VENV_PY),
-            str(worktrees_root),
-            "resolve_session_worktree",
-            "G127",
-            "finish",
-        ],
-        cwd=tmp_path,
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=60,
+    res = _resolve(
+        tmp_path,
+        board_root,
+        shared_tree,
+        worktrees_root,
+        "G127",
+        backlog_py=str(tmp_path / "no-such-backlog.py"),
     )
-    assert result.returncode != 0, result.stdout + result.stderr
-    assert "board" in result.stderr.lower(), result.stdout + result.stderr
-    assert str(worktrees_root / "feature-G127-upcoming-round3") not in result.stdout
+    assert res.returncode != 0, res.output
+    assert "could not read the board" in res.stderr, res.output
+    assert res.worktree != str(worktrees_root / "feature-G127-upcoming-round3"), res.output
 
 
 # ---------------------------------------------------------------------
@@ -1002,3 +1007,93 @@ def test_no_stray_realpath_error_on_the_foreign_branch_warning_path(tmp_path):
     assert "realpath: ''" not in res.stderr, res.stderr
     assert "No such file or directory" not in res.stderr, res.stderr
     assert "Check it is really yours" in res.stderr
+
+
+# ---------------------------------------------------------------------
+# worktree_dir_for_branch: the git call itself
+# ---------------------------------------------------------------------
+
+
+def _porcelain_size(shared_tree: Path) -> int:
+    return len(_git("worktree", "list", "--porcelain", cwd=shared_tree).encode())
+
+
+def test_resolution_survives_a_large_worktree_listing(tmp_path, fixture_env):
+    """`git worktree list --porcelain | awk '...{print dir; exit}'` under
+    set -o pipefail: awk's `exit` closes the pipe the moment it matches,
+    so if git has not finished writing it takes SIGPIPE and the pipeline
+    returns 141 ON THE SUCCESS PATH, with the right directory already
+    printed. Harmless while the status was discarded; once the status is
+    checked it became a hard, intermittent refusal of finish and abandon
+    for every id, above git's 4096-byte stdout buffer.
+
+    Stale worktrees accumulating is the premise of this whole item, so
+    the listing only grows. Resolution is run repeatedly because the old
+    failure is probabilistic; the fix makes it deterministic."""
+    board_root, shared_tree, worktrees_root = fixture_env
+    _add_worktree(shared_tree, worktrees_root, "feature-G127-round3-fix", "feature-G127-round3-fix")
+    # Long names so the listing clears git's stdout buffer with a
+    # realistic number of worktrees rather than hundreds.
+    filler = "padding-to-make-this-worktree-name-long-enough-to-fill-gits-stdout-buffer"
+    for i in range(30):
+        _add_worktree(shared_tree, worktrees_root, f"feature-Z{i}-{filler}", f"feature-Z{i}-{filler}")
+
+    size = _porcelain_size(shared_tree)
+    assert size > 4096, f"fixture does not clear git's stdout buffer ({size} bytes); the premise of this test is gone"
+
+    for attempt in range(5):
+        res = _resolve(tmp_path, board_root, shared_tree, worktrees_root, "G127")
+        assert res.returncode == 0, f"attempt {attempt} of 5 ({size} bytes of porcelain): {res.output}"
+        assert res.worktree == str(worktrees_root / "feature-G127-round3-fix")
+
+
+def test_a_genuine_git_failure_is_refused_and_shows_gits_own_message(tmp_path, fixture_env):
+    """The other half: a real failure of `git worktree list` must refuse,
+    and must not be reported only as an exit status. Deleting the whole
+    git_status block used to leave the suite green, so it could not tell
+    the refusal from its absence."""
+    board_root, _shared_tree, worktrees_root = fixture_env
+    worktrees_root.mkdir(exist_ok=True)
+    not_a_repo = tmp_path / "not-a-repo"
+    not_a_repo.mkdir()
+
+    res = _resolve(tmp_path, board_root, not_a_repo, worktrees_root, "G127")
+    assert res.returncode != 0, res.output
+    # git's own message, which 2>/dev/null used to swallow.
+    assert "not a git repository" in res.stderr, res.output
+    # and the block's own diagnosis. Without the block a git failure
+    # still refuses, by falling through to "no worktree has that branch
+    # checked out", so only this wording tells the two apart.
+    assert "cannot be located" in res.stderr, res.output
+
+
+# ---------------------------------------------------------------------
+# "no such item" is not "the board is unreadable"
+# ---------------------------------------------------------------------
+
+
+def test_an_unknown_id_says_so_rather_than_blaming_the_board(tmp_path, fixture_env):
+    """The most common way a human reaches this path is a typo, and it
+    told them the board was unreadable and cited the pre-H85 bug. The
+    board is fine; the item does not exist."""
+    board_root, shared_tree, worktrees_root = fixture_env
+    worktrees_root.mkdir(exist_ok=True)
+
+    res = _resolve(tmp_path, board_root, shared_tree, worktrees_root, "G999")
+    assert res.returncode != 0, res.output
+    assert "not on the board" in res.stderr, res.output
+    assert "unreadable" not in res.stderr, res.output
+
+
+def test_a_genuinely_unreadable_board_still_blames_the_board(tmp_path, fixture_env):
+    """The realistic shape: docs/compliance/... missing or renamed makes
+    backlog.py show fail for EVERY id, which is what makes a silent
+    fallback to name matching dangerous rather than merely untidy."""
+    board_root, shared_tree, worktrees_root = fixture_env
+    worktrees_root.mkdir(exist_ok=True)
+    (board_root / "docs" / "compliance" / "finexer-agent-controls-2026-09.md").unlink()
+
+    res = _resolve(tmp_path, board_root, shared_tree, worktrees_root, "G127")
+    assert res.returncode != 0, res.output
+    assert "could not read the board" in res.stderr, res.output
+    assert "FileNotFoundError" in res.stderr, res.output
