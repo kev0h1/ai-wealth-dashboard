@@ -241,7 +241,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
 - [x] **A102. Record FRN 1062474 in the Finexer questionnaire (Q6, Q14, prerequisites) now Kevin has confirmed the agent registration; keep the published registered-agent wording** [owner: claude] [unblocks: Q6] (done 2026-09-21, f8c3461263dd028e650f93f9e7c9178b3dcce14e)
 - [x] **A103. Finexer questionnaire Q8: disclose the Planning ladder's generic pension and ISA rungs and trim the block back under 2000 characters** [owner: claude] [unblocks: Q8] (done 2026-09-22, b46c20465c8d8a036a6ab8e9c186bf1493d5eb49)
 - [x] **A104. Finexer questionnaire Q11: Kevin's approved rewrite of the internal testing paragraph with remediation of the four High findings scheduled before 1 October** [owner: claude] [unblocks: Q11] (done 2026-09-22, 27e0b0f2bf2376235ae9259477db92f96a23c14c)
-- [ ] **A105. Finexer questionnaire Q9: Kevin confirmed the onboarding data-sharing list unchanged; correct first name to name and state the connector privacy section already exists** [owner: claude] [unblocks: Q9]
+- [ ] **A105. Finexer questionnaire Q9: Kevin confirmed the onboarding data-sharing list unchanged; correct first name to name and state the connector privacy section already exists** [owner: claude] [state: in-progress] [branch: feature-A105-q9-confirm] [unblocks: Q9]
 
 ## B. Penny cost, tiers and billing
 
