@@ -2,7 +2,7 @@
 
 **Owner:** Kevin Maingi, Founder / Information Security Manager
 **Applies to:** the Auriq Wealth product (web app, iOS/Android apps) and all supporting infrastructure operated by AURIQ LTD.
-**Status:** Version 1.11, last reviewed 2026-09-21. Reviewed at least annually and after any material incident or architecture change.
+**Status:** Version 1.12, last reviewed 2026-09-21. Reviewed at least annually and after any material incident or architecture change.
 
 This document is the company's primary security policy. It exists to satisfy our obligations as a registered agent of Finexer LTD for Account Information Services (AIS) and under UK GDPR / the Data Protection Act 2018. It covers our security controls, our incident-response process, and our data-breach procedures.
 
@@ -89,7 +89,7 @@ answer itself (not edited by this pass) and
 `docs/security/oauth-threat-model.md` for the pentest-readiness evidence
 Q11 can also cite.
 
-## 3b. Internal security testing, 2026-09-19/20 (A45)
+## 3b. Internal security testing, 2026-09 (A45)
 
 **What this was.** AURIQ LTD performed an internal security assessment of
 Sorted, executed by this project's own AI agents (Claude and Codex working
@@ -103,36 +103,36 @@ CREST-accredited penetration test) remains open and is booked ahead of
 public launch; this round is its internal precursor, not a substitute for
 it.
 
-**What was executed.** Seven work packages ran on 2026-09-19 and
-2026-09-20, each recording its own sanitised evidence under
-`docs/security/pentest-runs/<run-id>/`:
+**Coverage: 10 of 12 work packages executed by internal agents.** Ten work
+packages ran between 2026-09-19 and 2026-09-21, each recording its own
+sanitised evidence under `docs/security/pentest-runs/<run-id>/`:
 
 | Work package | Scope | Board item |
 |---|---|---|
 | WP1 | Web shell and `/design` preview routes | A48 |
+| WP2 | API inventory, credential boundaries, rate limits, error handling, CORS | A49 |
 | WP3 | API tenant and object authorisation, including account deletion | A50 |
 | WP4 | API input handling, uploads, business-logic ordering | A51 |
 | WP5 | OAuth 2.1 authorisation server | A52 |
+| WP6 | MCP connector | A53 |
 | WP7a | Android app shell, static analysis only | A54 |
 | WP9 | Finexer and TrueLayer boundary | A57 |
+| WP10 | Stripe fail-closed boundary | A58 |
 | WP11 | OpenRouter and Penny trust boundary | A59 |
 
+The remaining two work packages, both dynamic device testing, have not run:
+WP7b (Android dynamic testing on a device, A55) and WP8 (iOS, A56, beyond
+the static repository-level review already done). Both are deferred to the
+external A7 engagement or to a future device-equipped session; coverage is
+not complete, and neither surface should be read as cleared by this round.
+
 WP0 (A47) built the evidence and rules-of-engagement harness ahead of these
-seven. Findings raised during execution were triaged against a
+ten. Findings raised during execution were triaged against a
 single-reviewer (same-model) pass; WP12, the cross-model review where a
 Codex session checks every Claude-run package and vice versa (board item
 A60), has not yet started, so no finding below has had its severity or
 validity checked by the other model yet. Final severities remain the ISM's
 to confirm per section 3a.
-
-**Not yet executed**, and not reflected in the findings below because no
-test has been run: WP2 (general API rate-limiting, CORS and error-handling
-hardening, A49), WP6 (the MCP connector, A53), WP7b (Android dynamic
-testing on a device, A55) and WP10 (the Stripe fail-closed boundary, A58).
-WP8 (iOS, A56) has had only a static, repository-level review; dynamic iOS
-testing has not run. All four sit open on the internal backlog with no
-recorded test run; none of the four surfaces they cover should be read as
-cleared by this round.
 
 **Findings.** Every finding below is currently open; none has been
 remediated (Kevin's deliberate choice was to report first and fix after,
@@ -140,15 +140,18 @@ see each item's own board note). Severities use section 3's bands and are
 provisional pending the ISM's sign-off and the still-owed cross-model
 review above.
 
-*High (P2): three findings, one root cause. The account-deletion path
-does not disconnect a customer's bank connection before erasing local
-data.*
+*High (P2): four findings, no Criticals.*
 
 | Item | Finding | Status |
 |---|---|---|
 | A82 | Account deletion never revokes the Finexer consent first, orphaning it at the provider | Open |
 | A83 | `GET /connections` does not list live Finexer connections, hiding the very connection A82's disconnect-first step needs | Open |
 | A84 | A deleted account's session token is not invalidated and remains usable for up to 7 days; it has been shown able to write persistent data that reattaches if the account is later recreated with the same email | Open |
+| A91 | The MCP connector's output masking is structural only (drops fields by shape) and never sanitises the content it keeps, so an instruction-shaped string in a merchant name, recurring-series description or insight trigger reaches the connecting external assistant unmodified: a live prompt-injection surface with no content-level mitigation. The connector is off in production by design (A17), so this exposure is UAT-only today; it must be fixed before the connector is enabled in production (board item F2), it is not actively exploitable in production now | Open |
+
+A82, A83 and A84 are one deletion-lifecycle root cause: account deletion
+does not disconnect a customer's bank connection before erasing local
+data. A91 is unrelated to that workstream.
 
 *Medium (P3)*
 
@@ -159,6 +162,8 @@ data.*
 | A79 | Bank narrative text is sent to OpenRouter for categorisation and Penny read tools, unredacted (pre-documented design concern) | Open |
 | A88 | Finexer consent callback accepts a missing `state` parameter (defence-in-depth gap only; no cross-account path exists because binding is fixed at session-gated consent creation) | Open |
 | A89 | Webhook path-secret comparison is not constant-time (no practical timing exploit identified; the secret also functions as a long random URL segment) | Open |
+| A92 | Production's proxy chain does not strip a caller-supplied `X-Real-IP`/`X-Forwarded-For` header, so any IP-keyed rate limit on production can be bypassed by rotating the header. Triaged to Medium, down from the board's own initially proposed High: there is no password login to brute-force behind this, and per-user (not IP-keyed) limits on data routes are untouched | Open |
+| A95 | `GET /logo/{domain}` carries no rate limit at all, not even the general IP catch-all, so an unlimited caller can drive cost through the server-side image proxy | Open |
 
 *Low (P4)*
 
@@ -170,13 +175,25 @@ data.*
 | A81 | The per-user LLM allowance check fails open, not closed, on an internal lookup error (documented, deliberate trade-off) | Open |
 | A85 | `PATCH /preferences` has no optimistic-concurrency check and accepts an unadvertised field (mass assignment) | Open |
 | A86 | The commitment state machine allows out-of-order transitions and has no create-time idempotency check | Open |
+| A90 | The MCP connector's `initialize` handler never validates or negotiates the client's requested protocol version | Open |
+| A93 | An unhandled NUL byte in a search query parameter crashes one endpoint with a 500 (no data leaked) | Open |
+
+*Informational*
+
+| Item | Finding | Status |
+|---|---|---|
+| A94 | A dead, unreachable authorisation branch in `current_user` for an out-of-scope bot credential; access is still correctly denied elsewhere, so this is not itself a weakness | Open |
 
 A75 (a frontend-only distribution flag with no backend equivalent) is a
 product-intent question for Kevin, not a severity-rated security finding.
+A92's board priority tag is p2, which is a work-scheduling priority, not
+its security severity; its severity, per the triage above, is Medium.
 
-**Headline.** No Critical findings. Three High findings, all one
-deletion-lifecycle workstream (A82/A83/A84), none yet remediated.
-Everything else found is Medium or Low. All findings above remain open.
+**Headline.** No Critical findings. Four High findings outstanding, none
+remediated: three deletion-lifecycle (A82/A83/A84) plus A91, the MCP
+prompt-injection gap, which is UAT-only until the connector is enabled in
+production. Everything else found is Medium, Low or Informational. All
+findings above remain open.
 
 **Scope caveats, stated plainly.** This round has real, acknowledged gaps
 that a reader of the findings list above should not have to infer:
@@ -187,18 +204,15 @@ that a reader of the findings list above should not have to infer:
   payload retention) and the accepted-delivery live halves of `FIN-01` and
   `TL-02`, because this testing session has no production database read
   path and no provider-approved sandbox consent exists.
-- iOS dynamic testing (WP8) has not run. The methodology's default is to
-  defer it to the external A7 engagement; Kevin has since confirmed he has
-  a TestFlight build and a device and could run it himself instead, but
-  that decision and the run itself remain open.
+- WP7b (Android dynamic testing) and WP8 (iOS dynamic testing) have not
+  run; both are deferred to the external A7 engagement or a future
+  device-equipped session (Kevin has a TestFlight build and a device for
+  iOS, but has not yet run or assigned the dynamic cases). Coverage is 10
+  of 12 work packages, not complete.
 - A temporary `OPEN_SIGNUP` window on production (opened and closed on
   2026-09-19, board item A63, to create test identities) was not audited
   for unexpected registrations during the roughly 36-minute window it was
   open.
-- WP2, WP6, WP7b and WP10 (see "Not yet executed" above) have not been
-  executed at all; their surfaces (general API hardening, the MCP
-  connector, Android dynamic behaviour, and the Stripe billing boundary)
-  carry no internal test coverage from this round.
 
 This section is the evidence Q11 ("Security and incident controls,
 testing") cites for the internal testing programme; see
@@ -301,3 +315,4 @@ This policy is reviewed at least annually, and after any material incident, chan
 | 1.9 | 2026-09-10 | Fresh dependency audit ahead of the production deploy (release-20260910-1137); recorded below. |
 | 1.10 | 2026-09-14 | A26 pentest-readiness pass: added the remediation SLA (§3a); dependency/container scanning moved from a one-off manual audit to CI (`.github/workflows/security-scan.yml`); added public `security.txt` (RFC 9116); OAuth 2.1 authorisation server threat-modelled for the first time (`docs/security/oauth-threat-model.md`) and a concurrent-redemption race in the authorization-code and refresh-token exchange fixed; added webhook replay/forgery tests for TrueLayer (previously untested) alongside the existing Finexer/Stripe coverage; confirmed bank tokens are Fernet-encrypted at rest for TrueLayer connections (read-only check against live UAT data) and found Yapily's dormant consent-token storage is not (flagged, not fixed — see `docs/security/pentest-scope-2026-09.md`); added a CI guard against `/design` preview routes reaching real data, and found six existing preview files already do (flagged, not fixed, same document). |
 | 1.11 | 2026-09-21 | A45 draft: added §3b recording the internal security testing round of 2026-09-19/20 (seven work packages, findings by severity, all currently open) and its scope caveats, folded into Q11 as a proposed answer pending Kevin's sign-off. |
+| 1.12 | 2026-09-21 | A45 draft, updated: three more work packages executed (WP2/A49, WP6/A53, WP10/A58), coverage now 10 of 12 (WP7b Android dynamic and WP8 iOS dynamic remain deferred); six new findings folded in (A90, A91, A92, A93, A94, A95); headline now four High findings (the deletion-lifecycle three plus A91, an MCP prompt-injection gap, UAT-only until the connector is enabled in production); Q11 draft updated to match. |
