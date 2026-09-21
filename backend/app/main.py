@@ -12,7 +12,7 @@ import os
 from app.core.config import (
     APP_URL, API_PUBLIC_URL, BOT_CREDENTIAL_UNKNOWN_TTL_DAYS, MCP_AUDIT_TTL_DAYS,
     MCP_CONNECTOR_ENABLED, MCP_ONLY, MCP_ORIGIN,
-    SAFE_TO_SPEND_HISTORY_TTL_DAYS, TRUELAYER_CLIENT_ID,
+    SAFE_TO_SPEND_HISTORY_TTL_DAYS, TRUELAYER_CLIENT_ID, TRUELAYER_ENABLED,
 )
 from app.core.auth import auth_middleware
 from app.core.security_headers import security_headers_middleware
@@ -59,7 +59,7 @@ _slow_request_logger = logging.getLogger("app.perf")
 _SLOW_REQUEST_MS = 400
 
 
-def _routers(mcp_connector_enabled: bool) -> list:
+def _routers(mcp_connector_enabled: bool, truelayer_enabled: bool = TRUELAYER_ENABLED) -> list:
     """The app's full router table. A17: `mcp_router` (F3, the /mcp
     Streamable HTTP connector) and `oauth_router` (F2, its OAuth 2.1
     authorisation server) are only included when the connector is turned on,
@@ -67,9 +67,21 @@ def _routers(mcp_connector_enabled: bool) -> list:
     entries, not merely unauthenticated) per the Finexer compliance answers
     ("planned", not live). A small factory rather than an inline literal so
     tests (tests/test_mcp_connector_flag.py) can build a throwaway app with
-    either value of the flag without reloading this module."""
+    either value of the flag without reloading this module.
+
+    A67 applies the same doctrine to TrueLayer, which is now a UAT-only
+    provider: `truelayer.router` (the /auth/truelayer/providers|link|
+    callback endpoints) and `webhooks.truelayer_router`
+    (POST /webhooks/truelayer/{secret}) are only included outside
+    production. Finexer's own webhook lives on `webhooks.router`, which is
+    mounted unconditionally, so turning TrueLayer off costs production
+    nothing. `truelayer_enabled` defaults to the derived
+    `app.core.config.TRUELAYER_ENABLED` but is a parameter for the same
+    reason `mcp_connector_enabled` is: tests must be able to force it
+    rather than inherit whatever APP_URL the process happens to have (see
+    tests/test_truelayer_uat_only.py)."""
     routers = [
-        auth.router, truelayer.router, yapily.router, mono.router,
+        auth.router, yapily.router, mono.router,
         accounts_router.router, transactions_router.router, preferences.router,
         push.router, categories.router, analytics.router,
         chat.router, statements.router, investments.router,
@@ -103,10 +115,16 @@ def _routers(mcp_connector_enabled: bool) -> list:
     ]
     if mcp_connector_enabled:
         routers += [mcp_router.router, oauth_router.router]
+    if truelayer_enabled:
+        routers += [truelayer.router, webhooks.truelayer_router]
     return routers
 
 
-def build_app(mcp_connector_enabled: bool, mcp_only: bool = False) -> FastAPI:
+def build_app(
+    mcp_connector_enabled: bool,
+    mcp_only: bool = False,
+    truelayer_enabled: bool = TRUELAYER_ENABLED,
+) -> FastAPI:
     """Construct a fresh FastAPI app with the full middleware/router stack,
     parameterized by the MCP connector flag (A17). The module-level `app`
     below is the one production instance, built from
@@ -223,7 +241,11 @@ def build_app(mcp_connector_enabled: bool, mcp_only: bool = False) -> FastAPI:
     # can-i, every other app-facing route) never gets built into this
     # instance at all, matching A17's "entirely absent, not merely
     # unauthenticated" doctrine one level further.
-    routers = [mcp_router.router, oauth_router.router] if mcp_only else _routers(mcp_connector_enabled)
+    routers = (
+        [mcp_router.router, oauth_router.router]
+        if mcp_only
+        else _routers(mcp_connector_enabled, truelayer_enabled)
+    )
     for router in routers:
         built.include_router(router)
 
@@ -234,7 +256,12 @@ def build_app(mcp_connector_enabled: bool, mcp_only: bool = False) -> FastAPI:
         from app.core.config import FINEXER_API_KEY
         return {
             "status": "ok",
-            "truelayer_configured": bool(TRUELAYER_CLIENT_ID),
+            # A67: "is TrueLayer usable on this deployment", not just "are
+            # its credentials present". Production mounts no TrueLayer
+            # routes at all (see `_routers`), so reporting `true` there
+            # purely because the credentials are still sitting on Railway
+            # would be a health check that contradicts the route table.
+            "truelayer_configured": truelayer_enabled and bool(TRUELAYER_CLIENT_ID),
             "finexer_configured": bool(FINEXER_API_KEY),
         }
 
