@@ -71,19 +71,29 @@ async def statement_upload(
     parsed         = await llm_parse_statement(raw_text, uid)
     bank_name      = str(parsed.get("bank_name") or "Unknown Bank")
     account_number = str(parsed.get("account_number") or "")
-    # A98: this used to default to KES, which then tripped the Kenya-only
-    # guard below for any statement the parser found no explicit currency
-    # line on (see the A51 pentest run's incidental finding). GBP is the
-    # only supported home currency now.
-    currency       = str(parsed.get("currency") or "GBP")
     rows           = parsed.get("transactions", [])
+
+    # A98: there is deliberately NO default currency here. It used to fall
+    # back to "KES", which then tripped the Kenya-only guard below for any
+    # statement the parser found no currency line on, so "we could not tell"
+    # and "this really is KES" were rejected with the same misleading
+    # message (recorded as an incidental finding by the A51 pentest run).
+    # Defaulting to GBP instead would be worse than the bug it replaced: an
+    # unlabelled EUR or USD statement would import, every row would be
+    # stored as GBP, and `get_kpis` would add the balance into GBP net worth
+    # at 1:1 with nothing on screen saying anything had been assumed. An
+    # undeterminable currency is its own failure and says so.
+    currency = str(parsed.get("currency") or "").strip().upper()
+    if currency in ("", "NULL", "NONE", "UNKNOWN"):
+        raise HTTPException(
+            422,
+            "We could not work out the currency of this statement. "
+            "Upload a copy that shows it.",
+        )
 
     is_mpesa = "mpesa" in bank_name.lower() or "m-pesa" in bank_name.lower() or currency == "KES"
     if is_mpesa:
-        raise HTTPException(
-            422,
-            "M-PESA and KES statements are not supported. Upload a UK bank statement instead.",
-        )
+        raise HTTPException(422, "M-PESA and KES statements are not supported.")
 
     if not isinstance(rows, list):
         raise HTTPException(422, "LLM did not return a transactions list")

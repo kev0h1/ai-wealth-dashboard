@@ -42,7 +42,7 @@ async def llm_parse_statement(text: str, uid: str | None = None) -> dict:
         "{\n"
         '  "bank_name": "<bank name as printed, e.g. Barclays, HSBC, Monzo, Lloyds, NatWest, Revolut, Chase>",\n'
         '  "account_number": "<the primary account number, IBAN, or phone number — digits and hyphens only, no spaces>",\n'
-        '  "currency": "<ISO code, e.g. GBP, USD, EUR>",\n'
+        '  "currency": "<ISO code as printed on the statement, e.g. GBP, USD, EUR. null if the statement never states one>",\n'
         '  "closing_balance": <the final closing balance as a signed number — negative for overdrafts/credit card debt, positive for assets. null if not found>,\n'
         '  "transactions": [\n'
         "    {\n"
@@ -60,6 +60,8 @@ async def llm_parse_statement(text: str, uid: str | None = None) -> dict:
         "- debit = money sent / withdrawn / paid out\n"
         "- closing_balance is signed: -463.45 means the account is overdrawn by £463.45\n"
         "- If ref is absent or unclear, set it to null (NOT a generated string)\n"
+        "- Set currency to null if the statement does not state one. NEVER guess it\n"
+        "  from the bank name, the country, or the amounts\n"
         "- Ignore header rows, footers, totals, and non-transaction lines\n"
         "- Do NOT include closing/opening balance summary rows as transactions\n"
         "- Extract ALL real transactions in the statement\n\n"
