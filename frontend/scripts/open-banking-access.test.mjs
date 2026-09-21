@@ -233,6 +233,56 @@ check("falls back to tier when limits is absent",
   check("in-flight at unmount: a REJECTING read does not report either", seen, []);
 }
 
+// ── a superseded read settling must not release the CURRENT request ──────
+//
+// `getSubscriptionCached` clears `inflight` through an ownership check
+// (`if (inflight === pending)`) rather than a plain `.finally`. The
+// difference only shows when a superseded promise settles while a newer one
+// is still in the air: an unconditional clear nulls `inflight` that the
+// newer read owns, so the next caller in that window starts a redundant
+// third request instead of joining the second. Sibling of the `cancelled`
+// guard above, and the last one in this module without a test.
+//
+// No readers are subscribed in this block, so every request counted here was
+// issued by an explicit `getSubscriptionCached()` call and nothing else.
+
+{
+  await invalidateOpenBankingAccess();
+  calls = 0;
+  const release = [];
+  api.getSubscription = () => {
+    calls += 1;
+    return new Promise((resolve) => { release.push(() => resolve(subscriptionFor("max"))); });
+  };
+
+  const superseded = getSubscriptionCached();
+  check("ownership: the first read is one request", calls, 1);
+
+  // The plan changes: this read is now stale, and the next caller starts a
+  // second request rather than joining it.
+  await invalidateOpenBankingAccess();
+  const current = getSubscriptionCached();
+  check("ownership: a read after invalidation is a second request", calls, 2);
+
+  // The SUPERSEDED read now comes back, while the current one is still
+  // pending. It must not hand `inflight` back.
+  release[0]();
+  await superseded;
+  await settled();
+
+  const joined = getSubscriptionCached();
+  check("ownership: a read in that window joins the current request, not a third", calls, 2);
+
+  // Release every outstanding deferred, not just the current one: if this
+  // case ever regresses, a redundant third request would otherwise be left
+  // pending and Node would exit on the unsettled await before the summary
+  // printed, hiding the count.
+  for (const settle of release) settle();
+  await Promise.all([current, joined]);
+  await settled();
+  check("ownership: and the current read is what lands in the cache", calls, 2);
+}
+
 if (failures > 0) {
   console.error(`\nopen-banking-access.test.mjs: ${failures} failure(s)`);
   process.exit(1);
