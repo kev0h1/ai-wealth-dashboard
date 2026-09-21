@@ -115,13 +115,14 @@ Status: ready
 Confirmed. The AI-assisted coaching, budgeting, debt-payoff and savings functionality remains as described at onboarding and has not expanded into personalised recommendations for specific investments, financial products, lenders, debt solutions or any other regulated products or services.
 
 How this is enforced in the product:
-- The assistant ("Penny") operates under a hard rule that it never names or recommends a specific financial product or provider. Verdicts such as "can I afford this" are computed deterministically from the customer's own data; the model only phrases the explanation.
-- Savings insights are generated under fixed rules: no suggestion to move card debt, third-party predictions always hedged, all savings figures presented as estimates. A post-processing guard rejects any output that breaches them.
+- The assistant ("Penny") operates under a hard rule that it never names or recommends a specific financial product or provider. Verdicts such as "can I afford this" are computed deterministically from the customer's own data; the model only phrases them.
+- Savings insights follow fixed rules: no suggestion to move card debt, third-party predictions always hedged, all savings figures presented as estimates. A post-processing guard rejects any breach.
 - Debt payoff shows the customer's own repayment order and timelines from their existing accounts; it does not propose consolidation, balance transfers, lenders or debt solutions.
 - Investment holdings can be tracked as a category; the product offers no investment recommendations, comparisons or execution.
-- Tax content is limited to general explanation of UK rules. The live tax explainer's prompt (Penny agent loop) carries a hard rule, shipped 2026-09-06: never suggest, name or recommend a specific product, provider, scheme or investment, including EIS/SEIS opportunities, to obtain a relief; explain the mechanics only, and point to a regulated adviser for anything recommendation-shaped. Covered by an automated test.
+- The Planning ladder orders generic steps (buffer, expensive debt, pension, ISA) using the customer's own figures, phrased as options ("some people do this, others that"); it names no product or provider.
+- Tax content is general explanation of UK rules only. The tax explainer's prompt carries a hard rule (shipped 2026-09-06, under automated test): never suggest, name or recommend a specific product, provider, scheme or investment, including EIS/SEIS opportunities, to obtain a relief; explain the mechanics only, and point to a regulated adviser for anything recommendation-shaped.
 
-The planned connected assistant feature (Q2) does not change this. Sorted's tools only return the customer's own data and Sorted's own deterministic figures; any advice a customer's external assistant gives is that assistant's, under the customer's contract with its provider, and nothing in Sorted recommends or steers towards it.
+The planned connected assistant feature (Q2) does not change this. Sorted's tools only return the customer's own data and Sorted's own deterministic figures; any advice a customer's own assistant gives is that assistant's, under their contract with its provider, and nothing in Sorted recommends or steers towards it.
 ```
 
 ## Q9 AI and third-party processing
