@@ -2,7 +2,7 @@
 
 **Owner:** Kevin Maingi, Founder / Information Security Manager
 **Applies to:** the Auriq Wealth product (web app, iOS/Android apps) and all supporting infrastructure operated by AURIQ LTD.
-**Status:** Version 1.12, last reviewed 2026-09-21. Reviewed at least annually and after any material incident or architecture change.
+**Status:** Version 1.13, last reviewed 2026-09-21. Reviewed at least annually and after any material incident or architecture change.
 
 This document is the company's primary security policy. It exists to satisfy our obligations as a registered agent of Finexer LTD for Account Information Services (AIS) and under UK GDPR / the Data Protection Act 2018. It covers our security controls, our incident-response process, and our data-breach procedures.
 
@@ -147,7 +147,7 @@ review above.
 | A82 | Account deletion never revokes the Finexer consent first, orphaning it at the provider | Open |
 | A83 | `GET /connections` does not list live Finexer connections, hiding the very connection A82's disconnect-first step needs | Open |
 | A84 | A deleted account's session token is not invalidated and remains usable for up to 7 days; it has been shown able to write persistent data that reattaches if the account is later recreated with the same email | Open |
-| A91 | The MCP connector's output masking is structural only (drops fields by shape) and never sanitises the content it keeps, so an instruction-shaped string in a merchant name, recurring-series description or insight trigger reaches the connecting external assistant unmodified: a live prompt-injection surface with no content-level mitigation. The connector is off in production by design (A17), so this exposure is UAT-only today; it must be fixed before the connector is enabled in production (board item F2), it is not actively exploitable in production now | Open |
+| A91 | The MCP connector's output masking is structural only (drops fields by shape) and never sanitises the content it keeps, so an instruction-shaped string in a merchant name, recurring-series description or insight trigger reaches the connecting external assistant unmodified: a live prompt-injection surface with no content-level mitigation. The connector is off in production by design (A17), so this exposure is UAT-only today; it must be fixed before the connector is enabled in production (board item F1, Finexer design sign-off, still open), it is not actively exploitable in production now | Open |
 
 A82, A83 and A84 are one deletion-lifecycle root cause: account deletion
 does not disconnect a customer's bank connection before erasing local
@@ -192,8 +192,10 @@ its security severity; its severity, per the triage above, is Medium.
 **Headline.** No Critical findings. Four High findings outstanding, none
 remediated: three deletion-lifecycle (A82/A83/A84) plus A91, the MCP
 prompt-injection gap, which is UAT-only until the connector is enabled in
-production. Everything else found is Medium, Low or Informational. All
-findings above remain open.
+production (gated on board item F1, the written Finexer design sign-off,
+still open, not F2, which is the OAuth server and is already done).
+Everything else found is Medium, Low or Informational. All findings above
+remain open.
 
 **Scope caveats, stated plainly.** This round has real, acknowledged gaps
 that a reader of the findings list above should not have to infer:
@@ -316,3 +318,4 @@ This policy is reviewed at least annually, and after any material incident, chan
 | 1.10 | 2026-09-14 | A26 pentest-readiness pass: added the remediation SLA (§3a); dependency/container scanning moved from a one-off manual audit to CI (`.github/workflows/security-scan.yml`); added public `security.txt` (RFC 9116); OAuth 2.1 authorisation server threat-modelled for the first time (`docs/security/oauth-threat-model.md`) and a concurrent-redemption race in the authorization-code and refresh-token exchange fixed; added webhook replay/forgery tests for TrueLayer (previously untested) alongside the existing Finexer/Stripe coverage; confirmed bank tokens are Fernet-encrypted at rest for TrueLayer connections (read-only check against live UAT data) and found Yapily's dormant consent-token storage is not (flagged, not fixed — see `docs/security/pentest-scope-2026-09.md`); added a CI guard against `/design` preview routes reaching real data, and found six existing preview files already do (flagged, not fixed, same document). |
 | 1.11 | 2026-09-21 | A45 draft: added §3b recording the internal security testing round of 2026-09-19/20 (seven work packages, findings by severity, all currently open) and its scope caveats, folded into Q11 as a proposed answer pending Kevin's sign-off. |
 | 1.12 | 2026-09-21 | A45 draft, updated: three more work packages executed (WP2/A49, WP6/A53, WP10/A58), coverage now 10 of 12 (WP7b Android dynamic and WP8 iOS dynamic remain deferred); six new findings folded in (A90, A91, A92, A93, A94, A95); headline now four High findings (the deletion-lifecycle three plus A91, an MCP prompt-injection gap, UAT-only until the connector is enabled in production); Q11 draft updated to match. |
+| 1.13 | 2026-09-21 | A45 correction: A91's pre-production gate was wrongly cited as board item F2 (the OAuth 2.1 authorisation server, done 2026-09-08); the correct gate is F1, the written Finexer design sign-off, still open. Fixed in the A91 finding row and the headline. |

@@ -89,3 +89,14 @@ original deletion-lifecycle three (A82/A83/A84) plus A91.
 Note on A92 specifically: its board priority tag reads `p2`, which is a work-scheduling
 priority, not its security severity. Its assessed severity is Medium, and this answer
 states it as Medium, not High.
+
+## Correction, 2026-09-21 (same day, after review)
+
+The prose "a must-fix before it is switched on" above, describing A91's pre-production
+gate, did not name a board item, so it needed no textual fix here. `SECURITY.md` section
+3b did name one, incorrectly, citing board item F2 as the gate; F2 is the OAuth 2.1
+authorisation server and is already done (2026-09-08). The correct gate, verified against
+`TODO.md`'s "## F. MCP connector" section, is F1, "Design sign-off" with Finexer in
+writing, owned by Kevin and still open. `SECURITY.md`'s A91 finding row and headline are
+both corrected to cite F1. The fenced answer block above is unaffected by this correction
+and its character count is unchanged.
