@@ -477,8 +477,42 @@ scripts/session.sh list
   only job is new preview variants under `frontend/app/design/<slug>/`
   for Kevin to choose between; see "Design work" in `CLAUDE.md` /
   `AGENTS.md`.
-- `abandon` deletes the worktree and its local branch and resets the item
-  to to-do with a note, for a session that didn't pan out.
+- `abandon [--worktree <path>]` deletes the worktree and its local branch
+  and resets the item to to-do with a note, for a session that didn't pan
+  out. A worktree that is detached, or whose branch is already gone, is
+  still removed (only the branch deletion is skipped) so a stuck session
+  can always clean up. `--worktree` names the directory explicitly and is
+  the way past a refused resolution; the path must be under
+  `/root/worktrees`.
+- **Resolving `<ID>` to a worktree** (H85). `finish` and `abandon` do not
+  guess. The branch the board records for `<ID>` is the authority: git
+  knows which worktree has that branch checked out (`git worktree list
+  --porcelain`, and git will not let two worktrees share a branch), so
+  exactly one worktree is possible and no other can be chosen. If no
+  worktree has it, that is a hard refusal listing what was found, never a
+  fallback to a name match. Only when the item records **no** branch at
+  all (the shape `approve` leaves it in, and the window before `start`
+  records one) does the worktree *name* decide, and only if exactly one
+  matches; two matches are listed and refused. Both `feature-<ID>[-slug]`
+  and the older `item-<ID>-<slug>` names are matched, anchored on the
+  whole id so `G12` never matches `G127`'s worktree. `finish` prints the
+  worktree, its branch and the board's branch before it runs anything, so
+  a wrong resolution is visible rather than silent, and `list` warns about
+  any id that has more than one worktree.
+
+  This replaces a single `find ... | head -1` that globbed the names, took
+  whatever the filesystem listed first, and never looked at the board. On
+  2026-09-18 it picked a stale, never-cleaned worktree for G127
+  (`feature-G127-upcoming-round3`, sitting at a commit that had been
+  **rejected** on review) over the live `feature-G127-round3-fix`:
+  `finish` pushed the rejected branch and marked the item `review` against
+  it, and the next integrate pass would have merged rejected code into
+  `main` and UAT while the board read as a clean review. The only thing
+  that caught it was the agent knowing its own fix could not exist on that
+  branch. Covered end to end (real worktrees, a synthetic fake shared
+  tree, both orderings of the ambiguous case) by
+  `backend/tests/test_session_worktree_resolve.py`, which the backend
+  suite — and therefore `finish` itself — runs.
 
 **Integrate** (`scripts/integrate.py`, run with `backend/.venv/bin/python`
 from the shared tree):

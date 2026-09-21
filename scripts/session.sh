@@ -34,7 +34,7 @@
 # Usage:
 #   scripts/session.sh start <ID> [slug] [--title "New item title"]
 #   scripts/session.sh finish <ID>
-#   scripts/session.sh abandon <ID>
+#   scripts/session.sh abandon <ID> [--worktree <path>]
 #   scripts/session.sh list
 set -euo pipefail
 
@@ -99,12 +99,35 @@ Usage:
       frontend/app/design/), but flag it explicitly when you know, don't
       rely on the backstop.
 
-  scripts/session.sh abandon <ID>
+  scripts/session.sh abandon <ID> [--worktree <path>]
       Delete the worktree and its branch, reset the item to to-do with a
-      note explaining why.
+      note explaining why. A worktree that is detached, or whose branch
+      is already gone, is still removed (a stuck session has to be able
+      to clean up); only the branch deletion is skipped.
+
+      --worktree names the directory explicitly, which is the way past a
+      refused resolution: when more than one worktree matches <ID> and
+      the board has no branch recorded, or when the only worktree there
+      is is not on the branch the board records, nothing can safely be
+      guessed, so abandon asks you which one you mean. The path must be
+      under /root/worktrees.
 
   scripts/session.sh list
-      Show active item worktrees and their branches.
+      Show active item worktrees and their branches, and warn about any
+      id that has more than one worktree (the condition behind the
+      2026-09-18 G127 incident, item H85).
+
+Resolving <ID> to a worktree (finish and abandon):
+  The branch the board records for <ID> is the authority. git knows
+  which worktree has that branch checked out, and no other worktree can
+  ever be chosen; if none has it, that is a hard refusal, not a fallback
+  to a name match. Only when the item records no branch at all (the
+  shape `approve` leaves it in) does the worktree NAME decide, and then
+  only if exactly one matches: two matches are listed and refused, never
+  picked between. Both feature-<ID>[-slug] and the older
+  item-<ID>-<slug> names are matched. finish prints the worktree and
+  branch it resolved to before it runs anything, so a wrong resolution
+  is visible rather than silent.
 
 Rules:
   - Never restart wealth-api / wealth-worker / wealth-frontend from a
@@ -117,6 +140,10 @@ EOF
 
 log() { echo "[session] $*"; }
 err() { echo "[session] error: $*" >&2; }
+# Both go to stderr like err, so they stay out of the machine-readable
+# stdout of resolve_worktree_for_id, but neither is an error.
+warn() { echo "[session] warning: $*" >&2; }
+note() { echo "[session] note: $*" >&2; }
 
 require_shared_clean() {
   local dirty
@@ -128,16 +155,6 @@ require_shared_clean() {
   fi
 }
 
-find_worktree_for_id() {
-  # Matches the current feature-<ID>[-slug] naming as well as the older
-  # item-<ID>-<slug> naming, so list/finish/abandon still find worktrees
-  # created before this convention changed.
-  local id="$1"
-  find "$WORKTREES_ROOT" -maxdepth 1 -type d \
-    \( -name "feature-${id}" -o -name "feature-${id}-*" -o -name "item-${id}-*" \) \
-    2>/dev/null | head -1
-}
-
 item_json() {
   # Prints the item as one JSON object (via `backlog.py show`, the
   # machine-readable read-only mode, see item H21), or nothing (and
@@ -146,6 +163,177 @@ item_json() {
   # attach to a done item before.
   local id="$1"
   (cd "$SHARED_TREE" && "$VENV_PY" "$BACKLOG_PY" show "$id" 2>/dev/null)
+}
+
+recorded_branch_for_id() {
+  # The branch the board records for <id>, or empty. Empty is a
+  # legitimate answer, not an error: `approve <id> "<choice>"` leaves an
+  # item in-progress with no branch (H31), and `start` records one only
+  # once it has actually created the worktree. Reads the board through
+  # `backlog.py show` like item_json above, never by scraping `list`.
+  local id="$1" data
+  data="$(item_json "$id")" || return 0
+  [[ -n "$data" ]] || return 0
+  jq -r '.branch // empty' <<<"$data" 2>/dev/null || true
+}
+
+# ── Worktree resolution (item H85) ─────────────────────────────────────
+#
+# "Which worktree is item <ID>?" used to be one `find ... | head -1`: it
+# globbed the worktree names, took whatever the filesystem happened to
+# list first, and never looked at the branch the board already records.
+#
+# On 2026-09-18 that picked a stale, never-cleaned worktree for G127
+# (feature-G127-upcoming-round3, sitting at a commit that had been
+# REJECTED on review) over the live one (feature-G127-round3-fix).
+# `finish` pushed the rejected branch and marked the item `review`
+# against it. The next integrate pass would have merged rejected code
+# into main and UAT while the board read as a clean review; the only
+# reason it didn't is that the agent knew its own fix could not exist on
+# that branch. Two worktrees for one id is not hypothetical either:
+# several ids on this host have had a second, stale worktree left behind
+# after a design round.
+#
+# So resolution now either produces the one right answer or refuses:
+#
+#   - The board is the authority. When the item records a branch, git
+#     itself says which worktree has that branch checked out
+#     (`git worktree list --porcelain`), so the name on disk is
+#     irrelevant and a worktree that is NOT on the recorded branch can
+#     never be chosen. A mismatch is a hard, explained refusal.
+#   - With nothing recorded, fall back to matching the id in the
+#     worktree name, but refuse and list them if more than one matches
+#     rather than picking one.
+#
+# The name match still accepts the older item-<ID>-<slug> naming as well
+# as feature-<ID>[-slug], so list/finish/abandon keep finding worktrees
+# created before that convention changed. Both name patterns are
+# anchored on the whole id (feature-<ID> exactly, or feature-<ID>-...),
+# so G12 never matches G127's worktree.
+
+find_worktree_candidates() {
+  # Every worktree whose *name* matches <id>, one per line, sorted so the
+  # output is stable rather than filesystem-dependent. Used for the
+  # no-branch-recorded fallback and, either way, to explain a refusal.
+  local id="$1"
+  find "$WORKTREES_ROOT" -mindepth 1 -maxdepth 1 -type d \
+    \( -name "feature-${id}" -o -name "feature-${id}-*" -o -name "item-${id}-*" \) \
+    2>/dev/null | LC_ALL=C sort
+}
+
+worktree_branch_of() {
+  # The branch <dir> has checked out, or empty when it is detached or
+  # isn't a git worktree at all (a linked worktree always has a .git
+  # file; a leftover plain directory does not).
+  local dir="$1" branch=""
+  if [[ -e "$dir/.git" ]]; then
+    branch="$(git -C "$dir" symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+  fi
+  printf '%s' "$branch"
+}
+
+worktree_dir_for_branch() {
+  # Which worktree of the shared tree has <branch> checked out, according
+  # to git. Empty when none does. This is what makes a wrong resolution
+  # impossible rather than unlikely: git will not let two worktrees have
+  # the same branch checked out, so when the board records a branch there
+  # is exactly one possible answer and no guessing to do.
+  local branch="$1"
+  git -C "$SHARED_TREE" worktree list --porcelain 2>/dev/null \
+    | awk -v want="refs/heads/$branch" '
+        /^worktree /   { dir = substr($0, 10) }
+        $0 == "branch " want { print dir; exit }
+      '
+}
+
+describe_candidates() {
+  local dir b
+  for dir in "$@"; do
+    b="$(worktree_branch_of "$dir")"
+    err "    $dir -> ${b:-(detached HEAD, or not a git worktree)}"
+  done
+}
+
+disambiguation_hint() {
+  # Verb-specific way out of a refusal. `abandon` must never become
+  # impossible — a stuck session has to be able to clean up — so it can
+  # always name the worktree it means explicitly.
+  local id="$1" verb="$2"
+  if [[ "$verb" == "abandon" ]]; then
+    err "  Name the one you mean explicitly: scripts/session.sh abandon $id --worktree <path>"
+  else
+    err "  Fix the board or the tree first: record the right branch (from $SHARED_TREE: backend/.venv/bin/python scripts/backlog.py start $id --branch <branch>), or remove the stale worktree with 'scripts/session.sh abandon $id --worktree <path>'."
+  fi
+}
+
+resolve_worktree_for_id() {
+  # Prints exactly one machine-readable line on stdout on success:
+  #     <worktree dir>\t<branch it has checked out>\t<branch the board records>
+  # The second field is empty only for a detached-HEAD worktree (which
+  # `abandon` can still clean up and `finish` has nothing to push from);
+  # the third is empty when the item records no branch. Every human-
+  # readable word goes to stderr, so callers can capture stdout directly.
+  # Returns 1, having explained itself, rather than ever guessing.
+  local id="$1" recorded_branch="${2:-}" verb="${3:-resolve}"
+
+  local -a candidates=()
+  mapfile -t candidates < <(find_worktree_candidates "$id")
+
+  if [[ -n "$recorded_branch" ]]; then
+    local dir
+    dir="$(worktree_dir_for_branch "$recorded_branch")"
+    if [[ -n "$dir" ]]; then
+      if [[ "$dir" != "$WORKTREES_ROOT"/* ]]; then
+        err "the board records branch $recorded_branch for item $id, but git has that branch checked out at $dir, which is not under $WORKTREES_ROOT."
+        err "refusing to $verb there: that is the shared tree or a scratch checkout, not a session worktree."
+        return 1
+      fi
+      case " ${candidates[*]-} " in
+        *" $dir "*) ;;
+        *) note "$dir is not named feature-${id}[-slug], but it is the worktree git has branch $recorded_branch checked out in, and that branch is what the board records for $id." ;;
+      esac
+      if [[ ${#candidates[@]} -gt 1 ]]; then
+        note "${#candidates[@]} worktrees match id $id; chose $dir because it is on the branch the board records ($recorded_branch). Clean the others up with 'scripts/session.sh abandon $id --worktree <path>'."
+      fi
+      printf '%s\t%s\t%s\n' "$dir" "$recorded_branch" "$recorded_branch"
+      return 0
+    fi
+
+    if [[ ${#candidates[@]} -eq 0 ]]; then
+      err "no worktree found for item $id under $WORKTREES_ROOT (the board records branch $recorded_branch for it, and nothing has that branch checked out)."
+      err "  If its worktree was removed, re-create one with: git -C $SHARED_TREE worktree add $WORKTREES_ROOT/$recorded_branch $recorded_branch"
+      return 1
+    fi
+    err "the board records branch $recorded_branch for item $id, but no worktree has that branch checked out."
+    err "  worktrees whose name matches $id:"
+    describe_candidates "${candidates[@]}"
+    err "refusing to $verb against a worktree that is not on the branch the board records: taking a name match instead is exactly the 2026-09-18 G127 failure (item H85), where finish pushed a branch that had already been rejected and marked the item review against it."
+    disambiguation_hint "$id" "$verb"
+    return 1
+  fi
+
+  if [[ ${#candidates[@]} -eq 0 ]]; then
+    err "no worktree found for item $id under $WORKTREES_ROOT"
+    return 1
+  fi
+
+  if [[ ${#candidates[@]} -gt 1 ]]; then
+    err "item $id has no branch recorded on the board, and ${#candidates[@]} worktrees match its id:"
+    describe_candidates "${candidates[@]}"
+    err "refusing to guess between them: with nothing recorded on the board there is no authority saying which one is the live session, and picking the wrong one is how a rejected branch got pushed on 2026-09-18 (item H85)."
+    disambiguation_hint "$id" "$verb"
+    return 1
+  fi
+
+  printf '%s\t%s\t\n' "${candidates[0]}" "$(worktree_branch_of "${candidates[0]}")"
+}
+
+resolve_session_worktree() {
+  # What finish/abandon actually call: read the board, then resolve.
+  local id="$1" verb="${2:-resolve}"
+  local recorded_branch
+  recorded_branch="$(recorded_branch_for_id "$id")"
+  resolve_worktree_for_id "$id" "$recorded_branch" "$verb"
 }
 
 derive_slug() {
@@ -385,15 +573,29 @@ cmd_finish() {
     esac
   done
 
-  local worktree_dir
-  worktree_dir="$(find_worktree_for_id "$id")"
-  if [[ -z "$worktree_dir" ]]; then
-    err "no worktree found for item $id under $WORKTREES_ROOT"
+  local resolved
+  resolved="$(resolve_session_worktree "$id" finish)" || exit 1
+  local worktree_dir branch board_branch
+  IFS=$'\t' read -r worktree_dir branch board_branch <<<"$resolved"
+
+  if [[ -z "$branch" ]]; then
+    err "worktree $worktree_dir is not on a branch (detached HEAD), so there is nothing to push for $id."
+    err "Check it out on its branch, or clean it up with: scripts/session.sh abandon $id --worktree $worktree_dir"
     exit 1
   fi
 
-  local branch
-  branch="$(git -C "$worktree_dir" rev-parse --abbrev-ref HEAD)"
+  # Say out loud which worktree and branch this resolved to, before any
+  # check runs and long before anything is pushed (item H85): the
+  # 2026-09-18 G127 failure was invisible in the output, so the only
+  # thing that caught it was an agent happening to know its own work
+  # could not be on the branch that got pushed.
+  echo
+  log "resolved item $id:"
+  log "  worktree:      $worktree_dir"
+  log "  branch:        $branch"
+  log "  board records: ${board_branch:-(none yet; matched by worktree name)}"
+  log "If that is not the worktree you have been working in, stop now: nothing has been pushed yet."
+  echo
 
   local status_lines
   status_lines="$(git -C "$worktree_dir" status --porcelain)"
@@ -447,7 +649,7 @@ cmd_finish() {
   log "checking category-edit cache invalidation in $worktree_dir/frontend..."
   (cd "$worktree_dir/frontend" && npm run -s check:category-mutations)
 
-  log "pushing $branch..."
+  log "pushing $branch from $worktree_dir (the board records ${board_branch:-no branch} for $id)..."
   git -C "$worktree_dir" push -u origin "$branch"
 
   if [[ "$uat_review" == "true" ]]; then
@@ -466,42 +668,133 @@ cmd_finish() {
 cmd_abandon() {
   local id="${1:-}"
   [[ -n "$id" ]] || { usage; exit 1; }
+  shift
 
-  local worktree_dir
-  worktree_dir="$(find_worktree_for_id "$id")"
-  if [[ -z "$worktree_dir" ]]; then
-    err "no worktree found for item $id under $WORKTREES_ROOT"
-    exit 1
+  # --worktree is the always-available way out of a refused resolution
+  # (item H85). abandon is the cleanup path, so it must never become
+  # impossible: naming the directory explicitly is a human saying which
+  # one they mean, which is the one thing the resolver will not invent.
+  local explicit_worktree=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --worktree) explicit_worktree="${2:-}"; shift 2 ;;
+      *) err "unexpected argument: $1"; exit 1 ;;
+    esac
+  done
+
+  local worktree_dir branch board_branch
+  if [[ -n "$explicit_worktree" ]]; then
+    explicit_worktree="${explicit_worktree%/}"
+    if [[ ! -d "$explicit_worktree" ]]; then
+      err "--worktree $explicit_worktree is not a directory"
+      exit 1
+    fi
+    if [[ "$explicit_worktree" != "$WORKTREES_ROOT"/* ]]; then
+      err "--worktree $explicit_worktree is not under $WORKTREES_ROOT; abandon only ever removes session worktrees, never the shared tree or a scratch checkout."
+      exit 1
+    fi
+    worktree_dir="$explicit_worktree"
+    branch="$(worktree_branch_of "$worktree_dir")"
+    board_branch="$(recorded_branch_for_id "$id")"
+    log "using the worktree named explicitly on the command line (skipping resolution)."
+  else
+    local resolved
+    resolved="$(resolve_session_worktree "$id" abandon)" || exit 1
+    IFS=$'\t' read -r worktree_dir branch board_branch <<<"$resolved"
   fi
 
-  local branch
-  branch="$(git -C "$worktree_dir" rev-parse --abbrev-ref HEAD)"
+  echo
+  log "abandoning item $id:"
+  log "  worktree:      $worktree_dir"
+  log "  branch:        ${branch:-(detached HEAD, or not a git worktree)}"
+  log "  board records: ${board_branch:-(none)}"
+  echo
 
   log "removing worktree $worktree_dir..."
   git -C "$SHARED_TREE" worktree remove --force "$worktree_dir"
-  log "deleting local branch $branch..."
-  git -C "$SHARED_TREE" branch -D "$branch" 2>/dev/null || true
+  if [[ -n "$branch" ]]; then
+    log "deleting local branch $branch..."
+    git -C "$SHARED_TREE" branch -D "$branch" 2>/dev/null || true
+  else
+    # A worktree whose branch is gone or was never on one still has to be
+    # removable, or a stuck session cannot clean up after itself.
+    log "no branch checked out in that worktree; nothing to delete."
+  fi
 
-  (cd "$SHARED_TREE" && "$VENV_PY" "$BACKLOG_PY" note "$id" "session abandoned, branch $branch discarded")
+  local note_text
+  if [[ -n "$branch" ]]; then
+    note_text="session abandoned, branch $branch discarded"
+  else
+    note_text="session abandoned, worktree $worktree_dir discarded (no branch checked out)"
+  fi
+  (cd "$SHARED_TREE" && "$VENV_PY" "$BACKLOG_PY" note "$id" "$note_text")
   (cd "$SHARED_TREE" && "$VENV_PY" "$BACKLOG_PY" todo "$id")
 
-  echo "abandoned $id (worktree and branch $branch removed, item reset to to-do)"
+  echo "abandoned $id (worktree $worktree_dir${branch:+ and branch $branch} removed, item reset to to-do)"
+}
+
+worktree_id_of_path() {
+  # The backlog id a worktree's name claims, for both naming conventions
+  # (feature-<ID>[-slug] and the older item-<ID>-<slug>). Empty for
+  # anything else under the root, e.g. the detached preview checkouts.
+  local base="$1"
+  base="${base##*/}"
+  case "$base" in
+    feature-*) base="${base#feature-}" ;;
+    item-*) base="${base#item-}" ;;
+    *) printf ''; return 0 ;;
+  esac
+  base="${base%%-*}"
+  if [[ "$base" =~ ^[A-Z][0-9]+$ ]]; then
+    printf '%s' "$base"
+  else
+    printf ''
+  fi
 }
 
 cmd_list() {
   local found=0
+  local -a paths=()
   while IFS= read -r line; do
     [[ -z "$line" ]] && continue
     local path
     path="$(echo "$line" | awk '{print $1}')"
     if [[ "$path" == "$WORKTREES_ROOT"/* ]]; then
       echo "$line"
+      paths+=("$path")
       found=1
     fi
   done < <(git -C "$SHARED_TREE" worktree list)
   if [[ "$found" -eq 0 ]]; then
     echo "no active item sessions under $WORKTREES_ROOT"
+    return 0
   fi
+
+  # A second worktree for the same id is the condition that caused the
+  # 2026-09-18 G127 failure (item H85). finish/abandon now refuse to
+  # guess between them rather than pushing whichever one `find` happened
+  # to list first, but that is a stop, not a fix: say so here so the
+  # stale one gets cleaned up before someone hits the refusal.
+  local -a ids=()
+  local p this_id
+  for p in "${paths[@]}"; do
+    this_id="$(worktree_id_of_path "$p")"
+    if [[ -n "$this_id" ]]; then
+      ids+=("$this_id")
+    fi
+  done
+  local dup
+  while IFS= read -r dup; do
+    [[ -z "$dup" ]] && continue
+    echo
+    warn "$dup has more than one worktree; finish and abandon will refuse to guess between them unless the board records a branch that matches exactly one:"
+    for p in "${paths[@]}"; do
+      if [[ "$(worktree_id_of_path "$p")" == "$dup" ]]; then
+        warn "    $p -> $(worktree_branch_of "$p")"
+      fi
+    done
+    warn "  Remove the stale one with: scripts/session.sh abandon $dup --worktree <path>"
+  done < <(printf '%s\n' "${ids[@]-}" | LC_ALL=C sort | uniq -d)
 }
 
 main() {
