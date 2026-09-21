@@ -29,6 +29,7 @@
     "check:transaction-filter-chips": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/transaction-filter-chips.test.mjs",
     "check:transaction-grouping": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/transaction-grouping.test.mjs",
     "check:accounts-pinned": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/accounts-pinned.test.mjs",
+    "check:legacy-bank-provider": "node --no-warnings --experimental-strip-types scripts/legacy-bank-provider.test.mjs",
     "check:purchase-availability-ssr": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/purchase-availability-ssr.test.mjs"
   },
   "dependencies": {

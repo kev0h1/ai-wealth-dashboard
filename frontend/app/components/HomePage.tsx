@@ -34,6 +34,8 @@ import { useTutorialReady } from "@/components/TutorialContext";
 import { fetchVerdictData } from "@/lib/verdictCache";
 import { getAccountsCached, invalidateAccounts } from "@/lib/accountsCache";
 import { useHomePinnedAccounts } from "@/lib/homePinnedAccounts";
+import { isLegacyBankSource } from "@/lib/legacyBankProvider";
+import { useOpenBankingAccess, type OpenBankingAccess } from "@/lib/openBankingAccess";
 
 // Recharts-backed pinned widget (~448KB) is rare on Home (opt-in pin) — keep
 // it out of the initial route chunk.
@@ -146,6 +148,68 @@ function HomeSkeleton({ firstName }: { firstName?: string }) {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** The "nothing connected yet" card. One component, two call sites (the
+ *  fresh-user hero and the "Your estate" empty state), because those two had
+ *  drifted into near-identical copies of the same markup and only one of
+ *  them was ever going to get fixed.
+ *
+ *  A67 — tier: `openBanking.allowed` decides whether Connect a bank is
+ *  offered at all. The Statements plan has no open banking (the server
+ *  answers those connect endpoints with a 402), so offering the button there
+ *  was an invitation to a dead end. While the plan is still resolving
+ *  (`ready` false, `allowed` false) the card shows the upload route, which
+ *  every plan has, and Connect appears when it is known to be available —
+ *  additive, so no control ever flashes up and disappears.
+ *
+ *  G135 — route: every path out of this card used to be the bank-connect
+ *  OAuth flow, and Home suppresses the whole "Your estate" block (with its
+ *  "Manage" link) for a fresh user, so a user who could not or did not want
+ *  to connect a bank had no way to reach /accounts at all, which is where
+ *  statement upload and offline accounts live. The secondary link below is
+ *  that missing door. */
+function FirstAccountCard({
+  openBanking,
+  onConnect,
+  onUploadStatement,
+  onOtherWays,
+  tutorialId,
+  ctaTutorialId,
+}: {
+  openBanking: OpenBankingAccess;
+  onConnect: () => void;
+  onUploadStatement: () => void;
+  onOtherWays: () => void;
+  tutorialId?: string;
+  ctaTutorialId?: string;
+}) {
+  const canConnect = openBanking.allowed;
+  return (
+    <div data-tutorial-id={tutorialId} className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-5">
+      <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-1">
+        {canConnect ? "Connect your first bank" : "Add your first account"}
+      </p>
+      <p className="text-sm text-slate-500 dark:text-slate-400 mb-4 leading-snug">
+        {canConnect
+          ? "Read-only access through open banking, we can never move your money."
+          : "Your plan works from statements you upload. Add one to get started, or track an account yourself."}
+      </p>
+      <button
+        onClick={canConnect ? onConnect : onUploadStatement}
+        data-tutorial-id={ctaTutorialId}
+        className="w-full bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-[transform,background-color] text-white text-sm font-semibold rounded-xl py-2.5 px-4"
+      >
+        {canConnect ? "Connect a bank" : "Upload a statement"}
+      </button>
+      <button
+        onClick={onOtherWays}
+        className="w-full min-h-[44px] mt-1 text-sm font-semibold text-indigo-600 dark:text-indigo-400 hover:opacity-80 active:opacity-70 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-xl"
+      >
+        Other ways to add accounts
+      </button>
     </div>
   );
 }
@@ -580,11 +644,19 @@ export default function HomePage() {
     return [...grouped.values()];
   }, [accounts]);
 
+  // A67: Finexer is the default and the only provider production has. The
+  // legacy branch exists so that REPAIRING an existing legacy connection on
+  // UAT goes back to the provider that owns it (sending it to Finexer would
+  // create a second, duplicate connection rather than refresh the dead one).
+  // `isLegacyBankSource` is always false in a production build, so this
+  // reduces to "always Finexer" there. Before this change the test was
+  // inverted — anything not explicitly Finexer, including the no-arguments
+  // "Connect a bank" call below, fell through to TrueLayer.
   async function handleReconnect(providerId?: string, source?: string) {
     try {
-      const { auth_url } = source === "finexer"
-        ? await api.finexerConnectLink(providerId)
-        : await api.connectLink(providerId);
+      const { auth_url } = isLegacyBankSource(source)
+        ? await api.legacyBankConnectLink(providerId)
+        : await api.finexerConnectLink(providerId);
       window.location.href = auth_url;
     } catch (err) {
       alert(err instanceof ApiError ? err.message : "Failed to start reconnection. Please try again.");
@@ -600,6 +672,10 @@ export default function HomePage() {
   // user whose /accounts fetch simply failed would see the "Connect your
   // first bank" hero and a blanked brief instead of the load-error retry UI.
   const isFreshUser = !loading && !loadError && accounts.length === 0 && investmentAccounts.length === 0;
+  // A67: does this plan include connecting a bank at all? Resolved off to
+  // the side, never blocking the page — see lib/openBankingAccess.ts for why
+  // the pending state shows Upload Statement rather than Connect.
+  const openBanking = useOpenBankingAccess();
   // Undefined while accounts are still loading (so PaydayPlanSection's
   // hasAccounts guard doesn't prematurely suppress a real user's entry row
   // before their accounts have arrived) — settles to a real boolean once
@@ -697,22 +773,15 @@ export default function HomePage() {
               section below is suppressed entirely in this state so it never
               duplicates. */}
           {isFreshUser && (
-            <div data-tutorial-id="tutorial-home-fresh" className="px-4 lg:px-0 mt-6">
-              <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-5">
-                <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-1">
-                  Connect your first bank
-                </p>
-                <p className="text-sm text-slate-500 dark:text-slate-400 mb-4 leading-snug">
-                  Read-only access through open banking, we can never move your money.
-                </p>
-                <button
-                  onClick={() => handleReconnect()}
-                  data-tutorial-id="tutorial-home-fresh-cta"
-                  className="w-full bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-[transform,background-color] text-white text-sm font-semibold rounded-xl py-2.5 px-4"
-                >
-                  Connect a bank
-                </button>
-              </div>
+            <div className="px-4 lg:px-0 mt-6">
+              <FirstAccountCard
+                openBanking={openBanking}
+                onConnect={() => handleReconnect()}
+                onUploadStatement={() => router.push("/accounts?add=statement")}
+                onOtherWays={() => router.push("/accounts")}
+                tutorialId="tutorial-home-fresh"
+                ctaTutorialId="tutorial-home-fresh-cta"
+              />
             </div>
           )}
 
@@ -846,20 +915,12 @@ export default function HomePage() {
                   ))}
                 </div>
               ) : accounts.length === 0 ? (
-                <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-5">
-                  <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-1">
-                    Connect your first bank
-                  </p>
-                  <p className="text-sm text-slate-500 dark:text-slate-400 mb-4 leading-snug">
-                    Read-only access through open banking, we can never move your money.
-                  </p>
-                  <button
-                    onClick={() => handleReconnect()}
-                    className="w-full bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-[transform,background-color] text-white text-sm font-semibold rounded-xl py-2.5 px-4"
-                  >
-                    Connect a bank
-                  </button>
-                </div>
+                <FirstAccountCard
+                  openBanking={openBanking}
+                  onConnect={() => handleReconnect()}
+                  onUploadStatement={() => router.push("/accounts?add=statement")}
+                  onOtherWays={() => router.push("/accounts")}
+                />
               ) : (
                 <div className="glass-card rounded-2xl overflow-hidden">
                   {topPickAccounts.map((acc, i) => (
