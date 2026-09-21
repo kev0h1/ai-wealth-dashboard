@@ -562,11 +562,19 @@ scripts/session.sh list
   captured whole rather than piped into `awk ... exit`: under
   `set -o pipefail` that `exit` closes the pipe mid-write, so git takes
   SIGPIPE and the pipeline returns 141 *on the success path* once the
-  listing passes git's 4096-byte stdout buffer, which on this host is
-  roughly 25 worktrees away and grows every time a stale one is left
-  behind. A typo'd id is told it is not on the board, not that the
-  board is unreadable; the two are distinguished by what `backlog.py`
-  said, since both exit 1.
+  listing passes git's 4096-byte stdout buffer. Measured on this host
+  on 2026-09-21 (`git worktree list --porcelain | wc -c` over
+  `grep -c '^worktree '`): 21 worktrees, 2896 bytes, about 137 bytes
+  each, so **8 more worktrees** reaches the threshold, not 25 as an
+  earlier draft of this paragraph said. Every stale worktree left
+  behind spends part of that margin. A typo'd id is told it is not on
+  the board rather than that the board is unreadable, and the two are
+  told apart by `backlog.py`'s exit status (`EXIT_UNKNOWN_ITEM`), not
+  by matching its message: a truncated `TODO.md` produces the
+  unknown-item wording too, and the remedy that followed from reading
+  it that way would have written a new item into the half-lost file.
+  `backlog.py show` also refuses outright when the board parses to zero
+  items.
 
 **Integrate** (`scripts/integrate.py`, run with `backend/.venv/bin/python`
 from the shared tree):

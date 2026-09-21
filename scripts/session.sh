@@ -204,16 +204,26 @@ recorded_branch_for_id() {
 
   data="$(cd "$SHARED_TREE" && "$VENV_PY" "$BACKLOG_PY" show "$id" 2>"$errfile")" || status=$?
   if [[ "$status" -ne 0 ]]; then
-    # Both failures exit 1, so the status cannot tell them apart: the
-    # board being unreadable and the id simply not existing are
-    # distinguished by what backlog.py said. A typo is the most common
-    # way anyone reaches this path, and telling them the board is
-    # broken, citing an incident about stale worktrees, sends them
-    # somewhere useless.
-    if grep -q "is not a known backlog item" "$errfile"; then
+    # Distinguished by backlog.py's EXIT_UNKNOWN_ITEM, not by matching
+    # its message. A typo is the most common way anyone reaches this
+    # path, and telling them the board is broken, citing an incident
+    # about stale worktrees, sends them somewhere useless. But the
+    # message alone cannot carry the distinction: a truncated or
+    # half-written TODO.md produces the same "is not a known backlog
+    # item" wording, so matching on it told a session with a corrupt
+    # board that its id was simply missing. backlog.py now gives the
+    # unknown-item case its own status, and refuses to answer at all
+    # when the board parses to zero items.
+    #
+    # Neither branch below offers an action that WRITES to the board.
+    # The advice this replaced was "open it with --title", which routes
+    # to backlog.py add: run against a half-written TODO.md, that would
+    # have written a new item into the truncated file and cemented the
+    # loss.
+    if [[ "$status" -eq 3 ]]; then
       err "item $id is not on the board:"
       while IFS= read -r line; do err "  $line"; done < "$errfile"
-      err "check the id (scripts/backlog.py list), or open it first with 'scripts/session.sh start <ID> --title \"...\"'."
+      err "check the id with 'backend/.venv/bin/python scripts/backlog.py list' (read-only). If you expected $id to exist, check the board itself is intact ('git status' and 'git diff TODO.md' in $SHARED_TREE) before adding anything to it."
     else
       err "could not read the board ($BACKLOG_PY show $id exited $status):"
       while IFS= read -r line; do err "  $line"; done < "$errfile"
@@ -348,6 +358,11 @@ worktree_dir_for_branch() {
   # changes: git's output is captured whole (no pipeline at all, so
   # nothing can SIGPIPE) and awk reads to the end instead of exiting
   # early, which costs nothing because there is at most one match.
+  #
+  # Both of those are deliberate and NEITHER is individually pinned by
+  # a test: the suite detects the combination, so removing one layer
+  # leaves the suite green. That is belt and braces, not dead code.
+  # Do not delete one because reverting it looked harmless.
   #
   # git's stderr is left on this script's own stderr rather than sent to
   # /dev/null, so a genuine failure can say what went wrong instead of

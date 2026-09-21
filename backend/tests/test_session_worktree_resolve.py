@@ -749,7 +749,10 @@ def test_an_unreadable_board_is_fatal_rather_than_silently_name_matching(tmp_pat
     )
     assert res.returncode != 0, res.output
     assert "could not read the board" in res.stderr, res.output
-    assert res.worktree != str(worktrees_root / "feature-G127-upcoming-round3"), res.output
+    # No resolution was printed at all. (Asserting res.worktree != the
+    # stale path would be vacuous: on refusal the driver exits before
+    # printf, so stdout is always empty.)
+    assert res.worktree == "", res.output
 
 
 # ---------------------------------------------------------------------
@@ -1083,6 +1086,13 @@ def test_an_unknown_id_says_so_rather_than_blaming_the_board(tmp_path, fixture_e
     assert res.returncode != 0, res.output
     assert "not on the board" in res.stderr, res.output
     assert "unreadable" not in res.stderr, res.output
+    # Nothing on this path may offer an action that WRITES to the board:
+    # the same message is reached with a half-written TODO.md, and
+    # `start --title` routes to `backlog.py add`, which would write a
+    # fresh item into the truncated file.
+    assert "--title" not in res.stderr, res.output
+    assert "backlog.py add" not in res.stderr, res.output
+    assert "backlog.py list" in res.stderr, res.output
 
 
 def test_a_genuinely_unreadable_board_still_blames_the_board(tmp_path, fixture_env):
@@ -1097,3 +1107,69 @@ def test_a_genuinely_unreadable_board_still_blames_the_board(tmp_path, fixture_e
     assert res.returncode != 0, res.output
     assert "could not read the board" in res.stderr, res.output
     assert "FileNotFoundError" in res.stderr, res.output
+
+
+def test_a_truncated_board_is_not_reported_as_a_missing_item(tmp_path, fixture_env):
+    """backlog.py says "<id> is not a known backlog item" for a truncated
+    TODO.md as readily as for a typo, so the text was never a safe
+    discriminator. It is told apart by exit status now, and a board that
+    parses to zero items is refused at the source, so a session whose
+    board is mid-loss is never advised to add to it."""
+    board_root, shared_tree, worktrees_root = fixture_env
+    worktrees_root.mkdir(exist_ok=True)
+    (board_root / "TODO.md").write_text("", encoding="utf-8")
+
+    res = _resolve(tmp_path, board_root, shared_tree, worktrees_root, "G127")
+    assert res.returncode != 0, res.output
+    assert "could not read the board" in res.stderr, res.output
+    assert "empty or truncated" in res.stderr, res.output
+    assert "not on the board" not in res.stderr, res.output
+    assert "--title" not in res.stderr, res.output
+
+
+def test_a_half_written_board_never_advises_writing_to_it(tmp_path, fixture_env):
+    """The case that cannot be told apart from a typo: the board still
+    parses and still has items, but the one being asked for is gone. It
+    is classified as a missing item, which is unavoidable, so the
+    protection is that neither branch offers a write."""
+    board_root, shared_tree, worktrees_root = fixture_env
+    worktrees_root.mkdir(exist_ok=True)
+    (board_root / "TODO.md").write_text(
+        "# Backlog fixture\n\n## G. Section G heading\n\n"
+        "- [ ] **G128. Item with no branch recorded.** [owner: claude] [state: in-progress] Still here.\n",
+        encoding="utf-8",
+    )
+
+    res = _resolve(tmp_path, board_root, shared_tree, worktrees_root, "G127")
+    assert res.returncode != 0, res.output
+    assert "not on the board" in res.stderr, res.output
+    assert "--title" not in res.stderr, res.output
+    assert "backlog.py add" not in res.stderr, res.output
+    # and it does point at checking the board itself is intact
+    assert "git diff TODO.md" in res.stderr, res.output
+
+
+def test_the_discriminator_is_the_exit_status_not_the_message(tmp_path, fixture_env):
+    """Matching on text is the wrong contract even anchored: ANY
+    backlog.py failure whose message happens to contain the unknown-item
+    phrase would be classified as a missing item and handed the
+    missing-item remedy. backlog.py already carries a second, unrelated
+    error with that wording ("<id> is not a known backlog item after
+    being written", raised when a board write does not round-trip),
+    which is a corrupt-board symptom, not a typo. The discriminator is
+    the exit status."""
+    board_root, shared_tree, worktrees_root = fixture_env
+    worktrees_root.mkdir(exist_ok=True)
+    shim = tmp_path / "phrase_but_not_unknown.py"
+    shim.write_text(
+        "import sys\n"
+        "sys.stderr.write('error: G127 is not a known backlog item after being written; "
+        "the board write did not round-trip.\\n')\n"
+        "sys.exit(1)\n",
+        encoding="utf-8",
+    )
+
+    res = _resolve(tmp_path, board_root, shared_tree, worktrees_root, "G127", backlog_py=str(shim))
+    assert res.returncode != 0, res.output
+    assert "could not read the board" in res.stderr, res.output
+    assert "not on the board" not in res.stderr, res.output
