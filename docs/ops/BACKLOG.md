@@ -536,7 +536,16 @@ scripts/session.sh list
   `integrate.py` already warns that recorded branches drift from their
   id. And a failed board read is never flattened into "no branch
   recorded", because that would silently downgrade the rule back to the
-  name match it replaced; `finish` and `abandon` stop instead. A
+  name match it replaced: `finish` and `abandon` stop, and that refusal
+  is returned rather than merely printed (bash suppresses `errexit`
+  inside a command substitution whose assignment status is tested, so
+  the first version of this printed "refusing to continue" and then
+  carried on and pushed a name match, which is worse than not refusing
+  at all). The one exception is `abandon --worktree`, where the caller
+  has named the directory: it warns and carries on, and does not touch
+  the board. The board read captures stdout and stderr separately, never
+  with `2>&1`, so warning noise from a successful `show` cannot be
+  concatenated ahead of the JSON and break the parse. A
   directory with no `.git` entry is not a worktree and is not a
   candidate at all, so an `rm -rf`'d or half-pruned session cannot make
   an id ambiguous, and a worktree git still lists but whose directory is

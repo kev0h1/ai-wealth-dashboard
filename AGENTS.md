@@ -47,9 +47,13 @@ unrecorded.
   somewhere that is not one of `<ID>`'s own worktrees, or when `<ID>`
   records no branch and more than one worktree carries its id. If you hit
   one of those refusals, read it: it names the fix. `abandon <ID>
-  --worktree <path>` clears a stale duplicate and, because the named
-  worktree is not the session the board records, leaves the item itself
-  untouched. The full model, and the 2026-09-18 incident that caused it
+  --worktree <path>` names one explicitly. It always removes that
+  worktree; whether it also resets `<ID>` on the board depends on what
+  you named. If the worktree is the session `<ID>` records, the item is
+  reset as a normal abandon would. If it is a stale duplicate, another
+  branch, or an item that records no branch at all, the item is left
+  untouched and the command prints the deliberate `backlog.py todo
+  <ID>` to run if you did want it reset. The full model, and the 2026-09-18 incident that caused it
   (a stale worktree resolved first, so `finish` pushed a branch that had
   already been rejected and marked the item `review` against it), is in
   `docs/ops/BACKLOG.md` under "Resolving `<ID>` to a worktree", which is

@@ -102,6 +102,7 @@ def _make_fake_shared_tree(tmp_path: Path) -> Path:
     seed.mkdir()
     _git("init", "-q", "-b", "main", cwd=seed)
     (seed / ".gitkeep").write_text("", encoding="utf-8")
+    _seed_finish_stubs(seed)
     _git("add", "-A", cwd=seed)
     _git("-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-q", "-m", "init", cwd=seed)
     _git("remote", "add", "origin", str(origin), cwd=seed)
@@ -111,6 +112,62 @@ def _make_fake_shared_tree(tmp_path: Path) -> Path:
     shared = tmp_path / "shared"
     _git("clone", "-q", str(origin), str(shared), cwd=tmp_path)
     return shared
+
+
+# `cmd_finish` shells out to the backend suite, the pentest-evidence
+# check, tsc and nine npm checks before it pushes. The fake shared tree
+# seeds a stub for every one of them (and the stub python ignores its
+# arguments), so a fixture can drive cmd_finish end to end with only the
+# parts under test left real: the resolution, the push to the fake
+# origin, and the board write. Without this, the one command that pushes
+# is the one command no test exercises, which is how the errexit hole
+# below survived a full round of review.
+STUB_EXIT_0 = "#!/usr/bin/env bash\nexit 0\n"
+
+
+def _seed_finish_stubs(seed: Path) -> None:
+    (seed / "frontend").mkdir()
+    (seed / "frontend" / ".gitkeep").write_text("", encoding="utf-8")
+    (seed / "scripts").mkdir()
+    (seed / "scripts" / "check_pentest_evidence.py").write_text("", encoding="utf-8")
+    venv_bin = seed / "backend" / ".venv" / "bin"
+    venv_bin.mkdir(parents=True)
+    stub_python = venv_bin / "python"
+    stub_python.write_text(STUB_EXIT_0, encoding="utf-8")
+    stub_python.chmod(0o755)
+
+
+def _make_tool_stubs(tmp_path: Path) -> Path:
+    """npx / npm on PATH, exiting 0, for cmd_finish's frontend gate."""
+    bindir = tmp_path / "stubbin"
+    bindir.mkdir(exist_ok=True)
+    for name in ("npx", "npm"):
+        stub = bindir / name
+        stub.write_text(STUB_EXIT_0, encoding="utf-8")
+        stub.chmod(0o755)
+    return bindir
+
+
+def _origin_branches(tmp_path: Path) -> set:
+    out = _git("for-each-ref", "--format=%(refname:short)", "refs/heads", cwd=tmp_path / "origin.git")
+    return {line.strip() for line in out.splitlines() if line.strip()}
+
+
+def _noisy_backlog_shim(tmp_path: Path) -> Path:
+    """A backlog.py that writes to stderr and still succeeds. Capturing
+    the board read with 2>&1 concatenated that noise ahead of the JSON
+    and broke the parse; this codebase emits 351 warnings under pytest,
+    so PYTHONWARNINGS or a future Python makes it live."""
+    shim = tmp_path / "noisy_backlog.py"
+    shim.write_text(
+        "import runpy, sys\n"
+        f"REAL = {str(BACKLOG_PY)!r}\n"
+        "sys.stderr.write('DeprecationWarning: datetime.utcnow() is deprecated\\n')\n"
+        "sys.argv[0] = REAL\n"
+        "runpy.run_path(REAL, run_name='__main__')\n",
+        encoding="utf-8",
+    )
+    return shim
 
 
 def _add_worktree(shared: Path, worktrees_root: Path, name: str, branch: str) -> Path:
@@ -451,6 +508,8 @@ def _run_cmd(
     worktrees_root: Path,
     *argv: str,
     backlog_py: str | None = None,
+    cwd: Path | None = None,
+    extra_path: Path | None = None,
 ) -> subprocess.CompletedProcess:
     driver = tmp_path / "cmd_driver.sh"
     driver.write_text(CMD_DRIVER, encoding="utf-8")
@@ -458,6 +517,8 @@ def _run_cmd(
     env = dict(os.environ)
     env["BACKLOG_ROOT"] = str(board_root)
     env.pop("BACKLOG_AGENT", None)
+    if extra_path is not None:
+        env["PATH"] = f"{extra_path}{os.pathsep}{env['PATH']}"
 
     return subprocess.run(
         [
@@ -470,7 +531,7 @@ def _run_cmd(
             str(worktrees_root),
             *argv,
         ],
-        cwd=tmp_path,
+        cwd=cwd or tmp_path,
         env=env,
         capture_output=True,
         text=True,
@@ -720,3 +781,224 @@ def test_worktree_id_of_path_only_claims_real_ids(tmp_path, fixture_env):
         result = _run_cmd(tmp_path, board_root, shared_tree, worktrees_root, "worktree_id_of_path", path)
         assert result.returncode == 0, result.stderr
         assert result.stdout == expected, f"{path} -> {result.stdout!r}, expected {expected!r}"
+
+
+# ---------------------------------------------------------------------
+# cmd_finish: the one command that pushes. Driven end to end against a
+# fake origin, with every gate step stubbed out, so what is asserted is
+# which branch actually landed on the remote and what the board recorded.
+# ---------------------------------------------------------------------
+
+
+def _finish(tmp_path, board_root, shared_tree, worktrees_root, item_id, *extra):
+    return _run_cmd(
+        tmp_path,
+        board_root,
+        shared_tree,
+        worktrees_root,
+        "cmd_finish",
+        item_id,
+        *extra,
+        extra_path=_make_tool_stubs(tmp_path),
+    )
+
+
+def test_finish_pushes_the_branch_the_board_records_not_the_stale_sibling(tmp_path, fixture_env):
+    """The 2026-09-18 incident, all the way through the command that
+    caused it: two worktrees for G127, and the branch that reaches the
+    remote must be the one the board records, never the stale sibling
+    that had already been rejected."""
+    board_root, shared_tree, worktrees_root = fixture_env
+    _add_worktree(shared_tree, worktrees_root, "feature-G127-upcoming-round3", "feature-G127-upcoming-round3")
+    _add_worktree(shared_tree, worktrees_root, "feature-G127-round3-fix", "feature-G127-round3-fix")
+
+    result = _finish(tmp_path, board_root, shared_tree, worktrees_root, "G127")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "resolved item G127" in result.stdout
+    assert "branch:        feature-G127-round3-fix" in result.stdout
+
+    pushed = _origin_branches(tmp_path)
+    assert "feature-G127-round3-fix" in pushed
+    assert "feature-G127-upcoming-round3" not in pushed, "pushed the stale sibling"
+
+    data = _show(board_root, "G127")
+    assert data["state"] == "review"
+    assert data["branch"] == "feature-G127-round3-fix"
+
+
+def test_finish_pushes_nothing_when_the_board_cannot_be_read(tmp_path, fixture_env):
+    """recorded_branch_for_id returning 1 must actually stop finish.
+    `resolved="$(resolve_session_worktree ...)" || exit 1` suppresses
+    errexit inside the command substitution, so the refusal was printed
+    and then ignored: finish ran the gate and pushed a branch picked by
+    name, which is the pre-H85 bug wearing a refusal message. One missing
+    docs/compliance file makes backlog.py show fail for every id, so this
+    is not a typo-only path."""
+    board_root, shared_tree, worktrees_root = fixture_env
+    _add_worktree(shared_tree, worktrees_root, "feature-G127-upcoming-round3", "feature-G127-upcoming-round3")
+
+    result = _run_cmd(
+        tmp_path,
+        board_root,
+        shared_tree,
+        worktrees_root,
+        "cmd_finish",
+        "G127",
+        backlog_py=str(tmp_path / "no-such-backlog.py"),
+        extra_path=_make_tool_stubs(tmp_path),
+    )
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert "refusing to continue" in result.stderr, result.stdout + result.stderr
+    assert "resolved item G127" not in result.stdout, "printed a resolution after refusing"
+    assert _origin_branches(tmp_path) == {"main"}, "pushed despite refusing to continue"
+
+
+def test_finish_pushes_nothing_when_no_worktree_is_on_the_recorded_branch(tmp_path, fixture_env):
+    board_root, shared_tree, worktrees_root = fixture_env
+    _add_worktree(shared_tree, worktrees_root, "feature-G127-upcoming-round3", "feature-G127-upcoming-round3")
+
+    result = _finish(tmp_path, board_root, shared_tree, worktrees_root, "G127")
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert _origin_branches(tmp_path) == {"main"}
+    assert _show(board_root, "G127")["state"] == "in-progress"
+
+
+def test_finish_pushes_nothing_when_two_worktrees_match_and_no_branch_is_recorded(tmp_path, fixture_env):
+    board_root, shared_tree, worktrees_root = fixture_env
+    _add_worktree(shared_tree, worktrees_root, "feature-G128-a", "feature-G128-a")
+    _add_worktree(shared_tree, worktrees_root, "feature-G128-b", "feature-G128-b")
+
+    result = _finish(tmp_path, board_root, shared_tree, worktrees_root, "G128")
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert _origin_branches(tmp_path) == {"main"}
+    assert _show(board_root, "G128")["state"] == "in-progress"
+
+
+def test_finish_works_for_an_item_with_no_branch_recorded_and_one_worktree(tmp_path, fixture_env):
+    """The post-approve shape must still be finishable."""
+    board_root, shared_tree, worktrees_root = fixture_env
+    _add_worktree(shared_tree, worktrees_root, "feature-G128-fold-in", "feature-G128-fold-in")
+
+    result = _finish(tmp_path, board_root, shared_tree, worktrees_root, "G128")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "board records: (none yet; matched by worktree name)" in result.stdout
+    assert "feature-G128-fold-in" in _origin_branches(tmp_path)
+    assert _show(board_root, "G128")["branch"] == "feature-G128-fold-in"
+
+
+def test_finish_survives_stderr_noise_from_a_successful_board_read(tmp_path, fixture_env):
+    """Capturing the board read with 2>&1 put stderr ahead of the JSON and
+    broke the parse, which combined with the errexit hole degrades to a
+    name match rather than a refusal."""
+    board_root, shared_tree, worktrees_root = fixture_env
+    _add_worktree(shared_tree, worktrees_root, "feature-G127-round3-fix", "feature-G127-round3-fix")
+
+    result = _run_cmd(
+        tmp_path,
+        board_root,
+        shared_tree,
+        worktrees_root,
+        "cmd_finish",
+        "G127",
+        backlog_py=str(_noisy_backlog_shim(tmp_path)),
+        extra_path=_make_tool_stubs(tmp_path),
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "could not parse" not in result.stderr, result.stdout + result.stderr
+    assert "feature-G127-round3-fix" in _origin_branches(tmp_path)
+
+
+# ---------------------------------------------------------------------
+# The other two board-protection clauses (only branch != board_branch
+# was pinned; deleting either of the others left the suite green).
+# ---------------------------------------------------------------------
+
+
+def test_abandon_worktree_leaves_the_board_alone_when_no_branch_is_recorded(tmp_path, fixture_env):
+    """G128 records no branch, so nothing confirms this worktree is its
+    session even though it is the only one. Removing it must not reset
+    the item; the exact command to do that deliberately is printed."""
+    board_root, shared_tree, worktrees_root = fixture_env
+    only = _add_worktree(shared_tree, worktrees_root, "feature-G128-fold-in", "feature-G128-fold-in")
+
+    result = _run_cmd(tmp_path, board_root, shared_tree, worktrees_root, "cmd_abandon", "G128", "--worktree", str(only))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not only.exists()
+    assert "records no branch" in result.stdout, result.stdout + result.stderr
+    assert "backlog.py todo G128" in result.stdout
+
+    data = _show(board_root, "G128")
+    assert data["state"] == "in-progress"
+    assert data["notes"] == []
+
+
+def test_abandon_worktree_leaves_the_board_alone_when_the_board_cannot_be_read(tmp_path, fixture_env):
+    board_root, shared_tree, worktrees_root = fixture_env
+    only = _add_worktree(shared_tree, worktrees_root, "feature-G127-round3-fix", "feature-G127-round3-fix")
+
+    result = _run_cmd(
+        tmp_path,
+        board_root,
+        shared_tree,
+        worktrees_root,
+        "cmd_abandon",
+        "G127",
+        "--worktree",
+        str(only),
+        backlog_py=str(tmp_path / "no-such-backlog.py"),
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not only.exists()
+    assert "the board will not be touched" in result.stderr, result.stdout + result.stderr
+    # Pins the `-z "$board_readable"` clause specifically: the
+    # `-z "$board_branch"` clause below it would also skip the board
+    # here (the fallback blanks board_branch), so only the reason it
+    # gives distinguishes them.
+    assert "leaving the board alone: the board could not be read" in result.stdout, result.stdout
+
+    data = _show(board_root, "G127")
+    assert data["state"] == "in-progress"
+    assert data["branch"] == "feature-G127-round3-fix"
+    assert data["notes"] == []
+
+
+def test_abandon_worktree_accepts_a_relative_path(tmp_path, fixture_env):
+    """--worktree was normalised for the guard but acted on raw, so a
+    relative path passed every check against the caller's cwd and then
+    died on "is not a working tree" inside the shared tree."""
+    board_root, shared_tree, worktrees_root = fixture_env
+    live = _add_worktree(shared_tree, worktrees_root, "feature-G127-round3-fix", "feature-G127-round3-fix")
+
+    result = _run_cmd(
+        tmp_path,
+        board_root,
+        shared_tree,
+        worktrees_root,
+        "cmd_abandon",
+        "G127",
+        "--worktree",
+        "./feature-G127-round3-fix",
+        cwd=worktrees_root,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not live.exists()
+    assert "is not a working tree" not in result.stderr
+
+
+def test_no_stray_realpath_error_on_the_foreign_branch_warning_path(tmp_path):
+    """path_is_one_of expanded an empty candidate array to one empty
+    argument, leaking `realpath: '': No such file or directory` onto the
+    path that most warrants careful reading."""
+    fixture = BOARD_FIXTURE.replace("[branch: feature-G127-round3-fix]", "[branch: oddly-named-branch]")
+    board_root = _make_board_root(tmp_path, fixture=fixture)
+    shared_tree = _make_fake_shared_tree(tmp_path)
+    worktrees_root = tmp_path / "worktrees"
+    _add_worktree(shared_tree, worktrees_root, "oddly-named", "oddly-named-branch")
+
+    res = _resolve(tmp_path, board_root, shared_tree, worktrees_root, "G127")
+    assert res.returncode == 0, res.output
+    # Matched precisely: pytest's tmp_path embeds this test's own name,
+    # so a bare "realpath" substring check matches the directory itself.
+    assert "realpath: ''" not in res.stderr, res.stderr
+    assert "No such file or directory" not in res.stderr, res.stderr
+    assert "Check it is really yours" in res.stderr

@@ -188,14 +188,24 @@ recorded_branch_for_id() {
   # item_json above (`backlog.py show`, machine-readable and read-only,
   # never scraping `list`), but keeping stderr so a runtime failure can
   # be diagnosed rather than swallowed.
-  local id="$1" data branch
-  if ! data="$(cd "$SHARED_TREE" && "$VENV_PY" "$BACKLOG_PY" show "$id" 2>&1)"; then
-    err "could not read item $id from the board ($BACKLOG_PY show $id failed):"
-    printf '%s\n' "$data" >&2
+  # The two streams are captured SEPARATELY, never with 2>&1: stdout is
+  # the JSON payload and stderr is diagnostics, and a successful `show`
+  # is entitled to print to stderr (this codebase emits hundreds of
+  # DeprecationWarnings, and PYTHONWARNINGS or a future Python makes
+  # that live). Merging them concatenated the noise ahead of the JSON
+  # and broke the parse of a perfectly good read.
+  local id="$1" data branch errfile status=0
+  errfile="$(mktemp "${TMPDIR:-/tmp}/session-board-read.XXXXXX")"
+  data="$(cd "$SHARED_TREE" && "$VENV_PY" "$BACKLOG_PY" show "$id" 2>"$errfile")" || status=$?
+  if [[ "$status" -ne 0 ]]; then
+    err "could not read item $id from the board ($BACKLOG_PY show $id exited $status):"
+    while IFS= read -r line; do err "  $line"; done < "$errfile"
+    rm -f "$errfile"
     err "refusing to continue: with the board unreadable the recorded branch is unknown, and falling back to a worktree-name match is the pre-H85 bug (item H85)."
     return 1
   fi
-  if ! branch="$(jq -r '.branch // empty' <<<"$data")"; then
+  rm -f "$errfile"
+  if ! branch="$(jq -r '.branch // empty' <<<"$data" 2>/dev/null)"; then
     err "could not parse the board's JSON for item $id:"
     printf '%s\n' "$data" >&2
     return 1
@@ -280,6 +290,7 @@ path_is_one_of() {
   local needle="$1" other
   shift
   for other in "$@"; do
+    [[ -n "$other" ]] || continue
     if same_path "$needle" "$other"; then
       return 0
     fi
@@ -346,8 +357,12 @@ resolve_worktree_for_id() {
   mapfile -t candidates < <(find_worktree_candidates "$id")
 
   if [[ -n "$recorded_branch" ]]; then
-    local dir
-    dir="$(worktree_dir_for_branch "$recorded_branch")"
+    local dir git_status=0
+    dir="$(worktree_dir_for_branch "$recorded_branch")" || git_status=$?
+    if [[ "$git_status" -ne 0 ]]; then
+      err "could not list the shared tree's worktrees (git -C $SHARED_TREE worktree list exited $git_status), so the branch the board records for $id cannot be located."
+      return 1
+    fi
     if [[ -n "$dir" ]]; then
       if ! is_under_worktrees_root "$dir"; then
         err "the board records branch $recorded_branch for item $id, but git has that branch checked out at $dir, which is not under $WORKTREES_ROOT."
@@ -362,7 +377,11 @@ resolve_worktree_for_id() {
         err "  Clear the stale registration first: git -C $SHARED_TREE worktree prune"
         return 1
       fi
-      if ! path_is_one_of "$dir" "${candidates[@]-}"; then
+      local dir_is_own_candidate=""
+      if [[ ${#candidates[@]} -gt 0 ]] && path_is_one_of "$dir" "${candidates[@]}"; then
+        dir_is_own_candidate="true"
+      fi
+      if [[ -z "$dir_is_own_candidate" ]]; then
         if [[ ${#candidates[@]} -gt 0 ]]; then
           # Making the board unconditionally authoritative removed the
           # one bound the old resolver did have: it could only ever pick
@@ -426,9 +445,20 @@ resolve_worktree_for_id() {
 
 resolve_session_worktree() {
   # What finish/abandon actually call: read the board, then resolve.
+  #
+  # The `|| return 1` is load-bearing and must not be trimmed back to a
+  # bare assignment on the assumption that `set -e` carries the failure
+  # out. Both callers wrap this function in a command substitution
+  # (`resolved="$(resolve_session_worktree ...)" || exit 1`), and bash
+  # suppresses errexit inside a command substitution whose enclosing
+  # assignment's status is tested. Without it, recorded_branch_for_id
+  # printed "refusing to continue: ... falling back to a worktree-name
+  # match is the pre-H85 bug" and then finish did exactly that, ran the
+  # gate, and pushed a branch chosen by name. A refusal that does not
+  # return is worse than no refusal, because the log says it stopped.
   local id="$1" verb="${2:-resolve}"
   local recorded_branch
-  recorded_branch="$(recorded_branch_for_id "$id")"
+  recorded_branch="$(recorded_branch_for_id "$id")" || return 1
   resolve_worktree_for_id "$id" "$recorded_branch" "$verb"
 }
 
@@ -792,22 +822,28 @@ cmd_abandon() {
 
   local worktree_dir branch board_branch board_readable="true"
   if [[ -n "$explicit" ]]; then
-    explicit_worktree="${explicit_worktree%/}"
-    if ! is_under_worktrees_root "$explicit_worktree"; then
-      err "--worktree $explicit_worktree resolves to $(realpath -m "$explicit_worktree"), which is not under $WORKTREES_ROOT."
+    # Normalise ONCE, up front, and check and act on that one path.
+    # Checking a normalised path and then acting on the raw one is the
+    # same check-versus-action split as the traversal hole: a relative
+    # --worktree was validated against the caller's cwd and then handed
+    # to `git -C $SHARED_TREE worktree remove`, which resolved it
+    # against the shared tree instead and died after printing the whole
+    # abandoning block.
+    worktree_dir="$(realpath -m "${explicit_worktree%/}")"
+    if ! is_under_worktrees_root "$worktree_dir"; then
+      err "--worktree $explicit_worktree resolves to $worktree_dir, which is not under $WORKTREES_ROOT."
       err "abandon only ever removes session worktrees: never the shared tree, another checkout, or anything reached back out of the root with '..'."
       exit 1
     fi
-    if [[ ! -d "$explicit_worktree" ]]; then
-      err "--worktree $explicit_worktree is not a directory"
+    if [[ ! -d "$worktree_dir" ]]; then
+      err "--worktree $explicit_worktree ($worktree_dir) is not a directory"
       exit 1
     fi
-    if [[ ! -e "$explicit_worktree/.git" ]]; then
-      err "--worktree $explicit_worktree is not a git worktree (no .git entry), so git cannot remove it and this script will not delete arbitrary directories."
-      err "  It is a leftover directory, not a session: clear it by hand with 'rm -rf $explicit_worktree'. It does not make $id ambiguous either way."
+    if [[ ! -e "$worktree_dir/.git" ]]; then
+      err "--worktree $worktree_dir is not a git worktree (no .git entry), so git cannot remove it and this script will not delete arbitrary directories."
+      err "  It is a leftover directory, not a session: clear it by hand with 'rm -rf $worktree_dir'. It does not make $id ambiguous either way."
       exit 1
     fi
-    worktree_dir="$explicit_worktree"
     branch="$(worktree_branch_of "$worktree_dir")"
     if ! board_branch="$(recorded_branch_for_id "$id")"; then
       warn "carrying on because --worktree names the directory explicitly, but the board will not be touched."
