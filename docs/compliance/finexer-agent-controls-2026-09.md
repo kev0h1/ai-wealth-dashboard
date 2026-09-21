@@ -76,7 +76,7 @@ Consent withdrawal initiated at the bank or via Finexer is received by our webho
 
 ## Q6 Regulatory disclosures
 
-Status: blocked-deploy
+Status: needs-kevin
 
 ```text
 Attached screenshots:
