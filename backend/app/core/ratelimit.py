@@ -35,6 +35,20 @@ RULES = [
     ("/auth/oauth/authorize", 30, 60),
     ("/auth/",    30, 60),
     ("/webhooks/", 60, 60),
+    # A95: GET /logo/{domain} proxies to Logo.dev/Google's favicon service
+    # server-side on a cache miss (app/routers/logos.py), so an unbounded
+    # caller is a real upstream-cost/amplification vector even though it
+    # carries no data exposure of its own. The auth middleware's
+    # /auth//webhooks//logo/ branch (app.core.auth.auth_middleware) is the
+    # only place check_rate_limit() runs for this prefix. Sized from actual
+    # frontend usage: the only call site is TransactionRow.tsx (one <img>
+    # per transaction row, keyed by merchant domain), and the largest list
+    # rendering it paginates at 20 rows (AccountsPage.tsx's PAGE_SIZE), with
+    # Home's own recent-transactions widget rendering a handful more.
+    # 120/60 gives several times that per minute, enough headroom for
+    # scrolling through a few pages or bouncing between screens inside a
+    # minute, while still bounding a flood of distinct/unknown domains.
+    ("/logo/", 120, 60),
     # The auth middleware only calls check_rate_limit() for /auth/, /webhooks/
     # and /logo/ prefixes, so this rule is inert unless /push/test calls
     # check_rate_limit() itself (it does, as the first line of the handler).
@@ -55,11 +69,25 @@ RULES = [
 
 
 # A27: catch-all, applied by app.core.auth.auth_middleware to every request
-# that reaches a protected route not already covered by a RULES entry above
-# (i.e. everything except /auth/, /webhooks/, /push/test,
-# /push/client-diagnostic, and /mcp — the last already has its own
-# per-principal limits in app.routers.mcp). Two tiers, both checked on the
-# SAME request when it resolves to a real identity:
+# that reaches a protected route. /health, /docs, /openapi.json, /redoc
+# (_OPEN_PATHS) and, when MCP_CONNECTOR_ENABLED, the three MCP discovery
+# documents (_MCP_OPEN_PATHS) return before the middleware ever gets this
+# far, so they're the only paths genuinely outside it. /auth/, /webhooks/
+# and /logo/ used to return before this check too (the exact gap A95 closed
+# for /logo/, which had no RULES entry at all); the middleware's branch for
+# those three prefixes now calls check_catch_all_ip_limit itself, after
+# check_rate_limit passes, as a backstop behind their own tighter RULES
+# entries. /push/test, /push/client-diagnostic and /mcp were never actually
+# exempt either, despite what this comment used to say: none of those three
+# paths ever matched the /auth//webhooks//logo/ branch, so they always fell
+# through to this same IP-keyed check like any other protected route;
+# /push/test and /push/client-diagnostic additionally get their own
+# tighter RULES-based limit from inside their own handler (the first line
+# of each), and /mcp's own per-principal burst/daily limits
+# (app.routers.mcp) apply on top of, not instead of, this IP catch-all —
+# only the PER-USER catch-all below is skipped for an MCP OAuth
+# (sorted_at_) token, in favour of that per-principal tier. Two tiers, both
+# checked on the SAME request when it resolves to a real identity:
 #
 # - CATCH_ALL_IP_LIMIT: keyed by IP, checked for every request reaching a
 #   protected route REGARDLESS of whether the bearer token turns out valid.
