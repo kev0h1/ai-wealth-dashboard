@@ -62,12 +62,45 @@ async def erase_user(uid: str) -> dict[str, int]:
     """Erase every trace of `uid`: every document in every `*_col` collection
     in app.db.collections matched by `user_id` field or uid-keyed `_id`.
 
+    Before any of that, revoke every live bank connection `uid` holds
+    (TrueLayer `connections_col`, Finexer `finexer_consents_col`) via
+    `disconnect_connection`. A local delete alone cannot cancel a Finexer
+    consent: the consent lives at Finexer, so it must be revoked there
+    (`disconnect_connection`'s Finexer branch does a best-effort remote
+    `DELETE /consents/{id}`) or it stays live after the user's account is
+    gone (A82). Each revoke runs in its own try/except so one failing
+    connection never blocks erasure of the rest, or of the user's other
+    data; failures are logged and counted, not raised.
+
     This is the exact routine `routers/profile.py::delete_account` used to
     run inline (that endpoint now just checks the confirmation phrase and
     calls this); the dormant-user sweep below calls it too.
     """
     from app.db import collections as _cols
     removed: dict[str, int] = {}
+
+    # Gathered via the same fresh `_cols` lookup as the delete loop below
+    # (not this module's own top-level `connections_col`/`finexer_consents_col`
+    # names) so a caller that only patches app.db.collections in tests still
+    # gets full coverage, matching the dir()-based sweep's own safety net.
+    revoked = 0
+    revoke_errors = 0
+    connection_ids = [d["_id"] async for d in _cols.connections_col.find({"user_id": uid}, {"_id": 1})]
+    connection_ids += [d["_id"] async for d in _cols.finexer_consents_col.find({"user_id": uid}, {"_id": 1})]
+    for connection_id in connection_ids:
+        try:
+            await disconnect_connection(uid, connection_id)
+            revoked += 1
+        except Exception:
+            revoke_errors += 1
+            logger.exception(
+                "erase_user: failed to revoke connection %s for %s", connection_id, uid,
+            )
+    if revoked:
+        removed["connections_revoked"] = revoked
+    if revoke_errors:
+        removed["connection_errors"] = revoke_errors
+
     for attr in dir(_cols):
         if not attr.endswith("_col"):
             continue

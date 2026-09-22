@@ -10,7 +10,16 @@
 // (scripts/check-design-index.mjs) enforces that and runs as part of
 // `scripts/session.sh finish`.
 
+import type { Metadata } from "next";
 import Link from "next/link";
+
+// A76 (DSGN-04, A48 pentest): these preview routes are unreleased product
+// directions and must not be indexed by search engines. See also the
+// X-Robots-Tag header in next.config.ts and app/robots.ts, which cover the
+// whole /design/* subtree (this metadata only covers this one page).
+export const metadata: Metadata = {
+  robots: { index: false, follow: false },
+};
 
 type PreviewRoute = {
   slug: string;
@@ -22,6 +31,25 @@ type PreviewRoute = {
 };
 
 const ROUTES: PreviewRoute[] = [
+  {
+    slug: "g115-spend-from-accounts",
+    name: "g115-spend-from-accounts",
+    description:
+      "G115 round on showing up to two current accounts without creating a second hero inside Safe to Spend · A is Kevin's proposed top-right bank rail, B is a compact inline pair, C is a quiet two-row ledger · every direction renders the real production SafeToSpendCard through its data and spendFrom props, plus the real MoveCard in coexistence states, rather than copying either component · fixtures pass through production bestSpendAccount(), include three current accounts, a savings pot and a credit card, and use G114's spend_from_headroom so a live £20 cover move reduces Everyday from £45 standing room to £25 spendable room before ranking · savings and credit are structurally excluded, the savings-only state points to the move above, and every treatment says account figures are not the pooled Safe to Spend · A uses local bundled logos only and falls back to named rows when a bank has no bundled mark · static typed fixtures, no live API data or mutations · ?variant=a|b|c&state=reserved|clear|one|unbundled|savings|hidden&mode=light|dark",
+    states: [
+      { label: "Cover move reserved", value: "reserved" },
+      { label: "No cover move", value: "clear" },
+      { label: "One account", value: "one" },
+      { label: "Bank has no logo", value: "unbundled" },
+      { label: "Savings move needed", value: "savings" },
+      { label: "Balances hidden", value: "hidden" },
+    ],
+    variants: [
+      { label: "A · Bank rail", value: "a" },
+      { label: "B · Inline pair", value: "b" },
+      { label: "C · Quiet rows", value: "c" },
+    ],
+  },
   {
     slug: "ops-board-mobile",
     name: "ops-board-mobile",
@@ -231,10 +259,11 @@ const ROUTES: PreviewRoute[] = [
     slug: "home-brief-cards",
     name: "home-brief-cards",
     description:
-      "G48 Home brief card-family design round across AskPayday, AskGeneric, Celebration, Cliff, UnfundedMove, IntentPace, Move and Rhythm · the same real-behaviour fixtures in three presentation grammars: A Calm spine ranks verdict, evidence and actions in one vertical reading order, B Action dock separates decisions from evidence with a stable footer, C Folded brief compresses quiet cards while keeping dense move evidence explicitly available · every variant tests an overdue £70 unfunded AMERICAN EXPRESS move, a £70 three-source cover plan, multi-card stacking, all eight card types, light and dark themes · presentation only, no API calls or production-component edits · ?variant=a|b|c&state=stack|family&mode=light|dark",
+      "G48 Home brief card-family design round across AskPayday, AskGeneric, Celebration, Cliff, UnfundedMove, IntentPace, Move and Rhythm · the same real-behaviour fixtures in three presentation grammars: A Calm spine ranks verdict, evidence and actions in one vertical reading order, B Action dock separates decisions from evidence with a stable footer, C Folded brief compresses quiet cards while keeping dense move evidence explicitly available · every variant tests an overdue £70 unfunded AMERICAN EXPRESS move, a £70 three-source cover plan, multi-card stacking, all eight card types, light and dark themes · presentation only, no API calls · G103 adds the Debt state: the debt-trajectory card now leads on the three-month movement in what is owed (\"£412 · more owed than three months ago\") with the direction spoken in the headline, and drops the £24,926 carried total to the last line of the body, so Home stops shouting a stock that cannot change this pay period · shown as the card read BEFORE the change plus all five states after it, rising while interest is charged, rising with everything on 0%, coming down, holding steady, and rising on 0% with an end date on file, each rendered through the PRODUCTION CliffCard from components/HomeBrief.tsx fed real CompanionItem props (not replica markup) so the preview stays a regression gate · every string is verbatim from app.services.companion.trajectory_copy · ?variant=a|b|c&state=stack|family|trajectory&mode=light|dark",
     states: [
       { label: "Home stack", value: "stack" },
       { label: "All eight cards", value: "family" },
+      { label: "Debt trajectory states", value: "trajectory" },
     ],
   },
   {

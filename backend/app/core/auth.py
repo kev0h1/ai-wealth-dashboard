@@ -127,7 +127,21 @@ async def auth_middleware(request: Request, call_next):
         return await call_next(request)
     path = request.url.path
     if path.startswith("/auth/") or path.startswith("/webhooks/") or path.startswith("/logo/"):
+        # A95: check_rate_limit only returns non-None when a RULES prefix
+        # both matched AND the caller was over that prefix's own budget, so
+        # passing it (None) means either "under budget on a matched rule"
+        # or "no RULES entry matches this path at all" — the two are
+        # indistinguishable from the return value alone, and /logo/ used to
+        # be the latter with no rule of its own (A95's finding). Falling
+        # through to the same IP catch-all every other protected route
+        # gets closes that gap for any future prefix added to this branch
+        # without its own RULES entry, not just /logo/ today. A tighter,
+        # more specific RULES entry (e.g. /logo/'s new rule, or /auth/'s
+        # 30/60) still fires its own 429 first above when it's the
+        # stricter limit; this is a backstop, not a replacement.
         if limited := await check_rate_limit(request):
+            return limited
+        if limited := await ratelimit.check_catch_all_ip_limit(request):
             return limited
         return await call_next(request)
     if path in _OPEN_PATHS or (MCP_CONNECTOR_ENABLED and path in _MCP_OPEN_PATHS):

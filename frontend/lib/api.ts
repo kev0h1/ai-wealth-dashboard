@@ -1347,6 +1347,22 @@ export type CompanionItem = {
   action: CompanionAction | null;
   estimated: boolean;
   brief_lead?: CompanionBriefLead;
+  /**
+   * G103, trajectory items only. The signifier the card should wear, decided
+   * server-side because only the debt engine knows whether a balance that is
+   * not coming down is also costing interest. "positive" = coming down,
+   * "watch" = not coming down and either accruing interest or facing a known
+   * 0% cliff, "neutral" = drift that is not costing anything yet. Absent on
+   * any item persisted before G103, and on every other item type; CliffCard
+   * falls back to the pre-G103 "watch" in that case.
+   */
+  tone?: "neutral" | "watch" | "positive";
+  /**
+   * G103, trajectory items only. Direction of the three-month movement in
+   * what is owed. Drives the card's icon only — the direction is always
+   * spoken in `headline` too, never carried by icon or colour alone.
+   */
+  trend?: "rising" | "falling" | "flat" | "unknown";
   move_map?: MoveMap;
   // `PlanMove[]` when type === "move" (MoveCard's leg list). When type ===
   // "unfunded_move" the backend reuses this SAME field name for an

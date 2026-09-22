@@ -1,5 +1,6 @@
 """Finexer auth + consent callback endpoints."""
 import asyncio
+import hmac
 import secrets
 import time
 from datetime import datetime
@@ -114,8 +115,13 @@ async def finexer_callback(
     if not doc:
         raise HTTPException(404, "Consent not found")
 
-    # Optional state verification
-    if state and doc.get("state") and state != doc["state"]:
+    # State verification is mandatory: a missing `state` (ours or the
+    # stored one) is rejected exactly like a mismatched one, not skipped.
+    # A88: the previous `if state and doc.get("state") and ...` form only
+    # rejected a *mismatched* state, letting an omitted one straight
+    # through to authorise the consent and trigger a sync.
+    stored_state = doc.get("state")
+    if not state or not stored_state or not hmac.compare_digest(state, stored_state):
         raise HTTPException(400, "State mismatch")
 
     if error:

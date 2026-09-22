@@ -34,10 +34,127 @@ no `date` key sitting next to the amount, so rule 2 leaves them untouched.
 This was audited by hand against each executor in
 `app/services/penny_tools.py` when this module was written (2026-09-08),
 not merely assumed.
+4. Every string VALUE kept anywhere in the tree, for every tool, is run
+   through `_sanitise_text` (A91, pentest finding MCP-06): control and
+   zero-width/bidi-override characters are stripped, whitespace is
+   collapsed, the string is capped at 1000 characters, and the whole
+   string is replaced with a fixed marker if it matches an
+   instruction-shaped pattern. Rules 1-3 above are structural (key name,
+   row shape); this rule is the one that inspects CONTENT, because a
+   merchant name, recurring-series description, or insight trigger
+   string is provider-supplied text a user does not fully control (a
+   bank/Finexer/TrueLayer merchant field, or a payment reference someone
+   else wrote), and an instruction-shaped string sitting in one of those
+   fields would otherwise reach the connecting external assistant over
+   `/mcp` unmodified. See `_INSTRUCTION_RE` for the exact patterns
+   covered.
 """
 import logging
+import re
 
 logger = logging.getLogger(__name__)
+
+# ── A91 / MCP-06: content sanitisation ──────────────────────────────────
+#
+# Each alternative below matches one class of prompt-injection / instruction
+# override attempt that could ride in on provider-supplied text (a merchant
+# name, payment reference, category label, or insight trigger string). This
+# is intentionally broad: a false positive here only swaps a suspicious
+# fragment for a fixed marker, it never leaks anything, and the ordinary UK
+# payment references this was tested against ("TESCO STORES 2941",
+# "Amazon.co.uk*AB1CD2EF3", "DD SANTANDER MORTGAGE", "Mrs A Smith ref RENT
+# MAY", "SumUp *The Coffee User", "PAYPAL *ASSISTANT SUPPLIES", "CONTRACT
+# ASSOCIATES LTD", "EXACT ASSEMBLY", "IMPACT ASIA", "REACT ASSOCIATES",
+# "SYSTEM PROMPTS LTD") don't trip any of these. Every word-initial
+# alternative below is wrapped in `\b...\b` (leading boundary AND, where
+# the alternative ends in a word rather than a delimiter, a trailing one
+# too) precisely so it can only match a whole word run, never a substring
+# straddling a word boundary: without it, `act\s+as` matched inside
+# "REACT ASSOCIATES" and "IMPACT ASIA" (review finding, A91), and
+# `system\s+prompt` without a trailing boundary would also match inside
+# "SYSTEM PROMPTS LTD". The delimiter alternatives (`<|`, `|>`, `[INST]`,
+# `<<SYS>>`, backticks) are punctuation, not words, so they keep no `\b`.
+_INSTRUCTION_PATTERNS = [
+    r"\bignore\s+(?:all\s+|any\s+)?(?:previous|prior|above|earlier)\s+(?:instructions|prompts|rules)\b",  # "ignore all previous instructions"
+    r"\bdisregard\s+(?:the\s+|your\s+)?(?:previous|prior|above|earlier|system)\b",  # "disregard the system..."
+    r"\byou\s+are\s+now\b",  # role-reassignment opener
+    r"\bnew\s+instructions\b",  # explicit override framing
+    r"\bsystem\s+prompt\b",  # asks the model to reveal/replace its system prompt
+    r"\b(?:system|assistant|user)\s*:",  # chat-role token injection, e.g. "system:"; requires the colon and a word
+                                          # boundary so "PAYPAL *ASSISTANT SUPPLIES" (no colon) never matches
+    r"<\|",  # special-token style delimiter, e.g. <|im_start|>
+    r"\|>",  # closing half of the same delimiter style
+    r"\[INST\]",  # Llama-style instruction delimiter
+    r"<<SYS>>",  # Llama-style system delimiter
+    r"```",  # fenced block, often used to smuggle a fake system/tool message
+    r"\btell\s+the\s+user\s+(?:to|that|their)\b",  # instructs the connecting model to relay a message
+    r"\bshare\s+(?:your|their|the)\s+password\b",  # credential-harvest instruction
+    r"\bdo\s+not\s+tell\b",  # suppression instruction
+    r"\bact\s+as\b",  # role-play jailbreak opener; \b...\b so it can't match inside "REACT ASSOCIATES"/"IMPACT ASIA"
+    r"\bpretend\s+(?:to\s+be|you\s+are)\b",  # role-play jailbreak opener
+    r"\breveal\s+(?:your|the)\s+(?:instructions|prompt)\b",  # prompt-extraction attempt
+]
+_INSTRUCTION_RE = re.compile("|".join(_INSTRUCTION_PATTERNS), re.IGNORECASE)
+
+_INSTRUCTION_MARKER = "[text removed: instruction-like content]"
+_MAX_TEXT_LEN = 1000
+_TRUNCATION_SUFFIX = " [truncated]"
+
+# Zero-width and bidi-override code points removed outright (never turned
+# into a space): zero-width space/non-joiner/joiner/LRM/RLM (U+200B-200F),
+# line/paragraph separators (U+2028/U+2029), word joiner (U+2060), BOM/
+# zero-width no-break space (U+FEFF), and the bidi override/isolate control
+# characters (U+202A-202E, U+2066-2069) that can be used to visually
+# reorder or hide text.
+_ZERO_WIDTH_AND_BIDI = frozenset(
+    [0x2028, 0x2029, 0x2060, 0xFEFF]
+    + list(range(0x200B, 0x2010))  # U+200B..U+200F
+    + list(range(0x202A, 0x202F))  # U+202A..U+202E
+    + list(range(0x2066, 0x206A))  # U+2066..U+2069
+)
+
+
+def _strip_control_and_bidi(text: str) -> str:
+    """Tab and newline become a single space (later collapsed); every other
+    C0 (U+0000-001F), DEL (U+007F) and C1 (U+0080-009F) control character,
+    plus the zero-width/bidi-override code points in
+    `_ZERO_WIDTH_AND_BIDI`, is removed outright."""
+    out = []
+    for ch in text:
+        cp = ord(ch)
+        if ch in ("\t", "\n"):
+            out.append(" ")
+        elif cp <= 0x1F or cp == 0x7F or 0x80 <= cp <= 0x9F:
+            continue
+        elif cp in _ZERO_WIDTH_AND_BIDI:
+            continue
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
+def _sanitise_text(value: str) -> tuple[str, str | None]:
+    """Clean one string VALUE kept anywhere in a tool's masked output tree.
+
+    Returns `(cleaned_value, reason)`. `reason` is `None` when nothing
+    changed, `"instruction_like"` when the whole string was replaced by
+    `_INSTRUCTION_MARKER`, or `"sanitised"` for a lesser change (control
+    characters stripped, whitespace collapsed, or the 1000-character cap
+    applied). The reason is used only for counting and logging, never
+    anything user-visible, and the removed/original text itself is never
+    logged."""
+    cleaned = _strip_control_and_bidi(value)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+
+    if _INSTRUCTION_RE.search(cleaned):
+        return _INSTRUCTION_MARKER, "instruction_like"
+
+    changed = cleaned != value
+    if len(cleaned) > _MAX_TEXT_LEN:
+        cleaned = cleaned[:_MAX_TEXT_LEN] + _TRUNCATION_SUFFIX
+        changed = True
+
+    return cleaned, ("sanitised" if changed else None)
 
 # Removed by key name, anywhere in the tree, for every tool.
 _SENSITIVE_KEYS = {
@@ -73,7 +190,7 @@ def _is_transaction_shaped(item) -> bool:
     return has_name and "amount" in item and "date" in item
 
 
-def _walk(node, tool_name: str, dropped: list, parent_key: str | None):
+def _walk(node, tool_name: str, dropped: list, sanitised: list, parent_key: str | None):
     if isinstance(node, dict):
         extra_drop = _TOOL_DROP_KEYS.get(tool_name, ())
         nested_drop = _TOOL_NESTED_DROPS.get(tool_name, ())
@@ -92,32 +209,53 @@ def _walk(node, tool_name: str, dropped: list, parent_key: str | None):
             if isinstance(value, list) and value and all(_is_transaction_shaped(v) for v in value):
                 dropped.append(key)
                 continue
-            out[key] = _walk(value, tool_name, dropped, key)
+            out[key] = _walk(value, tool_name, dropped, sanitised, key)
         return out
     if isinstance(node, list):
-        return [_walk(item, tool_name, dropped, parent_key) for item in node]
+        return [_walk(item, tool_name, dropped, sanitised, parent_key) for item in node]
+    if isinstance(node, str):
+        cleaned, reason = _sanitise_text(node)
+        if reason is not None:
+            sanitised.append(reason)
+            if reason == "instruction_like":
+                # A removal, not just a cosmetic clean-up: worth a WARNING
+                # of its own so it's visible without grepping for the INFO
+                # summary line below. Never logs the text itself.
+                logger.warning(
+                    "mcp_mask: tool=%s removed instruction-like text from a kept string",
+                    tool_name,
+                )
+        return cleaned
     return node
 
 
 def mask_output_and_count(tool_name: str, result):
     """Recursively apply every masking rule to `result` (a tool's raw
-    `execute_tool` return value). Returns `(masked_result, dropped_count)`;
-    the count (never the dropped values) feeds the per-call audit doc's
-    `dropped_keys` field and is logged here at INFO alongside the key
-    NAMES dropped (still never their values)."""
+    `execute_tool` return value). Returns `(masked_result, dropped_count,
+    sanitised_count)`; `dropped_count` (never the dropped values) feeds the
+    per-call audit doc's `dropped_keys` field, `sanitised_count` feeds its
+    `sanitised` field (A91), and both are logged here at INFO alongside the
+    key NAMES / change reasons (still never any actual string content)."""
     dropped: list = []
-    masked = _walk(result, tool_name, dropped, None)
+    sanitised: list = []
+    masked = _walk(result, tool_name, dropped, sanitised, None)
     if dropped:
         logger.info(
             "mcp_mask: tool=%s dropped=%d keys=%s",
             tool_name, len(dropped), sorted(set(dropped)),
         )
-    return masked, len(dropped)
+    if sanitised:
+        logger.info(
+            "mcp_mask: tool=%s sanitised=%d reasons=%s",
+            tool_name, len(sanitised), sorted(set(sanitised)),
+        )
+    return masked, len(dropped), len(sanitised)
 
 
 def mask_output(tool_name: str, result) -> dict:
     """Public entry point per the F3 spec's exact signature. Callers that
-    also need the dropped-key count for the audit doc (`app/routers/mcp.py`)
-    should call `mask_output_and_count` directly instead."""
-    masked, _dropped = mask_output_and_count(tool_name, result)
+    also need the dropped-key/sanitised counts for the audit doc
+    (`app/routers/mcp.py`) should call `mask_output_and_count` directly
+    instead."""
+    masked, _dropped, _sanitised = mask_output_and_count(tool_name, result)
     return masked

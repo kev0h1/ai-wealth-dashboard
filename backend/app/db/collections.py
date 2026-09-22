@@ -318,6 +318,18 @@ response_cache_col      = db["response_cache"]
 # and (ts) for time-boxed debugging queries.
 llm_usage_col           = db["llm_usage"]
 
+# A80: service-wide monthly OpenRouter call ceiling (see app/core/config.py's
+# LLM_GLOBAL_MONTHLY_CALL_CEILING and app/core/llm.py's openrouter_chat,
+# which is the only writer). One doc per calendar month, `_id` = "YYYY-MM":
+# {count (calls attempted this month while the ceiling was enabled),
+# warned_80 (bool, set once usage first crosses 80% of the ceiling so the
+# warning log fires once per month)}. Deliberately carries no `user_id`
+# field and no uid-shaped `_id`, so app.services.retention.erase_user's
+# dir()-based `*_col` sweep (delete_many on user_id or _id) never matches
+# it — this is service-wide usage, not any one user's data. Tiny (one doc
+# per month), no TTL needed.
+llm_global_usage_col    = db["llm_global_usage"]
+
 # F3: audit log for the /mcp read connector (app/routers/mcp.py), one doc
 # per `tools/call`, ok or not: {user_id, client ("session" until F2's OAuth
 # server introduces real per-token clients), tool, ok, ts, year_month,

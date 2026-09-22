@@ -21,6 +21,13 @@ OPENROUTER_API_KEY  = os.getenv("OPENROUTER_API_KEY", "")
 # "data_collection": "deny" restricts routing to upstream providers that do
 # not retain or train on submitted prompts (regulatory commitment — see SECURITY.md).
 OPENROUTER_PROVIDER_PREFS = {"data_collection": "deny"}
+# A80 (pentest LLM-07): service-wide monthly ceiling on OpenRouter calls,
+# on top of (never instead of) the per-user allowances in core/subscription.py.
+# Counts CALLS, not dollars, because that is what's already metered per user
+# (app.core.llm.monthly_usage) — see app/core/llm.py's openrouter_chat for
+# where this is enforced. 0 (default) means disabled: no counter write, no
+# ceiling. See docs/ops/ENV.md for the recommended production value.
+LLM_GLOBAL_MONTHLY_CALL_CEILING = int(os.getenv("LLM_GLOBAL_MONTHLY_CALL_CEILING", "0"))
 TAVILY_API_KEY      = os.getenv("TAVILY_API_KEY", "")
 LOGODEV_TOKEN       = os.getenv("LOGODEV_TOKEN", "")
 APP_URL             = os.getenv("APP_URL", "https://wealth.auriqltd.co.uk")
@@ -107,6 +114,19 @@ def mask_email(email: str) -> str:
     except Exception:
         return "***"
 REDIS_URL           = os.getenv("REDIS_URL", "redis://localhost:6379")
+
+# ── Rate limiting / proxy trust ─────────────────────────────────────────────
+# A92: the number of trusted reverse-proxy hops in front of this app that
+# themselves append the real client address to X-Forwarded-For (a proxy the
+# operator controls, not anything a caller can influence). app.core.ratelimit
+# .client_ip() uses this to pick the right entry from the right-hand end of
+# the header instead of trusting whatever a caller supplies. 0 (the default)
+# means "trust no forwarded header at all, use the raw socket peer address"
+# — the safe default: it can only under-differentiate clients sharing one
+# proxy (they'd share one rate-limit bucket), it can never let a client pick
+# its own bucket and dodge a limit, unlike trusting a caller-supplied header.
+# See docs/ops/ENV.md for the value each environment should actually set.
+TRUSTED_PROXY_HOPS  = int(os.getenv("TRUSTED_PROXY_HOPS", "0"))
 
 # ── Auth ─────────────────────────────────────────────────────────────────────
 # A28 (2026-09-14): BOT_SECRET (a single static shared secret that
