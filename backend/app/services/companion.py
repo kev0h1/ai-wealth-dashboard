@@ -1501,19 +1501,40 @@ def _home_item_suppressed(kind: str) -> bool:
 # exclusion. Same principle as the clamped anchor, which narrows "than three
 # months ago" to "over the last three months".
 #
-# The one hard guard is `trend_3m_months < 1`: the anchor and the latest
-# month-end are the same month, so every per-card delta is zero by
-# construction. That is not a flat reading, it is no reading — and because
-# every delta is zero, `trend_3m` is zero and `history["rising"]` is
-# necessarily False there. So `trend == "rising"` is exactly
+# Two hard guards sit ahead of the direction, and both are narrow:
+#   · `trend_3m_months < 1` — the anchor and the latest month-end are the
+#     same month, so every per-card delta is zero by construction. That is
+#     not a flat reading, it is no reading, and because every delta is zero
+#     `trend_3m` is zero and `history["rising"]` is necessarily False there.
+#   · `trend_3m_read_carried_cards < 1` on the scoped path — nothing that
+#     currently carries a balance was read, so the movement belongs entirely
+#     to cards the rest of this card never names, beside a carried total made
+#     up of the one balance just excluded. A card with no balance left can
+#     only ever contribute a FALL, so a rising reading survives this except
+#     in one shape: a balance that rose inside the window and was cleared
+#     afterwards, where "going up" is stale anyway.
+# So outside that one documented shape, `trend == "rising"` is exactly
 # `trend_3m > HISTORY_RISING_EPS`, which is exactly `history["rising"]`, the
-# flag that forces the "bad" verdict this card is gated on: the card can
-# never answer that verdict with "there isn't enough card history".
-# `trend_3m_months` is REQUIRED, with no fall back to `len(points)` — points
-# counts monthly-cleared float cards that are not in `trend_3m` at all, so a
-# float card with a year of history would silently turn a carried card's
-# one-month rise into a three-month one. A plan cached before the field
-# existed fails safe by stating no direction.
+# flag that forces the "bad" verdict this card is gated on.
+#
+# `trend_3m_months` and `trend_3m_read_carried_cards` are both REQUIRED, with
+# no fall back to `len(points)` or to `n_cards - uncovered`. `points` counts
+# monthly-cleared floats and settled cards that are not in `trend_3m` at all,
+# and `uncovered` counts only MATERIAL carried cards, so either substitute
+# would silently mix populations — a float or long-settled card with a year
+# of history turning a one-month rise into a three-month one, or one read
+# card rendering as "the cards with history". A plan cached before these
+# fields existed fails safe by stating no direction.
+#
+# POPULATIONS. Every figure on this card describes cards with debt above
+# zero that are not monthly-cleared floats ("your cards"), or says which
+# narrower set it means. `carried_total`/`n_cards`/`solo_name` and the
+# per-card interest sum all use exactly that set; `material` (the same set
+# above £50) is used only where materiality is the point, for promo-cliff
+# detection, the missing-rate note and the uncovered-card guard. The movement
+# population deliberately differs by ONE rule: it also includes a card paid
+# off to zero INSIDE the window, because £3,000 cleared is the best news this
+# card can carry, and excludes one settled throughout, whose delta is zero.
 #
 # When no direction is stated the card still never falls back to leading on
 # the carried total: it leads on the monthly interest if there is one, and
@@ -1618,7 +1639,11 @@ def trajectory_copy(plan: dict, today: date) -> dict:
     carried_zero = float(buckets.get("carried_zero") or 0.0)
     carried_interest = float(buckets.get("carried_interest") or 0.0)
     carried_unclear = float(buckets.get("unclear") or 0.0)
-    monthly_interest = float(totals.get("monthly_interest_now") or 0.0)
+    # NOT `totals["monthly_interest_now"]`: that sums every credit card,
+    # including monthly-cleared floats and cards with no balance left. This
+    # figure is stated beside "£X is carried across N cards", so it has to
+    # describe that same population.
+    monthly_interest = sum(float(c.get("monthly_interest_now") or 0.0) for c in carried_cards)
     debt_free_month = totals.get("debt_free_month")
 
     # ── what the balance is costing, as three states not two ──────────────
@@ -1642,8 +1667,15 @@ def trajectory_copy(plan: dict, today: date) -> dict:
     uncovered = int(history.get("trend_3m_uncovered_cards") or 0)
     window_months = history.get("trend_3m_months")
     window_months = -1 if window_months is None else int(window_months)
+    # How many of the cards that carry a balance today produced a reading.
+    # Straight from the engine, never `n_cards - uncovered`: `uncovered`
+    # counts MATERIAL carried cards only, so subtracting it from a count that
+    # includes sub-material ones mixes two populations. Required, like
+    # `trend_3m_months`; a plan cached before it existed fails safe.
+    read_cards = history.get("trend_3m_read_carried_cards")
+    read_cards = -1 if read_cards is None else int(read_cards)
 
-    if window_months < 1:
+    if read_cards < 0 or window_months < 1:
         trend = "unknown"
     elif trend_value > HISTORY_RISING_EPS:
         trend = "rising"
@@ -1656,12 +1688,22 @@ def trajectory_copy(plan: dict, today: date) -> dict:
 
     # A stated direction whose figure only covers the cards that were read.
     scoped = trend in ("rising", "falling") and uncovered > 0
-    read_cards = max(1, n_cards - uncovered)
+    # ... and with nothing read that still carries a balance there is no
+    # subject for that sentence: the movement would be attributed to cards
+    # the rest of the card never names, beside a carried total made up
+    # entirely of the balance just excluded. Say nothing instead. A RISING
+    # reading essentially always survives this, because a card with no
+    # balance left can only contribute a fall; the one exception is a
+    # balance that rose inside the window and was then cleared, where
+    # "going up" would be stale anyway.
+    if scoped and read_cards < 1:
+        trend = "unknown"
+        scoped = False
 
     cliff = _traj_promo_cliff(material)
 
     if scoped:
-        subject = "The card with history is" if read_cards == 1 else "The cards with history are"
+        subject = "The card with history is" if read_cards == 1 else "The cards with history are"  # read_cards >= 1 here
     else:
         subject = "Your card is" if n_cards == 1 else "Your cards are"
     them = "it" if n_cards == 1 else "them"
@@ -1765,18 +1807,28 @@ def trajectory_copy(plan: dict, today: date) -> dict:
 
     # ── why a reading is missing or narrowed ──────────────────────────────
     if uncovered > 0:
+        # `uncovered` decides WHETHER to caveat (material cards only, so a
+        # £20 scrap cannot blank a reading); the count itself spans every
+        # carried card, the same population as `n_cards` and the subject, so
+        # the sentence cannot under-report what is missing.
+        unread = max(uncovered, n_cards - max(0, read_cards))
         body_parts.append(
-            f"{uncovered} card{'s have' if uncovered > 1 else ' has'} no transaction history yet,"
-            f" so {'they are' if uncovered > 1 else 'it is'} not counted."
+            f"{unread} card{'s have' if unread > 1 else ' has'} no transaction history yet,"
+            f" so {'they are' if unread > 1 else 'it is'} not counted."
         )
     if trend == "unknown" and window_months < 1:
         body_parts.append(
             "The direction needs at least one completed month of card history behind it."
         )
     elif partial > 0:
+        # Deliberately names no window of its own. The lead may say "over the
+        # last month", and "less than three months of history" would leave
+        # the reader with a three-month frame the card never claimed — and
+        # would be false besides, since a card clamped to a one-month window
+        # does have a month of history.
         body_parts.append(
-            f"{partial} card{'s have' if partial > 1 else ' has'} less than three months of history,"
-            f" so {'they are' if partial > 1 else 'it is'} counted from where that history starts."
+            f"{partial} card{'s are' if partial > 1 else ' is'} counted from the start of"
+            f" {'their' if partial > 1 else 'its'} own history, not the full window."
         )
 
     no_rate_count = sum(1 for c in material if (c.get("flags") or {}).get("terms_missing"))

@@ -41,6 +41,7 @@ def _card(
     balance_at_first_interest=None,
     rate_schedule=None,
     terms_missing=False,
+    monthly_interest_now=0.0,
 ):
     """One `plan["cards"]` entry, trimmed to the fields the copy reads."""
     return {
@@ -48,6 +49,7 @@ def _card(
         "name": name,
         "debt": debt,
         "classification": classification,
+        "monthly_interest_now": monthly_interest_now,
         "movement": {"monthly": 0.0, "per_period": [], "periods_used": 0},
         "rate_schedule": rate_schedule or [],
         "first_interest_month": first_interest_month,
@@ -68,12 +70,23 @@ def _plan(
     partial_cards=0,
     uncovered_cards=0,
     window_months=None,
+    read_carried_cards=None,
 ):
     if window_months is None:
         # What `_compute_history` reports for cards whose anchors all reach
         # the full three-month mark: min(3, completed months - 1).
         window_months = max(0, min(3, history_months - 1))
     carried = [c for c in cards if c["classification"] != "cleared_monthly"]
+    if read_carried_cards is None:
+        # Every carried card was read, unless the caller says otherwise.
+        read_carried_cards = max(0, len([c for c in carried if c["debt"] > 0]) - uncovered_cards)
+    if monthly_interest:
+        # The copy sums this PER CARD, over cards that carry a balance, so a
+        # fixture that only set the portfolio total would exercise nothing.
+        targets = [c for c in carried if c["classification"] == "carried_interest"] or \
+            [c for c in carried if c["debt"] > 0]
+        assert targets, "monthly_interest with no carried card to attribute it to"
+        targets[0]["monthly_interest_now"] = monthly_interest
 
     def by_class(k):
         return round(sum(c["debt"] for c in cards if c["classification"] == k), 2)
@@ -108,6 +121,7 @@ def _plan(
             "trend_3m_partial_cards": partial_cards,
             "trend_3m_uncovered_cards": uncovered_cards,
             "trend_3m_months": window_months,
+            "trend_3m_read_carried_cards": read_carried_cards,
             "rising": trend_3m > 1.0,
             "assumptions": [],
         },
@@ -287,15 +301,18 @@ def test_a_short_but_real_window_still_states_the_direction(months):
 
 @pytest.mark.parametrize(
     "partial, uncovered",
-    [(0, 0), (1, 0), (0, 1), (2, 3)],
+    # Coherent shapes only: `_zero_only_cards()` has two carried cards, so
+    # at most one can be unread while one is still read.
+    [(0, 0), (1, 0), (0, 1), (2, 1)],
 )
 @pytest.mark.parametrize("trend_3m", [2000.0, -2000.0, 1.01, -1.01])
 def test_a_non_zero_reading_is_never_suppressed_by_any_guard(trend_3m, partial, uncovered):
     """The claim the doctrine comment makes, asserted rather than assumed:
-    with a real window behind it, `trend == "rising"` is exactly
-    `history["rising"]`. Clamped anchors and unread cards narrow the WORDS,
-    they never take the direction away, so the card can never answer a
-    "bad" verdict the engine derived from `rising` with "I can't tell"."""
+    with a real window behind it and at least one card that both carries a
+    balance and was read, `trend == "rising"` is exactly `history["rising"]`.
+    Clamped anchors and unread cards narrow the WORDS, they never take the
+    direction away, so the card cannot answer a "bad" verdict the engine
+    derived from `rising` with "there isn't enough card history"."""
     plan = _plan(
         trend_3m=trend_3m, cards=_zero_only_cards(),
         partial_cards=partial, uncovered_cards=uncovered,
@@ -474,7 +491,7 @@ def test_a_full_three_month_window_keeps_the_point_in_time_wording():
         TODAY,
     )
     assert copy["brief_lead"]["companion"] == "more owed than three months ago"
-    assert "less than three months of history" not in copy["body"]
+    assert "start of its own history" not in copy["body"]
 
 
 def test_a_clamped_anchor_drops_the_point_in_time_claim_and_says_why():
@@ -486,10 +503,7 @@ def test_a_clamped_anchor_drops_the_point_in_time_claim_and_says_why():
         TODAY,
     )
     assert copy["brief_lead"]["companion"] == "more owed over the last three months"
-    assert (
-        "1 card has less than three months of history, so it is counted from where that history starts."
-        in copy["body"]
-    )
+    assert "1 card is counted from the start of its own history, not the full window." in copy["body"]
 
 
 def test_a_clamped_anchor_narrows_the_falling_wording_too_and_pluralises():
@@ -498,10 +512,7 @@ def test_a_clamped_anchor_narrows_the_falling_wording_too_and_pluralises():
         TODAY,
     )
     assert copy["brief_lead"]["companion"] == "less owed over the last three months"
-    assert (
-        "2 cards have less than three months of history, so they are counted from where that history starts."
-        in copy["body"]
-    )
+    assert "2 cards are counted from the start of their own history, not the full window." in copy["body"]
 
 
 def test_a_zero_delta_over_a_partly_observed_window_is_not_called_steady():
@@ -747,7 +758,7 @@ def test_a_float_card_never_destroys_a_complete_flat_reading():
     copy = companion.trajectory_copy(plan, TODAY)
     assert copy["trend"] == "flat"
     assert copy["headline"] == "Your cards are holding steady, not coming down."
-    assert "less than three months of history" not in copy["body"]
+    assert "start of its own history" not in copy["body"]
 
 
 def _one_young_carried_card():
@@ -846,6 +857,233 @@ def test_the_reviewers_unsynced_card_case_states_the_direction_it_can_see():
     assert "isn't enough card history" not in copy["headline"]
     assert copy["brief_lead"]["value"] == "£3,000"
     assert "1 card has no transaction history yet" in copy["body"]
+
+
+# ── A card with no balance is not one of "your cards" either ─────────────────
+#
+# Round three stopped monthly-cleared FLOAT cards leaking into the window.
+# A £0-debt card is not a float — `_classify_card` rule 1 returns
+# classification None — so it passed that guard while being excluded from
+# `carried_cards`, `carried_total` and `n_cards`, all of which need debt > 0.
+
+def _mbna_young():
+    """One carried card, history from 15 Jul 2026, £900 added 20 Aug."""
+    txns = [
+        {"date": date(2026, 7, 15), "amount": 30.0, "transaction_type": "debit"},
+        {"date": date(2026, 8, 20), "amount": 900.0, "transaction_type": "debit"},
+    ]
+    return {"_id": "mbna", "name": "MBNA", "balance": -2000.0}, txns
+
+
+def test_a_long_paid_off_card_does_not_widen_the_named_window():
+    """REGRESSION, the float leak with a £0-debt card substituted in."""
+    from app.services.debt_plan import _compute_history
+
+    card, txns = _mbna_young()
+    alone = _compute_history(TODAY, txns, {"mbna": txns}, [card])
+    assert alone["trend_3m_months"] == 1
+
+    # Settled long before the window, and £0 ever since.
+    old = [{"date": date(2025, 9, 25), "amount": 400.0, "transaction_type": "debit"}]
+    with_paid_off = _compute_history(
+        TODAY,
+        txns + old,
+        {"mbna": txns, "settled": old},
+        [card, {"_id": "settled", "name": "Halifax", "balance": 0.0}],
+    )
+    assert with_paid_off["trend_3m"] == 900.0
+    assert with_paid_off["trend_3m_months"] == 1, "a £0-debt card widened the carried window"
+    assert with_paid_off["trend_3m_partial_cards"] == 1  # MBNA only
+
+
+def test_a_long_paid_off_card_does_not_change_the_lead_either():
+    from app.services.debt_plan import _compute_history
+
+    card, txns = _mbna_young()
+    old = [{"date": date(2025, 9, 25), "amount": 400.0, "transaction_type": "debit"}]
+    leads = []
+    for history in (
+        _compute_history(TODAY, txns, {"mbna": txns}, [card]),
+        _compute_history(
+            TODAY, txns + old, {"mbna": txns, "settled": old},
+            [card, {"_id": "settled", "name": "Halifax", "balance": 0.0}],
+        ),
+    ):
+        plan = _plan(trend_3m=history["trend_3m"], cards=[
+            _card(account_id="mbna", name="MBNA", debt=2000.0, classification="carried_zero"),
+        ])
+        plan["history"] = history
+        leads.append(companion.trajectory_copy(plan, TODAY)["brief_lead"])
+    assert leads[0] == leads[1] == {"value": "£900", "companion": "more owed over the last month"}
+
+
+def test_a_card_paid_off_DURING_the_window_still_counts_towards_it():
+    """The naive fix (require debt > 0 now) would erase the best news there
+    is: a card cleared inside the window is £N less owed, and the window it
+    was observed over is real."""
+    from app.services.debt_plan import _compute_history
+
+    txns = [
+        {"date": date(2025, 9, 25), "amount": 20.0, "transaction_type": "debit"},
+        # Cleared inside the window, between the anchor and the latest
+        # completed month-end.
+        {"date": date(2026, 7, 10), "amount": 3000.0, "transaction_type": "credit"},
+    ]
+    history = _compute_history(
+        TODAY, txns, {"settled": txns}, [{"_id": "settled", "name": "Halifax", "balance": 0.0}],
+    )
+    assert history["trend_3m"] == -3000.0
+    assert history["trend_3m_months"] == 3
+
+
+def test_compute_history_reports_how_many_carried_cards_were_read():
+    from app.services.debt_plan import _compute_history
+
+    seen = [{"date": date(2025, 10, 1), "amount": 100.0, "transaction_type": "debit"}]
+    accounts = [
+        {"_id": "bc", "name": "Barclaycard", "balance": -2000.0},     # carried, read
+        {"_id": "hfx", "name": "Halifax", "balance": -900.0},         # carried, unread
+        {"_id": "settled", "name": "MBNA", "balance": 0.0},           # no balance
+        {"_id": "amex", "name": "Amex", "balance": -400.0},           # float
+    ]
+    history = _compute_history(
+        TODAY, seen, {"bc": seen, "hfx": [], "settled": seen, "amex": seen},
+        accounts, float_account_ids={"amex"},
+    )
+    assert history["trend_3m_read_carried_cards"] == 1
+
+
+# ── The scoped seam must not attribute the hero to an invisible card ─────────
+
+def test_a_reading_owned_entirely_by_cards_with_no_balance_is_not_attributed():
+    """REGRESSION: a paid-off card supplied the whole −£3,000 while the only
+    card with a balance was unread, so the card said "The card with history
+    is coming down" over an EMPTY set, named £8,000 on the card it had just
+    excluded, and attributed the £3,000 to nothing."""
+    from app.services.debt_plan import _compute_history
+
+    settled = [
+        {"date": date(2025, 9, 25), "amount": 20.0, "transaction_type": "debit"},
+        {"date": date(2026, 7, 10), "amount": 3000.0, "transaction_type": "credit"},
+    ]
+    accounts = [
+        {"_id": "settled", "name": "Halifax", "balance": 0.0},
+        {"_id": "mbna", "name": "MBNA", "balance": -8000.0},
+    ]
+    history = _compute_history(TODAY, settled, {"settled": settled, "mbna": []}, accounts)
+    assert history["trend_3m"] == -3000.0
+    assert history["trend_3m_uncovered_cards"] == 1
+    assert history["trend_3m_read_carried_cards"] == 0
+
+    plan = _plan(trend_3m=history["trend_3m"], cards=[
+        _card(account_id="mbna", name="MBNA", debt=8000.0, classification="unclear"),
+    ])
+    plan["history"] = history
+    copy = companion.trajectory_copy(plan, TODAY)
+    assert copy["trend"] == "unknown"
+    assert "The card with history" not in copy["headline"]
+    assert "coming down" not in copy["headline"]
+    assert copy["brief_lead"] is None
+    assert "1 card has no transaction history yet" in copy["body"]
+
+
+def test_the_scoped_subject_is_never_an_empty_set_rendered_as_singular():
+    """`max(1, n_cards - uncovered)` made zero read cards render as one."""
+    copy = companion.trajectory_copy(
+        _plan(
+            trend_3m=-3000.0, cards=_mixed_cards(),
+            uncovered_cards=2, read_carried_cards=0,
+        ),
+        TODAY,
+    )
+    assert copy["trend"] == "unknown"
+    assert "The card with history" not in copy["headline"]
+    assert "The cards with history" not in copy["headline"]
+
+
+def test_a_rising_reading_owned_only_by_cards_with_no_balance_is_also_suppressed():
+    """The one documented exception to the rising equivalence. A card with
+    no balance left can normally only contribute a FALL, so this needs a
+    balance that rose inside the window and was cleared afterwards — where
+    "your cards are going up" would be stale anyway."""
+    copy = companion.trajectory_copy(
+        _plan(
+            trend_3m=2000.0, cards=_mixed_cards(),
+            uncovered_cards=2, read_carried_cards=0,
+        ),
+        TODAY,
+    )
+    assert copy["trend"] == "unknown"
+    assert "going up" not in copy["headline"]
+
+
+def test_a_scoped_reading_with_a_real_read_card_still_states_the_direction():
+    """The round-three behaviour the reviewer endorsed, unchanged."""
+    copy = companion.trajectory_copy(
+        _plan(trend_3m=412.0, cards=_mixed_cards(), monthly_interest=38.0, uncovered_cards=1),
+        TODAY,
+    )
+    assert copy["trend"] == "rising"
+    assert copy["headline"].startswith("The card with history is going up, not down")
+
+
+def test_the_scoped_plural_counts_only_the_cards_that_were_read():
+    """`read_cards = n_cards - uncovered` mixed populations: `uncovered`
+    counts MATERIAL cards only, `n_cards` counts every carried one. One read
+    card plus two unread rendered as "The cards with history"."""
+    cards = [
+        _card(account_id="bc", name="Barclaycard", debt=4000.0, classification="carried_zero"),
+        _card(account_id="hfx", name="Halifax", debt=900.0, classification="carried_zero"),
+        _card(account_id="san", name="Santander", debt=20.0, classification="carried_zero"),
+    ]
+    copy = companion.trajectory_copy(
+        _plan(trend_3m=412.0, cards=cards, uncovered_cards=1, read_carried_cards=1),
+        TODAY,
+    )
+    assert copy["headline"].startswith("The card with history is going up, not down")
+    assert "2 cards have no transaction history yet, so they are not counted." in copy["body"]
+
+
+def test_the_read_count_is_required_and_its_absence_states_no_direction():
+    plan = _plan(trend_3m=412.0, cards=_zero_only_cards())
+    del plan["history"]["trend_3m_read_carried_cards"]
+    assert companion.trajectory_copy(plan, TODAY)["trend"] == "unknown"
+
+
+# ── The caveat must not name a window the card never claimed ─────────────────
+
+@pytest.mark.parametrize("months, window", [(2, "the last month"), (3, "the last two months")])
+def test_the_short_history_caveat_names_no_window_of_its_own(months, window):
+    copy = companion.trajectory_copy(
+        _plan(trend_3m=412.0, cards=_mixed_cards(), monthly_interest=38.0,
+              history_months=months, partial_cards=1),
+        TODAY,
+    )
+    assert copy["brief_lead"]["companion"] == f"more owed over {window}"
+    assert "three months of history" not in copy["body"]
+    assert "1 card is counted from the start of its own history, not the full window." in copy["body"]
+
+
+# ── The interest figure describes the same cards as the balance figure ───────
+
+def test_the_interest_figure_counts_only_cards_that_carry_a_balance():
+    """`totals["monthly_interest_now"]` sums every credit card, including
+    monthly-cleared floats and cards with no balance. The card states it
+    beside "£X is carried across N cards", so it has to describe that same
+    population."""
+    cards = [
+        _card(account_id="bc", name="Barclaycard", debt=4000.0,
+              classification="carried_interest", monthly_interest_now=30.0),
+        _card(account_id="amex", name="Amex", debt=600.0,
+              classification="cleared_monthly", monthly_interest_now=9.0),
+        _card(account_id="settled", name="MBNA", debt=0.0,
+              classification=None, monthly_interest_now=7.0),
+    ]
+    plan = _plan(trend_3m=412.0, cards=cards)
+    plan["totals"]["monthly_interest_now"] = 46.0   # what the engine reports overall
+    copy = companion.trajectory_copy(plan, TODAY)
+    assert "about £30 a month" in copy["body"]
+    assert "£46" not in copy["body"]
 
 
 # ── An immaterial ambiguity does not flip the whole card ─────────────────────

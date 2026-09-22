@@ -1101,6 +1101,7 @@ def _compute_history(
             "trend_3m_partial_cards": 0,
             "trend_3m_uncovered_cards": 0,
             "trend_3m_months": 0,
+            "trend_3m_read_carried_cards": 0,
             "rising": False,
             "assumptions": ["no card transaction history found, debt history cannot be shown"],
         }
@@ -1155,8 +1156,19 @@ def _compute_history(
     # spans. `points` cannot answer this, because it counts every card
     # including the monthly-cleared floats `trend_3m` excludes — a float card
     # with a year of history would otherwise turn a carried card's one-month
-    # rise into a three-month one.
+    # rise into a three-month one. Nor is "not a float" enough: a card with
+    # no balance has `classification = None` (rule 1 of `_classify_card`), so
+    # it is not a float either, yet it is outside `carried_total` and the
+    # card's own idea of "your cards". The population below is every card
+    # that HELD a balance at either end of its own window — which keeps a
+    # card paid off INSIDE the window (genuine progress, a real delta over a
+    # real span) and drops one that has been settled throughout (a zero
+    # delta that would otherwise widen the window for free).
     carried_spans: list[int] = []
+    # How many of the cards that carry a balance TODAY produced a reading.
+    # Zero means nothing the user currently owes was observed, so a movement
+    # figure cannot be attributed to any balance the card names.
+    read_carried_cards = 0
     _float_ids = float_account_ids or set()
 
     # G103: a carried card that contributes NO delta at all (no transactions,
@@ -1173,6 +1185,11 @@ def _compute_history(
         if str(account["_id"]) in _float_ids:
             return False
         return max(0.0, -float(account.get("balance") or 0.0)) >= MATERIAL_BALANCE
+
+    def _carries_a_balance_now(account: dict) -> bool:
+        if str(account["_id"]) in _float_ids:
+            return False
+        return max(0.0, -float(account.get("balance") or 0.0)) > 0
 
     for acc in cc_accounts:
         aid = str(acc["_id"])
@@ -1217,12 +1234,15 @@ def _compute_history(
         debt_at_a = _debt_at_m(a_end)
         delta = debt_at_L - debt_at_a
         all_trend_deltas.append(delta)
-        if aid not in _float_ids:
+        if _carries_a_balance_now(acc):
+            read_carried_cards += 1
+        if aid not in _float_ids and (debt_at_L > 0 or debt_at_a > 0):
             carried_trend_deltas.append(delta)
             carried_spans.append(len(month_ends) - 1 - month_ends.index(a_end))
 
-            # Inside the float guard on purpose: a float card contributes
-            # nothing to `trend_3m`, so reporting it as a carried card with
+            # Inside the same guard on purpose: a card outside this
+            # population contributes nothing to `trend_3m` (its delta is
+            # zero by construction), so reporting it as a carried card with
             # a short history would describe one set while the figure
             # describes another.
             if clamped:
@@ -1263,6 +1283,7 @@ def _compute_history(
         # is zero by construction — not a flat reading, no reading.
         "trend_3m_uncovered_cards": uncovered_carried,
         "trend_3m_months": max(carried_spans) if carried_spans else 0,
+        "trend_3m_read_carried_cards": read_carried_cards,
         "rising": rising,
         "assumptions": assumptions,
     }
