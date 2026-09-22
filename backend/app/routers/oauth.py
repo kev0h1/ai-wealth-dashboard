@@ -429,10 +429,29 @@ async def _handle_refresh_token_grant(form) -> JSONResponse:
     token_hash = _hash(refresh_token)
     doc = await oauth_tokens_col.find_one({"_id": token_hash})
     now = datetime.now(timezone.utc)
-    if (
-        not doc or doc.get("kind") != "refresh" or doc.get("revoked_at")
-        or as_utc(doc.get("expires_at")) is None or as_utc(doc["expires_at"]) <= now
-    ):
+    if not doc or doc.get("kind") != "refresh":
+        return _oauth_error("invalid_grant")
+
+    if doc.get("revoked_at"):
+        # A74 (T4, pentest OAUTH-06): this refresh token is already dead,
+        # either because it was rotated out by an earlier legitimate
+        # redemption or because it (or a sibling) was explicitly revoked.
+        # A refresh token surfacing again after that is exactly the
+        # standard signal for token theft (RFC 9700 section 2.2.2), so the
+        # response is the standard breach response: kill the WHOLE grant,
+        # every access and refresh token descended from the same
+        # `origin_code_hash` (the stable id for this grant's lineage — set
+        # once at the original code exchange and carried through every
+        # subsequent rotation by `_issue_token_pair` below), not just this
+        # one already-dead token. This mirrors the code-reuse cascade
+        # above exactly, just keyed the same way.
+        await oauth_tokens_col.update_many(
+            {"origin_code_hash": doc.get("origin_code_hash"), "revoked_at": None},
+            {"$set": {"revoked_at": now}},
+        )
+        return _oauth_error("invalid_grant")
+
+    if as_utc(doc.get("expires_at")) is None or as_utc(doc["expires_at"]) <= now:
         return _oauth_error("invalid_grant")
     if doc.get("client_id") != client_id:
         return _oauth_error("invalid_client")
@@ -454,6 +473,24 @@ async def _handle_refresh_token_grant(form) -> JSONResponse:
     )
     if claimed is None:
         return _oauth_error("invalid_grant")
+
+    # A74 (T4, pentest OAUTH-06): cascade-revoke the access token minted
+    # alongside the refresh token we just rotated out — same `pair_id` as
+    # the refresh token being retired. Before this, that sibling access
+    # token stayed live until its own TTL even though its refresh token
+    # was already dead, which is exactly what OAUTH-06 caught (access1
+    # still returning 200 at /mcp right after refresh1 was rotated out).
+    # This only needs to reach the immediate sibling pair, not the whole
+    # grant: normal rotation keeps exactly one live pair per grant at a
+    # time, each rotation having already retired the one before it, so
+    # cascading pair-by-pair keeps that invariant. This update runs
+    # immediately after the atomic claim above, in the same request, so a
+    # caller racing the refresh can keep using the old access token for at
+    # most the one in-flight round trip, never longer.
+    await oauth_tokens_col.update_many(
+        {"pair_id": claimed.get("pair_id"), "kind": "access", "revoked_at": None},
+        {"$set": {"revoked_at": now}},
+    )
 
     client = await oauth_clients_col.find_one({"_id": client_id})
     client_name = client.get("client_name") if client else client_id

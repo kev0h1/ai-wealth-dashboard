@@ -404,11 +404,46 @@ async def set_account_rate(account_id: str, body: dict, user: dict = Depends(cur
 
 @router.get("/connections")
 async def list_connections(user: dict = Depends(current_user)):
-    conns  = await connections_col.find(
-        {"user_id": user["email"]}, {"access_token": 0, "refresh_token": 0}
+    """List every live connection for this user across both providers
+    (A83: this previously queried connections_col only, so a Finexer-only
+    user got back []. See list_accounts/sync_all above for the same
+    both-providers pattern this mirrors)."""
+    uid = user["email"]
+
+    conns = await connections_col.find(
+        {"user_id": uid}, {"access_token": 0, "refresh_token": 0}
     ).to_list(None)
     result = []
     for c in conns:
-        account_count = await accounts_col.count_documents({"connection_id": c["_id"]})
-        result.append({"connection_id": c["_id"], "expires_at": c.get("expires_at"), "accounts": account_count})
+        account_count = await accounts_col.count_documents({"connection_id": c["_id"], "user_id": uid})
+        # TrueLayer connections carry no explicit status field — `needs_reauth`
+        # (set by truelayer_sync.py when a refresh fails) is the only signal,
+        # so derive a status string from it rather than storing a new field.
+        status = "needs_reauth" if c.get("needs_reauth") else "authorized"
+        result.append({
+            "connection_id": c["_id"],
+            "provider": "truelayer",
+            "status": status,
+            # consent_expires_at is the bank consent expiry (what retention.py's
+            # sweep reads); plain "expires_at" is the OAuth access-token expiry,
+            # refreshed hourly by truelayer_sync.py, so using it here would make
+            # this key mean something different per provider.
+            "expires_at": c.get("consent_expires_at"),
+            "accounts": account_count,
+        })
+
+    fx_consents = await _finexer_consents_col.find(
+        {"user_id": uid},
+        {"access_token": 0, "refresh_token": 0, "secret": 0, "token": 0},
+    ).to_list(None)
+    for fc in fx_consents:
+        account_count = await accounts_col.count_documents({"connection_id": fc["_id"], "user_id": uid})
+        result.append({
+            "connection_id": fc["_id"],
+            "provider": "finexer",
+            "status": fc.get("status"),
+            "expires_at": fc.get("expiry_date"),
+            "accounts": account_count,
+        })
+
     return result

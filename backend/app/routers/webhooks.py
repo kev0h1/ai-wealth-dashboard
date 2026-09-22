@@ -52,7 +52,7 @@ async def _enqueue(task: str, **kwargs):
 
 @truelayer_router.post("/truelayer/{secret}", status_code=200)
 async def truelayer_webhook(secret: str, request: Request):
-    if secret != TRUELAYER_WEBHOOK_SECRET:
+    if not hmac.compare_digest(secret.encode("utf-8"), TRUELAYER_WEBHOOK_SECRET.encode("utf-8")):
         raise HTTPException(status_code=401, detail="Invalid token")
 
     body = await request.body()
@@ -260,7 +260,7 @@ async def finexer_webhook(secret: str, request: Request):
     never raises for unknown-but-authentic event shapes — those degrade to a
     logged "skipped"/"ignored" status and a 200, not a 5xx.
     """
-    if secret != FINEXER_WEBHOOK_SECRET:
+    if not hmac.compare_digest(secret.encode("utf-8"), FINEXER_WEBHOOK_SECRET.encode("utf-8")):
         raise HTTPException(status_code=401, detail="Invalid token")
 
     body = await request.body()

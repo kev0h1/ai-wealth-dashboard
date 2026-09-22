@@ -60,7 +60,14 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["mcp"])
 
-MCP_PROTOCOL_VERSION = "2025-06-18"
+# Version negotiation (A90/MCP-03, pentest run A53-2026-09-21): per the MCP
+# spec's negotiation rule, `initialize` echoes back the client's requested
+# version when this server supports it, else falls back to the latest
+# version it does support (the client is then expected to disconnect if it
+# can't use what comes back). Adding a new supported version is a one-line
+# change to this tuple; the latest is always its last element.
+SUPPORTED_PROTOCOL_VERSIONS = ("2025-06-18",)
+LATEST_PROTOCOL_VERSION = SUPPORTED_PROTOCOL_VERSIONS[-1]
 MCP_SERVER_NAME = "sorted"
 MCP_SERVER_VERSION = "0.1.0"
 
@@ -495,6 +502,54 @@ def _error_obj(code: int, message: str, data: dict | None = None) -> dict:
     return err
 
 
+def _negotiate_protocol_version(params: dict) -> str:
+    """A90/MCP-03: returns the protocol version to declare back to the
+    client on `initialize` — the client's own requested version if this
+    server supports it, else the latest version this server supports (the
+    MCP spec's negotiation rule; the client is expected to disconnect if it
+    can't use what comes back). A missing, non-string, or unsupported
+    request all fall back to the same latest-version branch."""
+    requested = (params or {}).get("protocolVersion")
+    if isinstance(requested, str) and requested in SUPPORTED_PROTOCOL_VERSIONS:
+        return requested
+    return LATEST_PROTOCOL_VERSION
+
+
+def _has_valid_jsonrpc_id_type(msg: dict) -> bool:
+    """JSON-RPC 2.0 allows a request `id` to be a string, a number, or
+    null; this project's own callers never send a null `id` on a real
+    request (they omit the key entirely for a notification instead), but
+    null is still spec-legal so it is accepted here, not rejected. An
+    object, array, or boolean `id` is not what the spec means by "string
+    or number" and is rejected."""
+    if "id" not in msg:
+        return True
+    msg_id = msg["id"]
+    if msg_id is None:
+        return True
+    if isinstance(msg_id, bool):
+        return False
+    return isinstance(msg_id, (str, int, float))
+
+
+def _jsonrpc_envelope_error(msg: dict) -> str | None:
+    """Top-level JSON-RPC 2.0 envelope validation (A90/MCP-03), applied to
+    every request before any method-specific dispatch: `jsonrpc` must be
+    exactly `"2.0"`, `method` must be a non-empty string, and `id` (when
+    present) must be a string, a number, or null. Returns `None` when the
+    envelope is valid, else a short description for logging only — the
+    caller always responds with the standard, generic -32600 Invalid
+    Request, never this string."""
+    if msg.get("jsonrpc") != "2.0":
+        return "jsonrpc must be \"2.0\""
+    method = msg.get("method")
+    if not isinstance(method, str) or not method:
+        return "method must be a non-empty string"
+    if not _has_valid_jsonrpc_id_type(msg):
+        return "id must be a string, a number, or null"
+    return None
+
+
 async def handle_jsonrpc_request(principal: dict, msg: dict) -> dict | None:
     """Dispatch one JSON-RPC 2.0 message. Returns the response object, or
     `None` for a notification (a message with no `id`; per spec, the
@@ -510,8 +565,20 @@ async def handle_jsonrpc_request(principal: dict, msg: dict) -> dict | None:
 
     try:
         if method == "initialize":
+            params = msg.get("params") or {}
+            requested_version = params.get("protocolVersion")
+            negotiated_version = _negotiate_protocol_version(params)
+            client_info = params.get("clientInfo")
+            client_name = client_info.get("name") if isinstance(client_info, dict) else None
+            # A90/MCP-03: log the negotiation inputs/outcome only — never the
+            # full params dict, which could carry client-supplied fields we
+            # don't want in the log.
+            logger.info(
+                "mcp: initialize requested_version=%r negotiated_version=%s client_name=%r",
+                requested_version, negotiated_version, client_name,
+            )
             result = {
-                "protocolVersion": MCP_PROTOCOL_VERSION,
+                "protocolVersion": negotiated_version,
                 "capabilities": {"tools": {}},
                 "serverInfo": {"name": MCP_SERVER_NAME, "version": MCP_SERVER_VERSION},
                 "instructions": MCP_SERVER_INSTRUCTIONS,
@@ -566,6 +633,22 @@ async def mcp_post(request: Request):
     for msg in messages:
         if not isinstance(msg, dict):
             responses.append({"jsonrpc": "2.0", "id": None, "error": _error_obj(-32600, "Invalid Request")})
+            continue
+        # A90/MCP-03: top-level JSON-RPC envelope validation, ahead of any
+        # method dispatch, so a malformed `jsonrpc`/`method`/`id` is rejected
+        # uniformly for every method rather than only for the ones that
+        # happen to check their own shape.
+        envelope_error = _jsonrpc_envelope_error(msg)
+        if envelope_error is not None:
+            if "id" not in msg:
+                # Per spec (see is_notification in handle_jsonrpc_request),
+                # a message with no `id` is a notification and must never
+                # get a response, even an error one, however malformed the
+                # rest of the envelope is.
+                logger.debug("mcp: dropping malformed notification: %s", envelope_error)
+                continue
+            echo_id = msg.get("id") if _has_valid_jsonrpc_id_type(msg) else None
+            responses.append({"jsonrpc": "2.0", "id": echo_id, "error": _error_obj(-32600, "Invalid Request")})
             continue
         # A limited message short-circuits the whole HTTP response as a 429
         # (not just this one message's slot in the batch): batches are rare
