@@ -5106,11 +5106,18 @@ async def compute_today_items(
                         "companion": "so far this period",
                     }
 
+                # G139: when there's no dominant transaction, `brief_lead`
+                # already carries this exact figure with the same "so far
+                # this period" caption (see the `_rc_lead` branch just
+                # above) — printing it again in `body` is a duplicate, not
+                # a second fact. Only the dominant branch's body ("period
+                # total") says something brief_lead ("the one big charge")
+                # doesn't, so body is kept there.
                 rhythm_checkpoint_items.append({
                     "id": _rc_item_id,
                     "type": "rhythm",
                     "headline": f"{_rc_cat} is running {_rc_mult:.1f}× your usual",
-                    "body": f"£{_rc_spent:,.2f} so far this period.",
+                    "body": f"£{_rc_spent:,.2f} so far this period." if _rc_dominant else "",
                     "action": None,
                     "estimated": False,
                     "brief_lead": _rc_lead,

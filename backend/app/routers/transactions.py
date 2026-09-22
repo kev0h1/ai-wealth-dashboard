@@ -25,6 +25,7 @@ from app.services.categorisation import (
     apply_rules_bulk, rule_categorise, tavily_lookup_merchants,
     canonical_merchant_key, cache_merchant, user_allowed_categories,
     strip_date_fragments, LEADING_DATE_RE, build_rule_pattern,
+    teaching_decision_times,
 )
 from app.services.categories import get_category_kinds, is_non_spend
 from app.services import response_cache
@@ -844,13 +845,55 @@ async def auto_categorise(
         {"user_id": uid,
          "$or": [{"custom_category": {"$ne": None}},
                  {"category": {"$nin": list(RAW_TRUELAYER_CATEGORIES) + [None]}}]},
-        {"merchant_name": 1, "description": 1, "category": 1, "custom_category": 1, "transaction_type": 1},
+        {"merchant_name": 1, "description": 1, "category": 1, "custom_category": 1,
+         "transaction_type": 1, "date": 1},
     ).to_list(None)
+    # G139: same "first key seen wins" defect as categorisation.py's Pass 4
+    # propagation (see `apply_rules_bulk`'s own Pass 4 comment and
+    # `teaching_decision_times`'s docstring for the full rationale) — the
+    # order `.find()` happens to return has no relationship to which
+    # historical row should win a merchant-key collision. Sort by the real
+    # correction timestamp where one exists; a row here can also be a plain
+    # auto-categorised transaction rather than an explicit correction (this
+    # endpoint's `historical` pool is wider than Pass 4's — it also includes
+    # rows whose AUTO `category` is already meaningful, not just
+    # `custom_category` corrections), and a row like that never had a
+    # teaching event to begin with, so it falls back to its own transaction
+    # `date` — the same accepted approximation `teaching_decision_times`
+    # documents for legacy/TTL-expired corrections.
+    _decision_time = await teaching_decision_times(uid)
+    historical.sort(
+        key=lambda h: _decision_time.get(h["_id"]) or h.get("date") or datetime.min,
+        reverse=True,
+    )
 
     merchant_map: dict[tuple[str, str], str] = {}
     for h in historical:
         cat = h.get("custom_category") or h.get("category")
-        if not cat or cat in RAW_TRUELAYER_CATEGORIES:
+        # G139: this "Other" exclusion covers two different cases, both
+        # deliberate:
+        #
+        # 1. An unexamined AUTO-category "Other" — not a real signal, same
+        #    reason RAW_TRUELAYER_CATEGORIES is already excluded above. The
+        #    `$nin` clause that widens `historical` past Pass 4's candidate
+        #    pool deliberately admits a still-"Other" row so it can be
+        #    RE-EXAMINED here on a later run, but it must never WIN the map
+        #    for its own merchant key — a still-uncategorised row is very
+        #    often the MOST RECENT transaction for its merchant (that's WHY
+        #    it's still uncategorised), so once `historical` is sorted by
+        #    recency (above) it would otherwise deterministically sort first
+        #    and hand back its own "Other", silently blocking a real
+        #    historical category from ever being found for that merchant.
+        #
+        # 2. Because `cat` resolves `custom_category` before `category`,
+        #    this line ALSO excludes a row where the user deliberately
+        #    corrected custom_category to "Other" — a real, user-selectable
+        #    category in the picker, not a placeholder there. That IS
+        #    discarding a genuine signal, accepted anyway: letting one
+        #    explicit "Other" pick dominate every future row of that
+        #    merchant is worse than leaving those rows for the categoriser
+        #    to keep deciding on their own merits.
+        if not cat or cat in RAW_TRUELAYER_CATEGORIES or cat == "Other":
             continue
         txn_type = h.get("transaction_type", "")
         for key in [h.get("merchant_name"), h.get("description")]:
