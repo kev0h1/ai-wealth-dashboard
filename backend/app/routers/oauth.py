@@ -461,12 +461,15 @@ async def _handle_refresh_token_grant(form) -> JSONResponse:
     # concurrent refresh redemption), and a refresh token minted before
     # revoke_sessions gained this write path at all would have no
     # `revoked_at` set yet either. Consulting the identity-wide tombstone
-    # directly closes both gaps: no error handling here beyond what
-    # `oauth_tokens_col.find_one` above already gets none of either — a
-    # lookup failure propagates as the same unhandled-exception 500 any
-    # other internal error on this endpoint produces today, which is
-    # fail-closed by construction (no token pair is ever minted on the
-    # way to an exception).
+    # directly closes both gaps: there is no try/except around this call,
+    # same as `oauth_tokens_col.find_one` above has none, so a lookup
+    # failure simply propagates out of this handler to Starlette's default
+    # exception middleware, which returns a plain-text "Internal Server
+    # Error" 500 with no exception detail in the body — fail-closed (no
+    # token pair is ever minted on the way to that response), but not a
+    # path `tests/test_no_raw_exception_leak.py` covers, since nothing
+    # here is an `except ... as e:` handler threading `e`'s text into a
+    # response.
     if await is_revoked(doc["uid"], doc["created_at"]):
         return _oauth_error("invalid_grant")
     if doc.get("client_id") != client_id:
