@@ -1098,6 +1098,10 @@ def _compute_history(
             "points": [],
             "trend_3m": 0.0,
             "trend_3m_all": 0.0,
+            "trend_3m_partial_cards": 0,
+            "trend_3m_uncovered_cards": 0,
+            "trend_3m_months": 0,
+            "trend_3m_read_carried_cards": 0,
             "rising": False,
             "assumptions": ["no card transaction history found, debt history cannot be shown"],
         }
@@ -1148,12 +1152,51 @@ def _compute_history(
     clamped_card_names: list[str] = []
     all_trend_deltas: list[float] = []
     carried_trend_deltas: list[float] = []
+    # G103: how many completed months each CARRIED card's anchor actually
+    # spans. `points` cannot answer this, because it counts every card
+    # including the monthly-cleared floats `trend_3m` excludes — a float card
+    # with a year of history would otherwise turn a carried card's one-month
+    # rise into a three-month one. Nor is "not a float" enough: a card with
+    # no balance has `classification = None` (rule 1 of `_classify_card`), so
+    # it is not a float either, yet it is outside `carried_total` and the
+    # card's own idea of "your cards". The population below is every card
+    # that HELD a balance at either end of its own window — which keeps a
+    # card paid off INSIDE the window (genuine progress, a real delta over a
+    # real span) and drops one that has been settled throughout (a zero
+    # delta that would otherwise widen the window for free).
+    carried_spans: list[int] = []
+    # How many of the cards that carry a balance TODAY produced a reading.
+    # Zero means nothing the user currently owes was observed, so a movement
+    # figure cannot be attributed to any balance the card names.
+    read_carried_cards = 0
     _float_ids = float_account_ids or set()
+
+    # G103: a carried card that contributes NO delta at all (no transactions,
+    # or no coverage at the latest month-end) is silently skipped below, and
+    # `sum([])` is 0.0 — indistinguishable from a card that genuinely did not
+    # move. Home's trajectory card has to tell those apart, because "holding
+    # steady" is a negative claim it cannot make about a balance with zero
+    # observations behind it. Counted here rather than inferred by a caller,
+    # and restricted to MATERIAL carried debt so a freshly linked £0 card
+    # never blanks the reading.
+    uncovered_carried = 0
+
+    def _is_material_carried(account: dict) -> bool:
+        if str(account["_id"]) in _float_ids:
+            return False
+        return max(0.0, -float(account.get("balance") or 0.0)) >= MATERIAL_BALANCE
+
+    def _carries_a_balance_now(account: dict) -> bool:
+        if str(account["_id"]) in _float_ids:
+            return False
+        return max(0.0, -float(account.get("balance") or 0.0)) > 0
 
     for acc in cc_accounts:
         aid = str(acc["_id"])
         earliest = per_card_earliest.get(aid)
         if earliest is None:
+            if _is_material_carried(acc):
+                uncovered_carried += 1
             continue
 
         # Find card's first covered month-end
@@ -1164,6 +1207,8 @@ def _compute_history(
                 break
 
         if card_first_m_end is None or card_first_m_end > L_end:
+            if _is_material_carried(acc):
+                uncovered_carried += 1
             continue  # no coverage at L — skip
 
         # Anchor
@@ -1189,15 +1234,23 @@ def _compute_history(
         debt_at_a = _debt_at_m(a_end)
         delta = debt_at_L - debt_at_a
         all_trend_deltas.append(delta)
-        if aid not in _float_ids:
+        if _carries_a_balance_now(acc):
+            read_carried_cards += 1
+        if aid not in _float_ids and (debt_at_L > 0 or debt_at_a > 0):
             carried_trend_deltas.append(delta)
+            carried_spans.append(len(month_ends) - 1 - month_ends.index(a_end))
 
-        if clamped:
-            card_name = (
-                acc.get("nickname") or acc.get("display_name") or acc.get("name") or "Credit card"
-            ).strip()
-            month_str = a_end.strftime("%b %Y")
-            clamped_card_names.append(f"{card_name} from {month_str}")
+            # Inside the same guard on purpose: a card outside this
+            # population contributes nothing to `trend_3m` (its delta is
+            # zero by construction), so reporting it as a carried card with
+            # a short history would describe one set while the figure
+            # describes another.
+            if clamped:
+                card_name = (
+                    acc.get("nickname") or acc.get("display_name") or acc.get("name") or "Credit card"
+                ).strip()
+                month_str = a_end.strftime("%b %Y")
+                clamped_card_names.append(f"{card_name} from {month_str}")
 
     trend_3m_all = _r2(sum(all_trend_deltas))
     trend_3m = _r2(sum(carried_trend_deltas))
@@ -1215,6 +1268,22 @@ def _compute_history(
         "points": points,
         "trend_3m": trend_3m,
         "trend_3m_all": trend_3m_all,
+        # G103: how many cards had their anchor clamped forward to their own
+        # first covered month, i.e. contributed LESS than a full three months
+        # to `trend_3m`. `assumptions` already says this in prose; this is the
+        # same fact structured, so a caller that has to choose its wording
+        # ("than three months ago" is a point-in-time claim and would be
+        # false for those cards) does not have to parse a sentence.
+        "trend_3m_partial_cards": len(clamped_card_names),
+        # How many carried cards contributed nothing at all (see
+        # `uncovered_carried` above), and how many completed months the trend
+        # ACTUALLY spans: the widest per-card anchor-to-latest distance among
+        # CARRIED cards, never `len(points)`, which counts floats too. Zero
+        # means every carried anchor IS the latest month-end, so every delta
+        # is zero by construction — not a flat reading, no reading.
+        "trend_3m_uncovered_cards": uncovered_carried,
+        "trend_3m_months": max(carried_spans) if carried_spans else 0,
+        "trend_3m_read_carried_cards": read_carried_cards,
         "rising": rising,
         "assumptions": assumptions,
     }
