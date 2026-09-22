@@ -1,21 +1,27 @@
 import type { CompanionItem } from "@/lib/api";
 
 /**
- * G103 — the four debt-trajectory states, as the PRODUCTION card renders them.
+ * G103 — the debt-trajectory states, as the PRODUCTION card renders them.
  *
  * Every string below is a verbatim copy of what
  * `app.services.companion.trajectory_copy` returns for the scenario named in
- * each entry's `scenario` note; nothing here is hand-written prose. The
- * scenario itself is one carried portfolio of six cards totalling £24,926
+ * each entry's `note`; nothing here is hand-written prose, and
+ * `backend/tests/test_debt_trajectory_movement.py::test_the_design_preview_shows_the_real_copy`
+ * re-derives all seven from the live function and fails if any drifts, so
+ * this file cannot quietly stop matching Home.
+ *
+ * The scenario is one carried portfolio of six cards totalling £24,926
  * (American Express £3,180, Barclaycard Platinum £8,420, MBNA £5,980, Halifax
  * Clarity £3,140, Virgin Money £2,706, Santander £1,500), which is the shape
  * of the real card that prompted G103. The states differ only in the
- * three-month movement, whether interest is observed, and whether a 0% cliff
- * is on file, so the comparison isolates exactly what the item changes.
+ * movement, how much history sits behind it, whether interest is observed,
+ * and whether a 0% cliff is on file, so the comparison isolates exactly what
+ * the item changes.
  *
  * These are `CompanionItem`s fed to the real `CliffCard` through its real
- * props, not replica markup — the preview is a regression gate, so a drift
- * between what Kevin approves here and what Home ships is visible.
+ * props, not replica markup. The last entry deliberately carries no
+ * `brief_lead` at all, which is the shipped behaviour when no direction can
+ * be read and there is no interest rate to quote.
  */
 export type TrajectoryFixture = {
   key: string;
@@ -26,7 +32,7 @@ export type TrajectoryFixture = {
   item: CompanionItem;
 };
 
-const ACTION = { label: "See the route ›", route: "#" };
+const ACTION = { label: "See the route \u203a", route: "#" };
 
 export const TRAJECTORY_FIXTURES: readonly TrajectoryFixture[] = [
   {
@@ -63,13 +69,29 @@ export const TRAJECTORY_FIXTURES: readonly TrajectoryFixture[] = [
   },
   {
     key: "falling",
-    title: "Coming down",
-    note: "£612 less owed than three months ago. The one state the old card could never show: its figure was clamped at zero, so it could only ever express drift.",
+    title: "Coming down, but still paying interest",
+    note: "£612 less owed than three months ago. The direction is good, so the words say so, but the amber dot stays because £38 a month is still going on interest.",
     item: {
-      id: "trajectory:drifting:2026-09:falling",
+      id: "trajectory:bad:2026-09:falling",
+      type: "trajectory",
+      headline: "Your cards are coming down, though interest is still being charged.",
+      body: "£3,180 of the balance is charging interest, about £38 a month, and £21,746 is on 0% deals. At your current pace they clear in Mar 2029. £24,926 is carried across 6 cards in total.",
+      action: ACTION,
+      estimated: false,
+      brief_lead: { value: "£612", companion: "less owed than three months ago" },
+      tone: "watch",
+      trend: "falling",
+    },
+  },
+  {
+    key: "falling-clear",
+    title: "Coming down, nothing charging interest",
+    note: "The only state that earns the green mark: the balance is falling and nothing on it is being charged. This is the state the old card could never show, because its figure was clamped at zero and could only ever express drift.",
+    item: {
+      id: "trajectory:bad:2026-09:falling-clear",
       type: "trajectory",
       headline: "Your cards are coming down.",
-      body: "£3,180 of the balance is charging interest, about £38 a month, and £21,746 is on 0% deals. At your current pace they clear in Mar 2029. £24,926 is carried across 6 cards in total.",
+      body: "The whole balance is on 0% deals, so no interest is being charged right now. At your current pace they clear in Mar 2029. £24,926 is carried across 6 cards in total.",
       action: ACTION,
       estimated: false,
       brief_lead: { value: "£612", companion: "less owed than three months ago" },
@@ -109,6 +131,21 @@ export const TRAJECTORY_FIXTURES: readonly TrajectoryFixture[] = [
       trend: "rising",
     },
   },
+  {
+    key: "not-readable",
+    title: "Not readable yet",
+    note: "With under a month of completed card history there is no direction to state and no rate to quote, so the card carries no hero figure at all. It never falls back to the carried total: a position does not greet you on Home.",
+    item: {
+      id: "trajectory:bad:2026-09:not-readable",
+      type: "trajectory",
+      headline: "There isn't enough card history yet to say which way the cards are going.",
+      body: "The whole balance is on 0% deals, so no interest is being charged right now. £24,926 is carried across 6 cards in total. I need at least one completed month of card history before I can read the direction.",
+      action: ACTION,
+      estimated: false,
+      tone: "neutral",
+      trend: "unknown",
+    },
+  },
 ];
 
 /**
@@ -119,9 +156,9 @@ export const TRAJECTORY_FIXTURES: readonly TrajectoryFixture[] = [
 export const TRAJECTORY_BEFORE: CompanionItem = {
   id: "trajectory:bad:2026-09:before",
   type: "trajectory",
-  headline: "The cards aren't coming down at your current pace, £24,926 carried across 6 cards.",
-  body: "£6,100 will still be on the Barclaycard Platinum when its 0% ends in Mar 2027. From then it'd cost about £128 a month unless it's cleared or moved.",
+  headline: "The cards aren't coming down at your current pace, \u00a324,926 carried across 6 cards.",
+  body: "\u00a36,100 will still be on the Barclaycard Platinum when its 0% ends in Mar 2027. From then it'd cost about \u00a3128 a month unless it's cleared or moved.",
   action: ACTION,
   estimated: false,
-  brief_lead: { value: "£24,926", companion: "carried across 6 cards" },
+  brief_lead: { value: "\u00a324,926", companion: "carried across 6 cards" },
 };

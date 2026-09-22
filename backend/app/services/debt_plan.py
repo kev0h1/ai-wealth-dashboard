@@ -1099,6 +1099,8 @@ def _compute_history(
             "trend_3m": 0.0,
             "trend_3m_all": 0.0,
             "trend_3m_partial_cards": 0,
+            "trend_3m_uncovered_cards": 0,
+            "trend_3m_months": 0,
             "rising": False,
             "assumptions": ["no card transaction history found, debt history cannot be shown"],
         }
@@ -1151,10 +1153,27 @@ def _compute_history(
     carried_trend_deltas: list[float] = []
     _float_ids = float_account_ids or set()
 
+    # G103: a carried card that contributes NO delta at all (no transactions,
+    # or no coverage at the latest month-end) is silently skipped below, and
+    # `sum([])` is 0.0 — indistinguishable from a card that genuinely did not
+    # move. Home's trajectory card has to tell those apart, because "holding
+    # steady" is a negative claim it cannot make about a balance with zero
+    # observations behind it. Counted here rather than inferred by a caller,
+    # and restricted to MATERIAL carried debt so a freshly linked £0 card
+    # never blanks the reading.
+    uncovered_carried = 0
+
+    def _is_material_carried(account: dict) -> bool:
+        if str(account["_id"]) in _float_ids:
+            return False
+        return max(0.0, -float(account.get("balance") or 0.0)) >= MATERIAL_BALANCE
+
     for acc in cc_accounts:
         aid = str(acc["_id"])
         earliest = per_card_earliest.get(aid)
         if earliest is None:
+            if _is_material_carried(acc):
+                uncovered_carried += 1
             continue
 
         # Find card's first covered month-end
@@ -1165,6 +1184,8 @@ def _compute_history(
                 break
 
         if card_first_m_end is None or card_first_m_end > L_end:
+            if _is_material_carried(acc):
+                uncovered_carried += 1
             continue  # no coverage at L — skip
 
         # Anchor
@@ -1223,6 +1244,14 @@ def _compute_history(
         # ("than three months ago" is a point-in-time claim and would be
         # false for those cards) does not have to parse a sentence.
         "trend_3m_partial_cards": len(clamped_card_names),
+        # How many carried cards contributed nothing at all (see
+        # `uncovered_carried` above), and how many completed months the trend
+        # ACTUALLY spans. The anchor is `month_ends[-4]` clamped forward to
+        # the first covered month, so with N covered months the span is
+        # min(3, N - 1); at N <= 1 anchor == latest and every delta is
+        # necessarily zero, which is not a reading.
+        "trend_3m_uncovered_cards": uncovered_carried,
+        "trend_3m_months": max(0, min(3, len(points) - 1)),
         "rising": rising,
         "assumptions": assumptions,
     }

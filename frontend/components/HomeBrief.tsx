@@ -2130,7 +2130,10 @@ export interface HomeBriefClearedRowProps {
 const CLEARED_TYPE_LABEL: Record<string, string> = {
   move: "a money move",
   cliff: "an upcoming bill",
-  trajectory: "an upcoming bill",
+  // G103: a trajectory item is a reading of which way the card balances are
+  // going, never a bill. "an upcoming bill" here was simply wrong, and it
+  // got more wrong once the card could report progress.
+  trajectory: "a debt reading",
   rhythm: "a spending change",
   intent_pace: "a pace note",
   celebration: "a win",
