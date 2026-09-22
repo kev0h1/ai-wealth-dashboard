@@ -1,0 +1,58 @@
+"use client";
+
+// G103 — the debt-trajectory states, rendered through the PRODUCTION
+// CliffCard from components/HomeBrief.tsx (the component Home itself uses for
+// trajectory items), fed real `CompanionItem` props. Nothing on this page
+// reimplements the card's markup, so a drift between what is approved here
+// and what ships on Home shows up as a visual difference, not silently.
+//
+// No API calls, no navigation, no dismissals reach the server: `maskAmounts`
+// is the identity function and the dismiss handler is a local no-op, exactly
+// as VariantB already does for the rest of the family.
+
+import { CliffCard } from "@/components/HomeBrief";
+import { TRAJECTORY_BEFORE, TRAJECTORY_FIXTURES } from "./trajectoryFixtures";
+import { PreviewHeading } from "./shared";
+
+const maskAmounts = (text: string) => text;
+const noopDismiss = () => {};
+
+export default function TrajectoryStates() {
+  return (
+    <section aria-label="Debt trajectory states">
+      <PreviewHeading
+        state="family"
+        title="Debt trajectory, leading on movement"
+        copy="The card now leads on how much more or less is owed than three months ago, and says the direction in words. The carried total drops to the last line of the body. A rising balance on 0% is worded and marked differently from one being charged interest."
+      />
+
+      <div className="mx-auto mb-7 max-w-[430px] lg:max-w-none">
+        <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-500 dark:text-slate-400">
+          Before
+        </h3>
+        <p className="mb-3 text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-300">
+          The stock led the card and was then repeated as the hero figure, so the biggest number on Home was a balance
+          that cannot move this pay period.
+        </p>
+        <div className="lg:max-w-[430px]">
+          <CliffCard item={TRAJECTORY_BEFORE} maskAmounts={maskAmounts} dismissible onHomeDismiss={noopDismiss} />
+        </div>
+      </div>
+
+      <h3 className="mx-auto mb-3 max-w-[430px] text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-500 dark:text-slate-400 lg:max-w-none">
+        After, one card per state
+      </h3>
+      <div className="mx-auto grid max-w-[430px] items-start gap-6 lg:max-w-none lg:grid-cols-2">
+        {TRAJECTORY_FIXTURES.map((fixture) => (
+          <div key={fixture.key} data-trajectory-state={fixture.key}>
+            <h4 className="text-[13px] font-bold leading-5 text-slate-950 dark:text-white">{fixture.title}</h4>
+            <p className="mb-3 mt-1 text-pretty text-[12px] leading-5 text-slate-500 dark:text-slate-400">
+              {fixture.note}
+            </p>
+            <CliffCard item={fixture.item} maskAmounts={maskAmounts} dismissible onHomeDismiss={noopDismiss} />
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}

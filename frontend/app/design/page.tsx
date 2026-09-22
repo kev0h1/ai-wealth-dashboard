@@ -231,10 +231,11 @@ const ROUTES: PreviewRoute[] = [
     slug: "home-brief-cards",
     name: "home-brief-cards",
     description:
-      "G48 Home brief card-family design round across AskPayday, AskGeneric, Celebration, Cliff, UnfundedMove, IntentPace, Move and Rhythm · the same real-behaviour fixtures in three presentation grammars: A Calm spine ranks verdict, evidence and actions in one vertical reading order, B Action dock separates decisions from evidence with a stable footer, C Folded brief compresses quiet cards while keeping dense move evidence explicitly available · every variant tests an overdue £70 unfunded AMERICAN EXPRESS move, a £70 three-source cover plan, multi-card stacking, all eight card types, light and dark themes · presentation only, no API calls or production-component edits · ?variant=a|b|c&state=stack|family&mode=light|dark",
+      "G48 Home brief card-family design round across AskPayday, AskGeneric, Celebration, Cliff, UnfundedMove, IntentPace, Move and Rhythm · the same real-behaviour fixtures in three presentation grammars: A Calm spine ranks verdict, evidence and actions in one vertical reading order, B Action dock separates decisions from evidence with a stable footer, C Folded brief compresses quiet cards while keeping dense move evidence explicitly available · every variant tests an overdue £70 unfunded AMERICAN EXPRESS move, a £70 three-source cover plan, multi-card stacking, all eight card types, light and dark themes · presentation only, no API calls · G103 adds the Debt state: the debt-trajectory card now leads on the three-month movement in what is owed (\"£412 · more owed than three months ago\") with the direction spoken in the headline, and drops the £24,926 carried total to the last line of the body, so Home stops shouting a stock that cannot change this pay period · shown as the card read BEFORE the change plus all five states after it, rising while interest is charged, rising with everything on 0%, coming down, holding steady, and rising on 0% with an end date on file, each rendered through the PRODUCTION CliffCard from components/HomeBrief.tsx fed real CompanionItem props (not replica markup) so the preview stays a regression gate · every string is verbatim from app.services.companion.trajectory_copy · ?variant=a|b|c&state=stack|family|trajectory&mode=light|dark",
     states: [
       { label: "Home stack", value: "stack" },
       { label: "All eight cards", value: "family" },
+      { label: "Debt trajectory states", value: "trajectory" },
     ],
   },
   {

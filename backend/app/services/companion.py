@@ -244,9 +244,10 @@ def _gbp(x: float) -> str:
     999 -> "£999", -20 -> "−£20" (Unicode minus, not a hyphen, matching
     the rest of the app's currency convention). Rounds to the nearest whole
     pound; call sites that need pence precision keep their own formatting
-    (see `_fmt_overdrawn` below, and the local `_fmt_gbp` further down this
-    file which formats a caller-chosen number of decimal places for debt
-    interest figures — distinct use case, not merged into this helper)."""
+    (see `_fmt_overdrawn` below — distinct use case, not merged into this
+    helper). The debt-trajectory card used to carry a near-duplicate local
+    `_fmt_gbp`; G103 folded it into this helper, so trajectory figures now
+    get the same thousands separator and Unicode minus as everything else."""
     n = int(round(x))
     sign = "−" if n < 0 else ""
     return f"{sign}£{abs(n):,}"
@@ -1434,6 +1435,277 @@ def _home_item_suppressed(kind: str) -> bool:
     not emit it. Consult this before building/appending an item whose fact
     another surface already states live."""
     return kind in HOME_ITEM_SUPPRESSION_REGISTRY
+
+
+# ── Debt-trajectory card copy (G103, 2026-09-22) ─────────────────────────────
+# The Home trajectory card used to read "The cards aren't coming down at your
+# current pace, £24,926 carried across 6 cards" and then repeat that same
+# £24,926 as its hero figure, so the loudest number on Home was a STOCK the
+# user cannot change this pay period. Safe-to-Spend already says the part that
+# did change ("went on cards this pay period") without shouting it. G103 leads
+# on the MOVEMENT instead: a signed figure over a stated window, with the
+# direction spoken in the words, not carried by colour alone.
+#
+# WHICH SERIES, AND WHY. The movement figure is `plan["history"]["trend_3m"]` —
+# the signed change in reconstructed card DEBT between the latest completed
+# calendar month-end and the one three months before it, summed over CARRIED
+# cards only (`_compute_history` excludes monthly-cleared float cards via
+# `float_account_ids`). Three reasons this, rather than the pay-period card
+# figures Safe-to-Spend computes:
+#
+#   1. It is the same series `debt_plan._verdict`'s `history_rising` flag is
+#      derived from, and that flag is what forces the "bad" verdict this card
+#      is gated on. Any other series could put a lead figure reading "down
+#      £200" directly under a sentence asserting the cards are not coming
+#      down. The flat band below is deliberately pinned to the engine's own
+#      `HISTORY_RISING_EPS` so the two can never disagree.
+#   2. It is TRUE balance movement, so it includes money deliberately moved
+#      onto a card. `analytics.card_new_spend_total` (G24) excludes balance
+#      transfers by design — right for "what you spent", wrong for "are the
+#      cards coming down", because a transferred balance is still debt owed.
+#      The card's own words say "more/less owed", which is a balance claim,
+#      so figure and sentence cannot disagree.
+#   3. `analytics.card_growth_total` is clamped at zero on purpose (the
+#      fail-closed Safe-to-Spend reserve depends on it) and can therefore
+#      only ever express drift, never progress. Nothing here touches it, or
+#      any other part of that reserve arithmetic.
+#
+# A partial current pay period cannot answer a trajectory question either, and
+# `net_position.card_growth_by_card` spans every credit card including the
+# monthly-cleared ones this card deliberately excludes, so reusing it would
+# have needed a second, differently-shaped filter anyway.
+#
+# SIGNIFIER. DESIGN.md's Red Is Risk Rule keeps red for genuine risk, and
+# "Figures Are Ink; Amber Lives In The Signifier" keeps amber out of prose and
+# figures. So the card returns a `tone` for the small KindLabel mark only:
+# emerald when the balance is coming down, amber when it is not coming down
+# AND that is costing money (interest observed) or a known 0% cliff is ahead,
+# neutral otherwise. A rising balance sitting entirely on 0% with no cliff on
+# file is drift, not cost, and is worded and marked as such.
+TRAJECTORY_MIN_HISTORY_POINTS = 4   # an anchor month plus three completed months
+
+
+def _traj_month(ym_str: str, today: date) -> str:
+    """Format 'YYYY-MM' → 'Mon YYYY', omitting the year when it is this one."""
+    y, m = int(ym_str[:4]), int(ym_str[5:7])
+    ref = date(y, m, 1)
+    return ref.strftime("%b") if y == today.year else ref.strftime("%b %Y")
+
+
+def _traj_promo_cliff(material_cards: list[dict]) -> dict | None:
+    """The earliest card whose interest starts when a 0% segment expires.
+
+    Unchanged in substance from the inline version this replaced: find the
+    soonest `first_interest_month` that follows a promo segment and has both
+    a projected balance and a projected monthly cost at that point.
+    """
+    best: dict | None = None
+    best_month: str | None = None
+    for card in material_cards:
+        fim = card.get("first_interest_month")
+        if not fim:
+            continue
+        schedule = card.get("rate_schedule") or []
+        has_promo = any(
+            s.get("source") == "promo" and (s.get("until") or "") < fim for s in schedule
+        )
+        if not has_promo:
+            has_promo = any(s.get("source") == "promo" for s in schedule)
+        if not has_promo:
+            continue
+        if card.get("balance_at_first_interest") is None:
+            continue
+        if not card.get("monthly_interest_at_first"):
+            continue
+        if best_month is None or fim < best_month:
+            best_month = fim
+            best = card
+    return best
+
+
+def trajectory_copy(plan: dict, today: date) -> dict:
+    """Pure derivation of the Home debt-trajectory card's words and figures.
+
+    Factored out of `compute_today_items`' section 8f so it is unit-testable
+    without that function's whole DB fan-out, the same precedent
+    `net_position.short_reason_for` set. Takes the debt plan exactly as
+    `debt_plan.get_debt_plan_cached` returns it.
+
+    Returns `{"headline", "body", "brief_lead", "tone", "trend"}`.
+    `trend` is one of rising / falling / flat / unknown; `tone` is one of
+    watch / neutral / positive and drives the small KindLabel mark only.
+    Emission and dismissal gating stay with the caller.
+    """
+    from app.services.debt_plan import HISTORY_RISING_EPS, MATERIAL_BALANCE
+
+    totals = plan.get("totals") or {}
+    buckets = totals.get("buckets") or {}
+    history = plan.get("history") or {}
+    cards = plan.get("cards") or []
+
+    material = [
+        c for c in cards
+        if float(c.get("debt") or 0.0) >= MATERIAL_BALANCE
+        and c.get("classification") != "cleared_monthly"
+    ]
+    carried_total = buckets.get("carried_total")
+    if carried_total is None:
+        carried_total = sum(float(c.get("debt") or 0.0) for c in material)
+    carried_total = float(carried_total)
+    carried_zero = float(buckets.get("carried_zero") or 0.0)
+    carried_interest = float(buckets.get("carried_interest") or 0.0)
+    monthly_interest = float(totals.get("monthly_interest_now") or 0.0)
+    debt_free_month = totals.get("debt_free_month")
+    n_cards = int(buckets.get("carried_card_count") or 0) or len(material)
+    solo_name = (
+        humanise_account_name(material[0].get("name") or "your card")
+        if n_cards == 1 and material else None
+    )
+
+    # ── direction over a stated window ────────────────────────────────────
+    # `points` is one entry per completed month with at least one card
+    # covered, so fewer than four means there is no full three-month window
+    # behind `trend_3m` and the direction is simply not readable yet.
+    trend_value = float(history.get("trend_3m") or 0.0)
+    if len(history.get("points") or []) < TRAJECTORY_MIN_HISTORY_POINTS:
+        trend = "unknown"
+    elif trend_value > HISTORY_RISING_EPS:
+        trend = "rising"
+    elif trend_value < -HISTORY_RISING_EPS:
+        trend = "falling"
+    else:
+        trend = "flat"
+
+    charging_interest = monthly_interest >= 1.0 or carried_interest > 0.0
+    cliff = _traj_promo_cliff(material)
+
+    subject = "Your card is" if n_cards == 1 else "Your cards are"
+    them = "it" if n_cards == 1 else "them"
+    they = "it" if n_cards == 1 else "they"
+
+    # ── headline: the verdict, in words, with no money figure in it ───────
+    if trend == "unknown":
+        headline = (
+            f"There isn't enough card history yet to say which way"
+            f" {'the card is' if n_cards == 1 else 'the cards are'} going."
+        )
+    elif trend == "falling":
+        headline = f"{subject} coming down."
+    elif trend == "rising":
+        if charging_interest:
+            headline = f"{subject} going up, not down, and interest is being charged."
+        else:
+            headline = (
+                f"{subject} going up, not down, though nothing on {them}"
+                f" is charging interest at the moment."
+            )
+    else:  # flat
+        if charging_interest:
+            headline = f"{subject} holding steady, not coming down, and interest is being charged."
+        else:
+            headline = f"{subject} holding steady, not coming down."
+
+    # ── body: the promo-versus-interest split, then context, then the stock ──
+    body_parts: list[str] = []
+    all_of_it = carried_total > 0 and carried_zero >= carried_total - 0.5
+    if monthly_interest >= 1.0 and carried_interest > 0.0 and carried_zero > 0.0:
+        body_parts.append(
+            f"{_gbp(carried_interest)} of the balance is charging interest,"
+            f" about {_gbp(monthly_interest)} a month,"
+            f" and {_gbp(carried_zero)} is on 0% deals."
+        )
+    elif monthly_interest >= 1.0:
+        body_parts.append(f"Interest is being charged, about {_gbp(monthly_interest)} a month.")
+    elif carried_interest > 0.0:
+        body_parts.append(f"Interest is being charged on {_gbp(carried_interest)} of the balance.")
+    elif all_of_it:
+        body_parts.append("The whole balance is on 0% deals, so no interest is being charged right now.")
+    elif carried_zero > 0.0:
+        body_parts.append(
+            f"{_gbp(carried_zero)} of the balance is on 0% deals,"
+            f" so no interest is being charged on that part right now."
+        )
+    else:
+        body_parts.append("No interest charges have shown up, so none of the balance is costing you interest right now.")
+
+    if cliff is not None:
+        body_parts.append(
+            f"{_gbp(cliff['balance_at_first_interest'])} will still be on the"
+            f" {humanise_account_name(cliff['name'])} when its 0% ends in"
+            f" {_traj_month(cliff['first_interest_month'], today)}."
+            f" From then it'd cost about {_gbp(cliff['monthly_interest_at_first'])} a month"
+            f" unless it's cleared or moved."
+        )
+    elif debt_free_month and trend != "rising":
+        # Suppressed while the balance is rising: the plan's forward
+        # projection runs off demonstrated per-period movement, which can
+        # still produce a clear-by month while the observed three-month
+        # history goes the other way. Printing both would put "they clear in
+        # Mar 2029" directly under "going up, not down".
+        body_parts.append(
+            f"At your current pace {they} clear in {_traj_month(debt_free_month, today)}."
+        )
+
+    if n_cards == 1 and solo_name:
+        body_parts.append(f"{_gbp(carried_total)} is carried on {solo_name}.")
+    else:
+        body_parts.append(f"{_gbp(carried_total)} is carried across {n_cards} cards in total.")
+
+    if trend != "unknown" and int(history.get("trend_3m_partial_cards") or 0) > 0:
+        _partial = int(history["trend_3m_partial_cards"])
+        body_parts.append(
+            f"{_partial} card{'s have' if _partial > 1 else ' has'} less than three months of history,"
+            f" so {'they are' if _partial > 1 else 'it is'} counted from where that history starts."
+        )
+
+    no_rate_count = sum(1 for c in material if (c.get("flags") or {}).get("terms_missing"))
+    if no_rate_count > 0:
+        body_parts.append(
+            f"{no_rate_count} card{'s have' if no_rate_count > 1 else ' has'}"
+            f" no rate on file, so interest there isn't counted."
+        )
+
+    # ── lead: the movement itself, with its window named in the companion ──
+    # "than three months ago" is a point-in-time comparison, so it is only
+    # true when every card actually has a reading three months back. When one
+    # does not, `_compute_history` clamps that card's anchor forward to its
+    # own first covered month, and the honest claim narrows to the span the
+    # change happened WITHIN, which is still at most three months. The body
+    # then names how many cards that applies to.
+    partial = int(history.get("trend_3m_partial_cards") or 0)
+    if trend == "rising":
+        companion = "more owed over the last three months" if partial else "more owed than three months ago"
+        brief_lead = {"value": _gbp(abs(trend_value)), "companion": companion}
+    elif trend == "falling":
+        companion = "less owed over the last three months" if partial else "less owed than three months ago"
+        brief_lead = {"value": _gbp(abs(trend_value)), "companion": companion}
+    elif trend == "flat":
+        brief_lead = {"value": _gbp(abs(trend_value)), "companion": "change over the last three months"}
+    elif monthly_interest >= 1.0:
+        # Nothing to say about direction yet, so lead on the one figure that
+        # is still a rate rather than a stock: what the balance costs a month.
+        brief_lead = {"value": f"{_gbp(monthly_interest)}/mo", "companion": "interest right now"}
+    elif n_cards == 1 and solo_name:
+        brief_lead = {"value": _gbp(carried_total), "companion": f"carried on {solo_name}"}
+    else:
+        brief_lead = {"value": _gbp(carried_total), "companion": f"carried across {n_cards} cards"}
+
+    if trend == "falling":
+        tone = "positive"
+    elif trend == "unknown":
+        tone = "watch" if charging_interest else "neutral"
+    elif charging_interest or (trend == "rising" and cliff is not None):
+        tone = "watch"
+    else:
+        tone = "neutral"
+
+    return {
+        "headline": headline,
+        "body": " ".join(body_parts),
+        "brief_lead": brief_lead,
+        "tone": tone,
+        "trend": trend,
+    }
 
 
 async def compute_today_items(
@@ -4436,8 +4708,16 @@ async def compute_today_items(
     # ── 8f. TRAJECTORY item (debt payoff trajectory) ──────────────────────────
     # Emitted when the debt picture is bad or drifting — silence is the reward
     # when verdict is "good".  At most ONE trajectory item is ever emitted.
-    # The id carries the verdict so a worsening verdict re-appears immediately.
+    # The id carries the verdict so a worsening verdict re-appears immediately
+    # (deliberately NOT the trend: the flat band is only £1 wide, so keying
+    # dismissal on direction would let a card the user hid re-surface on noise).
     # The /debt-plan page now exists — wire the button.
+    #
+    # G103: the words, figures and signifier all come from `trajectory_copy`
+    # above, which leads on the three-month MOVEMENT in what is owed rather
+    # than the carried total. See that function's own comment for which series
+    # it reads and why, and for why none of the Safe-to-Spend card arithmetic
+    # is touched here.
     trajectory_items: list[dict] = []
     try:
         from app.services.debt_plan import get_debt_plan_cached as _get_debt_plan
@@ -4448,166 +4728,17 @@ async def compute_today_items(
         if _verdict_str != "good":
             _traj_id = f"trajectory:{_verdict_str}:{today_d.strftime('%Y-%m')}"
             if _traj_id not in dismissed:
-                _monthly_interest_now = _plan["totals"].get("monthly_interest_now") or 0.0
-                _debt_free_month = _plan["totals"]["debt_free_month"]
-                _material_cards = [c for c in _plan["cards"] if c["debt"] >= 50 and c.get("classification") != "cleared_monthly"]
-
-                def _fmt_month(ym_str: str) -> str:
-                    """Format 'YYYY-MM' → 'Mon YYYY' (omit year if same as today)."""
-                    _y, _m = int(ym_str[:4]), int(ym_str[5:7])
-                    _d_ref = date(_y, _m, 1)
-                    if _y == today_d.year:
-                        return _d_ref.strftime("%b")
-                    return _d_ref.strftime("%b %Y")
-
-                def _fmt_gbp(x: float) -> str:
-                    return f"£{int(round(x)):,}"
-
-                # Find the earliest first_interest_month that follows a promo segment
-                # (i.e. the card where interest kicks in when a 0% promo expires)
-                _promo_cliff_card = None
-                _promo_cliff_month = None
-                for _c in _material_cards:
-                    _fim = _c.get("first_interest_month")
-                    if not _fim:
-                        continue
-                    # Check whether any segment before _fim is a promo
-                    _rs = _c.get("rate_schedule") or []
-                    _has_promo = any(s["source"] == "promo" and (s["until"] or "") < _fim for s in _rs)
-                    if not _has_promo:
-                        # Also check: if any promo segment's until == previous month
-                        _has_promo = any(s["source"] == "promo" for s in _rs)
-                    if _has_promo and _c.get("balance_at_first_interest") is not None:
-                        if _promo_cliff_month is None or _fim < _promo_cliff_month:
-                            _promo_cliff_month = _fim
-                            _promo_cliff_card = _c
-
-                _traj_headline: str
-                _traj_body: str
-                _cliff_body: str = ""
-
-                # Interest is always cited as the monthly bleed (£X a month right
-                # now) — figure is observed from interest-charge transactions,
-                # never derived arithmetic. Never a horizon-capped integral.
-                if _verdict_str == "drifting":
-                    if (
-                        _debt_free_month
-                        and _promo_cliff_card is not None
-                        and _promo_cliff_month is not None
-                        and _promo_cliff_card.get("monthly_interest_at_first")
-                        and _promo_cliff_card.get("balance_at_first_interest")
-                    ):
-                        _bafi = _promo_cliff_card["balance_at_first_interest"]
-                        _mif = _promo_cliff_card["monthly_interest_at_first"]
-                        _traj_headline = (
-                            f"At your current pace the cards clear in {_fmt_month(_debt_free_month)},"
-                            f" £{int(round(_bafi)):,} would still be on the {humanise_account_name(_promo_cliff_card['name'])}"
-                            f" when its 0% ends in {_fmt_month(_promo_cliff_month)}."
-                        )
-                        _cliff_body = f"From then it'd cost about £{int(round(_mif)):,} a month unless it's cleared or moved."
-                    else:
-                        _cliff_body = ""
-                        _dfm_str = _fmt_month(_debt_free_month) if _debt_free_month else "unknown"
-                        if _monthly_interest_now >= 1:
-                            _traj_headline = (
-                                f"At your current pace the cards clear in {_dfm_str},"
-                                f" {_fmt_gbp(_monthly_interest_now)} a month in interest right now."
-                            )
-                        else:
-                            _traj_headline = (
-                                f"At your current pace the cards clear in {_dfm_str}."
-                            )
-                else:  # bad
-                    if (
-                        _promo_cliff_card is not None
-                        and _promo_cliff_month is not None
-                        and _promo_cliff_card.get("monthly_interest_at_first")
-                        and _promo_cliff_card.get("balance_at_first_interest")
-                    ):
-                        _bafi = _promo_cliff_card["balance_at_first_interest"]
-                        _mif = _promo_cliff_card["monthly_interest_at_first"]
-                        _n_mat = len(_material_cards)
-                        if _n_mat == 1:
-                            _solo = _material_cards[0]
-                            _traj_headline = (
-                                f"The cards aren't coming down at your current pace,"
-                                f" £{int(round(_solo['debt'])):,} carried on {humanise_account_name(_solo['name'])}."
-                            )
-                        else:
-                            _carried_total = _plan["totals"]["buckets"]["carried_total"]
-                            _traj_headline = (
-                                f"The cards aren't coming down at your current pace,"
-                                f" £{int(round(_carried_total)):,} carried across {_n_mat} cards."
-                            )
-                        _cliff_body = (
-                            f"£{int(round(_bafi)):,} will still be on the {humanise_account_name(_promo_cliff_card['name'])}"
-                            f" when its 0% ends in {_fmt_month(_promo_cliff_month)}."
-                            f" From then it'd cost about £{int(round(_mif)):,} a month unless it's cleared or moved."
-                        )
-                    elif _monthly_interest_now >= 1:
-                        _cliff_body = ""
-                        _traj_headline = (
-                            f"The cards aren't coming down at your current pace,"
-                            f" {_fmt_gbp(_monthly_interest_now)} a month in interest right now."
-                        )
-                    else:
-                        _cliff_body = ""
-                        _n_mat = len(_material_cards)
-                        if _n_mat == 1:
-                            _solo = _material_cards[0]
-                            _traj_headline = (
-                                f"Your card isn't coming down at your current pace,"
-                                f" {_fmt_gbp(_solo['debt'])} carried on {humanise_account_name(_solo['name'])}."
-                            )
-                        else:
-                            _buckets = (_plan["totals"].get("buckets") or {})
-                            _carried_total_fallback = _buckets.get("carried_total") or sum(c["debt"] for c in _material_cards)
-                            _traj_headline = (
-                                f"The cards aren't coming down at your current pace,"
-                                f" £{int(round(_carried_total_fallback)):,} carried across {_n_mat} cards."
-                            )
-
-                # Body: combine cliff sentence + honest note when any material card has no rate on file
-                _no_rate_count = sum(
-                    1 for _c in _material_cards if _c.get("flags", {}).get("terms_missing")
-                )
-                _body_parts = []
-                if _cliff_body:
-                    _body_parts.append(_cliff_body)
-                if _no_rate_count > 0:
-                    _body_parts.append(
-                        f"{_no_rate_count} card{'s have' if _no_rate_count > 1 else ' has'}"
-                        f" no rate on file, so interest there isn't counted."
-                    )
-                _traj_body = " ".join(_body_parts)
-
-                if _debt_free_month:
-                    _traj_brief_lead = {
-                        "value": _fmt_month(_debt_free_month),
-                        "companion": "projected debt-free at current pace",
-                    }
-                elif _monthly_interest_now >= 1:
-                    _traj_brief_lead = {
-                        "value": f"{_fmt_gbp(_monthly_interest_now)}/mo",
-                        "companion": "interest right now",
-                    }
-                else:
-                    _carried_for_lead = (_plan["totals"].get("buckets") or {}).get("carried_total")
-                    if _carried_for_lead is None:
-                        _carried_for_lead = sum(c["debt"] for c in _material_cards)
-                    _traj_brief_lead = {
-                        "value": _fmt_gbp(_carried_for_lead),
-                        "companion": f"carried across {len(_material_cards)} card{'s' if len(_material_cards) != 1 else ''}",
-                    }
-
+                _traj = trajectory_copy(_plan, today_d)
                 trajectory_items.append({
                     "id": _traj_id,
                     "type": "trajectory",
-                    "headline": _traj_headline,
-                    "body": _traj_body,
+                    "headline": _traj["headline"],
+                    "body": _traj["body"],
                     "action": {"label": "See the route ›", "route": "/debt-plan"},
                     "estimated": False,
-                    "brief_lead": _traj_brief_lead,
+                    "brief_lead": _traj["brief_lead"],
+                    "tone": _traj["tone"],
+                    "trend": _traj["trend"],
                 })
     except Exception as _traj_exc:
         log.warning("trajectory item failed for %s: %s", uid, _traj_exc)

@@ -1098,6 +1098,7 @@ def _compute_history(
             "points": [],
             "trend_3m": 0.0,
             "trend_3m_all": 0.0,
+            "trend_3m_partial_cards": 0,
             "rising": False,
             "assumptions": ["no card transaction history found, debt history cannot be shown"],
         }
@@ -1215,6 +1216,13 @@ def _compute_history(
         "points": points,
         "trend_3m": trend_3m,
         "trend_3m_all": trend_3m_all,
+        # G103: how many cards had their anchor clamped forward to their own
+        # first covered month, i.e. contributed LESS than a full three months
+        # to `trend_3m`. `assumptions` already says this in prose; this is the
+        # same fact structured, so a caller that has to choose its wording
+        # ("than three months ago" is a point-in-time claim and would be
+        # false for those cards) does not have to parse a sentence.
+        "trend_3m_partial_cards": len(clamped_card_names),
         "rising": rising,
         "assumptions": assumptions,
     }
