@@ -317,6 +317,7 @@ export function BankBadge({
   altText,
   brandBg,
   size,
+  onLogoError,
 }: {
   logoSrc: string | null;
   initials: string;
@@ -327,6 +328,8 @@ export function BankBadge({
   /** Overrides the default 36px (w-9 h-9) chip size. Omit for byte-identical
    *  rendering to every pre-existing call site. */
   size?: number;
+  /** Lets a composed treatment replace the whole logo group on asset failure. */
+  onLogoError?: () => void;
 }) {
   const [imgFailed, setImgFailed] = useState(false);
   const sized = size !== undefined && size !== 36;
@@ -337,7 +340,10 @@ export function BankBadge({
       <img
         src={logoSrc}
         alt={altText}
-        onError={() => setImgFailed(true)}
+        onError={() => {
+          setImgFailed(true);
+          onLogoError?.();
+        }}
         className={`${sized ? "" : "w-9 h-9 rounded-xl"} object-contain bg-white p-0.5 ring-1 ring-black/[0.06] dark:ring-white/[0.12]`}
         style={sized ? { width: size, height: size, borderRadius: radius } : undefined}
       />
