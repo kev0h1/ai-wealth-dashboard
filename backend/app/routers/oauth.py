@@ -55,6 +55,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 from app.core.auth import current_user
 from app.core.config import API_PUBLIC_URL, APP_URL, MCP_PUBLIC_URL
 from app.core.pending_oauth import get_oauth_request, pop_oauth_request, store_oauth_request
+from app.core.session_revocation import is_revoked
 from app.core.timeutil import as_utc
 from app.db.collections import oauth_clients_col, oauth_codes_col, oauth_tokens_col
 from app.routers.mcp import V1_SCOPES
@@ -433,6 +434,21 @@ async def _handle_refresh_token_grant(form) -> JSONResponse:
         not doc or doc.get("kind") != "refresh" or doc.get("revoked_at")
         or as_utc(doc.get("expires_at")) is None or as_utc(doc["expires_at"]) <= now
     ):
+        return _oauth_error("invalid_grant")
+
+    # A84 rework: `revoke_sessions` (account deletion, the dormant sweep)
+    # now flips this doc's own `revoked_at` too, but that write and this
+    # read can race (the sweep/deletion is not transactional with a
+    # concurrent refresh redemption), and a refresh token minted before
+    # revoke_sessions gained this write path at all would have no
+    # `revoked_at` set yet either. Consulting the identity-wide tombstone
+    # directly closes both gaps: no error handling here beyond what
+    # `oauth_tokens_col.find_one` above already gets none of either — a
+    # lookup failure propagates as the same unhandled-exception 500 any
+    # other internal error on this endpoint produces today, which is
+    # fail-closed by construction (no token pair is ever minted on the
+    # way to an exception).
+    if await is_revoked(doc["uid"], doc["created_at"]):
         return _oauth_error("invalid_grant")
     if doc.get("client_id") != client_id:
         return _oauth_error("invalid_client")

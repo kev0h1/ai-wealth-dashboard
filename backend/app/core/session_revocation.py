@@ -16,6 +16,18 @@ This module is a narrow tombstone: "no token for this email issued before
 is nothing to track — the signature carries no session id), it just marks a
 cutoff. `app.core.auth.current_user` checks every session-branch request
 against it.
+
+A84 rework: F2's OAuth 2.1 authorisation server (app.routers.oauth) is a
+second credential surface for the same identity — `sorted_at_...` access
+tokens and `sorted_rt_...` refresh tokens, stored in `oauth_tokens_col`
+keyed by `uid`, not `user_id`/`_id`, so `app.services.retention.erase_user`'s
+sweep never reaches them. `revoke_sessions` below now revokes every active
+OAuth token document for the identity directly (belt), and
+`app.routers.mcp.resolve_mcp_principal` / `app.routers.oauth.
+_handle_refresh_token_grant` also consult `is_revoked` against the token's
+own `uid`/`created_at` before trusting it (braces), so a token that
+somehow predates this change, or that the belt write races against, still
+cannot outlive the account it names.
 """
 import hashlib
 from datetime import datetime, timedelta, timezone
@@ -54,14 +66,41 @@ async def revoke_sessions(email: str, now: datetime | None = None) -> None:
     sweep) rather than binding it at import time, so a test that broadly
     replaces every `*_col` collection on that module (retention.py's own
     test suite does this for `erase_user`) transparently covers this call
-    too, instead of silently reaching the real Motor client."""
+    too, instead of silently reaching the real Motor client.
+
+    A84 rework: the itsdangerous session tombstone above was the only
+    thing this function revoked, but F2's OAuth 2.1 server
+    (app.routers.oauth) is a second, entirely separate credential surface
+    for the same identity. `oauth_tokens_col` and `oauth_codes_col` key the
+    user as `uid`, not `user_id`/`_id`, so `app.services.retention.
+    erase_user`'s `{user_id: uid}`/`{_id: uid}` sweep never touches them:
+    a `sorted_at_...` access token, or worse a `sorted_rt_...` refresh
+    token (which mints a fresh pair, resetting its own 30-day TTL, every
+    time it's redeemed) kept authenticating as this identity indefinitely
+    after account deletion. Every active (`revoked_at: None`) token this
+    identity holds is revoked here, and every pending (`used_at: None`)
+    authorization code is deleted outright, same as a code past its 5
+    minute TTL would be — there is nothing worth keeping a tombstone for
+    on a code that was never going to outlive this call anyway.
+    `oauth_clients_col` is deliberately left alone: a dynamically
+    registered connector (Claude, ChatGPT, ...) is not owned by any one
+    user, it has no `uid` field at all, so there is nothing there to
+    revoke."""
     from app.db import collections as _cols
     now = as_utc(now) if now is not None else datetime.now(timezone.utc)
     expires_at = now + timedelta(seconds=SESSION_MAX_AGE) + _TOMBSTONE_MARGIN
+    normalised = (email or "").strip().lower()
     await _cols.session_tombstones_col.update_one(
         {"_id": _key(email)},
         {"$max": {"not_before": now, "expires_at": expires_at}},
         upsert=True,
+    )
+    await _cols.oauth_tokens_col.update_many(
+        {"uid": normalised, "revoked_at": None},
+        {"$set": {"revoked_at": now}},
+    )
+    await _cols.oauth_codes_col.delete_many(
+        {"uid": normalised, "used_at": None},
     )
 
 

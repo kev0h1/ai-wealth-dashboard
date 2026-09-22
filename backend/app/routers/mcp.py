@@ -51,6 +51,7 @@ from app.core.config import (
 )
 from app.core.ratelimit import check_keyed_limit
 from app.core.redis_client import get_redis, redis_ok
+from app.core.session_revocation import is_revoked
 from app.core.timeutil import as_utc
 from app.db.collections import mcp_call_counters_col, mcp_calls_col, oauth_tokens_col
 from app.services.mcp_mask import mask_output_and_count
@@ -305,6 +306,16 @@ async def resolve_mcp_principal(request: Request) -> dict:
     way `current_user` used to: as an `HTTPException` that FastAPI turns
     into the response before this router's body runs further, so callers
     of this function never need their own try/except around it.
+
+    A84 rework: an OAuth access token's own `revoked_at` only ever gets
+    set by the OAuth flows themselves (rotation, /revoke, connection
+    deletion) — `app.core.session_revocation.revoke_sessions` now ALSO
+    flips it on account deletion (belt), but this checks the identity-wide
+    tombstone directly too (braces), so a token that somehow predates that
+    change, or a future write path that mints one without going through
+    revoke_sessions, still can't outlive the account it names. Same
+    fail-closed contract as `current_user`'s own tombstone check: a lookup
+    error must not be treated as "not revoked".
     """
     auth = request.headers.get("Authorization", "")
     token = auth[7:] if auth.startswith("Bearer ") else ""
@@ -317,6 +328,15 @@ async def resolve_mcp_principal(request: Request) -> dict:
             not doc or doc.get("kind") != "access" or doc.get("revoked_at")
             or as_utc(doc.get("expires_at")) is None or as_utc(doc["expires_at"]) <= now
         ):
+            raise HTTPException(
+                401, "Invalid, revoked or expired access token",
+                headers={"WWW-Authenticate": MCP_WWW_AUTHENTICATE},
+            )
+        try:
+            revoked = await is_revoked(doc["uid"], doc["created_at"])
+        except Exception:
+            raise HTTPException(503, "Session check unavailable")
+        if revoked:
             raise HTTPException(
                 401, "Invalid, revoked or expired access token",
                 headers={"WWW-Authenticate": MCP_WWW_AUTHENTICATE},
