@@ -70,9 +70,26 @@ class _InsertResult:
         self.inserted_id = inserted_id
 
 
+class _UpdateResult:
+    """Stand-in for Motor's UpdateResult — A86's CAS writes check
+    `result.matched_count`, so the fake must report it honestly (0 when the
+    filter, including any non-`_id` keys such as `status`, didn't match any
+    document) rather than always pretending success."""
+
+    def __init__(self, matched_count):
+        self.matched_count = matched_count
+
+
 class FakeCol:
     """Stand-in for a Motor collection — enough of find()/find_one()/
-    insert_one()/update_one() to drive the real router code."""
+    insert_one()/update_one() to drive the real router code.
+
+    `update_one`'s matcher (`_match`) honours every key in `filt`, not just
+    `_id` — this is load-bearing for A86's compare-and-set filters (e.g.
+    `{"_id": ..., "status": "active"}`): a filter whose `status` no longer
+    matches the document must fail to match here too, or the CAS regression
+    tests below would pass vacuously (matched_count would always be 1
+    regardless of the filter's status clause)."""
 
     def __init__(self, docs=None):
         self.docs = list(docs or [])
@@ -99,12 +116,14 @@ class FakeCol:
             if _match(d, filt):
                 for k, v in (update.get("$set") or {}).items():
                     d[k] = v
-                return
+                return _UpdateResult(matched_count=1)
         if upsert:
             new_doc = dict(filt)
             for k, v in (update.get("$set") or {}).items():
                 new_doc[k] = v
             self.docs.append(new_doc)
+            return _UpdateResult(matched_count=0)
+        return _UpdateResult(matched_count=0)
 
 
 class _FakeHeaders(dict):
@@ -134,8 +153,8 @@ async def _boom(*args, **kwargs):
     raise RuntimeError("not needed for this test")
 
 
-def _setup(monkeypatch, *, commitments_docs=None):
-    monkeypatch.setattr(commitments, "commitments_col", FakeCol(commitments_docs or []))
+def _setup(monkeypatch, *, commitments_docs=None, col=None):
+    monkeypatch.setattr(commitments, "commitments_col", col or FakeCol(commitments_docs or []))
     monkeypatch.setattr(commitments, "accounts_col", FakeCol([]))
     monkeypatch.setattr(commitments, "yapily_accounts_col", FakeCol([]))
     monkeypatch.setattr(commitments, "manual_accounts_col", FakeCol([]))
@@ -144,6 +163,27 @@ def _setup(monkeypatch, *, commitments_docs=None):
     monkeypatch.setattr(commitments, "_cashflow", _boom)
     monkeypatch.setattr(commitments, "get_debt_plan_cached", _boom)
     return commitments.commitments_col
+
+
+class _RaceFakeCol(FakeCol):
+    """FakeCol variant for the concurrent-cancel regression test below.
+    `find_one` returns a SNAPSHOT with `status: "active"` — what
+    `update_commitment`'s own read sees — while the document actually
+    stored in `self.docs` already carries `status: "cancelled"` (a
+    concurrent DELETE that landed in the gap between another request's read
+    and its write). This reproduces the race the CAS filter exists to
+    close: the read looks clean to `update_commitment` (both guards pass
+    against "active"), but the write's `{"status": "active"}` filter must
+    fail to match the now-stale stored status, so the contribution is
+    refused rather than silently applied."""
+
+    async def find_one(self, query=None, projection=None):
+        doc = await super().find_one(query, projection)
+        if doc is None:
+            return None
+        snapshot = dict(doc)
+        snapshot["status"] = "active"
+        return snapshot
 
 
 def _doc(name="Holiday Fund", amount=500.0, status="active", uid=UID, **extra):
@@ -227,6 +267,72 @@ def test_contribute_delta_on_done_commitment_is_also_rejected_409(monkeypatch):
     assert exc.value.status_code == 409
 
 
+def test_combined_status_done_and_contribute_delta_is_rejected_409(monkeypatch):
+    """A86 rework — the exact bypass Kevin rejected the original fix over:
+    a single PATCH carrying {"status": "done", "contribute_delta": 100}
+    against an active commitment used to pass BOTH guards (active -> done is
+    a legal transition; contribute_delta was checked against the stale
+    pre-transition "active" status) and land both writes atomically. The
+    contribute guard must now be checked against the RESULTING status, so
+    the whole request is refused — no partial write of either field."""
+    doc = _doc(status="active", contributed=10.0)
+    _setup(monkeypatch, commitments_docs=[doc])
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            commitments.update_commitment(
+                str(doc["_id"]),
+                {"status": "done", "contribute_delta": 100.0},
+                user=USER,
+            )
+        )
+    assert exc.value.status_code == 409
+    # Neither half of the combined body was applied.
+    assert doc["status"] == "active"
+    assert doc["contributed"] == 10.0
+
+
+def test_combined_status_cancelled_and_contribute_delta_is_rejected_409(monkeypatch):
+    """Same bypass shape via the cancelling transition instead of done."""
+    doc = _doc(status="active", contributed=10.0)
+    _setup(monkeypatch, commitments_docs=[doc])
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            commitments.update_commitment(
+                str(doc["_id"]),
+                {"status": "cancelled", "contribute_delta": 5.0},
+                user=USER,
+            )
+        )
+    assert exc.value.status_code == 409
+    assert doc["status"] == "active"
+    assert doc["contributed"] == 10.0
+
+
+def test_contribute_racing_a_concurrent_cancel_is_rejected_409(monkeypatch):
+    """A contribution racing a concurrent cancel: update_commitment's own
+    read of the commitment shows status "active" (so both guards pass), but
+    the document actually stored already flipped to "cancelled" — another
+    request's DELETE landed in the gap between the read and the write. The
+    compare-and-set filter on the write must catch this (matched_count 0 ->
+    409) rather than trusting the stale read and applying the contribution
+    anyway."""
+    doc = _doc(status="cancelled", contributed=10.0)
+    col = _RaceFakeCol([doc])
+    _setup(monkeypatch, col=col)
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            commitments.update_commitment(
+                str(doc["_id"]), {"contribute_delta": 5.0}, user=USER
+            )
+        )
+    assert exc.value.status_code == 409
+    assert doc["contributed"] == 10.0
+    assert doc["status"] == "cancelled"
+
+
 def test_active_commitment_still_accepts_contribute_delta(monkeypatch):
     """Happy path preserved: contributing to a still-active commitment
     (the only status CommitmentSheet's flows ever contribute against) still
@@ -281,9 +387,9 @@ def test_double_cancel_is_an_idempotent_no_op_not_an_error(monkeypatch):
 
 
 def test_editing_name_and_amount_is_unaffected_by_status_guard(monkeypatch):
-    """The transition guard only gates `status`/`contribute_delta` — plain
-    field edits (CommitmentSheet's ordinary save) are untouched regardless
-    of status."""
+    """On a still-ACTIVE commitment (target_status stays "active"), plain
+    field edits — including `amount`, which the sibling-gap guard below
+    otherwise freezes on a terminal commitment — are untouched."""
     doc = _doc(status="active", name="Old name", amount=500.0)
     _setup(monkeypatch, commitments_docs=[doc])
 
@@ -294,6 +400,91 @@ def test_editing_name_and_amount_is_unaffected_by_status_guard(monkeypatch):
     )
     assert result["name"] == "New name"
     assert result["amount"] == 600.0
+
+
+# ── 1b. Sibling gap — amount / target_date / funding_pots frozen on a
+#        resulting-terminal commitment (adversarial-review follow-up) ───────
+
+def test_combined_status_done_and_amount_is_rejected_409(monkeypatch):
+    """Adversarial-review finding: {"status": "done", "amount": 50000} used
+    to succeed, rewriting a finalised goal's target (and so its completion
+    percentage) in the same call that finished it. The amount guard is
+    checked against the RESULTING status, same as contribute_delta."""
+    doc = _doc(status="active", amount=500.0)
+    _setup(monkeypatch, commitments_docs=[doc])
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            commitments.update_commitment(
+                str(doc["_id"]), {"status": "done", "amount": 50000.0}, user=USER
+            )
+        )
+    assert exc.value.status_code == 409
+    assert doc["status"] == "active"
+    assert doc["amount"] == 500.0
+
+
+def test_combined_status_done_and_target_date_is_rejected_409(monkeypatch):
+    doc = _doc(status="active", target_date=FUTURE_DATE)
+    _setup(monkeypatch, commitments_docs=[doc])
+    other_date = (date.today() + timedelta(days=400)).isoformat()
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            commitments.update_commitment(
+                str(doc["_id"]), {"status": "done", "target_date": other_date}, user=USER
+            )
+        )
+    assert exc.value.status_code == 409
+    assert doc["status"] == "active"
+    assert doc["target_date"] == FUTURE_DATE
+
+
+def test_combined_status_done_and_funding_pots_is_rejected_409(monkeypatch):
+    doc = _doc(status="active", funding_pots=[])
+    _setup(monkeypatch, commitments_docs=[doc])
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            commitments.update_commitment(
+                str(doc["_id"]),
+                {"status": "done", "funding_pots": [{"account_id": "acc-1"}]},
+                user=USER,
+            )
+        )
+    assert exc.value.status_code == 409
+    assert doc["status"] == "active"
+    assert doc["funding_pots"] == []
+
+
+def test_plain_amount_patch_on_an_already_done_goal_is_rejected_409(monkeypatch):
+    """No status field in this body at all — target_status falls back to the
+    stored current_status, which is already terminal, so amount is still
+    frozen."""
+    doc = _doc(status="done", amount=500.0)
+    _setup(monkeypatch, commitments_docs=[doc])
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            commitments.update_commitment(
+                str(doc["_id"]), {"amount": 999.0}, user=USER
+            )
+        )
+    assert exc.value.status_code == 409
+    assert doc["amount"] == 500.0
+
+
+def test_plain_amount_patch_on_an_active_goal_still_works(monkeypatch):
+    doc = _doc(status="active", amount=500.0)
+    _setup(monkeypatch, commitments_docs=[doc])
+
+    result = asyncio.run(
+        commitments.update_commitment(
+            str(doc["_id"]), {"amount": 750.0}, user=USER
+        )
+    )
+    assert result["amount"] == 750.0
+    assert doc["amount"] == 750.0
 
 
 # ── 2. Duplicate-create guard ────────────────────────────────────────────────

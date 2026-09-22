@@ -1294,14 +1294,59 @@ async def update_commitment(
     uid = user["email"]
     doc = await _get_owned(uid, commitment_id)
 
+    current_status = doc.get("status") or "active"
+    # A86 rework: `target_status` is the status this request would leave the
+    # commitment in — current_status unless this same body also transitions
+    # it. Every progress-mutating field below (amount, target_date,
+    # funding_pots, contribute_delta) is checked against `target_status`, not
+    # `current_status`, so a combined body like {"status": "done", "amount":
+    # 50000} is refused as a whole (409) instead of the transition landing
+    # while the sibling field slips through against the stale pre-transition
+    # status. `name` is deliberately exempt — relabelling a finished or
+    # cancelled goal doesn't touch its progress maths. `cas_status` tracks
+    # the status value this request's read was made against, so the write
+    # below can compare-and-set on it and close the concurrent-request race
+    # (see matched_count check).
+    target_status = current_status
+    cas_status = None
+    if "status" in body:
+        status = body.get("status")
+        if status not in _STATUSES:
+            raise HTTPException(400, "status must be active, done or cancelled")
+        # A86: reject any transition not on the explicit allowed map (e.g.
+        # done -> cancelled), 409, naming both statuses.
+        _check_status_transition(current_status, status)
+        target_status = status
+        cas_status = current_status
+
     updates: dict = {}
+    if "status" in body:
+        updates["status"] = target_status
     if "name" in body:
         updates["name"] = _validate_name(body.get("name"))
     if "amount" in body:
+        # A86: a resulting-terminal commitment's amount is frozen — changing
+        # it would rewrite a finished/cancelled goal's completion maths in
+        # the same call the transition happened in.
+        if target_status != "active":
+            raise HTTPException(
+                409,
+                f"cannot change amount on a commitment with status '{target_status}'",
+            )
         updates["amount"] = _validate_amount(body.get("amount"))
     if "target_date" in body:
+        if target_status != "active":
+            raise HTTPException(
+                409,
+                f"cannot change target_date on a commitment with status '{target_status}'",
+            )
         updates["target_date"] = _validate_target_date(body.get("target_date"))
     if "funding_pots" in body:
+        if target_status != "active":
+            raise HTTPException(
+                409,
+                f"cannot change funding_pots on a commitment with status '{target_status}'",
+            )
         # Baselines are balance-at-link-time: a pot already linked with the
         # same count_existing flag keeps its stored baseline (its link time
         # hasn't changed — re-capturing would wipe accrued growth). Fresh
@@ -1318,29 +1363,28 @@ async def update_commitment(
         updates["funding_pots"] = pots
         updates.update(_pot_mirrors(pots))
     elif "funding_account_id" in body:
+        if target_status != "active":
+            raise HTTPException(
+                409,
+                f"cannot change funding_pots on a commitment with status '{target_status}'",
+            )
         # Legacy single-pot re-link (one release) — same capture semantics.
         fid = body.get("funding_account_id") or None
         pots = await _build_pots([{"account_id": fid}] if fid else [])
         updates["funding_pots"] = pots
         updates.update(_pot_mirrors(pots))
-    current_status = doc.get("status") or "active"
-    if "status" in body:
-        status = body.get("status")
-        if status not in _STATUSES:
-            raise HTTPException(400, "status must be active, done or cancelled")
-        # A86: reject any transition not on the explicit allowed map (e.g.
-        # done -> cancelled), 409, naming both statuses.
-        _check_status_transition(current_status, status)
-        updates["status"] = status
     if "contribute_delta" in body:
-        # A86: a contribution only ever makes sense against a still-active
-        # commitment — reject 409 against a done/cancelled one (this is the
-        # "reordered steps" finding: contribute-after-cancel was previously
-        # accepted and silently moved money into a terminal goal).
-        if current_status != "active":
+        # A86: a contribution only ever makes sense against a commitment that
+        # is (and, after this same request, remains) active — reject 409
+        # unless target_status == "active". This is what refuses the
+        # combined {"status": "done", "contribute_delta": ...} bypass: the
+        # transition to "done" is legal on its own, but contributing against
+        # the RESULTING status is not, so the whole PATCH is rejected before
+        # anything is written.
+        if target_status != "active":
             raise HTTPException(
                 409,
-                f"cannot contribute to a commitment with status '{current_status}'",
+                f"cannot contribute to a commitment with status '{target_status}'",
             )
         try:
             delta = float(body.get("contribute_delta"))
@@ -1350,11 +1394,26 @@ async def update_commitment(
             raise HTTPException(400, "contribute_delta out of range")
         contributed = float(doc.get("contributed") or 0)
         updates["contributed"] = round(max(0.0, contributed + delta), 2)
+        cas_status = current_status
 
     if not updates:
         raise HTTPException(400, "no recognised fields to update")
 
-    await commitments_col.update_one({"_id": doc["_id"]}, {"$set": updates})
+    # A86: when this request depends on the status it read (a transition, a
+    # contribution, or both), the write is a compare-and-set against that
+    # same status — a concurrent transition landed between our read and this
+    # write (another cancel, another contribute-triggering PATCH) means
+    # matched_count == 0, and we 409 rather than silently applying updates
+    # computed against a status that's no longer current.
+    update_filter: dict = {"_id": doc["_id"]}
+    if cas_status is not None:
+        update_filter["status"] = cas_status
+    result = await commitments_col.update_one(update_filter, {"$set": updates})
+    if cas_status is not None and getattr(result, "matched_count", 1) == 0:
+        raise HTTPException(
+            409,
+            "commitment status changed since it was read; refresh and retry",
+        )
     doc.update(updates)
 
     response_cache.invalidate(uid)
@@ -1373,8 +1432,18 @@ async def delete_commitment(commitment_id: str, user: dict = Depends(current_use
     # double-cancel.
     current_status = doc.get("status") or "active"
     _check_status_transition(current_status, "cancelled")
-    await commitments_col.update_one(
-        {"_id": doc["_id"]}, {"$set": {"status": "cancelled"}}
+    # A86: compare-and-set on the status the check above was made against —
+    # a concurrent transition (another cancel, a PATCH to done) landed
+    # between the read and this write means matched_count == 0, and we 409
+    # instead of blindly setting cancelled over whatever the doc has become.
+    result = await commitments_col.update_one(
+        {"_id": doc["_id"], "status": current_status},
+        {"$set": {"status": "cancelled"}},
     )
+    if getattr(result, "matched_count", 1) == 0:
+        raise HTTPException(
+            409,
+            "commitment status changed since it was read; refresh and retry",
+        )
     response_cache.invalidate(uid)
     return {"id": str(doc["_id"]), "status": "cancelled"}
