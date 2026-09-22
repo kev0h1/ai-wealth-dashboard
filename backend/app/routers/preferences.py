@@ -20,6 +20,68 @@ router = APIRouter(tags=["preferences"])
 # missing-field default.
 DEFAULT_HOME_PINNED_WIDGET = "period_compare"
 
+# A85 (pentest A51-2026-09-20, API-08): the exact set of top-level fields
+# PATCH /preferences has ever been asked to write, enumerated from every
+# caller -- frontend/lib/api.ts's updatePreferences() type plus its actual
+# call sites (components/Onboarding.tsx, app/components/AccountsPage.tsx,
+# components/SpendTrends.tsx, components/PreferencesContext.tsx,
+# app/settings/SettingsPage.tsx, lib/useHomePinnedCards.ts), and every
+# Penny propose-tool in services/penny_tools.py that replays through this
+# same endpoint via app.routers.can_i._execute_update_preferences
+# (set_pay_period, set_income, set_pension, set_child_benefit,
+# set_debt_target, set_debt_tracking_start, set_cover_plan_exclusions,
+# set_hide_balances -- each sends exactly one of the keys already listed
+# here for its own frontend equivalent). A body key outside this set is
+# rejected below with 422 rather than silently written: this endpoint used
+# to accept and store ANY top-level field with no schema check at all
+# (mass assignment), live-confirmed in A51-2026-09-20's API-08 case.
+#
+# `income_bracket` is included even though no caller sends it directly
+# today: update_preferences derives and injects it onto `body` itself when
+# `income_value` is present (see below), and it is a documented field of
+# the GET/PATCH response shape (frontend/lib/api.ts's getPreferences type).
+#
+# Deliberately NOT here: `penny_agent_consent`, which is only ever written
+# by POST /penny/agent-consent and its DELETE counterpart, never by this
+# endpoint; and `payday_buffer`, which has no writer anywhere in the app
+# today (read-only, defaults to 50 in services/companion.py). Fields such
+# as `income_streams`, `dismissed_recurring`, `dismissed_recurring_meta`,
+# `vetoed_hidden`, `judge_overrides`, `dismissed_miscategorised(_series)`,
+# `dismissed_transfer_pairs` and `spotlight_last_shown` are also excluded:
+# they are real preference-document fields, but every writer of them
+# (routers/income.py, routers/analytics.py, routers/savings_insights.py,
+# services/account_cascade.py, services/penny_tools.py) calls
+# preferences_col.update_one directly, never this PATCH endpoint, so they
+# were never reachable through this body in the first place.
+ALLOWED_PREFERENCE_FIELDS = frozenset({
+    "hide_net_worth",
+    "dark_mode",
+    "pay_period_config",
+    "income_value",
+    "income_bracket",
+    "pension_annual",
+    "has_child_benefit",
+    "home_pinned_accounts",
+    "home_pinned_cards",
+    "recurring_categories",
+    "spend_widgets",
+    "home_pinned_widget",
+    "debt_burndown_overrides",
+    "cover_plan_excluded_accounts",
+    "cover_plan_exclude_add",
+    "cover_plan_exclude_remove",
+    "debt_target_months",
+    "debt_tracking_start",
+    "notification_prefs",
+})
+
+# A85: a protocol-level key, not a preference field itself -- carries the
+# optimistic-concurrency check in update_preferences below. Kept out of
+# ALLOWED_PREFERENCE_FIELDS (and popped from the body before the unknown-
+# field check's complement would otherwise need to special-case it) so it
+# can never be validated as a preference or written into the document.
+EXPECTED_VERSION_KEY = "expected_version"
+
 
 def _notif_prefs(doc: dict) -> dict:
     saved = (doc or {}).get("notification_prefs") or {}
@@ -190,6 +252,48 @@ async def _cas_set_cover_plan_excluded_accounts(uid: str, excluded_ids: list, re
 @router.patch("/preferences")
 async def update_preferences(body: dict, user: dict = Depends(current_user)):
     uid = user["email"]
+
+    # A85 mass-assignment fix: reject any top-level key this endpoint does
+    # not know how to handle, BEFORE it can reach any $set. Checked against
+    # the body's ORIGINAL keys, ahead of the income_bracket derivation and
+    # the cover_plan_exclude_add/remove pops below, so nothing the server
+    # itself later adds to (or removes from) `body` can hide a genuinely
+    # unknown client-supplied key, or get mistakenly flagged as one.
+    unknown_fields = set(body.keys()) - ALLOWED_PREFERENCE_FIELDS - {EXPECTED_VERSION_KEY}
+    if unknown_fields:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown preference field(s): {', '.join(sorted(unknown_fields))}",
+        )
+
+    # A85 optimistic-concurrency fix: an optional `expected_version` in the
+    # JSON body -- the same body-carried convention the frontend already
+    # uses for the `version` counter on every GET/PATCH response (see
+    # frontend/lib/preferencesVersion.ts, components/PreferencesContext.tsx)
+    # rather than a new header, so there is one convention for "where does
+    # the version live" across this endpoint. When supplied, it is checked
+    # against the CURRENTLY stored version before any write below --
+    # whichever of the delta ops, the cover-plan compare-and-swap, or the
+    # ordinary catch-all $set would otherwise run -- so a caller holding a
+    # stale snapshot gets 409 with the current version and NO write happens
+    # at all, rather than a stale full-snapshot PATCH silently clobbering a
+    # more recently changed field (the live-confirmed A51-2026-09-20 API-08
+    # case). Omitted (the default): behaviour is unchanged from before this
+    # fix, last write wins, exactly like every existing client today.
+    expected_version = body.pop(EXPECTED_VERSION_KEY, None)
+    if expected_version is not None:
+        if isinstance(expected_version, bool) or not isinstance(expected_version, int):
+            raise HTTPException(status_code=422, detail="expected_version must be an integer")
+        current_doc = await preferences_col.find_one({"user_id": uid}, {"version": 1})
+        current_version = (current_doc or {}).get("version", 0)
+        if current_version != expected_version:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": "Preferences have changed since you last loaded them.",
+                    "current_version": current_version,
+                },
+            )
 
     # income_bracket is derived, not chosen — the salary is the source of truth
     if "income_value" in body:
