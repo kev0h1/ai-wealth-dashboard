@@ -11,18 +11,35 @@ No TestClient/HTTP layer here, following the convention already established
 in test_apple_auth.py / test_linked_identities.py: the route coroutine is
 awaited directly via asyncio.run() with a minimal fake Request that only
 needs a `.headers` mapping (the route only ever calls `.headers.get(...)`).
+
+A84 added a `session_tombstones_col` lookup (`is_revoked`) to this route —
+`_no_tombstones` below stands in an empty fake for it so these
+pre-existing tests (none of which are about revocation) don't hit the real
+Motor client, same doctrine as tests/test_session_revocation.py's own
+`_fake_tombstones` fixture.
 """
 import asyncio
 
 import pytest
 from fastapi import HTTPException
 
+import app.db.collections as db_collections
 import app.routers.auth as auth_module
 from app.core.config import PRIMARY_EMAIL, serializer
 
 
 def _run(coro):
     return asyncio.run(coro)
+
+
+class _EmptyTombstoneCol:
+    async def find_one(self, query):
+        return None
+
+
+@pytest.fixture(autouse=True)
+def _no_tombstones(monkeypatch):
+    monkeypatch.setattr(db_collections, "session_tombstones_col", _EmptyTombstoneCol())
 
 
 class _FakeRequest:

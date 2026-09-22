@@ -18,6 +18,7 @@ from app.core.config import (
 )
 from app.core.identity import resolve_signin_email
 from app.core.pending_login import _pop_pending, _store_pending
+from app.core.session_revocation import is_revoked
 from app.db.collections import linked_identities_col
 from app.services.retention import erase_orphaned_relay_account
 from itsdangerous import SignatureExpired, BadSignature
@@ -57,17 +58,31 @@ async def validate_session(request: Request):
     if not auth.startswith("Bearer "):
         raise HTTPException(401, "Not authenticated")
     try:
-        data = serializer.loads(auth[7:], max_age=SESSION_MAX_AGE)
+        data, issued_at = serializer.loads(auth[7:], max_age=SESSION_MAX_AGE, return_timestamp=True)
         name  = data.get("name", "")  if isinstance(data, dict) else ""
         email = data.get("email", "") if isinstance(data, dict) else ""
-        # Web-only product lock (A10): the frontend needs to tell the owner's
-        # account apart from any other authorised sign-in so it can keep the
-        # full product reachable for the owner while everyone else gets the
-        # "Sorted is an app" shell when NEXT_PUBLIC_WEB_PRODUCT=off.
-        owner = email.strip().lower() == PRIMARY_EMAIL
-        return {"valid": True, "name": name, "email": email, "owner": owner}
     except (SignatureExpired, BadSignature):
         raise HTTPException(401, "Session expired")
+    # A84: same revocation check as app.core.auth.current_user — this
+    # handler decodes the token itself rather than depending on
+    # current_user, so without this it was a bypass: AuthProvider.tsx calls
+    # this on every app load to decide whether to render the authenticated
+    # shell, and a deleted account's token kept coming back valid: true.
+    # Fails CLOSED: a tombstone-lookup error must not silently report a
+    # possibly-revoked token as valid.
+    try:
+        if await is_revoked(email, issued_at):
+            raise HTTPException(401, "Session expired")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(503, "Session check unavailable")
+    # Web-only product lock (A10): the frontend needs to tell the owner's
+    # account apart from any other authorised sign-in so it can keep the
+    # full product reachable for the owner while everyone else gets the
+    # "Sorted is an app" shell when NEXT_PUBLIC_WEB_PRODUCT=off.
+    owner = email.strip().lower() == PRIMARY_EMAIL
+    return {"valid": True, "name": name, "email": email, "owner": owner}
 
 
 @router.post("/auth/google/native")

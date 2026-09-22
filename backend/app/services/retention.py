@@ -19,6 +19,7 @@ import logging
 from datetime import datetime, timedelta
 
 from app.core.config import mask_email
+from app.core.session_revocation import revoke_sessions
 from app.db.collections import (
     connections_col, accounts_col, finexer_consents_col, user_profiles_col,
     linked_identities_col,
@@ -345,6 +346,13 @@ async def sweep_dormant_users(now: datetime | None = None) -> dict:
             continue
         uid = doc["_id"]
         try:
+            # A84: revoke before erasing (not inside erase_user itself,
+            # which is shared with DELETE /account and out of scope for
+            # this call site's edit), same ordering as the user-initiated
+            # deletion path, so a dormant token can't keep authenticating
+            # for the rest of its lifetime once the sweep decides it's
+            # erasing this user.
+            await revoke_sessions(uid, now=now)
             removed = await erase_user(uid)
             erased += 1
             logger.warning(
