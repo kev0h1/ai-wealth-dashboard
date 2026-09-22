@@ -72,6 +72,35 @@ async def _txn_source(account_id: str, uid: str):
     return transactions_col
 
 
+_CONTROL_CHARS_RE = re.compile(r'[\x00-\x1f\x7f-\x9f]')
+_SEARCH_WHITESPACE_RE = re.compile(r'\s+')
+_SEARCH_QUERY_MAX_LEN = 200  # comfortably above anything the search box lets a user type
+
+
+def _normalise_search_text(q: Optional[str]) -> Optional[str]:
+    """Sanitise free-text search input before it is embedded in a Mongo
+    `$regex` clause (via `re.escape`, which only escapes regex metacharacters
+    — it does not touch NUL or other control characters).
+
+    A NUL byte (or any other C0/C1 control character) in a `$regex` pattern
+    fails BSON encoding, since regex patterns are encoded as cstrings, and
+    raised an unhandled 500 instead of a clean result (A93 / pentest
+    API-11). Stripping those characters, collapsing whitespace, and capping
+    the length means every caller that runs text through this helper before
+    building a regex clause can no longer be crashed by malformed input.
+
+    Returns None (never "") once nothing usable is left, so callers written
+    as `if q:` behave exactly as they do today for an absent or blank
+    query."""
+    if not q:
+        return None
+    cleaned = _CONTROL_CHARS_RE.sub('', q)
+    cleaned = _SEARCH_WHITESPACE_RE.sub(' ', cleaned).strip()
+    if not cleaned:
+        return None
+    return cleaned[:_SEARCH_QUERY_MAX_LEN]
+
+
 def _category_clause(cat: str) -> dict:
     """Match on the effective category (custom_category overrides category)."""
     no_custom = {"custom_category": {"$in": [None, ""]}}
@@ -109,8 +138,9 @@ async def get_transactions(
     if txn_type in ("debit", "credit"):
         base["transaction_type"] = txn_type
     clauses = [base]
-    if q and q.strip():
-        rx = {"$regex": re.escape(q.strip()), "$options": "i"}
+    q = _normalise_search_text(q)
+    if q:
+        rx = {"$regex": re.escape(q), "$options": "i"}
         clauses.append({"$or": [
             {"description": rx}, {"merchant_name": rx},
             {"category": rx}, {"custom_category": rx},
@@ -256,8 +286,9 @@ def _search_query(
     if txn_type in ("debit", "credit"):
         base["transaction_type"] = txn_type
     clauses = [base]
-    if q and q.strip():
-        rx = {"$regex": re.escape(q.strip()), "$options": "i"}
+    q = _normalise_search_text(q)
+    if q:
+        rx = {"$regex": re.escape(q), "$options": "i"}
         clauses.append({"$or": [
             {"description": rx}, {"merchant_name": rx}, {"merchant_key": rx},
             {"category": rx}, {"custom_category": rx},
@@ -268,7 +299,9 @@ def _search_query(
     elif category:
         clauses.append(_category_clause(category))
     if merchants:
-        names = [n.strip() for n in merchants.split(",") if n.strip()]
+        names = [n for n in (
+            _normalise_search_text(n) for n in merchants.split(",")
+        ) if n]
         if names:
             merchant_or: list[dict] = []
             for name in names:
@@ -660,7 +693,9 @@ async def resolve_movement(transaction_id: str, body: dict, user: dict = Depends
         )
 
     elif resolution == "mine-offline":
-        pot_name = (body.get("offline_pot_name") or "").strip()[:60] or "An account of mine elsewhere"
+        # A93: raw body text straight into re.escape/$regex — same NUL-byte
+        # crash class as the search endpoints above, normalise first.
+        pot_name = (_normalise_search_text(body.get("offline_pot_name")) or "")[:60] or "An account of mine elsewhere"
         existing = await manual_accounts_col.find_one({
             "user_id": uid,
             "name": {"$regex": f"^{re.escape(pot_name)}$", "$options": "i"},
