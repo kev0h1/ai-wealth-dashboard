@@ -26,7 +26,8 @@ import { usePreferences } from "@/components/PreferencesContext";
 import CustomSelect from "@/components/CustomSelect";
 import { createPortal } from "react-dom";
 import { getAllTransactionsCached } from "@/lib/useAllTransactions";
-import { getAccountsCached, invalidateAccounts } from "@/lib/accountsCache";
+import { getAccountsCached } from "@/lib/accountsCache";
+import { invalidateAllAccountData } from "@/lib/accountMutations";
 import { writeHomePinnedAccounts } from "@/lib/homePinnedAccounts";
 import MoneyText from "@/components/MoneyText";
 import { useTutorialAction, useTutorialReady } from "@/components/TutorialContext";
@@ -722,18 +723,29 @@ export default function AccountsPage() {
     }
   }, [pathname, searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // When redirected back from TrueLayer, poll until accounts appear then clear the flag.
+  // When redirected back from TrueLayer/Finexer (a brand-new connection AND
+  // a reconnect both land here the same way, on ?syncing=1 — see
+  // app/auth/truelayer/callback/route.ts and app/auth/finexer/callback/
+  // route.ts), poll until accounts appear then clear the flag.
   // force=true on every poll: we're specifically waiting for the list to
   // change, so a stale cached read (possibly still the pre-connect empty
   // list) would spin here for up to the rest of the cache's TTL instead of
   // seeing the new account land within one 3s tick. A forced fetch also
-  // rewrites the shared cache itself, so every other page sees the fresh
-  // list immediately too, without a separate invalidateAccounts() call.
+  // rewrites the shared accounts cache itself, so every other page sees the
+  // fresh list immediately too, without a separate invalidateAccounts()
+  // call — but the OTHER caches keyed off accounts/transactions (verdict,
+  // money-shape, Home, signals, the badge counts) don't share that cache
+  // and are not touched by a forced GET /accounts, so invalidateAllAccountData()
+  // is still needed once the new/reconnected account is confirmed (G138:
+  // this is the "new connection landing" and "reconnect" half of the fix,
+  // the delete-only version of which left Spend showing a removed account's
+  // transaction until a hard refresh).
   useEffect(() => {
     if (!isSyncing) return;
     const interval = setInterval(async () => {
       const accs = await getAccountsCached(true).catch(() => [] as Account[]);
       if (accs.length > 0) {
+        invalidateAllAccountData();
         setAccounts(accs);
         clearInterval(interval);
         router.replace("/accounts");
@@ -914,7 +926,7 @@ export default function AccountsPage() {
   // TrueLayer consent. Removed along with the `connecting` state it owned.
 
   function handleStatementSuccess() {
-    invalidateAccounts();
+    invalidateAllAccountData();
     loadAccounts();
     if (selectedAccountId) loadAccountTxns(selectedAccountId, true);
     setShowStatementUpload(false);
@@ -987,7 +999,7 @@ export default function AccountsPage() {
     setDeletingAccount(true);
     try {
       await api.deleteAccount(selectedAccountId);
-      invalidateAccounts();
+      invalidateAllAccountData();
       setAccounts(prev => prev.filter(a => a.id !== selectedAccountId));
       setTxnMap(prev => { const n = { ...prev }; delete n[selectedAccountId]; return n; });
       handleBack();
@@ -1032,7 +1044,7 @@ export default function AccountsPage() {
         setManualAccounts(prev => [...prev, created]);
       }
       setManualModalOpen(false);
-      invalidateAccounts();
+      invalidateAllAccountData();
       loadAccounts();
     } catch {
       setManualError("Couldn't save. Please try again.");
@@ -1045,7 +1057,7 @@ export default function AccountsPage() {
     if (!await showConfirm("Remove this offline account?")) return;
     try {
       await api.deleteManualAccount(id);
-      invalidateAccounts();
+      invalidateAllAccountData();
       setManualAccounts(prev => prev.filter(a => a.id !== id));
       loadAccounts();
     } catch {
@@ -1108,7 +1120,7 @@ export default function AccountsPage() {
         await api.addManualTransaction(selectedAccountId, body);
       }
       setManualTxModalOpen(false);
-      invalidateAccounts();
+      invalidateAllAccountData();
       await loadAccountTxns(selectedAccountId, true);
       loadAccounts();
     } catch {
@@ -1123,7 +1135,7 @@ export default function AccountsPage() {
     if (!await showConfirm("Delete this entry?")) return;
     try {
       await api.deleteManualTransaction(selectedAccountId, txId);
-      invalidateAccounts();
+      invalidateAllAccountData();
       await loadAccountTxns(selectedAccountId, true);
       loadAccounts();
     } catch {
@@ -1189,7 +1201,7 @@ export default function AccountsPage() {
       setRuleSearchOpen(false);
       setRuleSearchResults([]);
       setRuleCounts(null);
-      invalidateAccounts(); // balances changed via backfill / reverse+reapply
+      invalidateAllAccountData(); // balances changed via backfill / reverse+reapply
       loadAccounts();
       if (selectedAccountId) await loadAccountTxns(selectedAccountId, true);
     } catch {
@@ -1203,7 +1215,7 @@ export default function AccountsPage() {
     try {
       const updated = await api.updateManualAccountRule(rule.id, { active: !rule.active });
       setRules(prev => prev.map(r => r.id === rule.id ? updated : r));
-      invalidateAccounts();
+      invalidateAllAccountData();
       loadAccounts();
       if (selectedAccountId) await loadAccountTxns(selectedAccountId, true);
     } catch {
@@ -1216,7 +1228,7 @@ export default function AccountsPage() {
     try {
       await api.deleteManualAccountRule(id);
       setRules(prev => prev.filter(r => r.id !== id));
-      invalidateAccounts();
+      invalidateAllAccountData();
       loadAccounts();
       if (selectedAccountId) await loadAccountTxns(selectedAccountId, true);
     } catch {
@@ -2161,7 +2173,7 @@ export default function AccountsPage() {
                   if (isManual) {
                     if (!await showConfirm("Remove this offline account?")) return;
                     await api.deleteManualAccount(selectedAccount.id);
-                    invalidateAccounts();
+                    invalidateAllAccountData();
                     setManualAccounts(prev => prev.filter(a => a.id !== selectedAccount.id));
                     loadAccounts();
                     handleBack();

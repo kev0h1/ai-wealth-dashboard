@@ -1,6 +1,12 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import { api, Transaction } from "@/lib/api";
+import { api } from "@/lib/api";
+// `Transaction` is imported separately with `import type`: Node's
+// --experimental-strip-types (scripts/account-mutations.test.mjs loads this
+// module directly) does not elide a type name sitting in a value import
+// clause across module boundaries — see lib/openBankingAccess.ts's header
+// comment for the fuller version of this same note.
+import type { Transaction } from "@/lib/api";
 
 // Module-level cache: one fetch per TTL across all consumers, in-flight dedupe.
 //

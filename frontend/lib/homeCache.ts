@@ -1,4 +1,10 @@
-import { Account, AccountEligibility, CompanionItem, InvestmentAccount, NeedleSummary, SafeToSpend, Transaction } from "@/lib/api";
+// `import type`, not a value import: every name here is used purely as a
+// type below. Node's --experimental-strip-types (scripts/account-mutations.
+// test.mjs loads this module directly) does not elide a type name sitting
+// in a value import clause across module boundaries — see
+// lib/openBankingAccess.ts's header comment for the fuller version of this
+// same note.
+import type { Account, AccountEligibility, CompanionItem, InvestmentAccount, NeedleSummary, SafeToSpend, Transaction } from "@/lib/api";
 
 // Module-level warm-paint cache for HomePage.tsx — lives here (rather than
 // inline in the component) so it can be invalidated from outside the Home
