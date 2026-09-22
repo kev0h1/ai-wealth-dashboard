@@ -5,11 +5,16 @@ import type { CompanionItem } from "@/lib/api";
  *
  * Every string below is a verbatim copy of what
  * `app.services.companion.trajectory_copy` returns for the scenario named in
- * each entry's `note`; nothing here is hand-written prose. Two backend tests
- * keep it that way: `test_the_design_preview_shows_the_real_copy` re-derives
- * all eight from the live function and fails on any drift, and
+ * each entry's `note`; nothing here is hand-written prose.
+ *
+ * This file is maintained BY HAND. There is no generator, so when the copy
+ * changes you edit these entries yourself. Two backend tests are what keep
+ * that honest, and they are the reason hand-maintenance is safe:
+ * `test_the_design_preview_shows_the_real_copy` re-derives all eight
+ * scenarios from the live function and fails on any drift, and
  * `test_the_preview_shows_every_state_the_gate_knows_about_and_no_others`
- * fails if a ninth is hand-added beside them.
+ * fails if a ninth is hand-added beside them. Run the backend suite after
+ * touching either this file or `trajectory_copy`.
  *
  * The scenario is one carried portfolio of six cards totalling £24,926
  * (American Express £3,180, Barclaycard Platinum £8,420, MBNA £5,980, Halifax

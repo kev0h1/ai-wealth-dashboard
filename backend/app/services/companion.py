@@ -1607,6 +1607,12 @@ def trajectory_copy(plan: dict, today: date) -> dict:
     watch / neutral / positive and drives the small KindLabel mark only;
     `brief_lead` is None when there is no flow figure honest enough to lead
     with. Emission and dismissal gating stay with the caller.
+
+    CALLER CONTRACT: only call this for a plan whose verdict is not "good".
+    Section 8f already guarantees that, and it matters — a plan with no
+    carried cards at all is exactly what makes the verdict "good", and this
+    function would otherwise cheerfully render "£0 is carried across 0 cards
+    in total".
     """
     from app.services.debt_plan import HISTORY_RISING_EPS, MATERIAL_BALANCE
 
