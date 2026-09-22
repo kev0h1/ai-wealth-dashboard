@@ -10,7 +10,16 @@
 // (scripts/check-design-index.mjs) enforces that and runs as part of
 // `scripts/session.sh finish`.
 
+import type { Metadata } from "next";
 import Link from "next/link";
+
+// A76 (DSGN-04, A48 pentest): these preview routes are unreleased product
+// directions and must not be indexed by search engines. See also the
+// X-Robots-Tag header in next.config.ts and app/robots.ts, which cover the
+// whole /design/* subtree (this metadata only covers this one page).
+export const metadata: Metadata = {
+  robots: { index: false, follow: false },
+};
 
 type PreviewRoute = {
   slug: string;
