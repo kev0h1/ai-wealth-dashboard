@@ -263,8 +263,26 @@ const nextConfig: NextConfig = {
   transpilePackages: ["@wealth/shared"],
   async headers() {
     const headers = await securityHeaders();
-    if (headers.length === 0) return [];
-    return [{ source: "/:path*", headers }];
+    const result = headers.length > 0 ? [{ source: "/:path*", headers }] : [];
+    // A76 (DSGN-04, A48 pentest): /design/* previews are unreleased product
+    // directions and must not be indexed. MOBILE_EXPORT already returns []
+    // above via securityHeaders() short-circuiting (output: 'export' doesn't
+    // support headers() at all), so this only ever ships on the web build,
+    // where robots.txt alone isn't enough (it stops crawling, not indexing
+    // a URL a crawler already has from elsewhere) — hence the explicit
+    // header too. See also app/robots.ts and app/design/page.tsx's
+    // per-route `metadata.robots`.
+    if (!MOBILE_EXPORT) {
+      result.push({
+        source: "/design",
+        headers: [{ key: "X-Robots-Tag", value: "noindex, nofollow" }],
+      });
+      result.push({
+        source: "/design/:path*",
+        headers: [{ key: "X-Robots-Tag", value: "noindex, nofollow" }],
+      });
+    }
+    return result;
   },
   async rewrites() {
     if (MOBILE_EXPORT) return [];
