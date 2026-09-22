@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { RefreshCw, AlertTriangle, AlertCircle, TrendingDown, TrendingUp, Minus, X, ChevronRight, ChevronDown, UserRound, CalendarDays, CreditCard, Check, CheckCircle2, Clock3, ArrowRight, ArrowRightLeft, Circle } from "lucide-react";
+import { RefreshCw, AlertTriangle, AlertCircle, TrendingDown, TrendingUp, Minus, CircleDashed, X, ChevronRight, ChevronDown, UserRound, CalendarDays, CreditCard, Check, CheckCircle2, Clock3, ArrowRight, ArrowRightLeft, Circle } from "lucide-react";
 import type { CompanionItem, PlanDest, PlanDestBill, SafeToSpend, UnfundedMoveEntry } from "@/lib/api";
 import { api } from "@/lib/api";
 import { invalidateVerdictCache } from "@/lib/verdictCache";
@@ -778,18 +778,31 @@ interface CliffCardProps {
 // when `dismissible` (Home) — a local, Home-only hide; Penny never renders it.
 //
 // G103: a trajectory item is no longer assumed to be a risk reading. It now
-// leads on the three-month movement in what is owed, which can be PROGRESS,
-// so companion.py sends its own `tone` (emerald check when the balance is
-// coming down, amber dot when it is not coming down and that costs money or
-// a known 0% cliff is ahead, neutral for drift that is not yet costing
-// anything) and its own `trend`, which picks the icon. Both are optional on
-// the wire: an item persisted before G103 has neither, and falls back to the
-// pre-G103 behaviour (watch tone, TrendingDown) rather than rendering blank.
+// leads on the movement in what is owed, which can be PROGRESS, so
+// companion.py sends its own `tone` (emerald check only when the balance is
+// coming down AND nothing on it is charging interest and no 0% cliff is on
+// file, amber whenever it is not coming down and that costs money or the
+// cost cannot be ruled out, neutral otherwise) and its own `trend`, which
+// picks the icon. Both are optional on the wire: an item persisted before
+// G103 has neither, and falls back to the pre-G103 behaviour (watch tone,
+// TrendingDown) rather than rendering blank.
+//
+// Every trend gets its OWN icon. `unknown` shared `Minus` with `flat` at
+// first, which made the icon assert "no change" on the one card that
+// explicitly refuses to make that claim; CircleDashed reads as unresolved
+// instead. The direction is always spoken in the headline too, so the icon
+// never carries meaning on its own (DESIGN.md).
+const TRAJECTORY_ICON = {
+  rising: TrendingUp,
+  falling: TrendingDown,
+  flat: Minus,
+  unknown: CircleDashed,
+} as const;
+
 export function CliffCard({ item, maskAmounts, dismissible, onHomeDismiss }: CliffCardProps) {
   const isTrajectory = item.type === "trajectory";
   const isRhythm = item.type === "rhythm";
-  const trajectoryIcon =
-    item.trend === "rising" ? TrendingUp : item.trend === "falling" ? TrendingDown : item.trend ? Minus : TrendingDown;
+  const trajectoryIcon = (item.trend && TRAJECTORY_ICON[item.trend]) || TrendingDown;
   const Icon = isTrajectory ? trajectoryIcon : isRhythm ? Clock3 : AlertTriangle;
   const label = isTrajectory ? "Debt trajectory" : isRhythm ? "Spending pattern" : "Rate change";
   const [hidden, setHidden] = useState(false);

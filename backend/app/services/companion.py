@@ -1486,28 +1486,45 @@ def _home_item_suppressed(kind: str) -> bool:
 # known 0% cliff ahead. Neutral for drift that is genuinely not costing
 # anything, and for a reading the engine cannot make at all.
 #
-# WHAT THE CARD REFUSES TO SAY. A direction is only stated when the series can
-# carry it:
-#   · `trend_3m_uncovered_cards > 0` — a carried card with no readings at all.
-#     Its balance is inside `carried_total` but outside the trend, and it
-#     could be moving further than the observed delta the other way, so no
-#     aggregate direction is claimed (BEHAVIOURS.md: suppressed, not guessed).
-#   · `trend_3m_months < 1` — the anchor and the latest month-end are the same
-#     month, so every delta is zero by construction. Not a flat reading, no
-#     reading.
-#   · a zero delta with `trend_3m_partial_cards > 0` — "nothing moved" is a
-#     NEGATIVE claim, and it needs a fully observed window. A non-zero delta
-#     survives a shortened window ("at least this much moved within it"), so
-#     rising and falling only narrow their wording there.
+# POSITIVE AND NEGATIVE CLAIMS. Rising and falling are POSITIVE claims — "at
+# least this much moved" — and they survive incomplete observation, so they
+# are never suppressed. Flat is a NEGATIVE claim, "nothing moved", and it
+# needs the whole window and every card behind it, so it IS suppressed when
+# either is missing:
+#   · `trend_3m_partial_cards > 0` — a card's anchor was clamped forward to
+#     its own first covered month, so part of the window is unobserved.
+#   · `trend_3m_uncovered_cards > 0` — a carried card contributed no readings
+#     at all. Its balance is inside `carried_total` but outside the trend.
+# An unread card does not mute a non-zero reading, because a card that never
+# syncs would then hide a real rise forever. Instead the WORDS narrow to what
+# was read ("more owed on the cards with history") and the body names the
+# exclusion. Same principle as the clamped anchor, which narrows "than three
+# months ago" to "over the last three months".
+#
+# The one hard guard is `trend_3m_months < 1`: the anchor and the latest
+# month-end are the same month, so every per-card delta is zero by
+# construction. That is not a flat reading, it is no reading — and because
+# every delta is zero, `trend_3m` is zero and `history["rising"]` is
+# necessarily False there. So `trend == "rising"` is exactly
+# `trend_3m > HISTORY_RISING_EPS`, which is exactly `history["rising"]`, the
+# flag that forces the "bad" verdict this card is gated on: the card can
+# never answer that verdict with "there isn't enough card history".
+# `trend_3m_months` is REQUIRED, with no fall back to `len(points)` — points
+# counts monthly-cleared float cards that are not in `trend_3m` at all, so a
+# float card with a year of history would silently turn a carried card's
+# one-month rise into a three-month one. A plan cached before the field
+# existed fails safe by stating no direction.
+#
 # When no direction is stated the card still never falls back to leading on
 # the carried total: it leads on the monthly interest if there is one, and
 # otherwise carries no hero figure at all (DESIGN.md, Flows vs Positions).
-# Crucially the guard does NOT include a minimum window length of its own, so
-# `trend == "rising"` is exactly `trend_3m > HISTORY_RISING_EPS`, which is
-# exactly `history["rising"]`, the flag that forces the "bad" verdict this
-# card is gated on. Three months of history now reads as "up £2,000 over the
-# last two months", never as "I can't tell" over a rise the engine has
-# already acted on.
+#
+# VOICE. Every string here is impersonal. `CliffCard` deliberately wears no
+# Penny gradient and no attribution (DESIGN.md's Penny Gradient Rule keeps
+# that mark for surfaces where advice lives), so an unattributed "I" on it
+# would invite the user to ask who is speaking. Penny's own first person
+# belongs on `ask` items, which render through `PennyKindLabel` with the
+# badge attached.
 
 # The window named in the copy, keyed by how many completed months the trend
 # actually spans. "than N ago" is a point-in-time comparison and needs a
@@ -1609,9 +1626,12 @@ def trajectory_copy(plan: dict, today: date) -> dict:
     # could equally mean the card is cleared in full each statement OR is on
     # a 0% deal that is not on file. The engine declines to conclude there,
     # so this card must not conclude either.
+    # The £50 floor is the same one that governs the uncovered-card guard and
+    # the missing-rate note: £40 of ambiguity must not hedge the headline and
+    # put an amber dot on a £4,040 portfolio.
     if monthly_interest >= 1.0 or carried_interest > 0.0:
         interest_state = "charging"
-    elif carried_unclear > 0.0:
+    elif carried_unclear >= MATERIAL_BALANCE:
         interest_state = "unsure"
     else:
         interest_state = "clear"
@@ -1621,24 +1641,29 @@ def trajectory_copy(plan: dict, today: date) -> dict:
     partial = int(history.get("trend_3m_partial_cards") or 0)
     uncovered = int(history.get("trend_3m_uncovered_cards") or 0)
     window_months = history.get("trend_3m_months")
-    if window_months is None:
-        window_months = max(0, min(3, len(history.get("points") or []) - 1))
-    window_months = int(window_months)
+    window_months = -1 if window_months is None else int(window_months)
 
-    if uncovered > 0 or window_months < 1:
+    if window_months < 1:
         trend = "unknown"
     elif trend_value > HISTORY_RISING_EPS:
         trend = "rising"
     elif trend_value < -HISTORY_RISING_EPS:
         trend = "falling"
-    elif partial > 0:
-        trend = "unknown"   # a flat reading needs a fully observed window
+    elif partial > 0 or uncovered > 0:
+        trend = "unknown"   # a flat reading needs the whole window and every card
     else:
         trend = "flat"
 
+    # A stated direction whose figure only covers the cards that were read.
+    scoped = trend in ("rising", "falling") and uncovered > 0
+    read_cards = max(1, n_cards - uncovered)
+
     cliff = _traj_promo_cliff(material)
 
-    subject = "Your card is" if n_cards == 1 else "Your cards are"
+    if scoped:
+        subject = "The card with history is" if read_cards == 1 else "The cards with history are"
+    else:
+        subject = "Your card is" if n_cards == 1 else "Your cards are"
     them = "it" if n_cards == 1 else "them"
     clears = "it clears" if n_cards == 1 else "they clear"
 
@@ -1663,10 +1688,12 @@ def trajectory_copy(plan: dict, today: date) -> dict:
                 else ", and interest is being charged."
             )
         elif interest_state == "unsure":
+            # "part of the balance", never "part of it" — the subject may be
+            # plural, and "it" would have no antecedent.
             tail = (
-                ", though I can't tell yet whether part of it is charging interest."
+                ", though it isn't clear whether part of the balance is charging interest."
                 if trend == "falling"
-                else ", and I can't tell yet whether part of it is charging interest."
+                else ", and it isn't clear whether part of the balance is charging interest."
             )
         elif trend == "rising":
             tail = f", though nothing on {them} is charging interest at the moment."
@@ -1689,8 +1716,8 @@ def trajectory_copy(plan: dict, today: date) -> dict:
             body_parts.append(f"Interest is being charged on {_gbp(carried_interest)} of the balance.")
     elif interest_state == "unsure":
         _hedge = (
-            "though that could mean it's cleared each statement"
-            " or on a deal I don't have on file."
+            "though that could mean it's cleared each statement,"
+            " or on a deal that isn't on file."
         )
         if carried_zero > 0.0:
             body_parts.append(
@@ -1701,8 +1728,15 @@ def trajectory_copy(plan: dict, today: date) -> dict:
             body_parts.append(
                 f"No interest has shown up on {_gbp(carried_unclear)} of the balance, {_hedge}"
             )
-    elif carried_zero > 0.0:
+    elif carried_zero >= carried_total - 0.5 and carried_zero > 0.0:
         body_parts.append("The whole balance is on 0% deals, so no interest is being charged right now.")
+    elif carried_zero > 0.0:
+        # A sub-material remainder the engine could not classify. Stated as
+        # what was observed, never as a conclusion that it is interest-free.
+        body_parts.append(
+            f"{_gbp(carried_zero)} of the balance is on 0% deals,"
+            f" and no interest charges have shown up on the rest."
+        )
     else:
         body_parts.append("No interest charges have shown up on it.")
 
@@ -1735,9 +1769,9 @@ def trajectory_copy(plan: dict, today: date) -> dict:
             f"{uncovered} card{'s have' if uncovered > 1 else ' has'} no transaction history yet,"
             f" so {'they are' if uncovered > 1 else 'it is'} not counted."
         )
-    elif trend == "unknown" and window_months < 1:
+    if trend == "unknown" and window_months < 1:
         body_parts.append(
-            "I need at least one completed month of card history before I can read the direction."
+            "The direction needs at least one completed month of card history behind it."
         )
     elif partial > 0:
         body_parts.append(
@@ -1756,16 +1790,17 @@ def trajectory_copy(plan: dict, today: date) -> dict:
     window = _TRAJ_WINDOW_WORDS.get(window_months, _TRAJ_WINDOW_WORDS[3])
     ago = _TRAJ_AGO_WORDS.get(window_months, _TRAJ_AGO_WORDS[3])
     brief_lead: dict | None
-    if trend == "rising":
-        brief_lead = {
-            "value": _gbp(abs(trend_value)),
-            "companion": f"more owed over {window}" if partial else f"more owed than {ago}",
-        }
-    elif trend == "falling":
-        brief_lead = {
-            "value": _gbp(abs(trend_value)),
-            "companion": f"less owed over {window}" if partial else f"less owed than {ago}",
-        }
+    if trend in ("rising", "falling"):
+        _more_less = "more" if trend == "rising" else "less"
+        if scoped:
+            # The window is no longer the narrowest thing about this figure;
+            # which cards it covers is.
+            companion = f"{_more_less} owed on the cards with history"
+        elif partial:
+            companion = f"{_more_less} owed over {window}"
+        else:
+            companion = f"{_more_less} owed than {ago}"
+        brief_lead = {"value": _gbp(abs(trend_value)), "companion": companion}
     elif trend == "flat":
         brief_lead = {"value": _gbp(abs(trend_value)), "companion": f"change over {window}"}
     elif monthly_interest >= 1.0:
@@ -1777,11 +1812,15 @@ def trajectory_copy(plan: dict, today: date) -> dict:
         # position, and positions do not greet the user on Home.
         brief_lead = None
 
-    if trend == "falling" and interest_state == "clear":
+    # A known 0% expiry with a projected monthly cost is a caution condition
+    # whichever way the balance is moving, so it blocks the favourable mark
+    # outright. It only escalates to amber when the balance is NOT coming
+    # down; the nearer-term cliff item (section 8e) owns the urgent case.
+    if trend == "falling" and interest_state == "clear" and cliff is None:
         tone = "positive"
     elif interest_state in ("charging", "unsure"):
         tone = "watch"
-    elif trend == "rising" and cliff is not None:
+    elif cliff is not None and trend != "falling":
         tone = "watch"
     else:
         tone = "neutral"

@@ -1151,6 +1151,12 @@ def _compute_history(
     clamped_card_names: list[str] = []
     all_trend_deltas: list[float] = []
     carried_trend_deltas: list[float] = []
+    # G103: how many completed months each CARRIED card's anchor actually
+    # spans. `points` cannot answer this, because it counts every card
+    # including the monthly-cleared floats `trend_3m` excludes — a float card
+    # with a year of history would otherwise turn a carried card's one-month
+    # rise into a three-month one.
+    carried_spans: list[int] = []
     _float_ids = float_account_ids or set()
 
     # G103: a carried card that contributes NO delta at all (no transactions,
@@ -1213,13 +1219,18 @@ def _compute_history(
         all_trend_deltas.append(delta)
         if aid not in _float_ids:
             carried_trend_deltas.append(delta)
+            carried_spans.append(len(month_ends) - 1 - month_ends.index(a_end))
 
-        if clamped:
-            card_name = (
-                acc.get("nickname") or acc.get("display_name") or acc.get("name") or "Credit card"
-            ).strip()
-            month_str = a_end.strftime("%b %Y")
-            clamped_card_names.append(f"{card_name} from {month_str}")
+            # Inside the float guard on purpose: a float card contributes
+            # nothing to `trend_3m`, so reporting it as a carried card with
+            # a short history would describe one set while the figure
+            # describes another.
+            if clamped:
+                card_name = (
+                    acc.get("nickname") or acc.get("display_name") or acc.get("name") or "Credit card"
+                ).strip()
+                month_str = a_end.strftime("%b %Y")
+                clamped_card_names.append(f"{card_name} from {month_str}")
 
     trend_3m_all = _r2(sum(all_trend_deltas))
     trend_3m = _r2(sum(carried_trend_deltas))
@@ -1246,12 +1257,12 @@ def _compute_history(
         "trend_3m_partial_cards": len(clamped_card_names),
         # How many carried cards contributed nothing at all (see
         # `uncovered_carried` above), and how many completed months the trend
-        # ACTUALLY spans. The anchor is `month_ends[-4]` clamped forward to
-        # the first covered month, so with N covered months the span is
-        # min(3, N - 1); at N <= 1 anchor == latest and every delta is
-        # necessarily zero, which is not a reading.
+        # ACTUALLY spans: the widest per-card anchor-to-latest distance among
+        # CARRIED cards, never `len(points)`, which counts floats too. Zero
+        # means every carried anchor IS the latest month-end, so every delta
+        # is zero by construction — not a flat reading, no reading.
         "trend_3m_uncovered_cards": uncovered_carried,
-        "trend_3m_months": max(0, min(3, len(points) - 1)),
+        "trend_3m_months": max(carried_spans) if carried_spans else 0,
         "rising": rising,
         "assumptions": assumptions,
     }

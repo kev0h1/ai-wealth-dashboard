@@ -5,18 +5,19 @@ import type { CompanionItem } from "@/lib/api";
  *
  * Every string below is a verbatim copy of what
  * `app.services.companion.trajectory_copy` returns for the scenario named in
- * each entry's `note`; nothing here is hand-written prose, and
- * `backend/tests/test_debt_trajectory_movement.py::test_the_design_preview_shows_the_real_copy`
- * re-derives all seven from the live function and fails if any drifts, so
- * this file cannot quietly stop matching Home.
+ * each entry's `note`; nothing here is hand-written prose. Two backend tests
+ * keep it that way: `test_the_design_preview_shows_the_real_copy` re-derives
+ * all eight from the live function and fails on any drift, and
+ * `test_the_preview_shows_every_state_the_gate_knows_about_and_no_others`
+ * fails if a ninth is hand-added beside them.
  *
  * The scenario is one carried portfolio of six cards totalling £24,926
  * (American Express £3,180, Barclaycard Platinum £8,420, MBNA £5,980, Halifax
  * Clarity £3,140, Virgin Money £2,706, Santander £1,500), which is the shape
  * of the real card that prompted G103. The states differ only in the
- * movement, how much history sits behind it, whether interest is observed,
- * and whether a 0% cliff is on file, so the comparison isolates exactly what
- * the item changes.
+ * movement, how much history sits behind it, how many cards could be read,
+ * whether interest is observed, and whether a 0% cliff is on file, so the
+ * comparison isolates exactly what the item changes.
  *
  * These are `CompanionItem`s fed to the real `CliffCard` through its real
  * props, not replica markup. The last entry deliberately carries no
@@ -86,7 +87,7 @@ export const TRAJECTORY_FIXTURES: readonly TrajectoryFixture[] = [
   {
     key: "falling-clear",
     title: "Coming down, nothing charging interest",
-    note: "The only state that earns the green mark: the balance is falling and nothing on it is being charged. This is the state the old card could never show, because its figure was clamped at zero and could only ever express drift.",
+    note: "The only state that earns the green mark: the balance is falling, nothing on it is being charged, and no 0% end date is on file. This is the state the old card could never show, because its figure was clamped at zero and could only ever express drift.",
     item: {
       id: "trajectory:bad:2026-09:falling-clear",
       type: "trajectory",
@@ -132,14 +133,30 @@ export const TRAJECTORY_FIXTURES: readonly TrajectoryFixture[] = [
     },
   },
   {
+    key: "unsynced",
+    title: "Rising, with one card unread",
+    note: "A card that returned a balance but no transactions is outside the figure, so the words narrow to the cards that were read rather than muting a real rise. The body names the exclusion.",
+    item: {
+      id: "trajectory:bad:2026-09:unsynced",
+      type: "trajectory",
+      headline: "The cards with history are going up, not down, and interest is being charged.",
+      body: "£3,180 of the balance is charging interest, about £38 a month, and £21,746 is on 0% deals. £24,926 is carried across 6 cards in total. 1 card has no transaction history yet, so it is not counted.",
+      action: ACTION,
+      estimated: false,
+      brief_lead: { value: "£412", companion: "more owed on the cards with history" },
+      tone: "watch",
+      trend: "rising",
+    },
+  },
+  {
     key: "not-readable",
     title: "Not readable yet",
-    note: "With under a month of completed card history there is no direction to state and no rate to quote, so the card carries no hero figure at all. It never falls back to the carried total: a position does not greet you on Home.",
+    note: "With no completed month of card history there is no direction to state and no rate to quote, so the card carries no hero figure at all. It never falls back to the carried total: a position does not greet you on Home.",
     item: {
       id: "trajectory:bad:2026-09:not-readable",
       type: "trajectory",
       headline: "There isn't enough card history yet to say which way the cards are going.",
-      body: "The whole balance is on 0% deals, so no interest is being charged right now. £24,926 is carried across 6 cards in total. I need at least one completed month of card history before I can read the direction.",
+      body: "The whole balance is on 0% deals, so no interest is being charged right now. £24,926 is carried across 6 cards in total. The direction needs at least one completed month of card history behind it.",
       action: ACTION,
       estimated: false,
       tone: "neutral",
