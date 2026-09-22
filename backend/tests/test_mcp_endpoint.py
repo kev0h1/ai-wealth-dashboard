@@ -169,23 +169,18 @@ def test_initialize_handshake_shape():
     assert "version" in result["serverInfo"]
 
 
-def test_initialize_ignores_the_clients_requested_protocol_version(monkeypatch):
-    """A53/MCP-03, pentest run A53-2026-09-21, docs/security/pentest-runs/
-    A53-2026-09-21/records.md: live-confirmed against UAT that `initialize`
-    never inspects `params["protocolVersion"]` at all — a client requesting
-    an unsupported/future version (tried live: "2099-01-01") gets back the
-    exact same fixed `MCP_PROTOCOL_VERSION` a client requesting the correct
-    version would, with no rejection and no negotiation. Recorded Fail per
-    PENTEST-METHODOLOGY.md section 6.4's own row for this case ("the fixed-
-    version response that does not inspect the client's requested version
-    is a known negative case to verify, not presumed negotiation... If it
-    simply returns a fixed version for an incompatible client, record the
-    protocol-negotiation delta as a Fail rather than N/A"). Behaviour-
-    recording only: pins the CURRENT gap so a future negotiation fix is
-    visible here, not a product fix in this test."""
+def test_initialize_negotiates_protocol_version():
+    """A90/MCP-03 fix, pentest run A53-2026-09-21, docs/security/pentest-runs/
+    A53-2026-09-21/records.md: `initialize` now inspects
+    `params["protocolVersion"]` and negotiates per the MCP spec's rule
+    instead of always declaring a fixed version regardless of what the
+    client sent (the gap that produced this finding: a client requesting an
+    unsupported/future version, tried live as "2099-01-01", got back the
+    exact same version a matching client would, with no signal the
+    requested version differed from what was actually returned)."""
     resp_matching = _run(mcp.handle_jsonrpc_request(_principal(), {
         "jsonrpc": "2.0", "id": 1, "method": "initialize",
-        "params": {"protocolVersion": mcp.MCP_PROTOCOL_VERSION},
+        "params": {"protocolVersion": mcp.LATEST_PROTOCOL_VERSION},
     }))
     resp_future = _run(mcp.handle_jsonrpc_request(_principal(), {
         "jsonrpc": "2.0", "id": 2, "method": "initialize",
@@ -194,13 +189,16 @@ def test_initialize_ignores_the_clients_requested_protocol_version(monkeypatch):
     resp_missing = _run(mcp.handle_jsonrpc_request(_principal(), {
         "jsonrpc": "2.0", "id": 3, "method": "initialize", "params": {},
     }))
-    # All three get the identical fixed version back; the server never
-    # rejects the future/unsupported request and never varies its answer
-    # by what the client actually asked for.
-    assert resp_matching["result"]["protocolVersion"] == mcp.MCP_PROTOCOL_VERSION
-    assert resp_future["result"]["protocolVersion"] == mcp.MCP_PROTOCOL_VERSION
-    assert resp_missing["result"]["protocolVersion"] == mcp.MCP_PROTOCOL_VERSION
+    # A version the server supports is echoed back exactly.
+    assert resp_matching["result"]["protocolVersion"] == mcp.LATEST_PROTOCOL_VERSION
+    # An unsupported/future version falls back to the latest this server
+    # supports (the spec's negotiation rule), never silently accepted, and
+    # never rejected outright either (the client decides whether it can use
+    # what comes back).
+    assert resp_future["result"]["protocolVersion"] == mcp.LATEST_PROTOCOL_VERSION
     assert "error" not in resp_future
+    # A missing protocolVersion also falls back to the latest supported.
+    assert resp_missing["result"]["protocolVersion"] == mcp.LATEST_PROTOCOL_VERSION
 
 
 def test_initialize_advertises_the_quote_verbatim_contract_via_instructions():
@@ -476,6 +474,70 @@ def test_malformed_json_returns_parse_error(monkeypatch):
     import json as _json
     body = _json.loads(resp.body)
     assert body["error"]["code"] == -32700
+
+
+def test_malformed_jsonrpc_envelope_rejected(monkeypatch):
+    """A90/MCP-03, pentest run A53-2026-09-21: the endpoint must validate
+    the JSON-RPC envelope on every request, not just hardcode "2.0" into
+    the response regardless of what came in. Live-confirmed on UAT that a
+    `"jsonrpc":"1.0"` message was processed as an ordinary ping-equivalent,
+    never rejected. Each malformed case here gets the standard -32600
+    Invalid Request, echoing the request's `id` when it was usable."""
+    async def fake_principal(request):
+        return _principal()
+    monkeypatch.setattr(mcp, "resolve_mcp_principal", fake_principal)
+
+    import json as _json
+
+    def _post(body: dict):
+        resp = _run(mcp.mcp_post(_FakeRequest(_json.dumps(body).encode())))
+        return _json.loads(resp.body)
+
+    wrong_version = _post({"jsonrpc": "1.0", "id": 1, "method": "ping"})
+    assert wrong_version["error"]["code"] == -32600
+    assert wrong_version["id"] == 1
+
+    missing_method = _post({"jsonrpc": "2.0", "id": 2})
+    assert missing_method["error"]["code"] == -32600
+    assert missing_method["id"] == 2
+
+    object_id = _post({"jsonrpc": "2.0", "id": {"foo": "bar"}, "method": "ping"})
+    assert object_id["error"]["code"] == -32600
+    assert object_id["id"] is None
+
+
+def test_malformed_notification_gets_no_response(monkeypatch):
+    """Regression: the envelope-validation added above must not break the
+    spec rule (see `is_notification` in handle_jsonrpc_request) that a
+    message with no `id` is a notification and never gets a response, even
+    an error one. Before this fix, a malformed no-id message (e.g.
+    `jsonrpc: "1.0"`) still got a -32600 error appended, because the
+    envelope check ran ahead of any notification check."""
+    async def fake_principal(request):
+        return _principal()
+    monkeypatch.setattr(mcp, "resolve_mcp_principal", fake_principal)
+
+    import json as _json
+
+    def _post(body):
+        resp = _run(mcp.mcp_post(_FakeRequest(_json.dumps(body).encode())))
+        return resp
+
+    malformed_notification = {"jsonrpc": "1.0", "method": "notifications/initialized"}
+
+    # Single-message case: the whole request is one malformed notification,
+    # so no response object exists at all, same as the existing all-
+    # notifications path (202, empty body).
+    resp = _post(malformed_notification)
+    assert resp.status_code == 202
+    assert resp.body == b""
+
+    # Batch case: the malformed no-id message contributes nothing to the
+    # response array, while a normal message alongside it still gets its
+    # own correct response.
+    resp = _post([malformed_notification, {"jsonrpc": "2.0", "id": 9, "method": "ping"}])
+    body = _json.loads(resp.body)
+    assert body == [{"jsonrpc": "2.0", "id": 9, "result": {}}]
 
 
 def test_get_returns_405():
