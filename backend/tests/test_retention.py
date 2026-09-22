@@ -122,6 +122,22 @@ class FakeCol:
         for k in (update.get("$unset") or {}):
             target.pop(k, None)
 
+    async def update_many(self, filt, update):
+        # A84 rework: session_revocation.revoke_sessions now also revokes
+        # every matching oauth_tokens_col doc (see that module's own
+        # docstring) — needed here so sweep_dormant_users' call into
+        # revoke_sessions (before each user's erase_user) doesn't hit a
+        # FakeCol with no update_many at all, on collections this file's
+        # own tests don't otherwise care about.
+        self.update_calls += 1
+        count = 0
+        for d in self.docs.values():
+            if _matches(d, filt):
+                for k, v in (update.get("$set") or {}).items():
+                    d[k] = v
+                count += 1
+        return _DeleteResult(count)
+
 
 def _patch_all_collections(monkeypatch, overrides: dict) -> None:
     """Replace EVERY `*_col` attribute on the real app.db.collections module

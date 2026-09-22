@@ -55,6 +55,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 from app.core.auth import current_user
 from app.core.config import API_PUBLIC_URL, APP_URL, MCP_PUBLIC_URL
 from app.core.pending_oauth import get_oauth_request, pop_oauth_request, store_oauth_request
+from app.core.session_revocation import is_revoked
 from app.core.timeutil import as_utc
 from app.db.collections import oauth_clients_col, oauth_codes_col, oauth_tokens_col
 from app.routers.mcp import V1_SCOPES
@@ -452,6 +453,24 @@ async def _handle_refresh_token_grant(form) -> JSONResponse:
         return _oauth_error("invalid_grant")
 
     if as_utc(doc.get("expires_at")) is None or as_utc(doc["expires_at"]) <= now:
+        return _oauth_error("invalid_grant")
+
+    # A84 rework: `revoke_sessions` (account deletion, the dormant sweep)
+    # now flips this doc's own `revoked_at` too, but that write and this
+    # read can race (the sweep/deletion is not transactional with a
+    # concurrent refresh redemption), and a refresh token minted before
+    # revoke_sessions gained this write path at all would have no
+    # `revoked_at` set yet either. Consulting the identity-wide tombstone
+    # directly closes both gaps: there is no try/except around this call,
+    # same as `oauth_tokens_col.find_one` above has none, so a lookup
+    # failure simply propagates out of this handler to Starlette's default
+    # exception middleware, which returns a plain-text "Internal Server
+    # Error" 500 with no exception detail in the body — fail-closed (no
+    # token pair is ever minted on the way to that response), but not a
+    # path `tests/test_no_raw_exception_leak.py` covers, since nothing
+    # here is an `except ... as e:` handler threading `e`'s text into a
+    # response.
+    if await is_revoked(doc["uid"], doc["created_at"]):
         return _oauth_error("invalid_grant")
     if doc.get("client_id") != client_id:
         return _oauth_error("invalid_client")

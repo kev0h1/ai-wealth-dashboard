@@ -445,3 +445,15 @@ oauth_tokens_col       = db["oauth_tokens"]
 # Penny/MCP tool + Home-card surfacing) is a follow-up — see B18's backlog
 # note for what that still needs.
 safe_to_spend_history_col = db["safe_to_spend_history"]
+
+# A84: server-side session-revocation tombstones (app.core.session_revocation).
+# One doc per user, `_id` the sha256 of their lower-cased email (see that
+# module's `_key` docstring for why hashed rather than keyed raw), {_id,
+# not_before (aware UTC — no session token issued before this instant is
+# valid any more), expires_at (not_before + SESSION_MAX_AGE + 5min — TTL
+# index in app/main.py's index setup, expireAfterSeconds=0, so a tombstone
+# reaps itself once no token it could possibly catch is still unexpired)}.
+# Written by `revoke_sessions` (DELETE /account, and
+# app.services.retention.sweep_dormant_users before each erase_user), read
+# by `app.core.auth.current_user` on every session-branch request.
+session_tombstones_col = db["session_tombstones"]

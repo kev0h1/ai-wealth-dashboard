@@ -22,6 +22,7 @@ from fastapi.responses import PlainTextResponse, RedirectResponse
 
 import app.core.auth as auth_mod
 import app.core.subscription as subscription_module
+import app.db.collections as db_collections
 import app.routers.mcp as mcp
 import app.routers.oauth as oauth
 
@@ -50,6 +51,25 @@ def _mcp_connector_enabled(monkeypatch):
     its auth_middleware integration points assuming the connector IS turned
     on. See tests/test_mcp_connector_flag.py for the flag-off behaviour."""
     monkeypatch.setattr(auth_mod, "MCP_CONNECTOR_ENABLED", True)
+
+
+class _FakeTombstoneCol:
+    """A84 rework: `resolve_mcp_principal` and `_handle_refresh_token_
+    grant` now both consult `is_revoked`, which looks up
+    `session_tombstones_col` fresh from `app.db.collections` on every
+    call. None of this file's own tests are about revocation (that's
+    tests/test_session_revocation.py's job) — this fake just needs to
+    answer "no tombstone" so those two functions' existing behaviour is
+    unaffected, rather than every test in this file reaching a real Motor
+    client with no DB behind it."""
+
+    async def find_one(self, query):
+        return None
+
+
+@pytest.fixture(autouse=True)
+def _no_tombstones(monkeypatch):
+    monkeypatch.setattr(db_collections, "session_tombstones_col", _FakeTombstoneCol())
 
 
 # ── shared fakes ─────────────────────────────────────────────────────────

@@ -34,6 +34,7 @@ from app.db.collections import (
     billing_customers_col, billing_events_col,
     broadcasts_col, broadcast_receipts_col,
     safe_to_spend_history_col,
+    session_tombstones_col,
 )
 from app.services.categorisation import apply_rules_bulk, RAW_TRUELAYER_CATEGORIES
 from app.services import data_version
@@ -454,6 +455,9 @@ async def _create_indexes():
     # these two.
     await _ensure_index(oauth_tokens_col, "pair_id")
     await _ensure_index(oauth_tokens_col, "origin_code_hash")
+    # A84: session-revocation tombstones self-reap once no token they could
+    # still be catching is unexpired (app.core.session_revocation).
+    await _ensure_index(session_tombstones_col, "expires_at", expireAfterSeconds=0)
     # D5 in-app sign-up allow list (app/core/allowlist.py) — `key` is the
     # Gmail-dot-insensitive lookup every sign-in queries by, unique so a
     # re-invite is always an update, never a duplicate doc.

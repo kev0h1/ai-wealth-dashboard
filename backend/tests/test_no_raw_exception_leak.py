@@ -78,11 +78,13 @@ ALLOWLIST: set[tuple[str, int]] = {
     # A90 (2026-09-22) added version-negotiation and top-level JSON-RPC
     # envelope-validation helpers earlier in this file
     # (SUPPORTED_PROTOCOL_VERSIONS/_negotiate_protocol_version,
-    # _has_valid_jsonrpc_id_type/_jsonrpc_envelope_error), and A91 added
-    # content-sanitisation helpers earlier still; neither is a new exception
-    # site. Line re-derived empirically post-merge (AST scan of the merged
-    # file), not carried forward from either branch.
-    ("app/routers/mcp.py", 601),
+    # _has_valid_jsonrpc_id_type/_jsonrpc_envelope_error), A91 added
+    # content-sanitisation helpers earlier still, and A84's rework added
+    # the resolve_mcp_principal tombstone check (is_revoked) earlier
+    # again; none of these is a new exception site. Line re-derived
+    # empirically post-merge (AST scan of the merged file), not carried
+    # forward from any one branch.
+    ("app/routers/mcp.py", 621),
     # penny_tools.py: `except HTTPException as e: return _tool_error(str(e.detail))`
     # / `return {"error": str(e.detail)}` — forwarding HTTPException.detail
     # raised by our own _validate_*/_normalise_* helpers a few lines above
