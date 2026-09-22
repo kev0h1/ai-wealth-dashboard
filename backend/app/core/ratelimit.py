@@ -7,6 +7,7 @@ trimmed to the window on every check. If Redis is unreachable (or
 deque so the endpoint still degrades to a working (if per-process) limit
 rather than failing open or falling over.
 """
+import ipaddress
 import time
 import uuid
 from collections import defaultdict, deque
@@ -14,6 +15,7 @@ from collections import defaultdict, deque
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
+from app.core import config
 from app.core.redis_client import get_redis, redis_ok
 
 _hits: dict[str, deque] = defaultdict(deque)
@@ -126,11 +128,35 @@ def client_ip(request: Request) -> str:
     # request handling, it should just fall back to "unknown" same as a
     # real request with no client info.
     client = getattr(request, "client", None)
-    return (
-        request.headers.get("X-Real-IP")
-        or (request.headers.get("X-Forwarded-For") or "").split(",")[0].strip()
-        or (client.host if client else "unknown")
-    )
+    peer = client.host if client else "unknown"
+
+    # A92: X-Real-IP and a naively-parsed (leftmost) X-Forwarded-For are both
+    # a single value the CALLER can set, and on production neither hop in
+    # front of this app (Vercel's /api rewrite, then Railway) overwrites or
+    # strips either header before the app sees it (confirmed live, A49/WP2
+    # API-12) — every IP-keyed rate limit was bypassable by rotating either
+    # header. X-Real-IP is never read at all any more: it is a single value
+    # with no hop-count concept, and nothing here can tell a trusted hop's
+    # value apart from a caller's own. Instead, trust exactly
+    # TRUSTED_PROXY_HOPS entries from the RIGHT-hand end of X-Forwarded-For,
+    # since a well-behaved proxy APPENDS the address it observed rather than
+    # replacing the header, so the rightmost `hops` entries were each
+    # written by a trusted hop, not by the original caller, regardless of
+    # what that caller prepended. hops=0 (the default) trusts no header at
+    # all and always uses the raw socket peer.
+    hops = config.TRUSTED_PROXY_HOPS
+    if hops <= 0:
+        return peer
+
+    parts = [p.strip() for p in (request.headers.get("X-Forwarded-For") or "").split(",") if p.strip()]
+    if len(parts) < hops:
+        return peer
+    candidate = parts[-hops]
+    try:
+        ipaddress.ip_address(candidate)
+    except ValueError:
+        return peer
+    return candidate
 
 
 def _check_local(key: str, limit: int, window: int) -> bool:

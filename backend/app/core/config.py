@@ -108,6 +108,19 @@ def mask_email(email: str) -> str:
         return "***"
 REDIS_URL           = os.getenv("REDIS_URL", "redis://localhost:6379")
 
+# ── Rate limiting / proxy trust ─────────────────────────────────────────────
+# A92: the number of trusted reverse-proxy hops in front of this app that
+# themselves append the real client address to X-Forwarded-For (a proxy the
+# operator controls, not anything a caller can influence). app.core.ratelimit
+# .client_ip() uses this to pick the right entry from the right-hand end of
+# the header instead of trusting whatever a caller supplies. 0 (the default)
+# means "trust no forwarded header at all, use the raw socket peer address"
+# — the safe default: it can only under-differentiate clients sharing one
+# proxy (they'd share one rate-limit bucket), it can never let a client pick
+# its own bucket and dodge a limit, unlike trusting a caller-supplied header.
+# See docs/ops/ENV.md for the value each environment should actually set.
+TRUSTED_PROXY_HOPS  = int(os.getenv("TRUSTED_PROXY_HOPS", "0"))
+
 # ── Auth ─────────────────────────────────────────────────────────────────────
 # A28 (2026-09-14): BOT_SECRET (a single static shared secret that
 # authenticated as Kevin's own account) is retired. Its replacement —
