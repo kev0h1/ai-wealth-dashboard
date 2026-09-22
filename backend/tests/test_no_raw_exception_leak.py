@@ -75,7 +75,12 @@ ALLOWLIST: set[tuple[str, int]] = {
     ("app/services/safe_calc.py", 136),
     # app.routers.mcp.McpError — the MCP JSON-RPC error contract IS
     # (code, message, data); every raise site is a static, authored string.
-    ("app/routers/mcp.py", 522),
+    # A90 (2026-09-22) shifted this line +67: version-negotiation and
+    # top-level JSON-RPC envelope-validation helpers were added earlier in
+    # this file (SUPPORTED_PROTOCOL_VERSIONS/_negotiate_protocol_version,
+    # _has_valid_jsonrpc_id_type/_jsonrpc_envelope_error), not a new
+    # exception site.
+    ("app/routers/mcp.py", 589),
     # penny_tools.py: `except HTTPException as e: return _tool_error(str(e.detail))`
     # / `return {"error": str(e.detail)}` — forwarding HTTPException.detail
     # raised by our own _validate_*/_normalise_* helpers a few lines above
