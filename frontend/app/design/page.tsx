@@ -23,6 +23,25 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "g115-spend-from-accounts",
+    name: "g115-spend-from-accounts",
+    description:
+      "G115 round on showing up to two current accounts without creating a second hero inside Safe to Spend · A is Kevin's proposed top-right bank rail, B is a compact inline pair, C is a quiet two-row ledger · every direction renders the real production SafeToSpendCard through its data and spendFrom props, plus the real MoveCard in coexistence states, rather than copying either component · fixtures pass through production bestSpendAccount(), include three current accounts, a savings pot and a credit card, and use G114's spend_from_headroom so a live £20 cover move reduces Everyday from £45 standing room to £25 spendable room before ranking · savings and credit are structurally excluded, the savings-only state points to the move above, and every treatment says account figures are not the pooled Safe to Spend · A uses local bundled logos only and falls back to named rows when a bank has no bundled mark · static typed fixtures, no live API data or mutations · ?variant=a|b|c&state=reserved|clear|one|unbundled|savings|hidden&mode=light|dark",
+    states: [
+      { label: "Cover move reserved", value: "reserved" },
+      { label: "No cover move", value: "clear" },
+      { label: "One account", value: "one" },
+      { label: "Bank has no logo", value: "unbundled" },
+      { label: "Savings move needed", value: "savings" },
+      { label: "Balances hidden", value: "hidden" },
+    ],
+    variants: [
+      { label: "A · Bank rail", value: "a" },
+      { label: "B · Inline pair", value: "b" },
+      { label: "C · Quiet rows", value: "c" },
+    ],
+  },
+  {
     slug: "ops-board-mobile",
     name: "ops-board-mobile",
     description:
