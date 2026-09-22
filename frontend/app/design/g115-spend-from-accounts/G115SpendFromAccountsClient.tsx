@@ -1,11 +1,12 @@
 "use client";
 
-// G115 design round. The hero and cover-plan card below are the shipped
-// production components. SafeToSpendCard's narrow spendFromPreview seam lets
-// this route compare candidate placements without copying the card's markup.
-// Fixtures are local and pass through bestSpendAccount(), the same selector
-// Home uses, so reserved headroom, current-only ranking and the credit-card
-// exclusion remain production behaviour rather than preview claims.
+// G115 design round. Variant A now renders SafeToSpendCard's approved
+// production treatment with no visual override. The narrow spendFromPreview
+// seam keeps rejected B/C available as design history while the hero,
+// calculation and cover-plan card remain the shipped components. Fixtures
+// are local and pass through bestSpendAccount(), the same selector Home uses,
+// so reserved headroom, current-only ranking and the credit-card exclusion
+// remain production behaviour rather than preview claims.
 
 import { useEffect, useLayoutEffect, type ReactNode } from "react";
 import { ArrowLeft } from "lucide-react";
@@ -90,62 +91,6 @@ function NoCurrentAccount({ savingsMove }: { savingsMove: boolean }) {
   );
 }
 
-function NameAmountRows({ entries, hidden, moveLinked, compact = false }: {
-  entries: SpendFromAccount[];
-  hidden: boolean;
-  moveLinked: boolean;
-  compact?: boolean;
-}) {
-  return (
-    <div data-g115-treatment="name-fallback" className={compact ? "mt-2" : "mt-3 border-t border-slate-100 pt-1 dark:border-white/10"}>
-      <p className="sr-only">Accounts with room to spend from</p>
-      <dl>
-        {entries.map((entry, index) => {
-          const bank = accountBrand(entry.account);
-          return (
-            <div
-              key={entry.accountId}
-              className={`flex items-center justify-between gap-3 ${compact ? "py-1" : "min-h-11 py-2"} ${index > 0 ? "border-t border-slate-100 dark:border-white/[0.07]" : ""}`}
-            >
-              <dt className="min-w-0">
-                <span className="block truncate text-[12px] font-semibold text-slate-700 dark:text-slate-200">{entry.name}</span>
-                <span className="block truncate text-[10px] text-slate-500 dark:text-slate-400">{bank.label}</span>
-              </dt>
-              <dd className="money shrink-0 text-[12px] font-semibold text-slate-700 dark:text-slate-200">
-                {money(entry.headroom, hidden)} <span className="font-sans font-normal text-slate-500 dark:text-slate-400">spare</span>
-              </dd>
-            </div>
-          );
-        })}
-      </dl>
-      <ScopeNote moveLinked={moveLinked} />
-    </div>
-  );
-}
-
-function BankRail({ entries, hidden }: { entries: SpendFromAccount[]; hidden: boolean }) {
-  return (
-    <div data-g115-treatment="bank-rail" aria-label="Accounts with room to spend from" className="min-w-[76px]">
-      <p className="mb-1 text-right text-[9px] font-bold uppercase tracking-[0.07em] text-slate-400 dark:text-slate-500">Spend from</p>
-      <div className="space-y-1.5">
-        {entries.map((entry) => {
-          const bank = localBank(entry.account)!;
-          return (
-            <div
-              key={entry.accountId}
-              aria-label={`${entry.name} at ${bank.label}, ${money(entry.headroom, hidden)} spare`}
-              className="flex items-center justify-end gap-1.5"
-            >
-              <LocalBankBadge entry={entry} size={22} />
-              <span aria-hidden="true" className="money text-[11px] font-semibold text-slate-700 dark:text-slate-200">{money(entry.headroom, hidden)}</span>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 function InlinePair({ entries, hidden, moveLinked }: {
   entries: SpendFromAccount[];
   hidden: boolean;
@@ -208,20 +153,11 @@ function QuietRows({ entries, hidden, moveLinked }: {
 function previewTreatment(variant: Variant, result: SpendFromResult, hidden: boolean, moveLinked: boolean, savingsMove: boolean): {
   heroAside?: ReactNode;
   body: ReactNode;
-} {
+} | undefined {
+  if (variant === "a") return undefined;
+
   const entries = spendAccounts(result);
   if (entries.length === 0) return { body: <NoCurrentAccount savingsMove={savingsMove} /> };
-
-  if (variant === "a") {
-    const allHaveLocalLogos = entries.every((entry) => localBank(entry.account) != null);
-    if (!allHaveLocalLogos) {
-      return { body: <NameAmountRows entries={entries} hidden={hidden} moveLinked={moveLinked} compact /> };
-    }
-    return {
-      heroAside: <BankRail entries={entries} hidden={hidden} />,
-      body: <ScopeNote moveLinked={moveLinked} />,
-    };
-  }
 
   if (variant === "b") {
     return { body: <InlinePair entries={entries} hidden={hidden} moveLinked={moveLinked} /> };
@@ -374,6 +310,7 @@ export default function G115SpendFromAccountsClient() {
               loading={false}
               error={false}
               spendFrom={fixture.spendFrom}
+              coverMoveVisible={variant === "a" && fixture.coverPlan != null}
               spendFromPreview={treatment}
             />
           </section>

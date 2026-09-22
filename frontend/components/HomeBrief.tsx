@@ -19,7 +19,7 @@ import { getCategoryColour } from "@/lib/categories";
 import type { AttentionTarget } from "@/lib/attention";
 import { isPaydayWindowActive } from "@/lib/paydayWindow";
 import { readHomeDismissedAdvice, dismissOnHome, pruneHomeDismissedAdvice } from "@/lib/homeDismissedAdvice";
-import { isActionableCompanionItem } from "@/lib/companionItems";
+import { hasFundedCoverMove, isActionableCompanionItem } from "@/lib/companionItems";
 import MoneyText from "@/components/MoneyText";
 
 // Window-scoped local dismiss for the Payday plan ENTRY ROW (the Home-only
@@ -83,6 +83,8 @@ interface HomeBriefProps {
   onClearedChange?: (cleared: { count: number; type: CompanionItem["type"] } | null) => void;
   /** Home-only: forwarded straight to BriefBody, see BriefBodyProps.onInsightWinVisibleChange. */
   onInsightWinVisibleChange?: (visible: boolean) => void;
+  /** Home-only: forwarded straight to BriefBody, see BriefBodyProps.onCoverMoveVisibleChange. */
+  onCoverMoveVisibleChange?: (visible: boolean) => void;
   /**
    * Home-only: rendered directly beneath the greeting row (avatar/"Good
    * morning"/refresh), above everything else the brief renders (sync-error
@@ -1871,9 +1873,16 @@ export interface BriefBodyProps {
    * onClearedChange above.
    */
   onInsightWinVisibleChange?: (visible: boolean) => void;
+  /**
+   * Home-only: reports whether a cover-plan move card is currently visible
+   * after the same local-dismissal filter MoveCard renders from. Home passes
+   * this to SafeToSpendCard so G115 can say a visible move above is already
+   * held back without leaving that sentence behind after the card is hidden.
+   */
+  onCoverMoveVisibleChange?: (visible: boolean) => void;
 }
 
-export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth = false, onRefresh, attnTarget, dismissible = false, hideAttribution = false, onClearedChange, onInsightWinVisibleChange }: BriefBodyProps) {
+export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth = false, onRefresh, attnTarget, dismissible = false, hideAttribution = false, onClearedChange, onInsightWinVisibleChange, onCoverMoveVisibleChange }: BriefBodyProps) {
   // Hooks must run unconditionally, before the items.length early return below.
   const { dismissedIds, dismiss: homeDismiss } = useHomeDismissedAdvice(rawItems, dismissible);
   const items = dismissible ? rawItems.filter(i => !dismissedIds.has(i.id)) : rawItems;
@@ -1886,6 +1895,7 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth =
   const hasInsightWinCelebration = items.some(
     i => i.type === "celebration" && i.id.startsWith("insight_win:")
   );
+  const hasVisibleCoverMove = hasFundedCoverMove(items);
 
   // Latest-ref, not a dep: onClearedChange is public on BriefBodyProps, so
   // nothing stops a future caller passing a fresh inline function every
@@ -1945,6 +1955,13 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth =
   useLayoutEffect(() => {
     onInsightWinVisibleChangeRef.current?.(hasInsightWinCelebration);
   }, [hasInsightWinCelebration]);
+
+  const onCoverMoveVisibleChangeRef = useRef(onCoverMoveVisibleChange);
+  onCoverMoveVisibleChangeRef.current = onCoverMoveVisibleChange;
+
+  useLayoutEffect(() => {
+    onCoverMoveVisibleChangeRef.current?.(hasVisibleCoverMove);
+  }, [hasVisibleCoverMove]);
 
   if (items.length === 0) {
     // Home-only: everything that existed got hidden via "Hide on Home", not
@@ -2199,7 +2216,7 @@ export function HomeBriefClearedRow({ cleared, router }: HomeBriefClearedRowProp
   );
 }
 
-export default function HomeBrief({ items, firstName, safeToSpend, loading, syncing, syncError, onSync, hideNetWorth, onRefresh, attnTarget, dismissible, hasAccounts, onClearedChange, onInsightWinVisibleChange, banner }: HomeBriefProps) {
+export default function HomeBrief({ items, firstName, safeToSpend, loading, syncing, syncError, onSync, hideNetWorth, onRefresh, attnTarget, dismissible, hasAccounts, onClearedChange, onInsightWinVisibleChange, onCoverMoveVisibleChange, banner }: HomeBriefProps) {
   const router = useRouter();
   const { user } = useAuth();
   const name = firstName || "there";
@@ -2277,7 +2294,7 @@ export default function HomeBrief({ items, firstName, safeToSpend, loading, sync
         {loading ? (
           <BriefSkeleton />
         ) : (
-          <BriefBody items={items} safeToSpend={safeToSpend} router={router} hideNetWorth={hideNetWorth} onRefresh={onRefresh} attnTarget={attnTarget} dismissible={dismissible} onClearedChange={onClearedChange} onInsightWinVisibleChange={onInsightWinVisibleChange} />
+          <BriefBody items={items} safeToSpend={safeToSpend} router={router} hideNetWorth={hideNetWorth} onRefresh={onRefresh} attnTarget={attnTarget} dismissible={dismissible} onClearedChange={onClearedChange} onInsightWinVisibleChange={onInsightWinVisibleChange} onCoverMoveVisibleChange={onCoverMoveVisibleChange} />
         )}
       </div>
 

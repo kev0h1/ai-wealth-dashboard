@@ -315,6 +315,11 @@ export default function HomePage() {
   // a live insight_win celebration card is showing on Home, ValueDeliveredStat's
   // "£X/mo saved" chip below hides (one voice at a time, story then ledger).
   const [insightWinVisible, setInsightWinVisible] = useState(false);
+  // G115: the same dismissed-filtered item set that renders MoveCard reports
+  // whether a cover move is actually visible above Safe to Spend. This keeps
+  // the reconciliation sentence accurate after "Hide on Home" as well as on
+  // first paint.
+  const [coverMoveVisible, setCoverMoveVisible] = useState(false);
   const [needle, setNeedle] = useState<NeedleSummary | null>(homeCache?.needle ?? null);
   const [needleStatus, setNeedleStatus] = useState<"loading" | "ready" | "failed">(homeCache?.needleStatus ?? "loading");
   // A manual sync can overlap the mount fetch. Only the most recently started
@@ -836,6 +841,7 @@ export default function HomePage() {
               hasAccounts={hasAccountsForBrief}
               onClearedChange={setClearedAdvice}
               onInsightWinVisibleChange={setInsightWinVisible}
+              onCoverMoveVisibleChange={setCoverMoveVisible}
               banner={reauthBanner}
             />
           </div>
@@ -888,6 +894,7 @@ export default function HomePage() {
                   error={stsError}
                   onRetry={() => { setStsError(false); setStsLoading(true); loadData(); }}
                   spendFrom={spendFrom}
+                  coverMoveVisible={coverMoveVisible}
                 />
               )}
 

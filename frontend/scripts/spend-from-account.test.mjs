@@ -36,6 +36,7 @@
 // stale/malformed payload either).
 
 import { bestSpendAccount, spendFromHeroLine, spendFromAlternativeLine, SPEND_FROM_HEADROOM_FLOOR } from "../lib/spendFromAccount";
+import { hasFundedCoverMove } from "../lib/companionItems";
 
 let failures = 0;
 
@@ -300,8 +301,28 @@ check("hero line is omitted (not a fallback sentence) while data is unavailable"
   check("G114: a pre-G114 payload with no spend_from_headroom field falls back to headroom", result.best?.headroom, 38);
 }
 
+// G115: the reconciliation line says a visible move is already held back
+// only for a funded cover card. The backend deliberately also emits a
+// type="move" no-source warning with no transfer legs; that warning must not
+// trigger the claim. The predicate receives Home's dismissal-filtered list,
+// so the final assertion also pins the hidden-card transition.
+{
+  const funded = {
+    id: "move:funded",
+    type: "move",
+    moves: [{ headline: "Move £20", amount: 20, move_map: {} }],
+  };
+  const noSource = { id: "move:no-source", type: "move" };
+  check("G115: a funded move with transfer legs enables the held-back explanation", hasFundedCoverMove([funded]), true);
+  check("G115: a no-source move card does not claim money is held back", hasFundedCoverMove([noSource]), false);
+  check("G115: an empty transfer-leg array is not a funded move", hasFundedCoverMove([{ ...noSource, moves: [] }]), false);
+  const dismissedIds = new Set([funded.id]);
+  const visibleAfterDismissal = [funded].filter((item) => !dismissedIds.has(item.id));
+  check("G115: hiding the funded card removes the held-back explanation", hasFundedCoverMove(visibleAfterDismissal), false);
+}
+
 if (failures > 0) {
   console.error(`\n${failures} failure(s).`);
   process.exit(1);
 }
-console.log("\nAll spend-from-account (G110/G111/G114) checks passed.");
+console.log("\nAll spend-from-account (G110/G111/G114/G115) checks passed.");
