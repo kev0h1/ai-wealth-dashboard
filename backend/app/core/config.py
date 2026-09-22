@@ -21,6 +21,13 @@ OPENROUTER_API_KEY  = os.getenv("OPENROUTER_API_KEY", "")
 # "data_collection": "deny" restricts routing to upstream providers that do
 # not retain or train on submitted prompts (regulatory commitment — see SECURITY.md).
 OPENROUTER_PROVIDER_PREFS = {"data_collection": "deny"}
+# A80 (pentest LLM-07): service-wide monthly ceiling on OpenRouter calls,
+# on top of (never instead of) the per-user allowances in core/subscription.py.
+# Counts CALLS, not dollars, because that is what's already metered per user
+# (app.core.llm.monthly_usage) — see app/core/llm.py's openrouter_chat for
+# where this is enforced. 0 (default) means disabled: no counter write, no
+# ceiling. See docs/ops/ENV.md for the recommended production value.
+LLM_GLOBAL_MONTHLY_CALL_CEILING = int(os.getenv("LLM_GLOBAL_MONTHLY_CALL_CEILING", "0"))
 TAVILY_API_KEY      = os.getenv("TAVILY_API_KEY", "")
 LOGODEV_TOKEN       = os.getenv("LOGODEV_TOKEN", "")
 APP_URL             = os.getenv("APP_URL", "https://wealth.auriqltd.co.uk")
