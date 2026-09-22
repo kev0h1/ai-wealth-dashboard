@@ -19,8 +19,12 @@ Storage shape (commitments_col) — v2:
          {account_id, kind "connected", baseline: baseline_balance,
          count_existing: false}),
      contributed (float, default 0 — manual contributions),
-     source ("manual"|"can_i"), status ("active"|"done"|"cancelled"),
-     created_at (UTC datetime)}
+     source ("manual"|"can_i"), status ("active"|"done"|"cancelled" — legal
+         transitions gated by _ALLOWED_STATUS_TRANSITIONS, see A86),
+     created_at (UTC datetime),
+     idempotency_key (str | None — the POST /commitments caller's optional
+         `Idempotency-Key` header, stored so a resend with the same key
+         returns this same document instead of creating a duplicate, A86)}
 
 Pot ledger — a pound can be claimed by only one ACTIVE goal. When two goals
 share a funding pot (same account_id) the OLDEST goal (created_at asc, _id
@@ -66,7 +70,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from bson import ObjectId
 from bson.errors import InvalidId
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.core.auth import current_user
 from app.db.collections import (
@@ -97,6 +101,47 @@ _SOURCES = {"manual", "can_i"}
 _MAX_NAME = 40
 _MAX_AMOUNT = 1_000_000
 _MAX_POTS = 8
+
+# A86 (pentest A51-2026-09-20, API-08): the ONE place a commitment's legal
+# status transitions are defined. Keys are the CURRENT status, values are
+# every status that status may legally move to (including itself, so a
+# same-status PATCH/DELETE is an idempotent no-op rather than a 409).
+# "active" is the only non-terminal status — it may finish ("done"), be
+# cancelled, or stay active. "done" and "cancelled" are terminal: no
+# transition out of either is legal (in particular, this is what blocks the
+# live-confirmed done -> cancelled bug). Every transition this router or its
+# frontend/Penny callers currently perform is covered:
+#   - CommitmentSheet's cancel control / propose_delete_commitment ->
+#     DELETE /commitments/{id} -> active -> cancelled
+#   - a future/Penny "mark done" action -> PATCH status: "done" ->
+#     active -> done
+# Any pair not listed here is rejected with 409.
+_ALLOWED_STATUS_TRANSITIONS: dict[str, set[str]] = {
+    "active":    {"active", "done", "cancelled"},
+    "done":      {"done"},
+    "cancelled": {"cancelled"},
+}
+
+
+def _check_status_transition(current: str, requested: str) -> None:
+    """Raise 409 unless `current` -> `requested` is in
+    _ALLOWED_STATUS_TRANSITIONS. `current` defaults to "active" the same way
+    every other read of a commitment's status in this file does (legacy docs
+    written before `status` existed are implicitly active)."""
+    current = current or "active"
+    allowed = _ALLOWED_STATUS_TRANSITIONS.get(current, set())
+    if requested not in allowed:
+        raise HTTPException(
+            409,
+            f"cannot move a commitment from status '{current}' to '{requested}'",
+        )
+
+
+def _normalise_title(name) -> str:
+    """Case-insensitive, whitespace-collapsed commitment name, used only for
+    A86's duplicate-create dedupe match — "  Holiday   Fund" and "holiday
+    fund" are the same commitment for that purpose."""
+    return " ".join(str(name or "").split()).lower()
 CONSENT_SLICE_FLOOR = 25.0  # £/period below which a plan never triggers debt-shortfall
                              # consent on its own — same silence-threshold precedent as
                              # spend_impact.py's MOVE_SILENCE_ABS (small amounts don't nag)
@@ -985,7 +1030,21 @@ async def list_commitments(user: dict = Depends(current_user)):
 
 
 @router.post("/commitments")
-async def create_commitment(body: dict, user: dict = Depends(current_user)):
+async def create_commitment(
+    body: dict,
+    # `Request = None` (not `Request | None`) — FastAPI's dependency
+    # resolver only recognises the injected-Request special case via
+    # lenient_issubclass(type_annotation, Request), which a Union
+    # annotation fails, same constraint billing.py's checkout endpoint
+    # documents. The `= None` default is never seen over real HTTP (FastAPI
+    # injects the true Request regardless); it only matters for
+    # can_i.py's `_execute_create_commitment`, which calls this function
+    # directly, bypassing FastAPI's dependency injection entirely, so it
+    # never has a real Request to hand in — no header there simply means no
+    # idempotency key, same as a real request that omitted it.
+    request: Request = None,  # type: ignore[assignment]
+    user: dict = Depends(current_user),
+):
     uid = user["email"]
     name = _validate_name(body.get("name"))
     amount = _validate_amount(body.get("amount"))
@@ -994,6 +1053,36 @@ async def create_commitment(body: dict, user: dict = Depends(current_user)):
     source = body.get("source") or "manual"
     if source not in _SOURCES:
         raise HTTPException(400, "source must be 'manual' or 'can_i'")
+
+    # A86: duplicate-create guard. Two shapes, checked in order:
+    #  1. An `Idempotency-Key` request header — an exact repeat of the same
+    #     request (identified purely by key, regardless of status) returns
+    #     the document that key already created.
+    #  2. No key, or no match on it — fall back to a same-user, same-title
+    #     (case-insensitive, whitespace-collapsed), same-amount ACTIVE
+    #     commitment already existing, the shape an identical accidental
+    #     double-submit takes. Both return the existing document with the
+    #     same response shape a normal create would, 200 either way (this
+    #     endpoint's normal success status already is 200).
+    idempotency_key = None
+    if request is not None:
+        idempotency_key = (request.headers.get("idempotency-key") or "").strip() or None
+    if idempotency_key:
+        existing = await commitments_col.find_one(
+            {"user_id": uid, "idempotency_key": idempotency_key}
+        )
+        if existing:
+            return await _serialise_one_with_siblings(uid, existing)
+
+    normalised_name = _normalise_title(name)
+    active_docs = await commitments_col.find(
+        {"user_id": uid, "status": "active"}
+    ).to_list(None)
+    for candidate in active_docs:
+        same_title = _normalise_title(candidate.get("name")) == normalised_name
+        same_amount = abs(float(candidate.get("amount") or 0) - amount) < 0.005
+        if same_title and same_amount:
+            return await _serialise_one_with_siblings(uid, candidate)
 
     # v2 payload preferred; legacy single funding_account_id accepted for one
     # release and treated as a single connected/manual pot, count_existing off.
@@ -1014,6 +1103,7 @@ async def create_commitment(body: dict, user: dict = Depends(current_user)):
         "source":       source,
         "status":       "active",
         "created_at":   datetime.now(timezone.utc),
+        "idempotency_key": idempotency_key,
     }
     result = await commitments_col.insert_one(doc)
     doc["_id"] = result.inserted_id
@@ -1233,12 +1323,25 @@ async def update_commitment(
         pots = await _build_pots([{"account_id": fid}] if fid else [])
         updates["funding_pots"] = pots
         updates.update(_pot_mirrors(pots))
+    current_status = doc.get("status") or "active"
     if "status" in body:
         status = body.get("status")
         if status not in _STATUSES:
             raise HTTPException(400, "status must be active, done or cancelled")
+        # A86: reject any transition not on the explicit allowed map (e.g.
+        # done -> cancelled), 409, naming both statuses.
+        _check_status_transition(current_status, status)
         updates["status"] = status
     if "contribute_delta" in body:
+        # A86: a contribution only ever makes sense against a still-active
+        # commitment — reject 409 against a done/cancelled one (this is the
+        # "reordered steps" finding: contribute-after-cancel was previously
+        # accepted and silently moved money into a terminal goal).
+        if current_status != "active":
+            raise HTTPException(
+                409,
+                f"cannot contribute to a commitment with status '{current_status}'",
+            )
         try:
             delta = float(body.get("contribute_delta"))
         except (TypeError, ValueError):
@@ -1262,6 +1365,14 @@ async def update_commitment(
 async def delete_commitment(commitment_id: str, user: dict = Depends(current_user)):
     uid = user["email"]
     doc = await _get_owned(uid, commitment_id)
+    # A86: cancel is itself a status transition (-> "cancelled") and goes
+    # through the same allowed-transition map as PATCH status — this is
+    # exactly what blocks the live-confirmed "a done commitment can be
+    # cancelled" bug. A commitment already cancelled stays a no-op 200
+    # (cancelled -> cancelled is on the map) rather than erroring on a
+    # double-cancel.
+    current_status = doc.get("status") or "active"
+    _check_status_transition(current_status, "cancelled")
     await commitments_col.update_one(
         {"_id": doc["_id"]}, {"$set": {"status": "cancelled"}}
     )
