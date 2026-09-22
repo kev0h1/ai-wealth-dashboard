@@ -17,6 +17,7 @@ import time
 
 import httpx
 
+import app.core.llm as llm_module
 import app.routers.can_i as can_i_module
 import app.services.penny_agent as penny_agent_module
 import app.services.affordability as affordability_module
@@ -326,6 +327,36 @@ def test_run_penny_agent_connection_error_reports_provider_error_not_none(monkey
 
     result = asyncio.run(run_penny_agent("kevin", "how much can I spend", [], None, ""))
     assert result == {"provider_error": True}
+
+
+def test_run_penny_agent_global_ceiling_reached_reports_provider_error_not_none(monkeypatch):
+    # A80: the service-wide monthly OpenRouter call ceiling refusing a
+    # request (app.core.llm._check_global_ceiling raising
+    # LLMCeilingReached, caught explicitly in
+    # _call_openrouter_with_retry) must surface exactly like any other
+    # provider-side failure — {"provider_error": True} — not fall through
+    # to run_penny_agent's generic `except Exception`, which the B37
+    # failure doctrine reads as an off-topic decline. No HTTP request is
+    # made: the ceiling is enforced before openrouter_chat ever calls
+    # client.post.
+    class _OverCeilingCol:
+        async def find_one_and_update(self, *a, **kw):
+            return {"_id": "2026-09", "count": 999999}
+
+    monkeypatch.setattr(llm_module, "llm_global_usage_col", _OverCeilingCol())
+    monkeypatch.setattr(llm_module, "LLM_GLOBAL_MONTHLY_CALL_CEILING", 1)
+
+    client = _ScriptedAsyncClient([_final_payload("should never be reached")])
+    monkeypatch.setattr(penny_agent_module.httpx, "AsyncClient", client)
+
+    async def fail_execute_tool(uid, name, args):
+        raise AssertionError("no tool should be reached, the ceiling refused before any request")
+
+    monkeypatch.setattr(penny_agent_module, "execute_tool", fail_execute_tool)
+
+    result = asyncio.run(run_penny_agent("kevin", "how much can I spend", [], None, ""))
+    assert result == {"provider_error": True}
+    assert client.calls == []  # never sent
 
 
 def test_run_penny_agent_non_retryable_status_reports_provider_error_immediately(monkeypatch):
