@@ -142,6 +142,41 @@ def test_invalid_json_returns_400(monkeypatch):
     assert exc.value.status_code == 400
 
 
+# ── A89: path secret now compared with hmac.compare_digest ──────────────
+# Proves the switch from plain `!=` to a constant-time comparison changed
+# nothing observable: a wrong secret (including one merely a different
+# length) still 401s with the same detail, and the right secret is still
+# accepted end to end.
+
+@pytest.mark.parametrize("wrong_secret", [
+    "wrong-secret",
+    SECRET[:-1],  # same length minus one char
+    SECRET + "x",  # different length
+    "",
+])
+def test_wrong_path_secret_rejected_with_same_status_and_detail(monkeypatch, wrong_secret):
+    _setup(monkeypatch)
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(webhooks_module.truelayer_webhook(
+            wrong_secret, _FakeRequest({"type": "transaction.created", "credentials_id": "conn-1"}),
+        ))
+    assert exc.value.status_code == 401
+    assert exc.value.detail == "Invalid token"
+
+
+def test_right_path_secret_is_accepted(monkeypatch):
+    connections, events = _setup(
+        monkeypatch, connections=[{"_id": "conn-right", "user_id": "u-right"}],
+    )
+    calls = _spy_enqueue(monkeypatch)
+    result = asyncio.run(webhooks_module.truelayer_webhook(
+        SECRET, _FakeRequest({"type": "transaction.created", "credentials_id": "conn-right"}),
+    ))
+    assert result == {"ok": True}
+    assert len(calls) == 1
+    assert events.docs[0]["status"] == "queued"
+
+
 # ── Correct secret: normal dispatch ──────────────────────────────────────
 
 def test_known_connection_enqueues_sync(monkeypatch):
