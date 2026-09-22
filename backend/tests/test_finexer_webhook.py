@@ -142,6 +142,45 @@ def test_wrong_secret_returns_401(monkeypatch):
     assert exc.value.status_code == 401
 
 
+# ── A89: path secret now compared with hmac.compare_digest ──────────────
+# Proves the switch from plain `!=` to a constant-time comparison changed
+# nothing observable: a wrong secret (including one merely a different
+# length, which is the case compare_digest handles differently under the
+# hood than `!=`) still 401s with the same detail, and the right secret is
+# still accepted end to end.
+
+@pytest.mark.parametrize("wrong_secret", [
+    "wrong-secret",
+    SECRET[:-1],  # same length minus one char
+    SECRET + "x",  # different length
+    "",
+])
+def test_wrong_path_secret_rejected_with_same_status_and_detail(monkeypatch, wrong_secret):
+    _setup(monkeypatch)
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(webhooks_module.finexer_webhook(
+            wrong_secret, _FakeRequest({"type": "probe", "consent_id": "c1"}),
+        ))
+    assert exc.value.status_code == 401
+    assert exc.value.detail == "Invalid token"
+
+
+def test_right_path_secret_is_accepted(monkeypatch):
+    fake_consents, fake_events = _setup(
+        monkeypatch,
+        consents=[{"_id": "c-right", "user_id": "kevin@example.com", "status": "authorized"}],
+    )
+    calls = _spy_enqueue(monkeypatch)
+
+    result = asyncio.run(webhooks_module.finexer_webhook(
+        SECRET, _FakeRequest({"type": "some.event", "consent_id": "c-right"}),
+    ))
+
+    assert result == {"ok": True}
+    assert len(calls) == 1
+    assert fake_events.docs[0]["status"] == "queued"
+
+
 def test_invalid_json_returns_400(monkeypatch):
     _setup(monkeypatch)
     with pytest.raises(HTTPException) as exc:
