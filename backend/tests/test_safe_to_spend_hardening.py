@@ -392,8 +392,14 @@ def test_preferences_patch_invalidates_every_cached_response_for_user(monkeypatc
     monkeypatch.setattr(preferences, "preferences_col", prefs_col)
     monkeypatch.setattr(preferences, "response_cache", cache)
 
+    # A85: the field just needs to be a real, allowlisted preference (any
+    # one demonstrates "regardless of which field changed" -- see
+    # ALLOWED_PREFERENCE_FIELDS in app/routers/preferences.py). It used to
+    # be the orphaned `safe_to_spend_buffer` (read in analytics.py but
+    # never written by any caller), which A85's mass-assignment fix now
+    # rejects with 422 since PATCH /preferences never actually accepts it.
     result = asyncio.run(preferences.update_preferences(
-        {"safe_to_spend_buffer": 75}, {"email": "user@example.com"}
+        {"debt_target_months": 75}, {"email": "user@example.com"}
     ))
 
     assert cache.calls == [("user@example.com",)]
