@@ -32,6 +32,21 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "g149-transfer-review-placement",
+    name: "g149-transfer-review-placement",
+    description:
+      "G149 Spend timeline placement round · A treats transfer review as a true pay-period event, with the timeline rail marker, text indent and event rhythm; B keeps it as a quiet period-level affordance beside the period summary, never stranded between timeline nodes · the guardrail wording and intended review behaviour are preserved, with one, many and clear fixture states in light and dark · no API calls, no mutations and no production component edits · ?variant=a|b&state=single|many|clear&mode=light|dark",
+    states: [
+      { label: "One transfer", value: "single" },
+      { label: "Many transfers", value: "many" },
+      { label: "Nothing to review", value: "clear" },
+    ],
+    variants: [
+      { label: "A · Timeline event", value: "a" },
+      { label: "B · Period affordance", value: "b" },
+    ],
+  },
+  {
     slug: "g115-spend-from-accounts",
     name: "g115-spend-from-accounts",
     description:
