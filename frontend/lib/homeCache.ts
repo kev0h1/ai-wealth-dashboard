@@ -39,6 +39,13 @@ export type HomeCacheSnapshot = {
   // outcome is how a missing feature stays indistinguishable from a working
   // one across every remount for the rest of the page load.
   todayStatus: TodayRequestStatus;
+  // G148 re-review: the same treatment for the GET /accounts outcome, and
+  // for the same reason. A cached `accounts: []` is indistinguishable from
+  // "this user has no bank accounts" unless the snapshot also remembers that
+  // the request which produced it failed. `loadError` cannot cover this: it
+  // is a fresh `useState` false on the next mount, while the empty list in
+  // this snapshot survives.
+  accountsStatus: TodayRequestStatus;
   recentTxns: Transaction[];
   needle: NeedleSummary | null;
   needleStatus: "loading" | "ready" | "failed";
@@ -74,6 +81,7 @@ const REQUIRED_SNAPSHOT_KEYS: readonly (keyof HomeCacheSnapshot)[] = [
   "companionItems",
   "accountEligibility",
   "todayStatus",
+  "accountsStatus",
   "recentTxns",
   "needle",
   "needleStatus",

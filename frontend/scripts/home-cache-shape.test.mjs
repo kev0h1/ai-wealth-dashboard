@@ -63,6 +63,7 @@ function currentSnapshot(overrides = {}) {
     companionItems: [],
     accountEligibility: { "acc-1": { short: false, headroom: 74.85 } },
     todayStatus: "ready",
+    accountsStatus: "ready",
     recentTxns: [],
     needle: null,
     needleStatus: "ready",
@@ -70,10 +71,11 @@ function currentSnapshot(overrides = {}) {
   };
 }
 
-/** The shape as it stood before G148: everything except `todayStatus`. */
+/** The shape as it stood before G148: neither request outcome recorded. */
 function preG148Snapshot() {
   const snapshot = currentSnapshot();
   delete snapshot.todayStatus;
+  delete snapshot.accountsStatus;
   return snapshot;
 }
 
@@ -139,6 +141,17 @@ function preG148Snapshot() {
     getHomeCache()?.todayStatus,
     "failed",
   );
+
+  // The re-review case: the cold load's ACCOUNTS request failed, leaving an
+  // empty list in the snapshot. The warm remount must inherit that outcome,
+  // or it reads the empty list as "this user has no bank accounts".
+  clearHomeCache();
+  setHomeCache(currentSnapshot({ accounts: [], accountsStatus: "failed" }));
+  check(
+    "a warm remount after a FAILED /accounts inherits the failure, not an empty list",
+    getHomeCache()?.accountsStatus,
+    "failed",
+  );
 }
 
 // ── Non-objects ────────────────────────────────────────────────────────────
@@ -158,6 +171,7 @@ check("a string is not a valid shape", isCurrentHomeCacheShape("warm"), false);
     "companionItems",
     "accountEligibility",
     "todayStatus",
+    "accountsStatus",
     "recentTxns",
     "needle",
     "needleStatus",

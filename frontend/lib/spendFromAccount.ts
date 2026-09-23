@@ -136,16 +136,35 @@ function rankByHeadroom(
  * warm cache that already holds eligibility is used even while a refresh is
  * in flight or has just failed.
  *
- * `accountsLoaded` (G148 re-review) is the separate question of whether
- * `accounts` is a settled answer or just an empty array that has not been
- * filled in yet. Defaults to true, because every caller that hands over a
- * fixture list already knows it.
+ * `accountsStatus` (G148 re-review) is the separate question of what happened
+ * to the request that was supposed to fill `accounts`. It is a status, not a
+ * boolean, because an empty list has three different meanings and only one of
+ * them is a statement about the user's money:
+ *
+ *   "ready"   the request succeeded. An empty list genuinely means no
+ *             accounts, and `none` ("no current account has room") is true.
+ *   "loading" not back yet. Say nothing.
+ *   "failed"  the request errored. Say so, visibly and retryably. Never
+ *             `none`: that would be a claim about the user's money made
+ *             because a fetch broke.
+ *
+ * This is the ENFORCEMENT of something that used to be true only by luck.
+ * On Home the false-`none` case was unreachable because HomePage hides this
+ * whole card behind `!loadError`, a cross-component invariant this module
+ * neither stated nor checked, and which does not hold on a warm remount
+ * (where `loadError` is a fresh `useState` false while the cached snapshot
+ * still holds the empty list from the failed cold load). Requiring the
+ * caller to say "ready" before `none` can be produced moves the guarantee
+ * inside the module.
+ *
+ * Defaults to "ready", because every caller that hands over a fixture list
+ * already knows the list is settled.
  */
 export function bestSpendAccount(
   accountEligibility: Record<string, AccountEligibility> | null | undefined,
   accounts: Account[],
   todayStatus: TodayRequestStatus = "ready",
-  accountsLoaded: boolean = true,
+  accountsStatus: TodayRequestStatus = "ready",
 ): SpendFromResult {
   if (!accountEligibility) {
     if (todayStatus === "failed") return { kind: "unavailable", reason: "error" };
@@ -160,24 +179,31 @@ export function bestSpendAccount(
   // An empty `accounts` means one of two completely different things, and
   // the difference has to come from the caller, not from the emptiness.
   //
-  //  - NOT LOADED yet: the account list is a separate request from the
+  //  - NOT BACK yet: the account list is a separate request from the
   //    eligibility one and either can win the race. Ranking an empty list
   //    would return `none`, whose copy asserts "No current account has room
   //    to spend from right now" — a claim about the user's money made purely
   //    because a fetch had not landed. Stay quiet until it has.
   //
-  //  - LOADED and genuinely empty: a user with investment accounts but no
+  //  - FAILED: the same falsehood, but permanent-looking rather than
+  //    transient, and with a real cause worth reporting. Says so.
+  //
+  //  - SUCCEEDED and genuinely empty: a user with investment accounts but no
   //    bank accounts is NOT a fresh user (HomePage's `isFreshUser` requires
   //    both lists empty), so this card renders for them, and `none` is the
   //    literal truth: they have no current account with room. Falling
   //    through to the ranking below is what says so.
   //
   // The first version of this guard keyed on `accounts.length === 0` alone
-  // and swallowed the second case into a permanent `pending`, which renders
+  // and swallowed the third case into a permanent `pending`, which renders
   // nothing and does not even log — re-creating, for that user, the exact
-  // silence this whole item exists to remove. Caught in re-review.
-  if (accounts.length === 0 && !accountsLoaded) {
-    return { kind: "unavailable", reason: todayStatus === "failed" ? "error" : "loading" };
+  // silence this whole item exists to remove. The second version keyed on a
+  // page-level loading flag, which a warm remount starts already false, so
+  // it produced the false `none` for a user whose accounts request had
+  // failed. Both caught in re-review.
+  if (accounts.length === 0 && accountsStatus !== "ready") {
+    const failed = accountsStatus === "failed" || todayStatus === "failed";
+    return { kind: "unavailable", reason: failed ? "error" : "loading" };
   }
 
   // G55: trust the backend's own cover-plan-source flag rather than

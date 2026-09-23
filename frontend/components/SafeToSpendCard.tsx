@@ -422,10 +422,17 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
   const spendFromDiagnostic = spendFromPlan.diagnostic;
   useEffect(() => {
     if (!spendFromDiagnostic) return;
-    // Not while the card itself is a skeleton: `loading` returns before any
-    // spend-from treatment is rendered (see the early return below), so
-    // there is no absent rail to report yet, and Home mounts a bare
-    // `<SafeToSpendCard data={null} loading />` on its own loading path.
+    // Not while a refresh is in flight. The stated reason used to be that
+    // `loading` returns before any treatment renders; that is wrong. The
+    // early return below is `loading && !data`, so a WARM card refreshing
+    // (exactly what onRetry produces: stsLoading true with data still
+    // present) does render the full treatment, including the "not available"
+    // line, while this warning is suppressed. Suppressing it is still right,
+    // because a request that has not come back yet has nothing to report,
+    // and nothing is lost: `loading` is in this effect's deps and always
+    // clears, so the warning fires a moment later if the state persists.
+    // It also keeps Home's own bare `<SafeToSpendCard data={null} loading />`
+    // loading path from warning about a card that shows no rail at all.
     if (loading) return;
     console.warn(`[SafeToSpendCard] ${spendFromDiagnostic}`);
   }, [spendFromDiagnostic, loading]);

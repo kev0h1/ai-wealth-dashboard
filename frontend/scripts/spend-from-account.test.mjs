@@ -495,11 +495,11 @@ const NEVER_BRANDED = () => false;
 // Before G148 that user correctly got the amber "No current account has room
 // to spend from right now" line, which for them is TRUE. The signal that
 // separates "the list has not landed" from "the list is genuinely empty" is
-// whether the accounts request has settled, which is now passed in.
+// the accounts request's own status, which is now passed in.
 {
   // The literal shape: the eligibility map is present and empty (the server
   // found no bank accounts to rank), and the accounts list is settled.
-  const settled = bestSpendAccount({}, [], "ready", true);
+  const settled = bestSpendAccount({}, [], "ready", "ready");
   check("investment-only user: says no current account has room, which is true", settled.kind, "none");
   const settledPlan = spendFromTreatmentPlan(settled, ALWAYS_BRANDED);
   check("investment-only user: the card renders the no-room line", settledPlan.kind, "no-current");
@@ -507,7 +507,7 @@ const NEVER_BRANDED = () => false;
   // Same emptiness, but the accounts request has NOT settled: staying quiet
   // is right, because "no current account has room" would be a claim about
   // the user's money made purely because a fetch had not landed.
-  const unsettled = bestSpendAccount({}, [], "ready", false);
+  const unsettled = bestSpendAccount({}, [], "ready", "loading");
   check("accounts not loaded yet: stays quiet rather than asserting a falsehood", unsettled.kind, "unavailable");
   check("accounts not loaded yet: and does so as the bounded in-flight state", unsettled.reason, "loading");
   check(
@@ -517,12 +517,65 @@ const NEVER_BRANDED = () => false;
   );
 
   // An unsettled list plus a failed /today is still an error, not silence.
-  const unsettledFailed = bestSpendAccount({}, [], "failed", false);
+  const unsettledFailed = bestSpendAccount({}, [], "failed", "loading");
   check("accounts not loaded and /today failed: still reports the error", unsettledFailed.reason, "error");
 
   // And the default keeps every existing caller (fixtures, previews) on the
   // settled branch, so nothing that passes a real list changes behaviour.
-  check("accountsLoaded defaults to true for callers that already know", bestSpendAccount({}, []).kind, "none");
+  check("accountsStatus defaults to ready for callers that already know", bestSpendAccount({}, []).kind, "none");
+}
+
+// ── Warm remount after the accounts request FAILED (G148 re-review #3) ─────
+//
+// The first fix threaded `!loading` as the "has the account list landed"
+// signal. `loading` initialises to `!homeCache`, so a WARM remount starts
+// with it already false, before this mount has requested anything. The path:
+//
+//   1. Cold load. getAccountsCached() rejects (it propagates, nothing
+//      swallows it), so `accounts` stays []. Investments succeed. /today
+//      succeeds, so todayStatus is "ready".
+//   2. The unconditional 5000ms release valve flips `revealedRef`, whether
+//      or not accounts failed.
+//   3. The snapshot effect caches { accounts: [], investmentAccounts: [...],
+//      accountEligibility: {}, todayStatus: "ready" }.
+//   4. Navigate away and back. On the warm mount `loading` is false and
+//      `loadError` is a fresh useState false, and investments are non-empty
+//      so isFreshUser is false: the card renders and asserts "No current
+//      account has room to spend from right now" about a user who HAS bank
+//      accounts and whose request merely failed.
+//
+// Transient and self-correcting, and it is what pre-G148 code did, but it is
+// a claim about the user's money made on a failed fetch, which BEHAVIOURS.md
+// does not allow. The signal has to be an accounts-request status owned by
+// the mount, the same shape as todayStatus, not a page-level loading flag.
+//
+// This also ENFORCES in the module what was previously only true because of
+// a cross-component invariant (Home's `!loadError` gating of the whole
+// card): an empty account list can only mean "genuinely none" when the
+// caller says the request succeeded.
+{
+  // The failing shape from step 4: eligibility present and empty, no
+  // accounts, and the accounts request failed rather than returned nothing.
+  const afterFailure = bestSpendAccount({}, [], "ready", "failed");
+  check("accounts request FAILED: never claims the user has no account with room", afterFailure.kind, "unavailable");
+  check("accounts request FAILED: reports it as an error, not as in-flight", afterFailure.reason, "error");
+  const failedPlan = spendFromTreatmentPlan(afterFailure, ALWAYS_BRANDED);
+  check("accounts request FAILED: renders a visible, retryable line", failedPlan.kind, "check-failed");
+  check("accounts request FAILED: is not silent", failedPlan.message != null, true);
+
+  // A failed accounts request is an error even when /today was fine, and
+  // stays an error when /today failed too.
+  check("accounts failed + today ok: still an error", bestSpendAccount({}, [], "ready", "failed").reason, "error");
+  check("accounts failed + today failed: still an error", bestSpendAccount({}, [], "failed", "failed").reason, "error");
+
+  // Still in flight stays quiet, as before.
+  check("accounts still loading: stays quiet", bestSpendAccount({}, [], "ready", "loading").reason, "loading");
+
+  // And only an explicitly SUCCESSFUL accounts request may produce the
+  // "no current account has room" claim. This is the enforcement: the
+  // module no longer relies on Home hiding the card on loadError.
+  check("accounts request succeeded and is genuinely empty: the true line", bestSpendAccount({}, [], "ready", "ready").kind, "none");
+  check("default keeps existing callers on the settled branch", bestSpendAccount({}, []).kind, "none");
 }
 
 if (failures > 0) {

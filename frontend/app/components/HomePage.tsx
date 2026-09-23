@@ -313,6 +313,16 @@ export default function HomePage() {
   // SafeToSpendCard as `undefined` and both rendered as nothing at all.
   // Same three-state shape as `needleStatus` below, not a second vocabulary.
   const [todayStatus, setTodayStatus] = useState<TodayRequestStatus>(homeCache?.todayStatus ?? "loading");
+  // G148 re-review — what happened to the GET /accounts this mount issued.
+  // NOT derived from the page-level `loading` flag: that initialises to
+  // `!homeCache`, so a warm remount starts with it already false, before
+  // this mount has requested anything, and the cached snapshot may hold an
+  // empty `accounts` left by a cold load whose accounts request FAILED.
+  // Reading "the list is settled" off that flag therefore asserted "no
+  // current account has room" about a user who has bank accounts and whose
+  // fetch merely broke. Owned by the mount and cached with its own outcome,
+  // exactly like todayStatus above.
+  const [accountsStatus, setAccountsStatus] = useState<TodayRequestStatus>(homeCache?.accountsStatus ?? "loading");
   // Fed by HomeBrief's onClearedChange (see BriefBodyProps.onClearedChange
   // in HomeBrief.tsx) — HomeBriefClearedRow is mounted here, below
   // SafeToSpendCard, as HomeBrief's own sibling rather than its child, so
@@ -399,8 +409,8 @@ export default function HomePage() {
   // very first cold load can never seed the cache with empty/default data.
   useEffect(() => {
     if (!revealedRef.current) return;
-    setHomeCache({ accounts, investmentAccounts, safeToSpend, companionItems, accountEligibility, todayStatus, recentTxns, needle, needleStatus });
-  }, [accounts, investmentAccounts, safeToSpend, companionItems, accountEligibility, todayStatus, recentTxns, needle, needleStatus]);
+    setHomeCache({ accounts, investmentAccounts, safeToSpend, companionItems, accountEligibility, todayStatus, accountsStatus, recentTxns, needle, needleStatus });
+  }, [accounts, investmentAccounts, safeToSpend, companionItems, accountEligibility, todayStatus, accountsStatus, recentTxns, needle, needleStatus]);
 
   const loadData = useCallback(async () => {
     const requestId = ++loadRequestRef.current;
@@ -411,6 +421,7 @@ export default function HomePage() {
     // stale "we could not check" line on screen. Any eligibility already
     // held is untouched, so a warm rail does not blink out while refreshing.
     setTodayStatus("loading");
+    setAccountsStatus("loading");
     try {
       // Fire the fast calls all in parallel and set each state as its own
       // promise resolves. The Safe-to-Spend tile and brief never wait for
@@ -496,8 +507,15 @@ export default function HomePage() {
         loadedAccounts = await accsP;
         if (requestId !== loadRequestRef.current) return;
         setAccounts(loadedAccounts);
+        setAccountsStatus("ready");
       } catch {
         if (requestId !== loadRequestRef.current) return;
+        // Recorded as well as surfaced: `loadError` hides this whole card on
+        // THIS mount, but it is a fresh `useState` false on the next one,
+        // whereas the cached snapshot's empty `accounts` survives. Without
+        // the status travelling with it, that next mount reads the empty
+        // list as a settled answer.
+        setAccountsStatus("failed");
         setLoadError(true);
         return;
       }
@@ -705,15 +723,13 @@ export default function HomePage() {
     // carried no eligibility at all. All three used to arrive here as
     // `undefined` and render as nothing.
     //
-    // `!loading` is the separate signal that `accounts` is a settled answer
-    // rather than an array nobody has filled in yet (it clears in loadData's
-    // `finally`, after the accounts promise has resolved, and starts false
-    // only on a cold mount). Without it a user with investment accounts and
-    // no bank accounts — who is NOT a fresh user, so this card renders for
-    // them — would sit on a permanent silent state instead of the true "no
-    // current account has room" line.
-    () => bestSpendAccount(accountEligibility, accounts, todayStatus, !loading),
-    [accountEligibility, accounts, todayStatus, loading],
+    // `accountsStatus` is the separate signal for what happened to the
+    // account list itself. An empty list means three different things (not
+    // back, failed, genuinely empty) and only the last one licenses the
+    // "no current account has room" claim, so the status travels rather
+    // than a boolean derived from a page-level loading flag.
+    () => bestSpendAccount(accountEligibility, accounts, todayStatus, accountsStatus),
+    [accountEligibility, accounts, todayStatus, accountsStatus],
   );
 
   const expiredProviders = useMemo(() => {

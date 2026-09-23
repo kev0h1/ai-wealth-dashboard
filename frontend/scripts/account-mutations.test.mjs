@@ -115,6 +115,7 @@ globalThis.localStorage = fakeStorage;
     // scripts/home-cache-shape.test.mjs). Without this key the write below
     // is correctly rejected and the cache stays null.
     todayStatus: "ready",
+    accountsStatus: "ready",
     recentTxns: [],
     needle: null,
     needleStatus: "ready",

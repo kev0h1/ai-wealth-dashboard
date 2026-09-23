@@ -32,6 +32,26 @@
 // useRouter() in its body, which throws outside a mounted app router. The
 // treatment function is the unit that decides whether anything reaches the
 // screen, which is the thing that was wrong.
+//
+// ── The ceiling on this technique, for whoever extends it ─────────────────
+//
+// Server-rendered markup cannot see VISIBILITY. Every assertion below is
+// satisfied by output that no sighted user will ever read:
+//
+//     return { body: <div hidden className="sr-only">Spend from: not
+//              available right now.</div> };
+//
+// passes this file, passes the plan assertions, passes tsc and passes the
+// production build. The realistic form is worse because it looks innocent: a
+// responsive utility like `hidden sm:block` would blank the rail on exactly
+// the phone width Kevin reviews on while every gate stays green.
+//
+// Deliberately not "fixed" with a class blocklist, because the treatments
+// legitimately use `sr-only` for their screen-reader labels, so a blanket
+// rule would be wrong as often as it was right. Closing it properly means
+// measuring computed styles at a real viewport, which is what the /design
+// preview and its screenshots are for. Treat this file as proof that
+// something is EMITTED, not proof that it is SEEN.
 
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
