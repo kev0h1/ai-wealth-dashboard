@@ -108,6 +108,13 @@ globalThis.localStorage = fakeStorage;
     safeToSpend: null,
     companionItems: [],
     accountEligibility: undefined,
+    // G148: HomeCacheSnapshot now also carries the outcome of the GET /today
+    // that was supposed to deliver `accountEligibility` above, and
+    // setHomeCache refuses any snapshot missing a key the shape declares
+    // (see lib/homeCache.ts's shape guard and
+    // scripts/home-cache-shape.test.mjs). Without this key the write below
+    // is correctly rejected and the cache stays null.
+    todayStatus: "ready",
     recentTxns: [],
     needle: null,
     needleStatus: "ready",

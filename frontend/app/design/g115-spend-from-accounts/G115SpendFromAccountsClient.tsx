@@ -156,6 +156,12 @@ function previewTreatment(variant: Variant, result: SpendFromResult, hidden: boo
 } | undefined {
   if (variant === "a") return undefined;
 
+  // G148: the rejected B/C treatments have no answer for a rail that is
+  // ABSENT rather than empty, and their "no current account has room" copy
+  // would be a false claim about the user's money. Hand those states back to
+  // the production card, which now renders its own visible placeholder.
+  if (result.kind === "unavailable") return undefined;
+
   const entries = spendAccounts(result);
   if (entries.length === 0) return { body: <NoCurrentAccount savingsMove={savingsMove} /> };
 
@@ -309,6 +315,11 @@ export default function G115SpendFromAccountsClient() {
               data={fixture.safeToSpend}
               loading={false}
               error={false}
+              // G148: the failed-request state offers a retry, so the
+              // preview has to supply one for that control to be visible
+              // and tappable the way it is on Home (where it re-runs
+              // loadData). Reloading the preview is the equivalent here.
+              onRetry={() => window.location.reload()}
               spendFrom={fixture.spendFrom}
               coverMoveVisible={variant === "a" && fixture.coverPlan != null}
               spendFromPreview={treatment}

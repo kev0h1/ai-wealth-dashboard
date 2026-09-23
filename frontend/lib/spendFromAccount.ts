@@ -62,8 +62,38 @@ export type SpendFromAccount = {
   account: Account;
 };
 
+/**
+ * How the per-account eligibility snapshot was (not) obtained. G148,
+ * 2026-09-23: `unavailable` used to be a single opaque state that
+ * SafeToSpendCard rendered as `null`, which meant a working feature and a
+ * feature that never received its data looked EXACTLY the same on screen,
+ * and did so on Kevin's live Home for a week. Splitting the reason is what
+ * lets the card render something visible for the two states that are
+ * genuinely wrong, while still staying quiet for the one that is merely
+ * early.
+ *
+ * - `loading`: `GET /today` has not settled yet. Bounded by the request's
+ *   own lifecycle (HomePage sets the status in `.then`/`.catch`), so this
+ *   is the ONE reason that may render nothing: a placeholder here would
+ *   flash on every cold load and say nothing true.
+ * - `error`: the request failed. The caller swallowed the error (this is a
+ *   supporting rail, not a blocking failure), so the absence of a rail is
+ *   the only evidence the user has that anything went wrong.
+ * - `missing`: the request SUCCEEDED and carried no `account_eligibility`.
+ *   This is the G148 defect's own shape: a payload built by code, or served
+ *   from a cache written by code, that predates the field. Distinct from
+ *   `error` deliberately, because the two need different diagnostics and
+ *   only one of them is worth retrying.
+ */
+export type SpendFromUnavailableReason = "loading" | "error" | "missing";
+
+/** What the client knows about the `GET /today` request that carries
+ *  `account_eligibility`. Mirrors HomePage's existing `needleStatus`
+ *  convention rather than inventing a second vocabulary. */
+export type TodayRequestStatus = "loading" | "ready" | "failed";
+
 export type SpendFromResult =
-  | { kind: "unavailable" }
+  | { kind: "unavailable"; reason: SpendFromUnavailableReason }
   | { kind: "none" }
   | { kind: "account"; best: SpendFromAccount; alternative: SpendFromAccount | null };
 
@@ -99,12 +129,38 @@ function rankByHeadroom(
  * Current accounts only (G111): a savings account never enters `candidates`
  * in the first place, so it can never be `best`, `alternative`, or any other
  * part of the result, regardless of how much headroom it carries.
+ *
+ * `todayStatus` (G148) is what the caller knows about the request that was
+ * supposed to deliver `accountEligibility`. It only ever changes which
+ * `unavailable` reason comes back, never whether an account is picked: a
+ * warm cache that already holds eligibility is used even while a refresh is
+ * in flight or has just failed.
  */
 export function bestSpendAccount(
   accountEligibility: Record<string, AccountEligibility> | null | undefined,
   accounts: Account[],
+  todayStatus: TodayRequestStatus = "ready",
 ): SpendFromResult {
-  if (!accountEligibility) return { kind: "unavailable" };
+  if (!accountEligibility) {
+    if (todayStatus === "failed") return { kind: "unavailable", reason: "error" };
+    if (todayStatus === "loading") return { kind: "unavailable", reason: "loading" };
+    // The request came back fine and simply had no `account_eligibility` on
+    // it. Before G148 this fell into the same silent branch as "still
+    // loading", which is precisely why nobody noticed the field had stopped
+    // arriving.
+    return { kind: "unavailable", reason: "missing" };
+  }
+
+  // Eligibility arrived but the account list has not (they are separate
+  // requests on Home and either can win the race). Ranking an empty list
+  // would return `none`, whose copy asserts "No current account has room to
+  // spend from right now" — a claim about the user's money made purely
+  // because a fetch had not landed. Stay in the quiet state instead, and
+  // let the account list's own failure path (which hides this whole card)
+  // handle the case where it never arrives.
+  if (accounts.length === 0) {
+    return { kind: "unavailable", reason: todayStatus === "failed" ? "error" : "loading" };
+  }
 
   // G55: trust the backend's own cover-plan-source flag rather than
   // re-deriving "is this a candidate at all" from type/subtype strings —
@@ -193,4 +249,110 @@ export function spendFromAlternativeLine(
   // POOLED calculation, so an unqualified "£38 spare" reads as one of that
   // ledger's own rows.
   return `Next best: ${result.alternative.name}, ${amount(result.alternative.headroom)} spare in that account.`;
+}
+
+// ── Which treatment the card renders (G148, 2026-09-23) ─────────────────────
+//
+// The branch used to live inline in components/SafeToSpendCard.tsx's
+// `approvedSpendFromTreatment`, which returns JSX and therefore cannot be
+// imported by this repo's plain-Node test runner (`--experimental-strip-types`
+// handles .ts but not .tsx — see scripts/purchase-availability-ssr.test.mjs's
+// own note). That is a large part of why `if (result.kind === "unavailable")
+// return null;` sat unexercised: there was nothing a test could reach.
+//
+// The DECISION now lives here, as a plain function over plain data, and the
+// component is the thin renderer of whatever it returns. Bank-logo
+// availability is injected as a predicate rather than imported, because the
+// logo table lives in components/AccountMiniCard.tsx (.tsx again) and this
+// module must stay JSX-free.
+
+export type SpendFromTreatmentKind =
+  /** Approved variant A: bank badges and amounts beside the hero figure. */
+  | "bank-rail"
+  /** At least one account has no bundled bank mark: named rows instead. */
+  | "name-fallback"
+  /** Eligibility is known and no current account clears the floor. */
+  | "no-current"
+  /** `GET /today` succeeded and carried no eligibility at all. */
+  | "not-available"
+  /** `GET /today` failed. */
+  | "check-failed"
+  /** Still in flight. The ONLY kind that renders nothing. */
+  | "pending";
+
+export type SpendFromTreatmentPlan = {
+  kind: SpendFromTreatmentKind;
+  /** Ranked accounts to render; empty for every non-account kind. */
+  entries: SpendFromAccount[];
+  /** The user-facing sentence for the kinds that have no rows of their own. */
+  message: string | null;
+  /** Whether to offer the card's existing retry control alongside `message`. */
+  retryable: boolean;
+  /**
+   * A developer-facing line the card logs once per state. Non-null for every
+   * kind that means the rail is absent for a reason the user cannot act on,
+   * so "the feature quietly stopped arriving" leaves a trace somewhere even
+   * when the UI copy is deliberately gentle. Null for the healthy kinds and
+   * for `pending`, which is normal on every cold load.
+   */
+  diagnostic: string | null;
+};
+
+/**
+ * Copy rules (DESIGN.md): British English, no em dashes, calm under bad
+ * news. DESIGN.md's Safe-to-Spend section also puts error, unsupported and
+ * degraded states in neutral ink "with no colour signal at all", so neither
+ * of the two unavailable lines carries the amber dot the `no-current` line
+ * uses: nothing here is a financial risk, it is a missing supporting figure.
+ */
+export function spendFromTreatmentPlan(
+  result: SpendFromResult | null | undefined,
+  hasBankMark: (account: Account) => boolean,
+): SpendFromTreatmentPlan {
+  // A caller that passes nothing at all knows as little as one whose
+  // request failed, and must not be quieter about it.
+  const resolved: SpendFromResult = result ?? { kind: "unavailable", reason: "missing" };
+
+  if (resolved.kind === "unavailable") {
+    switch (resolved.reason) {
+      case "loading":
+        return { kind: "pending", entries: [], message: null, retryable: false, diagnostic: null };
+      case "error":
+        return {
+          kind: "check-failed",
+          entries: [],
+          message: "Spend from: we could not check your accounts just now.",
+          retryable: true,
+          diagnostic:
+            "spend-from rail hidden: the GET /today request failed, so no account_eligibility was received.",
+        };
+      case "missing":
+      default:
+        return {
+          kind: "not-available",
+          entries: [],
+          // Deliberately does not explain itself further. The honest
+          // statement is that the account by account answer is not here;
+          // anything more specific would be a claim about the user's banks
+          // that the client has no evidence for.
+          message: "Spend from: not available right now.",
+          retryable: false,
+          diagnostic:
+            "spend-from rail hidden: GET /today succeeded but carried no account_eligibility field. "
+            + "Expect a cached today payload written by code older than G110, or a server that predates it.",
+        };
+    }
+  }
+
+  if (resolved.kind === "none") {
+    return { kind: "no-current", entries: [], message: null, retryable: false, diagnostic: null };
+  }
+
+  const entries = [resolved.best, resolved.alternative].filter(
+    (entry): entry is SpendFromAccount => entry != null,
+  );
+  const kind: SpendFromTreatmentKind = entries.every((entry) => hasBankMark(entry.account))
+    ? "bank-rail"
+    : "name-fallback";
+  return { kind, entries, message: null, retryable: false, diagnostic: null };
 }

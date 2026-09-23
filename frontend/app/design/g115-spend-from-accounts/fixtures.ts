@@ -8,7 +8,14 @@
 import type { Account, AccountEligibility, CompanionItem, SafeToSpend } from "@/lib/api";
 import { bestSpendAccount, type SpendFromResult } from "@/lib/spendFromAccount";
 
-export type PreviewState = "reserved" | "clear" | "one" | "unbundled" | "savings" | "hidden";
+export type PreviewState =
+  | "reserved" | "clear" | "one" | "unbundled" | "savings" | "hidden"
+  // G148 (2026-09-23): the two states the production card used to render as
+  // NOTHING. They are here so the absent rail is something Kevin can look at
+  // on a real screen, not a claim in a test report. Variant A renders the
+  // shipped SafeToSpendCard with no override, so these are the real
+  // treatments, not preview markup.
+  | "missing" | "failed";
 
 export type G115Fixture = {
   label: string;
@@ -275,6 +282,34 @@ export const FIXTURES: Record<PreviewState, G115Fixture> = {
     savingsMove: true,
     hidden: false,
   }),
+  // The live G148 shape: GET /today came back fine and simply carried no
+  // account_eligibility, because the payload it was served from was written
+  // by code that predates the field. `bestSpendAccount(undefined, ...)` with
+  // a settled request is exactly what Home computed on Kevin's phone.
+  missing: {
+    label: "Eligibility absent",
+    description: "GET /today succeeded and carried no per-account eligibility. Before G148 this rendered as nothing at all, which is how the rail stayed missing for a week without anyone seeing an error.",
+    safeToSpend: safeToSpend(269),
+    spendFrom: bestSpendAccount(undefined, BASE_ACCOUNTS, "ready"),
+    coverPlan: null,
+    moveLinked: false,
+    savingsMove: false,
+    hidden: false,
+  },
+  // The other half of the same silence: the request itself failed and the
+  // error was swallowed on purpose (this is a supporting rail, not a
+  // blocking failure). Distinguishable from the state above in both the
+  // sentence and the retry.
+  failed: {
+    label: "Check failed",
+    description: "The GET /today request failed. The error stays swallowed, because this is a supporting figure rather than a blocking failure, but the absence is now stated and retryable.",
+    safeToSpend: safeToSpend(269),
+    spendFrom: bestSpendAccount(undefined, BASE_ACCOUNTS, "failed"),
+    coverPlan: null,
+    moveLinked: false,
+    savingsMove: false,
+    hidden: false,
+  },
   hidden: fixture(BASE_ACCOUNTS, RESERVED_ELIGIBILITY, {
     label: "Balances hidden",
     description: "The real preferences path masks the pooled figure and every account amount together.",
@@ -286,4 +321,4 @@ export const FIXTURES: Record<PreviewState, G115Fixture> = {
   }),
 };
 
-export const STATE_ORDER: PreviewState[] = ["reserved", "clear", "one", "unbundled", "savings", "hidden"];
+export const STATE_ORDER: PreviewState[] = ["reserved", "clear", "one", "unbundled", "savings", "missing", "failed", "hidden"];

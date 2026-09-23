@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import dynamic from "next/dynamic";
 import { ChevronRight } from "lucide-react";
 import { api, ApiError, Account, AccountEligibility, Transaction, InvestmentAccount, SafeToSpend, CompanionItem, NeedleSummary } from "@/lib/api";
-import { bestSpendAccount } from "@/lib/spendFromAccount";
+import { bestSpendAccount, type TodayRequestStatus } from "@/lib/spendFromAccount";
 import SafeToSpendCard from "@/components/SafeToSpendCard";
 import AccountLedgerRow from "@/components/AccountLedgerRow";
 import { bankToRow, investmentToRow } from "@/lib/accountsEstate";
@@ -304,6 +304,15 @@ export default function HomePage() {
   // joined against `accounts` (above) by lib/spendFromAccount.ts to name
   // the best account to spend from under the Safe-to-Spend hero.
   const [accountEligibility, setAccountEligibility] = useState<Record<string, AccountEligibility> | undefined>(homeCache?.accountEligibility);
+  // G148 — whether that GET /today actually arrived. The request's failure
+  // is deliberately swallowed below (the spend-from rail is a supporting
+  // figure, not a blocking failure, and an error toast for it would be
+  // louder than the thing it is reporting), which is exactly why the
+  // OUTCOME has to be recorded: without this, "the request failed" and "the
+  // request succeeded with no account_eligibility on it" both arrived at
+  // SafeToSpendCard as `undefined` and both rendered as nothing at all.
+  // Same three-state shape as `needleStatus` below, not a second vocabulary.
+  const [todayStatus, setTodayStatus] = useState<TodayRequestStatus>(homeCache?.todayStatus ?? "loading");
   // Fed by HomeBrief's onClearedChange (see BriefBodyProps.onClearedChange
   // in HomeBrief.tsx) — HomeBriefClearedRow is mounted here, below
   // SafeToSpendCard, as HomeBrief's own sibling rather than its child, so
@@ -390,13 +399,18 @@ export default function HomePage() {
   // very first cold load can never seed the cache with empty/default data.
   useEffect(() => {
     if (!revealedRef.current) return;
-    setHomeCache({ accounts, investmentAccounts, safeToSpend, companionItems, accountEligibility, recentTxns, needle, needleStatus });
-  }, [accounts, investmentAccounts, safeToSpend, companionItems, accountEligibility, recentTxns, needle, needleStatus]);
+    setHomeCache({ accounts, investmentAccounts, safeToSpend, companionItems, accountEligibility, todayStatus, recentTxns, needle, needleStatus });
+  }, [accounts, investmentAccounts, safeToSpend, companionItems, accountEligibility, todayStatus, recentTxns, needle, needleStatus]);
 
   const loadData = useCallback(async () => {
     const requestId = ++loadRequestRef.current;
     setLoadError(false);
     setStsError(false);
+    // G148: a retry or a manual sync is a fresh attempt, so the spend-from
+    // rail goes back to its quiet in-flight state rather than keeping a
+    // stale "we could not check" line on screen. Any eligibility already
+    // held is untouched, so a warm rail does not blink out while refreshing.
+    setTodayStatus("loading");
     try {
       // Fire the fast calls all in parallel and set each state as its own
       // promise resolves. The Safe-to-Spend tile and brief never wait for
@@ -435,12 +449,26 @@ export default function HomePage() {
         .finally(() => {
           if (requestId === loadRequestRef.current) setStsLoading(false);
         });
-      todayP.then((v) => {
-        if (requestId === loadRequestRef.current) {
-          setCompanionItems(v.items);
-          setAccountEligibility(v.account_eligibility);
-        }
-      }).catch(() => {});
+      todayP
+        .then((v) => {
+          if (requestId === loadRequestRef.current) {
+            setCompanionItems(v.items);
+            // May genuinely be undefined: a payload from a server, or a
+            // response cache, older than G110 carries no eligibility at
+            // all. That case is no longer silent (see `todayStatus` above
+            // and lib/spendFromAccount.ts's `SpendFromUnavailableReason`),
+            // which is the whole point of recording "ready" alongside it.
+            setAccountEligibility(v.account_eligibility);
+            setTodayStatus("ready");
+          }
+        })
+        .catch(() => {
+          // Still swallowed on purpose: Home has its own load-error path
+          // for the things that must block, and the brief/rail are not
+          // among them. G148 only makes the failure VISIBLE where it
+          // matters, as a distinct spend-from state rather than as a toast.
+          if (requestId === loadRequestRef.current) setTodayStatus("failed");
+        });
       recentTxP
         .then((r) => { if (requestId === loadRequestRef.current) setRecentTxns(r.items); })
         .catch(() => { if (requestId === loadRequestRef.current) setRecentTxns([]); })
@@ -672,8 +700,12 @@ export default function HomePage() {
   // (accountEligibility, off the same GET /today the companion brief
   // already uses) against the account list already fetched above.
   const spendFrom = useMemo(
-    () => bestSpendAccount(accountEligibility, accounts),
-    [accountEligibility, accounts],
+    // G148: `todayStatus` travels with the snapshot so SafeToSpendCard can
+    // tell an in-flight request from a failed one from a successful one that
+    // carried no eligibility at all. All three used to arrive here as
+    // `undefined` and render as nothing.
+    () => bestSpendAccount(accountEligibility, accounts, todayStatus),
+    [accountEligibility, accounts, todayStatus],
   );
 
   const expiredProviders = useMemo(() => {

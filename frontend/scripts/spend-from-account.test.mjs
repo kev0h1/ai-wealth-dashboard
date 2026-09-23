@@ -35,8 +35,11 @@
 // all, this proves the frontend does not quietly re-admit one via a
 // stale/malformed payload either).
 
-import { bestSpendAccount, spendFromHeroLine, spendFromAlternativeLine, SPEND_FROM_HEADROOM_FLOOR } from "../lib/spendFromAccount";
+import { bestSpendAccount, spendFromHeroLine, spendFromAlternativeLine, spendFromTreatmentPlan, SPEND_FROM_HEADROOM_FLOOR } from "../lib/spendFromAccount";
 import { hasFundedCoverMove } from "../lib/companionItems";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
 
 let failures = 0;
 
@@ -190,8 +193,8 @@ check("SPEND_FROM_HEADROOM_FLOOR mirrors _account_usable_by_finder's own floor",
 }
 
 // ── No data yet ──────────────────────────────────────────────────────────────
-check("missing eligibility data renders nothing rather than a false 'none'", bestSpendAccount(undefined, []).kind, "unavailable");
-check("hero line is omitted (not a fallback sentence) while data is unavailable", spendFromHeroLine({ kind: "unavailable" }, amount), null);
+check("missing eligibility data never produces a false 'none'", bestSpendAccount(undefined, []).kind, "unavailable");
+check("hero line is omitted (not a fallback sentence) while data is unavailable", spendFromHeroLine({ kind: "unavailable", reason: "missing" }, amount), null);
 
 // ── Scope qualifier: the G110 review defect, as a rule not two strings ─────
 // Per-account headroom is structurally UNBOUNDED relative to the pooled
@@ -321,8 +324,165 @@ check("hero line is omitted (not a fallback sentence) while data is unavailable"
   check("G115: hiding the funded card removes the held-back explanation", hasFundedCoverMove(visibleAfterDismissal), false);
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// G148 (2026-09-23) — the three states the card must RENDER
+// ════════════════════════════════════════════════════════════════════════════
+//
+// The defect: the approved spend-from bank rail was invisible on Kevin's live
+// Home. `SafeToSpendCard.tsx` opened with `if (!result || result.kind ===
+// "unavailable") return null;`, and `unavailable` was the ONLY state in the
+// whole card that rendered nothing at all — `account` draws the rail, `none`
+// draws the amber no-room line. So a client that never received
+// `account_eligibility` was pixel-for-pixel identical to one where the
+// feature was working, which is why it shipped on 2026-09-16 and sat
+// unnoticed until 2026-09-23 while the engine returned 13 eligible accounts.
+//
+// Nothing could test that branch, either: the decision lived inside a .tsx
+// module this plain-Node runner cannot import. It now lives in
+// lib/spendFromAccount.ts as `spendFromTreatmentPlan`, a pure function over
+// plain data, and the component is its renderer. These cases are the three
+// the item asks for — eligibility present, eligibility empty, eligibility
+// ABSENT — plus the rule that ties them together: exactly ONE plan kind is
+// allowed to produce no visible output, and it is the bounded in-flight one.
+
+const CURRENT = (id, name) => account({ id, name, subtype: "CURRENT", cover_source_eligible: true });
+const ALWAYS_BRANDED = () => true;
+const NEVER_BRANDED = () => false;
+
+// ── 1. Eligibility PRESENT: the card renders the bank rail ─────────────────
+{
+  const accounts = [CURRENT("monzo", "Everyday"), CURRENT("chase", "Flex current")];
+  const result = bestSpendAccount({
+    monzo: { short: false, headroom: 74.85, spend_from_headroom: 74.85 },
+    chase: { short: false, headroom: 69.74, spend_from_headroom: 69.74 },
+  }, accounts, "ready");
+  const plan = spendFromTreatmentPlan(result, ALWAYS_BRANDED);
+
+  check("eligibility present: the card renders the approved bank rail", plan.kind, "bank-rail");
+  check("eligibility present: both ranked accounts reach the rail", plan.entries.map((e) => e.name), ["Everyday", "Flex current"]);
+  check("eligibility present: the rail needs no placeholder message", plan.message, null);
+  check("eligibility present: nothing to warn about", plan.diagnostic, null);
+
+  // Same data, one bank with no bundled mark: the rail degrades to named
+  // rows rather than an initials stack. Still visible, still not silent.
+  const unbranded = spendFromTreatmentPlan(result, NEVER_BRANDED);
+  check("a bank with no local mark falls back to named rows, not to nothing", unbranded.kind, "name-fallback");
+  check("the fallback still carries both accounts", unbranded.entries.length, 2);
+}
+
+// ── 2. Eligibility EMPTY: the card renders the no-room line ────────────────
+{
+  const accounts = [CURRENT("monzo", "Everyday"), CURRENT("chase", "Flex current")];
+  // A real, complete answer that happens to contain no spare money: every
+  // account is below the £5 source floor.
+  const result = bestSpendAccount({
+    monzo: { short: true, headroom: 1.2, spend_from_headroom: 1.2 },
+    chase: { short: true, headroom: 0, spend_from_headroom: 0 },
+  }, accounts, "ready");
+  const plan = spendFromTreatmentPlan(result, ALWAYS_BRANDED);
+
+  check("eligibility empty: the card renders the no-room line", plan.kind, "no-current");
+  check("eligibility empty: no accounts are offered", plan.entries.length, 0);
+  check("eligibility empty: this is a real answer, not a diagnostic", plan.diagnostic, null);
+}
+
+// ── 3. Eligibility ABSENT: the card renders SOMETHING VISIBLE ──────────────
+// This is the case the item exists for. Before G148 every one of these
+// returned `{ kind: "unavailable" }` and rendered as nothing.
+{
+  const accounts = [CURRENT("monzo", "Everyday")];
+
+  // 3a. GET /today came back fine and simply had no account_eligibility on
+  // it — the exact live shape: a warmed response-cache payload written by
+  // code that predates the field.
+  const missing = spendFromTreatmentPlan(bestSpendAccount(undefined, accounts, "ready"), ALWAYS_BRANDED);
+  check("eligibility absent on a SUCCESSFUL request: the card renders a visible placeholder", missing.kind, "not-available");
+  check("eligibility absent: the placeholder carries a real sentence", typeof missing.message, "string");
+  check("eligibility absent: the sentence is not empty", (missing.message ?? "").length > 0, true);
+  check("eligibility absent: it leaves a diagnostic trace", typeof missing.diagnostic, "string");
+  check("eligibility absent: the diagnostic names the successful-but-empty case", /carried no account_eligibility/.test(missing.diagnostic ?? ""), true);
+  check("eligibility absent: no retry is offered for a deterministic gap", missing.retryable, false);
+  check("eligibility absent: copy uses no em dash (DESIGN.md)", (missing.message ?? "").includes("—"), false);
+
+  // 3b. GET /today FAILED. Distinguishable from 3a in both the user-facing
+  // copy and the diagnostic, which is the item's other requirement: a
+  // swallowed error and a missing field must no longer look the same.
+  const failed = spendFromTreatmentPlan(bestSpendAccount(undefined, accounts, "failed"), ALWAYS_BRANDED);
+  check("a FAILED request renders its own visible state", failed.kind, "check-failed");
+  check("a failed request offers a retry, unlike a missing field", failed.retryable, true);
+  check("a failed request's diagnostic names the request, not the field", /request failed/.test(failed.diagnostic ?? ""), true);
+  check("failed and missing do not share a user-facing sentence", failed.message === missing.message, false);
+  check("failed and missing do not share a diagnostic", failed.diagnostic === missing.diagnostic, false);
+  check("failed copy uses no em dash (DESIGN.md)", (failed.message ?? "").includes("—"), false);
+
+  // 3c. A caller that passes nothing at all knows as little as 3a and must
+  // be no quieter about it. This is the `spendFrom` prop being omitted.
+  const omitted = spendFromTreatmentPlan(undefined, ALWAYS_BRANDED);
+  check("omitting the prop entirely is treated as the absent case, not as silence", omitted.kind, "not-available");
+  check("omitting the prop still logs", typeof omitted.diagnostic, "string");
+
+  // 3d. Still in flight is the ONE state that may render nothing, because a
+  // placeholder there would flash on every cold load and say nothing true.
+  // It is bounded by the request's own then/catch in HomePage.
+  const pending = spendFromTreatmentPlan(bestSpendAccount(undefined, accounts, "loading"), ALWAYS_BRANDED);
+  check("an in-flight request is the one state allowed to render nothing", pending.kind, "pending");
+  check("an in-flight request is not treated as an error", pending.message, null);
+}
+
+// ── The rule, not just the cases ───────────────────────────────────────────
+// Asserted over every reachable plan kind so a branch added later cannot
+// quietly reintroduce the defect by rendering nothing.
+{
+  const accounts = [CURRENT("monzo", "Everyday")];
+  const everyPlan = [
+    ["bank-rail", spendFromTreatmentPlan(bestSpendAccount({ monzo: { short: false, headroom: 40 } }, accounts, "ready"), ALWAYS_BRANDED)],
+    ["name-fallback", spendFromTreatmentPlan(bestSpendAccount({ monzo: { short: false, headroom: 40 } }, accounts, "ready"), NEVER_BRANDED)],
+    ["no-current", spendFromTreatmentPlan(bestSpendAccount({ monzo: { short: true, headroom: 0 } }, accounts, "ready"), ALWAYS_BRANDED)],
+    ["not-available", spendFromTreatmentPlan(bestSpendAccount(undefined, accounts, "ready"), ALWAYS_BRANDED)],
+    ["check-failed", spendFromTreatmentPlan(bestSpendAccount(undefined, accounts, "failed"), ALWAYS_BRANDED)],
+    ["pending", spendFromTreatmentPlan(bestSpendAccount(undefined, accounts, "loading"), ALWAYS_BRANDED)],
+  ];
+  for (const [label, plan] of everyPlan) {
+    check(`${label}: plan kind matches its case`, plan.kind, label);
+    const rendersSomething = plan.entries.length > 0 || plan.message != null || plan.kind === "no-current";
+    check(
+      `${label}: renders something visible unless it is the in-flight state`,
+      rendersSomething,
+      label !== "pending",
+    );
+  }
+}
+
+// ── The component actually renders every one of them ───────────────────────
+// A pure plan is only worth as much as the renderer that honours it, and the
+// renderer is .tsx so it cannot be imported here. Same "no drift" shape as
+// scripts/check-nav-coverage.mjs and scripts/check-account-cache-coverage.mjs:
+// read the source and require an explicit branch per kind, so a kind added
+// later cannot fall through to the default and vanish the way `unavailable`
+// did.
+{
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const cardSrc = readFileSync(path.join(here, "..", "components", "SafeToSpendCard.tsx"), "utf8");
+  const treatmentFn = cardSrc.slice(cardSrc.indexOf("function approvedSpendFromTreatment"));
+  const body = treatmentFn.slice(0, treatmentFn.indexOf("\nfunction "));
+  for (const kind of ["pending", "check-failed", "not-available", "no-current", "name-fallback", "bank-rail"]) {
+    check(`SafeToSpendCard has an explicit branch for '${kind}'`, body.includes(`case "${kind}"`), true);
+  }
+  // The only `return null` left in that switch must be the pending one.
+  const returnsNull = (body.match(/return null;/g) ?? []).length;
+  check("SafeToSpendCard's spend-from switch returns null exactly once (the in-flight branch)", returnsNull, 1);
+  const pendingIndex = body.indexOf('case "pending"');
+  const nullIndex = body.indexOf("return null;");
+  check("that single `return null` belongs to the in-flight branch", pendingIndex >= 0 && nullIndex > pendingIndex, true);
+  check(
+    "the visible placeholder component is wired into the card",
+    body.includes("<SpendFromUnavailableNote"),
+    true,
+  );
+}
+
 if (failures > 0) {
   console.error(`\n${failures} failure(s).`);
   process.exit(1);
 }
-console.log("\nAll spend-from-account (G110/G111/G114/G115) checks passed.");
+console.log("\nAll spend-from-account (G110/G111/G114/G115/G148) checks passed.");
