@@ -913,6 +913,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
 - [ ] **G155. Tighten the mobile spacing between the Spend reconciliation disclosure and journey chips** [owner: codex] [state: review: feature-G155-tighten-the-mobile-spacing]
   - note (2026-09-23, codex): Impeccable layout pass, Operate mode: reduce only the mobile outer-grid gap from 36px to 20px so the route chips read as support for the pay-period summary, while preserving the disclosure's 44px target, the chip strip's own padding and the 56px desktop rhythm. Mirror the production change in the real-component Spend preview.
   - note (2026-09-23, codex): Implemented the spacing-only refinement with no G149 component changes. Browser QA at 320px and 390px measured a 20px grid gap and 28px visible line-to-chip spacing including the strip padding, with 44px disclosure and 53px chip targets, keyboard toggle working and no horizontal overflow; desktop remains 56px. Independent design review, TypeScript, production build, design index, preview safety and git diff checks passed.
+  - note (2026-09-23, codex): Full finish gate passed 3,092 backend tests against an isolated disposable MongoDB plus every frontend policy check; code branch commit b5967b1a is pushed and the item is ready for integration.
 
 ## H. Repo hygiene
 
