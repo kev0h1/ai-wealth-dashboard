@@ -298,6 +298,13 @@ def _run_apply_rules_bulk(monkeypatch, txns, *, learned=None, custom_categories_
     monkeypatch.setattr(categorisation, "merchant_categories_col", FakeCol([]))
     monkeypatch.setattr(categorisation, "user_rules_col", FakeCol([]))
     monkeypatch.setattr(categorisation, "confirmed_transfer_pairs_col", FakeCol(learned or []))
+    # G139: Pass 4 now reads teaching_events_col for each override row's real
+    # decision timestamp (see categorisation.teaching_decision_times) — empty
+    # here means every row in this test falls back to its own `date`, which
+    # is what every one of these fixtures already relies on (no test in this
+    # file exercises the recency-ordering fix itself; see
+    # tests/test_g139_merchant_authority.py for that).
+    monkeypatch.setattr(categorisation, "teaching_events_col", FakeCol([]))
     monkeypatch.setattr(categorisation, "get_category_kinds", _fake_get_category_kinds)
     asyncio.run(categorisation.apply_rules_bulk(UID, structural=True))
 
