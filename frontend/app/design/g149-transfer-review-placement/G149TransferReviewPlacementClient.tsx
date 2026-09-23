@@ -5,8 +5,9 @@
 // still untouched until a direction is approved. No requests or mutations.
 
 import { useEffect } from "react";
-import { ArrowLeft, ArrowUpRight, Check, ChevronRight, CircleDollarSign, Landmark, ReceiptText, ShieldCheck } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, Check, ChevronRight, CircleDollarSign, Landmark, ShieldCheck } from "lucide-react";
 import { useSearchParams } from "next/navigation";
+import { TransferReviewGuardrail } from "@/components/SpendVerdictView";
 
 type Variant = "a" | "b";
 type State = "single" | "many" | "clear";
@@ -67,6 +68,11 @@ function TimelineMarker({ tone = "slate", icon }: { tone?: "slate" | "indigo" | 
 
 function TransferReview({ placement, copy }: { placement: "timeline" | "period"; copy: (typeof stateCopy)[State] }) {
   if (!copy.count) return null;
+  // Approved A imports the production guardrail with fixture props. B stays
+  // a reference-only comparison for the historical design decision.
+  if (placement === "timeline") {
+    return <TransferReviewGuardrail reviewTotal={copy.count} journey onMiscategorisedTap={() => {}} />;
+  }
   if (placement === "period") {
     return (
       <button type="button" className="group flex min-h-11 w-full items-center gap-2 rounded-xl px-1.5 py-2 text-left transition hover:bg-white/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:hover:bg-slate-800/60">
@@ -76,26 +82,12 @@ function TransferReview({ placement, copy }: { placement: "timeline" | "period";
       </button>
     );
   }
-  return (
-    <section id="transfer-review" className="relative pb-10" aria-labelledby="transfer-review-heading">
-      <TimelineMarker tone="indigo" icon={<ShieldCheck size={12} />} />
-      <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-slate-500 dark:text-slate-400">This pay period</p>
-      <button type="button" className="group mt-2 flex min-h-12 w-full items-start gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-slate-700 dark:bg-slate-800 dark:shadow-none dark:hover:border-indigo-400/30 dark:hover:bg-indigo-400/5">
-        <span className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-lg bg-slate-100 text-slate-500 dark:bg-slate-700/70 dark:text-slate-300"><ReceiptText size={14} aria-hidden="true" /></span>
-        <span className="min-w-0 flex-1">
-          <span id="transfer-review-heading" className="block text-sm font-bold text-slate-900 dark:text-white">{copy.label}</span>
-          <span className="mt-0.5 block text-xs leading-5 text-slate-600 dark:text-slate-300">{copy.detail}</span>
-        </span>
-        <ChevronRight size={16} className="mt-1 shrink-0 text-slate-400 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
-      </button>
-    </section>
-  );
 }
 
 function SpendJourney({ variant, state }: { variant: Variant; state: State }) {
   const copy = stateCopy[state];
   return (
-    <div className="relative border-l border-slate-300 pl-7 dark:border-slate-700">
+    <div className="relative border-l border-slate-300 pl-8 dark:border-slate-700 sm:pl-10">
       <section className="relative pb-10" aria-labelledby="pay-arrived">
         <TimelineMarker tone="emerald" icon={<ArrowUpRight size={12} />} />
         <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-slate-500 dark:text-slate-400">31 August · day 1</p>

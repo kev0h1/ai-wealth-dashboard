@@ -1060,6 +1060,44 @@ export interface SpendVerdictViewProps {
   journey?: boolean;
 }
 
+/** The same guardrail is a rail event only in the approved journey view. */
+export function TransferReviewGuardrail({
+  miscategorisedCount = 0,
+  pairCount = 0,
+  reviewTotal,
+  onMiscategorisedTap,
+  journey = false,
+}: Pick<SpendVerdictViewProps, "miscategorisedCount" | "pairCount" | "reviewTotal" | "onMiscategorisedTap" | "journey">) {
+  const total = reviewTotal ?? (miscategorisedCount + pairCount);
+  if (total <= 0) return null;
+
+  const label = reviewTotal != null
+    ? `${reviewTotal} transfer${reviewTotal !== 1 ? "s" : ""} to review`
+    : pairCount > 0
+      ? `${miscategorisedCount + pairCount} transfer${miscategorisedCount + pairCount !== 1 ? "s" : ""} to review this period`
+      : `${miscategorisedCount} transfer${miscategorisedCount !== 1 ? "s" : ""} this period may be miscategorised`;
+
+  if (!journey) return (
+    <button type="button" onClick={onMiscategorisedTap} className="glass-tile flex min-h-11 w-full items-center gap-2 rounded-xl px-3 py-2 transition-transform hover:bg-white/80 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 motion-reduce:transition-none dark:hover:bg-slate-800/80">
+      <ReceiptText size={14} className="flex-shrink-0 text-slate-400 dark:text-slate-500" aria-hidden="true" />
+      <span className="flex-1 text-left text-[11px] font-medium text-slate-600 dark:text-slate-400">{label}</span>
+      <ChevronRight size={12} className="flex-shrink-0 text-slate-400 dark:text-slate-500" aria-hidden="true" />
+    </button>
+  );
+
+  return (
+    <section className="relative scroll-mt-24 pb-10" aria-labelledby="transfer-review-heading">
+      <span aria-hidden="true" className="absolute -left-8 top-1 flex size-6 items-center justify-center rounded-full border border-indigo-300 bg-indigo-50 text-indigo-700 ring-4 ring-[#f0f2f7] dark:border-indigo-400/30 dark:bg-indigo-400/10 dark:text-indigo-300 dark:ring-[#0f172a] sm:-left-10"><ReceiptText size={12} /></span>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-slate-600 dark:text-slate-400">This pay period</p>
+      <button type="button" onClick={onMiscategorisedTap} className="group mt-2 flex min-h-11 w-full items-center gap-3 rounded-xl px-1 py-2 text-left transition-colors hover:bg-white/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:hover:bg-slate-800/60">
+        <span className="flex size-7 flex-shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500 dark:bg-slate-700/70 dark:text-slate-300" aria-hidden="true"><ReceiptText size={14} /></span>
+        <span className="min-w-0 flex-1"><span id="transfer-review-heading" className="block text-sm font-bold text-slate-950 dark:text-white">{label}</span><span className="mt-0.5 block text-[12px] leading-5 text-slate-600 dark:text-slate-400">Review these before treating them as spending.</span></span>
+        <ChevronRight size={16} className="flex-shrink-0 text-slate-400 transition-transform group-hover:translate-x-0.5 dark:text-slate-500" aria-hidden="true" />
+      </button>
+    </section>
+  );
+}
+
 export default function SpendVerdictView({ verdict, colours, onOpenCategory, categoryInsights, onIntent, signals, sym = "£", onAimChanged, onAskCorrect, hideReading, aboveMajority, expandMajoritySignal, miscategorisedCount = 0, onMiscategorisedTap, pairCount = 0, reviewTotal, resolved, onResolved, onNewNormalRequest, unresolvedAccountName, onOpenMoved, initialMajorityExpanded, onMajorityExpandedChange, initialMovedOpen, onMovedOpenChange, journey = false }: SpendVerdictViewProps) {
   // Optimistic, in-session hide the instant "Not now" is tapped — the real
   // persistence is server-side (POST /spend/verdict/dismiss-unresolved sets
@@ -1119,40 +1157,13 @@ export default function SpendVerdictView({ verdict, colours, onOpenCategory, cat
 
   return (
     <div>
-      {/* Miscategorised-transfers guardrail — quiet, absent at zero, the
-          body's own first card (see the prop doc above for why it lives
-          here rather than between the hero and the body). Tapping it opens
-          a review sheet that has always listed the all-time backlog, so the
-          banner now counts by reviewTotal (also all-time) when the server
-          has sent it — the banner's number and the sheet's contents match
-          exactly, which is the whole point of this field. Older cached
-          payloads without reviewTotal fall back to the previous
-          period-scoped miscategorisedCount + pairCount total below; that
-          fallback is a live compatibility path, not dead code. */}
-      {(reviewTotal ?? (miscategorisedCount + pairCount)) > 0 && (
-        <button
-          type="button"
-          onClick={onMiscategorisedTap}
-          className="glass-tile flex min-h-11 w-full items-center gap-2 rounded-xl px-3 py-2 transition-transform hover:bg-white/80 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 motion-reduce:transition-none dark:hover:bg-slate-800/80"
-        >
-          <ReceiptText size={14} className="text-slate-400 dark:text-slate-500 flex-shrink-0" />
-          <span className="flex-1 text-left text-[11px] font-medium text-slate-600 dark:text-slate-400">
-            {/* reviewTotal, when present, is the all-time count the sheet
-                will actually show — plain "N to review", no scope caveat
-                needed since there's no mismatch left to explain. Without it
-                (old cached payload predating this field), fall back to the
-                original period-scoped wording: naming "this period"
-                explicitly, since that count vs. the sheet's all-time list
-                would otherwise read as contradictory. */}
-            {reviewTotal != null
-              ? `${reviewTotal} transfer${reviewTotal !== 1 ? "s" : ""} to review`
-              : pairCount > 0
-                ? `${miscategorisedCount + pairCount} transfer${miscategorisedCount + pairCount !== 1 ? "s" : ""} to review this period`
-                : `${miscategorisedCount} transfer${miscategorisedCount !== 1 ? "s" : ""} this period may be miscategorised`}
-          </span>
-          <ChevronRight size={12} className="text-slate-400 dark:text-slate-500 flex-shrink-0" />
-        </button>
-      )}
+      <TransferReviewGuardrail
+        miscategorisedCount={miscategorisedCount}
+        pairCount={pairCount}
+        reviewTotal={reviewTotal}
+        onMiscategorisedTap={onMiscategorisedTap}
+        journey={journey}
+      />
 
       {/* The reading — no card chrome, ink, 16px/700. Suppressed when the
           top region has already rendered it (hideReading — the Verdict
