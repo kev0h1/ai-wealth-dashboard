@@ -215,18 +215,20 @@ export default function SpendLiveClient({ hidePreviewControls = false }: { hideP
     ...(verdict.notables.length > 0 ? [{
       id: "spend-journey-changes",
       label: "Changes",
-      value: paceDifference == null ? `${verdict.notables.length} to review` : money(paceDifference),
+      value: paceDifference == null
+        ? `${verdict.notables.length} to review`
+        : <span className="font-mono tabular-nums">{money(paceDifference)}</span>,
       needsLook: paceDifference != null && paceDifference > 0,
     }] : []),
     ...(verdict.unresolved.total > 0 ? [{
       id: "spend-unresolved",
-      label: "Place",
-      value: `${verdict.unresolved.payments_count} · ${money(verdict.unresolved.total)}`,
+      label: "To categorise",
+      value: <>{verdict.unresolved.payments_count} payment{verdict.unresolved.payments_count === 1 ? "" : "s"} · <span className="font-mono tabular-nums">{money(verdict.unresolved.total)}</span></>,
     }] : []),
     {
       id: "spend-majority-section",
       label: "Spending",
-      value: money(verdict.majority.reduce((sum, row) => sum + Math.max(0, row.spent), 0)),
+      value: <span className="font-mono tabular-nums">{money(verdict.majority.reduce((sum, row) => sum + Math.max(0, row.spent), 0))}</span>,
     },
     { id: "spend-journey-charts", label: "Charts", value: `${DEFAULT_WIDGETS.length} shown` },
   ];
@@ -254,12 +256,8 @@ export default function SpendLiveClient({ hidePreviewControls = false }: { hideP
             onSelectOffset={(o) => setPeriodOffset(o)}
           />
 
-          <div className="sticky top-0 z-30 -mx-4 mt-3 bg-[#f0f2f7]/95 px-4 py-2 backdrop-blur-sm dark:bg-[#0f172a]/95 lg:hidden">
-            <SpendJourneyNav destinations={destinations} />
-          </div>
-
-          <div className="mt-7 grid items-start gap-9 lg:grid-cols-[minmax(260px,0.72fr)_minmax(0,1.45fr)] lg:gap-14">
-            <aside className="lg:sticky lg:top-6">
+          <div className="mt-7 grid min-w-0 items-start gap-9 lg:grid-cols-[minmax(260px,0.72fr)_minmax(0,1.45fr)] lg:gap-14">
+            <section aria-label="Pay period summary" className="min-w-0 lg:sticky lg:top-6">
               <SpendJourneySummary
                 verdict={verdict}
                 periodLabel={periodLabel(verdict.period.start, verdict.period.end)}
@@ -278,14 +276,17 @@ export default function SpendLiveClient({ hidePreviewControls = false }: { hideP
                 onSelectOffset={(offset) => setPeriodOffset(offset)}
               />
               <div className="mt-5 hidden lg:block"><SpendJourneyNav destinations={destinations} desktop /></div>
-            </aside>
+            </section>
 
-            <main className="relative pl-8 before:absolute before:bottom-3 before:left-[11px] before:top-3 before:w-px before:bg-slate-300 dark:before:bg-slate-600 sm:pl-10">
+            <div className="sticky top-0 z-30 -mx-4 min-w-0 bg-[#f0f2f7]/95 px-4 py-2 backdrop-blur-sm dark:bg-[#0f172a]/95 lg:hidden">
+              <SpendJourneyNav destinations={destinations} />
+            </div>
+
+            <main className="relative min-w-0 pl-8 before:absolute before:bottom-3 before:left-[11px] before:top-3 before:w-px before:bg-slate-300 dark:before:bg-slate-600 sm:pl-10 lg:col-start-2 lg:row-start-1">
               <section className="relative pb-10">
                 <span className="absolute -left-8 top-1 flex size-6 items-center justify-center rounded-full bg-indigo-600 text-white ring-4 ring-[#f0f2f7] dark:ring-[#0f172a] sm:-left-10" aria-hidden="true"><WalletCards size={12} /></span>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-slate-600 dark:text-slate-400">Pay arrived · 31 Jul</p>
                 <h2 className="mt-2 text-xl font-bold text-slate-950 dark:text-white"><span className="font-mono tabular-nums">{money(verdict.pills.income)}</span> recorded coming in</h2>
-                <p className="mt-1 max-w-2xl text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-400">Income is evidence for this period, not a claim that every pound of spending came from this pay packet.</p>
               </section>
 
               <SpendVerdictView
