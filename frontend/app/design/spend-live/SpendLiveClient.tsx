@@ -256,7 +256,7 @@ export default function SpendLiveClient({ hidePreviewControls = false }: { hideP
             onSelectOffset={(o) => setPeriodOffset(o)}
           />
 
-          <div className="mt-7 grid min-w-0 items-start gap-9 lg:grid-cols-[minmax(260px,0.72fr)_minmax(0,1.45fr)] lg:gap-14">
+          <div className="mt-7 grid min-w-0 items-start gap-5 lg:grid-cols-[minmax(260px,0.72fr)_minmax(0,1.45fr)] lg:gap-14">
             <section aria-label="Pay period summary" className="min-w-0 lg:sticky lg:top-6">
               <SpendJourneySummary
                 verdict={verdict}
