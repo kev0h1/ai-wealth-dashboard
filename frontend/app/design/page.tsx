@@ -237,9 +237,16 @@ const ROUTES: PreviewRoute[] = [
     description:
       "G78/G82: Spend root containment and narrow-phone header round against the typed normal-period fixture and real SpendJourneySummary, SpendVerdictView, SpendJourneyNav and SpendTrends components · A full cockpit verdict card with a deliberate two-row phone header (recommended) / B one unified top deck with a compact single-row header / C editorial narrative with its reconciled ledger carded and controls in one dock · summary precedes the jump map in every variant · ?variant=a|b|c&mode=light|dark&state=normal|nothing|everything|nobaseline|early",
     states: [
-      { label: "A · cockpit card", value: "a" },
-      { label: "B · unified deck", value: "b" },
-      { label: "C · editorial ledger", value: "c" },
+      { label: "Normal pay period", value: "normal" },
+      { label: "Nothing to allocate", value: "nothing" },
+      { label: "Everything allocated", value: "everything" },
+      { label: "No baseline", value: "nobaseline" },
+      { label: "Early pay period", value: "early" },
+    ],
+    variants: [
+      { label: "A · Cockpit card", value: "a" },
+      { label: "B · Unified deck", value: "b" },
+      { label: "C · Editorial ledger", value: "c" },
     ],
   },
   {
