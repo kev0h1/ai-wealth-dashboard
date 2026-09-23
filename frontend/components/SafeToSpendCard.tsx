@@ -1,13 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { AlertCircle, AlertTriangle, ArrowRight, ChevronDown, CreditCard, ShieldCheck } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { SafeToSpend } from "@/lib/api";
 import { usePreferences } from "@/components/PreferencesContext";
 import { setPennyScreenView } from "@/components/PennySheetProvider";
 import { zeroSafe, deriveSafeToSpendHeadline, buildSafeToSpendView } from "@/lib/pennyScreenViews";
-import { type SpendFromAccount, type SpendFromResult } from "@/lib/spendFromAccount";
+import {
+  spendFromTreatmentPlan,
+  type SpendFromAccount,
+  type SpendFromResult,
+  type SpendFromTreatmentKind,
+  type SpendFromTreatmentPlan,
+} from "@/lib/spendFromAccount";
 import { BankBadge, BANK_META, accountBrand, bankKey, bankLogoSrc } from "@/components/AccountMiniCard";
 import MoneyText from "@/components/MoneyText";
 
@@ -22,7 +28,10 @@ interface SafeToSpendCardProps {
   error?: boolean;
   onRetry?: () => void;
   // G110/G115 — ranked current accounts with real spendable headroom.
-  // Optional/absent is a plain no-render, same as every degraded-data path.
+  // G148: absent is NOT a plain no-render any more. `undefined` here is
+  // treated as `{ kind: "unavailable", reason: "missing" }`, which renders a
+  // quiet placeholder and logs, because "the caller passed nothing" and
+  // "the feature is working" must never look the same on screen again.
   spendFrom?: SpendFromResult | null;
   /**
    * True only while a cover-plan move card is visibly rendered above this
@@ -47,10 +56,10 @@ function fmt2(value: number): string {
   return `£${Math.abs(value).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-function spendAccounts(result: SpendFromResult): SpendFromAccount[] {
-  if (result.kind !== "account") return [];
-  return [result.best, result.alternative].filter((entry): entry is SpendFromAccount => entry != null);
-}
+// (G148) The local `spendAccounts` helper that used to flatten a result into
+// rows here is gone: `spendFromTreatmentPlan` in lib/spendFromAccount.ts does
+// it, so the ranked entries this card renders and the ones a test can inspect
+// are produced by the same code.
 
 function localBank(account: SpendFromAccount["account"]) {
   const meta = BANK_META[bankKey(account)];
@@ -136,41 +145,114 @@ function SpendFromNameRows({ entries, amount, coverMoveVisible }: {
   );
 }
 
-function approvedSpendFromTreatment(
-  result: SpendFromResult | null | undefined,
+/**
+ * G148 (2026-09-23): the quiet placeholder for a rail that is absent rather
+ * than empty.
+ *
+ * `unavailable` used to return `null` here, which is the only state in this
+ * whole component that renders NOTHING: `account` draws the rail and `none`
+ * draws the amber no-room line, so a client that never received
+ * `account_eligibility` looked exactly like one where the feature was
+ * working correctly. It sat that way on Kevin's live Home for a week while
+ * the engine was returning 13 eligible accounts. A placeholder was chosen
+ * over "log only" precisely because nobody reads a console they have no
+ * reason to open: DESIGN.md's Safe-to-Spend section already says this card
+ * never renders null or an empty shell, and the same standard has to reach
+ * the rail inside it.
+ *
+ * What it is NOT: an alarm. This is a supporting figure, not a blocking
+ * failure, so it stays in the muted Caption step with no dot, no amber and
+ * no toast. Per DESIGN.md, error and unsupported states on this card "stay
+ * neutral ink with no colour signal at all", and a retry appears only where
+ * one applies, which is the failed-request branch.
+ */
+function SpendFromUnavailableNote({ kind, message, retryable, onRetry }: {
+  kind: SpendFromTreatmentKind;
+  message: string;
+  retryable: boolean;
+  onRetry?: () => void;
+}) {
+  return (
+    <div
+      data-g115-treatment={kind}
+      className="mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[12px] leading-snug text-slate-500 dark:text-slate-400 text-pretty"
+      role="status"
+    >
+      <p>{message}</p>
+      {retryable && onRetry && (
+        <button
+          type="button"
+          onClick={onRetry}
+          // 44px, the project's stated target size (DESIGN.md's thumb-sized
+          // targets, and the same min-h-11 every other tappable control in
+          // this round uses). `px-2` so the hit area is not just the width
+          // of the word.
+          className="-mx-2 min-h-11 rounded-lg px-2 text-[12px] font-semibold text-indigo-600 [-webkit-tap-highlight-color:transparent] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 active:scale-95 motion-reduce:transform-none dark:text-indigo-400"
+        >
+          Try again
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** Exported for scripts/spend-from-render.test.mjs, which renders every
+ *  plan kind through react-dom/server and asserts each one produces real
+ *  markup. A source-text guard alone could not tell `return null` from
+ *  `return { body: null }`, and both make the rail invisible. */
+export function approvedSpendFromTreatment(
+  plan: SpendFromTreatmentPlan,
   amount: (value: number) => string,
   coverMoveVisible: boolean,
-  failedLogoSources: ReadonlySet<string>,
   onLogoError: (logoSrc: string) => void,
+  onRetry?: () => void,
 ): SpendFromTreatment | null {
-  if (!result || result.kind === "unavailable") return null;
+  switch (plan.kind) {
+    // The one branch that still renders nothing. `pending` means the
+    // request carrying this data has not settled, so there is nothing true
+    // to say yet and a placeholder would flash on every cold load. It is
+    // bounded by HomePage setting the status in the request's own
+    // `.then`/`.catch`, so it cannot become the permanent silence the two
+    // branches below replaced.
+    case "pending":
+      return null;
 
-  if (result.kind === "none") {
-    return {
-      body: (
-        <div data-g115-treatment="no-current" className="mt-2 flex items-start gap-2 text-[12px] leading-snug text-slate-500 dark:text-slate-400 text-pretty">
-          <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-amber-500" aria-hidden="true" />
-          <p>
-            No current account has room to spend from right now.
-            {coverMoveVisible ? " Use the move above first." : " Checked account by account, not against your full Safe to Spend."}
-          </p>
-        </div>
-      ),
-    };
+    case "check-failed":
+    case "not-available":
+      return {
+        body: (
+          <SpendFromUnavailableNote
+            kind={plan.kind}
+            message={plan.message ?? ""}
+            retryable={plan.retryable}
+            onRetry={onRetry}
+          />
+        ),
+      };
+
+    case "no-current":
+      return {
+        body: (
+          <div data-g115-treatment="no-current" className="mt-2 flex items-start gap-2 text-[12px] leading-snug text-slate-500 dark:text-slate-400 text-pretty">
+            <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-amber-500" aria-hidden="true" />
+            <p>
+              No current account has room to spend from right now.
+              {coverMoveVisible ? " Use the move above first." : " Checked account by account, not against your full Safe to Spend."}
+            </p>
+          </div>
+        ),
+      };
+
+    case "name-fallback":
+      return { body: <SpendFromNameRows entries={plan.entries} amount={amount} coverMoveVisible={coverMoveVisible} /> };
+
+    case "bank-rail":
+    default:
+      return {
+        heroAside: <SpendFromBankRail entries={plan.entries} amount={amount} onLogoError={onLogoError} />,
+        body: <SpendFromScope coverMoveVisible={coverMoveVisible} />,
+      };
   }
-
-  const entries = spendAccounts(result);
-  if (!entries.every((entry) => {
-    const bank = localBank(entry.account);
-    return bank != null && !failedLogoSources.has(bank.logoSrc);
-  })) {
-    return { body: <SpendFromNameRows entries={entries} amount={amount} coverMoveVisible={coverMoveVisible} /> };
-  }
-
-  return {
-    heroAside: <SpendFromBankRail entries={entries} amount={amount} onLogoError={onLogoError} />,
-    body: <SpendFromScope coverMoveVisible={coverMoveVisible} />,
-  };
 }
 
 function syncAgeLabel(isoString: string | null | undefined): string | null {
@@ -317,6 +399,44 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
     });
   }, []);
 
+  // G148 — which spend-from treatment to render, decided in plain TypeScript
+  // (lib/spendFromAccount.ts) so a plain-Node test can prove every state,
+  // including the absent one this component used to render as nothing. Bank
+  // marks are resolved here and injected, because the logo table lives in a
+  // .tsx module the test runner cannot import.
+  const hasBankMark = useCallback((account: SpendFromAccount["account"]) => {
+    const bank = localBank(account);
+    return bank != null && !failedSpendFromLogos.has(bank.logoSrc);
+  }, [failedSpendFromLogos]);
+  const spendFromPlan = useMemo(
+    () => spendFromTreatmentPlan(spendFrom, hasBankMark),
+    [spendFrom, hasBankMark],
+  );
+  // The rail being absent must leave a trace even for the branch whose copy
+  // is deliberately gentle: the user-facing line says the figure is not
+  // there, this says WHY, and says it differently for a failed request than
+  // for a successful one that carried no eligibility. Before G148 the two
+  // were the same silence, which is why a feature that stopped arriving on
+  // 2026-09-16 was only noticed on 2026-09-23. Keyed on the diagnostic
+  // string so it logs once per state, not once per render.
+  const spendFromDiagnostic = spendFromPlan.diagnostic;
+  useEffect(() => {
+    if (!spendFromDiagnostic) return;
+    // Not while a refresh is in flight. The stated reason used to be that
+    // `loading` returns before any treatment renders; that is wrong. The
+    // early return below is `loading && !data`, so a WARM card refreshing
+    // (exactly what onRetry produces: stsLoading true with data still
+    // present) does render the full treatment, including the "not available"
+    // line, while this warning is suppressed. Suppressing it is still right,
+    // because a request that has not come back yet has nothing to report,
+    // and nothing is lost: `loading` is in this effect's deps and always
+    // clears, so the warning fires a moment later if the state persists.
+    // It also keeps Home's own bare `<SafeToSpendCard data={null} loading />`
+    // loading path from warning about a card that shows no rail at all.
+    if (loading) return;
+    console.warn(`[SafeToSpendCard] ${spendFromDiagnostic}`);
+  }, [spendFromDiagnostic, loading]);
+
   // Penny screen context (B39) — published here via `buildSafeToSpendView`
   // (lib/pennyScreenViews.ts), the SAME function a node test pins against
   // fixture payloads, so what Penny can quote back for "why is this so
@@ -437,11 +557,11 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
   // The scope line stays in the reading flow because these per-account
   // figures do not add up to the pooled Safe to Spend verdict above.
   const approvedSpendFrom = approvedSpendFromTreatment(
-    spendFrom,
+    spendFromPlan,
     amount,
     coverMoveVisible,
-    failedSpendFromLogos,
     handleSpendFromLogoError,
+    onRetry,
   );
   const spendFromTreatment = spendFromPreview ?? approvedSpendFrom;
 
