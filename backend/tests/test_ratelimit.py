@@ -230,3 +230,37 @@ def test_diagnostics_matches_client_ip_when_not_via_web_proxy(monkeypatch):
         "via_web_proxy": False,
         "hops_applied": 1,
     }
+
+
+def test_forwarded_for_empty_and_whitespace_entries_are_ignored(monkeypatch):
+    """Review follow-up (2026-09-24): a X-Forwarded-For entry can be empty
+    (a doubled comma from a proxy misconfiguration) or pure whitespace;
+    both must be filtered out before hop-counting on EITHER path, never
+    counted as a real hop, and never raise."""
+    # Base path (TRUSTED_PROXY_HOPS only).
+    monkeypatch.setattr(config, "TRUSTED_PROXY_HOPS", 1)
+    for forwarded in ("1.2.3.4,,5.6.7.8", " 1.2.3.4 , ,5.6.7.8 ,"):
+        req = _ip_req({"X-Forwarded-For": forwarded}, peer="9.9.9.9")
+        assert client_ip(req) == "5.6.7.8"
+
+    # Web-hop path (TRUSTED_PROXY_SECRET + TRUSTED_PROXY_HOPS_WEB), same
+    # blank/whitespace noise, now with hops_web=2 so the entry SECOND from
+    # the right among the real values is expected, not simply "whatever's
+    # left after filtering".
+    monkeypatch.setattr(config, "TRUSTED_PROXY_SECRET", "sekrit")
+    monkeypatch.setattr(config, "TRUSTED_PROXY_HOPS_WEB", 2)
+    for forwarded in (
+        "6.6.6.6,,203.0.113.9,198.51.100.4",
+        " 6.6.6.6 , ,203.0.113.9, 198.51.100.4 ,",
+    ):
+        req = _ip_req(
+            {"X-Forwarded-For": forwarded, "X-Sorted-Proxy-Auth": "sekrit"},
+            peer="9.9.9.9",
+        )
+        assert client_ip(req) == "203.0.113.9"
+
+    # Entirely blank/whitespace header: no real entries at all, must fall
+    # back to the peer address rather than raising (e.g. an IndexError from
+    # indexing an empty parts list).
+    req = _ip_req({"X-Forwarded-For": " , , ,,"}, peer="9.9.9.9")
+    assert client_ip(req) == "9.9.9.9"
