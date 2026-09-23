@@ -106,6 +106,15 @@ function ThemeEffect({ mode }: { mode: Mode }) {
   return null;
 }
 
+// G154: this preview is a historical record of the G16 proposal and still
+// hand-copies the shipped CalculationRow rather than importing it. The live
+// gate on this surface is /design/g115-spend-from-accounts, which renders the
+// real components/SafeToSpendCard.tsx through its own props; re-pointing this
+// page at the production component would change what it records (the cases as
+// proposed in G16), so it stays a fork deliberately. The separator mechanism
+// below is kept in step with the production component and with DESIGN.md's
+// One Separator Per Ledger Boundary so an indexed /design page never renders
+// a rule the doctrine forbids.
 function CalculationRow({
   operator,
   label,
@@ -122,7 +131,7 @@ function CalculationRow({
   risk?: boolean;
 }) {
   return (
-    <div className={`grid grid-cols-[18px_minmax(0,1fr)_auto] items-start gap-x-2 py-2.5 ${total ? "mt-1 border-t border-slate-300 pt-3.5 dark:border-slate-600" : "border-b border-slate-100 last:border-b-0 dark:border-white/[0.07]"}`}>
+    <div className={`grid grid-cols-[18px_minmax(0,1fr)_auto] items-start gap-x-2 py-2.5 ${total ? "mt-1 border-t border-slate-300 pt-3.5 first:mt-0 first:border-t-0 dark:border-slate-600" : "border-t border-slate-100 first:border-t-0 dark:border-white/[0.07]"}`}>
       <span className={`money pt-px text-xs font-semibold ${total ? "text-indigo-500 dark:text-indigo-400" : "text-slate-400 dark:text-slate-500"}`} aria-hidden="true">
         {operator}
       </span>

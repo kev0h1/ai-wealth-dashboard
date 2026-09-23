@@ -304,13 +304,17 @@ function CalculationRow({
   // the rule at its own boundary rather than a second line under the first.
   // Do not move these back to `border-b` + `last:border-b-0`: the total row is
   // a sibling of the operand rows, so the last operand is never `:last-child`
-  // and that escape never fires (it drew two rules 4px apart). `divide-y` has
-  // the same fault here, Tailwind v4 compiles it to
-  // `:where(.divide-y > :not(:last-child))`, i.e. the same bottom edge and the
-  // same `:last-child` assumption. `first:` is safe because the first operand
-  // genuinely is the first child.
+  // and that escape never fires (it drew two rules 4px apart). `divide-y`
+  // reproduces that same pairing whenever the total also carries its own rule,
+  // because Tailwind v4 compiles it to
+  // `:where(.divide-y > :not(:last-child))`, i.e. a bottom rule on the row
+  // before the total. (It is fine for a ledger whose total wears weight alone,
+  // as in SpendVerdictView.) BOTH branches carry `first:border-t-0`: the
+  // operand branch because a ledger opens on an operand, and the total branch
+  // because a payload missing every operand would otherwise draw the heavy
+  // rule against nothing.
   return (
-    <div className={`grid grid-cols-[18px_minmax(0,1fr)_auto] items-start gap-x-2 py-2.5 ${total ? "mt-1 border-t border-slate-300 pt-3.5 dark:border-slate-600" : "border-t border-slate-100 first:border-t-0 dark:border-white/[0.07]"}`}>
+    <div className={`grid grid-cols-[18px_minmax(0,1fr)_auto] items-start gap-x-2 py-2.5 ${total ? "mt-1 border-t border-slate-300 pt-3.5 first:mt-0 first:border-t-0 dark:border-slate-600" : "border-t border-slate-100 first:border-t-0 dark:border-white/[0.07]"}`}>
       <span className={`money pt-px text-xs font-semibold ${total ? "text-indigo-500 dark:text-indigo-400" : "text-slate-400 dark:text-slate-500"}`} aria-hidden="true">{operator}</span>
       <div className="min-w-0">
         <dt className={`${total ? "font-bold text-slate-900 dark:text-slate-100" : "font-medium text-slate-700 dark:text-slate-200"} text-[13px] leading-snug`}>{label}</dt>
