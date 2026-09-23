@@ -184,6 +184,13 @@ record carry the full detail.
 | WP12: Cross-model review | none | A60 | not run | 0 | 0 | 0 | 0 | 0 | all |
 | **Total (WP1-WP11, executed)** | | | | **76** | **49** | **20** | **5** | **2** | **0** |
 
+**WP3 note.** The `A50-2026-09-20` run record contains a fourth
+section, `API-15`, attempt 1, marked VOID because it ran against the
+wrong identity (incident A78, tracked p1 on the board): it is excluded
+from the case count above, and the retained `API-15` result is the valid
+second attempt, run against genuine PT-C after the mandatory identity
+gate was corrected.
+
 **WP7a note.** All three cases in WP7a (`AND-01`'s backup-flag sub-result,
 the static half of `AND-08`, and `MOB-01`) recorded Fail as their headline
 verdict, but each is a pre-documented, already-known gap (dated back to
@@ -192,9 +199,10 @@ acknowledge clock" rule), re-confirmed live against the built artefact
 rather than newly discovered; `AND-01` and the static half of `AND-08`
 each also carry a Pass on a distinct sub-component within the same case
 (exported-component protection, and callback payload exposure,
-respectively). None of the three raised a fresh board item; two are
-already tracked (A76-class findings closed separately, `MOB-01` tracks to
-`A77`).
+respectively). None of the three raised a fresh board item: `AND-01`
+and `AND-08` are pre-documented, accepted design gaps recorded in
+`PENTEST-METHODOLOGY.md` section 6.5.1 and remain open; `MOB-01` tracks
+to `A77`.
 
 **WP7b: not run.** Rationale: dynamic Android testing (session-token
 storage inspection, biometric-lock reachability, deep-link race,
