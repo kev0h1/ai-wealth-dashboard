@@ -1,7 +1,7 @@
 # Sorted Terms & Conditions
 
-**Last updated:** 2026-09-11
-**Version:** 1.0
+**Last updated:** 2026-09-23
+**Version:** 1.1
 
 These terms and conditions ("**Terms**") govern your use of Sorted (the "**Service**", "**App**"), a personal finance dashboard provided by AURIQ LTD. By creating an account or otherwise using the Service, you agree to be bound by these Terms. If you do not agree, please do not use the Service.
 
@@ -54,7 +54,7 @@ We provide **account information services only**. We do not initiate payments on
 
 To use Sorted, you connect your bank accounts via our banking data provider, **Finexer**. When you connect an account, you are directed to your bank's own secure authentication pages, where you authorise access directly with your bank. We do not see or store your online banking credentials.
 
-Under the rules that apply to account information services (PSD2), your consent for us to access your account information lasts for a maximum of **90 days**, after which you will need to re-confirm your consent to continue using the Service with that account.
+Under the rules that apply to account information services, your consent for Finexer to access your account information is time-limited. You authorise access with your bank when you first connect; after that you will be asked to reconfirm your consent periodically, and the Service shows when your current consent ends. If you do not reconfirm, we stop retrieving new information from that account until you reconnect.
 
 You can withdraw your consent at any time by:
 
