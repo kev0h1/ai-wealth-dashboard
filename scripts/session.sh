@@ -836,6 +836,16 @@ cmd_finish() {
   log "checking category-edit cache invalidation in $worktree_dir/frontend..."
   (cd "$worktree_dir/frontend" && npm run -s check:category-mutations)
 
+  # G148: the spend-from rail shipped invisible and sat that way for a week
+  # because nothing rendered the card's own treatment branches. These two
+  # cover the states that are absent rather than empty, so they belong in
+  # the gate, not in a script someone runs by hand once.
+  log "checking Home warm-paint cache shape in $worktree_dir/frontend..."
+  (cd "$worktree_dir/frontend" && npm run -s check:home-cache-shape)
+
+  log "checking every spend-from treatment renders in $worktree_dir/frontend..."
+  (cd "$worktree_dir/frontend" && npm run -s check:spend-from-render)
+
   log "pushing $branch from $worktree_dir (the board records ${board_branch:-no branch} for $id)..."
   git -C "$worktree_dir" push -u origin "$branch"
 

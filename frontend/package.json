@@ -29,6 +29,7 @@
     "check:account-mutations": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/account-mutations.test.mjs",
     "check:account-cache-coverage": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/check-account-cache-coverage.mjs",
     "check:home-cache-shape": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/home-cache-shape.test.mjs",
+    "check:spend-from-render": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/spend-from-render.test.mjs",
     "check:transaction-filter-chips": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/transaction-filter-chips.test.mjs",
     "check:transaction-grouping": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/transaction-grouping.test.mjs",
     "check:accounts-pinned": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/accounts-pinned.test.mjs",

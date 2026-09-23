@@ -704,8 +704,16 @@ export default function HomePage() {
     // tell an in-flight request from a failed one from a successful one that
     // carried no eligibility at all. All three used to arrive here as
     // `undefined` and render as nothing.
-    () => bestSpendAccount(accountEligibility, accounts, todayStatus),
-    [accountEligibility, accounts, todayStatus],
+    //
+    // `!loading` is the separate signal that `accounts` is a settled answer
+    // rather than an array nobody has filled in yet (it clears in loadData's
+    // `finally`, after the accounts promise has resolved, and starts false
+    // only on a cold mount). Without it a user with investment accounts and
+    // no bank accounts — who is NOT a fresh user, so this card renders for
+    // them — would sit on a permanent silent state instead of the true "no
+    // current account has room" line.
+    () => bestSpendAccount(accountEligibility, accounts, todayStatus, !loading),
+    [accountEligibility, accounts, todayStatus, loading],
   );
 
   const expiredProviders = useMemo(() => {

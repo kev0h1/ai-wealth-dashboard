@@ -130,9 +130,10 @@ def _memory_fresh(entry: dict | None, *, version: int, ttl: float) -> bool:
         return False
     if entry["day"] != local_day():
         return False
-    # `.get`, not `[...]`: an entry promoted into memory by an older process
-    # in this same deploy window has no `shape` key, and that must read as a
-    # mismatch, not a KeyError.
+    # `.get`, not `[...]`: `_caches` is per-process, so no other process can
+    # have written this entry, but an entry put there by an older build of
+    # THIS module (a dev reload, a future partial hot-swap) would have no
+    # `shape` key, and that must read as a mismatch rather than a KeyError.
     if entry.get("shape") != SHAPE_VERSION:
         return False
     return entry["version"] == version

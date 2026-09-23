@@ -481,6 +481,50 @@ const NEVER_BRANDED = () => false;
   );
 }
 
+// ── The investment-account-only user (G148 re-review, blocking finding 1) ──
+//
+// The first version of the empty-accounts guard keyed on `accounts.length
+// === 0` alone. That is not the question. A user with at least one
+// investment account and NO bank accounts is not a fresh user
+// (HomePage's `isFreshUser` requires both lists empty), so this card renders
+// for them, `/today` returns `account_eligibility: {}` which is truthy, and
+// the guard then returned `pending` forever: nothing on screen and
+// `diagnostic: null`, so not even a console warning. That is the exact
+// silence this item exists to remove, re-created for a real user shape.
+//
+// Before G148 that user correctly got the amber "No current account has room
+// to spend from right now" line, which for them is TRUE. The signal that
+// separates "the list has not landed" from "the list is genuinely empty" is
+// whether the accounts request has settled, which is now passed in.
+{
+  // The literal shape: the eligibility map is present and empty (the server
+  // found no bank accounts to rank), and the accounts list is settled.
+  const settled = bestSpendAccount({}, [], "ready", true);
+  check("investment-only user: says no current account has room, which is true", settled.kind, "none");
+  const settledPlan = spendFromTreatmentPlan(settled, ALWAYS_BRANDED);
+  check("investment-only user: the card renders the no-room line", settledPlan.kind, "no-current");
+
+  // Same emptiness, but the accounts request has NOT settled: staying quiet
+  // is right, because "no current account has room" would be a claim about
+  // the user's money made purely because a fetch had not landed.
+  const unsettled = bestSpendAccount({}, [], "ready", false);
+  check("accounts not loaded yet: stays quiet rather than asserting a falsehood", unsettled.kind, "unavailable");
+  check("accounts not loaded yet: and does so as the bounded in-flight state", unsettled.reason, "loading");
+  check(
+    "accounts not loaded yet: renders nothing (the one state allowed to)",
+    spendFromTreatmentPlan(unsettled, ALWAYS_BRANDED).kind,
+    "pending",
+  );
+
+  // An unsettled list plus a failed /today is still an error, not silence.
+  const unsettledFailed = bestSpendAccount({}, [], "failed", false);
+  check("accounts not loaded and /today failed: still reports the error", unsettledFailed.reason, "error");
+
+  // And the default keeps every existing caller (fixtures, previews) on the
+  // settled branch, so nothing that passes a real list changes behaviour.
+  check("accountsLoaded defaults to true for callers that already know", bestSpendAccount({}, []).kind, "none");
+}
+
 if (failures > 0) {
   console.error(`\n${failures} failure(s).`);
   process.exit(1);

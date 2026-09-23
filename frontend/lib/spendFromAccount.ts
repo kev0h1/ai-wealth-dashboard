@@ -135,11 +135,17 @@ function rankByHeadroom(
  * `unavailable` reason comes back, never whether an account is picked: a
  * warm cache that already holds eligibility is used even while a refresh is
  * in flight or has just failed.
+ *
+ * `accountsLoaded` (G148 re-review) is the separate question of whether
+ * `accounts` is a settled answer or just an empty array that has not been
+ * filled in yet. Defaults to true, because every caller that hands over a
+ * fixture list already knows it.
  */
 export function bestSpendAccount(
   accountEligibility: Record<string, AccountEligibility> | null | undefined,
   accounts: Account[],
   todayStatus: TodayRequestStatus = "ready",
+  accountsLoaded: boolean = true,
 ): SpendFromResult {
   if (!accountEligibility) {
     if (todayStatus === "failed") return { kind: "unavailable", reason: "error" };
@@ -151,14 +157,26 @@ export function bestSpendAccount(
     return { kind: "unavailable", reason: "missing" };
   }
 
-  // Eligibility arrived but the account list has not (they are separate
-  // requests on Home and either can win the race). Ranking an empty list
-  // would return `none`, whose copy asserts "No current account has room to
-  // spend from right now" — a claim about the user's money made purely
-  // because a fetch had not landed. Stay in the quiet state instead, and
-  // let the account list's own failure path (which hides this whole card)
-  // handle the case where it never arrives.
-  if (accounts.length === 0) {
+  // An empty `accounts` means one of two completely different things, and
+  // the difference has to come from the caller, not from the emptiness.
+  //
+  //  - NOT LOADED yet: the account list is a separate request from the
+  //    eligibility one and either can win the race. Ranking an empty list
+  //    would return `none`, whose copy asserts "No current account has room
+  //    to spend from right now" — a claim about the user's money made purely
+  //    because a fetch had not landed. Stay quiet until it has.
+  //
+  //  - LOADED and genuinely empty: a user with investment accounts but no
+  //    bank accounts is NOT a fresh user (HomePage's `isFreshUser` requires
+  //    both lists empty), so this card renders for them, and `none` is the
+  //    literal truth: they have no current account with room. Falling
+  //    through to the ranking below is what says so.
+  //
+  // The first version of this guard keyed on `accounts.length === 0` alone
+  // and swallowed the second case into a permanent `pending`, which renders
+  // nothing and does not even log — re-creating, for that user, the exact
+  // silence this whole item exists to remove. Caught in re-review.
+  if (accounts.length === 0 && !accountsLoaded) {
     return { kind: "unavailable", reason: todayStatus === "failed" ? "error" : "loading" };
   }
 

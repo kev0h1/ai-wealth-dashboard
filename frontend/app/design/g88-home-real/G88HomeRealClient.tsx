@@ -259,7 +259,19 @@ export default function G88HomeRealClient() {
 
   const hero = (
     <div ref={heroRef}>
-      <SafeToSpendCard data={REAL_SAFE_TO_SPEND} loading={false} error={false} />
+      {/* G148: `spendFrom` is now explicit rather than omitted. Omitting it
+          means "the caller knows nothing", which the card correctly reports
+          as a visible "not available" line — right for Home, wrong here.
+          This round predates the spend-from rail and carries no account
+          fixtures to feed it (see realFixtures.ts), so the hero is shown in
+          its pre-rail state, which is exactly what Kevin approved. The rail
+          itself has its own preview at /design/g115-spend-from-accounts. */}
+      <SafeToSpendCard
+        data={REAL_SAFE_TO_SPEND}
+        loading={false}
+        error={false}
+        spendFrom={{ kind: "unavailable", reason: "loading" }}
+      />
     </div>
   );
 

@@ -183,7 +183,11 @@ function SpendFromUnavailableNote({ kind, message, retryable, onRetry }: {
         <button
           type="button"
           onClick={onRetry}
-          className="min-h-9 rounded-lg text-[12px] font-semibold text-indigo-600 [-webkit-tap-highlight-color:transparent] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 active:scale-95 motion-reduce:transform-none dark:text-indigo-400"
+          // 44px, the project's stated target size (DESIGN.md's thumb-sized
+          // targets, and the same min-h-11 every other tappable control in
+          // this round uses). `px-2` so the hit area is not just the width
+          // of the word.
+          className="-mx-2 min-h-11 rounded-lg px-2 text-[12px] font-semibold text-indigo-600 [-webkit-tap-highlight-color:transparent] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 active:scale-95 motion-reduce:transform-none dark:text-indigo-400"
         >
           Try again
         </button>
@@ -192,7 +196,11 @@ function SpendFromUnavailableNote({ kind, message, retryable, onRetry }: {
   );
 }
 
-function approvedSpendFromTreatment(
+/** Exported for scripts/spend-from-render.test.mjs, which renders every
+ *  plan kind through react-dom/server and asserts each one produces real
+ *  markup. A source-text guard alone could not tell `return null` from
+ *  `return { body: null }`, and both make the rail invisible. */
+export function approvedSpendFromTreatment(
   plan: SpendFromTreatmentPlan,
   amount: (value: number) => string,
   coverMoveVisible: boolean,
@@ -414,8 +422,13 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
   const spendFromDiagnostic = spendFromPlan.diagnostic;
   useEffect(() => {
     if (!spendFromDiagnostic) return;
+    // Not while the card itself is a skeleton: `loading` returns before any
+    // spend-from treatment is rendered (see the early return below), so
+    // there is no absent rail to report yet, and Home mounts a bare
+    // `<SafeToSpendCard data={null} loading />` on its own loading path.
+    if (loading) return;
     console.warn(`[SafeToSpendCard] ${spendFromDiagnostic}`);
-  }, [spendFromDiagnostic]);
+  }, [spendFromDiagnostic, loading]);
 
   // Penny screen context (B39) — published here via `buildSafeToSpendView`
   // (lib/pennyScreenViews.ts), the SAME function a node test pins against
