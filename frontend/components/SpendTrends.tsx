@@ -587,11 +587,11 @@ export function PaceCurveWidget({ data, compact }: { data: WidgetData; compact?:
               {" so far"}
               {diff > 0 ? (
                 <span className="text-amber-600 dark:text-amber-400">
-                  {" · "}<span className="font-bold font-mono tabular-nums">{fmtGBP(Math.abs(diff))}</span>{" ahead of usual"}
+                  {" · "}<span className="font-bold font-mono tabular-nums">{fmtGBP(Math.abs(diff))}</span>{" more than usual"}
                 </span>
               ) : diff < 0 ? (
                 <span className="text-emerald-600 dark:text-emerald-400">
-                  {" · "}<span className="font-bold font-mono tabular-nums">{fmtGBP(Math.abs(diff))}</span>{" behind usual"}
+                  {" · "}<span className="font-bold font-mono tabular-nums">{fmtGBP(Math.abs(diff))}</span>{" less than usual"}
                 </span>
               ) : (
                 " · right on usual"

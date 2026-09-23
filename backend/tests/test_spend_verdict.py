@@ -453,6 +453,46 @@ def _no_consequence_impact():
     return {"consequence": None, "move": None, "horizon": None, "bills_risk": None, "unresolved_hedge": False}
 
 
+def test_compose_reading_names_more_spent_without_ambiguous_ahead_language():
+    reading = compose_reading(
+        state="normal",
+        base_reading="One category is running above your usual pace.",
+        notables=[{"category": "Bills"}],
+        pace_totals={"excess": 1301.0},
+        impact=_no_consequence_impact(),
+        moved=[],
+        unresolved_total=0.0,
+        days_elapsed=13,
+    )
+    assert reading == "You spent £1,301 more than usual by day 13, mostly on Bills."
+    assert "ahead" not in reading
+
+
+def test_compose_reading_names_less_spent_when_under_usual_with_consequence():
+    impact = {
+        "consequence": "permission",
+        "move": {"projected": 425.0, "usual": 300.0},
+        "horizon": None,
+        "bills_risk": None,
+        "unresolved_hedge": False,
+    }
+    reading = compose_reading(
+        state="nothing",
+        base_reading="Nothing unusual to report.",
+        notables=[],
+        pace_totals={"excess": -275.0},
+        impact=impact,
+        moved=[],
+        unresolved_total=0.0,
+        days_elapsed=13,
+    )
+    assert reading == (
+        "You spent £275 less than usual by day 13. "
+        "Your move could be about £125 bigger this payday."
+    )
+    assert "behind" not in reading
+
+
 def test_compose_reading_wires_moved_list_into_fallback_sentence():
     """End-to-end through compose_reading (not just the pure helper) —
     confirms the `moved` list, not a collapsed float, is what actually

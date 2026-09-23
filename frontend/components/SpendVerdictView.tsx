@@ -74,7 +74,7 @@ function paceLine(multiple: number, excess: number, daysElapsed: number): string
   const rounded = Math.round(multiple * 10) / 10;
   if (rounded >= 1.9 && rounded <= 2.1) return `about twice your usual pace for ${dayLabel}.`;
   if (rounded > 2.1) return `about ${rounded.toFixed(1)}× your usual pace for ${dayLabel}.`;
-  return `running about ${fmt(excess)} ahead of usual for ${dayLabel}.`;
+  return `${fmt(excess)} more than usual by ${dayLabel}.`;
 }
 
 function causeLine(cause: SpendVerdictCause[]): string | null {
@@ -1181,9 +1181,9 @@ export default function SpendVerdictView({ verdict, colours, onOpenCategory, cat
                 <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-slate-600 dark:text-slate-400">Today · day {daysElapsed}</p>
                 <h2 className="mt-2 text-balance text-2xl font-bold tracking-[-0.025em] text-slate-950 dark:text-white">
                   {paceDelta != null && paceDelta > 0
-                    ? <>What put you <span className="font-mono tabular-nums">{fmtSigned(paceDelta)}</span> ahead</>
+                    ? <>Why you spent <span className="font-mono tabular-nums">{fmtSigned(paceDelta)}</span> more than usual</>
                     : paceDelta != null && paceDelta < 0
-                      ? <>What kept you <span className="font-mono tabular-nums">{fmtSigned(Math.abs(paceDelta))}</span> below usual</>
+                      ? <>Why you spent <span className="font-mono tabular-nums">{fmtSigned(Math.abs(paceDelta))}</span> less than usual</>
                       : "What changed your pace"}
                 </h2>
                 {usualByNow != null && (
@@ -1202,7 +1202,7 @@ export default function SpendVerdictView({ verdict, colours, onOpenCategory, cat
                       <dd className="font-mono font-bold tabular-nums text-slate-900 dark:text-white">{fmtSigned(elsewhereChange)}</dd>
                     </div>
                     <div className="flex min-h-12 items-center justify-between gap-4 py-2 text-[13px]">
-                      <dt className="font-bold text-slate-900 dark:text-white">{paceDelta < 0 ? "Below usual overall" : "Ahead overall"}</dt>
+                      <dt className="font-bold text-slate-900 dark:text-white">{paceDelta < 0 ? "Less than usual overall" : "More than usual overall"}</dt>
                       <dd className="font-mono font-bold tabular-nums text-slate-900 dark:text-white">{fmtSigned(paceDelta)}</dd>
                     </div>
                   </dl>
@@ -1252,7 +1252,7 @@ export default function SpendVerdictView({ verdict, colours, onOpenCategory, cat
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h2 className="text-xl font-bold text-slate-950 dark:text-white">
-                {unresolved.payments_count} payment{unresolved.payments_count === 1 ? "" : "s"} still need a place
+                {unresolved.payments_count} payment{unresolved.payments_count === 1 ? "" : "s"} still need a category
               </h2>
               <p className="mt-1 text-[13px] text-slate-600 dark:text-slate-400">Already included in Out, but not yet in a category.</p>
             </div>
@@ -1278,7 +1278,7 @@ export default function SpendVerdictView({ verdict, colours, onOpenCategory, cat
               className="mt-4 flex min-h-14 w-full items-center justify-between rounded-2xl bg-indigo-600 px-4 text-left text-white transition-colors hover:bg-indigo-700 active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 motion-reduce:transition-none dark:focus-visible:ring-offset-slate-900"
             >
               <span>
-                <span className="block text-sm font-bold">Place the payments</span>
+                <span className="block text-sm font-bold">Categorise the payments</span>
                 <span className="mt-0.5 block text-[11px] text-indigo-100">Review what is still uncategorised</span>
               </span>
               <ChevronRight size={17} aria-hidden="true" />
