@@ -27,12 +27,12 @@ import { useHomePinnedCards } from "@/lib/useHomePinnedCards";
 import { getHomeCache, setHomeCache } from "@/lib/homeCache";
 import HomeBrief, { HomeBriefClearedRow } from "@/components/HomeBrief";
 import ReconnectStrip from "@/components/ReconnectStrip";
-import { invalidateTransactionsCache } from "@/lib/useAllTransactions";
+import { invalidateAllAccountData } from "@/lib/accountMutations";
 import { resolveAttention } from "@/lib/attention";
 import { isPaydayWindowActive, writePaydayDotCache } from "@/lib/paydayWindow";
 import { useTutorialReady } from "@/components/TutorialContext";
 import { fetchVerdictData } from "@/lib/verdictCache";
-import { getAccountsCached, invalidateAccounts } from "@/lib/accountsCache";
+import { getAccountsCached } from "@/lib/accountsCache";
 import { useHomePinnedAccounts } from "@/lib/homePinnedAccounts";
 import { isLegacyBankSource } from "@/lib/legacyBankProvider";
 import { useOpenBankingAccess } from "@/lib/openBankingAccess";
@@ -569,12 +569,15 @@ export default function HomePage() {
     if (syncErrorTimerRef.current) clearTimeout(syncErrorTimerRef.current);
     try {
       await api.syncAll();
-      invalidateTransactionsCache();
-      // A sync can change account balances/status (not just transactions),
-      // so the shared accounts cache (lib/accountsCache.ts) must be forced
-      // fresh too — otherwise loadData()'s accsP could still serve the
-      // pre-sync snapshot for up to the rest of its 60s TTL.
-      invalidateAccounts();
+      // A sync can change account balances/status and pull in new
+      // transactions, which can move the verdict/money-shape/signals
+      // figures too, not just the transactions and accounts caches this
+      // used to clear alone (G138: that narrower pair was the same class
+      // of gap that left a deleted account's transaction on Spend until a
+      // hard refresh) — otherwise loadData()'s accsP could still serve the
+      // pre-sync snapshot for up to the rest of its 60s TTL, and a Spend
+      // visit straight after a sync could still read the pre-sync verdict.
+      invalidateAllAccountData();
       await loadData();
     } catch {
       setSyncError(true);
