@@ -78,6 +78,13 @@ function ThemeEffect({ mode }: { mode: Mode }) {
   return null;
 }
 
+// G154: like the G16 preview, this G14 round hand-copies the shipped ledger
+// (see this file's header) and stays a fork on purpose: it exists to record
+// the today-versus-proposed comparison Kevin judged, and driving its "today"
+// column from the live component would stop it being evidence of what was
+// compared. Only the separator mechanism is kept in step with the production
+// component and DESIGN.md's One Separator Per Ledger Boundary, so none of the
+// three ledgers on this indexed page renders two rules at one boundary.
 function BreakdownRow({ label, value, detail, tone = "default", derived = false, operator = "=" }: {
   label: string;
   value: string;
@@ -87,7 +94,7 @@ function BreakdownRow({ label, value, detail, tone = "default", derived = false,
   operator?: "=" | "→";
 }) {
   return (
-    <div className={`flex items-start justify-between gap-3 py-2.5 ${derived ? "mt-1 border-t-2 border-slate-300 pt-3 dark:border-slate-600" : "border-b border-slate-100 last:border-b-0 dark:border-white/10"}`}>
+    <div className={`flex items-start justify-between gap-3 py-2.5 ${derived ? "mt-1 border-t-2 border-slate-300 pt-3 first:mt-0 first:border-t-0 dark:border-slate-600" : "border-t border-slate-100 first:border-t-0 dark:border-white/10"}`}>
       <div className="min-w-0">
         <dt className={`text-[11px] font-semibold uppercase tracking-wide ${derived ? "text-slate-700 dark:text-slate-200" : "text-slate-500 dark:text-slate-400"}`}>
           {derived && <span aria-hidden="true">{operator} </span>}{label}
