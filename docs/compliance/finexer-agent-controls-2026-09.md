@@ -161,17 +161,17 @@ Retention: account and transaction data deleted within 30 days of closure, withd
 
 ## Q11 Security and incident controls, testing
 
-Status: ready
+Status: needs-kevin
 
 ```text
 Confirmed; the controls in our Security and Incident Response Policy are implemented in production: bank tokens encrypted at rest (AES/Fernet), key held only in platform secrets outside source control; signed, time-limited session tokens on every request; sign-in only via verified Google/Apple identities, registration allow-listed until launch; TLS in transit; restricted CORS; rate limiting on auth/webhook routes; HMAC verification on Finexer webhooks; API docs disabled; MongoDB Atlas access controls; encrypted nightly backups, 30-day retention; platform logging on Vercel, Railway, Atlas.
 
 Testing completed:
 - Automated backend test suite (2,700+ tests) on every change; internal review of auth, session and logout hygiene, webhook receiver (Aug/Sep 2026); CI-automated dependency scanning (SECURITY.md 2).
-- Internal security testing, 2026-09, under a signed rules of engagement (2026-09-20), covering the web shell, API boundaries and limits, tenant isolation and deletion, input handling, OAuth 2.1, MCP, Android (static), Finexer/TrueLayer, Stripe and OpenRouter/Penny. No Critical findings. Four High: three form one deletion-lifecycle issue (deletion does not revoke the Finexer consent, the connections list omits it, deleted sessions stay valid up to 7 days); the fourth is a prompt-injection gap in the MCP connector, which is not enabled in production. Remediation of all four is scheduled for completion before the 1 October start date, tracked under our remediation SLA (SECURITY.md 3a). Remaining findings are Medium/Low/Info. Detail: SECURITY.md, docs/security/pentest-runs/.
+- Internal security testing, 2026-09, under signed rules of engagement (2026-09-20), covering the web shell, API, tenant isolation, deletion, input handling, OAuth 2.1, MCP, Android (static), Finexer/TrueLayer, Stripe and OpenRouter/Penny. No Critical findings. Four High: three form one deletion-lifecycle issue (deletion did not revoke the Finexer consent, the connections list omitted it, deleted sessions stayed valid up to 7 days); the fourth is an MCP prompt-injection gap; MCP is not enabled in production. All four are fixed and regression-tested on our pre-production build (2026-09-22); production release and retest are due before 1 October. Remaining findings are Medium/Low/Info. Detail: SECURITY.md, docs/security/pentest-runs/.
 - An independent CREST-accredited penetration test will be commissioned ahead of public launch.
 
-Outstanding: the four High findings above, remediation scheduled as stated. Two earlier Medium items (legacy PIN login, reconnect-cache data) remain closed, unchanged since last submission.
+Outstanding: production release and retest of the four High fixes, due before 1 October; findings summary and retest evidence to follow on release. MCP stays disabled in production, not enabled without Finexer's written sign-off. Two earlier Medium items (legacy PIN login, reconnect-cache data) remain closed, unchanged since last submission.
 ```
 
 ## Q12 Insurance

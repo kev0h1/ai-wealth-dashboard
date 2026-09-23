@@ -134,20 +134,22 @@ A60), has not yet started, so no finding below has had its severity or
 validity checked by the other model yet. Final severities remain the ISM's
 to confirm per section 3a.
 
-**Findings.** Every finding below is currently open; none has been
-remediated (Kevin's deliberate choice was to report first and fix after,
-see each item's own board note). Severities use section 3's bands and are
-provisional pending the ISM's sign-off and the still-owed cross-model
-review above.
+**Findings.** These were reported first and fixed after, per Kevin's
+deliberate choice (see each item's own board note). As of 2026-09-23,
+fifteen of the twenty findings below are fixed on `main` with regression
+tests; none of those fixes has reached production yet, and none has had a
+post-fix production retest. The remaining five (A73, A77, A79, A81, A94)
+are still open. Severities use section 3's bands and are provisional
+pending the ISM's sign-off and the still-owed cross-model review above.
 
 *High (P2): four findings, no Criticals.*
 
 | Item | Finding | Status |
 |---|---|---|
-| A82 | Account deletion never revokes the Finexer consent first, orphaning it at the provider | Open |
-| A83 | `GET /connections` does not list live Finexer connections, hiding the very connection A82's disconnect-first step needs | Open |
-| A84 | A deleted account's session token is not invalidated and remains usable for up to 7 days; it has been shown able to write persistent data that reattaches if the account is later recreated with the same email | Open |
-| A91 | The MCP connector's output masking is structural only (drops fields by shape) and never sanitises the content it keeps, so an instruction-shaped string in a merchant name, recurring-series description or insight trigger reaches the connecting external assistant unmodified: a live prompt-injection surface with no content-level mitigation. The connector is off in production by design (A17), so this exposure is UAT-only today; it must be fixed before the connector is enabled in production (board item F1, Finexer design sign-off, still open), it is not actively exploitable in production now | Open |
+| A82 | Account deletion never revokes the Finexer consent first, orphaning it at the provider | Fixed on main 2026-09-22 (2488763e), regression-tested; production release and production retest pending |
+| A83 | `GET /connections` does not list live Finexer connections, hiding the very connection A82's disconnect-first step needs | Fixed on main 2026-09-22 (c35ac008), regression-tested; production release and production retest pending |
+| A84 | A deleted account's session token is not invalidated and remains usable for up to 7 days; it has been shown able to write persistent data that reattaches if the account is later recreated with the same email | Fixed on main 2026-09-22 (40fed391), regression-tested; production release and production retest pending |
+| A91 | The MCP connector's output masking is structural only (drops fields by shape) and never sanitises the content it keeps, so an instruction-shaped string in a merchant name, recurring-series description or insight trigger reaches the connecting external assistant unmodified: a live prompt-injection surface with no content-level mitigation. The connector is off in production by design (A17), so this exposure is UAT-only today; it must be fixed before the connector is enabled in production (board item F1, Finexer design sign-off, still open), it is not actively exploitable in production now | Fixed on main 2026-09-22 (9c5b7ef9), regression-tested; production release and production retest pending |
 
 A82, A83 and A84 are one deletion-lifecycle root cause: account deletion
 does not disconnect a customer's bank connection before erasing local
@@ -158,25 +160,25 @@ data. A91 is unrelated to that workstream.
 | Item | Finding | Status |
 |---|---|---|
 | A73 | OAuth consent page under-emphasises the true redirect host relative to the connector's self-reported name | Open |
-| A74 | Refresh-token rotation does not cascade-revoke the sibling access token from the same grant (pre-documented gap) | Open |
+| A74 | Refresh-token rotation does not cascade-revoke the sibling access token from the same grant (pre-documented gap) | Fixed on main 2026-09-22 (eac94538); production release pending |
 | A79 | Bank narrative text is sent to OpenRouter for categorisation and Penny read tools, unredacted (pre-documented design concern) | Open |
-| A88 | Finexer consent callback accepts a missing `state` parameter (defence-in-depth gap only; no cross-account path exists because binding is fixed at session-gated consent creation) | Open |
-| A89 | Webhook path-secret comparison is not constant-time (no practical timing exploit identified; the secret also functions as a long random URL segment) | Open |
-| A92 | Production's proxy chain does not strip a caller-supplied `X-Real-IP`/`X-Forwarded-For` header, so any IP-keyed rate limit on production can be bypassed by rotating the header. Triaged to Medium, down from the board's own initially proposed High: there is no password login to brute-force behind this, and per-user (not IP-keyed) limits on data routes are untouched | Open |
-| A95 | `GET /logo/{domain}` carries no rate limit at all, not even the general IP catch-all, so an unlimited caller can drive cost through the server-side image proxy | Open |
+| A88 | Finexer consent callback accepts a missing `state` parameter (defence-in-depth gap only; no cross-account path exists because binding is fixed at session-gated consent creation) | Fixed on main 2026-09-22 (683078c8); production release pending |
+| A89 | Webhook path-secret comparison is not constant-time (no practical timing exploit identified; the secret also functions as a long random URL segment) | Fixed on main 2026-09-22 (f4983f8e); production release pending |
+| A92 | Production's proxy chain does not strip a caller-supplied `X-Real-IP`/`X-Forwarded-For` header, so any IP-keyed rate limit on production can be bypassed by rotating the header. Triaged to Medium, down from the board's own initially proposed High: there is no password login to brute-force behind this, and per-user (not IP-keyed) limits on data routes are untouched | Fixed on main 2026-09-22 (d5fbdfe1); production release pending, gated on A110 (trusted-proxy hop handling) |
+| A95 | `GET /logo/{domain}` carries no rate limit at all, not even the general IP catch-all, so an unlimited caller can drive cost through the server-side image proxy | Fixed on main 2026-09-22 (aeadb348); production release pending |
 
 *Low (P4)*
 
 | Item | Finding | Status |
 |---|---|---|
-| A76 | `/design/*` preview routes are publicly indexable (no `robots.txt`/`X-Robots-Tag`) | Open |
+| A76 | `/design/*` preview routes are publicly indexable (no `robots.txt`/`X-Robots-Tag`) | Fixed on main 2026-09-22 (e7621167); production release pending |
 | A77 | The native-purchase `X-Client-Platform` header check can be bypassed by omitting it (billing is not live; pre-documented) | Open |
-| A80 | No global/service-wide OpenRouter spend ceiling exists, only a per-user monthly allowance | Open |
+| A80 | No global/service-wide OpenRouter spend ceiling exists, only a per-user monthly allowance | Fixed on main 2026-09-22 (7bea0094); production release pending |
 | A81 | The per-user LLM allowance check fails open, not closed, on an internal lookup error (documented, deliberate trade-off) | Open |
-| A85 | `PATCH /preferences` has no optimistic-concurrency check and accepts an unadvertised field (mass assignment) | Open |
-| A86 | The commitment state machine allows out-of-order transitions and has no create-time idempotency check | Open |
-| A90 | The MCP connector's `initialize` handler never validates or negotiates the client's requested protocol version | Open |
-| A93 | An unhandled NUL byte in a search query parameter crashes one endpoint with a 500 (no data leaked) | Open |
+| A85 | `PATCH /preferences` has no optimistic-concurrency check and accepts an unadvertised field (mass assignment) | Fixed on main 2026-09-22 (4b866395); production release pending |
+| A86 | The commitment state machine allows out-of-order transitions and has no create-time idempotency check | Fixed on main 2026-09-22 (1f8a318d); production release pending |
+| A90 | The MCP connector's `initialize` handler never validates or negotiates the client's requested protocol version | Fixed on main 2026-09-22 (141b057c); production release pending |
+| A93 | An unhandled NUL byte in a search query parameter crashes one endpoint with a 500 (no data leaked) | Fixed on main 2026-09-22 (f73638e6); production release pending |
 
 *Informational*
 
@@ -189,13 +191,38 @@ product-intent question for Kevin, not a severity-rated security finding.
 A92's board priority tag is p2, which is a work-scheduling priority, not
 its security severity; its severity, per the triage above, is Medium.
 
-**Headline.** No Critical findings. Four High findings outstanding, none
-remediated: three deletion-lifecycle (A82/A83/A84) plus A91, the MCP
-prompt-injection gap, which is UAT-only until the connector is enabled in
-production (gated on board item F1, the written Finexer design sign-off,
-still open, not F2, which is the OAuth server and is already done).
-Everything else found is Medium, Low or Informational. All findings above
-remain open.
+**Headline.** No Critical findings. The four High findings are fixed on
+`main`, merged 2026-09-22, each with regression tests: the
+deletion-lifecycle root cause (A82, A83, A84) and A91, the MCP
+prompt-injection gap, which remains UAT-only until the connector is
+enabled in production (gated on board item F1, the written Finexer design
+sign-off, still open, not F2, which is the OAuth server and is already
+done). None of the four fixes has reached production yet: the `release`
+branch predates all four merges, and no production retest has been run.
+Of the remaining sixteen Medium, Low and Informational findings, eleven
+are similarly fixed on `main` with production release pending (A92
+additionally gated on A110, trusted-proxy hop handling); five (A73, A77,
+A79, A81, A94) remain open.
+
+**Production status as of 2026-09-23.** The fifteen fixes recorded above
+(A74, A76, A80, A82, A83, A84, A85, A86, A88, A89, A90, A91, A92, A93,
+A95) are merged to `main` with regression tests; production release is
+pending, and A92's release is additionally gated on A110 (trusted-proxy
+hop handling, still in progress). No finding above has had a production
+retest yet. The deletion-lifecycle retest (API-15: deletion revokes the
+Finexer consent, the connections list shows Finexer, and both the
+deleted account's session token and its OAuth tokens are rejected) is
+scheduled for after release and will be recorded under
+`docs/security/pentest-runs/`. A106, opened during this fix, is a
+narrower residual gap in the same lifecycle: if Finexer is down at the
+moment of revoke, the consent is orphaned locally with no retry record;
+it is not rated High. WP12, the cross-model review (A60), has not
+started. Separately, the MCP connector remains disabled in production
+(A17): an anonymous `initialize` call on 2026-09-23 returned 401 with no
+`WWW-Authenticate` challenge on both the Vercel-fronted path and the
+direct Railway host, while UAT correctly advertises the challenge;
+enabling it in production stays gated on F1, Finexer's written design
+sign-off.
 
 **Scope caveats, stated plainly.** This round has real, acknowledged gaps
 that a reader of the findings list above should not have to infer:
@@ -224,6 +251,8 @@ answer and `docs/security/pentest-runs/` for the sanitised per-run records.
 **Sign-off.** Signed off by Kevin, 2026-09-21, given as a written
 attestation in a working session with Claude ('Happy to sign this'), not a
 handwritten or cryptographic signature.
+
+**Status update 2026-09-23, Claude session, for Kevin's confirmation.**
 
 ## 4. Incident response process
 
@@ -323,3 +352,4 @@ This policy is reviewed at least annually, and after any material incident, chan
 | 1.11 | 2026-09-21 | A45 draft: added §3b recording the internal security testing round of 2026-09-19/20 (seven work packages, findings by severity, all currently open) and its scope caveats, folded into Q11 as a proposed answer pending Kevin's sign-off. |
 | 1.12 | 2026-09-21 | A45 draft, updated: three more work packages executed (WP2/A49, WP6/A53, WP10/A58), coverage now 10 of 12 (WP7b Android dynamic and WP8 iOS dynamic remain deferred); six new findings folded in (A90, A91, A92, A93, A94, A95); headline now four High findings (the deletion-lifecycle three plus A91, an MCP prompt-injection gap, UAT-only until the connector is enabled in production); Q11 draft updated to match. |
 | 1.13 | 2026-09-21 | A45 correction: A91's pre-production gate was wrongly cited as board item F2 (the OAuth 2.1 authorisation server, done 2026-09-08); the correct gate is F1, the written Finexer design sign-off, still open. Fixed in the A91 finding row and the headline. |
+| 1.14 | 2026-09-23 | A107: fifteen of the twenty §3b findings, including all four High findings (A82, A83, A84, A91), are now fixed on `main` with regression tests; updated the intro, headline and every fixed finding's Status cell with date and commit, and added a "Production status as of 2026-09-23" paragraph recording that production release (A92 gated on A110), the deletion-lifecycle production retest and WP12 (A60) are all still pending. Five findings (A73, A77, A79, A81, A94) remain open. |
