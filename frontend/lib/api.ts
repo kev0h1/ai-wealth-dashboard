@@ -3,7 +3,7 @@ import { getToken } from "./auth";
 import { LEGACY_BANK_AVAILABLE, LEGACY_BANK_ID } from "./legacyBankProvider";
 import type { GoLiveItem, GoLiveQuestion, GoLiveOwner } from "./goLive";
 import type {
-  Account, Transaction, KPIs, Insight,
+  Account, Connection, Transaction, KPIs, Insight,
   SavingsInsight, WorkflowStep, WorkflowDef, ChallengeProgress, Challenge,
   ChallengesData, InvestmentAccount, InvestmentHolding, InvestmentNote, BudgetItem,
   DebtInsights, DebtBurndown, UserPreferences, CategoryRule, BillLabel,
@@ -14,7 +14,7 @@ import type {
   MoneyShapePeriodEntry, MoneyShapeAverageEntry,
 } from "@wealth/shared";
 export type {
-  Account, Transaction, KPIs, Insight,
+  Account, Connection, Transaction, KPIs, Insight,
   SavingsInsight, WorkflowStep, WorkflowDef, ChallengeProgress, Challenge,
   ChallengesData, InvestmentAccount, InvestmentHolding, InvestmentNote, BudgetItem,
   DebtInsights, DebtBurndown, UserPreferences, CategoryRule, BillLabel,
@@ -2225,6 +2225,11 @@ export const api = {
       headers: authHeaders(),
     }).then((r) => toJson<{ ok: boolean }>(r)),
   accounts: () => get<Account[]>("/accounts"),
+  // A113: per-connection bank consent (provider, status, expiry, account
+  // count) — GET /accounts never carried this, so the Accounts surface
+  // couldn't show when a consent ends until this was wired up. See
+  // backend/app/routers/accounts.py:list_connections.
+  connections: () => get<Connection[]>("/connections"),
   syncAccounts: () => post<{ message: string; total_accounts: number }>("/accounts/sync"),
   transactions: (accountId: string, opts?: {
     page?: number; pageSize?: number; q?: string; category?: string; days?: number;

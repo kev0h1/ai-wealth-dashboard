@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { ArrowLeft, Plus, Landmark, RefreshCw, Upload, Trash2, AlertTriangle, TrendingUp, Eye, EyeOff, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Pencil, PiggyBank, Wallet, CreditCard, Search, X, CircleDashed, Check, FileText, Star, Percent, Info } from "lucide-react";
-import { api, ApiError, Account, Transaction, InvestmentAccount, InvestmentHolding, InvestmentNote, ManualAccount, ManualAccountType, ManualAccountRule, RuleMatchType, RuleMatchField, RuleSign, AccountCategorySummary, KPIs, CardTermsCard } from "@/lib/api";
+import { api, ApiError, Account, Connection, Transaction, InvestmentAccount, InvestmentHolding, InvestmentNote, ManualAccount, ManualAccountType, ManualAccountRule, RuleMatchType, RuleMatchField, RuleSign, AccountCategorySummary, KPIs, CardTermsCard } from "@/lib/api";
 import { accountBrand, BankBadge, TermsPill } from "@/components/AccountMiniCard";
 import AccountLedgerRow from "@/components/AccountLedgerRow";
 import ReconnectStrip, { type ReconnectProvider } from "@/components/ReconnectStrip";
@@ -30,6 +30,7 @@ import { getAccountsCached } from "@/lib/accountsCache";
 import { invalidateAllAccountData } from "@/lib/accountMutations";
 import { writeHomePinnedAccounts } from "@/lib/homePinnedAccounts";
 import MoneyText from "@/components/MoneyText";
+import { formatConsentExpiry } from "@/lib/consentExpiry";
 import { useTutorialAction, useTutorialReady } from "@/components/TutorialContext";
 import { LEGACY_BANK_AVAILABLE, LEGACY_BANK_MENU_LABEL, isLegacyBankSource } from "@/lib/legacyBankProvider";
 import { useOpenBankingAccess } from "@/lib/openBankingAccess";
@@ -285,6 +286,11 @@ export default function AccountsPage() {
   const { colours } = useColours();
   const { icons: iconOverrides } = useCategoryIcons();
   const [accounts, setAccounts] = useState<Account[]>([]);
+  // A113: per-connection consent expiry (GET /connections), joined to an
+  // account via Account.connection_id — see formatConsentExpiry's use in
+  // the detail view below. Non-fatal fetch: an empty list just means no
+  // connection carries a knowable expiry, which degrades to no line.
+  const [connections, setConnections] = useState<Connection[]>([]);
   const [txnMap, setTxnMap] = useState<Record<string, Transaction[]>>({});
   const [loading, setLoading] = useState(true);
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
@@ -618,18 +624,22 @@ export default function AccountsPage() {
 
   const loadAccounts = useCallback(async () => {
     try {
-      const [accs, invAccs, manuals, mrules, kpiResult] = await Promise.all([
+      const [accs, invAccs, manuals, mrules, kpiResult, conns] = await Promise.all([
         getAccountsCached().catch(() => [] as Account[]),
         api.getInvestmentAccounts().catch(() => [] as InvestmentAccount[]),
         api.manualAccounts().catch(() => [] as ManualAccount[]),
         api.manualAccountRules().catch(() => [] as ManualAccountRule[]),
         api.kpis().catch(() => null),
+        // A113: non-fatal like the rest of this batch — a failed fetch just
+        // means no consent-expiry line renders, never a broken page.
+        api.connections().catch(() => [] as Connection[]),
       ]);
       setAccounts(accs);
       setInvestmentAccounts(invAccs);
       setManualAccounts(manuals);
       setRules(mrules);
       setKpis(kpiResult);
+      setConnections(conns);
 
       // Validate reconnect: check if the newly connected account matches what was expected
       const raw = localStorage.getItem("reconnect_expected");
@@ -2073,6 +2083,18 @@ export default function AccountsPage() {
     const isPinned = pinnedIds.includes(selectedAccount.id);
     const termsCard = cardTermsByAccount[selectedAccount.id];
     const termsPill = termsPillFor(termsCard);
+    // A113: when does the bank consent behind this account currently end.
+    // Manual accounts and statement uploads carry no `connection_id`, so
+    // this naturally resolves to undefined for them (no consent exists —
+    // state 4 of the four states this feature must handle honestly). An
+    // already-expired connection is deliberately excluded: the reconnect
+    // banner above already owns that story, and formatConsentExpiry itself
+    // also refuses to name a past date, so this can only ever read as a
+    // genuine future end date or say nothing.
+    const consentConnection = !isManual && !isStatement
+      ? connections.find(c => c.connection_id === selectedAccount.connection_id)
+      : undefined;
+    const consentExpiry = isExpired ? null : formatConsentExpiry(consentConnection?.expires_at);
 
     // Categories tab — one row-panel renderer shared by the "Spending"
     // (debit) and "Money in" (credit) sections so card payments/refunds
@@ -2254,6 +2276,7 @@ export default function AccountsPage() {
 
           <p className="mt-2 text-[13px] text-slate-500 dark:text-slate-400">
             {accountKindLabel(accountKind(selectedAccount))} · {selectedAccount.provider}
+            {consentExpiry ? ` · ${consentExpiry}` : ""}
           </p>
           {/* The horizontal rule Kevin asked to keep (G87 approval,
               2026-09-16): it closes off the canvas header in place of the
