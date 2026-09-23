@@ -299,8 +299,18 @@ function CalculationRow({
   total?: boolean;
   risk?: boolean;
 }) {
+  // G154: every separator in this ledger is drawn on a row's TOP edge, so any
+  // two adjacent rows share exactly one rule and the total's heavier rule IS
+  // the rule at its own boundary rather than a second line under the first.
+  // Do not move these back to `border-b` + `last:border-b-0`: the total row is
+  // a sibling of the operand rows, so the last operand is never `:last-child`
+  // and that escape never fires (it drew two rules 4px apart). `divide-y` has
+  // the same fault here, Tailwind v4 compiles it to
+  // `:where(.divide-y > :not(:last-child))`, i.e. the same bottom edge and the
+  // same `:last-child` assumption. `first:` is safe because the first operand
+  // genuinely is the first child.
   return (
-    <div className={`grid grid-cols-[18px_minmax(0,1fr)_auto] items-start gap-x-2 py-2.5 ${total ? "mt-1 border-t border-slate-300 pt-3.5 dark:border-slate-600" : "border-b border-slate-100 last:border-b-0 dark:border-white/[0.07]"}`}>
+    <div className={`grid grid-cols-[18px_minmax(0,1fr)_auto] items-start gap-x-2 py-2.5 ${total ? "mt-1 border-t border-slate-300 pt-3.5 dark:border-slate-600" : "border-t border-slate-100 first:border-t-0 dark:border-white/[0.07]"}`}>
       <span className={`money pt-px text-xs font-semibold ${total ? "text-indigo-500 dark:text-indigo-400" : "text-slate-400 dark:text-slate-500"}`} aria-hidden="true">{operator}</span>
       <div className="min-w-0">
         <dt className={`${total ? "font-bold text-slate-900 dark:text-slate-100" : "font-medium text-slate-700 dark:text-slate-200"} text-[13px] leading-snug`}>{label}</dt>
