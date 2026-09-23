@@ -250,9 +250,9 @@ answer and `docs/security/pentest-runs/` for the sanitised per-run records.
 
 **Sign-off.** Signed off by Kevin, 2026-09-21, given as a written
 attestation in a working session with Claude ('Happy to sign this'), not a
-handwritten or cryptographic signature.
-
-**Status update 2026-09-23, Claude session, for Kevin's confirmation.**
+handwritten or cryptographic signature. Status update 2026-09-23 recorded
+by a Claude session for Kevin's confirmation; the per-finding statuses
+above reflect `main` and the `release` branch as of that date.
 
 ## 4. Incident response process
 
