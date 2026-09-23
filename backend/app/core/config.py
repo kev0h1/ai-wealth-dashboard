@@ -128,6 +128,46 @@ REDIS_URL           = os.getenv("REDIS_URL", "redis://localhost:6379")
 # See docs/ops/ENV.md for the value each environment should actually set.
 TRUSTED_PROXY_HOPS  = int(os.getenv("TRUSTED_PROXY_HOPS", "0"))
 
+# A110: TRUSTED_PROXY_HOPS above cannot serve production correctly on its
+# own, because production has two ingress paths with different hop counts
+# in front of this app: web traffic (browser -> Vercel's /api rewrite ->
+# Railway edge -> app, two appending hops) and the mobile apps (straight to
+# the Railway host, one hop). Setting TRUSTED_PROXY_HOPS=2 lets a mobile
+# caller, who only ever produces one real hop, spoof the second-from-right
+# entry itself; setting it to 1 collapses every web user onto Vercel's own
+# egress IPs. These two variables let the backend tell the two paths apart
+# instead of guessing from a hop count alone: frontend/proxy.ts tags every
+# request its own /api rewrite forwards with the X-Sorted-Proxy-Auth header,
+# set to TRUSTED_PROXY_SECRET's value, so app.core.ratelimit.client_ip()
+# can use TRUSTED_PROXY_HOPS_WEB only for requests that actually carry a
+# matching header (i.e. genuinely came through that rewrite), and fall back
+# to TRUSTED_PROXY_HOPS for everything else, including the mobile apps and
+# UAT (nginx, one hop, neither of these two variables set). Both default to
+# "off" (empty secret, 0 hops) so an environment that never sets them keeps
+# exactly today's TRUSTED_PROXY_HOPS-only behaviour. See docs/ops/ENV.md.
+TRUSTED_PROXY_SECRET    = os.getenv("TRUSTED_PROXY_SECRET", "")
+TRUSTED_PROXY_HOPS_WEB  = int(os.getenv("TRUSTED_PROXY_HOPS_WEB", "0"))
+
+# Neither warning below is fatal: a wrong proxy-trust setting coarsens rate
+# limits (everyone behind one proxy shares a bucket) or, for the second
+# warning, silently leaves the web hop count unused, it never widens trust
+# or takes the app down, so there is no case for refusing to start over it.
+if TRUSTED_PROXY_HOPS <= 0:
+    logging.getLogger("app.startup").warning(
+        "TRUSTED_PROXY_HOPS is 0 (the default): every client behind a "
+        "proxy in front of this app shares one rate-limit bucket. Set it "
+        "to the real trusted hop count for this environment, see "
+        "docs/ops/ENV.md."
+    )
+if TRUSTED_PROXY_SECRET and TRUSTED_PROXY_HOPS_WEB <= 0:
+    logging.getLogger("app.startup").warning(
+        "TRUSTED_PROXY_SECRET is set but TRUSTED_PROXY_HOPS_WEB is 0: the "
+        "web ingress path (Vercel's /api rewrite) can never be "
+        "distinguished from any other caller like this, every request "
+        "falls back to TRUSTED_PROXY_HOPS. Likely a misconfiguration, see "
+        "docs/ops/ENV.md."
+    )
+
 # ── Auth ─────────────────────────────────────────────────────────────────────
 # A28 (2026-09-14): BOT_SECRET (a single static shared secret that
 # authenticated as Kevin's own account) is retired. Its replacement —

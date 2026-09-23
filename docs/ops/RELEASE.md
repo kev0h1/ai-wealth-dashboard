@@ -108,6 +108,42 @@ command; see docs/ops/ENV.md's "Bot/service credentials" section and
 `backend/scripts_bot_credential.py`.)
 Prints only the names set and which services, never a value.
 
+**A92/A110 checklist, once, for the release that first carries them**
+(after that, these four are already set and an ordinary `check`/`sync-vars`
+pass covering the usual missing-variable row is enough). Production needs
+FOUR variables set before this release, per `docs/ops/ENV.md`:
+`TRUSTED_PROXY_HOPS=1`, `TRUSTED_PROXY_HOPS_WEB=2` and `TRUSTED_PROXY_SECRET`
+on Railway (both services), plus `API_PROXY_SECRET` on Vercel set to the
+same value as `TRUSTED_PROXY_SECRET`. Generate the shared secret once:
+
+```bash
+openssl rand -hex 32   # use this value for BOTH TRUSTED_PROXY_SECRET and API_PROXY_SECRET below
+```
+
+Set the three Railway-side variables with `sync-vars` (`--value`, not
+`--from backend/.env`, since UAT's own hop count is 1, not production's):
+
+```bash
+backend/.venv/bin/python scripts/release.py sync-vars --value TRUSTED_PROXY_HOPS=1 --value TRUSTED_PROXY_HOPS_WEB=2 --value TRUSTED_PROXY_SECRET=<the-generated-value>
+```
+
+`sync-vars` only writes to Railway. `API_PROXY_SECRET` lives on Vercel,
+which this tool has no equivalent command for today, so set it directly,
+the same one-off, outside-the-script exception section (b) above already
+makes for the Railway branch switch and the DNS record: `vercel env add
+API_PROXY_SECRET production` (or the Vercel dashboard), same generated
+value, never printed or committed anywhere. Confirm none of the four are
+set on UAT (they must stay absent there; nginx's single hop never needs
+this split).
+
+After `deploy` below finishes, verify both ingress paths actually resolve
+the way this checklist expects: open `GET /diagnostics/proxy` once from
+the web app (`https://wealth.auriqltd.co.uk`, expect
+`"via_web_proxy": true, "hops_applied": 2`) and once from the mobile app
+(expect `"via_web_proxy": false, "hops_applied": 1`). Nobody can measure
+either hop count before deploying, which is why this is a post-deploy
+check rather than something `release.py check` can gate on.
+
 ```bash
 backend/.venv/bin/python scripts/release.py deploy
 ```
