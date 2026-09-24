@@ -96,6 +96,7 @@ function actionForMoveTo(target: GoLiveItemState, isDone: boolean): ActionBody {
       return { action: "done" };
     case "blocked":
     case "rejected":
+    case "cancelled":
     case "review":
     case "uat":
       throw new Error(`"${target}" has no direct Move to action`);
@@ -117,12 +118,13 @@ export function ItemDetailSheet({
 }) {
   const [blockReason, setBlockReason] = useState("");
   const [rejectReason, setRejectReason] = useState("");
+  const [cancelReason, setCancelReason] = useState("");
   const [approveChoice, setApproveChoice] = useState("");
   const [noteText, setNoteText] = useState("");
   const [unblocksDraft, setUnblocksDraft] = useState(item.unblocks.join(", "));
   // Which reason input the "Move to" row has revealed, if any — null means
-  // neither is showing. Tapping the same chip again collapses it.
-  const [revealed, setRevealed] = useState<"blocked" | "rejected" | null>(null);
+  // none are showing. Tapping the same chip again collapses it.
+  const [revealed, setRevealed] = useState<"blocked" | "rejected" | "cancelled" | null>(null);
   // Notes default COLLAPSED (H71): an item can carry several long
   // paragraph notes (its audit trail), which pushed every actual control
   // below the fold. The state tag's own reason (StatePill, above) is
@@ -148,16 +150,21 @@ export function ItemDetailSheet({
 
   // The states a "Move to" tap can actually land on, in board-column
   // order. `rejected` only appears while the item is genuinely `review` —
-  // see the file header comment for why. `review` and `uat` are never
-  // offered at all.
+  // see the file header comment for why. `cancelled` (H80) is offered
+  // from any state (Kevin can cancel work at any point, not just out of
+  // review) but is kevin-only, enforced server-side, not hidden here —
+  // this page is already reachable only by the account owner, and a
+  // non-owner attempt would fail with a clear error surfaced via
+  // `saveNote` the same way any other refused action does. `review` and
+  // `uat` are never offered at all.
   const moveToStates = BOARD_COLUMNS.filter(
     (col) => col.key !== "review" && col.key !== "uat" && (col.key !== "rejected" || item.state === "review")
   );
 
-  // Tapping a chip: Blocked/Rejected reveal their reason input (toggling
-  // closed on a second tap of the same chip) instead of firing right
-  // away, and do so even when the item is already in that state, so a
-  // wrong reason can be corrected (see the file header comment). Every
+  // Tapping a chip: Blocked/Rejected/Cancelled reveal their reason input
+  // (toggling closed on a second tap of the same chip) instead of firing
+  // right away, and do so even when the item is already in that state, so
+  // a wrong reason can be corrected (see the file header comment). Every
   // other chip fires its action immediately via `actionForMoveTo` and
   // closes whichever input was open; tapping the item's own current state
   // among those is a no-op, since there's nothing to set it back to.
@@ -168,6 +175,10 @@ export function ItemDetailSheet({
     }
     if (target === "rejected") {
       setRevealed((r) => (r === "rejected" ? null : "rejected"));
+      return;
+    }
+    if (target === "cancelled") {
+      setRevealed((r) => (r === "cancelled" ? null : "cancelled"));
       return;
     }
     if (target === item.state) return;
@@ -211,9 +222,10 @@ export function ItemDetailSheet({
             header's real height to a constant 118px regardless of title
             length, so the cap only exists as a backstop and costs
             nothing to raise. NOTE: pinning this row does NOT, on its
-            own, keep a block/reject reason readable — StatePill (below)
-            truncates its own `Blocked: <reason>` / `Rejected: <reason>`
-            text at `max-w-[220px]`, so a long reason still gets cut off
+            own, keep a block/reject/cancel reason readable — StatePill
+            (below) truncates its own `Blocked: <reason>` /
+            `Rejected: <reason>` / `Cancelled: <reason>` text at
+            `max-w-[220px]`, so a long reason still gets cut off
             here exactly like the title used to. The FULL reason is
             rendered separately, unclamped, in the scrollable body next
             to the repeated title — see below — which is the actual fix
@@ -256,9 +268,9 @@ export function ItemDetailSheet({
             accessibility tree), so a screen reader would otherwise hear
             the same title twice in a row: once as the dialog's name,
             then again as the first thing read in the body. The full
-            block/reject reason (see the header comment above) renders
-            right after it, NOT hidden — StatePill above only shows a
-            220px-truncated version. */}
+            block/reject/cancel reason (see the header comment above)
+            renders right after it, NOT hidden — StatePill above only
+            shows a 220px-truncated version. */}
         <div className="min-h-0 flex-1 overflow-y-auto p-5 pt-3">
           <p aria-hidden="true" className="text-sm font-semibold text-pretty text-slate-800 dark:text-slate-100">
             {item.title}
@@ -318,7 +330,7 @@ export function ItemDetailSheet({
               <div className="flex flex-wrap gap-1.5">
                 {moveToStates.map((col) => {
                   const selected = item.state === col.key;
-                  const hasReason = col.key === "blocked" || col.key === "rejected";
+                  const hasReason = col.key === "blocked" || col.key === "rejected" || col.key === "cancelled";
                   return (
                     <button
                       key={col.key}
@@ -445,6 +457,36 @@ export function ItemDetailSheet({
                     className="min-h-9 shrink-0 rounded-lg bg-slate-800 px-3 text-xs font-semibold text-white disabled:opacity-50 dark:bg-slate-700"
                   >
                     Reject
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {revealed === "cancelled" && (
+              <div id="move-to-cancelled-reason">
+                <label className="mb-1 block text-xs font-semibold text-slate-500 dark:text-slate-400">
+                  Cancel, with a reason (Kevin only)
+                </label>
+                <div className="flex gap-1.5">
+                  <input
+                    autoFocus
+                    type="text"
+                    value={cancelReason}
+                    onChange={(e) => setCancelReason(e.target.value)}
+                    placeholder="Reason, this should not happen at all"
+                    className="min-h-9 flex-1 rounded-lg border border-slate-200 bg-slate-50 px-2 text-xs text-slate-800 focus:border-indigo-400 focus:outline-none dark:border-white/10 dark:bg-slate-900 dark:text-slate-100"
+                  />
+                  <button
+                    type="button"
+                    disabled={pending || !cancelReason.trim()}
+                    onClick={() => {
+                      onAction({ action: "cancel", reason: cancelReason.trim() });
+                      setCancelReason("");
+                      setRevealed(null);
+                    }}
+                    className="min-h-9 shrink-0 rounded-lg bg-slate-600 px-3 text-xs font-semibold text-white disabled:opacity-50 dark:bg-slate-500"
+                  >
+                    Cancel
                   </button>
                 </div>
               </div>

@@ -120,19 +120,27 @@ function sourceLaneFor(item: GoLiveItem, lanes: GoLiveLaneMode): string {
 
 /** Whether `laneKey`/`column` is a legal drop target for `activeItem` (or,
  *  when nothing is being dragged, whether it could ever be one — used to
- *  decide the droppable's `disabled` flag). Review, Rejected and UAT are
- *  never targets: review is set automatically when a session finishes
- *  work, rejecting requires a reason a drag can't capture, and UAT
- *  requires a preview link a drag can't capture either (both only ever
- *  happen through a control in the detail sheet — "Reject, with a reason"
- *  and "Approve, which variant", see ItemDetailSheet.tsx). Section lanes
- *  are fixed by id (no cross-lane drops). Owner lanes allow moving freely
- *  between any of kevin/claude/codex but never *into* "unassigned" —
- *  there's no action that un-assigns an owner — while staying within an
- *  already unassigned item's own lane is fine. */
+ *  decide the droppable's `disabled` flag). Review, Rejected, UAT and
+ *  Cancelled are never targets: review is set automatically when a
+ *  session finishes work, rejecting requires a reason a drag can't
+ *  capture, UAT requires a preview link a drag can't capture either, and
+ *  cancelling (H80) requires both a reason and being Kevin, neither of
+ *  which a drag can express (all four only ever happen through a control
+ *  in the detail sheet — "Reject, with a reason", "Approve, which
+ *  variant" and "Cancel, with a reason", see ItemDetailSheet.tsx). Section
+ *  lanes are fixed by id (no cross-lane drops). Owner lanes allow moving
+ *  freely between any of kevin/claude/codex but never *into* "unassigned"
+ *  — there's no action that un-assigns an owner — while staying within an
+ *  already unassigned item's own lane is fine. Done is also refused for a
+ *  cancelled card (H80 blocking defect, 2026-09-18 review): the server
+ *  guard in `TodoDoc.set_done` now refuses this transition outright, so
+ *  offering the drop here would just show Kevin a card snapping back
+ *  after a failed request, the same reasoning that keeps dragging INTO
+ *  cancelled off the table above. */
 function isValidDropTarget(activeItem: GoLiveItem | undefined, lanes: GoLiveLaneMode, laneKey: string, column: GoLiveItemState): boolean {
-  if (column === "review" || column === "rejected" || column === "uat") return false;
+  if (column === "review" || column === "rejected" || column === "uat" || column === "cancelled") return false;
   if (!activeItem) return true;
+  if (column === "done" && activeItem.state === "cancelled") return false;
   const sourceLane = sourceLaneFor(activeItem, lanes);
   if (lanes === "section") return laneKey === sourceLane;
   if (laneKey === sourceLane) return true;
@@ -338,6 +346,7 @@ function DesktopBoardGrid({
           <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400 dark:text-slate-500">{col.label}</p>
           {col.key === "review" && <p className="mt-0.5 text-[10px] text-slate-400 dark:text-slate-500">Automatic</p>}
           {col.key === "uat" && <p className="mt-0.5 text-[10px] text-slate-400 dark:text-slate-500">Automatic</p>}
+          {col.key === "cancelled" && <p className="mt-0.5 text-[10px] text-slate-400 dark:text-slate-500">Kevin only</p>}
         </div>
       ))}
 
@@ -599,6 +608,12 @@ export function BoardView({
     filters.owner !== "all" || filters.priorities.length > 0 || filters.states.length > 0 || filters.search.trim() !== "";
   const todoItems = scopeItems.filter((item) => itemFilterState(item) === "open");
   const doneItems = scopeItems.filter((item) => itemFilterState(item) === "done");
+  // H80: "cancelled" is neither "open" nor "done" nor one of
+  // MobileRibbonBoard.tsx's own RIBBON_STATES, so without this bucket a
+  // cancelled item would be in none of todoItems/doneItems/in-flight and
+  // simply vanish from the mobile board — the opposite of Kevin's "not
+  // hidden, collapsed at the bottom beside To do and Done" decision.
+  const cancelledItems = scopeItems.filter((item) => itemFilterState(item) === "cancelled");
 
   function effectiveLane(item: GoLiveItem): string {
     const opt = optimisticPlacement[item.id];
@@ -708,7 +723,7 @@ export function BoardView({
           : { action: "todo" }
         : targetColumn === "in-progress"
         ? { action: "start" }
-        : { action: "done" }; // only "done" remains: review/rejected excluded above, blocked handled above
+        : { action: "done" }; // only "done" remains: review/rejected/uat/cancelled excluded above, blocked handled above
 
     const actions = ownerAction ? [ownerAction, columnAction] : [columnAction];
     fireOptimistic(item.id, targetLane, targetColumn, actions);
@@ -807,6 +822,8 @@ export function BoardView({
           todoSampleItems={todoItems}
           doneTotalCount={doneItems.length}
           doneSampleItems={doneItems}
+          cancelledTotalCount={cancelledItems.length}
+          cancelledSampleItems={cancelledItems}
           onOpen={setSelected}
         />
       )}

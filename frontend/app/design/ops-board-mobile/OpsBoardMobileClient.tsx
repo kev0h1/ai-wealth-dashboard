@@ -108,6 +108,8 @@ import { OwnerInitialChip, PriorityPill, StatePill, UnblocksTags } from "@/app/o
 import { CollapsedSection, ItemRow, MobileRibbonBoard, SectionHeading } from "@/app/ops/go-live/MobileRibbonBoard";
 import {
   ALL_FIXTURE_ITEMS,
+  CANCELLED_SAMPLE,
+  CANCELLED_TOTAL_COUNT,
   DONE_SAMPLE,
   DONE_TOTAL_COUNT,
   IN_FLIGHT,
@@ -161,6 +163,8 @@ function applyAction(item: GoLiveItem, body: ActionBody): GoLiveItem {
       return { ...item, unblocks: body.questions };
     case "uat":
       return { ...item, state: "uat", link: body.link };
+    case "cancel":
+      return { ...item, state: "cancelled", reason: body.reason };
     case "approve":
       return { ...item, state: "in-progress", branch: null, notes: withNote(`Approved: ${body.choice}`) };
     default:
@@ -428,9 +432,17 @@ function Inner() {
   const inFlightIds = useMemo(() => new Set(IN_FLIGHT.map((i) => i.id)), []);
   const todoIds = useMemo(() => new Set(TODO_SAMPLE.map((i) => i.id)), []);
   const doneIds = useMemo(() => new Set(DONE_SAMPLE.map((i) => i.id)), []);
+  // H80: same fixed-id-membership pattern as todoIds/doneIds above, not
+  // live-state filtering — matches CANCELLED_SAMPLE's own single
+  // illustrative item (see fixtures.ts) rather than picking up every item
+  // an ItemDetailSheet "Cancel" tap might send to "cancelled" during this
+  // session, the same way todoIds/doneIds don't pick up a live "block"
+  // either.
+  const cancelledIds = useMemo(() => new Set(CANCELLED_SAMPLE.map((i) => i.id)), []);
   const inFlightItems = items.filter((i) => inFlightIds.has(i.id));
   const todoSampleItems = items.filter((i) => todoIds.has(i.id));
   const doneSampleItems = items.filter((i) => doneIds.has(i.id));
+  const cancelledSampleItems = items.filter((i) => cancelledIds.has(i.id));
 
   const hasActiveFilter =
     filters.search.trim() !== "" || filters.states.length > 0 || filters.priorities.length > 0 || filters.owner !== "all";
@@ -570,6 +582,8 @@ function Inner() {
               todoSampleItems={todoSampleItems}
               doneTotalCount={DONE_TOTAL_COUNT}
               doneSampleItems={doneSampleItems}
+              cancelledTotalCount={CANCELLED_TOTAL_COUNT}
+              cancelledSampleItems={cancelledSampleItems}
               onOpen={handleOpen}
             />
           ) : hasActiveFilter ? (

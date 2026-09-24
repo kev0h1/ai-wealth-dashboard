@@ -18,7 +18,17 @@ line per rejected item and counts them in the summary, so a rejection
 that keeps a branch out of a merge is visible in the run's own output
 rather than a silent absence (see H25 — before this, a rejection that
 only existed in conversation was invisible to a concurrent integrate
-pass, which merged the rejected branch anyway).
+pass, which merged the rejected branch anyway). A `cancelled` item (H80)
+is never a merge candidate for the same reason, even one that still
+carries a `[branch: ...]` tag (retained deliberately by `set_cancelled`
+so a live worktree stays visible, not so integrate can find it): each
+pass prints one `[skipped-cancelled]` line per cancelled item and counts
+them in the summary too, mirroring `[skipped-rejected]`. A `review` item
+that somehow has no branch recorded (this should not normally happen; see
+`TodoDoc.clear_branch`'s own guard) is dropped by `_review_items()`'s
+filter the same way, so each pass also prints one
+`[skipped-review-no-branch]` line per such item, rather than letting it
+vanish with no explanation at all.
 
   1. Warns (but does not block) if the recorded branch doesn't start with
      `feature-<ID>` for that item's id — branches are named
@@ -169,6 +179,26 @@ def _review_items() -> list[dict]:
     return items
 
 
+def _review_items_missing_branch() -> list[dict]:
+    """MEDIUM 1 (H80 correction round, reviewer round 3): `_review_items()`
+    above filters on state `review` AND a branch, so an item that is
+    `review` but somehow has no branch recorded is silently dropped --
+    matching no `[skipped-*]` line at all, with `integrate_once` printing
+    "nothing to integrate (no board items in review state)" even though
+    the board plainly shows one "In review", the exact silent-absence
+    shape H25 closed for `rejected`. Traced concretely to
+    `scripts/backlog.py clear-branch` (now refused unless the item is
+    `cancelled`, see `TodoDoc.clear_branch`) being pointed at a `review`
+    item by mistake and stripping the one field this needs it by; this
+    exists as a second line of defence in case some future path does the
+    same thing a different way. Purely for visibility, exactly like
+    `_rejected_items`/`_cancelled_items` above."""
+    snapshot = backlog.load()
+    items = [i for i in snapshot.items() if i.get("state") == "review" and not i.get("branch")]
+    items.sort(key=lambda i: _id_sort_key(i["id"]))
+    return items
+
+
 def _rejected_items() -> list[dict]:
     """Items a reviewer has rejected (see H25: a reviewer's rejection has
     to land on the board immediately, because `review` alone is treated as
@@ -179,6 +209,21 @@ def _rejected_items() -> list[dict]:
     so a skip-because-rejected never reads as a silent absence."""
     snapshot = backlog.load()
     items = [i for i in snapshot.items() if i.get("state") == "rejected"]
+    items.sort(key=lambda i: _id_sort_key(i["id"]))
+    return items
+
+
+def _cancelled_items() -> list[dict]:
+    """H80 correction round (LOW): items Kevin has cancelled, mirroring
+    `_rejected_items()` above for the same reason. `_review_items()`
+    already excludes these outright -- a cancelled item's state is
+    `cancelled`, not `review`, even when it still carries a `branch` tag
+    (see `set_cancelled`, which deliberately retains a live worktree's
+    branch purely so it stays visible) -- so this exists purely for
+    visibility, so a skip-because-cancelled never reads as a silent
+    absence the way an unlabelled skip did for rejected before H25."""
+    snapshot = backlog.load()
+    items = [i for i in snapshot.items() if i.get("state") == "cancelled"]
     items.sort(key=lambda i: _id_sort_key(i["id"]))
     return items
 
@@ -845,18 +890,42 @@ def integrate_once(allow_branch: Optional[str] = None) -> int:
 
             items = _review_items()
             rejected = _rejected_items()
+            cancelled = _cancelled_items()
+            review_no_branch = _review_items_missing_branch()
             for item in rejected:
                 branch_note = f", branch {item['branch']}" if item.get("branch") else ""
                 print(
                     f"[skipped-rejected] {item['id']}: rejected "
                     f"({item.get('reason') or 'no reason recorded'}){branch_note}, not eligible for merge"
                 )
+            for item in cancelled:
+                branch_note = f", branch {item['branch']}" if item.get("branch") else ""
+                print(
+                    f"[skipped-cancelled] {item['id']}: cancelled "
+                    f"({item.get('reason') or 'no reason recorded'}){branch_note}, not eligible for merge"
+                )
+            for item in review_no_branch:
+                # MEDIUM 1: this should not normally happen (see
+                # _review_items_missing_branch's own docstring) -- printed
+                # so it is never a silent absence if it ever does.
+                print(
+                    f"[skipped-review-no-branch] {item['id']}: in review with no branch recorded, "
+                    f"not eligible for merge (this is not a normal state -- check how its branch tag "
+                    f"was lost)"
+                )
 
             if not items:
+                not_eligible_bits = []
                 if rejected:
+                    not_eligible_bits.append(f"{len(rejected)} item(s) rejected")
+                if cancelled:
+                    not_eligible_bits.append(f"{len(cancelled)} item(s) cancelled")
+                if review_no_branch:
+                    not_eligible_bits.append(f"{len(review_no_branch)} item(s) in review with no branch")
+                if not_eligible_bits:
                     print(
                         f"nothing to integrate (no board items in review state; "
-                        f"{len(rejected)} item(s) rejected, not eligible)"
+                        f"{', '.join(not_eligible_bits)}, not eligible)"
                     )
                 else:
                     print("nothing to integrate (no board items in review state)")
@@ -877,9 +946,11 @@ def integrate_once(allow_branch: Optional[str] = None) -> int:
                 {"merged": merged, "blocked": blocked, "skipped": skipped}[result].append(detail)
 
             print()
+            review_no_branch_bit = f", {len(review_no_branch)} in review with no branch" if review_no_branch else ""
             print(
                 f"Summary: {len(merged)} merged, {len(blocked)} blocked, {len(skipped)} skipped, "
-                f"{len(rejected)} rejected (not eligible for merge)."
+                f"{len(rejected)} rejected, {len(cancelled)} cancelled{review_no_branch_bit} "
+                f"(not eligible for merge)."
             )
             return 0
     except IntegrateError as exc:

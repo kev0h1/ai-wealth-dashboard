@@ -11,7 +11,7 @@
 
 export type GoLiveStatus = "ready" | "needs-kevin" | "blocked-deploy" | "submitted";
 export type GoLiveOwner = "kevin" | "claude" | "codex";
-export type GoLiveItemState = "todo" | "in-progress" | "blocked" | "review" | "rejected" | "uat" | "done";
+export type GoLiveItemState = "todo" | "in-progress" | "blocked" | "review" | "rejected" | "uat" | "cancelled" | "done";
 export type GoLivePriority = "p1" | "p2" | "p3";
 
 // ---------------------------------------------------------------------
@@ -82,8 +82,16 @@ export function stripKevinMarkers(answer: string): string {
     .trim();
 }
 
+/** H80: a cancelled item is closed but not done — Kevin decided it should
+ *  not happen at all, which is neither progress made (done) nor work
+ *  still outstanding (it will never become done). Counting it in `total`
+ *  without ever counting it in `done` would quietly move the percentage
+ *  Kevin reads here (every cancellation would look like new outstanding
+ *  work), so it is excluded from both sides entirely rather than only
+ *  from `done`. */
 export function itemTotals(items: GoLiveItem[]): { done: number; total: number } {
-  return { done: items.filter((item) => item.state === "done").length, total: items.length };
+  const countable = items.filter((item) => item.state !== "cancelled");
+  return { done: countable.filter((item) => item.state === "done").length, total: countable.length };
 }
 
 export type GoLiveSectionGroup = { section: string; heading: string; items: GoLiveItem[] };
@@ -165,6 +173,7 @@ export const BOARD_COLUMNS: { key: GoLiveItemState; label: string }[] = [
   { key: "review", label: "In review" },
   { key: "rejected", label: "Rejected" },
   { key: "uat", label: "UAT" },
+  { key: "cancelled", label: "Cancelled" },
   { key: "done", label: "Done" },
 ];
 
@@ -177,7 +186,7 @@ export const BOARD_COLUMNS: { key: GoLiveItemState; label: string }[] = [
  *  everything that isn't done and isn't in-progress/blocked/review/rejected
  *  into one chip (i.e. plain to-do items), matching the spec's "Open = not
  *  done". */
-export type GoLiveFilterState = "open" | "in-progress" | "blocked" | "review" | "rejected" | "uat" | "done";
+export type GoLiveFilterState = "open" | "in-progress" | "blocked" | "review" | "rejected" | "uat" | "cancelled" | "done";
 
 export const FILTER_STATE_LABEL: Record<GoLiveFilterState, string> = {
   open: "Open",
@@ -186,6 +195,7 @@ export const FILTER_STATE_LABEL: Record<GoLiveFilterState, string> = {
   review: "In review",
   rejected: "Rejected",
   uat: "UAT",
+  cancelled: "Cancelled",
   done: "Done",
 };
 export const FILTER_STATE_ORDER: GoLiveFilterState[] = [
@@ -195,6 +205,7 @@ export const FILTER_STATE_ORDER: GoLiveFilterState[] = [
   "review",
   "rejected",
   "uat",
+  "cancelled",
   "done",
 ];
 
@@ -367,7 +378,14 @@ export function headerFigures(
   items: GoLiveItem[]
 ): { p1Open: number; blocked: number; inReview: number; rejected: number; uat: number } {
   return {
-    p1Open: items.filter((i) => i.priority === "p1" && i.state !== "done").length,
+    // H80 correction round (MEDIUM 3): "open" here must mean "not done AND
+    // not cancelled" -- itemTotals() already excludes a cancelled item
+    // from both sides of the done/total count for the same reason (it is
+    // closed but not done, so it must never read as outstanding either).
+    // Without this a cancelled P1 kept inflating this figure, which made
+    // docs/ops/BACKLOG.md's "never counted as done or as outstanding by
+    // any progress figure" untrue.
+    p1Open: items.filter((i) => i.priority === "p1" && i.state !== "done" && i.state !== "cancelled").length,
     blocked: items.filter((i) => i.state === "blocked").length,
     inReview: items.filter((i) => i.state === "review").length,
     rejected: items.filter((i) => i.state === "rejected").length,

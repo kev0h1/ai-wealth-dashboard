@@ -122,7 +122,7 @@ async def go_live(user: dict = Depends(current_user)):
 class ItemActionRequest(BaseModel):
     action: Literal[
         "done", "reopen", "start", "block", "reject", "note", "owner", "priority", "unblocks", "todo",
-        "uat", "approve",
+        "uat", "approve", "cancel",
     ]
     reason: Optional[str] = None
     text: Optional[str] = None
@@ -214,6 +214,26 @@ async def go_live_item_action(item_id: str, body: ItemActionRequest, user: dict 
                 raise HTTPException(400, "choice is required to approve a uat item")
             _, committed = backlog.set_approved(
                 item_id, body.choice, actor=_PAGE_ACTOR, todo_path=todo_path, repo_root=root
+            )
+        elif body.action == "cancel":
+            if not body.reason:
+                raise HTTPException(400, "reason is required to cancel an item")
+            # H80: this page is owner-only end to end (_require_owner
+            # above), so _PAGE_ACTOR is hardcoded "kevin" regardless of
+            # what an unauthenticated caller might claim — the same real
+            # account-owner auth every other write on this route already
+            # relies on. backlog.set_cancelled still enforces the
+            # actor/reason/not-already-done rules itself either way (see
+            # TodoDoc.set_state); this call passes its own actor check
+            # today because _PAGE_ACTOR and TodoDoc.CANCEL_ACTOR both
+            # happen to be the literal string "kevin", not because the
+            # route is structurally guaranteed to agree with that
+            # constant forever — a correction round already found one
+            # overclaim in this area (the BACKLOG_AGENT check, removed),
+            # so this comment states what is true today rather than what
+            # can "never" fail.
+            _, committed = backlog.set_cancelled(
+                item_id, body.reason, actor=_PAGE_ACTOR, todo_path=todo_path, repo_root=root
             )
         else:  # unreachable given the Literal type, kept for clarity
             raise HTTPException(400, f"unknown action: {body.action}")

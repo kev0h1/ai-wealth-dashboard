@@ -841,7 +841,19 @@ def test_finish_pushes_nothing_when_the_board_cannot_be_read(tmp_path, fixture_e
     and then ignored: finish ran the gate and pushed a branch picked by
     name, which is the pre-H85 bug wearing a refusal message. One missing
     docs/compliance file makes backlog.py show fail for every id, so this
-    is not a typo-only path."""
+    is not a typo-only path.
+
+    H80's own cancelled-item pre-check (folded in alongside these H85
+    tests) reads the board even earlier than resolve_session_worktree
+    does, so with the same broken backlog_py it is the one that actually
+    fires and refuses here, in its own wording, before
+    resolve_session_worktree ever gets a turn. It had the identical
+    bare-assignment errexit bug this test was written to catch
+    (item_data="$(...)" with the exit status only checked on the next
+    line), fixed the same way (`|| item_read_rc=$?`), so this still
+    exercises the thing the test is really about: an unreadable board
+    must stop finish before anything is resolved or pushed, not just
+    print a refusal and carry on."""
     board_root, shared_tree, worktrees_root = fixture_env
     _add_worktree(shared_tree, worktrees_root, "feature-G127-upcoming-round3", "feature-G127-upcoming-round3")
 
@@ -856,7 +868,8 @@ def test_finish_pushes_nothing_when_the_board_cannot_be_read(tmp_path, fixture_e
         extra_path=_make_tool_stubs(tmp_path),
     )
     assert result.returncode != 0, result.stdout + result.stderr
-    assert "refusing to continue" in result.stderr, result.stdout + result.stderr
+    assert "could not read item G127's current state" in result.stderr, result.stdout + result.stderr
+    assert "refusing to finish" in result.stderr, result.stdout + result.stderr
     assert "resolved item G127" not in result.stdout, "printed a resolution after refusing"
     assert _origin_branches(tmp_path) == {"main"}, "pushed despite refusing to continue"
 

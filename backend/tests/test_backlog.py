@@ -1068,6 +1068,52 @@ def test_public_set_done_reopen_on_done_item_writes_audit_note_with_actor(paths,
     assert "To do" in item["notes"][0]["text"]
 
 
+def test_set_done_refuses_a_cancelled_item_with_no_override():
+    # H80 blocking defect (2026-09-18 review): TodoDoc.set_done had no
+    # cancelled check at all, so calling it directly (as the ops.py route
+    # does, which is what BoardView.tsx's drag-onto-Done ultimately calls)
+    # would silently mark a cancelled item done and clear its reason, even
+    # though scripts/backlog.py's own `_refuse_if_cancelled` already
+    # refused the identical transition on the CLI. This is the service-
+    # layer guard every surface must inherit, so it is exercised directly
+    # against TodoDoc here rather than only through the CLI subprocess
+    # tests above (test_cli_cancel_then_done_is_refused_with_no_override),
+    # which only prove the CLI's own belt-and-braces check, not this one.
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    doc.set_state("A1", "cancelled", reason="superseded by G16", actor="kevin")
+    with pytest.raises(backlog.BacklogError, match="is cancelled"):
+        doc.set_done("A1", True, commit="deadbee", actor="claude")
+
+    # Nothing changed: still cancelled, not done, reason intact.
+    reloaded = doc.items["A1"]
+    assert reloaded.done is False
+    assert reloaded.state == "cancelled"
+    assert reloaded.reason == "superseded by G16"
+    line = doc.lines[reloaded.line_no]
+    assert line.startswith("- [ ] ")
+    assert "[state: cancelled: superseded by G16]" in line
+
+
+def test_public_set_done_refuses_a_cancelled_item_and_writes_nothing(paths, mock_git):
+    # Same guard, exercised through the public module-level wrapper (the
+    # function ops.py's "done" action and scripts/backlog.py's cmd_done
+    # both actually call), confirming the refusal happens before anything
+    # is written to disk or committed.
+    todo_path, _ = paths
+    repo_root = todo_path.parent
+    backlog.set_cancelled("A1", "superseded by G16", actor="kevin", todo_path=todo_path, repo_root=repo_root)
+    mock_git.reset_mock()
+
+    with pytest.raises(backlog.BacklogError, match="is cancelled"):
+        backlog.set_done("A1", True, actor="kevin", todo_path=todo_path, repo_root=repo_root)
+
+    mock_git.assert_not_called()
+    reloaded = backlog.TodoDoc.load(todo_path)
+    assert reloaded.items["A1"].done is False
+    assert reloaded.items["A1"].state == "cancelled"
+    assert reloaded.items["A1"].reason == "superseded by G16"
+
+
 def test_public_set_rejected_writes_file_and_commit_message(paths, mock_git):
     todo_path, _ = paths
     repo_root = todo_path.parent
@@ -2032,6 +2078,711 @@ def test_cli_approve_on_non_uat_item_errors(tmp_path):
     )
     assert result.returncode == 1
     assert "not awaiting uat review" in result.stderr
+
+
+# ---------------------------------------------------------------------
+# `cancelled` state (H80): Kevin's own call that a piece of work should
+# not happen at all — obsolete, superseded, or simply not wanted — distinct
+# from `rejected` (a reviewer found a defect, fix it) and `blocked` (can't
+# proceed yet). Kevin-only (enforced by `TodoDoc.set_state` refusing any
+# other actor), requires a reason, refuses an already-done item outright
+# (no --force override, unlike the H57 done-item guard on the other
+# states), reversible via `start`/`todo` exactly like `rejected`, and
+# never selected as a merge candidate by scripts/integrate.py (see
+# test_integrate_script.py test_review_items_excludes_cancelled_...).
+# ---------------------------------------------------------------------
+
+
+def test_cancelled_is_a_valid_state_accepted_by_the_state_machine():
+    assert "cancelled" in backlog.ITEM_STATES
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    item = doc.set_state("A1", "cancelled", reason="superseded by a later item", actor="kevin")
+    assert item.state == "cancelled"
+
+
+def test_set_state_cancelled_requires_a_reason():
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    with pytest.raises(backlog.BacklogError, match="reason is required"):
+        doc.set_state("A1", "cancelled", actor="kevin")
+    with pytest.raises(backlog.BacklogError, match="reason is required"):
+        doc.set_state("A1", "cancelled", reason="   ", actor="kevin")
+    # Nothing was written by either failed call.
+    assert doc.items["A1"].state == "todo"
+
+
+def test_set_state_cancelled_refuses_a_non_kevin_actor_and_writes_nothing():
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    with pytest.raises(backlog.BacklogError, match="kevin-only"):
+        doc.set_state("A1", "cancelled", reason="not wanted any more", actor="claude")
+    assert doc.items["A1"].state == "todo"
+    assert doc.items["A1"].reason is None
+    with pytest.raises(backlog.BacklogError, match="kevin-only"):
+        doc.set_state("A1", "cancelled", reason="not wanted any more", actor="codex")
+    assert doc.items["A1"].state == "todo"
+
+
+def test_set_state_cancelled_accepts_kevin():
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    item = doc.set_state("A1", "cancelled", reason="not wanted any more", actor="kevin")
+    assert item.state == "cancelled"
+    assert item.reason == "not wanted any more"
+
+
+def test_cancel_sets_state_reason_and_retains_branch():
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    doc.set_state("A1", "in-progress", branch="feature-A1-first-item")
+    doc.set_state("A1", "cancelled", reason="superseded by G16", actor="kevin")
+
+    item = doc.items["A1"]
+    assert item.state == "cancelled"
+    assert item.reason == "superseded by G16"
+    # The branch is retained from the prior in-progress state, not cleared
+    # — a live worktree may still exist, see set_cancelled()'s own notes.
+    assert item.branch == "feature-A1-first-item"
+
+    line = doc.lines[item.line_no]
+    assert "[state: cancelled: superseded by G16]" in line
+    assert "[branch: feature-A1-first-item]" in line
+    assert item.to_dict()["reason"] == "superseded by G16"
+    assert item.to_dict()["branch"] == "feature-A1-first-item"
+    assert item.to_dict()["state"] == "cancelled"
+
+
+def test_cancelled_item_round_trips_through_parse_and_serialise_unchanged():
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    doc.set_state("A1", "in-progress", branch="feature-A1-first-item")
+    doc.set_state("A1", "cancelled", reason="superseded by G16", actor="kevin")
+    first_text = doc.text()
+
+    reparsed = backlog.TodoDoc.parse(first_text)
+    a1 = reparsed.items["A1"]
+    assert a1.state == "cancelled"
+    assert a1.reason == "superseded by G16"
+    assert a1.branch == "feature-A1-first-item"
+    assert reparsed.text() == first_text
+
+
+def test_cancelled_then_moved_to_todo_clears_reason_and_branch():
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    doc.set_state("A1", "in-progress", branch="feature-A1-first-item")
+    doc.set_state("A1", "cancelled", reason="superseded by G16", actor="kevin")
+    doc.set_state("A1", "todo")
+
+    item = doc.items["A1"]
+    assert item.state == "todo"
+    assert item.reason is None
+    assert item.branch is None
+    line = doc.lines[item.line_no]
+    assert "[state:" not in line
+    assert "[branch:" not in line
+
+
+def test_cancelled_then_started_clears_reason_and_branch():
+    # Reversibility (docs/ops/BACKLOG.md): `start` or `todo` brings a
+    # cancelled item back, exactly like `rejected`.
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    doc.set_state("A1", "in-progress", branch="feature-A1-first-item")
+    doc.set_state("A1", "cancelled", reason="superseded by G16", actor="kevin")
+    doc.set_state("A1", "in-progress")
+
+    item = doc.items["A1"]
+    assert item.state == "in-progress"
+    assert item.reason is None
+    assert item.branch is None
+    line = doc.lines[item.line_no]
+    assert "[state: in-progress]" in line
+    assert "[branch:" not in line
+
+
+def test_cancel_refuses_an_already_done_item_with_no_override():
+    # H80, Kevin's stated view: cancelling something already done is
+    # meaningless. Unlike the H57 done-item guard on start/block/review/
+    # reject/uat, this has no --force escape hatch at all.
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    assert doc.items["A2"].done is True  # the fixture's already-done item
+    with pytest.raises(backlog.BacklogError, match="already done"):
+        doc.set_state("A2", "cancelled", reason="not wanted", actor="kevin")
+    # Nothing changed: A2 is still done, with no state tag written.
+    reloaded = doc.items["A2"]
+    assert reloaded.done is True
+    assert reloaded.state == "todo"  # the fixture's done item carries no state tag
+
+
+def test_cancelled_item_never_renders_as_x_and_is_not_counted_done():
+    # A cancelled item is closed but not done: it must never tick the
+    # checkbox, and to_dict()'s "state" (what every progress count in this
+    # codebase reads) must say "cancelled", never "done".
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    doc.set_state("A1", "cancelled", reason="not wanted", actor="kevin")
+    item = doc.items["A1"]
+    assert item.done is False
+    line = doc.lines[item.line_no]
+    assert line.startswith("- [ ] ")
+    assert "[x]" not in line
+    assert item.to_dict()["state"] == "cancelled"
+    assert item.to_dict()["state"] != "done"
+
+
+def test_public_set_cancelled_writes_short_tag_and_a_full_note(paths, mock_git):
+    todo_path, _ = paths
+    repo_root = todo_path.parent
+    item, committed = backlog.set_cancelled(
+        "A1", "superseded by a later item", actor="kevin", todo_path=todo_path, repo_root=repo_root
+    )
+    assert committed is True
+    assert item["state"] == "cancelled"
+    assert item["reason"] == "superseded by a later item"
+    # H54: the reason survives as BOTH the short state tag AND a full note
+    # automatically — the caller only ever makes one `cancel` call.
+    assert len(item["notes"]) == 1
+    assert item["notes"][0]["text"] == "cancelled: superseded by a later item"
+    assert item["notes"][0]["actor"] == "kevin"
+    commit_call = mock_git.call_args_list[1]
+    assert "backlog: A1 cancelled by kevin" in commit_call.args[0]
+
+
+def test_public_set_cancelled_requires_a_reason(paths, mock_git):
+    todo_path, _ = paths
+    repo_root = todo_path.parent
+    with pytest.raises(backlog.BacklogError):
+        backlog.set_cancelled("A1", "", actor="kevin", todo_path=todo_path, repo_root=repo_root)
+    with pytest.raises(backlog.BacklogError):
+        backlog.set_cancelled("A1", "   ", actor="kevin", todo_path=todo_path, repo_root=repo_root)
+    reloaded = backlog.TodoDoc.load(todo_path)
+    assert reloaded.items["A1"].state == "todo"
+
+
+def test_public_set_cancelled_refuses_non_kevin_actor_and_writes_nothing(paths, mock_git):
+    todo_path, _ = paths
+    repo_root = todo_path.parent
+    with pytest.raises(backlog.BacklogError, match="kevin-only"):
+        backlog.set_cancelled("A1", "not wanted", actor="claude", todo_path=todo_path, repo_root=repo_root)
+    reloaded = backlog.TodoDoc.load(todo_path)
+    assert reloaded.items["A1"].state == "todo"
+    assert reloaded.items["A1"].reason is None
+    mock_git.assert_not_called()
+
+
+def test_public_set_cancelled_with_a_live_branch_records_it_in_its_own_note(paths, mock_git):
+    # Cancelling an item that is in-progress/review with a genuinely live
+    # worktree must never merge or delete that branch — only surface it:
+    # retained on the item AND recorded, with the exact cleanup command,
+    # in a note of its own (separate from the reason note) so a very long
+    # reason can never crowd the cleanup text out of the 1500-char note cap
+    # (or vice versa).
+    todo_path, _ = paths
+    repo_root = todo_path.parent
+    backlog.set_state(
+        "A1", "in-progress", branch="feature-A1-first-item", actor="claude", todo_path=todo_path, repo_root=repo_root
+    )
+    item, committed = backlog.set_cancelled(
+        "A1", "superseded by a later item", actor="kevin", todo_path=todo_path, repo_root=repo_root
+    )
+    assert committed is True
+    assert item["branch"] == "feature-A1-first-item"
+    assert len(item["notes"]) == 2
+    assert item["notes"][0]["text"] == "cancelled: superseded by a later item"
+    cleanup_note = item["notes"][1]["text"]
+    assert "feature-A1-first-item" in cleanup_note
+    assert "scripts/session.sh abandon A1" in cleanup_note
+    assert "untouched" in cleanup_note
+
+
+def test_public_set_cancelled_refuses_an_already_done_item(paths, mock_git):
+    todo_path, _ = paths
+    repo_root = todo_path.parent
+    with pytest.raises(backlog.BacklogError, match="already done"):
+        backlog.set_cancelled("A2", "not wanted", actor="kevin", todo_path=todo_path, repo_root=repo_root)
+    reloaded = backlog.TodoDoc.load(todo_path)
+    assert reloaded.items["A2"].done is True
+
+
+def test_public_set_cancelled_very_long_reason_truncates_tag_at_200_and_note_at_1500(paths, mock_git):
+    # H54: a 200-character state-tag cap must never be the only place a
+    # caller's reason survives — the reason also lands in a full note, but
+    # that note is itself capped at NOTE_CAP=1500 (same cap/mechanism every
+    # other note in this codebase already uses), so a reason longer than
+    # that still loses its tail, just far later than the 200-character tag
+    # does, and with the same "..." ellipsis marker both callers already
+    # get elsewhere (one_line_reason/_collapse_note_text).
+    todo_path, _ = paths
+    repo_root = todo_path.parent
+    long_reason = "x" * 2000
+    item, _ = backlog.set_cancelled("A1", long_reason, actor="kevin", todo_path=todo_path, repo_root=repo_root)
+
+    # The short `[state: cancelled: ...]` tag: capped at REASON_CAP=200.
+    assert len(item["reason"]) <= 200
+    assert item["reason"].endswith("...")
+
+    # The full note ("cancelled: " + the reason) is capped at NOTE_CAP=1500
+    # by _collapse_note_text, with its own ellipsis.
+    full_note = item["notes"][0]["text"]
+    assert full_note.startswith("cancelled: ")
+    assert len(full_note) <= backlog.NOTE_CAP
+    assert full_note.endswith("...")
+    # Confirms the note is genuinely longer than the 200-char state tag —
+    # i.e. this really is a second, more generous place the reason
+    # survives, not just a duplicate of the same truncation.
+    assert len(full_note) > len(item["reason"])
+
+
+def test_cli_cancel_and_state_display(tmp_path):
+    board_root = _make_board_root(tmp_path, SHOW_FIXTURE)
+    result = _run_cli(board_root, "cancel", "H1", "superseded by a later item", "--actor", "kevin")
+    assert result.returncode == 0, result.stderr
+    saved = (board_root / "TODO.md").read_text(encoding="utf-8")
+    assert "[state: cancelled: superseded by a later item]" in saved
+    assert "cancelled: superseded by a later item" in saved  # the full note
+
+    list_result = _run_cli(board_root, "list")
+    assert list_result.returncode == 0, list_result.stderr
+    assert "cancelled" in list_result.stdout
+
+
+def test_cli_cancel_without_reason_errors(tmp_path):
+    board_root = _make_board_root(tmp_path, SHOW_FIXTURE)
+    result = _run_cli(board_root, "cancel", "H1", "--actor", "kevin")
+    # argparse itself rejects the missing positional "reason" arg.
+    assert result.returncode != 0
+
+
+def test_cli_cancel_non_kevin_actor_refused_and_writes_nothing(tmp_path):
+    board_root = _make_board_root(tmp_path, SHOW_FIXTURE)
+    before = (board_root / "TODO.md").read_text(encoding="utf-8")
+
+    # No --actor at all: the CLI's own default is "claude", so an agent
+    # that forgets to think about who it is still gets refused, not a
+    # silent cancel.
+    result = _run_cli(board_root, "cancel", "H1", "not wanted any more")
+    assert result.returncode == 1
+    assert "kevin-only" in result.stderr
+    assert "leave a note recommending cancellation" in result.stderr
+    after = (board_root / "TODO.md").read_text(encoding="utf-8")
+    assert after == before  # no change to the board at all
+
+    # Explicitly lying about being kevin's --actor is refused the same way.
+    result = _run_cli(board_root, "cancel", "H1", "not wanted any more", "--actor", "codex")
+    assert result.returncode == 1
+    assert "kevin-only" in result.stderr
+    after = (board_root / "TODO.md").read_text(encoding="utf-8")
+    assert after == before
+
+
+def test_cli_cancel_on_done_item_refuses_with_no_force_option_at_all(tmp_path):
+    board_root = _make_board_root(tmp_path, SHOW_FIXTURE)
+    result = _run_cli(board_root, "cancel", "H6", "not wanted", "--actor", "kevin")
+    assert result.returncode == 1
+    assert "already done" in result.stderr
+    saved = (board_root / "TODO.md").read_text(encoding="utf-8")
+    assert "- [x] **H6." in saved
+    # There is no --force escape hatch for cancel at all (unlike
+    # start/block/review/reject/uat) — passing it is simply not a
+    # recognised flag.
+    force_result = _run_cli(board_root, "cancel", "H6", "not wanted", "--actor", "kevin", "--force")
+    assert force_result.returncode != 0
+
+
+def test_cli_cancel_then_start_is_refused_with_no_override(tmp_path):
+    # H80 correction round (reviewer round 2/3): UNLIKE rejected, start
+    # no longer reverses a cancellation, and there is no --force override
+    # for it either any more -- this is exactly the guard that stops
+    # scripts/session.sh finish/abandon from silently un-cancelling an
+    # item as a side effect of another command. --force is passed here
+    # too, and still refuses: it only ever overrides the DONE-item guard
+    # (_refuse_if_done), never the cancelled one.
+    board_root = _make_board_root(tmp_path, SHOW_FIXTURE)
+    cancel_result = _run_cli(board_root, "cancel", "H1", "superseded", "--actor", "kevin")
+    assert cancel_result.returncode == 0, cancel_result.stderr
+
+    start_result = _run_cli(board_root, "start", "H1", "--force")
+    assert start_result.returncode == 1
+    assert "is cancelled" in start_result.stderr
+    assert "no override" in start_result.stderr
+    assert "uncancel" in start_result.stderr
+    saved = (board_root / "TODO.md").read_text(encoding="utf-8")
+    assert "[state: cancelled:" in saved
+
+
+def test_cli_cancel_then_todo_is_refused_with_no_override(tmp_path):
+    board_root = _make_board_root(tmp_path, SHOW_FIXTURE)
+    cancel_result = _run_cli(board_root, "cancel", "H1", "superseded", "--actor", "kevin")
+    assert cancel_result.returncode == 0, cancel_result.stderr
+
+    todo_result = _run_cli(board_root, "todo", "H1", "--force")
+    assert todo_result.returncode == 1
+    assert "is cancelled" in todo_result.stderr
+    assert "uncancel" in todo_result.stderr
+    saved = (board_root / "TODO.md").read_text(encoding="utf-8")
+    assert "[state: cancelled:" in saved
+
+
+def test_cli_cancel_then_review_is_refused_with_no_override(tmp_path):
+    board_root = _make_board_root(tmp_path, SHOW_FIXTURE)
+    cancel_result = _run_cli(board_root, "cancel", "H1", "superseded", "--actor", "kevin")
+    assert cancel_result.returncode == 0, cancel_result.stderr
+
+    review_result = _run_cli(board_root, "review", "H1", "--branch", "feature-H1-thing", "--force")
+    assert review_result.returncode == 1
+    assert "is cancelled" in review_result.stderr
+    assert "uncancel" in review_result.stderr
+    saved = (board_root / "TODO.md").read_text(encoding="utf-8")
+    h1_line = next(line for line in saved.splitlines() if "**H1." in line)
+    assert "[state: cancelled:" in h1_line
+    assert "[state: review" not in h1_line
+
+
+def test_cli_cancel_then_done_is_refused_with_no_override(tmp_path):
+    # done never had a --force flag at all before this round; this proves
+    # it refuses outright with no way to bypass it -- completing work
+    # Kevin cancelled should not be possible, full stop.
+    board_root = _make_board_root(tmp_path, SHOW_FIXTURE)
+    cancel_result = _run_cli(board_root, "cancel", "H1", "superseded", "--actor", "kevin")
+    assert cancel_result.returncode == 0, cancel_result.stderr
+
+    done_result = _run_cli(board_root, "done", "H1")
+    assert done_result.returncode == 1
+    assert "is cancelled" in done_result.stderr
+    assert "uncancel" in done_result.stderr
+    saved = (board_root / "TODO.md").read_text(encoding="utf-8")
+    h1_line = next(line for line in saved.splitlines() if "**H1." in line)
+    assert h1_line.startswith("- [ ] ")
+
+    # --force is not even a recognised flag on "done" any more (it never
+    # guarded anything on this command besides the cancelled case, which
+    # this round removed the override for entirely).
+    force_result = _run_cli(board_root, "done", "H1", "--force")
+    assert force_result.returncode != 0
+
+
+def test_cli_cancel_then_block_is_refused_with_no_override(tmp_path):
+    # HIGH 1 (reviewer round 3): block was entirely unrefused before this
+    # fix -- the realistic accident, since CLAUDE.md/AGENTS.md tell every
+    # session to record a hand-back on the board in the same turn.
+    board_root = _make_board_root(tmp_path, SHOW_FIXTURE)
+    cancel_result = _run_cli(board_root, "cancel", "H1", "superseded", "--actor", "kevin")
+    assert cancel_result.returncode == 0, cancel_result.stderr
+
+    block_result = _run_cli(board_root, "block", "H1", "waiting on something", "--force")
+    assert block_result.returncode == 1
+    assert "is cancelled" in block_result.stderr
+    assert "uncancel" in block_result.stderr
+    saved = (board_root / "TODO.md").read_text(encoding="utf-8")
+    h1_line = next(line for line in saved.splitlines() if "**H1." in line)
+    assert "[state: cancelled:" in h1_line
+    assert "[state: blocked" not in h1_line
+
+
+def test_cli_cancel_then_reject_is_refused_with_no_override(tmp_path):
+    # HIGH 1 (reviewer round 3): before this fix, "reject" was entirely
+    # unrefused, and since "start" already reverses a plain rejection with
+    # no override, "reject" then "start" was a complete two-command
+    # laundering path needing no flag at all. Proven directly: reject the
+    # cancelled item, then confirm start still refuses it afterwards.
+    board_root = _make_board_root(tmp_path, SHOW_FIXTURE)
+    cancel_result = _run_cli(board_root, "cancel", "H1", "superseded", "--actor", "kevin")
+    assert cancel_result.returncode == 0, cancel_result.stderr
+
+    reject_result = _run_cli(board_root, "reject", "H1", "pretend defect", "--force")
+    assert reject_result.returncode == 1
+    assert "is cancelled" in reject_result.stderr
+    assert "uncancel" in reject_result.stderr
+    saved = (board_root / "TODO.md").read_text(encoding="utf-8")
+    h1_line = next(line for line in saved.splitlines() if "**H1." in line)
+    assert "[state: cancelled:" in h1_line
+    assert "[state: rejected" not in h1_line
+
+    # The laundering path itself: even if reject had somehow gone through,
+    # start must still refuse -- it does, since reject was refused first.
+    start_result = _run_cli(board_root, "start", "H1")
+    assert start_result.returncode == 1
+    assert "is cancelled" in start_result.stderr
+
+
+def test_cli_cancel_then_uat_is_refused_with_no_override(tmp_path):
+    board_root = _make_board_root(tmp_path, SHOW_FIXTURE)
+    cancel_result = _run_cli(board_root, "cancel", "H1", "superseded", "--actor", "kevin")
+    assert cancel_result.returncode == 0, cancel_result.stderr
+
+    uat_result = _run_cli(
+        board_root, "uat", "H1", "--link", "https://uat.wealth.auriqltd.co.uk/design", "--force"
+    )
+    assert uat_result.returncode == 1
+    assert "is cancelled" in uat_result.stderr
+    assert "uncancel" in uat_result.stderr
+    saved = (board_root / "TODO.md").read_text(encoding="utf-8")
+    h1_line = next(line for line in saved.splitlines() if "**H1." in line)
+    assert "[state: cancelled:" in h1_line
+    assert "[state: uat" not in h1_line
+
+
+# ---------------------------------------------------------------------
+# uncancel (H80 correction round, reviewer round 2/3): the ONLY way out
+# of `cancelled` on the CLI. A dedicated verb rather than a --force flag,
+# so reversing a cancellation always leaves its own attributable record
+# (a dated note plus a distinct commit message), not one indistinguishable
+# from an ordinary start/todo. Requires a reason like cancel/reject do;
+# not actor-gated (what matters is that the reversal is recorded, not who
+# performed it).
+# ---------------------------------------------------------------------
+
+
+def test_public_set_uncancelled_requires_a_reason(paths, mock_git):
+    todo_path, _ = paths
+    repo_root = todo_path.parent
+    backlog.set_cancelled("A1", "not wanted", actor="kevin", todo_path=todo_path, repo_root=repo_root)
+    with pytest.raises(backlog.BacklogError):
+        backlog.set_uncancelled("A1", "", actor="kevin", todo_path=todo_path, repo_root=repo_root)
+    with pytest.raises(backlog.BacklogError):
+        backlog.set_uncancelled("A1", "   ", actor="kevin", todo_path=todo_path, repo_root=repo_root)
+    reloaded = backlog.TodoDoc.load(todo_path)
+    assert reloaded.items["A1"].state == "cancelled"
+
+
+def test_public_set_uncancelled_requires_the_item_to_currently_be_cancelled(paths, mock_git):
+    todo_path, _ = paths
+    repo_root = todo_path.parent
+    # A1 is plain todo in the fixture, never cancelled.
+    with pytest.raises(backlog.BacklogError, match="not cancelled"):
+        backlog.set_uncancelled("A1", "bringing it back", actor="kevin", todo_path=todo_path, repo_root=repo_root)
+
+
+def test_public_set_uncancelled_moves_to_todo_and_writes_a_dated_note(paths, mock_git):
+    todo_path, _ = paths
+    repo_root = todo_path.parent
+    backlog.set_cancelled("A1", "superseded", actor="kevin", todo_path=todo_path, repo_root=repo_root)
+    mock_git.reset_mock()
+
+    item, committed = backlog.set_uncancelled(
+        "A1", "actually still needed", actor="kevin", todo_path=todo_path, repo_root=repo_root
+    )
+    assert committed is True
+    assert item["state"] == "todo"
+    assert item["reason"] is None
+    assert item["notes"][-1]["text"] == "uncancelled: actually still needed"
+    assert item["notes"][-1]["actor"] == "kevin"
+    commit_call = mock_git.call_args_list[1]
+    assert "backlog: A1 uncancelled by kevin" in commit_call.args[0]
+
+
+# ---------------------------------------------------------------------
+# Kevin-only (H80 final round): the reviewer's original "attribution, not
+# restriction" framing for uncancel was overruled -- a cancellation is
+# Kevin's own input, deciding a ticket should not happen, and if an agent
+# could uncancel and then work the item, that decision would be undone by
+# the same class of actor the cancel guard exists to stop. Mirrors
+# cancel's own actor tests exactly: an agent actor is refused with the
+# board unchanged, kevin succeeds, and the refusal names the recommended
+# note.
+# ---------------------------------------------------------------------
+
+
+def test_public_set_uncancelled_refuses_a_non_kevin_actor_and_writes_nothing(paths, mock_git):
+    todo_path, _ = paths
+    repo_root = todo_path.parent
+    backlog.set_cancelled("A1", "superseded", actor="kevin", todo_path=todo_path, repo_root=repo_root)
+    mock_git.reset_mock()
+
+    with pytest.raises(backlog.BacklogError, match="kevin-only") as exc_info:
+        backlog.set_uncancelled("A1", "still needed", actor="claude", todo_path=todo_path, repo_root=repo_root)
+    # The refusal names the recommended note, the same shape cancel's own
+    # refusal does.
+    assert "recommend reopening" in str(exc_info.value)
+    mock_git.assert_not_called()
+    reloaded = backlog.TodoDoc.load(todo_path)
+    assert reloaded.items["A1"].state == "cancelled"
+    assert reloaded.items["A1"].reason == "superseded"
+
+
+def test_public_set_uncancelled_refuses_codex_actor_too(paths, mock_git):
+    todo_path, _ = paths
+    repo_root = todo_path.parent
+    backlog.set_cancelled("A1", "superseded", actor="kevin", todo_path=todo_path, repo_root=repo_root)
+    mock_git.reset_mock()
+
+    with pytest.raises(backlog.BacklogError, match="kevin-only"):
+        backlog.set_uncancelled("A1", "still needed", actor="codex", todo_path=todo_path, repo_root=repo_root)
+    mock_git.assert_not_called()
+    reloaded = backlog.TodoDoc.load(todo_path)
+    assert reloaded.items["A1"].state == "cancelled"
+
+
+def test_public_set_uncancelled_accepts_kevin(paths, mock_git):
+    todo_path, _ = paths
+    repo_root = todo_path.parent
+    backlog.set_cancelled("A1", "superseded", actor="kevin", todo_path=todo_path, repo_root=repo_root)
+
+    item, committed = backlog.set_uncancelled(
+        "A1", "still needed", actor="kevin", todo_path=todo_path, repo_root=repo_root
+    )
+    assert committed is True
+    assert item["state"] == "todo"
+
+
+def test_cli_uncancel_requires_a_reason(tmp_path):
+    board_root = _make_board_root(tmp_path, SHOW_FIXTURE)
+    cancel_result = _run_cli(board_root, "cancel", "H1", "superseded", "--actor", "kevin")
+    assert cancel_result.returncode == 0, cancel_result.stderr
+
+    result = _run_cli(board_root, "uncancel", "H1", "--actor", "kevin")
+    # argparse itself rejects the missing positional "reason" arg.
+    assert result.returncode != 0
+
+
+def test_cli_uncancel_non_kevin_actor_refused_and_writes_nothing(tmp_path):
+    board_root = _make_board_root(tmp_path, SHOW_FIXTURE)
+    cancel_result = _run_cli(board_root, "cancel", "H1", "superseded", "--actor", "kevin")
+    assert cancel_result.returncode == 0, cancel_result.stderr
+    before = (board_root / "TODO.md").read_text(encoding="utf-8")
+
+    # No --actor at all: the CLI's own default is "claude", so an agent
+    # that forgets to think about who it is still gets refused, not a
+    # silent uncancel.
+    result = _run_cli(board_root, "uncancel", "H1", "actually still needed")
+    assert result.returncode == 1
+    assert "kevin-only" in result.stderr
+    assert "recommend reopening" in result.stderr
+    after = (board_root / "TODO.md").read_text(encoding="utf-8")
+    assert after == before  # no change to the board at all
+
+
+def test_cli_uncancel_is_the_only_way_out_and_leaves_a_note(tmp_path):
+    board_root = _make_board_root(tmp_path, SHOW_FIXTURE)
+    cancel_result = _run_cli(board_root, "cancel", "H1", "superseded", "--actor", "kevin")
+    assert cancel_result.returncode == 0, cancel_result.stderr
+
+    uncancel_result = _run_cli(board_root, "uncancel", "H1", "actually still needed", "--actor", "kevin")
+    assert uncancel_result.returncode == 0, uncancel_result.stderr
+    saved = (board_root / "TODO.md").read_text(encoding="utf-8")
+    h1_line = next(line for line in saved.splitlines() if "**H1." in line)
+    assert "[state:" not in h1_line
+    assert "uncancelled: actually still needed" in saved
+
+    # Now a plain start works, exactly as it would on any other to-do item.
+    start_result = _run_cli(board_root, "start", "H1")
+    assert start_result.returncode == 0, start_result.stderr
+    saved = (board_root / "TODO.md").read_text(encoding="utf-8")
+    h1_line = next(line for line in saved.splitlines() if "**H1." in line)
+    assert "[state: in-progress]" in h1_line
+
+
+# ---------------------------------------------------------------------
+# MEDIUM 5 (H80 correction round): the module-level `set_state` wrapper's
+# action dict must have a "cancelled" key, or a caller using that
+# documented public mutator directly (not set_cancelled's own wrapper)
+# writes the file, releases the lock, and only then raises KeyError,
+# leaving the item cancelled on disk with no commit message and the
+# caller seeing a crash instead of a result.
+# ---------------------------------------------------------------------
+
+
+def test_public_set_state_cancelled_directly_does_not_raise_keyerror(paths, mock_git):
+    todo_path, _ = paths
+    repo_root = todo_path.parent
+    item, committed = backlog.set_state(
+        "A1", "cancelled", reason="not wanted", actor="kevin", todo_path=todo_path, repo_root=repo_root
+    )
+    assert committed is True
+    assert item["state"] == "cancelled"
+    commit_call = mock_git.call_args_list[1]
+    assert "backlog: A1 cancelled (not wanted) by kevin" in commit_call.args[0]
+
+
+# ---------------------------------------------------------------------
+# clear_branch (H80 correction round, HIGH 2 support): tidies a dangling
+# [branch: ...] tag after the branch/worktree it named has actually been
+# deleted (scripts/session.sh abandon on a cancelled item). Not
+# actor-gated, touches nothing but the branch field.
+# ---------------------------------------------------------------------
+
+
+def test_clear_branch_removes_branch_tag_only():
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    doc.set_state("A1", "in-progress", branch="feature-A1-first-item")
+    doc.set_state("A1", "cancelled", reason="superseded", actor="kevin")
+    assert doc.items["A1"].branch == "feature-A1-first-item"
+
+    item = doc.clear_branch("A1")
+    assert item.branch is None
+    assert item.state == "cancelled"
+    assert item.reason == "superseded"
+    line = doc.lines[item.line_no]
+    assert "[branch:" not in line
+    assert "[state: cancelled: superseded]" in line
+
+
+def test_public_clear_branch_writes_file_and_commit_message(paths, mock_git):
+    todo_path, _ = paths
+    repo_root = todo_path.parent
+    backlog.set_state("A1", "in-progress", branch="feature-A1-first-item", todo_path=todo_path, repo_root=repo_root)
+    backlog.set_cancelled("A1", "superseded", actor="kevin", todo_path=todo_path, repo_root=repo_root)
+    mock_git.reset_mock()
+
+    item, committed = backlog.clear_branch("A1", actor="claude", todo_path=todo_path, repo_root=repo_root)
+    assert committed is True
+    assert item["branch"] is None
+    assert item["state"] == "cancelled"
+    commit_call = mock_git.call_args_list[1]
+    assert "backlog: A1 branch tag cleared by claude" in commit_call.args[0]
+
+
+def test_cli_clear_branch_removes_tag_not_actor_gated(tmp_path):
+    board_root = _make_board_root(tmp_path, SHOW_FIXTURE)
+    result = _run_cli(board_root, "start", "H1", "--branch", "feature-H1-thing")
+    assert result.returncode == 0, result.stderr
+    cancel_result = _run_cli(board_root, "cancel", "H1", "superseded", "--actor", "kevin")
+    assert cancel_result.returncode == 0, cancel_result.stderr
+    saved = (board_root / "TODO.md").read_text(encoding="utf-8")
+    assert "[branch: feature-H1-thing]" in saved
+
+    # No --actor at all (defaults to claude) -- clear-branch is routine
+    # cleanup, not a decision about the item's state, so it is not
+    # kevin-only.
+    clear_result = _run_cli(board_root, "clear-branch", "H1")
+    assert clear_result.returncode == 0, clear_result.stderr
+    saved = (board_root / "TODO.md").read_text(encoding="utf-8")
+    h1_line = next(line for line in saved.splitlines() if "**H1." in line)
+    assert "[branch:" not in h1_line
+    assert "[state: cancelled: superseded]" in h1_line
+
+
+def test_clear_branch_refuses_on_a_review_item_and_writes_nothing():
+    # MEDIUM 1 (reviewer round 3): clear_branch had no state check at all,
+    # so it could strip the branch from a `review` item -- exactly the
+    # field scripts/integrate.py's `_review_items()` filters on (state
+    # `review` AND a branch) -- silently dropping it from every future
+    # integrate pass with no [skipped-*] line anywhere to explain why, and
+    # no record of which branch to merge left on the board at all.
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    doc.set_state("A1", "review", branch="feature-A1-first-item")
+    with pytest.raises(backlog.BacklogError, match="not cancelled"):
+        doc.clear_branch("A1")
+    assert doc.items["A1"].branch == "feature-A1-first-item"
+    assert doc.items["A1"].state == "review"
+
+
+def test_public_clear_branch_refuses_on_a_review_item(paths, mock_git):
+    todo_path, _ = paths
+    repo_root = todo_path.parent
+    backlog.set_review("A1", "feature-A1-first-item", actor="claude", todo_path=todo_path, repo_root=repo_root)
+    mock_git.reset_mock()
+
+    with pytest.raises(backlog.BacklogError, match="not cancelled"):
+        backlog.clear_branch("A1", actor="claude", todo_path=todo_path, repo_root=repo_root)
+    mock_git.assert_not_called()
+    reloaded = backlog.TodoDoc.load(todo_path)
+    assert reloaded.items["A1"].branch == "feature-A1-first-item"
+    assert reloaded.items["A1"].state == "review"
+
+
+def test_cli_clear_branch_refuses_on_a_non_cancelled_item(tmp_path):
+    board_root = _make_board_root(tmp_path, SHOW_FIXTURE)
+    result = _run_cli(board_root, "clear-branch", "H5")  # H5 is the review item in SHOW_FIXTURE
+    assert result.returncode == 1
+    assert "not cancelled" in result.stderr
+    saved = (board_root / "TODO.md").read_text(encoding="utf-8")
+    # review stores its branch inline in the state tag, not a separate
+    # [branch: ...] tag -- either way, nothing about H5's line changed.
+    assert "[state: review: feature-H5-thing]" in saved
 
 
 # ---------------------------------------------------------------------

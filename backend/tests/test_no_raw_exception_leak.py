@@ -44,8 +44,8 @@ ALLOWLIST: set[tuple[str, int]] = {
     # app.services.backlog.BacklogError — "Raised for any user/caller-facing
     # failure (unknown id, bad enum)" per its own docstring; owner-only
     # /ops/go-live admin surface.
-    ("app/routers/ops.py", 221),
-    ("app/routers/ops.py", 239),
+    ("app/routers/ops.py", 241),
+    ("app/routers/ops.py", 259),
     # ValueError raised by app.services.spend_impact.compute_intent_preview /
     # app.services.checkpoints.delete_intent with an authored message
     # ("'<category>' is not currently over usual, nothing to preview", etc.)

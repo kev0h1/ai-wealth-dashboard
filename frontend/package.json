@@ -22,6 +22,7 @@
     "check:preferences-snapshot": "node --no-warnings --experimental-strip-types scripts/preferences-snapshot.test.mjs",
     "check:penny-screen-views": "node --no-warnings --experimental-strip-types scripts/penny-screen-views.test.mjs",
     "check:cash-walk": "node --no-warnings --experimental-strip-types scripts/cash-walk.test.mjs",
+    "check:go-live-cancelled-progress": "node --no-warnings --experimental-strip-types scripts/go-live-cancelled-progress.test.mjs",
     "check:set-aside-display": "node --no-warnings --experimental-strip-types scripts/set-aside-display.test.mjs",
     "check:spend-from-account": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/spend-from-account.test.mjs",
     "check:verdict-cache": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/verdict-cache.test.mjs",

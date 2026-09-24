@@ -101,13 +101,15 @@ Usage:
 
   scripts/session.sh abandon <ID> [--worktree <path>]
       Delete the worktree and its branch, reset the item to to-do with a
-      note explaining why. A detached worktree is removed with an
-      accurate note and no attempt to delete a branch called HEAD (it
-      was always removable; the wrong note and the pointless branch
-      delete were the defects). A leftover directory that is no longer a
-      git worktree is not matched at all and is not removed here: clear
-      it by hand with rm -rf, nothing in this script deletes arbitrary
-      directories.
+      note explaining why -- except a cancelled item (H80), which stays
+      cancelled: the note is still added, but its now-dangling
+      [branch: ...] tag is cleared instead of reopening it to to-do. A
+      detached worktree is removed with an accurate note and no attempt
+      to delete a branch called HEAD (it was always removable; the wrong
+      note and the pointless branch delete were the defects). A leftover
+      directory that is no longer a git worktree is not matched at all
+      and is not removed here: clear it by hand with rm -rf, nothing in
+      this script deletes arbitrary directories.
 
       --worktree names the directory explicitly, which is the way past a
       refused resolution: when more than one worktree matches <ID> and
@@ -594,6 +596,24 @@ decide_start_state() {
       err "item $id is rejected${reason:+: $reason}; resolve it first with 'backend/.venv/bin/python scripts/backlog.py start $id' (clears the rejection, moves it to in-progress with no branch) or 'todo $id', then run scripts/session.sh start $id again."
       return 1
       ;;
+    cancelled)
+      # H80 correction round: Kevin decided this should not happen at
+      # all, distinct from a rejection (defective, needs fixing) or a
+      # block (can't proceed yet). UNLIKE rejected, reopening a cancelled
+      # item is never a side effect of 'start'/'todo': both refuse a
+      # cancelled item outright, with no override at all. The only way
+      # out is the dedicated 'uncancel' verb, which requires a reason and
+      # leaves its own attributable record, rather than a --force flag
+      # that would produce a commit indistinguishable from an ordinary
+      # start/todo. Reopening a cancelled item is Kevin's own call, the
+      # same way cancelling it was (uncancel is kevin-only, H80 final
+      # round): this session should leave a note recommending it, not run
+      # uncancel itself.
+      local reason
+      reason="$(jq -r '.reason // empty' <<<"$item_data")"
+      err "item $id is cancelled${reason:+: $reason}; Kevin decided this should not happen. Reopening it is Kevin's call: leave a note recommending it ('backend/.venv/bin/python scripts/backlog.py note $id \"recommend reopening: <why>\"') and let Kevin run 'scripts/backlog.py uncancel $id \"<why>\" --actor kevin' himself, then start $id again once it is back in progress."
+      return 1
+      ;;
     done)
       err "item $id is already done; pass --title \"...\" to open a new item instead of reusing a completed one."
       return 1
@@ -760,6 +780,76 @@ cmd_finish() {
     esac
   done
 
+  # H80 correction round (HIGH 1): refuse to finish a cancelled item
+  # before running any tests or pushing anything, the same way
+  # decide_start_state already refuses to start one. Read straight off
+  # the board (backlog.py show), never this worktree's own stale
+  # checked-out copy of TODO.md. Before the first fix, finish had no
+  # state check at all: it ran `backlog.py review` with the CLI's default
+  # actor claude, and that command only checked the done flag
+  # (_refuse_if_done), so a session mid-flight, unaware Kevin had
+  # cancelled the item out from under it, would push the branch and land
+  # it in review anyway, one integrate pass away from being merged and
+  # ticked done -- exactly the scenario set_cancelled's own deliberate
+  # branch-retention makes possible. scripts/backlog.py's own
+  # `_refuse_if_cancelled` now backs this up at the CLI layer too (review
+  # refuses a cancelled item with no override at all), so this check is a
+  # friendlier, earlier message, not the only guard.
+  #
+  # MEDIUM 2 (reviewer round 3): this reads the board directly (not via
+  # `item_json`, which discards stderr) and checks the exit status itself,
+  # because `if item_data="$(item_json "$id")"; then ...; fi` skips the
+  # WHOLE guard body on a failed read -- an unknown id, a shared tree
+  # mid-rebase, a broken venv, or an unparseable TODO.md would all let
+  # finish proceed to run the full test suite and push, exactly the
+  # outcome this guard exists to prevent, just reached by "the read
+  # failed" rather than "the state check passed". A guard that passes
+  # when it cannot read is not a guard: fail closed instead, with the
+  # real stderr in the message rather than a swallowed one.
+  #
+  # Merge note (H80, folded in alongside main's H85 worktree-resolver
+  # tests): this block had two errexit/stream bugs of exactly the shape
+  # `recorded_branch_for_id` above and the H85/H89 sections of this file
+  # already document, both only surfaced once main's real-subprocess
+  # `test_session_worktree_resolve.py` coverage merged in alongside it.
+  # First, a bare `item_data="$(...)"` assignment with the exit status
+  # only inspected on the NEXT line (`item_read_rc=$?`) is itself a
+  # context where errexit fires: a failing `backlog.py show` (unknown id,
+  # broken venv, missing script) killed the whole function via `set -e`
+  # before `item_read_rc=$?` ever ran, so this refusal never printed at
+  # all and the caller just saw a bare non-zero exit. Second, capturing
+  # stdout and stderr together with `2>&1` is the exact anti-pattern
+  # `recorded_branch_for_id` warns against: a successful read that also
+  # writes to stderr (this codebase emits DeprecationWarnings) had that
+  # noise land ahead of the JSON and break the `jq` parse below, turning
+  # a clean read into a spurious "could not read" refusal. Both are fixed
+  # the same way `recorded_branch_for_id` already does it: test the
+  # assignment inline with `||` so errexit never fires, and capture
+  # stderr into its own file rather than merging it into stdout.
+  local item_data item_read_rc=0 item_errfile
+  item_errfile="$(mktemp "${TMPDIR:-/tmp}/session-finish-cancel-check.XXXXXX")" || {
+    err "could not create a temp file to check $id's cancelled state before finishing."
+    exit 1
+  }
+  trap 'rm -f "$item_errfile"' EXIT INT TERM
+  item_data="$(cd "$SHARED_TREE" && "$VENV_PY" "$BACKLOG_PY" show "$id" 2>"$item_errfile")" || item_read_rc=$?
+  if [[ "$item_read_rc" -ne 0 ]]; then
+    err "could not read item $id's current state before finishing (scripts/backlog.py show exited $item_read_rc):"
+    while IFS= read -r line; do err "  $line"; done < "$item_errfile"
+    err "refusing to finish without being able to confirm $id isn't cancelled -- fix the underlying problem and try again."
+    exit 1
+  fi
+  trap - EXIT INT TERM
+  rm -f "$item_errfile"
+  local item_state
+  item_state="$(jq -r '.state' <<<"$item_data")"
+  if [[ "$item_state" == "cancelled" ]]; then
+    local reason
+    reason="$(jq -r '.reason // empty' <<<"$item_data")"
+    err "item $id is cancelled${reason:+: $reason}; Kevin decided this should not happen, so it cannot be finished into review. Reopening it is Kevin's call: leave a note recommending it ('backend/.venv/bin/python scripts/backlog.py note $id \"recommend reopening: <why>\"') and let Kevin run 'scripts/backlog.py uncancel $id \"<why>\" --actor kevin' himself from the shared tree, then finish again once it is back in progress. Otherwise leave it cancelled and clean up this worktree with 'scripts/session.sh abandon $id' instead."
+    exit 1
+  fi
+
   local resolved
   resolved="$(resolve_session_worktree "$id" finish)" || exit 1
   local worktree_dir branch board_branch
@@ -829,6 +919,9 @@ cmd_finish() {
 
   log "checking spend-from-account ranking and scope copy in $worktree_dir/frontend..."
   (cd "$worktree_dir/frontend" && npm run -s check:spend-from-account)
+
+  log "checking go-live cancelled-state progress-count exclusion in $worktree_dir/frontend..."
+  (cd "$worktree_dir/frontend" && npm run -s check:go-live-cancelled-progress)
 
   log "checking verdict/money-shape client TTL caches in $worktree_dir/frontend..."
   (cd "$worktree_dir/frontend" && npm run -s check:verdict-cache)
@@ -949,6 +1042,20 @@ cmd_abandon() {
   log "  board records: ${board_branch:-(none)}"
   echo
 
+  # H80 correction round (HIGH 2): read the item's state BEFORE touching
+  # the worktree, so cleanup can branch on it below. set_cancelled's own
+  # note recommends this exact command to clean up a live worktree left
+  # behind by a cancellation, so this must never itself un-cancel the
+  # item -- before this fix it unconditionally ran `backlog.py todo`,
+  # which wiped the cancelled state and put the item back in to-do
+  # (startable again, back in the progress denominator), turning the
+  # recommended cleanup step into a silent un-cancel.
+  local item_state=""
+  local item_data
+  if item_data="$(item_json "$id")"; then
+    item_state="$(jq -r '.state' <<<"$item_data")"
+  fi
+
   log "removing worktree $worktree_dir..."
   git -C "$SHARED_TREE" worktree remove --force "$worktree_dir"
   if [[ -n "$branch" ]]; then
@@ -973,10 +1080,21 @@ cmd_abandon() {
   else
     note_text="session abandoned, worktree $worktree_dir discarded (no branch checked out)"
   fi
-  (cd "$SHARED_TREE" && "$VENV_PY" "$BACKLOG_PY" note "$id" "$note_text")
-  (cd "$SHARED_TREE" && "$VENV_PY" "$BACKLOG_PY" todo "$id")
 
-  echo "abandoned $id (worktree $worktree_dir${branch:+ and branch $branch} removed, item reset to to-do)"
+  if [[ "$item_state" == "cancelled" ]]; then
+    # Stays cancelled: SKIP the `todo` call entirely (see above), and
+    # clear the now-dangling `[branch: ...]` tag left pointing at the
+    # branch just deleted (`clear-branch`, not actor-gated -- this is
+    # routine cleanup of a stale reference, not a decision about the
+    # item's own state the way un-cancelling it would be).
+    (cd "$SHARED_TREE" && "$VENV_PY" "$BACKLOG_PY" note "$id" "$note_text; item stays cancelled, not reopened")
+    (cd "$SHARED_TREE" && "$VENV_PY" "$BACKLOG_PY" clear-branch "$id")
+    echo "abandoned $id (worktree $worktree_dir${branch:+ and branch $branch} removed); $id stays cancelled. Reopening it is Kevin's call: leave a note recommending it if you think it should come back, and let Kevin run 'backend/.venv/bin/python scripts/backlog.py uncancel $id \"<why>\" --actor kevin' from the shared tree."
+  else
+    (cd "$SHARED_TREE" && "$VENV_PY" "$BACKLOG_PY" note "$id" "$note_text")
+    (cd "$SHARED_TREE" && "$VENV_PY" "$BACKLOG_PY" todo "$id")
+    echo "abandoned $id (worktree $worktree_dir${branch:+ and branch $branch} removed, item reset to to-do)"
+  fi
 }
 
 worktree_id_of_path() {

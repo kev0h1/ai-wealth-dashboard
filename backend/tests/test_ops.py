@@ -277,6 +277,108 @@ def test_item_action_block_without_reason_is_400(tmp_path, monkeypatch, mock_git
     asyncio.run(_run())
 
 
+def test_item_action_cancel_requires_reason_is_400(tmp_path, monkeypatch, mock_git):
+    monkeypatch.setattr(ops, "PRIMARY_EMAIL", "kevin.maingi12@gmail.com")
+    _write_repo(tmp_path)
+    monkeypatch.setattr(ops, "_repo_root", lambda: tmp_path)
+
+    async def _run():
+        with pytest.raises(HTTPException) as exc_info:
+            await ops.go_live_item_action(
+                "H3", ItemActionRequest(action="cancel"), user={"email": "kevin.maingi12@gmail.com"}
+            )
+        assert exc_info.value.status_code == 400
+
+    asyncio.run(_run())
+
+
+def test_item_action_cancel_round_trip_writes_reason_tag_and_note(tmp_path, monkeypatch, mock_git):
+    # H80: the page is owner-only end to end (_require_owner), so every
+    # write it makes is attributed to `_PAGE_ACTOR = "kevin"` regardless of
+    # who is signed in -- this is the one path where cancel is genuinely
+    # kevin-only, not just a self-declared --actor. Confirms the route
+    # writes both the short state tag and the full note automatically,
+    # same as the CLI (see test_backlog.py's
+    # test_public_set_cancelled_writes_short_tag_and_a_full_note).
+    monkeypatch.setattr(ops, "PRIMARY_EMAIL", "kevin.maingi12@gmail.com")
+    _write_repo(tmp_path)
+    monkeypatch.setattr(ops, "_repo_root", lambda: tmp_path)
+    user = {"email": "kevin.maingi12@gmail.com"}
+
+    async def _run():
+        result = await ops.go_live_item_action(
+            "H3", ItemActionRequest(action="cancel", reason="superseded by a later item"), user=user
+        )
+        item = next(i for i in result["items"] if i["id"] == "H3")
+        assert item["state"] == "cancelled"
+        assert item["reason"] == "superseded by a later item"
+        assert item["notes"][-1]["text"] == "cancelled: superseded by a later item"
+        assert item["notes"][-1]["actor"] == "kevin"
+
+        saved = (tmp_path / "TODO.md").read_text(encoding="utf-8")
+        assert "- [ ] **H3." in saved  # never ticked [x]
+        assert "[state: cancelled: superseded by a later item]" in saved
+
+    asyncio.run(_run())
+
+
+def test_item_action_cancel_on_a_done_item_is_404(tmp_path, monkeypatch, mock_git):
+    # No override for this route either: cancelling a done item is
+    # refused outright at the service layer (backlog.set_cancelled ->
+    # TodoDoc.set_state), which the router surfaces as a 404 the same way
+    # every other BacklogError already does (see the try/except in
+    # go_live_item_action).
+    monkeypatch.setattr(ops, "PRIMARY_EMAIL", "kevin.maingi12@gmail.com")
+    _write_repo(tmp_path)
+    monkeypatch.setattr(ops, "_repo_root", lambda: tmp_path)
+    user = {"email": "kevin.maingi12@gmail.com"}
+
+    async def _run():
+        await ops.go_live_item_action("H3", ItemActionRequest(action="done"), user=user)
+        with pytest.raises(HTTPException) as exc_info:
+            await ops.go_live_item_action(
+                "H3", ItemActionRequest(action="cancel", reason="not wanted"), user=user
+            )
+        assert exc_info.value.status_code == 404
+        assert "already done" in str(exc_info.value.detail)
+
+    asyncio.run(_run())
+
+
+def test_item_action_done_on_a_cancelled_item_is_404(tmp_path, monkeypatch, mock_git):
+    # H80 blocking defect (2026-09-18 review): the mirror image of
+    # test_item_action_cancel_on_a_done_item_is_404 above, which this file
+    # had never covered. Before the fix, `TodoDoc.set_done` had no
+    # cancelled check at all, so this route's "done" action would
+    # silently succeed, ticking a cancelled item complete and clearing its
+    # reason -- the same drag BoardView.tsx's Done column let through with
+    # no confirmation. The guard now lives at the service layer
+    # (backend.app.services.backlog.TodoDoc.set_done), so this route
+    # inherits it for free via the existing `except backlog.BacklogError`
+    # -> 404 mapping, the same 4xx shape every other refused transition on
+    # this route already uses (never a 500).
+    monkeypatch.setattr(ops, "PRIMARY_EMAIL", "kevin.maingi12@gmail.com")
+    _write_repo(tmp_path)
+    monkeypatch.setattr(ops, "_repo_root", lambda: tmp_path)
+    user = {"email": "kevin.maingi12@gmail.com"}
+
+    async def _run():
+        await ops.go_live_item_action(
+            "H3", ItemActionRequest(action="cancel", reason="not wanted"), user=user
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            await ops.go_live_item_action("H3", ItemActionRequest(action="done"), user=user)
+        assert exc_info.value.status_code == 404
+        assert "cancelled" in str(exc_info.value.detail)
+        assert "not wanted" in str(exc_info.value.detail)
+
+        saved = (tmp_path / "TODO.md").read_text(encoding="utf-8")
+        assert "- [ ] **H3." in saved  # never ticked [x]
+        assert "[state: cancelled: not wanted]" in saved  # reason survives, not cleared
+
+    asyncio.run(_run())
+
+
 def test_item_action_note_and_owner(tmp_path, monkeypatch, mock_git):
     monkeypatch.setattr(ops, "PRIMARY_EMAIL", "kevin.maingi12@gmail.com")
     _write_repo(tmp_path)

@@ -11,13 +11,16 @@
 // that run to full paragraphs (A38, F19, G41, G105, G111), because that
 // is what this board's titles are actually like.
 //
-// ONE ITEM IS A DELIBERATE EXCEPTION: A37 is shown in the `review` state
+// TWO ITEMS ARE DELIBERATE EXCEPTIONS: A37 is shown in the `review` state
 // below to demonstrate that card, even though the live board has zero
 // items in review right now (a state can empty out at any moment, and
 // the Focus-first layout has to hold up when it is not). A37's id, title,
 // owner and priority are all real and unmodified; only its state and
-// branch are illustrative. Every other item's state matches TODO.md
-// exactly as of this snapshot.
+// branch are illustrative. H99 (added for H80, the `cancelled` state) is
+// wholly invented, not a real board item at all: this snapshot predates
+// `cancelled` existing, so there was nothing real to sample — see its own
+// comment further down. Every other item's state matches TODO.md exactly
+// as of this snapshot.
 //
 // IN_FLIGHT is every item TODO.md currently has in in-progress, blocked,
 // review, rejected or uat (a fair sample of the uat run, which numbers
@@ -390,7 +393,32 @@ export const DONE_SAMPLE: GoLiveItem[] = [
   }),
 ];
 
-export const ALL_FIXTURE_ITEMS: GoLiveItem[] = [...IN_FLIGHT, ...TODO_SAMPLE, ...DONE_SAMPLE];
+// ---------------------------------------------------------------------
+// Cancelled (H80) — a SECOND deliberate exception, same shape as A37
+// above: this snapshot predates the `cancelled` state, so the live board
+// on 2026-09-16/17 had zero cancelled items to sample honestly. "H99" is
+// this codebase's own established placeholder id for exactly this
+// situation (see scripts/session-start-state.test.sh), not a real board
+// item, so it can never collide with a genuine id landing here later.
+// Demonstrates the collapsed "Cancelled" section beside To do and Done in
+// MobileRibbonBoard.tsx, and gives ItemDetailSheet's "Cancel, with a
+// reason (Kevin only)" control something real to open on.
+// ---------------------------------------------------------------------
+
+export const CANCELLED_TOTAL_COUNT = 1;
+
+export const CANCELLED_SAMPLE: GoLiveItem[] = [
+  item({
+    id: "H99",
+    section: "H",
+    title: "Illustrative only: a superseded idea, cancelled rather than left in to-do forever.",
+    owner: "claude",
+    state: "cancelled",
+    reason: "Superseded by a later item covering the same ground more completely.",
+  }),
+];
+
+export const ALL_FIXTURE_ITEMS: GoLiveItem[] = [...IN_FLIGHT, ...TODO_SAMPLE, ...DONE_SAMPLE, ...CANCELLED_SAMPLE];
 
 // Real count of in-flight items in TODO.md on this snapshot: 2 in-progress
 // + 3 blocked + 0 review + 1 rejected + 11 uat = 17. IN_FLIGHT above trims

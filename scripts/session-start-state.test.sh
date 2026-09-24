@@ -98,6 +98,10 @@ check_refused "rejected" \
   '{"state":"rejected","reason":"broke the safe-to-spend guard"}' \
   "resolve it first"
 
+check_refused "cancelled" \
+  '{"state":"cancelled","reason":"superseded by H80"}' \
+  "Kevin decided this should not happen"
+
 check_refused "done" \
   '{"state":"done"}' \
   "already done"
@@ -110,13 +114,14 @@ check_refused "unrecognised state" \
 #    the coordinator's ask, not a generic "refused") ─────────────────────
 
 distinct_messages_check() {
-  local -a states=("in-progress-with-branch" "review" "blocked" "uat" "rejected" "done")
+  local -a states=("in-progress-with-branch" "review" "blocked" "uat" "rejected" "cancelled" "done")
   local -a jsons=(
     '{"state":"in-progress","branch":"feature-H99-thing"}'
     '{"state":"review","branch":"feature-H99-thing"}'
     '{"state":"blocked","reason":"x"}'
     '{"state":"uat","link":"https://uat.wealth.auriqltd.co.uk/design"}'
     '{"state":"rejected","reason":"x"}'
+    '{"state":"cancelled","reason":"x"}'
     '{"state":"done"}'
   )
   local -a seen=()
