@@ -804,6 +804,7 @@ export function PlanningComposition({
   cashSlot: ReactNode;
 }) {
   const hasLadder = view.ladder.length > 0;
+  const router = useRouter();
   return (
     <div className="lg:grid lg:grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)] lg:items-start lg:gap-10">
       <div className="space-y-4 lg:sticky lg:top-6">
@@ -817,7 +818,22 @@ export function PlanningComposition({
       <div className="mt-8 space-y-4 border-t border-slate-300/80 pt-8 dark:border-slate-700 lg:mt-0 lg:border-l lg:border-t-0 lg:pl-10 lg:pt-0">
         <section id="priorities" className="scroll-mt-4" aria-labelledby="planning-priorities-heading">
           <h2 id="planning-priorities-heading" className="sr-only">Your priority order</h2>
-          {hasLadder ? <CollapsedLadder steps={view.ladder} hideValues={hideValues} /> : <div className="glass-card rounded-2xl p-5"><p className="text-sm text-slate-600 dark:text-slate-300">No order to show yet. Connect an account so Planning has a live reading to work from.</p></div>}
+          {hasLadder ? <CollapsedLadder steps={view.ladder} hideValues={hideValues} /> : (
+            /* G135: this told the user to connect an account and then gave
+               them nowhere to do it — a plain <p>, no link, on a page that
+               (like every page except Home) has no route to /accounts at
+               all. The instruction is now the door. */
+            <div className="glass-card rounded-2xl p-5">
+              <p className="text-sm text-slate-600 dark:text-slate-300">No order to show yet. Planning needs a live reading to work from.</p>
+              <button
+                type="button"
+                onClick={() => router.push("/accounts")}
+                className="mt-3 inline-flex min-h-11 items-center gap-1 text-sm font-semibold text-indigo-600 hover:opacity-80 active:opacity-70 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-lg dark:text-indigo-400"
+              >
+                Add an account <ChevronRight size={14} aria-hidden="true" />
+              </button>
+            </div>
+          )}
         </section>
         {cashSlot}
         {debtSlot}
@@ -829,8 +845,8 @@ export function PlanningComposition({
 
 export default function GrowPanel({ onLoaded, debtSlot, goalsSlot, stripSlot }: GrowPanelProps) {
   const router = useRouter();
-  const { region, hideNetWorth } = usePreferences();
-  const sym = region === "Kenya" ? "KES " : "£";
+  const { hideNetWorth } = usePreferences();
+  const sym = "£";
   const [view, setView] = useState<GrowView | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);

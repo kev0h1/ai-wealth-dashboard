@@ -7,8 +7,8 @@ is exercised by the routing layer's own tests (test_scenario_routing.py) plus
 manual verification against a live UID; this file covers the deterministic
 maths that must never drift regardless of what's in the database. The
 `reasons`/`lumpy` structural-contract section near the bottom is the one
-exception: every I/O boundary `simulate()` touches (`get_user_region`,
-`monthly_cashflow_cached`, `_build_debt_block`, `_build_plans_block`,
+exception: every I/O boundary `simulate()` touches
+(`monthly_cashflow_cached`, `_build_debt_block`, `_build_plans_block`,
 `_build_grow_block`, `_build_absorb_block`) is a plain name resolved from
 `app.services.scenario`'s own module namespace at call time, so monkeypatching
 the attribute on that module object drives `simulate()` end to end (real
@@ -613,10 +613,7 @@ def _patch_simulate_io(
     grow_result = grow_result if grow_result is not None else (_default_grow_block(), None)
     absorb_result = absorb_result if absorb_result is not None else (_default_absorb_block(), None)
 
-    async def fake_region(uid):
-        return "GB"
-
-    async def fake_cf(uid, region, cutoff):
+    async def fake_cf(uid, cutoff):
         return {"income": 3000.0, "spending": 2000.0, "debt": 200.0, "n_months": n_months, "cat": {}}
 
     async def fake_debt_block(uid, recurring_delta, today):
@@ -632,7 +629,6 @@ def _patch_simulate_io(
         return absorb_result
 
     monkeypatch.setattr(scenario_mod, "date", _FixedDate)
-    monkeypatch.setattr(scenario_mod, "get_user_region", fake_region)
     monkeypatch.setattr(scenario_mod, "monthly_cashflow_cached", fake_cf)
     monkeypatch.setattr(scenario_mod, "_build_debt_block", fake_debt_block)
     monkeypatch.setattr(scenario_mod, "_build_plans_block", fake_plans_block)

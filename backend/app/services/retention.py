@@ -19,6 +19,7 @@ import logging
 from datetime import datetime, timedelta
 
 from app.core.config import mask_email
+from app.core.session_revocation import revoke_sessions
 from app.db.collections import (
     connections_col, accounts_col, finexer_consents_col, user_profiles_col,
     linked_identities_col,
@@ -43,11 +44,11 @@ _RELAY_DOMAIN = "@privaterelay.appleid.com"
 # name (see account_has_data) rather than bound at import time, same
 # reasoning as erase_user's own dir()-based sweep.
 _ACCOUNT_DATA_COLLECTIONS = (
-    "connections_col", "finexer_consents_col", "yapily_consents_col", "mono_connections_col",
-    "accounts_col", "statement_accounts_col", "mpesa_accounts_col", "manual_accounts_col",
-    "mono_accounts_col", "yapily_accounts_col", "investment_accounts_col",
-    "transactions_col", "statement_transactions_col", "mpesa_transactions_col",
-    "mono_transactions_col", "yapily_transactions_col", "manual_transactions_col",
+    "connections_col", "finexer_consents_col", "yapily_consents_col",
+    "accounts_col", "statement_accounts_col", "manual_accounts_col",
+    "yapily_accounts_col", "investment_accounts_col",
+    "transactions_col", "statement_transactions_col",
+    "yapily_transactions_col", "manual_transactions_col",
 )
 
 # Activity-stamp throttle: `current_user` (app.core.auth) calls stamp_activity
@@ -61,12 +62,45 @@ async def erase_user(uid: str) -> dict[str, int]:
     """Erase every trace of `uid`: every document in every `*_col` collection
     in app.db.collections matched by `user_id` field or uid-keyed `_id`.
 
+    Before any of that, revoke every live bank connection `uid` holds
+    (TrueLayer `connections_col`, Finexer `finexer_consents_col`) via
+    `disconnect_connection`. A local delete alone cannot cancel a Finexer
+    consent: the consent lives at Finexer, so it must be revoked there
+    (`disconnect_connection`'s Finexer branch does a best-effort remote
+    `DELETE /consents/{id}`) or it stays live after the user's account is
+    gone (A82). Each revoke runs in its own try/except so one failing
+    connection never blocks erasure of the rest, or of the user's other
+    data; failures are logged and counted, not raised.
+
     This is the exact routine `routers/profile.py::delete_account` used to
     run inline (that endpoint now just checks the confirmation phrase and
     calls this); the dormant-user sweep below calls it too.
     """
     from app.db import collections as _cols
     removed: dict[str, int] = {}
+
+    # Gathered via the same fresh `_cols` lookup as the delete loop below
+    # (not this module's own top-level `connections_col`/`finexer_consents_col`
+    # names) so a caller that only patches app.db.collections in tests still
+    # gets full coverage, matching the dir()-based sweep's own safety net.
+    revoked = 0
+    revoke_errors = 0
+    connection_ids = [d["_id"] async for d in _cols.connections_col.find({"user_id": uid}, {"_id": 1})]
+    connection_ids += [d["_id"] async for d in _cols.finexer_consents_col.find({"user_id": uid}, {"_id": 1})]
+    for connection_id in connection_ids:
+        try:
+            await disconnect_connection(uid, connection_id)
+            revoked += 1
+        except Exception:
+            revoke_errors += 1
+            logger.exception(
+                "erase_user: failed to revoke connection %s for %s", connection_id, uid,
+            )
+    if revoked:
+        removed["connections_revoked"] = revoked
+    if revoke_errors:
+        removed["connection_errors"] = revoke_errors
+
     for attr in dir(_cols):
         if not attr.endswith("_col"):
             continue
@@ -81,8 +115,8 @@ async def erase_user(uid: str) -> dict[str, int]:
 
 async def account_has_data(uid: str) -> bool:
     """True if `uid` owns any connection, consent, account, or transaction
-    row anywhere (TrueLayer, Finexer, Yapily, Mono, M-Pesa, statement
-    upload, manual, or investment) — the bar erase_orphaned_relay_account
+    row anywhere (TrueLayer, Finexer, Yapily, statement upload, manual, or
+    investment) — the bar erase_orphaned_relay_account
     below refuses to cross ("never delete an account with data").
 
     Looked up fresh from app.db.collections by name each call (like
@@ -345,6 +379,13 @@ async def sweep_dormant_users(now: datetime | None = None) -> dict:
             continue
         uid = doc["_id"]
         try:
+            # A84: revoke before erasing (not inside erase_user itself,
+            # which is shared with DELETE /account and out of scope for
+            # this call site's edit), same ordering as the user-initiated
+            # deletion path, so a dormant token can't keep authenticating
+            # for the rest of its lifetime once the sweep decides it's
+            # erasing this user.
+            await revoke_sessions(uid, now=now)
             removed = await erase_user(uid)
             erased += 1
             logger.warning(

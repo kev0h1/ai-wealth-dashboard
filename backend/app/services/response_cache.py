@@ -67,6 +67,29 @@ logger = logging.getLogger(__name__)
 TTL_SECONDS = 6 * 3600.0
 _MAX_TIME_MS = 500
 
+# ── Response SHAPE version (G148, 2026-09-23) ────────────────────────────────
+# The three checks above all answer "is this payload out of date for this
+# USER?". None of them answers "was this payload built by code that emitted
+# the same FIELDS?" — and that is a different question with the same
+# symptom. G110 added `account_eligibility` to GET /today; every entry
+# already in Mongo stayed version-current and day-current for its user, so
+# it kept being served with the old shape, and Home's spend-from rail
+# rendered nothing at all because a missing field is indistinguishable from
+# a request that never happened. (The companion defect, a warm-up that built
+# its own payload literal, is fixed in app/services/warmup.py; this closes
+# the class.)
+#
+# Every entry `aput` writes carries this stamp in BOTH layers, and every
+# read requires it to match. Bump it in the same commit as any change to
+# what a cached response contains: that is a one-line, whole-population
+# invalidation at deploy time, immediate for every user, with no TTL to
+# wait out, no calendar day to roll and no per-user data-version bump.
+#
+# Entries written before this existed carry no `shape` key at all, so
+# `.get("shape")` is None and they are rejected by the same comparison with
+# no migration step — which is exactly what should happen to them.
+SHAPE_VERSION = 1
+
 # UK users; the app's OTHER date logic mostly uses naive server-local
 # `date.today()` (a separate, wider concern not touched by this round) —
 # this cache specifically pins its day boundary to Europe/London (DST-aware)
@@ -95,7 +118,8 @@ def _stringify_keys(obj: Any) -> Any:
     return obj
 
 
-# {cache_name: {uid: {"version": int, "day": str, "ts": float, "payload": Any}}}
+# {cache_name: {uid: {"version": int, "day": str, "shape": int, "ts": float,
+#                     "payload": Any}}}
 _caches: dict[str, dict[str, dict]] = {}
 
 
@@ -105,6 +129,12 @@ def _memory_fresh(entry: dict | None, *, version: int, ttl: float) -> bool:
     if time.monotonic() - entry["ts"] > ttl:
         return False
     if entry["day"] != local_day():
+        return False
+    # `.get`, not `[...]`: `_caches` is per-process, so no other process can
+    # have written this entry, but an entry put there by an older build of
+    # THIS module (a dev reload, a future partial hot-swap) would have no
+    # `shape` key, and that must read as a mismatch rather than a KeyError.
+    if entry.get("shape") != SHAPE_VERSION:
         return False
     return entry["version"] == version
 
@@ -137,6 +167,11 @@ async def aget(name: str, uid: str, ttl: float = TTL_SECONDS) -> Any | None:
         return None
     if doc.get("version") != version or doc.get("day") != local_day():
         return None
+    # G148: built by code that emitted a different set of fields — a hit
+    # here would hand the caller a payload silently missing keys it now
+    # depends on, which is how Home lost its spend-from rail for a week.
+    if doc.get("shape") != SHAPE_VERSION:
+        return None
     computed_at = doc.get("computed_at")
     if isinstance(computed_at, datetime):
         if computed_at.tzinfo is None:
@@ -146,7 +181,12 @@ async def aget(name: str, uid: str, ttl: float = TTL_SECONDS) -> Any | None:
 
     payload = doc.get("payload")
     _caches.setdefault(name, {})[uid] = {
-        "version": version, "day": doc.get("day"), "ts": time.monotonic(), "payload": payload,
+        # The doc's shape was checked against SHAPE_VERSION above, so the
+        # promoted memory entry carries the same stamp — without it the
+        # promotion would write an entry `_memory_fresh` immediately
+        # rejects, turning every Mongo hit into a one-shot read.
+        "version": version, "day": doc.get("day"), "shape": SHAPE_VERSION,
+        "ts": time.monotonic(), "payload": payload,
     }
     return payload
 
@@ -174,13 +214,15 @@ async def aput(name: str, uid: str, payload: Any, *, version: int) -> None:
     # a payload carrying something less JSON-native, e.g. a Decimal/tuple).
     encoded = _stringify_keys(jsonable_encoder(payload))
     _caches.setdefault(name, {})[uid] = {
-        "version": version, "day": today, "ts": time.monotonic(), "payload": encoded,
+        "version": version, "day": today, "shape": SHAPE_VERSION,
+        "ts": time.monotonic(), "payload": encoded,
     }
     try:
         await response_cache_col.replace_one(
             {"user_id": uid, "name": name},
             {
                 "user_id": uid, "name": name, "version": version, "day": today,
+                "shape": SHAPE_VERSION,
                 "payload": encoded, "computed_at": datetime.now(timezone.utc),
             },
             upsert=True,

@@ -34,16 +34,16 @@ Same fake-Mongo/monkeypatch conventions as test_safe_to_spend_hardening.py
 (no mongomock in this environment).
 """
 import asyncio
-from datetime import date
+from datetime import date, timedelta
 
 import app.routers.analytics as analytics
 import app.routers.allocations as allocations_router
 import app.routers.commitments as commitments_router
 import app.services.cashflow as cashflow_service
 import app.services.categories as categories
+import app.services.income as income_service
 import app.services.needle as needle
 import app.services.net_position as net_position
-import app.services.region as region_service
 from app.services.categories import BUILTIN_CATEGORY_KINDS
 
 UID = "kevin@example.com"
@@ -88,22 +88,18 @@ def _wire_common(monkeypatch, *, recurring_spend=None):
     }))
     monkeypatch.setattr(analytics, "card_terms_col", _ListCol([]))
 
-    async def uk(_uid):
-        return "UK"
-
     async def no_commitments(_uid):
         return 0, 0
 
     async def no_allocations(_uid):
         return 0.0, 0
 
-    async def monthly_cashflow(_uid, _region, _cutoff):
+    async def monthly_cashflow(_uid, _cutoff):
         return {"spending": 0.0, "n_months": 3}
 
     async def no_sync(_uid):
         return None
 
-    monkeypatch.setattr(region_service, "get_user_region", uk)
     monkeypatch.setattr(commitments_router, "total_reserved_slices", no_commitments)
     monkeypatch.setattr(allocations_router, "total_reserved_remaining", no_allocations)
     monkeypatch.setattr(cashflow_service, "monthly_cashflow_cached", monthly_cashflow)
@@ -291,19 +287,45 @@ def test_reserve_still_catches_growth_with_no_predicted_repayment(monkeypatch):
     not just £200. Without that follow-up, the £180 would be caught by
     NEITHER the cash walk (correctly excluded, it's not cash leaving yet)
     NOR the reserve (nothing has posted yet), overstating cash by £180.
+
+    G137, 2026-09-21: originally written against `days_away: 10` under an
+    UNPINNED "today" (`compute_safe_to_spend` reads `date.today()`
+    directly), relying on `get_confirmed_payday` finding no confirmed
+    income stream in this fixture's bare prefs doc and falling back to the
+    default "calendar_month" pay config, whose payday is a fixed calendar
+    date (the 1st of next month) rather than one that moves with "today".
+    `days_until_payday` was 15 the day this was written and shrinks by one
+    for every day the suite runs on, so a real calendar month's final ~10
+    days push `days_away: 10` outside `0 <= days_away < days_until_payday`
+    and the charge silently drops out of `raw_window_bills` altogether —
+    that is exactly what turned this into a false pass at 200.0 instead of
+    380.0 (see G137). Anchored below to a payday fixed at "today" + 15 days
+    (`get_confirmed_payday` monkeypatched the same way
+    `test_safe_to_spend_pins_against_a_fixed_transaction_fixture` in
+    test_safe_to_spend_hardening.py does it), so `days_away: 10` is inside
+    the window on every calendar day, not just the day this was written.
     """
     _wire_common(monkeypatch, recurring_spend=[])  # no card_dest_account_id anywhere -> unlearned
+
+    today = date.today()
+    next_payday = today + timedelta(days=15)  # days_until_payday == 15, always
+
+    def fake_confirmed_payday(_prefs, _today):
+        return (next_payday, {"schedule": "fixed"})
+
+    monkeypatch.setattr(income_service, "get_confirmed_payday", fake_confirmed_payday)
+
     bills = [{
         # A future occurrence of the SAME recurring charge that produced
         # this period's growth — is_credit_card true, no card_dest link.
         # days_away MUST stay inside the window (`raw_window_bills` keeps
-        # `0 <= days_away < days_until_payday`, which is 15 under this
-        # fixture's default pay config): a charge dated after payday never
-        # reaches `window_bills` for the ordinary calendar reason and would
-        # make this test pass without exercising either the exclusion or
-        # the reserve.
+        # `0 <= days_away < days_until_payday`, pinned to 15 above by the
+        # fake_confirmed_payday monkeypatch): a charge dated after payday
+        # never reaches `window_bills` for the ordinary calendar reason and
+        # would make this test pass without exercising either the
+        # exclusion or the reserve.
         "name": "Anthropic", "days_away": 10, "amount": 180.0,
-        "expected_date": "2026-09-26", "kind": "discretionary",
+        "expected_date": (today + timedelta(days=10)).isoformat(), "kind": "discretionary",
         "account_id": "amex", "is_credit_card": True,
     }]
     accounts = [{"balance": 100.0, "type": "bank", "subtype": "CURRENT", "currency": "GBP"}]

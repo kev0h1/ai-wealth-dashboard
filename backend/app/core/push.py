@@ -28,6 +28,50 @@ _APNS_JWT_MAX_AGE = 50 * 60  # regenerate before Apple's 60-minute cap
 _apns_jwt_cache: dict = {"token": None, "iat": 0}
 _apns_warned_unconfigured = False
 
+# APNs 400 "reason" strings (per Apple's documented list) that mean THIS
+# DEVICE TOKEN is permanently unusable, never a transient/config/payload
+# problem with our request. Safe to prune: retrying the same token later
+# would fail identically forever, which is exactly the bug this set fixes
+# (DeviceTokenNotForTopic was previously falling through to a bare warning
+# and retrying every 4-hourly sync-worker run indefinitely).
+#   - BadDeviceToken: token is malformed, or was issued for a different
+#     APNs environment (sandbox vs production) than we sent to.
+#   - Unregistered: the user has uninstalled the app or disabled push for
+#     it. Apple's normal path for this is HTTP 410, but it can also arrive
+#     as a 400 with this reason, so it is handled in both branches below.
+#   - DeviceTokenNotForTopic: token was minted by a build under a DIFFERENT
+#     apps-topic (bundle id) than the one we're sending to. The token can
+#     never become valid for our topic; only a fresh registration from the
+#     correct build fixes this, which is a client-side event, not something
+#     retrying the send will ever produce.
+_APNS_PRUNABLE_REASONS = frozenset({
+    "BadDeviceToken",
+    "Unregistered",
+    "DeviceTokenNotForTopic",
+})
+
+# APNs 400 "reason" strings that describe a problem with OUR request (server
+# config, credentials, payload or rate limiting), never the token itself.
+# Retrying later, once the underlying problem is fixed, can succeed with the
+# very same token, so these must NEVER prune. Getting this wrong is a much
+# bigger blast radius than under-pruning: pruning on one of these would
+# silently unsubscribe every user's token at once in response to a single
+# misconfigured deploy or an expired provider certificate. This set is not
+# read anywhere, it exists purely as the explicit, reviewable contrast to
+# _APNS_PRUNABLE_REASONS above and as a reference for reason strings that
+# are expected to appear in logs without ever triggering a prune.
+_APNS_NON_PRUNABLE_REASONS = frozenset({
+    "BadTopic", "TopicDisallowed", "MissingTopic",             # topic/config
+    "BadCertificate", "BadCertificateEnvironment",              # our cert
+    "InvalidProviderToken", "MissingProviderToken",             # our JWT
+    "ExpiredProviderToken", "InvalidSigningKey",                # our JWT
+    "PayloadTooLarge", "PayloadEmpty", "BadMessageId",          # our payload
+    "BadExpirationDate", "BadPriority", "BadCollapseId",        # our payload
+    "TooManyProviderTokenUpdates", "TooManyRequests",           # rate limiting
+    "InternalServerError", "ServiceUnavailable", "Shutdown",    # Apple-side
+    "MethodNotAllowed", "Forbidden", "IdleTimeout",             # Apple-side
+})
+
 
 def _apns_provider_jwt() -> str:
     """Return a cached ES256 provider JWT for APNs, regenerating when stale."""
@@ -89,14 +133,27 @@ async def send_apns_push(user_id: str, title: str, body: str, url: str = "/") ->
                         result["failed"] += 1
                     elif resp.status_code == 400:
                         reason = (resp.json() or {}).get("reason")
-                        if reason in ("BadDeviceToken", "Unregistered"):
+                        if reason in _APNS_PRUNABLE_REASONS:
                             logging.warning(
                                 "APNs pruning dead token for %s (%s, reason=%s): token=%s body=%s",
                                 user_id, resp.status_code, reason, token_trunc, resp.text,
                             )
                             dead.append(device_token)
+                        elif reason in _APNS_NON_PRUNABLE_REASONS:
+                            logging.warning(
+                                "APNs 400 for %s, NOT pruning (server/request-side reason=%s): token=%s body=%s",
+                                user_id, reason, token_trunc, resp.text,
+                            )
                         else:
-                            logging.warning("APNs 400 for %s: %s", user_id, reason)
+                            # Fail safe: an unrecognised reason is treated as
+                            # NOT prunable rather than guessed at, but logged
+                            # with the full token and body so it is
+                            # diagnosable and can be triaged into one of the
+                            # two sets above.
+                            logging.warning(
+                                "APNs 400 for %s, unrecognised reason=%r, NOT pruning: token=%s body=%s",
+                                user_id, reason, token_trunc, resp.text,
+                            )
                         result["failed"] += 1
                     elif resp.status_code >= 400:
                         logging.warning("APNs send error for %s (%s): %s", user_id, resp.status_code, resp.text)

@@ -1,3 +1,4 @@
+import asyncio
 import re
 
 from app.services.categorisation import rule_categorise
@@ -249,3 +250,104 @@ def test_car_finance_patterns_use_same_source_list_as_savings_insights():
         assert rule_categorise("", trigger.upper()) == "Mortgage", trigger
     for trigger in INSIGHT_CATEGORIES["car_finance"]["triggers"]:
         assert rule_categorise("", trigger.upper()) == "Car finance", trigger
+
+
+# ── A59 pentest (LLM-04, cross-user categorisation-cache isolation) ────────
+#
+# PENTEST-METHODOLOGY.md LLM-04 asks whether a crafted, person-referencing
+# merchant/transaction string from one user (PT-A) can leak into another
+# user's (PT-B's) categorisation via the shared global merchant cache. No
+# existing test in this suite drove `cache_merchant`'s own PERSON/REFERENCE
+# GATE or its uid-scoping directly (it is only ever exercised indirectly
+# through `apply_rules_bulk`/`llm_name_check`'s much larger integration
+# surface) — this is the gap the pentest run closes with a minimal, direct
+# regression test. Behaviour-recording only: this does not change
+# `cache_merchant`, it pins the isolation the 2026-08-17 "MAINGI KM" incident
+# fix (see `_PERSON_PAYMENT_RE`'s own docstring) already provides.
+class _FakeMerchantCacheCol:
+    """Minimal stand-in for `merchant_categories_col`: only the two methods
+    `cache_merchant` calls, exact-`_id`-equality matching, same minimal-fake
+    convention `tests/test_penny_proposals.py`'s `_FakeCol` already uses."""
+
+    def __init__(self):
+        self.docs: dict[str, dict] = {}
+
+    async def find_one(self, query, projection=None):
+        return self.docs.get(query.get("_id"))
+
+    async def update_one(self, filt, update, upsert=False):
+        doc_id = filt["_id"]
+        doc = self.docs.setdefault(doc_id, {"_id": doc_id})
+        doc.update(update.get("$set") or {})
+
+
+def test_person_referencing_key_forced_per_user_never_reaches_global_cache(monkeypatch):
+    """A59/LLM-04: a PT-A transaction narrative shaped like a payment TO a
+    named person (the exact structural shape the 2026-08-17 incident
+    closed — a faster-payment reference with an `fp` marker) must be cached
+    per-user even when the caller asks for a global write (`prefer_global=
+    True`) and even though the category itself ("Shopping") is an ordinary
+    spend-kind category the KIND GATE alone would have let through. If this
+    ever regressed to a global write, PT-B's own unrelated transaction
+    colliding on the same bank-narrative text would silently inherit PT-A's
+    categorisation decision — the exact cross-user leak LLM-04 exists to
+    evidence."""
+    import app.services.categorisation as categorisation
+
+    fake_col = _FakeMerchantCacheCol()
+    monkeypatch.setattr(categorisation, "merchant_categories_col", fake_col)
+
+    injected_key = "to daniel maingi standing order fp 12"
+    pt_a_uid = "a59-pentest-pt-a@pentest.invalid"
+
+    asyncio.run(categorisation.cache_merchant(
+        injected_key, "Shopping", "llm", uid=pt_a_uid, prefer_global=True,
+    ))
+
+    scoped_id = f"{pt_a_uid}::{injected_key}"
+    assert scoped_id in fake_col.docs, "expected a per-user-scoped cache write"
+    assert fake_col.docs[scoped_id]["uid"] == pt_a_uid
+    assert fake_col.docs[scoped_id]["category"] == "Shopping"
+
+    # The global slot (bare key, no uid prefix) must not exist at all —
+    # this is what stops PT-B's own lookup (a bare-key read, see
+    # `apply_rules_bulk`'s "Pass 3.4" global+per-user cache load) from ever
+    # seeing PT-A's decision.
+    assert injected_key not in fake_col.docs, (
+        "PERSON/REFERENCE GATE regression: a person-referencing key reached "
+        "the global cache slot, which every other user's categorisation "
+        "pass reads from"
+    )
+    assert len(fake_col.docs) == 1, "no stray global doc should exist alongside the scoped one"
+
+
+def test_ordinary_merchant_key_still_allowed_global_control_case(monkeypatch):
+    """Control case for the test above: an ordinary business merchant name
+    with no person/payment-reference shape, offered for the same spend-kind
+    category with `prefer_global=True`, DOES go global — confirming the
+    gate is selective (closes the real incident shape only) rather than
+    accidentally forcing every write per-user, which would silently defeat
+    the whole point of the shared global cache."""
+    import app.services.categorisation as categorisation
+
+    fake_col = _FakeMerchantCacheCol()
+    monkeypatch.setattr(categorisation, "merchant_categories_col", fake_col)
+
+    # "tesco stores" doesn't match _PERSON_PAYMENT_RE's structural shapes,
+    # so _key_looks_user_relative falls through to a real user_identity()
+    # lookup (a genuine Mongo call via user_profiles_col/accounts_col) —
+    # stubbed here to keep this test hitting no real database, same
+    # convention tests/test_transfer_pairs.py's own `_fake_user_identity`
+    # already uses for this exact function.
+    async def fake_user_identity(uid):
+        return {"name_tokens": [], "own_ids": set(), "own_map": {}}
+
+    monkeypatch.setattr(categorisation, "user_identity", fake_user_identity)
+
+    ordinary_key = "tesco stores"
+    asyncio.run(categorisation.cache_merchant(
+        ordinary_key, "Groceries", "llm", uid="a59-pentest-pt-a@pentest.invalid", prefer_global=True,
+    ))
+
+    assert ordinary_key in fake_col.docs
+    assert "uid" not in fake_col.docs[ordinary_key]

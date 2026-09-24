@@ -1,8 +1,7 @@
 """Focused Safe-to-Spend hardening tests.
 
 These exercise the pure low-point walk, the active-consent account universe,
-the unsupported-region guard, and preference-cache invalidation without
-requiring Mongo.
+and preference-cache invalidation without requiring Mongo.
 """
 import asyncio
 from datetime import date, datetime, timedelta, timezone
@@ -14,7 +13,6 @@ import app.routers.commitments as commitments_router
 import app.services.cashflow as cashflow_service
 import app.services.income as income_service
 import app.services.net_position as net_position
-import app.services.region as region_service
 
 
 def test_safe_to_spend_cache_rejects_payload_from_old_arithmetic():
@@ -170,22 +168,6 @@ def test_safe_to_spend_includes_yapily_records_with_authorized_consent(monkeypat
     ]
 
 
-def test_kenya_safe_to_spend_returns_explicit_unsupported_result(monkeypatch):
-    monkeypatch.setattr(analytics, "preferences_col", _PrefsCol())
-
-    async def kenya(_uid):
-        return "Kenya"
-
-    monkeypatch.setattr(region_service, "get_user_region", kenya)
-    result = asyncio.run(analytics.compute_safe_to_spend("user@example.com"))
-
-    assert result == {
-        "status": "insufficient_data",
-        "calculation_status": "unsupported",
-        "unavailable_components": ["kenya_spendable_cash"],
-    }
-
-
 def test_safe_to_spend_returns_lowest_projected_balance_and_reconciles_cash(monkeypatch):
     monkeypatch.setattr(analytics, "preferences_col", _PrefsCol({
         "user_id": "user@example.com", "safe_to_spend_buffer": 10,
@@ -201,9 +183,6 @@ def test_safe_to_spend_returns_lowest_projected_balance_and_reconciles_cash(monk
         {"account_id": "card1", "usage": "clear_monthly"},
         {"account_id": "card2", "usage": "carry"},
     ]))
-
-    async def uk(_uid):
-        return "UK"
 
     async def cashflow_response(_cached, uid=None):
         return {
@@ -240,13 +219,12 @@ def test_safe_to_spend_returns_lowest_projected_balance_and_reconciles_cash(monk
             {"account_id": "card2", "net_change": -60.0, "growth": 0.0, "unpaid_growth": 0.0},
         ]
 
-    async def monthly_cashflow(_uid, _region, _cutoff):
+    async def monthly_cashflow(_uid, _cutoff):
         return {"spending": 0.0, "n_months": 3}
 
     async def no_sync(_uid):
         return None
 
-    monkeypatch.setattr(region_service, "get_user_region", uk)
     monkeypatch.setattr(analytics, "_build_cashflow_response", cashflow_response)
     monkeypatch.setattr(analytics, "_safe_to_spend_accounts", accounts)
     monkeypatch.setattr(commitments_router, "total_reserved_slices", commitments)
@@ -279,9 +257,6 @@ def test_safe_to_spend_reserves_only_growth_without_a_learned_repayment(monkeypa
     }))
     monkeypatch.setattr(analytics, "card_terms_col", _ListCol([]))
 
-    async def uk(_uid):
-        return "UK"
-
     async def cashflow_response(_cached, uid=None):
         return {"upcoming_bills": [], "upcoming_income": []}
 
@@ -300,13 +275,12 @@ def test_safe_to_spend_reserves_only_growth_without_a_learned_repayment(monkeypa
             {"account_id": "card2", "net_change": -50.0, "growth": 0.0, "unpaid_growth": 0.0},
         ]
 
-    async def monthly_cashflow(_uid, _region, _cutoff):
+    async def monthly_cashflow(_uid, _cutoff):
         return {"spending": 0.0, "n_months": 3}
 
     async def no_sync(_uid):
         return None
 
-    monkeypatch.setattr(region_service, "get_user_region", uk)
     monkeypatch.setattr(analytics, "_build_cashflow_response", cashflow_response)
     monkeypatch.setattr(analytics, "_safe_to_spend_accounts", accounts)
     monkeypatch.setattr(commitments_router, "total_reserved_slices", no_commitments)
@@ -332,9 +306,6 @@ def test_safe_to_spend_fails_closed_when_card_growth_cannot_be_verified(monkeypa
     monkeypatch.setattr(analytics, "preferences_col", _PrefsCol({"user_id": "user@example.com"}))
     monkeypatch.setattr(analytics, "cashflow_cache_col", _CacheDocCol())
 
-    async def uk(_uid):
-        return "UK"
-
     async def cashflow_response(_cached, uid=None):
         return {"upcoming_bills": [], "upcoming_income": []}
 
@@ -350,13 +321,12 @@ def test_safe_to_spend_fails_closed_when_card_growth_cannot_be_verified(monkeypa
     async def failed_growth(_uid, _start, _today, _bills, _excluded=None):
         return None
 
-    async def monthly_cashflow(_uid, _region, _cutoff):
+    async def monthly_cashflow(_uid, _cutoff):
         return {"spending": 0.0, "n_months": 3}
 
     async def no_sync(_uid):
         return None
 
-    monkeypatch.setattr(region_service, "get_user_region", uk)
     monkeypatch.setattr(analytics, "_build_cashflow_response", cashflow_response)
     monkeypatch.setattr(analytics, "_safe_to_spend_accounts", accounts)
     monkeypatch.setattr(commitments_router, "total_reserved_slices", no_commitments)
@@ -377,9 +347,6 @@ def test_safe_to_spend_marks_a_known_reserve_failure_degraded(monkeypatch):
     monkeypatch.setattr(analytics, "preferences_col", _PrefsCol({"user_id": "user@example.com"}))
     monkeypatch.setattr(analytics, "cashflow_cache_col", _CacheDocCol())
 
-    async def uk(_uid):
-        return "UK"
-
     async def cashflow_response(_cached, uid=None):
         return {"upcoming_bills": [], "upcoming_income": []}
 
@@ -395,13 +362,12 @@ def test_safe_to_spend_marks_a_known_reserve_failure_degraded(monkeypatch):
     async def no_card_growth(_uid, _start, _today, _bills, _excluded=None):
         return []
 
-    async def monthly_cashflow(_uid, _region, _cutoff):
+    async def monthly_cashflow(_uid, _cutoff):
         return {"spending": 0.0, "n_months": 3}
 
     async def no_sync(_uid):
         return None
 
-    monkeypatch.setattr(region_service, "get_user_region", uk)
     monkeypatch.setattr(analytics, "_build_cashflow_response", cashflow_response)
     monkeypatch.setattr(analytics, "_safe_to_spend_accounts", accounts)
     monkeypatch.setattr(commitments_router, "total_reserved_slices", unavailable_commitments)
@@ -426,8 +392,14 @@ def test_preferences_patch_invalidates_every_cached_response_for_user(monkeypatc
     monkeypatch.setattr(preferences, "preferences_col", prefs_col)
     monkeypatch.setattr(preferences, "response_cache", cache)
 
+    # A85: the field just needs to be a real, allowlisted preference (any
+    # one demonstrates "regardless of which field changed" -- see
+    # ALLOWED_PREFERENCE_FIELDS in app/routers/preferences.py). It used to
+    # be the orphaned `safe_to_spend_buffer` (read in analytics.py but
+    # never written by any caller), which A85's mass-assignment fix now
+    # rejects with 422 since PATCH /preferences never actually accepts it.
     result = asyncio.run(preferences.update_preferences(
-        {"safe_to_spend_buffer": 75}, {"email": "user@example.com"}
+        {"debt_target_months": 75}, {"email": "user@example.com"}
     ))
 
     assert cache.calls == [("user@example.com",)]
@@ -533,9 +505,6 @@ def test_safe_to_spend_pins_against_a_fixed_transaction_fixture(monkeypatch):
     # card_growth_reserved = min(200.0, unlearned_growth=80.0) = 80.0
     # final safe_to_spend: 179.5 - 80.0 = 99.5
 
-    async def fake_region(_uid):
-        return "UK"
-
     def fake_confirmed_payday(_prefs, _today):
         return (next_payday, {"schedule": "fixed"})
 
@@ -559,7 +528,7 @@ def test_safe_to_spend_pins_against_a_fixed_transaction_fixture(monkeypatch):
              "unpaid_growth": 80.0, "new_spend": 80.0},
         ]
 
-    async def fake_monthly_cashflow(_uid, _region, _cutoff):
+    async def fake_monthly_cashflow(_uid, _cutoff):
         return {"spending": 2000.0, "n_months": 3}
 
     async def fake_last_sync(_uid):
@@ -578,7 +547,6 @@ def test_safe_to_spend_pins_against_a_fixed_transaction_fixture(monkeypatch):
         }),
     )
     monkeypatch.setattr(analytics, "card_terms_col", _ListCol([]))
-    monkeypatch.setattr(region_service, "get_user_region", fake_region)
     monkeypatch.setattr(income_service, "get_confirmed_payday", fake_confirmed_payday)
     monkeypatch.setattr(analytics, "_build_cashflow_response", fake_cashflow_response)
     monkeypatch.setattr(analytics, "_safe_to_spend_accounts", fake_accounts)

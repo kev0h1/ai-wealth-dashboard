@@ -22,7 +22,7 @@ function jumpTo(destination: SpendJourneyDestination) {
 
 /**
  * The compact route map for the Spend journey. Destinations are supplied by
- * the caller so a completed step, notably "Place", can leave the strip
+ * the caller so a completed step, notably "To categorise", can leave the strip
  * entirely instead of lingering as dead navigation.
  */
 export default function SpendJourneyNav({
@@ -35,7 +35,7 @@ export default function SpendJourneyNav({
   return (
     <nav
       aria-label="Jump through this pay period"
-      className={`grid gap-2 ${desktop ? "grid-cols-2" : destinations.length >= 4 ? "grid-cols-4" : destinations.length === 3 ? "grid-cols-3" : "grid-cols-2"}`}
+      className={`grid gap-2 ${desktop ? "grid-cols-2" : destinations.length >= 4 ? "grid-cols-2 sm:grid-cols-4" : destinations.length === 3 ? "grid-cols-3" : "grid-cols-2"}`}
     >
       {destinations.map((destination) => (
         <button

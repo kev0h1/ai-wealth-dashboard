@@ -80,7 +80,7 @@ from email.utils import parsedate_to_datetime
 
 import httpx
 
-from app.core.llm import openrouter_chat
+from app.core.llm import LLMCeilingReached, openrouter_chat
 from app.db.collections import preferences_col
 from app.services.penny_tools import (
     PROPOSE_TOOL_NAMES, PROPOSE_TOOL_SCHEMAS, TOOL_SCHEMAS, execute_tool,
@@ -253,13 +253,29 @@ async def _call_openrouter_with_retry(
     retrying it risks doubling that against the wall-clock ceiling for a
     case no more likely to succeed a moment later — the caller's existing
     round-cap/wall-clock handling is what bounds that case, not this
-    function."""
+    function.
+
+    A80: `openrouter_chat` raises `LLMCeilingReached` (never returns a
+    response) when the service-wide monthly call ceiling refuses the
+    request before it is even sent. Caught explicitly here — NOT folded
+    into a wider `except HTTPException`, which would also catch unrelated
+    HTTPExceptions this function has no business reacting to — and
+    classified exactly like a non-retryable HTTP status (402 is not in
+    `_is_retryable_status`): a `_ProviderFailure`, so `run_penny_agent`
+    reports the honest `{"provider_error": True}` rather than letting it
+    fall through to the generic `except Exception` there, which the B37
+    failure doctrine reads as an off-topic decline."""
     attempt = 0
     while True:
         try:
             response = await openrouter_chat(
                 payload, user_id=uid, pipeline="penny", client=client, message_id=message_id,
             )
+        except LLMCeilingReached as exc:
+            logger.warning(
+                "penny_agent: OpenRouter request for %s refused by the global monthly call ceiling (A80)", uid,
+            )
+            raise _ProviderFailure("HTTP 402") from exc
         except (httpx.TimeoutException, httpx.TransportError) as exc:
             # Logged here (with the real exception text, where a message
             # like this belongs) but NOT threaded into the raised

@@ -21,14 +21,14 @@
 // (2026-08-27) — Out leads as the hero figure since Spend is about
 // spending, In and Moved are a secondary tier below it, and the pace strip
 // is cut entirely (it read as a sparkline nobody could act on; the
-// category rows and the reading already carry the same "running ahead of
-// usual" fact in words). See DESIGN.md's "The Instrument Header (Spend)".
+// category rows and the reading already carry the same "more than usual"
+// fact in words). See DESIGN.md's "The Instrument Header (Spend)".
 //
 // This component never derives a money figure from raw transactions.
 
 import { useState } from "react";
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, Settings2, Search, Info, X } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Settings2, Search, Info, X } from "lucide-react";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { useSheetA11y } from "@/lib/useSheetA11y";
 import TransactionRow from "@/components/TransactionRow";
@@ -465,15 +465,36 @@ export function SpendJourneySummary(props: SpendHeaderProps) {
         )}
       </dl>
 
-      <p className="mt-4 text-pretty text-[12px] leading-5 text-slate-500 dark:text-slate-400">
-        <span className="font-mono tabular-nums">{fmt(attentionTotal)}</span> needing a look +{" "}
-        <span className="font-mono tabular-nums">{fmt(restTotal)}</span> across the rest
-        {unresolvedTotal > 0 && <>{" "}+ <span className="font-mono tabular-nums">{fmt(unresolvedTotal)}</span> unplaced</>}
-        {" "}= <span className="font-mono tabular-nums">{fmt(verdict.pills.spent)}</span> out.
-      </p>
+      <details className="group mt-2">
+        <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 rounded-xl px-1 text-left text-[12px] font-semibold text-slate-600 transition-colors hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-400 dark:hover:text-white [&::-webkit-details-marker]:hidden">
+          <span>
+            How <span className="font-mono tabular-nums">{fmt(verdict.pills.spent)}</span> out adds up
+          </span>
+          <ChevronDown size={15} aria-hidden="true" className="shrink-0 transition-transform group-open:rotate-180 motion-reduce:transition-none" />
+        </summary>
+        <dl className="space-y-2 px-1 pb-2 pt-1 text-[12px]">
+          <div className="flex items-center justify-between gap-4">
+            <dt className="text-slate-600 dark:text-slate-400">Needs a look</dt>
+            <dd className="font-mono font-semibold tabular-nums text-slate-900 dark:text-slate-100">{fmt(attentionTotal)}</dd>
+          </div>
+          <div className="flex items-center justify-between gap-4">
+            <dt className="text-slate-600 dark:text-slate-400">Other categorised spending</dt>
+            <dd className="font-mono font-semibold tabular-nums text-slate-900 dark:text-slate-100">{fmt(restTotal)}</dd>
+          </div>
+          {unresolvedTotal > 0 && (
+            <div className="flex items-center justify-between gap-4">
+              <dt className="text-slate-600 dark:text-slate-400">To categorise</dt>
+              <dd className="font-mono font-semibold tabular-nums text-slate-900 dark:text-slate-100">{fmt(unresolvedTotal)}</dd>
+            </div>
+          )}
+          <div className="flex items-center justify-between gap-4 border-t border-slate-200/80 pt-2 dark:border-white/10">
+            <dt className="font-semibold text-slate-700 dark:text-slate-300">Total out</dt>
+            <dd className="font-mono font-bold tabular-nums text-slate-950 dark:text-white">{fmt(verdict.pills.spent)}</dd>
+          </div>
+        </dl>
+      </details>
 
       {incomeExpanded && <IncomeDrilldown incomeTxns={incomeTxns} onTransactionClick={onTransactionClick} />}
     </div>
   );
 }
-

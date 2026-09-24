@@ -138,7 +138,7 @@ const NORMAL: SpendVerdict = {
   // pound-led pace fact (state "normal" + notables + excess > 0), sentence 2
   // is the movement-reassurance fallback (moved_total 3,958 clears the £50
   // material floor, no bills_risk/horizon/move consequence in this fixture).
-  reading: "Running about £1,301 ahead of usual, mostly Bills. You also moved £3,958 to savings and cards.",
+  reading: "You spent £1,301 more than usual by day 13, mostly on Bills. You also moved £3,958 to savings and cards.",
   notables: [
     {
       category: "Bills", spent: 2028, multiple: 2.0, excess: 1028, payments_count: 14,
@@ -252,7 +252,7 @@ const EVERYTHING: SpendVerdict = {
   // pound-led pace fact (excess 1,411 = sum of notables + quiet_flags
   // excess below, same figure the old reading named), sentence 2 is the
   // movement-reassurance fallback (moved_total clears the £50 floor).
-  reading: "Running about £1,411 ahead of usual, mostly Bills. You also moved £3,958 to savings and cards.",
+  reading: "You spent £1,411 more than usual by day 13, mostly on Bills. You also moved £3,958 to savings and cards.",
   notables: [
     {
       category: "Bills", spent: 2028, multiple: 2.0, excess: 1028, payments_count: 14,

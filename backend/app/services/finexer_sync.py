@@ -739,6 +739,6 @@ async def finexer_sync_pipeline(consent_id: str, user_id: str) -> dict:
             await compute_and_cache_money_shape(user_id)
         except Exception:
             logger.exception("money_shape compute failed for %s", user_id)
-        asyncio.create_task(notify_after_sync(user_id, "UK", []))
+        asyncio.create_task(notify_after_sync(user_id, []))
 
     return {"ok": True, "accounts": len(fetched_ids), "new_transactions": new_count}

@@ -484,9 +484,9 @@ Shared loader `loadAccounts()` (`AccountsPage.tsx:466-533`) fires five in parall
 
 `AddMenuItem` `:34-50`, menu `:2334-2416`
 
-**Shows** — one primary "+ Add" opening a menu. UK: Add Bank / Statement / Investment / Offline / **Finexer (beta)**. Kenya: Mono / Statement / Offline.
+**Shows** — one primary "+ Add" opening a menu: Add Bank / Statement / Investment / Offline / **Finexer (beta)**. (A98 removed the Kenya arm of this menu, which offered Mono / Statement / Offline, along with the region itself.)
 
-**Endpoints** — `GET /auth/truelayer/link?provider=` → `api.connectLink()` (`lib/api.ts:1644`) returns `{ auth_url }` → hard `window.location.href` redirect. `api.finexerConnectLink()` same pattern. `BankPickerSheet`, `StatementUpload`, `InvestmentUpload`, `MonoConnectWidget`.
+**Endpoints** — `GET /auth/truelayer/link?provider=` → `api.connectLink()` (`lib/api.ts:1644`) returns `{ auth_url }` → hard `window.location.href` redirect. `api.finexerConnectLink()` same pattern. `BankPickerSheet`, `StatementUpload`, `InvestmentUpload`.
 
 **Questions**
 - WHAT: what is "Finexer (beta)" and why would I pick it over "Add Bank"?

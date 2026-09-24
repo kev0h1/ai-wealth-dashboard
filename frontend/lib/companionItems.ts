@@ -1,6 +1,19 @@
 import type { CompanionItem } from "@/lib/api";
 
 /**
+ * Whether Home is visibly rendering a cover move whose transfer legs are
+ * actually funded. The backend also uses type `move` for an honest
+ * no-source warning; that card has no `moves` legs and therefore must not
+ * make Safe to Spend claim money has already been held back.
+ *
+ * Call this with the dismissal-filtered list that the UI renders so hiding
+ * the funded card removes the reconciliation copy in the same render.
+ */
+export function hasFundedCoverMove(items: CompanionItem[]): boolean {
+  return items.some((item) => item.type === "move" && (item.moves?.length ?? 0) > 0);
+}
+
+/**
  * Actionable vs informational classification for every CompanionItem the
  * companion spine (backend/app/services/companion.py) emits. Shared by
  * every surface that renders the /today feed (Home, the Penny hub, and any

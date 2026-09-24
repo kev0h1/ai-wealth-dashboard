@@ -138,7 +138,7 @@ async def compute_portrait(uid: str) -> dict:
     kind_map = await get_category_kinds(uid)
 
     # Fetch all transactions in window (all sources — TrueLayer only for now,
-    # structured generically so adding Finexer/Mono collections is trivial)
+    # structured generically so adding Finexer collections is trivial)
     # date field may be stored as datetime object or YYYY-MM-DD string
     raw_txns = await transactions_col.find(
         {"user_id": uid, "date": {"$gte": cutoff_naive}}

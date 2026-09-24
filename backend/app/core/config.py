@@ -21,6 +21,13 @@ OPENROUTER_API_KEY  = os.getenv("OPENROUTER_API_KEY", "")
 # "data_collection": "deny" restricts routing to upstream providers that do
 # not retain or train on submitted prompts (regulatory commitment — see SECURITY.md).
 OPENROUTER_PROVIDER_PREFS = {"data_collection": "deny"}
+# A80 (pentest LLM-07): service-wide monthly ceiling on OpenRouter calls,
+# on top of (never instead of) the per-user allowances in core/subscription.py.
+# Counts CALLS, not dollars, because that is what's already metered per user
+# (app.core.llm.monthly_usage) — see app/core/llm.py's openrouter_chat for
+# where this is enforced. 0 (default) means disabled: no counter write, no
+# ceiling. See docs/ops/ENV.md for the recommended production value.
+LLM_GLOBAL_MONTHLY_CALL_CEILING = int(os.getenv("LLM_GLOBAL_MONTHLY_CALL_CEILING", "0"))
 TAVILY_API_KEY      = os.getenv("TAVILY_API_KEY", "")
 LOGODEV_TOKEN       = os.getenv("LOGODEV_TOKEN", "")
 APP_URL             = os.getenv("APP_URL", "https://wealth.auriqltd.co.uk")
@@ -107,6 +114,59 @@ def mask_email(email: str) -> str:
     except Exception:
         return "***"
 REDIS_URL           = os.getenv("REDIS_URL", "redis://localhost:6379")
+
+# ── Rate limiting / proxy trust ─────────────────────────────────────────────
+# A92: the number of trusted reverse-proxy hops in front of this app that
+# themselves append the real client address to X-Forwarded-For (a proxy the
+# operator controls, not anything a caller can influence). app.core.ratelimit
+# .client_ip() uses this to pick the right entry from the right-hand end of
+# the header instead of trusting whatever a caller supplies. 0 (the default)
+# means "trust no forwarded header at all, use the raw socket peer address"
+# — the safe default: it can only under-differentiate clients sharing one
+# proxy (they'd share one rate-limit bucket), it can never let a client pick
+# its own bucket and dodge a limit, unlike trusting a caller-supplied header.
+# See docs/ops/ENV.md for the value each environment should actually set.
+TRUSTED_PROXY_HOPS  = int(os.getenv("TRUSTED_PROXY_HOPS", "0"))
+
+# A110: TRUSTED_PROXY_HOPS above cannot serve production correctly on its
+# own, because production has two ingress paths with different hop counts
+# in front of this app: web traffic (browser -> Vercel's /api rewrite ->
+# Railway edge -> app, two appending hops) and the mobile apps (straight to
+# the Railway host, one hop). Setting TRUSTED_PROXY_HOPS=2 lets a mobile
+# caller, who only ever produces one real hop, spoof the second-from-right
+# entry itself; setting it to 1 collapses every web user onto Vercel's own
+# egress IPs. These two variables let the backend tell the two paths apart
+# instead of guessing from a hop count alone: frontend/proxy.ts tags every
+# request its own /api rewrite forwards with the X-Sorted-Proxy-Auth header,
+# set to TRUSTED_PROXY_SECRET's value, so app.core.ratelimit.client_ip()
+# can use TRUSTED_PROXY_HOPS_WEB only for requests that actually carry a
+# matching header (i.e. genuinely came through that rewrite), and fall back
+# to TRUSTED_PROXY_HOPS for everything else, including the mobile apps and
+# UAT (nginx, one hop, neither of these two variables set). Both default to
+# "off" (empty secret, 0 hops) so an environment that never sets them keeps
+# exactly today's TRUSTED_PROXY_HOPS-only behaviour. See docs/ops/ENV.md.
+TRUSTED_PROXY_SECRET    = os.getenv("TRUSTED_PROXY_SECRET", "")
+TRUSTED_PROXY_HOPS_WEB  = int(os.getenv("TRUSTED_PROXY_HOPS_WEB", "0"))
+
+# Neither warning below is fatal: a wrong proxy-trust setting coarsens rate
+# limits (everyone behind one proxy shares a bucket) or, for the second
+# warning, silently leaves the web hop count unused, it never widens trust
+# or takes the app down, so there is no case for refusing to start over it.
+if TRUSTED_PROXY_HOPS <= 0:
+    logging.getLogger("app.startup").warning(
+        "TRUSTED_PROXY_HOPS is 0 (the default): every client behind a "
+        "proxy in front of this app shares one rate-limit bucket. Set it "
+        "to the real trusted hop count for this environment, see "
+        "docs/ops/ENV.md."
+    )
+if TRUSTED_PROXY_SECRET and TRUSTED_PROXY_HOPS_WEB <= 0:
+    logging.getLogger("app.startup").warning(
+        "TRUSTED_PROXY_SECRET is set but TRUSTED_PROXY_HOPS_WEB is 0: the "
+        "web ingress path (Vercel's /api rewrite) can never be "
+        "distinguished from any other caller like this, every request "
+        "falls back to TRUSTED_PROXY_HOPS. Likely a misconfiguration, see "
+        "docs/ops/ENV.md."
+    )
 
 # ── Auth ─────────────────────────────────────────────────────────────────────
 # A28 (2026-09-14): BOT_SECRET (a single static shared secret that
@@ -262,6 +322,51 @@ TRUELAYER_AUTH_URL       = "https://auth.truelayer.com"
 TRUELAYER_API_URL        = "https://api.truelayer.com"
 TRUELAYER_REDIRECT_URI   = os.getenv("TRUELAYER_REDIRECT_URI", "http://localhost:8000/auth/truelayer/callback")
 
+
+# A67: TrueLayer is a UAT-only provider. Finexer is the only provider
+# production ever talks to.
+#
+# Deliberately NOT its own env flag, unlike MCP_CONNECTOR_ENABLED above.
+# Kevin's decision on this item was that "behind a flag is not enough if
+# the flag could be switched on in production, so enforce absence rather
+# than rely on configuration" — a `TRUELAYER_ENABLED` var would be exactly
+# the switch he ruled out. So this is DERIVED from APP_URL, the public host
+# this process is actually serving, which is the one thing this codebase
+# already uses to tell the environments apart (it is the CORS origin, the
+# OAuth/webhook base, and `app.services.backlog.PUBLIC_UAT_HOST` is the
+# same UAT host string spelled out again). Production's APP_URL is
+# https://wealth.auriqltd.co.uk, so the TrueLayer routes are absent there
+# today, before and regardless of whether the TRUELAYER_* credentials are
+# ever cleared off Railway (`scripts/release.py check` is what pushes for
+# that clearing; see its `verdict_truelayer_absent`).
+#
+# Fails CLOSED: the allow-list below is of non-production hosts, so an
+# unrecognised or malformed APP_URL mounts nothing, rather than an
+# allow-everything-but-production rule where a typo'd production APP_URL
+# would quietly turn TrueLayer back on in production. localhost is included
+# so a developer running the API directly still has the provider available.
+NON_PRODUCTION_APP_HOSTS = frozenset({
+    "uat.wealth.auriqltd.co.uk",
+    "localhost",
+    "127.0.0.1",
+})
+
+
+def _is_non_production(app_url: str) -> bool:
+    """True when `app_url`'s host is one this app may treat as UAT/local.
+
+    Factored out (rather than inlined) for the same reason `_parse_flag`
+    and `_origin_of` above are: it lets tests exercise the rule itself
+    against explicit inputs, instead of asserting on TRUELAYER_ENABLED,
+    which is fixed at import time from whatever APP_URL the process
+    happened to have (set in `backend/.env` on UAT, which the shared tree
+    loads and a session worktree does not)."""
+    host = (urlsplit(app_url).hostname or "").strip().lower()
+    return host in NON_PRODUCTION_APP_HOSTS
+
+
+TRUELAYER_ENABLED = _is_non_production(APP_URL)
+
 # ── VAPID / Web Push ──────────────────────────────────────────────────────────
 VAPID_SUBJECT   = os.getenv("VAPID_SUBJECT", "mailto:admin@wealthdashboard.app")
 _vapid_key_file = _BACKEND_DIR / ".vapid_private_key"
@@ -330,11 +435,6 @@ if FCM_SERVICE_ACCOUNT_JSON:
         _FCM_SA_PARSEABLE = False
 
 FCM_CONFIGURED: bool = bool(FCM_PROJECT_ID and FCM_SERVICE_ACCOUNT_JSON and _FCM_SA_PARSEABLE)
-
-# ── Mono (Kenya) ──────────────────────────────────────────────────────────────
-MONO_SECRET_KEY = os.getenv("MONO_SECRET_KEY", "")
-MONO_PUBLIC_KEY  = os.getenv("MONO_PUBLIC_KEY", "")
-MONO_API_URL     = "https://api.withmono.com/v2"
 
 # ── Yapily ────────────────────────────────────────────────────────────────────
 YAPILY_APP_UUID = os.getenv("YAPILY_APP_UUID", "")

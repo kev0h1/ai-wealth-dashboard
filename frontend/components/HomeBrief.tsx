@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { RefreshCw, AlertTriangle, AlertCircle, TrendingDown, X, ChevronRight, ChevronDown, UserRound, CalendarDays, CreditCard, Check, CheckCircle2, Clock3, ArrowRight, ArrowRightLeft, Circle } from "lucide-react";
+import { RefreshCw, AlertTriangle, AlertCircle, TrendingDown, TrendingUp, Minus, CircleDashed, X, ChevronRight, ChevronDown, UserRound, CalendarDays, CreditCard, Check, CheckCircle2, Clock3, ArrowRight, ArrowRightLeft, Circle } from "lucide-react";
 import type { CompanionItem, PlanDest, PlanDestBill, SafeToSpend, UnfundedMoveEntry } from "@/lib/api";
 import { api } from "@/lib/api";
 import { invalidateVerdictCache } from "@/lib/verdictCache";
@@ -19,7 +19,7 @@ import { getCategoryColour } from "@/lib/categories";
 import type { AttentionTarget } from "@/lib/attention";
 import { isPaydayWindowActive } from "@/lib/paydayWindow";
 import { readHomeDismissedAdvice, dismissOnHome, pruneHomeDismissedAdvice } from "@/lib/homeDismissedAdvice";
-import { isActionableCompanionItem } from "@/lib/companionItems";
+import { hasFundedCoverMove, isActionableCompanionItem } from "@/lib/companionItems";
 import MoneyText from "@/components/MoneyText";
 
 // Window-scoped local dismiss for the Payday plan ENTRY ROW (the Home-only
@@ -83,6 +83,8 @@ interface HomeBriefProps {
   onClearedChange?: (cleared: { count: number; type: CompanionItem["type"] } | null) => void;
   /** Home-only: forwarded straight to BriefBody, see BriefBodyProps.onInsightWinVisibleChange. */
   onInsightWinVisibleChange?: (visible: boolean) => void;
+  /** Home-only: forwarded straight to BriefBody, see BriefBodyProps.onCoverMoveVisibleChange. */
+  onCoverMoveVisibleChange?: (visible: boolean) => void;
   /**
    * Home-only: rendered directly beneath the greeting row (avatar/"Good
    * morning"/refresh), above everything else the brief renders (sync-error
@@ -771,20 +773,39 @@ interface CliffCardProps {
 // payload-less rhythm info items. NO Penny gradient (the indigo→violet
 // gradient marks advice surfaces; these state facts). Amber mark only:
 // approaching/projected risk, not materialised risk — red stays strictly
-// reserved for materialised risk (Red-is-Risk rule). Icon varies by type:
-// AlertTriangle for cliff, TrendingDown for trajectory. Trajectory earns the
-// same watch mark as cliff: companion.py only ever emits a trajectory item
-// for a "drifting" or "bad" debt verdict — a "good" verdict stays silent
-// (no item at all), so a trajectory item is never good news dressed up
-// neutral, it is always a projected-risk reading. Rhythm items stay neutral,
-// they state an observed pattern, not a risk. The mark is the small amber
-// dot in KindLabel, not the label text or headline (Amber Lives In The
+// reserved for materialised risk (Red-is-Risk rule). Rhythm items stay
+// neutral, they state an observed pattern, not a risk. The mark is the small
+// dot/check in KindLabel, not the label text or headline (Amber Lives In The
 // Signifier, DESIGN.md). The ✕ only renders
 // when `dismissible` (Home) — a local, Home-only hide; Penny never renders it.
+//
+// G103: a trajectory item is no longer assumed to be a risk reading. It now
+// leads on the movement in what is owed, which can be PROGRESS, so
+// companion.py sends its own `tone` (emerald check only when the balance is
+// coming down AND nothing on it is charging interest and no 0% cliff is on
+// file, amber whenever it is not coming down and that costs money or the
+// cost cannot be ruled out, neutral otherwise) and its own `trend`, which
+// picks the icon. Both are optional on the wire: an item persisted before
+// G103 has neither, and falls back to the pre-G103 behaviour (watch tone,
+// TrendingDown) rather than rendering blank.
+//
+// Every trend gets its OWN icon. `unknown` shared `Minus` with `flat` at
+// first, which made the icon assert "no change" on the one card that
+// explicitly refuses to make that claim; CircleDashed reads as unresolved
+// instead. The direction is always spoken in the headline too, so the icon
+// never carries meaning on its own (DESIGN.md).
+const TRAJECTORY_ICON = {
+  rising: TrendingUp,
+  falling: TrendingDown,
+  flat: Minus,
+  unknown: CircleDashed,
+} as const;
+
 export function CliffCard({ item, maskAmounts, dismissible, onHomeDismiss }: CliffCardProps) {
   const isTrajectory = item.type === "trajectory";
   const isRhythm = item.type === "rhythm";
-  const Icon = isTrajectory ? TrendingDown : isRhythm ? Clock3 : AlertTriangle;
+  const trajectoryIcon = (item.trend && TRAJECTORY_ICON[item.trend]) || TrendingDown;
+  const Icon = isTrajectory ? trajectoryIcon : isRhythm ? Clock3 : AlertTriangle;
   const label = isTrajectory ? "Debt trajectory" : isRhythm ? "Spending pattern" : "Rate change";
   const [hidden, setHidden] = useState(false);
   if (hidden) return null;
@@ -806,7 +827,7 @@ export function CliffCard({ item, maskAmounts, dismissible, onHomeDismiss }: Cli
       <div className="flex items-start gap-3 pr-9">
         <BriefIcon><Icon size={16} /></BriefIcon>
         <div className="min-w-0 flex-1">
-          <KindLabel tone={item.type === "cliff" || item.type === "trajectory" ? "watch" : "neutral"}>{label}</KindLabel>
+          <KindLabel tone={item.type === "cliff" ? "watch" : isTrajectory ? (item.tone ?? "watch") : "neutral"}>{label}</KindLabel>
           <p className="mt-1 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-white">
             <MoneyText text={maskAmounts(item.headline)} />
           </p>
@@ -1852,9 +1873,16 @@ export interface BriefBodyProps {
    * onClearedChange above.
    */
   onInsightWinVisibleChange?: (visible: boolean) => void;
+  /**
+   * Home-only: reports whether a cover-plan move card is currently visible
+   * after the same local-dismissal filter MoveCard renders from. Home passes
+   * this to SafeToSpendCard so G115 can say a visible move above is already
+   * held back without leaving that sentence behind after the card is hidden.
+   */
+  onCoverMoveVisibleChange?: (visible: boolean) => void;
 }
 
-export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth = false, onRefresh, attnTarget, dismissible = false, hideAttribution = false, onClearedChange, onInsightWinVisibleChange }: BriefBodyProps) {
+export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth = false, onRefresh, attnTarget, dismissible = false, hideAttribution = false, onClearedChange, onInsightWinVisibleChange, onCoverMoveVisibleChange }: BriefBodyProps) {
   // Hooks must run unconditionally, before the items.length early return below.
   const { dismissedIds, dismiss: homeDismiss } = useHomeDismissedAdvice(rawItems, dismissible);
   const items = dismissible ? rawItems.filter(i => !dismissedIds.has(i.id)) : rawItems;
@@ -1867,6 +1895,7 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth =
   const hasInsightWinCelebration = items.some(
     i => i.type === "celebration" && i.id.startsWith("insight_win:")
   );
+  const hasVisibleCoverMove = hasFundedCoverMove(items);
 
   // Latest-ref, not a dep: onClearedChange is public on BriefBodyProps, so
   // nothing stops a future caller passing a fresh inline function every
@@ -1926,6 +1955,13 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth =
   useLayoutEffect(() => {
     onInsightWinVisibleChangeRef.current?.(hasInsightWinCelebration);
   }, [hasInsightWinCelebration]);
+
+  const onCoverMoveVisibleChangeRef = useRef(onCoverMoveVisibleChange);
+  onCoverMoveVisibleChangeRef.current = onCoverMoveVisibleChange;
+
+  useLayoutEffect(() => {
+    onCoverMoveVisibleChangeRef.current?.(hasVisibleCoverMove);
+  }, [hasVisibleCoverMove]);
 
   if (items.length === 0) {
     // Home-only: everything that existed got hidden via "Hide on Home", not
@@ -2124,7 +2160,10 @@ export interface HomeBriefClearedRowProps {
 const CLEARED_TYPE_LABEL: Record<string, string> = {
   move: "a money move",
   cliff: "an upcoming bill",
-  trajectory: "an upcoming bill",
+  // G103: a trajectory item is a reading of which way the card balances are
+  // going, never a bill. "an upcoming bill" here was simply wrong, and it
+  // got more wrong once the card could report progress.
+  trajectory: "a debt reading",
   rhythm: "a spending change",
   intent_pace: "a pace note",
   celebration: "a win",
@@ -2177,7 +2216,7 @@ export function HomeBriefClearedRow({ cleared, router }: HomeBriefClearedRowProp
   );
 }
 
-export default function HomeBrief({ items, firstName, safeToSpend, loading, syncing, syncError, onSync, hideNetWorth, onRefresh, attnTarget, dismissible, hasAccounts, onClearedChange, onInsightWinVisibleChange, banner }: HomeBriefProps) {
+export default function HomeBrief({ items, firstName, safeToSpend, loading, syncing, syncError, onSync, hideNetWorth, onRefresh, attnTarget, dismissible, hasAccounts, onClearedChange, onInsightWinVisibleChange, onCoverMoveVisibleChange, banner }: HomeBriefProps) {
   const router = useRouter();
   const { user } = useAuth();
   const name = firstName || "there";
@@ -2255,7 +2294,7 @@ export default function HomeBrief({ items, firstName, safeToSpend, loading, sync
         {loading ? (
           <BriefSkeleton />
         ) : (
-          <BriefBody items={items} safeToSpend={safeToSpend} router={router} hideNetWorth={hideNetWorth} onRefresh={onRefresh} attnTarget={attnTarget} dismissible={dismissible} onClearedChange={onClearedChange} onInsightWinVisibleChange={onInsightWinVisibleChange} />
+          <BriefBody items={items} safeToSpend={safeToSpend} router={router} hideNetWorth={hideNetWorth} onRefresh={onRefresh} attnTarget={attnTarget} dismissible={dismissible} onClearedChange={onClearedChange} onInsightWinVisibleChange={onInsightWinVisibleChange} onCoverMoveVisibleChange={onCoverMoveVisibleChange} />
         )}
       </div>
 

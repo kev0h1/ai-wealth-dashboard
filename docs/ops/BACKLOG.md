@@ -477,8 +477,104 @@ scripts/session.sh list
   only job is new preview variants under `frontend/app/design/<slug>/`
   for Kevin to choose between; see "Design work" in `CLAUDE.md` /
   `AGENTS.md`.
-- `abandon` deletes the worktree and its local branch and resets the item
-  to to-do with a note, for a session that didn't pan out.
+- `abandon [--worktree <path>]` deletes the worktree and its local branch
+  and resets the item to to-do with a note, for a session that didn't pan
+  out. A detached worktree is removed with an accurate note and no
+  attempt to delete a branch called `HEAD`. A leftover directory that is
+  no longer a git worktree is not matched and is not removed here: clear
+  it by hand with `rm -rf`, nothing in `session.sh` deletes arbitrary
+  directories.
+
+  `--worktree <path>` names the directory explicitly and is the way past
+  a refused resolution. The path is normalised before it is checked, so
+  it cannot be walked back out of `/root/worktrees` with `..` (a plain
+  string prefix test let `/root/worktrees/../../tmp/g70-review` through,
+  and that is a live checkout). It removes the worktree **only**: the
+  board is reset for `<ID>` just when the named worktree is the session
+  `<ID>` actually records. Clearing a stale duplicate therefore never
+  touches the live item, which it used to: run on today's G94
+  (`rejected`, `feature-G94-fold-in-approved-variant-c` recorded, one
+  stale sibling) it would have reset G94 to `todo`, cleared its recorded
+  branch and noted the wrong branch as discarded.
+- **Resolving `<ID>` to a worktree** (H85). `finish` and `abandon` do not
+  guess. The branch the board records for `<ID>` is the authority: git
+  knows which worktree has that branch checked out (`git worktree list
+  --porcelain`, and git will not let two worktrees share a branch), so
+  exactly one worktree is possible and no other can be chosen. If no
+  worktree has it, that is a hard refusal listing what was found, never a
+  fallback to a name match. Only when the item records **no** branch at
+  all (the shape `approve` leaves it in, and the window before `start`
+  records one) does the worktree *name* decide, and only if exactly one
+  matches; two matches are listed and refused. Both `feature-<ID>[-slug]`
+  and the older `item-<ID>-<slug>` names are matched, anchored on the
+  whole id so `G12` never matches `G127`'s worktree. `finish` prints the
+  worktree, its branch and the board's branch before it runs anything, so
+  a wrong resolution is visible rather than silent, and `list` warns about
+  any id that has more than one worktree.
+
+  This replaces a single `find ... | head -1` that globbed the names, took
+  whatever the filesystem listed first, and never looked at the board. On
+  2026-09-18 it picked a stale, never-cleaned worktree for G127
+  (`feature-G127-upcoming-round3`, sitting at a commit that had been
+  **rejected** on review) over the live `feature-G127-round3-fix`:
+  `finish` pushed the rejected branch and marked the item `review` against
+  it, and the next integrate pass would have merged rejected code into
+  `main` and UAT while the board read as a clean review. The only thing
+  that caught it was the agent knowing its own fix could not exist on that
+  branch. Covered end to end (real worktrees, a synthetic fake shared
+  tree, both orderings of the ambiguous case) by
+  `backend/tests/test_session_worktree_resolve.py`, which the backend
+  suite — and therefore `finish` itself — runs.
+
+  Several bounds keep "the board is the authority" from becoming its own
+  hazard. A recorded branch checked out **outside** `/root/worktrees`
+  (the shared tree, a scratch clone) is refused. A recorded branch
+  checked out in a worktree that is **not one of `<ID>`'s own** name
+  candidates, while such candidates exist, is refused too: a mistyped or
+  copy-pasted `[branch: ...]` tag would otherwise have `finish` push
+  another item's branch and mark this one in review against it, and
+  `integrate.py` already warns that recorded branches drift from their
+  id. And a failed board read is never flattened into "no branch
+  recorded", because that would silently downgrade the rule back to the
+  name match it replaced: `finish` and `abandon` stop, and that refusal
+  is returned rather than merely printed (bash suppresses `errexit`
+  inside a command substitution whose assignment status is tested, so
+  the first version of this printed "refusing to continue" and then
+  carried on and pushed a name match, which is worse than not refusing
+  at all). The one exception is `abandon --worktree`, where the caller
+  has named the directory: it warns and carries on, and does not touch
+  the board. The board read captures stdout and stderr separately, never
+  with `2>&1`, so warning noise from a successful `show` cannot be
+  concatenated ahead of the JSON and break the parse. A
+  directory with no `.git` entry is not a worktree and is not a
+  candidate at all, so an `rm -rf`'d or half-pruned session cannot make
+  an id ambiguous, and a worktree git still lists but whose directory is
+  gone is refused with a pointer to `git worktree prune` rather than
+  resolved to a path that does not exist. If `git worktree list
+  --porcelain` itself fails, that too is a refusal, with git's own
+  message on stderr rather than only an exit status.
+
+  Two failure-mode notes worth keeping in mind when editing this code.
+  A refusal must be *returned*, not merely printed: bash suppresses
+  `errexit` inside a command substitution whose assignment status is
+  tested, and both call sites are of that shape, so a bare assignment
+  prints the refusal and then carries on. And the worktree listing is
+  captured whole rather than piped into `awk ... exit`: under
+  `set -o pipefail` that `exit` closes the pipe mid-write, so git takes
+  SIGPIPE and the pipeline returns 141 *on the success path* once the
+  listing passes git's 4096-byte stdout buffer. Measured on this host
+  on 2026-09-21 (`git worktree list --porcelain | wc -c` over
+  `grep -c '^worktree '`): 21 worktrees, 2896 bytes, about 137 bytes
+  each, so **8 more worktrees** reaches the threshold, not 25 as an
+  earlier draft of this paragraph said. Every stale worktree left
+  behind spends part of that margin. A typo'd id is told it is not on
+  the board rather than that the board is unreadable, and the two are
+  told apart by `backlog.py`'s exit status (`EXIT_UNKNOWN_ITEM`), not
+  by matching its message: a truncated `TODO.md` produces the
+  unknown-item wording too, and the remedy that followed from reading
+  it that way would have written a new item into the half-lost file.
+  `backlog.py show` also refuses outright when the board parses to zero
+  items.
 
 **Integrate** (`scripts/integrate.py`, run with `backend/.venv/bin/python`
 from the shared tree):

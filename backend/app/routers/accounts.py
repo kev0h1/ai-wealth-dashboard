@@ -9,17 +9,13 @@ from app.core.auth import current_user
 from app.core.models import Account
 from app.db.collections import (
     connections_col, accounts_col, transactions_col,
-    mono_connections_col, mono_accounts_col, mono_transactions_col,
-    mpesa_accounts_col, mpesa_transactions_col,
     statement_accounts_col, statement_transactions_col,
     yapily_consents_col, yapily_accounts_col, yapily_transactions_col,
     account_rates_col, manual_accounts_col, cashflow_cache_col,
     excluded_accounts_col,
 )
-from app.services.region import get_user_region
 from app.services.truelayer_sync import sync_connection
 from app.services.yapily_sync import sync_yapily_consent
-from app.services.mono_sync import sync_mono_connection
 from app.db.collections import finexer_consents_col as _finexer_consents_col
 from app.services.finexer_sync import finexer_sync_pipeline as _finexer_sync_pipeline
 from app.services.categorisation import apply_rules_bulk, categorise_others_bg
@@ -123,40 +119,7 @@ async def _manual_accounts(uid: str, currency: str) -> List[Account]:
 
 @router.get("/accounts", response_model=List[Account])
 async def get_accounts(user: dict = Depends(current_user)):
-    uid    = user["email"]
-    region = await get_user_region(uid)
-
-    if region == "Kenya":
-        mono_accs  = await mono_accounts_col.find({"user_id": uid}).to_list(None)
-        mpesa_accs = await mpesa_accounts_col.find({"user_id": uid}).to_list(None)
-        stmt_accs  = await statement_accounts_col.find({"user_id": uid, "region": "Kenya"}).to_list(None)
-        result = []
-        for a in mono_accs:
-            result.append(Account(
-                id=a["_id"], name=a.get("name", "Account"), type=a.get("type", "bank"),
-                balance=a.get("balance", 0), currency=a.get("currency", "KES"),
-                provider=a.get("provider", "Mono"), status=a.get("status", "connected"),
-                connection_id=a.get("connection_id", ""),
-                cover_source_eligible=False,
-            ))
-        for a in mpesa_accs:
-            result.append(Account(
-                id=a["_id"], name=a.get("name", "M-Pesa"), type=a.get("type", "bank"),
-                balance=a.get("balance", 0), currency=a.get("currency", "KES"),
-                provider=a.get("provider", "MPesa"), status=a.get("status", "connected"),
-                connection_id=a.get("connection_id", ""),
-                cover_source_eligible=False,
-            ))
-        for a in stmt_accs:
-            result.append(Account(
-                id=a["_id"], name=a.get("name", "Bank Account"), type=a.get("type", "bank"),
-                balance=a.get("balance", 0), currency=a.get("currency", "KES"),
-                provider=a.get("provider", "BANK"), status=a.get("status", "connected"),
-                connection_id="",
-                cover_source_eligible=False,
-            ))
-        result.extend(await _manual_accounts(uid, "KES"))
-        return await _attach_aprs(uid, result)
+    uid = user["email"]
 
     docs = await accounts_col.find({"user_id": uid}).to_list(None)
     result = [
@@ -177,6 +140,11 @@ async def get_accounts(user: dict = Depends(current_user)):
         )
         for d in docs
     ]
+    # A98: `region` on a statement-account doc is a leftover from the
+    # removed Kenya region. Every statement upload has always stamped "UK"
+    # for a UK user and still does, so the filter is kept as-is rather than
+    # dropped — removing it would newly surface any historical doc stamped
+    # otherwise, which is a data decision, not a code one.
     stmt_accs = await statement_accounts_col.find({"user_id": uid, "region": "UK"}).to_list(None)
     for a in stmt_accs:
         result.append(Account(
@@ -216,18 +184,7 @@ async def get_accounts(user: dict = Depends(current_user)):
 
 @router.post("/accounts/sync")
 async def sync_all(user: dict = Depends(current_user)):
-    uid    = user["email"]
-    region = await get_user_region(uid)
-
-    if region == "Kenya":
-        conns = await mono_connections_col.find({"user_id": uid}).to_list(None)
-        total = 0
-        for conn in conns:
-            ids = await sync_mono_connection(conn["_id"], uid)
-            total += len(ids)
-        asyncio.create_task(apply_mirror_rules(uid))
-        await response_cache.ainvalidate(uid)
-        return {"message": "Synced", "connections": len(conns), "total_accounts": total}
+    uid = user["email"]
 
     conns = await connections_col.find({"user_id": uid}).to_list(None)
     total = 0
@@ -274,16 +231,7 @@ async def sync_all(user: dict = Depends(current_user)):
 
 @router.post("/accounts/sync-history")
 async def sync_history(user: dict = Depends(current_user)):
-    uid    = user["email"]
-    region = await get_user_region(uid)
-
-    if region == "Kenya":
-        conns = await mono_connections_col.find({"user_id": uid}).to_list(None)
-        total = 0
-        for conn in conns:
-            ids = await sync_mono_connection(conn["_id"], uid)
-            total += len(ids)
-        return {"message": "Full sync complete", "connections": len(conns), "total_accounts": total}
+    uid = user["email"]
 
     conns   = await connections_col.find({"user_id": uid}).to_list(None)
     from_dt = (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")
@@ -341,26 +289,11 @@ async def delete_connection(connection_id: str, user: dict = Depends(current_use
 async def delete_account(account_id: str, user: dict = Depends(current_user)):
     uid = user["email"]
 
-    if account_id.startswith("mpesa-"):
-        acc = await mpesa_accounts_col.find_one({"_id": account_id, "user_id": uid})
-        if not acc:
-            raise HTTPException(404, "Account not found")
-        await cascade_account_deletion(uid, [account_id], acc_col=mpesa_accounts_col, txn_col=mpesa_transactions_col)
-        return {"deleted": account_id}
-
     if account_id.startswith("statement-"):
         acc = await statement_accounts_col.find_one({"_id": account_id, "user_id": uid})
         if not acc:
             raise HTTPException(404, "Account not found")
         await cascade_account_deletion(uid, [account_id], acc_col=statement_accounts_col, txn_col=statement_transactions_col)
-        return {"deleted": account_id}
-
-    mono_acc = await mono_accounts_col.find_one({"_id": account_id, "user_id": uid})
-    if mono_acc:
-        conn = await mono_connections_col.find_one({"mono_account_id": account_id, "user_id": uid})
-        await cascade_account_deletion(uid, [account_id], acc_col=mono_accounts_col, txn_col=mono_transactions_col)
-        if conn:
-            await mono_connections_col.delete_one({"_id": conn["_id"]})
         return {"deleted": account_id}
 
     # Yapily: clean up stale record AND run cascade for its provider collections.
@@ -471,11 +404,46 @@ async def set_account_rate(account_id: str, body: dict, user: dict = Depends(cur
 
 @router.get("/connections")
 async def list_connections(user: dict = Depends(current_user)):
-    conns  = await connections_col.find(
-        {"user_id": user["email"]}, {"access_token": 0, "refresh_token": 0}
+    """List every live connection for this user across both providers
+    (A83: this previously queried connections_col only, so a Finexer-only
+    user got back []. See list_accounts/sync_all above for the same
+    both-providers pattern this mirrors)."""
+    uid = user["email"]
+
+    conns = await connections_col.find(
+        {"user_id": uid}, {"access_token": 0, "refresh_token": 0}
     ).to_list(None)
     result = []
     for c in conns:
-        account_count = await accounts_col.count_documents({"connection_id": c["_id"]})
-        result.append({"connection_id": c["_id"], "expires_at": c.get("expires_at"), "accounts": account_count})
+        account_count = await accounts_col.count_documents({"connection_id": c["_id"], "user_id": uid})
+        # TrueLayer connections carry no explicit status field — `needs_reauth`
+        # (set by truelayer_sync.py when a refresh fails) is the only signal,
+        # so derive a status string from it rather than storing a new field.
+        status = "needs_reauth" if c.get("needs_reauth") else "authorized"
+        result.append({
+            "connection_id": c["_id"],
+            "provider": "truelayer",
+            "status": status,
+            # consent_expires_at is the bank consent expiry (what retention.py's
+            # sweep reads); plain "expires_at" is the OAuth access-token expiry,
+            # refreshed hourly by truelayer_sync.py, so using it here would make
+            # this key mean something different per provider.
+            "expires_at": c.get("consent_expires_at"),
+            "accounts": account_count,
+        })
+
+    fx_consents = await _finexer_consents_col.find(
+        {"user_id": uid},
+        {"access_token": 0, "refresh_token": 0, "secret": 0, "token": 0},
+    ).to_list(None)
+    for fc in fx_consents:
+        account_count = await accounts_col.count_documents({"connection_id": fc["_id"], "user_id": uid})
+        result.append({
+            "connection_id": fc["_id"],
+            "provider": "finexer",
+            "status": fc.get("status"),
+            "expires_at": fc.get("expiry_date"),
+            "accounts": account_count,
+        })
+
     return result

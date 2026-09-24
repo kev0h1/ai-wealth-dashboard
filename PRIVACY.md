@@ -1,8 +1,8 @@
 <!-- The sections marked mcp-connector:start/end below are shown in the app only when the MCP connector flag (MCP_CONNECTOR_ENABLED / NEXT_PUBLIC_MCP_CONNECTOR) is on; this file keeps the full text regardless, as the canonical published copy. -->
 # Privacy Policy
 
-**Last updated:** 2026-09-10
-**Version:** 1.0
+**Last updated:** 2026-09-23
+**Version:** 1.1
 
 This Privacy Policy explains how we collect, use, share and protect your personal data when you use our personal finance app, Sorted. It is written for UK residents aged 18 or over. Please read it alongside any in-app consent screens you are shown when you connect a bank account.
 
@@ -50,7 +50,7 @@ To show you your accounts, balances and transactions, we connect to your bank us
 
 - **Our regulated status.** We are a registered agent of Finexer LTD, an FCA-authorised firm, and provide the regulated account information service to you through this agency arrangement. All bank connections are made through Finexer.
 - **Your consent.** When you connect a bank account, you give explicit consent to access your account and transaction data, in line with the second Payment Services Directive (PSD2). We only access data covered by that consent.
-- **Consent renewal.** Under PSD2, this consent is time-limited and must be reconfirmed with your bank approximately every 90 days. We'll prompt you to reconfirm before it expires; if you don't, we stop retrieving new data from that account until you reconnect.
+- **Consent renewal.** Your consent to share account information is time-limited under UK open banking rules. You authenticate with your bank when you first connect an account; you do not need to log in to your bank again to keep it connected. Instead, you will be asked to reconfirm your consent to Finexer periodically. We show when your current consent ends and prompt you before then. If you do not reconfirm, we stop retrieving new data from that account until you reconnect.
 - **Historical data.** On first connection, we retrieve approximately 90 days of transaction history, as permitted by your consent. After that, we retrieve only new transactions incrementally.
 - **Withdrawing consent.** You can withdraw consent and disconnect a bank account at any time from within the app. See Section 10 for what happens next.
 

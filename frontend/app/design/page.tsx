@@ -10,7 +10,16 @@
 // (scripts/check-design-index.mjs) enforces that and runs as part of
 // `scripts/session.sh finish`.
 
+import type { Metadata } from "next";
 import Link from "next/link";
+
+// A76 (DSGN-04, A48 pentest): these preview routes are unreleased product
+// directions and must not be indexed by search engines. See also the
+// X-Robots-Tag header in next.config.ts and app/robots.ts, which cover the
+// whole /design/* subtree (this metadata only covers this one page).
+export const metadata: Metadata = {
+  robots: { index: false, follow: false },
+};
 
 type PreviewRoute = {
   slug: string;
@@ -26,13 +35,47 @@ const ROUTES: PreviewRoute[] = [
     slug: "g134-home-inventory",
     name: "g134-home-inventory",
     description:
-      "G134 — a CATALOGUE of the entire Home surface, not an art-direction round: every zone in Home's real render order (app/components/HomePage.tsx), every brief-card kind in its dismissible state (labelled with its real component name and the condition that makes it appear, in BriefBody's own fixed order — celebration, cliff, trajectory, rhythm, rhythm-info, intent_pace, unfunded_move, ask, needle, other, move; move renders last), all ten SafeToSpendCard states, plus ReconnectStrip, PaydayPlanSection (entry row / active / executed), HomeBriefClearedRow, ThisMonthStrip, PinnedWidgetCard, AccountLedgerRow and TransactionRow/TeachingSheet — every one a real production component fed fixture data through its real props, previewMode where the component takes one. A separate realistic-stacks section runs real BriefBody at 1/2/3/everything cards via the Stack control. Self-fetching components with no props escape hatch (UpcomingBillsStrip, HomeInsightSpotlight, OfferCard, FuelSavingsCard, GroceryBasketCard) are named and explained in the page's own copy rather than forked. Static fixtures only, no API calls · ?mode=light|dark&balances=visible|hidden&stack=one|two|three|all",
+      "G134 — a CATALOGUE of the entire Home surface, not an art-direction round: every zone in Home's real render order (app/components/HomePage.tsx), every brief-card kind in its dismissible state (labelled with its real component name and the condition that makes it appear, in BriefBody's own fixed order — celebration, cliff, trajectory, rhythm, rhythm-info, intent_pace, unfunded_move, ask, needle, other, move; move renders last), all ten SafeToSpendCard states, plus ReconnectStrip, PaydayPlanSection (entry row / active / executed), HomeBriefClearedRow, ThisMonthStrip, PinnedWidgetCard, AccountLedgerRow and TransactionRow/TeachingSheet — every one a real production component fed fixture data through its real props, previewMode where the component takes one. A separate realistic-stacks section runs real BriefBody at 1/2/3/everything cards via the Stack control. Self-fetching components with no props escape hatch (UpcomingBillsStrip, HomeInsightSpotlight, OfferCard, FuelSavingsCard, GroceryBasketCard) are named and explained in the page's own copy rather than forked. Static fixtures only, no API calls · ?mode=light|dark&state=stack-one|stack-two|stack-three|stack-all|balances-hidden",
     states: [
       { label: "Stack: everything", value: "stack-all" },
       { label: "Stack: one card", value: "stack-one" },
       { label: "Stack: two cards", value: "stack-two" },
       { label: "Stack: three cards", value: "stack-three" },
       { label: "Balances hidden", value: "balances-hidden" },
+    ],
+  },
+  {
+    slug: "g149-transfer-review-placement",
+    name: "g149-transfer-review-placement",
+    description:
+      "G149 Spend timeline placement round · A treats transfer review as a true pay-period event, with the timeline rail marker, text indent and event rhythm; B keeps it as a quiet period-level affordance beside the period summary, never stranded between timeline nodes · the guardrail wording and intended review behaviour are preserved, with one, many and clear fixture states in light and dark · no API calls, no mutations, and it renders the real production TransferReviewGuardrail component · ?variant=a|b&state=single|many|clear&mode=light|dark",
+    states: [
+      { label: "One transfer", value: "single" },
+      { label: "Many transfers", value: "many" },
+      { label: "Nothing to review", value: "clear" },
+    ],
+    variants: [
+      { label: "A · Timeline event", value: "a" },
+      { label: "B · Period affordance", value: "b" },
+    ],
+  },
+  {
+    slug: "g115-spend-from-accounts",
+    name: "g115-spend-from-accounts",
+    description:
+      "G115 round on showing up to two current accounts without creating a second hero inside Safe to Spend · A is Kevin's approved top-right bank rail and now renders SafeToSpendCard's production default with no visual override, while B's compact inline pair and C's quiet two-row ledger remain as design history · every direction renders the real production SafeToSpendCard through its data and spendFrom props, plus the real MoveCard in coexistence states, rather than copying either component · fixtures pass through production bestSpendAccount(), include three current accounts, a savings pot and a credit card, and use G114's spend_from_headroom so a live £20 cover move reduces Everyday from £45 standing room to £25 spendable room before ranking · savings and credit are structurally excluded, the savings-only state points to the move above, and every treatment says account figures are not the pooled Safe to Spend · A uses local bundled logos only and falls back to named rows when a bank has no bundled mark · static typed fixtures, no live API data or mutations · ?variant=a|b|c&state=reserved|clear|one|unbundled|savings|hidden&mode=light|dark",
+    states: [
+      { label: "Cover move reserved", value: "reserved" },
+      { label: "No cover move", value: "clear" },
+      { label: "One account", value: "one" },
+      { label: "Bank has no logo", value: "unbundled" },
+      { label: "Savings move needed", value: "savings" },
+      { label: "Balances hidden", value: "hidden" },
+    ],
+    variants: [
+      { label: "A · Bank rail", value: "a" },
+      { label: "B · Inline pair", value: "b" },
+      { label: "C · Quiet rows", value: "c" },
     ],
   },
   {
@@ -222,9 +265,16 @@ const ROUTES: PreviewRoute[] = [
     description:
       "G78/G82: Spend root containment and narrow-phone header round against the typed normal-period fixture and real SpendJourneySummary, SpendVerdictView, SpendJourneyNav and SpendTrends components · A full cockpit verdict card with a deliberate two-row phone header (recommended) / B one unified top deck with a compact single-row header / C editorial narrative with its reconciled ledger carded and controls in one dock · summary precedes the jump map in every variant · ?variant=a|b|c&mode=light|dark&state=normal|nothing|everything|nobaseline|early",
     states: [
-      { label: "A · cockpit card", value: "a" },
-      { label: "B · unified deck", value: "b" },
-      { label: "C · editorial ledger", value: "c" },
+      { label: "Normal pay period", value: "normal" },
+      { label: "Nothing to allocate", value: "nothing" },
+      { label: "Everything allocated", value: "everything" },
+      { label: "No baseline", value: "nobaseline" },
+      { label: "Early pay period", value: "early" },
+    ],
+    variants: [
+      { label: "A · Cockpit card", value: "a" },
+      { label: "B · Unified deck", value: "b" },
+      { label: "C · Editorial ledger", value: "c" },
     ],
   },
   {
@@ -244,10 +294,11 @@ const ROUTES: PreviewRoute[] = [
     slug: "home-brief-cards",
     name: "home-brief-cards",
     description:
-      "G48 Home brief card-family design round across AskPayday, AskGeneric, Celebration, Cliff, UnfundedMove, IntentPace, Move and Rhythm · the same real-behaviour fixtures in three presentation grammars: A Calm spine ranks verdict, evidence and actions in one vertical reading order, B Action dock separates decisions from evidence with a stable footer, C Folded brief compresses quiet cards while keeping dense move evidence explicitly available · every variant tests an overdue £70 unfunded AMERICAN EXPRESS move, a £70 three-source cover plan, multi-card stacking, all eight card types, light and dark themes · presentation only, no API calls or production-component edits · ?variant=a|b|c&state=stack|family&mode=light|dark",
+      "G48 Home brief card-family design round across AskPayday, AskGeneric, Celebration, Cliff, UnfundedMove, IntentPace, Move and Rhythm · the same real-behaviour fixtures in three presentation grammars: A Calm spine ranks verdict, evidence and actions in one vertical reading order, B Action dock separates decisions from evidence with a stable footer, C Folded brief compresses quiet cards while keeping dense move evidence explicitly available · every variant tests an overdue £70 unfunded AMERICAN EXPRESS move, a £70 three-source cover plan, multi-card stacking, all eight card types, light and dark themes · presentation only, no API calls · G103 adds the Debt state: the debt-trajectory card now leads on the three-month movement in what is owed (\"£412 · more owed than three months ago\") with the direction spoken in the headline, and drops the £24,926 carried total to the last line of the body, so Home stops shouting a stock that cannot change this pay period · shown as the card read BEFORE the change plus all five states after it, rising while interest is charged, rising with everything on 0%, coming down, holding steady, and rising on 0% with an end date on file, each rendered through the PRODUCTION CliffCard from components/HomeBrief.tsx fed real CompanionItem props (not replica markup) so the preview stays a regression gate · every string is verbatim from app.services.companion.trajectory_copy · ?variant=a|b|c&state=stack|family|trajectory&mode=light|dark",
     states: [
       { label: "Home stack", value: "stack" },
       { label: "All eight cards", value: "family" },
+      { label: "Debt trajectory states", value: "trajectory" },
     ],
   },
   {

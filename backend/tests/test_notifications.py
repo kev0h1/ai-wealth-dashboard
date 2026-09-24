@@ -252,7 +252,7 @@ def test_bill_shortfall_suppressed_for_account_with_active_move(monkeypatch):
 
     # Same account as the live move recommendation ("acc-natwest") is covered;
     # "acc-other" is not, so its bill must still qualify normally.
-    new_bills = asyncio.run(notifications._maybe_bill_shortfall("kevin", "UK", {"acc-natwest"}))
+    new_bills = asyncio.run(notifications._maybe_bill_shortfall("kevin", {"acc-natwest"}))
 
     assert sent == []  # detection only
     assert [b["name"] for b in new_bills] == ["Council Tax"]
@@ -276,7 +276,7 @@ def test_money_movement_merges_when_both_fire(monkeypatch):
     monkeypatch.setattr(companion, "compute_today_items", fake_items)
     monkeypatch.setattr(analytics, "_build_cashflow_response", fake_resp)
 
-    asyncio.run(notifications._maybe_money_movement("kevin", "UK"))
+    asyncio.run(notifications._maybe_money_movement("kevin"))
 
     assert len(sent) == 1  # ONE merged push, not two
     assert sent[0]["title"] == "Bill may not clear"
@@ -300,7 +300,7 @@ def test_money_movement_sends_bill_alone_when_only_bill_fires(monkeypatch):
     monkeypatch.setattr(companion, "compute_today_items", fake_items)
     monkeypatch.setattr(analytics, "_build_cashflow_response", fake_resp)
 
-    asyncio.run(notifications._maybe_money_movement("kevin", "UK"))
+    asyncio.run(notifications._maybe_money_movement("kevin"))
 
     assert len(sent) == 1
     assert sent[0]["title"] == "Bill may not clear"
@@ -320,7 +320,7 @@ def test_money_movement_sends_move_alone_when_only_move_fires(monkeypatch):
     monkeypatch.setattr(companion, "compute_today_items", fake_items)
     monkeypatch.setattr(analytics, "_build_cashflow_response", fake_resp)
 
-    asyncio.run(notifications._maybe_money_movement("kevin", "UK"))
+    asyncio.run(notifications._maybe_money_movement("kevin"))
 
     assert len(sent) == 1
     assert sent[0]["title"] == "Move £110 to THE NUMBER ONE"
@@ -340,7 +340,7 @@ def test_money_movement_sends_nothing_when_neither_fires(monkeypatch):
     monkeypatch.setattr(companion, "compute_today_items", fake_items)
     monkeypatch.setattr(analytics, "_build_cashflow_response", fake_resp)
 
-    asyncio.run(notifications._maybe_money_movement("kevin", "UK"))
+    asyncio.run(notifications._maybe_money_movement("kevin"))
 
     assert sent == []
 
@@ -367,7 +367,7 @@ def test_money_movement_two_bills_one_move_sends_every_event(monkeypatch):
     monkeypatch.setattr(companion, "compute_today_items", fake_items)
     monkeypatch.setattr(analytics, "_build_cashflow_response", fake_resp)
 
-    asyncio.run(notifications._maybe_money_movement("kevin", "UK"))
+    asyncio.run(notifications._maybe_money_movement("kevin"))
 
     assert len(sent) == 2  # merged (Council Tax + move) + standalone Broadband
     assert sent[0]["title"] == "Bill may not clear"
@@ -400,7 +400,7 @@ def test_money_movement_one_bill_two_moves_sends_every_event(monkeypatch):
     monkeypatch.setattr(companion, "compute_today_items", fake_items)
     monkeypatch.setattr(analytics, "_build_cashflow_response", fake_resp)
 
-    asyncio.run(notifications._maybe_money_movement("kevin", "UK"))
+    asyncio.run(notifications._maybe_money_movement("kevin"))
 
     assert len(sent) == 2  # merged (Council Tax + first move) + standalone second move
     assert sent[0]["title"] == "Bill may not clear"
@@ -431,14 +431,14 @@ def test_category_pace_pushes_once_then_dedupes_same_period(monkeypatch):
 
     monkeypatch.setattr(spend_verdict, "compute_spend_verdict", fake_verdict)
 
-    asyncio.run(notifications._maybe_category_pace("kevin", "UK"))
+    asyncio.run(notifications._maybe_category_pace("kevin"))
     assert len(sent) == 1
     assert sent[0]["title"] == "Entertainment is running hot"
     assert "twice your usual pace for day 22" in sent[0]["body"]
     assert sent[0]["url"] == "/spend"
 
     # Same category, same period, second sync — must not renotify.
-    asyncio.run(notifications._maybe_category_pace("kevin", "UK"))
+    asyncio.run(notifications._maybe_category_pace("kevin"))
     assert len(sent) == 1
 
 
@@ -455,7 +455,7 @@ def test_category_pace_new_category_same_period_notifies_again(monkeypatch):
 
     monkeypatch.setattr(spend_verdict, "compute_spend_verdict", fake_verdict)
 
-    asyncio.run(notifications._maybe_category_pace("kevin", "UK"))
+    asyncio.run(notifications._maybe_category_pace("kevin"))
 
     assert len(sent) == 1  # Entertainment already flagged; only Groceries is new
     assert sent[0]["title"] == "Groceries is running hot"
@@ -472,7 +472,7 @@ def test_category_pace_preference_off_suppresses(monkeypatch):
 
     monkeypatch.setattr(spend_verdict, "compute_spend_verdict", fake_verdict)
 
-    asyncio.run(notifications._maybe_category_pace("kevin", "UK"))
+    asyncio.run(notifications._maybe_category_pace("kevin"))
 
     assert sent == []
     assert called["n"] == 0
@@ -742,7 +742,7 @@ def test_period_digest_has_no_budget_clause_and_reuses_goals(monkeypatch):
 
     monkeypatch.setattr(notifications, "get_pay_period_for_date", fake_pay_period)
 
-    async def fake_goals_summary(uid, region):
+    async def fake_goals_summary(uid):
         return [{"pillar": "debt", "label": "Debt-free", "detail": "£500 to go", "pct": 80}]
 
     monkeypatch.setattr(goals_module, "goals_summary", fake_goals_summary)

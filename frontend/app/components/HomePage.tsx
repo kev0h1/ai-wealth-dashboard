@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import dynamic from "next/dynamic";
 import { ChevronRight } from "lucide-react";
 import { api, ApiError, Account, AccountEligibility, Transaction, InvestmentAccount, SafeToSpend, CompanionItem, NeedleSummary } from "@/lib/api";
-import { bestSpendAccount } from "@/lib/spendFromAccount";
+import { bestSpendAccount, type TodayRequestStatus } from "@/lib/spendFromAccount";
 import SafeToSpendCard from "@/components/SafeToSpendCard";
 import AccountLedgerRow from "@/components/AccountLedgerRow";
 import { bankToRow, investmentToRow } from "@/lib/accountsEstate";
@@ -27,13 +27,30 @@ import { useHomePinnedCards } from "@/lib/useHomePinnedCards";
 import { getHomeCache, setHomeCache } from "@/lib/homeCache";
 import HomeBrief, { HomeBriefClearedRow } from "@/components/HomeBrief";
 import ReconnectStrip from "@/components/ReconnectStrip";
-import { invalidateTransactionsCache } from "@/lib/useAllTransactions";
+import { invalidateAllAccountData } from "@/lib/accountMutations";
 import { resolveAttention } from "@/lib/attention";
 import { isPaydayWindowActive, writePaydayDotCache } from "@/lib/paydayWindow";
 import { useTutorialReady } from "@/components/TutorialContext";
 import { fetchVerdictData } from "@/lib/verdictCache";
-import { getAccountsCached, invalidateAccounts } from "@/lib/accountsCache";
+import { getAccountsCached } from "@/lib/accountsCache";
 import { useHomePinnedAccounts } from "@/lib/homePinnedAccounts";
+import { isLegacyBankSource } from "@/lib/legacyBankProvider";
+import { useOpenBankingAccess } from "@/lib/openBankingAccess";
+// A67: a STATIC import, deliberately, after measuring the alternative.
+// Lazy-loading this the way PinnedWidgetCard below is lazy-loaded was tried
+// and reverted: it does not remove anything from Home's first load, because
+// the chunk BankPickerSheet lands in (53KB, also carrying useLockBodyScroll,
+// AGENT_DISCLOSURE and other shared utilities) is a SHARED chunk listed as
+// first-load for 113 routes, /accounts among them, and /accounts imports the
+// sheet statically for its "Add" menu, a primary action there. Measured
+// against two real production builds of this exact tree: static import,
+// route / firstLoadUncompressedJsBytes = 1,029,282; `dynamic(..., { ssr:
+// false })` = 1,029,439, i.e. 157 bytes LARGER for the dynamic wrapper, with
+// the same chunk still in the list. Making this a genuine saving would mean
+// lazy-loading it on /accounts too and hoping Turbopack then splits that
+// shared chunk, which is a change to another screen's primary action for an
+// unproven gain. Not worth it; recorded here so nobody re-tries it blind.
+import BankPickerSheet from "@/components/BankPickerSheet";
 
 // Recharts-backed pinned widget (~448KB) is rare on Home (opt-in pin) — keep
 // it out of the initial route chunk.
@@ -150,11 +167,95 @@ function HomeSkeleton({ firstName }: { firstName?: string }) {
   );
 }
 
+/** The "nothing connected yet" card. One component, two call sites (the
+ *  fresh-user hero and the "Your estate" empty state), because those two had
+ *  drifted into near-identical copies of the same markup and only one of
+ *  them was ever going to get fixed.
+ *
+ *  A67 — tier: `canConnect` decides whether Connect a bank is offered at
+ *  all. The Statements plan has no open banking (the server answers those
+ *  connect endpoints with a 402), so offering the button there was an
+ *  invitation to a dead end. While the plan is still resolving the card
+ *  shows the upload route, which every plan has, and Connect appears once it
+ *  is known to be available — additive, so no control ever flashes up and
+ *  disappears. See lib/openBankingAccess.ts.
+ *
+ *  A67 — provider: `onConnect` opens the Finexer bank picker rather than
+ *  requesting a connect link directly. The direct call would have gone to
+ *  `api.finexerConnectLink(undefined)`, i.e. `create_consent(provider=None)`,
+ *  which POSTs /consents with no provider at all — a shape no previously
+ *  live caller ever used (the picker passes `bank.id`, ReconnectStrip passes
+ *  `provider_id`, and the only zero-argument caller before A67 went to
+ *  TrueLayer). Choosing the bank first keeps this button on the exact path
+ *  Accounts already uses, instead of betting the single most important
+ *  button in the app on an unverified Finexer API shape.
+ *
+ *  G135 — route: every path out of this card used to be the bank-connect
+ *  OAuth flow, and Home suppresses the whole "Your estate" block (with its
+ *  "Manage" link) for a fresh user, so a user who could not or did not want
+ *  to connect a bank had no way to reach /accounts at all, which is where
+ *  statement upload and offline accounts live. The secondary link below is
+ *  that missing door.
+ *
+ *  G135, the rest of the audit, recorded so nobody repeats it: Planning's
+ *  own dead-end was fixed too (app/planning/GrowPanel.tsx's empty ladder was
+ *  a paragraph telling the user to connect an account, with no link). Spend
+ *  (app/components/SpendPage.tsx) and Upcoming (app/planning/PlanningPage.tsx)
+ *  were checked and deliberately left alone: neither has any notion of a
+ *  fresh user at all — both fetch accounts but never test `.length`, and
+ *  their empty states are about a pay period having no data, not about
+ *  having nothing connected. Giving them one is a new empty state needing a
+ *  design round, not a route fix. Outside Home, /accounts is also absent
+ *  from BottomNav and Sidebar, Settings only scroll-anchors to an in-page
+ *  section, and lib/pennyScreenConfig.tsx carries its "Your accounts" link
+ *  in the `home` config only — all IA decisions for Kevin, not this item. */
+function FirstAccountCard({
+  canConnect,
+  onConnect,
+  onUploadStatement,
+  onOtherWays,
+  tutorialId,
+  ctaTutorialId,
+}: {
+  canConnect: boolean;
+  onConnect: () => void;
+  onUploadStatement: () => void;
+  onOtherWays: () => void;
+  tutorialId?: string;
+  ctaTutorialId?: string;
+}) {
+  return (
+    <div data-tutorial-id={tutorialId} className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-5">
+      <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-1">
+        {canConnect ? "Connect your first bank" : "Add your first account"}
+      </p>
+      <p className="text-sm text-slate-500 dark:text-slate-400 mb-4 leading-snug">
+        {canConnect
+          ? "Read-only access through open banking, we can never move your money."
+          : "Your plan works from statements you upload. Add one to get started, or track an account yourself."}
+      </p>
+      <button
+        onClick={canConnect ? onConnect : onUploadStatement}
+        data-tutorial-id={ctaTutorialId}
+        className="w-full bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-[transform,background-color] text-white text-sm font-semibold rounded-xl py-2.5 px-4"
+      >
+        {canConnect ? "Connect a bank" : "Upload a statement"}
+      </button>
+      <button
+        onClick={onOtherWays}
+        className="w-full min-h-[44px] mt-1 text-sm font-semibold text-indigo-600 dark:text-indigo-400 hover:opacity-80 active:opacity-70 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-xl"
+      >
+        Other ways to add accounts
+      </button>
+    </div>
+  );
+}
+
 export default function HomePage() {
   const router = useRouter();
   const { user } = useAuth();
   const firstName = user?.name?.split(" ")[0]?.trim();
-  const { hideNetWorth, preferencesReady, payPeriodConfig, region, homePinnedWidget } = usePreferences();
+  const { hideNetWorth, preferencesReady, payPeriodConfig, homePinnedWidget } = usePreferences();
   const { colours } = useColours();
   // Read once per render so every initializer/guard below sees the same
   // snapshot — see lib/homeCache.ts for what this cache is and why it's
@@ -203,6 +304,25 @@ export default function HomePage() {
   // joined against `accounts` (above) by lib/spendFromAccount.ts to name
   // the best account to spend from under the Safe-to-Spend hero.
   const [accountEligibility, setAccountEligibility] = useState<Record<string, AccountEligibility> | undefined>(homeCache?.accountEligibility);
+  // G148 — whether that GET /today actually arrived. The request's failure
+  // is deliberately swallowed below (the spend-from rail is a supporting
+  // figure, not a blocking failure, and an error toast for it would be
+  // louder than the thing it is reporting), which is exactly why the
+  // OUTCOME has to be recorded: without this, "the request failed" and "the
+  // request succeeded with no account_eligibility on it" both arrived at
+  // SafeToSpendCard as `undefined` and both rendered as nothing at all.
+  // Same three-state shape as `needleStatus` below, not a second vocabulary.
+  const [todayStatus, setTodayStatus] = useState<TodayRequestStatus>(homeCache?.todayStatus ?? "loading");
+  // G148 re-review — what happened to the GET /accounts this mount issued.
+  // NOT derived from the page-level `loading` flag: that initialises to
+  // `!homeCache`, so a warm remount starts with it already false, before
+  // this mount has requested anything, and the cached snapshot may hold an
+  // empty `accounts` left by a cold load whose accounts request FAILED.
+  // Reading "the list is settled" off that flag therefore asserted "no
+  // current account has room" about a user who has bank accounts and whose
+  // fetch merely broke. Owned by the mount and cached with its own outcome,
+  // exactly like todayStatus above.
+  const [accountsStatus, setAccountsStatus] = useState<TodayRequestStatus>(homeCache?.accountsStatus ?? "loading");
   // Fed by HomeBrief's onClearedChange (see BriefBodyProps.onClearedChange
   // in HomeBrief.tsx) — HomeBriefClearedRow is mounted here, below
   // SafeToSpendCard, as HomeBrief's own sibling rather than its child, so
@@ -214,6 +334,11 @@ export default function HomePage() {
   // a live insight_win celebration card is showing on Home, ValueDeliveredStat's
   // "£X/mo saved" chip below hides (one voice at a time, story then ledger).
   const [insightWinVisible, setInsightWinVisible] = useState(false);
+  // G115: the same dismissed-filtered item set that renders MoveCard reports
+  // whether a cover move is actually visible above Safe to Spend. This keeps
+  // the reconciliation sentence accurate after "Hide on Home" as well as on
+  // first paint.
+  const [coverMoveVisible, setCoverMoveVisible] = useState(false);
   const [needle, setNeedle] = useState<NeedleSummary | null>(homeCache?.needle ?? null);
   const [needleStatus, setNeedleStatus] = useState<"loading" | "ready" | "failed">(homeCache?.needleStatus ?? "loading");
   // A manual sync can overlap the mount fetch. Only the most recently started
@@ -284,13 +409,19 @@ export default function HomePage() {
   // very first cold load can never seed the cache with empty/default data.
   useEffect(() => {
     if (!revealedRef.current) return;
-    setHomeCache({ accounts, investmentAccounts, safeToSpend, companionItems, accountEligibility, recentTxns, needle, needleStatus });
-  }, [accounts, investmentAccounts, safeToSpend, companionItems, accountEligibility, recentTxns, needle, needleStatus]);
+    setHomeCache({ accounts, investmentAccounts, safeToSpend, companionItems, accountEligibility, todayStatus, accountsStatus, recentTxns, needle, needleStatus });
+  }, [accounts, investmentAccounts, safeToSpend, companionItems, accountEligibility, todayStatus, accountsStatus, recentTxns, needle, needleStatus]);
 
   const loadData = useCallback(async () => {
     const requestId = ++loadRequestRef.current;
     setLoadError(false);
     setStsError(false);
+    // G148: a retry or a manual sync is a fresh attempt, so the spend-from
+    // rail goes back to its quiet in-flight state rather than keeping a
+    // stale "we could not check" line on screen. Any eligibility already
+    // held is untouched, so a warm rail does not blink out while refreshing.
+    setTodayStatus("loading");
+    setAccountsStatus("loading");
     try {
       // Fire the fast calls all in parallel and set each state as its own
       // promise resolves. The Safe-to-Spend tile and brief never wait for
@@ -329,12 +460,26 @@ export default function HomePage() {
         .finally(() => {
           if (requestId === loadRequestRef.current) setStsLoading(false);
         });
-      todayP.then((v) => {
-        if (requestId === loadRequestRef.current) {
-          setCompanionItems(v.items);
-          setAccountEligibility(v.account_eligibility);
-        }
-      }).catch(() => {});
+      todayP
+        .then((v) => {
+          if (requestId === loadRequestRef.current) {
+            setCompanionItems(v.items);
+            // May genuinely be undefined: a payload from a server, or a
+            // response cache, older than G110 carries no eligibility at
+            // all. That case is no longer silent (see `todayStatus` above
+            // and lib/spendFromAccount.ts's `SpendFromUnavailableReason`),
+            // which is the whole point of recording "ready" alongside it.
+            setAccountEligibility(v.account_eligibility);
+            setTodayStatus("ready");
+          }
+        })
+        .catch(() => {
+          // Still swallowed on purpose: Home has its own load-error path
+          // for the things that must block, and the brief/rail are not
+          // among them. G148 only makes the failure VISIBLE where it
+          // matters, as a distinct spend-from state rather than as a toast.
+          if (requestId === loadRequestRef.current) setTodayStatus("failed");
+        });
       recentTxP
         .then((r) => { if (requestId === loadRequestRef.current) setRecentTxns(r.items); })
         .catch(() => { if (requestId === loadRequestRef.current) setRecentTxns([]); })
@@ -362,8 +507,15 @@ export default function HomePage() {
         loadedAccounts = await accsP;
         if (requestId !== loadRequestRef.current) return;
         setAccounts(loadedAccounts);
+        setAccountsStatus("ready");
       } catch {
         if (requestId !== loadRequestRef.current) return;
+        // Recorded as well as surfaced: `loadError` hides this whole card on
+        // THIS mount, but it is a fresh `useState` false on the next one,
+        // whereas the cached snapshot's empty `accounts` survives. Without
+        // the status travelling with it, that next mount reads the empty
+        // list as a settled answer.
+        setAccountsStatus("failed");
         setLoadError(true);
         return;
       }
@@ -463,12 +615,15 @@ export default function HomePage() {
     if (syncErrorTimerRef.current) clearTimeout(syncErrorTimerRef.current);
     try {
       await api.syncAll();
-      invalidateTransactionsCache();
-      // A sync can change account balances/status (not just transactions),
-      // so the shared accounts cache (lib/accountsCache.ts) must be forced
-      // fresh too — otherwise loadData()'s accsP could still serve the
-      // pre-sync snapshot for up to the rest of its 60s TTL.
-      invalidateAccounts();
+      // A sync can change account balances/status and pull in new
+      // transactions, which can move the verdict/money-shape/signals
+      // figures too, not just the transactions and accounts caches this
+      // used to clear alone (G138: that narrower pair was the same class
+      // of gap that left a deleted account's transaction on Spend until a
+      // hard refresh) — otherwise loadData()'s accsP could still serve the
+      // pre-sync snapshot for up to the rest of its 60s TTL, and a Spend
+      // visit straight after a sync could still read the pre-sync verdict.
+      invalidateAllAccountData();
       await loadData();
     } catch {
       setSyncError(true);
@@ -511,8 +666,8 @@ export default function HomePage() {
   // Spending totals are home-currency only; the recent list still shows
   // foreign-currency transactions with their own symbol
   const homeTxns = useMemo(
-    () => transactions.filter(t => isHomeCurrency(t.currency, region)),
-    [transactions, region]
+    () => transactions.filter(t => isHomeCurrency(t.currency)),
+    [transactions]
   );
 
   // Micro pot-shuffles (round-ups, penny transfers) aren't "activity" worth
@@ -563,8 +718,18 @@ export default function HomePage() {
   // (accountEligibility, off the same GET /today the companion brief
   // already uses) against the account list already fetched above.
   const spendFrom = useMemo(
-    () => bestSpendAccount(accountEligibility, accounts),
-    [accountEligibility, accounts],
+    // G148: `todayStatus` travels with the snapshot so SafeToSpendCard can
+    // tell an in-flight request from a failed one from a successful one that
+    // carried no eligibility at all. All three used to arrive here as
+    // `undefined` and render as nothing.
+    //
+    // `accountsStatus` is the separate signal for what happened to the
+    // account list itself. An empty list means three different things (not
+    // back, failed, genuinely empty) and only the last one licenses the
+    // "no current account has room" claim, so the status travels rather
+    // than a boolean derived from a page-level loading flag.
+    () => bestSpendAccount(accountEligibility, accounts, todayStatus, accountsStatus),
+    [accountEligibility, accounts, todayStatus, accountsStatus],
   );
 
   const expiredProviders = useMemo(() => {
@@ -580,12 +745,53 @@ export default function HomePage() {
     return [...grouped.values()];
   }, [accounts]);
 
+  // A67: reconnect REPAIRS one named connection, so it must go back to the
+  // provider that owns that consent — sending an expired TrueLayer account
+  // to Finexer would create a second, duplicate connection rather than
+  // revive the dead one. `isLegacyBankSource` resolves a missing `source` to
+  // the legacy provider, which is the backend's own convention (see that
+  // function's doc comment for the evidence); it is always false in a
+  // production build, so this reduces to "always Finexer" there.
+  //
+  // What A67 actually fixed here was NOT this branch, which was already
+  // right. It was the zero-argument `handleReconnect()` behind the
+  // fresh-user "Connect a bank": with no account to reason about it fell
+  // through the same else and started a TrueLayer consent for a brand new
+  // user. That call site no longer exists — the fresh-user card opens the
+  // Finexer bank picker instead, so a provider is always chosen.
   async function handleReconnect(providerId?: string, source?: string) {
+    const legacy = isLegacyBankSource(source);
+    // A67: a Finexer connect link needs a provider. `finexerConnectLink(undefined)`
+    // reaches `create_consent(provider=None)`, which POSTs /consents with
+    // only `customer` and `return_url` — a shape nothing in this codebase
+    // verifies Finexer accepts, and which `test_finexer_link.py` only
+    // proves we can PASS, because it mocks `create_consent` itself. A null
+    // provider is reachable, not hypothetical: `truelayer_sync.py:347/401`
+    // write `acc.get("provider", {}).get("provider_id")` and
+    // `finexer_sync.py:623` writes a nullable `provider_code`, so an
+    // upstream payload that omits it stores None, and `ReconnectProvider`
+    // types `provider_id` optional all the way through. No live account on
+    // UAT is in that state today, but "no live example yet" is not a
+    // guarantee. So rather than document the hole, close it: fall back to
+    // the bank picker and let the user name their bank. The legacy branch
+    // needs no such guard, `/auth/truelayer/link` with no provider is a
+    // supported shape that shows TrueLayer's own chooser.
+    if (!legacy && !providerId) {
+      setShowBankPicker(true);
+      return;
+    }
     try {
-      const { auth_url } = source === "finexer"
-        ? await api.finexerConnectLink(providerId)
-        : await api.connectLink(providerId);
-      window.location.href = auth_url;
+      const { auth_url } = legacy
+        ? await api.legacyBankConnectLink(providerId)
+        : await api.finexerConnectLink(providerId);
+      // `location.assign()`, not `location.href = ...`: introducing a state
+      // setter into this function brought it under the React compiler's
+      // `react-hooks/immutability` rule, which reads the assignment as
+      // modifying a value defined outside the component. A method call is
+      // not a mutation, so it does not trip, and it is the shape
+      // components/PlanPicker.tsx already uses for exactly this. Identical
+      // navigation semantics.
+      window.location.assign(auth_url);
     } catch (err) {
       alert(err instanceof ApiError ? err.message : "Failed to start reconnection. Please try again.");
     }
@@ -600,6 +806,13 @@ export default function HomePage() {
   // user whose /accounts fetch simply failed would see the "Connect your
   // first bank" hero and a blanked brief instead of the load-error retry UI.
   const isFreshUser = !loading && !loadError && accounts.length === 0 && investmentAccounts.length === 0;
+  // A67: does this plan include connecting a bank at all? Resolved off to
+  // the side, never blocking the page — see lib/openBankingAccess.ts for why
+  // the pending state shows Upload Statement rather than Connect.
+  const canConnectBank = useOpenBankingAccess();
+  // A67: the fresh-user card opens the same Finexer picker Accounts uses, so
+  // a provider is always chosen before a consent is created.
+  const [showBankPicker, setShowBankPicker] = useState(false);
   // Undefined while accounts are still loading (so PaydayPlanSection's
   // hasAccounts guard doesn't prematurely suppress a real user's entry row
   // before their accounts have arrived) — settles to a real boolean once
@@ -687,6 +900,7 @@ export default function HomePage() {
               hasAccounts={hasAccountsForBrief}
               onClearedChange={setClearedAdvice}
               onInsightWinVisibleChange={setInsightWinVisible}
+              onCoverMoveVisibleChange={setCoverMoveVisible}
               banner={reauthBanner}
             />
           </div>
@@ -697,22 +911,15 @@ export default function HomePage() {
               section below is suppressed entirely in this state so it never
               duplicates. */}
           {isFreshUser && (
-            <div data-tutorial-id="tutorial-home-fresh" className="px-4 lg:px-0 mt-6">
-              <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-5">
-                <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-1">
-                  Connect your first bank
-                </p>
-                <p className="text-sm text-slate-500 dark:text-slate-400 mb-4 leading-snug">
-                  Read-only access through open banking, we can never move your money.
-                </p>
-                <button
-                  onClick={() => handleReconnect()}
-                  data-tutorial-id="tutorial-home-fresh-cta"
-                  className="w-full bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-[transform,background-color] text-white text-sm font-semibold rounded-xl py-2.5 px-4"
-                >
-                  Connect a bank
-                </button>
-              </div>
+            <div className="px-4 lg:px-0 mt-6">
+              <FirstAccountCard
+                canConnect={canConnectBank}
+                onConnect={() => setShowBankPicker(true)}
+                onUploadStatement={() => router.push("/accounts?add=statement")}
+                onOtherWays={() => router.push("/accounts")}
+                tutorialId="tutorial-home-fresh"
+                ctaTutorialId="tutorial-home-fresh-cta"
+              />
             </div>
           )}
 
@@ -746,6 +953,7 @@ export default function HomePage() {
                   error={stsError}
                   onRetry={() => { setStsError(false); setStsLoading(true); loadData(); }}
                   spendFrom={spendFrom}
+                  coverMoveVisible={coverMoveVisible}
                 />
               )}
 
@@ -846,20 +1054,12 @@ export default function HomePage() {
                   ))}
                 </div>
               ) : accounts.length === 0 ? (
-                <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-5">
-                  <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-1">
-                    Connect your first bank
-                  </p>
-                  <p className="text-sm text-slate-500 dark:text-slate-400 mb-4 leading-snug">
-                    Read-only access through open banking, we can never move your money.
-                  </p>
-                  <button
-                    onClick={() => handleReconnect()}
-                    className="w-full bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-[transform,background-color] text-white text-sm font-semibold rounded-xl py-2.5 px-4"
-                  >
-                    Connect a bank
-                  </button>
-                </div>
+                <FirstAccountCard
+                  canConnect={canConnectBank}
+                  onConnect={() => setShowBankPicker(true)}
+                  onUploadStatement={() => router.push("/accounts?add=statement")}
+                  onOtherWays={() => router.push("/accounts")}
+                />
               ) : (
                 <div className="glass-card rounded-2xl overflow-hidden">
                   {topPickAccounts.map((acc, i) => (
@@ -948,6 +1148,15 @@ export default function HomePage() {
           onUpdated={handleTxUpdated}
           account={accounts.find(a => a.id === selectedTx.account_id)}
         />
+      )}
+
+      {/* A67: the fresh-user "Connect a bank" opens this rather than
+          requesting a connect link with no bank chosen. The sheet sends the
+          browser to the consent URL itself, so there is nothing to do on
+          close beyond dismissing it. Same component and same provider the
+          Accounts empty state uses. */}
+      {showBankPicker && (
+        <BankPickerSheet provider="finexer" onClose={() => setShowBankPicker(false)} />
       )}
     </div>
   );

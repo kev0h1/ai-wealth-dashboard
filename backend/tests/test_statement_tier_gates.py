@@ -1,5 +1,5 @@
 """Tests for the Statements-tier gates added in app.core.subscription:
-open banking is off for that tier, and statement/M-Pesa uploads are capped
+open banking is off for that tier, and statement uploads are capped
 at `statement_uploads_per_month` (None = unlimited on every other tier).
 Follows the fake-collection monkeypatch pattern in tests/test_tiers.py."""
 import asyncio
@@ -144,8 +144,7 @@ def test_record_statement_upload_writes_expected_doc(monkeypatch):
     monkeypatch.setattr(collections_module, "statement_uploads_col", fake)
 
     asyncio.run(record_statement_upload(
-        "writer@example.com", kind="pdf", filename="jan-statement.pdf",
-        region="UK", account_id="statement-writer@example.com-hsbc-1234",
+        "writer@example.com", kind="pdf", filename="jan-statement.pdf", account_id="statement-writer@example.com-hsbc-1234",
     ))
 
     assert len(fake.inserted) == 1
@@ -153,7 +152,6 @@ def test_record_statement_upload_writes_expected_doc(monkeypatch):
     assert doc["user_id"] == "writer@example.com"
     assert doc["kind"] == "pdf"
     assert doc["filename"] == "jan-statement.pdf"
-    assert doc["region"] == "UK"
     assert doc["account_id"] == "statement-writer@example.com-hsbc-1234"
     assert doc["year_month"] == _current_ym()
     assert isinstance(doc["uploaded_at"], datetime)

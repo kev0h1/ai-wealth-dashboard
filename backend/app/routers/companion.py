@@ -17,12 +17,53 @@ from app.services.needle import (
 router = APIRouter(tags=["companion"])
 
 
+async def build_today_payload(uid: str, *, payday_preview: bool = False) -> dict:
+    """The ONE definition of `GET /today`'s response body.
+
+    G110 (2026-09-16): Home's Safe-to-Spend card names the best account to
+    spend from, straight from the SAME `account_eligibility` snapshot
+    `/today/cover-plan` already exposes to Settings (see that handler's
+    own docstring) — a pure, non-mutating read `compute_today_items`
+    already does on every call, so this adds no extra computation, only
+    one more key on a response Home already fetches every load.
+
+    G148 (2026-09-23) is why it lives in its own function instead of inline
+    in the handler. `app.services.warmup._compute_today` had its OWN copy of
+    this literal (`{"status": "ok", "items": items}`), written before G110
+    and never updated, and the warm-up's copy is what gets persisted into
+    the response cache after every sync. The handler returns a cache hit
+    verbatim, so from the first warm-up after G110 shipped, Home was served
+    a today payload with no `account_eligibility` in it and the spend-from
+    rail silently vanished — verified live against Kevin's own user, whose
+    persisted entry that morning had exactly the keys `items` and `status`
+    while a live compute of the same engine returned 13 eligible accounts.
+
+    Both call sites now build the payload here, the same reason
+    `build_safe_to_spend_response` was extracted out of
+    `app.routers.analytics` for `_compute_safe_to_spend` to share (see
+    warmup.py's own docstring). Adding a key here reaches the warm-up by
+    construction; there is no second literal that can drift from it.
+
+    Deliberately does NOT read or write the response cache: the handler
+    below owns that (and pins its version snapshot around it), and
+    `warm_user` owns its own pinned write. A self-caching builder would
+    give warm_user no way to stamp its own bumped version onto the entry.
+    """
+    account_eligibility: dict = {}
+    items = await compute_today_items(
+        uid, payday_preview=payday_preview, account_eligibility_out=account_eligibility,
+    )
+    return {"status": "ok", "items": items, "account_eligibility": account_eligibility}
+
+
 @router.get("/today")
 async def get_today(payday_preview: int = 0, user: dict = Depends(current_user)):
     uid = user["email"]
     preview = bool(payday_preview)
     # Mongo-backed response cache (6h safety bound; exact invalidation via
-    # the per-user data version — see app/services/response_cache.py).
+    # the per-user data version, plus a response SHAPE version so a payload
+    # built by code that emitted different fields is a miss rather than a
+    # silently-truncated hit — see app/services/response_cache.py).
     # Invalidated on dismiss and after sync. Preview requests never read
     # from or write to it — they're a one-off design/QA look at the Payday
     # Plan card, not the live today-state.
@@ -32,17 +73,7 @@ async def get_today(payday_preview: int = 0, user: dict = Depends(current_user))
         if cached is not None:
             return cached
         v = await response_cache.snapshot(uid)
-    # G110 (2026-09-16): Home's Safe-to-Spend card names the best account to
-    # spend from, straight from the SAME `account_eligibility` snapshot
-    # `/today/cover-plan` already exposes to Settings (see that handler's
-    # own docstring) — a pure, non-mutating read `compute_today_items`
-    # already does on every call, so this adds no extra computation, only
-    # one more key on a response Home already fetches every load.
-    account_eligibility: dict = {}
-    items = await compute_today_items(
-        uid, payday_preview=preview, account_eligibility_out=account_eligibility,
-    )
-    payload = {"status": "ok", "items": items, "account_eligibility": account_eligibility}
+    payload = await build_today_payload(uid, payday_preview=preview)
     if not preview:
         await response_cache.aput("today", uid, payload, version=v)
     return payload

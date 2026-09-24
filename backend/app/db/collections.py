@@ -38,19 +38,10 @@ notification_state_col  = db["notification_state"]
 # survives month-to-month statement drift.
 confirmed_transfer_pairs_col = db["confirmed_transfer_pairs"]
 
-# Mono (Kenya)
-mono_connections_col    = db["mono_connections"]
-mono_accounts_col       = db["mono_accounts"]
-mono_transactions_col   = db["mono_transactions"]
-
-# M-Pesa
-mpesa_accounts_col      = db["mpesa_accounts"]
-mpesa_transactions_col  = db["mpesa_transactions"]
-
-# Bank statements (UK + Kenya)
+# Bank statements
 statement_accounts_col      = db["statement_accounts"]
 statement_transactions_col  = db["statement_transactions"]
-# One doc per successful statement/M-Pesa upload (app.core.subscription
+# One doc per successful statement upload (app.core.subscription
 # check_statement_upload_allowed / record_statement_upload) — counts
 # against the Statements tier's statement_uploads_per_month cap.
 statement_uploads_col       = db["statement_uploads"]
@@ -327,6 +318,18 @@ response_cache_col      = db["response_cache"]
 # and (ts) for time-boxed debugging queries.
 llm_usage_col           = db["llm_usage"]
 
+# A80: service-wide monthly OpenRouter call ceiling (see app/core/config.py's
+# LLM_GLOBAL_MONTHLY_CALL_CEILING and app/core/llm.py's openrouter_chat,
+# which is the only writer). One doc per calendar month, `_id` = "YYYY-MM":
+# {count (calls attempted this month while the ceiling was enabled),
+# warned_80 (bool, set once usage first crosses 80% of the ceiling so the
+# warning log fires once per month)}. Deliberately carries no `user_id`
+# field and no uid-shaped `_id`, so app.services.retention.erase_user's
+# dir()-based `*_col` sweep (delete_many on user_id or _id) never matches
+# it — this is service-wide usage, not any one user's data. Tiny (one doc
+# per month), no TTL needed.
+llm_global_usage_col    = db["llm_global_usage"]
+
 # F3: audit log for the /mcp read connector (app/routers/mcp.py), one doc
 # per `tools/call`, ok or not: {user_id, client ("session" until F2's OAuth
 # server introduces real per-token clients), tool, ok, ts, year_month,
@@ -442,3 +445,15 @@ oauth_tokens_col       = db["oauth_tokens"]
 # Penny/MCP tool + Home-card surfacing) is a follow-up — see B18's backlog
 # note for what that still needs.
 safe_to_spend_history_col = db["safe_to_spend_history"]
+
+# A84: server-side session-revocation tombstones (app.core.session_revocation).
+# One doc per user, `_id` the sha256 of their lower-cased email (see that
+# module's `_key` docstring for why hashed rather than keyed raw), {_id,
+# not_before (aware UTC — no session token issued before this instant is
+# valid any more), expires_at (not_before + SESSION_MAX_AGE + 5min — TTL
+# index in app/main.py's index setup, expireAfterSeconds=0, so a tombstone
+# reaps itself once no token it could possibly catch is still unexpired)}.
+# Written by `revoke_sessions` (DELETE /account, and
+# app.services.retention.sweep_dormant_users before each erase_user), read
+# by `app.core.auth.current_user` on every session-branch request.
+session_tombstones_col = db["session_tombstones"]

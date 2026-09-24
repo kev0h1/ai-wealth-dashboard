@@ -45,7 +45,6 @@ from app.services.categories import (
 )
 from app.services.categorisation import canonical_merchant_key
 from app.services.pace import compute_category_signals, get_total_pace_curve_fn
-from app.services.region import get_user_region
 from app.services.spend_impact import compute_spend_impact
 from app.services import response_cache
 
@@ -142,15 +141,14 @@ def _movement_bucket(category: str) -> str:
 async def _load_period_txns(uid: str, start: date, end: date) -> list[dict]:
     """Every debit/credit transaction in [start, end], normalised, filtered
     to the user's home currency (matching SpendPage's `categories`/`summary`
-    memos — a foreign-currency row, e.g. a KES M-Pesa line on a UK account,
-    must never inflate the verdict's pills/notables/majority/unresolved
-    figures beyond what the tiles above them show; fix-round LOW finding).
+    memos — a foreign-currency row must never inflate the verdict's
+    pills/notables/majority/unresolved figures beyond what the tiles above
+    them show; fix-round LOW finding).
 
     Returns [{"date", "category", "amount" (always positive), "debit" (bool),
     "description", "merchant_name", "merchant_key", "id", "account_id"}].
     """
-    region = await get_user_region(uid)
-    home_currency = "KES" if region == "Kenya" else "GBP"
+    home_currency = "GBP"
     start_dt = datetime(start.year, start.month, start.day)
     end_dt = datetime(end.year, end.month, end.day, 23, 59, 59)
     raw_docs: list[dict] = []
@@ -667,8 +665,8 @@ def compute_pace_totals(
     """Signed pace fact across every BASELINED spend category (Other
     excluded, same ontology carve-out as build_notables_and_majority):
     actual spend so far vs what "usual" would put you at by today.
-    `excess` is signed — positive means running ahead of usual, negative
-    means under it. This is the input the impact engine floor-projects from
+    `excess` is signed — positive means more spent than usual by now,
+    negative means less. This is the input the impact engine floor-projects from
     (`spend_impact.compute_spend_impact`'s `total_excess`), independent of
     which categories individually qualify as "notable".
 
@@ -842,15 +840,17 @@ def _movement_fallback_sentence(moved: list[dict]) -> str | None:
 def compose_reading(
     *, state: str, base_reading: str, notables: list[dict], pace_totals: dict,
     impact: dict, moved: list[dict], unresolved_total: float = 0.0,
+    days_elapsed: int | None = None,
 ) -> str:
     """Recompose the verdict's `reading` as caption grammar: max 2 sentences,
-    no em-dashes, always hedged, never "will".
+    no em-dashes and never "will".
 
     Sentence 1 — the pace fact. For "normal"/"everything" states with a
-    genuine aggregate overspend, this leads with the pound figure ("Running
-    about £1,411 ahead of usual, mostly Bills."). For a materially
-    under-pace period paired with a live consequence, it's the plain "You're
-    under usual pace." Otherwise the existing per-state template
+    genuine aggregate overspend, this says literally how much more has been
+    spent by this point in the period ("You spent £1,411 more than usual by
+    day 13, mostly on Bills."). For a materially under-pace period paired
+    with a live consequence, it uses the symmetric "less than usual" form.
+    Otherwise the existing per-state template
     (`build_reading`'s output) already says the honest pace fact.
 
     Unresolved-money hedge (owner-approved fix, 2026-08) — pills.spent (OUT)
@@ -880,13 +880,14 @@ def compose_reading(
     """
     excess = pace_totals.get("excess", 0.0)
     sentence1 = base_reading
+    timing = f" by day {days_elapsed}" if days_elapsed is not None else " so far"
 
     consequence = impact.get("consequence")
     if state in ("normal", "everything") and notables and excess > 0:
         top = notables[0]["category"]
-        sentence1 = f"Running about £{abs(excess):,.0f} ahead of usual, mostly {top}."
+        sentence1 = f"You spent £{abs(excess):,.0f} more than usual{timing}, mostly on {top}."
     elif excess < 0 and consequence in ("permission", "horizon"):
-        sentence1 = "You're under usual pace."
+        sentence1 = f"You spent £{abs(excess):,.0f} less than usual{timing}."
 
     if impact.get("unresolved_hedge"):
         # Truncate to sentence 1's own first sentence BEFORE hedging — some
@@ -898,15 +899,9 @@ def compose_reading(
         # template's own second sentence here is deliberate — the hedge
         # takes that slot instead, same 2-sentence budget either way.
         base = _first_sentence(sentence1)
-        # (a) soften the verdict verb where sentence 1 is the plain "You're
-        # under usual pace." claim; every other sentence-1 form already
-        # reads as hedged/qualified ("Running about...", "Nothing unusual
-        # to report...") so it's left as-is bar the trailing full stop.
-        if base == "You're under usual pace.":
-            base = "You look under usual pace"
-        else:
-            base = base.rstrip(".")
-        # (b) name the unplaced amount, in the same clause — no em-dash.
+        # Name the unplaced amount in the same clause, so the comparison
+        # never sounds more certain than the categorised evidence permits.
+        base = base.rstrip(".")
         sentence1 = f"{base}, though £{unresolved_total:,.0f} isn't placed yet, which could change this."
 
     sentence2: str | None = None
@@ -1137,7 +1132,7 @@ async def compute_spend_verdict(uid: str, offset: int = 0) -> dict:
             loudest = notables[0]
             excess_total = pace_totals["excess"]
             # "...of that" only has an antecedent when the AGGREGATE excess
-            # is itself positive (sentence 1 is the "running ahead" pace
+            # is itself positive (sentence 1 is the "more than usual" pace
             # fact). When the aggregate is flat/negative — a notable over-
             # pace category offset by bigger under-pace elsewhere, sentence
             # 1 becomes "You're under usual pace." — "that" would dangle, so
@@ -1161,6 +1156,7 @@ async def compute_spend_verdict(uid: str, offset: int = 0) -> dict:
         impact=impact,
         moved=result["moved"],
         unresolved_total=unresolved_total,
+        days_elapsed=days_elapsed,
     )
     result["pace_series"] = pace_series
     result["moved_total"] = moved_total

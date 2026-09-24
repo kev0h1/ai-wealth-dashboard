@@ -19,9 +19,18 @@ precondition list and exactly one place that ever pushes to `release`.
   each service's own dashboard (see the prerequisite below), because
   Railway has no separate "production branch" setting the way Vercel
   does, it deploys whatever branch its Source setting names.
-- **Atlas**: MongoDB M0, shared between UAT and production today (see
-  `DEPLOY.md`); **Redis**: the Railway Redis plugin, referenced by both
-  services via `${{Redis.REDIS_URL}}`.
+- **Atlas**: MongoDB M0 (see `DEPLOY.md`), production only. UAT does not
+  use Atlas: it runs its own local `mongod` on this VPS (`backend/.env`'s
+  `MONGO_URI` points at `mongodb://localhost:27017`, with no
+  authentication configured). That local `mongod` was the one-time
+  source, not a live copy: `DEPLOY.md`'s "Migrate the data" step dumped
+  it and restored the dump into Atlas M0 when production was first stood
+  up, a one-off `mongorestore`, not an ongoing link. **UAT and production
+  do not share a database, or any data**, in either direction. **Redis**:
+  the Railway Redis plugin, referenced by both Railway services via
+  `${{Redis.REDIS_URL}}`, production only; UAT runs its own local,
+  Docker-proxied `redis:7-alpine` container on this VPS. The two Redis
+  instances are as separate as the two Mongo instances above.
 
 **Until both Railway services are switched to `release`, every push to
 `main`, including every backlog integrate and every board commit,
@@ -98,6 +107,42 @@ separate, A28 mechanism — not an env var at all, never set via this
 command; see docs/ops/ENV.md's "Bot/service credentials" section and
 `backend/scripts_bot_credential.py`.)
 Prints only the names set and which services, never a value.
+
+**A92/A110 checklist, once, for the release that first carries them**
+(after that, these four are already set and an ordinary `check`/`sync-vars`
+pass covering the usual missing-variable row is enough). Production needs
+FOUR variables set before this release, per `docs/ops/ENV.md`:
+`TRUSTED_PROXY_HOPS=1`, `TRUSTED_PROXY_HOPS_WEB=2` and `TRUSTED_PROXY_SECRET`
+on Railway (both services), plus `API_PROXY_SECRET` on Vercel set to the
+same value as `TRUSTED_PROXY_SECRET`. Generate the shared secret once:
+
+```bash
+openssl rand -hex 32   # use this value for BOTH TRUSTED_PROXY_SECRET and API_PROXY_SECRET below
+```
+
+Set the three Railway-side variables with `sync-vars` (`--value`, not
+`--from backend/.env`, since UAT's own hop count is 1, not production's):
+
+```bash
+backend/.venv/bin/python scripts/release.py sync-vars --value TRUSTED_PROXY_HOPS=1 --value TRUSTED_PROXY_HOPS_WEB=2 --value TRUSTED_PROXY_SECRET=<the-generated-value>
+```
+
+`sync-vars` only writes to Railway. `API_PROXY_SECRET` lives on Vercel,
+which this tool has no equivalent command for today, so set it directly,
+the same one-off, outside-the-script exception section (b) above already
+makes for the Railway branch switch and the DNS record: `vercel env add
+API_PROXY_SECRET production` (or the Vercel dashboard), same generated
+value, never printed or committed anywhere. Confirm none of the four are
+set on UAT (they must stay absent there; nginx's single hop never needs
+this split).
+
+After `deploy` below finishes, verify both ingress paths actually resolve
+the way this checklist expects: open `GET /diagnostics/proxy` once from
+the web app (`https://wealth.auriqltd.co.uk`, expect
+`"via_web_proxy": true, "hops_applied": 2`) and once from the mobile app
+(expect `"via_web_proxy": false, "hops_applied": 1`). Nobody can measure
+either hop count before deploying, which is why this is a post-deploy
+check rather than something `release.py check` can gate on.
 
 ```bash
 backend/.venv/bin/python scripts/release.py deploy
