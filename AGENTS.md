@@ -100,10 +100,23 @@ unrecorded.
   is gated by real account-owner auth end to end and hardcodes the actor
   to `kevin` regardless of who is signed in — but that same page's
   `ItemDetailSheet` "Move to" chips (To do, In progress, Done, Blocked)
-  fire straight through on a cancelled item with no refusal at all, since
-  the page calls the service layer directly rather than through the CLI's
-  guard; accepted, since it is still Kevin's own tap, but the guard below
-  is CLI-only, not universal. `backend/app/services/backlog.py`'s
+  mostly fire straight through on a cancelled item with no refusal at
+  all, since the page calls the service layer directly rather than
+  through the CLI's guard; accepted for To do, In progress and Blocked,
+  since it is still Kevin's own tap, and `set_state` itself still carries
+  no cancelled check, so a `BoardView.tsx` drag onto those columns fires
+  straight through unrefused too. Done is the one exception, closed as a
+  blocking defect found in the 2026-09-18 review: dragging a cancelled
+  card onto Done used to fire the done action with no confirmation,
+  silently clearing `item.reason` and ticking the item complete, the
+  exact transition the CLI already refused. `TodoDoc.set_done` itself now
+  refuses a cancelled item with no override, the same shape
+  `_refuse_if_cancelled` already used on the CLI, so that one transition
+  is genuinely universal rather than CLI-only, `backend/app/routers/ops.py`
+  surfaces the refusal as a 4xx with the reason rather than a 500, and
+  `BoardView.tsx`'s own `isValidDropTarget` refuses Done as a drop target
+  for a cancelled card client-side too, so a drag never even sends the
+  request. `backend/app/services/backlog.py`'s
   `TodoDoc.set_state` refuses to set this state for any CLI `--actor`
   other than `kevin` — that is a guard against forgetting, not against
   intent: nothing stops a session typing `--actor kevin` on purpose, so

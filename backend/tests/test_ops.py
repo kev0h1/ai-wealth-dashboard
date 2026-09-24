@@ -345,6 +345,40 @@ def test_item_action_cancel_on_a_done_item_is_404(tmp_path, monkeypatch, mock_gi
     asyncio.run(_run())
 
 
+def test_item_action_done_on_a_cancelled_item_is_404(tmp_path, monkeypatch, mock_git):
+    # H80 blocking defect (2026-09-18 review): the mirror image of
+    # test_item_action_cancel_on_a_done_item_is_404 above, which this file
+    # had never covered. Before the fix, `TodoDoc.set_done` had no
+    # cancelled check at all, so this route's "done" action would
+    # silently succeed, ticking a cancelled item complete and clearing its
+    # reason -- the same drag BoardView.tsx's Done column let through with
+    # no confirmation. The guard now lives at the service layer
+    # (backend.app.services.backlog.TodoDoc.set_done), so this route
+    # inherits it for free via the existing `except backlog.BacklogError`
+    # -> 404 mapping, the same 4xx shape every other refused transition on
+    # this route already uses (never a 500).
+    monkeypatch.setattr(ops, "PRIMARY_EMAIL", "kevin.maingi12@gmail.com")
+    _write_repo(tmp_path)
+    monkeypatch.setattr(ops, "_repo_root", lambda: tmp_path)
+    user = {"email": "kevin.maingi12@gmail.com"}
+
+    async def _run():
+        await ops.go_live_item_action(
+            "H3", ItemActionRequest(action="cancel", reason="not wanted"), user=user
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            await ops.go_live_item_action("H3", ItemActionRequest(action="done"), user=user)
+        assert exc_info.value.status_code == 404
+        assert "cancelled" in str(exc_info.value.detail)
+        assert "not wanted" in str(exc_info.value.detail)
+
+        saved = (tmp_path / "TODO.md").read_text(encoding="utf-8")
+        assert "- [ ] **H3." in saved  # never ticked [x]
+        assert "[state: cancelled: not wanted]" in saved  # reason survives, not cleared
+
+    asyncio.run(_run())
+
+
 def test_item_action_note_and_owner(tmp_path, monkeypatch, mock_git):
     monkeypatch.setattr(ops, "PRIMARY_EMAIL", "kevin.maingi12@gmail.com")
     _write_repo(tmp_path)

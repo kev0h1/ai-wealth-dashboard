@@ -131,10 +131,16 @@ function sourceLaneFor(item: GoLiveItem, lanes: GoLiveLaneMode): string {
  *  lanes are fixed by id (no cross-lane drops). Owner lanes allow moving
  *  freely between any of kevin/claude/codex but never *into* "unassigned"
  *  — there's no action that un-assigns an owner — while staying within an
- *  already unassigned item's own lane is fine. */
+ *  already unassigned item's own lane is fine. Done is also refused for a
+ *  cancelled card (H80 blocking defect, 2026-09-18 review): the server
+ *  guard in `TodoDoc.set_done` now refuses this transition outright, so
+ *  offering the drop here would just show Kevin a card snapping back
+ *  after a failed request, the same reasoning that keeps dragging INTO
+ *  cancelled off the table above. */
 function isValidDropTarget(activeItem: GoLiveItem | undefined, lanes: GoLiveLaneMode, laneKey: string, column: GoLiveItemState): boolean {
   if (column === "review" || column === "rejected" || column === "uat" || column === "cancelled") return false;
   if (!activeItem) return true;
+  if (column === "done" && activeItem.state === "cancelled") return false;
   const sourceLane = sourceLaneFor(activeItem, lanes);
   if (lanes === "section") return laneKey === sourceLane;
   if (laneKey === sourceLane) return true;

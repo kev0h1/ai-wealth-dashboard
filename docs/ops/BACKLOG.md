@@ -149,10 +149,25 @@ A TODO.md item line looks like this:
   (below) does NOT reach `/ops/go-live` at all: `backend/app/routers/
   ops.py` calls `backlog.set_state`/`backlog.set_done` directly, never
   through `scripts/backlog.py`, so `ItemDetailSheet`'s "Move to" chips
-  (To do, In progress, Done, Blocked) fire straight through on a
-  cancelled item with no refusal — accepted, since that is Kevin's own
-  tap behind the same owner-only auth, but worth stating plainly rather
-  than implying the guard is universal. An agent that believes something
+  (To do, In progress, Done, Blocked) mostly fire straight through on a
+  cancelled item with no refusal, accepted for To do, In progress and
+  Blocked since that is Kevin's own tap behind the same owner-only auth
+  and `set_state` itself still carries no cancelled check, so a
+  `BoardView.tsx` drag onto those columns fires straight through
+  unrefused too. Done is the one exception, closed as a blocking defect
+  found in the 2026-09-18 review: dragging a cancelled card onto Done
+  used to fire the done action with no confirmation, silently clearing
+  `item.reason` and ticking the item complete, the exact transition the
+  CLI already refused via `_refuse_if_cancelled`, so the two surfaces
+  disagreed. `TodoDoc.set_done` (`backend/app/services/backlog.py`)
+  itself now refuses a cancelled item with no override, the same
+  refusal shape `_refuse_if_cancelled` already used on the CLI, so that
+  one transition is genuinely universal rather than CLI-only;
+  `backend/app/routers/ops.py` surfaces the refusal as a 4xx with the
+  reason rather than a 500 through its existing `except
+  backlog.BacklogError` handling, and `BoardView.tsx`'s own
+  `isValidDropTarget` refuses Done as a drop target for a cancelled card
+  client-side too, so a drag never even sends the request. An agent that believes something
   should be cancelled leaves a note recommending it instead
   (`scripts/backlog.py note <id> "recommend cancelling: <why>"`) and lets
   Kevin decide. `cancelled` requires a reason, the same way `rejected`

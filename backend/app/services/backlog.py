@@ -727,6 +727,34 @@ class TodoDoc:
         self, item_id: str, done: bool, commit: Optional[str] = None, actor: str = "claude"
     ) -> BacklogItem:
         item = self.item(item_id)
+        # H80 blocking defect (2026-09-18 review): a cancelled item can
+        # never be marked done. This is the one guard every surface must
+        # inherit, because this method is the service layer everything
+        # else funnels through -- the CLI's `done` command (on top of its
+        # own, separate `_refuse_if_cancelled` belt-and-braces check in
+        # scripts/backlog.py), the /ops/go-live "done" action, and
+        # therefore BoardView.tsx's drag-onto-Done, which called straight
+        # through to `backlog.set_done` -> `TodoDoc.set_done` with no
+        # state check at all. Before this fix, dragging a cancelled card
+        # onto Done fired with no confirmation, silently cleared
+        # `item.reason` and ticked the item complete, while the CLI
+        # refused the identical transition -- the two surfaces disagreed
+        # about the same rule. Same refusal shape as `set_state`'s
+        # "cancel a done item" guard and `_refuse_if_cancelled` in
+        # scripts/backlog.py: no override, point at the dedicated
+        # `uncancel` verb rather than a --force flag, so reopening always
+        # leaves its own attributable record.
+        if done and item.state == "cancelled":
+            reason = item.reason or ""
+            detail = f": {reason}" if reason else ""
+            raise BacklogError(
+                f"{item_id} is cancelled{detail}; Kevin decided this should not happen. 'done' cannot "
+                f"move it out of cancelled, and there is no override for this one. Reopening it is "
+                f"Kevin's call: leave a note recommending it be reopened "
+                f"('scripts/backlog.py note {item_id} \"recommend reopening: <why>\"') and let Kevin run "
+                f"'backend/.venv/bin/python scripts/backlog.py uncancel {item_id} \"<why>\" --actor kevin' "
+                f"himself."
+            )
         # H57 finding F2: `reopen` (done -> False) is the command the guard
         # in `scripts/backlog.py`'s refusal message and docs/ops/BACKLOG.md
         # both point operators at, and the Done -> To do board drag maps

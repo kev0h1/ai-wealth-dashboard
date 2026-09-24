@@ -1068,6 +1068,52 @@ def test_public_set_done_reopen_on_done_item_writes_audit_note_with_actor(paths,
     assert "To do" in item["notes"][0]["text"]
 
 
+def test_set_done_refuses_a_cancelled_item_with_no_override():
+    # H80 blocking defect (2026-09-18 review): TodoDoc.set_done had no
+    # cancelled check at all, so calling it directly (as the ops.py route
+    # does, which is what BoardView.tsx's drag-onto-Done ultimately calls)
+    # would silently mark a cancelled item done and clear its reason, even
+    # though scripts/backlog.py's own `_refuse_if_cancelled` already
+    # refused the identical transition on the CLI. This is the service-
+    # layer guard every surface must inherit, so it is exercised directly
+    # against TodoDoc here rather than only through the CLI subprocess
+    # tests above (test_cli_cancel_then_done_is_refused_with_no_override),
+    # which only prove the CLI's own belt-and-braces check, not this one.
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    doc.set_state("A1", "cancelled", reason="superseded by G16", actor="kevin")
+    with pytest.raises(backlog.BacklogError, match="is cancelled"):
+        doc.set_done("A1", True, commit="deadbee", actor="claude")
+
+    # Nothing changed: still cancelled, not done, reason intact.
+    reloaded = doc.items["A1"]
+    assert reloaded.done is False
+    assert reloaded.state == "cancelled"
+    assert reloaded.reason == "superseded by G16"
+    line = doc.lines[reloaded.line_no]
+    assert line.startswith("- [ ] ")
+    assert "[state: cancelled: superseded by G16]" in line
+
+
+def test_public_set_done_refuses_a_cancelled_item_and_writes_nothing(paths, mock_git):
+    # Same guard, exercised through the public module-level wrapper (the
+    # function ops.py's "done" action and scripts/backlog.py's cmd_done
+    # both actually call), confirming the refusal happens before anything
+    # is written to disk or committed.
+    todo_path, _ = paths
+    repo_root = todo_path.parent
+    backlog.set_cancelled("A1", "superseded by G16", actor="kevin", todo_path=todo_path, repo_root=repo_root)
+    mock_git.reset_mock()
+
+    with pytest.raises(backlog.BacklogError, match="is cancelled"):
+        backlog.set_done("A1", True, actor="kevin", todo_path=todo_path, repo_root=repo_root)
+
+    mock_git.assert_not_called()
+    reloaded = backlog.TodoDoc.load(todo_path)
+    assert reloaded.items["A1"].done is False
+    assert reloaded.items["A1"].state == "cancelled"
+    assert reloaded.items["A1"].reason == "superseded by G16"
+
+
 def test_public_set_rejected_writes_file_and_commit_message(paths, mock_git):
     todo_path, _ = paths
     repo_root = todo_path.parent

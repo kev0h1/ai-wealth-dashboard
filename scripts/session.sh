@@ -806,14 +806,41 @@ cmd_finish() {
   # failed" rather than "the state check passed". A guard that passes
   # when it cannot read is not a guard: fail closed instead, with the
   # real stderr in the message rather than a swallowed one.
-  local item_data item_read_rc
-  item_data="$(cd "$SHARED_TREE" && "$VENV_PY" "$BACKLOG_PY" show "$id" 2>&1)"
-  item_read_rc=$?
+  #
+  # Merge note (H80, folded in alongside main's H85 worktree-resolver
+  # tests): this block had two errexit/stream bugs of exactly the shape
+  # `recorded_branch_for_id` above and the H85/H89 sections of this file
+  # already document, both only surfaced once main's real-subprocess
+  # `test_session_worktree_resolve.py` coverage merged in alongside it.
+  # First, a bare `item_data="$(...)"` assignment with the exit status
+  # only inspected on the NEXT line (`item_read_rc=$?`) is itself a
+  # context where errexit fires: a failing `backlog.py show` (unknown id,
+  # broken venv, missing script) killed the whole function via `set -e`
+  # before `item_read_rc=$?` ever ran, so this refusal never printed at
+  # all and the caller just saw a bare non-zero exit. Second, capturing
+  # stdout and stderr together with `2>&1` is the exact anti-pattern
+  # `recorded_branch_for_id` warns against: a successful read that also
+  # writes to stderr (this codebase emits DeprecationWarnings) had that
+  # noise land ahead of the JSON and break the `jq` parse below, turning
+  # a clean read into a spurious "could not read" refusal. Both are fixed
+  # the same way `recorded_branch_for_id` already does it: test the
+  # assignment inline with `||` so errexit never fires, and capture
+  # stderr into its own file rather than merging it into stdout.
+  local item_data item_read_rc=0 item_errfile
+  item_errfile="$(mktemp "${TMPDIR:-/tmp}/session-finish-cancel-check.XXXXXX")" || {
+    err "could not create a temp file to check $id's cancelled state before finishing."
+    exit 1
+  }
+  trap 'rm -f "$item_errfile"' EXIT INT TERM
+  item_data="$(cd "$SHARED_TREE" && "$VENV_PY" "$BACKLOG_PY" show "$id" 2>"$item_errfile")" || item_read_rc=$?
   if [[ "$item_read_rc" -ne 0 ]]; then
-    err "could not read item $id's current state before finishing (scripts/backlog.py show exited $item_read_rc): $item_data"
+    err "could not read item $id's current state before finishing (scripts/backlog.py show exited $item_read_rc):"
+    while IFS= read -r line; do err "  $line"; done < "$item_errfile"
     err "refusing to finish without being able to confirm $id isn't cancelled -- fix the underlying problem and try again."
     exit 1
   fi
+  trap - EXIT INT TERM
+  rm -f "$item_errfile"
   local item_state
   item_state="$(jq -r '.state' <<<"$item_data")"
   if [[ "$item_state" == "cancelled" ]]; then
