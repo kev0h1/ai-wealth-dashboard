@@ -54,7 +54,13 @@ async def _get_txn_dates_for_key(uid: str, key: str) -> list[_date]:
 async def get_income_streams(user: dict = Depends(current_user)):
     uid = user["email"]
     prefs = await preferences_col.find_one({"user_id": uid}) or {}
-    stored: dict[str, dict] = {s["key"]: s for s in (prefs.get("income_streams") or [])}
+    # Defensive against a malformed `income_streams` entry (missing "key",
+    # or not even a dict) -- a bad write from an older client/migration must
+    # not crash this endpoint; skip the entry instead (G158 follow-up).
+    stored: dict[str, dict] = {
+        s["key"]: s for s in (prefs.get("income_streams") or [])
+        if isinstance(s, dict) and s.get("key")
+    }
 
     detected = await _get_detected_income_streams(uid)
     today = _date.today()
@@ -93,11 +99,19 @@ async def get_income_streams(user: dict = Depends(current_user)):
             "status": status,
         })
 
-    # Also include confirmed manual streams not in detected
+    # Also include confirmed manual streams not in detected. Same defensive
+    # posture as the two sites above -- a malformed entry (not a dict, or a
+    # truthy non-dict schedule) must be skipped, never crash this endpoint
+    # (G158 follow-up, 2026-09-24 review).
     for s in (prefs.get("income_streams") or []):
-        if s["key"] == "manual" and s.get("status") == "confirmed":
+        if not isinstance(s, dict):
+            continue
+        if s.get("key") == "manual" and s.get("status") == "confirmed":
             sched = s.get("schedule")
-            next_date = next_occurrence(sched, today).isoformat() if sched else None
+            try:
+                next_date = next_occurrence(sched, today).isoformat() if sched else None
+            except (KeyError, ValueError, TypeError):
+                continue
             result.append({
                 "key": "manual",
                 "avg_amount": round(float(s.get("avg_amount") or 0), 2),
@@ -107,6 +121,45 @@ async def get_income_streams(user: dict = Depends(current_user)):
                 "next_date": next_date,
                 "status": "confirmed",
             })
+
+    # G158: a confirmed stream can fall out of `detected` entirely (or land
+    # there with occurrences < 2, filtered by the `continue` above) once the
+    # 90-day detection window slides past its evidence -- the same cliff
+    # `_confirmed_income_fallback` covers for the forecast itself. Without
+    # this, the income screen shows nothing for a salary the user already
+    # confirmed. Overlay every confirmed, non-manual stream not already in
+    # `result` with its OWN stored schedule/amount, the same way the manual
+    # block above already does for "manual".
+    result_keys = {r["key"] for r in result}
+    detected_occurrences = {s["key"]: s["occurrences"] for s in detected}
+    for s in (prefs.get("income_streams") or []):
+        if not isinstance(s, dict):
+            continue
+        key = s.get("key")
+        if not key or key == "manual" or s.get("status") != "confirmed":
+            continue
+        if key in result_keys:
+            continue
+        sched = s.get("schedule")
+        if not sched:
+            continue
+        try:
+            next_date = next_occurrence(sched, today).isoformat()
+        except (KeyError, ValueError, TypeError):
+            # TypeError: a truthy but non-dict schedule (e.g. a stray
+            # string) -- `schedule["type"]` raises TypeError, not KeyError,
+            # for a non-mapping subscript (G158 follow-up).
+            continue
+        result.append({
+            "key": key,
+            "avg_amount": round(float(s.get("avg_amount") or 0), 2),
+            "occurrences": detected_occurrences.get(key, 0),
+            "schedule": sched,
+            "schedule_label": schedule_label(sched),
+            "next_date": next_date,
+            "status": "confirmed",
+        })
+        result_keys.add(key)
 
     return result
 
