@@ -648,6 +648,36 @@ def _advance_month_to_anchor(d, anchor):
     return d.replace(year=year, month=month, day=day)
 
 
+def _majority_landing_account(items: list) -> str | None:
+    """The account a set of transactions actually landed in: majority
+    account across occurrences, tie-broken by recency. Bills reliably come
+    from one account, so majority == most-recent for them; income can
+    wander between accounts, majority is the truth a per-account
+    simulation may rely on. Returns None for an empty list or one with no
+    account_id at all.
+
+    Shared by `_detect_recurring` (a detected series' own attribution
+    below) and `_confirmed_income_fallback` (G160: a synthesised
+    confirmed-income entry must attribute to the same landing account a
+    detected series would, otherwise `income_credit_ok`'s per-account check
+    rejects it before it ever reaches the confirmed-stream clause) so the
+    two never drift apart.
+    """
+    if not items:
+        return None
+    most_recent = max(items, key=lambda t: t["date"])
+    _acct_counts: dict[str, int] = {}
+    for _t in items:
+        _a = str(_t.get("account_id", "") or "")
+        if _a:
+            _acct_counts[_a] = _acct_counts.get(_a, 0) + 1
+    _recent_acct = str(most_recent.get("account_id", "") or "")
+    return (
+        max(_acct_counts, key=lambda a: (_acct_counts[a], 1 if a == _recent_acct else 0))
+        if _acct_counts else None
+    )
+
+
 def _detect_recurring(txns: list, min_occurrences: int = 2, trusted_categories: set | None = None, today: _date | None = None, is_income: bool = False, pay_period_config: dict | None = None, confirmed_income: dict | None = None, reversal_credits: list | None = None) -> list[dict]:
     """Group transactions by merchant key and detect those with a regular interval (7–35 days)."""
     # BNPL guard (unconditional): a Klarna/Clearpay/PayPal-Pay-in-3/etc.
@@ -929,22 +959,9 @@ def _detect_recurring(txns: list, min_occurrences: int = 2, trusted_categories: 
                 next_date = last_date + timedelta(days=round(avg_interval))
                 while next_date <= _today - _grace:
                     next_date += timedelta(days=round(avg_interval))
-        # Attribute the pattern to the account its transactions actually landed
-        # in: majority account across occurrences, tie-broken by recency.
-        # (Bills reliably come from one account, so majority == most-recent for
-        # them; income can wander between accounts — majority is the truth a
-        # per-account simulation may rely on.)
-        most_recent = max(items, key=lambda t: t["date"])
-        _acct_counts: dict[str, int] = {}
-        for _t in items:
-            _a = str(_t.get("account_id", "") or "")
-            if _a:
-                _acct_counts[_a] = _acct_counts.get(_a, 0) + 1
-        _recent_acct = str(most_recent.get("account_id", "") or "")
-        attributed_acct = (
-            max(_acct_counts, key=lambda a: (_acct_counts[a], 1 if a == _recent_acct else 0))
-            if _acct_counts else None
-        )
+        # Attribute the pattern to the account its transactions actually
+        # landed in (see `_majority_landing_account`'s docstring).
+        attributed_acct = _majority_landing_account(items)
         results.append({
             "key":          key,
             "avg_interval": round(avg_interval, 1),
@@ -1025,6 +1042,7 @@ def _confirmed_income_fallback(
     dismissed: set | frozenset,
     today: _date,
     credits_by_key: dict[str, list] | None = None,
+    latest_credit_by_key: dict[str, dict] | None = None,
 ) -> list[dict]:
     """G158: a stream the user explicitly confirmed must keep forecasting even
     when `_detect_recurring`'s own window/floor loses it -- e.g. the flat
@@ -1040,6 +1058,14 @@ def _confirmed_income_fallback(
     feeds the synthesised `occurrences`/`amounts_recent` fields; omit it (as
     the unit tests below do) and those come back empty/zero.
 
+    `latest_credit_by_key` (series_key -> the single newest credit txn under
+    that key, from whatever wider window the caller already has loaded, e.g.
+    the 180-day `credits_180`) backs up `account_id` attribution (below) when
+    `credits_by_key` holds nothing for a key -- a confirmed stream can be
+    real and current while still having no credit inside the narrower
+    matching window (G160). Optional; omit it and that fallback step is
+    simply unavailable, same as `credits_by_key`.
+
     Returns entries in the SAME dict shape `_detect_recurring` produces for
     an income series (see its `results.append` above), so a synthesised
     entry can be appended straight onto `recurring_income` and flow through
@@ -1050,6 +1076,7 @@ def _confirmed_income_fallback(
     something needs to.
     """
     credits_by_key = credits_by_key or {}
+    latest_credit_by_key = latest_credit_by_key or {}
     detected_keys = {r["key"] for r in recurring_income}
     fallback: list[dict] = []
     for key, stream in confirmed_income_map.items():
@@ -1112,6 +1139,29 @@ def _confirmed_income_fallback(
         amounts_recent = [
             round(abs(float(_t.get("amount", 0))), 2) for _t in matching[-3:]
         ]
+        # G160: attribute the synthesised entry to a landing account with
+        # the same precedence `income_credit_ok`'s per-account check needs
+        # to actually see it -- otherwise it fails attribution on the very
+        # first line, before it ever reaches the confirmed-stream clause,
+        # and a confirmed salary is silently invisible to every per-account
+        # simulation (cover plan, at-risk badge, source walks) even though
+        # the pooled forecast already counts it.
+        #   1. Majority landing account of the matched (in-window) credits,
+        #      same rule `_majority_landing_account` gives a detected
+        #      series -- the strongest evidence, real transactions inside
+        #      the window this fallback is actually forecasting from.
+        #   2. No in-window match: the most recent credit under this key
+        #      from the wider window the caller loaded anyway (see
+        #      `latest_credit_by_key`'s docstring) -- still real evidence,
+        #      just older than the window `credits_by_key` was built from.
+        #   3. Neither: None, same as before this fix -- a per-account
+        #      simulation correctly refuses to credit an account it has no
+        #      evidence for.
+        attributed_acct = _majority_landing_account(matching)
+        if attributed_acct is None:
+            _latest = latest_credit_by_key.get(key)
+            if _latest is not None:
+                attributed_acct = str(_latest.get("account_id", "") or "") or None
         fallback.append({
             "key":          key,
             "avg_interval": None,
@@ -1120,7 +1170,7 @@ def _confirmed_income_fallback(
             "next_date":    next_date,
             "monthly_anchor": None,
             "occurrences":  len(matching),
-            "account_id":   None,
+            "account_id":   attributed_acct,
             "amounts_recent": amounts_recent,
             "category":     "Income",
             "trusted_bypass_reason": None,
@@ -2099,8 +2149,28 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
         _k = series_key(_t)
         if _k:
             income_credits_by_key[_k].append(_t)
+    # G160: widest-window landing-account evidence, for when a confirmed
+    # stream's narrower (90-day) matches above are empty -- see
+    # `_confirmed_income_fallback`'s `latest_credit_by_key` docstring for
+    # why this needs to be the newest CREDIT under the key, not a detected
+    # pattern. Built from `credits_180` (already loaded above for bill
+    # detection, no new Mongo query), filtered to Income the same way
+    # `income_credits` filters `credits_90`.
+    income_credits_180 = [
+        t for t in credits_180
+        if (t.get("custom_category") or t.get("category") or "Other") == "Income"
+    ]
+    latest_income_credit_by_key: dict[str, dict] = {}
+    for _t in income_credits_180:
+        _k = series_key(_t)
+        if not _k:
+            continue
+        _prev = latest_income_credit_by_key.get(_k)
+        if _prev is None or _t["date"] > _prev["date"]:
+            latest_income_credit_by_key[_k] = _t
     recurring_income = recurring_income + _confirmed_income_fallback(
-        recurring_income, _confirmed_income_map, dismissed, _today, income_credits_by_key,
+        recurring_income, _confirmed_income_map, dismissed, _today,
+        income_credits_by_key, latest_income_credit_by_key,
     )
 
     heuristic_keys = {r["key"] for r in recurring_spend}

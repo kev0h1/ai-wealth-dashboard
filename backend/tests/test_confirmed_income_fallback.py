@@ -7,7 +7,7 @@ floor). Pure, Mongo-free tests: the helper takes plain dicts.
 """
 from datetime import date, datetime
 
-from app.routers.analytics import _detect_recurring, _confirmed_income_fallback, _build_confirmed_income_map, _raw_income_stream_map
+from app.routers.analytics import _detect_recurring, _confirmed_income_fallback, _build_confirmed_income_map, _raw_income_stream_map, income_credit_ok
 from app.services.income import get_confirmed_payday
 
 TODAY = date(2026, 9, 24)
@@ -25,7 +25,7 @@ CONFIRMED_STREAM = {
 }
 
 
-def income_txn(merchant, d, amount):
+def income_txn(merchant, d, amount, account_id="acc1"):
     return {
         "merchant_name": merchant,
         "description": merchant,
@@ -33,7 +33,7 @@ def income_txn(merchant, d, amount):
         "date": datetime(d.year, d.month, d.day),
         "category": "Income",
         "custom_category": None,
-        "account_id": "acc1",
+        "account_id": account_id,
     }
 
 
@@ -197,3 +197,76 @@ def test_dedupe_guard_suppresses_confirmed_when_new_reference_gets_detected():
     assert len(combined) == 1
     assert combined[0]["key"] == NEW_REF_KEY_2
     assert "source" not in combined[0]
+
+
+# ── G160: a synthesised confirmed-income entry must carry the same ────────
+# ── landing-account attribution a detected series would, otherwise ────────
+# ── `income_credit_ok` rejects it before it ever reaches the ──────────────
+# ── confirmed-stream clause. See `_confirmed_income_fallback`'s and ───────
+# ── `_majority_landing_account`'s docstrings in analytics.py. ─────────────
+
+PREMIER_ACCOUNT = "0aa08204bf059bcdf6266bd0"
+OTHER_ACCOUNT = "other-account-id"
+
+
+def test_account_id_is_majority_of_in_window_matches():
+    # Three matches: two land in the Premier account, one elsewhere -- the
+    # majority (Premier) wins, exactly the rule `_detect_recurring` gives a
+    # DETECTED series.
+    income_credits = [
+        income_txn(CONFIRMED_KEY, date(2026, 5, 29), 4798.08, account_id=PREMIER_ACCOUNT),
+        income_txn(CONFIRMED_KEY, date(2026, 6, 26), 4798.08, account_id=PREMIER_ACCOUNT),
+        income_txn(CONFIRMED_KEY, date(2026, 7, 31), 4798.08, account_id=OTHER_ACCOUNT),
+    ]
+    credits_by_key = {CONFIRMED_KEY: income_credits}
+    result = _confirmed_income_fallback(
+        [], {CONFIRMED_KEY: CONFIRMED_STREAM}, set(), TODAY, credits_by_key,
+    )
+    assert len(result) == 1
+    assert result[0]["account_id"] == PREMIER_ACCOUNT
+
+
+def test_account_id_falls_back_to_newest_out_of_window_credit():
+    # No matches inside whatever window fed `credits_by_key` (empty here --
+    # e.g. the flat 90-day window sliding past every occurrence) but the
+    # caller's wider 180-day load still has one: its account wins.
+    latest_credit_by_key = {
+        CONFIRMED_KEY: income_txn(CONFIRMED_KEY, date(2026, 4, 24), 4798.08, account_id=PREMIER_ACCOUNT),
+    }
+    result = _confirmed_income_fallback(
+        [], {CONFIRMED_KEY: CONFIRMED_STREAM}, set(), TODAY, {}, latest_credit_by_key,
+    )
+    assert len(result) == 1
+    assert result[0]["account_id"] == PREMIER_ACCOUNT
+
+
+def test_account_id_is_none_when_neither_in_window_nor_out_of_window_evidence_exists():
+    result = _confirmed_income_fallback(
+        [], {CONFIRMED_KEY: CONFIRMED_STREAM}, set(), TODAY, {}, {},
+    )
+    assert len(result) == 1
+    assert result[0]["account_id"] is None
+
+
+def test_synthesised_entry_passes_income_credit_ok_for_its_attributed_account():
+    # End-to-end: the fallback's own output, fed straight into
+    # `income_credit_ok` the way a per-account simulation (cover plan,
+    # at-risk badge, source walk) actually calls it, must credit the
+    # confirmed salary to the account it landed in and refuse every other
+    # account -- this is the exact defect G160 closes (2026-09-24 22:11:
+    # the synthesised entry's `account_id: None` failed attribution before
+    # `income_credit_ok` ever reached its confirmed-stream clause).
+    income_credits = [
+        income_txn(CONFIRMED_KEY, date(2026, 5, 29), 4798.08, account_id=PREMIER_ACCOUNT),
+        income_txn(CONFIRMED_KEY, date(2026, 6, 26), 4798.08, account_id=PREMIER_ACCOUNT),
+        income_txn(CONFIRMED_KEY, date(2026, 7, 31), 4798.08, account_id=PREMIER_ACCOUNT),
+    ]
+    credits_by_key = {CONFIRMED_KEY: income_credits}
+    result = _confirmed_income_fallback(
+        [], {CONFIRMED_KEY: CONFIRMED_STREAM}, set(), TODAY, credits_by_key,
+    )
+    assert len(result) == 1
+    item = {**result[0], "name": result[0]["key"]}
+
+    assert income_credit_ok(item, PREMIER_ACCOUNT, {CONFIRMED_KEY}) is True
+    assert income_credit_ok(item, OTHER_ACCOUNT, {CONFIRMED_KEY}) is False
