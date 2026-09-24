@@ -172,7 +172,7 @@ export default function AimSheet({ category, onClose, onSaved }: AimSheetProps) 
                         placeholder="Amount"
                         value={amount}
                         onChange={e => { setAmount(e.target.value); setSaveError(false); }}
-                        className="text-[15px] text-slate-900 dark:text-slate-100 bg-transparent outline-none w-24"
+                        className="text-[15px] text-slate-900 dark:text-slate-100 bg-transparent outline-none w-24 [@media(pointer:coarse)]:w-28"
                       />
                     </div>
                     <button

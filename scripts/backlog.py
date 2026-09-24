@@ -342,7 +342,17 @@ def cmd_list(args: argparse.Namespace) -> None:
 
 def cmd_show(args: argparse.Namespace) -> None:
     snapshot = backlog.load()
-    item = snapshot.todo.item(args.item_id)  # raises BacklogError if unknown
+    if not snapshot.todo.items:
+        # A board that parses to zero items is empty or truncated, not a
+        # board that happens not to contain this id. Without this it
+        # raises UnknownItemError like any typo, and the caller is told
+        # to go and add something to a file that is mid-loss (item H85).
+        raise backlog.BacklogError(
+            "the board parsed to zero items, so TODO.md looks empty or truncated; "
+            "do not add to it. Check it first with 'git status' and 'git diff TODO.md' "
+            "in the shared tree."
+        )
+    item = snapshot.todo.item(args.item_id)  # raises UnknownItemError if unknown
     print(json.dumps(item.to_dict()))
 
 
@@ -705,11 +715,26 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+# Exit status for "that id is not on the board", distinct from 1, which
+# means any other caller-facing failure including the board itself being
+# unreadable (item H85).
+EXIT_UNKNOWN_ITEM = 3
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
         args.func(args)
+    except backlog.UnknownItemError as exc:
+        # Distinct from the generic failure below so callers do not have
+        # to match on the message: "that id is not on the board" and
+        # "the board could not be read" need different remedies, and the
+        # message alone cannot tell them apart because a truncated
+        # TODO.md produces the unknown-item wording too. See item H85 and
+        # scripts/session.sh's recorded_branch_for_id.
+        print(f"error: {exc}", file=sys.stderr)
+        return EXIT_UNKNOWN_ITEM
     except backlog.BacklogError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

@@ -496,7 +496,7 @@ scripts/env_drift.py` to check the two against what Railway actually has.
 | `ALLOWED_EMAILS` | from `backend/.env` | comma-separated allowlist, the seed list; see "Sign-up mode" below for day-to-day invites |
 | `OPEN_SIGNUP` | unset (defaults false) | see "Sign-up mode" below |
 | `FUEL_FINDER_CLIENT_ID` / `_SECRET` | from `backend/.env` | fuel prices |
-| `MONO_*`, `YAPILY_*` | from `backend/.env` | only if using the Kenya region |
+| `YAPILY_*` | from `backend/.env` | only if using the dormant Yapily provider |
 | `SENTRY_DSN` | optional | error monitoring |
 | `API_PUBLIC_URL` | optional, defaults to `https://api.wealth.auriqltd.co.uk` | the API's own domain, reached directly by Capacitor mobile builds (`build:mobile:prod`); added to CORS alongside `APP_URL` |
 | `STRIPE_SECRET_KEY` | Stripe dashboard, test mode first | B5 billing, unset today, see "Stripe setup checklist" below |
@@ -682,12 +682,39 @@ the badge renders a "coming soon" placeholder instead of a dead link.
 
 ### TrueLayer picker flag
 
-`NEXT_PUBLIC_TRUELAYER_PICKER=on` (`frontend/lib/featureFlags.ts`) shows the
-legacy "Add Bank via TrueLayer" entry in the Accounts "Add" menu, alongside
-the primary "Add Bank" (Finexer) entry. Set it on the **UAT frontend
-service** (this VPS's `wealth-frontend` systemd unit) so the old flow stays
-reachable for testing. Leave it unset on the **Vercel production project**,
-where "Add Bank" (Finexer) is the only connect path.
+`NEXT_PUBLIC_TRUELAYER_PICKER=on` (read in `frontend/next.config.ts`) shows
+the legacy "Add Bank via TrueLayer" entry in the Accounts "Add" menu,
+alongside the primary "Add Bank" (Finexer) entry. Set it on the **UAT
+frontend service** (this VPS's `wealth-frontend` systemd unit) so the old
+flow stays reachable for testing. Leave it unset on the **Vercel production
+project**, where "Add Bank" (Finexer) is the only connect path.
+
+A67 (2026-09-21) changed what "unset" does, on both sides:
+
+- **Frontend.** The flag used to be a `TRUELAYER_PICKER` boolean in
+  `frontend/lib/featureFlags.ts` that components branched on. That hid the
+  entry without removing it: a production build still contained the menu
+  item, the label "Add Bank via TrueLayer", the "Powered by TrueLayer"
+  subtitle and the `/auth/truelayer/*` endpoint paths, gated only by a `&&`
+  (measured, not assumed, against a real `next build`). `next.config.ts`
+  now reads the flag at config-load time and inlines
+  `NEXT_PUBLIC_LEGACY_BANK_ID` / `NEXT_PUBLIC_LEGACY_BANK_NAME` as empty
+  strings when it is off; `frontend/lib/legacyBankProvider.ts` derives the
+  identifier, labels and URL paths from those, so with the flag unset none
+  of those strings exist in the bundle at all. Nothing about how you SET
+  the flag changed, including in `build-mobile.sh` and `codemagic.yaml`.
+- **Backend.** `app/main.py` mounts `truelayer.router` and
+  `webhooks.truelayer_router` only when `app.core.config.TRUELAYER_ENABLED`
+  is true, which is derived from `APP_URL`'s host (UAT and localhost, never
+  the production host) rather than from a flag of its own — deliberately,
+  so there is no switch that could turn TrueLayer on in production. Finexer
+  and its webhook are mounted unconditionally.
+- **Release gate.** `scripts/release.py check` fails RED if any of
+  `TRUELAYER_CLIENT_ID`, `TRUELAYER_CLIENT_SECRET`, `TRUELAYER_REDIRECT_URI`
+  or `TRUELAYER_WEBHOOK_SECRET` is still set on either Railway production
+  service, or if `NEXT_PUBLIC_TRUELAYER_PICKER` is set on Vercel production.
+  It is RED today: those four are still on Railway, and clearing them is
+  Kevin's own step. See docs/ops/ENV.md's "Known drift".
 
 Mobile builds derive it automatically in `frontend/scripts/build-mobile.sh`:
 "on" by default (day-to-day Android APKs and the `ios-capacitor` TestFlight

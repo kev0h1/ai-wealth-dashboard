@@ -3,7 +3,6 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { ChevronRight } from "lucide-react";
 import { api, CashflowData } from "@/lib/api";
-import { usePreferences } from "@/components/PreferencesContext";
 import { useRouter } from "next/navigation";
 import {
   AmberSignifier,
@@ -17,7 +16,6 @@ import {
   type ComingUpBill,
 } from "@/lib/comingUp";
 
-const SYM: Record<string, string> = { UK: "£", Kenya: "KSh " };
 
 type Status = "loading" | "ready" | "failed";
 
@@ -30,8 +28,7 @@ interface UpcomingBillsStripProps {
 }
 
 export default function UpcomingBillsStrip({ onReady }: UpcomingBillsStripProps = {}) {
-  const { region } = usePreferences();
-  const sym = SYM[region] ?? "£";
+  const sym = "£";
   const router = useRouter();
   const [data, setData] = useState<CashflowData | null>(null);
   const [status, setStatus] = useState<Status>("loading");

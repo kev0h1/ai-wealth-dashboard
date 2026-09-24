@@ -818,6 +818,200 @@ def test_stripe_webhook_route_200_on_good_signature(monkeypatch):
     assert result["result"]["handled"] is False
 
 
+# ── 4b. A58 pentest: real Stripe SDK signature cryptography ────────────────
+#
+# Every test above (and everywhere else in this file) monkeypatches
+# `billing_module.stripe` to `_make_fake_stripe()`, whose `construct_event`
+# fake only ever does a hardcoded string compare against `valid_sig`
+# (never real HMAC-SHA256, never a timestamp, never touches the raw body
+# at all). That is the right choice for testing this module's OWN logic in
+# isolation, but it means no test anywhere in this codebase had ever
+# exercised the actual, installed `stripe` package's
+# `Webhook.construct_event`/`WebhookSignature.verify_header` — the exact
+# function `verify_and_parse_event`'s own docstring names as the thing
+# doing the real verification work. Found and closed during the A58
+# pentest run (WP10, Stripe fail-closed boundary): these tests deliberately
+# do NOT monkeypatch `billing_module.stripe`, so `_stripe()`'s lazy
+# `import stripe` picks up the real, already-installed SDK, and use
+# `stripe._webhook.WebhookSignature.generate_signature_header` — the SDK's
+# own documented "useful for signing payloads in unit tests" helper — to
+# build genuinely-signed and genuinely-forged payloads with real
+# HMAC-SHA256, entirely locally (no network call, Stripe's infrastructure
+# is never contacted). `billing_module.stripe` is restored to `None`
+# (its default, lazy-import-pending state) after each test in a
+# try/finally, since the real import is a direct module-global mutation
+# in `_stripe()`, not something `monkeypatch` tracks or reverts on its
+# own.
+
+def _sign_real(payload_str: str, secret: str, timestamp=None) -> str:
+    import stripe._webhook as real_webhook
+    return real_webhook.WebhookSignature.generate_signature_header(payload_str, secret, timestamp=timestamp)
+
+
+def test_real_stripe_sdk_valid_signature_is_accepted(monkeypatch):
+    assert billing_module.stripe is None  # sanity: no earlier test left a fake/real module cached
+    monkeypatch.setattr(billing_module, "STRIPE_WEBHOOK_SECRET", "whsec_a58_pentest_local_only")
+    payload = json.dumps({"id": "evt_a58_real_1", "type": "some.unhandled.event", "data": {"object": {}}})
+    sig_header = _sign_real(payload, "whsec_a58_pentest_local_only")
+    try:
+        event = billing_module.verify_and_parse_event(payload.encode(), sig_header)
+        assert event["id"] == "evt_a58_real_1"
+        assert event["type"] == "some.unhandled.event"
+    finally:
+        billing_module.stripe = None
+
+
+def test_real_stripe_sdk_forged_signature_wrong_secret_rejected(monkeypatch):
+    """An attacker who does not know STRIPE_WEBHOOK_SECRET but can still
+    compute *a* valid-shaped `t=...,v1=...` header (the scheme is public)
+    is rejected: the HMAC only matches when the secret matches."""
+    monkeypatch.setattr(billing_module, "STRIPE_WEBHOOK_SECRET", "whsec_a58_pentest_local_only")
+    payload = json.dumps({"id": "evt_a58_forged", "type": "customer.subscription.updated", "data": {"object": {}}})
+    forged_sig_header = _sign_real(payload, "whsec_attacker_guessed_wrong")
+    try:
+        billing_module.verify_and_parse_event(payload.encode(), forged_sig_header)
+        assert False, "expected SignatureVerificationFailed"
+    except billing_module.SignatureVerificationFailed:
+        pass
+    finally:
+        billing_module.stripe = None
+
+
+def test_real_stripe_sdk_tampered_body_after_signing_rejected(monkeypatch):
+    """Signature covers the raw body: a genuinely-signed payload whose
+    bytes are altered after signing (e.g. an on-the-wire tamper, or an
+    attacker replaying an old signature header against a new body) must
+    still be rejected, never parsed."""
+    monkeypatch.setattr(billing_module, "STRIPE_WEBHOOK_SECRET", "whsec_a58_pentest_local_only")
+    original_payload = json.dumps({"id": "evt_a58_orig1", "type": "customer.subscription.updated", "data": {"object": {}}})
+    sig_header = _sign_real(original_payload, "whsec_a58_pentest_local_only")
+    tampered_payload = original_payload.replace("evt_a58_orig1", "evt_a58_orig2")
+    assert len(tampered_payload) == len(original_payload)  # same length, so this isn't just "body got shorter"
+    try:
+        billing_module.verify_and_parse_event(tampered_payload.encode(), sig_header)
+        assert False, "expected SignatureVerificationFailed"
+    except billing_module.SignatureVerificationFailed:
+        pass
+    finally:
+        billing_module.stripe = None
+
+
+def test_real_stripe_sdk_missing_signature_header_rejected(monkeypatch):
+    monkeypatch.setattr(billing_module, "STRIPE_WEBHOOK_SECRET", "whsec_a58_pentest_local_only")
+    payload = json.dumps({"id": "evt_a58_nosig", "type": "customer.subscription.updated", "data": {"object": {}}})
+    try:
+        billing_module.verify_and_parse_event(payload.encode(), None)
+        assert False, "expected SignatureVerificationFailed"
+    except billing_module.SignatureVerificationFailed:
+        pass
+    finally:
+        billing_module.stripe = None
+
+
+def test_real_stripe_sdk_malformed_json_with_otherwise_valid_signature_rejected(monkeypatch):
+    """The signature is computed over raw bytes, so a genuinely-signed but
+    non-JSON body passes signature verification and only fails at
+    `json.loads` inside `stripe.Webhook.construct_event` itself.
+    `verify_and_parse_event`'s own broad `except Exception` must still
+    turn that into `SignatureVerificationFailed` (-> HTTP 400), not let a
+    `JSONDecodeError` escape as an unhandled 500 Stripe would read as
+    "the endpoint is broken" and retry forever on."""
+    monkeypatch.setattr(billing_module, "STRIPE_WEBHOOK_SECRET", "whsec_a58_pentest_local_only")
+    not_json_payload = "this is not valid JSON{{{"
+    sig_header = _sign_real(not_json_payload, "whsec_a58_pentest_local_only")
+    try:
+        billing_module.verify_and_parse_event(not_json_payload.encode(), sig_header)
+        assert False, "expected SignatureVerificationFailed"
+    except billing_module.SignatureVerificationFailed:
+        pass
+    finally:
+        billing_module.stripe = None
+
+
+def test_real_stripe_sdk_unhandled_event_type_acknowledged_without_entitlement(monkeypatch):
+    """A genuinely-signed event of a type this app never dispatches on
+    (e.g. a future Stripe event type) must still verify successfully and
+    be acknowledged (ok: True) with `handled: False`, never an error —
+    otherwise Stripe would retry it forever. No collection is touched
+    beyond the idempotency ledger."""
+    monkeypatch.setattr(billing_module, "STRIPE_WEBHOOK_SECRET", "whsec_a58_pentest_local_only")
+    fake_events = _FakeCol()
+    _patch_collections(monkeypatch, billing_events_col=fake_events)
+    payload = json.dumps({
+        "id": "evt_a58_unhandled", "type": "radar.early_fraud_warning.created", "data": {"object": {}},
+    })
+    sig_header = _sign_real(payload, "whsec_a58_pentest_local_only")
+    try:
+        event = billing_module.verify_and_parse_event(payload.encode(), sig_header)
+        result = _run(billing_module.handle_event(event))
+        assert result["ok"] is True
+        assert result["result"]["handled"] is False
+    finally:
+        billing_module.stripe = None
+
+
+def test_subscription_upsert_ignores_spoofed_metadata_tier_uses_stripe_price_only(monkeypatch):
+    """STR-04: a webhook payload's own `metadata` is caller-influenced
+    (it started life as whatever `create_checkout_session` sent Stripe,
+    which in turn only ever reflects what the client asked for in
+    POST /billing/checkout's request body). If an attacker could get a
+    `metadata.tier`-shaped field read as authoritative, forging a
+    checkout with `target=lite` (say) but a doctored `metadata` claiming
+    a higher tier would upgrade them for free. `_handle_subscription_upsert`
+    must resolve the tier ONLY from the real Stripe Subscription's own
+    `items[0].price.id` (a field the caller cannot set — Stripe assigns
+    it from whatever price the Checkout Session actually purchased),
+    never from `metadata`. This test forges `metadata` claiming tier=max
+    on a subscription whose actual Stripe price is the "lite" price, and
+    asserts the granted tier is "lite", not "max"."""
+    fake_subs = _FakeCol()
+    _patch_collections(monkeypatch, billing_events_col=_FakeCol(), subscriptions_col=fake_subs)
+    monkeypatch.setattr(billing_module, "STRIPE_PRICE_IDS", _FULL_PRICE_IDS)
+
+    event = {
+        "id": "evt_a58_spoofed_tier", "type": "customer.subscription.created",
+        "data": {"object": {
+            "id": "sub_a58_spoof", "customer": "cus_a58", "status": "active",
+            "current_period_end": None,
+            # Caller-influenced metadata claims "max" — never trusted for
+            # the tier itself, only used to resolve `uid` (a separate,
+            # already-validated concern; see _resolve_uid's own docstring).
+            "metadata": {"uid": UID, "tier": "max", "target": "max"},
+            "items": {"data": [{"price": {"id": "price_lite"}}]},  # the REAL purchased price
+        }},
+    }
+    result = _run(billing_module.handle_event(event))
+    assert result["result"]["handled"] is True
+    assert result["result"]["tier"] == "lite", (
+        f"expected the server-trusted Stripe price (lite) to win over spoofed "
+        f"metadata (max), got {result['result']['tier']!r}"
+    )
+    assert fake_subs.docs[0]["tier"] == "lite"
+
+
+def test_subscription_upsert_rejects_unmapped_spoofed_price_id(monkeypatch):
+    """A subscription event referencing a price id this deployment never
+    configured (e.g. a forged/cross-account price id, or a typo'd
+    STRIPE_PRICE_IDS entry) must never fall back to granting any tier —
+    it is a no-op, not a guess."""
+    fake_subs = _FakeCol()
+    _patch_collections(monkeypatch, billing_events_col=_FakeCol(), subscriptions_col=fake_subs)
+    monkeypatch.setattr(billing_module, "STRIPE_PRICE_IDS", _FULL_PRICE_IDS)
+
+    event = {
+        "id": "evt_a58_unmapped_price", "type": "customer.subscription.created",
+        "data": {"object": {
+            "id": "sub_a58_unmapped", "customer": "cus_a58b", "status": "active",
+            "current_period_end": None,
+            "metadata": {"uid": UID},
+            "items": {"data": [{"price": {"id": "price_never_configured_xyz"}}]},
+        }},
+    }
+    result = _run(billing_module.handle_event(event))
+    assert result["result"]["handled"] is False
+    assert fake_subs.docs == []
+
+
 # ── 5. Idempotent event handling ──────────────────────────────────────────
 
 def test_handle_event_is_idempotent_on_event_id(monkeypatch):

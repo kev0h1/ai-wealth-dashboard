@@ -7,7 +7,7 @@ the insight is stamped `verified_savings` / `verified_merchant` / `verified_at`.
 No mongomock is available in this environment (see test_notifications.py's
 own note), so the four transaction collections `_check_verified_saving` reads
 (`transactions_col`, `yapily_transactions_col`, `statement_transactions_col`,
-`mono_transactions_col`) are replaced with tiny in-memory fakes supporting
+`statement_transactions_col`) are replaced with tiny in-memory fakes supporting
 just enough of Motor's `.find().to_list()` surface to drive the real
 function, following the same monkeypatch-the-module-level-name pattern
 test_transfer_pairs.py / test_notifications.py already established.
@@ -77,14 +77,13 @@ def txn(days_ago, *, merchant=None, description="", amount=12.99, ttype="debit",
 
 def _patch_collections(monkeypatch, primary_docs, *, others_empty=True):
     """Only `transactions_col` carries the fixture's transactions; the other
-    three collections stay present (so `_check_verified_saving`'s fan-out
-    across all four doesn't blow up) but empty, matching how a real user's
+    two collections stay present (so `_check_verified_saving`'s fan-out
+    across all three doesn't blow up) but empty, matching how a real user's
     data usually lives in exactly one source."""
     monkeypatch.setattr(savings_insights, "transactions_col", FakeCol(primary_docs))
     if others_empty:
         monkeypatch.setattr(savings_insights, "yapily_transactions_col", FakeCol())
         monkeypatch.setattr(savings_insights, "statement_transactions_col", FakeCol())
-        monkeypatch.setattr(savings_insights, "mono_transactions_col", FakeCol())
 
 
 def _run(coro):

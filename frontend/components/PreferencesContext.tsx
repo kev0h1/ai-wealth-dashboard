@@ -6,10 +6,10 @@ import { createPreferenceSaver } from "@/lib/preferenceSave";
 import { createSerialQueue } from "@/lib/serialQueue";
 import { fetchGatedSnapshot, applyWholeDocument, makeFieldReconcile } from "@/lib/preferencesSnapshot";
 import { shouldAcceptPreferencesSnapshot } from "@/lib/preferencesVersion";
+import { invalidateVerdictCache } from "@/lib/verdictCache";
+import { invalidateMoneyShapeCache } from "@/lib/moneyShape";
 
-export type Region = "UK" | "Kenya";
-
-/** G60: which of this context's six server-backed setters last failed to
+/** G60: which of this context's five server-backed setters last failed to
  * save, and what to tell the user. A single slot, not one per field —
  * `dark_mode` is the only field with a wired consumer of this error today,
  * but it now has TWO (the toggle in SettingsPage.tsx, and H69's toggle in
@@ -18,9 +18,9 @@ export type Region = "UK" | "Kenya";
  * conflict: two screens showing the identical dark_mode failure at once is
  * not the "two different fields' messages competing for one slot" case
  * this single-slot design exists to avoid. Should a future control for
- * hideNetWorth/payPeriodConfig/region/debtTargetMonths/debtTrackingStart
+ * hideNetWorth/payPeriodConfig/debtTargetMonths/debtTrackingStart
  * want its own message, widening this to a per-field map is a small
- * change, not a redesign of the mechanism. Every one of the six setters
+ * change, not a redesign of the mechanism. Every one of the five setters
  * still fully reverts-and-reconciles on failure regardless of whether
  * anything reads this field — the correctness guarantee never depends on
  * a message being shown. */
@@ -36,7 +36,6 @@ interface Prefs {
   preferencesReady: boolean;
   darkMode: boolean;
   payPeriodConfig: PayPeriodConfig;
-  region: Region;
   debtTargetMonths: number;
   debtTrackingStart: string;
   spendWidgets: string[] | null;
@@ -53,7 +52,6 @@ interface PrefsCtx extends Prefs {
   setHideNetWorth: (v: boolean) => void;
   setDarkMode: (v: boolean) => void;
   setPayPeriodConfig: (c: PayPeriodConfig) => void;
-  setRegion: (r: Region) => void;
   setDebtTargetMonths: (n: number) => void;
   setDebtTrackingStart: (s: string) => void;
   setSpendWidgets: (v: string[]) => void;
@@ -73,7 +71,7 @@ interface PrefsCtx extends Prefs {
    * current value rather than a locally-captured pre-write snapshot. Every
    * one of the four applies the whole document (see loadPreferences'
    * skip-in-flight-fields guard, G62 review #1) rather than the scoped
-   * per-field fetch the six fields this context owns use for their OWN
+   * per-field fetch the five fields this context owns use for their OWN
    * reconciles — that is deliberate, and safe, precisely because that
    * guard exists: it protects against exactly what a caller here could
    * otherwise stomp. Returns the accepted snapshot (the same shape as
@@ -100,7 +98,6 @@ const Ctx = createContext<PrefsCtx>({
   preferencesReady: false,
   darkMode: false,
   payPeriodConfig: DEFAULT_PAY_PERIOD_CONFIG,
-  region: "UK",
   debtTargetMonths: 12,
   debtTrackingStart: todayYM(),
   spendWidgets: null,
@@ -111,7 +108,6 @@ const Ctx = createContext<PrefsCtx>({
   setHideNetWorth: () => {},
   setDarkMode: () => {},
   setPayPeriodConfig: () => {},
-  setRegion: () => {},
   setDebtTargetMonths: () => {},
   setDebtTrackingStart: () => {},
   setSpendWidgets: () => {},
@@ -138,7 +134,6 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     try { return localStorage.getItem("wd_dark") === "1"; } catch { return false; }
   });
   const [payPeriodConfig, setPayPeriodConfigState] = useState<PayPeriodConfig>(DEFAULT_PAY_PERIOD_CONFIG);
-  const [region, setRegionState] = useState<Region>("UK");
   const [debtTargetMonths, setDebtTargetMonthsState] = useState(12);
   const [debtTrackingStart, setDebtTrackingStartState] = useState(todayYM());
   const [spendWidgets, setSpendWidgetsState] = useState<string[] | null>(null);
@@ -175,12 +170,6 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     setPayPeriodConfigState(v);
   }, []);
 
-  const regionRef = useRef(region);
-  const applyRegion = useCallback((v: Region) => {
-    regionRef.current = v;
-    setRegionState(v);
-  }, []);
-
   const debtTargetMonthsRef = useRef(debtTargetMonths);
   const applyDebtTargetMonths = useCallback((v: number) => {
     debtTargetMonthsRef.current = v;
@@ -213,7 +202,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   // Shared by the mount effect below, refreshPreferences() (its four
   // callers: B13's Penny consent revoke, and the failure-path reconciles of
   // SettingsPage.tsx's child benefit/G58, cover-plan/G45 and notification
-  // prefs/G52 toggles), and each of the six fields' own failure-path
+  // prefs/G52 toggles), and each of the five fields' own failure-path
   // reconciliation below: ONE place that fetches GET /preferences and
   // applies every field, so a caller that changed a preference through a
   // different endpoint (DELETE /penny/agent-consent, not PATCH
@@ -236,17 +225,17 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   // functions in lib/preferencesSnapshot.ts (see that module's docstring
   // for the full defect history) rather than one function that always did
   // both. `fetchPreferencesSnapshot` below is the fetch alone — it never
-  // applies a field to local state — and each of the six fields' own
+  // applies a field to local state — and each of the five fields' own
   // `reconcile` (via `makeFieldReconcile`, further down) calls it directly,
   // so reconciling one field's failed write can never re-apply a stale
-  // snapshot to the other five.
+  // snapshot to the other four.
   //
-  // G62 (review #1): that first pass only rewired the six fields' OWN
+  // G62 (review #1): that first pass only rewired the five fields' OWN
   // reconciles. `refreshPreferences()` still composes the fetch WITH
   // `applyWholeDocument`, and its four OTHER callers (listed above) each
   // reconcile a field this context doesn't own, so none of them were
   // touched by that rewiring — yet every one of them can still land
-  // mid-save on one of THIS context's six fields and stomp it, the exact
+  // mid-save on one of THIS context's five fields and stomp it, the exact
   // same defect through a different door. The fix lives entirely here,
   // inside loadPreferences, rather than at any of those four call sites:
   // `applyWholeDocument` is called below with a `skip` map built from each
@@ -263,7 +252,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   // G60: sets/clears preferencesSaveError for exactly one field, leaving any
   // other field's currently-shown message alone (see PreferencesSaveError's
   // own docstring above for why this is a single slot rather than a map).
-  // Defined before the six savers below (which close over it) rather than
+  // Defined before the five savers below (which close over it) rather than
   // after, so it and they can all sit ahead of loadPreferences, which in
   // turn needs each saver's `isSaving` flag (see the `skip` map below).
   const makeFieldErrorHandler = useCallback((field: string) => (message: string | null) => {
@@ -273,20 +262,20 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  // G60: the six setters below used to fire setState (impure updater risk
+  // G60: the five setters below used to fire setState (impure updater risk
   // was never present here — they always took a plain value, not an
   // updater — but still) then `api.updatePreferences(...).catch(() => {})`,
   // so a failed save left the app displaying a setting the server never
   // stored, forever, with nothing told to the user and no way for a later
   // refetch to correct it (the mount-time GET had already run once).
-  // lib/preferenceSave.ts's createPreferenceSaver gives all six the same
+  // lib/preferenceSave.ts's createPreferenceSaver gives all five the same
   // shape G45/G52/G58 established for cover-plan exclusions, notification
   // prefs and child benefit: one write in flight per field (its own
   // serialQueue), `previous` read from the ref above rather than a value
   // closed over here, and on failure a reconcile-from-server with a fall
   // back to `previous` only when the server has nothing to offer either.
   //
-  // G62: `reconcile` for all six is built by `makeFieldReconcile` (in
+  // G62: `reconcile` for all five is built by `makeFieldReconcile` (in
   // lib/preferencesSnapshot.ts) instead of each hand-writing a near-
   // identical "fetch, then pull out my one key" body — see that function's
   // own docstring; frontend/scripts/preferences-snapshot.test.mjs drives
@@ -301,6 +290,27 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   // the `skip` map it passes to applyWholeDocument (see loadPreferences'
   // own comment below, and the G62 review #1 note above
   // fetchPreferencesSnapshot).
+  // G83 fix-round (2026-09-18 review): PATCH /preferences wipes the user's
+  // WHOLE server-side response cache regardless of which single field
+  // changed (see response_cache.invalidate's own docstring — a
+  // name-scoped call still bumps the one global per-user version), so a
+  // client-side rule that mirrors that exactly — invalidate both the
+  // verdict and money-shape caches on ANY successful preferences write,
+  // not just the field that happens to matter today — is not overreach,
+  // it is matching the server's own behaviour. The alternative (enumerate
+  // "payPeriodConfig affects the verdict, the other four don't") is
+  // exactly the kind of per-field judgement call that produced the
+  // original gap: payPeriodConfig moves period boundaries today, but a
+  // future field (or a future change to what an existing field feeds
+  // into) would silently need the same wiring re-discovered. One choke
+  // point, all five savers below pass it as `onSuccess`, costs one extra
+  // client-side cache clear on darkMode/hideNetWorth toggles that don't
+  // actually need it — negligible next to a stale four-figure verdict.
+  const invalidateSpendCaches = useCallback(() => {
+    invalidateVerdictCache();
+    invalidateMoneyShapeCache();
+  }, []);
+
   const hideNetWorthSaver = useRef(createPreferenceSaver<boolean>({
     queue: createSerialQueue(),
     getCurrent: () => hideNetWorthRef.current,
@@ -309,6 +319,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     reconcile: makeFieldReconcile<boolean>(fetchPreferencesSnapshot, "hide_net_worth"),
     noteVersion: notePreferencesVersion,
     onError: makeFieldErrorHandler("hide_net_worth"),
+    onSuccess: invalidateSpendCaches,
   })).current;
 
   const darkModeSaver = useRef(createPreferenceSaver<boolean>({
@@ -319,6 +330,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     reconcile: makeFieldReconcile<boolean>(fetchPreferencesSnapshot, "dark_mode"),
     noteVersion: notePreferencesVersion,
     onError: makeFieldErrorHandler("dark_mode"),
+    onSuccess: invalidateSpendCaches,
   })).current;
 
   const payPeriodConfigSaver = useRef(createPreferenceSaver<PayPeriodConfig>({
@@ -329,16 +341,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     reconcile: makeFieldReconcile<PayPeriodConfig>(fetchPreferencesSnapshot, "pay_period_config"),
     noteVersion: notePreferencesVersion,
     onError: makeFieldErrorHandler("pay_period_config"),
-  })).current;
-
-  const regionSaver = useRef(createPreferenceSaver<Region>({
-    queue: createSerialQueue(),
-    getCurrent: () => regionRef.current,
-    apply: applyRegion,
-    save: (v) => api.updatePreferences({ region: v } as any),
-    reconcile: makeFieldReconcile<Region>(fetchPreferencesSnapshot, "region"),
-    noteVersion: notePreferencesVersion,
-    onError: makeFieldErrorHandler("region"),
+    onSuccess: invalidateSpendCaches,
   })).current;
 
   const debtTargetMonthsSaver = useRef(createPreferenceSaver<number>({
@@ -349,6 +352,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     reconcile: makeFieldReconcile<number>(fetchPreferencesSnapshot, "debt_target_months"),
     noteVersion: notePreferencesVersion,
     onError: makeFieldErrorHandler("debt_target_months"),
+    onSuccess: invalidateSpendCaches,
   })).current;
 
   const debtTrackingStartSaver = useRef(createPreferenceSaver<string>({
@@ -359,6 +363,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     reconcile: makeFieldReconcile<string>(fetchPreferencesSnapshot, "debt_tracking_start"),
     noteVersion: notePreferencesVersion,
     onError: makeFieldErrorHandler("debt_tracking_start"),
+    onSuccess: invalidateSpendCaches,
   })).current;
 
   const loadPreferences = useCallback((): Promise<Record<string, any> | null> => {
@@ -370,7 +375,6 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
           applyHideNetWorth,
           applyDarkMode,
           applyPayPeriodConfig,
-          applyRegion,
           applyDebtTargetMonths,
           applyDebtTrackingStart,
           setSpendWidgets: setSpendWidgetsState,
@@ -381,14 +385,14 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
         // G62 (review #1): skip any field currently authoring its own
         // value — see this function's own comment above and
         // lib/preferencesSnapshot.ts's docstring for why this is required
-        // for refreshPreferences()'s four non-six-field callers, not just
+        // for refreshPreferences()'s four callers that own none of these
+        // five fields, not just
         // defence in depth. A no-op during mount hydration (no saver has
         // started saving yet at that point).
         {
           hideNetWorth: () => hideNetWorthSaver.isSaving.current,
           darkMode: () => darkModeSaver.isSaving.current,
           payPeriodConfig: () => payPeriodConfigSaver.isSaving.current,
-          region: () => regionSaver.isSaving.current,
           debtTargetMonths: () => debtTargetMonthsSaver.isSaving.current,
           debtTrackingStart: () => debtTrackingStartSaver.isSaving.current,
         }
@@ -397,8 +401,8 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     });
   }, [
     fetchPreferencesSnapshot,
-    applyHideNetWorth, applyDarkMode, applyPayPeriodConfig, applyRegion, applyDebtTargetMonths, applyDebtTrackingStart,
-    hideNetWorthSaver, darkModeSaver, payPeriodConfigSaver, regionSaver, debtTargetMonthsSaver, debtTrackingStartSaver,
+    applyHideNetWorth, applyDarkMode, applyPayPeriodConfig, applyDebtTargetMonths, applyDebtTrackingStart,
+    hideNetWorthSaver, darkModeSaver, payPeriodConfigSaver, debtTargetMonthsSaver, debtTrackingStartSaver,
   ]);
 
   useEffect(() => {
@@ -418,7 +422,6 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   const setHideNetWorth = useCallback((v: boolean) => { void hideNetWorthSaver.run(v); }, [hideNetWorthSaver]);
   const setDarkMode = useCallback((v: boolean) => { void darkModeSaver.run(v); }, [darkModeSaver]);
   const setPayPeriodConfig = useCallback((c: PayPeriodConfig) => { void payPeriodConfigSaver.run(c); }, [payPeriodConfigSaver]);
-  const setRegion = useCallback((r: Region) => { void regionSaver.run(r); }, [regionSaver]);
   const setDebtTargetMonths = useCallback((n: number) => { void debtTargetMonthsSaver.run(n); }, [debtTargetMonthsSaver]);
   const setDebtTrackingStart = useCallback((s: string) => { void debtTrackingStartSaver.run(s); }, [debtTrackingStartSaver]);
 
@@ -441,9 +444,9 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
 
   return (
     <Ctx.Provider value={{
-      hideNetWorth, preferencesReady, darkMode, payPeriodConfig, region, debtTargetMonths, debtTrackingStart,
+      hideNetWorth, preferencesReady, darkMode, payPeriodConfig, debtTargetMonths, debtTrackingStart,
       spendWidgets, homePinnedWidget, debtBurndownOverrides, rawPrefs, preferencesSaveError,
-      setHideNetWorth, setDarkMode, setPayPeriodConfig, setRegion, setDebtTargetMonths, setDebtTrackingStart,
+      setHideNetWorth, setDarkMode, setPayPeriodConfig, setDebtTargetMonths, setDebtTrackingStart,
       setSpendWidgets, setHomePinnedWidget, setDebtBurndownOverrides, refreshPreferences,
       notePreferencesVersion,
     }}>

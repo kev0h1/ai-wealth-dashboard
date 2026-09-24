@@ -1,25 +1,51 @@
 "use client";
 
-import { useEffect } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { AlertCircle, AlertTriangle, ArrowRight, ChevronDown, CreditCard, ShieldCheck } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { SafeToSpend } from "@/lib/api";
 import { usePreferences } from "@/components/PreferencesContext";
 import { setPennyScreenView } from "@/components/PennySheetProvider";
 import { zeroSafe, deriveSafeToSpendHeadline, buildSafeToSpendView } from "@/lib/pennyScreenViews";
-import { spendFromHeroLine, spendFromAlternativeLine, type SpendFromResult } from "@/lib/spendFromAccount";
-import { BankBadge, accountBrand } from "@/components/AccountMiniCard";
+import {
+  spendFromTreatmentPlan,
+  type SpendFromAccount,
+  type SpendFromResult,
+  type SpendFromTreatmentKind,
+  type SpendFromTreatmentPlan,
+} from "@/lib/spendFromAccount";
+import { BankBadge, BANK_META, accountBrand, bankKey, bankLogoSrc } from "@/components/AccountMiniCard";
 import MoneyText from "@/components/MoneyText";
+
+type SpendFromTreatment = {
+  heroAside?: ReactNode;
+  body: ReactNode;
+};
 
 interface SafeToSpendCardProps {
   data: SafeToSpend | null;
   loading?: boolean;
   error?: boolean;
   onRetry?: () => void;
-  // G110 — one quiet line naming the best account to spend from, plus (in
-  // the "How we got £X" disclosure) the next alternative. Optional/absent
-  // is a plain no-render, same as every other degraded-data path here.
+  // G110/G115 — ranked current accounts with real spendable headroom.
+  // G148: absent is NOT a plain no-render any more. `undefined` here is
+  // treated as `{ kind: "unavailable", reason: "missing" }`, which renders a
+  // quiet placeholder and logs, because "the caller passed nothing" and
+  // "the feature is working" must never look the same on screen again.
   spendFrom?: SpendFromResult | null;
+  /**
+   * True only while a cover-plan move card is visibly rendered above this
+   * hero on Home. G114 has already deducted that move from the figures; this
+   * flag lets the supporting copy make that reconciliation explicit without
+   * claiming there is a card above after the user hides it.
+   */
+  coverMoveVisible?: boolean;
+  /**
+   * G115 design-history seam. Production renders approved variant A when
+   * this is absent; /design can still inject rejected B/C treatments while
+   * keeping this component as the source of truth for every other detail.
+   */
+  spendFromPreview?: SpendFromTreatment;
 }
 
 function fmt(value: number): string {
@@ -28,6 +54,205 @@ function fmt(value: number): string {
 
 function fmt2(value: number): string {
   return `£${Math.abs(value).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+// (G148) The local `spendAccounts` helper that used to flatten a result into
+// rows here is gone: `spendFromTreatmentPlan` in lib/spendFromAccount.ts does
+// it, so the ranked entries this card renders and the ones a test can inspect
+// are produced by the same code.
+
+function localBank(account: SpendFromAccount["account"]) {
+  const meta = BANK_META[bankKey(account)];
+  const logoSrc = bankLogoSrc(meta);
+  if (!meta || !logoSrc) return null;
+  return {
+    background: meta.bg,
+    initials: meta.initials,
+    initialsSize: meta.initialsSize,
+    label: meta.label,
+    logoSrc,
+  };
+}
+
+function SpendFromScope({ coverMoveVisible }: { coverMoveVisible: boolean }) {
+  return (
+    <p className="mt-2 text-[11px] leading-[1.45] text-slate-500 dark:text-slate-400 text-pretty">
+      Each figure is for that account only, not your full Safe to Spend.
+      {coverMoveVisible ? " The move above is already held back." : ""}
+    </p>
+  );
+}
+
+function SpendFromBankRail({ entries, amount, onLogoError }: {
+  entries: SpendFromAccount[];
+  amount: (value: number) => string;
+  onLogoError: (logoSrc: string) => void;
+}) {
+  return (
+    <div data-g115-treatment="bank-rail" className="min-w-[76px]">
+      <p className="mb-1 text-right text-[9px] font-bold uppercase tracking-[0.07em] text-slate-400 dark:text-slate-500">Spend from</p>
+      <ul aria-label="Accounts with room to spend from" className="space-y-1.5">
+        {entries.map((entry) => {
+          const bank = localBank(entry.account)!;
+          const spare = amount(entry.headroom);
+          return (
+            <li key={entry.accountId} className="flex items-center justify-end gap-1.5">
+              <span className="sr-only">{entry.name} at {bank.label}, {spare} spare</span>
+              <BankBadge
+                logoSrc={bank.logoSrc}
+                initials={bank.initials}
+                initialsSize={bank.initialsSize}
+                altText=""
+                brandBg={bank.background}
+                size={22}
+                onLogoError={() => onLogoError(bank.logoSrc)}
+              />
+              <span aria-hidden="true" className="money text-[11px] font-semibold text-slate-700 dark:text-slate-200">{spare}</span>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+function SpendFromNameRows({ entries, amount, coverMoveVisible }: {
+  entries: SpendFromAccount[];
+  amount: (value: number) => string;
+  coverMoveVisible: boolean;
+}) {
+  return (
+    <div data-g115-treatment="name-fallback" className="mt-2">
+      <p className="sr-only">Accounts with room to spend from</p>
+      <dl>
+        {entries.map((entry, index) => {
+          const bank = accountBrand(entry.account);
+          return (
+            <div key={entry.accountId} className={`flex items-center justify-between gap-3 py-1 ${index > 0 ? "border-t border-slate-100 dark:border-white/[0.07]" : ""}`}>
+              <dt className="min-w-0">
+                <span className="block truncate text-[12px] font-semibold text-slate-700 dark:text-slate-200">{entry.name}</span>
+                <span className="block truncate text-[10px] text-slate-500 dark:text-slate-400">{bank.label}</span>
+              </dt>
+              <dd className="money shrink-0 text-[12px] font-semibold text-slate-700 dark:text-slate-200">
+                {amount(entry.headroom)} <span className="font-sans font-normal text-slate-500 dark:text-slate-400">spare</span>
+              </dd>
+            </div>
+          );
+        })}
+      </dl>
+      <SpendFromScope coverMoveVisible={coverMoveVisible} />
+    </div>
+  );
+}
+
+/**
+ * G148 (2026-09-23): the quiet placeholder for a rail that is absent rather
+ * than empty.
+ *
+ * `unavailable` used to return `null` here, which is the only state in this
+ * whole component that renders NOTHING: `account` draws the rail and `none`
+ * draws the amber no-room line, so a client that never received
+ * `account_eligibility` looked exactly like one where the feature was
+ * working correctly. It sat that way on Kevin's live Home for a week while
+ * the engine was returning 13 eligible accounts. A placeholder was chosen
+ * over "log only" precisely because nobody reads a console they have no
+ * reason to open: DESIGN.md's Safe-to-Spend section already says this card
+ * never renders null or an empty shell, and the same standard has to reach
+ * the rail inside it.
+ *
+ * What it is NOT: an alarm. This is a supporting figure, not a blocking
+ * failure, so it stays in the muted Caption step with no dot, no amber and
+ * no toast. Per DESIGN.md, error and unsupported states on this card "stay
+ * neutral ink with no colour signal at all", and a retry appears only where
+ * one applies, which is the failed-request branch.
+ */
+function SpendFromUnavailableNote({ kind, message, retryable, onRetry }: {
+  kind: SpendFromTreatmentKind;
+  message: string;
+  retryable: boolean;
+  onRetry?: () => void;
+}) {
+  return (
+    <div
+      data-g115-treatment={kind}
+      className="mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[12px] leading-snug text-slate-500 dark:text-slate-400 text-pretty"
+      role="status"
+    >
+      <p>{message}</p>
+      {retryable && onRetry && (
+        <button
+          type="button"
+          onClick={onRetry}
+          // 44px, the project's stated target size (DESIGN.md's thumb-sized
+          // targets, and the same min-h-11 every other tappable control in
+          // this round uses). `px-2` so the hit area is not just the width
+          // of the word.
+          className="-mx-2 min-h-11 rounded-lg px-2 text-[12px] font-semibold text-indigo-600 [-webkit-tap-highlight-color:transparent] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 active:scale-95 motion-reduce:transform-none dark:text-indigo-400"
+        >
+          Try again
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** Exported for scripts/spend-from-render.test.mjs, which renders every
+ *  plan kind through react-dom/server and asserts each one produces real
+ *  markup. A source-text guard alone could not tell `return null` from
+ *  `return { body: null }`, and both make the rail invisible. */
+export function approvedSpendFromTreatment(
+  plan: SpendFromTreatmentPlan,
+  amount: (value: number) => string,
+  coverMoveVisible: boolean,
+  onLogoError: (logoSrc: string) => void,
+  onRetry?: () => void,
+): SpendFromTreatment | null {
+  switch (plan.kind) {
+    // The one branch that still renders nothing. `pending` means the
+    // request carrying this data has not settled, so there is nothing true
+    // to say yet and a placeholder would flash on every cold load. It is
+    // bounded by HomePage setting the status in the request's own
+    // `.then`/`.catch`, so it cannot become the permanent silence the two
+    // branches below replaced.
+    case "pending":
+      return null;
+
+    case "check-failed":
+    case "not-available":
+      return {
+        body: (
+          <SpendFromUnavailableNote
+            kind={plan.kind}
+            message={plan.message ?? ""}
+            retryable={plan.retryable}
+            onRetry={onRetry}
+          />
+        ),
+      };
+
+    case "no-current":
+      return {
+        body: (
+          <div data-g115-treatment="no-current" className="mt-2 flex items-start gap-2 text-[12px] leading-snug text-slate-500 dark:text-slate-400 text-pretty">
+            <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-amber-500" aria-hidden="true" />
+            <p>
+              No current account has room to spend from right now.
+              {coverMoveVisible ? " Use the move above first." : " Checked account by account, not against your full Safe to Spend."}
+            </p>
+          </div>
+        ),
+      };
+
+    case "name-fallback":
+      return { body: <SpendFromNameRows entries={plan.entries} amount={amount} coverMoveVisible={coverMoveVisible} /> };
+
+    case "bank-rail":
+    default:
+      return {
+        heroAside: <SpendFromBankRail entries={plan.entries} amount={amount} onLogoError={onLogoError} />,
+        body: <SpendFromScope coverMoveVisible={coverMoveVisible} />,
+      };
+  }
 }
 
 function syncAgeLabel(isoString: string | null | undefined): string | null {
@@ -74,8 +299,22 @@ function CalculationRow({
   total?: boolean;
   risk?: boolean;
 }) {
+  // G154: every separator in this ledger is drawn on a row's TOP edge, so any
+  // two adjacent rows share exactly one rule and the total's heavier rule IS
+  // the rule at its own boundary rather than a second line under the first.
+  // Do not move these back to `border-b` + `last:border-b-0`: the total row is
+  // a sibling of the operand rows, so the last operand is never `:last-child`
+  // and that escape never fires (it drew two rules 4px apart). `divide-y`
+  // reproduces that same pairing whenever the total also carries its own rule,
+  // because Tailwind v4 compiles it to
+  // `:where(.divide-y > :not(:last-child))`, i.e. a bottom rule on the row
+  // before the total. (It is fine for a ledger whose total wears weight alone,
+  // as in SpendVerdictView.) BOTH branches carry `first:border-t-0`: the
+  // operand branch because a ledger opens on an operand, and the total branch
+  // because a payload missing every operand would otherwise draw the heavy
+  // rule against nothing.
   return (
-    <div className={`grid grid-cols-[18px_minmax(0,1fr)_auto] items-start gap-x-2 py-2.5 ${total ? "mt-1 border-t border-slate-300 pt-3.5 dark:border-slate-600" : "border-b border-slate-100 last:border-b-0 dark:border-white/[0.07]"}`}>
+    <div className={`grid grid-cols-[18px_minmax(0,1fr)_auto] items-start gap-x-2 py-2.5 ${total ? "mt-1 border-t border-slate-300 pt-3.5 first:mt-0 first:border-t-0 dark:border-slate-600" : "border-t border-slate-100 first:border-t-0 dark:border-white/[0.07]"}`}>
       <span className={`money pt-px text-xs font-semibold ${total ? "text-indigo-500 dark:text-indigo-400" : "text-slate-400 dark:text-slate-500"}`} aria-hidden="true">{operator}</span>
       <div className="min-w-0">
         <dt className={`${total ? "font-bold text-slate-900 dark:text-slate-100" : "font-medium text-slate-700 dark:text-slate-200"} text-[13px] leading-snug`}>{label}</dt>
@@ -160,10 +399,57 @@ function CardBalanceFact({
   );
 }
 
-export default function SafeToSpendCard({ data, loading, error, onRetry, spendFrom }: SafeToSpendCardProps) {
+export default function SafeToSpendCard({ data, loading, error, onRetry, spendFrom, coverMoveVisible = false, spendFromPreview }: SafeToSpendCardProps) {
   const { hideNetWorth, preferencesReady } = usePreferences();
   const router = useRouter();
   const hidden = hideNetWorth || !preferencesReady;
+  const [failedSpendFromLogos, setFailedSpendFromLogos] = useState<Set<string>>(() => new Set());
+  const handleSpendFromLogoError = useCallback((logoSrc: string) => {
+    setFailedSpendFromLogos((current) => {
+      if (current.has(logoSrc)) return current;
+      const next = new Set(current);
+      next.add(logoSrc);
+      return next;
+    });
+  }, []);
+
+  // G148 — which spend-from treatment to render, decided in plain TypeScript
+  // (lib/spendFromAccount.ts) so a plain-Node test can prove every state,
+  // including the absent one this component used to render as nothing. Bank
+  // marks are resolved here and injected, because the logo table lives in a
+  // .tsx module the test runner cannot import.
+  const hasBankMark = useCallback((account: SpendFromAccount["account"]) => {
+    const bank = localBank(account);
+    return bank != null && !failedSpendFromLogos.has(bank.logoSrc);
+  }, [failedSpendFromLogos]);
+  const spendFromPlan = useMemo(
+    () => spendFromTreatmentPlan(spendFrom, hasBankMark),
+    [spendFrom, hasBankMark],
+  );
+  // The rail being absent must leave a trace even for the branch whose copy
+  // is deliberately gentle: the user-facing line says the figure is not
+  // there, this says WHY, and says it differently for a failed request than
+  // for a successful one that carried no eligibility. Before G148 the two
+  // were the same silence, which is why a feature that stopped arriving on
+  // 2026-09-16 was only noticed on 2026-09-23. Keyed on the diagnostic
+  // string so it logs once per state, not once per render.
+  const spendFromDiagnostic = spendFromPlan.diagnostic;
+  useEffect(() => {
+    if (!spendFromDiagnostic) return;
+    // Not while a refresh is in flight. The stated reason used to be that
+    // `loading` returns before any treatment renders; that is wrong. The
+    // early return below is `loading && !data`, so a WARM card refreshing
+    // (exactly what onRetry produces: stsLoading true with data still
+    // present) does render the full treatment, including the "not available"
+    // line, while this warning is suppressed. Suppressing it is still right,
+    // because a request that has not come back yet has nothing to report,
+    // and nothing is lost: `loading` is in this effect's deps and always
+    // clears, so the warning fires a moment later if the state persists.
+    // It also keeps Home's own bare `<SafeToSpendCard data={null} loading />`
+    // loading path from warning about a card that shows no rail at all.
+    if (loading) return;
+    console.warn(`[SafeToSpendCard] ${spendFromDiagnostic}`);
+  }, [spendFromDiagnostic, loading]);
 
   // Penny screen context (B39) — published here via `buildSafeToSpendView`
   // (lib/pennyScreenViews.ts), the SAME function a node test pins against
@@ -209,13 +495,12 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
   }
 
   if (!data || data.status === "insufficient_data") {
-    const unsupported = data?.calculation_status === "unsupported";
     return (
       <section className="rounded-3xl p-5 glass-hero" aria-labelledby="safe-to-spend-history">
         <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Safe to Spend</p>
-        <h2 id="safe-to-spend-history" className="text-base font-bold text-slate-900 dark:text-slate-100">{unsupported ? "Safe to Spend isn’t available for these accounts yet" : "Your figure isn’t ready yet"}</h2>
-        <p className="mt-1 text-sm text-slate-600 dark:text-slate-300 text-pretty">{unsupported ? "We won’t show a spending figure until this account and currency setup can be calculated safely." : "We need a little more account history to map bills and work out what is safe until payday."}</p>
-        {onRetry && !unsupported && <button type="button" onClick={onRetry} className="mt-3 min-h-11 rounded-xl px-3 text-sm font-semibold text-indigo-600 hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400 dark:hover:bg-indigo-500/10">Check again</button>}
+        <h2 id="safe-to-spend-history" className="text-base font-bold text-slate-900 dark:text-slate-100">Your figure isn’t ready yet</h2>
+        <p className="mt-1 text-sm text-slate-600 dark:text-slate-300 text-pretty">We need a little more account history to map bills and work out what is safe until payday.</p>
+        {onRetry && <button type="button" onClick={onRetry} className="mt-3 min-h-11 rounded-xl px-3 text-sm font-semibold text-indigo-600 hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400 dark:hover:bg-indigo-500/10">Check again</button>}
       </section>
     );
   }
@@ -279,23 +564,20 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
     ? `The cash forecast found ${amount(cashRunway)}, then held back ${amount(cardReserve)} for an unconfirmed card repayment.`
     : `After ${listPhrase(contextParts)}.`;
 
-  // G110 — the figure above is the whole pool; this names ONE account, so
-  // it deliberately never reads as a slice of it (see lib/spendFromAccount.ts's
-  // own doc comment on why). `needsAttention` drives a signifier dot, never
-  // a text/money colour change (amber lives in the signifier only).
-  //
-  // G111, variant A (Kevin's decision, 2026-09-16): the bank badge and bank
-  // name now appear inline on this line too, so "In Main G: £25 spare"
-  // becomes "In Main G (Chase): £25 spare" with Chase's mark beside it —
-  // the reason G111 exists is he could not tell which bank held the cash
-  // from the account name alone. Current accounts only, so the savings-pot
-  // kind (and its second, conflict line) can no longer occur here; see
-  // lib/spendFromAccount.ts's header comment for why that silence, when no
-  // current account has spare but a savings pot does, is deliberate.
-  const spendFromBrand = spendFrom?.kind === "account" ? accountBrand(spendFrom.best.account) : null;
-  const spendFromLine = spendFrom ? spendFromHeroLine(spendFrom, amount, spendFromBrand?.label) : null;
-  const spendFromAltLine = spendFrom ? spendFromAlternativeLine(spendFrom, amount) : null;
-  const spendFromNeedsAttention = spendFrom?.kind === "none";
+  // G115 approved variant A: up to two ranked current accounts sit in a
+  // compact rail beside the pooled hero. The rail is used only when every
+  // bank has a bundled local mark; one unknown bank switches the whole
+  // treatment to named rows so an initials stack never becomes the answer.
+  // The scope line stays in the reading flow because these per-account
+  // figures do not add up to the pooled Safe to Spend verdict above.
+  const approvedSpendFrom = approvedSpendFromTreatment(
+    spendFromPlan,
+    amount,
+    coverMoveVisible,
+    handleSpendFromLogoError,
+    onRetry,
+  );
+  const spendFromTreatment = spendFromPreview ?? approvedSpendFrom;
 
   const pace = data.pace;
   const showPace = pace != null && ["comfortable", "on_pace", "ahead", "early"].includes(pace.state) && pace.sustainable != null;
@@ -327,6 +609,14 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
   const recovery = state === "short"
     ? isCardsUnconfirmedShort ? { label: "Review card bill", href: "/cards" } : { label: "See what’s due", href: "/upcoming" }
     : state === "tight" && (data.card_debt ?? 0) >= 1000 ? { label: "See your cards", href: "/cards" } : null;
+  const heroHeading = (
+    <h2 id="safe-to-spend-heading" className={spendFromTreatment?.heroAside ? "min-w-0 flex-1" : "mt-5"}>
+      <span className={`money block text-[38px] font-bold leading-none tracking-[-0.05em] ${figureClass}`}>{amount(heroAmount)}</span>
+      <span className="mt-2 block text-[15px] font-semibold text-slate-700 dark:text-slate-200">
+        {heroCaption}{data.estimated && <span className="font-normal text-slate-500 dark:text-slate-400"> · estimated</span>}
+      </span>
+    </h2>
+  );
 
   return (
     <section className="hero-arrive sts-card relative rounded-3xl p-5 glass-hero" aria-labelledby="safe-to-spend-heading">
@@ -340,32 +630,16 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
 
       {error && <div className="mb-3 flex items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-800 dark:bg-amber-950/30" role="status"><p className="text-xs text-slate-700 dark:text-slate-200">Couldn&apos;t refresh. Showing your last figure.</p>{onRetry && <button type="button" onClick={onRetry} className="min-h-9 shrink-0 rounded-lg px-2 text-xs font-semibold text-indigo-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400">Retry</button>}</div>}
 
-      <h2 id="safe-to-spend-heading" className="mt-5">
-        <span className={`money block text-[38px] font-bold leading-none tracking-[-0.05em] ${figureClass}`}>{amount(heroAmount)}</span>
-        <span className="mt-2 block text-[15px] font-semibold text-slate-700 dark:text-slate-200">
-          {heroCaption}{data.estimated && <span className="font-normal text-slate-500 dark:text-slate-400"> · estimated</span>}
-        </span>
-      </h2>
+      {spendFromTreatment?.heroAside ? (
+        <div className="mt-5 flex items-start justify-between gap-4">
+          {heroHeading}
+          <div className="shrink-0">{spendFromTreatment.heroAside}</div>
+        </div>
+      ) : heroHeading}
 
       <p className="mt-2 text-[13px] leading-snug text-slate-500 dark:text-slate-400 text-pretty"><MoneyText text={heroContext} /></p>
 
-      {spendFromLine && (
-        <p className="mt-1.5 flex items-start gap-1.5 text-[12px] leading-snug text-slate-500 dark:text-slate-400 text-pretty">
-          {spendFromNeedsAttention && (
-            <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" aria-hidden="true" />
-          )}
-          {spendFrom?.kind === "account" && spendFromBrand && (
-            <BankBadge
-              logoSrc={spendFromBrand.logoSrc}
-              initials={spendFromBrand.initials}
-              altText={`${spendFromBrand.label} logo`}
-              brandBg={spendFromBrand.background}
-              size={18}
-            />
-          )}
-          <MoneyText text={spendFromLine} />
-        </p>
-      )}
+      {spendFromTreatment?.body}
 
       {cardGrowth > 0 && (
         <CardBalanceFact
@@ -423,9 +697,6 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
               <p className="mt-3 text-xs leading-relaxed text-slate-500 dark:text-slate-400 text-pretty">Transfers between your own included accounts do not change the total, so they are left out of this calculation.</p>
             )}
 
-            {spendFromAltLine && (
-              <p className="mt-3 text-xs leading-relaxed text-slate-500 dark:text-slate-400 text-pretty"><MoneyText text={spendFromAltLine} /></p>
-            )}
           </div>
         </details>
       </div>

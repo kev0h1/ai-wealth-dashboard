@@ -1,4 +1,10 @@
-import { api, Account } from "@/lib/api";
+import { api } from "@/lib/api";
+// `Account` is imported separately with `import type`: Node's
+// --experimental-strip-types (scripts/account-mutations.test.mjs loads this
+// module directly) does not elide a type name sitting in a value import
+// clause across module boundaries — see lib/openBankingAccess.ts's header
+// comment for the fuller version of this same note.
+import type { Account } from "@/lib/api";
 
 // ── Accounts cache (module level) ─────────────────────────────────────────
 // Mirrors lib/verdictCache.ts's pattern (module-level value + inflight

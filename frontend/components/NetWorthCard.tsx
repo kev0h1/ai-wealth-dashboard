@@ -17,9 +17,9 @@ function fmt(n: number, sym = "£"): string {
 }
 
 export default function NetWorthCard({ kpis, loading, compact, compactRow }: NetWorthCardProps) {
-  const { hideNetWorth: hidden, setHideNetWorth, region } = usePreferences();
+  const { hideNetWorth: hidden, setHideNetWorth } = usePreferences();
   const [runwayExpanded, setRunwayExpanded] = useState(false);
-  const sym = region === "Kenya" ? "KES " : "£";
+  const sym = "£";
   const netWorth = kpis?.net_worth ?? 0;
   const isNegative = netWorth < 0;
   const cash = kpis?.cash ?? 0;

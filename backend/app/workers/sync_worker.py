@@ -13,13 +13,12 @@ from app.core.config import (
 )
 from app.core.push import send_push_to_user
 from app.db.collections import (
-    accounts_col, connections_col, yapily_consents_col, mono_connections_col,
+    accounts_col, connections_col, yapily_consents_col,
     webhook_events_col, push_subscriptions_col, apns_tokens_col, fcm_tokens_col,
     finexer_consents_col, worker_runs_col,
 )
 from app.services.truelayer_sync import sync_connection, cull_orphaned_connections
 from app.services.yapily_sync import sync_yapily_consent
-from app.services.mono_sync import sync_mono_connection
 from app.services.finexer_sync import finexer_sync_pipeline
 from app.services.categorisation import apply_rules_bulk, categorise_others_bg
 from app.services.manual_account_rules import apply_rules as apply_mirror_rules
@@ -120,13 +119,6 @@ async def task_sync_yapily(ctx, consent_token: str, user_id: str):
     await apply_mirror_rules(user_id)
     await _warm_after_sync(user_id)
     return {"ok": True}
-
-
-async def task_sync_mono(ctx, connection_id: str, user_id: str):
-    ids = await sync_mono_connection(connection_id, user_id)
-    await apply_mirror_rules(user_id)
-    await _warm_after_sync(user_id)
-    return {"synced": len(ids)}
 
 
 async def task_sync_finexer(ctx, consent_id: str, user_id: str):
@@ -731,7 +723,7 @@ class WorkerSettings:
     # task_refresh_savings_insights is defined in ai_worker but registered here
     # too: this is the worker systemd actually runs, so post-sync enqueues of
     # the weekly insights refresh land somewhere that executes them.
-    functions = [task_sync_truelayer, task_sync_yapily, task_sync_mono,
+    functions = [task_sync_truelayer, task_sync_yapily,
                  task_sync_finexer, task_reconcile_truelayer, task_period_digests,
                  task_refresh_investment_prices, task_refresh_savings_insights,
                  task_consent_watch, task_retention_sweep, task_trial_reminder,

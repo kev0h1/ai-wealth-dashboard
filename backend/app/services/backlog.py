@@ -345,6 +345,21 @@ class BacklogError(RuntimeError):
     """Raised for any user/caller-facing failure (unknown id, bad enum)."""
 
 
+class UnknownItemError(BacklogError):
+    """Raised specifically when <id> is not on the board.
+
+    A subclass of BacklogError, so every existing ``except BacklogError``
+    keeps catching it unchanged. It exists so a caller can tell "that id
+    does not exist" from "the board could not be read" without matching
+    on the message text: ``scripts/backlog.py`` gives it its own exit
+    status. The text match it replaces was wrong for a truncated or
+    half-written TODO.md, which produces this same message, and the
+    advice that followed from that misreading ("open it with --title")
+    would have written a fresh item into the truncated file and cemented
+    the loss. See item H85.
+    """
+
+
 def today_str() -> str:
     return date.today().isoformat()
 
@@ -666,7 +681,7 @@ class TodoDoc:
         try:
             return self.items[item_id]
         except KeyError:
-            raise BacklogError(f"{item_id} is not a known backlog item.") from None
+            raise UnknownItemError(f"{item_id} is not a known backlog item.") from None
 
     def _rewrite(self, item: BacklogItem) -> None:
         self.lines[item.line_no] = _render_item_line(item)

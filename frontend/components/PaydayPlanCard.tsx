@@ -122,7 +122,7 @@ export default function PaydayPlanCard({ item, router, hideNetWorth, maskAmounts
           rather than importing an unexported local component. */}
       <div className="p-4">
         <div className="mb-3 flex items-start justify-between gap-2">
-          <div className="flex min-w-0 items-start gap-3">
+          <div className="flex min-w-0 items-center gap-3">
             <span aria-hidden="true" className="grid size-9 shrink-0 place-items-center rounded-xl bg-indigo-50 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300">
               <WalletCards size={17} />
             </span>
@@ -248,7 +248,7 @@ export default function PaydayPlanCard({ item, router, hideNetWorth, maskAmounts
           ledger. The expected amount stays ink because it is forecast context,
           not a completed credit. */}
       {item.salary && (
-        <div data-salary-source data-salary-amount={item.salary.amount} className={isSet ? "glass-tile rounded-xl px-3 py-2.5 mb-3" : "rounded-xl border border-slate-100 bg-slate-50/70 px-3 dark:border-slate-700 dark:bg-slate-900/30"}>
+        <div data-salary-source data-salary-amount={item.salary.amount} className={isSet ? "glass-tile rounded-xl px-3 py-2.5 mb-3" : "rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2.5 dark:border-slate-700 dark:bg-slate-900/30"}>
           <div className="flex items-center gap-2.5">
             <span className="flex-shrink-0">
               <BankBadge

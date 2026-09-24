@@ -8,12 +8,8 @@ import { WEB_PRODUCT_OFF } from "@/lib/webProduct";
 import LoginScreen from "@/components/LoginScreen";
 import AppOnlyPage from "@/components/AppOnlyPage";
 import Onboarding from "@/components/Onboarding";
-import { invalidateTransactionsCache } from "@/lib/useAllTransactions";
-import { clearHomeCache } from "@/lib/homeCache";
-import { invalidateVerdictCache } from "@/lib/verdictCache";
-import { invalidateSignalsCache } from "@/lib/signalsCache";
+import { invalidateAllAccountData } from "@/lib/accountMutations";
 import { clearHomeDismissedAdvice } from "@/lib/homeDismissedAdvice";
-import { PAYDAY_DOT_CACHE_KEY } from "@/lib/paydayWindow";
 
 interface AuthUser {
   email: string;
@@ -125,27 +121,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     clearToken();
     setUser(null);
 
-    // Clear every module-scope cache that holds the previous user's
-    // financial data, so a different user signing in on the same tab never
-    // gets a moment of the old user's figures painting before the refetch
-    // lands. See each cache's own file for what it holds and why it exists.
-    invalidateTransactionsCache();
-    clearHomeCache();
-    invalidateVerdictCache();
-    invalidateSignalsCache();
+    // Clear every module-scope cache and derived localStorage count that
+    // holds the previous user's financial data, so a different user signing
+    // in on the same tab never gets a moment of the old user's figures
+    // painting before the refetch lands. G138 (2026-09-22) pulled this list
+    // out into lib/accountMutations.ts's invalidateAllAccountData() so an
+    // account mutation (delete, connect, reconnect, statement upload) can
+    // clear the exact same set without a second, driftable copy of the
+    // list living here — see that file for what each entry holds and why.
+    invalidateAllAccountData();
 
-    // Same reasoning for user-scoped localStorage entries that aren't
-    // covered by an in-memory cache above. Left untouched: device-scoped
-    // preferences (theme, biometric lock, colour/icon customisation),
-    // one-shot self-clearing sessionStorage flags, and tutorial/tour
-    // "seen" flags — none of these carry financial figures. See the
-    // logout audit for the full list and reasoning.
+    // Logout-only entries: user-scoped, but not re-derived by any account
+    // mutation, so they don't belong in invalidateAllAccountData(). Left
+    // untouched: device-scoped preferences (theme, biometric lock, colour/
+    // icon customisation), one-shot self-clearing sessionStorage flags, and
+    // tutorial/tour "seen" flags — none of these carry financial figures.
+    // See the logout audit for the full list and reasoning.
     try {
       localStorage.removeItem("reconnect_expected"); // holds a provider, an account id, and a masked last-4 only
       localStorage.removeItem("wd_bracket"); // income tax bracket
-      localStorage.removeItem(PAYDAY_DOT_CACHE_KEY); // payday-window boolean derived from the user's pay period
-      localStorage.removeItem("wd_insight_badge"); // count derived from the user's insights
-      localStorage.removeItem("wd_spend_badge"); // count derived from the user's spend
       localStorage.removeItem("tax_checklist_done"); // per-user tax checklist progress
     } catch {}
     clearHomeDismissedAdvice();

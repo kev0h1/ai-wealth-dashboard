@@ -1,8 +1,9 @@
 import { Capacitor } from "@capacitor/core";
 import { getToken } from "./auth";
+import { LEGACY_BANK_AVAILABLE, LEGACY_BANK_ID } from "./legacyBankProvider";
 import type { GoLiveItem, GoLiveQuestion, GoLiveOwner } from "./goLive";
 import type {
-  Account, Transaction, MonoAccount, MpesaAccount, KPIs, Insight,
+  Account, Connection, Transaction, KPIs, Insight,
   SavingsInsight, WorkflowStep, WorkflowDef, ChallengeProgress, Challenge,
   ChallengesData, InvestmentAccount, InvestmentHolding, InvestmentNote, BudgetItem,
   DebtInsights, DebtBurndown, UserPreferences, CategoryRule, BillLabel,
@@ -13,7 +14,7 @@ import type {
   MoneyShapePeriodEntry, MoneyShapeAverageEntry,
 } from "@wealth/shared";
 export type {
-  Account, Transaction, MonoAccount, MpesaAccount, KPIs, Insight,
+  Account, Connection, Transaction, KPIs, Insight,
   SavingsInsight, WorkflowStep, WorkflowDef, ChallengeProgress, Challenge,
   ChallengesData, InvestmentAccount, InvestmentHolding, InvestmentNote, BudgetItem,
   DebtInsights, DebtBurndown, UserPreferences, CategoryRule, BillLabel,
@@ -610,8 +611,6 @@ export type Pace = {
 export type SafeToSpend =
   | {
       status: "insufficient_data";
-      calculation_status?: "unsupported" | "unavailable";
-      unavailable_components?: string[];
     }
   | {
       status: "ok";
@@ -1348,6 +1347,22 @@ export type CompanionItem = {
   action: CompanionAction | null;
   estimated: boolean;
   brief_lead?: CompanionBriefLead;
+  /**
+   * G103, trajectory items only. The signifier the card should wear, decided
+   * server-side because only the debt engine knows whether a balance that is
+   * not coming down is also costing interest. "positive" = coming down,
+   * "watch" = not coming down and either accruing interest or facing a known
+   * 0% cliff, "neutral" = drift that is not costing anything yet. Absent on
+   * any item persisted before G103, and on every other item type; CliffCard
+   * falls back to the pre-G103 "watch" in that case.
+   */
+  tone?: "neutral" | "watch" | "positive";
+  /**
+   * G103, trajectory items only. Direction of the three-month movement in
+   * what is owed. Drives the card's icon only — the direction is always
+   * spoken in `headline` too, never carried by icon or colour alone.
+   */
+  trend?: "rising" | "falling" | "flat" | "unknown";
   move_map?: MoveMap;
   // `PlanMove[]` when type === "move" (MoveCard's leg list). When type ===
   // "unfunded_move" the backend reuses this SAME field name for an
@@ -1434,7 +1449,21 @@ export type CompanionItem = {
  * not just `GET /today/cover-plan` — same underlying snapshot, one more
  * key on a response Home already fetches every load, no extra backend work.
  */
-export type AccountEligibility = { short: boolean; headroom: number };
+// G114 (2026-09-17): `headroom` is the STANDING figure — bills/income netted
+// off, unaffected by any live cover-plan move — which is what Settings'
+// cover-plan sources card legitimately wants ("can this account ever be a
+// source"). `spend_from_headroom` is a second, narrower figure: `headroom`
+// less any amount a currently-displayed cover-plan move card is already
+// taking out of this account. Home's spend-from line (lib/spendFromAccount.ts)
+// must read `spend_from_headroom`, not `headroom` — spending the standing
+// figure can make the account's own live move card impossible. Optional so
+// older cached payloads (pre-G114) degrade to the standing figure rather
+// than breaking; see spendFromAccount.ts's rankByHeadroom for the fallback.
+export type AccountEligibility = {
+  short: boolean;
+  headroom: number;
+  spend_from_headroom?: number;
+};
 
 export type TodayResponse = {
   status: "ok";
@@ -2197,6 +2226,11 @@ export const api = {
       headers: authHeaders(),
     }).then((r) => toJson<{ ok: boolean }>(r)),
   accounts: () => get<Account[]>("/accounts"),
+  // A113: per-connection bank consent (provider, status, expiry, account
+  // count) — GET /accounts never carried this, so the Accounts surface
+  // couldn't show when a consent ends until this was wired up. See
+  // backend/app/routers/accounts.py:list_connections.
+  connections: () => get<Connection[]>("/connections"),
   syncAccounts: () => post<{ message: string; total_accounts: number }>("/accounts/sync"),
   transactions: (accountId: string, opts?: {
     page?: number; pageSize?: number; q?: string; category?: string; days?: number;
@@ -2313,8 +2347,20 @@ export const api = {
     return res.json();
   },
   insights: () => get<Insight[]>("/insights"),
-  truelayerProviders: () => get<{ id: string; name: string; logo: string }[]>("/auth/truelayer/providers"),
-  connectLink: (provider?: string) => get<{ auth_url: string }>(`/auth/truelayer/link${provider ? `?provider=${encodeURIComponent(provider)}` : ""}`),
+  // A67: the legacy (UAT-only) provider's two endpoints. Named and pathed
+  // off LEGACY_BANK_ID rather than spelled out, because an object property
+  // is never tree-shaken — `truelayerProviders:` and `/auth/truelayer/link`
+  // shipped in the production bundle verbatim before this change, whether
+  // or not anything called them. With LEGACY_BANK_ID inlined as "" in a
+  // production build there is no such path to ship. Both refuse outright
+  // when the provider is absent, so a caller that forgets to check
+  // LEGACY_BANK_AVAILABLE fails closed instead of requesting "/auth//link".
+  legacyBankProviders: () => LEGACY_BANK_AVAILABLE
+    ? get<{ id: string; name: string; logo: string }[]>(`/auth/${LEGACY_BANK_ID}/providers`)
+    : Promise.reject(new Error("This bank connection method is not available.")),
+  legacyBankConnectLink: (provider?: string) => LEGACY_BANK_AVAILABLE
+    ? get<{ auth_url: string }>(`/auth/${LEGACY_BANK_ID}/link${provider ? `?provider=${encodeURIComponent(provider)}` : ""}`)
+    : Promise.reject(new Error("This bank connection method is not available.")),
   finexerProviders: () => get<{ id: string; name: string; logo: string; bg_colors?: string[] }[]>("/auth/finexer/providers"),
   finexerConnectLink: (provider?: string) => get<{ auth_url: string; connection_id: string }>(`/auth/finexer/link${provider ? `?provider=${encodeURIComponent(provider)}` : ""}`),
   mockData: () => get<unknown>("/test/mock-data"),
@@ -2850,49 +2896,11 @@ export const api = {
       headers: authHeaders(),
     }).then((r) => toJson<{ deleted: string }>(r)),
 
-  // Mono (Kenya open banking)
-  monoPublicKey: () => get<{ public_key: string }>("/auth/mono/public-key"),
-  monoExchange: (code: string) => post<{ message: string; account_id: string }>("/auth/mono/exchange", { code }),
-  monoSync: () => post<{ message: string }>("/mono/sync", {}),
-  getMonoAccounts: () => get<MonoAccount[]>("/mono/accounts"),
-  getMonoTransactions: (id: string) => get<Transaction[]>(`/mono/accounts/${id}/transactions`),
-  deleteMonoConnection: (id: string) =>
-    fetch(`${API_BASE}/mono/connections/${id}`, {
-      method: "DELETE",
-      headers: authHeaders(),
-    }).then((r) => toJson<{ deleted: boolean }>(r)),
-
-  // M-Pesa CSV upload (legacy — kept for backward compat)
-  uploadMpesa: (file: File, password?: string) => {
+  // Bank statement upload (any UK bank, PDF or CSV)
+  uploadStatement: async (file: File, password?: string) => {
     const form = new FormData();
     form.append("file", file);
     if (password) form.append("password", password);
-    return fetch(`${API_BASE}/mpesa/upload`, {
-      method: "POST",
-      headers: authHeaders(),
-      body: form,
-    }).then(async r => {
-      if (!r.ok) {
-        const fallback = `${r.status}`;
-        let detail: unknown = fallback;
-        try {
-          const body = await r.json();
-          if (body?.detail) detail = body.detail;
-        } catch {
-          try { detail = (await r.text()) || fallback; } catch { /* ignore */ }
-        }
-        throw new Error(humanizeErrorDetail(detail, fallback));
-      }
-      return r.json() as Promise<{ inserted: number; account_id: string }>;
-    });
-  },
-
-  // Generic bank statement upload (any bank, any region)
-  uploadStatement: async (file: File, password?: string, region = "Kenya") => {
-    const form = new FormData();
-    form.append("file", file);
-    if (password) form.append("password", password);
-    form.append("region", region);
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 150_000); // 2.5 min
@@ -3134,8 +3142,6 @@ export const api = {
       method: "DELETE",
       headers: authHeaders(),
     }).then((r) => toJson<{ deleted: string }>(r)),
-  getMpesaAccounts: () => get<MpesaAccount[]>("/mpesa/accounts"),
-  getMpesaTransactions: (id: string) => get<Transaction[]>(`/mpesa/accounts/${id}/transactions`),
   getAccountRate: (accountId: string) => get<{ apr: number | null }>(`/accounts/${encodeURIComponent(accountId)}/rate`),
   setAccountRate: (accountId: string, apr: number | null) =>
     fetch(`${API_BASE}/accounts/${encodeURIComponent(accountId)}/rate`, {

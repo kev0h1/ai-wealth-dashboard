@@ -122,6 +122,22 @@ class FakeCol:
         for k in (update.get("$unset") or {}):
             target.pop(k, None)
 
+    async def update_many(self, filt, update):
+        # A84 rework: session_revocation.revoke_sessions now also revokes
+        # every matching oauth_tokens_col doc (see that module's own
+        # docstring) — needed here so sweep_dormant_users' call into
+        # revoke_sessions (before each user's erase_user) doesn't hit a
+        # FakeCol with no update_many at all, on collections this file's
+        # own tests don't otherwise care about.
+        self.update_calls += 1
+        count = 0
+        for d in self.docs.values():
+            if _matches(d, filt):
+                for k, v in (update.get("$set") or {}).items():
+                    d[k] = v
+                count += 1
+        return _DeleteResult(count)
+
 
 def _patch_all_collections(monkeypatch, overrides: dict) -> None:
     """Replace EVERY `*_col` attribute on the real app.db.collections module
@@ -316,6 +332,144 @@ def test_erase_user_never_touches_real_motor_collections(monkeypatch):
     _patch_all_collections(monkeypatch, {})
     removed = asyncio.run(retention.erase_user("nobody@example.com"))
     assert removed == {}
+
+
+# ── erase_user: revoke live connections first (A82) ─────────────────────────
+#
+# erase_user's new revoke step gathers connection/consent ids via the same
+# fresh `app.db.collections` lookup its own dir()-based delete loop uses (see
+# module docstring above), so these tests patch overrides into
+# _patch_all_collections. disconnect_connection itself (called per id) still
+# reads/writes through retention.py's own top-level connections_col /
+# accounts_col / finexer_consents_col names, so those are ALSO patched to the
+# identical FakeCol objects, the same double-patch _patch_all_collections's
+# own dormant-sweep test above uses.
+
+def test_erase_user_revokes_live_finexer_consent_before_erasing(monkeypatch):
+    uid = "u4@example.com"
+    calls: list = []
+    _stub_cascade(monkeypatch, calls)
+
+    connections = FakeCol([{"_id": "conn-1", "user_id": uid}])
+    consents = FakeCol([{"_id": "fx-1", "user_id": uid, "status": "authorized"}])
+    accounts = FakeCol()
+    transactions = FakeCol([{"_id": "t1", "user_id": uid}])
+
+    _patch_all_collections(monkeypatch, {
+        "connections_col": connections,
+        "finexer_consents_col": consents,
+        "accounts_col": accounts,
+        "transactions_col": transactions,
+    })
+    # disconnect_connection reads retention's own top-level names directly.
+    monkeypatch.setattr(retention, "connections_col", connections)
+    monkeypatch.setattr(retention, "accounts_col", accounts)
+    monkeypatch.setattr(retention, "finexer_consents_col", consents)
+
+    fake_client = FakeFxClient(status_code=204)
+    monkeypatch.setattr(finexer_sync_module, "_client", lambda: fake_client)
+
+    result = asyncio.run(retention.erase_user(uid))
+
+    assert fake_client.calls == ["/consents/fx-1"]
+    assert "conn-1" not in connections.docs
+    assert "fx-1" not in consents.docs
+    assert result["connections_revoked"] == 2
+    assert "connection_errors" not in result
+    # The rest of the user's data is still erased in the same call.
+    assert all(d["user_id"] != uid for d in transactions.docs.values())
+    assert result.get("transactions") == 1
+
+
+def test_erase_user_remote_revoke_failure_is_non_fatal(monkeypatch):
+    """disconnect_connection's Finexer branch already treats the remote
+    DELETE as best-effort/non-fatal: it catches the failure, logs, and still
+    deletes the consent doc locally, returning success. That means erase_user
+    never sees an exception here either, so the connection counts as revoked
+    (not an error) and the doc is still gone; erasure of the rest of the
+    user's data is unaffected either way."""
+    uid = "u5@example.com"
+    calls: list = []
+    _stub_cascade(monkeypatch, calls)
+
+    connections = FakeCol()
+    consents = FakeCol([{"_id": "fx-2", "user_id": uid, "status": "authorized"}])
+    accounts = FakeCol()
+
+    _patch_all_collections(monkeypatch, {
+        "connections_col": connections,
+        "finexer_consents_col": consents,
+        "accounts_col": accounts,
+    })
+    monkeypatch.setattr(retention, "connections_col", connections)
+    monkeypatch.setattr(retention, "accounts_col", accounts)
+    monkeypatch.setattr(retention, "finexer_consents_col", consents)
+
+    fake_client = FakeFxClient(raise_exc=RuntimeError("Finexer is down"))
+    monkeypatch.setattr(finexer_sync_module, "_client", lambda: fake_client)
+
+    result = asyncio.run(retention.erase_user(uid))
+
+    assert fake_client.calls == ["/consents/fx-2"]
+    assert "fx-2" not in consents.docs
+    assert result["connections_revoked"] == 1
+    assert "connection_errors" not in result
+
+
+def test_erase_user_revoke_exception_is_counted_and_non_fatal(monkeypatch):
+    """Exercises erase_user's own per-connection try/except directly: if
+    disconnect_connection itself raises (a failure mode disconnect_connection
+    does not already swallow, e.g. cascade_account_deletion blowing up), the
+    id is counted in connection_errors, logged, and erasure of the user's
+    other connections and data still completes."""
+    uid = "u6@example.com"
+
+    connections = FakeCol([
+        {"_id": "conn-bad", "user_id": uid},
+        {"_id": "conn-ok", "user_id": uid},
+    ])
+    transactions = FakeCol([{"_id": "t1", "user_id": uid}])
+
+    _patch_all_collections(monkeypatch, {
+        "connections_col": connections,
+        "finexer_consents_col": FakeCol(),
+        "transactions_col": transactions,
+    })
+
+    async def fake_disconnect(uid_, connection_id):
+        if connection_id == "conn-bad":
+            raise RuntimeError("boom")
+        connections.docs.pop(connection_id, None)
+        return {"deleted": connection_id, "accounts_removed": 0}
+
+    monkeypatch.setattr(retention, "disconnect_connection", fake_disconnect)
+
+    result = asyncio.run(retention.erase_user(uid))
+
+    assert result["connections_revoked"] == 1
+    assert result["connection_errors"] == 1
+    # The user's other data is still erased despite the one failed revoke.
+    assert all(d["user_id"] != uid for d in transactions.docs.values())
+
+
+def test_erase_user_with_no_connections_is_unchanged(monkeypatch):
+    """A user with no TrueLayer connection or Finexer consent gets the exact
+    same erase_user behaviour as before A82: no revoke keys in the returned
+    dict, just the plain per-collection removed counts."""
+    uid = "u7@example.com"
+    transactions = FakeCol([{"_id": "t1", "user_id": uid}])
+    accounts = FakeCol([{"_id": "a1", "user_id": uid}])
+
+    _patch_all_collections(monkeypatch, {
+        "transactions_col": transactions,
+        "accounts_col": accounts,
+    })
+
+    result = asyncio.run(retention.erase_user(uid))
+
+    assert "connections_revoked" not in result
+    assert "connection_errors" not in result
+    assert result == {"transactions": 1, "accounts": 1}
 
 
 # ── run_retention_sweep wiring ───────────────────────────────────────────

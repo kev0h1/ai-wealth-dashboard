@@ -1527,9 +1527,16 @@ def test_cli_show_done_item(tmp_path):
 
 
 def test_cli_show_unknown_item_errors(tmp_path):
+    """Deliberate contract change (item H85): an unknown id exits 3, not
+    1, so scripts/session.sh can tell it apart from the board being
+    unreadable without matching on the message. Both are still non-zero
+    and both still print to stderr, so every caller that only checks for
+    failure is unaffected; this was the one place in the repo that
+    pinned the specific value."""
     board_root = _make_board_root(tmp_path, SHOW_FIXTURE)
     result = _run_cli(board_root, "show", "H999")
-    assert result.returncode == 1
+    assert result.returncode == 3
+    assert result.returncode != 0
     assert "not a known backlog item" in result.stderr
 
 
@@ -3107,3 +3114,84 @@ def test_cli_lint_dry_run_then_apply(tmp_path):
     clean = run("lint")
     assert clean.returncode == 0, clean.stderr
     assert "no H38-shaped damage found" in clean.stdout
+
+
+# ---------------------------------------------------------------------
+# Exit-status contract for scripts/backlog.py (item H85)
+#
+# scripts/session.sh has to tell "that id is not on the board" from "the
+# board could not be read", because the two need different remedies and
+# one of those remedies writes to the board. It cannot do that from the
+# message: a truncated TODO.md produces the unknown-item wording too.
+# These pin the statuses it keys on.
+# ---------------------------------------------------------------------
+
+def _run_backlog_show(board_root, item_id):
+    import os
+    import subprocess
+    import sys
+
+    script = Path(__file__).resolve().parents[2] / "scripts" / "backlog.py"
+    env = dict(os.environ)
+    env["BACKLOG_ROOT"] = str(board_root)
+    return subprocess.run(
+        [sys.executable, str(script), "show", item_id],
+        cwd=board_root,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+
+def _h85_board(tmp_path, todo_text):
+    board = tmp_path / "board"
+    board.mkdir()
+    (board / "TODO.md").write_text(todo_text, encoding="utf-8")
+    compliance = board / "docs" / "compliance"
+    compliance.mkdir(parents=True)
+    (compliance / "finexer-agent-controls-2026-09.md").write_text(
+        "# Fixture\n\n## Q1 Start date\n\nStatus: ready\n\n```text\n2026-10-01\n```\n",
+        encoding="utf-8",
+    )
+    return board
+
+
+_H85_TODO = "# Fixture\n\n## H. Section H\n\n- [ ] **H1. A thing.** [owner: claude] x\n"
+
+
+def test_show_exits_0_for_a_known_item(tmp_path):
+    result = _run_backlog_show(_h85_board(tmp_path, _H85_TODO), "H1")
+    assert result.returncode == 0, result.stderr
+
+
+def test_show_exits_with_unknown_item_status_for_a_missing_id(tmp_path):
+    result = _run_backlog_show(_h85_board(tmp_path, _H85_TODO), "ZZ999")
+    assert result.returncode == 3, (result.returncode, result.stderr)
+    assert "is not a known backlog item" in result.stderr
+
+
+def test_show_refuses_a_board_that_parsed_to_zero_items(tmp_path):
+    """A truncated TODO.md is not "this id does not exist": it must not
+    come back with the unknown-item status, or a caller is told to go and
+    add something to a file that is mid-loss."""
+    result = _run_backlog_show(_h85_board(tmp_path, ""), "H1")
+    assert result.returncode == 1, (result.returncode, result.stderr)
+    assert "empty or truncated" in result.stderr
+    assert "do not add to it" in result.stderr
+
+
+def test_show_exits_1_when_the_board_cannot_be_read_at_all(tmp_path):
+    board = _h85_board(tmp_path, _H85_TODO)
+    (board / "docs" / "compliance" / "finexer-agent-controls-2026-09.md").unlink()
+    result = _run_backlog_show(board, "H1")
+    assert result.returncode == 1, (result.returncode, result.stderr)
+    assert result.returncode != 3
+
+
+def test_unknown_item_error_is_still_a_backlog_error():
+    """Every existing `except backlog.BacklogError` (ops.py, integrate.py,
+    scripts/backlog.py) must keep catching it."""
+    from app.services import backlog as backlog_service
+
+    assert issubclass(backlog_service.UnknownItemError, backlog_service.BacklogError)

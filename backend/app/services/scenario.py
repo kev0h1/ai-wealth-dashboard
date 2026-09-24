@@ -39,7 +39,6 @@ from datetime import date, datetime, timedelta
 from app.services.cashflow import monthly_cashflow_cached
 from app.services.categories import get_category_kinds, is_discretionary
 from app.services.debt_plan import _amortise, get_debt_plan_cached
-from app.services.region import get_user_region
 
 log = logging.getLogger(__name__)
 
@@ -763,9 +762,8 @@ async def simulate(uid: str, items: list[dict]) -> dict:
     clean_items, rejected = normalise_items(items)
     assumptions: list[str] = ["Assumes your payday and rhythm stay as they are."]
 
-    region = await get_user_region(uid)
     cutoff = datetime.now() - timedelta(days=90)
-    cf = await monthly_cashflow_cached(uid, region, cutoff)
+    cf = await monthly_cashflow_cached(uid, cutoff)
     monthly_income = cf.get("income", 0.0)
     monthly_spending = cf.get("spending", 0.0)
     monthly_debt = cf.get("debt", 0.0)

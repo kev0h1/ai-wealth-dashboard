@@ -346,6 +346,28 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   opacity: 0.6;
 }
 
+/* iOS Safari auto-zooms the whole page when a focused form field's computed
+   font-size is below 16px, and never restores the previous scale on blur
+   (Kevin, G81, 2026-09-14 — reported on the Penny composer, but it is a
+   platform rule that applies to every input/textarea/select in the app).
+   The fix must not touch pinch-zoom itself: app/layout.tsx's viewport
+   export deliberately omits maximumScale/userScalable (accessibility
+   audit, WCAG anti-pattern) and that must not be reinstated. So this is
+   scoped to coarse-pointer (touch) devices only — desktop keeps the
+   existing type scale from each field's own text-size class. Written
+   outside any @layer, same as the input[type=date] reset above, so it
+   wins over Tailwind's utility-layer font-size classes (text-sm etc.)
+   regardless of class order or specificity: un-layered CSS always beats
+   `@layer utilities` in the cascade. See DESIGN.md 3. Typography for the
+   stated type-scale exception this creates. */
+@media (pointer: coarse) {
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}
+
 /* ── Staggered rise-in for Home screen sections ────────────────────────────── */
 @keyframes riseIn {
   from {

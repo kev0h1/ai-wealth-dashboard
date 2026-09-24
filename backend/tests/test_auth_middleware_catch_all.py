@@ -90,6 +90,68 @@ def test_valid_session_is_rate_limited_per_user_not_ip():
     assert resp.status_code == 429
 
 
+def _logo_rule():
+    for prefix, limit, window in ratelimit.RULES:
+        if prefix == "/logo/":
+            return limit, window
+    raise AssertionError("RULES has no /logo/ entry — A95 fix regressed")
+
+
+def test_logo_path_is_limited_by_its_own_rule_per_ip():
+    """A95: GET /logo/{domain} now has its own RULES entry, checked via
+    auth_middleware's /auth//webhooks//logo/ branch. Requests up to the
+    limit go through to call_next (200); the next one trips a 429 with a
+    Retry-After header, same shape as every other RULES-backed limit."""
+    logo_limit, _window = _logo_rule()
+    ip = "203.0.113.65"
+    for _ in range(logo_limit):
+        resp = _run(auth_mod.auth_middleware(_FakeRequest("/logo/example.com", ip=ip), _call_next))
+        assert resp.status_code == 200
+    resp = _run(auth_mod.auth_middleware(_FakeRequest("/logo/example.com", ip=ip), _call_next))
+    assert resp.status_code == 429
+    assert "Retry-After" in resp.headers
+
+
+def test_logo_path_budget_is_independent_per_ip():
+    """A different IP hitting /logo/ gets its own fresh budget — one caller
+    exhausting the limit must not affect another."""
+    logo_limit, _window = _logo_rule()
+    ip_a = "203.0.113.66"
+    ip_b = "203.0.113.67"
+    for _ in range(logo_limit):
+        resp = _run(auth_mod.auth_middleware(_FakeRequest("/logo/example.com", ip=ip_a), _call_next))
+        assert resp.status_code == 200
+    resp = _run(auth_mod.auth_middleware(_FakeRequest("/logo/example.com", ip=ip_a), _call_next))
+    assert resp.status_code == 429
+    # ip_b is a different caller — still under its own budget.
+    resp = _run(auth_mod.auth_middleware(_FakeRequest("/logo/example.com", ip=ip_b), _call_next))
+    assert resp.status_code == 200
+
+
+def test_auth_prefix_branch_falls_through_to_catch_all_even_with_no_rules_match(monkeypatch):
+    """A95: proves the FALLTHROUGH ITSELF, not just the new /logo/ rule —
+    the /auth//webhooks//logo/ branch in auth_middleware now always calls
+    check_catch_all_ip_limit after check_rate_limit passes, regardless of
+    whether a RULES prefix matched at all. Chosen approach: temporarily
+    remove the /webhooks/ RULES entry via monkeypatch (rather than reusing
+    a real unmatched path, since every prefix this branch actually covers
+    today has its own RULES entry — that coverage is the point of this
+    fix), so check_rate_limit has nothing to match a /webhooks/ path
+    against and always returns None, then confirm a /webhooks/ flood is
+    still bound by the generic IP catch-all at CATCH_ALL_IP_LIMIT's
+    threshold, exactly like any other protected route (this would have
+    been unbounded before A95, the same way /logo/ was)."""
+    trimmed_rules = [rule for rule in ratelimit.RULES if rule[0] != "/webhooks/"]
+    monkeypatch.setattr(ratelimit, "RULES", trimmed_rules)
+    ip_limit, _window = ratelimit.CATCH_ALL_IP_LIMIT
+    ip = "203.0.113.68"
+    for _ in range(ip_limit):
+        resp = _run(auth_mod.auth_middleware(_FakeRequest("/webhooks/some-provider", ip=ip), _call_next))
+        assert resp.status_code == 200
+    resp = _run(auth_mod.auth_middleware(_FakeRequest("/webhooks/some-provider", ip=ip), _call_next))
+    assert resp.status_code == 429
+
+
 def test_two_different_users_behind_the_same_ip_have_separate_budgets():
     ip = "203.0.113.80"
     limit, _window = ratelimit.CATCH_ALL_USER_LIMIT

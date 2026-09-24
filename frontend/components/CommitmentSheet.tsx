@@ -11,6 +11,7 @@ import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { useSheetA11y } from "@/lib/useSheetA11y";
 import { useSheetOpen } from "@/lib/useSheetOpen";
 import MoneyText from "@/components/MoneyText";
+import { invalidateVerdictCache } from "@/lib/verdictCache";
 
 // Create/edit sheet for a commitment — a named future big expense (holiday,
 // car, fees) the app reserves a per-period slice for. Mirrors the
@@ -298,6 +299,11 @@ export default function CommitmentSheet({
           source,
         });
       }
+      // G83 fix-round: a commitment create/edit can change the goal-name
+      // labels /spend/verdict's "money you moved to your pots" line reads
+      // off commitments_col (see spend_verdict.py's own module docstring)
+      // — the backend already response_cache.invalidate()s on this write.
+      invalidateVerdictCache();
       onSaved?.(item);
       onClose();
     } catch {
@@ -329,6 +335,7 @@ export default function CommitmentSheet({
     setSaveError(false);
     try {
       await api.cancelCommitment(commitment.id);
+      invalidateVerdictCache();
       onCancelled?.();
       onClose();
     } catch {

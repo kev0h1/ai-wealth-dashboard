@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, useRef, type ReactNode } from "react";
 import dynamic from "next/dynamic";
-import { AlertTriangle, AlertCircle, Clock, ChevronRight, ChevronDown, EyeOff, Wallet, X } from "lucide-react";
+import { AlertTriangle, AlertCircle, Clock, ChevronDown, EyeOff, X } from "lucide-react";
 import { api, Account, Allocation, CashflowData } from "@/lib/api";
 import { getAccountsCached } from "@/lib/accountsCache";
 import { usePreferences } from "@/components/PreferencesContext";
@@ -17,7 +17,12 @@ import { useTutorialReady } from "@/components/TutorialContext";
 import { setPennyScreenView } from "@/components/PennySheetProvider";
 import { buildUpcomingRunwayView, type UpcomingRunwayInput } from "@/lib/pennyScreenViews";
 import { isPooledNoOp, doesNotTouchCash } from "@/lib/cashWalk";
-import MoneyText from "@/components/MoneyText";
+import { computeClusterMarkers } from "@/lib/upcomingMarkers";
+import UpcomingHeroCard from "@/components/upcoming/UpcomingHeroCard";
+import UpcomingDayCard from "@/components/upcoming/UpcomingDayCard";
+import UpcomingDivider from "@/components/upcoming/UpcomingDivider";
+import SwipeDismissRow from "@/components/upcoming/SwipeDismissRow";
+import SetAsideList, { type SetAsideItem } from "@/components/upcoming/SetAsideList";
 
 // Editing flows are not needed to understand the initial runway. Keeping them
 // out of the first Planning bundle makes the forecast usable sooner while the
@@ -86,69 +91,32 @@ function billKeyMatchesName(key: string | null, name: string): boolean {
 // actually subtracts; the supporting line keeps filled/target figures and
 // recurrence visible without making the user reconstruct that relationship.
 // Pending entries show no money figure because nothing is reserved yet.
-function AllocationCards({
-  allocations,
-  error,
-  accounts,
-  onEdit,
-}: {
-  allocations: Allocation[] | null;
-  error: boolean;
-  accounts: Account[];
-  onEdit: (a: Allocation) => void;
-}) {
-  const fmtC = (n: number) => "£" + Math.round(n).toLocaleString("en-GB");
-  if (error) return null;
-  const active = (allocations ?? []).filter((a) => a.active);
-
-  if (active.length === 0) return null;
-  return (
-    <div className="glass-card divide-y divide-slate-200/70 overflow-hidden rounded-2xl dark:divide-white/10" data-tutorial-id="tutorial-planning-allocations">
-      {active.map((a) => {
-        const feedAccount = accounts.find((acc) => acc.id === a.fill_account_id);
-        const feedLabel = a.fill_display_name || feedAccount?.name;
-        const rhythmLabel = a.recurrence === "once" ? "this period only" : "every pay period";
-        const startsLabel = new Date(a.period_start).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-        const remaining = Math.max(0, a.remaining);
-        const complete = a.completed || remaining < 0.5;
-        const detail = a.pending
-          ? `Starts ${startsLabel} · nothing reserved yet`
-          : complete
-            ? `Fully set aside · ${rhythmLabel}`
-            : `${fmtC(a.filled_this_period)} of ${fmtC(a.amount_per_period)} set aside · ${rhythmLabel}`;
-        const amount = a.pending ? null : complete ? "£0" : `−${fmtC(remaining)}`;
-
-        return (
-          <button
-            key={a.id}
-            type="button"
-            onClick={() => onEdit(a)}
-            aria-label={`${a.name}: ${a.pending ? `starts ${startsLabel}` : complete ? "fully set aside" : `${fmtC(remaining)} still to reserve`}. Edit pay-period plan`}
-            className="flex min-h-[62px] w-full items-center gap-3 px-3.5 py-2.5 text-left transition-colors hover:bg-slate-50/80 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 dark:hover:bg-white/[0.035]"
-          >
-            <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-500 dark:bg-indigo-400/10 dark:text-indigo-300">
-              <Wallet size={15} aria-hidden="true" />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="flex items-center gap-1.5">
-                <span className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">{a.name}</span>
-                {a.created_via === "penny" && <span className="shrink-0 text-[10px] text-slate-400 dark:text-slate-500">with Penny</span>}
-              </span>
-              <MoneyText text={detail} className="mt-0.5 block truncate text-xs text-slate-500 dark:text-slate-400" />
-              {feedLabel && <span className="mt-0.5 block truncate text-[11px] text-slate-400 dark:text-slate-500">Fed by {feedLabel}{a.match_type === "description_contains" ? " · similar payments" : ""}</span>}
-            </span>
-            {amount && (
-              <span className="shrink-0 text-right">
-                <span className="block font-mono text-sm font-semibold tabular-nums text-slate-900 dark:text-slate-100">{amount}</span>
-                <span className="block text-[10px] text-slate-400 dark:text-slate-500">to reserve</span>
-              </span>
-            )}
-            <ChevronRight size={15} className="shrink-0 text-slate-400 dark:text-slate-500" aria-hidden="true" />
-          </button>
-        );
-      })}
-    </div>
-  );
+//
+// G131 fold-in (g124-upcoming-refine, variant A, the "raw-string clutter"
+// hygiene fix): the row rendering itself now lives in the shared
+// components/upcoming/SetAsideList.tsx, imported by both this page and
+// that surface's design preview. This function only resolves PlanningPage's
+// own Allocation + Account data down to the SetAsideItem shape that shared
+// component actually takes — the same "props, not raw fetches" boundary
+// UpcomingHeroCard/UpcomingDayCard already use.
+function toSetAsideItem(a: Allocation, accounts: Account[]): SetAsideItem {
+  const feedAccount = accounts.find((acc) => acc.id === a.fill_account_id);
+  const feedLabel = a.fill_display_name || feedAccount?.name || null;
+  const startsLabel = new Date(a.period_start).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  return {
+    id: a.id,
+    name: a.name,
+    feedLabel,
+    feedSuffix: a.match_type === "description_contains" ? " · similar payments" : undefined,
+    amountPerPeriod: a.amount_per_period,
+    filledThisPeriod: a.filled_this_period,
+    remaining: a.remaining,
+    recurrence: a.recurrence,
+    pending: a.pending,
+    completed: a.completed,
+    pendingStartsLabel: a.pending ? startsLabel : undefined,
+    createdViaPenny: a.created_via === "penny",
+  };
 }
 
 // One section and one creation door for the two current-period plan types:
@@ -197,7 +165,13 @@ function PlansSection({
           <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Add an envelope or one-off payment for this pay period.</p>
         </div>
       ) : (
-        <AllocationCards allocations={allocations} error={allocationsError} accounts={accounts} onEdit={onEditAllocation} />
+        <SetAsideList
+          items={activeAllocations.map((a) => toSetAsideItem(a, accounts))}
+          onEdit={(id) => {
+            const a = activeAllocations.find((x) => x.id === id);
+            if (a) onEditAllocation(a);
+          }}
+        />
       )}
       {!loading && !allocationsError && !empty && <p className="mt-2 px-1 text-xs text-slate-500 dark:text-slate-400">Only the amount still to reserve reduces the forecast above.</p>}
     </section>
@@ -298,6 +272,15 @@ export default function PlanningPage() {
       cancelIdleCallback?: (handle: number) => void;
     };
     const loadSecondary = () => {
+      // G135 (2026-09-21), audited and deliberately not changed here: this
+      // page has no notion of a fresh user. It fetches accounts but never
+      // tests `.length`, and its empty states are about a pay period having
+      // no data, not about having nothing connected at all, so a brand-new
+      // user sees empty figures rather than a "connect something" route.
+      // G135 fixed the two surfaces that DID claim to lead somewhere (Home's
+      // fresh-user card, app/planning/GrowPanel.tsx's empty ladder). Giving
+      // this page one is a new empty state needing a design round, not a
+      // route fix. Do not re-investigate; propose it to Kevin instead.
       getAccountsCached().catch(() => [] as Account[]).then(setAccounts);
       // Allocations are additive and must never block the forecast.
       api.listAllocations().then(setAllocations).catch(() => setAllocationsError(true));
@@ -1135,15 +1118,46 @@ export default function PlanningPage() {
           }));
         const displayItems = [...items, ...observedPendingItems];
 
-        function groupByDay(list: typeof displayItems) {
-          const groups: { label: string; items: typeof displayItems }[] = [];
+        // G131 (g124-upcoming-refine fold-in, G127 ask #3, Kevin
+        // 2026-09-18): day headings now carry the absolute date instead of
+        // a relative count ("3 days" -> "Mon 21 Sep"); "Today"/"Tomorrow"
+        // keep their word too, prefixed onto the date ("Today · Fri 18
+        // Sep") since a bare date for today reads worse than the word and
+        // the word is genuinely more useful at that distance. The group key
+        // is the exact ISO date (`dayKeyIso`) rather than the old
+        // days-away label — every item sharing a `days_away` already shares
+        // the same calendar date (both are offsets from "today" computed
+        // once per render), so this changes no grouping outcome, only what
+        // a group is keyed and sorted by. The explicit sort (absent before)
+        // is needed for computeClusterMarkers below, which assumes
+        // ascending dayOffset; `observedPendingItems` is appended after
+        // `items` and isn't guaranteed to already be in date order.
+        interface DayGroup {
+          word?: "Today" | "Tomorrow";
+          dateLabel: string;
+          dayOffset: number;
+          dayKeyIso: string;
+          items: typeof displayItems;
+        }
+
+        function groupByDay(list: typeof displayItems): DayGroup[] {
+          const groups: DayGroup[] = [];
           for (const item of list) {
-            const label = item.days_away === 0 ? "Today" : item.days_away === 1 ? "Tomorrow" : `${item.days_away} days`;
-            const g = groups.find(g => g.label === label);
-            if (g) g.items.push(item);
-            else groups.push({ label, items: [item] });
+            const dayKeyIso = item.expected_date;
+            let g = groups.find(g => g.dayKeyIso === dayKeyIso);
+            if (!g) {
+              g = {
+                word: item.days_away === 0 ? "Today" : item.days_away === 1 ? "Tomorrow" : undefined,
+                dateLabel: formatItemDate(item.expected_date),
+                dayOffset: item.days_away,
+                dayKeyIso,
+                items: [],
+              };
+              groups.push(g);
+            }
+            g.items.push(item);
           }
-          return groups;
+          return groups.sort((a, b) => a.dayOffset - b.dayOffset);
         }
 
         const groups = groupByDay(displayItems);
@@ -1220,17 +1234,25 @@ export default function PlanningPage() {
               <div
                 data-bill-key={rowKey}
                 // Variant A, "The Ledger" (owner pick, 2026-08-28): at-risk
-                // rows keep the ordinary glass-card surface, no tinted
-                // background or coloured border — red/amber is spent only
-                // on the icon chip and the amount figure below, never on a
-                // filled card (source: VariantA.tsx's own header comment).
-                className={`relative rounded-2xl glass-card${highlighted ? " ring-2 ring-rose-400 dark:ring-rose-500" : ""}`}
+                // rows carry no tinted background or coloured border —
+                // red/amber is spent only on the icon chip and the amount
+                // figure below, never on a filled card.
+                //
+                // G131 (g124-upcoming-refine fold-in): the row no longer
+                // owns its own rounded-2xl/glass-card surface. Same-day
+                // rows now sit flush, hairline-divided, inside one bounded
+                // UpcomingDayCard (the transactions-hub grammar) — see
+                // renderGroups below. A highlighted row (jumped to via the
+                // hero's Review link) keeps its ring but inset and square,
+                // so it never spills its corners across the hairline into
+                // a neighbouring row.
+                className={`relative${highlighted ? " ring-2 ring-inset ring-rose-400 dark:ring-rose-500" : ""}`}
               >
                 <button
                   type="button"
                   onClick={openItem}
                   aria-label={isPlanned ? `Edit planned payment: ${item.name}` : `Edit ${item.name}`}
-                  className="absolute inset-0 z-0 rounded-2xl cursor-pointer active:scale-[0.98] transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                  className="absolute inset-0 z-0 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/40 active:bg-slate-100 dark:active:bg-slate-700/60 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500"
                 />
                 <div className="relative z-[1] pointer-events-none px-4 py-3 flex items-center gap-3">
                 {flagged ? (
@@ -1374,24 +1396,15 @@ export default function PlanningPage() {
                     </p>
                   )}
 
-                  {/* Next-period distance is a temporal fact, not a caution,
-                      so it does not wear Watch Amber (Figures Are Ink,
-                      Kevin 2026-08-26, supersedes the 2026-08-09 amber
-                      call). It reads one step quieter than a current-period
-                      date instead, muteness standing in for distance. */}
-                  <p className={`text-xs ${item.next_period ? "text-slate-400 dark:text-slate-500" : "text-slate-500 dark:text-slate-400"}`}>{formatItemDate(item.expected_date)}</p>
-                  {/* Bank-side PENDING debit already matched (see
-                      UpcomingBill.observed_pending) — the money has already
-                      left the account per the bank, our settled feed just
-                      hasn't caught up yet. Calm, never red: there is
-                      nothing left here to be at risk. Mutually exclusive
-                      with the `item.pending` block below (backend never
-                      sets both on the same row). */}
-                  {item.type === "bill" && item.observed_pending && (
-                    <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
-                      Left earlier today, still settling
-                    </p>
-                  )}
+                  {/* G131 (g124-upcoming-refine fold-in, ask #4): no
+                      per-row date any more — the bounded day-card's own
+                      heading above already states this row's absolute
+                      date, so repeating it here (previously muted one step
+                      further for a next-period row) would just be noise.
+                      The distance a next-period row used to signal via
+                      that muted date is now carried by which day-group
+                      it's in, on the far side of the payday-boundary
+                      divider. */}
                   {item.type === "bill" && item.pending && (() => {
                     const dpd = item.days_past_due ?? 0;
                     // Owner decision (Kevin, 2026-08-27): a pending OWN
@@ -1516,8 +1529,17 @@ export default function PlanningPage() {
                     // quiet word, same caption ramp as "pool left" itself,
                     // is the honest answer rather than a real-looking but
                     // meaningless number.
+                    //
+                    // G131 (g124-upcoming-refine fold-in, ask #7): this is
+                    // the ONE right-hand slot a settling row's status word
+                    // lives in now — capitalised ("Settling") per Kevin's
+                    // own correction (2026-09-18), reversing an earlier
+                    // reading that had removed this line and kept a
+                    // descriptive sentence under the payment name instead;
+                    // that sentence ("Left earlier today, still settling")
+                    // is gone, this word is the whole story.
                     <p className="text-xs font-medium text-slate-400 dark:text-slate-500">
-                      settling
+                      Settling
                     </p>
                   ) : isPooledNoOp(item) ? (
                     <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
@@ -1548,37 +1570,56 @@ export default function PlanningPage() {
           );
         }
 
+        // G131 (g124-upcoming-refine fold-in, ask #3 + #6): same-day
+        // payments now render as one bounded UpcomingDayCard (hairline
+        // divide-y rows, the transactions-hub grammar) instead of a bare
+        // day label over floating cards, and the relative sense of time
+        // that used to sit in the day label ("10 days") now lives on the
+        // canvas as an occasional cluster marker between day cards — see
+        // lib/upcomingMarkers.ts's own doctrine comment for why "cluster"
+        // is the only rule shipped (Kevin picked it over "gap" and
+        // "rhythm", both of which stay design-preview-only). When a
+        // marker lands on the exact same seam as the payday boundary, the
+        // two are merged into that one divider (the boundary keeps the
+        // hairline row, the marker becomes a caption underneath) rather
+        // than stacked — see UpcomingDivider's own doctrine comment for
+        // why (a two-line hairline row broke at 390px in the rejected
+        // round this fixes).
         function renderGroups(groups: ReturnType<typeof groupByDay>) {
+          const markers = computeClusterMarkers(
+            groups.map(g => ({ dayOffset: g.dayOffset, dayKeyIso: g.dayKeyIso, itemCount: g.items.length }))
+          );
           let dividerInserted = false;
           const nodes: ReactNode[] = [];
-          for (const { label, items: groupItems } of groups) {
-            const isNextPeriodGroup = groupItems.every(i => i.next_period);
-            if (isNextPeriodGroup && !dividerInserted) {
+          for (const g of groups) {
+            const isNextPeriodGroup = g.items.every(i => i.next_period);
+            const isPaydaySeam = isNextPeriodGroup && !dividerInserted;
+            const marker = markers.find(m => m.beforeDayKeyIso === g.dayKeyIso);
+
+            if (isPaydaySeam) {
               nodes.push(
                 // Divider only, whisper dates (Kevin, 2026-08-26, supersedes
                 // the 2026-08-09 amber call): a payday boundary is a
                 // temporal fact, not a caution, so Watch Amber has no place
-                // here per Figures Are Ink. Hairlines match the app's
-                // standard divider colour (DESIGN.md --card-border:
-                // #f1f5f9 / #334155, i.e. slate-100/slate-700). The label
-                // span sits in the same whisper/eyebrow ramp as the TODAY/
-                // N DAYS group headers above it, the divider stays the one
-                // boundary marker. Copy updated (2026-08-28 decision) to
-                // "from <date>" — the boundary this now sits in front of
+                // here per Figures Are Ink. Copy (2026-08-28 decision) is
+                // "from <date>" — the boundary this sits in front of
                 // includes the first item ON payday itself (next_period's
                 // definition above), not just items strictly after it, so
-                // "from" reads correctly for both.
-                <div key="payday-boundary" className="flex items-center gap-3 py-1.5" role="separator" aria-label={`Next pay period, from ${paydayLabel}`}>
-                  <div className="flex-1 h-px bg-slate-100 dark:bg-slate-700" />
-                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Next pay period · from {paydayLabel}</span>
-                  <div className="flex-1 h-px bg-slate-100 dark:bg-slate-700" />
-                </div>
+                // "from" reads correctly for both. The aria copy keeps its
+                // own slightly different phrasing (comma, not the visible
+                // "·") from before this fold-in.
+                <UpcomingDivider
+                  key="payday-boundary"
+                  label={`Next pay period · from ${paydayLabel}`}
+                  ariaLabel={`Next pay period, from ${paydayLabel}`}
+                  sublabel={marker?.label}
+                />
               );
               dividerInserted = true;
+            } else if (marker) {
+              nodes.push(<UpcomingDivider key={`marker-${marker.beforeDayKeyIso}`} label={marker.label} />);
             }
-            // All items in a group share the same days_away, and days_away is
-            // deterministic from "today", so they share the same absolute date.
-            const dayKey = groupItems[0]?.expected_date;
+
             // Settling rows (bank-side PENDING debit already observed, see
             // isSettling in renderRow above) are pulled out of the plain
             // day list into their own quiet sub-cluster at the end of the
@@ -1592,27 +1633,17 @@ export default function PlanningPage() {
             // settling row, a rare backend edge case (a pending debit
             // observed against an occurrence several days overdue) can put
             // one in a different day group, and it still reads honestly.
-            const settlingItems = groupItems.filter(i => i.type === "bill" && i.observed_pending);
-            const activeItems = groupItems.filter(i => !(i.type === "bill" && i.observed_pending));
+            const settlingItems = g.items.filter(i => i.type === "bill" && i.observed_pending);
+            const activeItems = g.items.filter(i => !(i.type === "bill" && i.observed_pending));
+            const heading = g.word ? `${g.word} · ${g.dateLabel}` : g.dateLabel;
             nodes.push(
-              <div key={label} data-day-key={dayKey}>
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-2">{label}</p>
-                {activeItems.length > 0 && (
-                  <div className="space-y-2">
-                    {activeItems.map(renderRow)}
-                  </div>
-                )}
-                {settlingItems.length > 0 && (
-                  <div className={activeItems.length > 0 ? "mt-3" : ""}>
-                    <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-1.5">
-                      Settling
-                    </p>
-                    <div className="space-y-2">
-                      {settlingItems.map(renderRow)}
-                    </div>
-                  </div>
-                )}
-              </div>
+              <UpcomingDayCard
+                key={g.dayKeyIso}
+                dayKeyIso={g.dayKeyIso}
+                heading={heading}
+                activeRows={activeItems.map(renderRow)}
+                settlingRows={settlingItems.map(renderRow)}
+              />
             );
           }
           return nodes;
@@ -1620,190 +1651,43 @@ export default function PlanningPage() {
 
         return (
           <div className="space-y-4">
-            {/* Variant A, "The Ledger" (owner pick, 2026-08-28, one
-                amendment: chevron not arrow on Review). The red shortfall
-                banner that used to sit in the header above dissolves into
-                this hero card: one merged verdict surface that states the
-                shortfall once instead of twice (the header banner and both
-                at-risk rows below it used to repeat the same "£400.00
-                move" sentence verbatim). Card tint is driven by genuine
-                shortfalls specifically (impeccable's own rule: genuine
-                risk only), not by the runway figure alone — the big
-                number still turns rose when it's actually negative
-                (`runwayNegative`), but the two conditions are allowed to
-                disagree (e.g. a genuinely short account with an otherwise
-                positive runway still tints the card). */}
+            {/* G131 fold-in of the g124-upcoming-refine design round
+                (variant A, cluster interval rule, Kevin 2026-09-18): the
+                hero is now the shared UpcomingHeroCard component
+                (components/upcoming/UpcomingHeroCard.tsx), imported here AND
+                by that surface's design preview so the two can't drift. See
+                that component's own doctrine comment for the full G124/G127
+                history (bounded panel, the red tint removed, red narrowed to
+                the figure and the "N accounts short" badge only). Content
+                (every string and figure) is unchanged from before this
+                fold-in; only the container, typography and colour rules
+                moved. */}
             {(cashflow.spendable_balance ?? cashflow.available_balance) != null && (
-              <div
-                data-tutorial-id="tutorial-planning-left"
-                className={`rounded-3xl px-4 py-4 ${
-                genuineShortfalls.length > 0
-                  ? "bg-rose-50 dark:bg-rose-900/20 border border-rose-200 dark:border-rose-800"
-                  : "glass-hero"
-              }`}>
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">
-                      {isCalendarMonth ? "Projected at month end" : "Projected at payday"}
-                    </p>
-                    <div className="flex items-baseline gap-2">
-                      <p
-                        aria-label={`${Math.round(Math.abs(runway)).toLocaleString("en-GB")} pounds ${runwayStatus}`}
-                        className={`text-3xl font-bold tracking-tight font-mono tabular-nums ${
-                          runwayNegative
-                            ? "text-rose-600 dark:text-rose-400"
-                            : "text-slate-900 dark:text-slate-100"
-                        }`}
-                      >
-                        <span aria-hidden="true">{runwayNegative ? "−" : ""}{sym}{Math.abs(runway).toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
-                      </p>
-                      <span className={`text-sm font-semibold ${runwayNegative ? "text-rose-600 dark:text-rose-400" : "text-slate-600 dark:text-slate-300"}`}>
-                        {runwayStatus}
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-snug">
-                      {isCalendarMonth
-                        ? `${daysToPayday} ${daysToPayday === 1 ? "day" : "days"} remaining`
-                        : `${paydayLabel} · ${daysToPayday} ${daysToPayday === 1 ? "day" : "days"}`}
-                    </p>
-                  </div>
-                  {/* Same genuine/timing split as the attribution below:
-                      counts genuine shortfalls only when there are any, and
-                      falls back to the amber timing-risk count (and colour)
-                      when that's all that's left. Never shows red for a
-                      same-day timing risk. */}
-                  {(genuineShortfalls.length > 0 || timingShortfalls.length > 0) && (
-                    <span className={`flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold ${
-                      genuineShortfalls.length > 0
-                        ? "bg-rose-100 dark:bg-rose-900/40 text-rose-600 dark:text-rose-400"
-                        : "bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400"
-                    }`}>
-                      {genuineShortfalls.length > 0
-                        ? <AlertTriangle size={14} />
-                        : <AlertCircle size={14} />}
-                      {" "}
-                      {genuineShortfalls.length > 0
-                        ? `${genuineShortfalls.length} ${genuineShortfalls.length === 1 ? "account" : "accounts"} short`
-                        : `${timingShortfalls.length} timing ${timingShortfalls.length === 1 ? "risk" : "risks"}`}
-                    </span>
-                  )}
-                </div>
-
-                <details className="group mt-3 border-t border-slate-200/80 dark:border-white/10">
-                  <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 text-[13px] font-semibold text-indigo-600 outline-none hover:text-indigo-700 focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300 [&::-webkit-details-marker]:hidden">
-                    Full calculation
-                    <ChevronDown size={16} className="shrink-0 transition-transform group-open:rotate-180" aria-hidden="true" />
-                  </summary>
-                  <dl className="border-t border-slate-200/80 pb-1 pt-1 text-[13px] text-slate-600 dark:border-white/10 dark:text-slate-300">
-                    <div className="flex items-center justify-between gap-4 py-1.5">
-                      <dt>Available now</dt>
-                      <dd className="font-mono tabular-nums text-slate-900 dark:text-slate-100">{sym}{spendableNow.toLocaleString("en-GB", { maximumFractionDigits: 0 })}</dd>
-                    </div>
-                    {runwayIncomeTotal > 0 && (
-                      <div className="flex items-center justify-between gap-4 py-1.5">
-                        <dt>{isCalendarMonth ? "Income before month end" : "Income before payday"}</dt>
-                        <dd className="font-mono tabular-nums text-slate-900 dark:text-slate-100">+{sym}{runwayIncomeTotal.toLocaleString("en-GB", { maximumFractionDigits: 0 })}</dd>
-                      </div>
-                    )}
-                    <div className="flex items-center justify-between gap-4 py-1.5">
-                      <dt>{isCalendarMonth ? "Bills before month end" : "Bills before payday"}</dt>
-                      <dd className="font-mono tabular-nums text-slate-900 dark:text-slate-100">−{sym}{runwayBillsTotal.toLocaleString("en-GB", { maximumFractionDigits: 0 })}</dd>
-                    </div>
-                    {allocationsRemainingTotal > 0 && (
-                      <div className="flex items-center justify-between gap-4 py-1.5">
-                        <dt>Still to set aside</dt>
-                        <dd className="font-mono tabular-nums text-slate-900 dark:text-slate-100">−{sym}{allocationsRemainingTotal.toLocaleString("en-GB", { maximumFractionDigits: 0 })}</dd>
-                      </div>
-                    )}
-                    <div className="mt-1 flex items-center justify-between gap-4 border-t border-slate-200/80 pt-2 font-semibold dark:border-white/10">
-                      <dt>Projected balance</dt>
-                      <dd className={`font-mono tabular-nums ${runwayNegative ? "text-rose-600 dark:text-rose-400" : "text-slate-900 dark:text-slate-100"}`}>
-                        {runwayNegative ? "−" : ""}{sym}{Math.abs(runway).toLocaleString("en-GB", { maximumFractionDigits: 0 })}
-                      </dd>
-                    </div>
-                  </dl>
-                </details>
-
-                {savingsNow > 0 && (
-                  <div className="mt-2 flex items-center justify-between gap-3 text-xs text-slate-500 dark:text-slate-400">
-                    <span>Savings backup</span>
-                    <span><span className="font-mono tabular-nums text-slate-700 dark:text-slate-300">{sym}{savingsNow.toLocaleString("en-GB", { maximumFractionDigits: 0 })}</span> · not included</span>
-                  </div>
-                )}
-                {genuineShortfalls.length === 0 && timingShortfalls.length === 0 && (
-                  <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                    Predicted bills use your last 90 days.
-                  </p>
-                )}
-
-                {/* The shortfall attribution — stated exactly once on the
-                    whole page now. One sentence per genuinely short
-                    account (Variant A's own pattern already generalises to
-                    N accounts, it's a .map), each naming its own culprit
-                    move where one was traced. Rows below no longer repeat
-                    this, they carry a collapsed "Why? ›" toggle instead. */}
-                {genuineShortfalls.length > 0 && (
-                  <div className="mt-3 pt-3 border-t border-rose-200/70 dark:border-rose-800/60">
-                    {genuineShortfalls.map((a) => (
-                      <p key={a.accountId} className="text-[13px] leading-snug text-rose-900 dark:text-rose-100">
-                        <span className="font-semibold">{a.bank}</span> is short by{" "}
-                        <span className="font-mono tabular-nums font-semibold">{sym}{a.shortfall.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span> before payday
-                        {a.culprit && (
-                          <>, mostly the <span className="font-mono tabular-nums">{sym}{a.culprit.amount.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span> move on {formatItemDate(a.culprit.expected_date)}</>
-                        )}
-                        .
-                      </p>
-                    ))}
-                    <div className="mt-2 flex items-center justify-between gap-3">
-                      <p className="text-xs text-slate-500 dark:text-slate-400">
-                        Payments can take a day or two to appear, so a very recent one may not be counted yet.
-                      </p>
-                      {/* Review — same behaviour the old banner's Review
-                          button had (jump/highlight the top genuinely
-                          at-risk bill row), restyled to Variant A's ghost
-                          link. Amendment (owner, verbatim: "the review
-                          should be an chevron instead of an arrow"):
-                          Variant A's own mock reads "Review →"; every other
-                          row affordance in this app (AllocationCards,
-                          "could save … ›") uses a trailing chevron, not an
-                          arrow, so this uses the same ChevronRight icon
-                          rather than A's arrow glyph. */}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          // Restricted to bills on a genuinely short
-                          // account. atRiskBills on its own can still
-                          // include a timing-risk account's row, and
-                          // Review here must only ever jump to something
-                          // this (red) attribution is actually about.
-                          const top = [...atRiskBills]
-                            .filter(b => genuineAccountIds.has(b.account_id ?? "__null__"))
-                            .sort((a, b) => a.days_away !== b.days_away ? a.days_away - b.days_away : b.amount - a.amount)[0];
-                          if (top) setHighlightTarget(`bill-${top.name}-${top.expected_date}`);
-                        }}
-                        className="flex-shrink-0 min-h-[44px] flex items-center gap-0.5 px-2 -my-2.5 text-[13px] font-semibold text-rose-600 dark:text-rose-400 underline-offset-2 hover:underline active:scale-95 transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 rounded-lg"
-                      >
-                        Review <ChevronRight size={14} aria-hidden="true" />
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Timing-risk twin, never red (Red Is Risk Rule): the
-                    exact HSBC/NatWest/Monzo payday-STO case, an account
-                    only looks short because the conservative walk puts a
-                    payment before the same-day credit that's due in. */}
-                {timingShortfalls.length > 0 && (
-                  <div className={`mt-3 ${genuineShortfalls.length === 0 ? "pt-3 border-t border-slate-200/70 dark:border-white/10" : ""}`}>
-                    {timingShortfalls.map((t) => (
-                      <p key={t.accountId} className="text-[12px] leading-snug text-slate-500 dark:text-slate-400 flex items-start gap-1.5">
-                        <span aria-hidden className="inline-block w-1.5 h-1.5 rounded-full bg-amber-500 dark:bg-amber-400 flex-shrink-0 mt-[5px]" />
-                        Money&apos;s due into {t.bank}{t.dueDate ? ` on ${formatItemDate(t.dueDate)}` : ""}. If a payment leaves first, it could bounce.
-                      </p>
-                    ))}
-                  </div>
-                )}
-              </div>
+              <UpcomingHeroCard
+                isCalendarMonth={isCalendarMonth}
+                daysToPayday={daysToPayday}
+                paydayLabel={paydayLabel}
+                spendableNow={spendableNow}
+                runwayIncomeTotal={runwayIncomeTotal}
+                runwayBillsTotal={runwayBillsTotal}
+                allocationsRemainingTotal={allocationsRemainingTotal}
+                savingsNow={savingsNow}
+                runway={runway}
+                runwayStatus={runwayStatus}
+                genuineShortfalls={genuineShortfalls}
+                timingShortfalls={timingShortfalls}
+                formatDate={formatItemDate}
+                onReview={() => {
+                  // Restricted to bills on a genuinely short account.
+                  // atRiskBills on its own can still include a timing-risk
+                  // account's row, and Review here must only ever jump to
+                  // something the (red) attribution is actually about.
+                  const top = [...atRiskBills]
+                    .filter(b => genuineAccountIds.has(b.account_id ?? "__null__"))
+                    .sort((a, b) => a.days_away !== b.days_away ? a.days_away - b.days_away : b.amount - a.amount)[0];
+                  if (top) setHighlightTarget(`bill-${top.name}-${top.expected_date}`);
+                }}
+              />
             )}
 
             <PlansSection
@@ -1838,10 +1722,16 @@ export default function PlanningPage() {
   return (
     <div className="mx-auto min-h-dvh max-w-xl pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       <div className="px-4 pt-6 pb-2">
-        <div className="mb-4 flex items-center justify-between gap-3">
+        {/* G127 ask #2 — header typography matches the codex reference
+            exactly (app/design/upcoming-canvas-before-cards/
+            UpcomingCanvasClient.tsx lines 84-113): no "UPCOMING" eyebrow,
+            the h1 takes codex's text-[28px]/leading-tight/tracking-[-0.035em]
+            and slate-950/white ink, and the header row aligns items-start
+            (was items-center) with gap-4 (was gap-3). The descriptive
+            sentence beneath the title is untouched content. */}
+        <div className="mb-4 flex items-start justify-between gap-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1">UPCOMING</p>
-            <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Before payday</h1>
+            <h1 className="text-[28px] font-bold leading-tight tracking-[-0.035em] text-slate-950 dark:text-white">Before payday</h1>
             <p className="mt-1 max-w-sm text-sm text-slate-500 dark:text-slate-400">What will enter or leave, and whether every payment is covered.</p>
           </div>
           {/* Hidden predictions are recoverable, not deleted. Eye-off keeps
@@ -1975,67 +1865,8 @@ export default function PlanningPage() {
   );
 }
 
-function SwipeDismissRow({ onDismiss, children, label = "Not recurring" }: { onDismiss: () => void; children: React.ReactNode; label?: string }) {
-  const [dx, setDx] = useState(0);
-  const [dragging, setDragging] = useState(false);
-  const start = useRef<{ x: number; y: number; t: number } | null>(null);
-  const axis = useRef<"none" | "h" | "v">("none");
-  const shellRef = useRef<HTMLDivElement>(null);
-
-  function onTouchStart(e: React.TouchEvent) {
-    start.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now() };
-    axis.current = "none";
-  }
-
-  function onTouchMove(e: React.TouchEvent) {
-    if (!start.current) return;
-    const mx = e.touches[0].clientX - start.current.x;
-    const my = e.touches[0].clientY - start.current.y;
-    if (axis.current === "none") {
-      if (Math.abs(mx) < 8 && Math.abs(my) < 8) return;
-      axis.current = Math.abs(mx) > Math.abs(my) * 1.5 ? "h" : "v";
-      if (axis.current === "h") setDragging(true);
-    }
-    if (axis.current !== "h") return;
-    setDx(Math.min(0, mx));
-  }
-
-  function onTouchEnd() {
-    if (!start.current) { setDragging(false); return; }
-    const width = shellRef.current?.offsetWidth ?? 320;
-    const elapsed = Date.now() - start.current.t;
-    const flick = elapsed < 250 && dx < -60;
-    start.current = null;
-    setDragging(false);
-    if (dx < -width * 0.4 || flick) {
-      setDx(-width - 24);
-      setTimeout(onDismiss, 180);
-    } else {
-      setDx(0);
-    }
-    axis.current = "none";
-  }
-
-  return (
-    <div ref={shellRef} className="relative overflow-hidden rounded-2xl">
-      <div
-        className="absolute inset-0 rounded-2xl bg-rose-500 flex items-center justify-end gap-1.5 pr-4"
-        style={{ opacity: Math.min(1, Math.abs(dx) / 80) }}
-      >
-        <X size={14} className="text-white" />
-        <span className="text-xs font-semibold text-white">{label}</span>
-      </div>
-      <div
-        style={{
-          transform: `translateX(${dx}px)`,
-          transition: dragging ? "none" : "transform 180ms ease-out",
-        }}
-        onTouchStart={onTouchStart}
-        onTouchMove={onTouchMove}
-        onTouchEnd={onTouchEnd}
-      >
-        {children}
-      </div>
-    </div>
-  );
-}
+// G133: SwipeDismissRow moved to components/upcoming/SwipeDismissRow.tsx
+// (imported above) so the g124-upcoming-refine design preview can share
+// the exact same component instead of never demonstrating swipe at all.
+// See that file's doctrine comment for the full history and the surface
+// fix.

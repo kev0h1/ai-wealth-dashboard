@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { ArrowLeft, Plus, Landmark, RefreshCw, Upload, Trash2, AlertTriangle, TrendingUp, Eye, EyeOff, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Pencil, PiggyBank, Wallet, CreditCard, Search, X, CircleDashed, Check, FileText, Star, Percent, Info } from "lucide-react";
-import { api, ApiError, Account, Transaction, InvestmentAccount, InvestmentHolding, InvestmentNote, ManualAccount, ManualAccountType, ManualAccountRule, RuleMatchType, RuleMatchField, RuleSign, AccountCategorySummary, KPIs, CardTermsCard } from "@/lib/api";
+import { api, ApiError, Account, Connection, Transaction, InvestmentAccount, InvestmentHolding, InvestmentNote, ManualAccount, ManualAccountType, ManualAccountRule, RuleMatchType, RuleMatchField, RuleSign, AccountCategorySummary, KPIs, CardTermsCard } from "@/lib/api";
 import { accountBrand, BankBadge, TermsPill } from "@/components/AccountMiniCard";
 import AccountLedgerRow from "@/components/AccountLedgerRow";
 import ReconnectStrip, { type ReconnectProvider } from "@/components/ReconnectStrip";
@@ -19,7 +19,6 @@ import { getCategoryColour } from "@/lib/categories";
 import { getCategoryIcon } from "@/lib/categoryIcons";
 import SegmentedControl from "@/components/SegmentedControl";
 import Spinner from "@/components/Spinner";
-import MonoConnectWidget from "@/components/MonoConnect";
 import StatementUpload from "@/components/StatementUpload";
 import InvestmentUpload from "@/components/InvestmentUpload";
 import BankPickerSheet from "@/components/BankPickerSheet";
@@ -27,11 +26,14 @@ import { usePreferences } from "@/components/PreferencesContext";
 import CustomSelect from "@/components/CustomSelect";
 import { createPortal } from "react-dom";
 import { getAllTransactionsCached } from "@/lib/useAllTransactions";
-import { getAccountsCached, invalidateAccounts } from "@/lib/accountsCache";
+import { getAccountsCached } from "@/lib/accountsCache";
+import { invalidateAllAccountData } from "@/lib/accountMutations";
 import { writeHomePinnedAccounts } from "@/lib/homePinnedAccounts";
 import MoneyText from "@/components/MoneyText";
+import { formatConsentExpiry } from "@/lib/consentExpiry";
 import { useTutorialAction, useTutorialReady } from "@/components/TutorialContext";
-import { TRUELAYER_PICKER } from "@/lib/featureFlags";
+import { LEGACY_BANK_AVAILABLE, LEGACY_BANK_MENU_LABEL, isLegacyBankSource } from "@/lib/legacyBankProvider";
+import { useOpenBankingAccess } from "@/lib/openBankingAccess";
 
 /** One row inside the condensed "+ Add" menu (header Variant B). Mirrors the
  *  MenuItem pattern already used by SpendTrends' widget overflow menu. */
@@ -206,18 +208,28 @@ const MANUAL_KIND: Record<ManualAccountType, AccountKind> = {
  *  positions and approximate heights, so the swap to real content doesn't
  *  itself shift anything. The header block sits directly on the canvas
  *  (no card) to match the live header (Canvas Before Cards, G87 Variant A).
- *  BottomNav is mounted once in app/layout.tsx (G79) rather than by this
- *  page, so it's already real (never a placeholder) and navigation stays
- *  available while the page settles with no extra work here. No entrance
- *  animation on the blocks themselves beyond the shared `animate-pulse`
- *  shimmer — this codebase's rule against visibility-gating cascades. */
+ *  Reshaped again for G113 to match the header/group-card changes below:
+ *  the "+ Add" placeholder now sits inline beside the title instead of a
+ *  full-width bar underneath, and the row placeholders sit inside one
+ *  bounded group-card shape (header row + divided rows) instead of a bare
+ *  glass-card list with a floating label above it. BottomNav is mounted
+ *  once in app/layout.tsx (G79) rather than by this page, so it's already
+ *  real (never a placeholder) and navigation stays available while the
+ *  page settles with no extra work here. No entrance animation on the
+ *  blocks themselves beyond the shared `animate-pulse` shimmer — this
+ *  codebase's rule against visibility-gating cascades. */
 function AccountsSkeleton() {
   return (
     <div className="min-h-dvh pb-[calc(9rem+env(safe-area-inset-bottom,0px))]" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }} aria-hidden="true">
       <div className="px-4 pt-4 animate-pulse">
         <div className="mb-4">
-          <div className="h-6 w-24 rounded bg-slate-200 dark:bg-slate-700" />
-          <div className="h-3 w-56 rounded bg-slate-200 dark:bg-slate-700 mt-2" />
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="h-6 w-24 rounded bg-slate-200 dark:bg-slate-700" />
+              <div className="h-3 w-56 rounded bg-slate-200 dark:bg-slate-700 mt-2" />
+            </div>
+            <div className="h-11 w-24 rounded-xl bg-slate-200 dark:bg-slate-700 flex-shrink-0" />
+          </div>
           <div className="flex items-start justify-between gap-3 mt-5">
             <div className="min-w-0 space-y-2">
               <div className="h-2.5 w-20 rounded bg-slate-200 dark:bg-slate-700" />
@@ -227,7 +239,6 @@ function AccountsSkeleton() {
             <div className="w-11 h-11 rounded-full bg-slate-200 dark:bg-slate-700 flex-shrink-0" />
           </div>
         </div>
-        <div className="h-[42px] rounded-xl bg-slate-200 dark:bg-slate-700" />
       </div>
 
       <div className="px-4 pt-4 space-y-3">
@@ -237,20 +248,26 @@ function AccountsSkeleton() {
             <div key={l} className="h-11 w-20 rounded-full bg-slate-200 dark:bg-slate-700 animate-pulse flex-shrink-0" />
           ))}
         </div>
-        <div className="glass-card rounded-2xl overflow-hidden animate-pulse">
-          {[0, 1, 2, 3, 4].map((i) => (
-            <div
-              key={i}
-              className={`min-h-[60px] flex items-center gap-3 px-4 py-2.5 ${i > 0 ? "border-t border-slate-100 dark:border-white/5" : ""}`}
-            >
-              <div className="w-9 h-9 rounded-xl bg-slate-200 dark:bg-slate-700 flex-shrink-0" />
-              <div className="min-w-0 flex-1 space-y-1.5">
-                <div className="h-3.5 w-32 rounded bg-slate-200 dark:bg-slate-700" />
-                <div className="h-2.5 w-20 rounded bg-slate-200 dark:bg-slate-700" />
-              </div>
-              <div className="h-3.5 w-14 rounded bg-slate-200 dark:bg-slate-700 flex-shrink-0" />
+        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:shadow-none animate-pulse">
+          <div className="flex min-h-16 items-center justify-between gap-3 px-4">
+            <div className="space-y-1.5">
+              <div className="h-3.5 w-20 rounded bg-slate-200 dark:bg-slate-700" />
+              <div className="h-2.5 w-16 rounded bg-slate-200 dark:bg-slate-700" />
             </div>
-          ))}
+            <div className="h-3.5 w-14 rounded bg-slate-200 dark:bg-slate-700" />
+          </div>
+          <div className="divide-y divide-slate-100 border-t border-slate-100 dark:divide-slate-700 dark:border-slate-700">
+            {[0, 1, 2, 3, 4].map((i) => (
+              <div key={i} className="min-h-[60px] flex items-center gap-3 px-4 py-2.5">
+                <div className="w-9 h-9 rounded-xl bg-slate-200 dark:bg-slate-700 flex-shrink-0" />
+                <div className="min-w-0 flex-1 space-y-1.5">
+                  <div className="h-3.5 w-32 rounded bg-slate-200 dark:bg-slate-700" />
+                  <div className="h-2.5 w-20 rounded bg-slate-200 dark:bg-slate-700" />
+                </div>
+                <div className="h-3.5 w-14 rounded bg-slate-200 dark:bg-slate-700 flex-shrink-0" />
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>
@@ -264,11 +281,16 @@ export default function AccountsPage() {
   // Set to true for exactly one effect run after we strip ?id= via router.replace
   // so the else-branch (clear selectedAccountId) doesn't fire on our own replace.
   const consumedDeepLink = useRef(false);
-  const { hideNetWorth, setHideNetWorth, region } = usePreferences();
+  const { hideNetWorth, setHideNetWorth } = usePreferences();
   const [kpis, setKpis] = useState<KPIs | null>(null);
   const { colours } = useColours();
   const { icons: iconOverrides } = useCategoryIcons();
   const [accounts, setAccounts] = useState<Account[]>([]);
+  // A113: per-connection consent expiry (GET /connections), joined to an
+  // account via Account.connection_id — see formatConsentExpiry's use in
+  // the detail view below. Non-fatal fetch: an empty list just means no
+  // connection carries a knowable expiry, which degrades to no line.
+  const [connections, setConnections] = useState<Connection[]>([]);
   const [txnMap, setTxnMap] = useState<Record<string, Transaction[]>>({});
   const [loading, setLoading] = useState(true);
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
@@ -276,12 +298,14 @@ export default function AccountsPage() {
   const [page, setPage] = useState(1);
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
   const [loadingTxns, setLoadingTxns] = useState<string | null>(null);
-  const [connecting, setConnecting] = useState(false);
   const [tab, setTab] = useState<"Banks" | "Investments">(
     searchParams.get("tab") === "Investments" ? "Investments" : "Banks"
   );
-  const [showMpesaUpload, setShowMpesaUpload] = useState(false);
-  const [showBankPicker, setShowBankPicker] = useState<null | "truelayer" | "finexer">(null);
+  const [showStatementUpload, setShowStatementUpload] = useState(false);
+  // A67: "legacy" is the UAT-only provider (lib/legacyBankProvider.ts); it
+  // is absent from a production build, so it is only ever set behind
+  // LEGACY_BANK_AVAILABLE. Finexer is what every other entry point opens.
+  const [showBankPicker, setShowBankPicker] = useState<null | "finexer" | "legacy">(null);
   // Header Variant B: the four/three "add" actions condense into one primary
   // button that opens this menu — same handlers/routes, just one entry point.
   const [addMenuOpen, setAddMenuOpen] = useState(false);
@@ -319,6 +343,9 @@ export default function AccountsPage() {
   const [uploadingColdStart, setUploadingColdStart] = useState(false);
   const coldStartFileRef = useRef<HTMLInputElement>(null);
   const isSyncing = searchParams.get("syncing") === "1";
+  // A67: does this plan include connecting a bank? Resolved alongside the
+  // page rather than gating it — see lib/openBankingAccess.ts.
+  const canConnectBank = useOpenBankingAccess();
 
   // Offline (manually-tracked) accounts
   const [manualAccounts, setManualAccounts] = useState<ManualAccount[]>([]);
@@ -418,6 +445,22 @@ export default function AccountsPage() {
       setCardTermsStartId(ct === "1" ? null : ct);
       setCardTermsOpen(true);
       params.delete("cardTerms");
+      const rest = params.toString();
+      router.replace(rest ? `/accounts?${rest}` : "/accounts", { scroll: false });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname, searchParams]);
+
+  // G135/A67: ?add=statement opens the statement upload straight away, so
+  // Home's fresh-user card can offer "Upload a statement" as a real
+  // destination rather than dropping the user on a page and leaving them to
+  // find the Add menu. Same live-URL read + strip pattern as ?cardTerms
+  // above.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("add") === "statement") {
+      setShowStatementUpload(true);
+      params.delete("add");
       const rest = params.toString();
       router.replace(rest ? `/accounts?${rest}` : "/accounts", { scroll: false });
     }
@@ -581,18 +624,22 @@ export default function AccountsPage() {
 
   const loadAccounts = useCallback(async () => {
     try {
-      const [accs, invAccs, manuals, mrules, kpiResult] = await Promise.all([
+      const [accs, invAccs, manuals, mrules, kpiResult, conns] = await Promise.all([
         getAccountsCached().catch(() => [] as Account[]),
         api.getInvestmentAccounts().catch(() => [] as InvestmentAccount[]),
         api.manualAccounts().catch(() => [] as ManualAccount[]),
         api.manualAccountRules().catch(() => [] as ManualAccountRule[]),
         api.kpis().catch(() => null),
+        // A113: non-fatal like the rest of this batch — a failed fetch just
+        // means no consent-expiry line renders, never a broken page.
+        api.connections().catch(() => [] as Connection[]),
       ]);
       setAccounts(accs);
       setInvestmentAccounts(invAccs);
       setManualAccounts(manuals);
       setRules(mrules);
       setKpis(kpiResult);
+      setConnections(conns);
 
       // Validate reconnect: check if the newly connected account matches what was expected
       const raw = localStorage.getItem("reconnect_expected");
@@ -686,18 +733,29 @@ export default function AccountsPage() {
     }
   }, [pathname, searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // When redirected back from TrueLayer, poll until accounts appear then clear the flag.
+  // When redirected back from TrueLayer/Finexer (a brand-new connection AND
+  // a reconnect both land here the same way, on ?syncing=1 — see
+  // app/auth/truelayer/callback/route.ts and app/auth/finexer/callback/
+  // route.ts), poll until accounts appear then clear the flag.
   // force=true on every poll: we're specifically waiting for the list to
   // change, so a stale cached read (possibly still the pre-connect empty
   // list) would spin here for up to the rest of the cache's TTL instead of
   // seeing the new account land within one 3s tick. A forced fetch also
-  // rewrites the shared cache itself, so every other page sees the fresh
-  // list immediately too, without a separate invalidateAccounts() call.
+  // rewrites the shared accounts cache itself, so every other page sees the
+  // fresh list immediately too, without a separate invalidateAccounts()
+  // call — but the OTHER caches keyed off accounts/transactions (verdict,
+  // money-shape, Home, signals, the badge counts) don't share that cache
+  // and are not touched by a forced GET /accounts, so invalidateAllAccountData()
+  // is still needed once the new/reconnected account is confirmed (G138:
+  // this is the "new connection landing" and "reconnect" half of the fix,
+  // the delete-only version of which left Spend showing a removed account's
+  // transaction until a hard refresh).
   useEffect(() => {
     if (!isSyncing) return;
     const interval = setInterval(async () => {
       const accs = await getAccountsCached(true).catch(() => [] as Account[]);
       if (accs.length > 0) {
+        invalidateAllAccountData();
         setAccounts(accs);
         clearInterval(interval);
         router.replace("/accounts");
@@ -871,33 +929,66 @@ export default function AccountsPage() {
     }
   }
 
-  async function handleConnectBank() {
-    setConnecting(true);
-    try {
-      const { auth_url } = await api.connectLink();
-      window.location.href = auth_url;
-    } catch (err) {
-      setConnecting(false);
-      alert(err instanceof ApiError ? err.message : "Failed to connect. Please try again.");
-    }
-  }
-
-  function handleMonoSuccess() {
-    invalidateAccounts();
-    loadAccounts();
-  }
+  // A67: `handleConnectBank` lived here and called the TrueLayer link with
+  // no bank chosen. Nothing referenced it (verified by grep across the whole
+  // frontend) — it was a leftover from before the picker sheet, and its only
+  // effect if anything had ever called it would have been to start a
+  // TrueLayer consent. Removed along with the `connecting` state it owned.
 
   function handleStatementSuccess() {
-    invalidateAccounts();
+    invalidateAllAccountData();
     loadAccounts();
     if (selectedAccountId) loadAccountTxns(selectedAccountId, true);
-    setShowMpesaUpload(false);
+    setShowStatementUpload(false);
   }
 
   async function handleReconnect(providerId?: string, account?: Account) {
     try {
-      // Save the connection id and a masked last-4 (never the full account
-      // number or sort code) so we can validate after OAuth return.
+      // A67: Finexer unless this specific account belongs to the legacy
+      // UAT-only provider, in which case repairing it must go back to the
+      // provider that owns the consent (Finexer would create a duplicate
+      // connection instead of reviving the dead one). `isLegacyBankSource`
+      // resolves a MISSING `source` to the legacy provider, because that is
+      // the backend's own convention — `finexer_sync.py` is the only writer
+      // of that field and `card_terms.py:122` reads it as
+      // `a.get("source") or "truelayer"`. See that function's doc comment.
+      // Always false in a production build, so this is "always Finexer"
+      // there. This branch was already correct before A67; what A67 fixed
+      // was the provider-less connect CTAs elsewhere, not this one.
+      const source = (account as (Account & { source?: string }) | undefined)?.source;
+      const legacy = isLegacyBankSource(source);
+      // A67: a Finexer connect link needs a provider. `finexerConnectLink(undefined)`
+      // reaches `create_consent(provider=None)`, which POSTs /consents with
+      // only `customer` and `return_url` — a shape nothing in this codebase
+      // verifies Finexer accepts, and which `test_finexer_link.py` only
+      // proves we can PASS, because it mocks `create_consent` itself. A null
+      // provider is reachable, not hypothetical: `truelayer_sync.py:347/401`
+      // write `acc.get("provider", {}).get("provider_id")` and
+      // `finexer_sync.py:623` writes a nullable `provider_code`, so an
+      // upstream payload that omits it stores None, and `ReconnectProvider`
+      // types `provider_id` optional all the way through. No live account on
+      // UAT is in that state today, but "no live example yet" is not a
+      // guarantee. So rather than document the hole, close it: fall back to
+      // the bank picker and let the user name their bank. The legacy branch
+      // needs no such guard, `/auth/truelayer/link` with no provider is a
+      // supported shape that shows TrueLayer's own chooser.
+      if (!legacy && !providerId) {
+        setShowBankPicker("finexer");
+        return;
+      }
+      const { auth_url } = legacy
+        ? await api.legacyBankConnectLink(providerId)
+        : await api.finexerConnectLink(providerId);
+      // A67: written HERE, immediately before navigating, not at the top of
+      // this function. It used to be written first, which was safe only
+      // while every path through here ended in a redirect. It no longer
+      // does: the provider-less branch above opens a picker instead, and the
+      // link call itself can throw. Either left an orphaned record that the
+      // next loadAccounts() consumes (see the "reconnect_expected" read
+      // above), warning "We couldn't find your <provider> account ••••NNNN
+      // in what was reconnected" about a reconnection that never started.
+      // Saves the connection id and a masked last 4, never the full account
+      // number or sort code.
       if (account?.account_number) {
         localStorage.setItem("reconnect_expected", JSON.stringify({
           provider: account.provider,
@@ -905,9 +996,6 @@ export default function AccountsPage() {
           last4: account.account_number.slice(-4),
         }));
       }
-      const { auth_url } = (account as (Account & { source?: string }) | undefined)?.source === "finexer"
-        ? await api.finexerConnectLink(providerId)
-        : await api.connectLink(providerId);
       window.location.href = auth_url;
     } catch (err) {
       alert(err instanceof ApiError ? err.message : "Failed to start reconnection. Please try again.");
@@ -921,7 +1009,7 @@ export default function AccountsPage() {
     setDeletingAccount(true);
     try {
       await api.deleteAccount(selectedAccountId);
-      invalidateAccounts();
+      invalidateAllAccountData();
       setAccounts(prev => prev.filter(a => a.id !== selectedAccountId));
       setTxnMap(prev => { const n = { ...prev }; delete n[selectedAccountId]; return n; });
       handleBack();
@@ -966,7 +1054,7 @@ export default function AccountsPage() {
         setManualAccounts(prev => [...prev, created]);
       }
       setManualModalOpen(false);
-      invalidateAccounts();
+      invalidateAllAccountData();
       loadAccounts();
     } catch {
       setManualError("Couldn't save. Please try again.");
@@ -979,7 +1067,7 @@ export default function AccountsPage() {
     if (!await showConfirm("Remove this offline account?")) return;
     try {
       await api.deleteManualAccount(id);
-      invalidateAccounts();
+      invalidateAllAccountData();
       setManualAccounts(prev => prev.filter(a => a.id !== id));
       loadAccounts();
     } catch {
@@ -1042,7 +1130,7 @@ export default function AccountsPage() {
         await api.addManualTransaction(selectedAccountId, body);
       }
       setManualTxModalOpen(false);
-      invalidateAccounts();
+      invalidateAllAccountData();
       await loadAccountTxns(selectedAccountId, true);
       loadAccounts();
     } catch {
@@ -1057,7 +1145,7 @@ export default function AccountsPage() {
     if (!await showConfirm("Delete this entry?")) return;
     try {
       await api.deleteManualTransaction(selectedAccountId, txId);
-      invalidateAccounts();
+      invalidateAllAccountData();
       await loadAccountTxns(selectedAccountId, true);
       loadAccounts();
     } catch {
@@ -1123,7 +1211,7 @@ export default function AccountsPage() {
       setRuleSearchOpen(false);
       setRuleSearchResults([]);
       setRuleCounts(null);
-      invalidateAccounts(); // balances changed via backfill / reverse+reapply
+      invalidateAllAccountData(); // balances changed via backfill / reverse+reapply
       loadAccounts();
       if (selectedAccountId) await loadAccountTxns(selectedAccountId, true);
     } catch {
@@ -1137,7 +1225,7 @@ export default function AccountsPage() {
     try {
       const updated = await api.updateManualAccountRule(rule.id, { active: !rule.active });
       setRules(prev => prev.map(r => r.id === rule.id ? updated : r));
-      invalidateAccounts();
+      invalidateAllAccountData();
       loadAccounts();
       if (selectedAccountId) await loadAccountTxns(selectedAccountId, true);
     } catch {
@@ -1150,7 +1238,7 @@ export default function AccountsPage() {
     try {
       await api.deleteManualAccountRule(id);
       setRules(prev => prev.filter(r => r.id !== id));
-      invalidateAccounts();
+      invalidateAllAccountData();
       loadAccounts();
       if (selectedAccountId) await loadAccountTxns(selectedAccountId, true);
     } catch {
@@ -1274,7 +1362,6 @@ export default function AccountsPage() {
       .catch(() => {});
   }
 
-  // Backend already filters by region — accounts contains only the right source.
   // Manual (offline) accounts come back in /accounts too; they're shown in their
   // own editable section, so keep them out of the connected-bank list.
   const bankAccounts = useMemo(() => accounts.filter(a => !a.manual), [accounts]);
@@ -1453,6 +1540,16 @@ export default function AccountsPage() {
   // Modals shared by both the list and detail views (same component scope).
   const modals = (
     <>
+      {/* A67: lives in `modals`, which is rendered by BOTH the account-detail
+          early return (`if (selectedAccount)`) and the list view below it,
+          rather than only in the list render. The detail view's Reconnect
+          can open this picker (see handleReconnect's provider-less fallback),
+          and from inside that early return a sheet mounted further down the
+          list branch never renders at all: the tap would do nothing, no
+          sheet, no spinner, no error. */}
+      {showBankPicker && (
+        <BankPickerSheet provider={showBankPicker} onClose={() => setShowBankPicker(null)} />
+      )}
       {cardTermsOpen && (
         <CardTermsSheet
           cards={cardTermsCards}
@@ -1484,10 +1581,10 @@ export default function AccountsPage() {
         </div>,
         document.body
       )}
-      {showMpesaUpload && (
+      {showStatementUpload && (
         <StatementUpload
           onSuccess={handleStatementSuccess}
-          onClose={() => setShowMpesaUpload(false)}
+          onClose={() => setShowStatementUpload(false)}
         />
       )}
       {manualModalOpen && modalsMounted && createPortal(
@@ -1986,6 +2083,18 @@ export default function AccountsPage() {
     const isPinned = pinnedIds.includes(selectedAccount.id);
     const termsCard = cardTermsByAccount[selectedAccount.id];
     const termsPill = termsPillFor(termsCard);
+    // A113: when does the bank consent behind this account currently end.
+    // Manual accounts and statement uploads carry no `connection_id`, so
+    // this naturally resolves to undefined for them (no consent exists —
+    // state 4 of the four states this feature must handle honestly). An
+    // already-expired connection is deliberately excluded: the reconnect
+    // banner above already owns that story, and formatConsentExpiry itself
+    // also refuses to name a past date, so this can only ever read as a
+    // genuine future end date or say nothing.
+    const consentConnection = !isManual && !isStatement
+      ? connections.find(c => c.connection_id === selectedAccount.connection_id)
+      : undefined;
+    const consentExpiry = isExpired ? null : formatConsentExpiry(consentConnection?.expires_at);
 
     // Categories tab — one row-panel renderer shared by the "Spending"
     // (debit) and "Money in" (credit) sections so card payments/refunds
@@ -2061,7 +2170,7 @@ export default function AccountsPage() {
               )}
               {isStatement && (
                 <button
-                  onClick={() => setShowMpesaUpload(true)}
+                  onClick={() => setShowStatementUpload(true)}
                   aria-label="Add statement"
                   className="w-11 h-11 flex items-center justify-center rounded-xl bg-slate-100 dark:bg-white/[0.08] hover:bg-slate-200 dark:hover:bg-white/[0.14] text-slate-600 dark:text-slate-300 transition-colors"
                 >
@@ -2086,7 +2195,7 @@ export default function AccountsPage() {
                   if (isManual) {
                     if (!await showConfirm("Remove this offline account?")) return;
                     await api.deleteManualAccount(selectedAccount.id);
-                    invalidateAccounts();
+                    invalidateAllAccountData();
                     setManualAccounts(prev => prev.filter(a => a.id !== selectedAccount.id));
                     loadAccounts();
                     handleBack();
@@ -2167,6 +2276,7 @@ export default function AccountsPage() {
 
           <p className="mt-2 text-[13px] text-slate-500 dark:text-slate-400">
             {accountKindLabel(accountKind(selectedAccount))} · {selectedAccount.provider}
+            {consentExpiry ? ` · ${consentExpiry}` : ""}
           </p>
           {/* The horizontal rule Kevin asked to keep (G87 approval,
               2026-09-16): it closes off the canvas header in place of the
@@ -2467,8 +2577,81 @@ export default function AccountsPage() {
         className="relative z-30 px-4 pt-4 pb-6"
       >
         <div className="mb-4">
-          <h1 className="text-[26px] font-bold leading-tight tracking-[-0.03em] text-slate-950 dark:text-white">Accounts</h1>
-          <p className="mt-1 max-w-[62ch] text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-400">Everything you own and owe, in one position.</p>
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h1 className="text-[26px] font-bold leading-tight tracking-[-0.03em] text-slate-950 dark:text-white">Accounts</h1>
+              <p className="mt-1 max-w-[62ch] text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-400">Everything you own and owe, in one position.</p>
+            </div>
+            {/* "+ Add" inline beside the title (G113 — matches the ratified
+                preview's AccountsCanvasHeader). Was previously a full-width
+                primary button below net worth: louder than the preview and
+                pushing the whole list down. Condensed from the old 3/4-
+                button row (header Variant B) still holds — every
+                destination below is the same handler the separate buttons
+                used to call, only the entry point and position changed. */}
+            {tab === "Banks" && (
+              <div className="relative shrink-0" ref={addMenuRef}>
+                <button
+                  data-tutorial-id="tutorial-add-account"
+                  onClick={() => setAddMenuOpen(v => !v)}
+                  className="inline-flex min-h-11 items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-all px-4 rounded-xl text-sm font-semibold text-white"
+                  aria-expanded={addMenuOpen}
+                  aria-haspopup="menu"
+                >
+                  <Plus size={15} />
+                  Add
+                  <ChevronDown size={13} className={`opacity-70 transition-transform ${addMenuOpen ? "rotate-180" : ""}`} />
+                </button>
+                {addMenuOpen && (
+                  <div
+                    role="menu"
+                    className="absolute right-0 top-[calc(100%+6px)] z-30 w-56 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-slate-100 dark:border-white/10 py-1 divide-y divide-slate-100 dark:divide-white/5 overflow-hidden"
+                  >
+                    {/* A67: Add Bank is hidden outright on a plan with no
+                        open banking (Statements), rather than shown and
+                        answered with a 402 when tapped. Hidden, not
+                        disabled: a greyed-out row that never explains itself
+                        is worse than a menu that only offers what this plan
+                        can actually do. Statement, Investment and Offline
+                        below are on every plan. */}
+                    {canConnectBank && (
+                      <AddMenuItem
+                        tutorialId="tutorial-add-bank"
+                        icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
+                        label="Add Bank"
+                        onClick={() => { setAddMenuOpen(false); setShowBankPicker("finexer"); }}
+                      />
+                    )}
+                    {canConnectBank && LEGACY_BANK_AVAILABLE && (
+                      <AddMenuItem
+                        icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
+                        label={LEGACY_BANK_MENU_LABEL}
+                        onClick={() => { setAddMenuOpen(false); setShowBankPicker("legacy"); }}
+                      />
+                    )}
+                    <AddMenuItem
+                      tutorialId="tutorial-add-statement"
+                      icon={<Upload size={14} className="text-slate-400 flex-shrink-0" />}
+                      label="Statement"
+                      onClick={() => { setAddMenuOpen(false); setShowStatementUpload(true); }}
+                    />
+                    <AddMenuItem
+                      tutorialId="tutorial-add-investment"
+                      icon={<TrendingUp size={14} className="text-slate-400 flex-shrink-0" />}
+                      label="Investment"
+                      onClick={() => { setAddMenuOpen(false); setShowInvestmentUpload(true); }}
+                    />
+                    <AddMenuItem
+                      tutorialId="tutorial-add-offline"
+                      icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
+                      label="Offline"
+                      onClick={() => { setAddMenuOpen(false); openAddManual(); }}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
           {kpis && (() => {
             const cardTotal = accounts
               .filter(a => {
@@ -2494,7 +2677,7 @@ export default function AccountsPage() {
                   >
                     {hideNetWorth
                       ? "••••••"
-                      : `${kpis.net_worth < 0 ? "−" : ""}${region === "Kenya" ? "KES " : "£"}${Math.abs(kpis.net_worth).toLocaleString("en-GB", { maximumFractionDigits: 0 })}`}
+                      : `${kpis.net_worth < 0 ? "−" : ""}£${Math.abs(kpis.net_worth).toLocaleString("en-GB", { maximumFractionDigits: 0 })}`}
                   </p>
                   {/* The two stats + counts, whispered onto one line. No
                       month-over-month trend here — KPIs carries only a
@@ -2523,93 +2706,12 @@ export default function AccountsPage() {
           })()}
         </div>
 
-        {/* Context-aware action: one primary "+ Add" — condensed from the
-            old 3/4-button row (header Variant B). Every destination below is
-            the exact same handler the separate buttons used to call; only
-            the entry point changed. */}
-        {tab === "Banks" ? (
-          <div className="relative" ref={addMenuRef}>
-            <button
-              data-tutorial-id="tutorial-add-account"
-              onClick={() => setAddMenuOpen(v => !v)}
-              className="w-full flex items-center justify-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-all px-4 py-2.5 rounded-xl text-sm font-semibold text-white"
-              aria-expanded={addMenuOpen}
-              aria-haspopup="menu"
-            >
-              <Plus size={15} />
-              Add
-              <ChevronDown size={13} className={`opacity-70 transition-transform ${addMenuOpen ? "rotate-180" : ""}`} />
-            </button>
-            {addMenuOpen && (
-              <div
-                role="menu"
-                className="absolute left-0 right-0 top-[calc(100%+6px)] z-30 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-slate-100 dark:border-white/10 py-1 divide-y divide-slate-100 dark:divide-white/5 overflow-hidden"
-              >
-                {region === "UK" ? (
-                  <>
-                    <AddMenuItem
-                      tutorialId="tutorial-add-bank"
-                      icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
-                      label="Add Bank"
-                      onClick={() => { setAddMenuOpen(false); setShowBankPicker("finexer"); }}
-                    />
-                    {TRUELAYER_PICKER && (
-                      <AddMenuItem
-                        icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
-                        label="Add Bank via TrueLayer"
-                        onClick={() => { setAddMenuOpen(false); setShowBankPicker("truelayer"); }}
-                      />
-                    )}
-                    <AddMenuItem
-                      tutorialId="tutorial-add-statement"
-                      icon={<Upload size={14} className="text-slate-400 flex-shrink-0" />}
-                      label="Statement"
-                      onClick={() => { setAddMenuOpen(false); setShowMpesaUpload(true); }}
-                    />
-                    <AddMenuItem
-                      tutorialId="tutorial-add-investment"
-                      icon={<TrendingUp size={14} className="text-slate-400 flex-shrink-0" />}
-                      label="Investment"
-                      onClick={() => { setAddMenuOpen(false); setShowInvestmentUpload(true); }}
-                    />
-                    <AddMenuItem
-                      tutorialId="tutorial-add-offline"
-                      icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
-                      label="Offline"
-                      onClick={() => { setAddMenuOpen(false); openAddManual(); }}
-                    />
-                  </>
-                ) : (
-                  <>
-                    <MonoConnectWidget onSuccess={handleMonoSuccess}>
-                      {(open, monoLoading) => (
-                        <AddMenuItem
-                          tutorialId="tutorial-add-bank"
-                          icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
-                          label={monoLoading ? "Opening…" : "Mono"}
-                          disabled={monoLoading}
-                          onClick={() => { setAddMenuOpen(false); open(); }}
-                        />
-                      )}
-                    </MonoConnectWidget>
-                    <AddMenuItem
-                      tutorialId="tutorial-add-statement"
-                      icon={<Upload size={14} className="text-slate-400 flex-shrink-0" />}
-                      label="Statement"
-                      onClick={() => { setAddMenuOpen(false); setShowMpesaUpload(true); }}
-                    />
-                    <AddMenuItem
-                      tutorialId="tutorial-add-offline"
-                      icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
-                      label="Offline"
-                      onClick={() => { setAddMenuOpen(false); openAddManual(); }}
-                    />
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-        ) : (
+        {/* Investments-tab (legacy internal drill-in, reached only via
+            ?tab=Investments deep link now the tab bar itself is gone — see
+            the comment below) still gets its own upload / cold-start
+            controls here; the "+ Add" menu for the default Banks tab now
+            lives inline beside the title above (G113). */}
+        {tab !== "Banks" && (
           <div>
             <div className="flex gap-2">
               <button
@@ -2749,50 +2851,43 @@ export default function AccountsPage() {
                 </div>
                 <p className="text-slate-800 dark:text-slate-100 font-semibold mb-1">No banks connected</p>
                 <p className="text-slate-400 dark:text-slate-500 text-sm mb-5">
-                  {region === "UK"
+                  {canConnectBank
                     ? "Connect your bank via Open Banking, or upload a PDF/CSV statement."
-                    : "Connect via Mono or upload a bank statement (M-Pesa, Equity, KCB, NCBA…) to get started."}
+                    : "Upload a PDF or CSV statement to get started."}
                 </p>
-                {region === "UK" ? (
-                  <div className="flex flex-col gap-2 items-center">
+                {/* A67. Two changes here. The connect button used to open
+                    the TrueLayer picker (`setShowBankPicker("truelayer")`)
+                    while the Add menu three screens up opened Finexer — the
+                    single worst instance of TrueLayer-by-default, since
+                    this is the first thing a user with no accounts sees.
+                    And Upload Statement now LEADS: it is the action every
+                    plan has, so it is what shows while the plan is still
+                    resolving and the only one on a Statements plan, with
+                    Connect a Bank revealed above it once open banking is
+                    known to be included. Nothing ever appears and then
+                    disappears; see lib/openBankingAccess.ts. */}
+                <div className="flex flex-col gap-2 items-center">
+                  {canConnectBank && (
                     <button
-                      onClick={() => setShowBankPicker("truelayer")}
+                      onClick={() => setShowBankPicker("finexer")}
                       className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-all text-white font-semibold px-5 py-3 rounded-xl text-sm"
                     >
                       <Plus size={16} />
                       Connect a Bank
                     </button>
-                    <button
-                      onClick={() => setShowMpesaUpload(true)}
-                      className="inline-flex items-center gap-2 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 hover:bg-slate-50 active:scale-95 transition-all text-slate-700 dark:text-slate-200 font-semibold px-5 py-3 rounded-xl text-sm"
-                    >
-                      <Upload size={16} />
-                      Upload Statement
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex flex-col gap-2 items-center">
-                    <MonoConnectWidget onSuccess={handleMonoSuccess}>
-                      {(open, monoLoading) => (
-                        <button
-                          onClick={open}
-                          disabled={monoLoading}
-                          className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-all text-white font-semibold px-5 py-3 rounded-xl text-sm"
-                        >
-                          <Plus size={16} />
-                          {monoLoading ? "Opening…" : "Connect via Mono"}
-                        </button>
-                      )}
-                    </MonoConnectWidget>
-                    <button
-                      onClick={() => setShowMpesaUpload(true)}
-                      className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-all text-white font-semibold px-5 py-3 rounded-xl text-sm"
-                    >
-                      <Upload size={16} />
-                      Upload Bank Statement
-                    </button>
-                  </div>
-                )}
+                  )}
+                  <button
+                    onClick={() => setShowStatementUpload(true)}
+                    className={`inline-flex items-center gap-2 active:scale-95 transition-all font-semibold px-5 py-3 rounded-xl text-sm ${
+                      canConnectBank
+                        ? "bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 hover:bg-slate-50 text-slate-700 dark:text-slate-200"
+                        : "bg-indigo-600 hover:bg-indigo-700 text-white"
+                    }`}
+                  >
+                    <Upload size={16} />
+                    Upload Statement
+                  </button>
+                </div>
               </div>
             ) : (
               <>
@@ -2866,48 +2961,114 @@ export default function AccountsPage() {
                   </div>
                 ) : (
                   <>
-                    {/* Pinned band */}
+                    {/* Pinned band (G113 — matches the ratified preview's
+                        PinnedBand exactly: one bounded card, "Pinned" label
+                        inside it, not a bare uppercase label floating above
+                        unbounded rows). A pinned account also appears again
+                        inside its own kind-group below — that duplication
+                        is deliberate (A1, Kevin approved 2026-09-16) and is
+                        what check:accounts-pinned pins down via
+                        buildEstate() directly. */}
                     {estate.pinned.length > 0 && (
-                      <div>
-                        <p className="px-1 mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Pinned</p>
-                        <div className="glass-card rounded-2xl overflow-hidden">
-                          {estate.pinned.map((row, i) => (
-                            <div key={row.id} className={i > 0 ? "border-t border-slate-100 dark:border-white/5" : ""}>
-                              <AccountLedgerRow row={row} onClick={handleEstateRowClick} {...estateTermsProps(row)} />
-                            </div>
+                      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:shadow-none" aria-label="Pinned accounts">
+                        <p className="px-4 pt-3 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Pinned</p>
+                        <div className="mt-1 divide-y divide-slate-100 dark:divide-slate-700">
+                          {estate.pinned.map((row) => (
+                            <AccountLedgerRow key={row.id} row={row} onClick={handleEstateRowClick} {...estateTermsProps(row)} />
                           ))}
                         </div>
-                      </div>
+                      </section>
                     )}
 
-                    {/* Collapsible groups — sticky header, chevron, subtotal */}
+                    {/* Collapsible groups (G113 — matches the ratified
+                        preview's AccountGroupCard: header AND rows inside
+                        ONE bounded section with a border/radius/shadow, the
+                        group name at 15px bold with the count as an 11px
+                        subtitle beneath it, "one group, one object" instead
+                        of a detached floating label.
+
+                        The header keeps its sticky (top-0) behaviour —
+                        Kevin holds 23 bank accounts, several of them cards
+                        in the same "Credit" group, so a group's own rows
+                        can run well past one screen and losing the sticky
+                        label mid-scroll would mean losing track of which
+                        group and subtotal you're looking at. Getting this
+                        to coexist with "one bounded card" took a real fix,
+                        not just nesting: `overflow-hidden` on the section
+                        (needed to clip the rows list to the card's rounded
+                        corners) independently breaks `position: sticky` for
+                        any descendant, confirmed empirically in headless
+                        Chrome (a stuck header stayed pinned with
+                        `overflow-hidden` removed from the section, and
+                        scrolled away with it present, at every viewport
+                        width) — this is standard CSS: an `overflow: hidden`
+                        ancestor becomes the sticky element's scrolling
+                        containing block, and since the SECTION itself never
+                        scrolls (only the page does), the header can never
+                        enter its "stuck" state inside one. So the section
+                        below carries NO overflow-hidden; instead the header
+                        rounds its own top corners (full corners while
+                        collapsed, since it is then the only visible content)
+                        and the existing rows-collapse wrapper (already
+                        `overflow-hidden` for its height/opacity animation)
+                        rounds its own bottom corners — two shapes that tile
+                        exactly into the section's own rounded outline, so it
+                        still reads as one bounded object at rest and while
+                        scrolling, with the header genuinely able to stick.
+
+                        One more thing this does NOT fix: `#app-shell` sets
+                        `overflow-x: hidden` below the `lg` (1024px)
+                        breakpoint (app/globals.css, H56's comment on that
+                        rule), which independently makes IT the sticky
+                        containing block for every descendant sticky element
+                        in the app on mobile — the same pre-existing,
+                        already-tracked defect (H61 is the planned app-wide,
+                        audited fix; its own comment explicitly says not to
+                        pre-empt it from a single sandboxed item) that
+                        already silently broke this exact header's
+                        stickiness before G113 touched it. Confirmed in
+                        headless Chrome: at 1280px (`#app-shell`'s
+                        `overflow-x` computes to `visible` there) the header
+                        now sticks correctly with this fix in place; below
+                        1024px it still does not, for that separate, older,
+                        out-of-scope reason. G113 does not widen its own
+                        fix into #app-shell's rule — that is exactly the
+                        one-sandbox pre-emption H61's own comment warns
+                        against. At rest, or for any group short enough to
+                        fit on screen (most of them), none of this matters:
+                        it simply reads as the one bounded object the
+                        preview specifies. */}
                     {estate.groups.length === 0 ? (
-                      <div className="glass-card rounded-2xl px-4 py-10 text-center text-sm text-slate-400 dark:text-slate-500">
+                      <div className="rounded-2xl border border-slate-200 bg-white px-4 py-10 text-center text-sm text-slate-400 shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-500 dark:shadow-none">
                         No accounts in this view
                       </div>
                     ) : (
                       estate.groups.map((group) => {
                         const isCollapsed = collapsedGroups[group.label] ?? (group.kind === "Credit" && group.count > 4);
                         return (
-                          <div key={group.label}>
+                          <section
+                            key={group.label}
+                            className="rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:shadow-none"
+                            aria-label={`${group.label} accounts`}
+                          >
                             <button
                               type="button"
                               onClick={() => toggleEstateGroup(group.label)}
                               aria-expanded={!isCollapsed}
-                              className="sticky top-0 z-10 mb-1.5 w-full flex items-center justify-between gap-2 rounded-xl px-3 py-2.5 bg-slate-50/95 dark:bg-slate-900/90 backdrop-blur-sm border border-slate-100/80 dark:border-white/5 shadow-sm"
+                              className={`sticky top-0 z-10 flex min-h-16 w-full items-center justify-between gap-3 bg-white px-4 text-left transition-colors hover:bg-slate-50 active:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 dark:bg-slate-800 dark:hover:bg-slate-700/60 dark:active:bg-slate-700 ${isCollapsed ? "rounded-2xl" : "rounded-t-2xl"}`}
                             >
-                              <span className="flex items-baseline gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                                {group.label}
-                                <span className="text-slate-400 dark:text-slate-600 font-medium normal-case">· {group.count}</span>
+                              <span>
+                                <span role="heading" aria-level={2} className="block text-[15px] font-bold text-slate-900 dark:text-slate-100">{group.label}</span>
+                                <span className="mt-0.5 block text-[11px] text-slate-500 dark:text-slate-400">{group.count} {group.count === 1 ? "account" : "accounts"}</span>
                               </span>
-                              <span className="flex items-center gap-1.5">
-                                <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 money">
+                              <span className="flex items-center gap-2">
+                                <span className="money text-[14px] font-semibold text-slate-800 dark:text-slate-200">
                                   {hideNetWorth
-                                    ? "••••"
+                                    ? "£••••"
                                     : `${group.subtotal < 0 ? "-" : ""}£${Math.abs(Math.round(group.subtotal)).toLocaleString("en-GB")}`}
                                 </span>
                                 <ChevronDown
-                                  size={14}
+                                  size={16}
                                   className={`text-slate-400 dark:text-slate-500 transition-transform duration-200 motion-reduce:transition-none ${isCollapsed ? "" : "rotate-180"}`}
                                   aria-hidden="true"
                                 />
@@ -2919,41 +3080,47 @@ export default function AccountsPage() {
                               }`}
                             >
                               <div
-                                className={`overflow-hidden transition-opacity duration-200 motion-reduce:transition-none motion-reduce:duration-0 ${
+                                className={`overflow-hidden rounded-b-2xl transition-opacity duration-200 motion-reduce:transition-none motion-reduce:duration-0 ${
                                   isCollapsed ? "opacity-0" : "opacity-100"
                                 }`}
                               >
-                                <div className="glass-card rounded-2xl overflow-hidden">
-                                  {group.rows.map((row, i) => (
-                                    <div key={row.id} className={i > 0 ? "border-t border-slate-100 dark:border-white/5" : ""}>
-                                      <AccountLedgerRow row={row} onClick={handleEstateRowClick} {...estateTermsProps(row)} />
-                                    </div>
+                                <div className="divide-y divide-slate-100 border-t border-slate-100 dark:divide-slate-700 dark:border-slate-700">
+                                  {group.rows.map((row) => (
+                                    <AccountLedgerRow key={row.id} row={row} onClick={handleEstateRowClick} {...estateTermsProps(row)} />
                                   ))}
                                 </div>
                               </div>
                             </div>
-                          </div>
+                          </section>
                         );
                       })
                     )}
 
                     {/* Inactive — dormant £0 accounts, collapsed by default.
                         A stale account keeps its connection-status dot here;
-                        the provider action stays in the strip above. */}
+                        the provider action stays in the strip above. Same
+                        bounded-card treatment as the groups above (G113),
+                        for the same reason: it shared the identical header
+                        class before this change and should keep matching
+                        it now — including the no-overflow-hidden-on-the-
+                        section / rounded-corners-on-the-header-and-rows-
+                        wrapper split that keeps `position: sticky` actually
+                        working (see the long comment on the groups above
+                        for why). */}
                     {inactiveRows.length > 0 && (
-                      <div>
+                      <section className="rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:shadow-none" aria-label="Inactive accounts">
                         <button
                           type="button"
                           onClick={() => setInactiveOpen(o => !o)}
                           aria-expanded={inactiveOpen}
-                          className="sticky top-0 z-10 mb-1.5 w-full flex items-center justify-between gap-2 rounded-xl px-3 py-2.5 bg-slate-50/95 dark:bg-slate-900/90 backdrop-blur-sm border border-slate-100/80 dark:border-white/5 shadow-sm"
+                          className={`sticky top-0 z-10 flex min-h-16 w-full items-center justify-between gap-3 bg-white px-4 text-left transition-colors hover:bg-slate-50 active:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 dark:bg-slate-800 dark:hover:bg-slate-700/60 dark:active:bg-slate-700 ${inactiveOpen ? "rounded-t-2xl" : "rounded-2xl"}`}
                         >
-                          <span className="flex items-baseline gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
-                            Inactive
-                            <span className="text-slate-400 dark:text-slate-600 font-medium normal-case">· {inactiveRows.length}</span>
+                          <span>
+                            <span role="heading" aria-level={2} className="block text-[15px] font-bold text-slate-900 dark:text-slate-100">Inactive</span>
+                            <span className="mt-0.5 block text-[11px] text-slate-500 dark:text-slate-400">{inactiveRows.length} {inactiveRows.length === 1 ? "account" : "accounts"}</span>
                           </span>
                           <ChevronDown
-                            size={14}
+                            size={16}
                             className={`text-slate-400 dark:text-slate-500 transition-transform duration-200 motion-reduce:transition-none ${inactiveOpen ? "rotate-180" : ""}`}
                             aria-hidden="true"
                           />
@@ -2964,20 +3131,18 @@ export default function AccountsPage() {
                           }`}
                         >
                           <div
-                            className={`overflow-hidden transition-opacity duration-200 motion-reduce:transition-none motion-reduce:duration-0 ${
+                            className={`overflow-hidden rounded-b-2xl transition-opacity duration-200 motion-reduce:transition-none motion-reduce:duration-0 ${
                               inactiveOpen ? "opacity-100" : "opacity-0"
                             }`}
                           >
-                            <div className="glass-card rounded-2xl overflow-hidden">
-                              {inactiveRows.map((row, i) => (
-                                <div key={row.id} className={i > 0 ? "border-t border-slate-100 dark:border-white/5" : ""}>
-                                  <AccountLedgerRow row={row} onClick={handleEstateRowClick} />
-                                </div>
+                            <div className="divide-y divide-slate-100 border-t border-slate-100 dark:divide-slate-700 dark:border-slate-700">
+                              {inactiveRows.map((row) => (
+                                <AccountLedgerRow key={row.id} row={row} onClick={handleEstateRowClick} />
                               ))}
                             </div>
                           </div>
                         </div>
-                      </div>
+                      </section>
                     )}
                   </>
                 )}
@@ -3005,7 +3170,7 @@ export default function AccountsPage() {
                   {manualAccounts.map((acc) => {
                     const meta = MANUAL_TYPES.find(t => t.value === acc.account_type) ?? MANUAL_TYPES[0];
                     const isCredit = acc.account_type === "credit_card";
-                    const currency = region === "Kenya" ? "KES " : "£";
+                    const currency = "£";
                     const accountForDetail = accounts.find(a => a.id === acc.id);
                     return (
                       <div
@@ -3542,9 +3707,6 @@ export default function AccountsPage() {
         />
       )}
 
-      {showBankPicker && (
-        <BankPickerSheet provider={showBankPicker} onClose={() => setShowBankPicker(null)} />
-      )}
 
       {modals}
     </div>

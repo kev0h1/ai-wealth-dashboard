@@ -10,7 +10,16 @@
 // (scripts/check-design-index.mjs) enforces that and runs as part of
 // `scripts/session.sh finish`.
 
+import type { Metadata } from "next";
 import Link from "next/link";
+
+// A76 (DSGN-04, A48 pentest): these preview routes are unreleased product
+// directions and must not be indexed by search engines. See also the
+// X-Robots-Tag header in next.config.ts and app/robots.ts, which cover the
+// whole /design/* subtree (this metadata only covers this one page).
+export const metadata: Metadata = {
+  robots: { index: false, follow: false },
+};
 
 type PreviewRoute = {
   slug: string;
@@ -22,6 +31,40 @@ type PreviewRoute = {
 };
 
 const ROUTES: PreviewRoute[] = [
+  {
+    slug: "g149-transfer-review-placement",
+    name: "g149-transfer-review-placement",
+    description:
+      "G149 Spend timeline placement round · A treats transfer review as a true pay-period event, with the timeline rail marker, text indent and event rhythm; B keeps it as a quiet period-level affordance beside the period summary, never stranded between timeline nodes · the guardrail wording and intended review behaviour are preserved, with one, many and clear fixture states in light and dark · no API calls, no mutations, and it renders the real production TransferReviewGuardrail component · ?variant=a|b&state=single|many|clear&mode=light|dark",
+    states: [
+      { label: "One transfer", value: "single" },
+      { label: "Many transfers", value: "many" },
+      { label: "Nothing to review", value: "clear" },
+    ],
+    variants: [
+      { label: "A · Timeline event", value: "a" },
+      { label: "B · Period affordance", value: "b" },
+    ],
+  },
+  {
+    slug: "g115-spend-from-accounts",
+    name: "g115-spend-from-accounts",
+    description:
+      "G115 round on showing up to two current accounts without creating a second hero inside Safe to Spend · A is Kevin's approved top-right bank rail and now renders SafeToSpendCard's production default with no visual override, while B's compact inline pair and C's quiet two-row ledger remain as design history · every direction renders the real production SafeToSpendCard through its data and spendFrom props, plus the real MoveCard in coexistence states, rather than copying either component · fixtures pass through production bestSpendAccount(), include three current accounts, a savings pot and a credit card, and use G114's spend_from_headroom so a live £20 cover move reduces Everyday from £45 standing room to £25 spendable room before ranking · savings and credit are structurally excluded, the savings-only state points to the move above, and every treatment says account figures are not the pooled Safe to Spend · A uses local bundled logos only and falls back to named rows when a bank has no bundled mark · static typed fixtures, no live API data or mutations · ?variant=a|b|c&state=reserved|clear|one|unbundled|savings|hidden&mode=light|dark",
+    states: [
+      { label: "Cover move reserved", value: "reserved" },
+      { label: "No cover move", value: "clear" },
+      { label: "One account", value: "one" },
+      { label: "Bank has no logo", value: "unbundled" },
+      { label: "Savings move needed", value: "savings" },
+      { label: "Balances hidden", value: "hidden" },
+    ],
+    variants: [
+      { label: "A · Bank rail", value: "a" },
+      { label: "B · Inline pair", value: "b" },
+      { label: "C · Quiet rows", value: "c" },
+    ],
+  },
   {
     slug: "ops-board-mobile",
     name: "ops-board-mobile",
@@ -63,6 +106,8 @@ const ROUTES: PreviewRoute[] = [
   {slug:"mirror-canvas-before-cards",name:"mirror-canvas-before-cards",description:"G97 Canvas Before Cards review for Mirror · A editorial reading / B paired traits / C progressive evidence · behavioural reading stays on the canvas, while selectable aims and bounded transaction evidence earn a card · fixture-only, no API calls or production edits · ?variant=a|b|c&state=portrait|aim|empty&mode=light|dark",states:[{label:"Portrait",value:"portrait"},{label:"Active aim",value:"aim"},{label:"Not enough data",value:"empty"}],variants:[{label:"A · Editorial",value:"a"},{label:"B · Paired",value:"b"},{label:"C · Evidence",value:"c"}]},
   {slug:"money-shape-canvas-before-cards",name:"money-shape-canvas-before-cards",description:"G95 Canvas Before Cards review for Your money shape · A editorial instrument / B split reading / C progressive reference rail · one pay-shape instrument leads on the canvas while explanation and reference shapes are disclosed only when useful · fixture-only, no API calls or production edits · ?variant=a|b|c&state=steady|changed|thin&mode=light|dark",states:[{label:"Steady",value:"steady"},{label:"Changed",value:"changed"},{label:"Thin history",value:"thin"}],variants:[{label:"A · Editorial",value:"a"},{label:"B · Split",value:"b"},{label:"C · Reference",value:"c"}]},
   { slug: "transactions-canvas-before-cards", name: "transactions-canvas-before-cards", description: "G92 Canvas Before Cards review for Transactions · A canvas search reading / B desktop context rail / C evidence-forward groups · search, context and summary stay on canvas while dense date groups and expandable teaching evidence keep earned boundaries · populated, long-list, loading, empty and error fixtures only · ?variant=a|b|c&state=populated|long|loading|empty|error&mode=light|dark", states: [{label:"Populated",value:"populated"},{label:"Long list",value:"long"},{label:"Loading",value:"loading"},{label:"Empty",value:"empty"},{label:"Error",value:"error"}], variants: [{label:"A · Canvas",value:"a"},{label:"B · Context rail",value:"b"},{label:"C · Evidence",value:"c"}] },
+  { slug: "g119-transactions-live", name: "g119-transactions-live", description: "G119 Transactions round two, on real data · A day-groups + page pager + bottom sheet / B day-groups + infinite scroll + inline row expand / C day-groups + load-more + full-screen detail · reads the signed-in viewer's own GET /transactions/search (page/page_size), read-only, falls back to synthetic fixtures when signed out · row tap opens that transaction's real detail with the ability to change it (non-mutating port of TeachingSheet's fork logic, never a group-level popup) · ?variant=a|b|c&state=auto|populated|long|empty|loading&mode=light|dark", states: [{label:"Live/fixture",value:"auto"},{label:"Populated",value:"populated"},{label:"Long list",value:"long"},{label:"Empty",value:"empty"},{label:"Loading",value:"loading"}], variants: [{label:"A · Sheet",value:"a"},{label:"B · Inline",value:"b"},{label:"C · Full screen",value:"c"}] },
+  { slug: "g119-filter-pill", name: "g119-filter-pill", description: "G119 follow-up: Kevin approved variant A's category icons on g119-transactions-live but rejected the active-filter pill, bg-slate-100 (#f1f5f9) measures ~1.02:1 against the #f0f2f7 canvas so it reads as invisible, and the solid indigo-600 round trigger borrows Penny's FAB silhouette · A selected-state tint (Sidebar.tsx's own active-nav indigo-50 + an indigo-500/400 hairline, since the fill alone measures no better than the bug) / B surface + hairline (white / #1e293b card material, shadow-sm, the pattern every other object on this canvas already uses) / C a filter bar (trigger, chips and Clear all become one bounded strip, solving the two-places-saying-one-thing problem structurally) · every trigger demoted from a solid puck to a hairline ghost control · renders the REAL g119-transactions-live VariantA, FilterSheet and dataSource through a shared FilterChips.tsx/FilterBar (g119-transactions-live itself now imports the same file at treatment=\"legacy\", unchanged, since that's the reference Kevin is comparing against) · all chips ≥44px tall, whole chip is the tap target, Clear all appears once more than one chip is active · read-only, GET-only, session-scoped, fixture fallback when signed out · ?variant=a|b|c&state=zero|one|three&mode=light|dark", states: [{label:"0 active",value:"zero"},{label:"1 active",value:"one"},{label:"3 active",value:"three"}], variants: [{label:"A · Tint",value:"a"},{label:"B · Surface",value:"b"},{label:"C · Bar",value:"c"}] },
   {
     slug: "g93-penny-canvas",
     name: "g93-penny-canvas",
@@ -114,11 +159,50 @@ const ROUTES: PreviewRoute[] = [
     ],
   },
   {
+    slug: "g88-home-real",
+    name: "g88-home-real",
+    description:
+      "G88 companion round: the same A/B/C Canvas Before Cards shells judged against Kevin's OWN real Home data instead of invented fixtures (his explicit, repeated request, authorised knowing /design is public and unauthenticated — see realFixtures.ts's header for the full authorisation note; the data subject's own decision, not this session's default) · his actual verdict state is Tight, not the earlier round's invented On-track figure, so the hero is the REAL production SafeToSpendCard fed his real payload through its data prop, showing the true amber \"Tight\" chip and its \"See your cards\" recovery link (driven by his real card debt) · the three supporting cards are the real MoveCard, CelebrationCard and CliffCard (CliffCard also renders his real debt-trajectory item) fed his three real companion.py items, not replica markup · every real figure lives in ONE commented module, realFixtures.ts, cross-checked line by line against the source dump, deliberately not repeated as literal numbers anywhere else on this page (including here) so pulling his data later is a genuine one-file edit · the old \"This pay period\" IN/OUT/MOVED strip is REMOVED (not carried over as invented numbers) because those figures were not part of the Home dump this preview is scoped to · variant B's two-column board opens the hero's own \"How we got\" breakdown by default so the left column has real content, not empty space, and stacks cards single-column at a wider share of the row so real card markup does not get squeezed · FixtureBottomNav renders on every state so the Penny gradient button sits beside the real hero · no API calls · the hide-balances state is answered entirely inside this preview, via a fetch stand-in for /preferences scoped to this component's mount and torn down on unmount, so it never reads or writes a real stored preference, signed in or not, and \"tight\" vs \"hidden\" render the real hero figure vs the real mask for any visitor · ?variant=a|b|c&state=tight|hidden&mode=light|dark",
+    states: [
+      { label: "Kevin's real state (Tight)", value: "tight" },
+      { label: "Balances hidden", value: "hidden" },
+    ],
+    variants: [
+      { label: "A · Reading line", value: "a" },
+      { label: "B · Today board", value: "b" },
+      { label: "C · Rhythm", value: "c" },
+    ],
+  },
+  {
     slug: "upcoming-canvas-before-cards",
     name: "upcoming-canvas-before-cards",
     description: "G90 Upcoming second round after phone review · uses the owner's £612 available, £771 due, −£159 payday forecast and £231.30 Barclays account gap · the Summer holiday envelope is visibly an envelope and honestly starts with the next pay, so it does not alter the current-period arithmetic · A five-day reading / B money path / C action first · preview controls occupy their own top bar instead of obscuring page content · includes covered and set-aside-predictions states · fixture-only, no API calls or production edits · ?variant=a|b|c&state=short|healthy|hidden&mode=light|dark",
     states: [{ label: "My figures", value: "short" }, { label: "Covered", value: "healthy" }, { label: "Set-aside predictions", value: "hidden" }],
     variants: [{ label: "A · Five-day reading", value: "a" }, { label: "B · Money path", value: "b" }, { label: "C · Action first", value: "c" }],
+  },
+  {
+    slug: "g124-upcoming-refine",
+    name: "g124-upcoming-refine",
+    description:
+      "G124/G127 approved (variant A throughout, including the Set-aside treatment; cluster interval rule; Kevin 2026-09-18) and folded into production by G131 in two passes. Pass one: the hero, the bounded day-card grammar and the cluster-marker algorithm are no longer reimplemented here — this preview imports the SAME shared components and functions PlanningPage.tsx now renders (components/upcoming/UpcomingHeroCard.tsx, components/upcoming/UpcomingDayCard.tsx, components/upcoming/UpcomingDivider.tsx, lib/upcomingMarkers.ts). The \"gap\" and \"rhythm\" interval rules and the switcher that used to compare all three are gone; only cluster ships. Settling-row correction (reversing an earlier misreading): the long \"Left earlier today, still settling\" line under the payment name is gone, and the right-hand slot under the figure reads \"Settling\" (capitalised) where a live row's \"After: £X left\" sits. Header typography matches the codex reference: no \"UPCOMING\" eyebrow, h1 at 28px/bold/tight tracking, header row items-start, hero micro-label promoted to a real h2. Day headings carry the absolute date (\"Mon 21 Sep\"). Red in the hero is confined to the headline figure and the \"N accounts short\" badge only. Pass two: the Set-aside block was the round's own third complaint (a bare-number title, \"50\"; a shouty bank string truncated mid-word, \"Fed by INTEREST PAID GROSS FOR PERIOD 3…\") and Kevin's \"design A looks good\" picked its treatment too, a gap the first pass's brief missed. Variant A (\"today's shape, kept, with the typography/truncation fixes applied in place, every line still always showing\") is folded into PlanningPage.tsx's PlansSection; B (compact chip) and C (progressive disclosure) do not ship and are removed the same way gap/rhythm were — setAsideVariants.tsx and setAsideHelpers.ts are gone. components/upcoming/SetAsideList.tsx is the one shared list component both this preview and PlanningPage.tsx render; lib/setAsideDisplay.ts holds the humanising logic (title case with a curated UK-banking acronym list, word-safe truncation, a card-like string collapsed to \"Brand •• 1234\") both consume. Whether set-asides should be user-nameable — the real fix for a bare numeric name — is a functionality question Kevin has not decided; that stays open, no fallback label is invented. STILL FIXTURE-ONLY, disclosed as such: the individual upcoming-list ROW BODY (DayGroups.tsx's `Row`) is a hand-authored match against representative fixtures, not an import — PlanningPage.tsx's `renderRow` is a page-scoped closure over live risk-walk state, edit sheets and dismiss handlers that is out of this fold-in's scope to extract. G133 (2026-09-19): the swipe-to-dismiss WRAPPER around that row body is no longer part of that disclosure — SwipeDismissRow was already a self-contained, props-only component, so it is now extracted to components/upcoming/SwipeDismissRow.tsx and imported here verbatim, the same instance PlanningPage.tsx renders, closing the gap that let a transparent-sliding-layer regression through a mid-swipe review undetected. No API calls, no production edits beyond the shared components above · ?state=positive|negative&mode=light|dark",
+    states: [{ label: "Projected: left", value: "positive" }, { label: "Projected: short", value: "negative" }],
+  },
+  {
+    slug: "g128-payday-reconcile",
+    name: "g128-payday-reconcile",
+    description:
+      "G128: Kevin read the Payday plan card as an arithmetic error against his real 2026-09-18 payload. Verified root cause: the hero total (£3,075, money moving between his own accounts) and the payday-split line (£4,105 across 7 bill line items debiting the salary account itself on payday) come from two completely disjoint datasets, both described as \"moves\", with a coincidental collision (7 destination accounts total, 7 payday bill line items). Kevin's hypothesis that the gap is explained by the three settled accounts is FALSE (they sum to £120 habitual, £0 need) and neither variant presents that as a reconciliation. Baseline \"Today\" renders the real, unmodified PaydayPlanCard.tsx fed Kevin's exact payload, so the round is honest about what's live. A · Grammar fix keeps the card's shape: each destination row states needs / has / moving inline instead of leaving the reader to subtract, the payday-split line is renamed with different nouns and states plainly it excludes the hero total, settled accounts show an amount, and the trimmed notice names buffers AND spending allowances. B · Labelled blocks restructures into three named, independently subtotalled blocks (money moving between accounts / payments leaving on payday / accounts already set) with the payments/spending/buffer row composition A drops for brevity. Both variants keep the payday risk row amber (a timing risk, not red per DESIGN.md) and add every fixture state (Kevin's real payload, a covered/not-trimmed case, the isSet nothing-to-move case, and a payload with no payday_split at all) so the fix is proven beyond one payload. No API calls, no production edits · ?variant=baseline|a|b&state=kevin|covered|set|nosplit&mode=light|dark",
+    states: [
+      { label: "Kevin's real payload", value: "kevin" },
+      { label: "Covered, not trimmed", value: "covered" },
+      { label: "Nothing to move", value: "set" },
+      { label: "No payday split", value: "nosplit" },
+    ],
+    variants: [
+      { label: "Today · production", value: "baseline" },
+      { label: "A · Grammar fix", value: "a" },
+      { label: "B · Labelled blocks", value: "b" },
+    ],
   },
   {
     slug: "tax-canvas-before-cards",
@@ -168,9 +252,16 @@ const ROUTES: PreviewRoute[] = [
     description:
       "G78/G82: Spend root containment and narrow-phone header round against the typed normal-period fixture and real SpendJourneySummary, SpendVerdictView, SpendJourneyNav and SpendTrends components · A full cockpit verdict card with a deliberate two-row phone header (recommended) / B one unified top deck with a compact single-row header / C editorial narrative with its reconciled ledger carded and controls in one dock · summary precedes the jump map in every variant · ?variant=a|b|c&mode=light|dark&state=normal|nothing|everything|nobaseline|early",
     states: [
-      { label: "A · cockpit card", value: "a" },
-      { label: "B · unified deck", value: "b" },
-      { label: "C · editorial ledger", value: "c" },
+      { label: "Normal pay period", value: "normal" },
+      { label: "Nothing to allocate", value: "nothing" },
+      { label: "Everything allocated", value: "everything" },
+      { label: "No baseline", value: "nobaseline" },
+      { label: "Early pay period", value: "early" },
+    ],
+    variants: [
+      { label: "A · Cockpit card", value: "a" },
+      { label: "B · Unified deck", value: "b" },
+      { label: "C · Editorial ledger", value: "c" },
     ],
   },
   {
@@ -190,10 +281,11 @@ const ROUTES: PreviewRoute[] = [
     slug: "home-brief-cards",
     name: "home-brief-cards",
     description:
-      "G48 Home brief card-family design round across AskPayday, AskGeneric, Celebration, Cliff, UnfundedMove, IntentPace, Move and Rhythm · the same real-behaviour fixtures in three presentation grammars: A Calm spine ranks verdict, evidence and actions in one vertical reading order, B Action dock separates decisions from evidence with a stable footer, C Folded brief compresses quiet cards while keeping dense move evidence explicitly available · every variant tests an overdue £70 unfunded AMERICAN EXPRESS move, a £70 three-source cover plan, multi-card stacking, all eight card types, light and dark themes · presentation only, no API calls or production-component edits · ?variant=a|b|c&state=stack|family&mode=light|dark",
+      "G48 Home brief card-family design round across AskPayday, AskGeneric, Celebration, Cliff, UnfundedMove, IntentPace, Move and Rhythm · the same real-behaviour fixtures in three presentation grammars: A Calm spine ranks verdict, evidence and actions in one vertical reading order, B Action dock separates decisions from evidence with a stable footer, C Folded brief compresses quiet cards while keeping dense move evidence explicitly available · every variant tests an overdue £70 unfunded AMERICAN EXPRESS move, a £70 three-source cover plan, multi-card stacking, all eight card types, light and dark themes · presentation only, no API calls · G103 adds the Debt state: the debt-trajectory card now leads on the three-month movement in what is owed (\"£412 · more owed than three months ago\") with the direction spoken in the headline, and drops the £24,926 carried total to the last line of the body, so Home stops shouting a stock that cannot change this pay period · shown as the card read BEFORE the change plus all five states after it, rising while interest is charged, rising with everything on 0%, coming down, holding steady, and rising on 0% with an end date on file, each rendered through the PRODUCTION CliffCard from components/HomeBrief.tsx fed real CompanionItem props (not replica markup) so the preview stays a regression gate · every string is verbatim from app.services.companion.trajectory_copy · ?variant=a|b|c&state=stack|family|trajectory&mode=light|dark",
     states: [
       { label: "Home stack", value: "stack" },
       { label: "All eight cards", value: "family" },
+      { label: "Debt trajectory states", value: "trajectory" },
     ],
   },
   {
