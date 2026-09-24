@@ -7,6 +7,7 @@ trimmed to the window on every check. If Redis is unreachable (or
 deque so the endpoint still degrades to a working (if per-process) limit
 rather than failing open or falling over.
 """
+import hmac
 import ipaddress
 import time
 import uuid
@@ -145,6 +146,28 @@ EXPENSIVE_PREFIXES = (
 EXPENSIVE_USER_LIMIT = (30, 60)
 
 
+def _resolve_hops(request: Request) -> tuple[int, bool]:
+    """Return (hops, via_web_proxy) for this request.
+
+    A110: TRUSTED_PROXY_HOPS alone cannot serve both of production's
+    ingress paths (see the TRUSTED_PROXY_SECRET/TRUSTED_PROXY_HOPS_WEB
+    comment in app.core.config). A request only gets the web hop count if
+    ALL of: a secret is actually configured, the request carries a
+    matching X-Sorted-Proxy-Auth header (constant-time compared, since this
+    is effectively a bearer credential), and a web hop count is actually
+    configured. Any one of those failing (secret unset, header missing,
+    header wrong, or TRUSTED_PROXY_HOPS_WEB left at 0) falls back to
+    TRUSTED_PROXY_HOPS exactly as before this item, never raises, and never
+    trusts a request further than that default. The header value itself is
+    never returned, logged, or echoed anywhere below."""
+    secret = config.TRUSTED_PROXY_SECRET
+    if secret and config.TRUSTED_PROXY_HOPS_WEB > 0:
+        supplied = request.headers.get("X-Sorted-Proxy-Auth") or ""
+        if hmac.compare_digest(supplied, secret):
+            return config.TRUSTED_PROXY_HOPS_WEB, True
+    return config.TRUSTED_PROXY_HOPS, False
+
+
 def client_ip(request: Request) -> str:
     # A27: `getattr(..., None)` rather than `request.client` directly — a
     # real Starlette Request always has this attribute (None or a Client),
@@ -171,8 +194,12 @@ def client_ip(request: Request) -> str:
     # replacing the header, so the rightmost `hops` entries were each
     # written by a trusted hop, not by the original caller, regardless of
     # what that caller prepended. hops=0 (the default) trusts no header at
-    # all and always uses the raw socket peer.
-    hops = config.TRUSTED_PROXY_HOPS
+    # all and always uses the raw socket peer. A110: the hop count itself
+    # now varies per request (see _resolve_hops above) rather than always
+    # being TRUSTED_PROXY_HOPS, to serve production's two different ingress
+    # paths without either widening trust for one or coarsening buckets for
+    # the other.
+    hops, _via_web_proxy = _resolve_hops(request)
     if hops <= 0:
         return peer
 
@@ -185,6 +212,24 @@ def client_ip(request: Request) -> str:
     except ValueError:
         return peer
     return candidate
+
+
+def client_ip_diagnostics(request: Request) -> dict:
+    """A110: backs GET /diagnostics/proxy, so Kevin can confirm the real
+    hop count on each of production's two ingress paths after release
+    (nobody can measure it before deploying, see docs/ops/ENV.md's
+    TRUSTED_PROXY_HOPS row). Deliberately returns only derived, aggregate
+    facts: never the raw X-Forwarded-For value, the raw X-Sorted-Proxy-Auth
+    header, or TRUSTED_PROXY_SECRET itself."""
+    hops, via_web_proxy = _resolve_hops(request)
+    forwarded = request.headers.get("X-Forwarded-For") or ""
+    forwarded_entries = len([p for p in forwarded.split(",") if p.strip()])
+    return {
+        "resolved_client_ip": client_ip(request),
+        "forwarded_entries": forwarded_entries,
+        "via_web_proxy": via_web_proxy,
+        "hops_applied": hops,
+    }
 
 
 def _check_local(key: str, limit: int, window: int) -> bool:

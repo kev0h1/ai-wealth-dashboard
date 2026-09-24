@@ -50,6 +50,7 @@ from app.routers import (
     commitments, spend_verdict, tax, scenario, allocations, money_shape,
     penny_chip, ops, admin_usage, admin_allowlist, billing as billing_router,
     mcp as mcp_router, oauth as oauth_router, broadcast as broadcast_router,
+    diagnostics,
 )
 
 if _dsn := os.getenv("SENTRY_DSN"):
@@ -113,6 +114,7 @@ def _routers(mcp_connector_enabled: bool, truelayer_enabled: bool = TRUELAYER_EN
         admin_allowlist.router,
         billing_router.router,
         broadcast_router.router,
+        diagnostics.router,
     ]
     if mcp_connector_enabled:
         routers += [mcp_router.router, oauth_router.router]
