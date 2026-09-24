@@ -1939,7 +1939,7 @@ async def compute_today_items(
     excluded_sources = {str(a) for a in (prefs.get("cover_plan_excluded_accounts") or [])}
     confirmed_income_keys = {
         s.get("key") for s in (prefs.get("income_streams") or [])
-        if s.get("status") == "confirmed"
+        if isinstance(s, dict) and s.get("status") == "confirmed"
     }
     try:
         payday_buffer = max(0, min(500, int(prefs.get("payday_buffer", 50))))

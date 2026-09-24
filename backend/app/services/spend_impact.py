@@ -325,7 +325,7 @@ async def _cashflow_window(uid: str) -> dict | None:
     prefs = await preferences_col.find_one({"user_id": uid}) or {}
     confirmed_income_keys = {
         s.get("key") for s in (prefs.get("income_streams") or [])
-        if s.get("status") == "confirmed"
+        if isinstance(s, dict) and s.get("status") == "confirmed"
     }
     resp = await _build_cashflow_response(cached, uid=uid, prefs=prefs)
 
