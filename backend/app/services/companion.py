@@ -2928,6 +2928,18 @@ async def compute_today_items(
                 f"around {_when}. It has landed in {_landing}, not {_dest_nm.strip()}. "
                 f"If it does arrive, you'll simply need less."
             )
+        elif _inc.get("name") in confirmed_income_keys:
+            # G160: a stream the user confirmed is not "unsteady" merely
+            # because Sorted couldn't attribute it to a landing account
+            # (e.g. too few matching credits inside the window). Saying so
+            # anyway reads as calling a user's own confirmed salary
+            # unreliable, which it is not; the honest gap is attribution,
+            # not reliability.
+            income_note_by_dest[_dest] = (
+                f"This plan doesn't count the £{int(round(_amt)):,} that sometimes arrives "
+                f"around {_when}. Sorted can't yet tell which account it lands in, so it "
+                f"isn't counted here. If it lands, you'll simply need less."
+            )
         else:
             income_note_by_dest[_dest] = (
                 f"This plan doesn't count the £{int(round(_amt)):,} that sometimes arrives "
