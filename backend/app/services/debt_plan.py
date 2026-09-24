@@ -31,6 +31,8 @@ import logging
 import math
 import re
 from datetime import date, datetime, timedelta, timezone
+
+from app.core import timeutil
 from typing import Optional
 
 from app.db.collections import accounts_col, card_terms_col, cashflow_cache_col, preferences_col, transactions_col
@@ -1465,7 +1467,7 @@ async def compute_debt_plan(uid: str) -> dict:
     objects).  Every assumption is stated in the relevant assumptions list.
     Strictly READ-ONLY against user collections.
     """
-    today = date.today()
+    today = timeutil.user_today()
     computed_at = datetime.now(timezone.utc).isoformat()
 
     # ── Load user preferences (pay-period config) ─────────────────────────────

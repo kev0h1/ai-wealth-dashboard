@@ -3,6 +3,8 @@ import asyncio
 import base64
 import hashlib
 from datetime import datetime, timedelta
+
+from app.core import timeutil
 from typing import Optional
 import httpx
 
@@ -156,7 +158,7 @@ async def sync_yapily_consent(consent_token: str, user_id: str):
             try:
                 txn_date = datetime.fromisoformat(str(date_str).replace("Z", "+00:00"))
             except Exception:
-                txn_date = datetime.now()
+                txn_date = timeutil.user_now().replace(tzinfo=None)
             cat = rule_categorise(merchant_name or "", desc)
             yresult = await yapily_transactions_col.update_one({"_id": txn_id}, {"$set": {
                 "account_id": acc_id, "user_id": user_id, "date": txn_date,

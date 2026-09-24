@@ -76,6 +76,8 @@ import re
 import time
 import uuid
 from datetime import date, datetime, timezone
+
+from app.core import timeutil
 from email.utils import parsedate_to_datetime
 
 import httpx
@@ -724,7 +726,7 @@ async def run_penny_agent(
     # the order tools -> system -> messages, so a reordered tool list would
     # silently invalidate the cache every request).
     tools = TOOL_SCHEMAS + PROPOSE_TOOL_SCHEMAS
-    today = date.today()
+    today = timeutil.user_today()
     date_grounding = _DATE_GROUNDING_TEMPLATE.format(today=today.isoformat(), weekday=today.strftime("%A"))
 
     # Prompt caching (2026-09): the static system prompt (rules + write-tools

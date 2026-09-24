@@ -16,6 +16,8 @@ import logging
 from datetime import datetime, timedelta
 from datetime import date as _date
 
+from app.core import timeutil
+
 from app.core.config import PRIMARY_EMAIL
 from app.core.push import send_push_to_user, notify_new_transactions
 from app.db.collections import (
@@ -314,7 +316,7 @@ async def _maybe_bill_shortfall(user_id: str, covered_dest_accts: set[str] | Non
 
     prefs = await preferences_col.find_one({"user_id": user_id}, {"pay_period_config": 1})
     pay_config = (prefs or {}).get("pay_period_config", {"type": "calendar_month"})
-    start, _end = get_pay_period_for_date(_date.today(), pay_config)
+    start, _end = get_pay_period_for_date(timeutil.user_today(), pay_config)
     period_key = start.isoformat()
 
     state = await _state(user_id)
@@ -643,7 +645,7 @@ async def send_period_digest(user_id: str) -> None:
         return
     prefs = await preferences_col.find_one({"user_id": user_id}) or {}
     pay_config = prefs.get("pay_period_config", {"type": "calendar_month"})
-    today = _date.today()
+    today = timeutil.user_today()
     start, _end = get_pay_period_for_date(today, pay_config)
     if start != today:
         return  # not a period boundary

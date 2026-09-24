@@ -27,6 +27,7 @@ import asyncio
 import re
 from datetime import date, datetime, timedelta
 
+import app.core.timeutil as timeutil
 import app.routers.analytics as analytics
 import app.services.companion as companion
 import app.services.spend_impact as spend_impact
@@ -432,7 +433,7 @@ def _pattern(**overrides):
         "key": "KEVIN MAINGI HSBC STO",
         "avg_amount": 1758.33,
         "avg_interval": 45,  # outside weekly/monthly stepping ranges: exactly one occurrence in the 35-day window
-        "next_date": (date.today() + timedelta(days=5)).isoformat(),
+        "next_date": (timeutil.user_today() + timedelta(days=5)).isoformat(),
         "account_id": "barclays",
         "account_name": "Barclays Current",
         "account_bank": "barclays",
@@ -536,7 +537,7 @@ def test_mirror_dropped_when_source_occurrence_closed_by_observed_debit(monkeypa
         "merchant_name": None,
         "description": "KEVIN MAINGI HSBC STO",
         "amount": 1758.33,
-        "date": date.today(),
+        "date": timeutil.user_today(),
         "category": "Transfer",
         "custom_category": None,
         "account_id": "barclays",
@@ -608,7 +609,7 @@ def test_planned_one_off_never_carries_dest_fields(monkeypatch):
     planned_doc = {
         "_id": "planned1", "user_id": UID, "status": "planned",
         "name": "New sofa", "amount": 400.0,
-        "date": date.today() + timedelta(days=3),
+        "date": timeutil.user_today() + timedelta(days=3),
         "account_id": None,
     }
     monkeypatch.setattr(analytics, "transactions_col", FakeCol([]))
@@ -650,7 +651,7 @@ def test_upcoming_income_unaffected_by_internal_inflows(monkeypatch):
         "key": "ACME PAYROLL",
         "avg_amount": 2500.0,
         "avg_interval": 45,
-        "next_date": (date.today() + timedelta(days=7)).isoformat(),
+        "next_date": (timeutil.user_today() + timedelta(days=7)).isoformat(),
         "account_id": "barclays",
         "account_name": "Barclays Current",
         "account_bank": "barclays",
@@ -705,7 +706,7 @@ def _bill(name, days_away, amount, account_id, balance, kind="commitment"):
         "is_credit_card": False, "kind": kind,
         # Only read by spend_impact._bills_risk (for its result payload),
         # but harmless to carry on every bill fixture.
-        "expected_date": (date.today() + timedelta(days=days_away)).isoformat(),
+        "expected_date": (timeutil.user_today() + timedelta(days=days_away)).isoformat(),
     }
 
 

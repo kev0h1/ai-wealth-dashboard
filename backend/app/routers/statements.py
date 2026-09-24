@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile
 
 from app.core.auth import current_user
 from app.core.subscription import check_statement_upload_allowed, record_statement_upload
+from app.core import timeutil
 from app.db.collections import statement_accounts_col, statement_transactions_col
 from app.services.categorisation import rule_categorise
 from app.services.pdf import extract_pdf_text, llm_parse_statement
@@ -130,7 +131,7 @@ async def statement_upload(
         try:
             txn_date = datetime.fromisoformat(raw_date.replace("Z", "+00:00"))
         except Exception:
-            txn_date = datetime.now()
+            txn_date = timeutil.user_now().replace(tzinfo=None)
 
         txn_type    = "credit" if str(row.get("type", "debit")).lower() == "credit" else "debit"
         description = str(row.get("description") or "")
@@ -162,7 +163,7 @@ async def statement_upload(
     resolved_balance   = closing_balance if closing_balance is not None else latest_balance
     existing           = await statement_accounts_col.find_one({"_id": acc_id}, {"balance_date": 1, "balance": 1})
     stored_balance_date: datetime | None = existing.get("balance_date") if existing else None
-    this_statement_date = latest_balance_date or datetime.now()
+    this_statement_date = latest_balance_date or timeutil.user_now().replace(tzinfo=None)
 
     should_update_balance = (
         resolved_balance is not None and

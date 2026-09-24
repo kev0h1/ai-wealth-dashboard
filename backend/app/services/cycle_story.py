@@ -12,6 +12,8 @@ import json
 import re
 import logging
 from datetime import date, datetime, timedelta, timezone
+
+from app.core import timeutil
 from collections import defaultdict
 from typing import Any
 
@@ -80,7 +82,7 @@ def _date_ord(d: str) -> int:
 
 async def compute_cycle_story(uid: str, period_start: date, period_end: date, preview_close: bool = False) -> dict:
     """Compute deterministic chapter facts for a pay period."""
-    today = date.today()
+    today = timeutil.user_today()
     fetch_end = min(period_end, today)
 
     # Category kinds — ONE read, used by the per-transaction spend filter below.
@@ -670,7 +672,7 @@ async def narrate_cycle_story(facts: dict, traits: list[dict], period: dict, uid
 
 async def get_cycle_story(uid: str, which: str = "current", preview_close: bool = False) -> dict:
     """Cache-aware entry point. Returns full story dict."""
-    today = date.today()
+    today = timeutil.user_today()
 
     prefs = await preferences_col.find_one({"user_id": uid}) or {}
     pay_cfg = prefs.get("pay_period_config", {"type": "calendar_month"})

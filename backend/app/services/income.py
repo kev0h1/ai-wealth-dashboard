@@ -2,6 +2,7 @@
 from datetime import date, timedelta
 import calendar
 from typing import Any
+from app.core import timeutil
 from app.services.categorisation import series_key
 
 PAYDAY_MIN_OCCURRENCES = 3
@@ -308,7 +309,7 @@ async def get_payday_proposal(uid: str, today: date | None = None) -> dict | Non
         from collections import defaultdict
 
         if today is None:
-            today = date.today()
+            today = timeutil.user_today()
 
         cutoff = datetime.now() - timedelta(days=90)
         proj = {"merchant_name": 1, "description": 1, "amount": 1, "date": 1,

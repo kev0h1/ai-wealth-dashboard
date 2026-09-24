@@ -14,6 +14,8 @@ transaction from instantly settling a newly-created plan.
 """
 from datetime import date, datetime, timedelta
 
+from app.core import timeutil
+
 # Calendar days past the planned date before an unmatched plan expires.
 # Mirrors PENDING_GIVE_UP_DAYS for recurring bills (analytics.py).
 EXPIRY_GRACE_DAYS = 7
@@ -133,7 +135,7 @@ async def settle_planned_expenses(uid: str) -> bool:
             claimed_this_run.add(best_id_str)
             changed = True
 
-        elif date.today() > pdate_d + timedelta(days=EXPIRY_GRACE_DAYS):
+        elif timeutil.user_today() > pdate_d + timedelta(days=EXPIRY_GRACE_DAYS):
             # Window has closed with no match → expire
             await planned_expenses_col.update_one(
                 {"_id": doc_id},

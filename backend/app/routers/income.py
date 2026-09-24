@@ -2,6 +2,7 @@
 from datetime import date as _date, datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from app.core.auth import current_user
+from app.core import timeutil
 from app.db.collections import preferences_col, transactions_col, yapily_transactions_col
 from app.routers.analytics import compute_and_cache_cashflow, _detect_recurring
 from app.services.income import derive_schedule, next_occurrence, schedule_label, get_confirmed_payday
@@ -36,7 +37,7 @@ async def _get_detected_income_streams(uid: str) -> list[dict]:
     ).to_list(None)
     credits = [t for t in raw if t.get("transaction_type") == "credit"
                and (t.get("custom_category") or t.get("category") or "Other") not in {"Transfer"}]
-    return _detect_recurring(credits, today=_date.today(), is_income=True)
+    return _detect_recurring(credits, today=timeutil.user_today(), is_income=True)
 
 
 async def _get_txn_dates_for_key(uid: str, key: str) -> list[_date]:
@@ -74,7 +75,7 @@ async def get_income_streams(user: dict = Depends(current_user)):
     }
 
     detected = await _get_detected_income_streams(uid)
-    today = _date.today()
+    today = timeutil.user_today()
 
     result = []
     for stream in detected:
@@ -307,7 +308,7 @@ async def confirm_payday(body: dict = None, user: dict = Depends(current_user)):
     from app.services.pay_period import get_pay_period_for_date
 
     uid = user["email"]
-    today = _date.today()
+    today = timeutil.user_today()
 
     proposal = await get_payday_proposal(uid, today)
     if proposal is None:

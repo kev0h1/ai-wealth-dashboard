@@ -36,6 +36,8 @@ import logging
 import re
 from datetime import date, datetime, timedelta
 
+from app.core import timeutil
+
 from app.db.collections import category_intent_col, commitments_col, preferences_col, transactions_col, yapily_transactions_col
 from app.services.categories import (
     INCOME,
@@ -177,7 +179,7 @@ async def _load_period_txns(uid: str, start: date, end: date) -> list[dict]:
         elif isinstance(raw_date, date):
             d_obj = raw_date
         else:
-            d_obj = date.today()
+            d_obj = timeutil.user_today()
         out.append({
             "date":          d_obj,
             "category":      doc.get("custom_category") or doc.get("category") or "Other",

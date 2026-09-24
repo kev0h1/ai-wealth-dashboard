@@ -1,8 +1,9 @@
 """Companion spine — today-engine router."""
-from datetime import date, timedelta
+from datetime import timedelta
 from fastapi import APIRouter, Depends
 
 from app.core.auth import current_user
+from app.core import timeutil
 from app.services import response_cache
 from app.services.companion import compute_today_items, dismiss_item
 from app.db.collections import needle_history_col, preferences_col
@@ -134,7 +135,7 @@ async def needle_summary(user: dict = Depends(current_user)):
     # 2. Current open pay period
     prefs = await preferences_col.find_one({"user_id": uid}) or {}
     pay_cfg = prefs.get("pay_period_config", {"type": "calendar_month"})
-    today = date.today()
+    today = timeutil.user_today()
     start, end = get_pay_period_for_date(today, pay_cfg)
 
     # 3. Card delta so far this period

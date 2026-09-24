@@ -104,6 +104,7 @@ import logging
 import math
 from datetime import date, datetime, timedelta
 
+from app.core import timeutil
 from app.db.collections import (
     accounts_col,
     cashflow_cache_col,
@@ -250,7 +251,7 @@ async def _infer_salary_account(uid: str, kind_map: dict | None = None) -> str |
     """
     if kind_map is None:
         kind_map = await get_category_kinds(uid)
-    since = datetime.combine(date.today() - timedelta(days=_SALARY_LOOKBACK_DAYS), datetime.min.time())
+    since = datetime.combine(timeutil.user_today() - timedelta(days=_SALARY_LOOKBACK_DAYS), datetime.min.time())
     sums: dict[str, float] = {}
     try:
         async for t in transactions_col.find(
@@ -330,7 +331,7 @@ async def _cashflow_window(uid: str) -> dict | None:
     resp = await _build_cashflow_response(cached, uid=uid, prefs=prefs)
 
     pay_cfg = prefs.get("pay_period_config", {"type": "calendar_month"})
-    today_d = date.today()
+    today_d = timeutil.user_today()
     confirmed_result = _get_confirmed_payday(prefs, today_d)
     next_pay = confirmed_result[0] if confirmed_result else _calc_next_payday(today_d, pay_cfg)
     days_to_pay = (next_pay - today_d).days
@@ -560,7 +561,7 @@ async def _debt_horizon(uid: str, delta: float) -> dict | None:
 
         movement_monthly = (card.get("movement") or {}).get("monthly") or 0.0
         adjusted_movement = movement_monthly - delta
-        adjusted = _amortise(card["debt"], adjusted_movement, date.today(), card.get("rate_schedule") or [])
+        adjusted = _amortise(card["debt"], adjusted_movement, timeutil.user_today(), card.get("rate_schedule") or [])
         new_payoff = adjusted.get("payoff_month")
         if not new_payoff or new_payoff == card["payoff_month"]:
             return None
@@ -601,7 +602,7 @@ async def _goal_horizon(uid: str, delta: float, pay_cfg: dict) -> dict | None:
         if not docs:
             return None
         ledger = await compute_pot_ledger(uid, docs=docs)
-        today = date.today()
+        today = timeutil.user_today()
         for doc in sorted(docs, key=_ledger_sort_key):
             info = await _pot_progress_and_slice(doc, pay_cfg, ledger, today)
             remaining = info["remaining"]

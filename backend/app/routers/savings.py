@@ -6,6 +6,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.auth import current_user
+from app.core import timeutil
 from app.db.collections import (
     accounts_col, transactions_col, yapily_transactions_col,
     savings_goals_col, manual_accounts_col,
@@ -66,7 +67,7 @@ def _project_funded(current: float, target: float, surplus: float) -> tuple[int,
         return 999, None
     import math
     months = math.ceil((target - current) / surplus)
-    future = datetime.now().replace(day=1) + timedelta(days=32 * months)
+    future = timeutil.user_now().replace(day=1, tzinfo=None) + timedelta(days=32 * months)
     return months, future.strftime("%Y-%m")
 
 

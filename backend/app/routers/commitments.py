@@ -73,6 +73,7 @@ from bson.errors import InvalidId
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.core.auth import current_user
+from app.core import timeutil
 from app.db.collections import (
     accounts_col,
     commitments_col,
@@ -590,7 +591,7 @@ def _clear_by_with_slice(dctx: dict, per_period_slice: float, cfg: dict) -> str 
     total_movement = sum(max(0.0, c["movement"].get("monthly") or 0.0) for c in cards)
     if total_movement <= 0:
         return None
-    today = date.today()
+    today = timeutil.user_today()
     payoffs: list[str] = []
     for c in cards:
         if c.get("debt", 0) <= 0:
@@ -755,7 +756,7 @@ async def _serialise(
     `_serialise_all`, which needs every sibling goal's numbers, not just
     this one; callers that only need one commitment's core numbers (nothing
     joint) can use this directly and leave those defaults as-is."""
-    today = today or date.today()
+    today = today or timeutil.user_today()
     amount = float(doc.get("amount") or 0)
     cid = str(doc["_id"])
     ledger_entry = ledger.get("commitments", {}).get(cid)
@@ -838,7 +839,7 @@ async def _serialise_all(
     feasibility and shared_pot_goals — every list/create/update response
     calls this so Planning, the sheet and the payday plan can never drift.
     Index-aligned with `docs`."""
-    today = today or date.today()
+    today = today or timeutil.user_today()
     ledger = await compute_pot_ledger(uid, docs=docs)
     items = [await _serialise(doc, cfg, ledger, today=today) for doc in docs]
     _apply_joint_feasibility(items, docs, fctx, period_rhythm_label(cfg), debt_shortfall)
@@ -866,7 +867,7 @@ async def total_reserved_slices(uid: str) -> tuple[int, int]:
     if not docs:
         return 0, 0
     cfg = await _pay_cfg(uid)
-    today = date.today()
+    today = timeutil.user_today()
     ledger = await compute_pot_ledger(uid, docs=docs)
     total = 0
     for doc in docs:
@@ -899,7 +900,7 @@ def _validate_target_date(raw) -> str:
         target = date.fromisoformat(str(raw or "")[:10])
     except ValueError:
         raise HTTPException(400, "target_date must be an ISO date (YYYY-MM-DD)")
-    if target < date.today():
+    if target < timeutil.user_today():
         raise HTTPException(400, "target_date must not be in the past")
     return target.isoformat()
 
@@ -1184,7 +1185,7 @@ async def preview_commitment(body: dict, user: dict = Depends(current_user)):
     }
 
     cfg = await _pay_cfg(uid)
-    today = date.today()
+    today = timeutil.user_today()
     fctx = await _feasibility_ctx(uid)
     dctx = await _debt_ctx(uid)
     has_debt = bool(dctx and dctx.get("has_debt"))
