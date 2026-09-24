@@ -12,6 +12,17 @@ router = APIRouter(tags=["income"])
 VALID_SCHEDULE_TYPES = {"weekly", "biweekly", "day_of_month", "last_weekday"}
 
 
+def _is_stream_entry(s) -> bool:
+    """True for a well-formed `income_streams` element -- a dict carrying a
+    "key". Every write endpoint below filters the stored list by key before
+    re-inserting an entry; a malformed element (not a dict, or missing
+    "key" -- a partial migration write, a bad client payload) must not
+    crash the write, and IS dropped here rather than preserved, the same
+    self-healing "skip it" policy the read paths use (G158 2026-09-24
+    review: grep swept every `["key"]` access over `income_streams`)."""
+    return isinstance(s, dict) and bool(s.get("key"))
+
+
 async def _get_detected_income_streams(uid: str) -> list[dict]:
     """Re-run income detection from raw transactions (same logic as _compute_cashflow_patterns)."""
     cutoff = datetime.now() - timedelta(days=90)
@@ -194,7 +205,7 @@ async def confirm_income_stream(body: dict, user: dict = Depends(current_user)):
 
     # Update or insert into income_streams array
     prefs = await preferences_col.find_one({"user_id": uid}) or {}
-    streams = [s for s in (prefs.get("income_streams") or []) if s["key"] != key]
+    streams = [s for s in (prefs.get("income_streams") or []) if _is_stream_entry(s) and s["key"] != key]
     streams.append(entry)
     await preferences_col.update_one(
         {"user_id": uid},
@@ -215,7 +226,7 @@ async def reject_income_stream(body: dict, user: dict = Depends(current_user)):
         raise HTTPException(400, "key required")
 
     prefs = await preferences_col.find_one({"user_id": uid}) or {}
-    streams = [s for s in (prefs.get("income_streams") or []) if s["key"] != key]
+    streams = [s for s in (prefs.get("income_streams") or []) if _is_stream_entry(s) and s["key"] != key]
     streams.append({"key": key, "status": "rejected"})
     await preferences_col.update_one(
         {"user_id": uid},
@@ -255,7 +266,7 @@ async def set_manual_income(body: dict, user: dict = Depends(current_user)):
     }
 
     prefs = await preferences_col.find_one({"user_id": uid}) or {}
-    streams = [s for s in (prefs.get("income_streams") or []) if s["key"] != "manual"]
+    streams = [s for s in (prefs.get("income_streams") or []) if _is_stream_entry(s) and s["key"] != "manual"]
     streams.append(entry)
     await preferences_col.update_one(
         {"user_id": uid},
@@ -272,7 +283,7 @@ async def set_manual_income(body: dict, user: dict = Depends(current_user)):
 async def delete_income_stream(key: str, user: dict = Depends(current_user)):
     uid = user["email"]
     prefs = await preferences_col.find_one({"user_id": uid}) or {}
-    streams = [s for s in (prefs.get("income_streams") or []) if s["key"] != key]
+    streams = [s for s in (prefs.get("income_streams") or []) if _is_stream_entry(s) and s["key"] != key]
     await preferences_col.update_one(
         {"user_id": uid},
         {"$set": {"income_streams": streams, "user_id": uid}},
@@ -316,7 +327,7 @@ async def confirm_payday(body: dict = None, user: dict = Depends(current_user)):
     }
 
     prefs = await preferences_col.find_one({"user_id": uid}) or {}
-    streams = [s for s in (prefs.get("income_streams") or []) if s.get("key") != entry["key"]]
+    streams = [s for s in (prefs.get("income_streams") or []) if _is_stream_entry(s) and s["key"] != entry["key"]]
     streams.append(entry)
     await preferences_col.update_one(
         {"user_id": uid},

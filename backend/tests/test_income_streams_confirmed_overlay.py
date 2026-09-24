@@ -125,3 +125,19 @@ def test_malformed_schedule_string_is_skipped_not_raised():
     keys = [r["key"] for r in result]
     assert CONFIRMED_KEY in keys
     assert "BAD SCHEDULE STREAM" not in keys
+
+
+def test_is_stream_entry_guards_write_endpoint_filters():
+    """`_is_stream_entry` backs every income.py write endpoint that filters
+    the stored `income_streams` list by key before re-inserting an entry
+    (confirm/reject/manual/delete/confirm-payday) -- a malformed element
+    (not a dict, or missing "key") must be excluded rather than raise when
+    those endpoints do `s["key"] != <key>` (2026-09-24 review sweep)."""
+    assert income_router._is_stream_entry(CONFIRMED_STREAM) is True
+    assert income_router._is_stream_entry({"status": "confirmed"}) is False
+    assert income_router._is_stream_entry("not-a-dict") is False
+    assert income_router._is_stream_entry(None) is False
+
+    streams = [{"status": "confirmed"}, "not-a-dict", None, CONFIRMED_STREAM]
+    filtered = [s for s in streams if income_router._is_stream_entry(s) and s["key"] != "some-other-key"]
+    assert filtered == [CONFIRMED_STREAM]

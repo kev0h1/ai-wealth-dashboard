@@ -970,6 +970,22 @@ def _detect_recurring(txns: list, min_occurrences: int = 2, trusted_categories: 
     return results
 
 
+def _raw_income_stream_map(income_streams: list | None) -> dict[str, dict]:
+    """Key -> stream map over the FULL `income_streams` list, no status
+    filter (unlike `_build_confirmed_income_map`) -- used where a caller
+    needs to look up a stream's status/amount regardless of whether it is
+    confirmed, suggested or rejected (e.g. `compute_safe_to_spend`'s
+    income_suggestion step, which explicitly excludes confirmed/rejected
+    streams from its own candidate list). Same malformed-entry guard: a
+    non-dict entry or one missing "key" is skipped, not raised on
+    (G158 2026-09-24 review).
+    """
+    return {
+        _s["key"]: _s for _s in (income_streams or [])
+        if isinstance(_s, dict) and _s.get("key")
+    }
+
+
 def _build_confirmed_income_map(income_streams: list | None) -> dict[str, dict]:
     """Build the key -> confirmed-stream map both `_detect_recurring`'s
     `confirmed_income` param and `_confirmed_income_fallback` key off, from
@@ -989,6 +1005,18 @@ def _build_confirmed_income_map(income_streams: list | None) -> dict[str, dict]:
         if _key and _s.get("status") == "confirmed" and _s.get("schedule"):
             out[_key] = _s
     return out
+
+
+def _within_pct_tolerance(a: float, b: float, pct: float = 0.15) -> bool:
+    """Same tolerance rule `_compute_cashflow_patterns`'s locally-scoped
+    `_within_15pct` uses for its own recurring-spend dedupe (that one is a
+    closure over `recurring_spend`/`single_debits`, not importable from a
+    module-level function) -- kept as one module-level helper so
+    `_confirmed_income_fallback`'s dedupe guard (G158 2026-09-24 review) can
+    reuse the identical maths rather than drift from it.
+    """
+    ref = max(abs(a), abs(b))
+    return ref == 0 or abs(a - b) / ref <= pct
 
 
 def _confirmed_income_fallback(
@@ -1044,6 +1072,34 @@ def _confirmed_income_fallback(
             continue
         avg_amount = stream.get("avg_amount")
         if avg_amount is None:
+            continue
+        # G158 2026-09-24 review: a payroll reference change means the SAME
+        # payer can accrue enough fresh occurrences under the NEW key to
+        # clear `_detect_recurring`'s own floor before the confirmed
+        # stream's owner ever re-confirms under it (see G157). Without this
+        # guard, the confirmed key (old reference) and the newly-detected
+        # key (new reference) both end up in `recurring_income`, doubling
+        # the same salary in `upcoming_income`/`payday_income`. Suppress the
+        # synthesis when an already-detected entry lands within 3 days AND
+        # within 15% of amount -- close enough to be the same payer, not a
+        # coincidence -- and leave the DETECTED entry (real transaction
+        # evidence) in place rather than the synthesised one.
+        _dup = next(
+            (
+                r for r in recurring_income
+                if r.get("next_date") is not None
+                and abs((r["next_date"] - next_date).days) <= 3
+                and _within_pct_tolerance(float(r.get("avg_amount") or 0), float(avg_amount))
+            ),
+            None,
+        )
+        if _dup is not None:
+            logger.info(
+                "G158 confirmed-income fallback suppressed for %r: already detected "
+                "as %r (next_date within 3 days, amount within 15%%) -- not "
+                "double-counting the same payer under two series keys",
+                key, _dup.get("key"),
+            )
             continue
         matching = sorted(credits_by_key.get(key, []), key=lambda t: t["date"])
         last_date = None
@@ -2381,7 +2437,7 @@ async def at_risk_count(user: dict = Depends(current_user)):
     # and only when the prediction is reliable — see income_credit_ok.
     _confirmed_keys = {
         s.get("key") for s in (_user_prefs.get("income_streams") or [])
-        if s.get("status") == "confirmed"
+        if isinstance(s, dict) and s.get("status") == "confirmed"
     }
     events: list[tuple[int, str, float, bool, str]] = []  # (days_away, acct_id, amount, is_income, kind)
     for b in assessable_bills:
@@ -3174,13 +3230,14 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
     if uid:
         overrides = await upcoming_overrides_col.find({"uid": uid}).to_list(None)
 
-    # Load confirmed income schedules so _occurrences can step correctly
+    # Load confirmed income schedules so _occurrences can step correctly.
+    # Same construction as `_compute_cashflow_patterns`'s `_confirmed_income_map`
+    # -- reuse the one guarded builder rather than a second unguarded copy
+    # (2026-09-24 review: this site had the same unguarded `s["key"]` bug).
     confirmed_income: dict[str, dict] = {}
     if uid:
         _prefs_doc = prefs if prefs is not None else (await preferences_col.find_one({"user_id": uid}) or {})
-        for s in (_prefs_doc.get("income_streams") or []):
-            if s.get("status") == "confirmed" and s.get("schedule"):
-                confirmed_income[s["key"]] = s
+        confirmed_income = _build_confirmed_income_map(_prefs_doc.get("income_streams"))
 
     # Load user-defined AI recurrence rules (highest priority)
     rules: dict[str, dict] = {}
@@ -3780,7 +3837,7 @@ async def get_cashflow(user: dict = Depends(current_user)):
 
     # income_suggestion: largest mature un-rejected unconfirmed stream
     _dismissed = set(_prefs.get("dismissed_recurring") or [])
-    _stored_map = {s["key"]: s for s in (_prefs.get("income_streams") or [])}
+    _stored_map = _raw_income_stream_map(_prefs.get("income_streams"))
     _income_patterns = data.get("recurring_income", [])
 
     _candidates = []

@@ -149,9 +149,12 @@ def get_confirmed_payday(uid_prefs: dict, today: date) -> tuple[date, dict] | No
     across all confirmed streams. Also return the primary stream (largest avg_amount).
     Returns (next_date, primary_stream_dict) or None if no confirmed streams.
     """
+    # isinstance guard: a malformed `income_streams` entry (not a dict) must
+    # not crash this -- it sits directly on the Safe-to-Spend "next payday"
+    # step (2026-09-24 review, same malformed-entry sweep as G158).
     confirmed = [
         s for s in (uid_prefs.get("income_streams") or [])
-        if s.get("status") == "confirmed" and s.get("schedule")
+        if isinstance(s, dict) and s.get("status") == "confirmed" and s.get("schedule")
     ]
     if not confirmed:
         return None

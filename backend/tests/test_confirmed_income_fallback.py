@@ -7,7 +7,8 @@ floor). Pure, Mongo-free tests: the helper takes plain dicts.
 """
 from datetime import date, datetime
 
-from app.routers.analytics import _detect_recurring, _confirmed_income_fallback, _build_confirmed_income_map
+from app.routers.analytics import _detect_recurring, _confirmed_income_fallback, _build_confirmed_income_map, _raw_income_stream_map
+from app.services.income import get_confirmed_payday
 
 TODAY = date(2026, 9, 24)
 
@@ -127,3 +128,72 @@ def test_fallback_skips_entry_whose_schedule_is_a_string_instead_of_raising():
     bad_schedule_stream = {**CONFIRMED_STREAM, "schedule": "last_weekday"}
     result = _confirmed_income_fallback([], {CONFIRMED_KEY: bad_schedule_stream}, set(), TODAY)
     assert result == []
+
+
+def test_raw_income_stream_map_skips_entry_with_no_key():
+    # `compute_safe_to_spend`'s income_suggestion step (analytics.py
+    # `_stored_map`, ~line 3783) and `_build_cashflow_response`'s
+    # `confirmed_income` (~line 3183) both key off `income_streams` without
+    # the status/schedule filter `_build_confirmed_income_map` applies.
+    malformed = {"status": "suggested"}
+    result = _raw_income_stream_map([malformed, "not-a-dict", None, CONFIRMED_STREAM])
+    assert list(result.keys()) == [CONFIRMED_KEY]
+
+
+def test_get_confirmed_payday_skips_non_dict_entry_instead_of_raising():
+    # `get_confirmed_payday` sits directly on `compute_safe_to_spend`'s
+    # "next payday" step -- a malformed `income_streams` entry here must
+    # not crash Safe to Spend (2026-09-24 review sweep).
+    uid_prefs = {"income_streams": ["not-a-dict", None, CONFIRMED_STREAM]}
+    result = get_confirmed_payday(uid_prefs, TODAY)
+    assert result is not None
+    next_date, primary = result
+    assert next_date == date(2026, 9, 25)
+    assert primary["key"] == CONFIRMED_KEY
+
+
+# ── 2026-09-24 review, finding 2: a payroll reference change must not ─────
+# ── double the same salary once the NEW key clears the detection floor ────
+
+NEW_REF_KEY_2 = "0201-GOLDMAN SACHS GOLDMAN SACHS PA"
+
+
+def test_dedupe_guard_suppresses_confirmed_when_new_reference_gets_detected():
+    """Reproduces the reviewer's follow-on scenario: by the month AFTER the
+    reference change, the NEW key (B) has accrued two occurrences of its
+    own and clears `_detect_recurring`'s floor on real transaction
+    evidence, while the CONFIRMED key (A, old reference) has only one
+    surviving occurrence in view and stays undetected. Without the dedupe
+    guard, `_confirmed_income_fallback` would still synthesise A (same
+    payer, same amount) alongside the genuinely-detected B, doubling the
+    salary in `upcoming_income`/`payday_income` (4798.08 -> 9596.16, the
+    reviewer's own repro number). The guard must suppress A because B's
+    next_date lands within 3 days of A's and the amount matches within 15%.
+    """
+    TODAY = date(2026, 10, 26)
+
+    # Three A credits exist in Kevin's real history (29 May, 26 Jun, 31 Jul
+    # -- see the module docstring's original G158 scenario); only the
+    # newest survives whatever window feeds `_detect_recurring` as of this
+    # later `today`, same convention as `test_reference_change_scenario_end_to_end`.
+    income_credits = [
+        income_txn(CONFIRMED_KEY, date(2026, 7, 31), 4798.08),
+        income_txn(NEW_REF_KEY_2, date(2026, 8, 28), 4798.08),
+        income_txn(NEW_REF_KEY_2, date(2026, 9, 30), 4798.08),
+    ]
+    recurring_income = _detect_recurring(income_credits, today=TODAY, is_income=True)
+    # B cleared the floor on its own evidence; A did not.
+    assert len(recurring_income) == 1
+    assert recurring_income[0]["key"] == NEW_REF_KEY_2
+
+    fallback = _confirmed_income_fallback(
+        recurring_income, {CONFIRMED_KEY: CONFIRMED_STREAM}, set(), TODAY,
+    )
+    # A must be suppressed as a near-duplicate of the detected B entry, not
+    # synthesised alongside it.
+    assert fallback == []
+
+    combined = recurring_income + fallback
+    assert len(combined) == 1
+    assert combined[0]["key"] == NEW_REF_KEY_2
+    assert "source" not in combined[0]
