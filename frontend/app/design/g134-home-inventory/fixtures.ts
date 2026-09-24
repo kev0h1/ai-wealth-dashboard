@@ -355,8 +355,18 @@ export const SAFE_TO_SPEND_STATES: readonly StsFixture[] = [
   {
     key: "unsupported",
     label: "Unsupported",
-    note: "status=\"insufficient_data\" with calculation_status=\"unsupported\" — this account/currency setup (e.g. Kenya region) can't be calculated safely at all.",
-    data: { status: "insufficient_data", calculation_status: "unsupported" },
+    note: "status=\"insufficient_data\" with calculation_status=\"unsupported\": this shape existed for the Kenya region, which A98 (commit 5c1a93d2) removed entirely; kept here only as design history for the empty-state variant, not a live backend case.",
+    // lib/api.ts's SafeToSpend type does not declare calculation_status on the
+    // insufficient_data branch, so this fixture needs a cast to compile. The
+    // cast is not evidence of current backend behaviour: A98 (commit
+    // 5c1a93d2) removed the Kenya region, and nothing in backend/ (including
+    // routers/analytics.py) emits calculation_status="unsupported" any more.
+    // This entry models a removed case, retained purely so the empty-state
+    // variant still has a fixture to render; it does not reflect what the
+    // API returns today. Pre-existing type gap, unrelated to G134's two
+    // rejection fixes; cast locally here rather than widening the shared type
+    // as part of this fix.
+    data: { status: "insufficient_data", calculation_status: "unsupported" } as SafeToSpend,
   },
   {
     key: "insufficient_data",

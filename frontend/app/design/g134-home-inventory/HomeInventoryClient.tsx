@@ -10,11 +10,14 @@
 // takes one, dismissible=false everywhere else — see the per-zone comments
 // below for exactly which write paths that closes off).
 //
-// /design/g134-home-inventory?mode=light|dark&balances=visible|hidden&stack=one|two|three|all
+// /design/g134-home-inventory?mode=light|dark&state=stack-one|stack-two|stack-three|stack-all|balances-hidden
+// (or the equivalent ?stack=one|two|three|all&balances=visible|hidden the page's own
+// toolbar links use; see the `state` parsing below for how the two coexist)
 
-import { useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { Route } from "next";
+import { usePreferences } from "@/components/PreferencesContext";
 import FixtureBottomNav from "../_components/FixtureBottomNav";
 import { PRODUCTION_CARD_FIXTURES, type ProductionCardKind } from "../home-brief-cards/productionFixtures";
 import {
@@ -73,6 +76,18 @@ const STACK_LABEL: Record<Stack, string> = { one: "1 card", two: "2 cards", thre
 
 function noop() {}
 const identity = (t: string) => t;
+// Mirrors BriefBody's own masking regex (components/HomeBrief.tsx, "Mask £
+// figures in a string when hideNetWorth is on") so the labelled catalogue
+// entries below mask exactly as the real component does when it builds its
+// own maskAmounts closure internally.
+const hiddenMaskAmounts = (t: string) => t.replace(/£[\d,]+(?:\.\d+)?/g, "£••••");
+
+// SSR renders this client component on the server too, where
+// useLayoutEffect is a no-op and React warns about it; useEffect there
+// instead is silent and irrelevant, since the fetch stand-in below only
+// ever needs to exist in the browser. Same pattern as g88-home-real and
+// g115-spend-from-accounts.
+const useIsomorphicLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 function hrefFor({ mode, balances, stack }: { mode: Mode; balances: Balances; stack: Stack }) {
   return `?mode=${mode}&balances=${balances}&stack=${stack}`;
@@ -131,11 +146,74 @@ export default function HomeInventoryClient() {
   const router = useRouter();
   const params = useSearchParams();
   const { colours } = useColours();
+  const { preferencesReady, setHideNetWorth } = usePreferences();
 
   const mode: Mode = params.get("mode") === "dark" ? "dark" : "light";
-  const balances: Balances = params.get("balances") === "hidden" ? "hidden" : "visible";
+
+  // The /design index's PreviewCard emits every state chip as `?state=<value>`
+  // (see app/design/page.tsx's ROUTES entry for this preview: stack-all,
+  // stack-one, stack-two, stack-three, balances-hidden). This preview's own
+  // bottom toolbar instead links with the two separate `?stack=` and
+  // `?balances=` params it always used. `state` is read first and, when
+  // present, wins; `stack`/`balances` remain the fallback so the toolbar's
+  // own links (and any old direct link using them) keep working. Without
+  // this, every index chip fell back to the same bare default and rendered
+  // byte-identical previews, which was the rejected defect (1).
+  const rawState = params.get("state");
+  const stateStack: Stack | null =
+    rawState === "stack-all" ? "all"
+    : rawState === "stack-one" ? "one"
+    : rawState === "stack-two" ? "two"
+    : rawState === "stack-three" ? "three"
+    : null;
+  const stateBalancesHidden = rawState === "balances-hidden";
+
+  const rawBalances = params.get("balances");
+  const balances: Balances = stateBalancesHidden || rawBalances === "hidden" ? "hidden" : "visible";
   const rawStack = params.get("stack");
-  const stack: Stack = (STACKS as string[]).includes(rawStack ?? "") ? (rawStack as Stack) : "all";
+  const stack: Stack = stateStack ?? ((STACKS as string[]).includes(rawStack ?? "") ? (rawStack as Stack) : "all");
+
+  const hidden = balances === "hidden";
+  const maskAmounts = hidden ? hiddenMaskAmounts : identity;
+
+  // Defect (2): balances=hidden used to only relabel this preview's own
+  // toolbar button. Every card was fed the hardcoded literals
+  // maskAmounts={identity} and hideNetWorth={false} regardless of the URL,
+  // and SafeToSpendCard/ThisMonthStrip read hideNetWorth from
+  // PreferencesContext directly, which this preview never touched, so
+  // nothing actually masked. /design is signed out, and PreferencesProvider
+  // (app/Providers.tsx, wraps the whole app including this route) owns its
+  // own state from an always-401ing GET/PATCH /preferences, which is the
+  // same trap G88 and G115 hit and fixed the same way: intercept only this
+  // preview's own /preferences round trip so the real setHideNetWorth()
+  // write always succeeds instead of reverting, then drive it for real.
+  // Every card below now reads the resulting `hidden`/`maskAmounts` through
+  // its own real props, and SafeToSpendCard/ThisMonthStrip pick the same
+  // value up for real through context.
+  useIsomorphicLayoutEffect(() => {
+    if (typeof window === "undefined") return;
+    const nativeFetch = window.fetch.bind(window);
+    const isPreferencesRequest = (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      return /\/preferences(?:[/?]|$)/.test(url);
+    };
+    let version = 0;
+    window.fetch = (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      if (!isPreferencesRequest(input)) return nativeFetch(input, init);
+      version += 1;
+      return new Response(JSON.stringify({ hide_net_worth: hidden, version }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as typeof window.fetch;
+    return () => {
+      window.fetch = nativeFetch;
+    };
+  }, [hidden]);
+
+  useEffect(() => {
+    if (preferencesReady) setHideNetWorth(hidden);
+  }, [hidden, preferencesReady, setHideNetWorth]);
 
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
 
@@ -223,6 +301,7 @@ export default function HomeInventoryClient() {
                   syncError={false}
                   onSync={noop}
                   hasAccounts={true}
+                  hideNetWorth={hidden}
                   dismissible={false}
                 />
               </div>
@@ -239,6 +318,7 @@ export default function HomeInventoryClient() {
                   syncError={false}
                   onSync={noop}
                   hasAccounts={true}
+                  hideNetWorth={hidden}
                   dismissible={false}
                   banner={<ReconnectStrip providers={RECONNECT_PROVIDERS} onReconnect={noop} />}
                 />
@@ -247,7 +327,7 @@ export default function HomeInventoryClient() {
 
             <CatalogueEntry component="HomeBrief → BriefSkeleton" condition="loading = true — the two-line pulse shown while /today is still in flight">
               <div className="glass-card rounded-2xl p-4">
-                <HomeBrief items={[]} firstName="Kevin" safeToSpend={null} loading={true} syncing={false} syncError={false} onSync={noop} />
+                <HomeBrief items={[]} firstName="Kevin" safeToSpend={null} loading={true} syncing={false} syncError={false} onSync={noop} hideNetWorth={hidden} />
               </div>
             </CatalogueEntry>
 
@@ -262,6 +342,7 @@ export default function HomeInventoryClient() {
                   syncError={true}
                   onSync={noop}
                   hasAccounts={true}
+                  hideNetWorth={hidden}
                   dismissible={false}
                 />
               </div>
@@ -307,43 +388,43 @@ export default function HomeInventoryClient() {
             </p>
 
             <CatalogueEntry component="CelebrationCard" condition='type: "celebration" — a bill or pot has been verified covered ("Sorted" reward)'>
-              <CelebrationCard item={celebrationItem} router={router} maskAmounts={identity} dismissible={false} />
+              <CelebrationCard item={celebrationItem} router={router} maskAmounts={maskAmounts} dismissible={false} />
             </CatalogueEntry>
 
             <CatalogueEntry component="CliffCard" condition='type: "cliff" — a 0%/promo rate is ending soon'>
-              <CliffCard item={cliffItem} maskAmounts={identity} dismissible={false} />
+              <CliffCard item={cliffItem} maskAmounts={maskAmounts} dismissible={false} />
             </CatalogueEntry>
 
             <CatalogueEntry component="CliffCard" condition='type: "trajectory" — companion.py only ever emits this for a "drifting" or "bad" debt verdict, never good news dressed up neutral'>
-              <CliffCard item={TRAJECTORY_ITEM} maskAmounts={identity} dismissible={false} />
+              <CliffCard item={TRAJECTORY_ITEM} maskAmounts={maskAmounts} dismissible={false} />
             </CatalogueEntry>
 
             <CatalogueEntry component="RhythmCard" condition="type: rhythm AND payload.multiple >= 1.5 — the interactive card, one_off/new_normal intent buttons">
-              <RhythmCard item={rhythmItem} router={router} maskAmounts={identity} previewMode dismissible={false} />
+              <RhythmCard item={rhythmItem} router={router} maskAmounts={maskAmounts} previewMode dismissible={false} />
             </CatalogueEntry>
 
             <CatalogueEntry component="CliffCard" condition="type: rhythm WITHOUT a qualifying payload — falls through to the plain info-card treatment, no accent, no CTA">
-              <CliffCard item={RHYTHM_INFO_ITEM} maskAmounts={identity} dismissible={false} />
+              <CliffCard item={RHYTHM_INFO_ITEM} maskAmounts={maskAmounts} dismissible={false} />
             </CatalogueEntry>
 
             <CatalogueEntry component="IntentPaceCard" condition='type: "intent_pace" — a quiet pace note against a Mirror-chosen aim'>
-              <IntentPaceCard item={intentPaceItem} maskAmounts={identity} dismissible={false} />
+              <IntentPaceCard item={intentPaceItem} maskAmounts={maskAmounts} dismissible={false} />
             </CatalogueEntry>
 
             <CatalogueEntry component="UnfundedMoveCard" condition='type: "unfunded_move" — a due-but-unfunded own transfer; this fixture is the compact-handoff branch (every account fully covered)'>
-              <UnfundedMoveCard item={unfundedMoveItem} hideNetWorth={false} maskAmounts={identity} previewMode dismissible={false} />
+              <UnfundedMoveCard item={unfundedMoveItem} hideNetWorth={hidden} maskAmounts={maskAmounts} previewMode dismissible={false} />
             </CatalogueEntry>
 
             <CatalogueEntry component="AskPaydayCard" condition='id === "ask:payday" — the one bespoke ask; its two buttons ARE the confirm_payday (primary) and set_payday (secondary) subtypes'>
-              <AskPaydayCard item={askPaydayItem} router={router} maskAmounts={identity} previewMode />
+              <AskPaydayCard item={askPaydayItem} router={router} maskAmounts={maskAmounts} previewMode />
             </CatalogueEntry>
 
             <CatalogueEntry component="AskGenericCard" condition='type: "ask", id !== "ask:payday" — the card_terms subtype (action.kind === "card_terms")'>
-              <AskGenericCard item={askCardTermsItem} router={router} maskAmounts={identity} dismissible={false} />
+              <AskGenericCard item={askCardTermsItem} router={router} maskAmounts={maskAmounts} dismissible={false} />
             </CatalogueEntry>
 
             <CatalogueEntry component="AskGenericCard" condition='type: "ask", id !== "ask:payday" — the plain "generic" subtype, unrelated to card terms (same component, different copy)'>
-              <AskGenericCard item={GENERIC_ASK_ITEM} router={router} maskAmounts={identity} dismissible={false} />
+              <AskGenericCard item={GENERIC_ASK_ITEM} router={router} maskAmounts={maskAmounts} dismissible={false} />
             </CatalogueEntry>
 
             <CatalogueEntry component="(inline in BriefBody, no separate component)" condition='type: "needle" — invitation to review a closed month; reproduced verbatim from components/HomeBrief.tsx ~2067-2081, there is nothing importable for it'>
@@ -365,7 +446,7 @@ export default function HomeInventoryClient() {
             </CatalogueEntry>
 
             <CatalogueEntry component="MoveCard" condition='type: "move" — a cover-plan money-move recommendation; renders LAST regardless of urgency (see the callout above)'>
-              <MoveCard item={coverPlanItem} hideNetWorth={false} maskAmounts={identity} previewMode dismissible={false} />
+              <MoveCard item={coverPlanItem} hideNetWorth={hidden} maskAmounts={maskAmounts} previewMode dismissible={false} />
             </CatalogueEntry>
           </section>
 
@@ -379,7 +460,7 @@ export default function HomeInventoryClient() {
               previewMode flag to them and their buttons call a real, unauthenticated endpoint.
             </p>
             <div className="glass-card rounded-2xl p-4">
-              <BriefBody items={stackItems} safeToSpend={SAFE_TO_SPEND_STATES[0].data} router={router} hideNetWorth={false} dismissible={false} />
+              <BriefBody items={stackItems} safeToSpend={SAFE_TO_SPEND_STATES[0].data} router={router} hideNetWorth={hidden} dismissible={false} />
             </div>
           </section>
 
