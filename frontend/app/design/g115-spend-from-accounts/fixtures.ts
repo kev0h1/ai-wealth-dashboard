@@ -15,7 +15,15 @@ export type PreviewState =
   // on a real screen, not a claim in a test report. Variant A renders the
   // shipped SafeToSpendCard with no override, so these are the real
   // treatments, not preview markup.
-  | "missing" | "failed";
+  | "missing" | "failed"
+  // G165 (2026-09-25): the rail is always at most two rows (best +
+  // alternative, spendFromTreatmentPlan filters to just those), so a single
+  // rail can never hold three distinct digit-length figures at once. This
+  // state instead spans the two extremes, a 1-digit headroom next to a
+  // 5-digit one, on the reasoning that if the fixed icon column survives
+  // that gap undisturbed, the 3-digit gap from Kevin's own screenshot
+  // (£275 vs £22) is already covered in between.
+  | "wideDigits";
 
 export type G115Fixture = {
   label: string;
@@ -319,6 +327,25 @@ export const FIXTURES: Record<PreviewState, G115Fixture> = {
     savingsMove: false,
     hidden: true,
   }),
+  // G165: a synthetic digit-width stress test, not a claim about realistic
+  // headroom. £8 and £18,240 in the same two-row rail is a harder case than
+  // Kevin's real £275-vs-£22 screenshot, exercising the fixed icon column
+  // against the widest gap the layout could plausibly meet.
+  wideDigits: fixture(BASE_ACCOUNTS, {
+    [EVERYDAY.id]: { short: false, headroom: 8, spend_from_headroom: 8 },
+    [FLEX.id]: { short: false, headroom: 18240, spend_from_headroom: 18240 },
+    [BILLS.id]: { short: true, headroom: 0, spend_from_headroom: 0 },
+    [RAINY_DAY.id]: { short: false, headroom: 280, spend_from_headroom: 280 },
+    [CREDIT.id]: { short: false, headroom: 500, spend_from_headroom: 500 },
+  }, {
+    label: "Wide figure range",
+    description: "£8 next to £18,240 in the same rail (G165): a 1-digit and a 5-digit figure, proving the icon column holds its line whatever the amount's width.",
+    hero: 86,
+    coverPlan: null,
+    moveLinked: false,
+    savingsMove: false,
+    hidden: false,
+  }),
 };
 
-export const STATE_ORDER: PreviewState[] = ["reserved", "clear", "one", "unbundled", "savings", "missing", "failed", "hidden"];
+export const STATE_ORDER: PreviewState[] = ["reserved", "clear", "one", "unbundled", "savings", "missing", "failed", "hidden", "wideDigits"];

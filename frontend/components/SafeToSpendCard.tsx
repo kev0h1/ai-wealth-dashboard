@@ -96,7 +96,12 @@ function SpendFromBankRail({ entries, amount, onLogoError }: {
           const bank = localBank(entry.account)!;
           const spare = amount(entry.headroom);
           return (
-            <li key={entry.accountId} className="flex items-center justify-end gap-1.5">
+            // G165: a fixed 22px icon column plus a right-aligned figure
+            // column, so the badge sits in one vertical line whatever the
+            // figure's own width is (£22 vs £275 no longer nudge it
+            // sideways). Same template on every row is what keeps the
+            // column aligned; the icon size below must stay 22 to match it.
+            <li key={entry.accountId} className="grid grid-cols-[22px_1fr] items-center gap-1.5">
               <span className="sr-only">{entry.name} at {bank.label}, {spare} spare</span>
               <BankBadge
                 logoSrc={bank.logoSrc}
@@ -107,7 +112,7 @@ function SpendFromBankRail({ entries, amount, onLogoError }: {
                 size={22}
                 onLogoError={() => onLogoError(bank.logoSrc)}
               />
-              <span aria-hidden="true" className="money text-[11px] font-semibold text-slate-700 dark:text-slate-200">{spare}</span>
+              <span aria-hidden="true" className="money text-right text-[11px] font-semibold text-slate-700 dark:text-slate-200">{spare}</span>
             </li>
           );
         })}
