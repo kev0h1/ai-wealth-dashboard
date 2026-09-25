@@ -16,6 +16,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from app.core.auth import current_user
 from app.core.config import OPENROUTER_API_KEY, TAVILY_API_KEY
 from app.core.llm import openrouter_chat
+from app.core import timeutil
 from app.services.categories import (
     BUILTIN_CATEGORY_KINDS, COMMITMENT, DISCRETIONARY, get_category_kinds, kind_of,
 )
@@ -2281,7 +2282,14 @@ def _derive_insight_state(d: dict) -> str:
     # discipline as before.
     has_content = _has_researched_content(d)
     content_valid_until = d.get("content_valid_until")
-    fresh = has_content and bool(content_valid_until) and datetime.utcnow() < content_valid_until
+    # G161 follow-up: compared as Europe/London calendar dates, not raw
+    # UTC instants -- content stays "fresh" through the END of the London
+    # day content_valid_until falls on, not the exact stored instant (a
+    # UTC-evening instant can already be the next London day).
+    fresh = (
+        has_content and bool(content_valid_until)
+        and timeutil.user_today() <= timeutil.to_user_date(content_valid_until)
+    )
     return "fresh" if fresh else "quiet"
 
 
@@ -2292,8 +2300,15 @@ def _relative_age(dt: datetime, now: datetime) -> str:
     2026-09-02 alongside the cadence-copy deletion — `expiry_line` is now
     the sole source of age wording, rendered verbatim client-side, so there
     is nothing left for a client-side twin to keep in sync with. Guarded
-    against clock-skew going slightly negative."""
-    days = (now - dt).days
+    against clock-skew going slightly negative.
+
+    G161 follow-up: `days` is a difference of Europe/London CALENDAR dates
+    (`timeutil.to_user_date`), not a raw instant delta's `.days`. A UTC
+    instant near midnight can already be the next London day, which a raw
+    elapsed-duration count would miss (e.g. researched at 23:30 UTC, viewed
+    2 hours later, is genuinely "yesterday" to a London user even though
+    under 24 raw hours have passed)."""
+    days = (timeutil.to_user_date(now) - timeutil.to_user_date(dt)).days
     if days <= 0:
         return "today"
     if days == 1:
@@ -2336,7 +2351,11 @@ def _expiry_line(
         return None
     claim_governs = claim_valid_until is not None and content_valid_until == claim_valid_until
     if claim_governs:
-        return f"Valid until {content_valid_until.strftime('%a')} {content_valid_until.day} {content_valid_until.strftime('%b')}"
+        # G161 follow-up: the displayed day is the stored instant's
+        # Europe/London calendar date, not its raw UTC date -- a
+        # late-evening UTC instant can already be the next London day.
+        _valid_until_ld = timeutil.to_user_date(content_valid_until)
+        return f"Valid until {_valid_until_ld.strftime('%a')} {_valid_until_ld.day} {_valid_until_ld.strftime('%b')}"
     if researched_at:
         return f"Researched {_relative_age(researched_at, now)}"
     return None
@@ -2431,7 +2450,14 @@ def _serialize_insight(d: dict, kinds: dict | None = None) -> dict:
     # one), but it's still true that the category is new to the user.
     _is_new_raw = bool(d.get("is_new", False))
     _is_new_anchor = d.get("refreshed_at") or d.get("created_at")
-    is_new = _is_new_raw and bool(_is_new_anchor) and (datetime.utcnow() - _is_new_anchor) <= IS_NEW_TTL
+    # G161 follow-up: the 7-day badge window is counted in Europe/London
+    # calendar days, not a raw instant delta -- see `_relative_age`'s
+    # docstring for why a raw <=7-day elapsed-time check can disagree with
+    # "7 London days ago" by one day near a UTC/London midnight crossing.
+    is_new = (
+        _is_new_raw and bool(_is_new_anchor)
+        and (timeutil.user_today() - timeutil.to_user_date(_is_new_anchor)).days <= IS_NEW_TTL.days
+    )
 
     # THE INVARIANT, as a hard assertion (owner phone report 2026-09-01: "no
     # content -> no full card, ever, no override"). Everything above this
@@ -2555,7 +2581,7 @@ def _serialize_insight(d: dict, kinds: dict | None = None) -> dict:
         # above (see `_expiry_line`). Only meaningful (non-null) while
         # content_live.
         "expiry_line": (
-            _expiry_line(researched_at, content_valid_until_raw, claim_valid_until_raw, datetime.utcnow())
+            _expiry_line(researched_at, content_valid_until_raw, claim_valid_until_raw, timeutil.user_now())
             if content_live else None
         ),
         # STRUCTURAL FIX — the single source of truth every consumer should
@@ -2605,9 +2631,17 @@ def _material_change_reason(d: dict) -> Optional[str]:
     """Why a dismissed insight has earned its way back, or None if it hasn't."""
     from app.routers.analytics import _parse_saving_amount
 
+    # G161 follow-up: the 60-day "is this deadline coming up" window is
+    # compared as Europe/London calendar dates, so a deadline stored as a
+    # late-UTC instant doesn't drop out of (or into) the window a day early
+    # depending on host clock/DST. The displayed grain is month/year
+    # (`strftime('%b %Y')`), which is insensitive to the same day-rounding.
     deadline = d.get("deadline_at")
-    if deadline and datetime.utcnow() < deadline <= datetime.utcnow() + timedelta(days=60):
-        return f"Your deal ends around {deadline.strftime('%b %Y')}"
+    if deadline:
+        _today_ld = timeutil.user_today()
+        _deadline_ld = timeutil.to_user_date(deadline)
+        if _today_ld < _deadline_ld <= _today_ld + timedelta(days=60):
+            return f"Your deal ends around {deadline.strftime('%b %Y')}"
 
     old = d.get("estimate_at_dismissal")
     new = _parse_saving_amount(d.get("savings_estimate"))
@@ -2622,6 +2656,12 @@ def _material_change_reason(d: dict) -> Optional[str]:
         # explain why).
         return f"Updated: estimated saving now ~£{new:,.0f}/mo (was ~£{old:,.0f}/mo)"
 
+    # Left as a raw UTC-instant TTL check (G161 review, deliberate): this is
+    # a 30-day cooldown gate on an internal decision (does the callout
+    # resurface at all), not a day-count or date rendered to the user --
+    # unlike the deadline window above, nothing here is shown as "Xd ago" or
+    # "valid until", so it stays on the same instant-comparison pattern as
+    # every other TTL/cutoff left elsewhere in this sweep.
     dismissed = d.get("spotlight_dismissed_at")
     if dismissed is None or dismissed < datetime.utcnow() - timedelta(days=30):
         return ""  # cooldown expired — eligible again, no callout needed

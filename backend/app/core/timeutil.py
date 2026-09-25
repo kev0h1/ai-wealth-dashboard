@@ -42,3 +42,23 @@ def user_today() -> date:
     Timestamps persisted to Mongo stay `datetime.now(timezone.utc)`.
     """
     return user_now().date()
+
+
+def to_user_date(dt: datetime | None) -> date | None:
+    """Convert a stored UTC instant to the user's Europe/London calendar day.
+
+    Use whenever a stored UTC instant (a Mongo timestamp, `researched_at`,
+    `content_valid_until`, a `refreshed_at`/`created_at` anchor, a deadline)
+    is shown to the user as a day, or compared against `user_today()` in
+    days ("Xd ago", "valid until", a 7-day badge window). A naive datetime
+    is treated as UTC (via `as_utc`) before conversion, matching every other
+    Mongo-sourced value in this codebase. Never compare an aware and a naive
+    datetime directly, and never do day-count arithmetic on raw instants
+    across a UTC/London offset -- go through this (or `user_today()`) and
+    difference the resulting `date` objects instead. Returns None for None
+    input.
+    """
+    utc_dt = as_utc(dt)
+    if utc_dt is None:
+        return None
+    return utc_dt.astimezone(LONDON).date()

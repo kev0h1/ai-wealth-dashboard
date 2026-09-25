@@ -31,10 +31,12 @@ import app.core.timeutil as timeutil
 import app.routers.analytics as analytics
 import app.routers.allocations as allocations_router
 import app.routers.commitments as commitments_router
+import app.routers.savings_insights as savings_insights
 import app.services.cashflow as cashflow_service
 import app.services.income as income_service
 import app.services.net_position as net_position
 from app.routers.analytics import _build_cashflow_response
+from app.routers.savings_insights import _derive_insight_state, _relative_age, _serialize_insight
 from app.services.categories import CategoryKinds, BUILTIN_CATEGORY_KINDS
 
 
@@ -330,3 +332,123 @@ def test_upcoming_move_due_tomorrow_is_not_pending_or_overdue_at_frozen_clock(mo
     assert bill["pending"] is False, "a move due tomorrow must not read as 'was due'"
     assert bill["days_away"] == 1
     assert bill["days_past_due"] == 0
+
+
+# ── savings_insights.py: stored UTC instants rendered/compared at DAY
+# scale must go through Europe/London calendar dates (`timeutil.to_user_date`),
+# not raw instant deltas -- see app/core/timeutil.py's `to_user_date`
+# docstring. Independent review found G161's first pass fixed the "today"
+# boundary but missed this file's "Xd ago" / "Valid until" / New-badge
+# copy, which is exactly the same class of bug one level down (day-count,
+# not day-boundary).
+
+def _insight_doc(**overrides) -> dict:
+    """Minimal doc `_serialize_insight` can run against without crashing --
+    same shape `test_serialize_insight_estimate.py` already established for
+    this suite's neighbours (not shared across files by convention here)."""
+    base = {
+        "_id": "abc123",
+        "insight_id": "abc123",
+        "category": "energy",
+        "title": "Switch energy supplier",
+        "body": "Your tariff looks pricier than the market average.",
+        "savings_estimate": None,
+        "pinned": False,
+        "is_new": False,
+        "refreshed_at": None,
+        "researched_at": None,
+        "content_valid_until": None,
+    }
+    base.update(overrides)
+    return base
+
+
+def test_relative_age_counts_london_calendar_days_not_raw_instant_hours():
+    # Researched 2026-09-22T23:30:00Z = London 00:30 on the 23rd. Frozen
+    # "now" 2026-09-24T22:30:00Z = London 23:30 on the 24th. That's ONE
+    # London calendar day elapsed (23rd -> 24th), i.e. "yesterday" (the
+    # word `_relative_age` uses for days == 1) -- not "2d ago", which is
+    # what a raw elapsed-instant floor over-eager by a UTC/London offset
+    # could produce for a dt/now pair straddling a summer midnight.
+    # `_relative_age` takes both instants as explicit params (no freeze
+    # needed) and is itself host-TZ-independent (explicit ZoneInfo), proven
+    # under both process TZs below anyway for consistency with the rest of
+    # this file.
+    researched_at = datetime(2026, 9, 22, 23, 30, 0)
+    now = datetime(2026, 9, 24, 22, 30, 0)
+    for tz_name in ("Europe/Berlin", "UTC"):
+        with _with_process_tz(tz_name):
+            assert _relative_age(researched_at, now) == "yesterday", tz_name
+
+    # A cleaner demonstration that this is a REAL divergence, not just a
+    # coincidence of the numbers above: 2026-09-20T00:00:00Z is already
+    # London 2026-09-20 (01:00 BST); 2026-09-21T23:00:00Z is already London
+    # 2026-09-22 (00:00 BST, i.e. the NEXT UK day). That's 2 London calendar
+    # days apart, even though under 47 raw hours (1 day 23h) separate the
+    # two instants -- a raw elapsed-duration floor would say "yesterday"
+    # (1), the correct calendar-day answer is "2d ago".
+    dt2 = datetime(2026, 9, 20, 0, 0, 0)
+    now2 = datetime(2026, 9, 21, 23, 0, 0)
+    for tz_name in ("Europe/Berlin", "UTC"):
+        with _with_process_tz(tz_name):
+            assert _relative_age(dt2, now2) == "2d ago", tz_name
+
+
+def test_content_valid_until_fresh_through_end_of_its_london_day(monkeypatch):
+    # Frozen 2026-09-24T22:30Z = London 23:30 on the 24th. content_valid_until
+    # 2026-09-24T23:59:00Z = London 00:59 on the 25th -- already the NEXT
+    # London day. Fresh is compared as London calendar dates ("valid
+    # through the end of that London day"), so today's London date (24th)
+    # is still <= the valid-until London date (25th): still fresh.
+    _freeze(monkeypatch, "2026-09-24T22:30:00")
+    for tz_name in ("Europe/Berlin", "UTC"):
+        with _with_process_tz(tz_name):
+            state = _derive_insight_state({
+                "title": "Switch energy supplier",
+                "body": "Your tariff looks pricier than the market average.",
+                "content_valid_until": datetime(2026, 9, 24, 23, 59, 0),
+            })
+            assert state == "fresh", tz_name
+
+
+def test_new_badge_seven_london_days_is_new_eight_is_not(monkeypatch):
+    # Frozen 2026-09-24T22:30Z = London 23:30 on the 24th -> user_today()
+    # is 2026-09-24. Anchors at midday UTC (clear of any DST-boundary
+    # ambiguity) 7 and 8 London calendar days earlier.
+    _freeze(monkeypatch, "2026-09-24T22:30:00")
+    seven_days_ago = datetime(2026, 9, 17, 12, 0, 0)   # London 2026-09-17
+    eight_days_ago = datetime(2026, 9, 16, 12, 0, 0)   # London 2026-09-16
+    for tz_name in ("Europe/Berlin", "UTC"):
+        with _with_process_tz(tz_name):
+            still_new = _serialize_insight(_insight_doc(is_new=True, refreshed_at=seven_days_ago))
+            assert still_new["is_new"] is True, tz_name
+
+            no_longer_new = _serialize_insight(_insight_doc(is_new=True, refreshed_at=eight_days_ago))
+            assert no_longer_new["is_new"] is False, tz_name
+
+
+def test_sync_worker_reconnect_and_expiry_copy_use_london_dates(monkeypatch):
+    """`app/workers/sync_worker.py`'s `_reconnect_body`/`_expiring_copy`
+    push-notification text was the same bug class one level further out:
+    both `.strftime` a stored naive-UTC instant directly. A late-UTC
+    instant that's already tomorrow in London must render as tomorrow's
+    date, and the day-count in "expires in N days" must be an Europe/London
+    calendar-day count, not a raw elapsed-hours floor."""
+    import app.workers.sync_worker as sync_worker
+
+    _freeze(monkeypatch, "2026-09-24T22:30:00")
+    for tz_name in ("Europe/Berlin", "UTC"):
+        with _with_process_tz(tz_name):
+            # 2026-09-24T23:10:00Z = London 00:10 on the 25th.
+            last_synced = datetime(2026, 9, 24, 23, 10, 0)
+            body = sync_worker._reconnect_body("Barclays", last_synced)
+            assert "25 Sep" in body, (tz_name, body)
+
+            # Frozen now (London 24th) to an expiry that's London 2026-10-01
+            # (2026-09-30T23:30:00Z = London 00:30 on 1 Oct) is 7 London
+            # days away (24th -> 1st), not 6.
+            expires_at = datetime(2026, 9, 30, 23, 30, 0)
+            now = datetime(2026, 9, 24, 22, 30, 0)
+            title, body = sync_worker._expiring_copy("Barclays", expires_at, now)
+            assert "7 days" in title, (tz_name, title)
+            assert "1 Oct" in body, (tz_name, body)
