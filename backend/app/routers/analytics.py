@@ -23,6 +23,7 @@ from app.core.auth import current_user
 from app.core.config import OPENROUTER_API_KEY
 from app.core.llm import openrouter_chat
 from app.core.models import KPIResponse, Insight
+from app.core import timeutil
 from app.db.collections import (
     accounts_col, transactions_col, yapily_accounts_col, yapily_transactions_col,
     yapily_consents_col,
@@ -279,7 +280,10 @@ async def compute_insights(uid: str) -> List[Insight]:
         if len(ts) >= 2:
             sorted_ts  = sorted(ts, key=lambda x: x["date"])
             avg_amount = sum(t["amount"] for t in sorted_ts) / len(sorted_ts)
-            last_days  = (datetime.now() - sorted_ts[-1]["date"]).days
+            # Calendar-day count (Europe/London "today" vs the stored txn's
+            # date component), not an instant-based delta, so this label is
+            # independent of host clock/timezone (G161).
+            last_days  = (timeutil.user_today() - sorted_ts[-1]["date"].date()).days
             if last_days > 60:
                 insights.append(Insight(
                     id=f"sub-{merchant.lower().replace(' ', '-')}",
@@ -818,7 +822,7 @@ def _detect_recurring(txns: list, min_occurrences: int = 2, trusted_categories: 
         # breaks comparisons against _today (a date) and .replace() calls below.
         _d2date = lambda d: d.date() if isinstance(d, datetime) else d
         last_date  = _d2date(dates[-1])
-        _today = today or _date.today()
+        _today = today or timeutil.user_today()
 
         # A genuinely-stopped series (e.g. a cancelled gym membership last
         # paid four months ago) would otherwise keep getting a fresh
@@ -2107,7 +2111,7 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
     # design, see apply_verdicts' docstring in recurring_judge.py.
     judge_overrides = set(prefs.get("judge_overrides") or [])
     pay_period_config = prefs.get("pay_period_config") or {"type": "calendar_month"}
-    _today = _date.today()
+    _today = timeutil.user_today()
 
     # Build confirmed income map for schedule-aware detection (see
     # `_build_confirmed_income_map`'s docstring for why this is a pure
@@ -2440,10 +2444,9 @@ async def at_risk_count(user: dict = Depends(current_user)):
 
     from app.services.pay_period import get_pay_period_for_date as _get_period, _next_payday as _calc_next_payday
     from app.services.income import get_confirmed_payday as _get_confirmed_payday
-    from datetime import date as _date_cls
     _user_prefs = await preferences_col.find_one({"user_id": user["email"]}) or {}
     _pay_cfg    = _user_prefs.get("pay_period_config", {"type": "calendar_month"})
-    _today_d    = _date_cls.today()
+    _today_d    = timeutil.user_today()
     _confirmed_result = _get_confirmed_payday(_user_prefs, _today_d)
     if _confirmed_result:
         _next_pay, _ = _confirmed_result
@@ -2918,7 +2921,7 @@ def _validate_schedule(schedule: dict) -> dict | None:
         try:
             anchor_date = _date.fromisoformat(str(anchor_str))
         except (ValueError, TypeError):
-            anchor_date = _date.today()
+            anchor_date = timeutil.user_today()
         # Shift anchor to the nearest matching weekday (forward)
         delta = (wd - anchor_date.weekday()) % 7
         if delta != 0:
@@ -3052,7 +3055,6 @@ async def skip_occurrence(body: dict, user: dict = Depends(current_user)):
 @router.post("/cashflow/preview-rule")
 async def preview_rule(body: dict, user: dict = Depends(current_user)):
     """Parse plain-English recurrence description via Haiku → return schedule + next 3 dates."""
-    from datetime import date as _d_today
     uid = user["email"]
     key = (body.get("key") or "").strip()
     text = (body.get("text") or "").strip()
@@ -3066,9 +3068,9 @@ async def preview_rule(body: dict, user: dict = Depends(current_user)):
     try:
         anchor_date = _date.fromisoformat(anchor_str)
     except (ValueError, TypeError):
-        anchor_date = _date.today()
+        anchor_date = timeutil.user_today()
 
-    today_iso = _date.today().isoformat()
+    today_iso = timeutil.user_today().isoformat()
     prompt = (
         f"Today is {today_iso}. The recurring item is: \"{key}\". "
         f"The anchor date (last known occurrence) is: {anchor_date.isoformat()}.\n\n"
@@ -3128,7 +3130,7 @@ async def preview_rule(body: dict, user: dict = Depends(current_user)):
 
     # Compute next 3 occurrences (today counts if it matches)
     from datetime import timedelta as _td2
-    d = _next_occ_svc(schedule, _date.today() - timedelta(days=1))
+    d = _next_occ_svc(schedule, timeutil.user_today() - timedelta(days=1))
     next_dates = [d]
     for _ in range(2):
         d = _next_occ_svc(schedule, d)
@@ -3202,7 +3204,13 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
 
     Pass `prefs` (the user's preferences doc) when the caller has already
     fetched it, to avoid a duplicate find_one per request."""
-    today = datetime.now()
+    # Naive Europe/London wall-clock "now" (G161): today_d/window_end below
+    # are user-facing calendar arithmetic (bill due dates, days_away) and
+    # must use the user's London day regardless of host TZ. The generous
+    # `_obs_since` lookback further down reuses this same value as a Mongo
+    # query bound against naive-UTC-stored transaction dates; the window is
+    # wide enough (weeks) that the sub-hour London/UTC offset is immaterial.
+    today = timeutil.user_now().replace(tzinfo=None)
     today_d = today.date()
     # 35 days covers any monthly pay period; the frontend clips to period end.
     # Weekly-ish bills repeat within the window instead of showing once.
@@ -3892,7 +3900,7 @@ async def get_cashflow(user: dict = Depends(current_user)):
     from app.services.pay_period import _next_payday as _calc_np
     _prefs = await preferences_col.find_one({"user_id": uid}) or {}
     _pay_cfg = _prefs.get("pay_period_config", {"type": "calendar_month"})
-    _today_d = _date.today()
+    _today_d = timeutil.user_today()
 
     _confirmed = _gcp(_prefs, _today_d)
     if _confirmed:
@@ -4035,7 +4043,7 @@ async def compute_safe_to_spend(uid: str) -> dict:
     only consumer now is spend_impact.compute_spend_impact's net-negative
     permission gate, which fetches it directly, on its own request path.
     """
-    from datetime import date as _date_cls, timedelta as _td
+    from datetime import timedelta as _td
     from app.services.income import get_confirmed_payday as _gcp
     from app.services.pay_period import _next_payday as _calc_next_payday
     from app.services.pay_period import period_rhythm_label as _period_rhythm_label
@@ -4045,7 +4053,7 @@ async def compute_safe_to_spend(uid: str) -> dict:
     # ── 1. Payday ──────────────────────────────────────────────────────────────
     _prefs    = await preferences_col.find_one({"user_id": uid}) or {}
     _pay_cfg  = _prefs.get("pay_period_config", {"type": "calendar_month"})
-    _today_d  = _date_cls.today()
+    _today_d  = timeutil.user_today()
 
     _confirmed = _gcp(_prefs, _today_d)
     if _confirmed:
@@ -4588,7 +4596,7 @@ async def _resolve_period_bounds(uid: str, offset: int) -> tuple[_date, _date]:
     pay period `offset` times. offset is expected pre-clamped to [-60, 0]."""
     prefs = await preferences_col.find_one({"user_id": uid}) or {}
     pay_cfg = prefs.get("pay_period_config", {"type": "calendar_month"})
-    today = _date.today()
+    today = timeutil.user_today()
     period_start, period_end = get_pay_period_for_date(today, pay_cfg)
     for _ in range(-offset):
         period_start, period_end = prev_pay_period(period_start, pay_cfg)

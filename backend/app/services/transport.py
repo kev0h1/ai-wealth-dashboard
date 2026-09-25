@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from datetime import datetime, timedelta, date
 
+from app.core import timeutil
+
 # Colour tokens for each mode (used by frontend chart)
 MODE_COLOURS: dict[str, str] = {
     "Fuel":             "#f59e0b",
@@ -114,7 +116,7 @@ def analyse_transport(txns: list[dict], period_days: int = 90) -> dict:
     """
     Given a list of all transactions, classify transport ones and return analysis.
     """
-    today = datetime.now().date()
+    today = timeutil.user_today()
     cutoff = today - timedelta(days=period_days)
 
     mode_buckets: dict[str, list[float]] = {m: [] for m in MODE_COLOURS}

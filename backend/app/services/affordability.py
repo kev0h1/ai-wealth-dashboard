@@ -27,6 +27,7 @@ import logging
 import re
 from datetime import date, datetime, timedelta
 
+from app.core import timeutil
 from app.routers.analytics import compute_safe_to_spend
 from app.routers.savings import _cashflow
 
@@ -279,7 +280,7 @@ async def check_affordability(uid: str, amount: float, timeframe: str | None = N
         "goes_negative": free_after_spend < 0,
     }
 
-    months_until_target = _parse_timeframe(timeframe or "", date.today())
+    months_until_target = _parse_timeframe(timeframe or "", timeutil.user_today())
     if months_until_target is not None and months_until_target > 0:
         what_ifs["months_until_target"] = months_until_target
         what_ifs["savable_by_target"] = (

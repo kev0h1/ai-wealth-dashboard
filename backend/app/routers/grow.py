@@ -18,6 +18,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends
 
 from app.core.auth import current_user
+from app.core import timeutil
 from app.services import response_cache
 from app.db.collections import (
     card_terms_col,
@@ -215,7 +216,7 @@ async def _promo_cliff(uid: str, account_ids: set[str]) -> Optional[str]:
     """Earliest active 0% promo end (ISO date) across the given card accounts."""
     if not account_ids:
         return None
-    today = date.today()
+    today = timeutil.user_today()
     earliest: Optional[date] = None
     async for doc in card_terms_col.find({"user_id": uid, "account_id": {"$in": list(account_ids)}}):
         stored_promos = doc.get("promos")
@@ -552,7 +553,7 @@ async def grow_view(user: dict = Depends(current_user)):
         "debt_deducted": True,
         "surplus": monthly_surplus,
         "n_months": cf["n_months"],
-        "month_labels": _cashflow_month_labels(cf["n_months"], datetime.now()),
+        "month_labels": _cashflow_month_labels(cf["n_months"], timeutil.user_now()),
     }
 
     result = {

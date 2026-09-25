@@ -23,6 +23,7 @@ tests/test_payday_split.py (real `compute_today_items`, no mocked Mongo).
 import asyncio
 from datetime import date, timedelta
 
+import app.core.timeutil as timeutil
 import app.db.collections as db_collections
 import app.services.companion as companion
 import app.services.pace as pace_module
@@ -169,7 +170,7 @@ def _make_done_doc(pstart: date, dests):
 
 
 def _executed_scenario(monkeypatch, *, preview: bool):
-    today_d = date.today()
+    today_d = timeutil.user_today()
     pay_period = _base_patch(
         monkeypatch,
         accounts=[_account(SALARY_ACCT, 50.0), _account(DEST_ACCT, 0.0, "Saving Challenge")],
@@ -242,7 +243,7 @@ def test_preview_salary_credit_lands_at_next_pay_not_today(monkeypatch):
     run once FIX A's gate is in place): the simulated salary must enter the
     walk dated at the REAL next payday, after this period's remaining bills
     have already drained the account — not immediately today."""
-    today_d = date.today()
+    today_d = timeutil.user_today()
     days_to_pay = 5
     bill_days_away = 3
     bill_amount = 200.0

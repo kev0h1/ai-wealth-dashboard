@@ -22,6 +22,7 @@ already established for this suite.
 import asyncio
 from datetime import date, datetime, timedelta
 
+import app.core.timeutil as timeutil
 import app.routers.analytics as analytics
 from app.routers.analytics import _build_cashflow_response, PENDING_GIVE_UP_DAYS
 from app.services.categories import CategoryKinds, BUILTIN_CATEGORY_KINDS
@@ -224,7 +225,7 @@ def _pattern(**overrides):
         "key": "SEVERN TRENT WATER",
         "avg_amount": 43.57,
         "avg_interval": 30,
-        "next_date": date.today().isoformat(),
+        "next_date": timeutil.user_today().isoformat(),
         "account_id": "natwest",
         "account_name": "THE NUMBER ONE",
         "account_bank": "NATWEST",
@@ -280,7 +281,7 @@ def test_pending_match_excludes_from_upcoming_bills_and_walks(monkeypatch):
     bank-side pending debit must vanish from `upcoming_bills` -- the ONE
     list every at-risk/shortfall/payday-plan/frontend walk reads -- so
     nothing double-debits the already-reduced live balance."""
-    pending = [_pending_doc("p1", "SEVERN TRENT WATER", 43.57, date.today())]
+    pending = [_pending_doc("p1", "SEVERN TRENT WATER", 43.57, timeutil.user_today())]
     resp = _run_build_response(monkeypatch, [_pattern()], pending=pending)
 
     assert resp["upcoming_bills"] == []
@@ -298,8 +299,8 @@ def test_settled_match_always_wins_over_a_stale_pending_row(monkeypatch):
     its own settled feed) -- the occurrence must close ENTIRELY (settled
     behaviour), not surface as observed_pending, and must not double-count
     across the two lists."""
-    observed = [_settled_txn("SEVERN TRENT WATER", 43.57, date.today())]
-    pending = [_pending_doc("p1", "SEVERN TRENT WATER", 43.57, date.today())]
+    observed = [_settled_txn("SEVERN TRENT WATER", 43.57, timeutil.user_today())]
+    pending = [_pending_doc("p1", "SEVERN TRENT WATER", 43.57, timeutil.user_today())]
     resp = _run_build_response(monkeypatch, [_pattern()], observed=observed, pending=pending)
 
     assert resp["upcoming_bills"] == []
@@ -316,9 +317,9 @@ def test_pending_match_bypasses_the_give_up_horizon(monkeypatch):
     # `_occurrences`' own past-due generation window (today_d - PENDING_GIVE_UP_DAYS),
     # so this is a genuine "would give up here" case, not one `_occurrences`
     # never even generated.
-    stale_due = (date.today() - timedelta(days=PENDING_GIVE_UP_DAYS)).isoformat()
+    stale_due = (timeutil.user_today() - timedelta(days=PENDING_GIVE_UP_DAYS)).isoformat()
     pattern = _pattern(next_date=stale_due, avg_interval=45)
-    pending = [_pending_doc("p1", "SEVERN TRENT WATER", 43.57, date.today())]
+    pending = [_pending_doc("p1", "SEVERN TRENT WATER", 43.57, timeutil.user_today())]
     resp = _run_build_response(monkeypatch, [pattern], pending=pending)
 
     # The stale (10-days-overdue) occurrence must not appear as an ordinary
@@ -340,7 +341,7 @@ def test_pending_vanishing_reverts_to_an_ordinary_projected_bill(monkeypatch):
     ordinary overdue/give-up handling, exactly as if this module never
     existed for that call."""
     pattern = _pattern()
-    pending = [_pending_doc("p1", "SEVERN TRENT WATER", 43.57, date.today())]
+    pending = [_pending_doc("p1", "SEVERN TRENT WATER", 43.57, timeutil.user_today())]
 
     resp_with_pending = _run_build_response(monkeypatch, [pattern], pending=pending)
     assert resp_with_pending["upcoming_bills"] == []
@@ -358,7 +359,7 @@ def test_pending_row_not_matched_when_amount_outside_tolerance(monkeypatch):
     """Same tolerance rule as `_match_observed` (max(£2, 15%)) -- a pending
     row for a materially different amount must not be treated as this
     bill's twin, fails closed to the ordinary (walk-facing) bill instead."""
-    pending = [_pending_doc("p1", "SEVERN TRENT WATER", 90.00, date.today())]
+    pending = [_pending_doc("p1", "SEVERN TRENT WATER", 90.00, timeutil.user_today())]
     resp = _run_build_response(monkeypatch, [_pattern()], pending=pending)
 
     assert len(resp["upcoming_bills"]) == 1
@@ -368,7 +369,7 @@ def test_pending_row_not_matched_when_amount_outside_tolerance(monkeypatch):
 def test_pending_row_not_matched_across_accounts(monkeypatch):
     """Account-scoped, same as `_match_observed`: a pending debit on a
     DIFFERENT account must never close this occurrence."""
-    pending = [_pending_doc("p1", "SEVERN TRENT WATER", 43.57, date.today(), account_id="barclays")]
+    pending = [_pending_doc("p1", "SEVERN TRENT WATER", 43.57, timeutil.user_today(), account_id="barclays")]
     resp = _run_build_response(monkeypatch, [_pattern()], pending=pending)
 
     assert len(resp["upcoming_bills"]) == 1

@@ -732,10 +732,10 @@ def test_notification_catalogue_no_longer_offers_budget_alerts():
 
 def test_period_digest_has_no_budget_clause_and_reuses_goals(monkeypatch):
     import app.routers.goals as goals_module
-    from datetime import date as _date
+    import app.core.timeutil as timeutil
 
     state, sent = _patch_common(monkeypatch, state_docs={})
-    today = _date.today()
+    today = timeutil.user_today()
 
     def fake_pay_period(d, cfg):
         return today, today  # force "start == today" -> period boundary

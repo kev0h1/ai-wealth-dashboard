@@ -75,6 +75,7 @@ from datetime import date, datetime, timedelta, timezone
 from fastapi import HTTPException
 
 from app.core.config import MCP_CONNECTOR_ENABLED
+from app.core import timeutil
 from app.db.collections import (
     accounts_col, behaviour_portrait_col, card_terms_col, cashflow_cache_col,
     connections_col, finexer_consents_col, manual_account_rules_col,
@@ -2370,7 +2371,7 @@ async def _exec_get_account_activity(
     try:
         kind_map = await get_category_kinds(uid)
         home_currency = "GBP"
-        end_dt = to_dt or datetime.now()
+        end_dt = to_dt or timeutil.user_now()
         start_dt = from_dt or (end_dt - timedelta(days=days))
         targets = [target] if target else accs[:_ACTIVITY_ACCOUNT_CAP]
         summaries = []
@@ -2907,7 +2908,7 @@ async def _exec_get_category_spend(uid: str, category: str | None, months) -> di
     # months total: the rolling months window when requested (it naturally
     # covers the current pay period too, at most ~31 days), else just the
     # current period's own bounds — one query, never two.
-    today = date.today()
+    today = timeutil.user_today()
     try:
         if months:
             months = max(1, min(24, int(months)))
@@ -4379,7 +4380,7 @@ async def _exec_propose_add_planned(uid: str, name, amount, date_str, account_id
         expense_date = date.fromisoformat(str(date_str))
     except (TypeError, ValueError):
         return _tool_error("date must be an ISO date string (YYYY-MM-DD)")
-    if expense_date < date.today():
+    if expense_date < timeutil.user_today():
         return _tool_error("date must be today or in the future")
     resolved_account = await _resolve_account_for_propose(uid, account_id)
     if resolved_account.get("ambiguous"):
@@ -4445,7 +4446,7 @@ async def _exec_propose_create_allocation(
         return _tool_error("an active allocation already fills from this payment")
 
     cfg = await _alloc_pay_cfg(uid)
-    start, _end = get_pay_period_for_date(date.today(), cfg)
+    start, _end = get_pay_period_for_date(timeutil.user_today(), cfg)
     try:
         eff_from = _alloc_validate_effective_from(effective_from, start)
     except HTTPException as e:
@@ -4576,7 +4577,7 @@ async def _exec_propose_update_planned(uid: str, planned_ref, name=None, amount=
         stored_date = date.fromisoformat(doc["date"])
         # Grandfathering: an unchanged date is always accepted even if it
         # has since rolled into the past, exactly like the router.
-        if new_date != stored_date and new_date < date.today():
+        if new_date != stored_date and new_date < timeutil.user_today():
             return _tool_error("date must be today or in the future")
         updates["date"] = new_date.isoformat()
 

@@ -34,6 +34,8 @@ from __future__ import annotations
 import calendar as _calendar
 from datetime import date as _date, datetime, timedelta
 
+from app.core import timeutil
+
 from app.db.collections import (
     accounts_col,
     behaviour_portrait_col,
@@ -546,7 +548,7 @@ async def compute_money_shape(uid: str) -> dict:
     raw_accounts = await accounts_col.find({"user_id": uid}).to_list(None)
     saving_ids = savings_account_ids(raw_accounts)
 
-    today = _date.today()
+    today = timeutil.user_today()
 
     # Walk back to the most recent COMPLETED pay period, then keep walking
     # back, time-bounded (not period-count-bounded) so every rhythm gets the

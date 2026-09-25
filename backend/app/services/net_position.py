@@ -44,6 +44,8 @@ from __future__ import annotations
 import logging
 from datetime import date
 
+from app.core import timeutil
+
 log = logging.getLogger(__name__)
 
 
@@ -236,7 +238,7 @@ async def period_net(uid: str) -> dict | None:
 
         prefs = await preferences_col.find_one({"user_id": uid}) or {}
         pay_cfg = prefs.get("pay_period_config", {"type": "calendar_month"})
-        today = date.today()
+        today = timeutil.user_today()
         period_start, _period_end = get_pay_period_for_date(today, pay_cfg)
 
         txns = await _load_period_txns(uid, period_start, today)

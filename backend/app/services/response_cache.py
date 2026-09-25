@@ -55,10 +55,10 @@ import logging
 import time
 from datetime import datetime, timezone
 from typing import Any
-from zoneinfo import ZoneInfo
 
 from fastapi.encoders import jsonable_encoder
 
+from app.core import timeutil
 from app.db.collections import response_cache_col
 from app.services import data_version
 
@@ -90,17 +90,15 @@ _MAX_TIME_MS = 500
 # no migration step — which is exactly what should happen to them.
 SHAPE_VERSION = 1
 
-# UK users; the app's OTHER date logic mostly uses naive server-local
-# `date.today()` (a separate, wider concern not touched by this round) —
-# this cache specifically pins its day boundary to Europe/London (DST-aware)
-# so the API and worker processes, even if their host clocks/TZ ever
-# diverge, can never disagree about whether "today" has rolled over.
-_LONDON = ZoneInfo("Europe/London")
+# UK users; this cache pins its day boundary to Europe/London (DST-aware,
+# via app.core.timeutil) so the API and worker processes, even if their
+# host clocks/TZ ever diverge, can never disagree about whether "today"
+# has rolled over.
 
 
 def local_day() -> str:
     """Today's calendar date in Europe/London, as an ISO string."""
-    return datetime.now(_LONDON).date().isoformat()
+    return timeutil.user_today().isoformat()
 
 
 def _stringify_keys(obj: Any) -> Any:

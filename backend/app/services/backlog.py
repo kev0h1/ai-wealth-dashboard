@@ -101,6 +101,8 @@ import urllib.parse
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import date
+
+from app.core import timeutil
 from pathlib import Path
 from typing import Iterator, Optional
 
@@ -361,7 +363,7 @@ class UnknownItemError(BacklogError):
 
 
 def today_str() -> str:
-    return date.today().isoformat()
+    return timeutil.user_today().isoformat()
 
 
 # --------------------------------------------------------------------------

@@ -7,6 +7,7 @@ from typing import Optional
 from arq import ArqRedis, cron
 from arq.connections import RedisSettings
 
+from app.core import timeutil
 from app.core.config import (
     REDIS_URL, RECONCILE_SPREAD_MINUTES, RECONCILE_MAX_PER_MINUTE,
     RECONCILE_MIN_GAP_SECONDS,
@@ -418,8 +419,13 @@ async def task_reconcile_truelayer(ctx):
 
 def _reconnect_body(bank: str, last_synced: Optional[datetime]) -> str:
     if isinstance(last_synced, datetime):
+        # G161 follow-up: the displayed day is `last_synced`'s Europe/London
+        # calendar date, not its raw (naive-UTC, per this module's own
+        # convention) date -- a late-evening UTC sync can already be the
+        # next London day.
+        _synced_ld = timeutil.to_user_date(last_synced)
         return (
-            f"{bank} last synced {last_synced.strftime('%-d %b')} and its bank permission "
+            f"{bank} last synced {_synced_ld.strftime('%-d %b')} and its bank permission "
             f"has ended. Tap Reconnect on the Accounts page to carry on."
         )
     return (
@@ -429,9 +435,17 @@ def _reconnect_body(bank: str, last_synced: Optional[datetime]) -> str:
 
 
 def _expiring_copy(bank: str, expires_at: datetime, now: datetime) -> tuple[str, str]:
-    days = (expires_at - now).days
+    # G161 follow-up: "expires tomorrow" / "in N days" and the displayed
+    # date are both Europe/London calendar-day arithmetic, not a raw
+    # instant delta/date -- see `_reconnect_body` above for why. The
+    # is_expiring/throttle GATES in task_consent_watch stay on raw instant
+    # comparisons (deliberately, per that function's own docstring); only
+    # this rendered copy needs the day-scale conversion.
+    _expires_ld = timeutil.to_user_date(expires_at)
+    _now_ld = timeutil.to_user_date(now)
+    days = (_expires_ld - _now_ld).days
     title = f"{bank} access expires tomorrow" if days <= 1 else f"{bank} access expires in {days} days"
-    body = f"Reconnect before {expires_at.strftime('%-d %b')} to keep {bank} syncing without a gap."
+    body = f"Reconnect before {_expires_ld.strftime('%-d %b')} to keep {bank} syncing without a gap."
     return title, body
 
 
@@ -672,7 +686,10 @@ async def task_trial_reminder(ctx):
             continue
 
         amount = f"£{total:.2f}"
-        charge_date = trial_ends_at.strftime("%-d %B %Y")
+        # G161 follow-up: displayed as trial_ends_at's Europe/London
+        # calendar date -- the eligibility gate above stays a raw instant
+        # comparison (now <= trial_ends_at <= warn_cutoff), correct as-is.
+        charge_date = timeutil.to_user_date(trial_ends_at).strftime("%-d %B %Y")
         title = "Your free trial ends soon"
         body = (
             f"Your free trial ends on {charge_date}. {amount} will be charged "

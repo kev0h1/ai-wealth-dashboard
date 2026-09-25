@@ -8,6 +8,7 @@ from pymongo.errors import DuplicateKeyError
 
 from app.core.auth import current_user
 from app.core.config import TAVILY_API_KEY
+from app.core import timeutil
 from app.db.collections import investment_accounts_col, investment_holdings_col, investment_notes_col
 from app.services.pdf import extract_pdf_text, llm_parse_investment_statement, llm_parse_contract_note
 from app.services.investment_prices import refresh_account_prices
@@ -149,9 +150,9 @@ async def investment_upload(
     )
 
     try:
-        statement_date = datetime.fromisoformat(statement_date_str) if statement_date_str else datetime.now()
+        statement_date = datetime.fromisoformat(statement_date_str) if statement_date_str else timeutil.user_now().replace(tzinfo=None)
     except (ValueError, TypeError):
-        statement_date = datetime.now()
+        statement_date = timeutil.user_now().replace(tzinfo=None)
 
     # Provisional id-alignment: if the derived acc_id is new but the user has
     # exactly one PROVISIONAL account for this provider_slug, write to that

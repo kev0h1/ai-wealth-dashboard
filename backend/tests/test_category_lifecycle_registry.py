@@ -47,8 +47,9 @@ Four things, each covered by its own section below:
    oscillate — extended to cover an EXPIRY transition too, not just the
    original hollow-content case.
 """
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
+import app.core.timeutil as timeutil
 import app.routers.savings_insights as savings_insights
 from app.routers.savings_insights import (
     CATEGORY_LIFECYCLE,
@@ -73,6 +74,18 @@ class _FrozenDatetime(datetime):
     @classmethod
     def utcnow(cls):
         return NOW
+
+
+class _FrozenTimeutilDatetime(datetime):
+    """G161 follow-up: `_derive_insight_state`/`_serialize_insight`'s
+    day-scale reads now go through `app.core.timeutil`, which this
+    module's own `_FrozenDatetime` patch (below) no longer reaches. NOW is
+    naive, treated as UTC (this file's existing convention)."""
+
+    @classmethod
+    def now(cls, tz=None):
+        aware = NOW.replace(tzinfo=timezone.utc)
+        return aware.astimezone(tz) if tz is not None else aware.replace(tzinfo=None)
 
 
 def _run(coro):
@@ -173,6 +186,7 @@ def test_state_is_quiet_not_fresh_when_content_valid_until_is_recent_but_content
     """THE bug: TTL recency alone used to be enough to return "fresh". A doc
     that's inside its TTL but blank must still be quiet."""
     monkeypatch.setattr(savings_insights, "datetime", _FrozenDatetime)
+    monkeypatch.setattr(timeutil, "datetime", _FrozenTimeutilDatetime)
     doc = {
         "category": "car_finance", "title": "", "body": "",
         "content_valid_until": NOW + timedelta(days=3),  # well inside the TTL
@@ -192,6 +206,7 @@ def test_serializer_downgrades_when_serve_time_stripping_empties_a_fresh_doc(mon
     car_finance oscillation: state said fresh, the content that justified it
     evaporated one step later in the same read."""
     monkeypatch.setattr(savings_insights, "datetime", _FrozenDatetime)
+    monkeypatch.setattr(timeutil, "datetime", _FrozenTimeutilDatetime)
     doc = {
         "_id": "x", "insight_id": "car_finance-x", "category": "car_finance",
         "title": "Refinancing could save up to £999 a month",
@@ -214,6 +229,7 @@ def test_contentless_car_finance_with_is_new_true_still_serializes_quiet(monkeyp
     "quiet"` — `is_new` never elevates `state`, only (client-side) a compact
     row's "new" affordance."""
     monkeypatch.setattr(savings_insights, "datetime", _FrozenDatetime)
+    monkeypatch.setattr(timeutil, "datetime", _FrozenTimeutilDatetime)
     doc = {
         "_id": "x", "insight_id": "car_finance-x", "category": "car_finance",
         "title": "", "body": "", "savings_estimate": None,
@@ -235,13 +251,19 @@ def test_expired_content_valid_until_serializes_quiet_even_with_real_content(mon
     passes — this is the NORMAL between-refreshes state now, not an
     anomaly."""
     monkeypatch.setattr(savings_insights, "datetime", _FrozenDatetime)
+    monkeypatch.setattr(timeutil, "datetime", _FrozenTimeutilDatetime)
     doc = {
         "_id": "x", "insight_id": "gym-x", "category": "gym",
         "title": "Pure Gym's rolling monthly beats most annual contracts",
         "body": "No-contract gyms are typically cheaper for irregular attendance.",
         "savings_estimate": None, "claim_valid_until": None,
-        "content_valid_until": NOW - timedelta(hours=1),  # expired
-        "researched_at": NOW - DEFAULT_RESEARCH_TTL - timedelta(hours=1),
+        # G161 follow-up: expired is a Europe/London CALENDAR-DATE
+        # comparison now ("valid through the end of that London day"), so a
+        # full day earlier is used here to be unambiguously the previous
+        # London day (see test_content_ttl.py's same-day-still-fresh case
+        # for the hours-earlier-but-same-day behaviour this would miss).
+        "content_valid_until": NOW - timedelta(days=1),  # expired
+        "researched_at": NOW - DEFAULT_RESEARCH_TTL - timedelta(days=1),
         "pinned": False, "is_new": False, "refreshed_at": NOW, "triggered_by": [],
     }
     out = _serialize_insight(doc)
@@ -254,6 +276,7 @@ def test_expired_content_valid_until_serializes_quiet_even_with_real_content(mon
 
 def test_is_new_is_served_false_once_past_the_ttl(monkeypatch):
     monkeypatch.setattr(savings_insights, "datetime", _FrozenDatetime)
+    monkeypatch.setattr(timeutil, "datetime", _FrozenTimeutilDatetime)
     doc = {
         "_id": "x", "insight_id": "car_finance-x", "category": "car_finance",
         "title": "", "body": "", "savings_estimate": None,
@@ -267,6 +290,7 @@ def test_is_new_is_served_false_once_past_the_ttl(monkeypatch):
 
 def test_is_new_is_served_true_within_the_ttl(monkeypatch):
     monkeypatch.setattr(savings_insights, "datetime", _FrozenDatetime)
+    monkeypatch.setattr(timeutil, "datetime", _FrozenTimeutilDatetime)
     doc = {
         "_id": "x", "insight_id": "car_finance-x", "category": "car_finance",
         "title": "", "body": "", "savings_estimate": None,
@@ -357,6 +381,7 @@ def _setup(monkeypatch, doc, *, generated_content=_NOT_EXPECTED):
     col = FakeInsightsCol([doc, _passive_pushed("energy"), _passive_pushed("groceries")])
     monkeypatch.setattr(savings_insights, "savings_insights_col", col)
     monkeypatch.setattr(savings_insights, "datetime", _FrozenDatetime)
+    monkeypatch.setattr(timeutil, "datetime", _FrozenTimeutilDatetime)
 
     async def fake_detect(user_id):
         return ["car_finance"]

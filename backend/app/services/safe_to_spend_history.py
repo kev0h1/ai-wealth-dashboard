@@ -23,6 +23,8 @@ this module.
 import logging
 from datetime import date as _date, datetime, timezone
 
+from app.core import timeutil
+
 from app.db.collections import cashflow_cache_col, safe_to_spend_history_col
 
 logger = logging.getLogger(__name__)
@@ -87,7 +89,7 @@ async def run_safe_to_spend_snapshot() -> dict:
     from app.routers.analytics import compute_safe_to_spend
 
     uids = await cashflow_cache_col.distinct("_id")
-    today = _date.today()
+    today = timeutil.user_today()
     now = datetime.now(timezone.utc)
 
     written = 0

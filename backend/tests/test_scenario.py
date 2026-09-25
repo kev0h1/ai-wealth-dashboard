@@ -28,10 +28,12 @@ currently has no active commitments, so that path has only ever run its
 `None` branch in practice.
 """
 import asyncio
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 import pytest
 
+import app.core.timeutil as timeutil
 import app.routers.commitments as commitments_router
 import app.services.scenario as scenario_mod
 from app.routers.scenario import _is_lumpy_scenario
@@ -42,6 +44,25 @@ from app.services.scenario import (
     normalise_items,
     steady_monthly_delta,
 )
+
+_LONDON = ZoneInfo("Europe/London")
+
+
+def _frozen_timeutil_datetime(fixed_date: date):
+    """G161: `app.services.scenario`'s `today = date.today()` calls were
+    swept to `app.core.timeutil.user_today()`, which no longer reads this
+    file's various `_FixedDate` patches of `scenario_mod.date` at all.
+    Returns a `datetime` subclass pinning `timeutil.user_now()`/
+    `user_today()` to the same calendar day, for use alongside each
+    `_FixedDate` patch below."""
+
+    class _Frozen(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            aware = datetime.combine(fixed_date, datetime.min.time(), tzinfo=_LONDON)
+            return aware.astimezone(tz) if tz is not None else aware.replace(tzinfo=None)
+
+    return _Frozen
 
 
 def make_item(**overrides) -> dict:
@@ -130,6 +151,7 @@ def test_past_start_one_month_ago_is_clamped_not_rejected(monkeypatch):
             return TODAY
 
     monkeypatch.setattr(scenario_mod, "date", _FixedDate)
+    monkeypatch.setattr(timeutil, "datetime", _frozen_timeutil_datetime(TODAY))
     items, rejected = normalise_items([make_item(starts="2026-07-15")])
     assert rejected == []
     assert len(items) == 1
@@ -147,6 +169,7 @@ def test_start_two_months_ago_is_rejected(monkeypatch):
             return TODAY
 
     monkeypatch.setattr(scenario_mod, "date", _FixedDate)
+    monkeypatch.setattr(timeutil, "datetime", _frozen_timeutil_datetime(TODAY))
     items, rejected = normalise_items([make_item(starts="2026-06-01")])
     assert items == []
     assert len(rejected) == 1
@@ -161,6 +184,7 @@ def test_start_beyond_horizon_is_rejected(monkeypatch):
             return TODAY
 
     monkeypatch.setattr(scenario_mod, "date", _FixedDate)
+    monkeypatch.setattr(timeutil, "datetime", _frozen_timeutil_datetime(TODAY))
     # 30 months ahead of August 2026 is well past the 24-month horizon.
     items, rejected = normalise_items([make_item(starts="2029-02-01")])
     assert items == []
@@ -629,6 +653,7 @@ def _patch_simulate_io(
         return absorb_result
 
     monkeypatch.setattr(scenario_mod, "date", _FixedDate)
+    monkeypatch.setattr(timeutil, "datetime", _frozen_timeutil_datetime(TODAY_FIXED))
     monkeypatch.setattr(scenario_mod, "monthly_cashflow_cached", fake_cf)
     monkeypatch.setattr(scenario_mod, "_build_debt_block", fake_debt_block)
     monkeypatch.setattr(scenario_mod, "_build_plans_block", fake_plans_block)

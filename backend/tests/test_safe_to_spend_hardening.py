@@ -6,6 +6,7 @@ and preference-cache invalidation without requiring Mongo.
 import asyncio
 from datetime import date, datetime, timedelta, timezone
 
+import app.core.timeutil as timeutil
 import app.routers.analytics as analytics
 import app.routers.preferences as preferences
 import app.routers.allocations as allocations_router
@@ -443,7 +444,7 @@ def test_safe_to_spend_pins_against_a_fixed_transaction_fixture(monkeypatch):
     # Deterministic relative to "today" (never frozen system time) so the
     # test never rots, but still pins every component to a hand-derived
     # number — see the walk-through in the comments below.
-    today = date.today()
+    today = timeutil.user_today()
     next_payday = today + timedelta(days=14)  # days_until_payday == 14
     last_synced = datetime(2026, 1, 1, 9, 30, 0, tzinfo=timezone.utc)
 

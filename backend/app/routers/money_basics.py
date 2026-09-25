@@ -1,9 +1,8 @@
 """Money basics — curated UK personal-finance explainers (general info, not advice)."""
-from datetime import date
-
 from fastapi import APIRouter, Depends
 
 from app.core.auth import current_user
+from app.core import timeutil
 from app.content.money_basics import MONEY_BASICS, GROW_TOPICS, TAX_YEAR
 
 router = APIRouter(tags=["money-basics"])
@@ -12,7 +11,7 @@ router = APIRouter(tags=["money-basics"])
 @router.get("/money-basics/daily")
 async def daily_money_basic(user: dict = Depends(current_user)):
     """Today's explainer — deterministic rotation, identical for every user on a given day."""
-    idx = date.today().toordinal() % len(MONEY_BASICS)
+    idx = timeutil.user_today().toordinal() % len(MONEY_BASICS)
     return {**MONEY_BASICS[idx], "tax_year": TAX_YEAR}
 
 

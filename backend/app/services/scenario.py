@@ -36,6 +36,8 @@ but the codebase-wide convention is to never risk one.
 import logging
 from datetime import date, datetime, timedelta
 
+from app.core import timeutil
+
 from app.services.cashflow import monthly_cashflow_cached
 from app.services.categories import get_category_kinds, is_discretionary
 from app.services.debt_plan import _amortise, get_debt_plan_cached
@@ -131,7 +133,7 @@ def normalise_items(raw: list[dict]) -> tuple[list[dict], list[str]]:
 
 
 def _normalise_items_inner(raw: list[dict]) -> tuple[list[dict], list[str]]:
-    today = date.today()
+    today = timeutil.user_today()
     today_idx = today.year * 12 + today.month
 
     validated: list[dict] = []
@@ -758,7 +760,7 @@ async def simulate(uid: str, items: list[dict]) -> dict:
     `assumptions` carries only genuinely global notes (not attributable to a
     single block) plus, when a populated block still has a caveat worth
     surfacing (e.g. debt's movement_exhausted note), that caveat text."""
-    today = date.today()
+    today = timeutil.user_today()
     clean_items, rejected = normalise_items(items)
     assumptions: list[str] = ["Assumes your payday and rhythm stay as they are."]
 

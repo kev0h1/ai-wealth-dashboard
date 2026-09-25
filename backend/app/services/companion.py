@@ -12,6 +12,7 @@ from datetime import date, datetime, time, timedelta
 from typing import Any, NamedTuple
 from urllib.parse import quote
 
+from app.core import timeutil
 from app.db.collections import (
     accounts_col,
     yapily_accounts_col,
@@ -460,7 +461,7 @@ async def _per_account_everyday_spend(uid: str, recurring_keys: set) -> dict[str
         ):
             txns.append(t)
 
-        cur_start, _ = get_pay_period_for_date(date.today(), pay_cfg)
+        cur_start, _ = get_pay_period_for_date(timeutil.user_today(), pay_cfg)
         periods: list[tuple[date, date]] = []
         _walk_start = cur_start
         for _ in range(3):
@@ -510,7 +511,7 @@ async def _usual_payday_moves_raw(uid: str, salary_acct_id: str, pay_cfg: dict) 
         # all 4 paydays below (never per-transaction).
         kinds = await get_category_kinds(uid)
 
-        cur_start, _ = get_pay_period_for_date(date.today(), pay_cfg)
+        cur_start, _ = get_pay_period_for_date(timeutil.user_today(), pay_cfg)
         paydays: list[date] = []
         _walk_start = cur_start
         for _ in range(4):
@@ -936,7 +937,7 @@ async def _active_commitment_slices(
             compute_pot_ledger,
         )
 
-        today_d = date.today()
+        today_d = timeutil.user_today()
         docs = await commitments_col.find(
             {"user_id": uid, "status": "active"},
             {"name": 1, "amount": 1, "target_date": 1, "funding_pots": 1,
@@ -1952,7 +1953,7 @@ async def compute_today_items(
     from app.services.income import get_confirmed_payday as _get_confirmed_payday
 
     pay_cfg = prefs.get("pay_period_config", {"type": "calendar_month"})
-    today_d = date.today()
+    today_d = timeutil.user_today()
     confirmed_result = _get_confirmed_payday(prefs, today_d)
     if confirmed_result:
         next_pay, _ = confirmed_result
@@ -4541,7 +4542,7 @@ async def compute_today_items(
     portrait = await behaviour_portrait_col.find_one({"_id": uid})
     if portrait and portrait.get("status") == "ok":
         traits_by_id = {t["id"]: t for t in portrait.get("traits", [])}
-        today_obj = date.today()
+        today_obj = timeutil.user_today()
         year_month = today_obj.strftime("%Y-%m")
 
         # BEHAVIOURS.md consent rule: a trait the user marked "keep" is an

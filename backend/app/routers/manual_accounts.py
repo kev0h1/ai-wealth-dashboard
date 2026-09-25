@@ -8,6 +8,7 @@ from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.auth import current_user
+from app.core import timeutil
 from app.db.collections import (
     manual_accounts_col, manual_transactions_col, savings_goals_col,
     manual_account_rules_col, manual_account_mirrors_col,
@@ -140,7 +141,10 @@ def _validate_entry_body(body: dict) -> dict:
     if txn_type not in ("credit", "debit"):
         raise HTTPException(400, "transaction_type must be 'credit' or 'debit'")
     raw_date = body.get("date")
-    when = datetime.now()
+    # This is the manual transaction's own displayed "date" when the user
+    # doesn't supply one, i.e. the user's London today (G161), naive to
+    # match the raw_date-supplied branch and every other Mongo-stored date.
+    when = timeutil.user_now().replace(tzinfo=None)
     if raw_date:
         try:
             when = datetime.fromisoformat(str(raw_date).replace("Z", "+00:00"))
@@ -194,7 +198,7 @@ async def list_manual_transactions(acc_id: str, user: dict = Depends(current_use
             s = src.get(m["txn_id"], {})
             entries.append({
                 "id": f"mirror:{m['_id']}", "account_id": acc_id,
-                "date": s.get("date") or m.get("created_at") or datetime.now(),
+                "date": s.get("date") or m.get("created_at") or timeutil.user_now().replace(tzinfo=None),
                 "amount": round(abs(delta), 2), "currency": currency,
                 "description": s.get("description") or "Rule posting",
                 "merchant_name": s.get("merchant_name"),

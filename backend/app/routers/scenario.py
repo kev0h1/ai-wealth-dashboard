@@ -25,6 +25,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.auth import current_user
 from app.core.config import OPENROUTER_API_KEY
+from app.core import timeutil
 from app.core.llm import openrouter_chat
 from app.services.cashflow import monthly_cashflow_cached
 from app.services.copy_style import house_style as _house_style
@@ -304,7 +305,7 @@ async def parse_question(uid: str, question: str) -> dict:
     Deliberately does NOT simulate: the user (or the UI on their behalf)
     confirms/edits the extracted items first, then calls /scenario/run.
     """
-    today = date.today()
+    today = timeutil.user_today()
     raw_items = await _extract_items_llm(question, today, uid)
     if raw_items is None:
         # Extraction call itself failed (network/non-200/unparsable reply)
@@ -444,7 +445,7 @@ def _build_headline_facts(payload: dict) -> dict:
         # monthly-equivalent above (an annual item's anniversary month, a
         # one_off's single month) get their own separately-labelled fact,
         # naming exactly which months it applies to and nowhere else.
-        today = date.today()
+        today = timeutil.user_today()
         spikes = {
             _human_month_offset(i, today): round(v - surplus_now, 2)
             for i, v in enumerate(per_month)
@@ -595,7 +596,7 @@ def _lumpy_headline(items: list[dict], payload: dict, today: date | None = None)
     `today` is an optional override purely for deterministic testing; the
     real call site always uses the default (today's actual date).
     """
-    today = today or date.today()
+    today = today or timeutil.user_today()
     from app.services.scenario import HORIZON_MONTHS
 
     lumpy_items = [it for it in items if it.get("cadence") in ("annual", "one_off")]
