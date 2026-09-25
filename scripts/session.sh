@@ -896,6 +896,9 @@ cmd_finish() {
   log "checking no raw pentest evidence is staged or tracked in $worktree_dir..."
   (cd "$worktree_dir" && "$worktree_dir/backend/.venv/bin/python" scripts/check_pentest_evidence.py)
 
+  log "checking no new naive local-clock date call in $worktree_dir/backend/app..."
+  (cd "$worktree_dir" && "$worktree_dir/backend/.venv/bin/python" scripts/check_naive_dates.py)
+
   log "running frontend typecheck in $worktree_dir/frontend..."
   (cd "$worktree_dir/frontend" && npx tsc --noEmit -p .)
 
