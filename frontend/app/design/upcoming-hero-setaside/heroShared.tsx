@@ -41,7 +41,7 @@ export function ShortfallBadge({
   );
 }
 
-/** The genuine-shortfall attribution sentence + Review link, verbatim from production. Only ever shown in the billgap state. */
+/** The genuine-shortfall attribution sentence + Review link, verbatim from production (including the optional culprit clause — UpcomingHeroCard.tsx names the traced move mostly responsible when one was found). Only ever shown in the billgap state. */
 export function ShortfallAttribution({
   genuineShortfalls,
   onReview,
@@ -59,7 +59,18 @@ export function ShortfallAttribution({
             {sym}
             {a.shortfall.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </span>{" "}
-          before payday.
+          before payday
+          {a.culprit && (
+            <>
+              , mostly the{" "}
+              <span className="font-mono tabular-nums">
+                {sym}
+                {a.culprit.amount.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>{" "}
+              move on {formatDate(a.culprit.expected_date)}
+            </>
+          )}
+          .
         </p>
       ))}
       <div className="mt-2 flex items-center justify-between gap-3">

@@ -32,9 +32,10 @@ import { ShortfallAttribution, ShortfallBadge, fmt, sym } from "./heroShared";
 export default function HeroVariantB({ scenario }: { scenario: RunwayScenario }) {
   const headingId = useId();
   const [open, setOpen] = useState(false);
-  const { runwayBeforeAllocations, billGap, setAsideOnly } = classify(scenario);
-  const headline = billGap ? runwayBeforeAllocations : runwayBeforeAllocations;
+  const { runway, runwayBeforeAllocations, billGap, setAsideOnly } = classify(scenario);
+  const headline = runwayBeforeAllocations;
   const headlineNegative = headline < 0;
+  const runwayNegative = runway < 0;
   const statusWord = billGap ? "Short" : "Covered";
   const showRemainder = scenario.allocationsRemainingTotal > 0;
 
@@ -127,8 +128,8 @@ export default function HeroVariantB({ scenario }: { scenario: RunwayScenario })
                 {fmt(scenario.runwayBillsTotal)}
               </dd>
             </div>
-            <div className="mt-1 flex items-center justify-between gap-4 border-t border-slate-200/80 pt-2 font-semibold dark:border-white/10">
-              <dt>{billGap ? "Projected balance" : "Covered before set-asides"}</dt>
+            <div className="flex items-center justify-between gap-4 py-1.5">
+              <dt>Covered before set-asides</dt>
               <dd className={`font-mono tabular-nums ${billGap ? "text-rose-600 dark:text-rose-400" : "text-slate-900 dark:text-slate-100"}`}>
                 {headlineNegative ? "−" : ""}
                 {sym}
@@ -144,6 +145,21 @@ export default function HeroVariantB({ scenario }: { scenario: RunwayScenario })
                 </dd>
               </div>
             )}
+            {/* The ledger's one derived total, closing the same way A and C
+                close: a single row wearing the one total device (top rule +
+                weight), never a second styled row above it (One Separator
+                Per Ledger Boundary, DESIGN.md). This is `runway`, the same
+                post-allocation figure A and C show as their headline — B's
+                own headline leads on the pre-allocation figure instead, but
+                the ledger still has to end on the real answer. */}
+            <div className="mt-1 flex items-center justify-between gap-4 border-t border-slate-200/80 pt-2 font-semibold dark:border-white/10">
+              <dt>{scenario.isCalendarMonth ? "Projected at month end" : "Projected at payday"}</dt>
+              <dd className={`font-mono tabular-nums ${billGap ? "text-rose-600 dark:text-rose-400" : "text-slate-900 dark:text-slate-100"}`}>
+                {runwayNegative ? "−" : ""}
+                {sym}
+                {fmt(runway)}
+              </dd>
+            </div>
           </dl>
         )}
       </div>

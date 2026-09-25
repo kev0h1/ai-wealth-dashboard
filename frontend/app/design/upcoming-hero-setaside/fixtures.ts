@@ -36,6 +36,8 @@ export interface RunwayShortfall {
   accountId: string;
   bank: string;
   shortfall: number;
+  /** The traced move mostly responsible, when one was traced — production's own UpcomingHeroCard.tsx renders this as ", mostly the £X move on <date>" when present. */
+  culprit?: { amount: number; expected_date: string };
 }
 
 export interface RunwayTimingRisk {
@@ -59,6 +61,15 @@ export interface RunwayScenario {
   paydayIncomeAmount: number;
 }
 
+// Every scenario below is dated as at Thursday 24 September 2026 — the
+// payday-eve day Kevin's own screenshot was taken on, one day before his
+// real Friday 25 September payday. daysToPayday and paydayLabel are kept
+// consistent with that fixed "as at" date in every scenario, not just the
+// one reproducing Kevin's own figures, so the labels read as real dates
+// rather than arbitrary strings. Stated in the preview's own intro
+// (UpcomingHeroSetAsideClient.tsx) for the same reason.
+export const AS_AT_LABEL = "Thu 24 Sep 2026";
+
 export interface RunwayClassification {
   runway: number;
   runwayBeforeAllocations: number;
@@ -76,11 +87,12 @@ export function classify(s: RunwayScenario): RunwayClassification {
 }
 
 // Kevin's own screenshot, verbatim: Available £256, bills £0, still to set
-// aside £266, projected −£10, £4,798 landing on payday tomorrow.
+// aside £266, projected −£10, £4,798 landing on payday tomorrow (his real
+// payday is Fri 25 Sep 2026; this scenario is dated the evening before).
 export const SCENARIO_SETASIDE: RunwayScenario = {
   isCalendarMonth: false,
   daysToPayday: 1,
-  paydayLabel: "Fri 26 Sep",
+  paydayLabel: "Fri 25 Sep",
   spendableNow: 256,
   runwayIncomeTotal: 0,
   runwayBillsTotal: 0,
@@ -97,13 +109,18 @@ export const SCENARIO_SETASIDE: RunwayScenario = {
 export const SCENARIO_BILLGAP: RunwayScenario = {
   isCalendarMonth: false,
   daysToPayday: 3,
-  paydayLabel: "Wed 1 Oct",
+  paydayLabel: "Sun 27 Sep",
   spendableNow: 180,
   runwayIncomeTotal: 0,
   runwayBillsTotal: 340,
   allocationsRemainingTotal: 60,
   savingsNow: 400,
-  genuineShortfalls: [{ accountId: "acc-monzo", bank: "Monzo", shortfall: 160 }],
+  genuineShortfalls: [{
+    accountId: "acc-monzo",
+    bank: "Monzo",
+    shortfall: 160,
+    culprit: { amount: 145, expected_date: "2026-09-24" },
+  }],
   timingShortfalls: [],
   paydayIncomeAmount: 2150,
 };
@@ -112,7 +129,7 @@ export const SCENARIO_BILLGAP: RunwayScenario = {
 export const SCENARIO_HEALTHY: RunwayScenario = {
   isCalendarMonth: false,
   daysToPayday: 5,
-  paydayLabel: "Mon 5 Oct",
+  paydayLabel: "Tue 29 Sep",
   spendableNow: 1120,
   runwayIncomeTotal: 0,
   runwayBillsTotal: 410,

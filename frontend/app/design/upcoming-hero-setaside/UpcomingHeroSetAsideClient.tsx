@@ -7,7 +7,7 @@
 import { useEffect } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { SCENARIOS } from "./fixtures";
+import { AS_AT_LABEL, SCENARIOS } from "./fixtures";
 import HeroVariantA from "./HeroVariantA";
 import HeroVariantB from "./HeroVariantB";
 import HeroVariantC from "./HeroVariantC";
@@ -87,6 +87,9 @@ export default function UpcomingHeroSetAsideClient() {
             <h1 className="text-[28px] font-bold leading-tight tracking-[-0.035em] text-slate-950 dark:text-white">Before payday</h1>
             <p className="mt-1 max-w-sm text-sm text-slate-500 dark:text-slate-400">
               G162 &middot; an amber wording for the set-aside-only case, red reserved for a genuine bill gap.
+            </p>
+            <p className="mt-1 max-w-sm text-xs text-slate-400 dark:text-slate-500">
+              Fixture dates are as at {AS_AT_LABEL}.
             </p>
           </div>
           <Hero scenario={scenario} />

@@ -28,14 +28,17 @@ import { ShortfallAttribution, ShortfallBadge, PaydayExclusionNote, fmt, sym } f
 export default function HeroVariantA({ scenario }: { scenario: RunwayScenario }) {
   const headingId = useId();
   const [open, setOpen] = useState(false);
-  const { runway, billGap, setAsideOnly, healthy } = classify(scenario);
+  const { runway, billGap, setAsideOnly } = classify(scenario);
   const negative = runway < 0;
 
   // The chip: red only for a genuine bill gap, amber only for the
   // set-aside-only case, neutral ink otherwise. This is the one place in
   // the card colour is allowed to speak — the figure below never repeats
-  // it.
-  const chipLabel = billGap ? "Short" : setAsideOnly ? "Set aside" : healthy ? "Covered" : "Even";
+  // it. Only three cases exist (classify()'s billGap/setAsideOnly/healthy
+  // are exhaustive and mutually exclusive: healthy is exactly "not
+  // billGap and not setAsideOnly"), so there is no fourth "Even" branch
+  // to fall through to.
+  const chipLabel = billGap ? "Short" : setAsideOnly ? "Set aside" : "Covered";
   const chipClass = billGap
     ? "bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300"
     : setAsideOnly
@@ -57,7 +60,7 @@ export default function HeroVariantA({ scenario }: { scenario: RunwayScenario })
             </span>
           </div>
           <p
-            aria-label={`${fmt(runway)} pounds ${negative ? "negative" : "positive"}`}
+            aria-label={`${fmt(runway)} pounds ${chipLabel}`}
             className={`mt-1.5 font-mono text-[40px] font-bold leading-none tracking-[-0.04em] tabular-nums ${
               billGap ? "text-rose-600 dark:text-rose-400" : "text-slate-900 dark:text-slate-100"
             }`}
