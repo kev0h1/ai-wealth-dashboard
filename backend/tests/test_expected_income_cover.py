@@ -26,6 +26,7 @@ from app.routers.analytics import (
     _late_reliable_income,
     _income_pattern_reliable,
     _prev_scheduled_occurrence,
+    _retreat_month_to_anchor,
     income_credit_ok,
     PENDING_GIVE_UP_DAYS,
 )
@@ -322,11 +323,26 @@ def test_detected_pattern_with_unstable_amounts_is_not_reported():
 
 
 def test_detected_pattern_cleared_by_a_matching_credit():
-    """Same amount-band-plus-account matching as the confirmed branch."""
-    today = date(2026, 9, 26)
+    """Same amount-band-plus-account matching as the confirmed branch,
+    tightened to D+1 (prev_expected 24 Sep, today 25 Sep) — the earliest
+    day this signal has anything to clear at all, same boundary
+    `test_lapsed_the_day_after_with_no_matching_credit` exercises for the
+    confirmed branch."""
+    today = date(2026, 9, 25)
     pattern = _detected_pattern(next_date=date(2026, 9, 25), avg_interval=1)
     credits = [_credit(date(2026, 9, 24), 790.0, account_id="acc-2")]
     result = _late_reliable_income({}, [pattern], credits, today)
+    assert result == []
+
+
+def test_detected_pattern_not_lapsed_on_the_expected_day_itself():
+    """Mirrors `test_not_lapsed_on_the_expected_day_itself` for the
+    confirmed branch: today IS `prev_expected` itself — nothing has become
+    due yet, let alone lapsed, so the `prev_expected >= today` guard skips
+    it silently, exactly as if nothing were wrong."""
+    today = date(2026, 9, 25)
+    pattern = _detected_pattern(next_date=date(2026, 9, 26), avg_interval=1)
+    result = _late_reliable_income({}, [pattern], [], today)
     assert result == []
 
 
@@ -352,3 +368,41 @@ def test_detected_pattern_not_yet_due_is_not_reported():
     pattern = _detected_pattern(next_date=date(2026, 9, 25), avg_interval=1)
     result = _late_reliable_income({}, [pattern], [], today)
     assert result == []
+
+
+# ── _retreat_month_to_anchor / detected branch: exact monthly stepping
+# (G167 review) ──────────────────────────────────────────────────────────────
+
+def test_retreat_month_to_anchor_recovers_the_31st_across_a_30_day_month():
+    """Anchor day 31: `d` sits in November (30 days), the month day 31 gets
+    clamped into whenever `_advance_month_to_anchor` builds a November
+    date for this anchor. Retreating one month must land on October's own
+    UNCLAMPED 31st, not a day derived from a rounded `avg_interval` that
+    could easily disagree with the true anchor once a 30-day month is
+    involved (October has 31 days, so nothing clamps there)."""
+    prev = _retreat_month_to_anchor(date(2026, 11, 30), 31)
+    assert prev == date(2026, 10, 31)
+
+
+def test_detected_monthly_anchor_exact_across_a_30_day_month():
+    """End-to-end through `_late_reliable_income`'s detected branch: a
+    reliable pattern anchored on the 31st with `next_date` landing in
+    November (clamped to the 30th) must report the exact 31 Oct expected
+    date. `next_date - round(avg_interval)` would NOT reliably recover
+    this: e.g. an observed avg_interval of 30 or 31 days gives 31 Oct or 30
+    Oct, and either can drift further wrong once more month-length
+    variation compounds — the exact anchor-stepping path removes that
+    entirely, which is the point of this test."""
+    today = date(2026, 11, 1)  # D+1 after the true 31 Oct due date
+    pattern = _detected_pattern(
+        key="LANDLORD", account_id="acc-3", avg_amount=1200.0,
+        avg_interval=30.5, next_date=date(2026, 11, 30),
+    )
+    pattern["monthly_anchor"] = 31
+    result = _late_reliable_income({}, [pattern], [], today)
+    assert len(result) == 1
+    entry = result[0]
+    assert entry["key"] == "LANDLORD"
+    assert entry["expected_date"] == "2026-10-31"
+    assert entry["days_late"] == 1
+    assert entry["source"] == "detected"

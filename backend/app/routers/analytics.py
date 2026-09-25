@@ -656,6 +656,31 @@ def _advance_month_to_anchor(d, anchor):
     return d.replace(year=year, month=month, day=day)
 
 
+def _retreat_month_to_anchor(d, anchor):
+    """Mirror of `_advance_month_to_anchor`: move to the PRECEDING calendar
+    month, landing on `anchor` (same three shapes — see that function's
+    docstring). Only `d`'s year/month are used, same reason.
+
+    Used by `_late_reliable_income` (G167) to step a monthly-anchored
+    `recurring_income` entry's `next_date` back exactly one cycle. This is
+    provably the entry's own previous DUE occurrence, not an approximation
+    of it: `_detect_recurring` builds `next_date` by repeatedly calling
+    `_advance_month_to_anchor` forward from `last_date` until it lands
+    strictly after today (see that function's monthly branch), so the
+    sequence of values it steps through is exactly the anchor date in each
+    successive month — stepping one month BACKWARD from `next_date` with
+    the identical anchor lands on exactly the value that sequence held one
+    step earlier, whether or not a real payment was ever observed there.
+    """
+    year = d.year - (1 if d.month == 1 else 0)
+    month = 12 if d.month == 1 else d.month - 1
+    if isinstance(anchor, dict):
+        return _nth_weekday_of_month(year, month, anchor["weekday"], anchor["nth"])
+    month_len = monthrange(year, month)[1]
+    day = month_len if anchor is _MONTHLY_ANCHOR_EOM else min(anchor, month_len)
+    return d.replace(year=year, month=month, day=day)
+
+
 def _majority_landing_account(items: list) -> str | None:
     """The account a set of transactions actually landed in: majority
     account across occurrences, tie-broken by recency. Bills reliably come
@@ -1305,23 +1330,37 @@ def _late_reliable_income(
         stream's `recurring_income` entry, real detected occurrences or the
         G158 synthesised fallback, carries no dependable marker of its own,
         so the confirmed map is the authoritative split) and which clears
-        `_income_pattern_reliable`. `prev_expected` here is approximated as
-        `next_date - avg_interval` days, rather than re-deriving the exact
-        monthly-anchor/weekday stepping `_detect_recurring` used to produce
-        `next_date` in the first place: `next_date` there is always the
-        FIRST occurrence still strictly after today (see its own stepping
-        loop, "while next_date <= _today"), so stepping back one
-        cadence-width is, by construction, the most recent occurrence that
-        has already passed, to within the anchor's own day-of-month/weekday
-        wobble (at most a few days for a monthly series). That wobble only
-        ever matters at the edges of PENDING_GIVE_UP_DAYS, the same
-        tolerance the schedule-exact confirmed branch already carries via
-        its own OBSERVATION_LOOKBACK_DAYS credit window — a day or two
-        either way never changes which cycle is being described. Kept
-        simple deliberately: a full re-derivation would need to duplicate
-        every cadence branch in `_detect_recurring` (weekly/biweekly/
-        monthly-anchor/fallback) for a signal that is already an interim
-        stand-in pending G157.
+        `_income_pattern_reliable`. `prev_expected`:
+          - MONTHLY cadence (`26 <= avg_interval <= 35` — the same band
+            `_detect_recurring` gates its own monthly branch on, so this
+            reliably tells whether the entry's `monthly_anchor` field is a
+            real anchor or just the unused default): EXACT, not an
+            approximation. `_detect_recurring`'s `next_date` there is built
+            by `_advance_month_to_anchor(last_date, anchor)`, then
+            repeatedly re-advanced a month at a time until strictly after
+            today. `_retreat_month_to_anchor(next_date, anchor)` — the
+            mirror image, one month back, same anchor — lands on exactly
+            the value that stepping sequence held one step earlier,
+            whichever anchor shape `monthly_anchor` carries (int
+            day-of-month, `None` for EOM, or the `{"weekday", "nth"}`
+            dict). This is the case worth being exact about: an anchor
+            near month-end (e.g. the 31st) clamped into a shorter month
+            can otherwise be off by a few days, which is a meaningful
+            fraction of PENDING_GIVE_UP_DAYS.
+          - Every other cadence (weekly `6-10`, biweekly `11-18`, or the
+            generic fallback outside every named band): kept as
+            `next_date - round(avg_interval)` days, same as before this
+            review round. This remains an approximation for weekly/
+            biweekly specifically — `_detect_recurring` actually re-anchors
+            those on a fixed 7-day/14-day step from the series' modal
+            weekday, not literally `avg_interval` itself — bounded to
+            within a day or two, same as it always was. (For the generic
+            fallback band alone, `_detect_recurring` genuinely does step by
+            `round(avg_interval)`, so this is already exact there too.)
+            Exact weekday-anchored stepping for weekly/biweekly was scoped
+            out of this round: the monthly case is where day-clamping
+            produces the largest drift, and this signal is an interim
+            stand-in pending G157 regardless.
 
     Returns `{"key", "label", "amount", "expected_date", "days_late",
     "account_id", "source"}` for every stream/pattern that has genuinely
@@ -1372,7 +1411,13 @@ def _late_reliable_income(
             next_date = next_date.date()
         elif isinstance(next_date, str):
             next_date = _date.fromisoformat(next_date)
-        prev_expected = next_date - timedelta(days=round(float(avg_interval)))
+        avg_interval_f = float(avg_interval)
+        if 26 <= avg_interval_f <= 35:
+            # Monthly-anchored: exact mirror of `_detect_recurring`'s own
+            # forward stepping — see this function's docstring.
+            prev_expected = _retreat_month_to_anchor(next_date, item.get("monthly_anchor"))
+        else:
+            prev_expected = next_date - timedelta(days=round(avg_interval_f))
         if prev_expected >= today:
             continue  # own cadence says nothing was due yet
         days_late = (today - prev_expected).days
