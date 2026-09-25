@@ -2171,12 +2171,20 @@ async def compute_today_items(
     # balance first when the walk hasn't already touched it (no bills of its
     # own in-window), matching the same seeding `_walk_events` gives every
     # other tracked account.
+    # Tracks whether `_pp_salary_income` was actually injected into `events`
+    # (and therefore into `running`/the walk) just below — payday_split_risk
+    # (section 5c) must not ALSO count it from `_orig_payday_day_income`,
+    # or a confirmed payday-day salary is counted twice (review fix,
+    # 2026-09-25: balance 0, payday-day bills £1,500, confirmed same-account
+    # salary £1,000 on payday read as £2,000 covering it and never fired).
+    _pp_salary_credited_in_walk = False
     if payday_preview and _pp_salary_income is not None:
         _pp_sal_acct = str(_pp_salary_income.get("account_id") or "")
         if _pp_sal_acct:
             if _pp_sal_acct not in running:
                 running[_pp_sal_acct] = live_balances.get(_pp_sal_acct, 0.0)
             events.append((days_to_pay, _pp_sal_acct, float(_pp_salary_income["amount"]), True, _pp_salary_income))
+            _pp_salary_credited_in_walk = True
 
     # G163: same-day, credits before debits (`walk_sort_key`) — a confirmed
     # income stream expected in an account on day D covers what leaves that
@@ -3345,6 +3353,14 @@ async def compute_today_items(
                         float(i["amount"]) for i in _orig_payday_day_income
                         if str(i.get("account_id") or "") == _pd_acct
                         and income_credit_ok(i, _pd_acct, confirmed_income_keys)
+                        # Skip `_pp_salary_income` here when it was already
+                        # injected straight into `events`/`running` above
+                        # (payday_preview) — `running` already carries this
+                        # exact credit, so summing it again from the
+                        # unmutated snapshot would double-count it (review
+                        # fix, 2026-09-25). Identity, not equality: the same
+                        # object the preview injection used.
+                        and not (_pp_salary_credited_in_walk and i is _pp_salary_income)
                     )
                     _pd_morning_bal += sum(
                         float(n["amount"]) for n in payday_day_inflows

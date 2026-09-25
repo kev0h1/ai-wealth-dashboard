@@ -190,14 +190,18 @@ def test_payday_day_sto_excluded_from_arithmetic_but_visible_in_split(monkeypatc
 
 def test_no_risk_when_confirmed_salary_expected_into_the_split_account(monkeypatch):
     """G163: the account's live balance alone can't absorb the payday-day
-    outflow (£300 held, £700 due), but a confirmed salary is ALSO expected
+    outflow (£0 held, £700 due), but a confirmed salary is ALSO expected
     into this exact account on payday (`income_credit_ok` passes — 3+
-    stable occurrences, correct account attribution). Since the AI knows
-    money is coming in, this must not be flagged at all — no risk payload,
-    no "if the salary is late" hedge."""
+    stable occurrences, correct account attribution), covering it by a
+    tight £50 margin (£750 credited against £700 due, not the old £2,000-
+    vs-£700 test's enormous slack) — since the AI knows money is coming in,
+    this must not be flagged at all: no risk payload, no "if the salary is
+    late" hedge. `_run` already runs with `payday_preview=True`, the mode
+    where the salary is injected as a real walk event (see
+    `test_lapsed_...` below for the same mode's double-counting guard)."""
     bills = [_bill(f"STO {n}", 5, 100.0) for n in range(7)]  # £700 total, on payday
-    income = [_salary(5, 2000.0)]
-    items = _run(monkeypatch, balance=300.0, bills=bills, income=income)
+    income = [_salary(5, 750.0)]
+    items = _run(monkeypatch, balance=0.0, bills=bills, income=income)
 
     plan = _payday_plan(items)
     assert plan is not None
@@ -205,6 +209,37 @@ def test_no_risk_when_confirmed_salary_expected_into_the_split_account(monkeypat
     assert split["total"] == 700
 
     assert plan.get("payday_split_risk") is None
+
+
+def test_preview_salary_not_double_counted_against_payday_day_bills(monkeypatch):
+    """Review fix, 2026-09-25 (reviewer repro): with `payday_preview=True`
+    (this file's `_run` always sets it), the confirmed payday-day salary is
+    injected as a real event into the walk (`running`) AND also lives in
+    `_orig_payday_day_income`, the untouched snapshot `payday_split_risk`
+    reads separately. Before the fix, `payday_split_risk` summed BOTH,
+    crediting the same £1,000 salary twice against £1,500 of payday-day
+    bills — £0 held + £1,000 (walk) + £1,000 (snapshot, again) = £2,000,
+    which wrongly cleared the bills and suppressed the risk entirely. The
+    correct single count (£0 + £1,000 = £1,000) is £500 short of £1,500,
+    so the risk must fire with exactly that shortfall — a double count
+    would instead silently return no risk payload at all, which is what
+    this test exists to catch."""
+    bills = [_bill("Payday Bill", 5, 1500.0)]
+    income = [_salary(5, 1000.0)]
+    items = _run(monkeypatch, balance=0.0, bills=bills, income=income)
+
+    plan = _payday_plan(items)
+    assert plan is not None
+    split = plan["payday_split"]
+    assert split["total"] == 1500
+
+    risk = plan.get("payday_split_risk")
+    assert risk is not None, "salary was double-counted against payday-day bills, suppressing the risk"
+    assert risk["account_id"] == ACCT_ID
+    assert risk["shortfall"] == 500  # £1,500 due - £1,000 confirmed salary, counted ONCE
+    assert "£1,500" in risk["copy"]
+    assert "Barclays Premier" in risk["copy"]
+    assert "—" not in risk["copy"]  # house style: no em-dashes in user-facing copy
 
 
 def test_risk_fires_with_new_copy_when_no_income_expected_into_the_split_account(monkeypatch):

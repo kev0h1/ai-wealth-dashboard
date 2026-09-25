@@ -387,18 +387,21 @@ export default function PlanningPage() {
         .map((inf) => ({ kind: "inflow" as const, days_away: inf.days_away, amount: inf.amount, account_id: inf.account_id })),
     ];
 
-    // The walk itself, extracted so it can run twice over the identical
-    // event list with only the same-day tie-break flipped (see the
-    // conservative/optimistic explanation above).
-    function walk(tieBreak: "conservative" | "optimistic") {
+    // ONE walk (G163): same-day, credits (income/inflow) before debits
+    // (bill), a direct port of backend/app/services/companion.py's
+    // walk_sort_key. No tieBreak parameter any more — there is only one
+    // ordering now, so there is nothing left to flip.
+    function walk() {
       const running: Record<string, number> = { ...seedRunning };
       const sorted = [...events].sort((a, b) => {
         if (a.days_away !== b.days_away) return a.days_away - b.days_away;
-        const aCredit = a.kind === "bill" ? 0 : 1;
-        const bCredit = b.kind === "bill" ? 0 : 1;
-        // conservative: bills (0) before credits (1) on a tie; optimistic
-        // flips it so credits land first.
-        return tieBreak === "conservative" ? aCredit - bCredit : bCredit - aCredit;
+        // credits (income/inflow) rank 0, bills rank 1 — credits sort
+        // first on a shared day (G163: a confirmed income stream expected
+        // into an account on day D covers what leaves that account on day
+        // D).
+        const aRank = a.kind === "bill" ? 1 : 0;
+        const bRank = b.kind === "bill" ? 1 : 0;
+        return aRank - bRank;
       });
       // Movements (transfers, savings, investment STOs) processed on each
       // account since its last income/inflow landing, the causal window
@@ -461,7 +464,12 @@ export default function PlanningPage() {
       return atRisk;
     }
 
-    return { conservative: walk("conservative"), optimistic: walk("optimistic") };
+    // `.conservative` and `.optimistic` both point at the SAME single
+    // result — there is only one walk now (see the comment above `walk`),
+    // kept as two keys only so the ~15 readers below (both in this file)
+    // compile unchanged; they can no longer disagree.
+    const singleWalk = walk();
+    return { conservative: singleWalk, optimistic: singleWalk };
   })();
 
   // `.conservative` is the one true source for every RED treatment on this
