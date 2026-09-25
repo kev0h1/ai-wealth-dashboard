@@ -1041,6 +1041,24 @@ def walk_sort_key(event):
     return (event[0], 0 if event[3] else 1)
 
 
+# G167: why an internal inflow (a predicted own-account transfer, credited
+# into `window_inflows`/`internal_inflows` with NO reliability gate at all —
+# see `income_credit_ok`'s docstring, which only ever gates the separate
+# `window_income`/predicted-income population) never gets a `_late_reliable_
+# income`-style "has not arrived yet" line of its own, unlike a confirmed or
+# reliable-detected income stream: an inflow is the mirrored DESTINATION leg
+# of the user's own movement bill (`_learn_transfer_destinations`). If the
+# SOURCE leg has not actually fired yet, that occurrence is already showing
+# as `pending` on its source account, and Upcoming's own pending-movement
+# copy plus the unfunded-move card already speak for it there. A second
+# sentence at the destination describing the same non-event would be an app
+# artefact — the user would read two different cards each explaining why
+# the SAME money has not moved, from two different ends of one transfer.
+# Referenced at every `window_inflows`/`internal_inflows` append site
+# (this function's own walk, `analytics.at_risk_count`, and
+# `spend_impact._bills_risk`) rather than repeated at each.
+
+
 def _walk_events(
     events: list[tuple[int, str, float, bool, dict]],
     balances: dict[str, float],
@@ -2156,6 +2174,11 @@ async def compute_today_items(
     # credited to an account the walk already tracks (`acct in running`),
     # same reasoning as at_risk_count: an inflow must never seed a brand-new
     # account into the simulation.
+    #
+    # G167: no reliability gate here, and deliberately no late-income line
+    # for one either — see the comment block above `walk_sort_key`, this
+    # function's own file, for why a lapsed inflow is already spoken for by
+    # its source-side pending copy.
     for n in window_inflows:
         acct = str(n.get("account_id") or "")
         if acct in running:
@@ -3819,11 +3842,14 @@ async def compute_today_items(
                     "These accounts may already hold enough. Check before skipping."
                 )
 
-            # G163 interim lapse signal: one of these moves' source accounts
-            # was expecting a confirmed income stream that has now lapsed
-            # (see `_late_confirmed_income` in routers/analytics.py). Name it
-            # once per late stream (not once per move), so the card reads as
-            # "here's why", not just "these may not have the funds".
+            # G163/G167 interim lapse signal: one of these moves' source
+            # accounts was expecting a confirmed income stream, or a
+            # reliable DETECTED pattern, that has now lapsed (see
+            # `_late_reliable_income` in routers/analytics.py). Name it once
+            # per late stream (not once per move), so the card reads as
+            # "here's why", not just "these may not have the funds". Copy
+            # only calls it "pay" for a confirmed stream — the user never
+            # confirmed a merely-detected pattern as income.
             _um_late_accts = {m["source_account_id"] for m in _um_moves}
             _um_seen_late_keys: set = set()
             for _le in (resp.get("late_income") or []):
@@ -3837,10 +3863,16 @@ async def compute_today_items(
                     _le_when = date.fromisoformat(_le["expected_date"]).strftime("%a %-d %b")
                 except (TypeError, ValueError, KeyError):
                     continue
-                _um_sentences.append(
-                    f"Your ~£{float(_le['amount']):,.0f} {_le['label']} pay was expected "
-                    f"{_le_when} and has not arrived yet."
-                )
+                if _le.get("source") == "detected":
+                    _um_sentences.append(
+                        f"Your ~£{float(_le['amount']):,.0f} from {_le['label']} was expected "
+                        f"{_le_when} and has not arrived yet."
+                    )
+                else:
+                    _um_sentences.append(
+                        f"Your ~£{float(_le['amount']):,.0f} {_le['label']} pay was expected "
+                        f"{_le_when} and has not arrived yet."
+                    )
 
             body = " ".join(_um_sentences)
 
@@ -4138,11 +4170,13 @@ async def compute_today_items(
         else:
             body = f"£{total:,} across {n_rows} moves covers most of what {dest_name} needs."
 
-        # G163 interim lapse signal: this destination is short partly because
-        # a confirmed income stream expected into it has lapsed (expected
-        # date passed, no matching credit — see `_late_confirmed_income` in
-        # routers/analytics.py). Name it, so the card reads as "here's why",
-        # not just "move money" — one sentence, hedged amount, British date.
+        # G163/G167 interim lapse signal: this destination is short partly
+        # because a confirmed income stream, or a reliable DETECTED
+        # pattern, expected into it has lapsed (expected date passed, no
+        # matching credit — see `_late_reliable_income` in
+        # routers/analytics.py). Name it, so the card reads as "here's
+        # why", not just "move money" — one sentence, hedged amount,
+        # British date. Only a confirmed stream is called "pay".
         _mc_late = next(
             (e for e in (resp.get("late_income") or []) if e.get("account_id") == dest_acct),
             None,
@@ -4153,10 +4187,16 @@ async def compute_today_items(
             except (TypeError, ValueError, KeyError):
                 _mc_late_when = None
             if _mc_late_when:
-                body += (
-                    f" Your ~£{float(_mc_late['amount']):,.0f} {_mc_late['label']} pay was expected "
-                    f"{_mc_late_when} and has not arrived yet."
-                )
+                if _mc_late.get("source") == "detected":
+                    body += (
+                        f" Your ~£{float(_mc_late['amount']):,.0f} from {_mc_late['label']} was expected "
+                        f"{_mc_late_when} and has not arrived yet."
+                    )
+                else:
+                    body += (
+                        f" Your ~£{float(_mc_late['amount']):,.0f} {_mc_late['label']} pay was expected "
+                        f"{_mc_late_when} and has not arrived yet."
+                    )
 
         residual = None
         if dest_gap > 0.5:

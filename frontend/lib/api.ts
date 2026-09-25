@@ -280,19 +280,23 @@ export type CashflowData = {
    * as "no allocations to subtract", never as an error. */
   allocations?: Allocation[];
   /**
-   * G163 interim lapse signal (until G157's payer matcher replaces it):
-   * confirmed income streams whose most recently due occurrence has
-   * lapsed (expected date + 1 day, no matching credit). Pre-lapse, a
-   * stream due today or covered by a recent credit is simply absent from
-   * this list — no card should treat it as a problem. Post-lapse, cards
-   * naming the late pay (cover-plan move, unfunded-move, payday split)
-   * read this list to find which account and how much. Optional, defaults
-   * to `[]` for older cached responses.
+   * G163/G167 interim lapse signal (until G157's payer matcher replaces
+   * it): confirmed income streams, AND reliable but merely DETECTED
+   * patterns (3+ occurrences, stable recent amounts), whose most recently
+   * due occurrence has lapsed (expected date + 1 day, no matching
+   * credit). Pre-lapse, a stream/pattern due today or covered by a recent
+   * credit is simply absent from this list — no card should treat it as a
+   * problem. Post-lapse, cards naming the late pay (cover-plan move,
+   * unfunded-move, payday split) read this list to find which account and
+   * how much, and use `source` to decide whether to call it "pay" (only
+   * ever for a confirmed stream). Optional, defaults to `[]` for older
+   * cached responses.
    */
   late_income?: LateIncome[];
 };
 
-/** One lapsed confirmed income stream — see `CashflowData.late_income`. */
+/** One lapsed confirmed income stream or reliable detected pattern — see
+ * `CashflowData.late_income`. */
 export type LateIncome = {
   key: string;
   label: string;
@@ -300,6 +304,10 @@ export type LateIncome = {
   expected_date: string;
   days_late: number;
   account_id: string | null;
+  /** "confirmed": a user-confirmed income stream — copy may call it "pay".
+   * "detected": a merely detected pattern the user never confirmed as
+   * income — copy must not call it "pay". */
+  source: "confirmed" | "detected";
 };
 
 export type TransportMode = {
