@@ -161,9 +161,12 @@ export function GlassCard({ children }: { children: ReactNode }) {
  * divider, arc-close "stays with you" line), but reporting what actually
  * moved rather than the plan's own legs, and speaking of it as done, not
  * proposed. Salary reads "received" with a landed time, not "expected";
- * each standing order reads "received" for Kevin's own accounts and
- * "paid" for an external biller, since claiming a council-tax payee
- * "received" money the way an owned account does would read oddly.
+ * every standing order is one of Kevin's own accounts, bank-badged and
+ * "received" — a payday split never pays an external biller directly, so
+ * there is no separate "paid" row style here (review finding, G164: an
+ * earlier draft invented four external-biller rows, which both broke the
+ * "own accounts only" fact and overstated how real the per-row split is —
+ * see fixtures.ts's own comment on what is genuinely real here).
  */
 export function ReceiptLedger({
   salaryName,
@@ -230,18 +233,12 @@ export function ReceiptLedger({
         </p>
         <div className="divide-y divide-slate-100 dark:divide-slate-700">
           {moves.map((move) => (
-            <div key={move.name} className="flex min-h-12 items-center gap-2.5 py-2">
-              {move.isOwnAccount ? (
-                <AccountChip name={move.name} provider={move.note?.split(" ·")[0] ?? ""} />
-              ) : (
-                <span aria-hidden="true" className="grid size-8 flex-shrink-0 place-items-center rounded-full bg-slate-100 text-slate-500 dark:bg-slate-700/70 dark:text-slate-300">
-                  <WalletCards size={14} />
-                </span>
-              )}
+            <div key={`${move.provider}-${move.name}`} className="flex min-h-12 items-center gap-2.5 py-2">
+              <AccountChip name={move.name} provider={move.provider} />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-medium text-slate-700 dark:text-slate-200">{move.name}</span>
                 <span className="mt-0.5 block truncate text-[12px] leading-snug text-slate-500 dark:text-slate-400">
-                  {move.isOwnAccount ? "received" : "paid"}{move.note ? ` · ${move.note}` : ""}
+                  received{move.note ? ` · ${move.note}` : ""}
                 </span>
               </span>
               <span className="money shrink-0 text-sm font-semibold text-slate-900 dark:text-slate-100">

@@ -156,6 +156,8 @@ export default function PaydayPlanExecutedClient() {
               An X on Penny read as dismiss when it only ever collapsed the card. Every variant below replaces it with a
               real minimise control, gives Home a genuine whole-component dismiss, speaks of an executed plan in the past
               tense, and reports what actually moved: £3,170 across 7 standing orders, not the plan’s own £2,725 to 3.
+              The £3,170 total, the count of 7 and the landed time are real; the per-account split below is illustrative,
+              since companion.py has no record of which account got how much.
             </p>
             <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">Preview only. No bank data or preferences are changed.</p>
           </header>
