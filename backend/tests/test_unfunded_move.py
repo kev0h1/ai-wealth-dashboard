@@ -169,7 +169,8 @@ def _account(acct_id, balance, provider="barclays", name=None, subtype="TRANSACT
 
 
 def _run(monkeypatch, bills, *, accounts=None, payday_window=False,
-         income_streams=None, window_income=None, companion_items=None):
+         income_streams=None, window_income=None, companion_items=None,
+         late_income=None):
     """Full-stack harness: patches every collection compute_today_items
     touches and calls it for real, following test_internal_inflows.py's
     `_run_compute_today_items` pattern (extended with `accounts_col` so the
@@ -242,6 +243,8 @@ def _run(monkeypatch, bills, *, accounts=None, payday_window=False,
             "upcoming_bills": bills,
             "upcoming_income": window_income or [],
             "internal_inflows": [],
+            # G163 interim lapse signal — see analytics._late_confirmed_income.
+            "late_income": late_income or [],
         }
 
     monkeypatch.setattr(companion, "_build_cashflow_response", fake_resp)
@@ -312,6 +315,66 @@ def test_neither_pending_nor_bounced_does_not_fire(monkeypatch):
                        pending=False, days_away=5)]
     items, _ = _run(mp, bills, accounts=accounts)
     assert _find(items, "unfunded_move") is None
+
+
+# ── G163: confirmed same-day income covers a pending move; lapsed income
+# names itself on the card ───────────────────────────────────────────────
+
+def test_pending_move_covered_by_same_day_confirmed_income_does_not_fire():
+    """Kevin, 2026-09-24: "the AI should know money is coming in so perhaps
+    I shouldn't flag this, it only becomes a problem the day after." A
+    movement due TODAY on a source account that's short on its own, but a
+    confirmed income stream is ALSO expected into that exact account today
+    — the single G163 walk (credits before debits on a shared day) covers
+    it, so it never lands in `bounced_bills` and `unfunded_move` never
+    fires. Before G163 this was indistinguishable from a genuine bounce,
+    since the walk always processed the bill first."""
+    import pytest
+    mp = pytest.MonkeyPatch()
+    try:
+        accounts = [_account("barclays", 20.0)]
+        bills = [_mv_bill("KEVIN MAINGI HSBC FT", 81.67, "barclays",
+                           pending=True, days_away=0)]
+        window_income = [{
+            "name": "Salary", "amount": 200.0, "days_away": 0, "account_id": "barclays",
+            "account_name": "Barclays Current",
+        }]
+        items, _ = _run(
+            mp, bills, accounts=accounts,
+            income_streams=[{"key": "Salary", "status": "confirmed"}],
+            window_income=window_income,
+        )
+        assert _find(items, "unfunded_move") is None
+    finally:
+        mp.undo()
+
+
+def test_lapsed_income_names_the_late_pay():
+    """Same shortfall shape as `test_pending_and_bounced_fires` (no income
+    at all covers it this time, so the card fires as usual), but
+    `resp["late_income"]` (the G163 interim lapse signal — see
+    `analytics._late_confirmed_income`) carries an entry for this exact
+    source account. The card's body must name the late pay, not just say
+    the move "may not have the funds"."""
+    import pytest
+    mp = pytest.MonkeyPatch()
+    try:
+        accounts = [_account("barclays", 20.0)]
+        bills = [_mv_bill("KEVIN MAINGI HSBC FT", 81.67, "barclays",
+                           pending=True, days_past_due=9, original_date="2026-08-18")]
+        late_income = [{
+            "key": "Salary", "label": "Salary", "amount": 2000.0,
+            "expected_date": "2026-08-20", "days_late": 3, "account_id": "barclays",
+        }]
+        items, _ = _run(mp, bills, accounts=accounts, late_income=late_income)
+        item = _find(items, "unfunded_move")
+        assert item is not None
+        assert "Salary pay was expected" in item["body"]
+        assert "has not arrived yet" in item["body"]
+        assert "~£2,000" in item["body"]
+        assert "—" not in item["body"]  # house style: no em-dashes in user-facing copy
+    finally:
+        mp.undo()
 
 
 # ── Aggregation ───────────────────────────────────────────────────────────

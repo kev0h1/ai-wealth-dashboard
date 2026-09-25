@@ -2,21 +2,28 @@
 app.services.companion — the pure (no-DB) seams `_walk_events` and
 `_gate_recommendation`.
 
-Context: Penny was recommending "Move £X" based on a purely conservative
-running-balance walk (outflows before inflows on a shared day, every
-upcoming_bills entry counted regardless of `kind`). Two false positives
-followed: (1) reliable same-day income landing in the SAME account as the
-outflows was never allowed to offset them, so a payday with genuine income
-still read as a shortfall; (2) `movement` bills (the user's own standing
-orders to savings/another own account/investment/debt) counted the same as
-a real commitment, so a stack of self-transfers could trigger a "move
-money" instruction to cover a "shortfall" that was never a bill at all.
+G163 (2026-09-25, Kevin: "the AI should know money is coming in so perhaps
+I shouldn't flag this, it only becomes a problem the day after"): every
+per-account walk now credits a confirmed income event before a same-day
+bill (`walk_sort_key`) — a confirmed stream expected in an account on day D
+covers what leaves that account on day D; only the day after, with no
+matching credit, does the stream lapse and the deficit become real. The
+walk therefore no longer needs a second, optimistic pass to decide whether
+to suppress a recommendation for same-day income (the OLD gate (a)) — an
+account genuinely covered by same-day income never goes negative in the
+ONE walk to begin with, so it never reaches the shortfall/recommendation
+machinery at all. `_gate_recommendation` keeps only the OLD gate (b), the
+movement-only suppression (a stack of the user's own standing orders to
+savings/another own account is never an obligation that can fail
+expensively).
 
-`_gate_recommendation` is consulted ONLY when deciding whether to emit a
-recommendation card — the conservative walk itself (`_walk_events`,
-`min_running`, `shortfall_bill`, `bounced_bills`) is untouched, so the
-at-risk badge (`analytics.at_risk_count`) and the Planning page stay exactly
-as conservative as before.
+Two false positives originally motivated this file: (1) reliable same-day
+income landing in the SAME account as the outflows was never allowed to
+offset them — fixed by G163's walk order, not by a gate any more; (2)
+`movement` bills (the user's own standing orders) counted the same as a
+real commitment, so a stack of self-transfers could trigger a "move money"
+instruction to cover a "shortfall" that was never a bill at all — still
+gate (b), unchanged.
 """
 from datetime import datetime, timedelta
 
@@ -24,6 +31,7 @@ from app.services.categories import MOVEMENT
 from app.services.companion import (
     _gate_recommendation,
     _walk_events,
+    walk_sort_key,
     _should_reactivate,
     _recelebration_gated,
     _RECELEBRATE_COOLDOWN_SECONDS,
@@ -49,37 +57,29 @@ def income(name, days_away, amount, account_id="acc"):
     return {"name": name, "days_away": days_away, "amount": amount, "account_id": account_id}
 
 
-def conservative_walk(events):
+def walk(events):
     """events: list of (days_away, acct, amount, is_income, item) — sorted
-    the same way compute_today_items sorts them: same-day, bills before
-    income (outflows-before-inflows)."""
-    events = sorted(events, key=lambda e: (e[0], 1 if e[3] else 0))
-    return _walk_events(events, {})
-
-
-def optimistic_walk(events):
-    """Same events, same-day tie-break flipped to income-before-outflows —
-    exactly what compute_today_items builds to gate recommendations."""
-    events = sorted(events, key=lambda e: (e[0], 0 if e[3] else 1))
+    the same way compute_today_items sorts them since G163: same-day,
+    credits before debits (`walk_sort_key`)."""
+    events = sorted(events, key=walk_sort_key)
     return _walk_events(events, {})
 
 
 def test_same_day_income_covering_same_day_outflow_suppresses_recommendation():
-    """A genuine commitment bill would bounce under the conservative
-    same-day ordering, but reliable income lands in the SAME account on the
-    SAME day and covers it — this is the exact Barclays "Premier Current
-    Account" scenario (7 payments + salary, both on 28 Aug). No
-    recommendation should fire."""
+    """A genuine commitment bill and reliable income land in the SAME
+    account on the SAME day — this is the exact Barclays "Premier Current
+    Account" scenario (7 payments + salary, both on 28 Aug). Since G163 the
+    walk itself credits the income before the bill on a shared day, so the
+    account never goes negative and no shortfall is recorded at all —
+    there is nothing left for `_gate_recommendation` to suppress."""
     b = bill("Council Tax", 5, 100, kind="commitment")
     i = income("Salary", 5, 200)
     events = [(5, "acc", 100.0, False, b), (5, "acc", 200.0, True, i)]
 
-    _, min_running, shortfall_bill, bounced_bills = conservative_walk(events)
-    assert min_running["acc"] < 0  # conservative walk still sees a dip
-    _, optimistic_min_running, _, _ = optimistic_walk(events)
-
-    result = _gate_recommendation("acc", min_running["acc"], shortfall_bill, bounced_bills, optimistic_min_running)
-    assert result is None
+    _, min_running, shortfall_bill, bounced_bills = walk(events)
+    assert min_running["acc"] >= 0
+    assert "acc" not in shortfall_bill
+    assert "acc" not in bounced_bills
 
 
 def test_movement_only_shortfall_suppresses_recommendation():
@@ -90,11 +90,10 @@ def test_movement_only_shortfall_suppresses_recommendation():
     b = bill("Rainy Day Saver STO", 5, 100, kind="movement")
     events = [(5, "acc", 100.0, False, b)]
 
-    _, min_running, shortfall_bill, bounced_bills = conservative_walk(events)
+    _, min_running, shortfall_bill, bounced_bills = walk(events)
     assert min_running["acc"] < 0
-    _, optimistic_min_running, _, _ = optimistic_walk(events)
 
-    result = _gate_recommendation("acc", min_running["acc"], shortfall_bill, bounced_bills, optimistic_min_running)
+    result = _gate_recommendation("acc", min_running["acc"], shortfall_bill, bounced_bills)
     assert result is None
 
 
@@ -106,11 +105,10 @@ def test_genuine_commitment_shortfall_still_recommends():
     b = bill("THE NUMBER ONE overdraft fee", 3, 95.90, kind="commitment")
     events = [(3, "acc", 95.90, False, b)]
 
-    _, min_running, shortfall_bill, bounced_bills = conservative_walk(events)
+    _, min_running, shortfall_bill, bounced_bills = walk(events)
     assert min_running["acc"] < 0
-    _, optimistic_min_running, _, _ = optimistic_walk(events)
 
-    result = _gate_recommendation("acc", min_running["acc"], shortfall_bill, bounced_bills, optimistic_min_running)
+    result = _gate_recommendation("acc", min_running["acc"], shortfall_bill, bounced_bills)
     assert result is not None
     assert result["name"] == "THE NUMBER ONE overdraft fee"
     assert result["kind"] == "commitment"
@@ -126,15 +124,13 @@ def test_movement_that_starves_a_real_commitment_still_flags_the_commitment():
     rent = bill("Rent", 5, 60, kind="commitment")
     events = [(3, "acc", 150.0, False, starve), (5, "acc", 60.0, False, rent)]
 
-    running, min_running, shortfall_bill, bounced_bills = conservative_walk(events)
+    running, min_running, shortfall_bill, bounced_bills = walk(events)
     # Starting balance defaults to £0 (no seed) — the movement itself is
     # already what tips the account negative.
     assert shortfall_bill["acc"]["name"] == "Big Standing Order to Savings"
     assert [b["name"] for b in bounced_bills["acc"]] == ["Big Standing Order to Savings", "Rent"]
 
-    _, optimistic_min_running, _, _ = optimistic_walk(events)
-
-    result = _gate_recommendation("acc", min_running["acc"], shortfall_bill, bounced_bills, optimistic_min_running)
+    result = _gate_recommendation("acc", min_running["acc"], shortfall_bill, bounced_bills)
     assert result is not None
     assert result["name"] == "Rent"
     assert result["kind"] == "commitment"
@@ -148,11 +144,10 @@ def test_movement_bounce_that_never_reaches_a_real_bill_stays_suppressed():
     top_up = bill("Weekly Pot Top-up", 6, 20, kind="movement")
     events = [(3, "acc", 150.0, False, starve), (6, "acc", 20.0, False, top_up)]
 
-    _, min_running, shortfall_bill, bounced_bills = conservative_walk(events)
+    _, min_running, shortfall_bill, bounced_bills = walk(events)
     assert all(b["kind"] == MOVEMENT for b in bounced_bills["acc"])
-    _, optimistic_min_running, _, _ = optimistic_walk(events)
 
-    result = _gate_recommendation("acc", min_running["acc"], shortfall_bill, bounced_bills, optimistic_min_running)
+    result = _gate_recommendation("acc", min_running["acc"], shortfall_bill, bounced_bills)
     assert result is None
 
 
@@ -192,8 +187,7 @@ def test_done_doc_whose_shortfall_stays_resolved_is_not_reactivated():
 def test_trivial_reopening_does_not_reactivate():
     """A doc that dipped to a few pence below zero and bounced back is
     projection noise, not a genuine reopened shortfall. Uses the same £0.50
-    noise floor as the emission loop's `dest_gap > 0.5` and the same-day
-    income gate's `optimistic_min_running... >= -0.5`."""
+    noise floor as the emission loop's `dest_gap > 0.5`."""
     stored = {"_dest_acct": "acc-natwest", "status": "done"}
     assert _should_reactivate(stored, {"acc-natwest": -0.02}) is False
     assert _should_reactivate(stored, {"acc-natwest": -0.49}) is False
@@ -346,10 +340,9 @@ def test_positive_balance_is_never_an_overdraft():
 
 
 def test_same_day_reliable_income_into_the_same_account_suppresses_the_card():
-    """Gate (a)'s spirit, adapted for overdraft destinations: reliable
-    income already attributed to this exact account and landing TODAY
-    (days_away == 0) that covers the deficit means moving money is wrong,
-    since the money that clears it is already arriving today."""
+    """Reliable income already attributed to this exact account and landing
+    TODAY (days_away == 0) that covers the deficit means moving money is
+    wrong, since the money that clears it is already arriving today."""
     window_income = [
         {"account_id": "acc-hsbc", "days_away": 0, "amount": 50.0, "name": "Salary"},
     ]
@@ -426,16 +419,13 @@ def test_movement_only_bounce_but_live_overdrawn_still_flags_via_overdraft_route
     right now, and the overdraft route must still fire, sized off the LIVE
     balance (£40), not the deeper post-movement min_running figure (£240)."""
     b = bill("Rainy Day Saver STO", 3, 200, kind="movement")
-    events = sorted([(3, "acc", 200.0, False, b)], key=lambda e: (e[0], 1 if e[3] else 0))
+    events = sorted([(3, "acc", 200.0, False, b)], key=walk_sort_key)
     _, min_running, shortfall_bill, bounced_bills = _walk_events(events, {"acc": -40.0})
     assert min_running["acc"] == -240.0  # conservative walk: -£40 live, then -£200 more
 
-    optimistic_events = sorted(events, key=lambda e: (e[0], 0 if e[3] else 1))
-    _, optimistic_min_running, _, _ = _walk_events(optimistic_events, {"acc": -40.0})
-
     overdraft_today = {"acc": -40.0}  # the LIVE balance, independent of the walk
     result = _shortfall_for_destination(
-        "acc", min_running["acc"], shortfall_bill, bounced_bills, optimistic_min_running,
+        "acc", min_running["acc"], shortfall_bill, bounced_bills,
         overdraft_today, window_income=[], confirmed_income_keys=set(),
     )
     assert result is not None
@@ -452,16 +442,13 @@ def test_bill_backed_shortfall_wins_over_overdraft_route_no_double_emission():
     clears the live overdraft too, since the walk starts from that same
     live balance) — not a second, separate overdraft entry."""
     b = bill("Council Tax", 3, 60, kind="commitment")
-    events = sorted([(3, "acc", 60.0, False, b)], key=lambda e: (e[0], 1 if e[3] else 0))
+    events = sorted([(3, "acc", 60.0, False, b)], key=walk_sort_key)
     _, min_running, shortfall_bill, bounced_bills = _walk_events(events, {"acc": -40.0})
     assert min_running["acc"] == -100.0
 
-    optimistic_events = sorted(events, key=lambda e: (e[0], 0 if e[3] else 1))
-    _, optimistic_min_running, _, _ = _walk_events(optimistic_events, {"acc": -40.0})
-
     overdraft_today = {"acc": -40.0}  # also genuinely overdrawn live
     result = _shortfall_for_destination(
-        "acc", min_running["acc"], shortfall_bill, bounced_bills, optimistic_min_running,
+        "acc", min_running["acc"], shortfall_bill, bounced_bills,
         overdraft_today, window_income=[], confirmed_income_keys=set(),
     )
     assert result is not None
@@ -480,7 +467,7 @@ def test_shortfall_for_destination_overdraft_route_suppressed_by_today_income():
     overdraft_today = {"acc": -40.0}
     window_income = [{"account_id": "acc", "days_away": 0, "amount": 50.0, "name": "Salary"}]
     result = _shortfall_for_destination(
-        "acc", -40.0, shortfall_bill={}, bounced_bills={}, optimistic_min_running={},
+        "acc", -40.0, shortfall_bill={}, bounced_bills={},
         overdraft_today=overdraft_today, window_income=window_income,
         confirmed_income_keys={"Salary"},
     )
@@ -492,7 +479,7 @@ def test_shortfall_for_destination_pure_overdraft_no_bill_at_all():
     the account inside the window at all, just a live negative balance."""
     overdraft_today = {"acc": -2.48}
     result = _shortfall_for_destination(
-        "acc", -2.48, shortfall_bill={}, bounced_bills={}, optimistic_min_running={},
+        "acc", -2.48, shortfall_bill={}, bounced_bills={},
         overdraft_today=overdraft_today, window_income=[], confirmed_income_keys=set(),
     )
     assert result == (0, 2.48, None)
@@ -503,7 +490,7 @@ def test_shortfall_for_destination_neither_route_returns_none():
     (e.g. it's negative only because of a same-day income timing artifact
     already handled elsewhere) must not fire either route."""
     result = _shortfall_for_destination(
-        "acc", -5.0, shortfall_bill={}, bounced_bills={}, optimistic_min_running={},
+        "acc", -5.0, shortfall_bill={}, bounced_bills={},
         overdraft_today={}, window_income=[], confirmed_income_keys=set(),
     )
     assert result is None

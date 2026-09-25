@@ -1033,6 +1033,14 @@ def _is_own_transfer_bill(b: dict) -> bool:
     return b.get("kind") == MOVEMENT and bool(b.get("dest_account_id"))
 
 
+def walk_sort_key(event):
+    """(days_away, credits before debits on a shared day). G163: money a
+    confirmed stream is expected to land in this account on day D covers
+    what leaves it on day D; the day after, if it has not landed, the
+    stream is lapsed and drops out of the window on its own."""
+    return (event[0], 0 if event[3] else 1)
+
+
 def _walk_events(
     events: list[tuple[int, str, float, bool, dict]],
     balances: dict[str, float],
@@ -1049,9 +1057,11 @@ def _walk_events(
     check below still does identically.
 
     `events` — (days_away, acct, amount, is_income, item) tuples, already
-    sorted by the caller (days_away, then bills-before-income same-day —
-    conservative: an on-payday debit must be covered by balance, not that
-    day's income).
+    sorted by the caller with `walk_sort_key` (days_away, then credits
+    before debits same-day — G163: a confirmed income stream expected in an
+    account on day D covers what leaves that account on day D, and only
+    lapses, escalating the deficit, the day after it was expected with no
+    matching credit).
     `balances` — starting balance per account; an account absent from this
     dict defaults to £0 the first time an event references it (matches the
     prior inline behaviour, where `running` only ever held keys for
@@ -1102,43 +1112,37 @@ def _gate_recommendation(
     min_bal: float,
     shortfall_bill: dict[str, dict],
     bounced_bills: dict[str, list[dict]],
-    optimistic_min_running: dict[str, float],
 ) -> dict | None:
-    """Decide whether `dest_acct`'s deficit (from the conservative walk)
-    should reach the "move money" recommendation engine, and if so, which
-    bill to represent it with. Returns the display bill dict, or None to
-    suppress the recommendation entirely.
+    """Decide whether `dest_acct`'s deficit should reach the "move money"
+    recommendation engine, and if so, which bill to represent it with.
+    Returns the display bill dict, or None to suppress the recommendation
+    entirely.
 
     Pulled out of `compute_today_items` as a pure, DB-free function so the
-    two suppression rules can be unit-tested directly: see
+    suppression rule can be unit-tested directly: see
     tests/test_companion_shortfall.py.
 
-    Two independent gates, either one suppresses:
+    G163: this used to run TWO gates — a same-day-income gate (comparing
+    against a second, optimistic walk that credited income before outflows)
+    and a movement-only gate. The first is now inherent in the ONE walk
+    itself: `walk_sort_key` already credits a same-day confirmed income
+    event before the bill it would otherwise cover, so an account genuinely
+    covered by same-day income never goes negative in the first place and
+    never reaches this function (the caller only calls it for accounts with
+    `min_bal < 0`). Only the second gate remains:
 
-    (a) SAME-DAY INCOME — reliable income already credited to this exact
-        account (via `credited_incomes`, which is what `optimistic_min_running`
-        is built from) landing the SAME day as the outflows that would
-        otherwise bounce. The conservative walk (outflows-before-inflows on a
-        shared day) still drives `min_bal`/`shortfall_bill`/`bounced_bills` —
-        this only asks "if that income were credited first instead, would the
-        account ever actually go negative?" A recommendation is an
-        instruction to act; "move £X right now" is wrong when the money that
-        covers it is already expected in that same account that same day.
-
-    (b) MOVEMENT-ONLY — of every bill this account's deficit actually
-        bounces (not just the first — a deficit cascades), is at least one a
-        genuine commitment/discretionary obligation? If every bounced item is
-        `movement` (the user's own standing order to savings/another own
-        account/investment/debt), there is no obligation that can fail
-        expensively here, so no recommendation fires. `shortfall_bill` (the
-        FIRST bounced item) is deliberately not used alone: it can itself be
-        the movement that starts the drain while a later, genuinely-owed bill
-        on the same account also bounces and must still be covered — in that
-        case this returns THAT bill, not the movement, so the card's copy
-        never misdescribes a standing order as "your bill".
+    MOVEMENT-ONLY — of every bill this account's deficit actually bounces
+    (not just the first — a deficit cascades), is at least one a genuine
+    commitment/discretionary obligation? If every bounced item is
+    `movement` (the user's own standing order to savings/another own
+    account/investment/debt), there is no obligation that can fail
+    expensively here, so no recommendation fires. `shortfall_bill` (the
+    FIRST bounced item) is deliberately not used alone: it can itself be
+    the movement that starts the drain while a later, genuinely-owed bill
+    on the same account also bounces and must still be covered — in that
+    case this returns THAT bill, not the movement, so the card's copy
+    never misdescribes a standing order as "your bill".
     """
-    if optimistic_min_running.get(dest_acct, min_bal) >= -0.5:
-        return None
     bounced = bounced_bills.get(dest_acct, [])
     real_bounced = [b for b in bounced if b.get("kind") != MOVEMENT]
     if not real_bounced:
@@ -1205,7 +1209,6 @@ def _shortfall_for_destination(
     min_bal: float,
     shortfall_bill: dict[str, dict],
     bounced_bills: dict[str, list[dict]],
-    optimistic_min_running: dict[str, float],
     overdraft_today: dict[str, float],
     window_income: list[dict],
     confirmed_income_keys: set,
@@ -1220,7 +1223,9 @@ def _shortfall_for_destination(
 
     `dest_acct` reaches this via up to two independent routes:
       - bill-backed: `dest_acct in shortfall_bill`, gated by
-        `_gate_recommendation` (same-day income + movement-only rules).
+        `_gate_recommendation` (movement-only rule; the same-day-income gate
+        this used to also apply is, since G163, inherent in the walk order
+        itself — see `_gate_recommendation`'s docstring).
       - overdraft: `dest_acct in overdraft_today` (a live negative balance
         today, from `_overdraft_deficits` — independent of any bill), gated
         by `_overdraft_covered_by_today_income`.
@@ -1237,11 +1242,11 @@ def _shortfall_for_destination(
     account is genuinely negative today but no bill-backed card says so.
     """
     if dest_acct in shortfall_bill:
-        # `_gate_recommendation` applies the two suppression rules (same-day
-        # income, movement-only) — see its docstring — and picks the right
-        # bill to represent the card with when it doesn't suppress.
+        # `_gate_recommendation` applies the movement-only suppression rule
+        # — see its docstring — and picks the right bill to represent the
+        # card with when it doesn't suppress.
         _display_bill = _gate_recommendation(
-            dest_acct, min_bal, shortfall_bill, bounced_bills, optimistic_min_running
+            dest_acct, min_bal, shortfall_bill, bounced_bills
         )
         if _display_bill is not None:
             return (_display_bill["days_away"], abs(min_bal), _display_bill)
@@ -1259,11 +1264,13 @@ def _shortfall_for_destination(
         # The live-balance figure is the honest "you're overdrawn right now"
         # fact on its own.
         _od_deficit = abs(overdraft_today[dest_acct])
-        # Gate (a)'s same-day-income spirit still applies, via
-        # `_overdraft_covered_by_today_income` (the shared walk never saw
-        # this account's income when it has no bill, so
-        # `optimistic_min_running` can't answer this for us either way).
-        # Sorted as days_away=0 by the caller: it's happening right now.
+        # Same-day-income spirit still applies, via
+        # `_overdraft_covered_by_today_income` — an overdraft destination
+        # never entered the shared `_walk_events` simulation (no bill on the
+        # account this window means no event), so the walk's own income-
+        # before-debit ordering can't answer this for us either; this reasons
+        # over `window_income` directly instead. Sorted as days_away=0 by
+        # the caller: it's happening right now.
         if not _overdraft_covered_by_today_income(
             _od_deficit, dest_acct, window_income, confirmed_income_keys
         ):
@@ -1305,10 +1312,9 @@ def _overdraft_covered_by_today_income(
 # step-7 auto-verification pass — both unit-tested directly, same pattern as
 # `_gate_recommendation` above.
 
-# Same noise floor already used twice elsewhere in this file: the emission
-# loop's own "is this destination actually covered" check (`dest_gap > 0.5`)
-# and the same-day-income gate above (`optimistic_min_running... >= -0.5`). A
-# doc that dipped to -£0.02 and bounced back is projection noise, not a
+# Same noise floor already used elsewhere in this file: the emission loop's
+# own "is this destination actually covered" check (`dest_gap > 0.5`). A doc
+# that dipped to -£0.02 and bounced back is projection noise, not a
 # genuinely reopened shortfall — reactivating on that would flap.
 _REOPEN_THRESHOLD = -0.5
 
@@ -2116,15 +2122,6 @@ async def compute_today_items(
     _account_map = {a["_str_id"]: a for a in all_uk_accounts + offline_accounts}
     reserved_by_source = await _reserved_for_allocations(uid, resp["internal_inflows"], _account_map)
 
-    # Snapshot RAW balances — the payday_split_risk race-warning (section 5c)
-    # always projects payday morning WITHOUT the same-day salary credit, so
-    # it can honestly answer "if the salary is late, can this account cover
-    # its payday split?" regardless of whether this call is itself a
-    # preview. (Also doubles as the walk's un-mutated starting point now that
-    # PREVIEW no longer pre-credits `live_balances` directly — see the
-    # dated walk-event injection below instead, 2026-08-29 FIX B.)
-    _pre_preview_live_balances = dict(live_balances)
-
     # ── 4. Running-balance simulation (same logic as at_risk_count) ─────────
     running: dict[str, float] = {}
     for b in assessable_bills:
@@ -2151,12 +2148,11 @@ async def compute_today_items(
     # `internal_inflows`), exactly as at_risk_count does, so the two walks
     # stay in lockstep. Deliberately NOT added to `credited_incomes`, since that
     # dict exists only to disclose ASSUMED INCOME to the user (the payday
-    # plan's "assumed_incomes" and the same-day-income recommendation gate
-    # below both read it), and an internal transfer from the user's own
-    # other account is not income, even though it is credited into the same
-    # walk here. It is also never folded into the preview salary event below,
-    # since that event exists to distribute a RELIABLE SALARY on payday
-    # morning, not to net off the user's own internal movements. Only
+    # plan's "assumed_incomes" reads it), and an internal transfer from the
+    # user's own other account is not income, even though it is credited into
+    # the same walk here. It is also never folded into the preview salary
+    # event below, since that event exists to distribute a RELIABLE SALARY on
+    # payday morning, not to net off the user's own internal movements. Only
     # credited to an account the walk already tracks (`acct in running`),
     # same reasoning as at_risk_count: an inflow must never seed a brand-new
     # account into the simulation.
@@ -2167,69 +2163,37 @@ async def compute_today_items(
 
     # PREVIEW's projected salary — dated at the REAL next payday
     # (`days_to_pay`), not today (2026-08-29 FIX B; see `_pp_salary_income`
-    # above). Entering it as a normal event on this SAME walk, under the
-    # standing same-day rule (bills before income), means it only ever lands
-    # AFTER every current-window bill between now and payday has already
-    # drained the account — exactly "drain current-window bills to that date
-    # first, exactly as the walk already does" (owner directive). Seeds the
-    # account into `running` at its live balance first when the walk hasn't
-    # already touched it (no bills of its own in-window), matching the same
-    # seeding `_walk_events` gives every other tracked account.
-    _pp_preview_salary_event: tuple[int, str, float, bool, dict] | None = None
+    # above). Entering it as a normal event on this SAME walk means it only
+    # ever lands after every current-window bill between now and payday has
+    # already drained the account, UNLESS it shares a day with one of them —
+    # G163's `walk_sort_key` credits it first on a shared day, same as any
+    # other confirmed income. Seeds the account into `running` at its live
+    # balance first when the walk hasn't already touched it (no bills of its
+    # own in-window), matching the same seeding `_walk_events` gives every
+    # other tracked account.
     if payday_preview and _pp_salary_income is not None:
         _pp_sal_acct = str(_pp_salary_income.get("account_id") or "")
         if _pp_sal_acct:
             if _pp_sal_acct not in running:
                 running[_pp_sal_acct] = live_balances.get(_pp_sal_acct, 0.0)
-            _pp_preview_salary_event = (days_to_pay, _pp_sal_acct, float(_pp_salary_income["amount"]), True, _pp_salary_income)
-            events.append(_pp_preview_salary_event)
+            events.append((days_to_pay, _pp_sal_acct, float(_pp_salary_income["amount"]), True, _pp_salary_income))
 
-    events.sort(key=lambda e: (e[0], 1 if e[3] else 0))  # same-day: bills before income (conservative — an on-payday debit must be covered by balance, not that day's income)
+    # G163: same-day, credits before debits (`walk_sort_key`) — a confirmed
+    # income stream expected in an account on day D covers what leaves that
+    # account on day D; it only lapses, and the deficit becomes real, the day
+    # after it was expected with no matching credit (see `_late_confirmed_
+    # income` in routers/analytics.py for the interim lapse signal, and
+    # `walk_sort_key`'s own docstring). Replaces the old two-walk design
+    # (a conservative bills-before-income walk for the at-risk figures, plus
+    # a second optimistic walk consulted only to gate recommendations) — one
+    # walk now serves both, since the same-day-income suppression this used
+    # to need a second walk for is inherent in the ordering itself.
+    events.sort(key=walk_sort_key)
 
-    # Walk shared with spend_impact._bills_risk (see _walk_events docstring) —
-    # same events, same starting balances, same result as the inline loop
-    # this replaced.
-    _seed_balances = dict(running)
+    # Walk shared with spend_impact._bills_risk and analytics.at_risk_count
+    # (see _walk_events docstring) — same events, same starting balances,
+    # same result as the inline loop this replaced.
     running, min_running, shortfall_bill, bounced_bills = _walk_events(events, running)
-
-    # Race-warning walk (section 5c's payday_split_risk) — the SAME events
-    # MINUS the preview salary credit (`_pp_preview_salary_event`, excluded
-    # by identity below — it's the one event this walk must never see), and
-    # re-seeded from `_pre_preview_live_balances`, the raw balances captured
-    # before any preview salary credit. This answers "if the salary is late,
-    # can this account still cover its payday-day outflows from what it has
-    # today?" — `running`/`_bal` above deliberately DOES include a
-    # preview-anticipated salary credit for the plan's own distribution
-    # math, which would make it lie in the optimistic direction for this
-    # specific check.
-    _race_events = (
-        [e for e in events if e is not _pp_preview_salary_event]
-        if _pp_preview_salary_event is not None else events
-    )
-    _race_seed_balances: dict[str, float] = {}
-    for _b in assessable_bills:
-        _acct = _b["account_id"] or "__unknown__"
-        if _acct not in _race_seed_balances:
-            _race_seed_balances[_acct] = _pre_preview_live_balances.get(str(_acct), float(_b.get("account_balance") or 0))
-    _race_running, _, _, _ = _walk_events(_race_events, _race_seed_balances)
-
-    # SAME-DAY INCOME — for RECOMMENDATION gating only, never for the at-risk
-    # DISPLAY. The conservative walk above (outflows-before-inflows on a
-    # shared day) stays exactly as it was: analytics.py's at-risk badge and
-    # the Planning page's own simulation both keep reasoning "a payment can
-    # leave before the salary clears", and this walk still feeds
-    # min_running/shortfall_bill/bounced_bills for everyone downstream. But a
-    # RECOMMENDATION is an instruction to act, not a warning, and "move £X
-    # right now" is simply wrong when reliable income (already vetted by
-    # income_credit_ok, already attributed to this exact account) is
-    # expected to land in that SAME account on the SAME day as the
-    # outflows it's supposedly short for. This second walk answers exactly
-    # that question — same events, same credited incomes, only the same-day
-    # tie-break flips to income-before-outflows — and is consulted below
-    # only to decide whether a "move money" card should fire, never to
-    # change the amounts or the conservative simulation itself.
-    _optimistic_events = sorted(events, key=lambda e: (e[0], 0 if e[3] else 1))
-    _, optimistic_min_running, _, _ = _walk_events(_optimistic_events, _seed_balances)
 
     # ── 4b. OVERDRAFT SEEDING ────────────────────────────────────────────────
     # An account can be genuinely negative TODAY, independent of any bill (see
@@ -2313,11 +2277,11 @@ async def compute_today_items(
     # recommendation engine (the "move money" cards below) when its deficit
     # is genuinely something Penny is willing to instruct the user to act on.
     # `_shortfall_for_destination` (see its docstring) picks between the
-    # bill-backed route (`shortfall_bill` + `_gate_recommendation`'s same-day-
-    # income / movement-only gates) and the overdraft route (`_overdraft_
-    # today`, a live negative balance today, independent of any bill), and
-    # guarantees at most one entry per destination — the bill-backed route
-    # wins when both would otherwise fire.
+    # bill-backed route (`shortfall_bill` + `_gate_recommendation`'s
+    # movement-only gate) and the overdraft route (`_overdraft_today`, a
+    # live negative balance today, independent of any bill), and guarantees
+    # at most one entry per destination — the bill-backed route wins when
+    # both would otherwise fire.
     #
     # `bill` is `None` for an OVERDRAFT shortfall — every downstream consumer
     # of `shortfalls` must check for that before reading bill fields.
@@ -2326,7 +2290,7 @@ async def compute_today_items(
         if min_bal >= 0 or dest_acct == "__unknown__":
             continue
         _result = _shortfall_for_destination(
-            dest_acct, min_bal, shortfall_bill, bounced_bills, optimistic_min_running,
+            dest_acct, min_bal, shortfall_bill, bounced_bills,
             _overdraft_today, window_income, confirmed_income_keys,
         )
         if _result is None:
@@ -2356,7 +2320,11 @@ async def compute_today_items(
             for i in window_income
             if income_credit_ok(i, sid, confirmed_income_keys)
         ]
-        ev.sort(key=lambda e: (e[0], 1 if e[1] > 0 else 0))  # same-day: outflows before inflows (mirrors conservative ordering above)
+        # same-day: inflows before outflows, G163 — the (days_away, delta)
+        # shape here is inline rather than `walk_sort_key` (which expects a
+        # 5-tuple with is_income at index 3), but is the equivalent key:
+        # delta > 0 (income) sorts first on a tie, same as walk_sort_key.
+        ev.sort(key=lambda e: (e[0], 0 if e[1] > 0 else 1))
         run = start_balance
         mn = run
         for _d, delta in ev:
@@ -3343,14 +3311,25 @@ async def compute_today_items(
                 _pd_count = sum(1 for _pdb in payday_day_bills if not _pdb.get("is_credit_card"))
                 _pd_expected_in = round(sum(float(i["amount"]) for i in _orig_payday_day_income), 2)
                 _pd_accounts = []
-                # Race warning — hedged, and only when genuinely at risk (Kevin,
-                # 2026-08-28 contract): compare each account's projected
-                # payday-morning balance WITHOUT same-day income (`_race_running`,
-                # built above from `_pre_preview_live_balances` precisely so it
-                # never counts an anticipated-but-unlanded salary) against that
-                # account's payday-day outflows. Pick the single worst (largest
-                # shortfall) account to report, since the payload is one dict,
-                # not a list.
+                # Payday-day risk — hedged, and only when genuinely at risk
+                # (Kevin, 2026-08-28 contract; rule REPLACED by G163,
+                # 2026-09-25 — "the AI should know money is coming in ... it
+                # only becomes a problem the day after"). Compare each
+                # account's projected payday-morning balance against that
+                # account's payday-day outflows. Projected balance = the
+                # window walk's final balance for the account (that walk
+                # stops strictly BEFORE payday day — see the exclusive
+                # boundary note above `window_bills`), PLUS payday-day
+                # income already vetted reliable for this exact account
+                # (`income_credit_ok`, the same gate the walk itself uses),
+                # PLUS payday-day internal inflows into it. This no longer
+                # assumes the salary is late by construction (the old
+                # `_race_running` walk always excluded it, "if the salary is
+                # late" conservatism) — it fires only when payday-day
+                # outflows genuinely exceed what's expected to be there,
+                # confirmed salary included. Pick the single worst (largest
+                # shortfall) account to report, since the payload is one
+                # dict, not a list.
                 _pd_worst: tuple[str, str, float] | None = None
                 _pd_worst_shortfall = 0.0
                 for _pd_acct, _pd_out in sorted(_pd_bills_by_acct.items(), key=lambda kv: kv[1], reverse=True):
@@ -3361,8 +3340,17 @@ async def compute_today_items(
                         "name": _pd_name,
                         "out": int(round(_pd_out)),
                     })
-                    _pd_race_bal = _race_running.get(_pd_acct, _pre_preview_live_balances.get(_pd_acct, 0.0))
-                    _pd_shortfall = _pd_out - _pd_race_bal
+                    _pd_morning_bal = running.get(_pd_acct, live_balances.get(_pd_acct, 0.0))
+                    _pd_morning_bal += sum(
+                        float(i["amount"]) for i in _orig_payday_day_income
+                        if str(i.get("account_id") or "") == _pd_acct
+                        and income_credit_ok(i, _pd_acct, confirmed_income_keys)
+                    )
+                    _pd_morning_bal += sum(
+                        float(n["amount"]) for n in payday_day_inflows
+                        if str(n.get("account_id") or "") == _pd_acct
+                    )
+                    _pd_shortfall = _pd_out - _pd_morning_bal
                     if _pd_shortfall > _pd_worst_shortfall:
                         _pd_worst_shortfall = _pd_shortfall
                         _pd_worst = (_pd_acct, _pd_name, _pd_out)
@@ -3380,8 +3368,8 @@ async def compute_today_items(
                         "name": _pdw_name,
                         "shortfall": int(round(_pd_worst_shortfall)),
                         "copy": (
-                            f"Your £{int(round(_pdw_out)):,} payday split fires the morning your salary "
-                            f"is expected. If the salary is late, {_pdw_name} can't cover it."
+                            f"£{int(round(_pdw_out)):,} leaves {_pdw_name} on payday "
+                            "and nothing expected in covers it."
                         ),
                     }
 
@@ -3814,6 +3802,30 @@ async def compute_today_items(
                 _um_sentences.append(
                     "These accounts may already hold enough. Check before skipping."
                 )
+
+            # G163 interim lapse signal: one of these moves' source accounts
+            # was expecting a confirmed income stream that has now lapsed
+            # (see `_late_confirmed_income` in routers/analytics.py). Name it
+            # once per late stream (not once per move), so the card reads as
+            # "here's why", not just "these may not have the funds".
+            _um_late_accts = {m["source_account_id"] for m in _um_moves}
+            _um_seen_late_keys: set = set()
+            for _le in (resp.get("late_income") or []):
+                if _le.get("account_id") not in _um_late_accts:
+                    continue
+                _le_key = _le.get("key")
+                if _le_key in _um_seen_late_keys:
+                    continue
+                _um_seen_late_keys.add(_le_key)
+                try:
+                    _le_when = date.fromisoformat(_le["expected_date"]).strftime("%a %-d %b")
+                except (TypeError, ValueError, KeyError):
+                    continue
+                _um_sentences.append(
+                    f"Your ~£{float(_le['amount']):,.0f} {_le['label']} pay was expected "
+                    f"{_le_when} and has not arrived yet."
+                )
+
             body = " ".join(_um_sentences)
 
             # Presentation contract for G48's ranked Lead row. Keep this
@@ -4109,6 +4121,26 @@ async def compute_today_items(
             body = f"£{total:,} across {n_rows} moves keeps everything clearing at {dest_name}."
         else:
             body = f"£{total:,} across {n_rows} moves covers most of what {dest_name} needs."
+
+        # G163 interim lapse signal: this destination is short partly because
+        # a confirmed income stream expected into it has lapsed (expected
+        # date passed, no matching credit — see `_late_confirmed_income` in
+        # routers/analytics.py). Name it, so the card reads as "here's why",
+        # not just "move money" — one sentence, hedged amount, British date.
+        _mc_late = next(
+            (e for e in (resp.get("late_income") or []) if e.get("account_id") == dest_acct),
+            None,
+        )
+        if _mc_late is not None:
+            try:
+                _mc_late_when = date.fromisoformat(_mc_late["expected_date"]).strftime("%a %-d %b")
+            except (TypeError, ValueError, KeyError):
+                _mc_late_when = None
+            if _mc_late_when:
+                body += (
+                    f" Your ~£{float(_mc_late['amount']):,.0f} {_mc_late['label']} pay was expected "
+                    f"{_mc_late_when} and has not arrived yet."
+                )
 
         residual = None
         if dest_gap > 0.5:

@@ -379,7 +379,13 @@ async def _cashflow_window(uid: str) -> dict | None:
         acct = str(n.get("account_id") or "")
         if acct in balances:
             events.append((n["days_away"], acct, float(n["amount"]), True, n))
-    events.sort(key=lambda e: (e[0], 1 if e[3] else 0))  # bills before income same-day, matching companion.py
+    # G163: same-day, credits before debits, matching companion.py — a
+    # confirmed income stream expected in an account on day D covers what
+    # leaves it on day D; it only lapses the day after, with no matching
+    # credit.
+    from app.services.companion import walk_sort_key
+
+    events.sort(key=walk_sort_key)
 
     return {"events": events, "balances": balances, "today": today_d}
 
@@ -408,7 +414,7 @@ async def _bills_risk(uid: str, total_excess: float, period: dict) -> dict | Non
             return None
         events, balances, today_d = window["events"], window["balances"], window["today"]
 
-        from app.services.companion import _humanise_bill_name, _walk_events
+        from app.services.companion import _humanise_bill_name, _walk_events, walk_sort_key
 
         # Baseline: the same walk companion.py's own shortfall sim runs, no
         # extra outflow. This is the "at usual pace" comparison — a bill
@@ -432,7 +438,9 @@ async def _bills_risk(uid: str, total_excess: float, period: dict) -> dict | Non
             (day, salary_acct, daily_excess_rate, False, {"_synthetic_pace": True})
             for day in range(1, int(days_left) + 1)
         ]
-        paced_events = sorted(events + extra_events, key=lambda e: (e[0], 1 if e[3] else 0))
+        # G163: same-day, credits before debits (walk_sort_key) — same
+        # ordering as the baseline walk above.
+        paced_events = sorted(events + extra_events, key=walk_sort_key)
         _, paced_min_running, paced_shortfall_bill, _ = _walk_events(paced_events, balances)
 
         # Causation test: only a bill whose account was NOT already
