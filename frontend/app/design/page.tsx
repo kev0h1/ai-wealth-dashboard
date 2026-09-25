@@ -79,14 +79,17 @@ const ROUTES: PreviewRoute[] = [
     slug: "g115-spend-from-accounts",
     name: "g115-spend-from-accounts",
     description:
-      "G115 round on showing up to two current accounts without creating a second hero inside Safe to Spend · A is Kevin's approved top-right bank rail and now renders SafeToSpendCard's production default with no visual override, while B's compact inline pair and C's quiet two-row ledger remain as design history · every direction renders the real production SafeToSpendCard through its data and spendFrom props, plus the real MoveCard in coexistence states, rather than copying either component · fixtures pass through production bestSpendAccount(), include three current accounts, a savings pot and a credit card, and use G114's spend_from_headroom so a live £20 cover move reduces Everyday from £45 standing room to £25 spendable room before ranking · savings and credit are structurally excluded, the savings-only state points to the move above, and every treatment says account figures are not the pooled Safe to Spend · A uses local bundled logos only and falls back to named rows when a bank has no bundled mark · static typed fixtures, no live API data or mutations · ?variant=a|b|c&state=reserved|clear|one|unbundled|savings|hidden&mode=light|dark",
+      "G115 round on showing up to two current accounts without creating a second hero inside Safe to Spend · A is Kevin's approved top-right bank rail and now renders SafeToSpendCard's production default with no visual override, while B's compact inline pair and C's quiet two-row ledger remain as design history · every direction renders the real production SafeToSpendCard through its data and spendFrom props, plus the real MoveCard in coexistence states, rather than copying either component · fixtures pass through production bestSpendAccount(), include three current accounts, a savings pot and a credit card, and use G114's spend_from_headroom so a live £20 cover move reduces Everyday from £45 standing room to £25 spendable room before ranking · savings and credit are structurally excluded, the savings-only state points to the move above, and every treatment says account figures are not the pooled Safe to Spend · A uses local bundled logos only and falls back to named rows when a bank has no bundled mark · G165 (2026-09-25) fixed the bank rail's icon column, which used to drift sideways with the amount's own width, to a fixed grid column with the figure right-aligned in tabular-nums beside it; the wide-figure-range state stress-tests a 1-digit and a 5-digit headroom in the same two-row rail · static typed fixtures, no live API data or mutations · ?variant=a|b|c&state=reserved|clear|one|unbundled|savings|hidden|missing|failed|wideDigits&mode=light|dark",
     states: [
       { label: "Cover move reserved", value: "reserved" },
       { label: "No cover move", value: "clear" },
       { label: "One account", value: "one" },
       { label: "Bank has no logo", value: "unbundled" },
       { label: "Savings move needed", value: "savings" },
+      { label: "Eligibility absent", value: "missing" },
+      { label: "Check failed", value: "failed" },
       { label: "Balances hidden", value: "hidden" },
+      { label: "Wide figure range", value: "wideDigits" },
     ],
     variants: [
       { label: "A · Bank rail", value: "a" },

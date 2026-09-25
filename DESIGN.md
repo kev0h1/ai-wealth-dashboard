@@ -173,6 +173,8 @@ A muted slate stage where one indigo voice and a single-saturation category pale
 
 - **No justified text (2026-08-18).** Justification was trialled on hero prose and reverted: on narrow phone columns it produced uneven word gaps. All prose is left-aligned with `text-pretty`.
 
+**Icons Align, Figures Right-Align (G165, 2026-09-25).** In any list that pairs an icon or bank badge with a figure, the icons sit in one fixed column and the figures right-align in a tabular-nums column; never let a figure's width push its icon sideways.
+
 ## 4. Elevation
 
 Flat plus one soft shadow. Light mode separates cards from the canvas with a single ambient `shadow-sm` (0 1px 2px rgba(0,0,0,0.05)) — dark mode drops shadows entirely and separates with tone (#1e293b on #0f172a) and hairline borders. Depth beyond that is expressed by layering surfaces (sheets and modals over a black/40-60 backdrop), never by stacking heavier shadows. Floating elements (Penny FAB, toasts) may use one larger soft shadow (`shadow-xl`) because they genuinely float above the page.
