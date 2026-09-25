@@ -375,6 +375,11 @@ async def _cashflow_window(uid: str) -> dict | None:
     # lockstep with those two. Only credited to an account the walk already
     # tracks (`acct in balances`): an inflow must never seed a brand-new
     # account into the simulation.
+    #
+    # G167: no reliability gate here, and deliberately no late-income line
+    # for one either — see the comment block above `walk_sort_key` in
+    # services/companion.py for why a lapsed inflow is already spoken for
+    # by its source-side pending copy.
     for n in window_inflows:
         acct = str(n.get("account_id") or "")
         if acct in balances:

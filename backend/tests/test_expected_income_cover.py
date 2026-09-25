@@ -4,18 +4,29 @@ day after." A payment on account A due on day D is covered if a confirmed
 income stream expected in A on or before D has not lapsed; lapse = expected
 date + 1 day with no matching credit.
 
-Unit tests for the two pure, Mongo-free pieces this rule is built from:
+G167 (review of G163, p2) widened the interim lapse signal to also cover
+reliable but merely DETECTED (unconfirmed) income patterns — the same
+population `income_credit_ok` already credits into the walk, just without
+this signal previously naming it when it lapses.
+
+Unit tests for the pure, Mongo-free pieces this rule is built from:
 `app.services.companion.walk_sort_key` (same-day, credits before debits —
 used by every per-account walk in companion.py, spend_impact.py and
-analytics.at_risk_count) and `app.routers.analytics._late_confirmed_income`
+analytics.at_risk_count), `app.routers.analytics._late_reliable_income`
 (the interim lapse signal, standing in until G157's own payer matcher
-replaces it — see that function's docstring for the full derivation).
+replaces it — see that function's docstring for the full derivation), and
+`app.routers.analytics._income_pattern_reliable` (the shared reliability
+predicate `income_credit_ok` and `_late_reliable_income` both call, so the
+population credited into the walk and the population explained by this
+signal can never drift apart).
 """
 from datetime import date, datetime, timedelta
 
 from app.routers.analytics import (
-    _late_confirmed_income,
+    _late_reliable_income,
+    _income_pattern_reliable,
     _prev_scheduled_occurrence,
+    income_credit_ok,
     PENDING_GIVE_UP_DAYS,
 )
 from app.services.categories import MOVEMENT
@@ -114,7 +125,7 @@ def test_prev_scheduled_occurrence_one_day_after_expected():
     assert prev == date(2026, 9, 25)
 
 
-# ── _late_confirmed_income ───────────────────────────────────────────────────
+# ── _late_reliable_income: confirmed branch ─────────────────────────────────
 
 def _stream(account_id="acc-1", avg_amount=2000.0):
     return {
@@ -137,16 +148,17 @@ def test_not_lapsed_on_the_expected_day_itself():
     result, exactly as if nothing were wrong."""
     today = date(2026, 9, 25)
     confirmed_income_map = {"SALARY": _stream()}
-    result = _late_confirmed_income(confirmed_income_map, [], today)
+    result = _late_reliable_income(confirmed_income_map, [], [], today)
     assert result == []
 
 
 def test_lapsed_the_day_after_with_no_matching_credit():
     """Expected 25 Sep, today is 26 Sep, and no credit anywhere near that
-    date/amount/account — lapsed, reported with the right shape."""
+    date/amount/account — lapsed, reported with the right shape, sourced
+    "confirmed"."""
     today = date(2026, 9, 26)
     confirmed_income_map = {"SALARY": _stream()}
-    result = _late_confirmed_income(confirmed_income_map, [], today)
+    result = _late_reliable_income(confirmed_income_map, [], [], today)
     assert len(result) == 1
     entry = result[0]
     assert entry["key"] == "SALARY"
@@ -154,6 +166,7 @@ def test_lapsed_the_day_after_with_no_matching_credit():
     assert entry["expected_date"] == "2026-09-25"
     assert entry["days_late"] == 1
     assert entry["account_id"] == "acc-1"
+    assert entry["source"] == "confirmed"
 
 
 def test_cleared_by_a_credit_within_15_percent_under_a_different_series_key():
@@ -167,7 +180,7 @@ def test_cleared_by_a_credit_within_15_percent_under_a_different_series_key():
     confirmed_income_map = {"SALARY": _stream(avg_amount=2000.0)}
     # £1,900 is within 15% of £2,000 (5% off).
     credits = [_credit(date(2026, 9, 24), 1900.0, account_id="acc-1")]
-    result = _late_confirmed_income(confirmed_income_map, credits, today)
+    result = _late_reliable_income(confirmed_income_map, [], credits, today)
     assert result == []
 
 
@@ -178,7 +191,7 @@ def test_credit_outside_amount_band_does_not_clear_the_lapse():
     today = date(2026, 9, 26)
     confirmed_income_map = {"SALARY": _stream(avg_amount=2000.0)}
     credits = [_credit(date(2026, 9, 24), 50.0, account_id="acc-1")]
-    result = _late_confirmed_income(confirmed_income_map, credits, today)
+    result = _late_reliable_income(confirmed_income_map, [], credits, today)
     assert len(result) == 1
 
 
@@ -188,7 +201,7 @@ def test_credit_into_a_different_account_does_not_clear_the_lapse():
     today = date(2026, 9, 26)
     confirmed_income_map = {"SALARY": _stream(account_id="acc-1", avg_amount=2000.0)}
     credits = [_credit(date(2026, 9, 24), 2000.0, account_id="acc-other")]
-    result = _late_confirmed_income(confirmed_income_map, credits, today)
+    result = _late_reliable_income(confirmed_income_map, [], credits, today)
     assert len(result) == 1
 
 
@@ -198,7 +211,7 @@ def test_skipped_after_pending_give_up_days():
     missed-cycles rule and payday-confirmation ask take over."""
     today = date(2026, 9, 25) + timedelta(days=PENDING_GIVE_UP_DAYS + 1)
     confirmed_income_map = {"SALARY": _stream()}
-    result = _late_confirmed_income(confirmed_income_map, [], today)
+    result = _late_reliable_income(confirmed_income_map, [], [], today)
     assert result == []
 
 
@@ -208,7 +221,7 @@ def test_manual_stream_never_reported():
     considered here either."""
     today = date(2026, 9, 26)
     confirmed_income_map = {"manual": _stream()}
-    result = _late_confirmed_income(confirmed_income_map, [], today)
+    result = _late_reliable_income(confirmed_income_map, [], [], today)
     assert result == []
 
 
@@ -217,12 +230,125 @@ def test_unconfirmed_stream_never_reported():
     stream = _stream()
     stream["status"] = "rejected"
     confirmed_income_map = {"SALARY": stream}
-    result = _late_confirmed_income(confirmed_income_map, [], today)
+    result = _late_reliable_income(confirmed_income_map, [], [], today)
     assert result == []
 
 
 def test_stream_without_schedule_is_skipped():
     today = date(2026, 9, 26)
     confirmed_income_map = {"SALARY": {"status": "confirmed", "avg_amount": 2000.0}}
-    result = _late_confirmed_income(confirmed_income_map, [], today)
+    result = _late_reliable_income(confirmed_income_map, [], [], today)
+    assert result == []
+
+
+# ── _late_reliable_income: detected branch (G167) ───────────────────────────
+
+def _detected_pattern(
+    key="FREELANCE CLIENT",
+    account_id="acc-2",
+    avg_amount=800.0,
+    avg_interval=30,
+    next_date=date(2026, 9, 25),
+    occurrences=3,
+    amounts_recent=(800.0, 800.0, 800.0),
+):
+    return {
+        "key": key,
+        "avg_amount": avg_amount,
+        "avg_interval": avg_interval,
+        "next_date": next_date,
+        "account_id": account_id,
+        "occurrences": occurrences,
+        "amounts_recent": list(amounts_recent),
+    }
+
+
+def test_income_pattern_reliable_requires_three_occurrences_and_stable_amounts():
+    """The shared reliability predicate itself: fewer than 3 occurrences,
+    or recent amounts that swing past the 1.5x band, both fail — proven
+    directly here so `_late_reliable_income`'s own detected-branch tests
+    below aren't the only place this ever gets exercised."""
+    assert _income_pattern_reliable(_detected_pattern(occurrences=3, amounts_recent=(800.0, 800.0, 800.0)))
+    assert not _income_pattern_reliable(_detected_pattern(occurrences=2, amounts_recent=(800.0, 800.0)))
+    assert not _income_pattern_reliable(
+        _detected_pattern(occurrences=3, amounts_recent=(400.0, 800.0, 800.0))
+    )
+
+
+def test_detected_reliable_pattern_lapsed_on_d_plus_1_is_reported_as_detected():
+    """A pattern the user never confirmed, but with 3+ occurrences and
+    stable amounts (the SAME bar `income_credit_ok` requires before
+    crediting it into the walk at all — asserted directly below, so the
+    two can never drift): `next_date` 25 Sep, `avg_interval` 30 days puts
+    `prev_expected` at 26 Aug, well past PENDING_GIVE_UP_DAYS by 26 Sep —
+    use a `next_date` close enough to today that D+1 is still inside the
+    give-up window."""
+    today = date(2026, 9, 26)
+    pattern = _detected_pattern(next_date=date(2026, 9, 25), avg_interval=1)
+    assert income_credit_ok(pattern, "acc-2") is True  # same gate the walk itself uses
+    result = _late_reliable_income({}, [pattern], [], today)
+    assert len(result) == 1
+    entry = result[0]
+    assert entry["key"] == "FREELANCE CLIENT"
+    assert entry["amount"] == 800.0
+    assert entry["expected_date"] == "2026-09-24"  # next_date (25th) minus avg_interval (1 day)
+    assert entry["days_late"] == 2
+    assert entry["account_id"] == "acc-2"
+    assert entry["source"] == "detected"
+
+
+def test_detected_pattern_with_two_occurrences_is_not_reported():
+    """Below the reliability floor — must not be reported, and must also
+    fail `income_credit_ok` (the shared predicate proving the two gates
+    agree: too unreliable to be credited into the walk, too unreliable to
+    be named when it lapses)."""
+    today = date(2026, 9, 26)
+    pattern = _detected_pattern(next_date=date(2026, 9, 25), avg_interval=1, occurrences=2,
+                                 amounts_recent=(800.0, 800.0))
+    assert income_credit_ok(pattern, "acc-2") is False
+    result = _late_reliable_income({}, [pattern], [], today)
+    assert result == []
+
+
+def test_detected_pattern_with_unstable_amounts_is_not_reported():
+    """Above the occurrence floor but amounts swing past 1.5x — same
+    conclusion, same shared-predicate proof."""
+    today = date(2026, 9, 26)
+    pattern = _detected_pattern(next_date=date(2026, 9, 25), avg_interval=1,
+                                 amounts_recent=(300.0, 800.0, 800.0))
+    assert income_credit_ok(pattern, "acc-2") is False
+    result = _late_reliable_income({}, [pattern], [], today)
+    assert result == []
+
+
+def test_detected_pattern_cleared_by_a_matching_credit():
+    """Same amount-band-plus-account matching as the confirmed branch."""
+    today = date(2026, 9, 26)
+    pattern = _detected_pattern(next_date=date(2026, 9, 25), avg_interval=1)
+    credits = [_credit(date(2026, 9, 24), 790.0, account_id="acc-2")]
+    result = _late_reliable_income({}, [pattern], credits, today)
+    assert result == []
+
+
+def test_confirmed_key_never_double_reported_from_the_detected_branch():
+    """A key present in `confirmed_income_map` is reported (if at all) by
+    the confirmed branch alone — even if the SAME key also shows up in
+    `recurring_income` (a real detected series behind a confirmed stream,
+    or the G158 synthesised fallback), it must not additionally surface a
+    second, "detected" entry for itself."""
+    today = date(2026, 9, 26)
+    confirmed_income_map = {"SALARY": _stream()}
+    detected_dup = _detected_pattern(key="SALARY", account_id="acc-1", avg_amount=2000.0,
+                                      next_date=date(2026, 9, 25), avg_interval=1)
+    result = _late_reliable_income(confirmed_income_map, [detected_dup], [], today)
+    assert len(result) == 1
+    assert result[0]["source"] == "confirmed"
+
+
+def test_detected_pattern_not_yet_due_is_not_reported():
+    """`next_date` far enough in the future that `prev_expected` (next_date
+    minus avg_interval) is still today or later — nothing has lapsed yet."""
+    today = date(2026, 9, 20)
+    pattern = _detected_pattern(next_date=date(2026, 9, 25), avg_interval=1)
+    result = _late_reliable_income({}, [pattern], [], today)
     assert result == []

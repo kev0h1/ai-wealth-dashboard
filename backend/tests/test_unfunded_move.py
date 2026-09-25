@@ -243,7 +243,7 @@ def _run(monkeypatch, bills, *, accounts=None, payday_window=False,
             "upcoming_bills": bills,
             "upcoming_income": window_income or [],
             "internal_inflows": [],
-            # G163 interim lapse signal — see analytics._late_confirmed_income.
+            # G163/G167 interim lapse signal — see analytics._late_reliable_income.
             "late_income": late_income or [],
         }
 
@@ -353,7 +353,7 @@ def test_lapsed_income_names_the_late_pay():
     """Same shortfall shape as `test_pending_and_bounced_fires` (no income
     at all covers it this time, so the card fires as usual), but
     `resp["late_income"]` (the G163 interim lapse signal — see
-    `analytics._late_confirmed_income`) carries an entry for this exact
+    `analytics._late_reliable_income`) carries an entry for this exact
     source account. The card's body must name the late pay, not just say
     the move "may not have the funds"."""
     import pytest
@@ -372,6 +372,34 @@ def test_lapsed_income_names_the_late_pay():
         assert "Salary pay was expected" in item["body"]
         assert "has not arrived yet" in item["body"]
         assert "~£2,000" in item["body"]
+        assert "—" not in item["body"]  # house style: no em-dashes in user-facing copy
+    finally:
+        mp.undo()
+
+
+def test_lapsed_detected_income_names_it_without_calling_it_pay():
+    """G167: a merely DETECTED (unconfirmed) reliable pattern gets the same
+    treatment as a confirmed stream, but the sentence must not call it
+    "pay" — the user never confirmed it as income, only Sorted noticed the
+    pattern. `source: "detected"` selects the "from {label}" wording."""
+    import pytest
+    mp = pytest.MonkeyPatch()
+    try:
+        accounts = [_account("barclays", 20.0)]
+        bills = [_mv_bill("KEVIN MAINGI HSBC FT", 81.67, "barclays",
+                           pending=True, days_past_due=9, original_date="2026-08-18")]
+        late_income = [{
+            "key": "FREELANCE CLIENT", "label": "Freelance Client", "amount": 800.0,
+            "expected_date": "2026-08-20", "days_late": 3, "account_id": "barclays",
+            "source": "detected",
+        }]
+        items, _ = _run(mp, bills, accounts=accounts, late_income=late_income)
+        item = _find(items, "unfunded_move")
+        assert item is not None
+        assert "Freelance Client pay was expected" not in item["body"]
+        assert "from Freelance Client was expected" in item["body"]
+        assert "has not arrived yet" in item["body"]
+        assert "~£800" in item["body"]
         assert "—" not in item["body"]  # house style: no em-dashes in user-facing copy
     finally:
         mp.undo()
