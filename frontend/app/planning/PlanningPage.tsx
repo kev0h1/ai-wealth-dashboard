@@ -324,21 +324,26 @@ export default function PlanningPage() {
   }, []);
 
   // ── At-risk bills ──────────────────────────────────────────────────────────
-  // Two walks over the same events, differing only in the same-day
-  // credit/debit tie-break, a direct port of backend/app/services/
-  // companion.py's `_optimistic_events` / `optimistic_min_running` (see its
-  // long comment there for the full reasoning; summarised here):
-  //   - conservative: bills before income/inflows on a shared day. An
-  //     on-payday debit must be covered by the balance already there, not
-  //     that day's credit. This is the walk that has always driven every
-  //     RED at-risk treatment on this page, and its ordering is unchanged.
-  //   - optimistic: income/inflows before bills on a shared day. Consulted
-  //     ONLY to tell a genuine shortfall (still short even when the money
-  //     that's due in is credited first) from a same-day timing risk (only
-  //     short because the conservative ordering happens to put the payment
-  //     before the credit), never to change what the conservative walk
-  //     itself flags, same as companion.py never lets it touch
-  //     min_running/shortfall_bill.
+  // G163 (2026-09-25, Kevin: "the AI should know money is coming in so
+  // perhaps I shouldn't flag this, it only becomes a problem the day
+  // after"): ONE walk now, a direct port of backend/app/services/
+  // companion.py's `walk_sort_key` — same-day, credits (income/inflows)
+  // before debits (bills). A confirmed income stream expected into an
+  // account on day D covers what leaves that account on day D; it only
+  // lapses, and the deficit becomes real, the day after it was expected
+  // with no matching credit. This replaces the old TWO-walk design (a
+  // conservative bills-before-income walk driving every RED treatment,
+  // plus a second optimistic walk consulted only to tell a genuine
+  // shortfall from a same-day timing artefact): the same-day-income
+  // suppression that used to need a second walk for is now inherent in the
+  // ordering itself, so both walks below use it and necessarily agree.
+  // `atRiskWalks.conservative`/`.optimistic` both still exist and both
+  // point at this SAME result — kept as two keys (rather than refactoring
+  // every reader below) purely so the rest of this file, which reads both,
+  // compiles unchanged; `genuineAccountIds` (built from `.optimistic`) is
+  // therefore now just every account `.conservative` itself flags, and the
+  // `severity: "timing"` branch derived from their difference can no
+  // longer occur (see its own comment further down).
   const atRiskWalks = (() => {
     if (!cashflow) return null;
     const nextPaydayMs = periodEnd.getTime() + 86400000;
@@ -382,18 +387,21 @@ export default function PlanningPage() {
         .map((inf) => ({ kind: "inflow" as const, days_away: inf.days_away, amount: inf.amount, account_id: inf.account_id })),
     ];
 
-    // The walk itself, extracted so it can run twice over the identical
-    // event list with only the same-day tie-break flipped (see the
-    // conservative/optimistic explanation above).
-    function walk(tieBreak: "conservative" | "optimistic") {
+    // ONE walk (G163): same-day, credits (income/inflow) before debits
+    // (bill), a direct port of backend/app/services/companion.py's
+    // walk_sort_key. No tieBreak parameter any more — there is only one
+    // ordering now, so there is nothing left to flip.
+    function walk() {
       const running: Record<string, number> = { ...seedRunning };
       const sorted = [...events].sort((a, b) => {
         if (a.days_away !== b.days_away) return a.days_away - b.days_away;
-        const aCredit = a.kind === "bill" ? 0 : 1;
-        const bCredit = b.kind === "bill" ? 0 : 1;
-        // conservative: bills (0) before credits (1) on a tie; optimistic
-        // flips it so credits land first.
-        return tieBreak === "conservative" ? aCredit - bCredit : bCredit - aCredit;
+        // credits (income/inflow) rank 0, bills rank 1 — credits sort
+        // first on a shared day (G163: a confirmed income stream expected
+        // into an account on day D covers what leaves that account on day
+        // D).
+        const aRank = a.kind === "bill" ? 1 : 0;
+        const bRank = b.kind === "bill" ? 1 : 0;
+        return aRank - bRank;
       });
       // Movements (transfers, savings, investment STOs) processed on each
       // account since its last income/inflow landing, the causal window
@@ -456,27 +464,32 @@ export default function PlanningPage() {
       return atRisk;
     }
 
-    return { conservative: walk("conservative"), optimistic: walk("optimistic") };
+    // `.conservative` and `.optimistic` both point at the SAME single
+    // result — there is only one walk now (see the comment above `walk`),
+    // kept as two keys only so the ~15 readers below (both in this file)
+    // compile unchanged; they can no longer disagree.
+    const singleWalk = walk();
+    return { conservative: singleWalk, optimistic: singleWalk };
   })();
 
-  // The conservative walk remains the one true source for every RED
-  // treatment on this page (bill rows, the callout, the chip), unchanged
-  // behaviour from before internal_inflows existed, just now correctly
-  // credited. The optimistic walk (see genuineAccountIds below) exists only
-  // to classify severity; it never adds or removes a flagged bill here.
+  // `.conservative` is the one true source for every RED treatment on this
+  // page (bill rows, the callout, the chip) — still true since G163, just
+  // now built from the single credits-before-debits walk rather than a
+  // bills-first one.
   const atRiskBills = atRiskWalks?.conservative ?? [];
 
   const atRiskKey = (b: { account_id?: string | null; expected_date: string; amount: number; name?: string }) =>
     `${b.account_id ?? "__null__"}|${b.expected_date}|${b.amount}|${b.name ?? ""}`;
   const atRiskKeySet = new Set(atRiskBills.map(atRiskKey));
 
-  // An account still short under the OPTIMISTIC ordering (income/inflows
-  // credited before bills on a shared day) is a genuine shortfall: the
-  // money due in wouldn't have saved it either way. An account short ONLY
-  // in the conservative walk is a timing risk, not a shortfall: the money
-  // is arriving that same day, it just might land after a payment leaves.
-  // Per the Red Is Risk Rule, only genuine shortfalls ever earn RED; timing
-  // risks render amber (see the callout below).
+  // G163: `.conservative` and `.optimistic` now point at the SAME walk (see
+  // the comment above `atRiskWalks`), so this is simply every account
+  // `.conservative` already flagged — kept as its own Set because so much
+  // below still reads it, not because it can diverge from atRiskBills any
+  // more. Pre-G163 this distinguished a genuine shortfall (still short even
+  // with same-day money credited first) from a timing risk (only short
+  // because bills were walked before that same-day credit); that
+  // distinction no longer arises, since the walk itself now credits first.
   const genuineAccountIds = new Set(
     (atRiskWalks?.optimistic ?? []).map(b => b.account_id ?? "__null__")
   );
@@ -557,10 +570,14 @@ export default function PlanningPage() {
         ]
           .filter(c => inWindow(c.days_away))
           .sort((a, b) => a.days_away - b.days_away)[0];
-        // "genuine" = still short even under the optimistic ordering
-        // (income/inflows credited first), a real shortfall. "timing" =
-        // only short in the conservative walk, i.e. covered by money due
-        // the same day. See genuineAccountIds above.
+        // G163: since the walk itself now credits same-day money before
+        // debiting bills, `genuineAccountIds` is every account atRiskBills
+        // already flagged, so this is always "genuine" in practice — a
+        // "timing" account can no longer occur (the walk that used to
+        // produce one no longer disagrees with itself). Left as a real
+        // branch, not collapsed, only because it is cheap insurance against
+        // a payload built from an older cache (see the atRiskWalks comment
+        // above) still carrying whatever shape produced a "timing" read.
         const severity: "genuine" | "timing" = genuineAccountIds.has(accountId) ? "genuine" : "timing";
         return { accountId, bank, balance, shortfall, culprit: earliest?.movementCulprit, dueDate: earliestCredit?.expected_date ?? null, severity };
       })
@@ -571,7 +588,10 @@ export default function PlanningPage() {
   // The split this page's whole at-risk UI hangs off: RED banner/chip use
   // genuineShortfalls only (current copy, current colour); AMBER uses
   // timingShortfalls (new, calmer treatment). See severity's computation
-  // above for what separates the two.
+  // above for what separates the two. G163: timingShortfalls should now
+  // always be empty (the walk that used to produce a "timing" account no
+  // longer disagrees with itself) — the amber rendering code downstream is
+  // left in place only as insurance against a payload from an older cache.
   const genuineShortfalls = accountShortfalls.filter(a => a.severity === "genuine");
   const timingShortfalls = accountShortfalls.filter(a => a.severity === "timing");
 

@@ -279,6 +279,27 @@ export type CashflowData = {
    * computed before allocations existed; callers must treat a missing value
    * as "no allocations to subtract", never as an error. */
   allocations?: Allocation[];
+  /**
+   * G163 interim lapse signal (until G157's payer matcher replaces it):
+   * confirmed income streams whose most recently due occurrence has
+   * lapsed (expected date + 1 day, no matching credit). Pre-lapse, a
+   * stream due today or covered by a recent credit is simply absent from
+   * this list — no card should treat it as a problem. Post-lapse, cards
+   * naming the late pay (cover-plan move, unfunded-move, payday split)
+   * read this list to find which account and how much. Optional, defaults
+   * to `[]` for older cached responses.
+   */
+  late_income?: LateIncome[];
+};
+
+/** One lapsed confirmed income stream — see `CashflowData.late_income`. */
+export type LateIncome = {
+  key: string;
+  label: string;
+  amount: number;
+  expected_date: string;
+  days_late: number;
+  account_id: string | null;
 };
 
 export type TransportMode = {
@@ -1273,10 +1294,14 @@ export type PaydaySplit = {
 };
 
 /**
- * Present only when an account funding the payday_split is at risk of
- * missing it if the salary lands late. Omitted entirely (not null) when no
- * account is at risk — see companion.py section 5c. `copy` arrives
- * pre-written and hedged; render it verbatim, never re-derive its wording.
+ * Present only when an account funding the payday_split is genuinely at
+ * risk: its payday-morning balance, INCLUDING any confirmed payday-day
+ * income already vetted for that account, still falls short of what
+ * leaves it on payday (G163, 2026-09-25 — replaces the old "if the salary
+ * is late" conservatism, which assumed the salary away by construction).
+ * Omitted entirely (not null) when no account is at risk — see
+ * companion.py section 5c. `copy` arrives pre-written and hedged; render
+ * it verbatim, never re-derive its wording.
  */
 export type PaydaySplitRisk = {
   account_id: string;

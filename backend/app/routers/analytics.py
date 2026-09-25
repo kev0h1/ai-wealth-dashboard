@@ -136,7 +136,11 @@ def _next_working_day(d):  # d: datetime.date -> datetime.date
         d += timedelta(days=1)
     return d
 
-from app.services.income import next_occurrence as _next_occ_svc, schedule_label as _schedule_label_svc
+from app.services.income import (
+    next_occurrence as _next_occ_svc,
+    schedule_label as _schedule_label_svc,
+    income_merchant_label,
+)
 
 # Friendly display labels for upstream bank provider codes (uppercase keys).
 # Any code not in the map is title-cased by default (e.g. "MONZO" → "Monzo").
@@ -1190,6 +1194,117 @@ def _confirmed_income_fallback(
     return fallback
 
 
+def _prev_scheduled_occurrence(schedule: dict, today: _date, lookback_days: int = 45) -> _date | None:
+    """The latest schedule occurrence strictly BEFORE `today` — walks
+    `next_occurrence` (which returns the next date strictly AFTER the date
+    it's given) forward from `today - lookback_days` until it reaches or
+    passes `today`, keeping the last one that was still short of it.
+    Returns None when the schedule can't be stepped at all (malformed) or
+    has no such occurrence inside the lookback window (a brand-new
+    schedule, or one whose cadence is wider than the window).
+    """
+    cursor = today - timedelta(days=lookback_days)
+    prev: _date | None = None
+    for _ in range(lookback_days + 5):  # safety bound: far more steps than any real cadence needs
+        try:
+            nxt = _next_occ_svc(schedule, cursor)
+        except (KeyError, ValueError, TypeError):
+            break
+        if nxt >= today:
+            break
+        prev = nxt
+        cursor = nxt
+    return prev
+
+
+def _late_confirmed_income(
+    confirmed_income_map: dict[str, dict],
+    income_credits_180: list[dict],
+    today: _date,
+) -> list[dict]:
+    """G163 interim lapse signal, until G157's own payer-matcher replaces
+    it: has each confirmed income stream's most recently DUE occurrence
+    actually landed? Kevin, 2026-09-24: "the AI should know money is coming
+    in so perhaps I shouldn't flag this, it only becomes a problem the day
+    after." Lapse = expected date + 1 day with no matching credit — pure and
+    Mongo-free, unit-tested directly in tests/test_expected_income_cover.py.
+
+    For each confirmed stream with a schedule and `avg_amount`:
+      - `prev_expected` (`_prev_scheduled_occurrence`) is the most recent
+        occurrence strictly before `today`; a stream with none (too new, or
+        expected today or later) has nothing to have lapsed, so is skipped.
+      - `days_late = today - prev_expected`. Once that exceeds
+        PENDING_GIVE_UP_DAYS (10), this stops reporting the stream as late:
+        by then G157's own missed-cycles rule and payday-confirmation ask
+        take over, and `_confirmed_income_fallback`'s own `next_date` has
+        already rolled on to the FOLLOWING cycle (see its docstring), which
+        is what lets the per-account walks go negative on their own past
+        that point without this signal's help. This function's job is only
+        the narrow window between "just missed" and "the forecasting
+        machinery has already moved on".
+      - Matched by AMOUNT BAND (`_within_pct_tolerance`, 15 percent) and
+        ATTRIBUTED ACCOUNT, deliberately NOT by series key — a payroll
+        reference change forks the series key (the exact G157 bug this
+        stands in for until that lands), so matching on key would report a
+        stream lapsed the moment its payer's reference changes, even though
+        the money landed under a different key. `account_id` on each
+        `confirmed_income_map` entry is expected to already carry the
+        attribution the matching `recurring_income` entry landed in (the
+        raw `preferences.income_streams` entry itself has no account_id —
+        the caller merges this in; see the `_compute_cashflow_patterns`
+        call site). No attributed account at all means no per-account
+        simulation ever credited this stream anyway, so match on amount and
+        date alone.
+      - Credit window: `[prev_expected - OBSERVATION_LOOKBACK_DAYS, today]`
+        — same lookback `_confirmed_income_fallback`'s own matching uses,
+        wide enough that a real payslip landing a couple of days early
+        still counts.
+
+    Returns `{"key", "label", "amount", "expected_date", "days_late",
+    "account_id"}` for every stream that has genuinely lapsed.
+    """
+    out: list[dict] = []
+    for key, stream in confirmed_income_map.items():
+        if key == "manual" or stream.get("status") != "confirmed":
+            continue
+        schedule = stream.get("schedule")
+        if not schedule:
+            continue
+        avg_amount = stream.get("avg_amount")
+        if avg_amount is None:
+            continue
+        prev_expected = _prev_scheduled_occurrence(schedule, today)
+        if prev_expected is None:
+            continue
+        days_late = (today - prev_expected).days
+        if days_late > PENDING_GIVE_UP_DAYS:
+            continue
+        account_id = stream.get("account_id")
+        lo = prev_expected - timedelta(days=OBSERVATION_LOOKBACK_DAYS)
+
+        def _credit_date(t: dict) -> _date:
+            d = t.get("date")
+            return d.date() if isinstance(d, datetime) else d
+
+        matched = any(
+            _within_pct_tolerance(abs(float(c.get("amount") or 0)), float(avg_amount))
+            and lo <= _credit_date(c) <= today
+            and (account_id is None or str(c.get("account_id") or "") == str(account_id))
+            for c in income_credits_180
+        )
+        if matched:
+            continue
+        out.append({
+            "key": key,
+            "label": income_merchant_label(key),
+            "amount": round(float(avg_amount), 2),
+            "expected_date": prev_expected.isoformat(),
+            "days_late": days_late,
+            "account_id": account_id,
+        })
+    return out
+
+
 def income_credit_ok(item: dict, account_id: str, confirmed_keys: set | frozenset = frozenset()) -> bool:
     """Whether a predicted income may be credited to `account_id` inside a
     PER-ACCOUNT balance simulation (cover plans, at-risk badge, source walks).
@@ -2177,6 +2292,21 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
         income_credits_by_key, latest_income_credit_by_key,
     )
 
+    # G163 interim lapse signal (until G157's payer matcher replaces it):
+    # has each confirmed stream's most recently due occurrence actually
+    # landed? See `_late_confirmed_income`'s docstring. The raw
+    # `preferences.income_streams` entry carries no account_id of its own
+    # (a user-confirmed schedule/amount only) — attribute each stream to
+    # the account its own `recurring_income` entry (detected, or the G158
+    # fallback just merged in above) landed in, same precedence
+    # `income_credit_ok`'s per-account check already relies on.
+    _recurring_income_by_key = {r["key"]: r for r in recurring_income}
+    _confirmed_map_with_accounts = {
+        _k: {**_v, "account_id": (_recurring_income_by_key.get(_k) or {}).get("account_id")}
+        for _k, _v in _confirmed_income_map.items()
+    }
+    late_income = _late_confirmed_income(_confirmed_map_with_accounts, income_credits_180, _today)
+
     heuristic_keys = {r["key"] for r in recurring_spend}
     single_debits: dict[str, dict] = {}
     for t in debits_90:
@@ -2380,6 +2510,8 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
         "available_balance": available_balance,
         "spendable_balance": spendable_balance,
         "savings_balance":  savings_balance,
+        # G163 interim lapse signal — see `_late_confirmed_income`.
+        "late_income":      late_income,
     }
 
 
@@ -2534,7 +2666,14 @@ async def at_risk_count(user: dict = Depends(current_user)):
         if acct in running:
             events.append((n["days_away"], acct, float(n["amount"]), True, None))
 
-    events.sort(key=lambda e: (e[0], 1 if e[3] else 0))  # bills before income on the same day (conservative)
+    # G163: same-day, credits before debits — a confirmed income stream
+    # expected in an account on day D covers what leaves it on day D; it
+    # only lapses, and the deficit becomes real, the day after it was
+    # expected with no matching credit. Lazy import to avoid a module-level
+    # cycle (companion.py imports from this module).
+    from app.services.companion import walk_sort_key
+
+    events.sort(key=walk_sort_key)
 
     at_risk = 0
     for days_away, acct, amount, is_income, kind in events:
@@ -3839,6 +3978,12 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
         # silently rendering a stale/incorrect 0.
         "spendable_balance": cached.get("spendable_balance"),
         "savings_balance":   cached.get("savings_balance", 0),
+        # G163 interim lapse signal (until G157's payer matcher replaces
+        # it): confirmed income streams whose most recently due occurrence
+        # has lapsed (expected date + 1 day, no matching credit) — see
+        # `_late_confirmed_income`. `[]` default for a cache doc computed
+        # before this field existed.
+        "late_income":       cached.get("late_income", []),
     }
 
 

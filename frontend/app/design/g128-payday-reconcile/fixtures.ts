@@ -131,7 +131,7 @@ export const KEVIN_REAL_ITEM: CompanionItem = {
     account_id: "salary-barclays-premier",
     name: "Premier Current Account",
     shortfall: 4014,
-    copy: "Your £4,105 payday split fires the morning your salary is expected. If the salary is late, Premier Current Account can't cover it.",
+    copy: "£4,105 leaves Premier Current Account on payday and nothing expected in covers it.",
   },
 };
 
