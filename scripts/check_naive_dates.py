@@ -15,8 +15,10 @@ on different timezones (the UAT VPS was on Europe/Berlin; Railway prod is
 UTC). `app.core.timeutil`'s `user_today()` / `user_now()` / `to_user_date()`
 are the fix: a single Europe/London-aware source of "today" for every
 calendar-facing call site. G161 swept the app for this; G166 finished the
-one file G161's own review found missed (`savings_insights.py`) and adds
-this script as the guard that stops it reappearing.
+two spots that sweep missed (`savings_insights.py`, found by G161's own
+review; `routers/challenges.py`'s daily/weekly reset boundary and
+`routers/subscription.py`'s `trial_charge_on`, found by G166's own review)
+and adds this script as the guard that stops the pattern reappearing.
 
 What this script does: greps backend/app for `date.today(`, `datetime.now(`
 and `datetime.utcnow(` and fails, listing file:line, for every hit that
@@ -27,35 +29,41 @@ isn't explicitly allowed. A hit is allowed two ways:
      lighter-weight option for a genuine one-off, and keeps the reason next
      to the code it's about).
   2. An entry in the ALLOWLIST dict below, keyed by (relative file path,
-     line number).
+     exact STRIPPED SOURCE-LINE TEXT) -- not by line number.
 
 DESIGN CHOICE, spelled out because it's the one a future maintainer is most
-likely to want to change: the central allowlist is keyed by exact LINE
-NUMBER, not by file or by a source-text pattern. The alternative -- allow
-everything in a given file, or allow every line matching some regex like
-`r'_at"?\\s*:\\s*datetime\\.'` -- would be far less code to maintain, but it
-defeats the point of the guard: the overwhelming majority of naive calls in
-this codebase are entirely legitimate (persisted audit timestamps such as
-created_at/updated_at, multi-week transaction-lookback cutoffs, hour-scale
-cache TTLs, background sync-worker internals) and look, at the source-line
-level, IDENTICAL to the genuinely buggy ones this sweep fixed -- `now =
-datetime.utcnow()` was the exact shape of both a correct persisted-timestamp
-write AND, before this pass, of the three real bugs in savings_insights.py
-and the one in routers/subscription.py. A blanket file- or pattern-level
-allow would have silently let all four of those past. Keying to the exact
-audited line means ANY newly introduced call -- including one added at a
-fresh line number in an already-mostly-allowlisted file -- fails the check
-and must be triaged explicitly, either by moving it onto timeutil or by
-adding a new, reasoned entry (or an inline pragma) right next to it.
+likely to want to change, and because this script's own first draft got it
+wrong: the central allowlist is keyed by (file, source-line text), not by
+line number. A line-number-keyed allowlist was tried first and reviewed out
+-- it breaks under any UNRELATED edit that shifts line numbers in an
+allowlisted file (adding an import, a comment, a new function above an
+allowlisted one), which turns `scripts/session.sh finish` red for a future
+session that touched nothing this script actually cares about. This file's
+own history is the proof: the very diff that first added this script also
+had to renumber two unrelated entries in `test_no_raw_exception_leak.py`
+(itself a line-keyed allowlist) purely because a docstring comment shifted
+them by seven lines -- the exact failure mode being designed against here.
 
-The trade-off, accepted deliberately: an unrelated edit that shifts line
-numbers in an allowlisted file makes previously-fine lines fail this check
-again, purely because their line number moved. That's noise, not a bug in
-the guard -- re-run the classification for the file (see the loop this
-script itself runs, or just `grep -n` it) and update the line numbers. A
-false "please re-triage this" is the trade this script is designed to make,
-in preference to a false "nothing to see here" silently swallowing a real
-regression.
+Keying on the exact stripped line TEXT survives that kind of drift for
+free: the code that was audited and allowlisted is still recognised
+wherever it ends up in the file. The trade-off it introduces instead: two
+DIFFERENT call sites that happen to share identical source text (`now =
+datetime.utcnow()` is the classic case -- this codebase has dozens) become
+indistinguishable by text alone, so a bare per-file "this text is allowed"
+entry would let a SECOND, newly-added copy of that exact line slip past
+unnoticed right next to the original, allowed one. Each allowlist entry
+therefore carries a `count`: the number of occurrences of that exact text
+this file is allowed to contain. If the actual number of matching lines in
+the file exceeds the allowed count, the excess is reported as a failure --
+so duplicating an allowlisted line (accidentally, or by pasting a new,
+different call next to an old one) is still caught, even though the two
+occurrences read identically. A handful of entries where the SAME text
+legitimately serves two different purposes at different call sites (found
+while building this list -- e.g. `now = datetime.now(timezone.utc)` in
+`app/core/subscription.py`, used as both a monthly-usage-key seed and a
+persisted audit-timestamp write) simply carry a `count` covering every
+occurrence and a reason that names both purposes; text-keying cannot tell
+those apart, so the reason has to.
 """
 from __future__ import annotations
 
@@ -75,300 +83,1616 @@ NAIVE_CALL_RE = re.compile(r"date\.today\(|datetime\.now\(|datetime\.utcnow\(")
 INLINE_PRAGMA_RE = re.compile(r"#\s*naive-ok\s*:")
 
 
-def _lines(reason: str, *nums: int) -> dict[int, str]:
-    return {n: reason for n in nums}
-
-
-# ── Reason buckets shared across many files ────────────────────────────────
-_LOOKBACK = "internal N-day transaction lookback window (query cutoff), not user-facing calendar copy"
-_AUDIT = "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user as a day or day-count)"
-_TTL = "raw-instant cache/regen/re-ask TTL gate (decides whether to recompute or re-offer something), not rendered day-count copy"
-_MONTH_KEY = "month-grain billing/usage metering key (Y-M); the Dec 31 -> Jan 1 rollover this could ever disagree on always falls in GMT (BST always ends before it), so UTC and Europe/London never actually diverge here"
-_SYNC_INTERNAL = "background bank-sync worker internals (token/connection lifecycle, retry/query windows), not user-facing"
-
-# ── Per-file entries, in the order `grep -rn` finds them ───────────────────
-ALLOWLIST: dict[str, dict[int, str]] = {
-    "app/core/bot_credentials.py": _lines(
-        "bot API credential TTL/expiry + a per-day telemetry bucket key for bot-call logging; "
-        "internal bot-auth plumbing, not user-facing",
-        113, 170, 190, 249,
-    ),
-    "app/core/identity.py": _lines(_AUDIT, 114, 133),
+ALLOWLIST: dict[str, dict[str, dict]] = {
+    "app/core/bot_credentials.py": {
+        "if expires_at is not None and expires_at <= datetime.now(timezone.utc):": {
+            "reason": (
+                "bot API credential TTL/expiry + a per-day telemetry bucket key for bot-call logging; "
+                "internal bot-auth plumbing, not user-facing"
+            ),
+        },
+        "now = datetime.now(timezone.utc)": {
+            "reason": (
+                "bot API credential TTL/expiry + a per-day telemetry bucket key for bot-call logging; "
+                "internal bot-auth plumbing, not user-facing"
+            ),
+            "count": 2,
+        },
+        "return datetime.now(timezone.utc) + timedelta(days=days)": {
+            "reason": (
+                "bot API credential TTL/expiry + a per-day telemetry bucket key for bot-call logging; "
+                "internal bot-auth plumbing, not user-facing"
+            ),
+        },
+    },
+    "app/core/identity.py": {
+        "\"linked_at\": datetime.now(timezone.utc),": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count)"
+            ),
+            "count": 2,
+        },
+    },
     "app/core/llm.py": {
-        105: _MONTH_KEY,
-        193: _AUDIT,
-        303: _MONTH_KEY,
+        "now = datetime.now(timezone.utc)": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count)"
+            ),
+        },
+        "ym = datetime.now(timezone.utc).strftime(\"%Y-%m\")": {
+            "reason": (
+                "month-grain billing/usage metering key (Y-M); the Dec 31 -> Jan 1 rollover this could "
+                "ever disagree on always falls in GMT (BST always ends before it), so UTC and "
+                "Europe/London never actually diverge here"
+            ),
+        },
+        "ym = year_month or datetime.now(timezone.utc).strftime(\"%Y-%m\")": {
+            "reason": (
+                "month-grain billing/usage metering key (Y-M); the Dec 31 -> Jan 1 rollover this could "
+                "ever disagree on always falls in GMT (BST always ends before it), so UTC and "
+                "Europe/London never actually diverge here"
+            ),
+        },
     },
-    "app/core/session_revocation.py": _lines(
-        "session-tombstone expiry arithmetic (seconds-scale), not day-scale copy", 90,
-    ),
+    "app/core/session_revocation.py": {
+        "now = as_utc(now) if now is not None else datetime.now(timezone.utc)": {
+            "reason": (
+                "session-tombstone expiry arithmetic (seconds-scale), not day-scale copy"
+            ),
+        },
+    },
     "app/core/subscription.py": {
-        271: "subscription-expired check: raw instant vs a stored instant, correct as-is",
-        505: _MONTH_KEY, 569: _MONTH_KEY, 630: _MONTH_KEY, 759: _MONTH_KEY,
-        789: _AUDIT,
+        "if expires_at and expires_at < datetime.now(timezone.utc):": {
+            "reason": (
+                "subscription-expired check: raw instant vs a stored instant, correct as-is"
+            ),
+        },
+        "now = datetime.now(timezone.utc)": {
+            "reason": (
+                "either a monthly usage-key seed (`ym = now.strftime(...)`) or a persisted "
+                "created_at/updated_at/started_at-style audit timestamp, depending on the call site; "
+                "every occurrence in this file is one or the other, see routers/subscription.py's "
+                "identical pattern for the equivalent split"
+            ),
+            "count": 5,
+        },
     },
-    "app/core/timeutil.py": _lines(
-        "this IS the canonical Europe/London helper module -- its own implementation "
-        "and docstrings are exempt by construction",
-        5, 16, 33, 35, 42,
-    ),
-    "app/main.py": _lines(
-        "distributed-lock acquisition, orphaned-connection cleanup and manual-account "
-        "seed-data timestamps; startup/admin internals, not user-facing",
-        534, 682, 730, 756, 837,
-    ),
+    "app/core/timeutil.py": {
+        "Timestamps persisted to Mongo stay `datetime.now(timezone.utc)`.": {
+            "reason": (
+                "this IS the canonical Europe/London helper module -- its own implementation and "
+                "docstrings are exempt by construction"
+            ),
+            "count": 2,
+        },
+        "application code compares them against `datetime.now(timezone.utc)`, which": {
+            "reason": (
+                "this IS the canonical Europe/London helper module -- its own implementation and "
+                "docstrings are exempt by construction"
+            ),
+        },
+        "return datetime.now(LONDON)": {
+            "reason": (
+                "this IS the canonical Europe/London helper module -- its own implementation and "
+                "docstrings are exempt by construction"
+            ),
+        },
+        "safely compared against datetime.now(timezone.utc). Returns None for": {
+            "reason": (
+                "this IS the canonical Europe/London helper module -- its own implementation and "
+                "docstrings are exempt by construction"
+            ),
+        },
+    },
+    "app/main.py": {
+        "\"started_at\": datetime.now(timezone.utc),": {
+            "reason": (
+                "distributed-lock acquisition, orphaned-connection cleanup and manual-account seed-data "
+                "timestamps; startup/admin internals, not user-facing"
+            ),
+        },
+        "cutoff = datetime.utcnow() - timedelta(hours=2)": {
+            "reason": (
+                "distributed-lock acquisition, orphaned-connection cleanup and manual-account seed-data "
+                "timestamps; startup/admin internals, not user-facing"
+            ),
+        },
+        "now = datetime.now(timezone.utc)": {
+            "reason": (
+                "distributed-lock acquisition, orphaned-connection cleanup and manual-account seed-data "
+                "timestamps; startup/admin internals, not user-facing"
+            ),
+        },
+        "now = datetime.utcnow()": {
+            "reason": (
+                "distributed-lock acquisition, orphaned-connection cleanup and manual-account seed-data "
+                "timestamps; startup/admin internals, not user-facing"
+            ),
+        },
+        "purchased_at = oid.generation_time if isinstance(oid, ObjectId) else datetime.now(timezone.utc)": {
+            "reason": (
+                "distributed-lock acquisition, orphaned-connection cleanup and manual-account seed-data "
+                "timestamps; startup/admin internals, not user-facing"
+            ),
+        },
+    },
     "app/routers/accounts.py": {
-        210: _AUDIT, 253: _AUDIT, 322: _AUDIT,
-        237: _LOOKBACK,
+        "from_dt = (datetime.now() - timedelta(days=90)).strftime(\"%Y-%m-%d\")": {
+            "reason": (
+                "internal N-day transaction lookback window (query cutoff), not user-facing calendar copy"
+            ),
+        },
+        "{\"$set\": {\"user_id\": uid, \"account_id\": account_id, \"excluded_at\": datetime.now()}},": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count)"
+            ),
+        },
+        "{\"_id\": u}, {\"$set\": {\"synced_at\": datetime.now()}}, upsert=True,": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count)"
+            ),
+            "count": 2,
+        },
     },
-    "app/routers/admin_allowlist.py": _lines(
-        _AUDIT + "; admin-only invite tooling, not primary user-facing", 94, 127,
-    ),
-    "app/routers/admin_usage.py": _lines(_MONTH_KEY + "; admin-only usage view", 81),
-    "app/routers/allocations.py": {456: _LOOKBACK, 519: _AUDIT},
-    "app/routers/analytics.py": _lines(
-        "already swept by G161 (36 call sites in this file alone moved onto timeutil in "
-        "that pass, per its own commit message); everything remaining here is a 90-day "
-        "lookback cutoff, an in-memory cache TTL (seconds/hours-scale), a months-of-data "
-        "statistical window, or a created_at/dismissed_at/_override_rebuild-style audit "
-        "timestamp -- none of it is rendered to the user as a calendar day or day-count",
-        192, 200, 276, 319, 386, 2132, 2527, 2533, 2534, 2720, 2777, 2780, 2848, 2901,
-        2974, 2975, 3117, 3130, 3175, 3188, 3307, 3319, 3335, 3425, 3996, 4031, 4038, 5369,
-    ),
-    "app/routers/auth.py": _lines(_AUDIT, 311),
-    "app/routers/baskets.py": _lines(_AUDIT, 182),
-    "app/routers/behaviour.py": _lines(
-        "7-day raw-instant cache-freshness gate (recompute-or-serve-cached), not "
-        "rendered day-count copy", 35,
-    ),
-    "app/routers/can_i.py": _lines(
-        "Penny propose/consent plumbing: a one-time consent timestamp, a 15-minute "
-        "proposal-expiry check, and executed_at/cancelled_at audit timestamps -- all "
-        "minute-scale or audit, not calendar-day copy",
-        1313, 1368, 1399, 1447,
-    ),
-    "app/routers/card_terms.py": _lines(
-        "14-day card-terms re-ask eligibility TTL (is_ask_eligible) + a confirmed_at "
-        "audit timestamp; the genuinely user-facing BT-offer/promo end-date comparisons "
-        "in this file already go through timeutil.user_today()",
-        112, 307,
-    ),
-    "app/routers/categories.py": _lines(_AUDIT, 301),
-    "app/routers/challenges.py": _lines(
-        "the weekly/daily spending Challenges feature has no live frontend consumer -- "
-        "ChallengesPanel.tsx is defined but not imported by any page or component "
-        "anywhere (see this file's own 2026-08-30 comment) -- so period_start/"
-        "period_end/hours_left/days_left computed here are not currently rendered to "
-        "any user. _day_bounds()/_week_bounds() ARE a genuine instance of the same "
-        "day-boundary bug class this sweep fixes (see G166's report); left allowlisted "
-        "rather than fixed because there is nothing live to fix it FOR right now -- "
-        "revisit if this feature is ever wired back up to a page",
-        33, 40, 53, 140, 155, 170, 195,
-    ),
-    "app/routers/commitments.py": {463: _LOOKBACK, 1106: _AUDIT},
-    "app/routers/finexer.py": _lines(_AUDIT, 89, 130, 153),
-    "app/routers/goals.py": _lines(_LOOKBACK, 52),
-    "app/routers/grow.py": _lines(_LOOKBACK, 255),
-    "app/routers/income.py": _lines(
-        _LOOKBACK + "; confirmed_at audit timestamps. The genuinely displayed date "
-        "arithmetic in this file already uses timeutil.user_today()",
-        29, 45, 204, 266, 326,
-    ),
-    "app/routers/investments.py": _lines(
-        "updated_at/created_at/last_refreshed persisted timestamps, returned as a full "
-        "ISO instant string for the frontend to format -- not a day-count computed here",
-        61, 187, 291, 397, 420,
-    ),
-    "app/routers/manual_accounts.py": _lines(
-        _AUDIT + " for manual-account CRUD (including applies_from, a backfill-pin marker)",
-        77, 100, 220, 226, 246, 262, 383, 384, 413,
-    ),
-    "app/routers/mcp.py": _lines(
-        "MCP per-day rate-limit bucket keys + OAuth-token expiry checks; internal "
-        "metering/token plumbing for the read-only agent connector, not rendered UI copy",
-        204, 232, 337, 447, 790,
-    ),
-    "app/routers/oauth.py": _lines(
-        "OAuth authorization-code/token issuance, expiry and revocation timestamps",
-        189, 290, 312, 360, 432, 546, 564, 603,
-    ),
-    "app/routers/planned.py": _lines(_AUDIT, 82),
-    "app/routers/push.py": _lines(_AUDIT + " for push-subscription records", 59, 83, 85, 105, 107),
-    "app/routers/savings.py": _lines(_LOOKBACK + "; " + _AUDIT, 77, 132, 180, 200),
+    "app/routers/admin_allowlist.py": {
+        "now = datetime.now(timezone.utc)": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count); admin-only invite tooling, not primary user-facing"
+            ),
+        },
+        "{\"$set\": {\"status\": \"revoked\", \"revoked_at\": datetime.now(timezone.utc)}},": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count); admin-only invite tooling, not primary user-facing"
+            ),
+        },
+    },
+    "app/routers/admin_usage.py": {
+        "ym = _validate_month(month) if month else datetime.now(timezone.utc).strftime(\"%Y-%m\")": {
+            "reason": (
+                "month-grain billing/usage metering key (Y-M); the Dec 31 -> Jan 1 rollover this could "
+                "ever disagree on always falls in GMT (BST always ends before it), so UTC and "
+                "Europe/London never actually diverge here; admin-only usage view"
+            ),
+        },
+    },
+    "app/routers/allocations.py": {
+        "\"created_at\":         datetime.now(timezone.utc),": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count)"
+            ),
+        },
+        "cutoff = datetime.now() - timedelta(days=_FILL_CANDIDATES_WINDOW_DAYS)": {
+            "reason": (
+                "internal N-day transaction lookback window (query cutoff), not user-facing calendar copy"
+            ),
+        },
+    },
+    "app/routers/analytics.py": {
+        "\"created_at\": datetime.now(),": {
+            "reason": (
+                "already swept by G161 (36 call sites in this file alone moved onto timeutil in that "
+                "pass, per its own commit message); everything remaining here is a 90-day lookback "
+                "cutoff, an in-memory cache TTL (seconds/hours-scale), a months-of-data statistical "
+                "window, or a created_at/dismissed_at/_override_rebuild-style audit timestamp -- none of "
+                "it is rendered to the user as a calendar day or day-count"
+            ),
+            "count": 3,
+        },
+        "(never calls datetime.now() itself) so callers — and tests — can pin": {
+            "reason": (
+                "already swept by G161 (36 call sites in this file alone moved onto timeutil in that "
+                "pass, per its own commit message); everything remaining here is a 90-day lookback "
+                "cutoff, an in-memory cache TTL (seconds/hours-scale), a months-of-data statistical "
+                "window, or a created_at/dismissed_at/_override_rebuild-style audit timestamp -- none of "
+                "it is rendered to the user as a calendar day or day-count"
+            ),
+        },
+        "_ai_recurring_cache[user_id] = (datetime.now(), result)": {
+            "reason": (
+                "already swept by G161 (36 call sites in this file alone moved onto timeutil in that "
+                "pass, per its own commit message); everything remaining here is a 90-day lookback "
+                "cutoff, an in-memory cache TTL (seconds/hours-scale), a months-of-data statistical "
+                "window, or a created_at/dismissed_at/_override_rebuild-style audit timestamp -- none of "
+                "it is rendered to the user as a calendar day or day-count"
+            ),
+        },
+        "_cf = await _mcf(uid, datetime.now() - timedelta(days=90))": {
+            "reason": (
+                "already swept by G161 (36 call sites in this file alone moved onto timeutil in that "
+                "pass, per its own commit message); everything remaining here is a 90-day lookback "
+                "cutoff, an in-memory cache TTL (seconds/hours-scale), a months-of-data statistical "
+                "window, or a created_at/dismissed_at/_override_rebuild-style audit timestamp -- none of "
+                "it is rendered to the user as a calendar day or day-count"
+            ),
+        },
+        "_pending_cutoff = datetime.utcnow() - timedelta(days=PENDING_TXN_MAX_AGE_DAYS)": {
+            "reason": (
+                "already swept by G161 (36 call sites in this file alone moved onto timeutil in that "
+                "pass, per its own commit message); everything remaining here is a 90-day lookback "
+                "cutoff, an in-memory cache TTL (seconds/hours-scale), a months-of-data statistical "
+                "window, or a created_at/dismissed_at/_override_rebuild-style audit timestamp -- none of "
+                "it is rendered to the user as a calendar day or day-count"
+            ),
+        },
+        "both storage sites below use datetime.now()/judged_at) or, defensively,": {
+            "reason": (
+                "already swept by G161 (36 call sites in this file alone moved onto timeutil in that "
+                "pass, per its own commit message); everything remaining here is a 90-day lookback "
+                "cutoff, an in-memory cache TTL (seconds/hours-scale), a months-of-data statistical "
+                "window, or a created_at/dismissed_at/_override_rebuild-style audit timestamp -- none of "
+                "it is rendered to the user as a calendar day or day-count"
+            ),
+        },
+        "cutoff    = datetime.now() - timedelta(days=90)": {
+            "reason": (
+                "already swept by G161 (36 call sites in this file alone moved onto timeutil in that "
+                "pass, per its own commit message); everything remaining here is a 90-day lookback "
+                "cutoff, an in-memory cache TTL (seconds/hours-scale), a months-of-data statistical "
+                "window, or a created_at/dismissed_at/_override_rebuild-style audit timestamp -- none of "
+                "it is rendered to the user as a calendar day or day-count"
+            ),
+        },
+        "cutoff = datetime.now() - _td(days=90)": {
+            "reason": (
+                "already swept by G161 (36 call sites in this file alone moved onto timeutil in that "
+                "pass, per its own commit message); everything remaining here is a 90-day lookback "
+                "cutoff, an in-memory cache TTL (seconds/hours-scale), a months-of-data statistical "
+                "window, or a created_at/dismissed_at/_override_rebuild-style audit timestamp -- none of "
+                "it is rendered to the user as a calendar day or day-count"
+            ),
+        },
+        "cutoff = datetime.now() - timedelta(days=90)": {
+            "reason": (
+                "already swept by G161 (36 call sites in this file alone moved onto timeutil in that "
+                "pass, per its own commit message); everything remaining here is a 90-day lookback "
+                "cutoff, an in-memory cache TTL (seconds/hours-scale), a months-of-data statistical "
+                "window, or a created_at/dismissed_at/_override_rebuild-style audit timestamp -- none of "
+                "it is rendered to the user as a calendar day or day-count"
+            ),
+        },
+        "cutoff = datetime.now() - timedelta(days=_ENRICH_LOOKBACK_DAYS)": {
+            "reason": (
+                "already swept by G161 (36 call sites in this file alone moved onto timeutil in that "
+                "pass, per its own commit message); everything remaining here is a 90-day lookback "
+                "cutoff, an in-memory cache TTL (seconds/hours-scale), a months-of-data statistical "
+                "window, or a created_at/dismissed_at/_override_rebuild-style audit timestamp -- none of "
+                "it is rendered to the user as a calendar day or day-count"
+            ),
+        },
+        "data[\"computed_at\"] = datetime.now()": {
+            "reason": (
+                "already swept by G161 (36 call sites in this file alone moved onto timeutil in that "
+                "pass, per its own commit message); everything remaining here is a 90-day lookback "
+                "cutoff, an in-memory cache TTL (seconds/hours-scale), a months-of-data statistical "
+                "window, or a created_at/dismissed_at/_override_rebuild-style audit timestamp -- none of "
+                "it is rendered to the user as a calendar day or day-count"
+            ),
+            "count": 2,
+        },
+        "data[\"monthly_cf\"] = {\"data\": _cf, \"computed_at\": datetime.now()}": {
+            "reason": (
+                "already swept by G161 (36 call sites in this file alone moved onto timeutil in that "
+                "pass, per its own commit message); everything remaining here is a 90-day lookback "
+                "cutoff, an in-memory cache TTL (seconds/hours-scale), a months-of-data statistical "
+                "window, or a created_at/dismissed_at/_override_rebuild-style audit timestamp -- none of "
+                "it is rendered to the user as a calendar day or day-count"
+            ),
+        },
+        "days = max((datetime.now() - earliest).days, 1)": {
+            "reason": (
+                "already swept by G161 (36 call sites in this file alone moved onto timeutil in that "
+                "pass, per its own commit message); everything remaining here is a 90-day lookback "
+                "cutoff, an in-memory cache TTL (seconds/hours-scale), a months-of-data statistical "
+                "window, or a created_at/dismissed_at/_override_rebuild-style audit timestamp -- none of "
+                "it is rendered to the user as a calendar day or day-count"
+            ),
+        },
+        "entry = dict(meta.get(key) or {\"dismissed_at\": datetime.now()})": {
+            "reason": (
+                "already swept by G161 (36 call sites in this file alone moved onto timeutil in that "
+                "pass, per its own commit message); everything remaining here is a 90-day lookback "
+                "cutoff, an in-memory cache TTL (seconds/hours-scale), a months-of-data statistical "
+                "window, or a created_at/dismissed_at/_override_rebuild-style audit timestamp -- none of "
+                "it is rendered to the user as a calendar day or day-count"
+            ),
+        },
+        "if cached and (datetime.now() - cached[0]).seconds < 86400:": {
+            "reason": (
+                "already swept by G161 (36 call sites in this file alone moved onto timeutil in that "
+                "pass, per its own commit message); everything remaining here is a 90-day lookback "
+                "cutoff, an in-memory cache TTL (seconds/hours-scale), a months-of-data statistical "
+                "window, or a created_at/dismissed_at/_override_rebuild-style audit timestamp -- none of "
+                "it is rendered to the user as a calendar day or day-count"
+            ),
+        },
+        "if computed_at and (datetime.now() - computed_at).total_seconds() > _CACHE_TTL_HOURS * 3600:": {
+            "reason": (
+                "already swept by G161 (36 call sites in this file alone moved onto timeutil in that "
+                "pass, per its own commit message); everything remaining here is a 90-day lookback "
+                "cutoff, an in-memory cache TTL (seconds/hours-scale), a months-of-data statistical "
+                "window, or a created_at/dismissed_at/_override_rebuild-style audit timestamp -- none of "
+                "it is rendered to the user as a calendar day or day-count"
+            ),
+        },
+        "meta, _ = _stamp_missing_meta(dismissed, dict(prefs.get(\"dismissed_recurring_meta\") or {}), datetime.now())": {
+            "reason": (
+                "already swept by G161 (36 call sites in this file alone moved onto timeutil in that "
+                "pass, per its own commit message); everything remaining here is a 90-day lookback "
+                "cutoff, an in-memory cache TTL (seconds/hours-scale), a months-of-data statistical "
+                "window, or a created_at/dismissed_at/_override_rebuild-style audit timestamp -- none of "
+                "it is rendered to the user as a calendar day or day-count"
+            ),
+        },
+        "meta[key] = {\"dismissed_at\": datetime.now(), \"hidden\": False}": {
+            "reason": (
+                "already swept by G161 (36 call sites in this file alone moved onto timeutil in that "
+                "pass, per its own commit message); everything remaining here is a 90-day lookback "
+                "cutoff, an in-memory cache TTL (seconds/hours-scale), a months-of-data statistical "
+                "window, or a created_at/dismissed_at/_override_rebuild-style audit timestamp -- none of "
+                "it is rendered to the user as a calendar day or day-count"
+            ),
+        },
+        "now = datetime.now()": {
+            "reason": (
+                "already swept by G161 (36 call sites in this file alone moved onto timeutil in that "
+                "pass, per its own commit message); everything remaining here is a 90-day lookback "
+                "cutoff, an in-memory cache TTL (seconds/hours-scale), a months-of-data statistical "
+                "window, or a created_at/dismissed_at/_override_rebuild-style audit timestamp -- none of "
+                "it is rendered to the user as a calendar day or day-count"
+            ),
+            "count": 2,
+        },
+        "{\"$set\": {\"_override_rebuild\": datetime.now()}},": {
+            "reason": (
+                "already swept by G161 (36 call sites in this file alone moved onto timeutil in that "
+                "pass, per its own commit message); everything remaining here is a 90-day lookback "
+                "cutoff, an in-memory cache TTL (seconds/hours-scale), a months-of-data statistical "
+                "window, or a created_at/dismissed_at/_override_rebuild-style audit timestamp -- none of "
+                "it is rendered to the user as a calendar day or day-count"
+            ),
+            "count": 4,
+        },
+        "{\"$setOnInsert\": {\"user_id\": uid, \"key_a\": ka, \"key_b\": kb, \"created_at\": datetime.utcnow()}},": {
+            "reason": (
+                "already swept by G161 (36 call sites in this file alone moved onto timeutil in that "
+                "pass, per its own commit message); everything remaining here is a 90-day lookback "
+                "cutoff, an in-memory cache TTL (seconds/hours-scale), a months-of-data statistical "
+                "window, or a created_at/dismissed_at/_override_rebuild-style audit timestamp -- none of "
+                "it is rendered to the user as a calendar day or day-count"
+            ),
+        },
+    },
+    "app/routers/auth.py": {
+        "\"linked_at\": datetime.now(timezone.utc),": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count)"
+            ),
+        },
+    },
+    "app/routers/baskets.py": {
+        "\"created_at\": datetime.now(),": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count)"
+            ),
+        },
+    },
+    "app/routers/behaviour.py": {
+        "if datetime.now(timezone.utc) - ca < timedelta(days=7):": {
+            "reason": (
+                "7-day raw-instant cache-freshness gate (recompute-or-serve-cached), not rendered "
+                "day-count copy"
+            ),
+        },
+    },
+    "app/routers/can_i.py": {
+        "if expires_at and datetime.now() > expires_at:": {
+            "reason": (
+                "Penny propose/consent plumbing: a one-time consent timestamp, a 15-minute "
+                "proposal-expiry check, and executed_at/cancelled_at audit timestamps -- all minute-scale "
+                "or audit, not calendar-day copy"
+            ),
+        },
+        "now = datetime.now()": {
+            "reason": (
+                "Penny propose/consent plumbing: a one-time consent timestamp, a 15-minute "
+                "proposal-expiry check, and executed_at/cancelled_at audit timestamps -- all minute-scale "
+                "or audit, not calendar-day copy"
+            ),
+        },
+        "now = datetime.now().isoformat()": {
+            "reason": (
+                "Penny propose/consent plumbing: a one-time consent timestamp, a 15-minute "
+                "proposal-expiry check, and executed_at/cancelled_at audit timestamps -- all minute-scale "
+                "or audit, not calendar-day copy"
+            ),
+        },
+        "{\"_id\": proposal_id}, {\"$set\": {\"cancelled_at\": datetime.now()}},": {
+            "reason": (
+                "Penny propose/consent plumbing: a one-time consent timestamp, a 15-minute "
+                "proposal-expiry check, and executed_at/cancelled_at audit timestamps -- all minute-scale "
+                "or audit, not calendar-day copy"
+            ),
+        },
+    },
+    "app/routers/card_terms.py": {
+        "now = datetime.utcnow()": {
+            "reason": (
+                "14-day card-terms re-ask eligibility TTL (is_ask_eligible) + a confirmed_at audit "
+                "timestamp; the genuinely user-facing BT-offer/promo end-date comparisons in this file "
+                "already go through timeutil.user_today()"
+            ),
+            "count": 2,
+        },
+    },
+    "app/routers/categories.py": {
+        "\"created_at\": datetime.utcnow(),": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count)"
+            ),
+        },
+    },
+    "app/routers/challenges.py": {
+        "compared against `datetime.utcnow()` elsewhere in this module) already": {
+            "reason": (
+                "prose inside _london_midnight_as_naive_utc's own docstring, describing this "
+                "file's naive-UTC convention -- not an executable call"
+            ),
+        },
+        "midnight (`datetime.utcnow().replace(hour=0, ...)`), which is up to an": {
+            "reason": (
+                "prose inside _london_midnight_as_naive_utc's own docstring, describing the OLD "
+                "(now-fixed) behaviour it replaced -- not an executable call"
+            ),
+        },
+        "now   = datetime.utcnow()": {
+            "reason": (
+                "_resolve_stale_challenges' raw-instant staleness check against period_end, which "
+                "is itself now a correct London-midnight-derived naive-UTC instant (see "
+                "_london_midnight_as_naive_utc/_day_bounds/_week_bounds above) -- comparing two "
+                "naive-UTC instants here is correct as-is"
+            ),
+        },
+        "now = datetime.utcnow()": {
+            "reason": (
+                "_compute_progress's hours_left/days_left countdown against period_end, which is "
+                "itself now a correct London-midnight-derived naive-UTC instant -- comparing two "
+                "naive-UTC instants here is correct as-is"
+            ),
+        },
+        "\"status\": \"active\", \"actual\": None, \"created_at\": datetime.utcnow(),": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to "
+                "the user as a day or day-count)"
+            ),
+            "count": 3,
+        },
+    },
+    "app/routers/commitments.py": {
+        "\"created_at\":   datetime.now(timezone.utc),": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count)"
+            ),
+        },
+        "cutoff = datetime.now() - timedelta(days=90)": {
+            "reason": (
+                "internal N-day transaction lookback window (query cutoff), not user-facing calendar copy"
+            ),
+        },
+    },
+    "app/routers/finexer.py": {
+        "\"created_at\":  datetime.utcnow(),": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count)"
+            ),
+        },
+        "{\"$set\": {\"status\": \"authorized\", \"authed_at\": datetime.utcnow()}},": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count)"
+            ),
+        },
+        "{\"$set\": {\"status\": \"canceled\", \"canceled_at\": datetime.utcnow(), \"error\": error}},": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count)"
+            ),
+        },
+    },
+    "app/routers/goals.py": {
+        "cutoff = datetime.now() - timedelta(days=90)": {
+            "reason": (
+                "internal N-day transaction lookback window (query cutoff), not user-facing calendar copy"
+            ),
+        },
+    },
+    "app/routers/grow.py": {
+        "cutoff = datetime.now() - timedelta(days=90)": {
+            "reason": (
+                "internal N-day transaction lookback window (query cutoff), not user-facing calendar copy"
+            ),
+        },
+    },
+    "app/routers/income.py": {
+        "\"confirmed_at\": datetime.now().isoformat(),": {
+            "reason": (
+                "internal N-day transaction lookback window (query cutoff), not user-facing calendar "
+                "copy; confirmed_at audit timestamps. The genuinely displayed date arithmetic in this "
+                "file already uses timeutil.user_today()"
+            ),
+            "count": 3,
+        },
+        "cutoff = datetime.now() - timedelta(days=90)": {
+            "reason": (
+                "internal N-day transaction lookback window (query cutoff), not user-facing calendar "
+                "copy; confirmed_at audit timestamps. The genuinely displayed date arithmetic in this "
+                "file already uses timeutil.user_today()"
+            ),
+            "count": 2,
+        },
+    },
+    "app/routers/investments.py": {
+        "\"created_at\":     datetime.now(),": {
+            "reason": (
+                "updated_at/created_at/last_refreshed persisted timestamps, returned as a full ISO "
+                "instant string for the frontend to format -- not a day-count computed here"
+            ),
+            "count": 2,
+        },
+        "\"provisional\": False, \"updated_at\": datetime.now(),": {
+            "reason": (
+                "updated_at/created_at/last_refreshed persisted timestamps, returned as a full ISO "
+                "instant string for the frontend to format -- not a day-count computed here"
+            ),
+        },
+        "\"updated_at\":        acc.get(\"updated_at\", datetime.now()).isoformat(),": {
+            "reason": (
+                "updated_at/created_at/last_refreshed persisted timestamps, returned as a full ISO "
+                "instant string for the frontend to format -- not a day-count computed here"
+            ),
+        },
+        "\"updated_at\":        datetime.now(),": {
+            "reason": (
+                "updated_at/created_at/last_refreshed persisted timestamps, returned as a full ISO "
+                "instant string for the frontend to format -- not a day-count computed here"
+            ),
+        },
+    },
+    "app/routers/manual_accounts.py": {
+        "\"$set\": {\"updated_at\": datetime.now()}},": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count) for manual-account CRUD (including applies_from, a backfill-pin "
+                "marker)"
+            ),
+            "count": 2,
+        },
+        "\"applies_from\": None if backfill else datetime.now(),": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count) for manual-account CRUD (including applies_from, a backfill-pin "
+                "marker)"
+            ),
+        },
+        "\"created_at\": datetime.now(), \"updated_at\": datetime.now(),": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count) for manual-account CRUD (including applies_from, a backfill-pin "
+                "marker)"
+            ),
+        },
+        "\"created_at\": datetime.now(), **fields,": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count) for manual-account CRUD (including applies_from, a backfill-pin "
+                "marker)"
+            ),
+            "count": 2,
+        },
+        "updates[\"applies_from\"] = None if body[\"backfill\"] else (rule.get(\"applies_from\") or datetime.now())": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count) for manual-account CRUD (including applies_from, a backfill-pin "
+                "marker)"
+            ),
+        },
+        "updates[\"updated_at\"] = datetime.now()": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count) for manual-account CRUD (including applies_from, a backfill-pin "
+                "marker)"
+            ),
+        },
+        "{\"$inc\": {\"balance\": round(-delta, 2)}, \"$set\": {\"updated_at\": datetime.now()}},": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count) for manual-account CRUD (including applies_from, a backfill-pin "
+                "marker)"
+            ),
+        },
+    },
+    "app/routers/mcp.py": {
+        "day_key = f\"mcp:day:{key}:{datetime.now(timezone.utc).strftime('%Y-%m-%d')}\"": {
+            "reason": (
+                "MCP per-day rate-limit bucket keys + OAuth-token expiry checks; internal metering/token "
+                "plumbing for the read-only agent connector, not rendered UI copy"
+            ),
+        },
+        "now = datetime.now(timezone.utc)": {
+            "reason": (
+                "MCP per-day rate-limit bucket keys + OAuth-token expiry checks; internal metering/token "
+                "plumbing for the read-only agent connector, not rendered UI copy"
+            ),
+            "count": 3,
+        },
+        "ym: str | None = datetime.now(timezone.utc).strftime(\"%Y-%m\")": {
+            "reason": (
+                "MCP per-day rate-limit bucket keys + OAuth-token expiry checks; internal metering/token "
+                "plumbing for the read-only agent connector, not rendered UI copy"
+            ),
+        },
+    },
+    "app/routers/oauth.py": {
+        "\"created_at\": datetime.now(timezone.utc),": {
+            "reason": (
+                "OAuth authorization-code/token issuance, expiry and revocation timestamps"
+            ),
+        },
+        "now = datetime.now(timezone.utc)": {
+            "reason": (
+                "OAuth authorization-code/token issuance, expiry and revocation timestamps"
+            ),
+            "count": 7,
+        },
+    },
+    "app/routers/planned.py": {
+        "\"created_at\":     datetime.now(),": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count)"
+            ),
+        },
+    },
+    "app/routers/push.py": {
+        "\"$setOnInsert\": {\"created_at\": datetime.now()}},": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count) for push-subscription records"
+            ),
+            "count": 2,
+        },
+        "\"updated_at\": datetime.now(),": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count) for push-subscription records"
+            ),
+            "count": 3,
+        },
+    },
+    "app/routers/savings.py": {
+        "\"created_at\": datetime.now(),": {
+            "reason": (
+                "internal N-day transaction lookback window (query cutoff), not user-facing calendar "
+                "copy; persisted audit timestamp (created_at/updated_at-style write, not rendered to the "
+                "user as a day or day-count)"
+            ),
+        },
+        "\"created_at\": datetime.now(), \"updated_at\": datetime.now(),": {
+            "reason": (
+                "internal N-day transaction lookback window (query cutoff), not user-facing calendar "
+                "copy; persisted audit timestamp (created_at/updated_at-style write, not rendered to the "
+                "user as a day or day-count)"
+            ),
+        },
+        "cutoff = datetime.now() - timedelta(days=90)": {
+            "reason": (
+                "internal N-day transaction lookback window (query cutoff), not user-facing calendar "
+                "copy; persisted audit timestamp (created_at/updated_at-style write, not rendered to the "
+                "user as a day or day-count)"
+            ),
+        },
+        "updates[\"updated_at\"] = datetime.now()": {
+            "reason": (
+                "internal N-day transaction lookback window (query cutoff), not user-facing calendar "
+                "copy; persisted audit timestamp (created_at/updated_at-style write, not rendered to the "
+                "user as a day or day-count)"
+            ),
+        },
+    },
     "app/routers/savings_insights.py": {
-        # 90-day transaction lookback windows for category/evidence detection.
-        1296: _LOOKBACK, 1327: _LOOKBACK, 3213: _LOOKBACK,
-        # Month/year label embedded in an LLM research-query prompt ("Today is
-        # September 2026") -- never returned to the frontend. Month/year grain, and
-        # the one boundary that matters (Dec 31 -> Jan 1) always falls in GMT, so it
-        # can't diverge from London here.
-        1457: "month-year label for an LLM research-query prompt, not rendered to the "
-              "user; the Dec 31/Jan 1 boundary always falls in GMT so it can't diverge "
-              "from London",
-        # researched_at/refreshed_at/content_valid_until WRITE sites: persisted UTC
-        # anchors. Every display read-site (_derive_insight_state, _serialize_insight,
-        # _expiry_line, all above) already converts these back through
-        # timeutil.to_user_date() -- the write must stay a plain UTC instant to match.
-        1860: "researched_at/refreshed_at/content_valid_until write site -- a persisted "
-              "UTC anchor; every display read-site already converts it back through "
-              "timeutil.to_user_date()",
-        2108: "researched_at/refreshed_at/content_valid_until write site -- a persisted "
-              "UTC anchor; every display read-site already converts it back through "
-              "timeutil.to_user_date()",
-        2001: _AUDIT,  # retired_at
-        # Background regen-cadence gate (_regen_reason) and its spend_changed 7-day
-        # minimum-age floor: decide whether a research pass fires, never rendered.
-        2041: _TTL, 2060: _TTL,
-        # Deliberate raw-instant 30-day cooldown gate, reviewed and commented in place
-        # during G161 (see the comment directly above this line in the source).
-        2666: "deliberate raw-instant 30-day spotlight cooldown gate (see this file's "
-              "own G161-review comment immediately above), not a rendered day-count",
-        2698: _LOOKBACK, 2781: _LOOKBACK,
-        2846: _LOOKBACK + "; also the verified_at/substituted_at audit-timestamp write site",
-        2936: "spotlight snooze-until eligibility check (boolean), not rendered day-count text",
-        3058: _AUDIT, 3094: _AUDIT, 3135: _AUDIT, 3160: _AUDIT, 3266: _AUDIT,
-        3198: "30-day pin-expiry persisted timestamp, never rendered to the user",
+        "\"spotlight_dismissed_at\": datetime.utcnow(),": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count)"
+            ),
+            "count": 2,
+        },
+        "age_days = (datetime.utcnow() - existing[\"refreshed_at\"]).days": {
+            "reason": (
+                "raw-instant cache/regen/re-ask TTL gate (decides whether to recompute or re-offer "
+                "something), not rendered day-count copy"
+            ),
+        },
+        "cutoff    = datetime.utcnow() - timedelta(days=90)": {
+            "reason": (
+                "internal N-day transaction lookback window (query cutoff), not user-facing calendar copy"
+            ),
+        },
+        "cutoff = datetime.utcnow() - timedelta(days=90)": {
+            "reason": (
+                "internal N-day transaction lookback window (query cutoff), not user-facing calendar copy"
+            ),
+            "count": 3,
+        },
+        "if dismissed is None or dismissed < datetime.utcnow() - timedelta(days=30):": {
+            "reason": (
+                "deliberate raw-instant 30-day spotlight cooldown gate (see this file's own G161-review "
+                "comment immediately above), not a rendered day-count"
+            ),
+        },
+        "now            = datetime.utcnow()": {
+            "reason": (
+                "researched_at/refreshed_at/content_valid_until write site -- a persisted UTC anchor; "
+                "every display read-site already converts it back through timeutil.to_user_date()"
+            ),
+            "count": 2,
+        },
+        "now          = datetime.utcnow()": {
+            "reason": (
+                "month-year label for an LLM research-query prompt, not rendered to the user; the Dec "
+                "31/Jan 1 boundary always falls in GMT so it can't diverge from London"
+            ),
+        },
+        "now    = datetime.utcnow()": {
+            "reason": (
+                "internal N-day transaction lookback window (query cutoff), not user-facing calendar copy"
+            ),
+        },
+        "now = datetime.utcnow()": {
+            "reason": (
+                "internal N-day transaction lookback window (query cutoff), not user-facing calendar "
+                "copy; also the verified_at/substituted_at audit-timestamp write site"
+            ),
+        },
+        "reason = _regen_reason(existing, triggered_by, datetime.utcnow())": {
+            "reason": (
+                "raw-instant cache/regen/re-ask TTL gate (decides whether to recompute or re-offer "
+                "something), not rendered day-count copy"
+            ),
+        },
+        "retire_update[\"retired_at\"] = datetime.utcnow()": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count)"
+            ),
+        },
+        "return bool(until and until > datetime.utcnow())": {
+            "reason": (
+                "spotlight snooze-until eligibility check (boolean), not rendered day-count text"
+            ),
+        },
+        "update[\"expires_at\"] = None if new_pinned else datetime.utcnow() + timedelta(days=30)": {
+            "reason": (
+                "30-day pin-expiry persisted timestamp, never rendered to the user"
+            ),
+        },
+        "{\"$set\": {\"card_opened_at\": datetime.utcnow()}},": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count)"
+            ),
+        },
+        "{\"$set\": {\"user_id\": uid, \"merchant_key\": merchant_key, \"category\": category, \"updated_at\": datetime.utcnow()}},": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count)"
+            ),
+        },
+        "{\"$set\": {\"viewed_at\": datetime.utcnow()}},": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count)"
+            ),
+        },
     },
-    "app/routers/scenario.py": _lines(_LOOKBACK, 192),
-    "app/routers/statements.py": _lines(
-        _AUDIT + " on a manual bank-statement connection record", 178,
-    ),
+    "app/routers/scenario.py": {
+        "cutoff = datetime.now() - timedelta(days=90)": {
+            "reason": (
+                "internal N-day transaction lookback window (query cutoff), not user-facing calendar copy"
+            ),
+        },
+    },
+    "app/routers/statements.py": {
+        "\"region\": \"UK\", \"status\": \"connected\", \"updated_at\": datetime.now(),": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count) on a manual bank-statement connection record"
+            ),
+        },
+    },
     "app/routers/subscription.py": {
-        34: _MONTH_KEY,
-        149: _AUDIT, 195: _AUDIT, 197: _AUDIT, 233: _MONTH_KEY,
-        # NOTE: `trial_charge_on` (the one genuinely user-facing date this router
-        # returned) was moved onto timeutil.user_today() in this pass -- see the fix
-        # a few lines above GET /subscription's return dict.
+        "\"$setOnInsert\": {\"started_at\": datetime.now(timezone.utc)},": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count)"
+            ),
+        },
+        "\"updated_at\": datetime.now(timezone.utc),": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count)"
+            ),
+        },
+        "now = datetime.now(timezone.utc)": {
+            "reason": (
+                "either a monthly usage-key seed (`ym = now.strftime(...)`) or a persisted "
+                "started_at/updated_at-style audit timestamp, depending on the call site"
+            ),
+            "count": 2,
+        },
+        "ym = datetime.now(timezone.utc).strftime(\"%Y-%m\")": {
+            "reason": (
+                "month-grain billing/usage metering key (Y-M); the Dec 31 -> Jan 1 rollover this could "
+                "ever disagree on always falls in GMT (BST always ends before it), so UTC and "
+                "Europe/London never actually diverge here"
+            ),
+        },
     },
-    "app/routers/tax.py": _lines(_LOOKBACK, 25),
-    "app/routers/transactions.py": _lines(
-        "user-supplied `days` query-window filters + created_at audit timestamps on "
-        "manual pot/dismissal records, not calendar-day copy",
-        138, 179, 207, 286, 560, 592, 711,
-    ),
-    "app/routers/transport.py": _lines(_LOOKBACK, 20),
-    "app/routers/truelayer.py": _lines(
-        _AUDIT + "; line 129 is a debug echo timestamp on a test-only callback route",
-        46, 129,
-    ),
-    "app/routers/webhooks.py": _lines(
-        "webhook signature/event-freshness checks (5-minute replay tolerance) + a "
-        "revoked_at audit timestamp; security-critical raw-instant comparisons, "
-        "deliberately not calendar-day arithmetic",
-        74, 224, 283, 314,
-    ),
-    "app/routers/yapily.py": _lines(_LOOKBACK + "; " + _AUDIT, 51, 82),
-    "app/services/affordability.py": _lines(_LOOKBACK, 270),
-    "app/services/behaviour.py": {133: "180-day behaviour-analysis lookback window", 499: _AUDIT},
-    "app/services/billing.py": _lines(
-        "Stripe billing internals: token/trial/webhook-processed audit timestamps, all "
-        "persisted, none rendered as calendar-day copy",
-        152, 268, 542, 584, 598, 626, 644,
-    ),
-    "app/services/broadcast.py": _lines(_AUDIT + " for broadcast/notification records", 278, 345, 415),
-    "app/services/card_rates.py": _lines(
-        "14-day card-rate re-ask TTL + computed-at timestamps, mirrors "
-        "routers/card_terms.py's is_ask_eligible gate", 61, 284, 339,
-    ),
-    "app/services/cashflow.py": _lines(_TTL + "; computed_at audit timestamp", 56, 121, 129),
-    "app/services/categorisation.py": _lines(_AUDIT + " on a category-learning doc", 793),
-    "app/services/checkpoints.py": _lines(
-        _AUDIT + " for the debt/goal checkpoint cadence", 54, 201, 283,
-    ),
-    "app/services/companion.py": _lines(
-        "already swept by G161 for the Penny brief's rendered dates/day-counts (see "
-        "e.g. `today = timeutil.user_today()` in this file); everything remaining here "
-        "is a 90/100-day evidence lookback, a created_at/_reactivated_at audit "
-        "timestamp, or a raw-instant lapse/re-ask TTL gate (24h celebration window, "
-        "7-day insight-win window, 14-day card-terms re-ask window) deciding card "
-        "eligibility -- not rendered day-count text",
-        455, 2278, 3443, 3901, 3997, 4188, 4340, 4517, 4846,
-    ),
-    "app/services/cycle_story.py": _lines(
-        "1h/24h cache-freshness TTLs + computed_at audit timestamps; this file's own "
-        "rendered 'today' narrative already uses timeutil.user_today()",
-        707, 722, 776, 809, 823,
-    ),
-    "app/services/cycle_story_personas.py": _lines(_AUDIT, 164),
-    "app/services/data_version.py": _lines(_AUDIT + " on a per-user cache-version bump", 80),
-    "app/services/debt_plan.py": _lines(
-        _AUDIT + "; this file's own rendered 'today' already uses timeutil.user_today()", 1471,
-    ),
-    "app/services/finexer_sync.py": _lines(
-        _SYNC_INTERNAL + " (token/consent freshness TTLs, customer created_at, "
-        "status_changed_at, last_synced)",
-        115, 196, 247, 314, 320, 482, 511, 632, 707,
-    ),
-    "app/services/income.py": _lines(_LOOKBACK, 314),
-    "app/services/investment_prices.py": _lines(_AUDIT + " on a price refresh", 75, 87),
-    "app/services/manual_account_rules.py": _lines(
-        _AUDIT + " for manual account-adjustment rules", 131, 138, 153,
-    ),
-    "app/services/memory.py": _lines(_AUDIT + " on Penny's memory-facts doc", 51),
-    "app/services/money_shape.py": _lines(
-        _AUDIT + " + an hour-scale cache-freshness TTL", 703, 720,
-    ),
-    "app/services/needle.py": _lines(
-        "computed_at audit/debug metadata field; period_start/period_end are supplied "
-        "by the caller, not computed in this file", 412,
-    ),
-    "app/services/notifications.py": _lines(_LOOKBACK + "; " + _AUDIT, 138, 701),
-    "app/services/pace.py": _lines(
-        "cache-freshness TTL checks + computed_at audit timestamps for spend-baseline/"
-        "shape caches", 308, 330, 1223, 1242,
-    ),
-    "app/services/pending_transactions.py": _lines(
-        "fallback `date` value used only when a bank doesn't supply one on a pending "
-        "transaction row; not calendar-day copy", 83,
-    ),
-    "app/services/penny_agent.py": _lines(
-        "seconds-until-expiry countdown for a Penny proposal, minute-scale, not "
-        "day-count copy", 224,
-    ),
-    "app/services/penny_tools.py": _lines(
-        _LOOKBACK + " + computed_at audit timestamps + a 7-day raw-instant "
-        "cache-freshness gate (same TTL class as routers/behaviour.py)",
-        2003, 2604, 3229, 3970, 4025,
-    ),
-    "app/services/planned.py": _lines(_AUDIT, 132, 144),
-    "app/services/recurring_judge.py": _lines(
-        "judged_at audit timestamp on the recurring-series LLM veto decision", 245,
-    ),
-    "app/services/response_cache.py": _lines(
-        "generic response-cache TTL check + computed_at audit timestamp; shared cache "
-        "infra, not day-count copy", 177, 224,
-    ),
-    "app/services/retention.py": _lines(
-        "connection-grace/dormant-account sweep windows run by a background worker, "
-        "not user-facing", 315, 369, 405, 422,
-    ),
-    "app/services/safe_to_spend_history.py": _lines(
-        _AUDIT + "; this file's own rendered 'today' already uses timeutil.user_today()", 93,
-    ),
-    "app/services/scenario.py": _lines(_LOOKBACK, 767),
-    "app/services/sync_freshness.py": _lines(
-        "prose inside this module's own docstring, describing OTHER files' storage "
-        "convention -- not an executable date call", 5, 6, 9,
-    ),
-    "app/services/truelayer_sync.py": _lines(
-        _SYNC_INTERNAL + " (token expiry/refresh, connection created_at/updated_at, "
-        "sync-window query params sent to the bank API, last_synced write)",
-        40, 41, 52, 80, 155, 171, 240, 241, 286, 352, 405, 424,
-    ),
-    "app/services/yapily_sync.py": _lines(
-        _AUDIT + " on a Yapily institution connection", 119,
-    ),
+    "app/routers/tax.py": {
+        "cutoff = datetime.now() - timedelta(days=90)": {
+            "reason": (
+                "internal N-day transaction lookback window (query cutoff), not user-facing calendar copy"
+            ),
+        },
+    },
+    "app/routers/transactions.py": {
+        "\"created_at\": datetime.now(), \"updated_at\": datetime.now(),": {
+            "reason": (
+                "user-supplied `days` query-window filters + created_at audit timestamps on manual "
+                "pot/dismissal records, not calendar-day copy"
+            ),
+        },
+        "\"created_at\": datetime.utcnow(),": {
+            "reason": (
+                "user-supplied `days` query-window filters + created_at audit timestamps on manual "
+                "pot/dismissal records, not calendar-day copy"
+            ),
+        },
+        "\"payload\": payload or {}, \"created_at\": datetime.utcnow(),": {
+            "reason": (
+                "user-supplied `days` query-window filters + created_at audit timestamps on manual "
+                "pot/dismissal records, not calendar-day copy"
+            ),
+        },
+        "base[\"date\"] = {\"$gte\": datetime.now() - timedelta(days=days)}": {
+            "reason": (
+                "user-supplied `days` query-window filters + created_at audit timestamps on manual "
+                "pot/dismissal records, not calendar-day copy"
+            ),
+            "count": 2,
+        },
+        "cutoff = datetime.now() - timedelta(days=days)": {
+            "reason": (
+                "user-supplied `days` query-window filters + created_at audit timestamps on manual "
+                "pot/dismissal records, not calendar-day copy"
+            ),
+        },
+        "cutoff = datetime.now() - timedelta(days=min(days, 730))": {
+            "reason": (
+                "user-supplied `days` query-window filters + created_at audit timestamps on manual "
+                "pot/dismissal records, not calendar-day copy"
+            ),
+        },
+    },
+    "app/routers/transport.py": {
+        "cutoff = datetime.now() - timedelta(days=90)": {
+            "reason": (
+                "internal N-day transaction lookback window (query cutoff), not user-facing calendar copy"
+            ),
+        },
+    },
+    "app/routers/truelayer.py": {
+        "return {\"message\": \"Callback routing works\", \"timestamp\": datetime.now()}": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count); line 129 is a debug echo timestamp on a test-only callback route"
+            ),
+        },
+        "{\"$set\": {\"user_id\": user[\"email\"], \"pending\": True, \"created_at\": datetime.now()}},": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count); line 129 is a debug echo timestamp on a test-only callback route"
+            ),
+        },
+    },
+    "app/routers/webhooks.py": {
+        "if abs((datetime.now(timezone.utc) - event_time).total_seconds()) > 300:": {
+            "reason": (
+                "webhook signature/event-freshness checks (5-minute replay tolerance) + a revoked_at "
+                "audit timestamp; security-critical raw-instant comparisons, deliberately not "
+                "calendar-day arithmetic"
+            ),
+        },
+        "now = datetime.now(timezone.utc)": {
+            "reason": (
+                "webhook signature/event-freshness checks (5-minute replay tolerance) + a revoked_at "
+                "audit timestamp; security-critical raw-instant comparisons, deliberately not "
+                "calendar-day arithmetic"
+            ),
+            "count": 2,
+        },
+        "{\"$set\": {\"status\": \"revoked\", \"revoked_at\": datetime.utcnow()}},": {
+            "reason": (
+                "webhook signature/event-freshness checks (5-minute replay tolerance) + a revoked_at "
+                "audit timestamp; security-critical raw-instant comparisons, deliberately not "
+                "calendar-day arithmetic"
+            ),
+        },
+    },
+    "app/routers/yapily.py": {
+        "\"created_at\": datetime.now(),": {
+            "reason": (
+                "internal N-day transaction lookback window (query cutoff), not user-facing calendar "
+                "copy; persisted audit timestamp (created_at/updated_at-style write, not rendered to the "
+                "user as a day or day-count)"
+            ),
+        },
+        "from_date = (datetime.now() - timedelta(days=90)).strftime(\"%Y-%m-%dT00:00:00Z\")": {
+            "reason": (
+                "internal N-day transaction lookback window (query cutoff), not user-facing calendar "
+                "copy; persisted audit timestamp (created_at/updated_at-style write, not rendered to the "
+                "user as a day or day-count)"
+            ),
+        },
+    },
+    "app/services/affordability.py": {
+        "cutoff = datetime.now() - timedelta(days=90)": {
+            "reason": (
+                "internal N-day transaction lookback window (query cutoff), not user-facing calendar copy"
+            ),
+        },
+    },
+    "app/services/behaviour.py": {
+        "\"computed_at\": datetime.now(timezone.utc).isoformat(),": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count)"
+            ),
+        },
+        "cutoff = datetime.now(timezone.utc) - timedelta(days=180)": {
+            "reason": (
+                "180-day behaviour-analysis lookback window"
+            ),
+        },
+    },
+    "app/services/billing.py": {
+        "now = datetime.now(timezone.utc)": {
+            "reason": (
+                "Stripe billing internals: token/trial/webhook-processed audit timestamps, all persisted, "
+                "none rendered as calendar-day copy"
+            ),
+            "count": 4,
+        },
+        "{\"$set\": {\"processed_at\": datetime.now(timezone.utc), \"result\": result}},": {
+            "reason": (
+                "Stripe billing internals: token/trial/webhook-processed audit timestamps, all persisted, "
+                "none rendered as calendar-day copy"
+            ),
+        },
+        "{\"$set\": {\"status\": \"expired\", \"updated_at\": datetime.now(timezone.utc), \"source\": \"stripe\"}},": {
+            "reason": (
+                "Stripe billing internals: token/trial/webhook-processed audit timestamps, all persisted, "
+                "none rendered as calendar-day copy"
+            ),
+        },
+        "{\"$set\": {\"status\": \"past_due\", \"updated_at\": datetime.now(timezone.utc), \"source\": \"stripe\"}},": {
+            "reason": (
+                "Stripe billing internals: token/trial/webhook-processed audit timestamps, all persisted, "
+                "none rendered as calendar-day copy"
+            ),
+        },
+    },
+    "app/services/broadcast.py": {
+        "now = datetime.now(timezone.utc)": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count) for broadcast/notification records"
+            ),
+            "count": 2,
+        },
+        "{\"$set\": {\"read_at\": datetime.now(timezone.utc)}},": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count) for broadcast/notification records"
+            ),
+        },
+    },
+    "app/services/card_rates.py": {
+        "now = datetime.utcnow()": {
+            "reason": (
+                "14-day card-rate re-ask TTL + computed-at timestamps, mirrors routers/card_terms.py's "
+                "is_ask_eligible gate"
+            ),
+            "count": 2,
+        },
+        "return (now or datetime.utcnow()) - ts >= timedelta(days=RE_ASK_DAYS)": {
+            "reason": (
+                "14-day card-rate re-ask TTL + computed-at timestamps, mirrors routers/card_terms.py's "
+                "is_ask_eligible gate"
+            ),
+        },
+    },
+    "app/services/cashflow.py": {
+        "and (datetime.now() - at).total_seconds() < _MONTHLY_CF_TTL_SECONDS": {
+            "reason": (
+                "raw-instant cache/regen/re-ask TTL gate (decides whether to recompute or re-offer "
+                "something), not rendered day-count copy; computed_at audit timestamp"
+            ),
+        },
+        "now = datetime.now()": {
+            "reason": (
+                "raw-instant cache/regen/re-ask TTL gate (decides whether to recompute or re-offer "
+                "something), not rendered day-count copy; computed_at audit timestamp"
+            ),
+        },
+        "{\"$set\": {\"monthly_cf\": {\"data\": data, \"computed_at\": datetime.now()}}},": {
+            "reason": (
+                "raw-instant cache/regen/re-ask TTL gate (decides whether to recompute or re-offer "
+                "something), not rendered day-count copy; computed_at audit timestamp"
+            ),
+        },
+    },
+    "app/services/categorisation.py": {
+        "doc = {\"category\": category, \"source\": source, \"updated_at\": datetime.utcnow()}": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count) on a category-learning doc"
+            ),
+        },
+    },
+    "app/services/checkpoints.py": {
+        "\"created_at\":   datetime.now(timezone.utc),": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count) for the debt/goal checkpoint cadence"
+            ),
+        },
+        "now = datetime.now(timezone.utc)": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count) for the debt/goal checkpoint cadence"
+            ),
+        },
+        "return datetime.now(timezone.utc).isoformat()": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count) for the debt/goal checkpoint cadence"
+            ),
+        },
+    },
+    "app/services/companion.py": {
+        "\"_reactivated_at\": datetime.utcnow(),": {
+            "reason": (
+                "already swept by G161 for the Penny brief's rendered dates/day-counts (see e.g. `today = "
+                "timeutil.user_today()` in this file); everything remaining here is a 90/100-day evidence "
+                "lookback, a created_at/_reactivated_at audit timestamp, or a raw-instant lapse/re-ask "
+                "TTL gate (24h celebration window, 7-day insight-win window, 14-day card-terms re-ask "
+                "window) deciding card eligibility -- not rendered day-count text"
+            ),
+        },
+        "\"created_at\": datetime.utcnow(),": {
+            "reason": (
+                "already swept by G161 for the Penny brief's rendered dates/day-counts (see e.g. `today = "
+                "timeutil.user_today()` in this file); everything remaining here is a 90/100-day evidence "
+                "lookback, a created_at/_reactivated_at audit timestamp, or a raw-instant lapse/re-ask "
+                "TTL gate (24h celebration window, 7-day insight-win window, 14-day card-terms re-ask "
+                "window) deciding card eligibility -- not rendered day-count text"
+            ),
+            "count": 4,
+        },
+        "_cel_now_utc = datetime.utcnow()": {
+            "reason": (
+                "already swept by G161 for the Penny brief's rendered dates/day-counts (see e.g. `today = "
+                "timeutil.user_today()` in this file); everything remaining here is a 90/100-day evidence "
+                "lookback, a created_at/_reactivated_at audit timestamp, or a raw-instant lapse/re-ask "
+                "TTL gate (24h celebration window, 7-day insight-win window, 14-day card-terms re-ask "
+                "window) deciding card eligibility -- not rendered day-count text"
+            ),
+        },
+        "_ct_now = datetime.utcnow()": {
+            "reason": (
+                "already swept by G161 for the Penny brief's rendered dates/day-counts (see e.g. `today = "
+                "timeutil.user_today()` in this file); everything remaining here is a 90/100-day evidence "
+                "lookback, a created_at/_reactivated_at audit timestamp, or a raw-instant lapse/re-ask "
+                "TTL gate (24h celebration window, 7-day insight-win window, 14-day card-terms re-ask "
+                "window) deciding card eligibility -- not rendered day-count text"
+            ),
+        },
+        "_win_now = datetime.utcnow()": {
+            "reason": (
+                "already swept by G161 for the Penny brief's rendered dates/day-counts (see e.g. `today = "
+                "timeutil.user_today()` in this file); everything remaining here is a 90/100-day evidence "
+                "lookback, a created_at/_reactivated_at audit timestamp, or a raw-instant lapse/re-ask "
+                "TTL gate (24h celebration window, 7-day insight-win window, 14-day card-terms re-ask "
+                "window) deciding card eligibility -- not rendered day-count text"
+            ),
+        },
+        "cutoff = datetime.utcnow() - timedelta(days=100)": {
+            "reason": (
+                "already swept by G161 for the Penny brief's rendered dates/day-counts (see e.g. `today = "
+                "timeutil.user_today()` in this file); everything remaining here is a 90/100-day evidence "
+                "lookback, a created_at/_reactivated_at audit timestamp, or a raw-instant lapse/re-ask "
+                "TTL gate (24h celebration window, 7-day insight-win window, 14-day card-terms re-ask "
+                "window) deciding card eligibility -- not rendered day-count text"
+            ),
+        },
+    },
+    "app/services/cycle_story.py": {
+        "\"computed_at\": datetime.now(timezone.utc).isoformat(),": {
+            "reason": (
+                "1h/24h cache-freshness TTLs + computed_at audit timestamps; this file's own rendered "
+                "'today' narrative already uses timeutil.user_today()"
+            ),
+        },
+        "age = datetime.now(timezone.utc) - computed_at": {
+            "reason": (
+                "1h/24h cache-freshness TTLs + computed_at audit timestamps; this file's own rendered "
+                "'today' narrative already uses timeutil.user_today()"
+            ),
+            "count": 2,
+        },
+        "now_iso = datetime.now(timezone.utc).isoformat()": {
+            "reason": (
+                "1h/24h cache-freshness TTLs + computed_at audit timestamps; this file's own rendered "
+                "'today' narrative already uses timeutil.user_today()"
+            ),
+            "count": 2,
+        },
+    },
+    "app/services/cycle_story_personas.py": {
+        "now_iso = datetime.now(timezone.utc).isoformat()": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count)"
+            ),
+        },
+    },
+    "app/services/data_version.py": {
+        "{\"$inc\": {\"version\": 1}, \"$set\": {\"updated_at\": datetime.now(timezone.utc)}},": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count) on a per-user cache-version bump"
+            ),
+        },
+    },
+    "app/services/debt_plan.py": {
+        "computed_at = datetime.now(timezone.utc).isoformat()": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count); this file's own rendered 'today' already uses "
+                "timeutil.user_today()"
+            ),
+        },
+    },
+    "app/services/finexer_sync.py": {
+        "\"last_synced\": datetime.utcnow(),": {
+            "reason": (
+                "background bank-sync worker internals (token/connection lifecycle, retry/query windows), "
+                "not user-facing (token/consent freshness TTLs, customer created_at, status_changed_at, "
+                "last_synced)"
+            ),
+        },
+        "\"status\": \"revoked\", \"status_changed_at\": datetime.utcnow(),": {
+            "reason": (
+                "background bank-sync worker internals (token/connection lifecycle, retry/query windows), "
+                "not user-facing (token/consent freshness TTLs, customer created_at, status_changed_at, "
+                "last_synced)"
+            ),
+        },
+        "\"updated_at\":     datetime.utcnow(),": {
+            "reason": (
+                "background bank-sync worker internals (token/connection lifecycle, retry/query windows), "
+                "not user-facing (token/consent freshness TTLs, customer created_at, status_changed_at, "
+                "last_synced)"
+            ),
+        },
+        "now = datetime.now(timezone.utc)": {
+            "reason": (
+                "background bank-sync worker internals (token/connection lifecycle, retry/query windows), "
+                "not user-facing (token/consent freshness TTLs, customer created_at, status_changed_at, "
+                "last_synced)"
+            ),
+        },
+        "return datetime.now(timezone.utc) - fetched_at < timedelta(hours=ttl_hours)": {
+            "reason": (
+                "background bank-sync worker internals (token/connection lifecycle, retry/query windows), "
+                "not user-facing (token/consent freshness TTLs, customer created_at, status_changed_at, "
+                "last_synced)"
+            ),
+        },
+        "return datetime.utcnow()": {
+            "reason": (
+                "background bank-sync worker internals (token/connection lifecycle, retry/query windows), "
+                "not user-facing (token/consent freshness TTLs, customer created_at, status_changed_at, "
+                "last_synced)"
+            ),
+            "count": 2,
+        },
+        "update_fields[\"status_changed_at\"] = datetime.utcnow()": {
+            "reason": (
+                "background bank-sync worker internals (token/connection lifecycle, retry/query windows), "
+                "not user-facing (token/consent freshness TTLs, customer created_at, status_changed_at, "
+                "last_synced)"
+            ),
+        },
+        "{\"$set\": {\"customer_id\": customer_id, \"created_at\": datetime.utcnow()}},": {
+            "reason": (
+                "background bank-sync worker internals (token/connection lifecycle, retry/query windows), "
+                "not user-facing (token/consent freshness TTLs, customer created_at, status_changed_at, "
+                "last_synced)"
+            ),
+        },
+    },
+    "app/services/income.py": {
+        "cutoff = datetime.now() - timedelta(days=90)": {
+            "reason": (
+                "internal N-day transaction lookback window (query cutoff), not user-facing calendar copy"
+            ),
+        },
+    },
+    "app/services/investment_prices.py": {
+        "{\"$set\": {\"current_price\": current_price, \"current_value\": current_value, \"last_refreshed\": datetime.now()}},": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count) on a price refresh"
+            ),
+        },
+        "{\"$set\": {\"total_value\": new_total, \"last_refreshed\": datetime.now()}},": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count) on a price refresh"
+            ),
+        },
+    },
+    "app/services/manual_account_rules.py": {
+        "\"created_at\": datetime.now(),": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count) for manual account-adjustment rules"
+            ),
+        },
+        "{\"$inc\": {\"balance\": delta}, \"$set\": {\"updated_at\": datetime.now()}},": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count) for manual account-adjustment rules"
+            ),
+        },
+        "{\"$inc\": {\"balance\": round(-total, 2)}, \"$set\": {\"updated_at\": datetime.now()}},": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count) for manual account-adjustment rules"
+            ),
+        },
+    },
+    "app/services/memory.py": {
+        "{\"$set\": {\"facts\": combined, \"updated_at\": datetime.now(), \"user_id\": uid}},": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count) on Penny's memory-facts doc"
+            ),
+        },
+    },
+    "app/services/money_shape.py": {
+        "data[\"computed_at\"] = datetime.now()": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count) + an hour-scale cache-freshness TTL"
+            ),
+        },
+        "fresh = isinstance(computed_at, datetime) and (datetime.now() - computed_at).total_seconds() < ttl_hours * 3600": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count) + an hour-scale cache-freshness TTL"
+            ),
+        },
+    },
+    "app/services/needle.py": {
+        "\"computed_at\": datetime.now(timezone.utc).isoformat(),": {
+            "reason": (
+                "computed_at audit/debug metadata field; period_start/period_end are supplied by the "
+                "caller, not computed in this file"
+            ),
+        },
+    },
+    "app/services/notifications.py": {
+        "cutoff = datetime.now() - timedelta(days=90)": {
+            "reason": (
+                "internal N-day transaction lookback window (query cutoff), not user-facing calendar "
+                "copy; persisted audit timestamp (created_at/updated_at-style write, not rendered to the "
+                "user as a day or day-count)"
+            ),
+        },
+        "{\"$set\": {\"pushed\": True, \"pushed_at\": datetime.utcnow().isoformat()}},": {
+            "reason": (
+                "internal N-day transaction lookback window (query cutoff), not user-facing calendar "
+                "copy; persisted audit timestamp (created_at/updated_at-style write, not rendered to the "
+                "user as a day or day-count)"
+            ),
+        },
+    },
+    "app/services/pace.py": {
+        "\"data\": baseline, \"months\": months, \"computed_at\": datetime.now(),": {
+            "reason": (
+                "cache-freshness TTL checks + computed_at audit timestamps for spend-baseline/shape "
+                "caches"
+            ),
+        },
+        "\"data\": bundle, \"computed_at\": datetime.now(),": {
+            "reason": (
+                "cache-freshness TTL checks + computed_at audit timestamps for spend-baseline/shape "
+                "caches"
+            ),
+        },
+        "if (datetime.now() - at).total_seconds() >= _BASELINE_TTL_SECONDS:": {
+            "reason": (
+                "cache-freshness TTL checks + computed_at audit timestamps for spend-baseline/shape "
+                "caches"
+            ),
+        },
+        "if (datetime.now() - at).total_seconds() >= _SHAPE_TTL_SECONDS:": {
+            "reason": (
+                "cache-freshness TTL checks + computed_at audit timestamps for spend-baseline/shape "
+                "caches"
+            ),
+        },
+    },
+    "app/services/pending_transactions.py": {
+        "now = datetime.utcnow()": {
+            "reason": (
+                "fallback `date` value used only when a bank doesn't supply one on a pending transaction "
+                "row; not calendar-day copy"
+            ),
+        },
+    },
+    "app/services/penny_agent.py": {
+        "return max((dt - datetime.now(timezone.utc)).total_seconds(), 0.0)": {
+            "reason": (
+                "seconds-until-expiry countdown for a Penny proposal, minute-scale, not day-count copy"
+            ),
+        },
+    },
+    "app/services/penny_tools.py": {
+        "cached[\"computed_at\"] = datetime.now()": {
+            "reason": (
+                "internal N-day transaction lookback window (query cutoff), not user-facing calendar copy "
+                "+ computed_at audit timestamps + a 7-day raw-instant cache-freshness gate (same TTL "
+                "class as routers/behaviour.py)"
+            ),
+        },
+        "cutoff = datetime.now() - timedelta(days=90)": {
+            "reason": (
+                "internal N-day transaction lookback window (query cutoff), not user-facing calendar copy "
+                "+ computed_at audit timestamps + a 7-day raw-instant cache-freshness gate (same TTL "
+                "class as routers/behaviour.py)"
+            ),
+        },
+        "if datetime.now(timezone.utc) - ca < timedelta(days=7):": {
+            "reason": (
+                "internal N-day transaction lookback window (query cutoff), not user-facing calendar copy "
+                "+ computed_at audit timestamps + a 7-day raw-instant cache-freshness gate (same TTL "
+                "class as routers/behaviour.py)"
+            ),
+        },
+        "now = datetime.now()": {
+            "reason": (
+                "internal N-day transaction lookback window (query cutoff), not user-facing calendar copy "
+                "+ computed_at audit timestamps + a 7-day raw-instant cache-freshness gate (same TTL "
+                "class as routers/behaviour.py)"
+            ),
+            "count": 2,
+        },
+    },
+    "app/services/planned.py": {
+        "\"expired_at\": datetime.now(),": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count)"
+            ),
+        },
+        "\"settled_at\":     datetime.now(),": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count)"
+            ),
+        },
+    },
+    "app/services/recurring_judge.py": {
+        "\"judged_at\": datetime.now(),": {
+            "reason": (
+                "judged_at audit timestamp on the recurring-series LLM veto decision"
+            ),
+        },
+    },
+    "app/services/response_cache.py": {
+        "\"payload\": encoded, \"computed_at\": datetime.now(timezone.utc),": {
+            "reason": (
+                "generic response-cache TTL check + computed_at audit timestamp; shared cache infra, not "
+                "day-count copy"
+            ),
+        },
+        "if (datetime.now(timezone.utc) - computed_at).total_seconds() > ttl:": {
+            "reason": (
+                "generic response-cache TTL check + computed_at audit timestamp; shared cache infra, not "
+                "day-count copy"
+            ),
+        },
+    },
+    "app/services/retention.py": {
+        "now = now or datetime.utcnow()": {
+            "reason": (
+                "connection-grace/dormant-account sweep windows run by a background worker, not "
+                "user-facing"
+            ),
+            "count": 4,
+        },
+    },
+    "app/services/safe_to_spend_history.py": {
+        "now = datetime.now(timezone.utc)": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count); this file's own rendered 'today' already uses "
+                "timeutil.user_today()"
+            ),
+        },
+    },
+    "app/services/scenario.py": {
+        "cutoff = datetime.now() - timedelta(days=90)": {
+            "reason": (
+                "internal N-day transaction lookback window (query cutoff), not user-facing calendar copy"
+            ),
+        },
+    },
+    "app/services/sync_freshness.py": {
+        "* connections_col.last_synced  — written datetime.utcnow() (naive UTC) by TrueLayer sync": {
+            "reason": (
+                "prose inside this module's own docstring, describing OTHER files' storage convention -- "
+                "not an executable date call"
+            ),
+        },
+        "* finexer_consents_col.last_synced — written datetime.utcnow() (naive UTC) by Finexer sync": {
+            "reason": (
+                "prose inside this module's own docstring, describing OTHER files' storage convention -- "
+                "not an executable date call"
+            ),
+        },
+        "1. TrueLayer writes it as datetime.now() (naive local) but Finexer writes datetime.utcnow()": {
+            "reason": (
+                "prose inside this module's own docstring, describing OTHER files' storage convention -- "
+                "not an executable date call"
+            ),
+        },
+    },
+    "app/services/truelayer_sync.py": {
+        "\"date\":             _parse_iso_utc(txn.get(\"timestamp\")) or datetime.utcnow(),": {
+            "reason": (
+                "background bank-sync worker internals (token/connection lifecycle, retry/query windows), "
+                "not user-facing (token expiry/refresh, connection created_at/updated_at, sync-window "
+                "query params sent to the bank API, last_synced write)"
+            ),
+        },
+        "\"expires_at\":    datetime.now() + timedelta(seconds=token_data.get(\"expires_in\", 3600)),": {
+            "reason": (
+                "background bank-sync worker internals (token/connection lifecycle, retry/query windows), "
+                "not user-facing (token expiry/refresh, connection created_at/updated_at, sync-window "
+                "query params sent to the bank API, last_synced write)"
+            ),
+        },
+        "\"sort_code\":   None, \"updated_at\": datetime.now(),": {
+            "reason": (
+                "background bank-sync worker internals (token/connection lifecycle, retry/query windows), "
+                "not user-facing (token expiry/refresh, connection created_at/updated_at, sync-window "
+                "query params sent to the bank API, last_synced write)"
+            ),
+        },
+        "\"updated_at\":    datetime.now(),": {
+            "reason": (
+                "background bank-sync worker internals (token/connection lifecycle, retry/query windows), "
+                "not user-facing (token expiry/refresh, connection created_at/updated_at, sync-window "
+                "query params sent to the bank API, last_synced write)"
+            ),
+        },
+        "\"updated_at\":  datetime.now(),": {
+            "reason": (
+                "background bank-sync worker internals (token/connection lifecycle, retry/query windows), "
+                "not user-facing (token expiry/refresh, connection created_at/updated_at, sync-window "
+                "query params sent to the bank API, last_synced write)"
+            ),
+        },
+        "cutoff = datetime.utcnow() - timedelta(hours=grace_hours)": {
+            "reason": (
+                "background bank-sync worker internals (token/connection lifecycle, retry/query windows), "
+                "not user-facing (token expiry/refresh, connection created_at/updated_at, sync-window "
+                "query params sent to the bank API, last_synced write)"
+            ),
+        },
+        "d = (datetime.now() - timedelta(days=days)).strftime(\"%Y-%m-%d\")": {
+            "reason": (
+                "background bank-sync worker internals (token/connection lifecycle, retry/query windows), "
+                "not user-facing (token expiry/refresh, connection created_at/updated_at, sync-window "
+                "query params sent to the bank API, last_synced write)"
+            ),
+        },
+        "from_date = (datetime.now() - timedelta(days=90)).strftime(\"%Y-%m-%d\")": {
+            "reason": (
+                "background bank-sync worker internals (token/connection lifecycle, retry/query windows), "
+                "not user-facing (token expiry/refresh, connection created_at/updated_at, sync-window "
+                "query params sent to the bank API, last_synced write)"
+            ),
+        },
+        "if datetime.now() < conn[\"expires_at\"]:": {
+            "reason": (
+                "background bank-sync worker internals (token/connection lifecycle, retry/query windows), "
+                "not user-facing (token expiry/refresh, connection created_at/updated_at, sync-window "
+                "query params sent to the bank API, last_synced write)"
+            ),
+        },
+        "to_date = datetime.now().strftime(\"%Y-%m-%d\")": {
+            "reason": (
+                "background bank-sync worker internals (token/connection lifecycle, retry/query windows), "
+                "not user-facing (token expiry/refresh, connection created_at/updated_at, sync-window "
+                "query params sent to the bank API, last_synced write)"
+            ),
+        },
+        "update[\"needs_reauth_at\"] = datetime.utcnow()": {
+            "reason": (
+                "background bank-sync worker internals (token/connection lifecycle, retry/query windows), "
+                "not user-facing (token expiry/refresh, connection created_at/updated_at, sync-window "
+                "query params sent to the bank API, last_synced write)"
+            ),
+        },
+        "{\"_id\": connection_id}, {\"$set\": {\"last_synced\": datetime.utcnow()}}, upsert=True": {
+            "reason": (
+                "background bank-sync worker internals (token/connection lifecycle, retry/query windows), "
+                "not user-facing (token expiry/refresh, connection created_at/updated_at, sync-window "
+                "query params sent to the bank API, last_synced write)"
+            ),
+        },
+    },
+    "app/services/yapily_sync.py": {
+        "\"updated_at\": datetime.now(),": {
+            "reason": (
+                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
+                "as a day or day-count) on a Yapily institution connection"
+            ),
+        },
+    },
     "app/workers/sync_worker.py": {
-        67: "weekly job-dedup key (ISO week number) for a scheduled reconcile job, not "
-            "user-facing",
-        229: _AUDIT + " on a worker-run summary",
-        465: "task_consent_watch's raw-instant is_expiring/throttle GATE -- deliberately "
-             "left as a raw instant per this function's own docstring; the rendered "
-             "reconnect/expiry COPY those gates feed (_reconnect_body/_expiring_copy, "
-             "a little further down this file) already converts through "
-             "timeutil.to_user_date(), per their own G161-follow-up comments",
-        663: "same deliberate raw-instant gate as line 465, for the Finexer branch of "
-             "task_consent_watch",
+        "now = datetime.utcnow()": {
+            "reason": (
+                "either a worker-run-summary audit timestamp, or task_consent_watch's deliberate "
+                "raw-instant is_expiring/throttle GATE (per that function's own docstring) -- the "
+                "rendered reconnect/expiry COPY those gates feed already converts through "
+                "timeutil.to_user_date() a little further down this file, per "
+                "_reconnect_body/_expiring_copy's own G161-follow-up comments"
+            ),
+            "count": 3,
+        },
+        "week = datetime.utcnow().strftime(\"%G-W%V\")": {
+            "reason": (
+                "weekly job-dedup key (ISO week number) for a scheduled reconcile job, not user-facing"
+            ),
+        },
     },
 }
 
@@ -386,19 +1710,44 @@ def main() -> int:
             text = path.read_text(encoding="utf-8")
         except UnicodeDecodeError:
             continue
+
+        # Collect every naive-call hit in this file, keyed by its stripped
+        # source text, so duplicate-text occurrences can be compared against
+        # the allowlist's `count` as a group rather than line by line.
+        hits_by_text: dict[str, list[int]] = {}
         for lineno, line in enumerate(text.splitlines(), start=1):
             if not NAIVE_CALL_RE.search(line):
                 continue
             if INLINE_PRAGMA_RE.search(line):
                 continue
-            if lineno in allowed_here:
+            hits_by_text.setdefault(line.strip(), []).append(lineno)
+
+        for line_text, linenos in hits_by_text.items():
+            entry = allowed_here.get(line_text)
+            allowed_count = entry.get("count", 1) if entry else 0
+            if len(linenos) <= allowed_count:
                 continue
-            failures.append(f"{rel}:{lineno}: {line.strip()}")
+            # Report every occurrence when there's no allowlist entry at all
+            # (a genuinely new, never-seen line); report the count mismatch
+            # plus every occurrence's line number when an allowlisted line
+            # has MORE copies than it's allowed -- text alone can't say
+            # which copy is the original and which is new, so all of them
+            # are listed for a human to re-triage.
+            if entry is None:
+                for lineno in linenos:
+                    failures.append(f"{rel}:{lineno}: {line_text}")
+            else:
+                where = ", ".join(str(n) for n in linenos)
+                failures.append(
+                    f"{rel}: {len(linenos)} occurrence(s) of {line_text!r} found "
+                    f"(lines: {where}) but only {allowed_count} allowlisted -- "
+                    f"a new, un-triaged copy of an allowed line?"
+                )
 
     if failures:
         print(
             "check_naive_dates: found naive date.today()/datetime.now()/"
-            "datetime.utcnow() call(s) not in the allowlist:\n",
+            "datetime.utcnow() call(s) not covered by the allowlist:\n",
             file=sys.stderr,
         )
         for f in failures:
@@ -409,8 +1758,9 @@ def main() -> int:
             "use app.core.timeutil's user_today()/user_now()/to_user_date() instead. "
             "If it's a legitimate non-calendar use (a persisted audit timestamp, a "
             "lookback window, an hour-scale cache TTL, background-worker internals), "
-            "add a `# naive-ok: <reason>` comment on the line, or a reasoned entry to "
-            "ALLOWLIST in scripts/check_naive_dates.py.",
+            "add a `# naive-ok: <reason>` comment on the line, or a reasoned "
+            "{\"reason\": ..., \"count\": N} entry to ALLOWLIST in "
+            "scripts/check_naive_dates.py.",
             file=sys.stderr,
         )
         return 1

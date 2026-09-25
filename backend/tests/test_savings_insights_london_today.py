@@ -1,11 +1,11 @@
-"""G166 -- London-today sweep, savings_insights.py follow-up.
+"""G166 -- London-today sweep, savings_insights.py + challenges.py follow-up.
 
-G161 was rejected once for missing this file (three naive `datetime.utcnow()`
-sites driving user-facing day-scale copy: the "fresh"/"Valid until"/"New"
-badge machinery), then fixed in a follow-up commit
-(`fix(G161): London calendar days for insight freshness, age and expiry
-copy`) that moved `_derive_insight_state`, `_serialize_insight`'s `is_new`
-window and `_expiry_line`'s callers onto `app.core.timeutil`'s
+G161 was rejected once for missing savings_insights.py (three naive
+`datetime.utcnow()` sites driving user-facing day-scale copy: the
+"fresh"/"Valid until"/"New" badge machinery), then fixed in a follow-up
+commit (`fix(G161): London calendar days for insight freshness, age and
+expiry copy`) that moved `_derive_insight_state`, `_serialize_insight`'s
+`is_new` window and `_expiry_line`'s callers onto `app.core.timeutil`'s
 Europe/London-aware helpers. `tests/test_london_today.py` already covers
 `_relative_age`, `_derive_insight_state` and `_serialize_insight`'s `is_new`
 flag directly; this file is G166's dedicated regression suite for the same
@@ -13,6 +13,18 @@ surface, freezing the clock at 23:30 London on a given day (as G166 asks
 for) and additionally exercising `_expiry_line` itself -- the function that
 actually composes the "Valid until Mon 8 Sep" / "Researched 2d ago" strings
 rendered to the user -- which no existing test called directly.
+
+A second, independent-review round on G166 itself found the same bug class
+in `app.routers.challenges` (`GET /challenges`, mounted at main.py:90 and
+reachable by any authenticated caller): `_day_bounds()`/`_week_bounds()`
+computed the daily/weekly challenge reset boundary from naive
+`datetime.utcnow()`, so a user opening the app just after midnight London
+during BST (while the UTC clock is still on the previous day) got
+yesterday's boundary -- the same "app believes it's the wrong day" bug G161
+fixed elsewhere, one level down in a feature G161's own sweep didn't reach.
+Fixed onto `timeutil.user_today()`; tests below freeze the clock at 00:30
+London BST (23:30 UTC the previous day) and assert the boundary follows the
+London day, not the UTC one.
 
 Frozen-clock approach copied from `test_london_today.py`'s own `_freeze`
 helper: monkeypatch the `datetime` name inside `app.core.timeutil` with a
@@ -23,6 +35,7 @@ values in this codebase (see `app.core.timeutil`'s module docstring).
 from datetime import datetime, timezone
 
 import app.core.timeutil as timeutil
+import app.routers.challenges as challenges
 from app.routers.savings_insights import _expiry_line, _serialize_insight
 
 
@@ -120,3 +133,31 @@ def test_is_new_false_at_eight_london_days_crossing_a_bst_midnight(monkeypatch):
     refreshed_at = datetime(2026, 9, 15, 23, 10, 0)
     out = _serialize_insight(_insight_doc(is_new=True, refreshed_at=refreshed_at))
     assert out["is_new"] is False
+
+
+# ── (c) challenges.py's daily/weekly reset boundary follows London ────────
+
+def test_challenges_day_bounds_follow_london_day_at_bst_midnight(monkeypatch):
+    # Frozen 2026-09-24T23:30:00Z is 2026-09-25 00:30 in London (BST,
+    # UTC+1) -- already the NEXT London day while the naive UTC instant is
+    # still on the 24th. day_start/day_end must bound the 25th (London),
+    # expressed as their naive-UTC-equivalent instants (23:00 UTC on the
+    # 24th through 22:59:59 UTC on the 25th) -- not UTC-midnight-24th
+    # through 23:59:59-24th, which is what the old `datetime.utcnow()
+    # .replace(hour=0, ...)` code would have produced.
+    _freeze(monkeypatch, "2026-09-24T23:30:00")
+    day_start, day_end = challenges._day_bounds()
+    assert day_start == datetime(2026, 9, 24, 23, 0, 0), day_start
+    assert day_end == datetime(2026, 9, 25, 22, 59, 59), day_end
+
+
+def test_challenges_week_bounds_follow_london_week_at_bst_midnight(monkeypatch):
+    # Same frozen instant (London 2026-09-25 00:30 BST, a Friday). The
+    # London week is Monday 21 -> Sunday 27 September 2026; week_start/
+    # week_end must bound THAT week, as naive-UTC-equivalent instants, not
+    # the UTC-calendar week the old code would have anchored on the 24th
+    # (still Thursday in UTC terms at this frozen instant).
+    _freeze(monkeypatch, "2026-09-24T23:30:00")
+    week_start, week_end = challenges._week_bounds()
+    assert week_start == datetime(2026, 9, 20, 23, 0, 0), week_start
+    assert week_end == datetime(2026, 9, 27, 22, 59, 59), week_end
