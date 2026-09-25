@@ -32,6 +32,22 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "upcoming-hero-setaside",
+    name: "upcoming-hero-setaside",
+    description:
+      "G162 (impeccable skill) — an amber wording for the /upcoming runway hero's set-aside-only case, red reserved for a genuine bill gap: Kevin's payday-eve screenshot showed the hero going red with the status word \"short\" when every bill was covered and the only deduction was an unfunded set-aside (Available £256, bills £0, still to set aside £266, projected −£10, £4,798 landing on payday and deliberately excluded from the figure). A \"Set aside, not short\" turns the status word into a signifier chip (amber for the set-aside-only case, red only for a genuine bill gap) and keeps the £ figure in ink either way, plus a quiet line stating the payday-income exclusion; B \"Two-line verdict\" leads on the pre-allocation covered figure with the set-aside remainder as its own smaller amber-dot line, the exclusion stated in the ledger disclosure's own summary; C \"Ledger-led\" keeps today's headline figure but leads with \"Bills covered\"/\"Bills at risk\" and folds the set-aside gap into the Full calculation disclosure with an amber dot. Distinguishes the two cases the same way PlanningPage.tsx already computes it: bills alone (spendableNow + income before payday − bills) versus that total minus the unfilled set-aside remainder. PRODUCTION-BOUNDARY NOTE: components/upcoming/UpcomingHeroCard.tsx is already an extracted, prop-driven production component (not self-fetching), so each variant forks it rather than re-importing it unmodified, because the amber/set-aside logic under review does not exist there yet; the ledger row shape, shortfall attribution and timing-risk block are copied verbatim from it. Every variant renders all three states plus both themes, and the bill-gap state's red is unchanged from production throughout. Fixture data only, no API calls · ?variant=a|b|c&state=setaside|billgap|healthy&mode=light|dark",
+    states: [
+      { label: "Set-aside only", value: "setaside" },
+      { label: "Bill gap", value: "billgap" },
+      { label: "Healthy", value: "healthy" },
+    ],
+    variants: [
+      { label: "A · Set aside, not short", value: "a" },
+      { label: "B · Two-line verdict", value: "b" },
+      { label: "C · Ledger-led", value: "c" },
+    ],
+  },
+  {
     slug: "g134-home-inventory",
     name: "g134-home-inventory",
     description:
