@@ -65,8 +65,6 @@ function currentSnapshot(overrides = {}) {
     todayStatus: "ready",
     accountsStatus: "ready",
     recentTxns: [],
-    needle: null,
-    needleStatus: "ready",
     ...overrides,
   };
 }
@@ -121,10 +119,10 @@ function preG148Snapshot() {
 }
 
 // ── Legitimately absent values are NOT treated as a shape problem ──────────
-// `accountEligibility` undefined, `safeToSpend` null and `needle` null are
-// all normal. The guard asks whether the WRITER knew about the key, not
-// whether the value is truthy — getting this wrong would throw away every
-// cold-ish snapshot and defeat the cache entirely.
+// `accountEligibility` undefined and `safeToSpend` null are both normal.
+// The guard asks whether the WRITER knew about the key, not whether the
+// value is truthy — getting this wrong would throw away every cold-ish
+// snapshot and defeat the cache entirely.
 {
   clearHomeCache();
   const inFlight = currentSnapshot({ accountEligibility: undefined, todayStatus: "loading" });
@@ -173,8 +171,6 @@ check("a string is not a valid shape", isCurrentHomeCacheShape("warm"), false);
     "todayStatus",
     "accountsStatus",
     "recentTxns",
-    "needle",
-    "needleStatus",
   ]) {
     const partial = currentSnapshot();
     delete partial[key];

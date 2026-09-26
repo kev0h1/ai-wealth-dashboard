@@ -33,7 +33,6 @@ import {
   RECONNECT_PROVIDERS_MULTI,
   SAFE_TO_SPEND_STATES,
   CLEARED_ADVICE,
-  THIS_MONTH_SUMMARY,
   LEDGER_ACCOUNTS,
   LEDGER_INVESTMENT,
   LEDGER_PINNED_IDS,
@@ -56,7 +55,6 @@ import HomeBrief, {
 } from "@/components/HomeBrief";
 import SafeToSpendCard from "@/components/SafeToSpendCard";
 import ReconnectStrip from "@/components/ReconnectStrip";
-import ThisMonthStrip from "@/components/ThisMonthStrip";
 import { PinnedWidgetCard, DEFAULT_HOME_PINNED_WIDGET } from "@/components/SpendTrends";
 import AccountLedgerRow from "@/components/AccountLedgerRow";
 import TransactionRow from "@/components/TransactionRow";
@@ -179,7 +177,7 @@ export default function HomeInventoryClient() {
   // Defect (2): balances=hidden used to only relabel this preview's own
   // toolbar button. Every card was fed the hardcoded literals
   // maskAmounts={identity} and hideNetWorth={false} regardless of the URL,
-  // and SafeToSpendCard/ThisMonthStrip read hideNetWorth from
+  // and SafeToSpendCard read hideNetWorth from
   // PreferencesContext directly, which this preview never touched, so
   // nothing actually masked. /design is signed out, and PreferencesProvider
   // (app/Providers.tsx, wraps the whole app including this route) owns its
@@ -188,8 +186,8 @@ export default function HomeInventoryClient() {
   // preview's own /preferences round trip so the real setHideNetWorth()
   // write always succeeds instead of reverting, then drive it for real.
   // Every card below now reads the resulting `hidden`/`maskAmounts` through
-  // its own real props, and SafeToSpendCard/ThisMonthStrip pick the same
-  // value up for real through context.
+  // its own real props, and SafeToSpendCard picks the same value up for
+  // real through context.
   useIsomorphicLayoutEffect(() => {
     if (typeof window === "undefined") return;
     const nativeFetch = window.fetch.bind(window);
@@ -496,10 +494,10 @@ export default function HomeInventoryClient() {
 
           {/* ── Zone 7: "Your money" strips ──────────────────────────────── */}
           <section className="mb-10 space-y-4">
-            <ZoneHeading order="Zone 7 · ~780-786" title="Your money — bills, month, insight, offer" source="UpcomingBillsStrip, ThisMonthStrip, HomeInsightSpotlight, OfferCard" />
-            <CatalogueEntry component="ThisMonthStrip" condition="last_closed present AND days_into_period <= 2 — the closed-month verdict variant; the live in-period reading now lives on the Safe-to-Spend hero's own chain strip">
-              <ThisMonthStrip summary={THIS_MONTH_SUMMARY} summaryStatus="ready" />
-            </CatalogueEntry>
+            <ZoneHeading order="Zone 7 · ~780-786" title="Your money — bills, insight, offer" source="UpcomingBillsStrip, HomeInsightSpotlight, OfferCard" />
+            {/* G169 removed ThisMonthStrip ("Last month" strip, the closed-
+                month verdict variant) as a duplicate of the month-closed
+                card at the top of Home; no replacement entry needed here. */}
             <div className="rounded-xl border border-dashed border-slate-300 px-3 py-2.5 text-[12px] leading-snug text-slate-500 dark:border-slate-600 dark:text-slate-400">
               <strong className="text-slate-700 dark:text-slate-300">Not covered:</strong> UpcomingBillsStrip
               (self-fetches <code>api.cashflow()</code>, no prop path in), HomeInsightSpotlight (self-fetches,
