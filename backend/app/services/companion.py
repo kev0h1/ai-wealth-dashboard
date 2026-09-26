@@ -1067,9 +1067,26 @@ async def _pp_funded_by_hand(
     Fail-safe: any lookup error (a malformed doc, a query failure) is
     treated as NOT by hand — quiet — the same fail-open doctrine
     `_reserved_for_allocations` documents for its own best-effort signal.
+
+    INVARIANT this relies on: the salary account itself never appears in
+    `dest_accounts` (5b's own dests loop above skips it outright — `if
+    acct_id == salary_acct: continue`), and `cached["recurring_spend"]`
+    never carries income patterns (a separate, disjoint cached list feeds
+    `upcoming_income`) — so the landed salary credit itself can never be
+    mistaken for a "hand transfer" into one of the plan's destinations;
+    there is nothing in `dest_accounts` for it to match against.
+
+    ACCEPTED LIMITATION: a standing order into a BRAND-NEW destination has
+    no learned `dest_account_id` yet (`_learn_transfer_destinations` needs
+    repeat evidence before it traces one), so the first month it clears a
+    plan this reads as a hand transfer and celebrates once; from the
+    second month, once the pair is learned, the same standing order goes
+    quiet. No bank/Open Banking metadata distinguishes a standing order
+    from a one-off hand transfer today — both are just a CREDIT — so this
+    is a deliberate, accepted trade-off, not a gap to close here.
     """
     if not dest_accounts or created_at is None:
-        return False
+        return False  # no dests, or a legacy pre-`$setOnInsert` doc with no created_at to anchor the credit window to — fail safe to quiet
     try:
         dest_set = {str(d) for d in dest_accounts if d}
         if not dest_set:

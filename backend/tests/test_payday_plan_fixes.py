@@ -519,6 +519,56 @@ def test_plan_cleared_but_credit_lookup_raises_goes_quiet(monkeypatch):
     assert not celebrations, "a lookup failure must fail safe to quiet, never celebrate"
 
 
+def test_legacy_active_doc_with_no_created_at_clears_quietly(monkeypatch):
+    """`_pp_funded_by_hand`'s `created_at is None` guard: a LEGACY active
+    multi-dest plan doc predating the `$setOnInsert` created_at stamp (hand-
+    seeded here, never produced by 5b's own persistence any more) that
+    clears has no created_at to anchor an observed-credit window to —
+    fails safe to quiet rather than guessing a start date or falling back
+    to the old always-celebrate behaviour."""
+    today_d = timeutil.user_today()
+    pay_period, companion_items_col = _base_patch(
+        monkeypatch,
+        accounts=[_account(SALARY_ACCT, 3000.0), _account(DEST_ACCT, 500.0, "Everyday")],
+        bills=[],
+        income=[_salary(0, 2000.0)],
+    )
+    monkeypatch.setattr(pay_period, "get_pay_period_for_date", lambda ref, cfg: (today_d, today_d + timedelta(days=29)))
+    monkeypatch.setattr(pay_period, "_next_payday", lambda today, cfg: today_d + timedelta(days=30))
+
+    legacy_active_doc = {
+        "_id": f"payday_plan:{today_d.isoformat()}:legacyfp",
+        "uid": UID,
+        "type": "payday_plan",
+        "status": "active",
+        "headline": "Payday plan: split £500 across 1 account",
+        "body": "£500 distributed, £0 stays in Salary Account.",
+        "action": {"label": "See what's due ›", "route": "/upcoming"},
+        "estimated": False,
+        "_window_end": (today_d + timedelta(days=30)).isoformat(),
+        "_dest_accts": [DEST_ACCT],
+        "_total": 500,
+        "covered": True,
+        "dests": [{"account_id": DEST_ACCT, "name": "Everyday", "move": 500}],
+        "salary": {
+            "account_id": SALARY_ACCT, "name": "Salary Account", "provider": "Barclays",
+            "amount": 2000, "stays": 0,
+        },
+        "trimmed": False,
+        # Deliberately NO "created_at" key — this is the legacy shape.
+    }
+    companion_items_col.docs.append(legacy_active_doc)
+
+    items = asyncio.run(companion.compute_today_items(UID, payday_preview=False, persist=True))
+
+    stored = next(d for d in companion_items_col.docs if d["_id"] == legacy_active_doc["_id"])
+    assert stored["status"] == "done"
+    assert stored.get("_celebrated") is False
+
+    celebrations = [i for i in items if i["type"] == "celebration"]
+    assert not celebrations, "a legacy doc with no created_at must fail safe to quiet, never celebrate"
+
+
 def test_preview_inside_a_done_window_prices_the_next_period(monkeypatch):
     """G164: once a window has gone done, a plain call emits nothing (see
     the next test), but Penny's `payday_preview` call must still get a
