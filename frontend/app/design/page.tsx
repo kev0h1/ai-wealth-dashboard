@@ -32,6 +32,18 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "month-closed-card",
+    name: "month-closed-card",
+    description:
+      "G168, skill: impeccable · Kevin 2026-09-26 06:12: the month-closed (\"needle\") card, \"Your month closed on Thursday. Here's how it went\", has no dismiss on Home and is absent from the Penny hub · A 'Chip and chevron' — Home's existing bare card gains only the standard glass × in its usual top-right slot; Penny renders the same full card in the permanent section under the payday plan with a chevron-up Minimise that collapses to a one-line row, tapping the row expands it back / B 'Row-first on Penny' — Penny starts collapsed to that same one-line row (the payday plan stays the section's hero), expanding in place on tap with the same Minimise to collapse it again; Home unchanged from A / C 'Verdict row' — both surfaces lead with the month's own figure as a Numbers-Lead row, the story folded behind a disclosure, Home dismissible and Penny minimisable exactly as A and B · every variant: dismiss only on Home (keyed needle:<period_end>, mirrors the real dismissed-set companion.py already honours), minimise only on Penny, never dismiss, mirroring the payday plan's own owner rule (G164) · components/HomeBrief.tsx's needle rendering (~2102-2117) is inline markup inside BriefBody, not an exported component, so every variant hand-authors that markup rather than forking a component that doesn't exist to import; DismissChip/MinimiseControl are copied verbatim from HomeBrief.tsx/the G164 payday-plan-executed preview, since the production originals are local, unexported functions · Variant C's led figure and story are illustrative: the real needle item is \"invitation only, no figures\" per companion.py's own comment, so there is no real Kevin number to reuse for it, unlike the headline/action copy and route, which are the real backend strings · fixture data only, no API calls · ?variant=a|b|c&surface=home|penny&state=default|minimised&mode=light|dark",
+    states: [{ label: "Everything", value: "everything" }],
+    variants: [
+      { label: "A · Chip & chevron", value: "a" },
+      { label: "B · Row-first", value: "b" },
+      { label: "C · Verdict row", value: "c" },
+    ],
+  },
+  {
     slug: "upcoming-hero-setaside",
     name: "upcoming-hero-setaside",
     description:
