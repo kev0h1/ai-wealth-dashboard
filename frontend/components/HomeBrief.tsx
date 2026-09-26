@@ -2102,19 +2102,27 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth =
 
         {/* Needle item — invitation to review the closed month. Extracted
             into MonthClosedCard (G168) so Home and Penny render the
-            identical card; Home wires a real server dismiss (companion.py
-            already honours the dismissed set for this item type, keyed
-            needle:<period_end>), so this bypasses the localStorage
-            onHomeDismiss mechanism the advice cards above use — there is no
-            Penny archive to preserve here, dismissing this genuinely means
-            gone from both surfaces for the two days it would otherwise
-            exist. */}
+            identical card. Dismiss on Home does BOTH: goes through the
+            same onHomeDismiss (useHomeDismissedAdvice's dismiss) every
+            other dismissible card above uses, so the id is written to
+            localStorage and added to dismissedIds immediately, filtering
+            it out of `items` on this very render and on any future remount
+            seeded from the warm cache (without this, the card would flash
+            back until a fresh /today landed, and the cleared-row logic
+            could never fire when this was the only card) — AND fires the
+            real server dismiss (companion.py already honours the dismissed
+            set for this item type, keyed needle:<period_end>), so the
+            suppression also holds across devices/a fresh session, not just
+            this browser's localStorage. */}
         {needleItem && (
           <MonthClosedCard
             item={needleItem}
             router={router}
             surface="home"
             onDismiss={() => {
+              if (dismissible && onHomeDismiss) {
+                onHomeDismiss(needleItem.id);
+              }
               api.dismissTodayItem(needleItem.id).catch(() => {
                 /* card already removed locally; the backend will re-surface next run */
               });
