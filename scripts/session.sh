@@ -942,6 +942,9 @@ cmd_finish() {
   log "checking every spend-from treatment renders in $worktree_dir/frontend..."
   (cd "$worktree_dir/frontend" && npm run -s check:spend-from-render)
 
+  log "checking Coming Up tile date-with-ordinal formatting in $worktree_dir/frontend..."
+  (cd "$worktree_dir/frontend" && npm run -s check:coming-up-dates)
+
   log "pushing $branch from $worktree_dir (the board records ${board_branch:-no branch} for $id)..."
   git -C "$worktree_dir" push -u origin "$branch"
 
