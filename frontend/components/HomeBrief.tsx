@@ -2362,6 +2362,16 @@ export function PaydayPlanSection({ items, safeToSpend, hideNetWorth = false, on
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
 
+  // Review fix (G164): on Penny (no `gate`), a LIVE active plan rendered
+  // with neither `dismissible` nor `onClose` — `showCloseButton` in
+  // PaydayPlanCard came out false, so the card had no control at all.
+  // Penny is minimise-only (never dismissible), so a live card there gets
+  // `onClose` instead: collapsing it back to this same entry-row shape
+  // (below) rather than the full card, exactly like the preview toggle
+  // already does. Home's card is untouched — it keeps its real
+  // `dismissible` X and never sets this.
+  const [liveMinimised, setLiveMinimised] = useState(false);
+
   // No-accounts guard — Home-only (gate is only ever true on Home). Once
   // accounts have loaded and there genuinely are none, this section must
   // never render, no matter what a stale/edge-case safeToSpend response says.
@@ -2371,8 +2381,9 @@ export function PaydayPlanSection({ items, safeToSpend, hideNetWorth = false, on
   // Hide the entry row entirely once a real payday_plan item is already
   // surfaced in items (payday itself) — no duplication on payday. G164
   // (2026-09-26): there is no third "executed" state any more — a plan
-  // overtaken by the user's own standing orders is superseded quietly on
-  // the backend (no item at all), so every payday_plan item reaching this
+  // whose destinations already clear on their own the moment it would
+  // first be proposed is never built at all (backend companion.py section
+  // 5b, before persistence), so every payday_plan item reaching this
   // component is a live, dismissible (Home) or minimisable (Penny) plan.
   const hasLivePlan = paydayPlanItems.length > 0;
   const activePlanItems = paydayPlanItems;
@@ -2465,9 +2476,42 @@ export function PaydayPlanSection({ items, safeToSpend, hideNetWorth = false, on
 
   return (
     <div className="mt-3 space-y-3">
-      {activePlanItems.map(item => (
-        <PaydayPlanCard key={item.id} item={item} router={router} hideNetWorth={hideNetWorth} maskAmounts={maskAmounts} onRefresh={onRefresh} dismissible={!!gate} />
+      {!liveMinimised && activePlanItems.map(item => (
+        <PaydayPlanCard
+          key={item.id}
+          item={item}
+          router={router}
+          hideNetWorth={hideNetWorth}
+          maskAmounts={maskAmounts}
+          onRefresh={onRefresh}
+          dismissible={!!gate}
+          onClose={!gate ? () => setLiveMinimised(true) : undefined}
+        />
       ))}
+
+      {/* Minimised live plan — Penny only (`!gate`). Same collapsed-row
+          shape as the entry row below, so minimising a live plan and
+          reopening it reads as one consistent affordance rather than two
+          different rows. Tapping re-expands the SAME item, already held in
+          `items`/`activePlanItems` — no re-fetch. */}
+      {!gate && liveMinimised && hasLivePlan && (
+        <button
+          type="button"
+          onClick={() => setLiveMinimised(false)}
+          aria-expanded={false}
+          className="glass-card rounded-2xl w-full min-h-[44px] px-4 py-3 flex items-center justify-between gap-3 text-left active:scale-[0.99] transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+        >
+          <span className="min-w-0">
+            <span className="block text-[15px] font-semibold text-slate-900 dark:text-slate-100 leading-snug">
+              Payday plan
+            </span>
+            <span className="block text-[13px] text-slate-500 dark:text-slate-400 leading-snug">
+              {paydaySubline}
+            </span>
+          </span>
+          <ChevronRight size={16} aria-hidden="true" className="flex-shrink-0 text-slate-400 dark:text-slate-500" />
+        </button>
+      )}
 
       {showEntryRow && (
         <div className="space-y-2">

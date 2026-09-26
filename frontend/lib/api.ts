@@ -1440,9 +1440,10 @@ export type CompanionItem = {
    *
    * G164 (2026-09-26): there is no `executed` state any more — the payday
    * plan is purely advisory, so once the pay lands there is nothing left to
-   * validate or report; a plan overtaken by the user's own standing orders
-   * is superseded quietly on the backend and never reaches the frontend as
-   * an item at all.
+   * validate or report; a plan whose destinations already clear on their
+   * own the moment it would first be proposed (the user's own standing
+   * orders got there first) is never persisted or built at all, so it
+   * never reaches the frontend as an item.
    */
   next_pay?: string;
   dests?: PaydayPlanDest[];

@@ -8,16 +8,24 @@
 // there is nothing left to validate, so there is NO executed/"already split"
 // state on either surface. This preview instead renders the PRODUCTION
 // `PaydayPlanSection` (and, for one state, `PaydayPlanCard` directly) with
-// fixture data through their real props across the six states the decision
-// actually describes:
+// fixture data through their real props across the seven states the
+// decision actually describes:
 //
 //   home-t5        Home, five days before payday: the dismissible entry row.
 //   home-live      Home, a live plan: the full dismissible plan card.
 //   home-paid      Home, after the pay has landed: renders NOTHING — this
 //                  state shows that honestly rather than faking a card.
 //   penny-entry    Penny, mid-period: the always-visible entry row (no gate).
-//   penny-expanded The expanded plan card on Penny, minimise chevron only,
-//                  never an X. PaydayPlanSection's own toggle fetches
+//   penny-live     Penny, a live plan: the full card with a minimise
+//                  chevron (review fix — a live plan on Penny previously
+//                  rendered with neither `dismissible` nor `onClose`, so it
+//                  had no control at all; PaydayPlanSection now passes
+//                  `onClose` whenever `!gate`, collapsing to the same
+//                  entry-row shape). Real production PaydayPlanSection,
+//                  interactive: tap the chevron to see it collapse.
+//   penny-expanded The expanded plan card on Penny reached via the entry
+//                  row's own preview toggle, same minimise chevron, never
+//                  an X. PaydayPlanSection's own toggle fetches
 //                  `/today?payday_preview=1` live, which this unauthenticated
 //                  static preview can't do — so this ONE state renders
 //                  `PaydayPlanCard` directly with a fixture preview item and
@@ -29,7 +37,7 @@
 // unmodified by this round. See fixtures.ts for what each SafeToSpend/
 // CompanionItem fixture stands in for.
 //
-// /design/payday-plan-executed?state=home-t5|home-live|home-paid|penny-entry|penny-expanded|penny-next&mode=light|dark
+// /design/payday-plan-executed?state=home-t5|home-live|home-paid|penny-entry|penny-live|penny-expanded|penny-next&mode=light|dark
 
 import { useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -45,7 +53,7 @@ import {
   STS_T5,
 } from "./fixtures";
 
-type PreviewState = "home-t5" | "home-live" | "home-paid" | "penny-entry" | "penny-expanded" | "penny-next";
+type PreviewState = "home-t5" | "home-live" | "home-paid" | "penny-entry" | "penny-live" | "penny-expanded" | "penny-next";
 type Mode = "light" | "dark";
 
 const STATES: { key: PreviewState; label: string; surface: "Home" | "Penny" }[] = [
@@ -53,6 +61,7 @@ const STATES: { key: PreviewState; label: string; surface: "Home" | "Penny" }[] 
   { key: "home-live", label: "Home · live plan", surface: "Home" },
   { key: "home-paid", label: "Home · after payday", surface: "Home" },
   { key: "penny-entry", label: "Penny · entry (mid-period)", surface: "Penny" },
+  { key: "penny-live", label: "Penny · live plan", surface: "Penny" },
   { key: "penny-expanded", label: "Penny · expanded", surface: "Penny" },
   { key: "penny-next", label: "Penny · after payday", surface: "Penny" },
 ];
@@ -120,6 +129,11 @@ const STATE_COPY: Record<PreviewState, { title: string; body: string }> = {
     body:
       "Penny is the plan's permanent home: PaydayPlanSection renders here with no `gate`, so the entry row shows every day of the month, not just in the run-up to payday.",
   },
+  "penny-live": {
+    title: "Penny, a live plan",
+    body:
+      "Review fix: a live plan on Penny used to render with neither a dismiss X nor a minimise control, since PaydayPlanCard's showCloseButton needs one of dismissible/onClose and neither was passed. PaydayPlanSection now passes onClose whenever gate is not set, so Penny's live card always gets the chevron-up minimise, never an X. This is the real, interactive component: tap the chevron to collapse it to the entry-row shape.",
+  },
   "penny-expanded": {
     title: "Penny, the plan expanded",
     body:
@@ -163,6 +177,8 @@ export default function PaydayPlanLifecycleClient() {
         );
       case "penny-entry":
         return <PaydayPlanSection items={[]} safeToSpend={STS_MID_PERIOD} />;
+      case "penny-live":
+        return <PaydayPlanSection items={[LIVE_PLAN_ITEM]} safeToSpend={STS_MID_PERIOD} />;
       case "penny-expanded":
         return (
           <PaydayPlanCard
@@ -189,7 +205,7 @@ export default function PaydayPlanLifecycleClient() {
         Skip to payday plan lifecycle preview
       </a>
       <main id="g164-preview" tabIndex={-1} className="min-h-dvh scroll-pb-40 bg-[#f0f2f7] text-slate-900 selection:bg-indigo-200 selection:text-slate-950 dark:bg-[#0f172a] dark:text-slate-100 dark:selection:bg-indigo-500/40 dark:selection:text-white">
-        <div className="mx-auto w-full max-w-[430px] px-4 pb-40 pt-7 sm:px-6 sm:pt-10">
+        <div className="mx-auto w-full max-w-[430px] px-4 pb-64 pt-7 sm:px-6 sm:pt-10">
           <header>
             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
               {surface} · {state}

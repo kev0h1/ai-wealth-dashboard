@@ -65,9 +65,10 @@ const TOTAL = DESTS.reduce((sum, d) => sum + d.move, 0);
 /** `home-live` / `penny` live states — a real, currently-active plan
  * (`preview: true`, hedged heading via `next_pay`). This is the ONLY plan
  * shape that exists now: there is no further "executed" state to fork from
- * it (G164) — a plan that clears is either superseded quietly (no item at
- * all) or, if the user acted on it by hand in an earlier run, marked done
- * and celebrated once via the standard celebration card, not this card. */
+ * it (G164) — a plan whose destinations already clear on their own the
+ * moment it would first be proposed is never persisted or shown at all (no
+ * item), and a plan the user acted on by hand is marked done and celebrated
+ * once via the standard celebration card, not this card. */
 export const LIVE_PLAN_ITEM: CompanionItem = {
   id: "payday_plan:g164:live",
   type: "payday_plan",
@@ -144,6 +145,6 @@ export const STS_MID_PERIOD: SafeToSpend = {
  * fixture demonstrates it has already rolled to the FOLLOWING payday. */
 export const STS_NEXT_PAYDAY: SafeToSpend = {
   ...BASE_STS,
-  next_payday: "2026-11-27",
+  next_payday: "2026-10-28",
   days_until_payday: 25,
 };
