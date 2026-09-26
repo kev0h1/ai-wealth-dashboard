@@ -153,6 +153,12 @@ export default function MonthClosedCardClient() {
               exists (two days after a period closes).
             </p>
             <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">Preview only. No bank data or preferences are changed.</p>
+            {variant === "c" && (
+              <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                The figure here is illustrative; the month-closed item carries no figures today, so picking C also
+                commits a backend change.
+              </p>
+            )}
           </header>
           <div className="mt-7 sm:mt-9">
             {variant === "a" && <VariantA surface={surface} state={state} />}
