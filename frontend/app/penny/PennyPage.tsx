@@ -10,6 +10,7 @@ import { PennyPromptBar } from "@/components/PennyConversation";
 import { usePennySheet } from "@/components/PennySheetProvider";
 import { usePreferences } from "@/components/PreferencesContext";
 import { BriefBody, BriefSkeleton, PaydayPlanSection } from "@/components/HomeBrief";
+import MonthClosedCard from "@/components/MonthClosedCard";
 import { isActionableCompanionItem } from "@/lib/companionItems";
 import { isPaydayWindowActive, writePaydayDotCache } from "@/lib/paydayWindow";
 import { readHomeDismissedAdvice } from "@/lib/homeDismissedAdvice";
@@ -121,6 +122,11 @@ export default function PennyPage() {
   // "Waiting on you" header alone (section b) so it never appears floating
   // over an empty BriefBody output on a payday-plan-only window.
   const hasActionableBriefCard = actionablePennyItems.some(i => i.type !== "payday_plan");
+  // G168 — read straight from the RAW, unfiltered `items`: isActionableCompanionItem
+  // returns false for type "needle" (it's an invitation, not a decision), so it
+  // never appears in `actionablePennyItems` above and would otherwise never
+  // reach this hub at all. Rendered permanently in section c2, below.
+  const needleItem = items.find(i => i.type === "needle") ?? null;
 
   return (
     <div
@@ -243,6 +249,19 @@ export default function PennyPage() {
             worst right at payday, when that flash is most visible. */}
         {!loading && (
           <PaydayPlanSection items={actionablePennyItems} safeToSpend={safeToSpend} hideNetWorth={hideNetWorth} onRefresh={loadData} />
+        )}
+
+        {/* c2. Month-closed card (G168) — permanent on Penny for the two
+            days it exists, directly under the payday plan section. Read
+            from the RAW, unfiltered `items` (not `actionablePennyItems`):
+            lib/companionItems.ts's isActionableCompanionItem returns false
+            for type "needle", so it never survives that split, unlike
+            payday_plan above. Minimise only, never dismiss (component's own
+            surface="penny" branch), mirroring the payday plan's owner rule. */}
+        {!loading && needleItem && (
+          <div className="mt-3">
+            <MonthClosedCard item={needleItem} router={router} surface="penny" />
+          </div>
         )}
 
         {/* d. Mirror rich entry */}

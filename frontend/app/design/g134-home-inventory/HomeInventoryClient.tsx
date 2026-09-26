@@ -53,6 +53,7 @@ import HomeBrief, {
   HomeBriefClearedRow,
   PaydayPlanSection,
 } from "@/components/HomeBrief";
+import MonthClosedCard from "@/components/MonthClosedCard";
 import SafeToSpendCard from "@/components/SafeToSpendCard";
 import ReconnectStrip from "@/components/ReconnectStrip";
 import { PinnedWidgetCard, DEFAULT_HOME_PINNED_WIDGET } from "@/components/SpendTrends";
@@ -425,13 +426,8 @@ export default function HomeInventoryClient() {
               <AskGenericCard item={GENERIC_ASK_ITEM} router={router} maskAmounts={maskAmounts} dismissible={false} />
             </CatalogueEntry>
 
-            <CatalogueEntry component="(inline in BriefBody, no separate component)" condition='type: "needle" — invitation to review a closed month; reproduced verbatim from components/HomeBrief.tsx ~2067-2081, there is nothing importable for it'>
-              <div className="glass-card rounded-2xl p-4">
-                <p className="text-[15px] font-semibold text-slate-700 dark:text-slate-300 leading-snug mb-2">{NEEDLE_ITEM.headline}</p>
-                {NEEDLE_ITEM.action && (
-                  <span className="text-[14px] text-indigo-600 dark:text-indigo-400 font-medium">{NEEDLE_ITEM.action.label}</span>
-                )}
-              </div>
+            <CatalogueEntry component="MonthClosedCard" condition='type: "needle" — invitation to review a closed month. Extracted from BriefBody into components/MonthClosedCard.tsx (G168); Home surface shown here, dismissible via the standard glass ×, wired server-side (companion.py honours the dismissed set for this item type)'>
+              <MonthClosedCard item={NEEDLE_ITEM} router={router} surface="home" onDismiss={() => {}} />
             </CatalogueEntry>
 
             <CatalogueEntry component="(inline in BriefBody, no separate component)" condition='every item type BriefBody does not recognise by name falls here — only "info" reaches it in practice; reproduced verbatim, a bare headline + body paragraph, no card chrome at all'>
