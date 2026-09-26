@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import dynamic from "next/dynamic";
 import { ChevronRight } from "lucide-react";
-import { api, ApiError, Account, AccountEligibility, Transaction, InvestmentAccount, SafeToSpend, CompanionItem, NeedleSummary } from "@/lib/api";
+import { api, ApiError, Account, AccountEligibility, Transaction, InvestmentAccount, SafeToSpend, CompanionItem } from "@/lib/api";
 import { bestSpendAccount, type TodayRequestStatus } from "@/lib/spendFromAccount";
 import SafeToSpendCard from "@/components/SafeToSpendCard";
 import AccountLedgerRow from "@/components/AccountLedgerRow";
@@ -18,7 +18,6 @@ import HomeInsightSpotlight from "@/components/HomeInsightSpotlight";
 import OfferCard from "@/components/OfferCard";
 import ValueDeliveredStat from "@/components/ValueDeliveredStat";
 import UpcomingBillsStrip from "@/components/UpcomingBillsStrip";
-import ThisMonthStrip from "@/components/ThisMonthStrip";
 import { useColours } from "@/components/ColourProvider";
 import { isHomeCurrency } from "@/lib/currency";
 import FuelSavingsCard from "@/components/FuelSavingsCard";
@@ -311,7 +310,6 @@ export default function HomePage() {
   // OUTCOME has to be recorded: without this, "the request failed" and "the
   // request succeeded with no account_eligibility on it" both arrived at
   // SafeToSpendCard as `undefined` and both rendered as nothing at all.
-  // Same three-state shape as `needleStatus` below, not a second vocabulary.
   const [todayStatus, setTodayStatus] = useState<TodayRequestStatus>(homeCache?.todayStatus ?? "loading");
   // G148 re-review — what happened to the GET /accounts this mount issued.
   // NOT derived from the page-level `loading` flag: that initialises to
@@ -339,8 +337,6 @@ export default function HomePage() {
   // the reconciliation sentence accurate after "Hide on Home" as well as on
   // first paint.
   const [coverMoveVisible, setCoverMoveVisible] = useState(false);
-  const [needle, setNeedle] = useState<NeedleSummary | null>(homeCache?.needle ?? null);
-  const [needleStatus, setNeedleStatus] = useState<"loading" | "ready" | "failed">(homeCache?.needleStatus ?? "loading");
   // A manual sync can overlap the mount fetch. Only the most recently started
   // request may commit values, so an older calculation can never overwrite a
   // newer post-sync verdict.
@@ -358,18 +354,20 @@ export default function HomePage() {
   // display toggle — no transition, no stagger, no fade (see req: no
   // visibility-gating animation on the reveal).
   const [pageReady, setPageReady] = useState(!!homeCache);
-  // Readiness inputs this page cannot see on its own: UpcomingBillsStrip,
-  // ThisMonthStrip and HomeInsightSpotlight each run their own fetch
-  // (ThisMonthStrip only when HomePage hasn't handed it `summary`/
-  // `summaryStatus` — see its own props). Each calls the onReady prop
-  // wired below exactly once, in a `finally`, on both success and
+  // Readiness inputs this page cannot see on its own: UpcomingBillsStrip and
+  // HomeInsightSpotlight each run their own fetch. Each calls the onReady
+  // prop wired below exactly once, in a `finally`, on both success and
   // failure, and never again on a later revalidation (retry, resync,
   // dismiss-and-reload) — see each file's own onReady wiring.
+  // (G169: ThisMonthStrip — Home's "Last month" strip — was the third of
+  // these three self-fetching children; removed as a duplicate of the
+  // month-closed card, and `monthReady` removed with it rather than left
+  // wired to a callback nothing calls again, which would have held
+  // `allSettled` below hostage to the 5000ms release valve on every cold
+  // load.)
   const [billsReady, setBillsReady] = useState(!!homeCache);
-  const [monthReady, setMonthReady] = useState(!!homeCache);
   const [spotlightReady, setSpotlightReady] = useState(!!homeCache);
   const onBillsReady = useCallback(() => setBillsReady(true), []);
-  const onMonthReady = useCallback(() => setMonthReady(true), []);
   const onSpotlightReady = useCallback(() => setSpotlightReady(true), []);
   // Guards `reveal` below to a single call per mount — a warm mount starts
   // this (and `pageReady`) already true, so the readiness effect and the
@@ -381,18 +379,19 @@ export default function HomePage() {
     setPageReady(true);
   }, []);
   // Every readiness input, ANDed together: HomePage's own primary fetches
-  // (`loading` — accounts/investments/companion-items/needle/recent-txns,
-  // see loadData below — plus `stsLoading` and `txLoading`, which clear
-  // independently of `loading` for their own tiles) and the three
-  // self-fetching children's onReady signals. If any one of these never
-  // resolves (several of the underlying fetches already swallow errors
-  // with `.catch(() => {})`), this effect simply never fires — that's what
-  // the timeout effect below exists to cover.
+  // (`loading` — accounts/investments/companion-items/recent-txns, see
+  // loadData below — plus `stsLoading` and `txLoading`, which clear
+  // independently of `loading` for their own tiles) and the two remaining
+  // self-fetching children's onReady signals (G169 removed the third,
+  // ThisMonthStrip/`monthReady`, along with the strip itself). If any one
+  // of these never resolves (several of the underlying fetches already
+  // swallow errors with `.catch(() => {})`), this effect simply never
+  // fires — that's what the timeout effect below exists to cover.
   useEffect(() => {
     if (revealedRef.current) return;
-    const allSettled = !loading && !stsLoading && !txLoading && billsReady && monthReady && spotlightReady;
+    const allSettled = !loading && !stsLoading && !txLoading && billsReady && spotlightReady;
     if (allSettled) reveal();
-  }, [loading, stsLoading, txLoading, billsReady, monthReady, spotlightReady, reveal]);
+  }, [loading, stsLoading, txLoading, billsReady, spotlightReady, reveal]);
   // Non-negotiable release valve: whatever hasn't arrived within 5000ms of
   // this mount is shown as-is (its own section falls back to its existing
   // inner skeleton/empty state) rather than leaving the user stuck on the
@@ -409,8 +408,8 @@ export default function HomePage() {
   // very first cold load can never seed the cache with empty/default data.
   useEffect(() => {
     if (!revealedRef.current) return;
-    setHomeCache({ accounts, investmentAccounts, safeToSpend, companionItems, accountEligibility, todayStatus, accountsStatus, recentTxns, needle, needleStatus });
-  }, [accounts, investmentAccounts, safeToSpend, companionItems, accountEligibility, todayStatus, accountsStatus, recentTxns, needle, needleStatus]);
+    setHomeCache({ accounts, investmentAccounts, safeToSpend, companionItems, accountEligibility, todayStatus, accountsStatus, recentTxns });
+  }, [accounts, investmentAccounts, safeToSpend, companionItems, accountEligibility, todayStatus, accountsStatus, recentTxns]);
 
   const loadData = useCallback(async () => {
     const requestId = ++loadRequestRef.current;
@@ -432,7 +431,6 @@ export default function HomePage() {
       const invP = api.getInvestmentAccounts();
       const safeP = api.safeToSpend();
       const todayP = api.getToday();
-      const needleP = api.getNeedleSummary();
       // Over-fetch to 12 rather than 6: the micro-pot-shuffle filter below
       // (round-ups, penny transfers) can drop rows, and asking the server
       // for exactly 6 could leave fewer than 6 on screen after filtering.
@@ -498,9 +496,6 @@ export default function HomePage() {
           }));
         })
         .catch(() => {});
-      needleP
-        .then((v) => { if (requestId === loadRequestRef.current) { setNeedle(v); setNeedleStatus("ready"); } })
-        .catch(() => { if (requestId === loadRequestRef.current) setNeedleStatus("failed"); });
 
       let loadedAccounts: Account[] = [];
       try {
@@ -523,7 +518,7 @@ export default function HomePage() {
       // Let the remaining fast calls settle, then clear the page-level
       // skeletons. recentTxP and safeP each clear their own skeleton
       // (txLoading, stsLoading) independently as they settle, above.
-      await Promise.allSettled([invP, safeP, todayP, needleP, recentTxP]);
+      await Promise.allSettled([invP, safeP, todayP, recentTxP]);
       if (requestId !== loadRequestRef.current) return;
       setLoading(false);
     } catch {}
@@ -986,7 +981,6 @@ export default function HomePage() {
               </div>
               <div className="space-y-3">
                 <UpcomingBillsStrip onReady={onBillsReady} />
-                <ThisMonthStrip summary={needle} summaryStatus={needleStatus} onReady={onMonthReady} />
                 <HomeInsightSpotlight onReady={onSpotlightReady} />
                 {/* B20: admin-sent offer, if any is unread. Self-fetching,
                     renders nothing when there's nothing to show — same

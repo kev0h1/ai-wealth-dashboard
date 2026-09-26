@@ -88,8 +88,9 @@ export type SpendFromAccount = {
 export type SpendFromUnavailableReason = "loading" | "error" | "missing";
 
 /** What the client knows about the `GET /today` request that carries
- *  `account_eligibility`. Mirrors HomePage's existing `needleStatus`
- *  convention rather than inventing a second vocabulary. */
+ *  `account_eligibility`. Same three-state shape HomePage already used
+ *  elsewhere (`todayStatus`, `accountsStatus`) rather than inventing a
+ *  second vocabulary. */
 export type TodayRequestStatus = "loading" | "ready" | "failed";
 
 export type SpendFromResult =

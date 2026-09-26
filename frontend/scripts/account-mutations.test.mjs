@@ -117,8 +117,6 @@ globalThis.localStorage = fakeStorage;
     todayStatus: "ready",
     accountsStatus: "ready",
     recentTxns: [],
-    needle: null,
-    needleStatus: "ready",
   });
   check("Home cache warmed with the pre-mutation snapshot", getHomeCache()?.accounts[0].id, "barclays-savings");
 

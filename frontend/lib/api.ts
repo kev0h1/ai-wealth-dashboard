@@ -3341,6 +3341,10 @@ export const api = {
   getToday: (paydayPreview?: boolean) =>
     get<TodayResponse>(paydayPreview ? "/today?payday_preview=1" : "/today"),
   getCoverPlan: () => get<CoverPlanResponse>("/today/cover-plan"),
+  // G169: no frontend caller left after ThisMonthStrip (Home's "Last month"
+  // strip) was removed as a duplicate of the month-closed card. Kept because
+  // Penny (backend/app/services/companion.py, penny_tools.py) and the MCP
+  // connector still read GET /needle/summary directly on the backend.
   getNeedleSummary: () => get<NeedleSummary>("/needle/summary"),
   getCardsStory: (which: "current" | "last" = "current") => get<CardsStory>(`/cards/story?which=${which}`),
 
