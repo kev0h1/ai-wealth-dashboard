@@ -3,7 +3,6 @@ import type {
   AccountEligibility,
   CompanionItem,
   InvestmentAccount,
-  NeedleSummary,
   PaydayPlanDest,
   PaydayPlanSalary,
   SafeToSpend,
@@ -410,25 +409,10 @@ export const SAFE_TO_SPEND_STATES: readonly StsFixture[] = [
 // ── HomeBriefClearedRow fixture ──────────────────────────────────────────
 export const CLEARED_ADVICE = { count: 2, type: "cliff" as CompanionItem["type"] };
 
-// ── ThisMonthStrip fixture (pure props — summary/summaryStatus) ─────────
-// Real NeedleSummary shape (lib/api.ts) — a closed-period verdict (Variant A
-// in ThisMonthStrip's own header comment), since HomePage always supplies
-// both `summary` and `summaryStatus`, this strip never needs to self-fetch.
-export const THIS_MONTH_SUMMARY: NeedleSummary = {
-  status: "ok",
-  last_closed: {
-    period_start: "2026-08-01",
-    period_end: "2026-08-31",
-    card_delta: -180,
-    month_end_cash: 640,
-    lines: { headline: "August closed 12% better than July", movement: "Cards down £180", cash: "£640 left at month end" },
-  },
-  // useClosedVariant (ThisMonthStrip.tsx) only renders this card when
-  // last_closed is non-null AND days_into_period <= 2 — the first couple
-  // of days of a new pay period. days_into_period must stay <= 2 here or
-  // the component renders null and this zone goes blank.
-  current: { card_delta_so_far: 40, cash_now: 995, days_to_payday: 9, days_into_period: 1 },
-};
+// G169 removed the ThisMonthStrip fixture (THIS_MONTH_SUMMARY) along with
+// the component: it was Home's "Last month" strip, a duplicate of the
+// month-closed card at the top of Home, so this zone's catalogue entry for
+// it was removed too — see HomeInventoryClient.tsx's Zone 7.
 
 // ── AccountLedgerRow fixtures (bankToRow/investmentToRow inputs) ────────
 export const LEDGER_ACCOUNTS: Account[] = [

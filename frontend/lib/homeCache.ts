@@ -4,7 +4,7 @@
 // in a value import clause across module boundaries — see
 // lib/openBankingAccess.ts's header comment for the fuller version of this
 // same note.
-import type { Account, AccountEligibility, CompanionItem, InvestmentAccount, NeedleSummary, SafeToSpend, Transaction } from "@/lib/api";
+import type { Account, AccountEligibility, CompanionItem, InvestmentAccount, SafeToSpend, Transaction } from "@/lib/api";
 import type { TodayRequestStatus } from "@/lib/spendFromAccount";
 
 // Module-level warm-paint cache for HomePage.tsx — lives here (rather than
@@ -47,8 +47,6 @@ export type HomeCacheSnapshot = {
   // this snapshot survives.
   accountsStatus: TodayRequestStatus;
   recentTxns: Transaction[];
-  needle: NeedleSummary | null;
-  needleStatus: "loading" | "ready" | "failed";
 };
 
 // ── Shape guard (G148, 2026-09-23) ──────────────────────────────────────────
@@ -83,8 +81,6 @@ const REQUIRED_SNAPSHOT_KEYS: readonly (keyof HomeCacheSnapshot)[] = [
   "todayStatus",
   "accountsStatus",
   "recentTxns",
-  "needle",
-  "needleStatus",
 ];
 
 /** True when `snapshot` carries every key the current shape declares.
@@ -92,9 +88,9 @@ const REQUIRED_SNAPSHOT_KEYS: readonly (keyof HomeCacheSnapshot)[] = [
  *  without a React renderer. */
 export function isCurrentHomeCacheShape(snapshot: unknown): snapshot is HomeCacheSnapshot {
   if (snapshot == null || typeof snapshot !== "object") return false;
-  // `in`, not a truthiness test: `accountEligibility`, `safeToSpend` and
-  // `needle` are all legitimately undefined/null on a perfectly good
-  // snapshot. The question is whether the WRITER knew about the key.
+  // `in`, not a truthiness test: `accountEligibility` and `safeToSpend`
+  // are both legitimately undefined/null on a perfectly good snapshot.
+  // The question is whether the WRITER knew about the key.
   return REQUIRED_SNAPSHOT_KEYS.every((key) => key in snapshot);
 }
 

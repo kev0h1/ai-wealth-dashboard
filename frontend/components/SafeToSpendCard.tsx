@@ -89,19 +89,32 @@ function SpendFromBankRail({ entries, amount, onLogoError }: {
   onLogoError: (logoSrc: string) => void;
 }) {
   return (
-    <div data-g115-treatment="bank-rail" className="min-w-[76px]">
-      <p className="mb-1 text-right text-[9px] font-bold uppercase tracking-[0.07em] text-slate-400 dark:text-slate-500">Spend from</p>
-      <ul aria-label="Accounts with room to spend from" className="space-y-1.5">
+    // G171 (re-review: no `display: contents` on real list semantics —
+    // WebKit, including the Capacitor WebView, has a repeatedly regressed
+    // bug class where `contents` drops the element from the accessibility
+    // tree, taking its `aria-label`/list role with it). One grid for the
+    // whole rail, label included: the label is a row spanning both
+    // columns, left-aligned, so its left edge sits at the same x as the
+    // icon column by construction. `ul` and `li` stay real boxes and adopt
+    // the parent's two columns via CSS subgrid instead of `contents`, so
+    // the badge (column one) and the right-aligned amount (column two)
+    // still land in the same tracks as the label, and the `ul`'s
+    // `aria-label` and the `li`'s list-item semantics survive in every
+    // engine. A fixed 22px icon column plus a 1fr right-aligned figure
+    // column (G165) keeps the badge in one vertical line whatever the
+    // figure's own width is (£22 vs £275 no longer nudge it sideways); the
+    // icon size below must stay 22 to match it.
+    <div
+      data-g115-treatment="bank-rail"
+      className="grid min-w-[76px] grid-cols-[22px_1fr] items-center gap-x-1.5 gap-y-1.5"
+    >
+      <p className="col-span-2 text-left text-[9px] font-bold uppercase tracking-[0.07em] text-slate-400 dark:text-slate-500">Spend from</p>
+      <ul aria-label="Accounts with room to spend from" className="col-span-2 grid grid-cols-subgrid gap-y-1.5">
         {entries.map((entry) => {
           const bank = localBank(entry.account)!;
           const spare = amount(entry.headroom);
           return (
-            // G165: a fixed 22px icon column plus a right-aligned figure
-            // column, so the badge sits in one vertical line whatever the
-            // figure's own width is (£22 vs £275 no longer nudge it
-            // sideways). Same template on every row is what keeps the
-            // column aligned; the icon size below must stay 22 to match it.
-            <li key={entry.accountId} className="grid grid-cols-[22px_1fr] items-center gap-1.5">
+            <li key={entry.accountId} className="col-span-2 grid grid-cols-subgrid items-center">
               <span className="sr-only">{entry.name} at {bank.label}, {spare} spare</span>
               <BankBadge
                 logoSrc={bank.logoSrc}

@@ -173,7 +173,7 @@ A muted slate stage where one indigo voice and a single-saturation category pale
 
 - **No justified text (2026-08-18).** Justification was trialled on hero prose and reverted: on narrow phone columns it produced uneven word gaps. All prose is left-aligned with `text-pretty`.
 
-**Icons Align, Figures Right-Align (G165, 2026-09-25).** In any list that pairs an icon or bank badge with a figure, the icons sit in one fixed column and the figures right-align in a tabular-nums column; never let a figure's width push its icon sideways.
+**Icons Align, Figures Right-Align (G165, 2026-09-25).** In any list that pairs an icon or bank badge with a figure, the icons sit in one fixed column and the figures right-align in a tabular-nums column; never let a figure's width push its icon sideways. A column label above such a list left-aligns to the icon column's edge, not to the figure column (G171, 2026-09-26): put the label and the rows in one grid so the label's left edge is the icon column's left edge by construction, rather than a separately-aligned line that drifts back over the figures.
 
 ## 4. Elevation
 
