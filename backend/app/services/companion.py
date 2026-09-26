@@ -1033,6 +1033,85 @@ def _is_own_transfer_bill(b: dict) -> bool:
     return b.get("kind") == MOVEMENT and bool(b.get("dest_account_id"))
 
 
+async def _pp_funded_by_hand(
+    uid: str, dest_accounts: list, created_at, cached: dict,
+) -> bool:
+    """G164 review fix (2026-09-26): decide whether a payday_plan doc that
+    persisted ACTIVE and cleared in a LATER run was funded by the user's own
+    hand, or superseded quietly by the user's own standing orders. Kevin's
+    clause, verbatim: "a plan overtaken by the user's own standing orders is
+    superseded quietly (no done, no celebration, no executed item); the
+    Sorted celebration stays only for a plan the user acted on by hand,
+    funded by credits that are not their own recurring standing orders."
+
+    The step-7 auto-verify pass this feeds only ever checked `min_running >=
+    0`, a FORECAST condition — true whether the clearing credit already
+    landed or is merely projected to. This looks at what actually happened:
+    every CREDIT into any of `dest_accounts` dated on/after the doc's
+    `created_at` (`transactions_col` + `yapily_transactions_col`, the same
+    two-collection read `_direct_fill_leg_source` above already does for
+    allocation fill-matching).
+
+    A credit is "recurring-attributable" — NOT by hand — when its amount
+    (within `_match_observed`'s own tolerance, `max(2.0, 15%)`) matches one
+    of the user's learned recurring MOVEMENT series whose destination is
+    this exact account: `cached["recurring_spend"]` entries carry
+    `dest_account_id` only when `_learn_transfer_destinations` already
+    traced them there with enough repeat evidence (the same invariant
+    `_is_own_transfer_bill` relies on above), so no separate kind check is
+    needed here. `funded_by_hand` is True only when at least one observed
+    credit is NOT recurring-attributable — a genuine one-off/hand transfer.
+    No observed credits at all (the window cleared on a forecast condition,
+    nothing has actually moved yet) is NOT by hand: quiet.
+
+    Fail-safe: any lookup error (a malformed doc, a query failure) is
+    treated as NOT by hand — quiet — the same fail-open doctrine
+    `_reserved_for_allocations` documents for its own best-effort signal.
+    """
+    if not dest_accounts or created_at is None:
+        return False
+    try:
+        dest_set = {str(d) for d in dest_accounts if d}
+        if not dest_set:
+            return False
+
+        # Learned recurring-transfer amounts per destination, from the SAME
+        # cached patterns `_is_own_transfer_bill`/`_acct_bills` already read
+        # via `cached.get("recurring_spend")` — no second matcher.
+        learned_by_dest: dict[str, list[float]] = {}
+        for r in (cached.get("recurring_spend") or []):
+            dest_id = r.get("dest_account_id")
+            if dest_id and str(dest_id) in dest_set:
+                learned_by_dest.setdefault(str(dest_id), []).append(float(r.get("avg_amount") or 0))
+
+        credit_q = {
+            "user_id": uid,
+            "transaction_type": "credit",
+            "date": {"$gte": created_at},
+        }
+        proj = {"account_id": 1, "amount": 1, "date": 1}
+        credits: list[dict] = []
+        for col in (transactions_col, yapily_transactions_col):
+            async for c in col.find(credit_q, proj):
+                if str(c.get("account_id") or "") in dest_set:
+                    credits.append(c)
+
+        if not credits:
+            return False  # cleared by forecast only — nothing has actually moved
+
+        for c in credits:
+            dest_id = str(c.get("account_id") or "")
+            amount = abs(float(c.get("amount") or 0))
+            learned = learned_by_dest.get(dest_id, [])
+            tol_matched = any(abs(amount - la) <= max(2.0, la * 0.15) for la in learned)
+            if not tol_matched:
+                return True  # a genuine, non-recurring credit — the user's own hand
+        return False  # every observed credit traces to a known recurring series
+    except Exception:
+        log.exception("_pp_funded_by_hand: lookup failed for uid=%s dests=%s", uid, dest_accounts)
+        return False
+
+
 def walk_sort_key(event):
     """(days_away, credits before debits on a shared day). G163: money a
     confirmed stream is expected to land in this account on day D covers
@@ -4439,6 +4518,31 @@ async def compute_today_items(
                                 {"_id": stored_id, "uid": uid},
                                 {"$set": {"status": "done"}},
                             )
+                        continue
+                    # G164 review fix (2026-09-26): a plan persisted ACTIVE
+                    # earlier that clears in a LATER run must not celebrate
+                    # on `min_running >= 0` alone — that's the forecast walk,
+                    # not an observed credit, and Kevin's clause is explicit:
+                    # "a plan overtaken by the user's own standing orders is
+                    # superseded quietly (no done, no celebration); the
+                    # Sorted celebration stays only for a plan the user
+                    # acted on by hand." (The same-run born-clear case is
+                    # handled entirely in section 5b, `_pp_born_clear` — a
+                    # doc that never persists never reaches this loop.)
+                    _pp_hand = await _pp_funded_by_hand(
+                        uid, stored_dest_accts, stored.get("created_at"), cached,
+                    )
+                    if not _pp_hand:
+                        if persist:
+                            await companion_items_col.update_one(
+                                {"_id": stored_id, "uid": uid},
+                                {"$set": {"status": "done", "_celebrated": False}},
+                            )
+                        # Quiet — no celebration candidate, no toast/push.
+                        # `_celebrated: False` (rather than absent) also
+                        # keeps this doc out of both branches of the query
+                        # this loop reads from on every future run (see the
+                        # `$or` above), so it never resurfaces.
                         continue
                     if persist:
                         await companion_items_col.update_one(
