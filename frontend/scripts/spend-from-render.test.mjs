@@ -154,6 +154,16 @@ for (const [kind, plan] of Object.entries(PLANS)) {
   const rail = renderTreatment(PLANS["bank-rail"]).markup;
   check("the bank rail renders its 'Spend from' label", rail.includes("Spend from"));
   check("the bank rail renders both account amounts", rail.includes("£75") && rail.includes("£70"));
+  // G171 re-review: `display: contents` on a real `ul`/`li` is a repeatedly
+  // regressed WebKit bug class (including the Capacitor WebView) that can
+  // drop the element from the accessibility tree, taking the `ul`'s
+  // `aria-label` and the `li`'s list-item semantics with it. The rail must
+  // keep real list markup (CSS subgrid instead of `contents`), so assert
+  // the `aria-label` survives on a genuine `<ul` and no `<li` carries the
+  // `contents` class.
+  check("the bank rail's <ul> keeps a real aria-label (not dropped by display:contents)", /<ul[^>]*\baria-label="Accounts with room to spend from"/.test(rail));
+  const railLiTags = rail.match(/<li\b[^>]*>/g) ?? [];
+  check("the bank rail renders real <li> rows, none carrying the display:contents class", railLiTags.length > 0 && railLiTags.every((tag) => !/\bclass="[^"]*\bcontents\b[^"]*"/.test(tag)));
   const rows = renderTreatment(PLANS["name-fallback"]).markup;
   check("the named-rows fallback renders both account names", rows.includes("Everyday") && rows.includes("Flex current"));
 }
