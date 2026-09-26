@@ -1435,17 +1435,16 @@ export type CompanionItem = {
    * is dated at (2026-08-29 FIX B — "the payday plan should forecast how we
    * should move money for the next period not today"). Present only on a
    * genuine `preview: true` item; drives the dated, hedged heading in
-   * PaydayPlanCard. Absent on a live or `executed` item — there's nothing
-   * to hedge, the plan already ran (or already happened).
+   * PaydayPlanCard. Absent on a live item — there's nothing to hedge, the
+   * plan is the live one for the current window.
+   *
+   * G164 (2026-09-26): there is no `executed` state any more — the payday
+   * plan is purely advisory, so once the pay lands there is nothing left to
+   * validate or report; a plan overtaken by the user's own standing orders
+   * is superseded quietly on the backend and never reaches the frontend as
+   * an item at all.
    */
   next_pay?: string;
-  /**
-   * True when this item is a quiet summary of a plan that has ALREADY
-   * auto-verified ("done") for the current window — no computation ran,
-   * this is the persisted record. See companion.py's FIX A gate
-   * (`_executed_payday_plan_item`). Mutually exclusive with `preview`.
-   */
-  executed?: boolean;
   dests?: PaydayPlanDest[];
   salary?: PaydayPlanSalary;
   trimmed?: boolean;

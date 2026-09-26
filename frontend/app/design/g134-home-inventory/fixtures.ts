@@ -143,8 +143,12 @@ const PAYDAY_DESTS: PaydayPlanDest[] = [
 
 const PAYDAY_TOTAL = PAYDAY_DESTS.reduce((sum, d) => sum + d.move, 0);
 
-/** The live, not-yet-executed plan — PaydayPlanCard's own confirm/adjust
- * treatment (`preview: true`, hedged heading via `next_pay`). */
+/** The live payday plan — PaydayPlanCard's own confirm/adjust treatment
+ * (`preview: true`, hedged heading via `next_pay`). G164 (2026-09-26): the
+ * payday plan is purely advisory, so there is no further "executed" state —
+ * once the pay lands there is nothing left to report, and a plan overtaken
+ * by the user's own standing orders is superseded quietly on the backend
+ * (no item at all). */
 export const PAYDAY_PLAN_ACTIVE_ITEM: CompanionItem = {
   id: "payday_plan:g134:active",
   type: "payday_plan",
@@ -157,16 +161,6 @@ export const PAYDAY_PLAN_ACTIVE_ITEM: CompanionItem = {
   next_pay: "2026-09-28",
   dests: PAYDAY_DESTS,
   salary: PAYDAY_SALARY,
-};
-
-/** Already-verified quiet summary row (2026-08-29 FIX A) — same data,
- * `executed: true`, no `preview`/`next_pay` hedge since it already ran. */
-export const PAYDAY_PLAN_EXECUTED_ITEM: CompanionItem = {
-  ...PAYDAY_PLAN_ACTIVE_ITEM,
-  id: "payday_plan:g134:executed",
-  preview: false,
-  next_pay: undefined,
-  executed: true,
 };
 
 // ── ReconnectStrip fixture (HomeBrief's `banner` slot) ──────────────────

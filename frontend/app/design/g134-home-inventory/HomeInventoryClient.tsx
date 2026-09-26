@@ -27,7 +27,6 @@ import {
   NEEDLE_ITEM,
   GENERIC_ASK_ITEM,
   PAYDAY_PLAN_ACTIVE_ITEM,
-  PAYDAY_PLAN_EXECUTED_ITEM,
   PAYDAY_WINDOW_SAFE_TO_SPEND,
   RECONNECT_PROVIDERS,
   RECONNECT_PROVIDERS_MULTI,
@@ -354,15 +353,9 @@ export default function HomeInventoryClient() {
               </div>
             </CatalogueEntry>
 
-            <CatalogueEntry component="PaydayPlanSection → PaydayPlanCard" condition="A live, not-yet-executed plan (`preview: true`) — the full confirm/adjust card">
+            <CatalogueEntry component="PaydayPlanSection → PaydayPlanCard" condition="A live plan (`preview: true`) — the full confirm/adjust card. G164 (2026-09-26): the payday plan is purely advisory, so there is no further 'executed' state — see /design/payday-plan-executed for the full lifecycle preview">
               <div className="glass-card rounded-2xl p-4">
                 <PaydayPlanSection items={[PAYDAY_PLAN_ACTIVE_ITEM]} safeToSpend={SAFE_TO_SPEND_STATES[0].data} gate hasAccounts={true} />
-              </div>
-            </CatalogueEntry>
-
-            <CatalogueEntry component="PaydayPlanSection → ExecutedPaydayRow" condition="`executed: true` — the plan already auto-verified for this window; a quiet summary row, expandable in place">
-              <div className="glass-card rounded-2xl p-4">
-                <PaydayPlanSection items={[PAYDAY_PLAN_EXECUTED_ITEM]} safeToSpend={SAFE_TO_SPEND_STATES[0].data} gate hasAccounts={true} />
               </div>
             </CatalogueEntry>
           </section>

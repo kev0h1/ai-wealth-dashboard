@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { ArrowDown, WalletCards, X } from "lucide-react";
+import { ArrowDown, ChevronUp, WalletCards, X } from "lucide-react";
 import type { CompanionItem, PaydayPlanDest } from "@/lib/api";
 import { api } from "@/lib/api";
 import { BankBadge, BANK_META, bankKey, bankLogoSrc } from "@/components/AccountMiniCard";
@@ -34,12 +34,11 @@ interface PaydayPlanCardProps {
   /**
    * Permanent dismiss (writes to the backend via api.dismissTodayItem and
    * hides the plan locally until the server regenerates it). Home-only —
-   * Penny is the plan's permanent home (owner rule, 2026-08-29) and must
-   * never offer this. Ignored whenever `onClose` is provided: that case is
-   * always a plain, non-persisting collapse (used by the entry-row preview
-   * toggle and the executed-row expand on BOTH surfaces), never a dismiss.
-   * Defaults to false — a caller must opt in explicitly, so a forgotten
-   * prop fails closed (no X) rather than open.
+   * Penny is the plan's permanent home and must never offer this. Ignored
+   * whenever `onClose` is provided: that case is always a plain,
+   * non-persisting collapse (the entry-row preview toggle on BOTH
+   * surfaces), never a dismiss. Defaults to false — a caller must opt in
+   * explicitly, so a forgotten prop fails closed (no X) rather than open.
    */
   dismissible?: boolean;
 }
@@ -73,19 +72,14 @@ export default function PaydayPlanCard({ item, router, hideNetWorth, maskAmounts
     });
   }
 
-  // Bug fix (2026-08-29, owner report): this used to branch on `item.preview`
-  // to decide collapse-vs-dismiss, which was wrong — the executed-row expand
-  // (HomeBrief.tsx's ExecutedPaydayRow) passes `onClose` but `item.preview`
-  // is false there, so the X fell into `handleDismiss` instead of collapsing:
-  // clicking it looked like the whole "already split" report vanished
-  // (`setHidden(true)`), AND silently persisted a dismiss server-side, which
-  // is why it "cleared but came back on refresh" (a fresh /today re-fetch
-  // remounts this component with `hidden` back at its default `false`, while
-  // the persisted dismiss doesn't even suppress the executed item's
-  // regeneration path in companion.py). The fix: branch on whether `onClose`
-  // was passed, not on the item's own preview flag — `onClose` always means
-  // "this is a collapsible view, closing it just collapses", regardless of
-  // preview/live/executed state.
+  // Bug fix (2026-08-29, owner report), revised G164 (2026-09-26): whether
+  // the close control collapses or dismisses must branch on which prop was
+  // passed, never on the item's own state — `onClose` always means "this is
+  // a collapsible view, closing it just collapses" (Penny's permanent
+  // entry-row toggle, on both surfaces), `dismissible` always means "this
+  // is Home's live card, closing it really dismisses". There is no third,
+  // executed state any more (G164: the payday plan is advisory-only, so
+  // there is nothing to report once the pay lands) — only these two.
   const showCloseButton = !!onClose || dismissible;
 
   function handleCloseClick(e: React.MouseEvent) {
@@ -107,19 +101,22 @@ export default function PaydayPlanCard({ item, router, hideNetWorth, maskAmounts
       {/* Penny gradient chip — marks this as a proactive advice surface, same
           treatment as MoveCard/AskPaydayCard/AskGenericCard. Close/dismiss
           sits on the same row, gated by `showCloseButton` (see above): a
-          collapse-only × whenever `onClose` is passed (preview toggle,
-          executed-row expand — never persists, safe on both Home and
+          collapse-only chevron-up whenever `onClose` is passed (the
+          entry-row preview toggle — never persists, safe on both Home and
           Penny), or a real dismiss × only when the caller opts in via
-          `dismissible` (Home's live, not-yet-executed full card — see
-          HomeBrief.tsx's PaydayPlanSection, `dismissible={!!gate}`). Penny
-          never sets `dismissible`, so its live card renders no × at all
-          (owner rule 2026-08-29: Penny is the plan's permanent home, only
-          Home may dismiss it). Dismiss × is the V2 "Glass chip" (owner
-          decision, Kevin 2026-08-27, /design/dismiss-x), the one dismiss-x
-          treatment for cards app-wide; see HomeBrief.tsx's DismissChip for
-          the canonical (factored) version — this card lives outside
-          HomeBrief.tsx so it carries its own copy of the same markup
-          rather than importing an unexported local component. */}
+          `dismissible` (Home's live card — see HomeBrief.tsx's
+          PaydayPlanSection, `dismissible={!!gate}`). Penny never sets
+          `dismissible`, so its card renders only the minimise chevron, never
+          an × (Penny is the plan's permanent home, always visible for the
+          next payday, never dismissable — G164, 2026-09-26). Dismiss × is
+          the V2 "Glass chip" (owner decision, Kevin 2026-08-27,
+          /design/dismiss-x), the one dismiss-x treatment for cards app-wide;
+          see HomeBrief.tsx's DismissChip for the canonical (factored)
+          version — this card lives outside HomeBrief.tsx so it carries its
+          own copy of the same markup rather than importing an unexported
+          local component. The minimise chevron reuses the same 44px hit
+          area and glass-chip treatment, swapping only the glyph and
+          aria-label so it never reads as "dismiss". */}
       <div className="p-4">
         <div className="mb-3 flex items-start justify-between gap-2">
           <div className="flex min-w-0 items-center gap-3">
@@ -140,12 +137,16 @@ export default function PaydayPlanCard({ item, router, hideNetWorth, maskAmounts
           {showCloseButton && (
             <button
               type="button"
-              aria-label={onClose ? "Close" : "Dismiss"}
+              aria-label={onClose ? "Minimise" : "Dismiss"}
               onClick={handleCloseClick}
               className="flex-shrink-0 -mt-2 -mr-2 w-11 h-11 flex items-center justify-center rounded-full touch-manipulation [-webkit-tap-highlight-color:transparent] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 active:scale-95 transition-transform duration-150 motion-reduce:transition-none"
             >
               <span className="w-7 h-7 flex items-center justify-center rounded-full bg-slate-900/[0.05] dark:bg-white/[0.06] border border-slate-900/[0.06] dark:border-white/10 [@media(hover:hover)]:hover:bg-slate-900/[0.09] dark:[@media(hover:hover)]:hover:bg-white/[0.11] transition-colors duration-150 motion-reduce:transition-none">
-                <X size={14} aria-hidden="true" className="text-slate-500 dark:text-slate-300" />
+                {onClose ? (
+                  <ChevronUp size={14} aria-hidden="true" className="text-slate-500 dark:text-slate-300" />
+                ) : (
+                  <X size={14} aria-hidden="true" className="text-slate-500 dark:text-slate-300" />
+                )}
               </span>
             </button>
           )}

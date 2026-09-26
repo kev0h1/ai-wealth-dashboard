@@ -12,7 +12,7 @@ payday plan's own pooled sizing. See app/services/companion.py's
 Follows the full-collection-fake pattern established by
 tests/test_payday_plan_fixes.py / tests/test_payday_split.py (real
 `compute_today_items`, no mocked Mongo) — genuine OUTSIDE-window preview
-(FIX A's contract: a call inside an executed window never recomputes) so
+(FIX A's contract: a call inside a settled window never recomputes) so
 the plan actually runs its dest-building loop.
 """
 import asyncio

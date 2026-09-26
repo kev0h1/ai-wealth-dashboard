@@ -2339,71 +2339,15 @@ export interface PaydayPlanSectionProps {
   hasAccounts?: boolean;
 }
 
-// Third state (2026-08-29 FIX A): the window's live payday_plan has already
-// auto-verified ("done") — nothing left to forecast, only to report. A
-// quiet, single tap target ("Already split: £600 to 2 accounts ›") that
-// expands IN PLACE into the same full PaydayPlanCard using the item's own
-// (already-fetched) data — never a fresh preview fetch, and no glow (the
-// attention rung was removed app-wide, 2026-08-29 — this state is calm,
-// not something that needs eyes on it).
-//
-// FIX D (2026-08-29, owner report): passes `onClose` (never `dismissible`)
-// to the expanded PaydayPlanCard below, on BOTH Home and Penny. Before
-// PaydayPlanCard's `showCloseButton`/`onClose` fix, its × branched on
-// `item.preview` — false for an executed item — so this expand's × fell
-// into `handleDismiss`: the row looked like it "disappeared" on click
-// (rather than collapsing) and silently persisted a backend dismiss that
-// didn't even suppress regeneration (companion.py's executed-item path
-// never consulted the dismissed set), hence "clears but comes back on
-// refresh". Now the × here only ever collapses back to the summary row —
-// never a real dismiss — so it's safe to keep on Penny too, which per the
-// owner's rule (payday plan is Penny's permanent, non-dismissible content)
-// must never let this report be dismissed away, only shown or collapsed.
-function ExecutedPaydayRow({
-  item, router, hideNetWorth, maskAmounts, onRefresh,
-}: {
-  item: CompanionItem;
-  router: ReturnType<typeof useRouter>;
-  hideNetWorth: boolean;
-  maskAmounts: (text: string) => string;
-  onRefresh?: () => void;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const moveCount = (item.dests ?? []).filter(d => d.move > 0).length;
-  const total = Math.round(item.total ?? 0);
-  const summary = hideNetWorth
-    ? `Already split: £•••• to ${moveCount} ${moveCount === 1 ? "account" : "accounts"}`
-    : `Already split: £${total.toLocaleString("en-GB")} to ${moveCount} ${moveCount === 1 ? "account" : "accounts"}`;
-
-  if (expanded) {
-    return (
-      <PaydayPlanCard
-        item={item}
-        router={router}
-        hideNetWorth={hideNetWorth}
-        maskAmounts={maskAmounts}
-        onRefresh={onRefresh}
-        onClose={() => setExpanded(false)}
-      />
-    );
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={() => setExpanded(true)}
-      aria-expanded={false}
-      className="glass-card rounded-2xl w-full min-h-[44px] px-4 py-3 flex items-center justify-between gap-3 text-left active:scale-[0.99] transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-    >
-      <span className="min-w-0">
-        <span className="block text-[15px] font-semibold text-slate-900 dark:text-slate-100 leading-snug">
-          {maskAmounts(summary)}
-        </span>
-      </span>
-      <ChevronRight size={16} aria-hidden="true" className="flex-shrink-0 text-slate-400 dark:text-slate-500" />
-    </button>
-  );
-}
+// G164 (2026-09-26, Kevin): there is no third ("executed"/"already split")
+// state any more — `ExecutedPaydayRow` is deleted outright. The payday plan
+// is purely advisory: a forward-looking suggestion for the period that
+// starts on payday, an alternative to fixed standing orders. Once the pay
+// lands there is nothing left to validate, so there is nothing to report
+// either. Home shows the live entry row/plan until the period's salary is
+// observed, then nothing; Penny always shows the plan for the NEXT payday
+// (see `hasLivePlan`/`paydaySubline` below), with a minimise-only chevron,
+// never an X.
 
 // Extracted out of HomeBrief/BriefBody so both Home (gated to a timely
 // window) and the Penny screen (its permanent, ungated home) render the
@@ -2425,20 +2369,13 @@ export function PaydayPlanSection({ items, safeToSpend, hideNetWorth = false, on
 
   const paydayPlanItems = items.filter(i => i.type === "payday_plan");
   // Hide the entry row entirely once a real payday_plan item is already
-  // surfaced in items (payday itself) — no duplication on payday. An
-  // `executed` item (2026-08-29 FIX A: the window's live plan has already
-  // auto-verified) still counts as "there's a plan here" for this purpose —
-  // it renders its own quiet row below rather than the entry row reopening
-  // a preview that, inside an already-paid window, has nothing left to
-  // forecast.
+  // surfaced in items (payday itself) — no duplication on payday. G164
+  // (2026-09-26): there is no third "executed" state any more — a plan
+  // overtaken by the user's own standing orders is superseded quietly on
+  // the backend (no item at all), so every payday_plan item reaching this
+  // component is a live, dismissible (Home) or minimisable (Penny) plan.
   const hasLivePlan = paydayPlanItems.length > 0;
-  // Third state (window active + plan executed): a quiet "Already split"
-  // row, expandable in place into the SAME full PaydayPlanCard using data
-  // already on hand — never a fresh `/today?payday_preview=1` fetch, which
-  // is exactly the call FIX A's gate now knows to answer with this same
-  // executed summary anyway.
-  const executedPlanItems = paydayPlanItems.filter(i => i.executed);
-  const activePlanItems = paydayPlanItems.filter(i => !i.executed);
+  const activePlanItems = paydayPlanItems;
 
   const windowActive = isPaydayWindowActive({
     hasLivePlan,
@@ -2530,10 +2467,6 @@ export function PaydayPlanSection({ items, safeToSpend, hideNetWorth = false, on
     <div className="mt-3 space-y-3">
       {activePlanItems.map(item => (
         <PaydayPlanCard key={item.id} item={item} router={router} hideNetWorth={hideNetWorth} maskAmounts={maskAmounts} onRefresh={onRefresh} dismissible={!!gate} />
-      ))}
-
-      {executedPlanItems.map(item => (
-        <ExecutedPaydayRow key={item.id} item={item} router={router} hideNetWorth={hideNetWorth} maskAmounts={maskAmounts} onRefresh={onRefresh} />
       ))}
 
       {showEntryRow && (

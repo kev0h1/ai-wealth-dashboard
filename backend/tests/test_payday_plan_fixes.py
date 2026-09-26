@@ -1,17 +1,29 @@
-"""Coverage for the three payday-plan fixes agreed 2026-08-29:
+"""Coverage for the payday-plan fixes agreed 2026-08-29, revised G164
+(2026-09-26, Kevin's advisory-only decision):
 
 FIX A — a call landing INSIDE the payday window AFTER the live payday_plan
-doc has already auto-verified ("done") must never compute a fresh preview
-(which previously priced the period AFTER next payday against a balance
-that already has the real salary landed). Instead it must emit a quiet
-"already split" summary sourced straight from the persisted doc, flagged
-`executed: True`. Applies to both a preview request and the plain
-(non-preview) in-window call.
+doc has already settled ("done" — the user acted on it by hand — or
+"superseded" — their own standing orders got there first, G164) must never
+compute a fresh plan FOR THAT WINDOW. G164 dropped the old "already split"
+executed summary entirely: the payday plan is purely advisory, so a settled
+window has nothing left to REPORT either — a plain in-window call emits
+NOTHING. A `payday_preview` call is different: Penny always wants the NEXT
+payday's plan, settled window or not, so preview keeps running and prices
+the period after the settled one.
 
-FIX B — a genuine preview (taken OUTSIDE the payday window) must date its
-simulated salary credit at the REAL next payday inside the existing
-running-balance walk, not "today" — draining this period's remaining bills
-first, exactly as the walk already does for every other event.
+G164 — a payday_plan doc born ACTIVE and already fully cleared before the
+SAME `compute_today_items` call even finishes (the standing orders had
+already fired before Sorted ever proposed anything) is superseded quietly:
+no "done", no celebration, no item at all — including the in-memory item
+already added earlier in that same call. A doc that was active in an
+EARLIER run and clears now is the user-acted-by-hand case and keeps the
+done+celebrate behaviour that predates G164.
+
+FIX B — a genuine preview (taken OUTSIDE the payday window, or INSIDE one
+that has already settled, per FIX A above) must date its simulated salary
+credit at the REAL next payday inside the existing running-balance walk,
+not "today" — draining this period's remaining bills first, exactly as the
+walk already does for every other event.
 
 FIX C — `commitment_names` (already computed server-side) must reach a
 floored dest's payload unchanged, confirming the frontend has something to
@@ -21,7 +33,7 @@ Follows the full-collection-fake pattern established by
 tests/test_payday_split.py (real `compute_today_items`, no mocked Mongo).
 """
 import asyncio
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 import app.core.timeutil as timeutil
 import app.db.collections as db_collections
@@ -143,15 +155,15 @@ def _payday_plan(items):
     return next((i for i in items if i["type"] == "payday_plan"), None)
 
 
-# ── FIX A — executed-window gate ─────────────────────────────────────────────
+# ── FIX A / G164 — settled-window gate + advisory-only lifecycle ────────────
 
-def _make_done_doc(pstart: date, dests):
+def _make_settled_doc(pstart: date, dests, *, status: str, created_at=None):
     total = sum(d["move"] for d in dests)
-    return {
+    doc = {
         "_id": f"payday_plan:{pstart.isoformat()}:realfp",
         "uid": UID,
         "type": "payday_plan",
-        "status": "done",
+        "status": status,
         "headline": f"Payday plan: split £{total:,} across {len(dests)} accounts",
         "body": f"£{total:,} distributed, £0 stays in Salary Account.",
         "action": {"label": "See what's due ›", "route": "/upcoming"},
@@ -167,73 +179,164 @@ def _make_done_doc(pstart: date, dests):
         },
         "trimmed": False,
     }
+    if created_at is not None:
+        doc["created_at"] = created_at
+    return doc
 
 
-def _executed_scenario(monkeypatch, *, preview: bool):
+def test_born_done_plan_is_superseded_with_no_celebration_and_no_item(monkeypatch):
+    """G164: a payday_plan doc built THIS SAME run (section 5b) whose
+    destinations already all clear (`min_running >= 0`) by the time step 7
+    checks it was never a live suggestion the user could act on — the
+    standing orders had already fired before Sorted ever proposed anything.
+    It is superseded quietly: no "done", no `_celebrated`, no item at all —
+    including the in-memory item 5b already appended this same call."""
     today_d = timeutil.user_today()
     pay_period = _base_patch(
         monkeypatch,
-        accounts=[_account(SALARY_ACCT, 50.0), _account(DEST_ACCT, 0.0, "Saving Challenge")],
-        # A fictional-looking preview (if it ran) would price a huge NEXT
-        # period against these — proof the executed gate actually suppressed
-        # computation rather than the numbers coincidentally matching.
-        bills=[_bill("Mortgage", 20, 2365.0, account_id=SALARY_ACCT)],
+        # DEST_ACCT has no bills/income of its own, so the running walk
+        # never pushes it negative (min_running stays at its own starting
+        # balance, 0.0, which is >= 0) — while section 5b's own target
+        # formula (bills_total + spend_typical + buffer, all zero here bar
+        # the default £50 payday_buffer) still proposes topping it up.
+        accounts=[_account(SALARY_ACCT, 3000.0), _account(DEST_ACCT, 0.0, "Everyday")],
+        bills=[],
+        income=[_salary(0, 2000.0)],
+    )
+    monkeypatch.setattr(pay_period, "get_pay_period_for_date", lambda ref, cfg: (today_d, today_d + timedelta(days=29)))
+    monkeypatch.setattr(pay_period, "_next_payday", lambda today, cfg: today_d + timedelta(days=30))
+
+    items = asyncio.run(companion.compute_today_items(UID, payday_preview=False, persist=True))
+
+    assert _payday_plan(items) is None, "a plan that clears before it was ever live must emit nothing"
+
+    plan_docs = [d for d in companion.companion_items_col.docs if d.get("type") == "payday_plan"]
+    assert len(plan_docs) == 1
+    assert plan_docs[0]["status"] == "superseded"
+    assert not plan_docs[0].get("_celebrated")
+
+    celebrations = [i for i in items if i["type"] == "celebration"]
+    assert not celebrations, "a born-done plan must never celebrate"
+
+
+def test_active_plan_from_an_earlier_run_that_clears_is_done_and_celebrated(monkeypatch):
+    """The pre-G164 path is unchanged: a plan that was ALREADY active from
+    an earlier run (its own `created_at` predates this call's start) and
+    NOW clears is the user-acted-by-hand case — it goes "done", celebrates
+    once, exactly as before."""
+    today_d = timeutil.user_today()
+    pay_period = _base_patch(monkeypatch, accounts=[_account(SALARY_ACCT, 3000.0), _account(DEST_ACCT, 500.0, "Everyday")], bills=[], income=[])
+    monkeypatch.setattr(pay_period, "get_pay_period_for_date", lambda ref, cfg: (today_d, today_d + timedelta(days=29)))
+    monkeypatch.setattr(pay_period, "_next_payday", lambda today, cfg: today_d + timedelta(days=30))
+
+    dests = [
+        {
+            "account_id": DEST_ACCT, "name": "Everyday", "provider": "Barclays",
+            "balance": 500, "bills_total": 0, "bill_count": 0, "spend_typical": 0, "buffer": 0,
+            "target": 500, "move": 500, "usual": None,
+        },
+    ]
+    earlier_run = datetime.utcnow() - timedelta(hours=2)
+    active_doc = _make_settled_doc(today_d, dests, status="active", created_at=earlier_run)
+    monkeypatch.setattr(companion, "companion_items_col", _Col([active_doc]))
+
+    items = asyncio.run(companion.compute_today_items(UID, payday_preview=False, persist=True))
+
+    stored = next(d for d in companion.companion_items_col.docs if d["_id"] == active_doc["_id"])
+    assert stored["status"] == "done"
+    assert stored.get("_celebrated") is True
+
+    celebrations = [i for i in items if i["type"] == "celebration"]
+    assert celebrations, "an earlier-run active plan clearing now must still celebrate"
+
+
+def test_preview_inside_a_paid_window_prices_the_next_period(monkeypatch):
+    """G164: once a window has settled (done or superseded), a plain call
+    emits nothing (see the next test), but Penny's `payday_preview` call
+    must still get a plan — for the NEXT payday, not a recompute of the
+    settled one, and without double-crediting the salary that has already
+    landed in `live_balances`."""
+    today_d = timeutil.user_today()
+    days_to_pay = 30
+    pay_period = _base_patch(
+        monkeypatch,
+        # SALARY_ACCT's balance already reflects the landed salary; the
+        # only future event is next period's own bill and next period's
+        # own salary, about a month out.
+        accounts=[_account(SALARY_ACCT, 5000.0)],
+        bills=[_bill("Mortgage", days_to_pay - 5, 900.0, account_id=SALARY_ACCT)],
+        income=[_salary(days_to_pay, 2500.0)],
+    )
+    monkeypatch.setattr(pay_period, "get_pay_period_for_date", lambda ref, cfg: (today_d, today_d + timedelta(days=3)))
+    monkeypatch.setattr(pay_period, "_next_payday", lambda today, cfg: today_d + timedelta(days=days_to_pay))
+
+    # A settled window (superseded here; "done" behaves identically per the
+    # FIX A gate, which treats both the same way) for the CURRENT window.
+    settled_doc = _make_settled_doc(today_d, [
+        {"account_id": SALARY_ACCT, "name": "Salary Account", "provider": "Barclays",
+         "balance": 0, "bills_total": 0, "bill_count": 0, "spend_typical": 0, "buffer": 0,
+         "target": 0, "move": 0, "usual": None},
+    ], status="superseded")
+    monkeypatch.setattr(companion, "companion_items_col", _Col([settled_doc]))
+
+    calls: list[tuple[list, dict]] = []
+    real_walk = companion._walk_events
+
+    def spy(events, balances):
+        calls.append((list(events), dict(balances)))
+        return real_walk(events, balances)
+
+    monkeypatch.setattr(companion, "_walk_events", spy)
+
+    items = asyncio.run(companion.compute_today_items(UID, payday_preview=True, persist=False))
+    plan = _payday_plan(items)
+    assert plan is not None, "a preview must still price the NEXT payday even inside a settled window"
+    assert plan.get("preview") is True
+    assert plan["next_pay"] == (today_d + timedelta(days=days_to_pay)).isoformat()
+
+    # No double-counting: the preview salary credit enters the walk dated at
+    # next_pay, never at "today" (day 0) — the account's CURRENT balance
+    # already carries whatever landed previously; crediting it again at day
+    # 0 would double it.
+    main_events, _ = calls[0]
+    salary_events = [e for e in main_events if e[1] == SALARY_ACCT and e[3] is True and abs(e[2] - 2500.0) < 0.01]
+    assert salary_events, "preview salary credit never entered the walk as an event"
+    assert all(e[0] == days_to_pay for e in salary_events)
+    assert not any(e[0] == 0 for e in salary_events), "salary must not be credited a second time 'today'"
+
+
+def test_plain_in_window_call_with_superseded_doc_emits_nothing_and_does_not_suppress_moves(monkeypatch):
+    """G164: a plain (non-preview) in-window call against a settled window
+    emits no payday_plan item at all (the advisory plan has nothing left to
+    report), and — unlike the old live-plan window — must NOT suppress the
+    ordinary per-destination move cards: a residual shortfall is exactly
+    how Penny should still speak if the standing orders left an account
+    short."""
+    today_d = timeutil.user_today()
+    pay_period = _base_patch(
+        monkeypatch,
+        accounts=[_account(SALARY_ACCT, 50.0), _account(DEST_ACCT, 0.0, "Everyday")],
+        # A genuine, still-unfunded shortfall at DEST_ACCT — proof a "move"
+        # recommendation can still surface once the plan itself is settled.
+        bills=[_bill("Rent", 2, 400.0, account_id=DEST_ACCT, account_balance=0.0)],
         income=[_salary(20, 3000.0)],
     )
     monkeypatch.setattr(pay_period, "get_pay_period_for_date", lambda ref, cfg: (today_d, today_d + timedelta(days=29)))
     monkeypatch.setattr(pay_period, "_next_payday", lambda today, cfg: today_d + timedelta(days=20))
 
-    done_dests = [
-        {
-            "account_id": DEST_ACCT, "name": "Saving Challenge", "provider": "Barclays",
-            "balance": 0, "bills_total": 0, "bill_count": 0, "spend_typical": 0, "buffer": 0,
-            "target": 500, "move": 500, "usual": None, "commitment_names": ["Summer holiday"],
-        },
-        {
-            "account_id": "acc-personal", "name": "Personal", "provider": "Barclays",
-            "balance": 0, "bills_total": 0, "bill_count": 0, "spend_typical": 100, "buffer": 0,
-            "target": 100, "move": 100, "usual": 100,
-        },
-    ]
-    done_doc = _make_done_doc(today_d, done_dests)
-    monkeypatch.setattr(companion, "companion_items_col", _Col([done_doc]))
+    settled_doc = _make_settled_doc(today_d, [
+        {"account_id": DEST_ACCT, "name": "Everyday", "provider": "Barclays",
+         "balance": 0, "bills_total": 400, "bill_count": 1, "spend_typical": 0, "buffer": 0,
+         "target": 400, "move": 400, "usual": None},
+    ], status="superseded")
+    monkeypatch.setattr(companion, "companion_items_col", _Col([settled_doc]))
 
-    items = asyncio.run(companion.compute_today_items(UID, payday_preview=preview, persist=False))
-    return items, done_doc
+    items = asyncio.run(companion.compute_today_items(UID, payday_preview=False, persist=False))
 
+    assert _payday_plan(items) is None
 
-def test_preview_suppressed_when_done_doc_exists_in_window(monkeypatch):
-    items, done_doc = _executed_scenario(monkeypatch, preview=True)
-    plan = _payday_plan(items)
-    assert plan is not None, "expected an executed payday_plan item, got none"
-
-    # Executed summary, not a freshly (fictionally) computed preview.
-    assert plan.get("executed") is True
-    assert not plan.get("preview")
-    assert plan["total"] == 600
-    assert plan["dests"] == done_doc["dests"]
-    # The £2,365 mortgage/next-period fiction must never have been priced.
-    assert plan["total"] != 2365
-    assert "next_pay" not in plan  # only genuine (non-executed) previews carry this
-
-
-def test_plain_in_window_call_also_returns_executed_summary_not_nothing(monkeypatch):
-    """The non-preview call (what Home's own `items` list is built from)
-    must ALSO surface the executed summary, so HomeBrief can render the
-    quiet 'Already split' row instead of falling back to the entry row."""
-    items, done_doc = _executed_scenario(monkeypatch, preview=False)
-    plan = _payday_plan(items)
-    assert plan is not None
-    assert plan.get("executed") is True
-    assert plan["total"] == 600
-    assert plan["dests"] == done_doc["dests"]
-
-
-def test_commitment_names_survive_the_executed_passthrough(monkeypatch):
-    items, _ = _executed_scenario(monkeypatch, preview=True)
-    plan = _payday_plan(items)
-    floored = next(d for d in plan["dests"] if d["account_id"] == DEST_ACCT)
-    assert floored["commitment_names"] == ["Summer holiday"]
+    move_items = [i for i in items if i["type"] == "move"]
+    assert move_items, "a residual shortfall must still surface as a move card once the plan is settled"
 
 
 # ── FIX B — dated preview salary credit ──────────────────────────────────────

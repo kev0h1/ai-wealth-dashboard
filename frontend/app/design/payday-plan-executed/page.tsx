@@ -1,10 +1,10 @@
 import { Suspense } from "react";
-import PaydayPlanExecutedClient from "./PaydayPlanExecutedClient";
+import PaydayPlanLifecycleClient from "./PaydayPlanLifecycleClient";
 
 export default function Page() {
   return (
     <Suspense fallback={null}>
-      <PaydayPlanExecutedClient />
+      <PaydayPlanLifecycleClient />
     </Suspense>
   );
 }

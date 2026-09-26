@@ -1379,43 +1379,14 @@ def _recelebration_gated(stored: dict, now_utc: datetime) -> bool:
     return (now_utc - ca).total_seconds() < _RECELEBRATE_COOLDOWN_SECONDS
 
 
-def _executed_payday_plan_item(doc: dict) -> dict:
-    """Render a "done" payday_plan doc (companion_items_col) as a quiet
-    executed summary rather than recomputing anything — see the FIX A gate
-    in `compute_today_items` (2026-08-29). Carries the plan's REAL,
-    already-actioned dests/total (including any `commitment_names` on each
-    dest, unchanged from when the doc was persisted), flagged
-    `executed: True` so the frontend renders a calm "already split" state
-    instead of an editable/actionable plan card. Never persists anything —
-    the doc it reads already IS the persisted record."""
-    dests = doc.get("dests") or []
-    total = int(
-        doc.get("_total") if doc.get("_total") is not None
-        else round(sum(float(d.get("move") or 0) for d in dests))
-    )
-    n_moves = len([d for d in dests if (d.get("move") or 0) > 0])
-    headline = doc.get("headline") or (
-        f"Payday plan: split £{total:,} across {n_moves} accounts"
-        if total > 0 else "Payday plan: every account is already set"
-    )
-    body = doc.get("body") or (
-        f"£{total:,} already sorted across {n_moves} {'account' if n_moves == 1 else 'accounts'}."
-        if total > 0 else "Every account was already set this payday."
-    )
-    return {
-        "id": doc.get("_id"),
-        "type": "payday_plan",
-        "headline": headline,
-        "body": body,
-        "covered": bool(doc.get("covered", True)),
-        "total": total,
-        "trimmed": bool(doc.get("trimmed", False)),
-        "salary": doc.get("salary"),
-        "dests": dests,
-        "estimated": False,
-        "executed": True,
-        "action": doc.get("action") or {"label": "See what's due ›", "route": "/upcoming"},
-    }
+# G164 (2026-09-26, Kevin): `_executed_payday_plan_item` (the "already
+# split" quiet-executed-summary renderer) is deleted outright. The payday
+# plan is purely advisory — a forward-looking suggestion for the period
+# that starts on payday — so once the pay lands there is nothing left to
+# validate or report on either surface, and no `executed` state exists any
+# more. See the FIX A gate below in `compute_today_items` for what a
+# done/superseded window emits instead: nothing, for a plain in-window
+# call; the NEXT payday's preview, for a payday_preview call.
 
 
 # ── HOME ITEM SUPPRESSION REGISTRY ──────────────────────────────────────────
@@ -1954,6 +1925,12 @@ async def compute_today_items(
     and why it is the SAME figure the live source finder uses, not a
     second, possibly-drifting definition of it.
     """
+
+    # G164: captured before any read/write this call makes, so a payday_plan
+    # doc's own `created_at` (stamped later in THIS SAME call, at
+    # persistence — see the "born this run" check in step 7) always
+    # compares >= this mark when it was created by this very call.
+    _run_started_at = datetime.utcnow()
 
     # ── 1. Load cashflow cache + prefs (once — threaded through below) ──────
     cached = await cashflow_cache_col.find_one({"_id": uid})
@@ -2978,29 +2955,40 @@ async def compute_today_items(
     # plan to overlap with.
     _pp_dest_ids_final: set = set()
 
-    # FIX A gate (2026-08-29, Kevin): a call that lands INSIDE this window
-    # AFTER the live payday_plan doc has already auto-verified ("done" —
-    # step 7 below) must never compute a fresh plan. Left unguarded, a
+    # FIX A gate (2026-08-29, Kevin; revised G164 2026-09-26): a call that
+    # lands INSIDE this window AFTER the live payday_plan doc has already
+    # settled — "done" (the user acted on the plan by hand) or
+    # "superseded" (their own standing orders got there first, G164) — must
+    # never recompute a fresh plan FOR THIS WINDOW. Left unguarded, a
     # preview taken in this state priced the period AFTER next payday (a
     # month out) on top of a balance that already has the real salary
     # landed — the £2,365/3-accounts nonsense Kevin screenshotted next to
-    # the correct £600 live plan. Applies to BOTH the plain in-window call
-    # and a preview — an already-executed window has nothing left to
-    # forecast, only to report. Matched on the window's `_pstart` prefix
-    # (the fingerprint suffix can vary run to run; any done doc for this
-    # exact window means this window is spoken for) rather than recomputing
-    # `_pp_item_id`, which needs the full (skipped) computation below.
+    # the correct £600 live plan.
+    #
+    # G164: the payday plan is advisory-only, so a settled window has
+    # nothing to REPORT any more either — a plain in-window call emits
+    # NOTHING (no executed/already-split item; Upcoming already lists what
+    # actually moved). A `payday_preview` call is different: Penny always
+    # wants the NEXT payday's plan, settled window or not, so preview is
+    # left running below — `next_pay` is already the next occurrence
+    # strictly after today, and the FIX B preview-salary dating (2026-08-29)
+    # already prices off that date rather than crediting a salary that has
+    # already landed a second time.
+    #
+    # Matched on the window's `_pstart` prefix (the fingerprint suffix can
+    # vary run to run; any settled doc for this exact window means this
+    # window is spoken for) rather than recomputing `_pp_item_id`, which
+    # needs the full (skipped) computation below.
     if payday_window:
         _pp_win_prefix = f"payday_plan:{_pstart.isoformat()}:"
-        _pp_done_doc = None
+        _pp_settled_doc = None
         async for _pp_cand in companion_items_col.find(
-            {"uid": uid, "type": "payday_plan", "status": "done"}
+            {"uid": uid, "type": "payday_plan", "status": {"$in": ["done", "superseded"]}}
         ):
             if str(_pp_cand.get("_id", "")).startswith(_pp_win_prefix):
-                _pp_done_doc = _pp_cand
+                _pp_settled_doc = _pp_cand
                 break
-        if _pp_done_doc:
-            items.append(_executed_payday_plan_item(_pp_done_doc))
+        if _pp_settled_doc and not payday_preview:
             _effective_payday_window = False
 
     if _effective_payday_window:
@@ -3453,7 +3441,7 @@ async def compute_today_items(
                     # auto-verification pass (step 7 below) flips this to "done"
                     # and celebrates once every listed destination clears.
                     _pp_existing = await companion_items_col.find_one({"_id": _pp_item_id, "uid": uid})
-                    if not (_pp_existing and _pp_existing.get("status") == "done"):
+                    if not (_pp_existing and _pp_existing.get("status") in ("done", "superseded")):
                         _pp_doc = {
                             "_id": _pp_item_id,
                             "uid": uid,
@@ -4385,13 +4373,53 @@ async def compute_today_items(
         "$or": [
             {"status": "active", "_celebrated": {"$ne": True}},
             {"status": "done", "_celebrated": True},
+            # G164: a superseded plan reaches this pass only so its window
+            # can expire it like any other doc below — never to celebrate
+            # or reactivate.
+            {"status": "superseded"},
         ],
     }):
         stored_dest = stored.get("_dest_acct")
         stored_window = stored.get("_window_end", "")
         stored_id = stored["_id"]
         stored_status = stored.get("status")
+        stored_dest_accts = stored.get("_dest_accts")
         if stored_id in dismissed:
+            continue
+        # G164 (2026-09-26, Kevin): the payday plan is purely advisory — a
+        # plan born ACTIVE and already fully cleared before this SAME run
+        # even finishes (the standing orders had already fired before
+        # Sorted ever proposed anything, e.g. a 03:00 sync racing the
+        # night's payments) was never a live suggestion the user could act
+        # on, so it is superseded quietly: no "done", no celebration, no
+        # item — including the in-memory item section 5b already appended
+        # to `items` for this exact doc earlier in THIS SAME call, which is
+        # stripped back out below. A plan that was active in an EARLIER run
+        # and clears now is the user-acted-by-hand case (or the plan
+        # genuinely funded the window) and keeps today's done+celebrate
+        # behaviour further down. `_run_started_at` is taken at the top of
+        # `compute_today_items`, before this doc's own persistence write
+        # (which happens earlier in the SAME call, at section 5b, so its
+        # `created_at` is always >= that mark when born this run). This
+        # check must run BEFORE the "already emitted" skip just below,
+        # since a born-this-run doc is exactly the case that's already in
+        # `items`.
+        if (
+            stored_status == "active"
+            and stored.get("type") == "payday_plan"
+            and stored_dest_accts
+            and isinstance(stored_dest_accts, list)
+            and len(stored_dest_accts) > 0
+            and all(min_running.get(d, 0.0) >= 0 for d in stored_dest_accts)
+            and stored.get("created_at") is not None
+            and stored["created_at"] >= _run_started_at
+        ):
+            if persist:
+                await companion_items_col.update_one(
+                    {"_id": stored_id, "uid": uid},
+                    {"$set": {"status": "superseded"}},
+                )
+            items[:] = [i for i in items if i.get("id") != stored_id]
             continue
         # If the stored item is already emitted in this run, skip
         if any(i["id"] == stored_id for i in items):
@@ -4405,8 +4433,12 @@ async def compute_today_items(
                     {"$set": {"status": "expired"}},
                 )
             continue
+        if stored_status == "superseded":
+            # G164: dead already — a superseded plan never comes back, never
+            # celebrates, and is never reactivated. Nothing left to do this
+            # run except the window-expiry check above.
+            continue
         # Handle plan docs (multiple dest accounts)
-        stored_dest_accts = stored.get("_dest_accts")
         if stored_dest_accts and isinstance(stored_dest_accts, list) and len(stored_dest_accts) > 0:
             if all(min_running.get(d, 0.0) >= 0 for d in stored_dest_accts):
                 stored_total = stored.get("_total", 0)
