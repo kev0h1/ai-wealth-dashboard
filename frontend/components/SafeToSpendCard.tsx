@@ -89,19 +89,30 @@ function SpendFromBankRail({ entries, amount, onLogoError }: {
   onLogoError: (logoSrc: string) => void;
 }) {
   return (
-    <div data-g115-treatment="bank-rail" className="min-w-[76px]">
-      <p className="mb-1 text-right text-[9px] font-bold uppercase tracking-[0.07em] text-slate-400 dark:text-slate-500">Spend from</p>
-      <ul aria-label="Accounts with room to spend from" className="space-y-1.5">
+    // G171: one grid for the whole rail, label included, rather than a
+    // label sized independently above a list of nested per-row grids. The
+    // label is a row spanning both columns, left-aligned, so its left edge
+    // sits at the same x as the icon column by construction (it shares the
+    // column, it is not a separate width matched by hand). `ul` and `li`
+    // render as `display: contents` so their children (the badge, the
+    // amount) become direct items of this same grid instead of each row
+    // owning its own nested grid; the `sr-only` label per row stays
+    // `position: absolute`, so it never consumes a grid cell. A fixed 22px
+    // icon column plus a 1fr right-aligned figure column (G165) keeps the
+    // badge in one vertical line whatever the figure's own width is (£22 vs
+    // £275 no longer nudge it sideways); the icon size below must stay 22
+    // to match it.
+    <div
+      data-g115-treatment="bank-rail"
+      className="grid min-w-[76px] grid-cols-[22px_1fr] items-center gap-x-1.5 gap-y-1.5"
+    >
+      <p className="col-span-2 text-left text-[9px] font-bold uppercase tracking-[0.07em] text-slate-400 dark:text-slate-500">Spend from</p>
+      <ul aria-label="Accounts with room to spend from" className="contents">
         {entries.map((entry) => {
           const bank = localBank(entry.account)!;
           const spare = amount(entry.headroom);
           return (
-            // G165: a fixed 22px icon column plus a right-aligned figure
-            // column, so the badge sits in one vertical line whatever the
-            // figure's own width is (£22 vs £275 no longer nudge it
-            // sideways). Same template on every row is what keeps the
-            // column aligned; the icon size below must stay 22 to match it.
-            <li key={entry.accountId} className="grid grid-cols-[22px_1fr] items-center gap-1.5">
+            <li key={entry.accountId} className="contents">
               <span className="sr-only">{entry.name} at {bank.label}, {spare} spare</span>
               <BankBadge
                 logoSrc={bank.logoSrc}
