@@ -3493,7 +3493,7 @@ async def compute_today_items(
                                     {"_id": _pp_item_id, "uid": uid},
                                     {
                                         "$set": {k: v for k, v in _pp_doc.items() if k != "_id"},
-                                        "$setOnInsert": {"created_at": datetime.utcnow()},
+                                        "$setOnInsert": {"created_at": datetime.utcnow()},  # naive-ok: persisted doc-birth audit timestamp, never rendered to the user as a day/day-count
                                     },
                                     upsert=True,
                                 )
