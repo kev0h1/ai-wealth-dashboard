@@ -329,7 +329,7 @@ class _RegularMoveCardGate(NamedTuple):
 async def _gate_regular_move_cards(
     *,
     shortfalls: list[tuple],
-    suppress_moves: bool,
+    suppressed_accts: set[str],
     legs_by_dest: dict[str, list[dict]],
     uncovered_by_dest: dict[str, dict],
     dest_bucketed: dict[str, float],
@@ -369,31 +369,37 @@ async def _gate_regular_move_cards(
     will_emit_by_dest: dict[str, bool] = {}
     capped_out = 0
     emitted = 0
-    if not suppress_moves:
-        for _, _, dest_acct, _bill in shortfalls:
-            dest_legs = legs_by_dest.get(dest_acct) or []
-            if not dest_legs and not uncovered_by_dest.get(dest_acct):
-                continue
-            dest_fp = _shortfall_fingerprint([(dest_acct, dest_bucketed.get(dest_acct, 0))])
-            item_id = (
-                f"plan:{window_end.isoformat()}:{dest_fp}"
-                if dest_legs else
-                f"move:{dest_acct}:{window_end.isoformat()}:{dest_fp}"
-            )
-            item_id_by_dest[dest_acct] = item_id
-            if item_id in dismissed:
-                will_emit_by_dest[dest_acct] = False
-                continue
-            existing = await companion_items_col.find_one({"_id": item_id, "uid": uid})
-            if existing and existing.get("status") == "done":
-                will_emit_by_dest[dest_acct] = False
-                continue
-            if emitted >= _MOVE_CARD_CAP:
-                capped_out += 1
-                will_emit_by_dest[dest_acct] = False
-                continue
-            will_emit_by_dest[dest_acct] = True
-            emitted += 1
+    for _, _, dest_acct, _bill in shortfalls:
+        # Review fix (2026-09-27): a per-account exclusion, not a blanket
+        # one — an account the live payday plan evaluated this window
+        # (`_pp_planned_accts`, passed in as `suppressed_accts`) never gets
+        # a second, possibly-contradicting move card, but an account
+        # outside the plan's own destination scan is untouched.
+        if dest_acct in suppressed_accts:
+            continue
+        dest_legs = legs_by_dest.get(dest_acct) or []
+        if not dest_legs and not uncovered_by_dest.get(dest_acct):
+            continue
+        dest_fp = _shortfall_fingerprint([(dest_acct, dest_bucketed.get(dest_acct, 0))])
+        item_id = (
+            f"plan:{window_end.isoformat()}:{dest_fp}"
+            if dest_legs else
+            f"move:{dest_acct}:{window_end.isoformat()}:{dest_fp}"
+        )
+        item_id_by_dest[dest_acct] = item_id
+        if item_id in dismissed:
+            will_emit_by_dest[dest_acct] = False
+            continue
+        existing = await companion_items_col.find_one({"_id": item_id, "uid": uid})
+        if existing and existing.get("status") == "done":
+            will_emit_by_dest[dest_acct] = False
+            continue
+        if emitted >= _MOVE_CARD_CAP:
+            capped_out += 1
+            will_emit_by_dest[dest_acct] = False
+            continue
+        will_emit_by_dest[dest_acct] = True
+        emitted += 1
     return _RegularMoveCardGate(item_id_by_dest, will_emit_by_dest, capped_out)
 
 
@@ -1398,21 +1404,15 @@ _RECELEBRATE_COOLDOWN_SECONDS = 4 * 3600
 
 
 def _should_reactivate(stored: dict, min_running: dict[str, float]) -> bool:
-    """True when a stored "done" doc's destination(s) show a materially
+    """True when a stored "done" doc's destination shows a materially
     reopened shortfall in THIS request's `min_running` walk. Only ever
     called for "move" docs (G172: `payday_plan` docs carry no lifecycle —
     they never reach "done", and are excluded from the caller's query
     entirely — so nothing of that type ever reaches this function any
-    more). The multi-destination (`_dest_accts`) branch below stays generic
-    rather than being deleted with that caller, since nothing else about
-    this helper's contract depended on which doc type used it: a doc
-    listing several destinations reopens if ANY of them is materially
-    negative again — the doc's promise covered all of them, so a single
-    account slipping back into deficit breaks it just as much as one ever
-    did when the doc was first built."""
-    dest_accts = stored.get("_dest_accts")
-    if dest_accts and isinstance(dest_accts, list) and len(dest_accts) > 0:
-        return any(min_running.get(d, 0.0) < _REOPEN_THRESHOLD for d in dest_accts)
+    more). Review fix (2026-09-27): the old multi-destination (`_dest_accts`)
+    branch is deleted outright — nothing writes that field any more, "move"
+    docs only ever carried the single-dest `_dest_acct` field, so it was
+    already dead for every real caller."""
     dest = stored.get("_dest_acct")
     if not dest:
         return False
@@ -1452,11 +1452,11 @@ def _recelebration_gated(stored: dict, now_utc: datetime) -> bool:
 # product already states a fact from LIVE data, `compute_today_items` must
 # not ALSO emit a companion item narrating it. This generalises the
 # payday-window precedent that already lives inside the function below
-# (`_suppress_moves`, section 5b: "the plan card replaces the per-destination
-# cards during the payday window") into a declarative lookup that future
-# authors extend, so shipping a second, possibly-disagreeing voice for a
-# fact a standing surface already owns becomes a conscious registry edit
-# instead of an accidental duplicate card.
+# (`_pp_planned_accts`, section 5b: "the plan card replaces the per-
+# destination card for every account it evaluated") into a declarative
+# lookup that future authors extend, so shipping a second, possibly-
+# disagreeing voice for a fact a standing surface already owns becomes a
+# conscious registry edit instead of an accidental duplicate card.
 #
 # key = the item kind/id-prefix this function would otherwise emit.
 # value.owner = the standing surface that now owns the fact.
@@ -3007,6 +3007,24 @@ async def compute_today_items(
     # unfunded. Stays empty outside the payday window, where there is no
     # plan to overlap with.
     _pp_dest_ids_final: set = set()
+    # Review fix (2026-09-27): every account the plan actually EVALUATED
+    # this window (every entry in `dests`, move > 0 or not) — as opposed to
+    # `_pp_dest_ids_final` above, which is only the subset it's actually
+    # funding. `_acct_bills` (below) excludes a destination's own-transfer
+    # movement bills from the plan's own target/move arithmetic, but
+    # `is_assessable_bill` does NOT exclude them from the ordinary
+    # shortfall walk (`min_running`) that populates `shortfalls` — so a
+    # destination the plan already evaluated and is confident about (move
+    # == 0, or a `total == 0` "every account is already set" plan) can
+    # still show up in `shortfalls` as genuinely short under that same
+    # bill. Once the plan is live, its own per-destination cards are the
+    # ONLY voice for every account it evaluated — never a second, possibly
+    # contradicting "move money to X" card for one of its own destinations
+    # — while an account the plan never looked at (outside its own
+    # destination scan, e.g. `cover_plan_excluded_accounts`) is untouched
+    # and keeps its ordinary move card. Populated in section 5b below, and
+    # ONLY for a genuine (non-preview) live plan in the payday window.
+    _pp_planned_accts: set = set()
 
     # SALARY-OBSERVED gate (G172, 2026-09-27, Kevin): the live plan is a
     # recommendation for money not yet in place, so it stops the moment the
@@ -3027,7 +3045,6 @@ async def compute_today_items(
             _pstart,
         )
     _effective_payday_window = (payday_window and not _pp_salary_already_observed) or payday_preview
-    _suppress_moves = False
 
     if _effective_payday_window:
         # PREVIEW reads the PROJECTED payday-morning balance — today's live
@@ -3482,11 +3499,20 @@ async def compute_today_items(
                     # its own (`total == 0`) still surfaces, with the "every
                     # account is already set" headline built above — that's
                     # useful reassurance, not noise, and it stays dismissible
-                    # like any other plan. Only genuine moves (`total > 0`)
-                    # replace the per-destination cards; a `total == 0` plan
-                    # leaves them untouched, so a shortfall on some OTHER
-                    # account (outside this plan's own destinations) still
-                    # gets its own move card.
+                    # like any other plan. Review fix (2026-09-27): every
+                    # account the plan evaluated (`_pp_planned_accts`, every
+                    # entry in `dests`, not only `move > 0` ones) has its
+                    # ordinary per-destination card suppressed, regardless of
+                    # `total` — the plan already speaks for that account,
+                    # even when it's saying "nothing to move here", and a
+                    # second, possibly-contradicting move card for the SAME
+                    # account (e.g. one whose own-transfer bill this plan's
+                    # own target formula excludes but the ordinary shortfall
+                    # walk doesn't) would be a genuine contradiction, not
+                    # reassurance. An account the plan never evaluated at all
+                    # (outside its own destination scan, e.g.
+                    # `cover_plan_excluded_accounts`) is untouched and keeps
+                    # its own move card exactly as before.
                     _pp_doc = {
                         "_id": _pp_item_id,
                         "uid": uid,
@@ -3509,10 +3535,15 @@ async def compute_today_items(
                             upsert=True,
                         )
                     items.append(payday_plan_item)
-                    if total > 0:
-                        # The plan card replaces the per-destination cards
-                        # during the payday window.
-                        _suppress_moves = True
+                    # The plan card replaces the per-destination card for
+                    # every account it evaluated (see `_pp_planned_accts`'s
+                    # own docstring, near `_pp_dest_ids_final` above) —
+                    # whether or not this particular account ended up with a
+                    # nonzero move, and regardless of the plan's own
+                    # `total`. Accounts outside the plan's own destination
+                    # scan are never in `dests` at all, so they're never
+                    # added here and keep their ordinary move card.
+                    _pp_planned_accts = {d["account_id"] for d in dests}
 
     # ── 5d. UNFUNDED MOVE — deliberate owner extension of movement doctrine
     # (Kevin, 2026-08-27) ────────────────────────────────────────────────────
@@ -3572,7 +3603,7 @@ async def compute_today_items(
     try:
         _regular_move_gate = await _gate_regular_move_cards(
             shortfalls=shortfalls,
-            suppress_moves=_suppress_moves,
+            suppressed_accts=_pp_planned_accts,
             legs_by_dest=legs_by_dest,
             uncovered_by_dest=uncovered_by_dest,
             dest_bucketed=dest_bucketed,
@@ -4014,7 +4045,15 @@ async def compute_today_items(
     # it) a second time.
     capped_out = _regular_move_gate.capped_out
 
-    for _da, _sa, dest_acct, bill in ([] if _suppress_moves else shortfalls):
+    for _da, _sa, dest_acct, bill in shortfalls:
+        # Review fix (2026-09-27): per-account, not blanket — see
+        # `_pp_planned_accts`'s own docstring near `_pp_dest_ids_final`
+        # above. `_regular_move_gate` already excludes these destinations
+        # too (same set, passed in as its own `suppressed_accts`), so this
+        # is belt-and-braces with that single source of truth, not a
+        # second independent decision.
+        if dest_acct in _pp_planned_accts:
+            continue
         dest_legs = legs_by_dest.get(dest_acct) or []
 
         # ── (a) No viable source for this destination: the "no easy cover" card ──

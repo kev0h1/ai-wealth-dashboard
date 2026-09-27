@@ -197,25 +197,14 @@ def test_trivial_reopening_does_not_reactivate():
     assert _should_reactivate(stored, {"acc-natwest": -0.51}) is True
 
 
-def test_multi_dest_payday_plan_doc_reopens_if_any_destination_does():
-    """Payday Plan docs cover several destinations at once; the same one-way
-    "done" bug applies to them (confirmed while diagnosing this fix) — the
-    plan's promise covered every listed account, so ONE of them slipping
-    back into deficit must reopen the whole doc, not just the one account."""
-    stored = {"_dest_accts": ["acc-a", "acc-b", "acc-c"], "status": "done"}
-    # Two fine, one materially negative.
-    assert _should_reactivate(stored, {"acc-a": 5.0, "acc-b": 0.0, "acc-c": -12.0}) is True
-    # All fine.
-    assert _should_reactivate(stored, {"acc-a": 5.0, "acc-b": 0.0, "acc-c": 3.0}) is False
-    # One trivially negative only — still noise.
-    assert _should_reactivate(stored, {"acc-a": 5.0, "acc-b": 0.0, "acc-c": -0.10}) is False
-
-
 def test_doc_with_no_destination_never_reactivates():
-    """Defensive: a malformed/legacy doc with neither `_dest_acct` nor
-    `_dest_accts` must not crash or spuriously reactivate."""
+    """Defensive: a malformed/legacy doc with no `_dest_acct` must not crash
+    or spuriously reactivate. G172 review fix: the old multi-destination
+    `_dest_accts` branch is gone (nothing writes that field any more — see
+    `_should_reactivate`'s own docstring), so a doc carrying only that field
+    is exactly this "no destination" case now, not a second code path."""
     assert _should_reactivate({"status": "done"}, {"acc-a": -50.0}) is False
-    assert _should_reactivate({"_dest_accts": [], "status": "done"}, {"acc-a": -50.0}) is False
+    assert _should_reactivate({"_dest_accts": ["acc-a"], "status": "done"}, {"acc-a": -50.0}) is False
 
 
 def test_never_reactivated_doc_is_never_celebration_gated():

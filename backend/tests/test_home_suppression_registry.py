@@ -6,10 +6,10 @@ companion card (a front_loader-trait historical-average version of the same
 fact, which could disagree with Coming Up's live numbers) must never emit
 on Home again.
 
-The registry generalises the existing `_suppress_moves` precedent (section
+The registry generalises the existing `_pp_planned_accts` precedent (section
 5b, payday window: the Payday Plan card replaces the per-destination move
-cards) into a declarative lookup table future authors extend instead of
-hand-rolling a new local suppression flag. These tests exist so that
+card for every account it evaluated) into a declarative lookup table future
+authors extend instead of hand-rolling a new local suppression flag. These tests exist so that
 removing the `rhythm:cliff` entry — resurrecting the duplicate-voice bug —
 is a conscious, test-breaking edit rather than a silent regression.
 
