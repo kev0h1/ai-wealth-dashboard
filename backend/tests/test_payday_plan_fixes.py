@@ -1,27 +1,62 @@
-"""Coverage for the three payday-plan fixes agreed 2026-08-29:
+"""Coverage for the payday-plan fixes agreed 2026-08-29, revised G164
+(2026-09-26, Kevin's advisory-only decision; further revised in review):
 
 FIX A — a call landing INSIDE the payday window AFTER the live payday_plan
-doc has already auto-verified ("done") must never compute a fresh preview
-(which previously priced the period AFTER next payday against a balance
-that already has the real salary landed). Instead it must emit a quiet
-"already split" summary sourced straight from the persisted doc, flagged
-`executed: True`. Applies to both a preview request and the plain
-(non-preview) in-window call.
+doc has already gone "done" (the user acted on it by hand) must never
+compute a fresh plan FOR THAT WINDOW. G164 dropped the old "already split"
+executed summary entirely: the payday plan is purely advisory, so a done
+window has nothing left to REPORT either — a plain in-window call emits
+NOTHING. A `payday_preview` call is different: Penny always wants the NEXT
+payday's plan, done window or not, so preview keeps running and prices the
+period after the done one.
 
-FIX B — a genuine preview (taken OUTSIDE the payday window) must date its
-simulated salary credit at the REAL next payday inside the existing
-running-balance walk, not "today" — draining this period's remaining bills
-first, exactly as the walk already does for every other event.
+G164 — a payday plan whose every genuinely-funded destination (`move > 0`
+in the payday plan's own dest computation) ALREADY clears on its own
+(`min_running >= 0`) at the moment section 5b would first propose it is
+"born already-clear": the user's own standing orders got there first, so
+the advice is moot. This decision is made INSIDE 5b, before persistence and
+before `_suppress_moves` — nothing is persisted, no item is surfaced, and
+the ordinary per-destination move cards are NOT suppressed (a residual
+shortfall on some OTHER account is exactly how Penny should still speak).
+A plan with at least one destination still genuinely short is persisted
+active exactly as before; when it clears in a LATER run, it goes "done" and
+celebrates once (the user-acted-by-hand case). An earlier revision of this
+fix made the decision reactively in step 7 using a `created_at` vs
+run-start comparison — that was wrong: 5b re-persists the whole doc (and,
+before this revision, its `created_at`) on every run while still active, so
+an EARLIER-run plan could be misclassified as newborn and lose its
+celebration, and the born-clear plan was still briefly "live" (persisted,
+surfaced, moves suppressed) until step 7 unwound it a run later. Moving
+the decision earlier removes the whole class of bug; `created_at` is now
+protected with `$setOnInsert` regardless, so re-persisting an active doc
+never resets it.
 
-FIX C — `commitment_names` (already computed server-side) must reach a
-floored dest's payload unchanged, confirming the frontend has something to
-render.
+FIX B — a genuine preview (taken OUTSIDE the payday window, or INSIDE one
+that has already gone done, per FIX A above) must date its simulated salary
+credit at the REAL next payday inside the existing running-balance walk,
+not "today" — draining this period's remaining bills first, exactly as the
+walk already does for every other event.
+
+FUNDED-BY-HAND (2026-09-26 review fix) — a plan persisted active earlier
+that clears in a LATER run (as opposed to the same-run born-clear case
+above, which never persists at all) must not celebrate just because
+`min_running >= 0` — that's a forecast condition, not an observed credit.
+`_pp_funded_by_hand` looks at real credits into the plan's destinations
+since the doc's `created_at`: a credit that matches one of the user's own
+learned recurring MOVEMENT series into that destination
+(`cached["recurring_spend"]`'s `dest_account_id`, the same signal
+`_is_own_transfer_bill` already trusts) is the user's own standing order
+getting there first — quiet, no celebration, `_celebrated: False`. A credit
+that does NOT match any learned series is a genuine hand transfer — the
+existing celebrate path fires. No observed credit at all (cleared by
+forecast only) is NOT by hand either — quiet. Any lookup error fails safe
+to quiet.
 
 Follows the full-collection-fake pattern established by
 tests/test_payday_split.py (real `compute_today_items`, no mocked Mongo).
 """
 import asyncio
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 import app.core.timeutil as timeutil
 import app.db.collections as db_collections
@@ -56,10 +91,18 @@ class _Cursor:
 
 class _Col:
     """Minimal Motor stand-in — same precedent as test_payday_split.py's
-    harness: query filtering is NOT implemented for `find_one`/`find` in
-    general (single-user fixtures), but `find_one` DOES check `_id` so the
-    FIX A gate's own `find_one`-free `async for ... find(...)` prefix-match
-    still exercises real filtering logic in companion.py itself, not here."""
+    harness: `find()` ignores its query entirely and returns every doc (the
+    FIX A gate's own `async for ... find(...)` prefix-match over the result
+    is what exercises real filtering logic in companion.py itself, not
+    here) but `find_one` DOES filter on `_id` when the caller's query names
+    one, since companion.py makes several independent `find_one({"_id": ...})`
+    probes for DIFFERENT ids in the same request (the payday-plan doc's own
+    id, a per-destination move-card id) that must not cross-contaminate just
+    because only one fixture doc happens to be seeded.
+    `update_one` honours `$setOnInsert` (only applied when the doc doesn't
+    already exist) alongside `$set`, since companion.py's payday-plan
+    persistence now relies on that to protect `created_at` across repeat
+    runs."""
 
     def __init__(self, docs=None):
         self.docs = list(docs or [])
@@ -68,6 +111,16 @@ class _Col:
         return _Cursor(list(self.docs))
 
     async def find_one(self, query=None, projection=None):
+        # Filters on `_id` when the caller's query names one (every real
+        # caller in companion.py does) so a lookup for an UNRELATED id
+        # correctly finds nothing rather than returning whatever single
+        # fixture doc happens to be seeded — this matters once a test seeds
+        # a payday_plan doc AND expects an independent per-destination
+        # move-card lookup (a different id) to see "no existing doc", not
+        # accidentally match the payday_plan fixture by falling back to
+        # docs[0]. Falls back to docs[0] only when the query has no `_id`.
+        if query and "_id" in query:
+            return next((d for d in self.docs if d.get("_id") == query["_id"]), None)
         return self.docs[0] if self.docs else None
 
     async def update_one(self, filt, update, upsert=False):
@@ -80,6 +133,8 @@ class _Col:
             new_doc = dict(filt)
             for k, v in (update.get("$set") or {}).items():
                 new_doc[k] = v
+            for k, v in (update.get("$setOnInsert") or {}).items():
+                new_doc.setdefault(k, v)
             self.docs.append(new_doc)
 
 
@@ -103,19 +158,26 @@ def _salary(days_away, amount, account_id=SALARY_ACCT):
     return {
         "name": "Salary", "days_away": days_away, "amount": amount,
         "account_id": account_id, "occurrences": 3,
-        "amounts_recent": [amount, amount, amount],
+        "amounts_recent": [amount, amount, amount], "expected_date": "2026-08-29",
     }
 
 
 def _base_patch(monkeypatch, *, accounts, bills, income, companion_items=None):
+    companion_items_col = _Col(companion_items or [])
     monkeypatch.setattr(companion, "cashflow_cache_col", _Col([{"_id": UID}]))
     monkeypatch.setattr(companion, "preferences_col", _Col([{"user_id": UID}]))
     monkeypatch.setattr(companion, "accounts_col", _Col(accounts))
     monkeypatch.setattr(companion, "yapily_accounts_col", _Col([]))
     monkeypatch.setattr(companion, "manual_accounts_col", _Col([]))
-    monkeypatch.setattr(companion, "companion_items_col", _Col(companion_items or []))
+    monkeypatch.setattr(companion, "companion_items_col", companion_items_col)
     monkeypatch.setattr(companion, "behaviour_portrait_col", _Col([]))
     monkeypatch.setattr(companion, "transactions_col", _Col([]))
+    # `_pp_funded_by_hand` (G164 review fix) reads both collections
+    # unconditionally on every step-7 active→done transition for a
+    # multi-dest plan doc, so this harness must patch `yapily_transactions_col`
+    # too, exactly like `transactions_col` above, or an unpatched test would
+    # reach the real Mongo-backed collection.
+    monkeypatch.setattr(companion, "yapily_transactions_col", _Col([]))
     monkeypatch.setattr(db_collections, "savings_insights_col", _Col([]))
     monkeypatch.setattr(db_collections, "card_terms_col", _Col([]))
     monkeypatch.setattr(db_collections, "commitments_col", _Col([]))
@@ -136,14 +198,14 @@ def _base_patch(monkeypatch, *, accounts, bills, income, companion_items=None):
         return {"upcoming_bills": bills, "upcoming_income": income, "internal_inflows": []}
 
     monkeypatch.setattr(companion, "_build_cashflow_response", fake_resp)
-    return pay_period
+    return pay_period, companion_items_col
 
 
 def _payday_plan(items):
     return next((i for i in items if i["type"] == "payday_plan"), None)
 
 
-# ── FIX A — executed-window gate ─────────────────────────────────────────────
+# ── FIX A / G164 — done-window gate + advisory-only lifecycle ───────────────
 
 def _make_done_doc(pstart: date, dests):
     total = sum(d["move"] for d in dests)
@@ -169,71 +231,430 @@ def _make_done_doc(pstart: date, dests):
     }
 
 
-def _executed_scenario(monkeypatch, *, preview: bool):
+def test_plan_born_already_clear_is_never_persisted_or_surfaced(monkeypatch):
+    """G164 (review fix): a payday plan whose only genuinely-funded
+    destination already clears on its own the moment section 5b would
+    first propose it (the standing orders got there first) is never
+    persisted as a doc and never surfaced as an item — the advice is moot.
+    A genuine, still-unfunded shortfall on a DIFFERENT account (excluded
+    from the payday plan's own destinations via
+    `cover_plan_excluded_accounts`, so it can never itself be "born clear")
+    proves `_suppress_moves` stayed False: its move card still surfaces."""
     today_d = timeutil.user_today()
-    pay_period = _base_patch(
+    OTHER_ACCT = "acc-other"
+    pay_period, companion_items_col = _base_patch(
         monkeypatch,
-        accounts=[_account(SALARY_ACCT, 50.0), _account(DEST_ACCT, 0.0, "Saving Challenge")],
-        # A fictional-looking preview (if it ran) would price a huge NEXT
-        # period against these — proof the executed gate actually suppressed
-        # computation rather than the numbers coincidentally matching.
-        bills=[_bill("Mortgage", 20, 2365.0, account_id=SALARY_ACCT)],
+        # DEST_ACCT has no bills of its own, so the running walk never
+        # pushes it negative (min_running stays at its own starting
+        # balance, 0.0, which is >= 0) — while section 5b's own target
+        # formula (bills_total + spend_typical + buffer, all zero here bar
+        # the default £50 payday_buffer) still proposes topping it up, so
+        # it IS a genuine (move > 0) destination that just happens to
+        # already clear. OTHER_ACCT has a real, unfunded shortfall.
+        accounts=[
+            _account(SALARY_ACCT, 3000.0),
+            _account(DEST_ACCT, 0.0, "Everyday"),
+            _account(OTHER_ACCT, 0.0, "Other"),
+        ],
+        bills=[_bill("Rent", 2, 400.0, account_id=OTHER_ACCT, account_balance=0.0)],
+        income=[_salary(0, 2000.0)],
+    )
+    # OTHER_ACCT is excluded from the payday plan's own destination list —
+    # it can never be "born clear" itself (it's never one of the plan's
+    # dests at all) — while the ordinary shortfall/move pipeline (section 6)
+    # is untouched by this preference and still flags it.
+    monkeypatch.setattr(
+        companion, "preferences_col",
+        _Col([{"user_id": UID, "cover_plan_excluded_accounts": [OTHER_ACCT]}]),
+    )
+    monkeypatch.setattr(pay_period, "get_pay_period_for_date", lambda ref, cfg: (today_d, today_d + timedelta(days=29)))
+    monkeypatch.setattr(pay_period, "_next_payday", lambda today, cfg: today_d + timedelta(days=30))
+
+    items = asyncio.run(companion.compute_today_items(UID, payday_preview=False, persist=True))
+
+    assert _payday_plan(items) is None, "a plan that clears before it was ever live must emit nothing"
+    plan_docs = [d for d in companion_items_col.docs if d.get("type") == "payday_plan"]
+    assert plan_docs == [], "a born-clear plan must never be persisted, not even as a dead status"
+
+    move_items = [i for i in items if i["type"] == "move"]
+    assert move_items, "moves must not be suppressed: OTHER_ACCT's genuine shortfall still needs a card"
+    assert any(i.get("_dest_acct") == OTHER_ACCT for i in move_items) or any(
+        "Other" in i.get("headline", "") for i in move_items
+    )
+
+
+def test_plan_with_a_short_dest_persists_active_then_clears_to_done_and_celebrates(monkeypatch):
+    """The pre-G164 path is unchanged and now the ONLY path that reaches
+    "done": a plan with at least one genuinely short destination persists
+    "active" (run 1). Once that destination clears in a LATER run BY THE
+    USER'S OWN HAND — a genuine, observed credit that matches no learned
+    recurring series — step 7 flips it to "done" and celebrates once.
+    Two real `compute_today_items` calls sharing one `companion_items_col`,
+    not a hand-seeded doc, so this also proves 5b's own persistence path
+    (not just step 7 in isolation). This is scenario (2) of the
+    `_pp_funded_by_hand` review fix: a hand transfer, not a standing order."""
+    today_d = timeutil.user_today()
+
+    def _setup(dest_balance, bills):
+        pay_period, companion_items_col = _base_patch(
+            monkeypatch,
+            accounts=[_account(SALARY_ACCT, 3000.0), _account(DEST_ACCT, dest_balance, "Everyday")],
+            bills=bills,
+            income=[_salary(0, 2000.0)],
+        )
+        monkeypatch.setattr(pay_period, "get_pay_period_for_date", lambda ref, cfg: (today_d, today_d + timedelta(days=29)))
+        monkeypatch.setattr(pay_period, "_next_payday", lambda today, cfg: today_d + timedelta(days=30))
+        return companion_items_col
+
+    # Run 1: DEST_ACCT is genuinely short (a bill due there it can't cover).
+    companion_items_col = _setup(0.0, [_bill("Council Tax", 2, 100.0, account_id=DEST_ACCT, account_balance=0.0)])
+    items1 = asyncio.run(companion.compute_today_items(UID, payday_preview=False, persist=True))
+    assert _payday_plan(items1) is not None, "a plan with a genuinely short dest must be persisted and surfaced"
+    plan_docs = [d for d in companion_items_col.docs if d.get("type") == "payday_plan"]
+    assert len(plan_docs) == 1
+    assert plan_docs[0]["status"] == "active"
+    assert plan_docs[0]["_dest_accts"] == [DEST_ACCT]
+    assert not plan_docs[0].get("_celebrated")
+
+    # Run 2 (later): DEST_ACCT is funded now, no bill outstanding — reuse
+    # the SAME companion_items_col so the run-1 doc carries over. A single
+    # observed credit lands in DEST_ACCT that matches no learned recurring
+    # series (`cashflow_cache_col` here carries no `recurring_spend` at
+    # all) — a genuine hand transfer, so the celebration must still fire.
+    monkeypatch.setattr(companion, "accounts_col", _Col([_account(SALARY_ACCT, 3000.0), _account(DEST_ACCT, 500.0, "Everyday")]))
+    monkeypatch.setattr(companion, "transactions_col", _Col([
+        {"user_id": UID, "transaction_type": "credit", "account_id": DEST_ACCT,
+         "amount": 500.0, "date": datetime.utcnow()},
+    ]))
+    async def fake_resp_cleared(cached, uid=None, prefs=None):
+        return {"upcoming_bills": [], "upcoming_income": [_salary(0, 2000.0)], "internal_inflows": []}
+    monkeypatch.setattr(companion, "_build_cashflow_response", fake_resp_cleared)
+
+    items2 = asyncio.run(companion.compute_today_items(UID, payday_preview=False, persist=True))
+
+    stored = next(d for d in companion_items_col.docs if d["type"] == "payday_plan")
+    assert stored["status"] == "done"
+    assert stored.get("_celebrated") is True
+
+    celebrations = [i for i in items2 if i["type"] == "celebration"]
+    assert celebrations, "a plan cleared by a genuine hand transfer must still celebrate"
+
+
+def test_plan_cleared_by_recurring_standing_order_credit_goes_quiet(monkeypatch):
+    """`_pp_funded_by_hand` scenario (1): a plan persisted active earlier
+    clears in a later run because a credit lands in the destination that
+    matches one of the user's own learned recurring MOVEMENT series into
+    that exact account (`cached["recurring_spend"]`'s `dest_account_id`,
+    within `_match_observed`'s own tolerance, `max(2.0, 15%)`). Kevin's
+    clause: a plan overtaken by the user's OWN standing orders is
+    superseded quietly — done, `_celebrated: False`, no celebration item."""
+    today_d = timeutil.user_today()
+
+    def _setup(dest_balance, bills):
+        pay_period, companion_items_col = _base_patch(
+            monkeypatch,
+            accounts=[_account(SALARY_ACCT, 3000.0), _account(DEST_ACCT, dest_balance, "Everyday")],
+            bills=bills,
+            income=[_salary(0, 2000.0)],
+        )
+        monkeypatch.setattr(pay_period, "get_pay_period_for_date", lambda ref, cfg: (today_d, today_d + timedelta(days=29)))
+        monkeypatch.setattr(pay_period, "_next_payday", lambda today, cfg: today_d + timedelta(days=30))
+        return companion_items_col
+
+    companion_items_col = _setup(0.0, [_bill("Council Tax", 2, 100.0, account_id=DEST_ACCT, account_balance=0.0)])
+    items1 = asyncio.run(companion.compute_today_items(UID, payday_preview=False, persist=True))
+    assert _payday_plan(items1) is not None
+
+    # Run 2 (later): DEST_ACCT is funded now via a credit that matches a
+    # LEARNED recurring standing-order series (same amount within
+    # tolerance, same destination) — the user's own standing orders got
+    # there first.
+    monkeypatch.setattr(companion, "accounts_col", _Col([_account(SALARY_ACCT, 3000.0), _account(DEST_ACCT, 500.0, "Everyday")]))
+    monkeypatch.setattr(companion, "cashflow_cache_col", _Col([{
+        "_id": UID,
+        "recurring_spend": [
+            {"key": "sto-rainy-day", "dest_account_id": DEST_ACCT, "avg_amount": 500.0},
+        ],
+    }]))
+    monkeypatch.setattr(companion, "transactions_col", _Col([
+        {"user_id": UID, "transaction_type": "credit", "account_id": DEST_ACCT,
+         "amount": 500.0, "date": datetime.utcnow()},
+    ]))
+    async def fake_resp_cleared(cached, uid=None, prefs=None):
+        return {"upcoming_bills": [], "upcoming_income": [_salary(0, 2000.0)], "internal_inflows": []}
+    monkeypatch.setattr(companion, "_build_cashflow_response", fake_resp_cleared)
+
+    items2 = asyncio.run(companion.compute_today_items(UID, payday_preview=False, persist=True))
+
+    stored = next(d for d in companion_items_col.docs if d["type"] == "payday_plan")
+    assert stored["status"] == "done", "a cleared plan still goes done — just quietly"
+    assert stored.get("_celebrated") is False
+
+    celebrations = [i for i in items2 if i["type"] == "celebration"]
+    assert not celebrations, "a plan overtaken by the user's own standing orders must not celebrate"
+
+    # FIX A gate still holds for a QUIET done doc: a plain in-window call
+    # against this now-done window emits nothing further (no fresh plan
+    # recomputed for the closed window), and a preview call still prices
+    # the NEXT period — the gate only ever keyed on `status == "done"`,
+    # never on `_celebrated`, so this needs no separate code change, only
+    # this proof it still holds once a doc can reach "done" quietly.
+    items3 = asyncio.run(companion.compute_today_items(UID, payday_preview=False, persist=False))
+    assert _payday_plan(items3) is None, "a quiet-done window must not recompute a fresh plan"
+    items4 = asyncio.run(companion.compute_today_items(UID, payday_preview=True, persist=False))
+    plan4 = _payday_plan(items4)
+    assert plan4 is not None and plan4.get("preview") is True, "a preview must still price the next period"
+
+
+def test_plan_cleared_with_no_observed_credit_is_quiet(monkeypatch):
+    """`_pp_funded_by_hand` scenario (3): a plan persisted active earlier
+    clears in a later run on `min_running >= 0` alone — a FORECAST
+    condition — with NO observed credit into the destination at all (no
+    docs in `transactions_col`/`yapily_transactions_col` since the plan's
+    `created_at`). Nothing has actually moved, so this is not by hand
+    either: quiet, `_celebrated: False`, no celebration item."""
+    today_d = timeutil.user_today()
+
+    def _setup(dest_balance, bills):
+        pay_period, companion_items_col = _base_patch(
+            monkeypatch,
+            accounts=[_account(SALARY_ACCT, 3000.0), _account(DEST_ACCT, dest_balance, "Everyday")],
+            bills=bills,
+            income=[_salary(0, 2000.0)],
+        )
+        monkeypatch.setattr(pay_period, "get_pay_period_for_date", lambda ref, cfg: (today_d, today_d + timedelta(days=29)))
+        monkeypatch.setattr(pay_period, "_next_payday", lambda today, cfg: today_d + timedelta(days=30))
+        return companion_items_col
+
+    companion_items_col = _setup(0.0, [_bill("Council Tax", 2, 100.0, account_id=DEST_ACCT, account_balance=0.0)])
+    items1 = asyncio.run(companion.compute_today_items(UID, payday_preview=False, persist=True))
+    assert _payday_plan(items1) is not None
+
+    # Run 2 (later): DEST_ACCT's balance clears the forecast walk (no bill
+    # left outstanding) but NO credit was ever observed landing there —
+    # `transactions_col`/`yapily_transactions_col` stay empty, exactly as
+    # `_base_patch` seeds them by default.
+    monkeypatch.setattr(companion, "accounts_col", _Col([_account(SALARY_ACCT, 3000.0), _account(DEST_ACCT, 500.0, "Everyday")]))
+    async def fake_resp_cleared(cached, uid=None, prefs=None):
+        return {"upcoming_bills": [], "upcoming_income": [_salary(0, 2000.0)], "internal_inflows": []}
+    monkeypatch.setattr(companion, "_build_cashflow_response", fake_resp_cleared)
+
+    items2 = asyncio.run(companion.compute_today_items(UID, payday_preview=False, persist=True))
+
+    stored = next(d for d in companion_items_col.docs if d["type"] == "payday_plan")
+    assert stored["status"] == "done"
+    assert stored.get("_celebrated") is False
+
+    celebrations = [i for i in items2 if i["type"] == "celebration"]
+    assert not celebrations, "a plan cleared by forecast alone, nothing observed, must not celebrate"
+
+
+def test_plan_cleared_but_credit_lookup_raises_goes_quiet(monkeypatch):
+    """`_pp_funded_by_hand` scenario (4): the observed-credit lookup itself
+    raises (a malformed collection / query failure). Fail-safe: treated as
+    NOT by hand — quiet — the same fail-open doctrine
+    `_reserved_for_allocations` documents for its own best-effort signal."""
+    today_d = timeutil.user_today()
+
+    class _RaisingCol:
+        """Same shape as `_Col` for the calls this suite's other fixtures
+        make, but `find()` (the one `_pp_funded_by_hand` itself calls)
+        raises, to exercise its `except Exception` fail-safe."""
+
+        def __init__(self, docs=None):
+            self.docs = list(docs or [])
+
+        def find(self, query=None, projection=None):
+            raise RuntimeError("boom — simulated Mongo failure")
+
+        async def find_one(self, query=None, projection=None):
+            if query and "_id" in query:
+                return next((d for d in self.docs if d.get("_id") == query["_id"]), None)
+            return self.docs[0] if self.docs else None
+
+        async def update_one(self, filt, update, upsert=False):
+            for d in self.docs:
+                if d.get("_id") == filt.get("_id"):
+                    for k, v in (update.get("$set") or {}).items():
+                        d[k] = v
+                    return
+            if upsert:
+                new_doc = dict(filt)
+                for k, v in (update.get("$set") or {}).items():
+                    new_doc[k] = v
+                for k, v in (update.get("$setOnInsert") or {}).items():
+                    new_doc.setdefault(k, v)
+                self.docs.append(new_doc)
+
+    def _setup(dest_balance, bills):
+        pay_period, companion_items_col = _base_patch(
+            monkeypatch,
+            accounts=[_account(SALARY_ACCT, 3000.0), _account(DEST_ACCT, dest_balance, "Everyday")],
+            bills=bills,
+            income=[_salary(0, 2000.0)],
+        )
+        monkeypatch.setattr(pay_period, "get_pay_period_for_date", lambda ref, cfg: (today_d, today_d + timedelta(days=29)))
+        monkeypatch.setattr(pay_period, "_next_payday", lambda today, cfg: today_d + timedelta(days=30))
+        return companion_items_col
+
+    companion_items_col = _setup(0.0, [_bill("Council Tax", 2, 100.0, account_id=DEST_ACCT, account_balance=0.0)])
+    items1 = asyncio.run(companion.compute_today_items(UID, payday_preview=False, persist=True))
+    assert _payday_plan(items1) is not None
+
+    # Run 2 (later): DEST_ACCT clears, but `transactions_col` now raises the
+    # moment `_pp_funded_by_hand` queries it.
+    monkeypatch.setattr(companion, "accounts_col", _Col([_account(SALARY_ACCT, 3000.0), _account(DEST_ACCT, 500.0, "Everyday")]))
+    monkeypatch.setattr(companion, "transactions_col", _RaisingCol([]))
+    async def fake_resp_cleared(cached, uid=None, prefs=None):
+        return {"upcoming_bills": [], "upcoming_income": [_salary(0, 2000.0)], "internal_inflows": []}
+    monkeypatch.setattr(companion, "_build_cashflow_response", fake_resp_cleared)
+
+    items2 = asyncio.run(companion.compute_today_items(UID, payday_preview=False, persist=True))
+
+    stored = next(d for d in companion_items_col.docs if d["type"] == "payday_plan")
+    assert stored["status"] == "done"
+    assert stored.get("_celebrated") is False
+
+    celebrations = [i for i in items2 if i["type"] == "celebration"]
+    assert not celebrations, "a lookup failure must fail safe to quiet, never celebrate"
+
+
+def test_legacy_active_doc_with_no_created_at_clears_quietly(monkeypatch):
+    """`_pp_funded_by_hand`'s `created_at is None` guard: a LEGACY active
+    multi-dest plan doc predating the `$setOnInsert` created_at stamp (hand-
+    seeded here, never produced by 5b's own persistence any more) that
+    clears has no created_at to anchor an observed-credit window to —
+    fails safe to quiet rather than guessing a start date or falling back
+    to the old always-celebrate behaviour."""
+    today_d = timeutil.user_today()
+    pay_period, companion_items_col = _base_patch(
+        monkeypatch,
+        accounts=[_account(SALARY_ACCT, 3000.0), _account(DEST_ACCT, 500.0, "Everyday")],
+        bills=[],
+        income=[_salary(0, 2000.0)],
+    )
+    monkeypatch.setattr(pay_period, "get_pay_period_for_date", lambda ref, cfg: (today_d, today_d + timedelta(days=29)))
+    monkeypatch.setattr(pay_period, "_next_payday", lambda today, cfg: today_d + timedelta(days=30))
+
+    legacy_active_doc = {
+        "_id": f"payday_plan:{today_d.isoformat()}:legacyfp",
+        "uid": UID,
+        "type": "payday_plan",
+        "status": "active",
+        "headline": "Payday plan: split £500 across 1 account",
+        "body": "£500 distributed, £0 stays in Salary Account.",
+        "action": {"label": "See what's due ›", "route": "/upcoming"},
+        "estimated": False,
+        "_window_end": (today_d + timedelta(days=30)).isoformat(),
+        "_dest_accts": [DEST_ACCT],
+        "_total": 500,
+        "covered": True,
+        "dests": [{"account_id": DEST_ACCT, "name": "Everyday", "move": 500}],
+        "salary": {
+            "account_id": SALARY_ACCT, "name": "Salary Account", "provider": "Barclays",
+            "amount": 2000, "stays": 0,
+        },
+        "trimmed": False,
+        # Deliberately NO "created_at" key — this is the legacy shape.
+    }
+    companion_items_col.docs.append(legacy_active_doc)
+
+    items = asyncio.run(companion.compute_today_items(UID, payday_preview=False, persist=True))
+
+    stored = next(d for d in companion_items_col.docs if d["_id"] == legacy_active_doc["_id"])
+    assert stored["status"] == "done"
+    assert stored.get("_celebrated") is False
+
+    celebrations = [i for i in items if i["type"] == "celebration"]
+    assert not celebrations, "a legacy doc with no created_at must fail safe to quiet, never celebrate"
+
+
+def test_preview_inside_a_done_window_prices_the_next_period(monkeypatch):
+    """G164: once a window has gone done, a plain call emits nothing (see
+    the next test), but Penny's `payday_preview` call must still get a
+    plan — for the NEXT payday, not a recompute of the done one, and
+    without double-crediting the salary that has already landed in
+    `live_balances`."""
+    today_d = timeutil.user_today()
+    days_to_pay = 30
+    pay_period, companion_items_col = _base_patch(
+        monkeypatch,
+        # SALARY_ACCT's balance already reflects the landed salary; the
+        # only future event is next period's own bill and next period's
+        # own salary, about a month out.
+        accounts=[_account(SALARY_ACCT, 5000.0)],
+        bills=[_bill("Mortgage", days_to_pay - 5, 900.0, account_id=SALARY_ACCT)],
+        income=[_salary(days_to_pay, 2500.0)],
+    )
+    monkeypatch.setattr(pay_period, "get_pay_period_for_date", lambda ref, cfg: (today_d, today_d + timedelta(days=3)))
+    monkeypatch.setattr(pay_period, "_next_payday", lambda today, cfg: today_d + timedelta(days=days_to_pay))
+
+    # A DONE window (the user acted on the plan by hand) for the CURRENT
+    # window — the only settled status that exists any more.
+    done_doc = _make_done_doc(today_d, [
+        {"account_id": SALARY_ACCT, "name": "Salary Account", "provider": "Barclays",
+         "balance": 0, "bills_total": 0, "bill_count": 0, "spend_typical": 0, "buffer": 0,
+         "target": 0, "move": 0, "usual": None},
+    ])
+    monkeypatch.setattr(companion, "companion_items_col", _Col([done_doc]))  # overrides the fixture from _base_patch
+
+    calls: list[tuple[list, dict]] = []
+    real_walk = companion._walk_events
+
+    def spy(events, balances):
+        calls.append((list(events), dict(balances)))
+        return real_walk(events, balances)
+
+    monkeypatch.setattr(companion, "_walk_events", spy)
+
+    items = asyncio.run(companion.compute_today_items(UID, payday_preview=True, persist=False))
+    plan = _payday_plan(items)
+    assert plan is not None, "a preview must still price the NEXT payday even inside a done window"
+    assert plan.get("preview") is True
+    assert plan["next_pay"] == (today_d + timedelta(days=days_to_pay)).isoformat()
+
+    # No double-counting: the preview salary credit enters the walk dated at
+    # next_pay, never at "today" (day 0) — the account's CURRENT balance
+    # already carries whatever landed previously; crediting it again at day
+    # 0 would double it.
+    main_events, _ = calls[0]
+    salary_events = [e for e in main_events if e[1] == SALARY_ACCT and e[3] is True and abs(e[2] - 2500.0) < 0.01]
+    assert salary_events, "preview salary credit never entered the walk as an event"
+    assert all(e[0] == days_to_pay for e in salary_events)
+    assert not any(e[0] == 0 for e in salary_events), "salary must not be credited a second time 'today'"
+
+
+def test_plain_in_window_call_with_done_doc_emits_nothing_and_does_not_suppress_moves(monkeypatch):
+    """G164: a plain (non-preview) in-window call against a done window
+    emits no payday_plan item at all (the advisory plan has nothing left to
+    report), and must NOT suppress the ordinary per-destination move cards:
+    a residual shortfall is exactly how Penny should still speak if the
+    standing orders left an account short."""
+    today_d = timeutil.user_today()
+    pay_period, companion_items_col = _base_patch(
+        monkeypatch,
+        accounts=[_account(SALARY_ACCT, 50.0), _account(DEST_ACCT, 0.0, "Everyday")],
+        # A genuine, still-unfunded shortfall at DEST_ACCT — proof a "move"
+        # recommendation can still surface once the plan itself is done.
+        bills=[_bill("Rent", 2, 400.0, account_id=DEST_ACCT, account_balance=0.0)],
         income=[_salary(20, 3000.0)],
     )
     monkeypatch.setattr(pay_period, "get_pay_period_for_date", lambda ref, cfg: (today_d, today_d + timedelta(days=29)))
     monkeypatch.setattr(pay_period, "_next_payday", lambda today, cfg: today_d + timedelta(days=20))
 
-    done_dests = [
-        {
-            "account_id": DEST_ACCT, "name": "Saving Challenge", "provider": "Barclays",
-            "balance": 0, "bills_total": 0, "bill_count": 0, "spend_typical": 0, "buffer": 0,
-            "target": 500, "move": 500, "usual": None, "commitment_names": ["Summer holiday"],
-        },
-        {
-            "account_id": "acc-personal", "name": "Personal", "provider": "Barclays",
-            "balance": 0, "bills_total": 0, "bill_count": 0, "spend_typical": 100, "buffer": 0,
-            "target": 100, "move": 100, "usual": 100,
-        },
-    ]
-    done_doc = _make_done_doc(today_d, done_dests)
+    done_doc = _make_done_doc(today_d, [
+        {"account_id": DEST_ACCT, "name": "Everyday", "provider": "Barclays",
+         "balance": 0, "bills_total": 400, "bill_count": 1, "spend_typical": 0, "buffer": 0,
+         "target": 400, "move": 400, "usual": None},
+    ])
     monkeypatch.setattr(companion, "companion_items_col", _Col([done_doc]))
 
-    items = asyncio.run(companion.compute_today_items(UID, payday_preview=preview, persist=False))
-    return items, done_doc
+    items = asyncio.run(companion.compute_today_items(UID, payday_preview=False, persist=False))
 
+    assert _payday_plan(items) is None
 
-def test_preview_suppressed_when_done_doc_exists_in_window(monkeypatch):
-    items, done_doc = _executed_scenario(monkeypatch, preview=True)
-    plan = _payday_plan(items)
-    assert plan is not None, "expected an executed payday_plan item, got none"
-
-    # Executed summary, not a freshly (fictionally) computed preview.
-    assert plan.get("executed") is True
-    assert not plan.get("preview")
-    assert plan["total"] == 600
-    assert plan["dests"] == done_doc["dests"]
-    # The £2,365 mortgage/next-period fiction must never have been priced.
-    assert plan["total"] != 2365
-    assert "next_pay" not in plan  # only genuine (non-executed) previews carry this
-
-
-def test_plain_in_window_call_also_returns_executed_summary_not_nothing(monkeypatch):
-    """The non-preview call (what Home's own `items` list is built from)
-    must ALSO surface the executed summary, so HomeBrief can render the
-    quiet 'Already split' row instead of falling back to the entry row."""
-    items, done_doc = _executed_scenario(monkeypatch, preview=False)
-    plan = _payday_plan(items)
-    assert plan is not None
-    assert plan.get("executed") is True
-    assert plan["total"] == 600
-    assert plan["dests"] == done_doc["dests"]
-
-
-def test_commitment_names_survive_the_executed_passthrough(monkeypatch):
-    items, _ = _executed_scenario(monkeypatch, preview=True)
-    plan = _payday_plan(items)
-    floored = next(d for d in plan["dests"] if d["account_id"] == DEST_ACCT)
-    assert floored["commitment_names"] == ["Summer holiday"]
+    move_items = [i for i in items if i["type"] == "move"]
+    assert move_items, "a residual shortfall must still surface as a move card once the plan is done"
 
 
 # ── FIX B — dated preview salary credit ──────────────────────────────────────
@@ -250,7 +671,7 @@ def test_preview_salary_credit_lands_at_next_pay_not_today(monkeypatch):
     start_balance = 1000.0
     salary_amount = 1500.0
 
-    pay_period = _base_patch(
+    pay_period, _ = _base_patch(
         monkeypatch,
         accounts=[_account(SALARY_ACCT, start_balance)],
         bills=[_bill("Council Tax", bill_days_away, bill_amount)],
