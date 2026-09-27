@@ -329,7 +329,7 @@ class _RegularMoveCardGate(NamedTuple):
 async def _gate_regular_move_cards(
     *,
     shortfalls: list[tuple],
-    suppress_moves: bool,
+    suppressed_accts: set[str],
     legs_by_dest: dict[str, list[dict]],
     uncovered_by_dest: dict[str, dict],
     dest_bucketed: dict[str, float],
@@ -369,31 +369,37 @@ async def _gate_regular_move_cards(
     will_emit_by_dest: dict[str, bool] = {}
     capped_out = 0
     emitted = 0
-    if not suppress_moves:
-        for _, _, dest_acct, _bill in shortfalls:
-            dest_legs = legs_by_dest.get(dest_acct) or []
-            if not dest_legs and not uncovered_by_dest.get(dest_acct):
-                continue
-            dest_fp = _shortfall_fingerprint([(dest_acct, dest_bucketed.get(dest_acct, 0))])
-            item_id = (
-                f"plan:{window_end.isoformat()}:{dest_fp}"
-                if dest_legs else
-                f"move:{dest_acct}:{window_end.isoformat()}:{dest_fp}"
-            )
-            item_id_by_dest[dest_acct] = item_id
-            if item_id in dismissed:
-                will_emit_by_dest[dest_acct] = False
-                continue
-            existing = await companion_items_col.find_one({"_id": item_id, "uid": uid})
-            if existing and existing.get("status") == "done":
-                will_emit_by_dest[dest_acct] = False
-                continue
-            if emitted >= _MOVE_CARD_CAP:
-                capped_out += 1
-                will_emit_by_dest[dest_acct] = False
-                continue
-            will_emit_by_dest[dest_acct] = True
-            emitted += 1
+    for _, _, dest_acct, _bill in shortfalls:
+        # Review fix (2026-09-27): a per-account exclusion, not a blanket
+        # one — an account the live payday plan evaluated this window
+        # (`_pp_planned_accts`, passed in as `suppressed_accts`) never gets
+        # a second, possibly-contradicting move card, but an account
+        # outside the plan's own destination scan is untouched.
+        if dest_acct in suppressed_accts:
+            continue
+        dest_legs = legs_by_dest.get(dest_acct) or []
+        if not dest_legs and not uncovered_by_dest.get(dest_acct):
+            continue
+        dest_fp = _shortfall_fingerprint([(dest_acct, dest_bucketed.get(dest_acct, 0))])
+        item_id = (
+            f"plan:{window_end.isoformat()}:{dest_fp}"
+            if dest_legs else
+            f"move:{dest_acct}:{window_end.isoformat()}:{dest_fp}"
+        )
+        item_id_by_dest[dest_acct] = item_id
+        if item_id in dismissed:
+            will_emit_by_dest[dest_acct] = False
+            continue
+        existing = await companion_items_col.find_one({"_id": item_id, "uid": uid})
+        if existing and existing.get("status") == "done":
+            will_emit_by_dest[dest_acct] = False
+            continue
+        if emitted >= _MOVE_CARD_CAP:
+            capped_out += 1
+            will_emit_by_dest[dest_acct] = False
+            continue
+        will_emit_by_dest[dest_acct] = True
+        emitted += 1
     return _RegularMoveCardGate(item_id_by_dest, will_emit_by_dest, capped_out)
 
 
@@ -1033,99 +1039,53 @@ def _is_own_transfer_bill(b: dict) -> bool:
     return b.get("kind") == MOVEMENT and bool(b.get("dest_account_id"))
 
 
-async def _pp_funded_by_hand(
-    uid: str, dest_accounts: list, created_at, cached: dict,
+async def _pp_salary_observed(
+    uid: str, salary_acct: str | None, salary_amount: float | None, pstart: date,
 ) -> bool:
-    """G164 review fix (2026-09-26): decide whether a payday_plan doc that
-    persisted ACTIVE and cleared in a LATER run was funded by the user's own
-    hand, or superseded quietly by the user's own standing orders. Kevin's
-    clause, verbatim: "a plan overtaken by the user's own standing orders is
-    superseded quietly (no done, no celebration, no executed item); the
-    Sorted celebration stays only for a plan the user acted on by hand,
-    funded by credits that are not their own recurring standing orders."
+    """G172 (2026-09-27, Kevin): the payday plan is a distribution
+    recommendation for money not yet in place, nothing more — no done
+    state, no celebration, nothing to verify. Home's own rule for when to
+    stop showing the live plan is simpler than the lifecycle it replaces:
+    once the real salary credit has actually landed, there's nothing left
+    to recommend for this period.
 
-    The step-7 auto-verify pass this feeds only ever checked `min_running >=
-    0`, a FORECAST condition — true whether the clearing credit already
-    landed or is merely projected to. This looks at what actually happened:
-    every CREDIT into any of `dest_accounts` dated on/after the doc's
-    `created_at` (`transactions_col` + `yapily_transactions_col`, the same
-    two-collection read `_direct_fill_leg_source` above already does for
-    allocation fill-matching).
+    Section 5b identifies `salary_acct`/`salary_amount` (via
+    `_pp_salary_income`) from the user's recurring-income PATTERNS — a
+    PREDICTION, not an observation. This checks what actually happened:
+    any CREDIT into `salary_acct` dated on/after `pstart` (this pay
+    period's first day) whose amount is within tolerance (`max(2.0, 15%)`,
+    the same band the rest of this file's own-credit matching uses) of
+    `salary_amount`. Reads the same two collections
+    (`transactions_col`/`yapily_transactions_col`) the rest of this file's
+    observed-credit checks already read, so there is one query pattern for
+    "did a real credit land", not several.
 
-    A credit is "recurring-attributable" — NOT by hand — when its amount
-    (within `_match_observed`'s own tolerance, `max(2.0, 15%)`) matches one
-    of the user's learned recurring MOVEMENT series whose destination is
-    this exact account: `cached["recurring_spend"]` entries carry
-    `dest_account_id` only when `_learn_transfer_destinations` already
-    traced them there with enough repeat evidence (the same invariant
-    `_is_own_transfer_bill` relies on above), so no separate kind check is
-    needed here. `funded_by_hand` is True only when at least one observed
-    credit is NOT recurring-attributable — a genuine one-off/hand transfer.
-    No observed credits at all (the window cleared on a forecast condition,
-    nothing has actually moved yet) is NOT by hand: quiet.
+    No candidate at all (a degenerate case — no reliably detected income
+    stream to check against) returns False: show the plan rather than
+    silently hide it on a guess. A `payday_preview` call never reaches
+    this — it always prices the NEXT payday, whose salary by definition
+    hasn't landed yet.
 
-    Fail-safe: any lookup error (a malformed doc, a query failure) is
-    treated as NOT by hand — quiet — the same fail-open doctrine
-    `_reserved_for_allocations` documents for its own best-effort signal.
-
-    INVARIANT this relies on: the salary account itself never appears in
-    `dest_accounts` (5b's own dests loop above skips it outright — `if
-    acct_id == salary_acct: continue`), and `cached["recurring_spend"]`
-    never carries income patterns (a separate, disjoint cached list feeds
-    `upcoming_income`) — so the landed salary credit itself can never be
-    mistaken for a "hand transfer" into one of the plan's destinations;
-    there is nothing in `dest_accounts` for it to match against.
-
-    ACCEPTED LIMITATION: a standing order into a BRAND-NEW destination has
-    no learned `dest_account_id` yet (`_learn_transfer_destinations` needs
-    repeat evidence before it traces one), so the first month it clears a
-    plan this reads as a hand transfer and celebrates once; from the
-    second month, once the pair is learned, the same standing order goes
-    quiet. No bank/Open Banking metadata distinguishes a standing order
-    from a one-off hand transfer today — both are just a CREDIT — so this
-    is a deliberate, accepted trade-off, not a gap to close here.
+    Fail-safe: any lookup error is treated as NOT observed — show the
+    plan — the same fail-open doctrine `_reserved_for_allocations`
+    documents for its own best-effort signal.
     """
-    if not dest_accounts or created_at is None:
-        return False  # no dests, or a legacy pre-`$setOnInsert` doc with no created_at to anchor the credit window to — fail safe to quiet
+    if not salary_acct or not salary_amount:
+        return False
     try:
-        dest_set = {str(d) for d in dest_accounts if d}
-        if not dest_set:
-            return False
-
-        # Learned recurring-transfer amounts per destination, from the SAME
-        # cached patterns `_is_own_transfer_bill`/`_acct_bills` already read
-        # via `cached.get("recurring_spend")` — no second matcher.
-        learned_by_dest: dict[str, list[float]] = {}
-        for r in (cached.get("recurring_spend") or []):
-            dest_id = r.get("dest_account_id")
-            if dest_id and str(dest_id) in dest_set:
-                learned_by_dest.setdefault(str(dest_id), []).append(float(r.get("avg_amount") or 0))
-
-        credit_q = {
-            "user_id": uid,
-            "transaction_type": "credit",
-            "date": {"$gte": created_at},
-        }
-        proj = {"account_id": 1, "amount": 1, "date": 1}
-        credits: list[dict] = []
+        since = datetime.combine(pstart, time.min)
+        tol = max(2.0, float(salary_amount) * 0.15)
+        credit_q = {"user_id": uid, "transaction_type": "credit", "date": {"$gte": since}}
+        proj = {"account_id": 1, "amount": 1}
         for col in (transactions_col, yapily_transactions_col):
             async for c in col.find(credit_q, proj):
-                if str(c.get("account_id") or "") in dest_set:
-                    credits.append(c)
-
-        if not credits:
-            return False  # cleared by forecast only — nothing has actually moved
-
-        for c in credits:
-            dest_id = str(c.get("account_id") or "")
-            amount = abs(float(c.get("amount") or 0))
-            learned = learned_by_dest.get(dest_id, [])
-            tol_matched = any(abs(amount - la) <= max(2.0, la * 0.15) for la in learned)
-            if not tol_matched:
-                return True  # a genuine, non-recurring credit — the user's own hand
-        return False  # every observed credit traces to a known recurring series
+                if str(c.get("account_id") or "") != str(salary_acct):
+                    continue
+                if abs(abs(float(c.get("amount") or 0)) - float(salary_amount)) <= tol:
+                    return True
+        return False
     except Exception:
-        log.exception("_pp_funded_by_hand: lookup failed for uid=%s dests=%s", uid, dest_accounts)
+        log.exception("_pp_salary_observed: lookup failed for uid=%s acct=%s", uid, salary_acct)
         return False
 
 
@@ -1444,16 +1404,15 @@ _RECELEBRATE_COOLDOWN_SECONDS = 4 * 3600
 
 
 def _should_reactivate(stored: dict, min_running: dict[str, float]) -> bool:
-    """True when a stored "done" move/payday_plan doc's destination(s) show a
-    materially reopened shortfall in THIS request's `min_running` walk.
-
-    Multi-destination (payday_plan) docs reopen if ANY listed destination is
-    materially negative again — the plan's promise covered all of them, so a
-    single account slipping back into deficit breaks it just as much as one
-    ever did when the doc was first built."""
-    dest_accts = stored.get("_dest_accts")
-    if dest_accts and isinstance(dest_accts, list) and len(dest_accts) > 0:
-        return any(min_running.get(d, 0.0) < _REOPEN_THRESHOLD for d in dest_accts)
+    """True when a stored "done" doc's destination shows a materially
+    reopened shortfall in THIS request's `min_running` walk. Only ever
+    called for "move" docs (G172: `payday_plan` docs carry no lifecycle —
+    they never reach "done", and are excluded from the caller's query
+    entirely — so nothing of that type ever reaches this function any
+    more). Review fix (2026-09-27): the old multi-destination (`_dest_accts`)
+    branch is deleted outright — nothing writes that field any more, "move"
+    docs only ever carried the single-dest `_dest_acct` field, so it was
+    already dead for every real caller."""
     dest = stored.get("_dest_acct")
     if not dest:
         return False
@@ -1475,18 +1434,17 @@ def _recelebration_gated(stored: dict, now_utc: datetime) -> bool:
     return (now_utc - ca).total_seconds() < _RECELEBRATE_COOLDOWN_SECONDS
 
 
-# G164 (2026-09-26, Kevin): `_executed_payday_plan_item` (the "already
-# split" quiet-executed-summary renderer) is deleted outright. The payday
-# plan is purely advisory — a forward-looking suggestion for the period
-# that starts on payday — so once the pay lands there is nothing left to
-# validate or report on either surface, and no `executed` state exists any
-# more. A plan whose destinations already clear on their own the moment it
-# would first be proposed (the user's own standing orders got there first)
-# is never persisted or surfaced at all — see the born-clear check in
-# section 5b of `compute_today_items`, made BEFORE persistence rather than
-# reactively afterwards. See the FIX A gate below for what a DONE window
-# (the user acted on the plan by hand) emits instead: nothing, for a plain
-# in-window call; the NEXT payday's preview, for a payday_preview call.
+# G172 (2026-09-27, Kevin): the payday plan carries NO lifecycle at all —
+# no done, no celebration, nothing to verify. It is a distribution
+# recommendation for the period that starts on payday, and stays exactly
+# that: `_executed_payday_plan_item` (the old "already split" summary) and
+# `_pp_funded_by_hand` (the done/celebrate machinery G164 added on top of
+# that) are both gone. Section 5b recomputes the live plan fresh on every
+# call from live balances — nothing is read back from a prior run to decide
+# whether to show it. The plan simply stops showing once the period's
+# salary credit has actually landed (`_pp_salary_observed`) or once the
+# window ends; a `payday_preview` call is unaffected either way, since it
+# always prices the NEXT payday.
 
 
 # ── HOME ITEM SUPPRESSION REGISTRY ──────────────────────────────────────────
@@ -1494,11 +1452,11 @@ def _recelebration_gated(stored: dict, now_utc: datetime) -> bool:
 # product already states a fact from LIVE data, `compute_today_items` must
 # not ALSO emit a companion item narrating it. This generalises the
 # payday-window precedent that already lives inside the function below
-# (`_suppress_moves`, section 5b: "the plan card replaces the per-destination
-# cards during the payday window") into a declarative lookup that future
-# authors extend, so shipping a second, possibly-disagreeing voice for a
-# fact a standing surface already owns becomes a conscious registry edit
-# instead of an accidental duplicate card.
+# (`_pp_planned_accts`, section 5b: "the plan card replaces the per-
+# destination card for every account it evaluated") into a declarative
+# lookup that future authors extend, so shipping a second, possibly-
+# disagreeing voice for a fact a standing surface already owns becomes a
+# conscious registry edit instead of an accidental duplicate card.
 #
 # key = the item kind/id-prefix this function would otherwise emit.
 # value.owner = the standing surface that now owns the fact.
@@ -2336,13 +2294,16 @@ async def compute_today_items(
 
     # ── 5c. Reactivation — undo a stale "done" when a shortfall genuinely
     # reopens ─────────────────────────────────────────────────────────────
-    # A doc reaches "done" when its destination's shortfall clears (step 7,
-    # below, owns the rest of the lifecycle). Nothing previously undid that:
-    # if the SAME fingerprinted shortfall reopened later, step 6's own-doc
-    # check (`existing.get("status") == "done": continue`) suppressed it
-    # forever, and step 7's reactivation branch only ever ran for
-    # shortfalls that were ALREADY clearing again (`min_running >= 0`),
+    # A "move" doc reaches "done" when its destination's shortfall clears
+    # (step 7, below, owns the rest of that lifecycle). Nothing previously
+    # undid that: if the SAME fingerprinted shortfall reopened later, step
+    # 6's own-doc check (`existing.get("status") == "done": continue`)
+    # suppressed it forever, and step 7's reactivation branch only ever ran
+    # for shortfalls that were ALREADY clearing again (`min_running >= 0`),
     # never for ones that had gone negative once more.
+    #
+    # `payday_plan` docs are excluded (G172): the plan carries no lifecycle
+    # at all any more, so there is no "done" state on one to ever reopen.
     #
     # This runs FIRST — before the Payday Plan section and step 6's
     # emission loop both read `companion_items_col` for "is this already
@@ -2351,7 +2312,7 @@ async def compute_today_items(
     # recommendation reappears the SAME cycle, not a cycle late.
     async for _rstored in companion_items_col.find({
         "uid": uid,
-        "type": {"$in": ["move", "payday_plan"]},
+        "type": "move",
         "status": "done",
     }):
         _rid = _rstored["_id"]
@@ -3039,8 +3000,6 @@ async def compute_today_items(
     # max(0, target − balance). `payday_preview` forces this section on (for
     # design/QA) without persisting the doc or suppressing the normal
     # per-destination cards.
-    _effective_payday_window = payday_window or payday_preview
-    _suppress_moves = False
     # Populated below (once `dests` is known) with every destination the LIVE
     # payday plan is actually funding this window (move > 0) — read by the
     # unfunded_move owner-extension (section 5d) so a movement whose learned
@@ -3048,43 +3007,44 @@ async def compute_today_items(
     # unfunded. Stays empty outside the payday window, where there is no
     # plan to overlap with.
     _pp_dest_ids_final: set = set()
+    # Review fix (2026-09-27): every account the plan actually EVALUATED
+    # this window (every entry in `dests`, move > 0 or not) — as opposed to
+    # `_pp_dest_ids_final` above, which is only the subset it's actually
+    # funding. `_acct_bills` (below) excludes a destination's own-transfer
+    # movement bills from the plan's own target/move arithmetic, but
+    # `is_assessable_bill` does NOT exclude them from the ordinary
+    # shortfall walk (`min_running`) that populates `shortfalls` — so a
+    # destination the plan already evaluated and is confident about (move
+    # == 0, or a `total == 0` "every account is already set" plan) can
+    # still show up in `shortfalls` as genuinely short under that same
+    # bill. Once the plan is live, its own per-destination cards are the
+    # ONLY voice for every account it evaluated — never a second, possibly
+    # contradicting "move money to X" card for one of its own destinations
+    # — while an account the plan never looked at (outside its own
+    # destination scan, e.g. `cover_plan_excluded_accounts`) is untouched
+    # and keeps its ordinary move card. Populated in section 5b below, and
+    # ONLY for a genuine (non-preview) live plan in the payday window.
+    _pp_planned_accts: set = set()
 
-    # FIX A gate (2026-08-29, Kevin; revised G164 2026-09-26): a call that
-    # lands INSIDE this window AFTER the live payday_plan doc has already
-    # gone "done" (the user acted on the plan by hand) must never recompute
-    # a fresh plan FOR THIS WINDOW. Left unguarded, a preview taken in this
-    # state priced the period AFTER next payday (a month out) on top of a
-    # balance that already has the real salary landed — the £2,365/3-accounts
-    # nonsense Kevin screenshotted next to the correct £600 live plan.
-    #
-    # G164: the payday plan is advisory-only, so a done window has nothing
-    # to REPORT any more either — a plain in-window call emits NOTHING (no
-    # executed/already-split item; Upcoming already lists what actually
-    # moved). A `payday_preview` call is different: Penny always wants the
-    # NEXT payday's plan, done window or not, so preview is left running
-    # below — `next_pay` is already the next occurrence strictly after
-    # today, and the FIX B preview-salary dating (2026-08-29) already
-    # prices off that date rather than crediting a salary that has already
-    # landed a second time. (A plan whose destinations were already clear
-    # the moment it would first be proposed never reaches "done" at all —
-    # see section 5b below — so there is nothing else for this gate to
-    # catch.)
-    #
-    # Matched on the window's `_pstart` prefix (the fingerprint suffix can
-    # vary run to run; any done doc for this exact window means this
-    # window is spoken for) rather than recomputing `_pp_item_id`, which
-    # needs the full (skipped) computation below.
-    if payday_window:
-        _pp_win_prefix = f"payday_plan:{_pstart.isoformat()}:"
-        _pp_done_doc = None
-        async for _pp_cand in companion_items_col.find(
-            {"uid": uid, "type": "payday_plan", "status": "done"}
-        ):
-            if str(_pp_cand.get("_id", "")).startswith(_pp_win_prefix):
-                _pp_done_doc = _pp_cand
-                break
-        if _pp_done_doc and not payday_preview:
-            _effective_payday_window = False
+    # SALARY-OBSERVED gate (G172, 2026-09-27, Kevin): the live plan is a
+    # recommendation for money not yet in place, so it stops the moment the
+    # real salary credit has actually landed in the identified salary
+    # account THIS pay period — not three days later, and not because a
+    # stored doc says so (there is no stored lifecycle to consult any
+    # more). `_pp_salary_income` (the plan's own salary candidate,
+    # identified above near `_orig_payday_day_income`) is a PREDICTION;
+    # `_pp_salary_observed` checks what actually happened. A
+    # `payday_preview` call is unaffected — it always prices the NEXT
+    # payday, whose salary hasn't landed yet by definition.
+    _pp_salary_already_observed = False
+    if payday_window and not payday_preview and _pp_salary_income is not None:
+        _pp_salary_already_observed = await _pp_salary_observed(
+            uid,
+            str(_pp_salary_income.get("account_id") or ""),
+            float(_pp_salary_income["amount"]),
+            _pstart,
+        )
+    _effective_payday_window = (payday_window and not _pp_salary_already_observed) or payday_preview
 
     if _effective_payday_window:
         # PREVIEW reads the PROJECTED payday-morning balance — today's live
@@ -3532,71 +3492,58 @@ async def compute_today_items(
                     payday_plan_item["next_pay"] = next_pay.isoformat()
                     items.append(payday_plan_item)
                 elif payday_window:
-                    # G164 review fix (2026-09-26): the born-clear decision
-                    # must be made HERE, before persist and before
-                    # `_suppress_moves`, not reactively in step 7 — `min_running`
-                    # is already computed by this point in the function, so
-                    # there is no reason to persist a doc, surface the card, or
-                    # suppress the ordinary move cards only to undo all three a
-                    # few hundred lines later. Same exact condition step 7 uses
-                    # for auto-verification (every dest with a genuine `move`
-                    # already clearing on its own): the user's own standing
-                    # orders got there first, so the advice is moot — nothing
-                    # to report, nothing to celebrate, and the residual move
-                    # cards (if any) are how Penny should still speak if any
-                    # account was actually left short.
-                    _pp_dest_accts_now = [d["account_id"] for d in dests if d["move"] > 0]
-                    _pp_born_clear = bool(_pp_dest_accts_now) and all(
-                        min_running.get(d, 0.0) >= 0 for d in _pp_dest_accts_now
-                    )
-                    if _pp_born_clear:
-                        log.info(
-                            "payday_plan: uid=%s window=%s plan born already-clear "
-                            "(dests=%s) — not persisted, not surfaced, moves not suppressed",
-                            uid, _pstart.isoformat(), _pp_dest_accts_now,
+                    # G172: no lifecycle, so no "is this already done" check
+                    # and no born-clear special case — 5b just persists the
+                    # live plan exactly as computed, every call, whatever its
+                    # shape. A plan whose every destination already clears on
+                    # its own (`total == 0`) still surfaces, with the "every
+                    # account is already set" headline built above — that's
+                    # useful reassurance, not noise, and it stays dismissible
+                    # like any other plan. Review fix (2026-09-27): every
+                    # account the plan evaluated (`_pp_planned_accts`, every
+                    # entry in `dests`, not only `move > 0` ones) has its
+                    # ordinary per-destination card suppressed, regardless of
+                    # `total` — the plan already speaks for that account,
+                    # even when it's saying "nothing to move here", and a
+                    # second, possibly-contradicting move card for the SAME
+                    # account (e.g. one whose own-transfer bill this plan's
+                    # own target formula excludes but the ordinary shortfall
+                    # walk doesn't) would be a genuine contradiction, not
+                    # reassurance. An account the plan never evaluated at all
+                    # (outside its own destination scan, e.g.
+                    # `cover_plan_excluded_accounts`) is untouched and keeps
+                    # its own move card exactly as before.
+                    _pp_doc = {
+                        "_id": _pp_item_id,
+                        "uid": uid,
+                        "type": "payday_plan",
+                        "status": "active",
+                        "headline": headline,
+                        "body": body,
+                        "action": {"label": "See what's due ›", "route": "/upcoming"},
+                        "estimated": False,
+                        "_window_end": window_end.isoformat(),
+                        "covered": covered,
+                        "dests": dests,
+                        "salary": payday_plan_item["salary"],
+                        "trimmed": bool(trimmed),
+                    }
+                    if persist:
+                        await companion_items_col.update_one(
+                            {"_id": _pp_item_id, "uid": uid},
+                            {"$set": {k: v for k, v in _pp_doc.items() if k != "_id"}},
+                            upsert=True,
                         )
-                    else:
-                        # Persist like the existing plan docs so the multi-dest
-                        # auto-verification pass (step 7 below) flips this to "done"
-                        # and celebrates once every listed destination clears.
-                        _pp_existing = await companion_items_col.find_one({"_id": _pp_item_id, "uid": uid})
-                        if not (_pp_existing and _pp_existing.get("status") == "done"):
-                            _pp_doc = {
-                                "_id": _pp_item_id,
-                                "uid": uid,
-                                "type": "payday_plan",
-                                "status": "active",
-                                "headline": headline,
-                                "body": body,
-                                "action": {"label": "See what's due ›", "route": "/upcoming"},
-                                "estimated": False,
-                                "_window_end": window_end.isoformat(),
-                                "_dest_accts": _pp_dest_accts_now,
-                                "_total": int(total),
-                                "covered": covered,
-                                "dests": dests,
-                                "salary": payday_plan_item["salary"],
-                                "trimmed": bool(trimmed),
-                            }
-                            if persist:
-                                # `created_at` only via $setOnInsert: re-persisting
-                                # an already-active doc every run must never reset
-                                # its birth time — cheap insurance against the
-                                # whole class of "looks newborn on a later run"
-                                # bug, even though nothing currently reads
-                                # `created_at` to distinguish runs any more.
-                                await companion_items_col.update_one(
-                                    {"_id": _pp_item_id, "uid": uid},
-                                    {
-                                        "$set": {k: v for k, v in _pp_doc.items() if k != "_id"},
-                                        "$setOnInsert": {"created_at": datetime.utcnow()},  # naive-ok: persisted doc-birth audit timestamp, never rendered to the user as a day/day-count
-                                    },
-                                    upsert=True,
-                                )
-                            items.append(payday_plan_item)
-                            # The plan card replaces the per-destination cards during
-                            # the payday window.
-                            _suppress_moves = True
+                    items.append(payday_plan_item)
+                    # The plan card replaces the per-destination card for
+                    # every account it evaluated (see `_pp_planned_accts`'s
+                    # own docstring, near `_pp_dest_ids_final` above) —
+                    # whether or not this particular account ended up with a
+                    # nonzero move, and regardless of the plan's own
+                    # `total`. Accounts outside the plan's own destination
+                    # scan are never in `dests` at all, so they're never
+                    # added here and keep their ordinary move card.
+                    _pp_planned_accts = {d["account_id"] for d in dests}
 
     # ── 5d. UNFUNDED MOVE — deliberate owner extension of movement doctrine
     # (Kevin, 2026-08-27) ────────────────────────────────────────────────────
@@ -3656,7 +3603,7 @@ async def compute_today_items(
     try:
         _regular_move_gate = await _gate_regular_move_cards(
             shortfalls=shortfalls,
-            suppress_moves=_suppress_moves,
+            suppressed_accts=_pp_planned_accts,
             legs_by_dest=legs_by_dest,
             uncovered_by_dest=uncovered_by_dest,
             dest_bucketed=dest_bucketed,
@@ -4098,7 +4045,15 @@ async def compute_today_items(
     # it) a second time.
     capped_out = _regular_move_gate.capped_out
 
-    for _da, _sa, dest_acct, bill in ([] if _suppress_moves else shortfalls):
+    for _da, _sa, dest_acct, bill in shortfalls:
+        # Review fix (2026-09-27): per-account, not blanket — see
+        # `_pp_planned_accts`'s own docstring near `_pp_dest_ids_final`
+        # above. `_regular_move_gate` already excludes these destinations
+        # too (same set, passed in as its own `suppressed_accts`), so this
+        # is belt-and-braces with that single source of truth, not a
+        # second independent decision.
+        if dest_acct in _pp_planned_accts:
+            continue
         dest_legs = legs_by_dest.get(dest_acct) or []
 
         # ── (a) No viable source for this destination: the "no easy cover" card ──
@@ -4506,7 +4461,6 @@ async def compute_today_items(
         stored_window = stored.get("_window_end", "")
         stored_id = stored["_id"]
         stored_status = stored.get("status")
-        stored_dest_accts = stored.get("_dest_accts")
         if stored_id in dismissed:
             continue
         # If the stored item is already emitted in this run, skip
@@ -4514,6 +4468,11 @@ async def compute_today_items(
             continue
         # Window closed → expired, whether the move was still active or already
         # done+celebrated. A celebration lives until dismissal or window end.
+        # A `payday_plan` doc (G172: no lifecycle, never "done") only ever
+        # reaches this branch, and only once its window has actually closed —
+        # section 5b's own "already emitted" check above catches every live
+        # call inside the window, so this is purely the doc's garbage
+        # collection, no celebration/reactivation involved.
         if stored_window and date.fromisoformat(stored_window) < today_d:
             if persist:
                 await companion_items_col.update_one(
@@ -4521,93 +4480,7 @@ async def compute_today_items(
                     {"$set": {"status": "expired"}},
                 )
             continue
-        # Handle plan docs (multiple dest accounts)
-        if stored_dest_accts and isinstance(stored_dest_accts, list) and len(stored_dest_accts) > 0:
-            if all(min_running.get(d, 0.0) >= 0 for d in stored_dest_accts):
-                stored_total = stored.get("_total", 0)
-                if stored_status == "active":
-                    if _recelebration_gated(stored, _cel_now_utc):
-                        # Reactivated and resolved again too soon after its
-                        # last celebration — go quietly "done" with no fresh
-                        # toast/push. See `_recelebration_gated` for why.
-                        if persist:
-                            await companion_items_col.update_one(
-                                {"_id": stored_id, "uid": uid},
-                                {"$set": {"status": "done"}},
-                            )
-                        continue
-                    # G164 review fix (2026-09-26): a plan persisted ACTIVE
-                    # earlier that clears in a LATER run must not celebrate
-                    # on `min_running >= 0` alone — that's the forecast walk,
-                    # not an observed credit, and Kevin's clause is explicit:
-                    # "a plan overtaken by the user's own standing orders is
-                    # superseded quietly (no done, no celebration); the
-                    # Sorted celebration stays only for a plan the user
-                    # acted on by hand." (The same-run born-clear case is
-                    # handled entirely in section 5b, `_pp_born_clear` — a
-                    # doc that never persists never reaches this loop.)
-                    _pp_hand = await _pp_funded_by_hand(
-                        uid, stored_dest_accts, stored.get("created_at"), cached,
-                    )
-                    if not _pp_hand:
-                        if persist:
-                            await companion_items_col.update_one(
-                                {"_id": stored_id, "uid": uid},
-                                {"$set": {"status": "done", "_celebrated": False}},
-                            )
-                        # Quiet — no celebration candidate, no toast/push.
-                        # `_celebrated: False` (rather than absent) also
-                        # keeps this doc out of both branches of the query
-                        # this loop reads from on every future run (see the
-                        # `$or` above), so it never resurfaces.
-                        continue
-                    if persist:
-                        await companion_items_col.update_one(
-                            {"_id": stored_id, "uid": uid},
-                            {"$set": {"status": "done", "_celebrated": True, "_celebrated_at": _cel_now_utc}},
-                        )
-                # Legacy heal: docs already done+celebrated without _celebrated_at
-                # get stamped now so they get a full 24 h from this moment.
-                if stored.get("_celebrated_at") is None:
-                    if persist:
-                        await companion_items_col.update_one(
-                            {"_id": stored_id, "uid": uid},
-                            {"$set": {"_celebrated_at": _cel_now_utc}},
-                        )
-                    stored = dict(stored)
-                    stored["_celebrated_at"] = _cel_now_utc
-                # 24-hour lapse gate
-                if _celebration_lapsed(stored, _cel_now_utc):
-                    if not stored.get("_celebration_lapsed"):
-                        if persist:
-                            await companion_items_col.update_one(
-                                {"_id": stored_id, "uid": uid},
-                                {"$set": {"_celebration_lapsed": True}},
-                            )
-                    continue
-                _cel_candidates.append({
-                    "cel_id": f"celebrate:{stored_id}",
-                    "group": stored_dest_accts[0] if len(stored_dest_accts) == 1 else "__pooled__",
-                    "richness": 0,
-                    "created_at": stored.get("created_at") or datetime.min,
-                    "item": {
-                        "id": f"celebrate:{stored_id}",
-                        "type": "celebration",
-                        "headline": "Sorted: this week's payments are covered",
-                        "body": f"£{stored_total:,} of payments are safe.",
-                        "action": None,
-                        "estimated": False,
-                        "brief_lead": {"value": _gbp(float(stored_total)), "companion": "held aside"},
-                    },
-                })
-            elif stored_status == "active" and len(stored_dest_accts) > 1 and emitted_dests > 0:
-                # Legacy pooled plan card, superseded by per-destination cards emitted
-                # this run. Retire it quietly — the new cards own these destinations.
-                if persist:
-                    await companion_items_col.update_one(
-                        {"_id": stored_id, "uid": uid},
-                        {"$set": {"status": "expired"}},
-                    )
+        if stored.get("type") == "payday_plan":
             continue
         # Single-dest logic — only celebrate while the destination still clears
         # its window; a re-opened shortfall must not be toasted as sorted.
