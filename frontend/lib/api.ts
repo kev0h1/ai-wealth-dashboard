@@ -1,5 +1,6 @@
 import { Capacitor } from "@capacitor/core";
 import { getToken } from "./auth";
+import { isAppLocked } from "./appLock";
 import { LEGACY_BANK_AVAILABLE, LEGACY_BANK_ID } from "./legacyBankProvider";
 import type { GoLiveItem, GoLiveQuestion, GoLiveOwner } from "./goLive";
 import type {
@@ -1543,6 +1544,92 @@ export function authHeaders(): HeadersInit {
   const token = getToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
+
+// A121 (pentest IOS-07/IOS-03, HIGH): the request gate. Thrown/rejected
+// instead of a plain Error so callers can tell "the app lock refused this"
+// apart from a real network failure and stay silent rather than showing an
+// error toast for something that isn't a fault.
+export class AppLockedError extends Error {
+  constructor() {
+    super("Request refused: Sorted is locked.");
+    this.name = "AppLockedError";
+  }
+}
+
+// Every network call this module makes goes through the bare identifier
+// `fetch` — get/post/del just below, plus every hand-rolled call further
+// down in `api`. Verified: every one of those ~65 call sites already builds
+// its headers from authHeaders() (this file has no unauthenticated fetch to
+// accidentally over-gate), so shadowing the global here, once, is the
+// single choke point every one of them passes through — there is no actual
+// "the fetch wrapper" already in this file (get/post/del are three separate
+// functions, and most other calls skip them entirely for FormData uploads,
+// custom retry, etc.), so this shadow IS that wrapper, retrofitted in the
+// one place common to all of them.
+//
+// Deliberately a rejected PROMISE, not a synchronous throw: most call sites
+// below are plain, non-`async` arrow functions
+// (`id => fetch(...).then(r => toJson(r))`), where a synchronous throw
+// during evaluation of fetch's own arguments would escape the call as an
+// uncaught exception at the CALL SITE, not a `.catch`-able rejection —
+// exactly the "issues NO fetch, rejects with AppLockedError" contract this
+// exists to guarantee needs a promise either way. `globalThis.fetch` is
+// read lazily on every call (not captured once at module load) so a test
+// stubbing `global.fetch` before calling an `api.*` method is honoured.
+//
+// One exemption: POST /auth/logout (A118) — revoking your OWN session is
+// always safe and desirable regardless of lock state, and A118's server-side
+// revocation is the entire point of that item (today, the client only
+// forgets the token locally; a stolen-but-not-yet-expired token stays valid
+// for up to 7 days otherwise). Independent review of THIS item (A121) found
+// that without this exemption, that guarantee would depend on caller order:
+// components/BiometricLock.tsx's signOutInstead() happens to clear the lock
+// signal before calling logout(), so today the gate is already open by the
+// time the revocation call fires — but that is incidental and undocumented,
+// not a property of the gate itself. A future logout() caller that runs
+// while still locked (an auto-logout-on-401 handler is already filed as
+// A124) would have its revocation POST silently rejected by this gate and
+// swallowed by A118's own try/catch, leaving the token valid for 7 days —
+// exactly the finding A118 exists to close. Matched on the request URL's
+// PATHNAME (ignoring query/hash), not a substring of the raw URL string, so
+// a request to an unrelated path cannot spoof the exemption by carrying
+// "/auth/logout" in a query parameter (e.g. `/foo?next=/auth/logout`), and
+// `/auth/logout-not-really` does not match either since pathname equality
+// (via endsWith on a full path segment boundary the API_BASE prefix
+// already guarantees) requires the path to end exactly there.
+function isAuthLogoutPath(input: RequestInfo | URL): boolean {
+  try {
+    if (typeof Request !== "undefined" && input instanceof Request) {
+      return new URL(input.url).pathname.endsWith("/auth/logout");
+    }
+    if (input instanceof URL) return input.pathname.endsWith("/auth/logout");
+    // Plain string — may be relative (this file's own calls are, e.g.
+    // "/api/auth/logout"), so resolve against a throwaway base purely to
+    // reach a proper `.pathname` with query/hash stripped; the base itself
+    // is never used for anything but that parse. The cast is safe: the two
+    // `instanceof` checks above have already excluded Request and URL, so
+    // only the `string` arm of `RequestInfo | URL` can reach here — TS just
+    // can't narrow that through the compound `typeof Request !== "undefined"`
+    // guard on its own.
+    return new URL(input as string, "http://localhost").pathname.endsWith("/auth/logout");
+  } catch {
+    return false;
+  }
+}
+
+function fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  if (isAppLocked() && !isAuthLogoutPath(input)) return Promise.reject(new AppLockedError());
+  return globalThis.fetch(input, init);
+}
+
+// Test-only escape hatch: scripts/app-lock.test.mjs exercises the gate
+// (including the /auth/logout exemption above) directly with raw URLs,
+// since A118 (which adds the real api.logout() caller) is a sibling branch
+// and does not exist here yet — the exemption is matched by path, so it
+// works regardless of which of A118/A121 merges first. Same function as
+// the shadowed `fetch` above, just reachable without importing the
+// shadowed identifier itself.
+export const gatedFetch = fetch;
 
 // B31: server-side backstop on the native purchase gate (backend/app/routers/billing.py's
 // _reject_native_platform) — see that function's own comment for the full

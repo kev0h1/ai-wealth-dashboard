@@ -111,7 +111,11 @@
 //   z-[65]/z-[70] the established sheet backdrop/panel tier — CommitmentSheet,
 //         and ~15 other sheets across the app
 //   z-[70] also ConfirmDialog, AccountsPage's modals, PlanningPage's tooltip
-//   z-[80] SpendPage's toast alerts (highest tier in the app)
+//   z-[80] SpendPage's toast alerts (highest tier in this list)
+//   z-[999] components/BiometricLock.tsx's lock screen (A121) — deliberately
+//         outside/above this whole tier system, not a gap left unreconciled:
+//         see that file's own z-index comment for why a privacy lock has to
+//         outrank literally everything else on screen, this sheet included.
 // z-[56]/z-[58] sits with clear room above BottomNav (z-50, so the sheet
 // reads as in front of the rail) and clear room below the crowded z-[60]
 // tier and the established z-[65]/z-[70] sheet tier. Concretely: this
