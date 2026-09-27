@@ -18,7 +18,7 @@ from app.core.config import (
 )
 from app.core.identity import resolve_signin_email
 from app.core.pending_login import _pop_pending, _store_pending
-from app.core.session_revocation import is_revoked
+from app.core.session_revocation import is_revoked, revoke_sessions
 from app.db.collections import linked_identities_col
 from app.services.retention import erase_orphaned_relay_account
 from itsdangerous import SignatureExpired, BadSignature
@@ -83,6 +83,37 @@ async def validate_session(request: Request):
     # "Sorted is an app" shell when NEXT_PUBLIC_WEB_PRODUCT=off.
     owner = email.strip().lower() == PRIMARY_EMAIL
     return {"valid": True, "name": name, "email": email, "owner": owner}
+
+
+@router.post("/auth/logout")
+async def logout(user: dict = Depends(current_user)):
+    """A118 (pentest AND-02): explicit in-app logout only ever cleared the
+    token client-side (frontend/lib/auth.ts's clearToken), so a token
+    recovered from disk after logout (the WebView's leveldb log is
+    append-only, so removeItem's old value survives it) kept authenticating
+    for its full SESSION_MAX_AGE (7 days) — there was no server-side
+    logout at all.
+
+    Reuses A84's revoke_sessions() verbatim (the same tombstone
+    delete_account and the dormant sweep already write), rather than a
+    new mechanism: session tokens are stateless itsdangerous signatures
+    with no id of their own, so per-token blocklisting isn't possible —
+    only a per-identity cutoff is. That means this signs out EVERY device
+    holding a session for this email, not just the one that tapped
+    logout: there is no per-device session list in this app, so "log out"
+    means "every session for this identity, from now", the same meaning
+    delete_account's revoke already carries.
+
+    Idempotent: revoke_sessions' `$max` on `not_before` only ever moves a
+    tombstone later, never earlier, so calling this twice is harmless. A
+    second call presenting the SAME (now-revoked) token never reaches this
+    body at all — the `current_user` dependency above rejects it with 401
+    first, which is the correct outcome (not a 500), before revoke_sessions
+    runs again.
+    """
+    await revoke_sessions(user["email"])
+    logging.info("Logged out %s (all sessions revoked)", mask_email(user["email"]))
+    return {"ok": True}
 
 
 @router.post("/auth/google/native")

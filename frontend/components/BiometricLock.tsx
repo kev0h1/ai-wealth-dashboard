@@ -322,7 +322,10 @@ export default function BiometricLock({ children }: { children: React.ReactNode 
     setLocked(false);
     setAwaitingAuth(false);
     setErrorMessage(null);
-    logout();
+    // Fire-and-forget: nothing here depends on the server-side revocation
+    // completing (A118's logout() is now async, since it calls the
+    // backend before clearing the local token).
+    void logout();
   }, [logout]);
 
   return (

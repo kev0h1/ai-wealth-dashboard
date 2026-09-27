@@ -11,6 +11,13 @@ session_revocation.py's own module docstring for why the OAuth surface
 needed its own fix (oauth_tokens_col keys the user as `uid`, which
 erase_user's sweep never matches).
 
+A118: also app.routers.auth.logout (POST /auth/logout), the third caller
+of revoke_sessions — the pentest finding was that in-app logout only ever
+cleared the token client-side, so a token recovered from disk (the
+WebView leveldb log is append-only) kept authenticating for its full
+7-day expiry. Reuses revoke_sessions()/is_revoked() verbatim, no new
+mechanism.
+
 Same convention as tests/test_bot_credentials.py / test_auth_middleware_
 catch_all.py: router/dependency functions called directly via asyncio.run,
 tiny in-memory fakes standing in for `session_tombstones_col` /
@@ -18,12 +25,15 @@ tiny in-memory fakes standing in for `session_tombstones_col` /
 """
 import asyncio
 import hashlib
+import inspect
 import json
 import secrets
+import time
 from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi import HTTPException
+from fastapi.params import Depends as DependsMarker
 
 import app.core.auth as auth_mod
 import app.core.session_revocation as session_revocation
@@ -259,7 +269,12 @@ def _mint(email=EMAIL) -> str:
 
 def test_token_issued_before_revoke_is_rejected():
     token = _mint()
-    _run(session_revocation.revoke_sessions(EMAIL))
+    # Forced 1s-later `now`, not the bare next line of Python: the fix
+    # below floors not_before to whole seconds, so a token minted earlier
+    # in the SAME second as revoke_sessions() is deliberately NOT revoked
+    # (see the real-clock regression tests further down) — this test needs
+    # genuine second-boundary separation to test what it says it tests.
+    _run(session_revocation.revoke_sessions(EMAIL, now=datetime.now(timezone.utc) + timedelta(seconds=1)))
     with pytest.raises(HTTPException) as exc:
         _run(auth_mod.current_user(_FakeRequest(token)))
     assert exc.value.status_code == 401
@@ -275,6 +290,51 @@ def test_token_issued_after_revoke_is_accepted():
     token = _mint()  # minted AFTER the tombstone — issued_at is later than not_before
     user = _run(auth_mod.current_user(_FakeRequest(token)))
     assert user["email"] == EMAIL
+
+
+# ── Real-clock same-second regression (the reviewer's finding) ───────────
+#
+# revoke_sessions(now=None) used to store `not_before` at full microsecond
+# precision, but a session token's `issued_at` comes back from itsdangerous
+# floored to the whole second (TimestampSigner.get_timestamp() is
+# int(time.time())). A genuine log-out-then-immediately-log-in landing in
+# the SAME wall-clock second as the logout could then have a floored
+# issued_at that looks EARLIER than the precise not_before, and got
+# wrongly rejected as revoked — roughly half of same-second re-logins,
+# since not_before's fractional part is effectively uniform. Fixed by
+# flooring not_before to whole seconds too, so the tombstone's resolution
+# matches the token's. These two tests use the REAL clock (no `now=`
+# override, unlike the deliberate 5-second-gap test above, which never
+# exercised this because it never lands in the same second).
+
+def test_real_clock_relogin_in_the_same_second_survives_revocation():
+    """Looped rather than a single attempt: a fixed instant could get
+    lucky and land near a second boundary either way, but flooring
+    not_before means every iteration must pass, whichever fraction of the
+    second revoke_sessions() itself lands on."""
+    for _ in range(20):
+        email = "a118-realclock-" + secrets.token_hex(4) + "@example.com"
+        _run(session_revocation.revoke_sessions(email))  # now=None: real clock
+        # No sleep, or at most a few ms — the whole point is to land in
+        # the SAME wall-clock second as the revoke_sessions() call above
+        # as often as possible, not to dodge it.
+        time.sleep(0.01)
+        token = serializer.dumps({"email": email, "name": "Test"})
+        _, issued_at = serializer.loads(token, max_age=3600, return_timestamp=True)
+        assert _run(session_revocation.is_revoked(email, issued_at)) is False
+
+
+def test_real_clock_token_from_a_strictly_earlier_second_is_still_revoked():
+    """The inverse: flooring not_before must not stop this module doing
+    its actual job — a token minted before logout, in a clearly earlier
+    second (a real 1.1s gap, not just the next line of Python), is still
+    revoked."""
+    email = "a118-realclock-earlier@example.com"
+    token = serializer.dumps({"email": email, "name": "Test"})
+    _, issued_at = serializer.loads(token, max_age=3600, return_timestamp=True)
+    time.sleep(1.1)
+    _run(session_revocation.revoke_sessions(email))  # now=None: real clock
+    assert _run(session_revocation.is_revoked(email, issued_at)) is True
 
 
 def test_revoke_sessions_keeps_the_later_not_before():
@@ -312,7 +372,9 @@ def test_tombstone_read_failure_yields_503_not_200(monkeypatch):
 
 def test_session_validate_rejects_revoked_token():
     old_token = _mint()
-    _run(session_revocation.revoke_sessions(EMAIL))
+    # See test_token_issued_before_revoke_is_rejected above for why this
+    # needs a forced 1s-later `now` rather than the bare next line.
+    _run(session_revocation.revoke_sessions(EMAIL, now=datetime.now(timezone.utc) + timedelta(seconds=1)))
     with pytest.raises(HTTPException) as exc:
         _run(auth_router.validate_session(_FakeRequest(old_token)))
     assert exc.value.status_code == 401
@@ -374,6 +436,11 @@ def test_old_token_rejected_after_delete_account_before_any_profile_write(monkey
         return {}
     monkeypatch.setattr(profile_router, "erase_user", fake_erase)
 
+    # A real gap past the second boundary — delete_account calls
+    # revoke_sessions(uid) with no `now=` override to inject, and the
+    # not_before floor deliberately does not revoke a token minted earlier
+    # in the SAME second (see the real-clock regression tests below).
+    time.sleep(1.1)
     _run(profile_router.delete_account(
         {"confirm": "DELETE"}, user={"email": EMAIL, "name": "Test"},
     ))
@@ -539,6 +606,11 @@ def test_resolve_mcp_principal_still_rejects_via_tombstone_when_token_not_itself
     still block it."""
     access_raw, _ = _seed_oauth_pair(EMAIL)
     access_hash = hashlib.sha256(access_raw.encode()).hexdigest()
+    # A real gap past the second boundary — _delete_account's revoke_sessions
+    # call floors not_before to whole seconds, so this OAuth token's
+    # (unfloored, full-precision) created_at must be in a strictly earlier
+    # second for the tombstone-only (braces) check to catch it.
+    time.sleep(1.1)
     _run(_delete_account(monkeypatch))
     # Undo the belt's own write to isolate the braces check.
     db_collections.oauth_tokens_col.docs[access_hash]["revoked_at"] = None
@@ -552,6 +624,9 @@ def test_refresh_grant_still_invalid_via_tombstone_when_token_not_itself_flagged
     """Same isolation as above, for the refresh-grant braces check."""
     _, refresh_raw = _seed_oauth_pair(EMAIL, client_id="claude-1")
     refresh_hash = hashlib.sha256(refresh_raw.encode()).hexdigest()
+    # See test_resolve_mcp_principal_still_rejects_... above for why this
+    # needs a real gap past the second boundary.
+    time.sleep(1.1)
     _run(_delete_account(monkeypatch))
     db_collections.oauth_tokens_col.docs[refresh_hash]["revoked_at"] = None
 
@@ -585,3 +660,98 @@ def test_refresh_grant_fails_closed_on_tombstone_read_error(monkeypatch):
         _run(oauth_router.token_endpoint(_FakeFormRequest({
             "grant_type": "refresh_token", "refresh_token": refresh_raw, "client_id": "claude-1",
         })))
+
+
+# ── POST /auth/logout (A118) ──────────────────────────────────────────────
+#
+# The pentest finding: an in-app logout only ever cleared the token
+# client-side (frontend/lib/auth.ts's clearToken), so a token recovered
+# from disk after logout (the WebView's leveldb log is append-only, so
+# removeItem's old value survives it) kept authenticating for its full
+# SESSION_MAX_AGE (7 days) — there was no server-side logout at all. The
+# fix reuses A84's revoke_sessions()/is_revoked() verbatim: same
+# per-identity tombstone, same fail-closed current_user check, no new
+# mechanism to test independently of what's already covered above.
+
+def test_logout_route_revokes_the_callers_email(monkeypatch):
+    """The route calls revoke_sessions with the CALLER's own email (from
+    the current_user dependency), not some other field."""
+    calls: list = []
+
+    async def fake_revoke(email, now=None):
+        calls.append(email)
+
+    monkeypatch.setattr(auth_router, "revoke_sessions", fake_revoke)
+
+    result = _run(auth_router.logout(user={"email": EMAIL, "name": "Test"}))
+
+    assert result == {"ok": True}
+    assert calls == [EMAIL]
+
+
+def test_token_issued_before_logout_is_rejected_afterwards():
+    """A token issued before logout fails is_revoked (via current_user)
+    afterwards — the core pentest scenario: a token recovered from disk
+    after the user tapped "sign out" must no longer authenticate."""
+    old_token = _mint()
+    # A real gap past the second boundary — logout() calls revoke_sessions
+    # with no `now=` override to inject, and the not_before floor
+    # deliberately does not revoke a token minted earlier in the SAME
+    # second (see the real-clock regression tests below).
+    time.sleep(1.1)
+    _run(auth_router.logout(user={"email": EMAIL, "name": "Test"}))
+    with pytest.raises(HTTPException) as exc:
+        _run(auth_mod.current_user(_FakeRequest(old_token)))
+    assert exc.value.status_code == 401
+
+
+def test_token_issued_after_logout_is_not_revoked():
+    """Guards the log-out-then-immediately-log-in case: a token minted
+    AFTER logout must still authenticate, since its issued_at is later
+    than the tombstone's not_before. A real few-second gap is used, same
+    as test_token_issued_after_revoke_is_accepted above, since itsdangerous
+    truncates a signed timestamp to whole seconds."""
+    email2 = "a118-test-2@example.com"
+    past = datetime.now(timezone.utc) - timedelta(seconds=5)
+    _run(session_revocation.revoke_sessions(email2, now=past))  # simulates logout()'s effect
+    new_token = _mint(email2)
+    user = _run(auth_mod.current_user(_FakeRequest(new_token)))
+    assert user["email"] == email2
+
+
+def test_logout_route_requires_authentication():
+    """The route is declared behind Depends(current_user), the same
+    dependency every other session-branch route uses — a request with no
+    (or an invalid/expired/revoked) bearer token never reaches the route
+    body at all, it 401s in the dependency first."""
+    sig = inspect.signature(auth_router.logout)
+    user_param = sig.parameters["user"]
+    assert isinstance(user_param.default, DependsMarker)
+    assert user_param.default.dependency is auth_mod.current_user
+
+    # And current_user itself does reject an unauthenticated request, the
+    # actual enforcement this dependency wiring relies on.
+    with pytest.raises(HTTPException) as exc:
+        _run(auth_mod.current_user(_FakeRequest(None)))
+    assert exc.value.status_code == 401
+
+
+def test_logout_is_idempotent_second_call_401s_not_500():
+    """Calling logout twice with the SAME token: the first call revokes
+    it, the second call presenting that now-revoked token never reaches
+    the route body — current_user's dependency rejects it with 401,
+    not a 500, before revoke_sessions runs again."""
+    token = _mint()
+    # See test_token_issued_before_logout_is_rejected_afterwards above for
+    # why this needs a real gap past the second boundary.
+    time.sleep(1.1)
+    _run(auth_router.logout(user={"email": EMAIL, "name": "Test"}))
+    with pytest.raises(HTTPException) as exc:
+        _run(auth_mod.current_user(_FakeRequest(token)))
+    assert exc.value.status_code == 401
+
+    # A second logout call (e.g. a different still-valid token for the
+    # same identity) is itself harmless: revoke_sessions' $max only ever
+    # moves not_before later, never earlier.
+    result = _run(auth_router.logout(user={"email": EMAIL, "name": "Test"}))
+    assert result == {"ok": True}

@@ -647,7 +647,7 @@ export default function SettingsPage() {
     setDeleting(true);
     try {
       await api.deleteUserAccount();
-      logout();
+      await logout();
     } catch {
       setDeleting(false);
       setProfileMsg({ text: "Deletion failed, try again", ok: false });
@@ -1717,7 +1717,7 @@ export default function SettingsPage() {
           </div>
 
           <button
-            onClick={logout}
+            onClick={() => void logout()}
             className="w-full min-h-[44px] flex items-center gap-3 px-4 py-3.5 text-left text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 active:bg-slate-100 transition-colors"
           >
             <LogOut size={16} />

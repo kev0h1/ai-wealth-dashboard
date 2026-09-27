@@ -21,10 +21,10 @@ interface AuthUser {
 
 interface AuthContextValue {
   user: AuthUser | null;
-  logout: () => void;
+  logout: () => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextValue>({ user: null, logout: () => {} });
+const AuthContext = createContext<AuthContextValue>({ user: null, logout: async () => {} });
 export const useAuth = () => useContext(AuthContext);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -117,7 +117,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     init();
   }, []);
 
-  function logout() {
+  async function logout() {
+    // A118: revoke the session server-side BEFORE clearing the local
+    // token. This MUST run first — authHeaders() reads the token at call
+    // time, so clearing it first would send this request unauthenticated
+    // and the tombstone would never be written, leaving the pentest gap
+    // open (a token recovered from disk after logout would keep
+    // authenticating for its full 7-day expiry). Best-effort: a flaky
+    // connection, or a token that's already revoked (e.g. a second tab
+    // already logged out), must never block local sign-out.
+    try {
+      await api.logout();
+    } catch (e) {
+      console.error("[AuthProvider] logout request failed", e);
+    }
+
     clearToken();
     setUser(null);
 

@@ -2402,6 +2402,15 @@ export const api = {
       method: "POST",
       headers: authHeaders(),
     }).then((r) => r.ok),
+  // A118: server-side session revocation on explicit logout (the token
+  // otherwise survives on disk after clearToken() and keeps authenticating
+  // for its full 7-day expiry). Called from AuthProvider.logout() BEFORE
+  // clearToken(), since authHeaders() reads the token at call time.
+  logout: () =>
+    fetch(`${API_BASE}/auth/logout`, {
+      method: "POST",
+      headers: authHeaders(),
+    }).then((r) => toJson<{ ok: boolean }>(r)),
   patchTransaction: (id: string, data: { category: string; additional_ids?: string[] }) =>
     fetch(`${API_BASE}/transactions/${id}`, {
       method: "PATCH",
