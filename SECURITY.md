@@ -103,9 +103,11 @@ CREST-accredited penetration test) remains open and is booked ahead of
 public launch; this round is its internal precursor, not a substitute for
 it.
 
-**Coverage: 10 of 12 work packages executed by internal agents.** Ten work
-packages ran between 2026-09-19 and 2026-09-21, each recording its own
-sanitised evidence under `docs/security/pentest-runs/<run-id>/`:
+**Coverage: 12 of 12 work packages executed, to the extent possible without
+a Mac or a rooted device.** Twelve work packages have now run: ten between
+2026-09-19 and 2026-09-21, and the final two, both dynamic device testing,
+live on real devices on 2026-09-27. Each records its own sanitised evidence
+under `docs/security/pentest-runs/<run-id>/`:
 
 | Work package | Scope | Board item |
 |---|---|---|
@@ -116,18 +118,31 @@ sanitised evidence under `docs/security/pentest-runs/<run-id>/`:
 | WP5 | OAuth 2.1 authorisation server | A52 |
 | WP6 | MCP connector | A53 |
 | WP7a | Android app shell, static analysis only | A54 |
+| WP7b | Android app shell, dynamic device testing (real production-pointed debug APK) | A55 |
+| WP8 | iOS app shell, dynamic device testing (production TestFlight build) | A56 |
 | WP9 | Finexer and TrueLayer boundary | A57 |
 | WP10 | Stripe fail-closed boundary | A58 |
 | WP11 | OpenRouter and Penny trust boundary | A59 |
 
-The remaining two work packages, both dynamic device testing, have not run:
-WP7b (Android dynamic testing on a device, A55) and WP8 (iOS, A56, beyond
-the static repository-level review already done). Both are deferred to the
-external A7 engagement or to a future device-equipped session; coverage is
-not complete, and neither surface should be read as cleared by this round.
+WP7b and WP8 ran on 2026-09-27: WP7b against the production-pointed Android
+debug APK (package `co.uk.auriqltd.sorted`, SHA-256
+`73bab9744ae166a94a35bcf1c05bbfc33605f225d39efd5f8e979b77b7c3fc3e`), WP8
+against the production TestFlight build installed on Kevin's own iPhone.
+Sanitised per-test evidence and run manifests are recorded under
+`docs/security/pentest-runs/A55-2026-09-27/` and
+`docs/security/pentest-runs/A56-2026-09-27/`. A number of instrumented or
+Mac-only sub-steps within those two packages remain deferred to the external
+A7 engagement, since they need equipment this internal round did not have:
+`IOS-01`, `IOS-06`, the Keychain and file-protection halves of `IOS-02`, the
+`IOS-05` scheme-collision tie-break, and the Frida- or root-dependent Android
+sub-steps listed in `A55-runbook.md`'s own "Deferred to A7" table (memory
+inspection, instrumented UI automation, WebView content-debugging fuzzing,
+and similar). With those two packages run, coverage is now 12 of 12 work
+packages executed to the extent possible without a Mac or a rooted device;
+the sub-steps above still need that equipment and remain booked into A7.
 
-WP0 (A47) built the evidence and rules-of-engagement harness ahead of these
-ten. Findings raised during execution were triaged against a
+WP0 (A47) built the evidence and rules-of-engagement harness ahead of this
+round's testing. Findings raised during execution were triaged against a
 single-reviewer (same-model) pass; WP12, the cross-model review where a
 Codex session checks every Claude-run package and vice versa (board item
 A60), has not yet started, so no finding below has had its severity or
@@ -136,13 +151,17 @@ to confirm per section 3a.
 
 **Findings.** These were reported first and fixed after, per Kevin's
 deliberate choice (see each item's own board note). As of 2026-09-23,
-fifteen of the twenty findings below are fixed on `main` with regression
-tests; none of those fixes has reached production yet, and none has had a
-post-fix production retest. The remaining five (A73, A77, A79, A81, A94)
-are still open. Severities use section 3's bands and are provisional
-pending the ISM's sign-off and the still-owed cross-model review above.
+fifteen of the twenty findings first raised were fixed on `main` with
+regression tests; none of those fixes has reached production yet, and none
+has had a post-fix production retest. Five of those twenty (A73, A77, A79,
+A81, A94) were still open at that date. A further five findings (A118,
+A119, A120, A121, A122) were raised during the WP7b/WP8 device testing on
+2026-09-27 (see below) and are all still open, none yet remediated,
+bringing the running total to twenty-five findings: fifteen fixed and ten
+open. Severities use section 3's bands and are provisional pending the
+ISM's sign-off and the still-owed cross-model review above.
 
-*High (P2): four findings, no Criticals.*
+*High (P2): five findings, no Criticals.*
 
 | Item | Finding | Status |
 |---|---|---|
@@ -150,10 +169,12 @@ pending the ISM's sign-off and the still-owed cross-model review above.
 | A83 | `GET /connections` does not list live Finexer connections, hiding the very connection A82's disconnect-first step needs | Fixed on main 2026-09-22 (c35ac008), regression-tested; production release and production retest pending |
 | A84 | A deleted account's session token is not invalidated and remains usable for up to 7 days; it has been shown able to write persistent data that reattaches if the account is later recreated with the same email | Fixed on main 2026-09-22 (40fed391), regression-tested; production release and production retest pending |
 | A91 | The MCP connector's output masking is structural only (drops fields by shape) and never sanitises the content it keeps, so an instruction-shaped string in a merchant name, recurring-series description or insight trigger reaches the connecting external assistant unmodified: a live prompt-injection surface with no content-level mitigation. The connector is off in production by design (A17), so this exposure is UAT-only today; it must be fixed before the connector is enabled in production (board item F1, Finexer design sign-off, still open), it is not actively exploitable in production now | Fixed on main 2026-09-22 (9c5b7ef9), regression-tested; production release and production retest pending |
+| A121 | The iOS biometric privacy lock is bypassable: with the lock engaged (cold start and via notification tap), the nav bar and Penny suggestion chips are tappable behind the visual overlay, and a chip tap renders live safe-to-spend and upcoming-bills figures with no authentication. Android's overlay held | Found in device testing 2026-09-27; open, not yet remediated |
 
 A82, A83 and A84 are one deletion-lifecycle root cause: account deletion
 does not disconnect a customer's bank connection before erasing local
-data. A91 is unrelated to that workstream.
+data. A91 is unrelated to that workstream. A121, found in the 2026-09-27
+device testing, is unrelated to either.
 
 *Medium (P3)*
 
@@ -166,6 +187,8 @@ data. A91 is unrelated to that workstream.
 | A89 | Webhook path-secret comparison is not constant-time (no practical timing exploit identified; the secret also functions as a long random URL segment) | Fixed on main 2026-09-22 (f4983f8e); production release pending |
 | A92 | Production's proxy chain does not strip a caller-supplied `X-Real-IP`/`X-Forwarded-For` header, so any IP-keyed rate limit on production can be bypassed by rotating the header. Triaged to Medium, down from the board's own initially proposed High: there is no password login to brute-force behind this, and per-user (not IP-keyed) limits on data routes are untouched | Fixed on main 2026-09-22 (d5fbdfe1); production release pending, gated on A110 (trusted-proxy hop handling) |
 | A95 | `GET /logo/{domain}` carries no rate limit at all, not even the general IP catch-all, so an unlimited caller can drive cost through the server-side image proxy | Fixed on main 2026-09-22 (aeadb348); production release pending |
+| A118 | After logout, the Android session token value is still recoverable on disk (LevelDB append-only storage) | Found in device testing 2026-09-27; open, not yet remediated |
+| A119 | On the Android debug build the WebView is remotely inspectable, and the authenticated DOM plus Capacitor bridge are reachable behind the lock overlay; the deciding follow-up is to verify the signed release APK disables WebView content debugging | Found in device testing 2026-09-27; open, not yet remediated |
 
 *Low (P4)*
 
@@ -179,6 +202,8 @@ data. A91 is unrelated to that workstream.
 | A86 | The commitment state machine allows out-of-order transitions and has no create-time idempotency check | Fixed on main 2026-09-22 (1f8a318d); production release pending |
 | A90 | The MCP connector's `initialize` handler never validates or negotiates the client's requested protocol version | Fixed on main 2026-09-22 (141b057c); production release pending |
 | A93 | An unhandled NUL byte in a search query parameter crashes one endpoint with a 500 (no data leaked) | Fixed on main 2026-09-22 (f73638e6); production release pending |
+| A120 | Push device registration survives logout on both Android (FCM) and iOS (APNs): `unregisterCapacitorPush()` is never called, and no server-side logout route exists to unregister the device token either | Found in device testing 2026-09-27; open, not yet remediated |
+| A122 | The app-switcher/recents snapshot shows live financial figures even with the biometric lock enabled, confirmed on both iOS and Android | Found in device testing 2026-09-27; open, not yet remediated |
 
 *Informational*
 
@@ -191,18 +216,22 @@ product-intent question for Kevin, not a severity-rated security finding.
 A92's board priority tag is p2, which is a work-scheduling priority, not
 its security severity; its severity, per the triage above, is Medium.
 
-**Headline.** No Critical findings. The four High findings are fixed on
-`main`, merged 2026-09-22, each with regression tests: the
+**Headline.** No Critical findings. Five High findings now exist. Four are
+fixed on `main`, merged 2026-09-22, each with regression tests: the
 deletion-lifecycle root cause (A82, A83, A84) and A91, the MCP
 prompt-injection gap, which remains UAT-only until the connector is
 enabled in production (gated on board item F1, the written Finexer design
 sign-off, still open, not F2, which is the OAuth server and is already
-done). None of the four fixes has reached production yet: the `release`
+done); none of those four fixes has reached production yet, the `release`
 branch predates all four merges, and no production retest has been run.
-Of the remaining sixteen Medium, Low and Informational findings, eleven
-are similarly fixed on `main` with production release pending (A92
-additionally gated on A110, trusted-proxy hop handling); five (A73, A77,
-A79, A81, A94) remain open.
+The fifth, and newest, is **A121**: the iOS biometric privacy lock is
+bypassable, exposing live safe-to-spend and upcoming-bills figures with no
+authentication, found in device testing on 2026-09-27 and, unlike the
+other four, **not yet remediated**. Of the remaining twenty Medium, Low
+and Informational findings, eleven are fixed on `main` with production
+release pending (A92 additionally gated on A110, trusted-proxy hop
+handling); nine (A73, A77, A79, A81, A94, A118, A119, A120, A122) remain
+open.
 
 **Production status as of 2026-09-23.** The fifteen fixes recorded above
 (A74, A76, A80, A82, A83, A84, A85, A86, A88, A89, A90, A91, A92, A93,
@@ -233,11 +262,11 @@ that a reader of the findings list above should not have to infer:
   payload retention) and the accepted-delivery live halves of `FIN-01` and
   `TL-02`, because this testing session has no production database read
   path and no provider-approved sandbox consent exists.
-- WP7b (Android dynamic testing) and WP8 (iOS dynamic testing) have not
-  run; both are deferred to the external A7 engagement or a future
-  device-equipped session (Kevin has a TestFlight build and a device for
-  iOS, but has not yet run or assigned the dynamic cases). Coverage is 10
-  of 12 work packages, not complete.
+- WP7b (Android dynamic testing) and WP8 (iOS dynamic testing) ran live on
+  real devices on 2026-09-27 (see the coverage note above); the
+  instrumented and Mac-only sub-steps within them remain deferred to the
+  external A7 engagement. Coverage is now 12 of 12 work packages, to the
+  extent possible without that equipment.
 - A temporary `OPEN_SIGNUP` window on production (opened and closed on
   2026-09-19, board item A63, to create test identities) was not audited
   for unexpected registrations during the roughly 36-minute window it was
@@ -252,7 +281,11 @@ answer and `docs/security/pentest-runs/` for the sanitised per-run records.
 attestation in a working session with Claude ('Happy to sign this'), not a
 handwritten or cryptographic signature. Status update 2026-09-23 recorded
 by a Claude session for Kevin's confirmation; the per-finding statuses
-above reflect `main` and the `release` branch as of that date.
+above reflect `main` and the `release` branch as of that date. Further
+update 2026-09-27 (board item A117): WP7b and WP8 device testing was
+executed live, and findings A118 to A122 were folded into the coverage and
+findings sections above; recorded by a Claude session for Kevin's
+confirmation.
 
 ## 4. Incident response process
 
@@ -353,3 +386,4 @@ This policy is reviewed at least annually, and after any material incident, chan
 | 1.12 | 2026-09-21 | A45 draft, updated: three more work packages executed (WP2/A49, WP6/A53, WP10/A58), coverage now 10 of 12 (WP7b Android dynamic and WP8 iOS dynamic remain deferred); six new findings folded in (A90, A91, A92, A93, A94, A95); headline now four High findings (the deletion-lifecycle three plus A91, an MCP prompt-injection gap, UAT-only until the connector is enabled in production); Q11 draft updated to match. |
 | 1.13 | 2026-09-21 | A45 correction: A91's pre-production gate was wrongly cited as board item F2 (the OAuth 2.1 authorisation server, done 2026-09-08); the correct gate is F1, the written Finexer design sign-off, still open. Fixed in the A91 finding row and the headline. |
 | 1.14 | 2026-09-23 | A107: fifteen of the twenty §3b findings, including all four High findings (A82, A83, A84, A91), are now fixed on `main` with regression tests; updated the intro, headline and every fixed finding's Status cell with date and commit, and added a "Production status as of 2026-09-23" paragraph recording that production release (A92 gated on A110), the deletion-lifecycle production retest and WP12 (A60) are all still pending. Five findings (A73, A77, A79, A81, A94) remain open. |
+| 1.15 | 2026-09-27 | A117: WP7b (Android, A55) and WP8 (iOS, A56) dynamic device testing executed live on real devices; coverage corrected from 10 of 12 to 12 of 12 work packages (to the extent possible without a Mac or a rooted device, remaining sub-steps deferred to A7); five new findings folded in (A118, A119, A120, A121, A122); headline corrected to five High findings, since A121 (iOS biometric-lock bypass exposing live financial data) is not yet remediated, distinct from the four earlier High findings which remain fixed on `main` pending production release. Evidence under `docs/security/pentest-runs/A55-2026-09-27/` and `docs/security/pentest-runs/A56-2026-09-27/`. |
