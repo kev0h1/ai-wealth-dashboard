@@ -32,6 +32,18 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "payday-plan-standing-orders",
+    name: "payday-plan-standing-orders",
+    description:
+      "G173, skill: impeccable · Kevin 2026-09-27: \"The payday plan was conceived to prevent too much movement of money. I get £4,000 salary into my account and I have certain standing orders set up; can I be better at improving the standing orders, because I would always move money around to cover bills. The user would look at this and be like oh I need to change my standing orders so I don't have to move money again during the month.\" · A 'Two-column ledger' — each destination shows Standing order left and Needs ~ right with an arrow-free \"send £298 less\"/\"start one at ~£150\" line, the payments/spending/buffer working folded behind one card-level \"Show the working\" disclosure; B 'Adjustment list' — leads with the hero verdict figure (£612 less across 2 standing orders here) and lists only the destinations that need a change, everything already right folded into one \"6 standing orders are about right\" disclosure row; C 'Before and after' — a compact Account/Sends/Needs/Adjust table across every destination at once, the delta cell highlighted (ink, no red), the salary tile above and the \"stays with you\" line below · every variant keeps the Penny minimise chevron and Home dismiss × exactly as production renders them (CardHeader in shared.tsx, copied verbatim from components/PaydayPlanCard.tsx's own inline header markup, the same local-unexported-JSX reasoning the month-closed-card round used), plus the salary tile (SalaryTile, also copied verbatim) — PRODUCTION-BOUNDARY NOTE: the destination row itself is what this round redesigns, so it is hand-authored in every variant rather than forking PaydayPlanCard's existing dest-row markup, which only ever showed the recommended move, never a standing-order-vs-need comparison · fixture data only, no API calls · salary (£4,798, Barclays Premier Current Account) and all eight standing-order amounts are Kevin's real 2026-08-10 observed payday ritual, as is NatWest's stated £596 need and Monzo's £1,016 spend median; every other \"needs\" figure and split (HSBC's £1,587, Monzo's £90 buffer, NatWest's payments/spend/buffer split, and the ninth Council Tax Reserve row demonstrating \"needs a standing order but has none\") is illustrative, invented for this preview and labelled as such in the UI · a destination needs a change once the standing order and its need differ by £100 or more (a preview design choice, not a backend rule); no red anywhere, an under-funded destination gets a small amber dot signifier only, per DESIGN.md's Red Is Risk Rule · ?variant=a|b|c&surface=home|penny&state=default|minimised&mode=light|dark",
+    states: [{ label: "Everything", value: "everything" }],
+    variants: [
+      { label: "A · Two-column ledger", value: "a" },
+      { label: "B · Adjustment list", value: "b" },
+      { label: "C · Before and after", value: "c" },
+    ],
+  },
+  {
     slug: "month-closed-card",
     name: "month-closed-card",
     description:
