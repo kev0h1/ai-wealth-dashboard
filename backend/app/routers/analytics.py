@@ -129,7 +129,12 @@ OBSERVATION_LOOKBACK_DAYS = 6   # real bills land up to 5 days before their anch
 # `bnpl_commitments` key at all; `_build_cashflow_response` treats that as
 # "nothing to project" rather than misreading absence as an empty list of a
 # newer shape.
-PATTERNS_VERSION = 9
+# v10 (G174): recurring_income entries can now carry `confirmed_alias` (set
+# by `_confirmed_income_fallback`'s dedupe guard) -- a cache doc computed
+# before this exists has no such field on any entry, so `income_credit_ok`
+# can't recognise a detected series as standing in for a confirmed one under
+# a changed payroll reference until the doc is recomputed under this version.
+PATTERNS_VERSION = 10
 
 def _next_working_day(d):  # d: datetime.date -> datetime.date
     while d.weekday() >= 5 or d.isoformat() in UK_BANK_HOLIDAYS_EW:
@@ -1154,6 +1159,19 @@ def _confirmed_income_fallback(
             None,
         )
         if _dup is not None:
+            # G174: stamp the confirmed key onto the detected entry it defers
+            # to, so `income_credit_ok` (and everything downstream that reads
+            # its output -- `_serialise_pattern`, `upcoming_income`,
+            # `payday_income`) can recognise this detected series as the SAME
+            # payer as the confirmed stream, under its new reference, and
+            # accept it as confirmed rather than requiring it to independently
+            # clear `_income_pattern_reliable`'s 3-occurrence floor. Without
+            # this, a fresh payroll-reference change leaves the confirmed
+            # salary invisible to income_credit_ok for its first two
+            # occurrences, and a per-account plan can pick an unrelated,
+            # merely-reliable candidate (e.g. a small standing order) as "the
+            # pay" instead. See G174's board note for the exact failure.
+            _dup["confirmed_alias"] = key
             logger.info(
                 "G158 confirmed-income fallback suppressed for %r: already detected "
                 "as %r (next_date within 3 days, amount within 15%%) -- not "
@@ -1400,6 +1418,14 @@ def _late_reliable_income(
         key = item.get("key")
         if not key or key in confirmed_income_map:
             continue  # confirmed streams are reported by the branch above only
+        # G174: a detected entry standing in for a confirmed stream under a
+        # changed payroll reference (`confirmed_alias`, stamped by
+        # `_confirmed_income_fallback`'s dedupe guard) is the SAME payer the
+        # branch above already considers under the confirmed key -- reporting
+        # it again here as a second, unrelated "detected" lapse would double-
+        # report one missed payday as two.
+        if item.get("confirmed_alias") in confirmed_income_map:
+            continue
         if not _income_pattern_reliable(item):
             continue
         avg_amount = item.get("avg_amount")
@@ -1483,7 +1509,12 @@ def income_credit_ok(item: dict, account_id: str, confirmed_keys: set | frozense
     """
     if not account_id or str(item.get("account_id") or "") != str(account_id):
         return False
-    if item.get("name") in confirmed_keys:
+    # G174: `confirmed_alias` (stamped by `_confirmed_income_fallback`'s
+    # dedupe guard) names the confirmed stream a DETECTED series is standing
+    # in for after a payroll reference change -- treat it as confirmed the
+    # same as a direct key match, so a fresh reference never has to
+    # independently clear the reliability floor before the plan trusts it.
+    if item.get("name") in confirmed_keys or item.get("confirmed_alias") in confirmed_keys:
         return True
     return _income_pattern_reliable(item)
 
@@ -2572,6 +2603,14 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
             suppressed = card_proj["suppressed"]
         return {
             "key":             r["key"],
+            # G174: set only on a DETECTED entry `_confirmed_income_fallback`
+            # deferred to instead of synthesising a duplicate (see its
+            # dedupe-guard comment) -- the confirmed stream's own key, so
+            # `income_credit_ok` can treat this series as that confirmed
+            # stream under a changed payroll reference. None for every
+            # ordinary pattern (ordinary bills, recurring_spend, and any
+            # income series that isn't standing in for a confirmed one).
+            "confirmed_alias": r.get("confirmed_alias"),
             "avg_amount":      round(avg_amount, 2),
             "avg_interval":    r.get("avg_interval"),
             "next_date":       r["next_date"].isoformat(),
@@ -4077,6 +4116,10 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                 continue
             raw_income.append({
                 "name":          r["key"],
+                # G174: carried from `_serialise_pattern` so `income_credit_ok`
+                # can see it on the built `upcoming_income`/`payday_income`
+                # item, not just the internal `recurring_income` list.
+                "confirmed_alias": r.get("confirmed_alias"),
                 "amount":        final_amount,
                 "expected_date": final_date,
                 "days_away":     days_away,

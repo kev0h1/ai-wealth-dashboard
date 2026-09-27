@@ -197,6 +197,48 @@ def test_dedupe_guard_suppresses_confirmed_when_new_reference_gets_detected():
     assert len(combined) == 1
     assert combined[0]["key"] == NEW_REF_KEY_2
     assert "source" not in combined[0]
+    # G174: the guard must also STAMP the detected entry it deferred to with
+    # the confirmed key it stands in for, not merely suppress the duplicate
+    # silently.
+    assert combined[0]["confirmed_alias"] == CONFIRMED_KEY
+
+
+# ── G174: the stamped `confirmed_alias` lets income_credit_ok recognise a ──
+# ── fresh, still-unreliable detected series as its confirmed stream ────────
+
+def test_confirmed_alias_lets_a_two_occurrence_detected_series_pass_income_credit_ok():
+    """B (the new-reference series) has only 2 occurrences here -- below
+    `_income_pattern_reliable`'s 3-occurrence floor on its own evidence, so
+    without the alias `income_credit_ok` must reject it (this is the exact
+    G174 defect: an unconfirmed, insufficiently-reliable candidate was the
+    only thing left standing once the confirmed key's own synthesis was
+    suppressed by the dedupe guard). With the alias stamped, the SAME item
+    must be accepted for its attributed account."""
+    TODAY = date(2026, 10, 26)
+    income_credits = [
+        income_txn(CONFIRMED_KEY, date(2026, 7, 31), 4798.08, account_id=PREMIER_ACCOUNT),
+        income_txn(NEW_REF_KEY_2, date(2026, 8, 28), 4798.08, account_id=PREMIER_ACCOUNT),
+        income_txn(NEW_REF_KEY_2, date(2026, 9, 30), 4798.08, account_id=PREMIER_ACCOUNT),
+    ]
+    recurring_income = _detect_recurring(income_credits, today=TODAY, is_income=True)
+    assert len(recurring_income) == 1
+    entry = recurring_income[0]
+    assert (entry.get("occurrences") or 0) < 3  # below the reliability floor on its own
+
+    fallback = _confirmed_income_fallback(
+        recurring_income, {CONFIRMED_KEY: CONFIRMED_STREAM}, set(), TODAY,
+    )
+    assert fallback == []  # suppressed, not synthesised alongside
+    assert entry["confirmed_alias"] == CONFIRMED_KEY
+
+    item = {**entry, "name": entry["key"]}
+    assert income_credit_ok(item, PREMIER_ACCOUNT, {CONFIRMED_KEY}) is True
+
+    # Without the alias, the same 2-occurrence pattern is neither confirmed
+    # nor reliable enough on its own -- must be rejected.
+    unaliased = dict(item)
+    unaliased.pop("confirmed_alias")
+    assert income_credit_ok(unaliased, PREMIER_ACCOUNT, {CONFIRMED_KEY}) is False
 
 
 # ── G160: a synthesised confirmed-income entry must carry the same ────────
