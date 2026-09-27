@@ -20,6 +20,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.auth import current_user
+from app.core.build import engine_build
 from app.core.config import OPENROUTER_API_KEY
 from app.core.llm import openrouter_chat
 from app.core.models import KPIResponse, Insight
@@ -2681,6 +2682,12 @@ async def compute_and_cache_cashflow(uid: str, clear_ai_cache: bool = True) -> N
         data = await _compute_cashflow_patterns(uid)
         data["computed_at"] = datetime.now()
         data["patterns_version"] = PATTERNS_VERSION
+        # Which build of the engine produced this doc (G159): the reconcile
+        # and the worker's deploy-time pass compare it with the running
+        # build (app.services.derived_caches) so an engine change reaches
+        # every user's forecast without waiting for a new transaction or a
+        # hand-bumped PATTERNS_VERSION.
+        data["engine_build"] = engine_build()
         # Refresh the memoised monthly cash-flow alongside the patterns so
         # per-request callers (safe-to-spend, debt, savings) read it for free.
         try:

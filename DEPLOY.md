@@ -108,6 +108,13 @@ Redis unavailability as a page, not a shrug. With this in place, E2
   TOKEN_KEY, TrueLayer creds, OpenRouter, etc.). No `$PORT` needed.
 - The 4-hourly reconcile and daily digest are in-process arq crons; the worker
   just needs to stay running. No external scheduler.
+- On every start the worker also runs a background pass that recomputes the
+  cashflow forecast for any user whose cache doc was written by a different
+  engine build (G159, `app/services/derived_caches.py`). The build identity
+  comes from `RAILWAY_GIT_COMMIT_SHA` on Railway and `git rev-parse HEAD` on
+  UAT, so a restart without a deploy does nothing; a deploy costs roughly
+  1.5 s plus one Haiku call per user with a stale doc, sequentially, off the
+  API's event loop.
 
 ## Step 6: Vercel: frontend
 
