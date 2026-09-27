@@ -22,7 +22,7 @@
 // /design/payday-plan-standing-orders?variant=a|b|c&surface=home|penny&state=default|minimised&mode=light|dark
 
 import { useEffect } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import VariantA from "./VariantA";
 import VariantB from "./VariantB";
 import VariantC from "./VariantC";
@@ -84,7 +84,6 @@ function PreviewControls({ variant, surface, state, mode }: { variant: Variant; 
 
 export default function PaydayPlanStandingOrdersClient() {
   const params = useSearchParams();
-  const router = useRouter();
 
   const rawVariant = params.get("variant");
   const variant: Variant = rawVariant === "b" || rawVariant === "c" ? rawVariant : "a";
@@ -125,9 +124,9 @@ export default function PaydayPlanStandingOrdersClient() {
             </p>
           </header>
           <div className="mt-7 sm:mt-9">
-            {variant === "a" && <VariantA surface={surface} mode={mode} state={state} router={router} />}
-            {variant === "b" && <VariantB surface={surface} mode={mode} state={state} router={router} />}
-            {variant === "c" && <VariantC surface={surface} mode={mode} state={state} router={router} />}
+            {variant === "a" && <VariantA surface={surface} mode={mode} state={state} />}
+            {variant === "b" && <VariantB surface={surface} mode={mode} state={state} />}
+            {variant === "c" && <VariantC surface={surface} mode={mode} state={state} />}
           </div>
         </div>
       </main>

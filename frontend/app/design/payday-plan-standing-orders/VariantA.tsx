@@ -1,9 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import type { useRouter } from "next/navigation";
 import { ChevronDown } from "lucide-react";
-import { SALARY, DESTS, delta, bucketOf, buildVerdict, breakdownParts, type FixtureDest } from "./fixtures";
+import { SALARY, DESTS, delta, bucketOf, buildVerdict, breakdownParts, needsFigureIllustrative, FOLD_THRESHOLD_NOTE, type FixtureDest } from "./fixtures";
 import { CardHeader, SalaryTile, MinimisedRow, AmberDot, MoneyText, fmt, resolveBankChip, type Surface, type Mode, type CardState } from "./shared";
 import { BankBadge } from "@/components/AccountMiniCard";
 
@@ -61,6 +60,9 @@ function Row({ dest, showWorking }: { dest: FixtureDest; showWorking: boolean })
         <div className="text-right">
           <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Needs this period</p>
           <p className="money mt-0.5 text-[15px] font-bold text-slate-900 dark:text-slate-100">{`~£${fmt(dest.needsTotal)}`}</p>
+          {needsFigureIllustrative(dest) && (
+            <p className="mt-0.5 text-[11px] italic text-slate-400 dark:text-slate-500">illustrative</p>
+          )}
         </div>
       </div>
 
@@ -91,12 +93,10 @@ function Row({ dest, showWorking }: { dest: FixtureDest; showWorking: boolean })
 export default function VariantA({
   surface,
   state,
-  router,
 }: {
   surface: Surface;
   mode: Mode;
   state: CardState;
-  router: ReturnType<typeof useRouter>;
 }) {
   const [minimised, setMinimised] = useState(state === "minimised");
   const [showWorking, setShowWorking] = useState(false);
@@ -145,6 +145,7 @@ export default function VariantA({
             <ChevronDown size={12} aria-hidden="true" className={`transition-transform duration-200 motion-reduce:transition-none ${showWorking ? "rotate-180" : ""}`} />
           </button>
         </p>
+        <p className="mb-2 pl-1 text-[11px] italic leading-snug text-slate-400 dark:text-slate-500">{FOLD_THRESHOLD_NOTE}</p>
 
         <div>
           {DESTS.map((dest) => (

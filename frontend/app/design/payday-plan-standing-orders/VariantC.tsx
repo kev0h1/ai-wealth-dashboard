@@ -1,8 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { useRouter } from "next/navigation";
-import { SALARY, DESTS, delta, bucketOf, buildVerdict, type FixtureDest } from "./fixtures";
+import { SALARY, DESTS, delta, bucketOf, buildVerdict, needsFigureIllustrative, type FixtureDest } from "./fixtures";
 import { CardHeader, SalaryTile, MinimisedRow, AmberDot, MoneyText, fmt, resolveBankChip, type Surface, type Mode, type CardState } from "./shared";
 import { BankBadge } from "@/components/AccountMiniCard";
 
@@ -35,7 +34,10 @@ function TableRow({ dest }: { dest: FixtureDest }) {
       <span className="money text-right text-[12px] font-semibold text-slate-900 dark:text-slate-100">
         {dest.hasStandingOrder ? `£${fmt(dest.standingOrder)}` : "None"}
       </span>
-      <span className="money text-right text-[12px] font-semibold text-slate-900 dark:text-slate-100">{`~£${fmt(dest.needsTotal)}`}</span>
+      <span className="money text-right text-[12px] font-semibold text-slate-900 dark:text-slate-100">
+        {`~£${fmt(dest.needsTotal)}`}
+        {needsFigureIllustrative(dest) && <sup className="ml-px font-sans">*</sup>}
+      </span>
       <span className="flex justify-end">
         <span
           className={`money inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] font-bold ${
@@ -53,12 +55,10 @@ function TableRow({ dest }: { dest: FixtureDest }) {
 export default function VariantC({
   surface,
   state,
-  router,
 }: {
   surface: Surface;
   mode: Mode;
   state: CardState;
-  router: ReturnType<typeof useRouter>;
 }) {
   const [minimised, setMinimised] = useState(state === "minimised");
   const verdict = buildVerdict(DESTS);
@@ -98,7 +98,7 @@ export default function VariantC({
 
         <div className="grid grid-cols-[1fr_58px_58px_60px] gap-2 pb-1.5">
           <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Account</span>
-          <span className="text-right text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Sends</span>
+          <span className="text-right text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Standing order</span>
           <span className="text-right text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Needs</span>
           <span className="text-right text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Adjust</span>
         </div>
@@ -108,6 +108,10 @@ export default function VariantC({
             <TableRow key={dest.id} dest={dest} />
           ))}
         </div>
+
+        {DESTS.some((d) => needsFigureIllustrative(d)) && (
+          <p className="mt-1.5 text-[11px] italic leading-snug text-slate-400 dark:text-slate-500">* illustrative need figure</p>
+        )}
 
         <p className="mt-3 text-[13px] leading-snug text-slate-600 dark:text-slate-300">
           <MoneyText

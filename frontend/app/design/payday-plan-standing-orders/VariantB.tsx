@@ -1,9 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import type { useRouter } from "next/navigation";
 import { ChevronDown } from "lucide-react";
-import { SALARY, DESTS, delta, buildVerdict, breakdownParts, type FixtureDest } from "./fixtures";
+import { SALARY, DESTS, delta, buildVerdict, breakdownParts, needsFigureIllustrative, FOLD_THRESHOLD_NOTE, type FixtureDest } from "./fixtures";
 import { CardHeader, SalaryTile, MinimisedRow, AmberDot, MoneyText, fmt, resolveBankChip, type Surface, type Mode, type CardState } from "./shared";
 import { BankBadge } from "@/components/AccountMiniCard";
 
@@ -33,7 +32,9 @@ function ChangeRow({ dest }: { dest: FixtureDest }) {
             {": "}
             <MoneyText text={`send £${fmt(amount)} ${verb}`} />
             {" "}
-            <MoneyText text={`(£${fmt(dest.standingOrder)} sent, ~£${fmt(dest.needsTotal)} needed)`} />
+            <MoneyText text={`(£${fmt(dest.standingOrder)} sent, ~£${fmt(dest.needsTotal)} needed`} />
+            {needsFigureIllustrative(dest) && <span className="italic text-slate-400 dark:text-slate-500"> · illustrative</span>}
+            )
           </span>
           {dest.breakdown && breakdownParts(dest.breakdown).length > 0 && (
             <span className="mt-1 block text-[12px] leading-snug text-slate-400 dark:text-slate-500">
@@ -76,12 +77,10 @@ function StartRow({ dest }: { dest: FixtureDest }) {
 export default function VariantB({
   surface,
   state,
-  router,
 }: {
   surface: Surface;
   mode: Mode;
   state: CardState;
-  router: ReturnType<typeof useRouter>;
 }) {
   const [minimised, setMinimised] = useState(state === "minimised");
   const [showAboutRight, setShowAboutRight] = useState(false);
@@ -155,6 +154,7 @@ export default function VariantB({
               </span>
               <ChevronDown size={14} aria-hidden="true" className={`flex-shrink-0 text-slate-400 transition-transform duration-200 motion-reduce:transition-none dark:text-slate-500 ${showAboutRight ? "rotate-180" : ""}`} />
             </button>
+            <p className="mt-1 px-3 text-[11px] italic leading-snug text-slate-400 dark:text-slate-500">{FOLD_THRESHOLD_NOTE}</p>
             {showAboutRight && (
               <div className="mt-1 space-y-1.5 px-3">
                 {verdict.aboutRight.map((dest) => (

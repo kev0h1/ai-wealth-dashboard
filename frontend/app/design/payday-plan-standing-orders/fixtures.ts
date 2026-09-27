@@ -17,9 +17,15 @@
 //   never balance-filled). `needsTotalObserved: true` only for NatWest, where
 //   Kevin stated the total directly ("needs about £596"), and for every
 //   savings/investment pot, where the "need" is definitionally the observed
-//   ritual amount. Every other `needsTotal` (HSBC, Monzo's buffer portion,
-//   NatWest's own payments/spend/buffer split, Council Tax Reserve) is
-//   INVENTED for this preview, marked illustrative on the `breakdown` object.
+//   ritual amount. Every other `needsTotal` (HSBC, Monzo, NatWest's own
+//   payments/spend/buffer split, Council Tax Reserve) is INVENTED for this
+//   preview at the TOTAL level too, and every variant marks the need figure
+//   itself illustrative wherever `needsTotalObserved` is false (never on
+//   NatWest, since £596 is Kevin's own stated total). Monzo's spend median
+//   (£1,016) is real; its buffer is the plan's own DEFAULT £50 (not
+//   Kevin-specific), which deliberately leaves his real £90 gap against the
+//   £1,106 standing order intact as a genuine (sub-£100-threshold) £40
+//   overage rather than inventing a buffer that erases it.
 export type DestKind = "bills" | "spending" | "savings" | "investment";
 
 export interface FixtureBreakdown {
@@ -59,7 +65,9 @@ export const SALARY = {
 export const DESTS: FixtureDest[] = [
   {
     id: "hsbc-bills",
-    name: "Household bills account",
+    // Real account name (Kevin's rule for previews), same string as
+    // app/design/g128-payday-reconcile/fixtures.ts uses for this account.
+    name: "MAINGI K M",
     provider: "HSBC",
     kind: "bills",
     hasStandingOrder: true,
@@ -71,21 +79,27 @@ export const DESTS: FixtureDest[] = [
   },
   {
     id: "monzo-spending",
-    name: "Everyday spending",
+    // Real account name, matching g128-payday-reconcile/fixtures.ts.
+    name: "Kevin Mbithi Maingi",
     provider: "Monzo",
     kind: "spending",
     hasStandingOrder: true,
     standingOrder: 1106,
     standingOrderObserved: true,
-    needsTotal: 1106,
+    needsTotal: 1066,
     needsTotalObserved: false,
     // spendTypical (£1,016) is Kevin's real usual-spend median for this
-    // account; the £90 buffer is invented to complete the split.
-    breakdown: { billsTotal: 0, spendTypical: 1016, buffer: 90, illustrative: true },
+    // account; the £50 buffer is the payday plan's own DEFAULT buffer
+    // (not invented, but not Kevin-specific either), so the real £90 gap
+    // between the £1,106 standing order and his £1,016 median survives as
+    // a genuine (if sub-threshold) £40 overage rather than being erased by
+    // a buffer sized to make the row land on zero.
+    breakdown: { billsTotal: 0, spendTypical: 1016, buffer: 50, illustrative: true },
   },
   {
     id: "natwest-bills",
-    name: "Second bills account",
+    // Real account name, matching g128-payday-reconcile/fixtures.ts.
+    name: "THE NUMBER ONE",
     provider: "NatWest",
     kind: "bills",
     hasStandingOrder: true,
@@ -170,10 +184,17 @@ export const DESTS: FixtureDest[] = [
 
 /** A destination "needs a change" once the gap between what the standing
  *  order sends and what the account needs reaches £100 — small variances
- *  (Monzo's £0 gap here, after its invented buffer closes it) aren't worth
- *  touching a standing order over. This threshold is a preview design
- *  decision, not a backend rule. */
+ *  (Monzo's real £40 gap here: a £1,106 standing order against a £1,066
+ *  need) aren't worth touching a standing order over. This threshold is a
+ *  preview design decision, not a backend rule, so every variant states it
+ *  near its own fold/disclosure control (see `FOLD_THRESHOLD_NOTE` below)
+ *  rather than leaving it implicit. */
 export const CHANGE_THRESHOLD = 100;
+
+/** The one sentence every variant shows near its fold/disclosure control, so
+ *  the £100 threshold above travels with the card rather than living only
+ *  in this file's comments. */
+export const FOLD_THRESHOLD_NOTE = "Changes under £100 are folded away in this preview.";
 
 export function delta(d: FixtureDest): number {
   return d.standingOrder - d.needsTotal;
@@ -201,4 +222,16 @@ export function breakdownParts(b: FixtureBreakdown): string[] {
   if (b.spendTypical > 0) parts.push(`~£${b.spendTypical.toLocaleString("en-GB")} spending`);
   if (b.buffer > 0) parts.push(`£${b.buffer.toLocaleString("en-GB")} buffer`);
   return parts;
+}
+
+/** True when the NEEDS figure itself (not just its payments/spend/buffer
+ *  split) is invented for this preview — HSBC and Monzo, never NatWest
+ *  (Kevin's own stated £596) and never a savings/investment pot (whose
+ *  need is definitionally its observed ritual amount) or the illustrative
+ *  ninth row (already labelled "Illustrative" as a whole row). Every
+ *  variant renders this as a quiet "illustrative" caption on the need
+ *  figure itself, not folded behind a disclosure — the point is that the
+ *  headline number is honest about its own status, not just its working. */
+export function needsFigureIllustrative(d: FixtureDest): boolean {
+  return !d.needsTotalObserved && !d.illustrativeExample;
 }
