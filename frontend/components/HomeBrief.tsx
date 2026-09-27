@@ -2379,12 +2379,14 @@ export function PaydayPlanSection({ items, safeToSpend, hideNetWorth = false, on
 
   const paydayPlanItems = items.filter(i => i.type === "payday_plan");
   // Hide the entry row entirely once a real payday_plan item is already
-  // surfaced in items (payday itself) — no duplication on payday. G164
-  // (2026-09-26): there is no third "executed" state any more — a plan
-  // whose destinations already clear on their own the moment it would
-  // first be proposed is never built at all (backend companion.py section
-  // 5b, before persistence), so every payday_plan item reaching this
-  // component is a live, dismissible (Home) or minimisable (Penny) plan.
+  // surfaced in items (payday itself) — no duplication on payday. G172
+  // (2026-09-27): there is no third "executed" state any more, and no
+  // lifecycle at all — the plan is a distribution recommendation,
+  // recomputed fresh every call, with nothing to verify or celebrate. A
+  // plan with nothing left to move still surfaces (backend companion.py
+  // section 5b's "every account is already set" headline), so every
+  // payday_plan item reaching this component is a live, dismissible
+  // (Home) or minimisable (Penny) plan.
   const hasLivePlan = paydayPlanItems.length > 0;
   const activePlanItems = paydayPlanItems;
 
