@@ -312,3 +312,99 @@ def test_synthesised_entry_passes_income_credit_ok_for_its_attributed_account():
 
     assert income_credit_ok(item, PREMIER_ACCOUNT, {CONFIRMED_KEY}) is True
     assert income_credit_ok(item, OTHER_ACCOUNT, {CONFIRMED_KEY}) is False
+
+
+# ── G174 review (should-fix 1 + 2): account guard on the alias, and a ────
+# ── first-wins rule when two confirmed keys both match one detected dup ───
+
+PARTNER_ACCOUNT = "partner-account-id"
+
+SECOND_CONFIRMED_KEY = "SECOND STREAM REF"
+SECOND_CONFIRMED_STREAM = {
+    "key": SECOND_CONFIRMED_KEY,
+    "status": "confirmed",
+    "schedule": {"type": "last_weekday", "weekday": 4},
+    "avg_amount": 4800.00,
+    "last_seen": "2026-07-31",
+}
+
+
+def test_different_account_dup_is_not_aliased_or_suppressed():
+    """G174 review, finding 1: a partner's similarly-sized salary landing on
+    a similar date, but into a DIFFERENT account than this confirmed
+    stream's own known landing account, must never be aliased -- date and
+    amount closeness alone is not proof of the same payer. The confirmed
+    stream is still synthesised (attributed to its OWN evidence, not the
+    partner's account), and the partner's detected entry is left completely
+    untouched: no `confirmed_alias`, and (being only 2 occurrences on its
+    own, below the reliability floor) `income_credit_ok` correctly refuses
+    it -- not credited as this confirmed stream, and not credited on its
+    own reliability either."""
+    income_credits = [
+        income_txn(CONFIRMED_KEY, date(2026, 5, 29), 4798.08, account_id=PREMIER_ACCOUNT),
+        income_txn(CONFIRMED_KEY, date(2026, 6, 26), 4798.08, account_id=PREMIER_ACCOUNT),
+    ]
+    credits_by_key = {CONFIRMED_KEY: income_credits}
+    partner_dup = {
+        "key": "PARTNER SALARY REF", "avg_amount": 4750.00,
+        "next_date": date(2026, 9, 25), "account_id": PARTNER_ACCOUNT,
+        "occurrences": 2, "amounts_recent": [4750.0, 4750.0],
+    }
+    result = _confirmed_income_fallback(
+        [partner_dup], {CONFIRMED_KEY: CONFIRMED_STREAM}, set(), TODAY, credits_by_key,
+    )
+    # The confirmed stream is synthesised on its OWN evidence, not merged
+    # into or suppressed by the partner's near-miss.
+    assert len(result) == 1
+    entry = result[0]
+    assert entry["key"] == CONFIRMED_KEY
+    assert entry["account_id"] == PREMIER_ACCOUNT
+
+    # The partner's own entry is untouched: not aliased.
+    assert "confirmed_alias" not in partner_dup
+
+    # ...and not credited either -- neither by (absent) alias nor by its
+    # own reliability (2 occurrences is below the floor).
+    partner_item = {**partner_dup, "name": partner_dup["key"]}
+    assert income_credit_ok(partner_item, PARTNER_ACCOUNT, {CONFIRMED_KEY}) is False
+
+
+def test_same_account_dup_is_still_aliased_and_suppressed():
+    """Regression guard alongside the different-account test above: when
+    the confirmed stream's own evidence and the detected dup's attributed
+    account genuinely agree, the alias must still apply -- this guard is an
+    account check, not a blanket "never alias" regression."""
+    income_credits = [
+        income_txn(CONFIRMED_KEY, date(2026, 5, 29), 4798.08, account_id=PREMIER_ACCOUNT),
+        income_txn(CONFIRMED_KEY, date(2026, 6, 26), 4798.08, account_id=PREMIER_ACCOUNT),
+    ]
+    credits_by_key = {CONFIRMED_KEY: income_credits}
+    same_acct_dup = {
+        "key": "NEW REF SAME ACCOUNT", "avg_amount": 4798.08,
+        "next_date": date(2026, 9, 25), "account_id": PREMIER_ACCOUNT,
+        "occurrences": 2, "amounts_recent": [4798.08, 4798.08],
+    }
+    result = _confirmed_income_fallback(
+        [same_acct_dup], {CONFIRMED_KEY: CONFIRMED_STREAM}, set(), TODAY, credits_by_key,
+    )
+    assert result == []
+    assert same_acct_dup["confirmed_alias"] == CONFIRMED_KEY
+    item = {**same_acct_dup, "name": same_acct_dup["key"]}
+    assert income_credit_ok(item, PREMIER_ACCOUNT, {CONFIRMED_KEY}) is True
+
+
+def test_second_confirmed_key_does_not_overwrite_existing_alias():
+    """G174 review, finding 2: a pathological doc where TWO different
+    confirmed streams both land within tolerance (date + amount) of the
+    SAME detected entry -- the second one considered must not clobber the
+    first's alias. Dict iteration order is insertion order in this Python
+    version, so `confirmed_map`'s own order decides which is "first"."""
+    shared_dup = {
+        "key": "SHARED DETECTED REF", "avg_amount": 4798.08,
+        "next_date": date(2026, 9, 25), "account_id": None,
+        "occurrences": 2, "amounts_recent": [4798.08, 4798.08],
+    }
+    confirmed_map = {CONFIRMED_KEY: CONFIRMED_STREAM, SECOND_CONFIRMED_KEY: SECOND_CONFIRMED_STREAM}
+    result = _confirmed_income_fallback([shared_dup], confirmed_map, set(), TODAY)
+    assert result == []
+    assert shared_dup["confirmed_alias"] == CONFIRMED_KEY

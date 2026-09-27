@@ -1989,6 +1989,27 @@ async def compute_today_items(
     if not cached:
         return []
 
+    # G174 review: mirror analytics.at_risk_count's own staleness guard --
+    # without this, a cache doc computed before a `PATTERNS_VERSION` bump
+    # (e.g. the confirmed_alias field this round adds) keeps serving the
+    # OLD shape into the payday plan/every other card this function builds
+    # until the next sync or a `/cashflow` GET happens to recompute it.
+    # Lazy import to avoid a companion<->analytics import cycle, same
+    # convention this module already uses for its other analytics imports
+    # (see `_has_affinity` above). Failure-tolerant: any error here (a bad
+    # recompute, a transient Mongo hiccup) logs and falls back to the stale
+    # doc already in hand rather than ever raising through to the caller.
+    try:
+        from app.routers.analytics import PATTERNS_VERSION, compute_and_cache_cashflow
+        if (cached.get("patterns_version") or 0) < PATTERNS_VERSION:
+            await compute_and_cache_cashflow(uid)
+            cached = await cashflow_cache_col.find_one({"_id": uid}) or cached
+    except Exception:
+        log.exception(
+            "G174: patterns_version staleness recompute failed for %r, "
+            "continuing with the stale cache doc", uid,
+        )
+
     prefs = await preferences_col.find_one({"user_id": uid}) or {}
     excluded_sources = {str(a) for a in (prefs.get("cover_plan_excluded_accounts") or [])}
     confirmed_income_keys = {

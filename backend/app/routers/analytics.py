@@ -1138,6 +1138,37 @@ def _confirmed_income_fallback(
         avg_amount = stream.get("avg_amount")
         if avg_amount is None:
             continue
+        # G160: attribute the synthesised entry to a landing account with
+        # the same precedence `income_credit_ok`'s per-account check needs
+        # to actually see it -- otherwise it fails attribution on the very
+        # first line, before it ever reaches the confirmed-stream clause,
+        # and a confirmed salary is silently invisible to every per-account
+        # simulation (cover plan, at-risk badge, source walks) even though
+        # the pooled forecast already counts it.
+        #   1. Majority landing account of the matched (in-window) credits,
+        #      same rule `_majority_landing_account` gives a detected
+        #      series -- the strongest evidence, real transactions inside
+        #      the window this fallback is actually forecasting from.
+        #   2. No in-window match: the most recent credit under this key
+        #      from the wider window the caller loaded anyway (see
+        #      `latest_credit_by_key`'s docstring) -- still real evidence,
+        #      just older than the window `credits_by_key` was built from.
+        #   3. Neither: None, same as before this fix -- a per-account
+        #      simulation correctly refuses to credit an account it has no
+        #      evidence for.
+        #
+        # Computed BEFORE the dedupe/alias decision below (moved there by
+        # the G174 review) so the alias guard can compare against the exact
+        # same account the synthesis path would otherwise attribute this
+        # confirmed stream to -- the two must never disagree about which
+        # account this confirmed stream belongs to.
+        matching = sorted(credits_by_key.get(key, []), key=lambda t: t["date"])
+        attributed_acct = _majority_landing_account(matching)
+        if attributed_acct is None:
+            _latest = latest_credit_by_key.get(key)
+            if _latest is not None:
+                attributed_acct = str(_latest.get("account_id", "") or "") or None
+
         # G158 2026-09-24 review: a payroll reference change means the SAME
         # payer can accrue enough fresh occurrences under the NEW key to
         # clear `_detect_recurring`'s own floor before the confirmed
@@ -1159,27 +1190,62 @@ def _confirmed_income_fallback(
             None,
         )
         if _dup is not None:
-            # G174: stamp the confirmed key onto the detected entry it defers
-            # to, so `income_credit_ok` (and everything downstream that reads
-            # its output -- `_serialise_pattern`, `upcoming_income`,
-            # `payday_income`) can recognise this detected series as the SAME
-            # payer as the confirmed stream, under its new reference, and
-            # accept it as confirmed rather than requiring it to independently
-            # clear `_income_pattern_reliable`'s 3-occurrence floor. Without
-            # this, a fresh payroll-reference change leaves the confirmed
-            # salary invisible to income_credit_ok for its first two
-            # occurrences, and a per-account plan can pick an unrelated,
-            # merely-reliable candidate (e.g. a small standing order) as "the
-            # pay" instead. See G174's board note for the exact failure.
-            _dup["confirmed_alias"] = key
-            logger.info(
-                "G158 confirmed-income fallback suppressed for %r: already detected "
-                "as %r (next_date within 3 days, amount within 15%%) -- not "
-                "double-counting the same payer under two series keys",
-                key, _dup.get("key"),
-            )
-            continue
-        matching = sorted(credits_by_key.get(key, []), key=lambda t: t["date"])
+            _dup_acct = str(_dup.get("account_id") or "") or None
+            # G174 review, finding 1: date+amount closeness alone is not
+            # enough to call this the SAME payer -- a partner's similarly-
+            # sized salary landing on a similar date, but into a DIFFERENT
+            # account, must never be aliased or suppressed as a duplicate.
+            # None-permissive: when either side has no known account (no
+            # matched credits to attribute from), there is no account
+            # evidence to contradict, so the date/amount closeness stands
+            # alone, same as before this guard.
+            if attributed_acct is not None and _dup_acct is not None and _dup_acct != attributed_acct:
+                logger.info(
+                    "G174 confirmed-income alias skipped for %r: detected entry %r "
+                    "matches on date/amount but landed in a different account "
+                    "(%r vs %r) -- not the same payer, synthesising both",
+                    key, _dup.get("key"), _dup_acct, attributed_acct,
+                )
+                # Fall through: NOT a duplicate, so the confirmed stream is
+                # synthesised normally below rather than suppressed.
+            else:
+                # G174: stamp the confirmed key onto the detected entry it
+                # defers to, so `income_credit_ok` (and everything
+                # downstream that reads its output -- `_serialise_pattern`,
+                # `upcoming_income`, `payday_income`) can recognise this
+                # detected series as the SAME payer as the confirmed stream,
+                # under its new reference, and accept it as confirmed rather
+                # than requiring it to independently clear
+                # `_income_pattern_reliable`'s 3-occurrence floor. Without
+                # this, a fresh payroll-reference change leaves the
+                # confirmed salary invisible to income_credit_ok for its
+                # first two occurrences, and a per-account plan can pick an
+                # unrelated, merely-reliable candidate (e.g. a small
+                # standing order) as "the pay" instead. See G174's board
+                # note for the exact failure.
+                #
+                # G174 review, finding 2: a pathological doc where TWO
+                # confirmed streams both land within tolerance of the SAME
+                # detected entry must not let the second overwrite the
+                # first's alias -- keep the first, log both keys so the
+                # collision is visible rather than silently losing one.
+                _existing_alias = _dup.get("confirmed_alias")
+                if _existing_alias is not None and _existing_alias != key:
+                    logger.warning(
+                        "G174 confirmed-income alias collision for detected entry %r: "
+                        "already aliased to %r, leaving that in place rather than "
+                        "overwriting with second matching confirmed key %r",
+                        _dup.get("key"), _existing_alias, key,
+                    )
+                else:
+                    _dup["confirmed_alias"] = key
+                logger.info(
+                    "G158 confirmed-income fallback suppressed for %r: already detected "
+                    "as %r (next_date within 3 days, amount within 15%%) -- not "
+                    "double-counting the same payer under two series keys",
+                    key, _dup.get("key"),
+                )
+                continue
         last_date = None
         last_seen = stream.get("last_seen")
         if last_seen:
@@ -1190,29 +1256,6 @@ def _confirmed_income_fallback(
         amounts_recent = [
             round(abs(float(_t.get("amount", 0))), 2) for _t in matching[-3:]
         ]
-        # G160: attribute the synthesised entry to a landing account with
-        # the same precedence `income_credit_ok`'s per-account check needs
-        # to actually see it -- otherwise it fails attribution on the very
-        # first line, before it ever reaches the confirmed-stream clause,
-        # and a confirmed salary is silently invisible to every per-account
-        # simulation (cover plan, at-risk badge, source walks) even though
-        # the pooled forecast already counts it.
-        #   1. Majority landing account of the matched (in-window) credits,
-        #      same rule `_majority_landing_account` gives a detected
-        #      series -- the strongest evidence, real transactions inside
-        #      the window this fallback is actually forecasting from.
-        #   2. No in-window match: the most recent credit under this key
-        #      from the wider window the caller loaded anyway (see
-        #      `latest_credit_by_key`'s docstring) -- still real evidence,
-        #      just older than the window `credits_by_key` was built from.
-        #   3. Neither: None, same as before this fix -- a per-account
-        #      simulation correctly refuses to credit an account it has no
-        #      evidence for.
-        attributed_acct = _majority_landing_account(matching)
-        if attributed_acct is None:
-            _latest = latest_credit_by_key.get(key)
-            if _latest is not None:
-                attributed_acct = str(_latest.get("account_id", "") or "") or None
         fallback.append({
             "key":          key,
             "avg_interval": None,
