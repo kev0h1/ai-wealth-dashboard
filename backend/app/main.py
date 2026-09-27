@@ -35,6 +35,7 @@ from app.db.collections import (
     broadcasts_col, broadcast_receipts_col,
     safe_to_spend_history_col,
     session_tombstones_col,
+    orphaned_revocations_col,
 )
 from app.services.categorisation import apply_rules_bulk, RAW_TRUELAYER_CATEGORIES
 from app.services import data_version
@@ -460,6 +461,13 @@ async def _create_indexes():
     # A84: session-revocation tombstones self-reap once no token they could
     # still be catching is unexpired (app.core.session_revocation).
     await _ensure_index(session_tombstones_col, "expires_at", expireAfterSeconds=0)
+    # A106: orphaned-revocation markers — retry_orphaned_revocations walks
+    # every live marker (no filter, so no query index is needed for that),
+    # but a plain index on `failed_at` lets an ops query/alert sort by how
+    # long a marker has been pending without a collection scan. Idempotency
+    # is `_id == consent_id` itself (Mongo's automatic primary-key index),
+    # not this index — one marker per consent, never one per attempt.
+    await _ensure_index(orphaned_revocations_col, "failed_at")
     # D5 in-app sign-up allow list (app/core/allowlist.py) — `key` is the
     # Gmail-dot-insensitive lookup every sign-in queries by, unique so a
     # re-invite is always an update, never a duplicate doc.

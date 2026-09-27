@@ -144,6 +144,20 @@ worker_runs_col         = db["worker_runs"]
 finexer_consents_col   = db["finexer_consents"]
 finexer_customers_col  = db["finexer_customers"]
 
+# A106: markers for a Finexer consent revoke that failed remotely (either a
+# raised exception, e.g. a timeout/outage, or a non-success HTTP status,
+# e.g. 500/503/429) at the moment app.services.retention.disconnect_connection
+# tried `DELETE /consents/{id}`, written BEFORE the local consent doc is
+# deleted so the retry sweep (app.services.retention.retry_orphaned_revocations)
+# has something to work from. One marker per consent id (`_id == consent_id`,
+# upserted, never one per attempt), keyed additionally by `user_hash` (sha256
+# of the uid, the same scheme as app.core.session_revocation._key) rather
+# than a plain `user_id` field, because app.services.retention.erase_user
+# deletes every `*_col` document matched by `{"user_id": uid}` or
+# `{"_id": uid}` — a marker with a `user_id` field would be deleted by the
+# very account-deletion flow this collection exists to survive.
+orphaned_revocations_col = db["orphaned_revocations"]
+
 # H19: cached result of GET /providers (the full paginated AIS-provider
 # list Finexer supports) — one doc, `_id: "providers"`, holding
 # `{providers: [...], fetched_at, count}`. This is effectively static

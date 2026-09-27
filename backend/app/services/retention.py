@@ -19,10 +19,17 @@ import logging
 from datetime import datetime, timedelta
 
 from app.core.config import mask_email
-from app.core.session_revocation import revoke_sessions
+# A106: reuses session_revocation's own uid-hashing scheme for the
+# orphaned_revocations_col marker's `user_hash` field below, rather than
+# replicating the sha256 logic a second time (first cross-module import of
+# this private helper, per independent review). `user_hash` is stored as
+# audit metadata ONLY, never queried on: every marker lookup below is by
+# `_id == consent_id`, so a future change to `_key`'s own hashing scheme
+# cannot break marker lookups, only the readability of this one field.
+from app.core.session_revocation import revoke_sessions, _key as _hash_uid
 from app.db.collections import (
     connections_col, accounts_col, finexer_consents_col, user_profiles_col,
-    linked_identities_col,
+    linked_identities_col, orphaned_revocations_col,
 )
 from app.services.account_cascade import cascade_account_deletion, purge_user_exclusions
 
@@ -31,6 +38,11 @@ logger = logging.getLogger(__name__)
 # SECURITY.md section 6 periods.
 _DORMANT_AFTER = timedelta(days=365)
 _CONNECTION_GRACE = timedelta(days=30)
+
+# A106: a marker pending this long means the outage (or bad credential) has
+# outlived a single bad day — worth a louder log line than the ordinary
+# per-attempt WARNING already gives every failed retry.
+_ORPHAN_STALE_AFTER = timedelta(days=7)
 
 # Apple Hide My Email relay addresses always live on this domain (see
 # app/core/identity.py). D3: the bar for "this looks like an orphaned relay
@@ -275,15 +287,71 @@ async def disconnect_connection(uid: str, connection_id: str) -> dict | None:
         await purge_user_exclusions(
             uid, sorted(set(account_ids) | set(consent.get("excluded_accounts") or []))
         )
-        # Best-effort remote revoke (non-fatal)
+        # Best-effort remote revoke (non-fatal to the local delete below,
+        # but A106: a failure of EITHER shape now leaves a retry marker
+        # first, so the consent isn't orphaned at Finexer with nothing left
+        # to retry from. The client is plain httpx with no
+        # raise_for_status(), so there are two distinct failure shapes: a
+        # raised exception (timeout, connection refused, DNS) and a
+        # non-success HTTP status (500/503/429/401/403/...) that returns
+        # normally. (200, 204, 404) count as success — 404 meaning the
+        # consent is already gone remotely, same convention
+        # finexer_sync.sync_finexer_consent uses for a consent-scoped GET.
+        # 401/403 are deliberately NOT treated as success here: on a DELETE
+        # they more plausibly mean our credential is wrong than that the
+        # consent itself is gone, and treating them as success would
+        # re-orphan the consent by deleting the local doc anyway.
+        revoked_ok = False
+        error_label: str | None = None
         try:
             from app.services.finexer_sync import _client as _fx_client
             async with _fx_client() as fxc:
                 rv = await fxc.delete(f"/consents/{connection_id}")
-                if rv.status_code not in (200, 204, 404):
-                    logger.warning("Finexer revoke %s returned HTTP %s", connection_id, rv.status_code)
-        except Exception:
+            if rv.status_code in (200, 204, 404):
+                revoked_ok = True
+            else:
+                logger.warning("Finexer revoke %s returned HTTP %s", connection_id, rv.status_code)
+                error_label = str(rv.status_code)
+        except Exception as exc:
             logger.warning("Finexer revoke failed for consent %s (non-fatal)", connection_id, exc_info=True)
+            error_label = type(exc).__name__
+
+        now = datetime.utcnow()
+        if revoked_ok:
+            try:
+                await orphaned_revocations_col.delete_one({"_id": connection_id})
+            except Exception:
+                logger.warning(
+                    "orphaned_revocations: failed to clear stale marker for %s (non-fatal)",
+                    connection_id, exc_info=True,
+                )
+        else:
+            try:
+                await orphaned_revocations_col.update_one(
+                    {"_id": connection_id},
+                    {
+                        "$set": {
+                            "consent_id": connection_id,
+                            "user_hash": _hash_uid(uid),
+                            "last_attempt_at": now,
+                            # HTTP status code or exception class name only —
+                            # never a response/exception message, which could
+                            # carry account data.
+                            "last_error": error_label,
+                        },
+                        "$setOnInsert": {"failed_at": now},
+                        "$inc": {"attempts": 1},
+                    },
+                    upsert=True,
+                )
+            except Exception:
+                # A Mongo hiccup writing the marker must never block a
+                # user's disconnect or account deletion — log and proceed.
+                logger.warning(
+                    "orphaned_revocations: failed to write marker for %s (non-fatal, proceeding)",
+                    connection_id, exc_info=True,
+                )
+
         await finexer_consents_col.delete_one({"_id": connection_id})
         return {"deleted": connection_id, "accounts_removed": len(account_ids)}
 
@@ -399,14 +467,120 @@ async def sweep_dormant_users(now: datetime | None = None) -> dict:
     return {"users_erased": erased, "user_errors": errors}
 
 
+async def retry_orphaned_revocations(now: datetime | None = None) -> dict:
+    """Retry the Finexer remote revoke for every marker `disconnect_connection`
+    left behind (A106) after a `DELETE /consents/{id}` that failed remotely,
+    of either shape (a raised exception, or a non-success HTTP status).
+
+    Follows `sweep_expired_connections`'s per-doc try/except shape: one
+    marker's failure never blocks the rest. A marker is `_id == consent_id`
+    (never one per attempt), so this walks every live marker unconditionally
+    — no filter is needed, the marker's own existence IS the "still pending"
+    signal.
+
+    Finexer issues a fresh consent id on every new consent
+    (`routers/finexer.py`), so a retried `DELETE /consents/{old_id}` here can
+    never touch a reconnected user's new consent: the old id has nothing left
+    to collide with once the user has a different, live consent id.
+
+    On 200/204/404 (same success convention as `disconnect_connection`'s own
+    first attempt) the marker is deleted. On any other status, or a raised
+    exception, the marker is updated IN PLACE (`attempts` incremented,
+    `last_attempt_at`/`last_error` refreshed) — never re-inserted, since the
+    marker already exists. A marker whose `failed_at` is more than 7 days old
+    gets a WARNING (not INFO) on every retry pass, so a prolonged outage
+    isn't silent between sweep runs.
+
+    Returns a summary dict: `orphaned_retried` (markers attempted this pass),
+    `orphaned_cleared` (revoked successfully and removed), `orphaned_still_pending`
+    (a non-success status, left in place), `orphaned_errors` (the retry
+    attempt itself raised, OR a write recording its outcome raised, left in
+    place either way).
+
+    Independent review (post-merge-review round) caught a real bug here: the
+    first cut of this function only wrapped the `fxc.delete(...)` call in
+    try/except, leaving the success-path `delete_one`, the still-pending
+    `update_one`, and the exception-path `update_one` all outside it — a
+    single Mongo hiccup on any one marker's write would raise straight out of
+    this `for` loop, abandoning every remaining marker AND propagating out of
+    `run_retention_sweep`, failing the whole nightly sweep. Every marker's
+    entire body (the network call and every write for that marker) is now
+    inside ONE try/except, exactly `sweep_expired_connections`'s own per-doc
+    shape: one marker's failure is counted, logged, and the loop moves on.
+    """
+    now = now or datetime.utcnow()
+    retried = 0
+    cleared = 0
+    still_pending = 0
+    errors = 0
+
+    markers = await orphaned_revocations_col.find({}, {}).to_list(None)
+    for marker in markers:
+        consent_id = marker["_id"]
+        retried += 1
+
+        if _older_than(marker.get("failed_at"), now - _ORPHAN_STALE_AFTER):
+            logger.warning(
+                "retry_orphaned_revocations: consent %s has been pending since %s (attempts=%s)",
+                consent_id, marker.get("failed_at"), marker.get("attempts"),
+            )
+
+        try:
+            from app.services.finexer_sync import _client as _fx_client
+            async with _fx_client() as fxc:
+                rv = await fxc.delete(f"/consents/{consent_id}")
+
+            if rv.status_code in (200, 204, 404):
+                await orphaned_revocations_col.delete_one({"_id": consent_id})
+                cleared += 1
+            else:
+                logger.warning(
+                    "retry_orphaned_revocations: consent %s still returns HTTP %s",
+                    consent_id, rv.status_code,
+                )
+                await orphaned_revocations_col.update_one(
+                    {"_id": consent_id},
+                    {"$set": {"last_attempt_at": now, "last_error": str(rv.status_code)},
+                     "$inc": {"attempts": 1}},
+                )
+                still_pending += 1
+        except Exception as exc:
+            errors += 1
+            logger.exception("retry_orphaned_revocations: failed to retry consent %s", consent_id)
+            # Best-effort: record the failure on the marker too, but this
+            # write can fail for the exact same reason (a Mongo outage
+            # partway through this pass) that landed us here — a second
+            # failure recording the first must never escape and abort the
+            # rest of the markers either.
+            try:
+                await orphaned_revocations_col.update_one(
+                    {"_id": consent_id},
+                    {"$set": {"last_attempt_at": now, "last_error": type(exc).__name__},
+                     "$inc": {"attempts": 1}},
+                )
+            except Exception:
+                logger.warning(
+                    "retry_orphaned_revocations: failed to record failure for consent %s (non-fatal)",
+                    consent_id, exc_info=True,
+                )
+
+    return {
+        "orphaned_retried": retried,
+        "orphaned_cleared": cleared,
+        "orphaned_still_pending": still_pending,
+        "orphaned_errors": errors,
+    }
+
+
 async def run_retention_sweep(now: datetime | None = None) -> dict:
-    """Run both sweeps; called by the nightly arq cron
+    """Run all four sweeps; called by the nightly arq cron
     (`app.workers.sync_worker.task_retention_sweep`, 03:30 UTC)."""
     now = now or datetime.utcnow()
     conn_result = await sweep_expired_connections(now)
     user_result = await sweep_dormant_users(now)
     relay_result = await sweep_orphaned_relay_accounts(now)
-    summary = {**conn_result, **user_result, **relay_result}
+    orphan_result = await retry_orphaned_revocations(now)
+    summary = {**conn_result, **user_result, **relay_result, **orphan_result}
     logger.info("run_retention_sweep: %s", summary)
     return summary
 
