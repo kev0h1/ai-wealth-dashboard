@@ -42,7 +42,7 @@ vanish with no explanation at all.
      then runs the backend test suite. If `frontend/` or `shared/` changed in
      the merge, also runs `npm run -s check:design-index` and
      `npm run -s check:legal-content` (the same gate `scripts/session.sh
-     finish` runs - see H23), then `npm run build` + restart
+     finish` runs - see H23), then an atomic frontend build + restart
      `wealth-frontend`; if `backend/` changed, restart `wealth-api` and
      `wealth-worker` (the worker imports services and core modules under
      `backend/app`, not just `backend/app/workers`, so any backend change
@@ -81,17 +81,23 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import os
 import re
 import subprocess
 import sys
 import time
+import uuid
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator, Optional
 
 REPO_ROOT = Path("/root/ai-wealth-dashboard")
 sys.path.insert(0, str(REPO_ROOT / "backend"))
+# scripts/frontend_build.py lives next to this file; import it from there
+# (not from REPO_ROOT) so a worktree's tests exercise the worktree's copy.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import frontend_build  # noqa: E402
 from app.services import backlog  # noqa: E402
 
 LOCK_PATH = REPO_ROOT / ".integrate.lock"
@@ -140,12 +146,24 @@ def _warn_if_not_committed(item_id: str, action: str, committed: bool) -> None:
     _BOARD_WRITE_FAILURES.append(f"{item_id}: {action}")
 
 
-def _sh(cmd: list[str], cwd: Path = REPO_ROOT, timeout: int = GIT_TIMEOUT) -> tuple[int, str]:
+def _sh(
+    cmd: list[str], cwd: Path = REPO_ROOT, timeout: int = GIT_TIMEOUT,
+    env: Optional[dict] = None,
+) -> tuple[int, str]:
     """Run a command, returning (returncode, combined stdout+stderr). Never
-    raises for a non-zero exit — callers decide what that means."""
+    raises for a non-zero exit — callers decide what that means.
+
+    `env` (H90): merged ON TOP of this process's own environment (never
+    replaces it) when given, so a caller can add or override one variable
+    (see `_run_backend_tests` below) without having to reconstruct the
+    rest of `os.environ` itself. `None` (the default, every other caller)
+    keeps the previous behaviour exactly: `subprocess.run(..., env=None)`
+    inherits the parent environment unchanged."""
     try:
+        run_env = {**os.environ, **env} if env else None
         proc = subprocess.run(
-            cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=timeout
+            cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+            timeout=timeout, env=run_env,
         )
         return proc.returncode, proc.stdout
     except subprocess.TimeoutExpired as exc:
@@ -561,9 +579,29 @@ def _restart_services(changed: set[str]) -> None:
     backend_changed = any(p == "backend" or p.startswith("backend/") for p in changed)
 
     if frontend_or_shared:
-        rc, out = _sh(["npm", "run", "build"], cwd=REPO_ROOT / "frontend", timeout=900)
-        if rc != 0:
-            raise IntegrateError(f"frontend build failed:\n{out}")
+        # H51: never build in place. frontend_build builds in a scratch
+        # mirror of frontend/ (<repo>/.frontend-staging), verifies BUILD_ID
+        # and every file required-server-files.json lists, and only then
+        # swaps the result into frontend/.next with one atomic rename, keeping
+        # the previous build at frontend/.next-prev (revert with
+        # `scripts/frontend_build.py --revert`). A failed, interrupted or
+        # unverified build raises and leaves the live .next untouched, so
+        # the running wealth-frontend keeps serving the last good build
+        # and the restart below never happens. It takes its own
+        # non-blocking lock on frontend/.next-build.lock, so an overlapping
+        # build (a session's own scripts/frontend_build.py run in the
+        # shared tree) fails loudly here rather than the two builds
+        # corrupting each other; that failure blocks the item like any
+        # other build failure, re-run finish/integrate once the other
+        # build has finished.
+        try:
+            result = frontend_build.build_and_swap(REPO_ROOT / "frontend")
+        except frontend_build.FrontendBuildError as exc:
+            raise IntegrateError(f"frontend build failed:\n{exc}") from None
+        print(
+            f"frontend build {result.build_id} swapped into frontend/.next "
+            f"(previous {result.previous_build_id or 'none'} kept at frontend/.next-prev)"
+        )
         _systemctl_restart("wealth-frontend")
     if backend_changed:
         _systemctl_restart("wealth-api")
@@ -639,7 +677,40 @@ def _run_frontend_checks(changed: set[str]) -> None:
         raise IntegrateError(f"check:legal-content failed:\n{out}")
 
 
+def _fresh_test_db_name() -> str:
+    """The same "wealth_test_<epoch seconds>_<8 hex>" shape
+    backend/tests/conftest.py's own default generator produces,
+    duplicated rather than imported (this script must not depend on test
+    code) — kept in sync by convention; see that file if this ever needs
+    to change. A per-run name, not the single shared "wealth_test"
+    literal H90's first pass originally passed here: this VPS can run
+    several `session.sh finish` gates and an `integrate` pass against the
+    one local mongod at once, and a shared literal let one run's
+    session-end teardown drop another's still-in-flight fixtures mid-test
+    (found and reproduced in review). The epoch prefix is what lets
+    conftest.py's own stale-database sweep find and reap a name like this
+    one if the process that generated it never reaches its own teardown
+    (crashed, OOM-killed)."""
+    return f"wealth_test_{int(time.time())}_{uuid.uuid4().hex[:8]}"
+
+
 def _run_backend_tests() -> None:
+    """Runs the suite from the SHARED TREE's own backend, unlike
+    `scripts/session.sh finish` (a worktree). That matters for H90: this
+    process's cwd here has a real `backend/.env` (UAT's), which
+    `app.core.config`'s `load_dotenv(..., override=False)` would read
+    MONGO_DB="wealth" out of — the real value, not a test one — the
+    instant the pytest subprocess imports `app.core.config` transitively.
+    `conftest.py`'s own module-level `os.environ.setdefault("MONGO_DB",
+    ...)` still wins that race on its own (it runs before those imports,
+    and dotenv's override=False never clobbers an already-set var), but
+    passing a MONGO_DB here too means this invocation is its own proof of
+    the mechanism, not something that only holds up if conftest.py's
+    import order is never disturbed. Review-round correction: that value
+    is now generated fresh per call (`_fresh_test_db_name`), not the
+    single shared "wealth_test" literal H90's first pass originally used
+    here, so an integrate pass running concurrently with a `session.sh
+    finish` (or another integrate pass) can never collide with it."""
     venv_python = REPO_ROOT / "backend" / ".venv" / "bin" / "python"
     rc, out = _sh(
         [
@@ -648,6 +719,7 @@ def _run_backend_tests() -> None:
         ],
         cwd=REPO_ROOT / "backend",
         timeout=600,
+        env={"MONGO_DB": _fresh_test_db_name()},
     )
     if rc != 0:
         raise IntegrateError(f"backend test suite failed:\n{out}")
@@ -740,7 +812,7 @@ def _block(item_id: str, reason: str) -> None:
     _warn_if_not_committed(item_id, "blocked", committed)
     if full_text.strip():
         try:
-            _, note_committed = backlog.add_note(item_id, _extract_diagnostic_tail(full_text), actor="claude")
+            _, note_committed, _truncation = backlog.add_note(item_id, _extract_diagnostic_tail(full_text), actor="claude")
         except backlog.BacklogError as exc:
             print(f"warning: could not add detail note for {item_id}: {exc}", file=sys.stderr)
         else:
@@ -888,7 +960,7 @@ def _integrate_one(item: dict) -> tuple[str, str]:
             _warn_if_not_committed(item_id, "sent to uat", uat_committed)
         if preview_detail:
             try:
-                _, note_committed = backlog.add_note(
+                _, note_committed, _truncation = backlog.add_note(
                     item_id, f"Preview: {preview_link}. {preview_detail}", actor="claude"
                 )
             except backlog.BacklogError as exc:

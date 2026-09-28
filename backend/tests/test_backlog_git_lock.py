@@ -161,7 +161,7 @@ def test_stale_index_lock_with_no_holder_is_removed_and_commit_lands(tmp_path, c
     os.utime(lock_path, (old, old))
 
     with caplog.at_level(logging.WARNING, logger="app.services.backlog"):
-        item, committed = backlog.add_note(
+        item, committed, _truncation = backlog.add_note(
             "A1", "note written behind a stale index.lock", actor="claude",
             todo_path=board_root / "TODO.md", repo_root=board_root,
         )
@@ -186,7 +186,7 @@ def test_live_index_lock_is_waited_on_and_commit_lands_once_it_clears(tmp_path, 
     try:
         started = time.monotonic()
         with caplog.at_level(logging.WARNING, logger="app.services.backlog"):
-            item, committed = backlog.add_note(
+            item, committed, _truncation = backlog.add_note(
                 "A1", "note written behind a live index.lock", actor="claude",
                 todo_path=board_root / "TODO.md", repo_root=board_root,
             )
@@ -268,7 +268,7 @@ def test_stale_lock_removed_despite_a_decoy_process_sharing_cwd_and_git_in_argv(
     decoy = _spawn_decoy_process(board_root, hold_seconds=30.0)
     try:
         with caplog.at_level(logging.WARNING, logger="app.services.backlog"):
-            item, committed = backlog.add_note(
+            item, committed, _truncation = backlog.add_note(
                 "A1", "note written despite a cwd/argv decoy", actor="claude",
                 todo_path=board_root / "TODO.md", repo_root=board_root,
             )
@@ -460,7 +460,7 @@ def test_a_cleanly_failing_tool_still_confirms_no_holder_and_stale_lock_is_remov
 
     with caplog.at_level(logging.WARNING, logger="app.services.backlog"):
         with _mock.patch.object(backlog.subprocess, "run", side_effect=_fake_clean_no_holder_tool):
-            item, committed = backlog.add_note(
+            item, committed, _truncation = backlog.add_note(
                 "A1", "note written behind a cleanly-confirmed-unheld stale lock", actor="claude",
                 todo_path=board_root / "TODO.md", repo_root=board_root,
             )
@@ -536,7 +536,7 @@ def test_git_commit_and_push_folds_a_timed_out_live_lock_into_committed_false(tm
         # so this test does not have to wait out the real ~20s ceiling;
         # monkeypatch restores the original tuple afterwards.
         monkeypatch.setattr(backlog._wait_for_git_index_lock, "__defaults__", (90.0, 1.0, 0.1))
-        item, committed = backlog.add_note(
+        item, committed, _truncation = backlog.add_note(
             "A1", "note that cannot land while the lock is stuck", actor="claude",
             todo_path=board_root / "TODO.md", repo_root=board_root,
         )

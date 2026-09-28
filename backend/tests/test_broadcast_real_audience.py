@@ -81,6 +81,21 @@ class _CountableCol:
         return min(n, limit) if limit else n
 
 
+class _FakeDB:
+    """Stand-in for app.db.collections.db (A101): account_has_data's second
+    pass, over ERASE_ONLY_COLLECTIONS (the five Kenya collections with no
+    live *_col binding), reads `_cols.db[name]` directly rather than
+    getattr, so this file needs its own fake for `db` too, or that path
+    would hit the real Motor client exactly like the `*_col` names above
+    would without _wire's per-name patching."""
+
+    def __init__(self, mapping):
+        self._mapping = dict(mapping)
+
+    def __getitem__(self, name):
+        return self._mapping[name]
+
+
 # ── identities, matching the UAT ground truth shape ─────────────────────
 
 REAL_FULL = "real-user@gmail.com"          # full record + a real connected account
@@ -137,6 +152,14 @@ def _wire(monkeypatch, *, account_data_owner: str):
     for name in _ACCOUNT_DATA_COLLECTIONS:
         docs = [{"user_id": account_data_owner}] if account_data_owner else []
         monkeypatch.setattr(db_collections_module, name, _CountableCol(docs))
+
+    # A101: account_has_data also checks app.db.collections.ERASE_ONLY_COLLECTIONS
+    # via a raw db[name] handle (no *_col binding survives A98 for these
+    # five) — fake `db` itself so that path never reaches real Mongo either.
+    monkeypatch.setattr(
+        db_collections_module, "db",
+        _FakeDB({name: _CountableCol([]) for name in db_collections_module.ERASE_ONLY_COLLECTIONS}),
+    )
 
     async def fake_notif_pref(user_id, key):
         assert key == "offers"
@@ -236,3 +259,19 @@ def test_account_data_in_any_provider_collection_is_sufficient(monkeypatch):
         monkeypatch.setattr(db_collections_module, name, _CountableCol([{"user_id": REAL_FULL}]))
         ids = run(broadcast.resolve_audience({"type": "everyone"}))
         assert REAL_FULL in ids, f"account data in {name!r} alone should be sufficient"
+
+
+def test_account_data_in_an_erase_only_collection_is_also_sufficient(monkeypatch):
+    """A101: the five Kenya collections with no live *_col binding
+    (app.db.collections.ERASE_ONLY_COLLECTIONS) are still real account
+    data for this check's purposes — a user with only an mpesa_accounts
+    row must count as real, the same as one with an accounts_col row."""
+    for name in db_collections_module.ERASE_ONLY_COLLECTIONS:
+        _wire(monkeypatch, account_data_owner=None)
+        fake_db = _FakeDB({
+            n: (_CountableCol([{"user_id": REAL_FULL}]) if n == name else _CountableCol([]))
+            for n in db_collections_module.ERASE_ONLY_COLLECTIONS
+        })
+        monkeypatch.setattr(db_collections_module, "db", fake_db)
+        ids = run(broadcast.resolve_audience({"type": "everyone"}))
+        assert REAL_FULL in ids, f"account data in erase-only collection {name!r} alone should be sufficient"

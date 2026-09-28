@@ -182,7 +182,15 @@ Commands:
                                         first rather than completing work
                                         Kevin decided should not happen.
     reopen <id>                         Untick a done item.
-    note <id> "<text>"                  Add a dated note under an item.
+    note <id> "<text>" [--strict]        Add a dated note under an item. Notes
+                                        over NOTE_CAP (1500 chars) are still
+                                        truncated on write, but a truncation
+                                        now warns on stderr with the original
+                                        and truncated lengths and the last 40
+                                        characters dropped (H64); --strict
+                                        additionally exits non-zero when that
+                                        happens (the note is still written
+                                        either way).
     owner <id> kevin|claude|codex       Change who owns an item.
     priority <id> p1|p2|p3             Set an item's priority (defaults to
                                         p3 when the tag is absent).
@@ -492,8 +500,22 @@ def cmd_reopen(args: argparse.Namespace) -> None:
 
 
 def cmd_note(args: argparse.Namespace) -> None:
-    result, committed = backlog.add_note(args.item_id, args.text, actor=args.actor)
+    result, committed, truncation = backlog.add_note(args.item_id, args.text, actor=args.actor)
     _print_result(args.item_id, result, committed)
+    if truncation["truncated"]:
+        # H64: _collapse_note_text used to truncate at NOTE_CAP and say
+        # nothing, so a caller believed it recorded content it did not.
+        # Warn on stderr with enough to act on -- both lengths and the
+        # tail that got cut off -- every time; --strict additionally exits
+        # non-zero so a script that checks the exit code notices too.
+        print(
+            f"warning: note for {args.item_id} truncated from {truncation['original_length']} to "
+            f"{truncation['cap']} characters ({truncation['dropped_length']} characters dropped); "
+            f"last 40 characters dropped: {truncation['dropped_tail']!r}",
+            file=sys.stderr,
+        )
+        if args.strict:
+            sys.exit(1)
 
 
 def cmd_owner(args: argparse.Namespace) -> None:
@@ -699,6 +721,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_note = sub.add_parser("note", help="Add a dated note under an item.")
     p_note.add_argument("item_id")
     p_note.add_argument("text")
+    p_note.add_argument(
+        "--strict",
+        action="store_true",
+        help="Exit non-zero if the note is truncated at NOTE_CAP (H64); the warning still "
+        "prints to stderr either way.",
+    )
     add_actor(p_note)
     p_note.set_defaults(func=cmd_note)
 

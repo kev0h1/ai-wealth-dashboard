@@ -119,16 +119,117 @@ def test_restart_services_backend_change_restarts_api_and_worker(monkeypatch):
     assert restarted == ["wealth-api", "wealth-worker"]
 
 
+def _fake_build_result(build_id="new1", previous="old1"):
+    fb = integrate.frontend_build
+    return fb.BuildResult(build_id, previous, fb.FRONTEND_DIR / ".next", fb.FRONTEND_DIR / ".next-prev")
+
+
 def test_restart_services_frontend_only_change_restarts_neither_backend_service(monkeypatch):
     restarted: list[str] = []
+    built: list[object] = []
     monkeypatch.setattr(integrate, "_systemctl_restart", lambda service: restarted.append(service))
     monkeypatch.setattr(integrate, "_sh", lambda *a, **k: (0, ""))
+    monkeypatch.setattr(
+        integrate.frontend_build, "build_and_swap", lambda frontend_dir: (built.append(frontend_dir), _fake_build_result())[1]
+    )
 
     integrate._restart_services({"frontend/components/Foo.tsx"})
 
     assert "wealth-api" not in restarted
     assert "wealth-worker" not in restarted
     assert restarted == ["wealth-frontend"]
+    assert built == [integrate.REPO_ROOT / "frontend"]
+
+
+# --- H51: the frontend build is atomic and never in place ---------------------
+#
+# integrate.py used to run `npm run build` straight into frontend/.next, the
+# directory the live `next start` serves from; an interrupted build left UAT
+# blank (2026-09-17). It now goes through scripts/frontend_build.py, which
+# builds into a staging directory, verifies it, and swaps it in with one
+# rename. These pin the contract integrate relies on: the atomic path is
+# used (no `npm run build` via _sh), the service is restarted only after a
+# successful swap, and a build failure surfaces as IntegrateError (which
+# _integrate_one turns into a rollback + block) without any restart.
+
+
+def test_restart_services_frontend_change_never_runs_npm_build_in_place(monkeypatch):
+    sh_calls: list[list[str]] = []
+    monkeypatch.setattr(integrate, "_systemctl_restart", lambda service: None)
+    monkeypatch.setattr(integrate, "_sh", lambda cmd, *a, **k: (sh_calls.append(cmd), (0, ""))[1])
+    monkeypatch.setattr(integrate.frontend_build, "build_and_swap", lambda frontend_dir: _fake_build_result())
+
+    integrate._restart_services({"shared/src/index.ts"})
+
+    assert ["npm", "run", "build"] not in sh_calls
+
+
+def test_restart_services_frontend_build_failure_raises_and_does_not_restart(monkeypatch):
+    restarted: list[str] = []
+    monkeypatch.setattr(integrate, "_systemctl_restart", lambda service: restarted.append(service))
+    monkeypatch.setattr(integrate, "_sh", lambda *a, **k: (0, ""))
+
+    def failing_build(frontend_dir):
+        raise integrate.frontend_build.FrontendBuildError("frontend build failed (exit 1); live .next untouched:\nboom")
+
+    monkeypatch.setattr(integrate.frontend_build, "build_and_swap", failing_build)
+
+    with pytest.raises(integrate.IntegrateError) as excinfo:
+        integrate._restart_services({"frontend/components/Foo.tsx", "backend/app/x.py"})
+
+    assert "frontend build failed" in str(excinfo.value)
+    assert "live .next untouched" in str(excinfo.value)
+    # Nothing restarted: not the frontend (no good build to serve), and not
+    # the backend either, since the frontend step runs first and raised.
+    assert restarted == []
+
+
+def test_restart_services_lock_contention_is_loud_not_queued(monkeypatch):
+    restarted: list[str] = []
+    monkeypatch.setattr(integrate, "_systemctl_restart", lambda service: restarted.append(service))
+    monkeypatch.setattr(integrate, "_sh", lambda *a, **k: (0, ""))
+
+    def contended(frontend_dir):
+        raise integrate.frontend_build.FrontendBuildError("another frontend build is already in progress (lock held)")
+
+    monkeypatch.setattr(integrate.frontend_build, "build_and_swap", contended)
+
+    with pytest.raises(integrate.IntegrateError) as excinfo:
+        integrate._restart_services({"frontend/app/page.tsx"})
+
+    assert "another frontend build is already in progress" in str(excinfo.value)
+    assert restarted == []
+
+
+def test_restart_services_swap_oserror_surfaces_as_integrate_error_not_bare_oserror(monkeypatch):
+    # H51 review gap 2: frontend_build.build_and_swap wraps an OSError from
+    # the rename/exchange step (e.g. EACCES, ENOSPC, EIO -- anything not in
+    # the "fall back to plain renames" errno set) as FrontendBuildError
+    # rather than letting it escape as a bare OSError. This test pins the
+    # consequence on the integrate.py side: _restart_services only catches
+    # FrontendBuildError around this call, converting it to IntegrateError,
+    # which is what lets _integrate_one take the rollback-and-block path
+    # (see the module docstring's rollback description) instead of falling
+    # through to the outer catch-all with services never restarted.
+    restarted: list[str] = []
+    monkeypatch.setattr(integrate, "_systemctl_restart", lambda service: restarted.append(service))
+    monkeypatch.setattr(integrate, "_sh", lambda *a, **k: (0, ""))
+
+    def swap_oserror(frontend_dir):
+        raise integrate.frontend_build.FrontendBuildError(
+            "could not swap /tmp/mirror/.next into /tmp/frontend/.next: OSError errno 13 "
+            "(Permission denied); check /tmp/frontend/.next and /tmp/frontend/.next-prev by hand before retrying"
+        )
+
+    monkeypatch.setattr(integrate.frontend_build, "build_and_swap", swap_oserror)
+
+    with pytest.raises(integrate.IntegrateError) as excinfo:
+        integrate._restart_services({"frontend/app/page.tsx"})
+
+    assert "OSError errno 13" in str(excinfo.value)
+    # not restarted: no good swap, so no restart -- the rollback path is
+    # what runs next, not a restart of a service serving an unknown state.
+    assert restarted == []
 
 
 # --- frontend gate checks (H23) -------------------------------------------
@@ -397,7 +498,7 @@ def test_block_writes_single_sanitised_line_logs_full_text_and_adds_note(monkeyp
 
     def fake_add_note(item_id, text, actor="claude"):
         add_note_calls.append((item_id, text, actor))
-        return {"id": item_id}, True
+        return {"id": item_id}, True, {}
 
     monkeypatch.setattr(integrate.backlog, "set_state", fake_set_state)
     monkeypatch.setattr(integrate.backlog, "add_note", fake_add_note)
@@ -1394,7 +1495,7 @@ def test_integrate_one_blocks_with_merge_not_rebase_reason_on_conflict(monkeypat
         return {}, True
 
     monkeypatch.setattr(integrate.backlog, "set_state", fake_set_state)
-    monkeypatch.setattr(integrate.backlog, "add_note", lambda *a, **k: ({}, True))
+    monkeypatch.setattr(integrate.backlog, "add_note", lambda *a, **k: ({}, True, {}))
 
     item = {"id": "H99", "branch": "feature-H99-thing", "title": "Some item", "uat_review": False}
     result, detail = integrate._integrate_one(item)
@@ -1444,7 +1545,7 @@ def test_integrate_one_records_verified_single_slug_link(monkeypatch):
     notify_calls: list[tuple] = []
     monkeypatch.setattr(integrate.backlog, "set_uat", lambda item_id, link, actor="claude": (uat_calls.append((item_id, link)), ({}, True))[1])
     monkeypatch.setattr(integrate.backlog, "set_done", lambda *a, **k: ({}, True))
-    monkeypatch.setattr(integrate.backlog, "add_note", lambda item_id, text, actor="claude": (note_calls.append((item_id, text)), ({}, True))[1])
+    monkeypatch.setattr(integrate.backlog, "add_note", lambda item_id, text, actor="claude": (note_calls.append((item_id, text)), ({}, True, {}))[1])
     monkeypatch.setattr(
         integrate, "_notify_uat_ready", lambda item_id, title, link, detail=None: notify_calls.append((item_id, title, link, detail))
     )
@@ -1477,7 +1578,7 @@ def test_integrate_one_records_first_slug_and_notes_the_rest_for_several_directo
     notify_calls: list[tuple] = []
     monkeypatch.setattr(integrate.backlog, "set_uat", lambda item_id, link, actor="claude": (uat_calls.append((item_id, link)), ({}, True))[1])
     monkeypatch.setattr(integrate.backlog, "set_done", lambda *a, **k: ({}, True))
-    monkeypatch.setattr(integrate.backlog, "add_note", lambda item_id, text, actor="claude": (note_calls.append((item_id, text)), ({}, True))[1])
+    monkeypatch.setattr(integrate.backlog, "add_note", lambda item_id, text, actor="claude": (note_calls.append((item_id, text)), ({}, True, {}))[1])
     monkeypatch.setattr(
         integrate, "_notify_uat_ready", lambda item_id, title, link, detail=None: notify_calls.append((item_id, title, link, detail))
     )
@@ -1511,7 +1612,7 @@ def test_integrate_one_records_index_link_when_no_slug_can_be_derived(monkeypatc
     notify_calls: list[tuple] = []
     monkeypatch.setattr(integrate.backlog, "set_uat", lambda item_id, link, actor="claude": (uat_calls.append((item_id, link)), ({}, True))[1])
     monkeypatch.setattr(integrate.backlog, "set_done", lambda *a, **k: ({}, True))
-    monkeypatch.setattr(integrate.backlog, "add_note", lambda *a, **k: ({}, True))
+    monkeypatch.setattr(integrate.backlog, "add_note", lambda *a, **k: ({}, True, {}))
     monkeypatch.setattr(
         integrate, "_notify_uat_ready", lambda item_id, title, link, detail=None: notify_calls.append((item_id, title, link, detail))
     )

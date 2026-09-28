@@ -403,6 +403,41 @@ def _collapse_note_text(text: str, cap: int = NOTE_CAP) -> str:
     return collapsed
 
 
+def _note_truncation_info(text: str, cap: int = NOTE_CAP) -> dict:
+    """H64: `_collapse_note_text` truncates and appends an ellipsis with no
+    way for a caller to know it happened — the write still succeeds, so an
+    agent believes it recorded something it did not (hit four times in one
+    session on 2026-09-17, the worst case cutting the operational half of
+    a note, the worktree path and the exact resume commands, while keeping
+    the prose rationale). This runs the same newline-collapsing
+    `_collapse_note_text` does, so the length comparison is apples to
+    apples with what actually gets written, then reports whether it would
+    be truncated and, if so, the tail of the text that gets cut off (up to
+    40 characters), so a caller can react instead of finding out later by
+    measuring the stored string directly."""
+    parts = [p.strip() for p in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+    collapsed = " / ".join(p for p in parts if p)
+    original_length = len(collapsed)
+    truncated = original_length > cap
+    if not truncated:
+        return {
+            "truncated": False,
+            "original_length": original_length,
+            "cap": cap,
+            "dropped_length": 0,
+            "dropped_tail": "",
+        }
+    kept_length = cap - 3 if cap > 3 else cap
+    dropped = collapsed[kept_length:]
+    return {
+        "truncated": True,
+        "original_length": original_length,
+        "cap": cap,
+        "dropped_length": len(dropped),
+        "dropped_tail": dropped[-40:],
+    }
+
+
 SECTION_HEADING_RE = re.compile(r"^## ([A-H])\. (.+)$")
 ITEM_RE = re.compile(
     r"^(?P<prefix>- \[(?P<check>[ xX])\] \*\*(?P<id>[A-H]\d+)\.\s*(?P<title>.*?)\*\*)"
@@ -2230,15 +2265,24 @@ def add_note(
     *,
     todo_path: Optional[Path] = None,
     repo_root: Optional[Path] = None,
-) -> tuple[dict, bool]:
+) -> tuple[dict, bool, dict]:
+    """H64: the note itself is still written via `TodoDoc.add_note` ->
+    `_collapse_note_text`, unchanged, but the truncation fact `_collapse_
+    note_text` used to swallow silently is now computed here (via
+    `_note_truncation_info`, the same newline-collapsing so it agrees with
+    what actually gets stored) and returned as a third element, so both
+    callers of this function -- `scripts/backlog.py note` and the `/ops/
+    go-live` API route -- can surface it instead of reporting bare
+    success on a write that quietly lost content."""
     resolved_path = todo_path or _todo_path()
     resolved_root = repo_root or _repo_root()
+    truncation = _note_truncation_info(text)
     with _locked(resolved_root):
         doc = TodoDoc.load(resolved_path)
         item = doc.add_note(item_id, text, actor)
         doc.save(resolved_path)
         committed = _git_commit_and_push([resolved_path], f"backlog: {item_id} note added by {actor}", resolved_root)
-    return item.to_dict(), committed
+    return item.to_dict(), committed, truncation
 
 
 def set_question_status(
