@@ -472,6 +472,55 @@ def test_a_cleanly_failing_tool_still_confirms_no_holder_and_stale_lock_is_remov
     assert "note written behind a cleanly-confirmed-unheld stale lock" in saved
 
 
+def test_missing_proc_itself_is_never_treated_as_not_a_holder(tmp_path):
+    """H93 review round 3. `_lock_holder_pids_via_proc` had exactly the
+    same fail-open shape round 2 just fixed one level down, but at its
+    very top: `if not proc_dir.is_dir(): return []` reported "confirmed
+    no holder" whenever /proc itself could not be enumerated at all --
+    the purest form of "could not look" there is, since nothing about ANY
+    process could be checked, yet it was read as "looked and found
+    nothing". Reproduced exactly as found: a live holder with a real open
+    fd, fuser/lsof forced absent, and `Path.is_dir` mocked to return
+    `False` specifically for `/proc` (every other path's `is_dir()` call
+    is untouched, including the lock file's own checks elsewhere in the
+    wait loop)."""
+    board_root = _make_real_board_root(tmp_path)
+    lock_path = board_root / ".git" / "index.lock"
+
+    real_run = backlog.subprocess.run
+
+    def _hide_fuser_and_lsof(cmd, *args, **kwargs):
+        if cmd and cmd[0] in ("fuser", "lsof"):
+            raise FileNotFoundError(cmd[0])
+        return real_run(cmd, *args, **kwargs)
+
+    holder = _spawn_lock_holder(lock_path, hold_seconds=30.0, delete_after=False)
+    try:
+        import unittest.mock as _mock
+
+        real_is_dir = Path.is_dir
+        proc_path = Path("/proc")
+
+        def _proc_is_never_a_dir(self, *args, **kwargs):
+            if self == proc_path:
+                return False
+            return real_is_dir(self, *args, **kwargs)
+
+        with _mock.patch.object(backlog.subprocess, "run", side_effect=_hide_fuser_and_lsof):
+            with _mock.patch.object(Path, "is_dir", _proc_is_never_a_dir):
+                holders = backlog._lock_holder_pids(lock_path)
+                assert holders, "an unreadable /proc must be reported as a holder, never treated as unheld"
+
+                with pytest.raises(backlog._GitLockHeld):
+                    backlog._wait_for_git_index_lock(
+                        board_root, stale_after=90.0, max_wait=1.0, poll_interval=0.1
+                    )
+        assert lock_path.exists(), "a lock behind an unreadable /proc must never be removed"
+    finally:
+        holder.kill()
+        holder.wait(timeout=10)
+
+
 def test_git_commit_and_push_folds_a_timed_out_live_lock_into_committed_false(tmp_path, monkeypatch):
     """End to end through the real mutator path (not the direct
     _wait_for_git_index_lock unit test above): a live lock that never

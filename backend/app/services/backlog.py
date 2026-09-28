@@ -127,10 +127,21 @@ by anyone who notices, but deleting a live process's lock corrupts that
 THIRD-PARTY git process's own in-flight operation, mid-write, with no
 downstream check in this codebase able to repair it afterwards. That is
 why every code path in `_lock_holder_pids` that cannot positively confirm
-"nothing holds this file" — an unreadable /proc fd table, a tool that
-ran but reported an error rather than a clean "no holder" — reports a
-holder rather than silently treating "I could not look" as "I looked and
-found nothing".
+"nothing holds this file" — an unreadable /proc fd table, an unreadable
+/proc listing itself, a tool that ran but reported an error rather than a
+clean "no holder" — reports a holder rather than silently treating "I
+could not look" as "I looked and found nothing".
+
+A genuine limit, not a defect (confirmed in the H93 review round 3): a
+tool that answers CLEANLY but WRONGLY — exit code and stderr both saying
+"no holder" (the honest shape this module trusts, by design, in
+`_lock_holder_pids_via_tool`) while a real process does in fact have the
+lock open — is undetectable by any check here. There is no signal left
+to fail closed on once the tool itself reports success with no error;
+catching that would need a source of truth this module does not have
+(the kernel's own fd tables, which is exactly what the /proc fallback
+already reads directly, used only when the tool gives no trustworthy
+answer at all rather than a wrong one it is confident in).
 """
 from __future__ import annotations
 
@@ -648,19 +659,59 @@ def _lock_holder_pids_via_proc(lock_path: Path) -> list[str]:
     existing pid's fd table, or on an individual fd within it, appends a
     `(fd table unreadable)`/`(fd ... unreadable)`-suffixed placeholder to
     the holder list instead of continuing past it, which is enough on its
-    own to keep `_wait_for_git_index_lock` from ever deleting the lock."""
+    own to keep `_wait_for_git_index_lock` from ever deleting the lock.
+
+    Round 3: `if not proc_dir.is_dir(): return []` had exactly the same
+    fail-open shape Round 2 just fixed one level down, at the very top of
+    this function -- /proc itself being missing, or unreadable, is the
+    purest form of "could not look" there is (nothing about ANY process
+    could be checked at all), yet it was reported as "confirmed no
+    holder". Reproduced: a live holder, fuser/lsof absent, `Path.is_dir`
+    mocked to return `False` for /proc -- the stale-lock branch removed a
+    genuinely held index.lock. Fixed: both `proc_dir.is_dir()` being
+    false/erroring and `proc_dir.iterdir()` itself raising `OSError`
+    return a `"?(/proc unavailable)"` placeholder holder, the same shape
+    as an unreadable fd table, rather than `[]`. The one path still
+    genuinely treated as unheld — resolving `lock_path` itself failing —
+    is left as-is: that never gets far enough to look at any process, so
+    there is nothing to fail closed ABOUT (round 3 review agreed this one
+    is a legitimate exception, not a third instance of the same bug)."""
     try:
         resolved_lock = str(lock_path.resolve())
     except OSError:
         # Cannot even resolve the path being checked, so there is
         # nothing to compare any fd against; nothing to fail closed
-        # ABOUT either. Unheld, same as before this round.
+        # ABOUT either -- moot, not a "could not look" case (round 3
+        # review agreed this one is legitimately an exception to the
+        # governing rule, since it never gets far enough to look at any
+        # process at all). Unheld, same as before this round.
         return []
     proc_dir = Path("/proc")
-    if not proc_dir.is_dir():
-        return []
+    try:
+        proc_is_dir = proc_dir.is_dir()
+    except OSError:
+        proc_is_dir = False
+    if not proc_is_dir:
+        # /proc itself is missing or cannot even be stat'd. Round 2 left
+        # this as `return []` -- "confirmed no holder" -- which directly
+        # contradicts the governing rule above: unable to enumerate
+        # ANY process at all is the purest form of "could not look",
+        # not "looked and found nothing". Reproduced (round 3 review): a
+        # live holder, fuser/lsof absent, `Path.is_dir` mocked False on
+        # /proc -- the stale-lock branch removed a genuinely held
+        # index.lock. Fixed: report a holder placeholder so
+        # `_wait_for_git_index_lock` takes the held branch instead.
+        return ["?(/proc unavailable)"]
     holders: list[str] = []
-    for entry in proc_dir.iterdir():
+    try:
+        proc_entries = list(proc_dir.iterdir())
+    except OSError:
+        # Same failure mode one level down: /proc exists as a directory
+        # but its own listing could not be read. Equally "could not
+        # look" -- reported the same way, not silently treated as no
+        # holder.
+        return ["?(/proc unavailable)"]
+    for entry in proc_entries:
         if not entry.name.isdigit():
             continue
         fd_dir = entry / "fd"
