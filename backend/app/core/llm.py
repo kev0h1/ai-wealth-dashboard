@@ -166,6 +166,8 @@ async def record_llm_usage(
     usage: dict,
     latency_ms: int,
     message_id: str | None = None,
+    round_num: int | None = None,
+    tools_called: list[str] | None = None,
 ) -> None:
     """Insert one `llm_usage_col` doc for a single completed OpenRouter
     call. `usage` is that response's own `usage` object (OpenRouter's
@@ -179,6 +181,19 @@ async def record_llm_usage(
     doc here, all sharing the message's id, so `monthly_usage` can count
     Penny MESSAGES (distinct message_id) rather than rounds while still
     summing every round's cost.
+
+    B38 (2026-09-28): `round_num`/`tools_called` are the Penny tool trace,
+    populated ONLY by `openrouter_chat` on the Penny loop's own calls (see
+    that function's own doctrine comment) — `round_num` is the 1-indexed
+    round this doc belongs to within its `message_id`, `tools_called` is
+    the ordered list of tool NAMES the model's response for THIS round
+    asked to call (never the arguments, which may hold user data). Reading
+    every doc sharing a `message_id`, ordered by `round_num`, reconstructs
+    the whole question's tool sequence without a second collection — the
+    gap PENNY_TOOLS.md and `penny_chips.py` both flagged ("nothing
+    persists which tools were chosen for which question, and nothing can
+    replay a question"). Neither field is written for any other pipeline,
+    which never offers tool schemas to the model today.
 
     Never raises — a metering failure must never surface as a user-facing
     error on what was otherwise a successful LLM call.
@@ -205,6 +220,10 @@ async def record_llm_usage(
         }
         if message_id:
             doc["message_id"] = message_id
+        if round_num is not None:
+            doc["round"] = int(round_num)
+        if tools_called is not None:
+            doc["tools_called"] = list(tools_called)
         await llm_usage_col.insert_one(doc)
     except Exception:
         logger.warning(
@@ -220,6 +239,7 @@ async def openrouter_chat(
     timeout: float = 60.0,
     client: httpx.AsyncClient | None = None,
     message_id: str | None = None,
+    round_num: int | None = None,
 ) -> httpx.Response:
     """POST `body` to OpenRouter's chat completions endpoint and meter the
     result. Returns the raw `httpx.Response` — callers keep doing exactly
@@ -248,6 +268,17 @@ async def openrouter_chat(
     `HTTPException(402, ...)` instead of sending the request — see that
     function's own docstring for why this one control fails closed while
     the per-user allowance next to it (A81) deliberately does not.
+
+    B38 (2026-09-28): `round_num`, when given (only `app.services.
+    penny_agent` passes it, one per tool-calling round, 1-indexed), is
+    forwarded to `record_llm_usage` verbatim. Alongside it, the tool
+    NAMES this response's own `choices[0].message.tool_calls` asked to
+    call are extracted here (never the arguments — those may hold user
+    data, and the tool trace this exists for only needs to answer "which
+    tool, which round") and passed through as `tools_called`. This reads
+    the SAME response `record_llm_usage` already gets `usage`/`model`
+    from, so a round with no tool call (the loop's final answer) simply
+    records an empty list, no separate lookup needed.
     """
     await _check_global_ceiling()
 
@@ -281,9 +312,20 @@ async def openrouter_chat(
         if isinstance(data, dict):
             usage = data.get("usage") or {}
             model = data.get("model") or payload.get("model", "")
+            tools_called: list[str] | None = None
+            if round_num is not None:
+                choice = (data.get("choices") or [{}])[0]
+                msg = (choice or {}).get("message") or {}
+                raw_tool_calls = msg.get("tool_calls") or []
+                tools_called = [
+                    tc["function"]["name"]
+                    for tc in raw_tool_calls
+                    if isinstance(tc, dict) and isinstance(tc.get("function"), dict) and tc["function"].get("name")
+                ]
             await record_llm_usage(
                 user_id=user_id, pipeline=pipeline, model=model, usage=usage,
                 latency_ms=latency_ms, message_id=message_id,
+                round_num=round_num, tools_called=tools_called,
             )
 
     return response
