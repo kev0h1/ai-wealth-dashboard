@@ -860,7 +860,49 @@ changed at all (the worker imports services and core modules under
 stale), and checks both health endpoints. Any failure there rolls the merge back
 (`git reset --hard ORIG_HEAD`), restores services from the reverted tree,
 and blocks the item; main never sits on a broken merge waiting for someone
-to notice. Block and reject reasons are stored on the board as a single
+to notice.
+
+The frontend rebuild is atomic (H51, after the 2026-09-17 blank-page
+outage, when an interrupted in-place `npm run build` left
+`frontend/.next` with manifests but no `BUILD_ID`, the live `next start`
+served chunks that no longer existed, and the restart meant to fix it
+could not boot at all). Integrate never builds into `frontend/.next`
+itself: it calls `scripts/frontend_build.py`, which mirrors `frontend/`
+(source, `public/`, `.env.local`; not `node_modules`, `.git` or any
+`.next*`) into the sibling scratch directory `.frontend-staging/` with
+rsync, symlinks `node_modules`, runs an ordinary `npm run build` there
+(default `.next`, no config override, so nothing keyed to the name
+`.next` such as tsconfig's `.next/types/**` include or the generated
+`next-env.d.ts` ever sees anything unusual, and nothing the build writes
+lands in the shared tree; the Turbopack cache is kept warm in the stable
+`frontend/.next-cache`, and the build tag is precomputed from git and
+passed in as `NEXT_PUBLIC_BUILD_TAG` because the mirror has no `.git`,
+exactly as `frontend/scripts/build-mobile.sh` does), verifies the result
+(`BUILD_ID` present and every file the build's own
+`required-server-files.json` lists), and only then exchanges the
+mirror's `.next` with `frontend/.next` in one atomic rename
+(`renameat2(RENAME_EXCHANGE)`), keeping what was live at
+`frontend/.next-prev`, before `wealth-frontend` is restarted. `next
+start` locates the build by the runtime `distDir` under its working
+directory and nothing it reads carries the build directory's absolute
+path, so a `.next` built elsewhere and renamed into place is a valid
+target (proven with a scratch `next start` on the H51 branch). A build
+that fails, is killed, or does not verify is discarded with the mirror
+and `.next` is never touched, so UAT keeps serving the last good build
+and the item is rolled back and blocked as before. The whole build-verify-swap holds a
+non-blocking lock on `frontend/.next-build.lock`; a second build while
+one is running fails loudly with "another frontend build is already in
+progress" rather than queuing, and in integrate that failure blocks the
+item like any other build failure (re-run `finish` once the other build
+has finished). The same script is the only sanctioned way to rebuild UAT
+by hand from the shared tree, and it is also the one-step rollback for a
+build that succeeded but turned out to be bad:
+
+```bash
+backend/.venv/bin/python scripts/frontend_build.py            # build, verify, swap, restart wealth-frontend
+backend/.venv/bin/python scripts/frontend_build.py --revert   # put .next-prev back, restart (one step only)
+backend/.venv/bin/python scripts/frontend_build.py --status   # live / previous / staging build ids
+``` Block and reject reasons are stored on the board as a single
 sanitised line of at most 200 characters (first line only, whitespace
 collapsed, no `[`/`]`), whatever the caller passed in; the full command
 output goes to the integrate log at error level and to a board note

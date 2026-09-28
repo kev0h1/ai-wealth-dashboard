@@ -119,16 +119,86 @@ def test_restart_services_backend_change_restarts_api_and_worker(monkeypatch):
     assert restarted == ["wealth-api", "wealth-worker"]
 
 
+def _fake_build_result(build_id="new1", previous="old1"):
+    fb = integrate.frontend_build
+    return fb.BuildResult(build_id, previous, fb.FRONTEND_DIR / ".next", fb.FRONTEND_DIR / ".next-prev")
+
+
 def test_restart_services_frontend_only_change_restarts_neither_backend_service(monkeypatch):
     restarted: list[str] = []
+    built: list[object] = []
     monkeypatch.setattr(integrate, "_systemctl_restart", lambda service: restarted.append(service))
     monkeypatch.setattr(integrate, "_sh", lambda *a, **k: (0, ""))
+    monkeypatch.setattr(
+        integrate.frontend_build, "build_and_swap", lambda frontend_dir: (built.append(frontend_dir), _fake_build_result())[1]
+    )
 
     integrate._restart_services({"frontend/components/Foo.tsx"})
 
     assert "wealth-api" not in restarted
     assert "wealth-worker" not in restarted
     assert restarted == ["wealth-frontend"]
+    assert built == [integrate.REPO_ROOT / "frontend"]
+
+
+# --- H51: the frontend build is atomic and never in place ---------------------
+#
+# integrate.py used to run `npm run build` straight into frontend/.next, the
+# directory the live `next start` serves from; an interrupted build left UAT
+# blank (2026-09-17). It now goes through scripts/frontend_build.py, which
+# builds into a staging directory, verifies it, and swaps it in with one
+# rename. These pin the contract integrate relies on: the atomic path is
+# used (no `npm run build` via _sh), the service is restarted only after a
+# successful swap, and a build failure surfaces as IntegrateError (which
+# _integrate_one turns into a rollback + block) without any restart.
+
+
+def test_restart_services_frontend_change_never_runs_npm_build_in_place(monkeypatch):
+    sh_calls: list[list[str]] = []
+    monkeypatch.setattr(integrate, "_systemctl_restart", lambda service: None)
+    monkeypatch.setattr(integrate, "_sh", lambda cmd, *a, **k: (sh_calls.append(cmd), (0, ""))[1])
+    monkeypatch.setattr(integrate.frontend_build, "build_and_swap", lambda frontend_dir: _fake_build_result())
+
+    integrate._restart_services({"shared/src/index.ts"})
+
+    assert ["npm", "run", "build"] not in sh_calls
+
+
+def test_restart_services_frontend_build_failure_raises_and_does_not_restart(monkeypatch):
+    restarted: list[str] = []
+    monkeypatch.setattr(integrate, "_systemctl_restart", lambda service: restarted.append(service))
+    monkeypatch.setattr(integrate, "_sh", lambda *a, **k: (0, ""))
+
+    def failing_build(frontend_dir):
+        raise integrate.frontend_build.FrontendBuildError("frontend build failed (exit 1); live .next untouched:\nboom")
+
+    monkeypatch.setattr(integrate.frontend_build, "build_and_swap", failing_build)
+
+    with pytest.raises(integrate.IntegrateError) as excinfo:
+        integrate._restart_services({"frontend/components/Foo.tsx", "backend/app/x.py"})
+
+    assert "frontend build failed" in str(excinfo.value)
+    assert "live .next untouched" in str(excinfo.value)
+    # Nothing restarted: not the frontend (no good build to serve), and not
+    # the backend either, since the frontend step runs first and raised.
+    assert restarted == []
+
+
+def test_restart_services_lock_contention_is_loud_not_queued(monkeypatch):
+    restarted: list[str] = []
+    monkeypatch.setattr(integrate, "_systemctl_restart", lambda service: restarted.append(service))
+    monkeypatch.setattr(integrate, "_sh", lambda *a, **k: (0, ""))
+
+    def contended(frontend_dir):
+        raise integrate.frontend_build.FrontendBuildError("another frontend build is already in progress (lock held)")
+
+    monkeypatch.setattr(integrate.frontend_build, "build_and_swap", contended)
+
+    with pytest.raises(integrate.IntegrateError) as excinfo:
+        integrate._restart_services({"frontend/app/page.tsx"})
+
+    assert "another frontend build is already in progress" in str(excinfo.value)
+    assert restarted == []
 
 
 # --- frontend gate checks (H23) -------------------------------------------
