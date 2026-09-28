@@ -733,7 +733,13 @@ def _apply_pace_notes(items: list[dict], docs: list[dict], pace_ctx: dict | None
             continue
         item["pace_note"] = {
             "text": (
-                f"Spending is about £{round(excess):,} ahead of usual this period, "
+                # G153: G151's wording on the Spend page ("more than usual",
+                # not "ahead of usual" - Kevin found "ahead" ambiguous), same
+                # more-than-usual phrasing as notifications.py's _pace_line.
+                # Only ever built above with excess > 0 (the caller already
+                # returns None otherwise), so there is no under-usual branch
+                # to mirror here.
+                f"Spending is £{round(excess):,} more than usual this period, "
                 f"which may squeeze the £{round(slice_):,} this plan needs."
             ),
             "link": "spend",
