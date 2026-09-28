@@ -64,6 +64,21 @@ while building this list -- e.g. `now = datetime.now(timezone.utc)` in
 persisted audit-timestamp write) simply carry a `count` covering every
 occurrence and a reason that names both purposes; text-keying cannot tell
 those apart, so the reason has to.
+
+H82 REVIEW FIX (2026-09-28): two loopholes were found and reproduced in
+this script's original count/pragma handling, both fixed the same way in
+backend/tests/test_no_raw_exception_leak.py's sibling ALLOWLIST, which
+copied this script's design and inherited both bugs. First, `count` used
+to be an upper bound (`len(linenos) <= allowed_count`), so REDUCING the
+number of real occurrences below a stale `count` passed silently instead
+of failing -- fixing or removing one of two identically-texted allowlisted
+lines left a budget of one that a later, unrelated, un-triaged line could
+quietly reuse without ever being reviewed. `count` must now match exactly;
+a mismatch in either direction fails, and the failure message says so.
+Second, a bare `# naive-ok:` with nothing (or only whitespace) after the
+colon used to suppress a hit exactly like a real reason would. A pragma
+now needs at least a few non-space characters after the colon or it is
+reported as its own failure, never silently treated as a suppression.
 """
 from __future__ import annotations
 
@@ -80,7 +95,20 @@ BACKEND_ROOT = REPO_ROOT / "backend"
 APP_ROOT = BACKEND_ROOT / "app"
 
 NAIVE_CALL_RE = re.compile(r"date\.today\(|datetime\.now\(|datetime\.utcnow\(")
-INLINE_PRAGMA_RE = re.compile(r"#\s*naive-ok\s*:")
+# A `# naive-ok: <reason>` comment on the source line suppresses that line --
+# but only when a real reason follows the colon. A bare or whitespace-only
+# pragma is a rubber stamp, not a review, so it is reported as its own
+# failure instead of silently suppressing the line (H82 review fix).
+PRAGMA_RE = re.compile(r"#\s*naive-ok\s*:(.*)$")
+MIN_PRAGMA_REASON_CHARS = 3  # non-space characters required after the colon
+
+
+def _pragma_reason(line: str) -> str | None:
+    """Return the text after '# naive-ok:' on this line (possibly empty or
+    whitespace-only), or None if the line carries no naive-ok pragma at
+    all."""
+    m = PRAGMA_RE.search(line)
+    return None if m is None else m.group(1).strip()
 
 
 ALLOWLIST: dict[str, dict[str, dict]] = {
@@ -1199,7 +1227,13 @@ ALLOWLIST: dict[str, dict[str, dict]] = {
                 "TTL gate (24h celebration window, 7-day insight-win window, 14-day card-terms re-ask "
                 "window) deciding card eligibility -- not rendered day-count text"
             ),
-            "count": 4,
+            # H82 review fix (2026-09-28): count corrected 4 -> 3. The old
+            # count=4 was undetected under the pre-fix `<=` comparison --
+            # this is the exact stale-budget loophole that fix closes. Only
+            # 3 occurrences (lines 4035, 4139, 4338) exist in this file
+            # today; a 4th site was evidently fixed or removed at some
+            # earlier point without this entry being updated to match.
+            "count": 3,
         },
         "_cel_now_utc = datetime.utcnow()": {
             "reason": (
@@ -1701,8 +1735,91 @@ def _relpath(p: pathlib.Path) -> str:
     return str(p.relative_to(BACKEND_ROOT)).replace("\\", "/")
 
 
+def _collect_hits(text: str) -> tuple[dict[str, list[int]], list[tuple[int, str]]]:
+    """Scan one file's source text for naive-call hits. Returns (hits_by_text,
+    bad_pragmas).
+
+    `hits_by_text`: every naive-call line NOT suppressed by a reasoned
+    `# naive-ok:` pragma, keyed by its stripped source text, so
+    duplicate-text occurrences can be compared against the allowlist's
+    `count` as a group rather than line by line.
+
+    `bad_pragmas`: (lineno, stripped source text) for a naive-call line
+    whose `# naive-ok:` pragma has no reason, or only whitespace, after
+    the colon -- these are NEVER silently suppressed and never matched
+    against ALLOWLIST (H82 review fix).
+    """
+    hits_by_text: dict[str, list[int]] = {}
+    bad_pragmas: list[tuple[int, str]] = []
+    for lineno, line in enumerate(text.splitlines(), start=1):
+        if not NAIVE_CALL_RE.search(line):
+            continue
+        reason = _pragma_reason(line)
+        if reason is not None:
+            non_space_chars = len(re.sub(r"\s+", "", reason))
+            if non_space_chars >= MIN_PRAGMA_REASON_CHARS:
+                continue  # a real, non-trivial reason -- suppressed
+            bad_pragmas.append((lineno, line.strip()))
+            continue
+        hits_by_text.setdefault(line.strip(), []).append(lineno)
+    return hits_by_text, bad_pragmas
+
+
+def _check_file(
+    rel: str, hits_by_text: dict[str, list[int]], allowed_here: dict[str, dict]
+) -> list[str]:
+    """Compare one file's naive-call hits (grouped by exact stripped source
+    text) against its ALLOWLIST entries. Returns a list of failure
+    messages.
+
+    A hit's text with no entry is a new, un-triaged occurrence. A hit's
+    text WITH an entry must match its `count` EXACTLY, not just stay under
+    it: more occurrences than `count` is an un-triaged new copy, and FEWER
+    occurrences than `count` means a site was fixed, moved, or removed
+    since the entry was written, leaving a silent budget a later,
+    unrelated, un-triaged addition could quietly reuse without ever being
+    reviewed (H82 review fix). Either direction fails, with a message
+    saying the count must be updated (and its reason re-read).
+    """
+    failures: list[str] = []
+    for line_text, linenos in hits_by_text.items():
+        entry = allowed_here.get(line_text)
+        if entry is None:
+            for lineno in linenos:
+                failures.append(f"{rel}:{lineno}: {line_text}")
+            continue
+
+        allowed_count = entry.get("count", 1)
+        if len(linenos) == allowed_count:
+            continue
+
+        where = ", ".join(str(n) for n in linenos)
+        if len(linenos) > allowed_count:
+            # Text alone can't say which copy is the original and which is
+            # new, so all of them are listed for a human to re-triage.
+            failures.append(
+                f"{rel}: {len(linenos)} occurrence(s) of {line_text!r} found "
+                f"(lines: {where}) but only {allowed_count} allowlisted -- "
+                f"a new, un-triaged copy of an allowed line? The count must "
+                f"be updated to match, and its reason re-read to confirm it "
+                f"still covers every occurrence."
+            )
+        else:
+            failures.append(
+                f"{rel}: only {len(linenos)} occurrence(s) of {line_text!r} "
+                f"found (lines: {where}) but ALLOWLIST says count="
+                f"{allowed_count} -- a site was fixed, moved, or removed "
+                f"since this entry was written. The count must be updated "
+                f"to the current exact number, and its reason re-read to "
+                f"confirm it still applies to what's left, so a future "
+                f"un-triaged addition can't silently reuse the freed budget."
+            )
+    return failures
+
+
 def main() -> int:
     failures: list[str] = []
+    bad_pragma_failures: list[str] = []
     for path in sorted(APP_ROOT.rglob("*.py")):
         rel = _relpath(path)
         allowed_here = ALLOWLIST.get(rel, {})
@@ -1711,38 +1828,27 @@ def main() -> int:
         except UnicodeDecodeError:
             continue
 
-        # Collect every naive-call hit in this file, keyed by its stripped
-        # source text, so duplicate-text occurrences can be compared against
-        # the allowlist's `count` as a group rather than line by line.
-        hits_by_text: dict[str, list[int]] = {}
-        for lineno, line in enumerate(text.splitlines(), start=1):
-            if not NAIVE_CALL_RE.search(line):
-                continue
-            if INLINE_PRAGMA_RE.search(line):
-                continue
-            hits_by_text.setdefault(line.strip(), []).append(lineno)
+        hits_by_text, bad_pragmas = _collect_hits(text)
+        for lineno, line_text in bad_pragmas:
+            bad_pragma_failures.append(f"{rel}:{lineno}: {line_text}")
+        failures.extend(_check_file(rel, hits_by_text, allowed_here))
 
-        for line_text, linenos in hits_by_text.items():
-            entry = allowed_here.get(line_text)
-            allowed_count = entry.get("count", 1) if entry else 0
-            if len(linenos) <= allowed_count:
-                continue
-            # Report every occurrence when there's no allowlist entry at all
-            # (a genuinely new, never-seen line); report the count mismatch
-            # plus every occurrence's line number when an allowlisted line
-            # has MORE copies than it's allowed -- text alone can't say
-            # which copy is the original and which is new, so all of them
-            # are listed for a human to re-triage.
-            if entry is None:
-                for lineno in linenos:
-                    failures.append(f"{rel}:{lineno}: {line_text}")
-            else:
-                where = ", ".join(str(n) for n in linenos)
-                failures.append(
-                    f"{rel}: {len(linenos)} occurrence(s) of {line_text!r} found "
-                    f"(lines: {where}) but only {allowed_count} allowlisted -- "
-                    f"a new, un-triaged copy of an allowed line?"
-                )
+    if bad_pragma_failures:
+        print(
+            "check_naive_dates: found '# naive-ok:' pragma(s) with no reason, "
+            "or only whitespace, after the colon. A bare pragma is a rubber "
+            "stamp, not a review:\n",
+            file=sys.stderr,
+        )
+        for f in bad_pragma_failures:
+            print(f"  {f}", file=sys.stderr)
+        print(
+            "\nAdd an actual reason (a few words on why THIS line is safe) after "
+            "the colon, or remove the pragma and add a reasoned "
+            "{\"reason\": ..., \"count\": N} entry to ALLOWLIST in "
+            "scripts/check_naive_dates.py instead.",
+            file=sys.stderr,
+        )
 
     if failures:
         print(
@@ -1763,6 +1869,8 @@ def main() -> int:
             "scripts/check_naive_dates.py.",
             file=sys.stderr,
         )
+
+    if failures or bad_pragma_failures:
         return 1
 
     print("check_naive_dates: ok")
