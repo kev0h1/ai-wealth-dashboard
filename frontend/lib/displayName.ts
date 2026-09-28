@@ -39,13 +39,21 @@ interface NameSources {
 }
 
 /** Apple's Hide My Email relay local parts — and email local parts more
- * generally — are opaque alphanumeric tokens (e.g. "jjdk4"); real first or
- * full names don't contain digits. This is independent of the exact
- * local-part match below, since the `email` a caller passes in is not
- * guaranteed to be byte-for-byte the address a stale session token's name
- * was originally derived from. */
+ * generally — are opaque, single-token, all-lowercase-alphanumeric
+ * strings with at least one digit and no spaces (e.g. "jjdk4", "ab3fk9",
+ * "user12345"). This is independent of the exact local-part match below,
+ * since the `email` a caller passes in is not guaranteed to be
+ * byte-for-byte the address a stale session token's name was originally
+ * derived from.
+ *
+ * Deliberately narrow: an earlier version rejected any name containing a
+ * digit at all, which meant a real name like "Dan2" or "Neo2" (multi-word,
+ * so also caught by the no-spaces requirement) was wrongly treated as a
+ * placeholder. Requiring the *whole* value to be a single lowercase
+ * alphanumeric run of 5+ characters keeps those, while still catching
+ * every opaque token shape above. */
 function looksLikeEmailShapedPlaceholder(value: string): boolean {
-  return /\d/.test(value);
+  return /^[a-z0-9]{5,}$/i.test(value) && /\d/.test(value);
 }
 
 /** True when `sessionName` is safe to show as a name: not empty, not a

@@ -38,6 +38,50 @@ check(
   "Kevin"
 );
 
+// ── resolveDisplayName / resolveFullName: priority order, non-colliding ──
+// The check above is a weak witness of "profile beats session": its
+// session name ("Kevin") happens to equal the email's local part, so it
+// would ALSO be rejected (and fall through to the profile name) if the
+// priority order were flipped to check the session first — the assertion
+// would pass either way. This uses a session name that is itself a
+// perfectly usable, unrelated real name, so only true profile-first
+// priority makes it come out as "Kevin"/"Kevin Maingi" rather than
+// "Someone"/"Someone Else".
+check(
+  "resolveDisplayName: profile name wins even over a session name that is itself a valid, different real name",
+  resolveDisplayName({
+    fullName: "Kevin Maingi",
+    sessionName: "Someone Else",
+    email: "kevin@example.com",
+  }),
+  "Kevin"
+);
+check(
+  "resolveFullName: profile name wins even over a session name that is itself a valid, different real name",
+  resolveFullName({
+    fullName: "Kevin Maingi",
+    sessionName: "Someone Else",
+    email: "kevin@example.com",
+  }),
+  "Kevin Maingi"
+);
+
+// ── resolveDisplayName: local-part rejection isolated from the digit ────
+// heuristic — "kevin" contains no digit at all, so this can only be
+// caught by the exact-local-part-match rule, not by
+// looksLikeEmailShapedPlaceholder. Without this, a mutation that removed
+// the local-part check but left the digit heuristic in place would still
+// pass every other check in this file.
+check(
+  "resolveDisplayName: rejects an exact email-local-part match with no digits involved",
+  resolveDisplayName({
+    fullName: null,
+    sessionName: "kevin",
+    email: "kevin@gmail.com",
+  }),
+  null
+);
+
 // ── resolveDisplayName: only a real session name ────────────────────────
 // No profile saved yet, but the session carries a genuine display name
 // (e.g. a Google account with a display name set) — use it.
@@ -79,6 +123,30 @@ check(
     email: "kevin.maingi12@gmail.com",
   }),
   null
+);
+check(
+  "resolveDisplayName: rejects another opaque digit-bearing token shape",
+  resolveDisplayName({
+    fullName: null,
+    sessionName: "user12345",
+    email: "kevin.maingi12@gmail.com",
+  }),
+  null
+);
+
+// ── resolveDisplayName: a real name that happens to contain a digit ─────
+// False-positive guard: the placeholder heuristic must key off the opaque
+// *shape* (single lowercase-alnum token, 5+ chars), not "contains any
+// digit" — a real name like "Dan2" must not be rejected just because it
+// has one.
+check(
+  "resolveDisplayName: keeps a real session name that contains a digit but isn't opaque-token-shaped",
+  resolveDisplayName({
+    fullName: null,
+    sessionName: "Dan2",
+    email: "dan@example.com",
+  }),
+  "Dan2"
 );
 
 // ── resolveDisplayName: session name is the full relay email address ────
