@@ -1394,7 +1394,7 @@ def test_integrate_one_blocks_with_merge_not_rebase_reason_on_conflict(monkeypat
         return {}, True
 
     monkeypatch.setattr(integrate.backlog, "set_state", fake_set_state)
-    monkeypatch.setattr(integrate.backlog, "add_note", lambda *a, **k: None)
+    monkeypatch.setattr(integrate.backlog, "add_note", lambda *a, **k: ({}, True))
 
     item = {"id": "H99", "branch": "feature-H99-thing", "title": "Some item", "uat_review": False}
     result, detail = integrate._integrate_one(item)
