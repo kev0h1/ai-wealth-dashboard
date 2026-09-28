@@ -203,6 +203,14 @@ teaching_events_col     = db["teaching_events"]
 # tracked separately from the user's own `dismissed_recurring` preference.
 recurring_judge_col     = db["recurring_judge_verdicts"]
 
+# G157: auditable record of a credit deterministically or judge-confirmed
+# as belonging to a confirmed income stream's payer, after a payroll
+# reference change (or similar) meant it did not group into the stream's
+# own detected series (app/services/income_payer.py). Scoped by user_id;
+# carries the STABLE stream id (see `stable_stream_id`), never the raw
+# stream key/reference — see G158 review's suppression-log finding.
+income_payer_attachments_col = db["income_payer_attachments"]
+
 # Penny Agent Mode v1 — propose-only write tools (owner decision, 2026-08-30,
 # see PENNY_TOOLS.md's "Write tools (propose-only)" section). Penny never
 # executes an action herself: a write tool in app/services/penny_tools.py

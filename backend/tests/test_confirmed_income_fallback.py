@@ -72,36 +72,38 @@ def test_manual_key_is_skipped():
 
 
 def test_reference_change_scenario_end_to_end():
-    """Kevin's real 2026-09-24 case: three Goldman Sachs credits under the
-    old payroll reference, then one under a new reference after the bank
-    changed it. As of `TODAY`, only the newest occurrence under EACH key is
-    still inside the (already-applied, in this fixture) 90-day window -- one
-    under the confirmed key, one under the new, orphan key -- both below
-    `_detect_recurring`'s 2-occurrence floor, so plain detection finds no
-    salary at all. The confirmed stream must still forecast.
+    """Kevin's real 2026-09-24 case (G157 root fix): three Goldman Sachs
+    credits under the old payroll reference, then one under a new reference
+    after the bank changed it. `_detect_recurring` now groups INCOME by
+    payer identity (counterparty tokens + destination account -- see
+    app/services/income_payer.py), not the raw statement key, so the old-
+    reference and new-reference credits collapse into ONE series (both
+    reduce to the same {"goldman", "sachs"} token set on the same account)
+    instead of forking into two series each below the 2-occurrence floor.
+    The confirmed stream is recognised as THIS series by payer-identity
+    alias (`resolve_confirmed_alias`), not date/amount proximity, and the
+    fallback correctly does not double it.
     """
     income_credits = [
         income_txn(CONFIRMED_KEY, date(2026, 7, 31), 4798.08),
         income_txn(NEW_REF_KEY, date(2026, 8, 28), 4798.08),
     ]
     recurring_income = _detect_recurring(income_credits, today=TODAY, is_income=True)
-    # Both keys have exactly one in-window occurrence -- under the floor.
-    assert recurring_income == []
-
-    credits_by_key: dict = {}
-    for t in income_credits:
-        credits_by_key.setdefault(t["merchant_name"], []).append(t)
+    # The reference change no longer forks the series -- one payer-keyed
+    # bucket, two occurrences, clears the floor on its own.
+    assert len(recurring_income) == 1
+    entry = recurring_income[0]
+    assert entry["key"] == "goldman|sachs::acc1"
+    assert entry["occurrences"] == 2
+    assert entry["avg_amount"] == 4798.08
 
     fallback = _confirmed_income_fallback(
-        recurring_income, {CONFIRMED_KEY: CONFIRMED_STREAM}, set(), TODAY, credits_by_key,
+        recurring_income, {CONFIRMED_KEY: CONFIRMED_STREAM}, set(), TODAY,
     )
-    assert len(fallback) == 1
-    entry = fallback[0]
-    assert entry["key"] == CONFIRMED_KEY
-    assert entry["next_date"] == date(2026, 9, 25)
-    assert entry["avg_amount"] == 4798.08
-    assert entry["source"] == "confirmed"
-    assert entry["occurrences"] == 1
+    # Already detected under its own evidence -- the confirmed stream is
+    # recognised as an alias of this series, not synthesised alongside it.
+    assert fallback == []
+    assert entry["confirmed_alias"] == CONFIRMED_KEY
 
 
 # ── 2026-09-24 review follow-up: malformed `income_streams` entries must ──
@@ -159,47 +161,39 @@ NEW_REF_KEY_2 = "0201-GOLDMAN SACHS GOLDMAN SACHS PA"
 
 
 def test_dedupe_guard_suppresses_confirmed_when_new_reference_gets_detected():
-    """Reproduces the reviewer's follow-on scenario: by the month AFTER the
-    reference change, the NEW key (B) has accrued two occurrences of its
-    own and clears `_detect_recurring`'s floor on real transaction
-    evidence, while the CONFIRMED key (A, old reference) has only one
-    surviving occurrence in view and stays undetected. Without the dedupe
-    guard, `_confirmed_income_fallback` would still synthesise A (same
-    payer, same amount) alongside the genuinely-detected B, doubling the
-    salary in `upcoming_income`/`payday_income` (4798.08 -> 9596.16, the
-    reviewer's own repro number). The guard must suppress A because B's
-    next_date lands within 3 days of A's and the amount matches within 15%.
+    """G157 update: with income grouped by payer identity, the three A/B
+    credits below (same {"goldman", "sachs"} token set, same account) merge
+    into ONE detected series regardless of which raw reference each credit
+    carries -- there is no longer a separate "B cleared the floor, A did
+    not" split to dedupe. What this test now proves is that the merged
+    series is recognised as the confirmed stream's payer-identity alias
+    (not synthesised as a second, duplicate entry alongside it), which is
+    what actually prevents the doubled salary the original G174 dedupe
+    guard existed to stop.
     """
     TODAY = date(2026, 10, 26)
 
-    # Three A credits exist in Kevin's real history (29 May, 26 Jun, 31 Jul
-    # -- see the module docstring's original G158 scenario); only the
-    # newest survives whatever window feeds `_detect_recurring` as of this
-    # later `today`, same convention as `test_reference_change_scenario_end_to_end`.
     income_credits = [
         income_txn(CONFIRMED_KEY, date(2026, 7, 31), 4798.08),
         income_txn(NEW_REF_KEY_2, date(2026, 8, 28), 4798.08),
         income_txn(NEW_REF_KEY_2, date(2026, 9, 30), 4798.08),
     ]
     recurring_income = _detect_recurring(income_credits, today=TODAY, is_income=True)
-    # B cleared the floor on its own evidence; A did not.
     assert len(recurring_income) == 1
-    assert recurring_income[0]["key"] == NEW_REF_KEY_2
+    assert recurring_income[0]["occurrences"] == 3
 
     fallback = _confirmed_income_fallback(
         recurring_income, {CONFIRMED_KEY: CONFIRMED_STREAM}, set(), TODAY,
     )
-    # A must be suppressed as a near-duplicate of the detected B entry, not
-    # synthesised alongside it.
+    # The confirmed stream is recognised as an alias of the one merged
+    # series, not synthesised a second time alongside it.
     assert fallback == []
 
     combined = recurring_income + fallback
     assert len(combined) == 1
-    assert combined[0]["key"] == NEW_REF_KEY_2
     assert "source" not in combined[0]
-    # G174: the guard must also STAMP the detected entry it deferred to with
-    # the confirmed key it stands in for, not merely suppress the duplicate
-    # silently.
+    # The stamped `confirmed_alias` lets income_credit_ok recognise this
+    # series as the confirmed stream, same as before this rewrite.
     assert combined[0]["confirmed_alias"] == CONFIRMED_KEY
 
 
@@ -207,18 +201,16 @@ def test_dedupe_guard_suppresses_confirmed_when_new_reference_gets_detected():
 # ── fresh, still-unreliable detected series as its confirmed stream ────────
 
 def test_confirmed_alias_lets_a_two_occurrence_detected_series_pass_income_credit_ok():
-    """B (the new-reference series) has only 2 occurrences here -- below
-    `_income_pattern_reliable`'s 3-occurrence floor on its own evidence, so
-    without the alias `income_credit_ok` must reject it (this is the exact
-    G174 defect: an unconfirmed, insufficiently-reliable candidate was the
-    only thing left standing once the confirmed key's own synthesis was
-    suppressed by the dedupe guard). With the alias stamped, the SAME item
-    must be accepted for its attributed account."""
+    """The merged (old-ref + new-ref) series has only 2 occurrences here --
+    below `_income_pattern_reliable`'s 3-occurrence floor on its own
+    evidence, so without the alias `income_credit_ok` must reject it. With
+    the payer-identity alias stamped (G157: token-set match against the
+    confirmed stream's own raw key, not date/amount proximity), the SAME
+    item must be accepted for its attributed account."""
     TODAY = date(2026, 10, 26)
     income_credits = [
         income_txn(CONFIRMED_KEY, date(2026, 7, 31), 4798.08, account_id=PREMIER_ACCOUNT),
         income_txn(NEW_REF_KEY_2, date(2026, 8, 28), 4798.08, account_id=PREMIER_ACCOUNT),
-        income_txn(NEW_REF_KEY_2, date(2026, 9, 30), 4798.08, account_id=PREMIER_ACCOUNT),
     ]
     recurring_income = _detect_recurring(income_credits, today=TODAY, is_income=True)
     assert len(recurring_income) == 1
@@ -370,17 +362,19 @@ def test_different_account_dup_is_not_aliased_or_suppressed():
 
 
 def test_same_account_dup_is_still_aliased_and_suppressed():
-    """Regression guard alongside the different-account test above: when
-    the confirmed stream's own evidence and the detected dup's attributed
-    account genuinely agree, the alias must still apply -- this guard is an
-    account check, not a blanket "never alias" regression."""
+    """G157 update: the old heuristic aliased on date+amount proximity
+    regardless of what the dup's own key text said; the new one aliases on
+    payer-identity TOKEN match against the confirmed stream's raw key. Give
+    the dup a realistic "same payer, new reference" key (still tokenises to
+    {"goldman", "sachs"}) so this stays a genuine regression guard: when the
+    tokens genuinely agree, the alias must still apply."""
     income_credits = [
         income_txn(CONFIRMED_KEY, date(2026, 5, 29), 4798.08, account_id=PREMIER_ACCOUNT),
         income_txn(CONFIRMED_KEY, date(2026, 6, 26), 4798.08, account_id=PREMIER_ACCOUNT),
     ]
     credits_by_key = {CONFIRMED_KEY: income_credits}
     same_acct_dup = {
-        "key": "NEW REF SAME ACCOUNT", "avg_amount": 4798.08,
+        "key": "0455 GOLDMAN SACHS BGC", "avg_amount": 4798.08,
         "next_date": date(2026, 9, 25), "account_id": PREMIER_ACCOUNT,
         "occurrences": 2, "amounts_recent": [4798.08, 4798.08],
     }
@@ -394,17 +388,21 @@ def test_same_account_dup_is_still_aliased_and_suppressed():
 
 
 def test_second_confirmed_key_does_not_overwrite_existing_alias():
-    """G174 review, finding 2: a pathological doc where TWO different
-    confirmed streams both land within tolerance (date + amount) of the
-    SAME detected entry -- the second one considered must not clobber the
-    first's alias. Dict iteration order is insertion order in this Python
-    version, so `confirmed_map`'s own order decides which is "first"."""
+    """G157 update: a pathological doc where TWO stored confirmed-stream
+    keys tokenise to the exact SAME payer identity (e.g. the user confirmed
+    the same salary twice under slightly different raw text) -- the second
+    one considered must not clobber the first's alias on the one detected
+    entry both match. Dict iteration order is insertion order in this
+    Python version, so `confirmed_map`'s own order decides which is
+    "first"."""
+    second_confirmed_key_same_payer = "99 Goldman Sachs BGC"  # tokenises to {"goldman","sachs"}, same as CONFIRMED_KEY
+    second_stream_same_payer = {**SECOND_CONFIRMED_STREAM, "key": second_confirmed_key_same_payer}
     shared_dup = {
-        "key": "SHARED DETECTED REF", "avg_amount": 4798.08,
+        "key": "goldman|sachs::unknown-acct", "avg_amount": 4798.08,
         "next_date": date(2026, 9, 25), "account_id": None,
         "occurrences": 2, "amounts_recent": [4798.08, 4798.08],
     }
-    confirmed_map = {CONFIRMED_KEY: CONFIRMED_STREAM, SECOND_CONFIRMED_KEY: SECOND_CONFIRMED_STREAM}
+    confirmed_map = {CONFIRMED_KEY: CONFIRMED_STREAM, second_confirmed_key_same_payer: second_stream_same_payer}
     result = _confirmed_income_fallback([shared_dup], confirmed_map, set(), TODAY)
     assert result == []
     assert shared_dup["confirmed_alias"] == CONFIRMED_KEY
