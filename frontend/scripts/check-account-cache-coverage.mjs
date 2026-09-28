@@ -84,6 +84,11 @@ const ALLOWED_UNREACHABLE = [
     "caches the user's subscription tier / open-banking entitlement, not their accounts or transactions — a plan change (PlanPicker), not an account mutation, is what invalidates it correctly.",
   ],
   [
+    "lib/cacheInvalidation.ts",
+    "invalidateAfterTransactionCorrection",
+    "G146's transaction-correction invalidator — a SIBLING to invalidateAllAccountData(), not a cache it should call or be called from. No account is added, removed or changed by a category correction, so folding this into the account sweep would needlessly clear lib/accountsCache.ts and lib/moneyShape.ts on every single-row edit. It is called directly from components/TeachingSheet.tsx's notifyUpdated and components/MiscategorisedReviewSheet.tsx's handleConfirmPair, the two places a transaction's category actually changes outside an account mutation.",
+  ],
+  [
     "lib/accountMutations.ts",
     "invalidateAllAccountData",
     "this IS the invalidator the other entries must be reachable from — it cannot be a call inside its own body.",

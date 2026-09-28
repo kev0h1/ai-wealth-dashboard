@@ -10,6 +10,12 @@ backend/.venv
 
 # Build output
 frontend/.next/
+# H51: scripts/frontend_build.py builds in a mirror of frontend/ here, then
+# swaps the result into frontend/.next; see frontend/.gitignore for the rest.
+.frontend-staging/
+frontend/.next-prev/
+frontend/.next-cache/
+frontend/.next-build.lock
 
 # Secrets & local config
 backend/.env

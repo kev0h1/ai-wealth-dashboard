@@ -156,6 +156,84 @@ check(
   }
 }
 
+// ── G152 (Kevin 2026-09-23): heavyWhen/crossDayLabel must never render a
+// bare weekday, at ANY distance ─────────────────────────────────────────
+// G152's worry: weekdayLabel backs both the crossing-day sentence
+// (crossDayLabel/leadWhen, always <= day 6 by construction, so G17's
+// original "only one calendar instance of that weekday in the window"
+// reasoning held) AND heavyWhen in the spread-out/quiet branches, where the
+// heaviest day can sit anywhere across all 14 days — a bare "Thursday"
+// there could misread as THIS week's Thursday when the money in fact lands
+// on the window's SECOND Thursday. G170 already closed this for every
+// branch by making weekdayLabel always carry the date (never just the bare
+// weekday), so these are regression guards, not red-then-green fixes: they
+// prove the ambiguity G152 describes cannot occur with the code as it
+// stands, and will fail loudly if a future change narrows weekdayLabel back
+// to a bare form for near-term days.
+
+// crossDayLabel/leadWhen (concentrated branch): a single bill carrying the
+// window's whole amount lands crossDay on its own day, so this covers every
+// day that branch can actually reach (frontLoaded caps crossDay at 6).
+for (const [daysAway, date, expected] of [
+  [0, "Mon 28 Sep", "today, Mon 28th Sep"],
+  [1, "Tue 29 Sep", "tomorrow, Tue 29th Sep"],
+  [5, "Sat 3 Oct", "Sat 3rd Oct"],
+  [6, "Sun 4 Oct", "Sun 4th Oct"],
+]) {
+  const insight = computeDrop([bill({ name: "Rent", amount: 50, daysAway, date, kind: "commitment" })]);
+  check(`computeDrop crossing-day fixture (day ${daysAway}) reaches concentrated`, insight.kind, "concentrated");
+  if (insight.kind === "concentrated") {
+    check(`concentrated crossDayLabel (day ${daysAway}) carries the date`, insight.crossDayLabel, expected);
+    check(`concentrated leadWhen (day ${daysAway}) carries the date`, insight.leadWhen, expected);
+  }
+}
+
+// heavyWhen (spread-out "calm"/"landing" branches): the heaviest single day
+// sits at `daysAway`, but three smaller filler bills later in the window
+// push the 50%-cumulative crossing point past day 6, so computeDrop reaches
+// "spread out" rather than "concentrated" — exactly the shape G152 flagged,
+// where the heaviest day can be far from today. Covers 0, 1 (landing), 5,
+// 6, 7 and 13 (calm) — the full reachable range for a single heaviest day.
+function heavyWhenFixture(daysAway, date) {
+  const fillers = [10, 11, 12]
+    .filter((d) => d !== daysAway)
+    .map((d, i) => bill({ name: `Filler ${i}`, amount: 60, daysAway: d, date: "Sat 10 Oct", kind: "commitment" }));
+  const heavy = bill({ name: "Council Tax", amount: 100, daysAway, date, kind: "commitment" });
+  return computeDrop([heavy, ...fillers]);
+}
+for (const [daysAway, date, expected] of [
+  [0, "Mon 28 Sep", "today, Mon 28th Sep"],
+  [1, "Tue 29 Sep", "tomorrow, Tue 29th Sep"],
+  [5, "Sat 3 Oct", "Sat 3rd Oct"],
+  [6, "Sun 4 Oct", "Sun 4th Oct"],
+  [7, "Mon 5 Oct", "Mon 5th Oct"],
+  [13, "Tue 13 Oct", "Tue 13th Oct"],
+]) {
+  const insight = heavyWhenFixture(daysAway, date);
+  check(`heavyWhen fixture (day ${daysAway}) reaches a spread-out branch`, ["calm", "landing"].includes(insight.kind), true);
+  const heavyWhen = insight.kind === "calm" || insight.kind === "landing" ? insight.heavyWhen : undefined;
+  check(`heavyWhen (day ${daysAway}) carries the date, not a bare weekday`, heavyWhen, expected);
+}
+
+// The exact ambiguous shape G152 named: a small bill on a near Thursday
+// (day 5) and the fortnight's real heaviest bill on the window's SECOND
+// Thursday (day 12) — a bare "Thursday" would read identically for both.
+{
+  const nearThursday = bill({ name: "Netflix", amount: 20, daysAway: 5, date: "Thu 1 Oct", kind: "discretionary" });
+  const secondThursday = bill({ name: "Council Tax", amount: 100, daysAway: 12, date: "Thu 8 Oct", kind: "commitment" });
+  const insight = computeDrop([nearThursday, secondThursday]);
+  check("second-Thursday collision fixture reaches the calm branch", insight.kind, "calm");
+  if (insight.kind === "calm") {
+    check("second-Thursday heavyWhen names the far Thursday's own date", insight.heavyWhen, "Thu 8th Oct");
+    check("second-Thursday heavyWhen is not a bare weekday", insight.heavyWhen, "Thu 8th Oct");
+    check(
+      "second-Thursday heavyWhen differs from the nearer Thursday's own label (no collision)",
+      insight.heavyWhen !== nextPaymentWhen(nearThursday),
+      true,
+    );
+  }
+}
+
 // ── Never twice, never a year ─────────────────────────────────────────────
 const ALL_LABELS = [
   nextPaymentWhen(bill({ daysAway: 0, date: "Sat 26 Sep" })),
