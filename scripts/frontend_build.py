@@ -496,7 +496,23 @@ def build_and_swap(
             _safe_rmtree(mirror, frontend_dir)
             raise FrontendBuildError(f"frontend build did not verify; live .next untouched: {exc}") from None
         log(f"frontend build {build_id} verified in {time.monotonic() - started:.0f}s, swapping into {frontend_dir / LIVE_NAME}")
-        live, previous_build_id = swap_in(built, frontend_dir)
+        try:
+            live, previous_build_id = swap_in(built, frontend_dir)
+        except OSError as exc:
+            # Anything renameat2_exchange or os.rename raised that was not
+            # one of the "fall back to plain renames" errnos (EACCES,
+            # ENOSPC, EIO, ...) would otherwise escape as a bare OSError.
+            # integrate.py only catches FrontendBuildError/IntegrateError
+            # around this call; a bare OSError falls through to its
+            # outer catch-all, which blocks the item without running
+            # _rollback_and_restart, leaving the merge on main with
+            # wealth-frontend never restarted. Wrapping it here keeps every
+            # swap failure on the one error type callers already handle.
+            raise FrontendBuildError(
+                f"could not swap {built} into {frontend_dir / LIVE_NAME}: "
+                f"OSError errno {exc.errno} ({exc.strerror}); check {frontend_dir / LIVE_NAME} "
+                f"and {frontend_dir / PREVIOUS_NAME} by hand before retrying"
+            ) from exc
         landed = read_build_id(live)
         if landed != build_id:
             raise FrontendBuildError(

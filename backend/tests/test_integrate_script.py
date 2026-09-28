@@ -201,6 +201,37 @@ def test_restart_services_lock_contention_is_loud_not_queued(monkeypatch):
     assert restarted == []
 
 
+def test_restart_services_swap_oserror_surfaces_as_integrate_error_not_bare_oserror(monkeypatch):
+    # H51 review gap 2: frontend_build.build_and_swap wraps an OSError from
+    # the rename/exchange step (e.g. EACCES, ENOSPC, EIO -- anything not in
+    # the "fall back to plain renames" errno set) as FrontendBuildError
+    # rather than letting it escape as a bare OSError. This test pins the
+    # consequence on the integrate.py side: _restart_services only catches
+    # FrontendBuildError around this call, converting it to IntegrateError,
+    # which is what lets _integrate_one take the rollback-and-block path
+    # (see the module docstring's rollback description) instead of falling
+    # through to the outer catch-all with services never restarted.
+    restarted: list[str] = []
+    monkeypatch.setattr(integrate, "_systemctl_restart", lambda service: restarted.append(service))
+    monkeypatch.setattr(integrate, "_sh", lambda *a, **k: (0, ""))
+
+    def swap_oserror(frontend_dir):
+        raise integrate.frontend_build.FrontendBuildError(
+            "could not swap /tmp/mirror/.next into /tmp/frontend/.next: OSError errno 13 "
+            "(Permission denied); check /tmp/frontend/.next and /tmp/frontend/.next-prev by hand before retrying"
+        )
+
+    monkeypatch.setattr(integrate.frontend_build, "build_and_swap", swap_oserror)
+
+    with pytest.raises(integrate.IntegrateError) as excinfo:
+        integrate._restart_services({"frontend/app/page.tsx"})
+
+    assert "OSError errno 13" in str(excinfo.value)
+    # not restarted: no good swap, so no restart -- the rollback path is
+    # what runs next, not a restart of a service serving an unknown state.
+    assert restarted == []
+
+
 # --- frontend gate checks (H23) -------------------------------------------
 #
 # scripts/session.sh finish already ran check:design-index and (H23)

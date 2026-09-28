@@ -658,6 +658,28 @@ def test_swap_in_still_works_normally_when_neither_live_nor_previous_exist(front
     assert not (frontend / fb.PREVIOUS_NAME).exists()
 
 
+def test_build_and_swap_wraps_unexpected_oserror_from_swap_in(frontend: Path, monkeypatch):
+    # H51 review gap 2: an OSError that is not one of the "fall back to
+    # plain renames" errnos (EACCES, ENOSPC, EIO, ...) must never escape
+    # build_and_swap as a bare OSError, because integrate.py's
+    # _restart_services only catches FrontendBuildError around this call;
+    # a bare OSError would fall through to integrate's outer catch-all,
+    # which blocks the item without rolling back and restarting services.
+    _live_build(frontend, "live-old")
+
+    def raise_eacces(a, b):
+        raise OSError(13, "Permission denied")
+
+    monkeypatch.setattr(fb, "_renameat2_exchange", raise_eacces)
+
+    with pytest.raises(fb.FrontendBuildError, match="could not swap .* errno 13"):
+        fb.build_and_swap(frontend, run_build=_good_builder("new-1"), log=lambda s: None)
+
+    # the live build is whatever state the OS left it in; what matters is
+    # that the caller gets a FrontendBuildError, not a bare OSError, so it
+    # can be caught and handled the same way as every other build failure.
+
+
 def test_safe_rmtree_refuses_anything_that_is_not_a_managed_dir(frontend: Path, tmp_path: Path):
     other = tmp_path / "elsewhere"
     other.mkdir()
