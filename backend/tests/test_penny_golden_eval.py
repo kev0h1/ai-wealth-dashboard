@@ -127,6 +127,7 @@ import sys
 import pytest
 
 import app.services.penny_agent as penny_agent_module
+import app.services.penny_tools as penny_tools_module
 
 # ── Fake OpenRouter client, driven by the REAL request payload ────────────
 
