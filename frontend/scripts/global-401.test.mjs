@@ -187,6 +187,53 @@ async function expectRejects(promise) {
 
 setUnauthorizedHandler(null);
 
+// Shared by check 6 (the real lib/api.ts scan) and check 7 (a synthetic
+// decoy proving the scanner itself is honest) below — module scope so both
+// can call the exact same scanner, not two copies that could drift apart.
+//
+// Explicit allowlist: fetch() call sites whose URL is already on api.ts's
+// OWN UNAUTHORIZED_HOOK_EXEMPT_PATHS list (the login/session-check
+// surface). reportIfUnauthorized would be a guaranteed no-op there, so
+// these are exempt from the scan rather than required to call it —
+// matched by a literal substring that must appear on the fetch(...) line
+// itself, so a NEW exempt call added later still fails this scan until
+// someone deliberately adds it here, rather than silently passing.
+const EXEMPT_FETCH_URL_SUBSTRINGS = ["/auth/session/validate"];
+// toJson is almost always called generically (`toJson<{ ok: boolean }>(r)`),
+// so a plain "toJson(" substring match misses every real call site — the
+// marker has to tolerate an optional `<...>` between the name and the
+// opening paren.
+const GATE_MARKERS = [/reportIfUnauthorized\(/, /toJson\s*(<[^(]*>)?\s*\(/];
+const LOOKAHEAD_LINES = 20;
+
+// A124 review tightening #1: the first cut of this scanner joined the RAW
+// lookahead window (comments included) before testing GATE_MARKERS against
+// it, so a decoy — a comment mentioning "reportIfUnauthorized(" near an
+// actually-ungated fetch, e.g. a stale "// TODO: reportIfUnauthorized(..."
+// nobody ever wired up — read as covered. This strips every comment-only
+// line and any trailing `// ...` comment (careful not to treat a URL's
+// `://` as a comment marker) before the window is ever searched, so only
+// REAL code can satisfy a gate marker.
+function stripLineForGateScan(line) {
+  const trimmed = line.trim();
+  if (trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/*")) return "";
+  return line.replace(/(?<!:)\/\/.*$/, "");
+}
+
+function scanApiTsForUngatedFetches(lines) {
+  const offenders = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    if (trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/*")) continue;
+    if (!/\bfetch\(/.test(line)) continue;
+    if (EXEMPT_FETCH_URL_SUBSTRINGS.some((s) => line.includes(s))) continue;
+    const window = lines.slice(i, i + LOOKAHEAD_LINES + 1).map(stripLineForGateScan).join("\n");
+    if (!GATE_MARKERS.some((m) => m.test(window))) offenders.push(i + 1); // 1-based
+  }
+  return offenders;
+}
+
 // ── 6. Source scan: every `fetch(` call site in lib/api.ts is routed
 //      through the gate — a static backstop against a future call site
 //      being added the old way (a manual `if (!res.ok)`/`.then(r => ...)`
@@ -199,39 +246,32 @@ setUnauthorizedHandler(null);
   const apiSource = readFileSync(apiTsPath, "utf8");
   const apiLines = apiSource.split("\n");
 
-  // Explicit allowlist: fetch() call sites whose URL is already on api.ts's
-  // OWN UNAUTHORIZED_HOOK_EXEMPT_PATHS list (the login/session-check
-  // surface). reportIfUnauthorized would be a guaranteed no-op there, so
-  // these are exempt from the scan rather than required to call it —
-  // matched by a literal substring that must appear on the fetch(...)
-  // line itself, so a NEW exempt call added later still fails this scan
-  // until someone deliberately adds it here, rather than silently passing.
-  const EXEMPT_FETCH_URL_SUBSTRINGS = ["/auth/session/validate"];
-  // toJson is almost always called generically (`toJson<{ ok: boolean }>(r)`),
-  // so a plain "toJson(" substring match misses every real call site — the
-  // marker has to tolerate an optional `<...>` between the name and the
-  // opening paren.
-  const GATE_MARKERS = [/reportIfUnauthorized\(/, /toJson\s*(<[^(]*>)?\s*\(/];
-  const LOOKAHEAD_LINES = 20;
-
-  function scanApiTsForUngatedFetches(lines) {
-    const offenders = [];
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      const trimmed = line.trim();
-      if (trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/*")) continue;
-      if (!/\bfetch\(/.test(line)) continue;
-      if (EXEMPT_FETCH_URL_SUBSTRINGS.some((s) => line.includes(s))) continue;
-      const window = lines.slice(i, i + LOOKAHEAD_LINES + 1).join("\n");
-      if (!GATE_MARKERS.some((m) => m.test(window))) offenders.push(i + 1); // 1-based
-    }
-    return offenders;
-  }
-
   const offenders = scanApiTsForUngatedFetches(apiLines);
   check(
     `every fetch( call site in lib/api.ts is routed through reportIfUnauthorized/toJson within ${LOOKAHEAD_LINES} lines${offenders.length ? ` (offending line(s): ${offenders.join(", ")})` : ""}`,
     offenders.length === 0
+  );
+}
+
+// ── 7. The scanner above is not fooled by a decoy comment mentioning
+//      "reportIfUnauthorized(" near a fetch that is genuinely ungated —
+//      the exact false-clean the A124 review reproduced ────────────────
+{
+  const decoyLines = [
+    "  someDecoyCall: () =>",
+    "    fetch(`${API_BASE}/decoy/route`, {",
+    "      method: \"DELETE\",",
+    "      headers: authHeaders(),",
+    "    }).then((r) => {",
+    "      // TODO: reportIfUnauthorized( should go here once this route needs it",
+    "      if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);",
+    "      return r.json();",
+    "    }),",
+  ];
+  const offenders = scanApiTsForUngatedFetches(decoyLines);
+  check(
+    "a decoy comment containing 'reportIfUnauthorized(' does not clear an actually-ungated fetch",
+    offenders.length === 1 && offenders[0] === 2
   );
 }
 
