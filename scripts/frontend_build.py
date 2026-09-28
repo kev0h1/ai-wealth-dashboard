@@ -77,8 +77,10 @@ manifests `next start` reads carries the build directory's absolute path
 `.next` built in the mirror and renamed under `frontend/` is therefore a
 valid target, which is what this script relies on and what the H51 scratch
 `next start` runs proved. The `.next/standalone` tree the build also emits
-(H52) is not used by `next start` and is not required by the verification
-here.
+is not used by `next start` (H52 tracks switching the unit to run
+`node .next/standalone/server.js` directly), but `verify_build_dir` still
+checks `standalone/server.js` exists, because a real build always writes
+it and its absence is one more sign of a build that did not finish.
 """
 from __future__ import annotations
 
@@ -130,6 +132,13 @@ BASELINE_REQUIRED = (
     "server/pages-manifest.json",
     "server/middleware-manifest.json",
     "static",
+    # next.config.ts sets output: "standalone" for every self-hosted build
+    # (not Vercel, not the mobile export), so a real `next build` always
+    # emits this. `next start` (the live wealth-frontend unit today) does
+    # not read it - H52 tracks switching the unit to run it directly - but
+    # its absence is still evidence of a build that did not finish, so it
+    # is checked here for free rather than left for H52 to notice later.
+    "standalone/server.js",
 )
 # What the mirror leaves out of frontend/. Everything else (app/, lib/,
 # public/, package.json, next.config.ts, tsconfig.json, .env.local, ...)
