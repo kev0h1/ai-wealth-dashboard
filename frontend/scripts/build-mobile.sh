@@ -77,6 +77,16 @@ if [ "${BUILD_MOBILE_GUARD_ONLY:-}" = "1" ]; then
   return 0 2>/dev/null || exit 0
 fi
 
+# BUILD_MOBILE_SKIP_BUILD=1 (H76, 2026-09-28): stub mode for tests. Runs the
+# real rsync/ln staging into $SCRATCH — the part that had the worktree
+# node_modules-symlink bug — and every env/flag branch above `next build`,
+# but skips the `next build` invocation itself (no real Next project or
+# installed `next` binary is needed) and the final `cp -r "$SCRATCH/out"
+# out` (there is no `out/` to copy without a real build). It prints what it
+# staged and, unlike a normal run, leaves $SCRATCH on disk afterwards (the
+# EXIT trap below is a no-op in this mode) so a test can inspect it. Never
+# set this for a real build; nothing under `out/` is produced.
+
 PROJECT_DIR="$(pwd -P)"
 require_project_dir "$PROJECT_DIR" || exit 2
 
@@ -115,27 +125,59 @@ mkdir -p "$SCRATCH"
 # Only ever remove SCRATCH itself, and only if it is still under
 # PROJECT_DIR — belt and braces alongside the case guard above, in case a
 # future edit changes how SCRATCH is computed and forgets to re-check it.
-trap '
-  if [ -n "${SCRATCH:-}" ]; then
-    case "$SCRATCH" in
-      "$PROJECT_DIR"/*) rm -rf "$SCRATCH" ;;
-    esac
-  fi
-' EXIT
+# BUILD_MOBILE_SKIP_BUILD=1 skips this cleanup (see the flag's own comment
+# above) so a test can inspect $SCRATCH after the script exits.
+if [ "${BUILD_MOBILE_SKIP_BUILD:-}" != "1" ]; then
+  trap '
+    if [ -n "${SCRATCH:-}" ]; then
+      case "$SCRATCH" in
+        "$PROJECT_DIR"/*) rm -rf "$SCRATCH" ;;
+      esac
+    fi
+  ' EXIT
+fi
 
+# node_modules/ (trailing slash) only matches a directory. In the shared
+# tree that's exactly what frontend/node_modules is, so it's excluded and
+# never copied. In a worktree (scripts/session.sh links node_modules into
+# the worktree as a symlink to the shared tree's real directory) rsync
+# treats a symlink as its own type, not a directory, regardless of what it
+# points to — so the trailing-slash pattern alone does NOT match it, and
+# rsync -a (which preserves symlinks as symlinks) copies the symlink itself
+# into $SCRATCH/node_modules. The bare 'node_modules' pattern (no trailing
+# slash) matches a name of any type, so it excludes the symlink too; both
+# patterns are kept so the directory case stays documented and the fix is a
+# pure addition.
 rsync -a --delete \
   --exclude='.next/' \
   --exclude='.next-mobile/' \
   --exclude='.mobile-build/' \
   --exclude='out/' \
+  --exclude='node_modules' \
   --exclude='node_modules/' \
   --exclude='.git/' \
   --exclude='.env.local' \
   --exclude='.env*.local' \
   ./ "$SCRATCH/"
 
-# Reuse the already-installed deps instead of reinstalling into the scratch dir.
-ln -s "$(pwd)/node_modules" "$SCRATCH/node_modules"
+# Reuse the already-installed deps instead of reinstalling into the scratch
+# dir. H76 (2026-09-17): with a plain `ln -s TARGET LINK_NAME`, if
+# LINK_NAME already exists as a symlink that itself resolves to a
+# directory, GNU ln treats that like an existing directory and places the
+# new link *inside* it (same behaviour as `cp file existing-dir/`) instead
+# of replacing it. In a worktree, before the rsync fix above, that chain
+# was: $SCRATCH/node_modules (symlink copied by rsync) -> the worktree's
+# own frontend/node_modules (symlink) -> the shared tree's real
+# frontend/node_modules (a real directory) — so this line silently planted
+# a stray `node_modules` symlink pointing back at the worktree *inside
+# /root/ai-wealth-dashboard/frontend/node_modules*, the one directory every
+# session is forbidden to write into. `-f` forces removal of whatever is
+# already at $SCRATCH/node_modules (a plain file, a symlink, or nothing);
+# `-n` tells ln to treat that destination as itself rather than as a
+# directory to link into, so it is always replaced in place and the target
+# resolution above can never happen, regardless of whether the rsync
+# exclude above ever regresses.
+ln -sfn "$(pwd)/node_modules" "$SCRATCH/node_modules"
 
 FILES=(
   "app/auth/finexer/callback/route.ts"
@@ -247,6 +289,14 @@ fi
 # NEXT_PUBLIC_WEB_PRODUCT is forced "on" here (backlog A10's web-only-shell
 # flag) so a mobile export can never be built locked, regardless of what's
 # set in the calling environment.
+if [ "${BUILD_MOBILE_SKIP_BUILD:-}" = "1" ]; then
+  echo "BUILD_MOBILE_SKIP_BUILD=1: skipping 'next build' and the out/ copy."
+  echo "staged scratch dir (left on disk, not cleaned up): $SCRATCH"
+  echo "staged top-level entries:"
+  find "$SCRATCH" -maxdepth 1 -mindepth 1 -printf '%y %p\n' | sort -k2
+  exit 0
+fi
+
 (cd "$SCRATCH" && MOBILE_EXPORT=1 NEXT_PUBLIC_WEB_PRODUCT=on NEXT_PUBLIC_API_URL="${MOBILE_API_BASE:-https://uat.wealth.auriqltd.co.uk/api}" next build)
 
 # Copy the export output back to the real, expected location (frontend/out —
