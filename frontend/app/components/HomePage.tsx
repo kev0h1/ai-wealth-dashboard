@@ -656,6 +656,18 @@ export default function HomePage() {
     // both need the correction so it's visible immediately, wherever it's read.
     setTransactions(patch);
     setRecentTxns(patch);
+    // G146: TeachingSheet.tsx's notifyUpdated already cleared lib/
+    // homeCache.ts's module-scope snapshot before calling this (the shared
+    // invalidator in lib/cacheInvalidation.ts), so the NEXT mount of this
+    // page reads a cold cache and refetches — but this mount is already
+    // live and its own `companionItems`/`accountEligibility` state (the
+    // Home brief) is not one of the two lists patched above, so it would
+    // otherwise keep painting the pre-correction cards until the user
+    // navigates away and back. `loadData()` is the same "invalidate, then
+    // reload everything" call handleSync already makes for the same
+    // reason (a sync can move the same figures) — it doesn't set `loading`
+    // itself, so this is a silent background refresh, not a skeleton flash.
+    loadData();
   }
 
   // Spending totals are home-currency only; the recent list still shows
