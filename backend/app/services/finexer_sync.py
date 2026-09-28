@@ -1,5 +1,6 @@
 """Finexer open-banking sync — HTTP Basic auth, consent-based flow."""
 import asyncio
+import hashlib
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -13,7 +14,7 @@ from app.core.config import (
 )
 from app.db.collections import (
     finexer_consents_col, finexer_customers_col, finexer_providers_col,
-    accounts_col, transactions_col,
+    accounts_col, transactions_col, user_profiles_col,
 )
 from app.services.categorisation import rule_categorise, user_identity, is_own_transfer, canonical_merchant_key
 from app.services.notifications import notify_after_sync
@@ -218,14 +219,72 @@ async def list_providers(counter: Optional[dict] = None, *, force: bool = False)
     return providers
 
 
+async def _resolve_customer_name(user: dict) -> str:
+    """Pick the value sent to Finexer as this customer's `name` field.
+    Never the user's email address (A127).
+
+    Before this, an empty session `name` (user.get("name")) fell back to
+    the raw email (`user["name"] or user["email"]`). D7 (2026-09-28) made
+    an empty session name the normal case for Apple sign-in and Google
+    accounts with no provider-supplied display name, so that fallback
+    started sending real email addresses to Finexer as customer names far
+    more often than before.
+
+    Priority, mirroring the profile-first order frontend/lib/
+    displayName.ts already uses for the on-screen greeting:
+      1. The user's own saved profile.full_name, read directly from
+         user_profiles_col (`_id`-keyed by email) the same way D7's
+         greeting fix and app/routers/profile.py's GET /profile do. PUT
+         /profile requires a first-and-last-name shape (tokenise_name,
+         >= 2 tokens) before it will save one, so a present full_name is
+         always a real name, never a single opaque token.
+      2. The session's own `name` (user.get("name")), but only when it is
+         non-empty AND not itself email-shaped (equal to the email or its
+         local part) — a still-valid session token issued before D7 could
+         carry an email-derived name (e.g. a Hide My Email relay local
+         part like "jjdk4") for up to SESSION_MAX_AGE.
+      3. An opaque placeholder, "Sorted customer #<hash>". This app's user
+         id IS the user's email (see billing.py's _get_or_create_customer
+         docstring) — there is no separate numeric/opaque id to key off —
+         so the suffix is a SHA-256 digest of the lower-cased email,
+         truncated to 8 hex characters and upper-cased. This is
+         deterministic (the same user always gets the same placeholder, so
+         a customer created today isn't renamed on a later lookup) but
+         one-way: the email is not recoverable from the digest, and the
+         digest itself is never sent as, or alongside, an email value.
+    """
+    email = user["email"]
+
+    profile = await user_profiles_col.find_one({"_id": email}, {"full_name": 1})
+    full_name = ((profile or {}).get("full_name") or "").strip()
+    if full_name:
+        return full_name
+
+    session_name = (user.get("name") or "").strip()
+    email_lower = email.strip().lower()
+    local_part = email_lower.split("@")[0]
+    if session_name and session_name.lower() not in (email_lower, local_part):
+        return session_name
+
+    digest = hashlib.sha256(email_lower.encode()).hexdigest()[:8].upper()
+    return f"Sorted customer #{digest}"
+
+
 async def get_or_create_customer(user: dict) -> str:
-    """Look up or create a Finexer customer record for this app user."""
+    """Look up or create a Finexer customer record for this app user.
+
+    A customer already on file is returned as-is and its name is never
+    re-sent or updated here (unchanged behaviour: this function only ever
+    POSTs /customers on first creation, never on a subsequent lookup), so
+    a name that changes later (a profile save, say) does not retroactively
+    rename an existing Finexer customer record.
+    """
     user_id = user["email"]
     doc = await finexer_customers_col.find_one({"_id": user_id})
     if doc:
         return doc["customer_id"]
 
-    name  = user.get("name") or user["email"]
+    name  = await _resolve_customer_name(user)
     email = user["email"]
     async with _client() as client:
         r = await client.post(
