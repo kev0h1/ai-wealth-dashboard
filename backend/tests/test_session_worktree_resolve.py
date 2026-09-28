@@ -40,6 +40,7 @@ defined, which is what makes that run meaningful.
 """
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -82,6 +83,26 @@ def _git(*args: str, cwd: Path) -> str:
     return result.stdout
 
 
+def _init_board_git_repo(board_root: Path) -> None:
+    """Wires `board_root` (BACKLOG_ROOT) as a real, pushable git repo,
+    the same way `_make_fake_shared_tree` below does for the session's own
+    shared tree (H93): scripts/backlog.py now exits non-zero when the
+    board's git commit or push fails, and before this fixture had a real
+    repo, board_root here was never one at all, so every write that
+    reached the commit step genuinely failed (exit 128, not a git repo),
+    just silently, since nothing asserted on the outcome."""
+    origin = board_root.parent / (board_root.name + "-origin.git")
+    _git("init", "--bare", "-q", "-b", "main", str(origin), cwd=board_root.parent)
+    _git("init", "-q", "-b", "main", cwd=board_root)
+    _git("-c", "user.email=test@example.com", "-c", "user.name=Test", "add", "-A", cwd=board_root)
+    _git(
+        "-c", "user.email=test@example.com", "-c", "user.name=Test",
+        "commit", "-q", "-m", "init", cwd=board_root,
+    )
+    _git("remote", "add", "origin", str(origin), cwd=board_root)
+    _git("push", "-q", "-u", "origin", "main", cwd=board_root)
+
+
 def _make_board_root(tmp_path: Path, fixture: str = BOARD_FIXTURE) -> Path:
     board_root = tmp_path / "board"
     board_root.mkdir()
@@ -89,6 +110,7 @@ def _make_board_root(tmp_path: Path, fixture: str = BOARD_FIXTURE) -> Path:
     compliance_dir = board_root / "docs" / "compliance"
     compliance_dir.mkdir(parents=True)
     (compliance_dir / "finexer-agent-controls-2026-09.md").write_text(COMPLIANCE_FIXTURE, encoding="utf-8")
+    _init_board_git_repo(board_root)
     return board_root
 
 
@@ -115,19 +137,28 @@ def _make_fake_shared_tree(tmp_path: Path) -> Path:
 
 
 # `cmd_finish` shells out to the backend suite, the pentest-evidence
-# check, tsc and nine npm checks before it pushes. The fake shared tree
-# seeds a stub for every one of them (and the stub python ignores its
-# arguments), so a fixture can drive cmd_finish end to end with only the
-# parts under test left real: the resolution, the push to the fake
-# origin, and the board write. Without this, the one command that pushes
-# is the one command no test exercises, which is how the errexit hole
-# below survived a full round of review.
+# check, tsc and (since H83) whatever `check:*` scripts
+# frontend/package.json declares, run via `run_check_gate` rather than a
+# hardcoded list, before it pushes. The fake shared tree seeds a stub for
+# every one of them (and the stub python ignores its arguments), so a
+# fixture can drive cmd_finish end to end with only the parts under test
+# left real: the resolution, the push to the fake origin, and the board
+# write. Without this, the one command that pushes is the one command no
+# test exercises, which is how the errexit hole below survived a full
+# round of review. The seeded package.json's single `check:stub` script
+# is enough to exercise `run_check_gate` for real (it enumerates
+# `.scripts` and runs whatever it finds) without this file needing to
+# track the real check:* list H83 stopped hardcoding.
 STUB_EXIT_0 = "#!/usr/bin/env bash\nexit 0\n"
 
 
 def _seed_finish_stubs(seed: Path) -> None:
     (seed / "frontend").mkdir()
     (seed / "frontend" / ".gitkeep").write_text("", encoding="utf-8")
+    (seed / "frontend" / "package.json").write_text(
+        json.dumps({"scripts": {"check:stub": "true"}}) + "\n",
+        encoding="utf-8",
+    )
     (seed / "scripts").mkdir()
     (seed / "scripts" / "check_pentest_evidence.py").write_text("", encoding="utf-8")
     venv_bin = seed / "backend" / ".venv" / "bin"

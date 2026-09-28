@@ -27,7 +27,7 @@ from app.services.account_kinds import (
     manual_account_class,
 )
 from app.services import response_cache
-from app.routers.analytics import compute_and_cache_cashflow
+from app.services.derived_caches import recompute_derived_caches
 from app.services.planned import settle_planned_expenses
 from app.services.account_cascade import cascade_account_deletion, purge_user_exclusions
 from app.services.retention import disconnect_connection as _disconnect_connection
@@ -198,10 +198,22 @@ async def sync_all(user: dict = Depends(current_user)):
         asyncio.create_task(sync_yapily_consent(yc["_id"], uid))
 
     finexer_conns = await _finexer_consents_col.find({"user_id": uid, "status": "authorized"}).to_list(None)
-    for fc in finexer_conns:
-        asyncio.create_task(_finexer_sync_pipeline(fc["_id"], uid))
+    # The Finexer pulls run alongside the response, but the recompute below
+    # is the ONE recompute for this refresh: each pipeline is told not to
+    # recompute on its own (`recompute=False`) and _post_sync waits for the
+    # pulls before it runs, so a bill Finexer just returned is inside the
+    # observed-match window rather than racing it (the G177(a) shape).
+    finexer_syncs = [
+        asyncio.create_task(_finexer_sync_pipeline(fc["_id"], uid, trigger="user", recompute=False))
+        for fc in finexer_conns
+    ]
 
-    async def _post_sync(u, has_new: bool):
+    async def _post_sync(u, new_count: int):
+        for res in await asyncio.gather(*finexer_syncs, return_exceptions=True):
+            if isinstance(res, dict):
+                new_count += int(res.get("new_transactions") or 0)
+            elif isinstance(res, BaseException):
+                logger.error("finexer sync during refresh failed for %s: %r", u, res)
         await apply_rules_bulk(u, structural=True)
         await categorise_others_bg(u)
         await apply_mirror_rules(u)
@@ -209,8 +221,12 @@ async def sync_all(user: dict = Depends(current_user)):
         await cashflow_cache_col.update_one(
             {"_id": u}, {"$set": {"synced_at": datetime.now()}}, upsert=True,
         )
-        if has_new:
-            await compute_and_cache_cashflow(u)
+        # trigger="user": an explicit refresh always recomputes the derived
+        # caches, new transactions or not (G159). The `if has_new:` guard
+        # that used to sit here kept a pre-deploy forecast doc alive and
+        # then rebuilt every screen from it, so the tap looked like it had
+        # worked. The gate survives only on the worker's automatic syncs.
+        await recompute_derived_caches(u, new_count=new_count, trigger="user")
         await settle_planned_expenses(u)
         # Categorisation/rules may have shifted things even without new txns.
         # Awaited (not the sync invalidate()'s fire-and-forget bump) so the
@@ -222,7 +238,7 @@ async def sync_all(user: dict = Depends(current_user)):
             await warm_user(u)
         except Exception:
             logger.exception("post-sync warm_user failed for %s", u)
-    _fire_and_forget(_post_sync(uid, total_new_txns > 0))
+    _fire_and_forget(_post_sync(uid, total_new_txns))
     # Balances were refreshed above — the immediate post-sync reload must not
     # be served a pre-sync cached response
     await response_cache.ainvalidate(uid)
@@ -245,15 +261,15 @@ async def sync_history(user: dict = Depends(current_user)):
     for yc in yapily_conns:
         asyncio.create_task(sync_yapily_consent(yc["_id"], uid))
 
-    async def _post_sync(u, has_new: bool):
+    async def _post_sync(u, new_count: int):
         await apply_rules_bulk(u, structural=True)
         await categorise_others_bg(u)
         await apply_mirror_rules(u)
         await cashflow_cache_col.update_one(
             {"_id": u}, {"$set": {"synced_at": datetime.now()}}, upsert=True,
         )
-        if has_new:
-            await compute_and_cache_cashflow(u)
+        # Explicit Settings action, same rule as sync_all: always recompute.
+        await recompute_derived_caches(u, new_count=new_count, trigger="user")
         await settle_planned_expenses(u)
         # Same pattern as sync_all's own _post_sync: awaited (not the sync
         # invalidate()'s fire-and-forget bump) so the warm-up below computes
@@ -264,7 +280,7 @@ async def sync_history(user: dict = Depends(current_user)):
             await warm_user(u)
         except Exception:
             logger.exception("post-sync warm_user failed for %s", u)
-    _fire_and_forget(_post_sync(uid, total_new_txns > 0))
+    _fire_and_forget(_post_sync(uid, total_new_txns))
     # Balances were refreshed above — the immediate post-sync reload must not
     # be served a pre-sync cached response
     await response_cache.ainvalidate(uid)

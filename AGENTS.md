@@ -39,6 +39,47 @@ unrecorded.
   green: `scripts/session.sh finish <ID>`. This pushes the branch and
   marks the item in review. It refuses to run if the worktree is dirty or
   either check fails, fix that first rather than forcing it through.
+- The backend test suite runs against a disposable, PER-RUN database,
+  never the real UAT/production `wealth` one (H90, 2026-09-28; naming
+  corrected the same day, in review). `app/db/collections.py` selects
+  its database via the `MONGO_DB` env var (default `"wealth"`, so the API
+  and worker processes are unaffected); `backend/tests/conftest.py`
+  defaults `MONGO_DB` to a freshly generated
+  `"wealth_test_<epoch seconds>_<8 hex>"` name before any test can create
+  a collection handle, and `scripts/session.sh finish` /
+  `scripts/integrate.py` both also generate and pass their OWN per-run
+  name of the same shape explicitly on the pytest invocation itself
+  (never a single shared literal — the review round found and fixed a
+  real collision: two concurrent runs against this VPS's one local
+  mongod, both defaulting to the same name, where one session's teardown
+  dropped another's still-in-flight fixtures mid-test). `conftest.py` aborts
+  collection outright if the resolved database name doesn't look like a
+  test database, so a misconfigured environment fails loudly rather than
+  silently writing real data; it also sweeps and drops any leftover
+  per-run test database older than an hour at session start, so a
+  crashed session (OOM-killed, Ctrl-C'd) doesn't accumulate them forever
+  -- the sweep requires BOTH the age past an hour AND proof there is no
+  live owner (a non-blocking `flock` on a per-database lockfile every
+  session holds for its own lifetime), never age alone: incident H96
+  (same day) found age-only sweeping let one session's sweep drop
+  ANOTHER session's still-live database just for running long, which a
+  memory-starved box makes a real risk, not a hypothetical one. H96 is
+  also why `_looks_like_a_test_database` (the fail-hard guard itself) now
+  has direct unit-test coverage
+  (`backend/tests/test_h90_guard_looks_like_test_database.py`) and an
+  ANCHORED prefix check: during H96's own re-review, a reviewer mutated
+  the guard to accept the literal `"wealth"`, ran `MONGO_DB=wealth
+  pytest`, and the mutated guard let the real teardown through -- it
+  dropped the real UAT database (restored from backup, ~5h40m of data
+  lost). Never mutate this guard to test it; call
+  `_looks_like_a_test_database` directly in a unit test instead, exactly
+  as that test file does. Do not remove or bypass any of this: it closes
+  a real incident (a suite run, and separately an agent's own
+  verification script, each wrote a document under a real or fixture
+  user id into the live database from unmerged code), on top of H96
+  itself. If you ever need to point the suite at Mongo yourself (a
+  one-off script, not through `pytest`), set `MONGO_DB` to any name
+  starting with `wealth_test` first -- never `wealth`.
 - `finish` and `abandon` resolve `<ID>` to a worktree through the branch
   the board records for it, never through a name match (item H85). They
   print the worktree and branch they resolved to before doing anything,
