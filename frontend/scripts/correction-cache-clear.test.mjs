@@ -180,15 +180,20 @@ const frontendRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 
 const teachingSheetSrc = readFileSync(path.join(frontendRoot, "components/TeachingSheet.tsx"), "utf8");
 const miscategorisedSrc = readFileSync(path.join(frontendRoot, "components/MiscategorisedReviewSheet.tsx"), "utf8");
 
-/** Brace-counting body extractor — every catch/finish body in both files is
- *  brace-free internally (verified by eye against the source this was
- *  written against), so a naive `[^}]*` regex is exact here, but this walks
- *  real braces instead of assuming that stays true forever. */
-function extractBody(src, signatureRegex) {
-  const m = signatureRegex.exec(src);
-  if (!m) return null;
-  const openIdx = src.indexOf("{", m.index + m[0].length);
-  if (openIdx === -1) return null;
+/** Walks REAL braces from a known opening `{` to its matching close,
+ *  tracking depth rather than assuming no nested braces exist inside —
+ *  shared by `extractBody` (below) and `catchBodies` (further below), the
+ *  one place that actually counts, since the naive `[^{}]*`-style regex
+ *  `catchBodies` used before this (2026-09-28 review) silently stopped
+ *  matching the instant a catch body contained ANY nested braces — for
+ *  example an invalidator call with an object-literal argument,
+ *  `invalidateAfterTransactionCorrection(id, { newCategory: c })` — which
+ *  made the catch invisible to `catchBodies` entirely rather than merely
+ *  truncating it, so "no catch block calls the invalidator" passed for a
+ *  reason that had nothing to do with the catch block actually being
+ *  clean. See SYNTHETIC_NESTED_BRACE_CATCH below for the reproduction. */
+function bodyFromBraceStart(src, openIdx) {
+  if (openIdx === -1 || src[openIdx] !== "{") return null;
   let depth = 0;
   for (let i = openIdx; i < src.length; i++) {
     if (src[i] === "{") depth += 1;
@@ -198,6 +203,16 @@ function extractBody(src, signatureRegex) {
     }
   }
   return null;
+}
+
+/** Brace-counting body extractor for a NAMED function: finds `signatureRegex`,
+ *  then the first `{` after it, then walks real braces via
+ *  `bodyFromBraceStart` — real nesting, not an assumption that a function
+ *  body never contains one. */
+function extractBody(src, signatureRegex) {
+  const m = signatureRegex.exec(src);
+  if (!m) return null;
+  return bodyFromBraceStart(src, src.indexOf("{", m.index + m[0].length));
 }
 
 /** Every failure body in the file, in source order — both shapes this
@@ -210,15 +225,92 @@ function extractBody(src, signatureRegex) {
  *  silently finds zero matches against the other rather than erroring, which
  *  is exactly the false-negative failure mode this comment exists to head
  *  off). This is the thing every "a failed write clears nothing" claim below
- *  is actually checked against. */
+ *  is actually checked against.
+ *
+ *  Each anchor below only locates the OPENING `{` — the body itself always
+ *  comes from `bodyFromBraceStart`'s real brace-counting, never from a
+ *  regex character class trying to guess where the body ends, which is
+ *  what let a nested-brace catch body (an invalidator call with an
+ *  object-literal argument) go undetected before the 2026-09-28 review. */
 function catchBodies(src) {
+  const bodies = [];
+  // Keyword form: `catch`/`catch (e)` not preceded by `.` (that prefix is
+  // the Promise method-call form below, a different keyword entirely).
+  const keywordAnchor = /(^|[^.\w])catch\s*(?:\([^)]*\))?\s*\{/g;
+  let m;
+  while ((m = keywordAnchor.exec(src)) !== null) {
+    const body = bodyFromBraceStart(src, m.index + m[0].length - 1);
+    if (body !== null) bodies.push(body);
+  }
+  // Promise form: `.catch((e) => { ... })` / `.catch(() => { ... })`,
+  // optionally `async`.
+  const promiseAnchor = /\.catch\(\s*(?:async\s*)?\([^)]*\)\s*=>\s*\{/g;
+  while ((m = promiseAnchor.exec(src)) !== null) {
+    const body = bodyFromBraceStart(src, m.index + m[0].length - 1);
+    if (body !== null) bodies.push(body);
+  }
+  return bodies;
+}
+
+function countOccurrences(haystack, needle) {
+  return haystack == null ? 0 : (haystack.match(new RegExp(needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")) || []).length;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Regression proof (2026-09-28 review) — catchBodies() must actually see a
+// catch body that contains a nested brace, not silently skip it. Red against
+// the PRE-review regex, green against bodyFromBraceStart above.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// The exact shape the review flagged: an invalidator call whose SECOND
+// argument is an object literal, sitting inside a catch block. Real
+// production source never puts the call here (that is what the "no catch
+// block calls the invalidator" checks below are for) — this is a
+// synthetic stand-in built only to prove the EXTRACTOR itself would not
+// have missed it, independent of whether today's two files happen to.
+const SYNTHETIC_NESTED_BRACE_CATCH = `
+  async function commitFake(category) {
+    try {
+      await api.patchTransaction(transaction.id, { category });
+    } catch (e) {
+      invalidateAfterTransactionCorrection(transaction.id, { newCategory: category });
+      setError(saveErrorMessage(e));
+    }
+  }
+`;
+
+// The PRE-review implementation, kept ONLY here to prove the regression it
+// fixed — never used anywhere except this one comparison. Its char class
+// `[^{}]*` cannot cross the object literal's own `{`, so the regex engine's
+// only way to satisfy the trailing literal `}` is to fail the match at this
+// position entirely: the catch block above vanishes from the result rather
+// than being returned truncated.
+function preReviewCatchBodies(src) {
   const keywordForm = [...src.matchAll(/catch\s*(?:\([^)]*\))?\s*\{([^{}]*)\}/g)].map((m) => m[1]);
   const promiseForm = [...src.matchAll(/\.catch\(\s*\(\)\s*=>\s*\{([^{}]*)\}\s*\)/g)].map((m) => m[1]);
   return [...keywordForm, ...promiseForm];
 }
 
-function countOccurrences(haystack, needle) {
-  return haystack == null ? 0 : (haystack.match(new RegExp(needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")) || []).length;
+{
+  const preReviewResult = preReviewCatchBodies(SYNTHETIC_NESTED_BRACE_CATCH);
+  check(
+    "RED: the pre-review regex-based catchBodies() misses the catch entirely once its body has a nested brace (false negative, not a truncation)",
+    preReviewResult.length,
+    0,
+  );
+
+  const fixedResult = catchBodies(SYNTHETIC_NESTED_BRACE_CATCH);
+  check("GREEN: the brace-counting catchBodies() finds exactly one catch body", fixedResult.length, 1);
+  check(
+    "GREEN: the found body is the FULL body, including the invalidator's object-literal argument",
+    fixedResult[0] != null && fixedResult[0].includes("invalidateAfterTransactionCorrection(transaction.id, { newCategory: category });"),
+    true,
+  );
+  check(
+    "GREEN: applying the real 'no catch calls the invalidator' assertion to this synthetic body correctly reports a violation (would fail a real check, not pass one)",
+    fixedResult.some((b) => b.includes("invalidateAfterTransactionCorrection(")),
+    true,
+  );
 }
 
 // ── TeachingSheet.tsx ────────────────────────────────────────────────────
