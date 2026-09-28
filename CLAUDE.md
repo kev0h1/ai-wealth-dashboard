@@ -95,12 +95,21 @@ Restart only the relevant service(s) using systemctl:
 ```bash
 systemctl restart wealth-api        # after backend changes
 systemctl restart wealth-worker     # after app/workers changes
-systemctl restart wealth-frontend   # after `npm run build` in frontend/
+backend/.venv/bin/python scripts/frontend_build.py   # after frontend changes: atomic build + swap + restart wealth-frontend
 sleep 5 && curl -s http://localhost:8000/health
 ```
 
-Frontend runs `next start` on a production build; changes require
-`cd frontend && npm run build` before restarting wealth-frontend.
+Frontend runs `next start` on a production build. Never run `npm run build`
+in the shared tree's `frontend/`: that builds in place into the `.next` the
+live service is serving from, which is how the 2026-09-17 blank-page outage
+happened (H51). `scripts/frontend_build.py` builds in a scratch mirror of
+`frontend/` at `.frontend-staging/`, verifies the result, swaps it into
+`frontend/.next` with one atomic rename, keeps the old build at
+`frontend/.next-prev`, and restarts `wealth-frontend`; a failed or
+interrupted build leaves `.next` untouched. `--revert` swaps the previous
+build back without rebuilding, `--status` shows the live and previous build
+ids. It holds a non-blocking lock, so a second build while one is running
+fails loudly rather than queuing. `scripts/integrate.py` uses the same path.
 
 Check logs with:
 ```bash
