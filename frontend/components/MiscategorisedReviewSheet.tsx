@@ -11,6 +11,7 @@ import { useColours } from "@/components/ColourProvider";
 import { getCategoryIcon } from "@/lib/categoryIcons";
 import { useCategoryIcons } from "@/components/IconProvider";
 import { accountBrand, BankBadge } from "@/components/AccountMiniCard";
+import { invalidateAfterTransactionCorrection } from "@/lib/cacheInvalidation";
 import { formatDate, dateToUTCDay } from "@/lib/payPeriod";
 import { formatCurrency } from "@/lib/currency";
 import Spinner from "@/components/Spinner";
@@ -209,7 +210,21 @@ export default function MiscategorisedReviewSheet({
     setPairs((prev) => prev.filter((p) => p.pair_key !== pair.pair_key));
     api
       .confirmTransferPair(pair.credit.id, pair.debit.id)
-      .then(() => onChanged?.())
+      .then((res) => {
+        // G146: confirm writes BOTH legs' categories server-side (see
+        // routers/analytics.py's confirm_transfer_pair) exactly like a
+        // TeachingSheet correction does, but this sheet never went through
+        // TeachingSheet's notifyUpdated, so lib/homeCache.ts's Home brief
+        // and lib/signalsCache.ts's category multiples never heard about
+        // it. One call covers both legs — every cache this clears is a
+        // whole-payload cache with no per-transaction key, so a single
+        // call is exactly as effective as two.
+        invalidateAfterTransactionCorrection(pair.debit.id, {
+          oldCategory: pair.debit.category ?? undefined,
+          newCategory: res.debit_category,
+        });
+        onChanged?.();
+      })
       .catch(() => {
         setPairs((prev) => (prev.some((p) => p.pair_key === pair.pair_key) ? prev : [pair, ...prev]));
         setPairErrors((prev) => new Set(prev).add(pair.pair_key));

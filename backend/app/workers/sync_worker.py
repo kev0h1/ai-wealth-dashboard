@@ -1,4 +1,5 @@
 """arq worker: bank sync tasks + reconciliation cron."""
+import asyncio
 import logging
 import math
 from datetime import datetime, timedelta
@@ -99,15 +100,13 @@ async def task_sync_truelayer(ctx, connection_id: str, user_id: str):
     await apply_rules_bulk(user_id, structural=True)
     await categorise_others_bg(user_id)
     await apply_mirror_rules(user_id)
-    if new_count > 0:
-        from app.routers.analytics import compute_and_cache_cashflow
-        await compute_and_cache_cashflow(user_id)
-        try:
-            from app.services.money_shape import compute_and_cache_money_shape
-            await compute_and_cache_money_shape(user_id)
-        except Exception:
-            import logging
-            logging.getLogger(__name__).exception("money_shape compute failed for %s", user_id)
+    # trigger="auto": the reconcile cron and webhook syncs keep the
+    # new-transactions gate (a recompute is ~1.3 s of CPU plus a Haiku call
+    # per user, see app.services.derived_caches), but also recompute a cache
+    # doc that is missing or was written by an older engine build, so a
+    # deploy can never sit invisible behind the cache (G159).
+    from app.services.derived_caches import recompute_derived_caches
+    await recompute_derived_caches(user_id, new_count=new_count, trigger="auto")
     await _enqueue_weekly_insight_refresh(ctx, user_id)
     await _warm_after_sync(user_id)
     return {"synced": len(ids), "new_transactions": new_count}
@@ -736,6 +735,30 @@ async def task_safe_to_spend_snapshot(ctx):
     return summary
 
 
+async def _engine_refresh_on_startup() -> None:
+    try:
+        from app.services.derived_caches import refresh_stale_cashflow_caches
+        await refresh_stale_cashflow_caches(reason="worker_startup")
+    except Exception:
+        logger.exception("engine refresh on worker startup failed")
+
+
+async def _on_startup(ctx: dict) -> None:
+    """Deploy-time recompute of every user's forecast whose cache doc was
+    written by a different engine build (G159, app.services.derived_caches).
+
+    Runs here rather than in the API's own startup migrations because a
+    recompute blocks the event loop for over a second per user and the API
+    is a single uvicorn process serving page loads; the worker restarts on
+    every backend deploy too (scripts/integrate.py restarts wealth-worker
+    on any backend change; Railway redeploys both services per release)
+    and has nothing latency-sensitive to protect. Started as a background
+    task so the queue is served from the first second; the engine-build
+    stamp makes a restart without a code change a no-op. The task handle
+    is kept on `ctx` so it cannot be garbage-collected mid-flight."""
+    ctx["engine_refresh_task"] = asyncio.create_task(_engine_refresh_on_startup())
+
+
 class WorkerSettings:
     # task_refresh_savings_insights is defined in ai_worker but registered here
     # too: this is the worker systemd actually runs, so post-sync enqueues of
@@ -767,3 +790,4 @@ class WorkerSettings:
     redis_settings = RedisSettings.from_dsn(REDIS_URL)
     max_jobs = 5
     job_timeout = 600
+    on_startup = _on_startup

@@ -90,11 +90,64 @@ Questions in the compliance doc keep their existing `## Qn <title>` /
 blocked-deploy, submitted.
 
 Every public mutator (`set_done`, `set_state`, `set_owner`, `add_note`,
-`set_question_status`) writes the file atomically (temp file + rename)
-under an `fcntl.flock` on `.backlog.lock` in the repo root, then attempts
-a `git add` + `git commit` + `git push` of just that file. A failed
-commit or push is logged and reported back as `committed: False`; the
-file write itself is never lost because it happens before any git call.
+`set_question_status`) writes the file atomically (temp file + rename),
+then attempts a `git add` + `git commit` + `git push` of just that file —
+and, since H93, both the write and the commit/push happen under the same
+`fcntl.flock` on `.backlog.lock` in the repo root (see `_locked`), so two
+sessions writing the board at once queue rather than race each other's
+git commit. That lock acquisition is bounded (`BOARD_LOCK_WAIT_SECONDS`),
+not the indefinite wait it used to be, and logs when it is contended.
+Before either git call, `_wait_for_git_index_lock` also clears a stale
+`.git/index.lock` (git's own lock, left behind by a commit that died
+mid-operation, once nothing is found holding it and it is old enough —
+see `GIT_LOCK_STALE_SECONDS`) or waits out and reports a live one, so
+that lock stops being a silent reason a commit fails. A failed commit or
+push (lock-related or not) is logged and reported back as `committed:
+False`; the file write itself is never lost because it happens before
+any git call. `scripts/backlog.py` (the CLI) treats `committed: False`
+as a hard, non-zero-exit failure rather than a footnote — see
+`_print_result` there — but this module's own public mutators keep
+returning it rather than raising, since `/ops/go-live` needs to report a
+failed commit in its response body rather than 500 the request.
+
+A false-positive holder (`_lock_holder_pids` wrongly reporting a live
+process on a genuinely stale `.git/index.lock`) does not corrupt
+anything, but it does stall: the write already landed on disk before any
+git call runs, so `.git/index.lock` staying in place just means that one
+call's `git add`/`commit` times out via `_GitLockHeld`, folded into the
+usual `committed: False`. The next real risk is downstream of this
+module, in `scripts/integrate.py`: its own precondition check refuses to
+run against a dirty shared tree, and a board write that landed on disk
+but never committed leaves `TODO.md` exactly that — dirty — so every
+subsequent integrate pass blocks with a generic "dirty tree" refusal
+until a human notices and runs `git add && git commit` (or an unstuck
+retry) by hand in the shared tree. `integrate.py` does not currently
+distinguish that specific cause from an arbitrary dirty tree; see its own
+`_check_preconditions` if that distinction is ever worth adding.
+
+The opposite mistake — a false NEGATIVE, `_lock_holder_pids` wrongly
+reporting no holder on a `.git/index.lock` a real process still has open
+— is treated far more strictly than the false-positive case above,
+deliberately asymmetrically: a stall inside this module is recoverable
+by anyone who notices, but deleting a live process's lock corrupts that
+THIRD-PARTY git process's own in-flight operation, mid-write, with no
+downstream check in this codebase able to repair it afterwards. That is
+why every code path in `_lock_holder_pids` that cannot positively confirm
+"nothing holds this file" — an unreadable /proc fd table, an unreadable
+/proc listing itself, a tool that ran but reported an error rather than a
+clean "no holder" — reports a holder rather than silently treating "I
+could not look" as "I looked and found nothing".
+
+A genuine limit, not a defect (confirmed in the H93 review round 3): a
+tool that answers CLEANLY but WRONGLY — exit code and stderr both saying
+"no holder" (the honest shape this module trusts, by design, in
+`_lock_holder_pids_via_tool`) while a real process does in fact have the
+lock open — is undetectable by any check here. There is no signal left
+to fail closed on once the tool itself reports success with no error;
+catching that would need a source of truth this module does not have
+(the kernel's own fd tables, which is exactly what the /proc fallback
+already reads directly, used only when the tool gives no trustworthy
+answer at all rather than a wrong one it is confident in).
 """
 from __future__ import annotations
 
@@ -103,6 +156,7 @@ import logging
 import os
 import re
 import subprocess
+import time
 import urllib.parse
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -151,6 +205,45 @@ COMPLIANCE_PATH = _compliance_path()
 
 GIT_AUTHOR = "Sorted Ops <ops@auriqltd.co.uk>"
 GIT_TIMEOUT = 15
+
+# H93: how stale a `.git/index.lock` has to be, with no live process
+# holding it, before this module removes it itself rather than let it
+# turn a routine commit into a swallowed "saved but not committed"
+# outcome. The incident this closes found one 30 minutes old with no git
+# process anywhere near it. 90s (6x GIT_TIMEOUT) is the threshold chosen:
+# comfortably longer than this module's own worst case (`git add` then
+# `git commit` back to back, each capped at GIT_TIMEOUT=15s, so a lock
+# *this module* legitimately created and is still working under never
+# gets close to 90s), while recovering in well under two minutes instead
+# of the 30 the real incident sat for. The age threshold is only a
+# secondary sanity check, though -- the real safety gate is
+# `_lock_holder_pids`: a lock is only ever removed once nothing is found
+# holding it, however old or young it is, so a genuinely live git process
+# (a slow push, a rebase step actually running) is never touched no
+# matter how long it runs.
+GIT_LOCK_STALE_SECONDS = 90.0
+# Bounded wait for a *live* .git/index.lock (held by a real process) to
+# clear before giving up and reporting the commit as failed. 20s gives a
+# holder comfortably more than one GIT_TIMEOUT-capped subprocess call to
+# finish without making a caller wait very long for a lock that turns out
+# to be genuinely stuck.
+GIT_LOCK_WAIT_SECONDS = 20.0
+GIT_LOCK_POLL_SECONDS = 0.5
+
+# H93: this module's own writer lock (`.backlog.lock`, see `_locked`
+# below) now also covers the git commit/push, not just the file rewrite,
+# so two sessions writing the board at once (the normal case on this
+# project) queue instead of racing each other's git commit. The wait is
+# bounded, not the indefinite fcntl.flock(LOCK_EX) this used to be: an
+# unbounded wait would turn one genuinely stuck holder (a process that
+# died mid-write, still holding the fd) into every future session hanging
+# forever with nothing to show for it. 30s is well beyond one mutator's
+# realistic total (a file rewrite plus `git add`+`commit`, and only on
+# success `git push`, each subprocess call capped at GIT_TIMEOUT=15s) so
+# ordinary queuing under contention almost never times out, while a
+# genuinely stuck holder is still reported within one command.
+BOARD_LOCK_WAIT_SECONDS = 30.0
+BOARD_LOCK_POLL_SECONDS = 0.2
 
 ITEM_STATES = ("todo", "in-progress", "blocked", "review", "rejected", "uat", "cancelled")
 # Human-facing labels for a state key, matching the board's own vocabulary
@@ -316,6 +409,41 @@ def _collapse_note_text(text: str, cap: int = NOTE_CAP) -> str:
     return collapsed
 
 
+def _note_truncation_info(text: str, cap: int = NOTE_CAP) -> dict:
+    """H64: `_collapse_note_text` truncates and appends an ellipsis with no
+    way for a caller to know it happened — the write still succeeds, so an
+    agent believes it recorded something it did not (hit four times in one
+    session on 2026-09-17, the worst case cutting the operational half of
+    a note, the worktree path and the exact resume commands, while keeping
+    the prose rationale). This runs the same newline-collapsing
+    `_collapse_note_text` does, so the length comparison is apples to
+    apples with what actually gets written, then reports whether it would
+    be truncated and, if so, the tail of the text that gets cut off (up to
+    40 characters), so a caller can react instead of finding out later by
+    measuring the stored string directly."""
+    parts = [p.strip() for p in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+    collapsed = " / ".join(p for p in parts if p)
+    original_length = len(collapsed)
+    truncated = original_length > cap
+    if not truncated:
+        return {
+            "truncated": False,
+            "original_length": original_length,
+            "cap": cap,
+            "dropped_length": 0,
+            "dropped_tail": "",
+        }
+    kept_length = cap - 3 if cap > 3 else cap
+    dropped = collapsed[kept_length:]
+    return {
+        "truncated": True,
+        "original_length": original_length,
+        "cap": cap,
+        "dropped_length": len(dropped),
+        "dropped_tail": dropped[-40:],
+    }
+
+
 SECTION_HEADING_RE = re.compile(r"^## ([A-H])\. (.+)$")
 ITEM_RE = re.compile(
     r"^(?P<prefix>- \[(?P<check>[ xX])\] \*\*(?P<id>[A-H]\d+)\.\s*(?P<title>.*?)\*\*)"
@@ -385,15 +513,371 @@ def _atomic_write(path: Path, text: str) -> None:
 
 
 @contextmanager
-def _locked(repo_root: Path) -> Iterator[None]:
+def _locked(repo_root: Path, *, timeout: float = BOARD_LOCK_WAIT_SECONDS) -> Iterator[None]:
+    """Serialises a full read-modify-write-commit-push sequence against
+    every other caller of this module in this `repo_root` (H93). Before
+    this fix the lock only covered the file rewrite: two concurrent
+    sessions could each cleanly load, mutate and save TODO.md one after
+    the other, then both call `_git_commit_and_push` outside the lock at
+    the same time, racing each other's `git add`/`git commit` against the
+    same working tree. `git commit` on a path commits *every* uncommitted
+    change to that path, not just the caller's own diff, so whichever
+    process won the race committed both sessions' writes under its own
+    message -- exactly what piled up three writes from two sessions into
+    one file on 2026-09-27. Every public mutator below now calls
+    `_git_commit_and_push` from *inside* this same `with` block, so the
+    two are one atomic unit again: load, mutate, save, commit, push, then
+    release.
+
+    Bounded, not the indefinite `fcntl.flock(LOCK_EX)` this used to be —
+    contention is the ordinary case here (this file is shared by every
+    Claude and Codex session plus `/ops/go-live`), so callers queue
+    briefly and that queuing is logged, rather than either blocking
+    forever behind a holder that might be dead, or racing git the way the
+    old code did. See `BOARD_LOCK_WAIT_SECONDS` for why 30s."""
     repo_root.mkdir(parents=True, exist_ok=True)
     lock_path = repo_root / ".backlog.lock"
     with open(lock_path, "a+") as fh:
-        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        deadline = time.monotonic() + timeout
+        logged_contention = False
+        while True:
+            try:
+                fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if not logged_contention:
+                    logger.warning(
+                        "backlog: .backlog.lock in %s is held by another session, waiting up to %.0fs",
+                        repo_root,
+                        timeout,
+                    )
+                    logged_contention = True
+                if time.monotonic() >= deadline:
+                    raise BacklogError(
+                        f"backlog: could not acquire the board write lock (.backlog.lock in {repo_root}) "
+                        f"within {timeout:.0f}s; another session appears to be stuck holding it. Nothing was "
+                        f"written for this call."
+                    )
+                time.sleep(BOARD_LOCK_POLL_SECONDS)
         try:
             yield
         finally:
             fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+
+
+class _GitLockHeld(Exception):
+    """Internal only: `.git/index.lock` is held by a live process and
+    stayed that way for `GIT_LOCK_WAIT_SECONDS`. Always caught inside
+    `_git_commit_and_push`, which folds it into the same `committed:
+    False` outcome as any other git failure — this never escapes this
+    module on its own."""
+
+
+def _lock_holder_pids(lock_path: Path) -> list[str]:
+    """Best-effort, but FAIL-CLOSED: which live process(es), if any,
+    currently have `lock_path` open, OR could not be ruled out. This is
+    the actual safety gate for whether a stale `.git/index.lock` may be
+    removed (H93) — age alone is never enough, since a slow but genuine
+    git operation must never have its lock pulled out from under it.
+
+    The governing rule, added in the H93 review round 2 after two
+    separate fail-OPEN defects were found and reproduced in the first
+    fix (see `_lock_holder_pids_via_tool`/`_lock_holder_pids_via_proc`
+    below for each): "I could not look" must never be read as "I looked
+    and found nothing". Every code path that cannot positively confirm
+    "nothing holds this file" reports a holder — real or a
+    `(...unreadable)`-suffixed placeholder pid — rather than silently
+    falling through to "unheld". An empty list from this function is
+    therefore a genuine positive claim (something actually checked and
+    found nothing), never a default for "couldn't tell".
+
+    Tries `_lock_holder_pids_via_tool` (fuser/lsof) first; only when that
+    returns `None` (neither tool gave a trustworthy answer at all) does
+    this fall back to `_lock_holder_pids_via_proc`, a raw /proc fd walk,
+    itself fail-closed the same way.
+
+    Even a correct "no holder" answer from this function is still only a
+    necessary condition for removal, never sufficient on its own: the
+    age threshold and the immediately-before-deleting re-stat in
+    `_wait_for_git_index_lock` are what close the remaining race — a lock
+    just created by a process that has not yet opened an fd on it (or
+    rewritten it) at the exact instant this function runs."""
+    tool_result = _lock_holder_pids_via_tool(lock_path)
+    if tool_result is not None:
+        return tool_result
+    return _lock_holder_pids_via_proc(lock_path)
+
+
+def _lock_holder_pids_via_tool(lock_path: Path) -> Optional[list[str]]:
+    """Asks `fuser`/`lsof` (fast, exact, and what the item asked for).
+    Returns pids if a tool found any, `[]` only when a tool gave a
+    genuinely trustworthy "no holder" answer, or `None` if neither tool
+    gave an answer that can be trusted at all (not installed, timed out,
+    or ran but reported an error rather than a clean "no holder") — the
+    caller then falls back to a /proc walk rather than treating `None`
+    as "unheld".
+
+    Both tools exit 0 with the holder's pid(s) on stdout when something
+    has the file open, and exit NON-zero when nothing does — the inverse
+    of the usual "0 means success" shell convention, verified empirically
+    on this host. The first cut of this function got that backwards
+    (`if result.returncode == 0: return []`), unreachable dead code:
+    returncode is only ever 0 when stdout already produced a non-empty
+    `pids` list, which the branch above it already returns. Fixed in
+    round 1: a non-empty `pids` list is trusted outright, regardless of
+    exit code or any stderr noise alongside it — a real pid on stdout is
+    positive evidence a false alarm elsewhere cannot manufacture.
+
+    Round 2 (Critical B): a non-zero exit with EMPTY stdout is not, on
+    its own, "confirmed no holder" — fuser's and lsof's own documented
+    contract is non-zero for EITHER "nothing has this file open" OR "a
+    fatal error", indistinguishable by exit code alone. Round 1 trusted
+    every non-zero/empty-stdout result unconditionally, which a
+    malfunctioning or shadowed tool (bad permissions, a corrupt install,
+    a stand-in script earlier on PATH) exploits for free — reproduced by
+    swapping in fuser/lsof stand-ins that exit 1 with empty stdout and a
+    stderr diagnostic, and the lock was removed out from under a live
+    holder. The fix: a non-zero exit is trusted as "no holder" ONLY when
+    stderr is ALSO empty — a genuine "nothing has this open" answer from
+    either tool prints nothing there. A non-zero exit WITH stderr output
+    means the tool ran but failed, not that it found nothing; that
+    result is discarded (not returned as `[]`) and the next tool (or, if
+    none is left, the /proc walk) gets a chance to give a real answer."""
+    for tool, extra_args in (("fuser", []), ("lsof", ["-t"])):
+        try:
+            result = subprocess.run(
+                [tool, *extra_args, str(lock_path)], capture_output=True, text=True, timeout=5
+            )
+        except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
+            continue
+        pids = [tok.strip().lstrip("+") for tok in result.stdout.split() if tok.strip().lstrip("+").isdigit()]
+        if pids:
+            return pids
+        if result.returncode != 0 and not result.stderr.strip():
+            return []
+        # Either returncode == 0 with nothing parsed on stdout (not
+        # possible per the tools' own contract, so not trusted if it
+        # somehow happens) or a non-zero exit WITH stderr output (an
+        # actual tool failure, not a clean "no holder"): this tool's
+        # answer is discarded; try the next one instead of trusting it.
+    return None
+
+
+def _lock_holder_pids_via_proc(lock_path: Path) -> list[str]:
+    """Raw /proc fd walk, used only when `_lock_holder_pids_via_tool`
+    could not get a trustworthy answer from either fuser or lsof at all
+    (H93 review round 2). Walks every live process's open file
+    descriptors (`/proc/<pid>/fd/*`) and keeps one whose fd resolves to
+    this exact lock file — the only fd-table signal that actually means
+    "holds this file open".
+
+    Round 1 matched any process merely cwd'd at the repo root with the
+    substring `git` anywhere in its command line, which proved to be two
+    separate live bugs, both reproduced against real processes on this
+    host: (1) a long-running `git fetch`-polling loop parked at the repo
+    root (the normal shape of a Claude/Codex session on this VPS)
+    matched every time, reporting a genuinely stale, abandoned lock as
+    held forever; and (2) with a real holder's cwd different from
+    `repo_root` (nothing enforced that they match), the holder was
+    invisible and its lock was deleted out from under it. Neither is
+    possible once the check is "does an fd point at this exact file", so
+    the cwd and command-line heuristics are gone entirely.
+
+    Round 2 (Critical A): `os.listdir(fd_dir)` raising `OSError` was
+    treated as "process exited mid-scan, or its fd table isn't readable
+    (not ours), either way skip it" — conflating two very different
+    cases. A process that has genuinely exited is safe to skip (nothing
+    left to hold anything). A process that still EXISTS but whose fd
+    table this cannot read (`PermissionError`) is NOT safe to skip: this
+    simply could not look, and per the governing rule on
+    `_lock_holder_pids` above, "could not look" must be reported as a
+    holder, never silently passed over. Reproduced: a live holder with a
+    genuinely open fd, `os.listdir` forced to raise `PermissionError` for
+    that one pid, tools absent — the lock was removed while the holder
+    was still 8 seconds into a 30-second hold. Fixed here: `FileNotFoundError`
+    (the process, or that specific fd, is actually gone) is the only
+    exception treated as "skip, safe" — every other `OSError` on an
+    existing pid's fd table, or on an individual fd within it, appends a
+    `(fd table unreadable)`/`(fd ... unreadable)`-suffixed placeholder to
+    the holder list instead of continuing past it, which is enough on its
+    own to keep `_wait_for_git_index_lock` from ever deleting the lock.
+
+    Round 3: `if not proc_dir.is_dir(): return []` had exactly the same
+    fail-open shape Round 2 just fixed one level down, at the very top of
+    this function -- /proc itself being missing, or unreadable, is the
+    purest form of "could not look" there is (nothing about ANY process
+    could be checked at all), yet it was reported as "confirmed no
+    holder". Reproduced: a live holder, fuser/lsof absent, `Path.is_dir`
+    mocked to return `False` for /proc -- the stale-lock branch removed a
+    genuinely held index.lock. Fixed: both `proc_dir.is_dir()` being
+    false/erroring and `proc_dir.iterdir()` itself raising `OSError`
+    return a `"?(/proc unavailable)"` placeholder holder, the same shape
+    as an unreadable fd table, rather than `[]`. The one path still
+    genuinely treated as unheld — resolving `lock_path` itself failing —
+    is left as-is: that never gets far enough to look at any process, so
+    there is nothing to fail closed ABOUT (round 3 review agreed this one
+    is a legitimate exception, not a third instance of the same bug)."""
+    try:
+        resolved_lock = str(lock_path.resolve())
+    except OSError:
+        # Cannot even resolve the path being checked, so there is
+        # nothing to compare any fd against; nothing to fail closed
+        # ABOUT either -- moot, not a "could not look" case (round 3
+        # review agreed this one is legitimately an exception to the
+        # governing rule, since it never gets far enough to look at any
+        # process at all). Unheld, same as before this round.
+        return []
+    proc_dir = Path("/proc")
+    try:
+        proc_is_dir = proc_dir.is_dir()
+    except OSError:
+        proc_is_dir = False
+    if not proc_is_dir:
+        # /proc itself is missing or cannot even be stat'd. Round 2 left
+        # this as `return []` -- "confirmed no holder" -- which directly
+        # contradicts the governing rule above: unable to enumerate
+        # ANY process at all is the purest form of "could not look",
+        # not "looked and found nothing". Reproduced (round 3 review): a
+        # live holder, fuser/lsof absent, `Path.is_dir` mocked False on
+        # /proc -- the stale-lock branch removed a genuinely held
+        # index.lock. Fixed: report a holder placeholder so
+        # `_wait_for_git_index_lock` takes the held branch instead.
+        return ["?(/proc unavailable)"]
+    holders: list[str] = []
+    try:
+        proc_entries = list(proc_dir.iterdir())
+    except OSError:
+        # Same failure mode one level down: /proc exists as a directory
+        # but its own listing could not be read. Equally "could not
+        # look" -- reported the same way, not silently treated as no
+        # holder.
+        return ["?(/proc unavailable)"]
+    for entry in proc_entries:
+        if not entry.name.isdigit():
+            continue
+        fd_dir = entry / "fd"
+        try:
+            fd_names = os.listdir(fd_dir)
+        except FileNotFoundError:
+            continue  # the process itself exited between the /proc listing and this read -- genuinely gone
+        except OSError:
+            # The process still exists (that's the only reason
+            # /proc/<pid> is listed at all) but its fd table could not
+            # be read (typically PermissionError). Unknown, not unheld:
+            # reported as a holder rather than silently skipped.
+            holders.append(f"{entry.name}(fd table unreadable)")
+            continue
+        for fd_name in fd_names:
+            try:
+                target = os.readlink(fd_dir / fd_name)
+            except FileNotFoundError:
+                continue  # that individual fd closed mid-scan -- genuinely gone
+            except OSError:
+                holders.append(f"{entry.name}(fd {fd_name} unreadable)")
+                break
+            if target == resolved_lock:
+                holders.append(entry.name)
+                break
+    return holders
+
+
+def _wait_for_git_index_lock(
+    repo_root: Path,
+    *,
+    stale_after: float = GIT_LOCK_STALE_SECONDS,
+    max_wait: float = GIT_LOCK_WAIT_SECONDS,
+    poll_interval: float = GIT_LOCK_POLL_SECONDS,
+) -> None:
+    """H93: called before ever shelling out to `git add`/`git commit`, so
+    a leftover `.git/index.lock` (git's own lock, distinct from this
+    module's `.backlog.lock`) does not have to fail a commit that a
+    little patience or cleanup could have recovered. The incident this
+    closes was exactly a stale one of these: left behind by a commit that
+    died mid-operation, 30 minutes old, no git process anywhere near it,
+    silently turning every write behind it into "saved but not
+    committed".
+
+    Never removes a lock a live process holds — `_lock_holder_pids` is
+    checked fresh on every poll, and finding a holder always means "wait
+    and recheck", never "remove". Only once nothing holds it AND it is
+    older than `stale_after` is it deleted, with a warning logged saying
+    so. Otherwise (held, or unheld but too fresh to trust as abandoned)
+    this polls every `poll_interval` up to `max_wait` total, then raises
+    `_GitLockHeld`, which `_git_commit_and_push` treats like any other
+    commit failure.
+
+    H93 review round: `_lock_holder_pids` alone cannot see a lock file
+    that was just created by a process that has not yet opened an fd on
+    it (or is about to rewrite it) at the exact instant this function
+    samples /proc — that race is inherent to any point-in-time fd check,
+    not a bug in that function. Closed here instead, right before the
+    delete: the lock's `(inode, mtime)` is captured before the holder
+    scan runs and re-checked immediately before `unlink()`; if either
+    changed in between, something touched the file during the very scan
+    that just called it unheld, so this treats it as live and loops
+    again rather than deleting a lock a process may have just started
+    writing to."""
+    lock_path = repo_root / ".git" / "index.lock"
+    deadline = time.monotonic() + max_wait
+    attempt = 0
+    while True:
+        try:
+            pre_scan_stat = lock_path.stat()
+        except FileNotFoundError:
+            return
+        attempt += 1
+        holders = _lock_holder_pids(lock_path)
+        if holders:
+            logger.warning(
+                "backlog: .git/index.lock in %s is held by pid(s) %s, waiting (attempt %d)",
+                repo_root,
+                ",".join(holders),
+                attempt,
+            )
+        else:
+            age = time.time() - pre_scan_stat.st_mtime
+            if age >= stale_after:
+                try:
+                    post_scan_stat = lock_path.stat()
+                except FileNotFoundError:
+                    return  # released while we were about to remove it
+                if (post_scan_stat.st_ino, post_scan_stat.st_mtime) != (
+                    pre_scan_stat.st_ino,
+                    pre_scan_stat.st_mtime,
+                ):
+                    logger.warning(
+                        "backlog: .git/index.lock in %s changed while being checked for staleness "
+                        "(a process may have just started writing to it); treating as live, not "
+                        "removing (attempt %d)",
+                        repo_root,
+                        attempt,
+                    )
+                else:
+                    logger.warning(
+                        "backlog: removing stale .git/index.lock in %s (age %.0fs, no live process "
+                        "holding it)",
+                        repo_root,
+                        age,
+                    )
+                    try:
+                        lock_path.unlink()
+                    except FileNotFoundError:
+                        pass
+                    return
+            else:
+                logger.warning(
+                    "backlog: .git/index.lock present in %s (age %.0fs, no holder found yet, not stale, "
+                    "attempt %d)",
+                    repo_root,
+                    age,
+                    attempt,
+                )
+        if time.monotonic() >= deadline:
+            holder_detail = f"held by pid(s) {','.join(holders)}" if holders else "no live holder found, but not yet stale"
+            raise _GitLockHeld(
+                f".git/index.lock in {repo_root} is still present after waiting {max_wait:.0f}s ({holder_detail})"
+            )
+        time.sleep(poll_interval)
 
 
 def _git_commit_and_push(paths: list[Path], message: str, repo_root: Path) -> bool:
@@ -402,7 +886,11 @@ def _git_commit_and_push(paths: list[Path], message: str, repo_root: Path) -> bo
     Returns True only if both the commit and the push succeed. Any failure
     (including a timeout) is logged and swallowed — the caller has already
     written the file by the time this runs, so a git failure never loses
-    the edit, it just means the page should show "git commit failed"."""
+    the edit, it just means the page should show "git commit failed".
+
+    H93: before either git call, `_wait_for_git_index_lock` clears a
+    stale `.git/index.lock` (or waits out and reports a live one) so that
+    lock stops being a reason a perfectly good commit fails."""
     rel: list[str] = []
     for p in paths:
         try:
@@ -410,6 +898,7 @@ def _git_commit_and_push(paths: list[Path], message: str, repo_root: Path) -> bo
         except ValueError:
             rel.append(str(p))
     try:
+        _wait_for_git_index_lock(repo_root)
         subprocess.run(
             ["git", "add", *rel], cwd=repo_root, check=True, capture_output=True, timeout=GIT_TIMEOUT
         )
@@ -1365,11 +1854,11 @@ def repair_todo(
             else:
                 doc.lines[f.line_no] = f.replacement
         doc.save(resolved_path)
-    committed = _git_commit_and_push(
-        [resolved_path],
-        f"backlog: repaired {len(findings)} malformed line(s) by {actor}",
-        resolved_root,
-    )
+        committed = _git_commit_and_push(
+            [resolved_path],
+            f"backlog: repaired {len(findings)} malformed line(s) by {actor}",
+            resolved_root,
+        )
     return [f.to_dict() for f in findings], committed
 
 
@@ -1390,12 +1879,12 @@ def set_done(
 ) -> tuple[dict, bool]:
     resolved_path = todo_path or _todo_path()
     resolved_root = repo_root or _repo_root()
+    action = "done" if done else "reopened"
     with _locked(resolved_root):
         doc = TodoDoc.load(resolved_path)
         item = doc.set_done(item_id, done, commit=commit, actor=actor)
         doc.save(resolved_path)
-    action = "done" if done else "reopened"
-    committed = _git_commit_and_push([resolved_path], f"backlog: {item_id} {action} by {actor}", resolved_root)
+        committed = _git_commit_and_push([resolved_path], f"backlog: {item_id} {action} by {actor}", resolved_root)
     return item.to_dict(), committed
 
 
@@ -1419,24 +1908,26 @@ def set_state(
             item_id, state, reason=reason, branch=branch, link=link, uat_review=uat_review, actor=actor
         )
         doc.save(resolved_path)
-    action = {
-        "in-progress": (f"started (branch {branch})" if branch else "started"),
-        "blocked": "blocked",
-        "todo": "reset to to-do",
-        "review": f"sent to review ({branch})",
-        "rejected": f"rejected ({reason})",
-        "uat": f"sent to uat ({item.link})",
-        # H80 correction round (MEDIUM 5): this dict is keyed by every
-        # value in ITEM_STATES, on purpose, so a caller of this documented
-        # public mutator (not just set_cancelled's own wrapper) can never
-        # hit a KeyError here after the file has already been written and
-        # the lock released -- that would leave the item genuinely
-        # cancelled on disk while the caller sees a raised exception and
-        # no commit message, contradicting set_state's own guard comment
-        # that every caller and future wrapper funnels through one check.
-        "cancelled": f"cancelled ({reason})",
-    }[state]
-    committed = _git_commit_and_push([resolved_path], f"backlog: {item_id} {action} by {actor}", resolved_root)
+        action = {
+            "in-progress": (f"started (branch {branch})" if branch else "started"),
+            "blocked": "blocked",
+            "todo": "reset to to-do",
+            "review": f"sent to review ({branch})",
+            "rejected": f"rejected ({reason})",
+            "uat": f"sent to uat ({item.link})",
+            # H80 correction round (MEDIUM 5): this dict is keyed by every
+            # value in ITEM_STATES, on purpose, so a caller of this documented
+            # public mutator (not just set_cancelled's own wrapper) can never
+            # hit a KeyError here after the file has already been written,
+            # while still holding the same lock (H93: now covering the
+            # commit too, see `_locked`) -- that would leave the item
+            # genuinely cancelled on disk while the caller sees a raised
+            # exception and no commit message, contradicting set_state's own
+            # guard comment that every caller and future wrapper funnels
+            # through one check.
+            "cancelled": f"cancelled ({reason})",
+        }[state]
+        committed = _git_commit_and_push([resolved_path], f"backlog: {item_id} {action} by {actor}", resolved_root)
     return item.to_dict(), committed
 
 
@@ -1514,9 +2005,9 @@ def set_approved(
         doc.add_note(item_id, f"approved: {choice_clean}", actor)
         item = doc.set_state(item_id, "in-progress", actor=actor)
         doc.save(resolved_path)
-    committed = _git_commit_and_push(
-        [resolved_path], f"backlog: {item_id} approved ({choice_clean}) by {actor}", resolved_root
-    )
+        committed = _git_commit_and_push(
+            [resolved_path], f"backlog: {item_id} approved ({choice_clean}) by {actor}", resolved_root
+        )
     return item.to_dict(), committed
 
 
@@ -1621,9 +2112,9 @@ def set_cancelled(
             )
         item = doc.item(item_id)
         doc.save(resolved_path)
-    committed = _git_commit_and_push(
-        [resolved_path], f"backlog: {item_id} cancelled by {actor}", resolved_root
-    )
+        committed = _git_commit_and_push(
+            [resolved_path], f"backlog: {item_id} cancelled by {actor}", resolved_root
+        )
     return item.to_dict(), committed
 
 
@@ -1687,9 +2178,9 @@ def set_uncancelled(
         doc.add_note(item_id, f"uncancelled: {reason_clean}", actor)
         item = doc.item(item_id)
         doc.save(resolved_path)
-    committed = _git_commit_and_push(
-        [resolved_path], f"backlog: {item_id} uncancelled by {actor}", resolved_root
-    )
+        committed = _git_commit_and_push(
+            [resolved_path], f"backlog: {item_id} uncancelled by {actor}", resolved_root
+        )
     return item.to_dict(), committed
 
 
@@ -1708,7 +2199,7 @@ def add_item(
         doc = TodoDoc.load(resolved_path)
         item = doc.add_item(section, title, owner=owner)
         doc.save(resolved_path)
-    committed = _git_commit_and_push([resolved_path], f"backlog: {item.item_id} added by {actor}", resolved_root)
+        committed = _git_commit_and_push([resolved_path], f"backlog: {item.item_id} added by {actor}", resolved_root)
     return item.to_dict(), committed
 
 
@@ -1726,9 +2217,9 @@ def set_owner(
         doc = TodoDoc.load(resolved_path)
         item = doc.set_owner(item_id, owner)
         doc.save(resolved_path)
-    committed = _git_commit_and_push(
-        [resolved_path], f"backlog: {item_id} owner set to {owner} by {actor}", resolved_root
-    )
+        committed = _git_commit_and_push(
+            [resolved_path], f"backlog: {item_id} owner set to {owner} by {actor}", resolved_root
+        )
     return item.to_dict(), committed
 
 
@@ -1746,9 +2237,9 @@ def set_priority(
         doc = TodoDoc.load(resolved_path)
         item = doc.set_priority(item_id, priority)
         doc.save(resolved_path)
-    committed = _git_commit_and_push(
-        [resolved_path], f"backlog: {item_id} priority set to {priority} by {actor}", resolved_root
-    )
+        committed = _git_commit_and_push(
+            [resolved_path], f"backlog: {item_id} priority set to {priority} by {actor}", resolved_root
+        )
     return item.to_dict(), committed
 
 
@@ -1766,10 +2257,10 @@ def set_unblocks(
         doc = TodoDoc.load(resolved_path)
         item = doc.set_unblocks(item_id, questions)
         doc.save(resolved_path)
-    label = ", ".join(item.unblocks) if item.unblocks else "none"
-    committed = _git_commit_and_push(
-        [resolved_path], f"backlog: {item_id} unblocks set to {label} by {actor}", resolved_root
-    )
+        label = ", ".join(item.unblocks) if item.unblocks else "none"
+        committed = _git_commit_and_push(
+            [resolved_path], f"backlog: {item_id} unblocks set to {label} by {actor}", resolved_root
+        )
     return item.to_dict(), committed
 
 
@@ -1794,9 +2285,9 @@ def clear_branch(
         doc = TodoDoc.load(resolved_path)
         item = doc.clear_branch(item_id)
         doc.save(resolved_path)
-    committed = _git_commit_and_push(
-        [resolved_path], f"backlog: {item_id} branch tag cleared by {actor}", resolved_root
-    )
+        committed = _git_commit_and_push(
+            [resolved_path], f"backlog: {item_id} branch tag cleared by {actor}", resolved_root
+        )
     return item.to_dict(), committed
 
 
@@ -1807,15 +2298,24 @@ def add_note(
     *,
     todo_path: Optional[Path] = None,
     repo_root: Optional[Path] = None,
-) -> tuple[dict, bool]:
+) -> tuple[dict, bool, dict]:
+    """H64: the note itself is still written via `TodoDoc.add_note` ->
+    `_collapse_note_text`, unchanged, but the truncation fact `_collapse_
+    note_text` used to swallow silently is now computed here (via
+    `_note_truncation_info`, the same newline-collapsing so it agrees with
+    what actually gets stored) and returned as a third element, so both
+    callers of this function -- `scripts/backlog.py note` and the `/ops/
+    go-live` API route -- can surface it instead of reporting bare
+    success on a write that quietly lost content."""
     resolved_path = todo_path or _todo_path()
     resolved_root = repo_root or _repo_root()
+    truncation = _note_truncation_info(text)
     with _locked(resolved_root):
         doc = TodoDoc.load(resolved_path)
         item = doc.add_note(item_id, text, actor)
         doc.save(resolved_path)
-    committed = _git_commit_and_push([resolved_path], f"backlog: {item_id} note added by {actor}", resolved_root)
-    return item.to_dict(), committed
+        committed = _git_commit_and_push([resolved_path], f"backlog: {item_id} note added by {actor}", resolved_root)
+    return item.to_dict(), committed, truncation
 
 
 def set_question_status(
@@ -1833,7 +2333,7 @@ def set_question_status(
         doc.set_status(q_id, status)
         doc.save(resolved_path)
         result = doc.question_dict(q_id)
-    committed = _git_commit_and_push(
-        [resolved_path], f"backlog: {q_id} status set to {status} by {actor}", resolved_root
-    )
+        committed = _git_commit_and_push(
+            [resolved_path], f"backlog: {q_id} status set to {status} by {actor}", resolved_root
+        )
     return result, committed

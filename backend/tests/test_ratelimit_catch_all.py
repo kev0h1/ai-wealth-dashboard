@@ -146,6 +146,42 @@ def test_every_named_expensive_prefix_is_tighter_than_general(path):
     assert resp is not None and resp.status_code == 429
 
 
+# ── G159 review fix #1: the two sync routes get the expensive-tier budget ──
+#
+# Neither /accounts/sync nor /accounts/sync-history had an EXPENSIVE_PREFIXES
+# entry before this fix, so they fell under the generic 300/60
+# CATCH_ALL_USER_LIMIT — fine when a sync with nothing new was cheap, wrong
+# once G159 made every one of these calls always pay a real recompute.
+
+
+@pytest.mark.parametrize("path", ["/accounts/sync", "/accounts/sync-history"])
+def test_sync_routes_get_the_tighter_expensive_budget(path):
+    exp_limit, _exp_window = EXPENSIVE_USER_LIMIT
+    general_limit, _general_window = CATCH_ALL_USER_LIMIT
+    assert exp_limit < general_limit
+    identity = f"catchall-sync-{path}@example.com"
+    for _ in range(exp_limit):
+        assert asyncio.run(check_catch_all_user_limit(_req(path), identity)) is None
+    resp = asyncio.run(check_catch_all_user_limit(_req(path), identity))
+    assert resp is not None and resp.status_code == 429
+
+
+def test_sync_and_sync_history_have_independent_budgets_not_a_shared_one():
+    """/accounts/sync-history starts with the string "/accounts/sync", so
+    EXPENSIVE_PREFIXES' first-match-wins `str.startswith` scan must list
+    the more specific "-history" prefix first — otherwise sync-history
+    would be folded into plain sync's bucket instead of getting its own,
+    and exhausting one would silently exhaust the other too."""
+    exp_limit, _exp_window = EXPENSIVE_USER_LIMIT
+    identity = "catchall-sync-independent@example.com"
+    for _ in range(exp_limit):
+        assert asyncio.run(check_catch_all_user_limit(_req("/accounts/sync-history"), identity)) is None
+    resp = asyncio.run(check_catch_all_user_limit(_req("/accounts/sync-history"), identity))
+    assert resp is not None and resp.status_code == 429
+    # Plain /accounts/sync, same identity, is a completely separate budget.
+    assert asyncio.run(check_catch_all_user_limit(_req("/accounts/sync"), identity)) is None
+
+
 # ── A36: per-prefix budgets, not one shared pool ─────────────────────────
 #
 # The A27 post-merge review found all six EXPENSIVE_PREFIXES drew from ONE

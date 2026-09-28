@@ -659,13 +659,60 @@ def test_public_set_owner(paths, mock_git):
 def test_public_add_note(paths, mock_git):
     todo_path, _ = paths
     repo_root = todo_path.parent
-    item, committed = backlog.add_note(
+    item, committed, truncation = backlog.add_note(
         "A3", "Board write-side smoke test", actor="kevin", todo_path=todo_path, repo_root=repo_root
     )
     assert committed is True
     assert item["notes"][-1]["text"] == "Board write-side smoke test"
     assert item["notes"][-1]["actor"] == "kevin"
     assert "backlog: A3 note added by kevin" in mock_git.call_args_list[1].args[0]
+    # H64: a note well under NOTE_CAP is not truncated, and add_note says
+    # so explicitly rather than the caller having to infer it.
+    assert truncation["truncated"] is False
+    assert truncation["dropped_length"] == 0
+    assert truncation["dropped_tail"] == ""
+    assert truncation["cap"] == backlog.NOTE_CAP
+
+
+def test_public_add_note_reports_truncation_fact_when_over_note_cap(paths, mock_git):
+    # H64: notes are silently truncated at NOTE_CAP with no warning to the
+    # caller -- hit four times in one session on 2026-09-17, the fourth
+    # cutting the operational half of a note (the worktree path and the
+    # exact commands to resume an item) while preserving the prose
+    # rationale. add_note must now report the truncation fact so a caller
+    # can react, instead of believing it recorded something it did not.
+    todo_path, _ = paths
+    repo_root = todo_path.parent
+    long_text = "y" * (backlog.NOTE_CAP + 300)
+
+    item, committed, truncation = backlog.add_note(
+        "A3", long_text, actor="claude", todo_path=todo_path, repo_root=repo_root
+    )
+    assert committed is True
+
+    # The stored note is still capped, same as before this fix.
+    stored = item["notes"][-1]["text"]
+    assert len(stored) <= backlog.NOTE_CAP
+    assert stored.endswith("...")
+
+    # But the caller can now see exactly what happened: it was truncated,
+    # by how much, and the tail (up to 40 characters) that got cut off.
+    assert truncation["truncated"] is True
+    assert truncation["original_length"] == len(long_text)
+    assert truncation["cap"] == backlog.NOTE_CAP
+    assert truncation["dropped_length"] == len(long_text) - (backlog.NOTE_CAP - 3)
+    assert truncation["dropped_tail"] == "y" * 40
+
+
+def test_public_add_note_under_cap_is_not_reported_as_truncated(paths, mock_git):
+    todo_path, _ = paths
+    repo_root = todo_path.parent
+    item, committed, truncation = backlog.add_note(
+        "A3", "a perfectly ordinary short note", actor="claude", todo_path=todo_path, repo_root=repo_root
+    )
+    assert committed is True
+    assert truncation["truncated"] is False
+    assert item["notes"][-1]["text"] == "a perfectly ordinary short note"
 
 
 def test_public_set_question_status(paths, mock_git):
@@ -1230,6 +1277,7 @@ def test_cli_reject_and_state_display(tmp_path):
     compliance_dir = board_root / "docs" / "compliance"
     compliance_dir.mkdir(parents=True)
     (compliance_dir / "finexer-agent-controls-2026-09.md").write_text(COMPLIANCE_FIXTURE, encoding="utf-8")
+    _init_git_repo(board_root)
 
     env = dict(os.environ)
     env["BACKLOG_ROOT"] = str(board_root)
@@ -1293,6 +1341,85 @@ def test_cli_reject_without_reason_errors(tmp_path):
     )
     # argparse itself rejects the missing positional "reason" arg.
     assert result.returncode != 0
+
+
+def test_cli_note_warns_on_stderr_when_truncated_but_exits_zero_without_strict(tmp_path):
+    # H64: the CLI must warn loudly on a truncated note (original/final
+    # lengths plus the dropped tail) but not fail the command outright
+    # unless the caller opts in with --strict.
+    board_root = tmp_path / "board"
+    board_root.mkdir()
+    (board_root / "TODO.md").write_text(TODO_FIXTURE, encoding="utf-8")
+    compliance_dir = board_root / "docs" / "compliance"
+    compliance_dir.mkdir(parents=True)
+    (compliance_dir / "finexer-agent-controls-2026-09.md").write_text(COMPLIANCE_FIXTURE, encoding="utf-8")
+    # H93: the CLI now exits non-zero whenever the git commit/push itself
+    # fails, so this test (asserting a *successful* exit) needs a
+    # board_root that can really commit and push -- see _init_git_repo's
+    # own docstring below for why.
+    _init_git_repo(board_root)
+
+    env = dict(os.environ)
+    env["BACKLOG_ROOT"] = str(board_root)
+    long_text = "z" * (backlog.NOTE_CAP + 200)
+
+    result = subprocess.run(
+        [sys.executable, str(SCRIPTS_BACKLOG), "note", "A1", long_text],
+        cwd=board_root, env=env, capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 0
+    assert "warning: note for A1 truncated" in result.stderr
+    assert f"from {len(long_text)} to {backlog.NOTE_CAP}" in result.stderr
+    assert "last 40 characters dropped" in result.stderr
+    assert "z" * 40 in result.stderr
+
+
+def test_cli_note_strict_exits_non_zero_when_truncated(tmp_path):
+    board_root = tmp_path / "board"
+    board_root.mkdir()
+    (board_root / "TODO.md").write_text(TODO_FIXTURE, encoding="utf-8")
+    compliance_dir = board_root / "docs" / "compliance"
+    compliance_dir.mkdir(parents=True)
+    (compliance_dir / "finexer-agent-controls-2026-09.md").write_text(COMPLIANCE_FIXTURE, encoding="utf-8")
+    # H93: a real git repo, so the non-zero exit this test asserts on is
+    # unambiguously --strict's truncation check, not an incidental git
+    # commit failure from a board_root that was never a git repo at all.
+    _init_git_repo(board_root)
+
+    env = dict(os.environ)
+    env["BACKLOG_ROOT"] = str(board_root)
+    long_text = "z" * (backlog.NOTE_CAP + 200)
+
+    result = subprocess.run(
+        [sys.executable, str(SCRIPTS_BACKLOG), "note", "A1", long_text, "--strict"],
+        cwd=board_root, env=env, capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode != 0
+    assert "warning: note for A1 truncated" in result.stderr
+    # The note is still written even though --strict flags the failure --
+    # this is a caller-notification exit code, not a refusal to write.
+    saved = (board_root / "TODO.md").read_text(encoding="utf-8")
+    assert "note (" in saved
+
+
+def test_cli_note_strict_exits_zero_when_not_truncated(tmp_path):
+    board_root = tmp_path / "board"
+    board_root.mkdir()
+    (board_root / "TODO.md").write_text(TODO_FIXTURE, encoding="utf-8")
+    compliance_dir = board_root / "docs" / "compliance"
+    compliance_dir.mkdir(parents=True)
+    (compliance_dir / "finexer-agent-controls-2026-09.md").write_text(COMPLIANCE_FIXTURE, encoding="utf-8")
+    _init_git_repo(board_root)
+
+    env = dict(os.environ)
+    env["BACKLOG_ROOT"] = str(board_root)
+
+    result = subprocess.run(
+        [sys.executable, str(SCRIPTS_BACKLOG), "note", "A1", "a short ordinary note", "--strict"],
+        cwd=board_root, env=env, capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 0
+    assert "warning: note for A1 truncated" not in result.stderr
 
 
 def test_public_set_review_writes_file_and_commit_message(paths, mock_git):
@@ -1504,6 +1631,7 @@ def test_cli_add_and_review_edit_backlog_root_regardless_of_cwd(tmp_path):
     compliance_dir = board_root / "docs" / "compliance"
     compliance_dir.mkdir(parents=True)
     (compliance_dir / "finexer-agent-controls-2026-09.md").write_text(COMPLIANCE_FIXTURE, encoding="utf-8")
+    _init_git_repo(board_root)
 
     other_cwd = tmp_path / "elsewhere"
     other_cwd.mkdir()
@@ -1572,6 +1700,40 @@ SHOW_FIXTURE = """# Backlog fixture for `show` tests
 """
 
 
+def _init_git_repo(board_root: Path) -> None:
+    """Wires `board_root` as a real, pushable git repo (H93): a local
+    bare repo one directory over stands in for `origin`, so the CLI's
+    real `git add` / `git commit` / `git push` all succeed end to end
+    against this fixture, exactly as they do against the real shared tree
+    at /root/ai-wealth-dashboard.
+
+    Before H93, `scripts/backlog.py` printed a footnote and exited 0 when
+    the git commit/push failed, so every CLI test here could get away
+    with a `board_root` that was never a real git repo at all — the
+    real `git add`/`commit` calls genuinely failed (exit 128, "not a
+    git repository"), but nothing asserted on that, so it went
+    unnoticed. Since H93 makes that outcome a loud non-zero exit (the
+    whole point of the fix), any test whose CLI call is expected to
+    *succeed* now needs a `board_root` that can actually commit and push,
+    or it fails for the wrong reason. Tests that only exercise a refusal
+    path (the CLI errors out before ever reaching `_git_commit_and_push`)
+    do not need this."""
+    origin = board_root.parent / (board_root.name + "-origin.git")
+    run = lambda *args: subprocess.run(  # noqa: E731
+        list(args), cwd=board_root, check=True, capture_output=True, text=True, timeout=15
+    )
+    subprocess.run(
+        ["git", "init", "--bare", "-q", str(origin)], check=True, capture_output=True, text=True, timeout=15
+    )
+    run("git", "init", "-q", ".")
+    run("git", "config", "user.email", "backlog-test@example.com")
+    run("git", "config", "user.name", "Backlog Test")
+    run("git", "remote", "add", "origin", str(origin))
+    run("git", "add", "-A")
+    run("git", "commit", "-q", "-m", "initial fixture commit")
+    run("git", "push", "-q", "-u", "origin", "HEAD")
+
+
 def _make_board_root(tmp_path: Path, todo_text: str) -> Path:
     board_root = tmp_path / "board"
     board_root.mkdir()
@@ -1579,6 +1741,7 @@ def _make_board_root(tmp_path: Path, todo_text: str) -> Path:
     compliance_dir = board_root / "docs" / "compliance"
     compliance_dir.mkdir(parents=True)
     (compliance_dir / "finexer-agent-controls-2026-09.md").write_text(COMPLIANCE_FIXTURE, encoding="utf-8")
+    _init_git_repo(board_root)
     return board_root
 
 
@@ -2078,6 +2241,7 @@ def test_cli_uat_and_approve_round_trip(tmp_path):
     compliance_dir = board_root / "docs" / "compliance"
     compliance_dir.mkdir(parents=True)
     (compliance_dir / "finexer-agent-controls-2026-09.md").write_text(COMPLIANCE_FIXTURE, encoding="utf-8")
+    _init_git_repo(board_root)
 
     env = dict(os.environ)
     env["BACKLOG_ROOT"] = str(board_root)
@@ -2975,6 +3139,7 @@ def test_cli_start_with_branch_flag_round_trips(tmp_path):
     compliance_dir = board_root / "docs" / "compliance"
     compliance_dir.mkdir(parents=True)
     (compliance_dir / "finexer-agent-controls-2026-09.md").write_text(COMPLIANCE_FIXTURE, encoding="utf-8")
+    _init_git_repo(board_root)
 
     env = dict(os.environ)
     env["BACKLOG_ROOT"] = str(board_root)
@@ -3001,6 +3166,7 @@ def test_cli_start_without_branch_flag_records_no_branch(tmp_path):
     compliance_dir = board_root / "docs" / "compliance"
     compliance_dir.mkdir(parents=True)
     (compliance_dir / "finexer-agent-controls-2026-09.md").write_text(COMPLIANCE_FIXTURE, encoding="utf-8")
+    _init_git_repo(board_root)
 
     env = dict(os.environ)
     env["BACKLOG_ROOT"] = str(board_root)
@@ -3029,6 +3195,7 @@ def test_end_to_end_uat_loop_including_start_after_approve(tmp_path):
     compliance_dir = board_root / "docs" / "compliance"
     compliance_dir.mkdir(parents=True)
     (compliance_dir / "finexer-agent-controls-2026-09.md").write_text(COMPLIANCE_FIXTURE, encoding="utf-8")
+    _init_git_repo(board_root)
 
     env = dict(os.environ)
     env["BACKLOG_ROOT"] = str(board_root)
@@ -3205,6 +3372,7 @@ def test_cli_lint_dry_run_then_apply(tmp_path):
     compliance_dir = board_root / "docs" / "compliance"
     compliance_dir.mkdir(parents=True)
     (compliance_dir / "finexer-agent-controls-2026-09.md").write_text(COMPLIANCE_FIXTURE, encoding="utf-8")
+    _init_git_repo(board_root)
 
     env = dict(os.environ)
     env["BACKLOG_ROOT"] = str(board_root)
