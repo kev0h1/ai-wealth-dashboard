@@ -82,7 +82,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const cleaned = params.toString()
           ? `${window.location.pathname}?${params}`
           : window.location.pathname;
-        window.history.replaceState({}, "", cleaned);
+        // G182: this used to replaceState with a bare `{}`, which wiped
+        // whatever was already on `history.state` for this entry instead
+        // of just stripping the token/error from the URL. Two things live
+        // there that an empty object silently destroys: lib/scrollNavDetect
+        // .ts's `__wdNavSeq` stamp (its PUSH-vs-POP signal is the stamp's
+        // mere PRESENCE, so wiping it makes the very first entry after
+        // OAuth misread as a fresh push forever) and Next's own router
+        // state, `__NA` / `__PRIVATE_NEXTJS_INTERNALS_TREE`
+        // (node_modules/next/dist/client/components/app-router.js's
+        // HistoryUpdater, ~L50-57, writes exactly these two keys on every
+        // entry it owns). Spread the existing state first, the same
+        // contract lib/scrollNavDetect.ts, lib/useSheetA11y.ts (H71) and
+        // G116's lib/accountSheetHistory.ts all follow, guarding for a
+        // non-object state the way accountSheetHistory.ts does.
+        const priorState =
+          window.history.state != null && typeof window.history.state === "object"
+            ? (window.history.state as Record<string, unknown>)
+            : {};
+        window.history.replaceState({ ...priorState }, "", cleaned);
       }
 
       const token = getToken();
