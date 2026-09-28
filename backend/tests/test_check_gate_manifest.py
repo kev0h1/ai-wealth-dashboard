@@ -86,35 +86,63 @@ def _git(*args: str, cwd: Path) -> str:
     return result.stdout
 
 
+# The last commit on `main` before H83's own commits landed, i.e. the
+# merge-base of this branch's HEAD and `origin/main` at the time this
+# item was being built -- resolved ONCE, by hand
+# (`git merge-base HEAD origin/main` -> b9a571ef70026451d649fdebd2d4b31b3188b203,
+# "backlog: G168 started ..."), and pinned here as a fixed sha rather
+# than re-resolved at test time.
+#
+# A moving ref cannot be used for this (review-round correction): the
+# first version of this test called `git merge-base HEAD origin/main`
+# live. That is correct only until H83 itself reaches `origin/main`
+# (the very next integrate pass after this branch merges) -- from that
+# point on, `origin/main` contains H83, so the merge-base of ANY future
+# branch's HEAD and `origin/main` is guaranteed by git to be on or after
+# H83, forever. This fixture's own guard would then fire unconditionally
+# on every subsequent session, and `cmd_finish` runs `pytest -q -x
+# tests`, so that single fixture failure would break `finish` for every
+# future item, on any unrelated branch, until someone deleted this test
+# -- a worse failure than the silent-skip bug H83 fixes. A sha baked
+# into permanent git history has no such problem: `git show
+# <sha>:scripts/session.sh` returns the same content forever, regardless
+# of where `main`'s tip moves. See
+# test_pinned_pre_h83_baseline_sha_genuinely_predates_run_check_gate
+# below for the one-time "is this pin still honest" check, which stays
+# green forever because the sha is fixed, not because the check is
+# toothless.
+_PRE_H83_SESSION_SH_SHA = "b9a571ef70026451d649fdebd2d4b31b3188b203"
+
+
 def _pre_h83_session_sh(tmp_path: Path) -> Path:
     """The honest "old gate" baseline (see the H83 item text and
     CLAUDE.md's "Finishing" note on this item): scripts/session.sh
     exactly as it stood before this item's edits, not a hand-written
-    stand-in for the bug.
-
-    This is NOT `git show HEAD:...` -- HEAD on this branch IS the H83
-    commit (and, after a merge of origin/main into this branch, a merge
-    commit sitting on top of it), so `HEAD:scripts/session.sh` is the
-    NEW gate, not the old one; a test built that way would be asserting
-    the fix against itself. The correct "before this item" point is the
-    merge-base of this branch's HEAD and origin/main: the last commit
-    both share, which by construction predates every commit this item
-    added, and stays correct across any number of `git merge
-    origin/main` calls into this branch (each just advances the
-    merge-base along main, never past H83's own commits, since main has
-    not received them yet)."""
+    stand-in for the bug. See `_PRE_H83_SESSION_SH_SHA` above for why
+    this is a pinned sha rather than `git show HEAD:...` (HEAD on this
+    branch IS the H83 commit) or a live merge-base resolution (a
+    landmine for every session after H83 merges)."""
     old = tmp_path / "old-session.sh"
-    base_sha = _git("merge-base", "HEAD", "origin/main", cwd=REPO_ROOT).strip()
-    content = _git("show", f"{base_sha}:scripts/session.sh", cwd=REPO_ROOT)
-    if "run_check_gate" in content:
-        raise AssertionError(
-            f"merge-base {base_sha} of HEAD and origin/main already contains run_check_gate; "
-            "this is no longer a pre-H83 baseline (has H83 landed on main already?), "
-            "so this test cannot tell red from green."
-        )
+    content = _git("show", f"{_PRE_H83_SESSION_SH_SHA}:scripts/session.sh", cwd=REPO_ROOT)
     old.write_text(content, encoding="utf-8")
     old.chmod(0o755)
     return old
+
+
+def test_pinned_pre_h83_baseline_sha_genuinely_predates_run_check_gate():
+    """Test-of-the-test: if `_PRE_H83_SESSION_SH_SHA` were ever wrong (a
+    typo, or repointed at a post-H83 commit), the red-then-green test
+    below would still pass every stubbed step -- it would just be
+    proving the current gate against itself a second time, silently. A
+    fixed sha never drifts, so this never becomes the landmine a moving
+    ref would have been; it exists to make a bad PIN fail loudly rather
+    than a bad pin proving nothing."""
+    content = _git("show", f"{_PRE_H83_SESSION_SH_SHA}:scripts/session.sh", cwd=REPO_ROOT)
+    assert "run_check_gate" not in content, (
+        f"the pinned pre-H83 baseline sha {_PRE_H83_SESSION_SH_SHA} already contains "
+        "run_check_gate -- this pin is wrong, and the red-then-green test proves nothing "
+        "until it is repointed at a genuinely pre-H83 commit"
+    )
 
 
 def _make_board_root(tmp_path: Path) -> Path:
