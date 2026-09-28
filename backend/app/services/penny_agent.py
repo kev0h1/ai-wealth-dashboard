@@ -240,7 +240,7 @@ def _retry_delay_s(attempt: int, retry_after: float | None) -> float:
 
 
 async def _call_openrouter_with_retry(
-    payload: dict, *, uid: str, client: httpx.AsyncClient, message_id: str,
+    payload: dict, *, uid: str, client: httpx.AsyncClient, message_id: str, round_num: int,
 ) -> httpx.Response:
     """One model-call round's worth of OpenRouter request, with the retry
     policy described in the module-level comment above applied on top of
@@ -266,12 +266,19 @@ async def _call_openrouter_with_retry(
     `_is_retryable_status`): a `_ProviderFailure`, so `run_penny_agent`
     reports the honest `{"provider_error": True}` rather than letting it
     fall through to the generic `except Exception` there, which the B37
-    failure doctrine reads as an off-topic decline."""
+    failure doctrine reads as an off-topic decline.
+
+    `round_num` (B38, 2026-09-28) is this call's 1-indexed round within the
+    loop (the caller's own `rounds` counter) — forwarded to
+    `openrouter_chat`/`record_llm_usage` unchanged on every attempt
+    (including a retried one, which still belongs to the same round) so
+    the persisted tool trace can tell which round chose which tool."""
     attempt = 0
     while True:
         try:
             response = await openrouter_chat(
                 payload, user_id=uid, pipeline="penny", client=client, message_id=message_id,
+                round_num=round_num,
             )
         except LLMCeilingReached as exc:
             logger.warning(
@@ -816,7 +823,7 @@ async def run_penny_agent(
                 # round or raise", not to also decide what a failure means
                 # to the caller).
                 r = await _call_openrouter_with_retry(
-                    payload, uid=uid, client=client, message_id=message_id,
+                    payload, uid=uid, client=client, message_id=message_id, round_num=rounds,
                 )
                 data = r.json()
                 choice = (data.get("choices") or [{}])[0]

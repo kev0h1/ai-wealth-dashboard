@@ -44,8 +44,8 @@ ALLOWLIST: set[tuple[str, int]] = {
     # app.services.backlog.BacklogError — "Raised for any user/caller-facing
     # failure (unknown id, bad enum)" per its own docstring; owner-only
     # /ops/go-live admin surface.
-    ("app/routers/ops.py", 241),
-    ("app/routers/ops.py", 259),
+    ("app/routers/ops.py", 248),
+    ("app/routers/ops.py", 272),
     # ValueError raised by app.services.spend_impact.compute_intent_preview /
     # app.services.checkpoints.delete_intent with an authored message
     # ("'<category>' is not currently over usual, nothing to preview", etc.)
@@ -98,25 +98,27 @@ ALLOWLIST: set[tuple[str, int]] = {
     # shifted every line below by -6, removing the Kenya region's
     # get_user_region import and its two KES/GBP home-currency branches
     # earlier in this file; likewise not new exception sites. G159
-    # (2026-09-28) then shifted every line below by +6: an `engine_build`
-    # import plus a comment and one stamp line in `_load_cashflow_cache`
-    # (review fix #5, stamping a second cashflow_cache writer), earlier in
-    # this file; not a new exception site either.
-    ("app/services/penny_tools.py", 3871),
-    ("app/services/penny_tools.py", 3936),  # ValueError from compute_intent_preview, see above
-    ("app/services/penny_tools.py", 4439),
-    ("app/services/penny_tools.py", 4459),
-    ("app/services/penny_tools.py", 4495),
-    ("app/services/penny_tools.py", 4518),
-    ("app/services/penny_tools.py", 4660),
-    ("app/services/penny_tools.py", 4665),
-    ("app/services/penny_tools.py", 4670),
-    ("app/services/penny_tools.py", 4757),
-    ("app/services/penny_tools.py", 4762),
-    ("app/services/penny_tools.py", 4767),
-    ("app/services/penny_tools.py", 5708),
-    ("app/services/penny_tools.py", 6363),
-    ("app/services/penny_tools.py", 6377),
+    # (2026-09-28) merged main into this branch: main gained unrelated
+    # content earlier in the file (independent of G159's own
+    # `engine_build`/`_load_cashflow_cache` stamp change) which shifted
+    # every line below again. Re-derived empirically post-merge by an AST
+    # scan of the merged file (the same scan this test runs), not by
+    # arithmetic on either side's shift comment.
+    ("app/services/penny_tools.py", 3888),
+    ("app/services/penny_tools.py", 3953),  # ValueError from compute_intent_preview, see above
+    ("app/services/penny_tools.py", 4456),
+    ("app/services/penny_tools.py", 4476),
+    ("app/services/penny_tools.py", 4512),
+    ("app/services/penny_tools.py", 4535),
+    ("app/services/penny_tools.py", 4677),
+    ("app/services/penny_tools.py", 4682),
+    ("app/services/penny_tools.py", 4687),
+    ("app/services/penny_tools.py", 4774),
+    ("app/services/penny_tools.py", 4779),
+    ("app/services/penny_tools.py", 4784),
+    ("app/services/penny_tools.py", 5725),
+    ("app/services/penny_tools.py", 6380),
+    ("app/services/penny_tools.py", 6394),
     # app.services.billing._handle_checkout_completed: `str(exc)` here is an
     # authored ValueError message from grant_pack (see above), returned as
     # the body of a Stripe *webhook* response — read by Stripe's own retry

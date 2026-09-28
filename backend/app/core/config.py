@@ -16,6 +16,17 @@ load_dotenv(dotenv_path=_BACKEND_DIR / ".env")
 
 # ── General ───────────────────────────────────────────────────────────────────
 MONGO_URI           = os.getenv("MONGO_URI", "mongodb://localhost:27017")
+# H90 (2026-09-28): the database NAME within the deployment MONGO_URI points
+# at. Long present in UAT's backend/.env (`MONGO_DB=wealth`, matching what
+# app/db/collections.py used to hardcode) but never actually read anywhere
+# — see docs/ops/ENV.md's old "vestigial" note, now removed, since this is
+# the wire-up. Every real process (API, worker) leaves this unset and gets
+# "wealth", identical to the old hardcoded behaviour. backend/tests/
+# conftest.py sets this to a "_test"-suffixed name (default "wealth_test")
+# BEFORE any test can create a collection handle, so the whole backend
+# suite runs against a disposable database in the SAME Mongo deployment,
+# never the real one this app serves users from.
+MONGO_DB            = os.getenv("MONGO_DB", "wealth")
 OPENROUTER_API_KEY  = os.getenv("OPENROUTER_API_KEY", "")
 # Provider routing preferences applied to every OpenRouter request.
 # "data_collection": "deny" restricts routing to upstream providers that do

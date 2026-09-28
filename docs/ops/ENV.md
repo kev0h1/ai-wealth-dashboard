@@ -36,6 +36,7 @@ names, `railway variables --service ai-wealth-dashboard|worker --kv`,
 | Variable | Read in | UAT (VPS backend/.env) | Production (Railway, both services) | Notes |
 |---|---|---|---|---|
 | `MONGO_URI` | `core/config.py` | present | present | required everywhere, but not the same value or even the same kind of database: production's is an Atlas SRV string, UAT's is a local `mongod` on this VPS (`mongodb://localhost:27017`, no authentication configured). UAT and production do not share a database. |
+| `MONGO_DB` | `core/config.py`, `db/collections.py` | present (`wealth`) | absent (defaults to `wealth`) | optional; the database NAME within whatever `MONGO_URI` points at. H90 (2026-09-28) wired this up — it used to sit in `backend/.env` unread (see `git log` before H90 for the old "vestigial" note), coincidentally already set to the same value the code hardcoded. `backend/tests/conftest.py` is the one thing that actually relies on this now: it defaults the whole backend suite to `MONGO_DB=wealth_test` before any test can create a collection handle, so the suite runs against a disposable database in the SAME deployment rather than the real one. Do not remove `MONGO_DB=wealth` from UAT's `backend/.env` (no longer vestigial); leaving production unset is fine, its Atlas database is also named `wealth`. |
 | `OPENROUTER_API_KEY` | `core/config.py` | present | present | required; Penny + categorisation + savings insights all call OpenRouter. |
 | `LLM_GLOBAL_MONTHLY_CALL_CEILING` | `core/config.py` | absent (0, disabled) | absent (0, disabled) — recommend `200000` once enabled | optional, default `0` (disabled). A80 (pentest LLM-07): a service-wide monthly ceiling on OpenRouter calls, on top of (not instead of) the per-user allowances in `core/subscription.py`'s `TIER_LIMITS`; enforced in `core/llm.py`'s `openrouter_chat`, the one shared call path every pipeline uses, so it bounds total spend regardless of which pipeline drives it. Counts calls, not dollars, because calls are what's already metered per user. Recommended production value `200000`: the highest per-user allowance is Max tier's 400 Penny messages/month; at a plausible ~250 paying users that is 250 × 400 = 100,000 baseline Penny-message calls/month, doubled to 200,000 to leave headroom for a Penny message spanning several tool-calling rounds (each its own OpenRouter call) and for the non-Penny pipelines sharing this same counter (categorisation, savings-insight research, receipts, recurring-series judging, ...) that have no per-user message cap at all. This is meant as a circuit breaker for a bug or a bot running up many accounts, not a routine throttle, so it is set well above realistic legitimate volume rather than tight to it; revisit once real production usage data exists. |
 | `TAVILY_API_KEY` | `core/config.py` | present | present | required for savings-insight web lookups. |
@@ -169,7 +170,6 @@ forever.
 |---|---|---|---|---|
 | `FUEL_FINDER_CLIENT_ID` | `backend/fuel_finder_collector.py`, `backend/spike_fuel_finder*.py` | present | present | optional; standalone fuel-price collector script, not part of the API process. |
 | `FUEL_FINDER_CLIENT_SECRET` | same as above | present | present | optional; see above. |
-| `MONGO_DB` | not read anywhere under `backend/` (`backend/tests/conftest.py` notes there is no such env var, the database name is hardcoded to `"wealth"`) | present | absent | vestigial; safe to remove from `backend/.env`, harmless if left. |
 | `TOKEN_KEY` | not read anywhere under `backend/` (the real name is `TOKEN_ENCRYPTION_KEY`, see above) | absent | present | orphaned; likely a naming slip when `TOKEN_ENCRYPTION_KEY` was first set on Railway. Safe to remove once confirmed `TOKEN_ENCRYPTION_KEY` is the one actually in use (it is: `core/crypto.py` only ever reads `TOKEN_ENCRYPTION_KEY`). |
 
 ## Frontend
@@ -334,9 +334,11 @@ A27 backlog note.
   with these unset, and GET /subscription's `billing_live` follows it, so
   the frontend keeps showing "Available soon". See DEPLOY.md's "Stripe
   setup checklist" for what to do once the account exists.
-- **`TOKEN_KEY`** (Railway only) and **`MONGO_DB`** (UAT only) are
-  orphaned names nothing in `backend/app` reads; see the legacy-scripts
-  table above.
+- **`TOKEN_KEY`** (Railway only) is an orphaned name nothing in
+  `backend/app` reads; see the legacy-scripts table above. `MONGO_DB` used
+  to sit alongside it (nothing read it either) but H90 (2026-09-28) wired
+  it up — see its own row in the Backend table above — so it is no longer
+  in this bucket.
 - **`TRUELAYER_CLIENT_ID`, `TRUELAYER_CLIENT_SECRET`,
   `TRUELAYER_REDIRECT_URI`, `TRUELAYER_WEBHOOK_SECRET`** are still set on
   both Railway services and are now expected `absent` there (A67,
@@ -412,11 +414,12 @@ tables above is either a non-sensitive config value (`APP_URL`,
 `RECONCILE_MIN_GAP_SECONDS`, `SENTRY_ENV`, `APNS_BUNDLE_ID`,
 `APNS_AUTH_KEY_PATH`, `APNS_USE_SANDBOX`, `FCM_PROJECT_ID`,
 `FCM_SERVICE_ACCOUNT_PATH`, `VAPID_SUBJECT`, `REPO_ROOT`, `BACKLOG_ROOT`,
-`STRIPE_PRICE_IDS`), a boolean/flag switching behaviour on or off rather
-than authenticating anything (`OPEN_SIGNUP`, `MCP_CONNECTOR_ENABLED`,
-`MCP_ONLY`, `ENABLE_API_DOCS`, `DEV_MODE`, and every `NEXT_PUBLIC_*` flag —
-these ship to the browser by definition, so they were never secret), or
-already documented above as orphaned/vestigial (`MONGO_DB`, the stray
-`TOKEN_KEY` name on Railway). `BACKEND_URL` and `NEXT_PUBLIC_API_URL` are
+`STRIPE_PRICE_IDS`, `MONGO_DB` — a database NAME, not a credential), a
+boolean/flag switching behaviour on or off rather than authenticating
+anything (`OPEN_SIGNUP`, `MCP_CONNECTOR_ENABLED`, `MCP_ONLY`,
+`ENABLE_API_DOCS`, `DEV_MODE`, and every `NEXT_PUBLIC_*` flag — these ship
+to the browser by definition, so they were never secret), or already
+documented above as orphaned/vestigial (the stray `TOKEN_KEY` name on
+Railway). `BACKEND_URL` and `NEXT_PUBLIC_API_URL` are
 routing configuration, not credentials, changing them is a redeploy, not a
 rotation.
