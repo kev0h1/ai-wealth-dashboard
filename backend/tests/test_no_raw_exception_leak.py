@@ -47,7 +47,11 @@ naive-datetime scan by keying on `(file, exact stripped source-line text)`
 instead of a line number; this file adopts the same design, for the same
 reason: the code that was audited and allowlisted is still recognised
 wherever it ends up in the file, because its own text doesn't change when
-something else nearby does.
+something else nearby does. Migrated 1:1 from the old list: the 30 original
+(file, line-number) entries collapse into 13 distinct (file, text) entries
+below, once identical-text duplicates sharing one reason are grouped under
+a single entry's `count` (see below) — 13 keys, 30 occurrences, not the
+same number twice.
 
 The trade-off that keying by text introduces, exactly as it does in
 `check_naive_dates.py`: two DIFFERENT call sites can share identical source
@@ -92,8 +96,21 @@ SCAN_DIRS = ["app/routers", "app/services", "app/core"]
 
 # A one-off escape hatch for a line that doesn't warrant (or, per the
 # docstring above, can't share) a central ALLOWLIST entry: `# leak-ok:
-# <reason>` on the source line suppresses that line from the scan.
-INLINE_PRAGMA_RE = re.compile(r"#\s*leak-ok\s*:")
+# <reason>` on the source line suppresses that line from the scan -- but
+# only when a real reason follows the colon. A bare `# leak-ok:` (or one
+# with only whitespace after it) is a rubber stamp, not a review: it is
+# reported as its OWN violation (see _scan_file's `bad_pragmas` return
+# below), never silently treated as a suppression.
+PRAGMA_RE = re.compile(r"#\s*leak-ok\s*:(.*)$")
+MIN_PRAGMA_REASON_CHARS = 3  # non-space characters required after the colon
+
+
+def _pragma_reason(line: str) -> str | None:
+    """Return the text after '# leak-ok:' on this line (possibly empty or
+    whitespace-only), or None if the line carries no leak-ok pragma at
+    all."""
+    m = PRAGMA_RE.search(line)
+    return None if m is None else m.group(1).strip()
 
 # ALLOWLIST[relative_path][exact stripped source-line text] = {
 #     "reason": "...",       # why this forwarded text is safe (required)
@@ -249,20 +266,30 @@ def _name_in_subtree(node: ast.AST, bound_name: str) -> bool:
     return False
 
 
-def _scan_file(path: Path) -> list[tuple[int, str]]:
-    """Return a list of (lineno, stripped source text) violations in this
-    file: a `return`/`raise` inside an `except ... as name:` handler whose
-    value embeds `name`. A `# leak-ok: <reason>` comment on the violating
-    line suppresses it entirely (it never reaches the caller, so it isn't
-    counted against any ALLOWLIST entry either)."""
+def _scan_file(path: Path) -> tuple[list[tuple[int, str]], list[tuple[int, str]]]:
+    """Return (violations, bad_pragmas) for this file.
+
+    `violations`: (lineno, stripped source text) for a `return`/`raise`
+    inside an `except ... as name:` handler whose value embeds `name`, and
+    that carries no `# leak-ok:` pragma at all (or one with a real reason
+    -- see `bad_pragmas`).
+
+    `bad_pragmas`: (lineno, stripped source text) for a violation whose
+    `# leak-ok:` pragma has no reason, or only whitespace, after the colon.
+    These are NEVER silently suppressed and never matched against
+    ALLOWLIST -- an unreasoned pragma is exactly the kind of rubber stamp
+    this guard exists to prevent, so it is always reported as its own
+    failure (see test_no_handler_returns_raw_exception_text).
+    """
     try:
         source = path.read_text()
         tree = ast.parse(source, filename=str(path))
     except SyntaxError:
-        return []
+        return [], []
 
     source_lines = source.splitlines()
     violations: list[tuple[int, str]] = []
+    bad_pragmas: list[tuple[int, str]] = []
 
     for node in ast.walk(tree):
         if not isinstance(node, ast.ExceptHandler) or not node.name:
@@ -281,11 +308,16 @@ def _scan_file(path: Path) -> list[tuple[int, str]]:
             if _name_in_subtree(target, bound_name):
                 lineno = sub.lineno
                 line = source_lines[lineno - 1] if 0 < lineno <= len(source_lines) else ""
-                if INLINE_PRAGMA_RE.search(line):
+                reason = _pragma_reason(line)
+                if reason is not None:
+                    non_space_chars = len(re.sub(r"\s+", "", reason))
+                    if non_space_chars >= MIN_PRAGMA_REASON_CHARS:
+                        continue  # a real, non-trivial reason -- suppressed
+                    bad_pragmas.append((lineno, line.strip()))
                     continue
                 violations.append((lineno, line.strip()))
 
-    return violations
+    return violations, bad_pragmas
 
 
 def _check_file(
@@ -294,31 +326,52 @@ def _check_file(
     """Compare one file's scan hits (grouped by exact stripped source text)
     against its ALLOWLIST entries. Returns (new_violations, stale_entries).
 
-    A hit's text with no entry, or with more occurrences than its entry's
-    `count` allows, is a new violation. An entry whose text no longer
-    matches any hit at all in this file is stale (the line moved, was
-    fixed, or was deleted) and would silently stop guarding anything, so it
-    is reported too, exactly as the old line-keyed version reported a
-    (file, line) pair that no longer matched.
+    A hit's text with no entry is a new violation. A hit's text WITH an
+    entry must match its `count` EXACTLY, not just stay under it: more
+    occurrences than `count` is an un-triaged new copy, and FEWER
+    occurrences than `count` means a site was fixed, moved, or removed
+    since the entry was written, leaving a silent budget that a later,
+    unrelated, un-triaged addition could quietly reuse without ever being
+    reviewed. Either direction fails, with a message saying the count must
+    be updated (and its reason re-read, since fewer sites can change what
+    the reason is even describing). An entry whose text has ZERO matching
+    hits in this file at all is stale (never entered `hits_by_text`) and is
+    reported separately below, exactly as the old line-keyed version
+    reported a (file, line) pair that no longer matched.
     """
     new_violations: list[str] = []
     for text, linenos in hits_by_text.items():
         entry = allowed_here.get(text)
-        allowed_count = entry.get("count", 1) if entry else 0
-        if len(linenos) <= allowed_count:
-            continue
         if entry is None:
             for lineno in linenos:
                 new_violations.append(f"{rel}:{lineno}: {text}")
-        else:
-            where = ", ".join(str(n) for n in linenos)
+            continue
+
+        allowed_count = entry.get("count", 1)
+        if len(linenos) == allowed_count:
+            continue
+
+        where = ", ".join(str(n) for n in linenos)
+        if len(linenos) > allowed_count:
             new_violations.append(
                 f"{rel}: {len(linenos)} occurrence(s) of {text!r} found "
                 f"(lines: {where}) but only {allowed_count} allowlisted "
                 f"under that exact text — a new, un-triaged copy of an "
                 f"allowed line? Bump 'count' if every occurrence shares the "
                 f"same reason, or add a '# leak-ok: <reason>' comment on "
-                f"the line(s) that don't, to disambiguate."
+                f"the line(s) that don't, to disambiguate. Either way, the "
+                f"count must be updated to match, and its reason re-read to "
+                f"confirm it still covers every occurrence."
+            )
+        else:
+            new_violations.append(
+                f"{rel}: only {len(linenos)} occurrence(s) of {text!r} found "
+                f"(lines: {where}) but ALLOWLIST says count={allowed_count} "
+                f"— a site was fixed, moved, or removed since this entry "
+                f"was written. The count must be updated to the current "
+                f"exact number, and its reason re-read to confirm it still "
+                f"applies to what's left, so a future un-triaged addition "
+                f"can't silently reuse the freed budget."
             )
 
     stale_entries = [
@@ -340,16 +393,29 @@ def test_no_handler_returns_raw_exception_text():
     """
     new_violations: list[str] = []
     stale_entries: list[str] = []
+    bad_pragmas: list[str] = []
 
     for path in _iter_py_files():
         rel = str(path.relative_to(BACKEND_ROOT))
+        hits, file_bad_pragmas = _scan_file(path)
+        for lineno, text in file_bad_pragmas:
+            bad_pragmas.append(f"{rel}:{lineno}: {text}")
+
         hits_by_text: dict[str, list[int]] = {}
-        for lineno, text in _scan_file(path):
+        for lineno, text in hits:
             hits_by_text.setdefault(text, []).append(lineno)
 
         file_new, file_stale = _check_file(rel, hits_by_text, ALLOWLIST.get(rel, {}))
         new_violations.extend(file_new)
         stale_entries.extend(file_stale)
+
+    assert not bad_pragmas, (
+        "Found '# leak-ok:' pragma(s) with no reason, or only whitespace, "
+        "after the colon. A bare pragma is a rubber stamp, not a review: "
+        "add an actual reason (a few words on why THIS line is safe), or "
+        "remove the pragma and add a documented ALLOWLIST entry instead:\n  "
+        + "\n  ".join(bad_pragmas)
+    )
 
     assert not new_violations, (
         "Found handler(s) returning/raising raw exception text (not in "
@@ -407,8 +473,9 @@ def test_allowlist_survives_unrelated_line_shift(tmp_path):
     # Before the shift: the raise sits on line 7, and the OLD line-keyed
     # scheme (reconstructed inline here) matches it fine.
     scratch.write_text(original_source)
-    original_hits = _scan_file(scratch)
+    original_hits, original_bad_pragmas = _scan_file(scratch)
     assert original_hits == [(7, allowlist_text)]
+    assert not original_bad_pragmas
     old_line_keyed_allowlist = {(str(scratch), 7)}
     assert (str(scratch), 7) in old_line_keyed_allowlist
 
@@ -420,8 +487,9 @@ def test_allowlist_survives_unrelated_line_shift(tmp_path):
 
     # After the shift: the SAME raise is now on line 9, two lines later.
     scratch.write_text(shifted_source)
-    shifted_hits = _scan_file(scratch)
+    shifted_hits, shifted_bad_pragmas = _scan_file(scratch)
     assert shifted_hits == [(9, allowlist_text)]
+    assert not shifted_bad_pragmas
 
     # RED under the old (file, line-number) scheme — line 9 was never
     # allowlisted, so this unrelated edit would fail the finish gate.
@@ -463,8 +531,10 @@ def test_new_raw_exception_leak_still_caught(tmp_path):
         "raise HTTPException(400, str(exc)) from exc": {"reason": "test fixture"},
     }
 
+    hits, bad_pragmas = _scan_file(scratch)
+    assert not bad_pragmas
     hits_by_text: dict[str, list[int]] = {}
-    for lineno, text in _scan_file(scratch):
+    for lineno, text in hits:
         hits_by_text.setdefault(text, []).append(lineno)
 
     new_v, stale_v = _check_file("fake_handler2.py", hits_by_text, allowed_here)
@@ -487,8 +557,10 @@ def test_inline_leak_ok_pragma_suppresses_without_central_entry(tmp_path):
     scratch = tmp_path / "fake_handler3.py"
     scratch.write_text(source)
 
+    hits, bad_pragmas = _scan_file(scratch)
+    assert not bad_pragmas  # a real reason follows the colon -- not "bad"
     hits_by_text: dict[str, list[int]] = {}
-    for lineno, text in _scan_file(scratch):
+    for lineno, text in hits:
         hits_by_text.setdefault(text, []).append(lineno)
 
     assert hits_by_text == {}  # the pragma suppressed the hit entirely
@@ -516,8 +588,10 @@ def test_stale_allowlist_entry_is_flagged(tmp_path):
         "raise HTTPException(400, str(exc)) from exc": {"reason": "no longer present"},
     }
 
+    hits, bad_pragmas = _scan_file(scratch)
+    assert not bad_pragmas
     hits_by_text: dict[str, list[int]] = {}
-    for lineno, text in _scan_file(scratch):
+    for lineno, text in hits:
         hits_by_text.setdefault(text, []).append(lineno)
 
     assert hits_by_text == {}  # this handler doesn't leak at all any more
@@ -556,8 +630,10 @@ def test_duplicate_identical_text_uses_count_same_reason(tmp_path):
         },
     }
 
+    hits, bad_pragmas = _scan_file(scratch)
+    assert not bad_pragmas
     hits_by_text: dict[str, list[int]] = {}
-    for lineno, text in _scan_file(scratch):
+    for lineno, text in hits:
         hits_by_text.setdefault(text, []).append(lineno)
     new_v, stale_v = _check_file("fake_dup.py", hits_by_text, allowed_here)
     assert not new_v and not stale_v
@@ -571,9 +647,83 @@ def test_duplicate_identical_text_uses_count_same_reason(tmp_path):
         "        raise HTTPException(400, str(exc)) from exc\n"
     )
     scratch.write_text(source_with_third)
+    hits, bad_pragmas = _scan_file(scratch)
+    assert not bad_pragmas
     hits_by_text = {}
-    for lineno, text in _scan_file(scratch):
+    for lineno, text in hits:
         hits_by_text.setdefault(text, []).append(lineno)
     new_v, stale_v = _check_file("fake_dup.py", hits_by_text, allowed_here)
     assert len(new_v) == 1
     assert "3 occurrence" in new_v[0]
+
+
+def test_undercount_reduction_is_flagged(tmp_path):
+    """H82 follow-up: an ALLOWLIST entry whose declared `count` is HIGHER
+    than the number of matching occurrences actually left in the file must
+    fail too, not just an overcount. Before this fix, `len(linenos) <=
+    allowed_count` accepted any undercount silently -- so fixing one of two
+    identically-texted sites left a "budget" of one that a later, entirely
+    unrelated, un-triaged site could quietly reuse without ever being
+    reviewed, because it would just look like it fit under the same old
+    count. The count must be exact, and a mismatch in either direction
+    must say so."""
+    source = (
+        "def handler_a():\n"
+        "    try:\n"
+        "        one()\n"
+        "    except ValueError as exc:\n"
+        "        raise HTTPException(400, str(exc)) from exc\n"
+    )
+    scratch = tmp_path / "fake_reduced.py"
+    scratch.write_text(source)
+
+    allowed_here = {
+        "raise HTTPException(400, str(exc)) from exc": {
+            "reason": "was two sites sharing this reason; one was fixed since",
+            "count": 2,  # stale -- only 1 occurrence remains in the file
+        },
+    }
+
+    hits, bad_pragmas = _scan_file(scratch)
+    assert not bad_pragmas
+    hits_by_text: dict[str, list[int]] = {}
+    for lineno, text in hits:
+        hits_by_text.setdefault(text, []).append(lineno)
+
+    new_v, stale_v = _check_file("fake_reduced.py", hits_by_text, allowed_here)
+    assert not stale_v  # the text DOES still match one hit -- not "stale"
+    assert len(new_v) == 1
+    assert "count must be updated" in new_v[0]
+    assert "1 occurrence" in new_v[0]
+
+
+def test_bare_leak_ok_pragma_is_flagged(tmp_path):
+    """A '# leak-ok:' with no reason, or only whitespace, after the colon
+    must NOT silently suppress a genuine leak -- it must itself fail the
+    guard, with its own message telling the author to add a real reason
+    (or use a documented ALLOWLIST entry instead)."""
+    source = (
+        "def handler_bare():\n"
+        "    try:\n"
+        "        one()\n"
+        "    except RuntimeError as exc:\n"
+        "        return {\"error\": str(exc)}  # leak-ok:\n"
+        "\n"
+        "def handler_whitespace_only():\n"
+        "    try:\n"
+        "        two()\n"
+        "    except RuntimeError as exc:\n"
+        "        return {\"error\": str(exc)}  # leak-ok:    \n"
+        "\n"
+        "def handler_too_short():\n"
+        "    try:\n"
+        "        three()\n"
+        "    except RuntimeError as exc:\n"
+        "        return {\"error\": str(exc)}  # leak-ok: ok\n"
+    )
+    scratch = tmp_path / "fake_bare_pragma.py"
+    scratch.write_text(source)
+
+    hits, bad_pragmas = _scan_file(scratch)
+    assert hits == []  # never matched against ALLOWLIST
+    assert [lineno for lineno, _ in bad_pragmas] == [5, 11, 17]
