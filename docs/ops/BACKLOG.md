@@ -713,6 +713,41 @@ scripts/session.sh list
   dirty or either check fails. On success it pushes the branch and calls
   `scripts/backlog.py review <ID> --branch feature-<ID>[-slug]`, which is
   the new `[state: review: feature-<ID>[-slug]]` tag integrate looks for.
+  The backend test suite (H90, 2026-09-28) runs against a disposable
+  `wealth_test` database, never the real UAT/production `wealth` one:
+  `app/db/collections.py` selects its database via `MONGO_DB`
+  (`app/core/config.py`, default `"wealth"` — every real process is
+  unaffected), and `backend/tests/conftest.py` defaults `MONGO_DB` to
+  `"wealth_test"` before a single test module can create a collection
+  handle, then aborts collection outright (`pytest.UsageError`) if the
+  resolved database name is ever not `"_test"`-suffixed — a fail-hard
+  backstop independent of the default, so a misconfigured environment
+  fails loudly rather than quietly writing into real data. `finish` (this
+  command) and `scripts/integrate.py`'s own `_run_backend_tests` both also
+  pass `MONGO_DB=wealth_test` explicitly on the pytest invocation itself,
+  belt and suspenders on top of conftest.py's default — this matters most
+  for `integrate.py`, which runs the suite from the shared tree's own
+  `backend/` rather than a worktree, and whose `backend/.env` genuinely
+  carries `MONGO_DB=wealth` (python-dotenv's `override=False` default
+  means conftest.py's own earlier `setdefault` wins that race regardless,
+  but the explicit pass makes the invocation itself proof of the
+  mechanism rather than something that only holds up as long as
+  conftest.py's import order is undisturbed). The disposable database is
+  dropped at session end, best-effort (Motor's single-event-loop-per-
+  process lifetime means this sometimes silently no-ops, same as most
+  mid-suite Mongo cleanup already did before H90 — see conftest.py's own
+  docstrings). Before H90, `persist=False` on
+  `app.services.companion.compute_today_items` (used by `GET
+  /today/cover-plan` on every Settings load, and by
+  `penny_tools.get_today_brief`) did not actually suppress every write:
+  one unconditional cache read-through
+  (`app.services.debt_plan.get_debt_plan_cached`) wrote a fresh
+  `debt_plan` response-cache doc regardless, which is how a backend
+  suite run and, separately, an agent's own verification script each
+  wrote a document under a real or fixture user id from unmerged code.
+  `get_debt_plan_cached` now takes its own `persist` flag (default
+  `True`, unchanged for every other caller) so the outer flag's promise
+  is actually enforced.
   `--uat-review` additionally passes `--uat-review` through to that call,
   flagging the branch as a design round (H31): a clean integrate pass
   lands it in `uat` instead of `done`. Pass this whenever the branch's

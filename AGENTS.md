@@ -39,6 +39,22 @@ unrecorded.
   green: `scripts/session.sh finish <ID>`. This pushes the branch and
   marks the item in review. It refuses to run if the worktree is dirty or
   either check fails, fix that first rather than forcing it through.
+- The backend test suite runs against a disposable `wealth_test`
+  database, never the real UAT/production `wealth` one (H90, 2026-09-28).
+  `app/db/collections.py` selects its database via the `MONGO_DB` env var
+  (default `"wealth"`, so the API and worker processes are unaffected);
+  `backend/tests/conftest.py` defaults `MONGO_DB` to `"wealth_test"`
+  before any test can create a collection handle, and `scripts/
+  session.sh finish` / `scripts/integrate.py` both also pass
+  `MONGO_DB=wealth_test` explicitly on the pytest invocation itself.
+  `conftest.py` aborts collection outright if the resolved database name
+  is ever not `"_test"`-suffixed, so a misconfigured environment fails
+  loudly rather than silently writing real data. Do not remove or bypass
+  this: it closes a real incident (a suite run, and separately an agent's
+  own verification script, each wrote a document under a real or fixture
+  user id into the live database from unmerged code). If you ever need
+  to point the suite at Mongo yourself (a one-off script, not through
+  `pytest`), set `MONGO_DB=wealth_test` first.
 - `finish` and `abandon` resolve `<ID>` to a worktree through the branch
   the board records for it, never through a name match (item H85). They
   print the worktree and branch they resolved to before doing anything,
