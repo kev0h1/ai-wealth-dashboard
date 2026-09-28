@@ -21,6 +21,8 @@ import {
 } from "lucide-react";
 import type { Account } from "@wealth/shared";
 import AccountLedgerRow from "@/components/AccountLedgerRow";
+import AccountPinnedBand from "@/components/AccountPinnedBand";
+import AccountGroupSection from "@/components/AccountGroupSection";
 import { BankBadge, accountBrand, type TermsPill } from "@/components/AccountMiniCard";
 import ReconnectStrip from "@/components/ReconnectStrip";
 import SegmentedControl from "@/components/SegmentedControl";
@@ -291,37 +293,50 @@ function EstateControls({ query, onQuery, lens, onLens }: { query: string; onQue
   );
 }
 
-function AccountGroupCard({ group, hidden, collapsed, onToggle, onSelect, fixed = false, markPinned = false }: { group: EstateGroup; hidden: boolean; collapsed: boolean; onToggle: () => void; onSelect: (row: EstateRow) => void; fixed?: boolean; markPinned?: boolean }) {
-  const headerContent = (
-    <>
-      <span>
-        <span role="heading" aria-level={2} className="block text-[15px] font-bold text-slate-900 dark:text-slate-100">{group.label}</span>
-        <span className="mt-0.5 block text-[11px] text-slate-500 dark:text-slate-400">{group.count} {group.count === 1 ? "account" : "accounts"}</span>
-      </span>
-      <span className="flex items-center gap-2">
-        <span className="money text-[14px] font-semibold text-slate-800 dark:text-slate-200">{hidden ? "£••••" : money(group.subtotal)}</span>
-        {!fixed && <ChevronDown size={16} className={`text-slate-400 transition-transform motion-reduce:transition-none ${collapsed ? "" : "rotate-180"}`} aria-hidden="true" />}
-      </span>
-    </>
-  );
+/** G117: adapts termsForRow's fixture pills to the rowExtras shape
+ *  AccountPinnedBand / AccountGroupSection (both real production
+ *  components, components/AccountPinnedBand.tsx and
+ *  components/AccountGroupSection.tsx) take per row. Mirrors
+ *  AccountsPage.tsx's own estateTermsProps adapter, fixture data instead
+ *  of live cardTermsByAccount. */
+function termsRowExtras(onSelect: (row: EstateRow) => void) {
+  return (row: EstateRow) => ({
+    termsPill: termsForRow(row),
+    onTermsClick: row.kind === "Credit" ? () => onSelect(row) : undefined,
+  });
+}
 
+/** G117 fork (kept deliberately, not a drift risk): Variant A2 explores
+ *  marking a pinned row in place inside its own group with a small
+ *  indigo dot, instead of repeating it in a Pinned band (A1) or doing
+ *  nothing (A). No shipped surface does this — AccountGroupSection (the
+ *  production component this preview otherwise imports for A/A1/B/C) has
+ *  no row-marker hook, and it should not grow one for an unapproved
+ *  variant. This header/collapse shell is a deliberate copy of
+ *  AccountGroupSection's markup so A2 reads identically to the others
+ *  bar the dot; if A2 is ever picked, fold the marker into
+ *  AccountGroupSection behind an optional prop and delete this fork. */
+function PinnedMarkerGroupCard({ group, hidden, collapsed, onToggle, onSelect }: { group: EstateGroup; hidden: boolean; collapsed: boolean; onToggle: () => void; onSelect: (row: EstateRow) => void }) {
   return (
     <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:shadow-none" aria-label={`${group.label} accounts`}>
-      {fixed ? (
-        <div className="flex min-h-16 items-center justify-between gap-3 px-4">{headerContent}</div>
-      ) : (
-        <button
-          type="button"
-          onClick={onToggle}
-          aria-expanded={!collapsed}
-          className="flex min-h-16 w-full touch-manipulation items-center justify-between gap-3 px-4 text-left [-webkit-tap-highlight-color:transparent] transition-colors hover:bg-slate-50 active:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 motion-reduce:transition-none dark:hover:bg-slate-700/60 dark:active:bg-slate-700"
-        >
-          {headerContent}
-        </button>
-      )}
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={!collapsed}
+        className="flex min-h-16 w-full touch-manipulation items-center justify-between gap-3 px-4 text-left [-webkit-tap-highlight-color:transparent] transition-colors hover:bg-slate-50 active:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 motion-reduce:transition-none dark:hover:bg-slate-700/60 dark:active:bg-slate-700"
+      >
+        <span>
+          <span role="heading" aria-level={2} className="block text-[15px] font-bold text-slate-900 dark:text-slate-100">{group.label}</span>
+          <span className="mt-0.5 block text-[11px] text-slate-500 dark:text-slate-400">{group.count} {group.count === 1 ? "account" : "accounts"}</span>
+        </span>
+        <span className="flex items-center gap-2">
+          <span className="money text-[14px] font-semibold text-slate-800 dark:text-slate-200">{hidden ? "£••••" : money(group.subtotal)}</span>
+          <ChevronDown size={16} className={`text-slate-400 transition-transform motion-reduce:transition-none ${collapsed ? "" : "rotate-180"}`} aria-hidden="true" />
+        </span>
+      </button>
       {!collapsed && (
         <div className="divide-y divide-slate-100 border-t border-slate-100 dark:divide-slate-700 dark:border-slate-700">
-          {group.rows.map((row) => markPinned ? (
+          {group.rows.map((row) => (
             <div key={row.id} className="flex items-stretch">
               <span aria-hidden="true" className="flex w-4 shrink-0 items-center justify-center">
                 {row.pinned && <span className="size-1.5 rounded-full bg-indigo-500 dark:bg-indigo-400" />}
@@ -336,17 +351,45 @@ function AccountGroupCard({ group, hidden, collapsed, onToggle, onSelect, fixed 
                 />
               </div>
             </div>
-          ) : (
-            <AccountLedgerRow
-              key={row.id}
-              row={row}
-              onClick={onSelect}
-              termsPill={termsForRow(row)}
-              onTermsClick={row.kind === "Credit" ? () => onSelect(row) : undefined}
-            />
           ))}
         </div>
       )}
+    </section>
+  );
+}
+
+/** G117 fork (kept deliberately, not a drift risk): an always-open group
+ *  card with no collapse affordance, for the filtered-results card
+ *  (search matches, below) and Variant B's single focused-group panel.
+ *  Production's AccountsPage.tsx has no equivalent to import here — its
+ *  own filtered view is a differently shaped plain list (its
+ *  estateIsFiltering branch), and it has no single-group-focus UI at all
+ *  (that is Variant B's own idea, not a shipped pattern). This is
+ *  genuinely preview-only chrome, not standing in for production markup
+ *  that could drift underneath it. */
+function StaticGroupCard({ group, hidden, onSelect }: { group: EstateGroup; hidden: boolean; onSelect: (row: EstateRow) => void }) {
+  return (
+    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:shadow-none" aria-label={`${group.label} accounts`}>
+      <div className="flex min-h-16 items-center justify-between gap-3 px-4">
+        <span>
+          <span role="heading" aria-level={2} className="block text-[15px] font-bold text-slate-900 dark:text-slate-100">{group.label}</span>
+          <span className="mt-0.5 block text-[11px] text-slate-500 dark:text-slate-400">{group.count} {group.count === 1 ? "account" : "accounts"}</span>
+        </span>
+        <span className="flex items-center gap-2">
+          <span className="money text-[14px] font-semibold text-slate-800 dark:text-slate-200">{hidden ? "£••••" : money(group.subtotal)}</span>
+        </span>
+      </div>
+      <div className="divide-y divide-slate-100 border-t border-slate-100 dark:divide-slate-700 dark:border-slate-700">
+        {group.rows.map((row) => (
+          <AccountLedgerRow
+            key={row.id}
+            row={row}
+            onClick={onSelect}
+            termsPill={termsForRow(row)}
+            onTermsClick={row.kind === "Credit" ? () => onSelect(row) : undefined}
+          />
+        ))}
+      </div>
     </section>
   );
 }
@@ -447,25 +490,6 @@ function DesignNote({ variant, estate, hidden }: { variant: Variant; estate?: Es
   );
 }
 
-function PinnedBand({ rows, hidden, onSelect }: { rows: EstateRow[]; hidden: boolean; onSelect: (row: EstateRow) => void }) {
-  return (
-    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:shadow-none" aria-label="Pinned accounts">
-      <p className="px-4 pt-3 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Pinned</p>
-      <div className="mt-1 divide-y divide-slate-100 dark:divide-slate-700">
-        {rows.map((row) => (
-          <AccountLedgerRow
-            key={row.id}
-            row={row}
-            onClick={onSelect}
-            termsPill={termsForRow(row)}
-            onTermsClick={row.kind === "Credit" ? () => onSelect(row) : undefined}
-          />
-        ))}
-      </div>
-    </section>
-  );
-}
-
 function PreviewNotice({ message }: { message: string | null }) {
   if (!message) return null;
   return <p role="status" className="rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-[12px] font-medium text-indigo-800 dark:border-indigo-400/20 dark:bg-indigo-400/10 dark:text-indigo-200">{message}</p>;
@@ -510,7 +534,7 @@ function FilteredCard({ rows, hidden, onSelect }: { rows: EstateRow[]; hidden: b
   if (rows.length === 0) {
     return <div className="rounded-2xl border border-slate-200 bg-white px-4 py-10 text-center text-[14px] text-slate-600 shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400 dark:shadow-none">No accounts match. Clear the search or choose another filter.</div>;
   }
-  return <AccountGroupCard group={group} hidden={hidden} collapsed={false} onToggle={() => {}} onSelect={onSelect} fixed />;
+  return <StaticGroupCard group={group} hidden={hidden} onSelect={onSelect} />;
 }
 
 /** Variant A and its two pinned-treatment sub-variants (A1 restores the
@@ -536,12 +560,31 @@ function VariantAFamilyList(props: ListSharedProps & { variant: "a" | "a1" | "a2
               <FilteredCard rows={props.filteredRows} hidden={props.hidden} onSelect={props.onSelect} />
             ) : (
               <>
-                {showPinnedBand && props.estate.pinned.length > 0 && (
-                  <PinnedBand rows={props.estate.pinned} hidden={props.hidden} onSelect={props.onSelect} />
+                {showPinnedBand && (
+                  <AccountPinnedBand rows={props.estate.pinned} onSelect={props.onSelect} rowExtras={termsRowExtras(props.onSelect)} />
                 )}
-                {groups.map((group) => (
-                  <AccountGroupCard key={group.label} group={group} hidden={props.hidden} collapsed={props.collapsed[group.label] ?? group.label === "Inactive"} onToggle={() => props.onToggleGroup(group.label)} onSelect={props.onSelect} markPinned={markPinned} />
-                ))}
+                {groups.map((group) =>
+                  markPinned ? (
+                    <PinnedMarkerGroupCard
+                      key={group.label}
+                      group={group}
+                      hidden={props.hidden}
+                      collapsed={props.collapsed[group.label] ?? group.label === "Inactive"}
+                      onToggle={() => props.onToggleGroup(group.label)}
+                      onSelect={props.onSelect}
+                    />
+                  ) : (
+                    <AccountGroupSection
+                      key={group.label}
+                      group={group}
+                      collapsed={props.collapsed[group.label] ?? group.label === "Inactive"}
+                      onToggle={() => props.onToggleGroup(group.label)}
+                      hideBalance={props.hidden}
+                      onSelect={props.onSelect}
+                      rowExtras={termsRowExtras(props.onSelect)}
+                    />
+                  )
+                )}
               </>
             )}
           </>
@@ -577,7 +620,7 @@ function VariantBList(props: ListSharedProps) {
                     );
                   })}
                 </div>
-                {selected && <AccountGroupCard group={selected} hidden={props.hidden} collapsed={false} onToggle={() => {}} onSelect={props.onSelect} fixed />}
+                {selected && <StaticGroupCard group={selected} hidden={props.hidden} onSelect={props.onSelect} />}
               </>
             )}
           </>
@@ -603,7 +646,15 @@ function VariantCList(props: ListSharedProps) {
           <>
             <EstateControls query={props.query} onQuery={props.onQuery} lens={props.lens} onLens={props.onLens} />
             {props.filtering ? <FilteredCard rows={props.filteredRows} hidden={props.hidden} onSelect={props.onSelect} /> : groups.map((group) => (
-              <AccountGroupCard key={group.label} group={group} hidden={props.hidden} collapsed={props.collapsed[group.label] ?? group.label === "Inactive"} onToggle={() => props.onToggleGroup(group.label)} onSelect={props.onSelect} />
+              <AccountGroupSection
+                key={group.label}
+                group={group}
+                collapsed={props.collapsed[group.label] ?? group.label === "Inactive"}
+                onToggle={() => props.onToggleGroup(group.label)}
+                hideBalance={props.hidden}
+                onSelect={props.onSelect}
+                rowExtras={termsRowExtras(props.onSelect)}
+              />
             ))}
           </>
         )}
@@ -815,6 +866,21 @@ export default function AccountsCanvasBeforeCardsClient() {
     return "detail-current";
   };
 
+  // G117: this preview's own row-select handler, kept as a fork, NOT an
+  // import of AccountsPage.tsx's handleEstateRowClick / handleSelectAccount.
+  // Production's handler pushes browser history state, sets several pieces
+  // of AccountsPage's own React state (selectedAccountId, tab, pagination,
+  // search), and kicks off a live paginated transaction fetch
+  // (loadAccountTxns / the fetch effect below handleSelectAccount) to
+  // render an in-place detail sheet — it fetches its own data and reads
+  // AccountsPage-local state, so it cannot be dropped into this
+  // unauthenticated fixture preview without either mocking that fetch or
+  // refactoring AccountsPage's selection state out into something
+  // props-driven, both out of scope for G117. This preview instead
+  // simulates account selection with its own fixture-driven ?state= URL
+  // param, which is why AccountGroupSection/AccountPinnedBand above still
+  // take an onSelect prop rather than importing AccountsPage's handler
+  // directly — same shape as production's own onClick prop plumbing.
   const handleSelect = (row: EstateRow) => router.push(hrefForState(detailStateForRow(row), row.id));
   const chooseAction = (label: string) => { setAddOpen(false); setNotice(`${label} is shown for placement only in this fixture preview. No account changes were made.`); };
   const reconnect = (provider: string) => setNotice(`${provider} reconnect is shown for placement only. No bank connection was opened.`);

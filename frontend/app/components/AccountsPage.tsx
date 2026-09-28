@@ -6,6 +6,8 @@ import { ArrowLeft, Plus, Landmark, RefreshCw, Upload, Trash2, AlertTriangle, Tr
 import { api, ApiError, Account, Connection, Transaction, InvestmentAccount, InvestmentHolding, InvestmentNote, ManualAccount, ManualAccountType, ManualAccountRule, RuleMatchType, RuleMatchField, RuleSign, AccountCategorySummary, KPIs, CardTermsCard } from "@/lib/api";
 import { accountBrand, BankBadge, TermsPill } from "@/components/AccountMiniCard";
 import AccountLedgerRow from "@/components/AccountLedgerRow";
+import AccountPinnedBand from "@/components/AccountPinnedBand";
+import AccountGroupSection from "@/components/AccountGroupSection";
 import ReconnectStrip, { type ReconnectProvider } from "@/components/ReconnectStrip";
 import { buildEstate, filterEstate, type EstateRow, type EstateLens } from "@/lib/accountsEstate";
 import { accountKind, accountKindLabel, type AccountKind } from "@/lib/accountKind";
@@ -2961,24 +2963,16 @@ export default function AccountsPage() {
                   </div>
                 ) : (
                   <>
-                    {/* Pinned band (G113 — matches the ratified preview's
-                        PinnedBand exactly: one bounded card, "Pinned" label
-                        inside it, not a bare uppercase label floating above
-                        unbounded rows). A pinned account also appears again
-                        inside its own kind-group below — that duplication
-                        is deliberate (A1, Kevin approved 2026-09-16) and is
-                        what check:accounts-pinned pins down via
-                        buildEstate() directly. */}
-                    {estate.pinned.length > 0 && (
-                      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:shadow-none" aria-label="Pinned accounts">
-                        <p className="px-4 pt-3 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Pinned</p>
-                        <div className="mt-1 divide-y divide-slate-100 dark:divide-slate-700">
-                          {estate.pinned.map((row) => (
-                            <AccountLedgerRow key={row.id} row={row} onClick={handleEstateRowClick} {...estateTermsProps(row)} />
-                          ))}
-                        </div>
-                      </section>
-                    )}
+                    {/* Pinned band (G113 — the "Pinned" bounded card).
+                        A pinned account also appears again inside its own
+                        kind-group below — that duplication is deliberate
+                        (A1, Kevin approved 2026-09-16) and is what
+                        check:accounts-pinned pins down via buildEstate()
+                        directly. G117: extracted to
+                        components/AccountPinnedBand.tsx so the
+                        accounts-canvas-before-cards design preview imports
+                        this exact markup instead of a hand-retyped copy. */}
+                    <AccountPinnedBand rows={estate.pinned} onSelect={handleEstateRowClick} rowExtras={estateTermsProps} />
 
                     {/* Collapsible groups (G113 — matches the ratified
                         preview's AccountGroupCard: header AND rows inside
@@ -3046,52 +3040,15 @@ export default function AccountsPage() {
                       estate.groups.map((group) => {
                         const isCollapsed = collapsedGroups[group.label] ?? (group.kind === "Credit" && group.count > 4);
                         return (
-                          <section
+                          <AccountGroupSection
                             key={group.label}
-                            className="rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:shadow-none"
-                            aria-label={`${group.label} accounts`}
-                          >
-                            <button
-                              type="button"
-                              onClick={() => toggleEstateGroup(group.label)}
-                              aria-expanded={!isCollapsed}
-                              className={`sticky top-0 z-10 flex min-h-16 w-full items-center justify-between gap-3 bg-white px-4 text-left transition-colors hover:bg-slate-50 active:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 dark:bg-slate-800 dark:hover:bg-slate-700/60 dark:active:bg-slate-700 ${isCollapsed ? "rounded-2xl" : "rounded-t-2xl"}`}
-                            >
-                              <span>
-                                <span role="heading" aria-level={2} className="block text-[15px] font-bold text-slate-900 dark:text-slate-100">{group.label}</span>
-                                <span className="mt-0.5 block text-[11px] text-slate-500 dark:text-slate-400">{group.count} {group.count === 1 ? "account" : "accounts"}</span>
-                              </span>
-                              <span className="flex items-center gap-2">
-                                <span className="money text-[14px] font-semibold text-slate-800 dark:text-slate-200">
-                                  {hideNetWorth
-                                    ? "£••••"
-                                    : `${group.subtotal < 0 ? "-" : ""}£${Math.abs(Math.round(group.subtotal)).toLocaleString("en-GB")}`}
-                                </span>
-                                <ChevronDown
-                                  size={16}
-                                  className={`text-slate-400 dark:text-slate-500 transition-transform duration-200 motion-reduce:transition-none ${isCollapsed ? "" : "rotate-180"}`}
-                                  aria-hidden="true"
-                                />
-                              </span>
-                            </button>
-                            <div
-                              className={`grid transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none motion-reduce:duration-0 ${
-                                isCollapsed ? "grid-rows-[0fr]" : "grid-rows-[1fr]"
-                              }`}
-                            >
-                              <div
-                                className={`overflow-hidden rounded-b-2xl transition-opacity duration-200 motion-reduce:transition-none motion-reduce:duration-0 ${
-                                  isCollapsed ? "opacity-0" : "opacity-100"
-                                }`}
-                              >
-                                <div className="divide-y divide-slate-100 border-t border-slate-100 dark:divide-slate-700 dark:border-slate-700">
-                                  {group.rows.map((row) => (
-                                    <AccountLedgerRow key={row.id} row={row} onClick={handleEstateRowClick} {...estateTermsProps(row)} />
-                                  ))}
-                                </div>
-                              </div>
-                            </div>
-                          </section>
+                            group={group}
+                            collapsed={isCollapsed}
+                            onToggle={() => toggleEstateGroup(group.label)}
+                            hideBalance={hideNetWorth}
+                            onSelect={handleEstateRowClick}
+                            rowExtras={estateTermsProps}
+                          />
                         );
                       })
                     )}
