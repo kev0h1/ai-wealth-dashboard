@@ -90,7 +90,25 @@ class FakeLocalStorage {
   setItem(k, v) { this.store.set(k, String(v)); }
   removeItem(k) { this.store.delete(k); }
 }
-globalThis.window = { localStorage: new FakeLocalStorage() };
+
+// Review fix (2026-09-28): each check block that renders BriefBody gets a
+// FRESH `window.localStorage` (and fresh `capturedProps`) via this helper,
+// called at the top of every such block below. Before this fix a single
+// FakeLocalStorage instance was shared across the whole file, so check 1's
+// onDismiss() call (which writes the item id via onHomeDismiss/
+// dismissOnHome) left it in localStorage for every check that ran after —
+// including check 2, whose whole point is to prove the SERVER-side
+// `home_dismissed` flag alone is enough to hide the item. With the leftover
+// localStorage entry present, BriefBody's own `dismissedIds` filter
+// (HomeBrief.tsx's `useHomeDismissedAdvice`, ~line 1888) already removed
+// the item before the `!i.home_dismissed` guard (~line 2023) ever ran, so
+// check 2 passed for the wrong reason and would keep passing even with that
+// guard deleted — proven by temporarily removing it, see this commit's
+// message for the before/after run.
+function resetWindow() {
+  globalThis.window = { localStorage: new FakeLocalStorage() };
+}
+resetWindow();
 
 const fakeRouter = { push: () => {} };
 
@@ -147,8 +165,25 @@ check(
 
 // ── 2. HomeBrief must hide a needle item the server has already stamped
 //      home_dismissed on (the cross-device case) ──────────────────────────
+//
+// Fresh localStorage AND fresh capturedProps: this must hold on a device
+// that has NEVER locally dismissed this item on Home (dismissedIds/
+// useHomeDismissedAdvice empty) — the only mechanism standing between the
+// item and the render is the `home_dismissed` guard itself. Reusing check
+// 1's window here would mask that: check 1's onDismiss() already wrote
+// this same item id into local dismissedIds, so BriefBody's OWN local
+// filter (unrelated to `home_dismissed`) would hide it first, and this
+// check would keep passing even if the `!i.home_dismissed` guard were
+// deleted entirely.
 
+resetWindow();
 capturedProps.length = 0;
+
+check(
+  "check 2 starts with an EMPTY local Home-dismissed set (isolation guard)",
+  readHomeDismissedAdvice().size === 0
+);
+
 renderToStaticMarkup(
   React.createElement(BriefBody, {
     items: [{ ...NEEDLE_ITEM, home_dismissed: true }],
@@ -205,6 +240,15 @@ check(
 // app/penny/PennyPage.tsx's section c2 renders
 // `<MonthClosedCard item={needleItem} router={router} surface="penny" />`
 // with no onDismiss prop. No stub here — this is the real component.
+//
+// Fresh window again: MonthClosedCard reads its OWN minimise preference
+// from localStorage (a different key, `wd_month_closed_minimised`, see
+// that component's docstring) — isolating this block keeps every check in
+// this file independent of run order, not just the two that share the
+// Home-dismissed key.
+
+resetWindow();
+capturedProps.length = 0;
 
 const pennyMarkup = renderToStaticMarkup(
   React.createElement(RealMonthClosedCard, {
