@@ -545,3 +545,34 @@ def test_no_check_gate_key_at_all_is_not_malformed(tmp_path):
     refuse."""
     result = _run_check_gate_against(tmp_path, {"scripts": {"check:a": "true"}})
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+# ---------------------------------------------------------------------
+# H83 review round 3 (fix 2/2): @tsv only rejects composite exclusion
+# values (arrays/objects) -- it happily stringifies a number or boolean
+# and renders `null` as an empty string, so a number, boolean, null or
+# empty-string reason all sailed through the round-2 fix as if they were
+# real reasons (a null reason even logged as a blank string). The whole
+# point of this mechanism is that an exception stays visible, so each of
+# these must refuse exactly like a nested object does, not silently
+# accept a non-reason as a reason.
+# ---------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "bad_value",
+    [42, True, False, None, ""],
+    ids=["number", "true", "false", "null", "empty-string"],
+)
+def test_a_non_string_or_empty_exclude_reason_fails_loudly(tmp_path, bad_value):
+    result = _run_check_gate_against(
+        tmp_path,
+        {"scripts": {"check:a": "true", "check:b": "true"}, "checkGate": {"exclude": {"check:b": bad_value}}},
+    )
+    assert result.returncode != 0, (
+        f"a {bad_value!r} exclusion reason must refuse, not be accepted as a real reason: {result.stdout}{result.stderr}"
+    )
+    output = result.stdout + result.stderr
+    assert "checkGate.exclude" in output
+    assert "malformed" in output
+    assert "non-empty string" in output

@@ -189,11 +189,26 @@ run_check_gate() {
   # "no exclusions" -- that direction is safe (more checks run, not
   # fewer) but a typo that silently stops excluding a check nobody
   # touched could sit unnoticed for a long time, and the whole point of
-  # this mechanism is that an exception is visible, not invisible.
+  # this mechanism is that an exception is visible, not invisible. @tsv
+  # alone only rejects composite values (arrays/objects); it happily
+  # stringifies a number or boolean and renders `null` as an empty
+  # string, so the reason's type is checked explicitly here too --
+  # `"exclude":{"check:b":42}` or `{"check:b":null}` must refuse exactly
+  # like a nested object does, not silently log "42" or a blank reason.
   local exclude_raw exclude_rc=0
-  exclude_raw="$(jq -r '(.checkGate.exclude // {}) | to_entries[] | [.key, .value] | @tsv' "$manifest" 2>&1)" || exclude_rc=$?
+  exclude_raw="$(jq -r '
+    (.checkGate.exclude // {})
+    | to_entries[]
+    | .key as $k
+    | .value as $v
+    | if ($v | type) == "string" and ($v | length) > 0 then
+        [$k, $v] | @tsv
+      else
+        error("checkGate.exclude[\($k)] must be a non-empty string reason, got: \($v | tojson)")
+      end
+  ' "$manifest" 2>&1)" || exclude_rc=$?
   if [[ "$exclude_rc" -ne 0 ]]; then
-    err "$manifest's checkGate.exclude is malformed (expected an object mapping check:* script names to one-line reason strings): $exclude_raw"
+    err "$manifest's checkGate.exclude is malformed (expected an object mapping check:* script names to one-line non-empty string reasons): $exclude_raw"
     exit 1
   fi
   local -A exclude_reasons=()
