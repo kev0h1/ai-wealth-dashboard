@@ -31,7 +31,12 @@ refused) in a separate `[branch: <name>]` tag, since the `[state:
 rejected: ...]` slot is already carrying the reason; `scripts/integrate.py`
 never selects a `rejected` item as a merge candidate. Moving a rejected
 item back to `todo` or `in-progress` clears both the rejection reason and
-the retained branch. `uat` is the analogous state for a design round: a
+the retained branch. The `[state: rejected: ...]` reason is still capped
+at REASON_CAP=200 (H27, so a raw multi-line reason can't corrupt the
+item's own line), but a rejection reason is the reviewer's whole fix
+instruction, not incidental text, so `reject` also writes the full reason
+as a dated note automatically (H54), the same shape `cancelled` below
+already uses. `uat` is the analogous state for a design round: a
 branch whose diff is nothing but new preview variants under
 `frontend/app/design/` (flagged explicitly via `scripts/session.sh finish
 <ID> --uat-review`, or caught by a backstop heuristic in
@@ -50,8 +55,9 @@ work should not happen at all — obsolete, superseded, or simply not
 wanted — distinct from `rejected` (a reviewer found a defect, fix it) and
 `blocked` (can't proceed yet): closed, but never `[x]` and never counted
 as done. It requires a reason (`[state: cancelled: <reason>]`, capped at
-REASON_CAP=200 like blocked/rejected, plus a full uncapped-up-to-NOTE_CAP
-note written automatically alongside it) and refuses any CLI `actor`
+REASON_CAP=200 like blocked/rejected, plus a full note (capped at
+NOTE_CAP=1500) written automatically alongside it, the same treatment
+`rejected` gets, see H54) and refuses any CLI `actor`
 other than `kevin` — an agent must never decide work is unnecessary, it
 can only leave a note recommending cancellation; see `CANCEL_ACTOR`'s own
 comment below for how honestly this is (and isn't) enforced (on the CLI
@@ -1522,15 +1528,42 @@ def set_rejected(
     todo_path: Optional[Path] = None,
     repo_root: Optional[Path] = None,
 ) -> tuple[dict, bool]:
-    """Convenience wrapper over `set_state(..., "rejected", reason=reason)`
-    — what a reviewer uses the moment they find a defect in an item sitting
+    """What a reviewer uses the moment they find a defect in an item sitting
     in `review`, rather than leaving it there (where any integrate pass,
     including one from a concurrent session, treats `review` as consent to
     merge). Keeps the item's existing branch (see `TodoDoc.set_state`) so
-    the reviewer can see which branch was refused;
-    `scripts/integrate.py` never selects a `rejected` item as a merge
-    candidate."""
-    return set_state(item_id, "rejected", reason=reason, actor=actor, todo_path=todo_path, repo_root=repo_root)
+    the reviewer can see which branch was refused; `scripts/integrate.py`
+    never selects a `rejected` item as a merge candidate.
+
+    H54: a rejection reason is not incidental text, it is the reviewer's
+    entire instruction for what to fix, so it must survive both the short
+    one-line `[state: rejected: ...]` tag (still capped at REASON_CAP=200
+    via `one_line_reason`, needed so a raw multi-line reason can never
+    corrupt the item's own line) AND a full, separately capped note
+    (NOTE_CAP=1500 via `add_note`/`_collapse_note_text`, the same cap
+    every other note in this codebase already uses) written here
+    automatically. This is what G109 hit: the 200-character tag cut the
+    actual defect mid-sentence with no warning, and the only workaround
+    (the G110 reviewer manually duplicating the reason into a note) is
+    promoted here into the default behaviour so no reviewer has to know
+    the trick and no reasoning is lost. The caller only ever makes one
+    `reject` call; both places are written for them, the same shape
+    `set_cancelled` above already uses for its own reason."""
+    if not reason or not reason.strip():
+        raise BacklogError("reason is required to set state to rejected")
+    resolved_path = todo_path or _todo_path()
+    resolved_root = repo_root or _repo_root()
+    reason_clean = reason.strip()
+    with _locked(resolved_root):
+        doc = TodoDoc.load(resolved_path)
+        doc.set_state(item_id, "rejected", reason=reason_clean, actor=actor)
+        doc.add_note(item_id, f"rejected: {reason_clean}", actor)
+        item = doc.item(item_id)
+        doc.save(resolved_path)
+    committed = _git_commit_and_push(
+        [resolved_path], f"backlog: {item_id} rejected ({reason_clean}) by {actor}", resolved_root
+    )
+    return item.to_dict(), committed
 
 
 def set_cancelled(

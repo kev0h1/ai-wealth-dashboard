@@ -1131,6 +1131,79 @@ def test_public_set_rejected_writes_file_and_commit_message(paths, mock_git):
     assert "backlog: A1 rejected (broke the safe-to-spend guard) by kevin" in commit_call.args[0]
 
 
+def test_public_set_rejected_writes_short_tag_and_a_full_note(paths, mock_git):
+    # H54: the reason survives as BOTH the short state tag AND a full note
+    # automatically -- the caller only ever makes one `reject` call, the
+    # same shape set_cancelled already uses for its own reason.
+    todo_path, _ = paths
+    repo_root = todo_path.parent
+    backlog.set_review("A1", "feature-A1-first-item", actor="claude", todo_path=todo_path, repo_root=repo_root)
+
+    item, committed = backlog.set_rejected(
+        "A1", "wrong approach", actor="kevin", todo_path=todo_path, repo_root=repo_root
+    )
+    assert committed is True
+    assert len(item["notes"]) == 1
+    assert item["notes"][0]["text"] == "rejected: wrong approach"
+    assert item["notes"][0]["actor"] == "kevin"
+
+
+def test_public_set_rejected_900_char_reason_survives_round_trip(paths, mock_git):
+    # H54, hit on G109: a rejection reason is not incidental text, it is
+    # the reviewer's entire instruction for what to fix, and the old
+    # 200-character `one_line_reason` cap on the state tag alone destroyed
+    # it. A 900-character reason is longer than REASON_CAP=200 but well
+    # under NOTE_CAP=1500, so it must come back from the note fully
+    # intact, not just from the (still-capped) state tag.
+    todo_path, _ = paths
+    repo_root = todo_path.parent
+    backlog.set_review("A1", "feature-A1-first-item", actor="claude", todo_path=todo_path, repo_root=repo_root)
+    long_reason = ("The arithmetic is right and the fix is real. " * 19).strip()  # 892 chars, no trailing space
+    assert 800 < len(long_reason) < 1000
+
+    item, committed = backlog.set_rejected(
+        "A1", long_reason, actor="kevin", todo_path=todo_path, repo_root=repo_root
+    )
+    assert committed is True
+
+    # The short `[state: rejected: ...]` tag is still capped at 200.
+    assert len(item["reason"]) <= backlog.REASON_CAP
+
+    # The full note carries the whole 900-character reason, untruncated.
+    full_note = item["notes"][0]["text"]
+    assert full_note == f"rejected: {long_reason}"
+    assert long_reason in full_note
+    assert not full_note.endswith("...")
+
+    # A fresh load from disk proves it is a genuine round trip through the
+    # file, not just the in-memory return value.
+    reloaded = backlog.TodoDoc.load(todo_path)
+    reloaded_item = reloaded.items["A1"]
+    assert reloaded_item.notes[0].text == f"rejected: {long_reason}"
+    assert len(reloaded_item.notes[0].text) > len(reloaded_item.reason)
+
+
+def test_public_set_rejected_very_long_reason_truncates_tag_at_200_and_note_at_1500(paths, mock_git):
+    # Mirrors set_cancelled's own equivalent test: a reason longer than
+    # NOTE_CAP still loses its tail, just far later than the 200-character
+    # tag does, with the same "..." ellipsis marker.
+    todo_path, _ = paths
+    repo_root = todo_path.parent
+    backlog.set_review("A1", "feature-A1-first-item", actor="claude", todo_path=todo_path, repo_root=repo_root)
+    long_reason = "x" * 2000
+
+    item, _ = backlog.set_rejected("A1", long_reason, actor="kevin", todo_path=todo_path, repo_root=repo_root)
+
+    assert len(item["reason"]) <= backlog.REASON_CAP
+    assert item["reason"].endswith("...")
+
+    full_note = item["notes"][0]["text"]
+    assert full_note.startswith("rejected: ")
+    assert len(full_note) <= backlog.NOTE_CAP
+    assert full_note.endswith("...")
+    assert len(full_note) > len(item["reason"])
+
+
 def test_public_set_state_rejected_without_reason_raises(paths, mock_git):
     todo_path, _ = paths
     repo_root = todo_path.parent
@@ -1186,7 +1259,11 @@ def test_cli_reject_and_state_display(tmp_path):
     assert list_result.returncode == 0, list_result.stderr
     assert "rejected:feature-A1-first-item" in list_result.stdout
 
-    # `start` moves it back out again, clearing the rejection.
+    # `start` moves it back out again, clearing the rejection state tag and
+    # the retained branch -- but H54's automatic note is a permanent part
+    # of the audit trail (the same shape a `cancelled` note survives an
+    # `uncancel`), so it stays on the item even once the item is no longer
+    # rejected.
     start_result = subprocess.run(
         [sys.executable, str(SCRIPTS_BACKLOG), "start", "A1"],
         cwd=other_cwd, env=env, capture_output=True, text=True, timeout=30,
@@ -1194,8 +1271,9 @@ def test_cli_reject_and_state_display(tmp_path):
     assert start_result.returncode == 0, start_result.stderr
     saved = (board_root / "TODO.md").read_text(encoding="utf-8")
     assert "[state: in-progress]" in saved
-    assert "rejected" not in saved
+    assert "[state: rejected" not in saved
     assert "[branch:" not in saved
+    assert "rejected: found a defect in review" in saved
 
 
 def test_cli_reject_without_reason_errors(tmp_path):
