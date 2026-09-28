@@ -416,14 +416,18 @@ def _pace_line(multiple: float, excess: float, days_elapsed: int, sym: str) -> s
     three branches, same rounding, same wording, so the push never says
     something the Spend page itself wouldn't. Kept in sync deliberately
     rather than shared, since the frontend has no server call to make for a
-    push body."""
+    push body. G153: this drifted once already (G151 changed the frontend's
+    third branch and this docstring's promise alone didn't catch it), so
+    backend/tests/test_pace_line_mirror.py now reads paceLine's actual
+    source text at test time and fails if the two diverge again — do not
+    rely on this comment alone."""
     day_label = f"day {days_elapsed}"
     rounded = round(multiple, 1)
     if 1.9 <= rounded <= 2.1:
         return f"about twice your usual pace for {day_label}."
     if rounded > 2.1:
         return f"about {rounded:.1f}× your usual pace for {day_label}."
-    return f"running about {sym}{round(excess):,} ahead of usual for {day_label}."
+    return f"{sym}{round(excess):,} more than usual by {day_label}."
 
 
 async def _maybe_category_pace(user_id: str) -> None:
