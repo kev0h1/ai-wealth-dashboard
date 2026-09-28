@@ -13,6 +13,7 @@ one plain push (only one fired), or nothing, all landing on "/" (home, where
 both the payday plan and the move recommendation cards live).
 """
 import logging
+import math
 from datetime import datetime, timedelta
 from datetime import date as _date
 
@@ -418,16 +419,28 @@ def _pace_line(multiple: float, excess: float, days_elapsed: int, sym: str) -> s
     rather than shared, since the frontend has no server call to make for a
     push body. G153: this drifted once already (G151 changed the frontend's
     third branch and this docstring's promise alone didn't catch it), so
-    backend/tests/test_pace_line_mirror.py now reads paceLine's actual
-    source text at test time and fails if the two diverge again — do not
-    rely on this comment alone."""
+    backend/tests/test_pace_line_mirror.py now shells out to Node to run the
+    ACTUAL `paceLine` (via frontend/scripts/pace-line-mirror.mjs) and
+    compares its output byte-for-byte against this function - do not rely on
+    this comment alone.
+
+    `excess` is always > 0 here: this is only ever called with a notable's
+    excess (spend_verdict.py's `build_notables_and_majority` filters
+    `excess <= 0` out before a category can qualify as notable), so the
+    round-half-up note below never needs to handle a negative value."""
     day_label = f"day {days_elapsed}"
     rounded = round(multiple, 1)
     if 1.9 <= rounded <= 2.1:
         return f"about twice your usual pace for {day_label}."
     if rounded > 2.1:
         return f"about {rounded:.1f}× your usual pace for {day_label}."
-    return f"{sym}{round(excess):,} more than usual by {day_label}."
+    # Round-half-up, not Python's round() (banker's rounding), to match the
+    # frontend's `Math.round` (half away from zero) at the .5 boundary -
+    # e.g. round(1234.5) rounds to 1234 in Python but 1235 in JS. `excess`
+    # is always positive at this call site, so floor(x+0.5) is equivalent to
+    # JS's Math.round here without needing a general round-half-away-from-
+    # zero helper.
+    return f"{sym}{math.floor(excess + 0.5):,} more than usual by {day_label}."
 
 
 async def _maybe_category_pace(user_id: str) -> None:
