@@ -22,6 +22,10 @@
 // or:
 //   node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/global-401.test.mjs
 
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
+
 import { api, setUnauthorizedHandler, resetUnauthorizedGate, ApiError } from "../lib/api";
 import { getToken, setToken, clearToken } from "../lib/auth";
 
@@ -182,6 +186,54 @@ async function expectRejects(promise) {
 }
 
 setUnauthorizedHandler(null);
+
+// ── 6. Source scan: every `fetch(` call site in lib/api.ts is routed
+//      through the gate — a static backstop against a future call site
+//      being added the old way (a manual `if (!res.ok)`/`.then(r => ...)`
+//      with no reportIfUnauthorized/toJson), the exact shape all 14 gaps
+//      this check was written for took. Runtime tests above can only prove
+//      the sites that exist ARE wired correctly; this proves no site is
+//      missing full stop, without having to enumerate and stub all 14 ────
+{
+  const apiTsPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "lib", "api.ts");
+  const apiSource = readFileSync(apiTsPath, "utf8");
+  const apiLines = apiSource.split("\n");
+
+  // Explicit allowlist: fetch() call sites whose URL is already on api.ts's
+  // OWN UNAUTHORIZED_HOOK_EXEMPT_PATHS list (the login/session-check
+  // surface). reportIfUnauthorized would be a guaranteed no-op there, so
+  // these are exempt from the scan rather than required to call it —
+  // matched by a literal substring that must appear on the fetch(...)
+  // line itself, so a NEW exempt call added later still fails this scan
+  // until someone deliberately adds it here, rather than silently passing.
+  const EXEMPT_FETCH_URL_SUBSTRINGS = ["/auth/session/validate"];
+  // toJson is almost always called generically (`toJson<{ ok: boolean }>(r)`),
+  // so a plain "toJson(" substring match misses every real call site — the
+  // marker has to tolerate an optional `<...>` between the name and the
+  // opening paren.
+  const GATE_MARKERS = [/reportIfUnauthorized\(/, /toJson\s*(<[^(]*>)?\s*\(/];
+  const LOOKAHEAD_LINES = 20;
+
+  function scanApiTsForUngatedFetches(lines) {
+    const offenders = [];
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const trimmed = line.trim();
+      if (trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/*")) continue;
+      if (!/\bfetch\(/.test(line)) continue;
+      if (EXEMPT_FETCH_URL_SUBSTRINGS.some((s) => line.includes(s))) continue;
+      const window = lines.slice(i, i + LOOKAHEAD_LINES + 1).join("\n");
+      if (!GATE_MARKERS.some((m) => m.test(window))) offenders.push(i + 1); // 1-based
+    }
+    return offenders;
+  }
+
+  const offenders = scanApiTsForUngatedFetches(apiLines);
+  check(
+    `every fetch( call site in lib/api.ts is routed through reportIfUnauthorized/toJson within ${LOOKAHEAD_LINES} lines${offenders.length ? ` (offending line(s): ${offenders.join(", ")})` : ""}`,
+    offenders.length === 0
+  );
+}
 
 if (failures > 0) {
   console.error(`\n${failures} check(s) failed.`);

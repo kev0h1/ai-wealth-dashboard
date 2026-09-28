@@ -2323,6 +2323,7 @@ export const api = {
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(body),
     });
+    reportIfUnauthorized(res);
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.detail || "Failed to save");
     return data as UserProfile;
@@ -2341,6 +2342,7 @@ export const api = {
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ image }),
     });
+    reportIfUnauthorized(res);
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.detail || "Couldn't scan that receipt");
     return data as Basket;
@@ -2471,6 +2473,7 @@ export const api = {
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ confirm: "DELETE" }),
     });
+    reportIfUnauthorized(res);
     if (!res.ok) throw new Error("Delete failed");
     return res.json();
   },
@@ -2595,6 +2598,7 @@ export const api = {
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ question, history, context, screen, view }),
     });
+    reportIfUnauthorized(res);
     if (res.status === 402) {
       let detail: unknown = null;
       try {
@@ -2628,6 +2632,7 @@ export const api = {
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ chip_id, params, screen }),
     });
+    reportIfUnauthorized(res);
     if (res.status === 404) return null;
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
     return res.json();
@@ -2704,6 +2709,7 @@ export const api = {
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(body),
     }).then((r) => {
+      reportIfUnauthorized(r);
       if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
       return r.json();
     }) as Promise<Commitment>,
@@ -2724,6 +2730,7 @@ export const api = {
       method: "DELETE",
       headers: authHeaders(),
     }).then((r) => {
+      reportIfUnauthorized(r);
       if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
     }),
 
@@ -3050,6 +3057,7 @@ export const api = {
       throw new Error(`Network error: ${msg}`);
     }
     clearTimeout(timer);
+    reportIfUnauthorized(r);
 
     if (!r.ok) {
       const fallback = `Server error (${r.status})`;
@@ -3096,6 +3104,7 @@ export const api = {
       throw new Error(err instanceof Error ? err.message : String(err));
     }
     clearTimeout(timer);
+    reportIfUnauthorized(r);
     if (!r.ok) {
       let detail = `Server error (${r.status})`;
       try { const b = await r.json(); if (b?.detail) detail = b.detail; } catch { try { detail = await r.text() || detail; } catch { /* ignore */ } }
@@ -3118,6 +3127,7 @@ export const api = {
       method: "POST",
       headers: authHeaders(),
     });
+    reportIfUnauthorized(r);
     if (!r.ok) {
       const b = await r.json().catch(() => ({})) as Record<string, unknown>;
       throw new Error((b?.detail as string) || `Error ${r.status}`);
@@ -3148,6 +3158,7 @@ export const api = {
       throw new Error(err instanceof Error ? err.message : String(err));
     }
     clearTimeout(timer);
+    reportIfUnauthorized(r);
     if (!r.ok) {
       let detail = `Server error (${r.status})`;
       try { const b = await r.json(); if (b?.detail) detail = b.detail; } catch { try { detail = await r.text() || detail; } catch { /* ignore */ } }
@@ -3176,6 +3187,7 @@ export const api = {
       throw new Error(err instanceof Error ? err.message : String(err));
     }
     clearTimeout(timer);
+    reportIfUnauthorized(r);
     if (!r.ok) {
       let detail = `Server error (${r.status})`;
       try { const b = await r.json(); if (b?.detail) detail = b.detail; } catch { try { detail = await r.text() || detail; } catch { /* ignore */ } }
@@ -3189,6 +3201,7 @@ export const api = {
       method: "DELETE",
       headers: authHeaders(),
     });
+    reportIfUnauthorized(r);
     if (!r.ok) {
       const b = await r.json().catch(() => ({})) as Record<string, unknown>;
       throw new Error((b?.detail as string) || `Error ${r.status}`);
@@ -3466,7 +3479,7 @@ export const api = {
   deletePlanned: (id: string) =>
     fetch(`${API_BASE}/planned/${encodeURIComponent(id)}`, { method: "DELETE", headers: authHeaders() }).then((r) => toJson<{ ok: boolean }>(r)),
   updatePlanned: (id: string, patch: { name?: string; amount?: number; date?: string; account_id?: string | null }) =>
-    fetch(`${API_BASE}/planned/${encodeURIComponent(id)}`, { method: "PATCH", headers: { ...authHeaders(), "Content-Type": "application/json" }, body: JSON.stringify(patch) }).then(r => { if (!r.ok) throw new Error("patch failed"); return r.json(); }) as Promise<PlannedExpense>,
+    fetch(`${API_BASE}/planned/${encodeURIComponent(id)}`, { method: "PATCH", headers: { ...authHeaders(), "Content-Type": "application/json" }, body: JSON.stringify(patch) }).then(r => { reportIfUnauthorized(r); if (!r.ok) throw new Error("patch failed"); return r.json(); }) as Promise<PlannedExpense>,
 
   createCheckpoint: (ref: string, aim_amount?: number) =>
     post<Checkpoint>("/checkpoints", aim_amount == null ? { ref } : { ref, aim_amount }),
