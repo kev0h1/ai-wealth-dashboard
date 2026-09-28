@@ -85,6 +85,26 @@ def _make_fake_shared_tree(tmp_path: Path) -> Path:
     return shared
 
 
+def _init_board_git_repo(board_root: Path) -> None:
+    """Wires `board_root` (BACKLOG_ROOT) as a real, pushable git repo,
+    the same way `_make_fake_shared_tree` above does for the session's own
+    shared tree (H93): scripts/backlog.py now exits non-zero when the
+    board's git commit or push fails, and before this fixture had a real
+    repo, board_root here was never one at all, so every write that
+    reached the commit step genuinely failed (exit 128, not a git repo),
+    just silently, since nothing asserted on the outcome."""
+    origin = board_root.parent / (board_root.name + "-origin.git")
+    _git("init", "--bare", "-q", "-b", "main", str(origin), cwd=board_root.parent)
+    _git("init", "-q", "-b", "main", cwd=board_root)
+    _git("-c", "user.email=test@example.com", "-c", "user.name=Test", "add", "-A", cwd=board_root)
+    _git(
+        "-c", "user.email=test@example.com", "-c", "user.name=Test",
+        "commit", "-q", "-m", "init", cwd=board_root,
+    )
+    _git("remote", "add", "origin", str(origin), cwd=board_root)
+    _git("push", "-q", "-u", "origin", "main", cwd=board_root)
+
+
 def _make_board_root(tmp_path: Path, fixture: str) -> Path:
     board_root = tmp_path / "board"
     board_root.mkdir()
@@ -92,6 +112,7 @@ def _make_board_root(tmp_path: Path, fixture: str) -> Path:
     compliance_dir = board_root / "docs" / "compliance"
     compliance_dir.mkdir(parents=True)
     (compliance_dir / "finexer-agent-controls-2026-09.md").write_text(COMPLIANCE_FIXTURE, encoding="utf-8")
+    _init_board_git_repo(board_root)
     return board_root
 
 

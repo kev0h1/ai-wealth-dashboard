@@ -692,7 +692,15 @@ async def _cleanup_stale_connections():
 
 
 async def _seed_cashflow_cache():
-    """Populate cashflow cache for any user who has none yet."""
+    """Populate cashflow cache for any user who has none yet.
+
+    Deliberately ONLY users with no doc at all: this runs on the API's
+    single event loop, and a recompute blocks it for over a second per
+    user. The deploy-time refresh of docs written by an older engine build
+    (G159) lives in the worker instead, `app.workers.sync_worker._on_startup`
+    calling `app.services.derived_caches.refresh_stale_cashflow_caches`,
+    which also covers the no-doc case; this seed stays for an environment
+    running the API without a worker."""
     from app.routers.analytics import compute_and_cache_cashflow
     user_ids = await transactions_col.distinct("user_id")
     for uid in user_ids:

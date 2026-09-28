@@ -69,7 +69,7 @@ function paceBadgeClasses(multiple: number): string {
     : "bg-slate-100 text-slate-600 dark:bg-slate-700/60 dark:text-slate-300";
 }
 
-function paceLine(multiple: number, excess: number, daysElapsed: number): string {
+export function paceLine(multiple: number, excess: number, daysElapsed: number): string {
   const dayLabel = `day ${daysElapsed}`;
   const rounded = Math.round(multiple * 10) / 10;
   if (rounded >= 1.9 && rounded <= 2.1) return `about twice your usual pace for ${dayLabel}.`;
