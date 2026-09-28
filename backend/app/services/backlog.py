@@ -118,6 +118,19 @@ until a human notices and runs `git add && git commit` (or an unstuck
 retry) by hand in the shared tree. `integrate.py` does not currently
 distinguish that specific cause from an arbitrary dirty tree; see its own
 `_check_preconditions` if that distinction is ever worth adding.
+
+The opposite mistake — a false NEGATIVE, `_lock_holder_pids` wrongly
+reporting no holder on a `.git/index.lock` a real process still has open
+— is treated far more strictly than the false-positive case above,
+deliberately asymmetrically: a stall inside this module is recoverable
+by anyone who notices, but deleting a live process's lock corrupts that
+THIRD-PARTY git process's own in-flight operation, mid-write, with no
+downstream check in this codebase able to repair it afterwards. That is
+why every code path in `_lock_holder_pids` that cannot positively confirm
+"nothing holds this file" — an unreadable /proc fd table, a tool that
+ran but reported an error rather than a clean "no holder" — reports a
+holder rather than silently treating "I could not look" as "I looked and
+found nothing".
 """
 from __future__ import annotations
 
@@ -509,51 +522,75 @@ class _GitLockHeld(Exception):
 
 
 def _lock_holder_pids(lock_path: Path) -> list[str]:
-    """Best-effort: which live process(es), if any, currently have
-    `lock_path` open. This is the actual safety gate for whether a stale
-    `.git/index.lock` may be removed (H93) — age alone is never enough,
-    since a slow but genuine git operation must never have its lock
-    pulled out from under it.
+    """Best-effort, but FAIL-CLOSED: which live process(es), if any,
+    currently have `lock_path` open, OR could not be ruled out. This is
+    the actual safety gate for whether a stale `.git/index.lock` may be
+    removed (H93) — age alone is never enough, since a slow but genuine
+    git operation must never have its lock pulled out from under it.
 
-    Prefers `fuser`/`lsof` (fast, exact, and what the item asked for).
-    Both exit 0 with the holder's pid(s) on stdout when something has the
-    file open, and exit NON-zero with empty stdout when nothing does —
-    the inverse of the usual "0 means success" shell convention, verified
-    empirically on this host. The first cut of this function got that
-    backwards (`if result.returncode == 0: return []`), which is
-    unreachable dead code: returncode is only ever 0 when stdout already
-    produced a non-empty `pids` list, which the branch above it already
-    returns. The effect was that a tool positively confirming "no
-    holder" (exit 1, no stdout) was never trusted and always fell through
-    to the /proc scan below. Fixed here: once a tool actually runs (no
-    matter its exit code), its answer is final — pids if it found any,
-    `[]` if it didn't — and the loop stops there.
+    The governing rule, added in the H93 review round 2 after two
+    separate fail-OPEN defects were found and reproduced in the first
+    fix (see `_lock_holder_pids_via_tool`/`_lock_holder_pids_via_proc`
+    below for each): "I could not look" must never be read as "I looked
+    and found nothing". Every code path that cannot positively confirm
+    "nothing holds this file" reports a holder — real or a
+    `(...unreadable)`-suffixed placeholder pid — rather than silently
+    falling through to "unheld". An empty list from this function is
+    therefore a genuine positive claim (something actually checked and
+    found nothing), never a default for "couldn't tell".
 
-    Falls back to a raw /proc scan only when NEITHER tool is installed
-    (`FileNotFoundError` from both). That scan walks every live
-    process's open file descriptors (`/proc/<pid>/fd/*`) and keeps only
-    one whose fd resolves to this exact lock file — the only fd-table
-    signal that actually means "holds this file open". The first cut
-    matched any process merely cwd'd at the repo root with the substring
-    `git` anywhere in its command line, which proved to be two separate
-    live bugs, both reproduced against real processes on this host in
-    the H93 review round: (1) a long-running `git fetch`-polling loop
-    parked at the repo root (the normal shape of a Claude/Codex session
-    on this VPS) matched every time, so a genuinely stale, abandoned lock
-    was reported as held forever, defeating the whole point of this
-    function; and (2) with both tools absent and a real holder's cwd
-    different from `repo_root` (nothing enforced that they match), the
-    holder was invisible to the cwd check and its lock was deleted out
-    from under it — the opposite failure. Neither is possible once the
-    check is "does an fd point at this exact file", so the cwd and
-    command-line heuristics are gone entirely rather than patched.
+    Tries `_lock_holder_pids_via_tool` (fuser/lsof) first; only when that
+    returns `None` (neither tool gave a trustworthy answer at all) does
+    this fall back to `_lock_holder_pids_via_proc`, a raw /proc fd walk,
+    itself fail-closed the same way.
 
     Even a correct "no holder" answer from this function is still only a
     necessary condition for removal, never sufficient on its own: the
     age threshold and the immediately-before-deleting re-stat in
     `_wait_for_git_index_lock` are what close the remaining race — a lock
     just created by a process that has not yet opened an fd on it (or
-    rewritten it) at the exact instant this function samples /proc."""
+    rewritten it) at the exact instant this function runs."""
+    tool_result = _lock_holder_pids_via_tool(lock_path)
+    if tool_result is not None:
+        return tool_result
+    return _lock_holder_pids_via_proc(lock_path)
+
+
+def _lock_holder_pids_via_tool(lock_path: Path) -> Optional[list[str]]:
+    """Asks `fuser`/`lsof` (fast, exact, and what the item asked for).
+    Returns pids if a tool found any, `[]` only when a tool gave a
+    genuinely trustworthy "no holder" answer, or `None` if neither tool
+    gave an answer that can be trusted at all (not installed, timed out,
+    or ran but reported an error rather than a clean "no holder") — the
+    caller then falls back to a /proc walk rather than treating `None`
+    as "unheld".
+
+    Both tools exit 0 with the holder's pid(s) on stdout when something
+    has the file open, and exit NON-zero when nothing does — the inverse
+    of the usual "0 means success" shell convention, verified empirically
+    on this host. The first cut of this function got that backwards
+    (`if result.returncode == 0: return []`), unreachable dead code:
+    returncode is only ever 0 when stdout already produced a non-empty
+    `pids` list, which the branch above it already returns. Fixed in
+    round 1: a non-empty `pids` list is trusted outright, regardless of
+    exit code or any stderr noise alongside it — a real pid on stdout is
+    positive evidence a false alarm elsewhere cannot manufacture.
+
+    Round 2 (Critical B): a non-zero exit with EMPTY stdout is not, on
+    its own, "confirmed no holder" — fuser's and lsof's own documented
+    contract is non-zero for EITHER "nothing has this file open" OR "a
+    fatal error", indistinguishable by exit code alone. Round 1 trusted
+    every non-zero/empty-stdout result unconditionally, which a
+    malfunctioning or shadowed tool (bad permissions, a corrupt install,
+    a stand-in script earlier on PATH) exploits for free — reproduced by
+    swapping in fuser/lsof stand-ins that exit 1 with empty stdout and a
+    stderr diagnostic, and the lock was removed out from under a live
+    holder. The fix: a non-zero exit is trusted as "no holder" ONLY when
+    stderr is ALSO empty — a genuine "nothing has this open" answer from
+    either tool prints nothing there. A non-zero exit WITH stderr output
+    means the tool ran but failed, not that it found nothing; that
+    result is discarded (not returned as `[]`) and the next tool (or, if
+    none is left, the /proc walk) gets a chance to give a real answer."""
     for tool, extra_args in (("fuser", []), ("lsof", ["-t"])):
         try:
             result = subprocess.run(
@@ -562,15 +599,62 @@ def _lock_holder_pids(lock_path: Path) -> list[str]:
         except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
             continue
         pids = [tok.strip().lstrip("+") for tok in result.stdout.split() if tok.strip().lstrip("+").isdigit()]
-        # The tool ran, successfully or not — its answer is trusted
-        # outright either way (pids found, or genuinely none), with no
-        # fall-through to the /proc scan below.
-        return pids
-    # Neither tool is installed: walk every live process's fd table for
-    # one that genuinely points at this exact lock file.
+        if pids:
+            return pids
+        if result.returncode != 0 and not result.stderr.strip():
+            return []
+        # Either returncode == 0 with nothing parsed on stdout (not
+        # possible per the tools' own contract, so not trusted if it
+        # somehow happens) or a non-zero exit WITH stderr output (an
+        # actual tool failure, not a clean "no holder"): this tool's
+        # answer is discarded; try the next one instead of trusting it.
+    return None
+
+
+def _lock_holder_pids_via_proc(lock_path: Path) -> list[str]:
+    """Raw /proc fd walk, used only when `_lock_holder_pids_via_tool`
+    could not get a trustworthy answer from either fuser or lsof at all
+    (H93 review round 2). Walks every live process's open file
+    descriptors (`/proc/<pid>/fd/*`) and keeps one whose fd resolves to
+    this exact lock file — the only fd-table signal that actually means
+    "holds this file open".
+
+    Round 1 matched any process merely cwd'd at the repo root with the
+    substring `git` anywhere in its command line, which proved to be two
+    separate live bugs, both reproduced against real processes on this
+    host: (1) a long-running `git fetch`-polling loop parked at the repo
+    root (the normal shape of a Claude/Codex session on this VPS)
+    matched every time, reporting a genuinely stale, abandoned lock as
+    held forever; and (2) with a real holder's cwd different from
+    `repo_root` (nothing enforced that they match), the holder was
+    invisible and its lock was deleted out from under it. Neither is
+    possible once the check is "does an fd point at this exact file", so
+    the cwd and command-line heuristics are gone entirely.
+
+    Round 2 (Critical A): `os.listdir(fd_dir)` raising `OSError` was
+    treated as "process exited mid-scan, or its fd table isn't readable
+    (not ours), either way skip it" — conflating two very different
+    cases. A process that has genuinely exited is safe to skip (nothing
+    left to hold anything). A process that still EXISTS but whose fd
+    table this cannot read (`PermissionError`) is NOT safe to skip: this
+    simply could not look, and per the governing rule on
+    `_lock_holder_pids` above, "could not look" must be reported as a
+    holder, never silently passed over. Reproduced: a live holder with a
+    genuinely open fd, `os.listdir` forced to raise `PermissionError` for
+    that one pid, tools absent — the lock was removed while the holder
+    was still 8 seconds into a 30-second hold. Fixed here: `FileNotFoundError`
+    (the process, or that specific fd, is actually gone) is the only
+    exception treated as "skip, safe" — every other `OSError` on an
+    existing pid's fd table, or on an individual fd within it, appends a
+    `(fd table unreadable)`/`(fd ... unreadable)`-suffixed placeholder to
+    the holder list instead of continuing past it, which is enough on its
+    own to keep `_wait_for_git_index_lock` from ever deleting the lock."""
     try:
         resolved_lock = str(lock_path.resolve())
     except OSError:
+        # Cannot even resolve the path being checked, so there is
+        # nothing to compare any fd against; nothing to fail closed
+        # ABOUT either. Unheld, same as before this round.
         return []
     proc_dir = Path("/proc")
     if not proc_dir.is_dir():
@@ -582,13 +666,23 @@ def _lock_holder_pids(lock_path: Path) -> list[str]:
         fd_dir = entry / "fd"
         try:
             fd_names = os.listdir(fd_dir)
+        except FileNotFoundError:
+            continue  # the process itself exited between the /proc listing and this read -- genuinely gone
         except OSError:
-            continue  # process exited mid-scan, or its fd table isn't readable (not ours)
+            # The process still exists (that's the only reason
+            # /proc/<pid> is listed at all) but its fd table could not
+            # be read (typically PermissionError). Unknown, not unheld:
+            # reported as a holder rather than silently skipped.
+            holders.append(f"{entry.name}(fd table unreadable)")
+            continue
         for fd_name in fd_names:
             try:
                 target = os.readlink(fd_dir / fd_name)
+            except FileNotFoundError:
+                continue  # that individual fd closed mid-scan -- genuinely gone
             except OSError:
-                continue  # that individual fd closed mid-scan
+                holders.append(f"{entry.name}(fd {fd_name} unreadable)")
+                break
             if target == resolved_lock:
                 holders.append(entry.name)
                 break

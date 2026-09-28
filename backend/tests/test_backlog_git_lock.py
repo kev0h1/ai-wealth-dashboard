@@ -339,6 +339,139 @@ def test_live_holder_at_a_different_cwd_is_still_detected_via_fuser_or_lsof(tmp_
         holder.wait(timeout=10)
 
 
+# ---------------------------------------------------------------------
+# H93 review round 2: "I could not look" must never be read as "I looked
+# and found nothing". Two fail-OPEN defects were found in round 1's fix,
+# both reproduced against real processes before this round's fix.
+# ---------------------------------------------------------------------
+
+
+def test_unreadable_fd_table_is_never_treated_as_not_a_holder(tmp_path, monkeypatch):
+    """Critical A. `os.listdir(fd_dir)` raising `OSError` used to be
+    treated as one case ("process exited mid-scan, or its fd table isn't
+    readable — either way, skip it"), conflating a genuinely gone
+    process (safe to skip) with one that still exists but whose fd table
+    this cannot read (must NOT be skipped — this simply could not look,
+    and per the governing rule, that must be reported as a holder).
+    Reproduced here exactly as found: a live holder with a real open fd,
+    `os.listdir` forced to raise `PermissionError` for that one pid only
+    (every other pid's fd table still reads normally), tools forced
+    absent so the /proc walk is what actually runs."""
+    board_root = _make_real_board_root(tmp_path)
+    lock_path = board_root / ".git" / "index.lock"
+
+    real_run = backlog.subprocess.run
+
+    def _hide_fuser_and_lsof(cmd, *args, **kwargs):
+        if cmd and cmd[0] in ("fuser", "lsof"):
+            raise FileNotFoundError(cmd[0])
+        return real_run(cmd, *args, **kwargs)
+
+    holder = _spawn_lock_holder(lock_path, hold_seconds=30.0, delete_after=False)
+    try:
+        holder_fd_dir = Path(f"/proc/{holder.pid}/fd")
+        real_listdir = backlog.os.listdir
+
+        def _listdir_denies_the_holder(path, *args, **kwargs):
+            if Path(path) == holder_fd_dir:
+                raise PermissionError(f"[Errno 13] Permission denied: '{path}' (simulated for the test)")
+            return real_listdir(path, *args, **kwargs)
+
+        import unittest.mock as _mock
+
+        with _mock.patch.object(backlog.subprocess, "run", side_effect=_hide_fuser_and_lsof):
+            with _mock.patch.object(backlog.os, "listdir", side_effect=_listdir_denies_the_holder):
+                holders = backlog._lock_holder_pids(lock_path)
+                assert holders, "an fd table this cannot read must be reported as a holder, never skipped"
+
+                with pytest.raises(backlog._GitLockHeld):
+                    backlog._wait_for_git_index_lock(
+                        board_root, stale_after=90.0, max_wait=1.0, poll_interval=0.1
+                    )
+        assert lock_path.exists(), "a lock behind an unreadable fd table must never be removed"
+    finally:
+        holder.kill()
+        holder.wait(timeout=10)
+
+
+def test_a_malfunctioning_tool_is_never_trusted_as_no_holder(tmp_path):
+    """Critical B. fuser's/lsof's own documented contract is non-zero
+    exit for EITHER "nothing has this file open" OR "a fatal error",
+    indistinguishable by exit code alone. Round 1 trusted every
+    non-zero/empty-stdout result unconditionally, so a malfunctioning or
+    shadowed tool (bad permissions, a corrupt install, a stand-in earlier
+    on PATH) could get a live holder's lock removed for free — worse than
+    the original Critical 2, since it needs only one transient tool
+    failure, not an unusual install. Reproduced by shadowing both tools
+    with stand-ins that exit 1 with empty stdout and a stderr
+    diagnostic — a live holder's lock must still not be removed."""
+    board_root = _make_real_board_root(tmp_path)
+    lock_path = board_root / ".git" / "index.lock"
+
+    real_run = backlog.subprocess.run
+
+    def _fake_broken_tool(cmd, *args, **kwargs):
+        if cmd and cmd[0] in ("fuser", "lsof"):
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=1, stdout="", stderr=f"{cmd[0]}: simulated fatal error for the test\n"
+            )
+        return real_run(cmd, *args, **kwargs)
+
+    holder = _spawn_lock_holder(lock_path, hold_seconds=30.0, delete_after=False)
+    try:
+        import unittest.mock as _mock
+
+        with _mock.patch.object(backlog.subprocess, "run", side_effect=_fake_broken_tool):
+            holders = backlog._lock_holder_pids(lock_path)
+            assert holders, "a tool that ran but failed must never be read as a clean 'no holder'"
+
+            with pytest.raises(backlog._GitLockHeld):
+                backlog._wait_for_git_index_lock(
+                    board_root, stale_after=90.0, max_wait=1.0, poll_interval=0.1
+                )
+        assert lock_path.exists(), "a lock behind a malfunctioning tool's false 'no holder' must never be removed"
+    finally:
+        holder.kill()
+        holder.wait(timeout=10)
+
+
+def test_a_cleanly_failing_tool_still_confirms_no_holder_and_stale_lock_is_removed(tmp_path, caplog):
+    """Regression guard for the honest case: a tool that exits non-zero
+    with EMPTY stdout AND empty stderr (a genuine "nothing has this
+    open") must still be trusted, or Critical B's fix would have swung
+    all the way to never trusting any tool at all and every stale lock
+    would need the /proc fallback. Shadows both tools with stand-ins that
+    mimic the real, clean "no holder" contract exactly (exit 1, no
+    stdout, no stderr) against a genuinely stale, unheld lock."""
+    board_root = _make_real_board_root(tmp_path)
+    lock_path = board_root / ".git" / "index.lock"
+    lock_path.write_text("stale, abandoned by a commit that died mid-operation\n", encoding="utf-8")
+    old = time.time() - (backlog.GIT_LOCK_STALE_SECONDS + 60)
+    os.utime(lock_path, (old, old))
+
+    real_run = backlog.subprocess.run
+
+    def _fake_clean_no_holder_tool(cmd, *args, **kwargs):
+        if cmd and cmd[0] in ("fuser", "lsof"):
+            return subprocess.CompletedProcess(args=cmd, returncode=1, stdout="", stderr="")
+        return real_run(cmd, *args, **kwargs)
+
+    import unittest.mock as _mock
+
+    with caplog.at_level(logging.WARNING, logger="app.services.backlog"):
+        with _mock.patch.object(backlog.subprocess, "run", side_effect=_fake_clean_no_holder_tool):
+            item, committed = backlog.add_note(
+                "A1", "note written behind a cleanly-confirmed-unheld stale lock", actor="claude",
+                todo_path=board_root / "TODO.md", repo_root=board_root,
+            )
+
+    assert committed is True
+    assert not lock_path.exists(), "a genuinely clean 'no holder' answer must still be trusted"
+    assert any("removing stale .git/index.lock" in r.message for r in caplog.records), caplog.text
+    saved = (board_root / "TODO.md").read_text(encoding="utf-8")
+    assert "note written behind a cleanly-confirmed-unheld stale lock" in saved
+
+
 def test_git_commit_and_push_folds_a_timed_out_live_lock_into_committed_false(tmp_path, monkeypatch):
     """End to end through the real mutator path (not the direct
     _wait_for_git_index_lock unit test above): a live lock that never
