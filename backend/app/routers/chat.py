@@ -161,7 +161,15 @@ async def tax_chat(body: dict, user: dict = Depends(current_user)):
         raise HTTPException(400, "No messages or AI not configured")
 
     uid  = user["email"]
-    name = user.get("name", "").split()[0] or "there"
+    # A127: user.get("name", "") is "" for the D7-normal case of an empty
+    # session name (Apple sign-in / a Google account with no display
+    # name); "".split()[0] on that raises IndexError. This route is dead
+    # (see the module comment above — nothing in the frontend calls it
+    # since tax Q&A folded into POST /can-i), so this was previously
+    # unreachable in practice, but guard it properly rather than leave a
+    # live IndexError in an endpoint that still exists.
+    name_words = (user.get("name") or "").split()
+    name = name_words[0] if name_words else "there"
 
     reply = await answer_tax_question(uid, name, messages)
 
