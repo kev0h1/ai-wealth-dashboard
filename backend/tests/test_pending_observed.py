@@ -419,3 +419,39 @@ def test_pending_row_not_matched_across_accounts(monkeypatch):
 
     assert len(resp["upcoming_bills"]) == 1
     assert resp["observed_pending_bills"] == []
+
+
+# ── G180 guard: lock down the exact edge that caused the rot ───────────────
+#
+# Every test above now freezes "today" comfortably clear of any month
+# boundary (H94/G180's fix). That hides the leak from THIS suite, but the
+# leak itself is real, calendar-driven, and correct (see the H94 comment on
+# `_freeze` above and `test_pending_match_bypasses_the_give_up_horizon`'s
+# own note on a 45-day interval's legitimate second occurrence). Nothing
+# else in this file exercises it deliberately any more, which is exactly
+# how it went unnoticed until the real calendar happened to reproduce it on
+# 2026-09-28. Rather than leave that edge untested, pin "today" to the
+# actual incident date and assert the leak happens ON PURPOSE: if a future
+# change to `_occurrences`/`_advance_month_to_anchor` ever stops projecting
+# this second occurrence (or starts projecting a third), this test fails
+# immediately instead of the class rediscovering itself by accident on some
+# future 28th-of-a-30-day-month.
+def test_pattern_default_eom_anchor_near_month_end_legitimately_projects_a_second_occurrence(monkeypatch):
+    """`_pattern()`'s default `monthly_anchor: None` (EOM) with
+    `avg_interval: 30` and `next_date` defaulted to "today": on 2026-09-28
+    (2 days from September's end), `_occurrences` correctly projects a
+    SECOND occurrence on October's last calendar day (31st, a Saturday),
+    rolled to Monday 2 November by `_next_working_day` -- which lands
+    exactly on `window_end` (today + 35 days) and so is correctly included,
+    not excluded. This is the precise leak that broke five other tests in
+    this file (and is the direct reason they now freeze "today" instead)."""
+    _freeze(monkeypatch, "2026-09-28T09:00:00")
+    resp = _run_build_response(monkeypatch, [_pattern()])
+
+    assert len(resp["upcoming_bills"]) == 2
+    first, second = resp["upcoming_bills"]
+    assert first["expected_date"] == "2026-09-28"
+    assert first["days_away"] == 0
+    assert second["expected_date"] == "2026-11-02"  # 31 Oct (EOM), rolled off Sat onto Mon
+    assert second["days_away"] == 35
+    assert second["original_date"] == "2026-10-31"
