@@ -252,7 +252,7 @@ def _canonical_variant_hash(builder):
 PINNED_TOOL_DESCRIPTION_HASHES = {
     "calculate": "5cc43cf069e72da75ac0c00009a45e4fd89714c56d245d3a297931f9696ae2d0",
     "check_affordability": "96f7e3bc9eab7718e3c8382f10b4a8396da740931003787c9b87afeabe55b7f8",
-    "explain": "ece7e202055770a96c8e64b851ce8923113024513ead6a1444faefab7ed89c9f",
+    "explain": "a9c9de9075e1f2b0b57bbdc875e0e216a5ea8269ea39b13b1c0990c2b198a91e",
     "get_account_activity": "a177a9327880d3e518b6164b375da8926fb345a9ac20b3675904c6ed1e20e3f7",
     "get_accounts": "635f1a49e599affcc455cba594ddffdd6e69d5ec17d29aa41e701a1bbba83c9b",
     "get_category_spend": "e96c666d2f3b75b3fca8fcd200c352eb680f237bc117e89a01577c497e2fa179",
