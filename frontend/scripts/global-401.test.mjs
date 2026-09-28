@@ -199,6 +199,16 @@ setUnauthorizedHandler(null);
 // itself, so a NEW exempt call added later still fails this scan until
 // someone deliberately adds it here, rather than silently passing.
 const EXEMPT_FETCH_URL_SUBSTRINGS = ["/auth/session/validate"];
+// A121: the module-scoped `function fetch(...)` shadow (the app-lock
+// request gate) and its own single internal `return globalThis.fetch(...)`
+// call are the network PRIMITIVE every call site below funnels through —
+// not a call site of their own needing a 401 marker within a lookahead
+// window. Every real call site already reaches reportIfUnauthorized/toJson
+// via its OWN res handling once this primitive resolves, so scanning the
+// primitive's own two lines for those markers would be checking the wrong
+// thing entirely (and did produce two false positives here once A121 and
+// A124 first landed in the same file — this exclusion is what closes that).
+const GATE_DEFINITION_LINE_RE = /^\s*function fetch\(|return globalThis\.fetch\(/;
 // toJson is almost always called generically (`toJson<{ ok: boolean }>(r)`),
 // so a plain "toJson(" substring match misses every real call site — the
 // marker has to tolerate an optional `<...>` between the name and the
@@ -228,6 +238,7 @@ function scanApiTsForUngatedFetches(lines) {
     if (trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/*")) continue;
     if (!/\bfetch\(/.test(line)) continue;
     if (EXEMPT_FETCH_URL_SUBSTRINGS.some((s) => line.includes(s))) continue;
+    if (GATE_DEFINITION_LINE_RE.test(line)) continue;
     const window = lines.slice(i, i + LOOKAHEAD_LINES + 1).map(stripLineForGateScan).join("\n");
     if (!GATE_MARKERS.some((m) => m.test(window))) offenders.push(i + 1); // 1-based
   }

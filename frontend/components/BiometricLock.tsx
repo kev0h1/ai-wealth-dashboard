@@ -10,6 +10,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { BUILD_TAG } from "@/lib/buildTag";
 import { setAppLocked } from "@/lib/appLock";
 import { createInertTracker, APP_LOCK_OVERLAY_ATTR } from "@/lib/appLockInert";
+import { isColdStartLocked, shouldRelockOnResume } from "@/lib/appLockTiming";
 
 // A121 (pentest IOS-07/IOS-03, HIGH): dispatched on `window` right after a
 // successful unlock. Nothing that runs on a genuine background→foreground
@@ -34,11 +35,12 @@ function nativePlatform(): boolean {
   }
 }
 
-// A `resume` must follow a `pause` that was at least this long ago to count
-// as a genuine background -> foreground transition. Filters out any resume
-// that fires with little/no measured time paused (e.g. a spurious event with
-// no matching pause at all, which is treated as 0ms hidden below).
-const MIN_HIDDEN_MS = 1000;
+// MIN_HIDDEN_MS itself now lives in lib/appLockTiming.ts (imported above),
+// alongside the pure `isColdStartLocked`/`shouldRelockOnResume` decisions
+// this file's effects below delegate to — pulled out for the same reason
+// lib/appLockInert.ts's DOM-attribute logic was: testable in
+// scripts/app-lock-gate.test.mjs without a browser or jsdom, neither of
+// which is available in this repo's plain-Node test runner.
 
 // How long after `authenticate()` settles we keep ignoring pause/resume
 // events. On Android the native prompt is a separate Activity (see
@@ -244,7 +246,7 @@ export default function BiometricLock({ children }: { children: React.ReactNode 
   // Synchronously flip to locked BEFORE the browser paints, if applicable —
   // this is what prevents a flash of unlocked content on native.
   useLayoutEffect(() => {
-    if (nativePlatform() && isLockEnabled()) {
+    if (isColdStartLocked(nativePlatform(), isLockEnabled())) {
       setLockedState(true);
     }
     // setLockedState has a stable identity (see its own definition above) —
@@ -254,10 +256,30 @@ export default function BiometricLock({ children }: { children: React.ReactNode 
   // Kick off the actual biometric prompt after mount (the check + OS prompt
   // are inherently async, so they can't run inside useLayoutEffect itself).
   useEffect(() => {
-    if (nativePlatform() && isLockEnabled()) {
+    if (isColdStartLocked(nativePlatform(), isLockEnabled())) {
       void attemptUnlock();
     }
   }, [attemptUnlock]);
+
+  // A125: this component only exists while there is a session —
+  // components/AuthProvider.tsx renders LoginScreen/Onboarding/AppOnlyPage
+  // in its place otherwise, unmounting this one, see that file's own
+  // routing. Whatever caused the unmount (an ordinary sign-out, A124's
+  // auto-logout-on-401, the escape hatch below) must leave the shared
+  // lib/appLock.ts signal false behind it: a stale `true` left over from a
+  // lock that was engaged right up to sign-out would silently block the
+  // NEXT session's own requests, since lib/nativeAuth.ts's native sign-in
+  // exchange and AuthProvider's own session/validate check both now route
+  // through lib/api.ts's shared `gatedFetch` (closing the A125 structural
+  // gap below) — with no lock screen mounted any more to unlock it from,
+  // that would stall a fresh login behind AppLockedError indefinitely.
+  // Unconditional and unmount-only: every unlock path this component
+  // already knows about clears the signal itself, so this is pure
+  // belt-and-braces for any path that doesn't (or a future one that
+  // forgets to).
+  useEffect(() => {
+    return () => setAppLocked(false);
+  }, []);
 
   // Re-check every time the app genuinely returns from the background.
   //
@@ -332,7 +354,7 @@ export default function BiometricLock({ children }: { children: React.ReactNode 
       if (promptingRef.current) return;
       const hiddenFor = hiddenAtRef.current != null ? Date.now() - hiddenAtRef.current : 0;
       hiddenAtRef.current = null;
-      if (hiddenFor < MIN_HIDDEN_MS) return;
+      if (!shouldRelockOnResume(hiddenFor)) return;
       void attemptUnlock();
     }).then((h) => {
       if (cancelled) {

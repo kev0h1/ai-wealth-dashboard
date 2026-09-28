@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import { Browser } from "@capacitor/browser";
 import { App } from "@capacitor/app";
-import { API_BASE, api } from "./api";
+import { API_BASE, api, gatedFetch } from "./api";
 import { setToken } from "./auth";
 
 export function isNativePlatform(): boolean {
@@ -191,7 +191,7 @@ export async function nativeAppleLogin(): Promise<"ok" | "invite_only" | "failed
   const { identityToken, fullName } = authResult;
 
   try {
-    const res = await fetch(`${API_BASE}/auth/apple/native`, {
+    const res = await gatedFetch(`${API_BASE}/auth/apple/native`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ identityToken, fullName }),
@@ -251,7 +251,7 @@ export async function nativeGoogleLogin(): Promise<"ok" | "invite_only" | "faile
 
   async function pollOnce(): Promise<"ok" | "invite_only" | "err" | "pending"> {
     try {
-      const res = await fetch(`${API_BASE}/auth/mobile/poll?state=${encodeURIComponent(state)}`);
+      const res = await gatedFetch(`${API_BASE}/auth/mobile/poll?state=${encodeURIComponent(state)}`);
       if (!res.ok) return "pending";
       const d = await res.json();
       if (d.status === "token" && d.token) {

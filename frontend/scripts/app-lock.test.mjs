@@ -214,6 +214,47 @@ await withStubbedFetch(async (getCallCount) => {
   setAppLocked(false);
 });
 
+// ── /auth/session/validate exemption (A125, closing the structural gap the
+//    A121 review raised: components/AuthProvider.tsx's mount-time check and
+//    its A124 focus/visibilitychange/resume revalidate now both call this
+//    file's `gatedFetch` instead of the raw global `fetch`, so a locked
+//    device still discovers a session revoked elsewhere — see this
+//    exemption's own comment above `APP_LOCK_EXEMPT_PATHS` for the full
+//    reasoning) ───────────────────────────────────────────────────────────
+await withStubbedFetch(async (getCallCount) => {
+  setAppLocked(true);
+  ok("session/validate exemption: locked for this section", isAppLocked());
+
+  let resolved;
+  try {
+    resolved = await gatedFetch("/api/auth/session/validate", { method: "POST" });
+  } catch (e) {
+    resolved = e;
+  }
+  ok("session/validate exemption: plain path is NOT refused while locked", !(resolved instanceof AppLockedError));
+  check("session/validate exemption: plain path DOES reach the stubbed fetch", getCallCount(), 1);
+
+  let spoofRejected = null;
+  try {
+    await gatedFetch("/api/auth/session/validate-not-really");
+  } catch (e) {
+    spoofRejected = e;
+  }
+  ok("session/validate exemption: a similarly-named path is NOT exempted", spoofRejected instanceof AppLockedError);
+  check("session/validate exemption: the lookalike path issues no NEW fetch", getCallCount(), 1);
+
+  let rejected = null;
+  try {
+    await gatedFetch("/api/accounts");
+  } catch (e) {
+    rejected = e;
+  }
+  ok("session/validate exemption: an unrelated path is still refused while locked", rejected instanceof AppLockedError);
+  check("session/validate exemption: unrelated path issues no NEW fetch", getCallCount(), 1);
+
+  setAppLocked(false);
+});
+
 if (failures > 0) {
   console.error(`\n${failures} check(s) failed.`);
   process.exit(1);
