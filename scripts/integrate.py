@@ -81,6 +81,7 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import os
 import re
 import subprocess
 import sys
@@ -112,12 +113,24 @@ class IntegrateError(RuntimeError):
     (not on main, dirty tree, lock already held)."""
 
 
-def _sh(cmd: list[str], cwd: Path = REPO_ROOT, timeout: int = GIT_TIMEOUT) -> tuple[int, str]:
+def _sh(
+    cmd: list[str], cwd: Path = REPO_ROOT, timeout: int = GIT_TIMEOUT,
+    env: Optional[dict] = None,
+) -> tuple[int, str]:
     """Run a command, returning (returncode, combined stdout+stderr). Never
-    raises for a non-zero exit — callers decide what that means."""
+    raises for a non-zero exit — callers decide what that means.
+
+    `env` (H90): merged ON TOP of this process's own environment (never
+    replaces it) when given, so a caller can add or override one variable
+    (see `_run_backend_tests` below) without having to reconstruct the
+    rest of `os.environ` itself. `None` (the default, every other caller)
+    keeps the previous behaviour exactly: `subprocess.run(..., env=None)`
+    inherits the parent environment unchanged."""
     try:
+        run_env = {**os.environ, **env} if env else None
         proc = subprocess.run(
-            cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=timeout
+            cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+            timeout=timeout, env=run_env,
         )
         return proc.returncode, proc.stdout
     except subprocess.TimeoutExpired as exc:
@@ -612,6 +625,18 @@ def _run_frontend_checks(changed: set[str]) -> None:
 
 
 def _run_backend_tests() -> None:
+    """Runs the suite from the SHARED TREE's own backend, unlike
+    `scripts/session.sh finish` (a worktree). That matters for H90: this
+    process's cwd here has a real `backend/.env` (UAT's), which
+    `app.core.config`'s `load_dotenv(..., override=False)` would read
+    MONGO_DB="wealth" out of — the real value, not a test one — the
+    instant the pytest subprocess imports `app.core.config` transitively.
+    `conftest.py`'s own `os.environ.setdefault("MONGO_DB", "wealth_test")`
+    still wins that race on its own (it runs before those imports, and
+    dotenv's override=False never clobbers an already-set var), but
+    passing MONGO_DB=wealth_test here too means this invocation is its
+    own proof of the mechanism, not something that only holds up if
+    conftest.py's import order is never disturbed."""
     venv_python = REPO_ROOT / "backend" / ".venv" / "bin" / "python"
     rc, out = _sh(
         [
@@ -620,6 +645,7 @@ def _run_backend_tests() -> None:
         ],
         cwd=REPO_ROOT / "backend",
         timeout=600,
+        env={"MONGO_DB": "wealth_test"},
     )
     if rc != 0:
         raise IntegrateError(f"backend test suite failed:\n{out}")

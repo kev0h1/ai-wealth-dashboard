@@ -890,7 +890,14 @@ cmd_finish() {
   fi
 
   log "running backend tests in $worktree_dir/backend..."
-  (cd "$worktree_dir/backend" && "$worktree_dir/backend/.venv/bin/python" -m pytest -q -x \
+  # H90: explicit MONGO_DB=wealth_test alongside conftest.py's own default
+  # (belt and suspenders -- conftest.py's `os.environ.setdefault` already
+  # picks "wealth_test" when this is unset, and aborts collection outright
+  # if whatever it resolves to isn't "_test"-suffixed) so a finish can
+  # never write into the real UAT/production "wealth" database, and so
+  # this line itself is proof of that, without needing to trace conftest.py's
+  # import ordering to believe it.
+  (cd "$worktree_dir/backend" && MONGO_DB=wealth_test "$worktree_dir/backend/.venv/bin/python" -m pytest -q -x \
     tests)
 
   log "checking no raw pentest evidence is staged or tracked in $worktree_dir..."
