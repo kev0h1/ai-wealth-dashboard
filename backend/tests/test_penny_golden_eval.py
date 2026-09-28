@@ -68,6 +68,18 @@ it is still honest:
    description changed, never WHAT changed or whether the change was
    harmless — re-reading the tool's real description and re-pinning (see
    `--repin` below) is a deliberate manual step, not automated away.
+
+   B42: one tool's description (`explain`) legitimately varies with the
+   process environment (`MCP_CONNECTOR_ENABLED`, read at call time — A17).
+   Pinning a single hash of "the live description" for that tool bakes in
+   whichever environment state happened to be live when the pin was
+   captured, so the exact same suite then passes in one environment and
+   fails in another with no code drift at all — this is what made every
+   integrate pass fail on `explain`. `ENV_VARIANT_TOOLS` and
+   `_canonical_variant_hash` (below) pin such a tool by building BOTH
+   variants explicitly and hashing the sorted pair, so the pin is the same
+   value regardless of this process's own environment, while still
+   changing the moment either variant's own wording drifts.
 3. Otherwise it "calls" that tool, in that round, and moves on.
 
 This means the harness's decision is genuinely driven by the real code's
@@ -172,6 +184,61 @@ def _description_sha256(text: str) -> str:
     return hashlib.sha256(_normalise_description(text).encode("utf-8")).hexdigest()
 
 
+# ── B42: flag-independent pins for env-variant descriptions ────────────────
+#
+# `explain`'s description (app.services.penny_tools._explain_tool_description)
+# is the one tool description in this catalog that legitimately varies by
+# process environment: it reads MCP_CONNECTOR_ENABLED at call time, so the
+# text actually sent to the model differs between a connector-off process
+# (no `mcp_connector` clause) and a connector-on one (see that function's
+# own docstring for why — A17/F16). Before B42, PINNED_TOOL_DESCRIPTION_HASHES
+# pinned whichever single variant happened to be live in the process that
+# captured the pin, so this suite passed in a worktree (no backend/.env,
+# flag unset/false) and failed wherever backend/.env sets the flag true —
+# the shared tree scripts/integrate.py actually tests in, which is why
+# every integrate pass failed on test_golden_tool_selection
+# [spend-04-jargon-moved]. The description had not drifted; the PIN was
+# environment-dependent.
+#
+# `ENV_VARIANT_TOOLS` names every tool description known to vary with the
+# process environment, mapped to a function that builds each variant
+# EXPLICITLY (never by reading the ambient flag) — B42's fix adds a
+# `connector_enabled` override parameter to `_explain_tool_description` for
+# exactly this. For a tool listed here, both `_GoldenFakeClient.post`
+# (below) and `--repin` compute a pin that is provably independent of
+# whatever MCP_CONNECTOR_ENABLED happens to be in the process running the
+# suite, while still changing the moment either variant's own wording
+# drifts (see `_canonical_variant_hash` immediately below).
+ENV_VARIANT_TOOLS = {
+    "explain": lambda enabled: penny_tools_module._explain_tool_description(enabled),
+}
+
+
+def _canonical_variant_hash(builder):
+    """For an env-variant tool, build BOTH variants explicitly (`True` and
+    `False` passed directly to `builder`, never read off the ambient
+    environment or this process's already-imported flag), hash each
+    individually, then hash the two variant hashes sorted and joined with a
+    separator. Sorting makes the combined result independent of which
+    variant happens to be live in the calling process — the same canonical
+    hash comes out whether this process's own MCP_CONNECTOR_ENABLED is true
+    or false, because neither is ever consulted.
+
+    Returns `(true_hash, false_hash, canonical_hash)`: the two individual
+    hashes let a caller check that a REQUEST's live description is one of
+    the two known-good variants (catches corruption or a swapped
+    description); `canonical_hash` is what actually gets pinned in
+    `PINNED_TOOL_DESCRIPTION_HASHES` and is what catches wording drift in
+    EITHER variant, since changing either one changes the sorted pair and
+    therefore this hash."""
+    true_hash = _description_sha256(builder(True))
+    false_hash = _description_sha256(builder(False))
+    canonical_hash = hashlib.sha256(
+        "\x1e".join(sorted([true_hash, false_hash])).encode("utf-8")
+    ).hexdigest()
+    return true_hash, false_hash, canonical_hash
+
+
 # Pinned sha256 hashes of each golden tool's full, real description text
 # (normalised per `_normalise_description`), captured at authoring time
 # directly from the live `app.services.penny_tools.TOOL_SCHEMAS`. The
@@ -179,6 +246,9 @@ def _description_sha256(text: str) -> str:
 # round's request payload and fails the moment it no longer matches — see
 # the module docstring for why this replaced a substring-anchor check, and
 # "Re-pinning" above for how to refresh these after an intentional edit.
+# `explain`'s entry is the one exception: it is the CANONICAL hash from
+# `_canonical_variant_hash`, not a single-description hash — see the
+# ENV_VARIANT_TOOLS block above for why, and B42.
 PINNED_TOOL_DESCRIPTION_HASHES = {
     "calculate": "5cc43cf069e72da75ac0c00009a45e4fd89714c56d245d3a297931f9696ae2d0",
     "check_affordability": "96f7e3bc9eab7718e3c8382f10b4a8396da740931003787c9b87afeabe55b7f8",
@@ -259,11 +329,32 @@ class _GoldenFakeClient:
             return _FinalResponse("HEADLINE: n/a\nREPLY: n/a")
 
         live_hash = _description_sha256(fn.get("description") or "")
-        if live_hash != pinned_hash:
+        variant_builder = ENV_VARIANT_TOOLS.get(tool_name)
+        if variant_builder is None:
+            # The common case: one fixed description, hashed and compared
+            # directly against the pin, exactly as before B42.
+            description_ok = live_hash == pinned_hash
+            compare_hash = pinned_hash
+        else:
+            # B42: this tool's description legitimately varies with the
+            # process environment (e.g. `explain` and MCP_CONNECTOR_ENABLED).
+            # Build both variants EXPLICITLY (never by reading the ambient
+            # flag) so this check gives the identical answer regardless of
+            # what this process's own environment happens to hold. The
+            # live description sent this round must be ONE of the two
+            # known-good variants (catches corruption/a swapped
+            # description), AND the canonical hash of the pair — driven by
+            # the current source code, not by this process's environment —
+            # must still match the pin (catches wording drift in either
+            # variant).
+            true_hash, false_hash, canonical_hash = _canonical_variant_hash(variant_builder)
+            description_ok = live_hash in (true_hash, false_hash) and canonical_hash == pinned_hash
+            compare_hash = canonical_hash
+        if not description_ok:
             self.outcome = f"description_changed:{tool_name}"
             self.detail = (
                 f"{tool_name}'s description changed (live sha256 {live_hash[:12]}... != "
-                f"pinned {pinned_hash[:12]}...). Description changed, re-read the case and "
+                f"pinned {compare_hash[:12]}...). Description changed, re-read the case and "
                 f"re-pin with `PYTHONPATH=. .venv/bin/python -m tests.test_penny_golden_eval "
                 f"--repin` (run from backend/, review the diff before committing it)."
             )
@@ -763,6 +854,128 @@ def test_break_description_drift_with_old_anchor_phrase_preserved_is_caught(monk
     assert dispatched != case["expected"]
 
 
+# ── B42: proving the pin is flag-independent but still catches drift ──────
+#
+# B38's pin for `explain` was captured in whatever single environment state
+# the authoring process happened to hold, so the golden set passed in a
+# worktree (MCP_CONNECTOR_ENABLED unset) and failed wherever
+# backend/.env sets it true — every integrate pass, since integrate runs
+# the suite in the shared tree. These tests prove the fix directly at the
+# level the regression actually showed up: running the real golden cases
+# with `penny_tools_module.MCP_CONNECTOR_ENABLED` forced both ways.
+
+_EXPLAIN_CASES = [c for c in GOLDEN_CASES if c["expected"] == ["explain"]]
+
+
+@pytest.mark.parametrize("connector_enabled", [True, False], ids=["connector-on", "connector-off"])
+def test_golden_explain_cases_pass_regardless_of_connector_flag(monkeypatch, connector_enabled):
+    """The exact regression this item fixes: before B42, one of these two
+    parametrisations failed on every single explain case (whichever state
+    didn't match the pin's authoring environment) with
+    `description_changed:explain`, even though the description had not
+    drifted at all — see test_golden_tool_selection[spend-04-jargon-moved]
+    in the failure this file's docstring section quotes."""
+    monkeypatch.setattr(penny_tools_module, "MCP_CONNECTOR_ENABLED", connector_enabled)
+    assert _EXPLAIN_CASES, "no golden case expects exactly ['explain'] — update this test's filter"
+    for case in _EXPLAIN_CASES:
+        client, dispatched, result = run_case(
+            monkeypatch, case["question"], case["screen"], case["expected"],
+        )
+        assert client.outcome == "ok", (
+            f"{case['id']} ({case['question']!r}) failed with MCP_CONNECTOR_ENABLED="
+            f"{connector_enabled}: {client.detail or client.outcome}"
+        )
+        assert dispatched == case["expected"]
+        assert result is not None
+
+
+@pytest.mark.parametrize("connector_enabled", [True, False], ids=["connector-on", "connector-off"])
+def test_break_explain_wording_drift_is_caught_regardless_of_connector_flag(monkeypatch, connector_enabled):
+    """Canonicalising the pin across both flag states must not blind the
+    harness to a genuine wording change in either variant — mutates the
+    live `explain` description (whichever text the process's own flag
+    state produces) and proves the harness still reports
+    `description_changed:explain`, in BOTH flag states, not just the one
+    that happened to author the pin."""
+    import copy
+
+    mutated = copy.deepcopy(penny_agent_module.TOOL_SCHEMAS)
+    for entry in mutated:
+        if entry["function"]["name"] == "explain":
+            entry["function"]["description"] = entry["function"]["description"] + " (drifted)"
+    monkeypatch.setattr(penny_agent_module, "TOOL_SCHEMAS", mutated)
+    monkeypatch.setattr(penny_tools_module, "MCP_CONNECTOR_ENABLED", connector_enabled)
+
+    case = _EXPLAIN_CASES[0]
+    client, dispatched, _ = run_case(monkeypatch, case["question"], case["screen"], case["expected"])
+    assert client.outcome == "description_changed:explain", (
+        f"expected drifted explain wording to be caught with MCP_CONNECTOR_ENABLED="
+        f"{connector_enabled}, got {client.outcome!r}"
+    )
+    assert dispatched != case["expected"]
+
+
+def test_explain_variants_differ_by_connector_flag():
+    """Sanity check on the canonicalisation itself: the two variants this
+    file pins together must actually be different texts (otherwise
+    canonicalising them would be a no-op that happened to look correct).
+    If this ever fails, MCP_CONNECTOR_ENABLED stopped affecting `explain`'s
+    description and ENV_VARIANT_TOOLS['explain'] should be removed instead."""
+    true_text = penny_tools_module._explain_tool_description(True)
+    false_text = penny_tools_module._explain_tool_description(False)
+    assert true_text != false_text
+    assert "mcp_connector" in true_text
+    assert "mcp_connector" not in false_text
+
+
+def test_env_variant_pin_matches_freshly_computed_canonical_hash():
+    """Direct unit check that PINNED_TOOL_DESCRIPTION_HASHES['explain'] is
+    genuinely the canonical (flag-independent) hash `_canonical_variant_hash`
+    computes today, decoupled from the full run_penny_agent machinery
+    `test_golden_explain_cases_pass_regardless_of_connector_flag` exercises."""
+    for tool_name, builder in ENV_VARIANT_TOOLS.items():
+        _, _, canonical_hash = _canonical_variant_hash(builder)
+        assert PINNED_TOOL_DESCRIPTION_HASHES.get(tool_name) == canonical_hash, (
+            f"{tool_name}'s pin is stale — re-pin with `PYTHONPATH=. .venv/bin/python "
+            f"-m tests.test_penny_golden_eval --repin` (run from backend/)."
+        )
+
+
+def test_no_flag_dependent_description_builder_missing_from_env_variant_registry():
+    """Guards ENV_VARIANT_TOOLS (the flag-independent canonicalisation
+    registry above) against silently going stale. B42's root cause was one
+    description builder (`_explain_tool_description`) reading an
+    environment flag at call time with nothing in this file accounting for
+    it — if a FUTURE tool description gains the same shape (reads
+    MCP_CONNECTOR_ENABLED, another os.environ/os.getenv value, or a
+    `settings.` attribute inside a `_..._description` builder function) and
+    nobody adds it to ENV_VARIANT_TOOLS, its pin would go right back to
+    being silently environment-dependent, exactly the B42 bug, and this
+    test would be the only thing to catch that before another integrate
+    pass did."""
+    import inspect
+    import re
+
+    source = inspect.getsource(penny_tools_module)
+    builder_pattern = re.compile(r"^def (_\w*description\w*)\(", re.MULTILINE)
+    env_markers = ("MCP_CONNECTOR_ENABLED", "os.environ", "os.getenv", "settings.")
+    flagged = set()
+    for match in builder_pattern.finditer(source):
+        name = match.group(1)
+        func = getattr(penny_tools_module, name, None)
+        if func is None:
+            continue
+        body = inspect.getsource(func)
+        if any(marker in body for marker in env_markers):
+            flagged.add(name)
+    assert flagged == set(ENV_VARIANT_TOOLS), (
+        f"description builder(s) read an environment-derived value with no matching "
+        f"entry in ENV_VARIANT_TOOLS: {flagged - set(ENV_VARIANT_TOOLS)}. Add a "
+        f"canonicalisation entry (see ENV_VARIANT_TOOLS above) before pinning, or this "
+        f"pin will again be environment-dependent (B42)."
+    )
+
+
 # ── --repin: refresh the pinned hashes after an intentional edit ──────────
 #
 # Runnable directly (not via pytest): from backend/, with app.services.
@@ -778,10 +991,26 @@ def _live_hashes_for(tool_names):
         entry["function"]["name"]: entry["function"]["description"]
         for entry in TOOL_SCHEMAS + PROPOSE_TOOL_SCHEMAS
     }
-    missing = [name for name in tool_names if name not in catalog]
+    # B42: an env-variant tool (see ENV_VARIANT_TOOLS) is repinned from its
+    # own explicit True/False builder, never from whatever single variant
+    # happens to be baked into the live catalog this process imported —
+    # that catalog entry reflects only THIS process's ambient
+    # MCP_CONNECTOR_ENABLED, exactly the dependency B42 removed from the pin.
+    missing = [
+        name for name in tool_names
+        if name not in catalog and name not in ENV_VARIANT_TOOLS
+    ]
     if missing:
         raise SystemExit(f"--repin: tool(s) no longer exist in the catalog: {missing}")
-    return {name: _description_sha256(catalog[name]) for name in tool_names}
+    hashes = {}
+    for name in tool_names:
+        variant_builder = ENV_VARIANT_TOOLS.get(name)
+        if variant_builder is None:
+            hashes[name] = _description_sha256(catalog[name])
+        else:
+            _, _, canonical_hash = _canonical_variant_hash(variant_builder)
+            hashes[name] = canonical_hash
+    return hashes
 
 
 def _repin(path=None):
