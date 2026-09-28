@@ -36,6 +36,18 @@ RULES = [
     # either doesn't accidentally change the other.
     ("/auth/oauth/token", 30, 60),
     ("/auth/oauth/authorize", 30, 60),
+    # D9: the Apple relay-claim path's own tighter budgets, ahead of the
+    # generic "/auth/" 30/60 rule below (first-match-wins). send-code
+    # triggers a would-be email send per call, so it gets the tightest cap
+    # of anything in this table — generous enough for a genuine resend
+    # after a typo'd address, nowhere near enough to use as a mailer.
+    # verify-code is the actual auth-code brute-force surface; its own
+    # per-code attempt cap (app.core.relay_claim.CODE_MAX_ATTEMPTS) is the
+    # primary defence, this IP-keyed budget is the secondary one, tighter
+    # than the generic /auth/ rule so a caller can't spread guesses for
+    # several different codes across many IPs at the generic rate instead.
+    ("/auth/apple/relay/send-code", 5, 300),
+    ("/auth/apple/relay/verify-code", 10, 60),
     ("/auth/",    30, 60),
     ("/webhooks/", 60, 60),
     # A95: GET /logo/{domain} proxies to Logo.dev/Google's favicon service

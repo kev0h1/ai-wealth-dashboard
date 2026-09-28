@@ -16,8 +16,14 @@ from app.core.config import (
     APP_URL, PRIMARY_EMAIL, SESSION_MAX_AGE, serializer,
     mask_email,
 )
+from app.core.allowlist import resolve_allowed_signup
 from app.core.identity import resolve_signin_email
+from app.core.link_prompts import APPLE_RELAY_LINK_EXISTING_ACCOUNT_PROMPT
 from app.core.pending_login import _pop_pending, _store_pending
+from app.core.relay_claim import (
+    ClaimOutcome, load_claim_token, mark_allowlist_claimed, mint_claim_token,
+    send_relay_claim_code, verify_relay_code,
+)
 from app.core.session_revocation import is_revoked
 from app.db.collections import linked_identities_col
 from app.services.retention import erase_orphaned_relay_account
@@ -217,7 +223,28 @@ async def apple_native(body: dict):
     relay = str(claims.get("is_private_email")).lower() == "true"
     email = await resolve_signin_email("apple-native", email_claim, subject=sub, relay=relay)
     if email is None:
-        # D5: see google_native()'s equivalent comment above.
+        # D9: a relay address can never be pre-allow-listed (nobody knows it
+        # until this exact moment), so refusing it flat turns away an
+        # invited tester who merely ticked Apple's privacy option. Apple's
+        # signature just verified this `sub` belongs to a real Apple
+        # account — hold that fact in a signed claim token and offer two
+        # ways to resolve the ambiguity (see app.core.relay_claim's module
+        # docstring): sign in with the invite's original provider and link
+        # Apple from Settings (POST /auth/identities/apple, unchanged), or
+        # verify the invited address by a one-time code
+        # (/auth/apple/relay/send-code + /verify-code below). An ordinary
+        # (non-relay) refusal is unambiguous — that real email is simply
+        # not invited — so it keeps the flat INVITE_ONLY shape.
+        if relay:
+            raise HTTPException(403, detail={
+                "code": "RELAY_INVITE_CLAIM",
+                "claim_token": mint_claim_token(sub=sub, relay_email=email_claim),
+                # Path 1 (no further endpoint needed — the account holder
+                # just signs in normally and links from Settings): shared
+                # copy so D10 reuses this prompt rather than duplicating it
+                # when it builds the equivalent prompt at Apple sign-up.
+                "link_existing_prompt": APPLE_RELAY_LINK_EXISTING_ACCOUNT_PROMPT,
+            })
         raise HTTPException(403, detail={"code": "INVITE_ONLY"})
 
     name = body.get("fullName") or email.split("@")[0]
@@ -244,24 +271,28 @@ async def list_linked_identities(user: dict = Depends(current_user)):
     return {"primary_email": user["email"], "linked": linked}
 
 
-@router.post("/auth/identities/apple")
-async def link_apple_identity(body: dict, user: dict = Depends(current_user)):
-    """Link the caller's authenticated account to the Apple identity behind
-    `identityToken`. Keyed on the token's `sub` claim (Apple's stable
-    per-user identifier), not the email claim, since a relay address's
-    local-part can itself change if the user disables/re-enables Hide My
-    Email — `sub` is the one thing that never does.
+async def _link_apple_sub(sub: str, target_user_id: str, *, email_at_link: str, relay: bool) -> dict:
+    """Shared linking core behind BOTH ways an Apple `sub` can attach to an
+    account: the authenticated explicit-link endpoint below
+    (link_apple_identity, caller already holds a session for
+    `target_user_id`) and D9's relay-claim verify endpoint
+    (verify_relay_claim_code_endpoint, caller just proved control of
+    `target_user_id` by a one-time code instead of already being signed in
+    as it). Factored out so the 409/reclaim/orphan-cleanup security logic
+    exists exactly once rather than being duplicated per caller.
 
     Re-linking the same sub to the same account is a no-op refresh (updates
     email_at_link/relay/linked_at in case those drifted). Linking a sub
     already linked to a DIFFERENT account is refused (409) — UNLESS that
-    existing link was automatic (`auto: True`, created by resolve_signin_email()
-    the first time this Apple identity signed in with OPEN_SIGNUP on), in
-    which case an explicit link from a different account is allowed to
-    re-point it: an automatic link is a best-guess placeholder, not a claim,
-    so a later explicit link should win. Every link created or updated by
-    this endpoint is stored with `auto: False`, since reaching this endpoint
-    at all means the account owner explicitly asked for the link.
+    existing link was automatic (`auto: True`, created by
+    resolve_signin_email() the first time this Apple identity signed in
+    with OPEN_SIGNUP on), in which case linking from a different account is
+    allowed to re-point it: an automatic link is a best-guess placeholder,
+    not a claim, so an explicit/verified claim should win. Every link
+    created or updated here is stored with `auto: False`, since reaching
+    this helper at all means the account was either the caller's own
+    authenticated session or just verified by a one-time code — never a
+    fresh unverified guess.
 
     D3: when this claims an automatic link away from a DIFFERENT account
     (the `auto: True` re-point case above), that other account is very
@@ -275,36 +306,24 @@ async def link_apple_identity(body: dict, user: dict = Depends(current_user)):
     running in a try/except that only logs: it must never turn a
     successful link into a failed request.
     """
-    identity_token = body.get("identityToken")
-    claims = await _verify_apple_identity_token(identity_token)
-
-    sub = claims.get("sub")
-    if not sub:
-        raise HTTPException(401, "Invalid token")
-
     doc_id = f"apple:{sub}"
     existing = await linked_identities_col.find_one({"_id": doc_id})
-    if existing and existing.get("user_id") != user["email"] and not existing.get("auto"):
+    if existing and existing.get("user_id") != target_user_id and not existing.get("auto"):
         raise HTTPException(409, "This Apple ID is linked to another account")
 
     reclaimed_from = (
         existing.get("user_id")
-        if existing and existing.get("auto") and existing.get("user_id") != user["email"]
+        if existing and existing.get("auto") and existing.get("user_id") != target_user_id
         else None
     )
 
-    email_at_link = (claims.get("email") or "").lower()
-    # Apple encodes this claim as the string "true"/"false" (like
-    # email_verified above), not a JSON boolean — bool(...) on a non-empty
-    # string is always True, so this must compare the lowercased string.
-    relay = str(claims.get("is_private_email")).lower() == "true"
     await linked_identities_col.update_one(
         {"_id": doc_id},
         {"$set": {
             "_id": doc_id,
             "provider": "apple",
             "subject": sub,
-            "user_id": user["email"],
+            "user_id": target_user_id,
             "email_at_link": email_at_link,
             "relay": relay,
             "auto": False,
@@ -312,21 +331,134 @@ async def link_apple_identity(body: dict, user: dict = Depends(current_user)):
         }},
         upsert=True,
     )
-    logging.info("Linked apple identity to %s relay=%s", mask_email(user["email"]), relay)
+    logging.info("Linked apple identity to %s relay=%s", mask_email(target_user_id), relay)
 
     orphan_removed = False
     if reclaimed_from:
         try:
-            orphan_removed = await erase_orphaned_relay_account(reclaimed_from, claimed_by=user["email"]) is not None
+            orphan_removed = await erase_orphaned_relay_account(reclaimed_from, claimed_by=target_user_id) is not None
         except Exception:
             logging.warning(
-                "link_apple_identity: orphan cleanup failed for %s", mask_email(reclaimed_from), exc_info=True,
+                "_link_apple_sub: orphan cleanup failed for %s", mask_email(reclaimed_from), exc_info=True,
             )
 
     return {
-        "ok": True, "provider": "apple", "relay": relay,
+        "provider": "apple", "relay": relay,
         "email_masked": mask_email(email_at_link), "orphan_removed": orphan_removed,
     }
+
+
+@router.post("/auth/identities/apple")
+async def link_apple_identity(body: dict, user: dict = Depends(current_user)):
+    """Link the caller's authenticated account to the Apple identity behind
+    `identityToken`. Keyed on the token's `sub` claim (Apple's stable
+    per-user identifier), not the email claim, since a relay address's
+    local-part can itself change if the user disables/re-enables Hide My
+    Email — `sub` is the one thing that never does. See _link_apple_sub for
+    the actual linking/reclaim/orphan-cleanup logic, shared with D9's
+    relay-claim path.
+    """
+    identity_token = body.get("identityToken")
+    claims = await _verify_apple_identity_token(identity_token)
+
+    sub = claims.get("sub")
+    if not sub:
+        raise HTTPException(401, "Invalid token")
+
+    email_at_link = (claims.get("email") or "").lower()
+    # Apple encodes this claim as the string "true"/"false" (like
+    # email_verified above), not a JSON boolean — bool(...) on a non-empty
+    # string is always True, so this must compare the lowercased string.
+    relay = str(claims.get("is_private_email")).lower() == "true"
+    result = await _link_apple_sub(sub, user["email"], email_at_link=email_at_link, relay=relay)
+    return {"ok": True, **result}
+
+
+@router.post("/auth/apple/relay/send-code")
+async def send_relay_claim_code_endpoint(body: dict):
+    """D9 path 2, step 1. A refused Apple sign-in whose email was a Hide My
+    Email relay address (see apple_native() below) gets back a
+    `claim_token` carrying the verified `sub`. The client offers to email a
+    one-time code to the address the invite was actually sent to; this
+    sends it (see app.core.relay_claim's module docstring for why "sends"
+    is currently a no-op seam — no transactional email sender exists in
+    this codebase yet).
+
+    Deliberately responds `{"ok": True}` whether or not `email` turns out
+    to be invited, and only actually generates/attempts delivery of a code
+    when it is: answering differently would make this endpoint an oracle
+    for "is this address on the invite list", which a caller who merely
+    holds a claim token (proof of an Apple `sub`, not of knowing the invite
+    list) has no legitimate reason to learn. Tightly rate-limited (see
+    app.core.ratelimit.RULES's dedicated entry for this path, ahead of the
+    generic /auth/ budget) since every call is a would-be send.
+    """
+    claim = load_claim_token(body.get("claim_token"))
+    if claim is None:
+        raise HTTPException(401, "Invalid or expired claim")
+
+    email = (body.get("email") or "").strip().lower()
+    if email:
+        target = await resolve_allowed_signup(email)
+        if target:
+            await send_relay_claim_code(sub=claim["sub"], target_email=target)
+    return {"ok": True}
+
+
+@router.post("/auth/apple/relay/verify-code")
+async def verify_relay_claim_code_endpoint(body: dict):
+    """D9 path 2, step 2. Verify the code sent to the invited address and,
+    on success, link the claim token's Apple `sub` to that SAME invitation
+    and issue a session.
+
+    This is the enforcement point of the whole feature's security property
+    — a relay `sub` may only ever attach to the invitation whose address
+    was verified by a code sent to it, never to an arbitrary allow-listed
+    address the caller merely names in this request: `target` below is
+    resolved fresh from the allow list (so a revoked-in-the-meantime
+    invitation fails closed) and then used as BOTH the lookup key for the
+    code record (app.core.relay_claim.verify_relay_code keys strictly on
+    (sub, target_email) — see its own docstring) and the account
+    `_link_apple_sub` actually links; there is no code path where a code
+    correctly verified against one address results in linking a different
+    one. Every non-OK outcome (unknown code, expired, already used, wrong
+    digits, no-longer-invited) collapses to the same generic 401 message
+    (LOCKED gets its own 429) so this can't be used to distinguish "no code
+    was ever sent here" from "a code exists but you got it wrong" — the
+    same anti-oracle reasoning as send-code above. Tightly rate-limited
+    (app.core.ratelimit.RULES), and each wrong attempt against a real code
+    record consumes one of CODE_MAX_ATTEMPTS independently of the IP-keyed
+    limit (app.core.relay_claim.verify_relay_code).
+    """
+    claim = load_claim_token(body.get("claim_token"))
+    if claim is None:
+        raise HTTPException(401, "Invalid or expired claim")
+
+    email = (body.get("email") or "").strip().lower()
+    code = (body.get("code") or "").strip()
+    target = await resolve_allowed_signup(email) if email else None
+    if not target:
+        raise HTTPException(401, "Invalid or expired code")
+
+    outcome = await verify_relay_code(sub=claim["sub"], target_email=target, code=code)
+    if outcome == ClaimOutcome.LOCKED:
+        raise HTTPException(429, "Too many attempts. Request a new code.")
+    if outcome != ClaimOutcome.OK:
+        raise HTTPException(401, "Invalid or expired code")
+
+    link_result = await _link_apple_sub(
+        claim["sub"], target,
+        email_at_link=claim.get("relay_email") or target,
+        relay=True,
+    )
+    try:
+        await mark_allowlist_claimed(target_email=target, sub=claim["sub"])
+    except Exception:
+        logging.warning("verify_relay_claim_code_endpoint: allowlist annotation failed for %s", mask_email(target), exc_info=True)
+
+    name = target.split("@")[0]
+    session_token = serializer.dumps({"email": target, "name": name})
+    return {"ok": True, "session_token": session_token, **link_result}
 
 
 @router.delete("/auth/identities/apple")

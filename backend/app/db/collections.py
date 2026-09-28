@@ -257,6 +257,24 @@ linked_identities_col   = db["linked_identities"]
 # of creating a duplicate.
 allowed_signups_col    = db["allowed_signups"]
 
+# D9: one-time verification codes for the Apple Hide My Email relay-claim
+# flow (app/core/relay_claim.py) — an invited tester whose Apple sign-in
+# used a relay address can prove they own the invited address by entering a
+# code sent there, linking the relay's verified `sub` to that invitation in
+# one step, rather than being refused outright because a relay address can
+# never be pre-allow-listed. Keyed `_id: f"relay:{sub}:{gmail_key}"`, one
+# live code per (Apple subject, target invitation) pair — sending a new
+# code overwrites the previous doc, invalidating it. Doc shape: {_id, sub
+# (Apple's stable per-user identifier, the ONLY thing this collection ever
+# lets alias onto an account — never client-supplied), target_email (the
+# allow-listed spelling resolved at send time, never the raw request body
+# echoed back), target_key (its Gmail-dot-insensitive key), code_hash
+# (sha256 hex of the plaintext code — never store the code itself),
+# attempts (int, starts 0), max_attempts, created_at, expires_at, used_at
+# (None until a correct verify consumes it; code_hash is cleared on use so
+# a stale doc can never be replayed even if used_at were somehow missed)}.
+allowed_relay_codes_col = db["apple_relay_codes"]
+
 # A28: named, scoped, individually revocable service credentials — the
 # replacement for the single static BOT_SECRET. See
 # app.core.bot_credentials's module docstring for the full design. One doc
