@@ -36,6 +36,7 @@ import { formatConsentExpiry } from "@/lib/consentExpiry";
 import { useTutorialAction, useTutorialReady } from "@/components/TutorialContext";
 import { LEGACY_BANK_AVAILABLE, LEGACY_BANK_MENU_LABEL, isLegacyBankSource } from "@/lib/legacyBankProvider";
 import { useOpenBankingAccess } from "@/lib/openBankingAccess";
+import { stampAccountDetailState, hasAccountDetailEntry } from "@/lib/accountSheetHistory";
 
 /** One row inside the condensed "+ Add" menu (header Variant B). Mirrors the
  *  MenuItem pattern already used by SpendTrends' widget overflow menu. */
@@ -848,7 +849,7 @@ export default function AccountsPage() {
 
   async function handleSelectAccount(acc: Account) {
     listScrollY.current = window.scrollY;
-    window.history.pushState({ accountDetail: acc.id }, "");
+    window.history.pushState(stampAccountDetailState(window.history.state, acc.id), "");
     setSelectedAccountId(acc.id);
     setSegment("Transactions");
     setDetailSegment("Transactions");
@@ -914,7 +915,7 @@ export default function AccountsPage() {
   }, [selectedAccountId, segment, catSummaries, accounts]);
 
   function handleBack() {
-    if (window.history.state?.accountDetail) {
+    if (hasAccountDetailEntry(window.history.state)) {
       // Consume the history entry pushed on open — popstate closes the view,
       // keeping the in-app arrow and the system back gesture in sync.
       // For in-page opens (handleSelectAccount) this returns to the list.
