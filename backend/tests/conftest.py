@@ -80,16 +80,30 @@ _GENERATED_TEST_DB_RE = re.compile(r"^wealth_test_(\d+)_[0-9a-f]{8}$")
 _STALE_TEST_DB_AGE_SECONDS = 3600
 
 
+# H96 review round: `name.startswith("wealth_test")` was UNANCHORED --
+# it accepted "wealth_testing", "wealth_testament", "wealth_testers_prod",
+# any name merely SHARING that prefix, despite this function's own
+# docstring claiming to exclude substring coincidences. Anchored: the
+# match must be the literal component "wealth_test", followed by either
+# an underscore (a per-run generated name, "wealth_test_<epoch>_<hex>",
+# or any other "wealth_test_..." shape) or the end of the string (the
+# bare name "wealth_test" itself) -- never just followed by more letters.
+_TEST_DB_PREFIX_RE = re.compile(r"^wealth_test(_|$)")
+
+
 def _looks_like_a_test_database(name: str) -> bool:
-    """H94: broadened from a plain `.endswith("_test")` check (correct
-    when every run shared the one literal "wealth_test") to also accept
-    any per-run generated name — "wealth_test_<epoch>_<8 hex>" starts
-    with "wealth_test" — or any other name carrying "test" as a whole
-    underscore-delimited component (covering a hand-set "MONGO_DB" like
-    "foo_test_bar" without accepting a substring coincidence like
-    "wealthtest" or, the one case that must never pass, literal
-    "wealth")."""
-    if name.startswith("wealth_test"):
+    """Broadened (H90's review round) from a plain `.endswith("_test")`
+    check (correct when every run shared the one literal "wealth_test")
+    to also accept any per-run generated name -- "wealth_test_<epoch>_<8
+    hex>" matches `_TEST_DB_PREFIX_RE` above -- or any other name
+    carrying "test" as a whole underscore-delimited component (covering a
+    hand-set "MONGO_DB" like "foo_test_bar" without accepting a substring
+    coincidence like "wealthtest" or, the one case that must never pass,
+    literal "wealth"). The prefix check is ANCHORED (H96 review round --
+    see `_TEST_DB_PREFIX_RE`'s own comment): "wealth_testing" is not
+    "wealth_test" plus a component boundary, so it is refused, not
+    accepted on a substring coincidence."""
+    if _TEST_DB_PREFIX_RE.match(name):
         return True
     return "test" in name.split("_")
 
