@@ -40,6 +40,7 @@ defined, which is what makes that run meaningful.
 """
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -115,19 +116,28 @@ def _make_fake_shared_tree(tmp_path: Path) -> Path:
 
 
 # `cmd_finish` shells out to the backend suite, the pentest-evidence
-# check, tsc and nine npm checks before it pushes. The fake shared tree
-# seeds a stub for every one of them (and the stub python ignores its
-# arguments), so a fixture can drive cmd_finish end to end with only the
-# parts under test left real: the resolution, the push to the fake
-# origin, and the board write. Without this, the one command that pushes
-# is the one command no test exercises, which is how the errexit hole
-# below survived a full round of review.
+# check, tsc and (since H83) whatever `check:*` scripts
+# frontend/package.json declares, run via `run_check_gate` rather than a
+# hardcoded list, before it pushes. The fake shared tree seeds a stub for
+# every one of them (and the stub python ignores its arguments), so a
+# fixture can drive cmd_finish end to end with only the parts under test
+# left real: the resolution, the push to the fake origin, and the board
+# write. Without this, the one command that pushes is the one command no
+# test exercises, which is how the errexit hole below survived a full
+# round of review. The seeded package.json's single `check:stub` script
+# is enough to exercise `run_check_gate` for real (it enumerates
+# `.scripts` and runs whatever it finds) without this file needing to
+# track the real check:* list H83 stopped hardcoding.
 STUB_EXIT_0 = "#!/usr/bin/env bash\nexit 0\n"
 
 
 def _seed_finish_stubs(seed: Path) -> None:
     (seed / "frontend").mkdir()
     (seed / "frontend" / ".gitkeep").write_text("", encoding="utf-8")
+    (seed / "frontend" / "package.json").write_text(
+        json.dumps({"scripts": {"check:stub": "true"}}) + "\n",
+        encoding="utf-8",
+    )
     (seed / "scripts").mkdir()
     (seed / "scripts" / "check_pentest_evidence.py").write_text("", encoding="utf-8")
     venv_bin = seed / "backend" / ".venv" / "bin"

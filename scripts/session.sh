@@ -155,6 +155,53 @@ err() { echo "[session] error: $*" >&2; }
 warn() { echo "[session] warning: $*" >&2; }
 note() { echo "[session] note: $*" >&2; }
 
+# H83: `finish` used to run a hand-maintained list of `npm run -s
+# check:*` calls, one line per check, that drifted from
+# frontend/package.json's own `check:*` scripts every time a new one was
+# added and nobody remembered to add a matching line here (most recently
+# G148's check:home-cache-shape/check:spend-from-render, added by hand
+# alongside the code that needed them, and nine more that were never
+# added at all). A guard that exists but never runs in this gate reads
+# as protection in review and catches nothing.
+#
+# This enumerates every `check:*` script in $1/package.json,
+# alphabetically, and runs each with the same log-line-then-run shape
+# the old hardcoded loop used; the first non-zero exit stops the gate
+# via this script's own `set -e`, exactly as before. A check that
+# genuinely must not run in the gate opts out by name in package.json's
+# own "checkGate.exclude" object (script name -> one-line reason), so the
+# exception stays visible in the same file as the script it exempts,
+# never as a second list here. There are currently no exclusions: every
+# check:* script in this repo runs clean, unattended, inside a worktree.
+run_check_gate() {
+  local frontend_dir="$1"
+  local manifest="$frontend_dir/package.json"
+
+  local all_checks
+  mapfile -t all_checks < <(jq -r '.scripts | keys[] | select(startswith("check:"))' "$manifest" 2>/dev/null | sort)
+  if [[ "${#all_checks[@]}" -eq 0 ]]; then
+    err "no check:* scripts found in $manifest -- refusing to run an empty gate (this almost certainly means the manifest itself could not be read, not that there is genuinely nothing to check)."
+    exit 1
+  fi
+
+  local -A exclude_reasons=()
+  local excl_name excl_reason
+  while IFS=$'\t' read -r excl_name excl_reason; do
+    [[ -n "$excl_name" ]] || continue
+    exclude_reasons["$excl_name"]="$excl_reason"
+  done < <(jq -r '(.checkGate.exclude // {}) | to_entries[] | [.key, .value] | @tsv' "$manifest" 2>/dev/null)
+
+  local check
+  for check in "${all_checks[@]}"; do
+    if [[ -n "${exclude_reasons[$check]+x}" ]]; then
+      log "skipping $check (excluded from finish gate: ${exclude_reasons[$check]})"
+      continue
+    fi
+    log "checking $check in $frontend_dir..."
+    (cd "$frontend_dir" && npm run -s "$check")
+  done
+}
+
 require_shared_clean() {
   local dirty
   dirty="$(cd "$SHARED_TREE" && git status --porcelain | grep -v '^??' || true)"
@@ -902,48 +949,7 @@ cmd_finish() {
   log "running frontend typecheck in $worktree_dir/frontend..."
   (cd "$worktree_dir/frontend" && npx tsc --noEmit -p .)
 
-  log "checking design preview index in $worktree_dir/frontend..."
-  (cd "$worktree_dir/frontend" && npm run -s check:design-index)
-
-  log "checking BANK_META logoFile entries against public/banks/ in $worktree_dir/frontend..."
-  (cd "$worktree_dir/frontend" && npm run -s check:bank-logos)
-
-  log "checking /design previews for real data access in $worktree_dir/frontend..."
-  (cd "$worktree_dir/frontend" && npm run -s check:design-no-live-data)
-
-  log "checking legal content marker/renumbering contract in $worktree_dir/frontend..."
-  (cd "$worktree_dir/frontend" && npm run -s check:legal-content)
-
-  log "checking bottom nav coverage in $worktree_dir/frontend..."
-  (cd "$worktree_dir/frontend" && npm run -s check:nav-coverage)
-
-  log "checking pooled cash-walk predicates in $worktree_dir/frontend..."
-  (cd "$worktree_dir/frontend" && npm run -s check:cash-walk)
-
-  log "checking spend-from-account ranking and scope copy in $worktree_dir/frontend..."
-  (cd "$worktree_dir/frontend" && npm run -s check:spend-from-account)
-
-  log "checking go-live cancelled-state progress-count exclusion in $worktree_dir/frontend..."
-  (cd "$worktree_dir/frontend" && npm run -s check:go-live-cancelled-progress)
-
-  log "checking verdict/money-shape client TTL caches in $worktree_dir/frontend..."
-  (cd "$worktree_dir/frontend" && npm run -s check:verdict-cache)
-
-  log "checking category-edit cache invalidation in $worktree_dir/frontend..."
-  (cd "$worktree_dir/frontend" && npm run -s check:category-mutations)
-
-  # G148: the spend-from rail shipped invisible and sat that way for a week
-  # because nothing rendered the card's own treatment branches. These two
-  # cover the states that are absent rather than empty, so they belong in
-  # the gate, not in a script someone runs by hand once.
-  log "checking Home warm-paint cache shape in $worktree_dir/frontend..."
-  (cd "$worktree_dir/frontend" && npm run -s check:home-cache-shape)
-
-  log "checking every spend-from treatment renders in $worktree_dir/frontend..."
-  (cd "$worktree_dir/frontend" && npm run -s check:spend-from-render)
-
-  log "checking Coming Up tile date-with-ordinal formatting in $worktree_dir/frontend..."
-  (cd "$worktree_dir/frontend" && npm run -s check:coming-up-dates)
+  run_check_gate "$worktree_dir/frontend"
 
   log "pushing $branch from $worktree_dir (the board records ${board_branch:-no branch} for $id)..."
   git -C "$worktree_dir" push -u origin "$branch"
