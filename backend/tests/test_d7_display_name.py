@@ -3,13 +3,21 @@ jjdk4...") even after they had entered their real name in onboarding.
 
 Two backend-side pieces closed that gap, and this file pins both:
 
-  1. POST /auth/session/refresh (auth.refresh_session) re-issues the
-     session token with the caller's current profile.full_name baked in,
-     so a long-lived session's own `name` field catches up with a profile
-     save without waiting for the next login. Home's greeting itself reads
-     profile.full_name directly and does not depend on this endpoint, but
-     other readers of the session name (Settings' fallback, Onboarding's
-     `defaultName` prefill) do.
+  1. The greeting's actual fix has no session-token involvement at all:
+     Home reads profile.full_name via its own GET /profile call on mount,
+     and it only ever mounts after onboarding completes (AuthProvider
+     renders Onboarding in its place until then), so there's no "just
+     saved the name this render" race to close. An earlier draft of this
+     work added POST /auth/session/refresh to also re-issue the session
+     token with the saved name — an independent reviewer caught that this
+     re-signs with `serializer.dumps` at call time, which resets the
+     7-day SESSION_MAX_AGE expiry from *now* on every call and needs only
+     a valid bearer to invoke, so a stolen token could be kept alive
+     indefinitely just by hitting it. That endpoint, its api.ts client,
+     and the Onboarding.tsx call were all removed rather than fixed:
+     nothing needed it, and a name refresh must never double as a
+     session-lifetime refresh. test_profile_full_name_is_read_back_after_save
+     below pins the actual (existing) path instead.
   2. POST /auth/apple/native (auth.apple_native) used to fall back to the
      email's local part (`email.split("@")[0]`) whenever Apple's token
      carried no name claim, which is the exact shape of the reported bug
@@ -44,8 +52,8 @@ def _run(coro):
 
 class FakeProfilesCol:
     """Stand-in for user_profiles_col: `_id`-keyed, supports find_one/
-    update_one the same shape profile.update_profile() and
-    auth.refresh_session() actually use."""
+    update_one the same shape profile.update_profile()/get_profile()
+    actually use."""
 
     def __init__(self, docs=None):
         self.docs: dict = {d["_id"]: dict(d) for d in (docs or [])}
@@ -60,37 +68,37 @@ class FakeProfilesCol:
         return None
 
 
-# ── 1. profile update changes what the session returns ──────────────────
+# ── 1. the greeting's real fix: profile.full_name is what Home reads ────
 
 
-def test_refresh_session_picks_up_a_saved_profile_name(monkeypatch):
+def test_profile_full_name_is_read_back_after_save(monkeypatch):
+    # This is the exact round trip HomePage.tsx relies on: Onboarding calls
+    # PUT /profile with the name the user typed, and Home's own mount-time
+    # GET /profile (api.getProfile()) picks it straight back up — no
+    # session token involved on either side. Before any save, full_name is
+    # empty (never the email or anything derived from it).
     email = "kevin.maingi12@gmail.com"
     profiles = FakeProfilesCol()
-    monkeypatch.setattr(auth_module, "user_profiles_col", profiles)
     monkeypatch.setattr(profile_module, "user_profiles_col", profiles)
 
-    # Before any profile save, the session name refresh has nothing to
-    # offer — an empty name, not an error, and never anything derived from
-    # the email.
-    before = _run(auth_module.refresh_session({"email": email}))
-    data = serializer.loads(before["session_token"], max_age=SESSION_MAX_AGE)
-    assert data["name"] == ""
-    assert data["email"] == email
+    before = _run(profile_module.get_profile({"email": email}))
+    assert before["full_name"] == ""
 
-    # Onboarding calls PUT /profile with the real name the user typed in.
     _run(profile_module.update_profile({"full_name": "Kevin Maingi"}, {"email": email}))
 
-    # The very next session refresh call (no re-login) must reflect it.
-    after = _run(auth_module.refresh_session({"email": email}))
-    data = serializer.loads(after["session_token"], max_age=SESSION_MAX_AGE)
-    assert data["name"] == "Kevin Maingi"
-    assert data["email"] == email
+    after = _run(profile_module.get_profile({"email": email}))
+    assert after["full_name"] == "Kevin Maingi"
 
 
-def test_refresh_session_requires_authentication():
-    with pytest.raises(Exception) as exc:
-        _run(auth_module.refresh_session({}))
-    assert getattr(exc.value, "status_code", None) == 401
+def test_session_refresh_endpoint_was_removed():
+    # D7 correction: POST /auth/session/refresh re-signed the session
+    # token with `serializer.dumps` at call time on nothing but a valid
+    # bearer, which reset SESSION_MAX_AGE's 7-day expiry from *now* on
+    # every call — a stolen token could be kept alive forever just by
+    # hitting it. Removed outright (see module docstring) rather than
+    # fixed, since the greeting never needed it. Pinned here so it can't
+    # quietly come back the same way.
+    assert not hasattr(auth_module, "refresh_session")
 
 
 # ── 2. Apple relay claim / empty provider name never becomes a greeting ──

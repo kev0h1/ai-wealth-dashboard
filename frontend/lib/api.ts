@@ -2232,15 +2232,6 @@ export const api = {
     if (!res.ok) throw new Error(data.detail || "Failed to save");
     return data as UserProfile;
   },
-  // D7: re-issues the session token with the just-saved profile name baked
-  // in, so a long-lived session's `name` field catches up without waiting
-  // for the next login. Home's own greeting reads profile.full_name
-  // directly and does not depend on this — see Onboarding.tsx's finish().
-  refreshSession: () =>
-    fetch(`${API_BASE}/auth/session/refresh`, {
-      method: "POST",
-      headers: authHeaders(),
-    }).then((r) => toJson<{ session_token: string; ok: boolean }>(r)),
   fuelNearby: (opts: { grade: string; paid?: number; lat?: number; lng?: number; radiusKm?: number }) => {
     const p = new URLSearchParams({ grade: opts.grade });
     if (opts.paid !== undefined) p.set("paid", String(opts.paid));
