@@ -4957,6 +4957,15 @@ async def compute_today_items(
                 ),
                 "action": {"label": "Update my income", "route": "/spend", "kind": "set_payday"},
                 "estimated": False,
+                # Review fix (blocker 3, independent review of a165200d):
+                # AskGenericCard hardcoded "Card detail" as its kind label
+                # (written for the card-terms ask below, the only ask that
+                # ever used this card before this item), so this item's
+                # "Has your pay changed?" headline rendered under the wrong
+                # label. `kind_label` lets the card show the right one per
+                # item; the frontend falls back to "Card detail" when it is
+                # absent, so nothing else regresses.
+                "kind_label": "Your pay",
                 "brief_lead": {
                     "value": "Pay check",
                     "companion": f"about £{_amt:,.0f} expected, unconfirmed for a couple of paydays",
@@ -5003,6 +5012,11 @@ async def compute_today_items(
                         "body": _ct_body,
                         "action": {"label": "Add my rates", "route": "/accounts?cardTerms=1", "kind": "card_terms"},
                         "estimated": False,
+                        # Explicit now (review fix, blocker 3) rather than
+                        # relying on AskGenericCard's own hardcoded
+                        # fallback -- see ask:payer_lapsed above for why
+                        # the fallback exists at all.
+                        "kind_label": "Card detail",
                         "brief_lead": {
                             "value": "Card details",
                             "companion": "one answer keeps the debt plan accurate",

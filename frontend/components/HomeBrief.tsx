@@ -646,7 +646,7 @@ export function AskGenericCard({ item, router, maskAmounts, dismissible, onHomeD
       <div className="flex items-start gap-3">
         <BriefIcon tone="penny"><CreditCard size={16} /></BriefIcon>
         <div className="min-w-0 flex-1">
-          <PennyKindLabel hideAttribution={hideAttribution}>Card detail</PennyKindLabel>
+          <PennyKindLabel hideAttribution={hideAttribution}>{item.kind_label ?? "Card detail"}</PennyKindLabel>
           <p className="mt-1 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-slate-100">
             {item.headline}
           </p>

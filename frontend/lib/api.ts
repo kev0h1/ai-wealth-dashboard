@@ -1426,6 +1426,15 @@ export type CompanionItem = {
   envelope_reserved?: boolean;
   amount?: number;
   secondary_action?: CompanionAction | null;
+  /**
+   * Review fix (G157, blocker 3): the small kind label AskGenericCard shows
+   * above the headline ("Card detail" today) was hardcoded for the one ask
+   * type that first used that card; a second ask type (ask:payer_lapsed)
+   * rendered through it with the wrong label. The backend now sends the
+   * right label per item; absent on any ask item persisted before this,
+   * which the card falls back to "Card detail" for.
+   */
+  kind_label?: string;
   proposal?: PaydayProposal;
   // payday_plan fields — present when type === "payday_plan"
   total?: number;
