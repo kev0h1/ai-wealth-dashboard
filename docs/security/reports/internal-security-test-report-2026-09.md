@@ -3,7 +3,7 @@
 **Product:** Sorted, by Auriq (the AI wealth dashboard, "ai-wealth-dashboard")
 **Company:** AURIQ LTD
 **Report id:** AURIQ-SEC-RPT-2026-09-DRAFT
-**Version:** DRAFT v0.1, status as of 2026-09-23, Markdown updated 2026-09-27 (A117, see section 10)
+**Version:** DRAFT v0.1, status as of 2026-09-23, Markdown updated 2026-09-28 (A117, see section 10)
 **Classification:** Confidential, prepared for Finexer
 **Author:** AURIQ LTD, Information Security Manager: Kevin Maingi
 
@@ -13,12 +13,19 @@ draft's original 2026-09-23 date; this Markdown has been updated in place
 to fold in that testing and the five findings it raised (A118, A119, A120,
 A121, A122), but the PDF/HTML renderings under this same directory have not
 been regenerated to match, and are not regenerated as part of this update
-(board item A117). Work package 12 (cross-model review) and a production
-retest still have not run. This report will be regenerated as `v1.0`,
-including the PDF/HTML, once that remaining work completes: after board
-item A110 (trusted-proxy hop handling) lands, the fix branch is released to
-production, a retest confirms each High finding below, and WP12's
-cross-model review signs the coverage matrix and findings (board item A60,
+(board item A117). All four of the original High findings (A82, A83,
+A84, A91) shipped to production on 2026-09-27 (`release-20260927-0947`,
+confirmed still present in `release-20260927-1844`) and were retested the
+same day, board item A112, `docs/security/pentest-runs/A112-2026-09-27/`;
+section 5's High table and the per-finding notes below now record that
+outcome. Work package 12 (cross-model review) still has not run, and
+A112's own destructive `API-15` step (A82, A83's disconnect-before-delete
+half, A84) was Blocked by an already-expired test credential, so it is
+confirmed Fixed by source read only, not by a clean live retest; a
+follow-up live pass with a fresh credential is still owed. This report
+will be regenerated as `v1.0`, including the PDF/HTML, once that
+remaining work completes: WP12's cross-model review signs the coverage
+matrix and findings (board item A60,
 which also owes the full consolidated rewrite of this document, including
 A121, that a clean restructure would need). Nothing in this document should
 be read as a final statement of Sorted's security posture; it is the
@@ -45,15 +52,26 @@ draft, not the final report.
 
 **Headline.** No Critical findings. Four High findings (A82, A83, A84,
 A91), all fixed on the `main` branch with regression tests, merged
-2026-09-22. None of the four is deployed to production yet: production's
-`release` branch is still at commit `dcf00951` (tag
-`release-20260921-2020`), which predates all four fix commits. No
-production retest has run for any of them; retest status for every
-finding in this report is "Pending". The correct status wording
-throughout is "fixed on main, production release and retest pending",
-never "remediated" or "closed". Production release is itself gated on
-board item A110 (trusted-proxy hop handling for the related A92 rate-limit
-fix), in progress as of this report's date. Every Medium, Low and
+2026-09-22. All four shipped to production on 2026-09-27, first in
+`release-20260927-0947` and confirmed still present in that evening's
+`release-20260927-1844` (`git tag --list 'release-*'`), and were retested
+the same day, board item A112, `docs/security/pentest-runs/A112-2026-09-27/`:
+A83's `GET /connections` listing half and A91 were confirmed Fixed live;
+A82, A83's disconnect-before-delete half and A84 were confirmed Fixed by
+source read only, since the live retest of that step (`API-15`) was
+Blocked when the supplied disposable test credential returned `401
+Session expired` before any request reached the deletion path, so a
+follow-up live pass with a freshly issued credential is still owed. See
+section 5's High table for the retest status recorded against each. The
+correct status wording for the eleven Medium/Low/Informational fixes not
+covered by this pass is still "fixed on main, production release and
+retest pending", never "remediated" or "closed", pending their own
+production release and retest. A92's production release was gated on
+board item A110 (trusted-proxy hop handling); A110 is done (2026-09-24)
+and A112's 2026-09-27 retest directly confirmed its Railway environment
+variables are now set on both production services, so that gate is
+clear, though A92 itself has not had its own production release or
+retest recorded in this report. Every Medium, Low and
 Informational finding raised by this round, plus one related residual
 follow-up (A106), is tracked individually in section 5. The MCP connector
 is disabled in production today (`MCP_CONNECTOR_ENABLED` unset, board item
@@ -296,10 +314,10 @@ until it is on production and retested.
 
 | Id | Title | Affected surface | Status | Fix commit | Production status | Retest status |
 |---|---|---|---|---|---|---|
-| A82 | Account deletion never revokes the Finexer consent first, orphaning it at the provider | `DELETE` account, retention/deletion path | Fixed on main | `2488763e` | Not deployed | Pending |
-| A83 | `GET /connections` does not list live Finexer connections, hiding the connection A82's disconnect-first step needs | Connections listing route | Fixed on main | `c35ac008` | Not deployed | Pending |
-| A84 | A deleted account's session token is not invalidated and remains usable for up to 7 days, including for writes that can reattach if the account is recreated with the same email | Session/auth lifecycle | Fixed on main | `40fed391` | Not deployed | Pending |
-| A91 | MCP output masking is structural only and never sanitises kept field content; an instruction-shaped merchant/category/insight string reaches the connecting assistant unmodified (prompt-injection surface) | MCP connector output masking | Fixed on main | `9c5b7ef9` | Not deployed; connector itself is off in production (A17), so not exploitable there today | Pending |
+| A82 | Account deletion never revokes the Finexer consent first, orphaning it at the provider | `DELETE` account, retention/deletion path | Fixed on main | `2488763e` | Deployed 2026-09-27 (`release-20260927-0947`) | Source-confirmed Fixed 2026-09-27 (A112); live retest Blocked by an already-expired test credential |
+| A83 | `GET /connections` does not list live Finexer connections, hiding the connection A82's disconnect-first step needs | Connections listing route | Fixed on main | `c35ac008` | Deployed 2026-09-27 (`release-20260927-0947`) | Listing half confirmed Fixed live 2026-09-27 (A112); disconnect-before-delete half source-confirmed Fixed only, live retest Blocked (same as A82) |
+| A84 | A deleted account's session token is not invalidated and remains usable for up to 7 days, including for writes that can reattach if the account is recreated with the same email | Session/auth lifecycle | Fixed on main | `40fed391` | Deployed 2026-09-27 (`release-20260927-0947`) | Source-confirmed Fixed 2026-09-27 (A112); live retest Blocked, same as A82 |
+| A91 | MCP output masking is structural only and never sanitises kept field content; an instruction-shaped merchant/category/insight string reaches the connecting assistant unmodified (prompt-injection surface) | MCP connector output masking | Fixed on main | `9c5b7ef9` | Deployed 2026-09-27 (`release-20260927-0947`); connector itself is off in production (A17), so not exploitable there today | Confirmed Fixed live 2026-09-27 (A112), tested on UAT since the connector is not registered on production |
 | A121 | The iOS biometric privacy lock is bypassable: with the lock engaged (cold start or via a notification tap), the nav bar and Penny suggestion chips are tappable behind the visual overlay, and a chip tap renders live safe-to-spend and upcoming-bills figures with no authentication. Android's equivalent overlay held | iOS lock overlay / `BiometricLock`, nav bar, Penny chips | Open, found in device testing 2026-09-27 | none | N/A | Pending |
 
 **A82.** WP3's live account-deletion case (`API-15`, run
@@ -309,17 +327,25 @@ Finexer consent is left live and orphaned. The fix inserts a
 disconnect-before-delete step ahead of the existing local erase, so the
 provider-side consent is revoked as part of account deletion rather than
 left dangling. Verified so far by the regression tests added alongside
-the fix commit; the retest will re-run the disconnect-then-delete
-procedure live against a fresh disposable identity, on production, once
-released, and confirm the upstream consent no longer exists afterwards.
+the fix commit. The retest ran 2026-09-27 (board item A112, disposable
+identity PT-C, production): the disconnect-then-delete procedure itself
+was Blocked, the supplied PT-C credential was already rejected
+(`401 Session expired`) on every pre-state read before the deletion call
+ran, so the live property could not be exercised. Source read of
+`backend/app/services/retention.py::erase_user`/`disconnect_connection`
+confirmed the disconnect-before-erase ordering is present as released; a
+follow-up live pass with a freshly issued PT-C credential is still owed
+to confirm it live.
 
 **A83.** The same run found that `GET /connections` only lists TrueLayer
 connections, never Finexer ones, which meant a caller (including the
 account-deletion flow A82 needed to fix) had no reliable way to discover
 a live Finexer connection to disconnect. The fix adds Finexer connections
 to that listing. Verified so far by the regression tests added with the
-fix. The retest will confirm a live Finexer connection appears correctly
-in the listing on production.
+fix. The retest ran 2026-09-27 (board item A112, production, PT-A):
+`GET /connections` returned both live Finexer connections correctly,
+confirmed Fixed live. The disconnect-before-delete half is covered by the
+A82 record above (source-confirmed only, live retest Blocked).
 
 **A84.** The same run's token-invalidation half found that a deleted
 account's bearer session token kept authenticating reads and writes for
@@ -327,8 +353,16 @@ up to seven days after deletion, and that a write against a deleted
 account's identifiers could reattach if the account was later recreated
 with the same email. The fix invalidates the session token as part of
 account deletion. Verified so far by the regression tests added with the
-fix. The retest will replay a pre-deletion token against a live production
-deletion and confirm it is rejected immediately, not merely eventually.
+fix. The retest ran 2026-09-27 (board item A112, disposable identity
+PT-C, production) but could not exercise the live before/after property:
+the supplied PT-C credential was already rejected (`401 Session
+expired`) before any deletion call was made, so no token survived a live
+deletion to test against. Source read of
+`backend/app/core/session_revocation.py::revoke_sessions`/`is_revoked`
+and `backend/app/routers/profile.py::delete_account` confirmed the
+revoke-before-erase ordering is present as released; a follow-up live
+pass with a freshly issued PT-C credential is still owed to confirm it
+live.
 
 **A91.** WP6's `MCP-06` case found that `app/services/mcp_mask.py` drops
 fields by shape only and never inspects or sanitises the content of the
@@ -347,9 +381,13 @@ so this finding has no production attack surface today; it does have one
 on UAT, where the connector is enabled. It must be fixed and retested
 before the connector is enabled in production, which is separately gated
 on Finexer's written design sign-off (board item F1, still open). The
-retest will re-run `MCP-06`'s injection canaries against UAT once F1's
-design is agreed and, if the connector is then enabled in production,
-against production too before that switch is treated as complete.
+retest ran 2026-09-27 (board item A112, UAT, since the connector is not
+registered on production): a canary goal named with an instruction-shaped
+string was returned by the `get_goals` MCP tool with its `name` field
+replaced by the fixed marker, confirming Fixed live. This does not by
+itself retest against production, since the connector has no route there
+today; that check is still owed once F1's design is agreed and the
+connector is enabled in production.
 
 **A121.** WP8's `IOS-03` case (`A56-2026-09-27`) found that, with the
 biometric privacy lock engaged, whether from a cold start or by tapping a
@@ -474,8 +512,10 @@ day they were found (2026-09-20/21) and fixed on `main` by 2026-09-22,
 comfortably inside the 14-day remediate target measured from
 acknowledgement. That target is about a fix existing and merged; it is
 not itself satisfied by deployment or retest, which this report tracks
-separately as "Pending" throughout, per the "fixed on main, not
-remediated" wording rule stated in section 1.
+separately (see section 5's High table, updated 2026-09-28 with A112's
+retest outcome for these four; the eleven Medium/Low/Informational fixes
+are still tracked as "Pending" throughout, per the "fixed on main, not
+remediated" wording rule stated in section 1).
 
 **A121**, the fifth High finding, was found and acknowledged on
 2026-09-27; its 3-business-day acknowledge target and 14-day remediate
@@ -484,27 +524,35 @@ above. As of this update it is not yet fixed, so it is within, not in
 breach of, its own SLA window; that window should not be read as already
 overdue.
 
-**What happens next, in order:**
+**What happens next, in order (updated 2026-09-28, A117):**
 
-1. **A110** (trusted-proxy hop handling), in progress as of this report's
-   date, resolves the two-ingress-path ambiguity (Vercel-fronted web
-   traffic versus the mobile apps' direct Railway calls) that blocks
-   releasing A92's rate-limit fix safely to production.
-2. **Production release**, once A110 lands, carries A82, A83, A84, A91,
-   and every other fixed finding listed in section 5 to production via
-   `scripts/release.py`.
-3. **Retest**, against the released production build, confirms each
-   finding's fix live rather than relying on the regression tests alone;
-   see each High finding's own paragraph in section 5 for what its
-   retest specifically checks.
+1. **A110** (trusted-proxy hop handling) is done (2026-09-24); it
+   resolved the two-ingress-path ambiguity (Vercel-fronted web traffic
+   versus the mobile apps' direct Railway calls) that blocked releasing
+   A92's rate-limit fix safely to production.
+2. **Production release**, for the four High findings (A82, A83, A84,
+   A91), has happened: `release-20260927-0947` on 2026-09-27, confirmed
+   still present in that evening's `release-20260927-1844`. This report
+   does not establish the production-release status of the other eleven
+   fixed findings listed in section 5; their rows there are unchanged by
+   this correction.
+3. **Retest**, for the four High findings, ran the same day (board item
+   A112, `docs/security/pentest-runs/A112-2026-09-27/`) against the
+   released production build (and UAT for A91, since the MCP connector
+   is not registered on production); see each High finding's own
+   paragraph in section 5 for what its retest specifically found. The
+   destructive `API-15` step (A82, A83's disconnect-before-delete half,
+   A84) was Blocked by an already-expired test credential and remains
+   source-confirmed only; a follow-up live pass is still owed.
 4. **WP12** (cross-model review) runs once WP1 through WP11 are complete
    or explicitly Blocked, which is now true; it validates or dismisses
    every Fail recorded in this round with a written reason from the
    opposite model, and records each retested finding as Fixed, Partially
-   fixed, Not fixed, or Not retestable.
-5. **Final report v1.0** is produced once the retest and WP12 both
-   complete, replacing this draft, and folds into `SECURITY.md` section
-   3b and the Finexer compliance questionnaire's Q11 answer.
+   fixed, Not fixed, or Not retestable. Has not started.
+5. **Final report v1.0** is produced once WP12 completes (and the
+   follow-up live `API-15` pass above), replacing this draft, and folds
+   into `SECURITY.md` section 3b and the Finexer compliance
+   questionnaire's Q11 answer.
 
 Remediation start for the Medium/Low findings still open (A73, A77, A79,
 A81, A94, and the residual A106) begins 1 October 2026, per their own
@@ -543,4 +591,5 @@ review of this draft, ahead of it being shared with Finexer.
 |---|---|---|
 | v0.1 (DRAFT) | 2026-09-23 | First draft, produced for Finexer ahead of production release, retest and WP12; covers the 10 of 12 work packages executed 2026-09-20 to 2026-09-21 |
 | v0.1 (DRAFT, updated) | 2026-09-27 | A117: this Markdown updated in place to record WP7b (A55) and WP8 (A56) dynamic device testing, executed live 2026-09-27; coverage corrected from 10 of 12 to 12 of 12 work packages (to the extent possible without a Mac or a rooted device); five findings folded into section 5 (A118, A119, A120, A121, A122); headline corrected to five High findings, since A121 (iOS biometric-lock bypass) is not yet remediated. The PDF/HTML renderings were not regenerated as part of this update; that consolidated regeneration, together with WP12's cross-model review, is owed in board item A60 |
-| v1.0 (planned) | after A110, production release, retest and WP12 complete | Final report: replaces every "Pending" retest status above with a recorded outcome, folds WP12's cross-model sign-off into the coverage matrix and findings, and supersedes this draft as the input to `SECURITY.md` section 3b and Finexer Q11 |
+| v0.1 (DRAFT, updated) | 2026-09-28 | A117 correction: the 2026-09-27 update above (and the original 2026-09-23 draft text it left unchanged) stated that none of the four original High findings (A82, A83, A84, A91) had reached production and that no production retest had run; both were false by 2026-09-27 evening. All four shipped to production 2026-09-27 in `release-20260927-0947` (confirmed still present in `release-20260927-1844`), and were retested the same day (board item A112, `docs/security/pentest-runs/A112-2026-09-27/`). Corrected the "Status of this document" note, the Headline, section 5's High findings table, and each of the four findings' narrative paragraphs to record A112's actual outcome per finding: A83's listing half and A91 confirmed Fixed live; A82, A83's disconnect-before-delete half and A84 confirmed Fixed by source read only, the live `API-15` retest Blocked by an already-expired test credential. Also corrected a stale claim that A92's release gate, board item A110, was still in progress; A110 is done (2026-09-24) and A112 confirmed its environment variables are set. The PDF/HTML renderings remain unregenerated (owed in A60); Finexer Q11 wording is untouched by this row |
+| v1.0 (planned) | after the outstanding live `API-15` retest pass and WP12 complete | Final report: replaces every "Pending" retest status above with a recorded outcome, folds WP12's cross-model sign-off into the coverage matrix and findings, and supersedes this draft as the input to `SECURITY.md` section 3b and Finexer Q11 |
