@@ -1,12 +1,24 @@
 """B38 — golden-question eval gate for Penny's tool-calling loop.
 
-PENNY_TOOLS.md records that the routing bug which caused the whole
-loop-first rebuild (a confident-but-wrong route for "How can I improve my
-entertainment spending") had no regression net once the deterministic
-ladder that bug lived in was deleted — the model now owns 100% of tool
-selection, and nothing pinned which tool a given question SHOULD reach.
-This file is that net: ~30 questions drawn from the four screen-by-screen
-inventories in docs/penny/question-inventory/, each asserting which tool(s)
+PENNY_TOOLS.md records that the deterministic keyword ladder deleted in the
+loop-first rebuild once routed "How can I improve my entertainment
+spending" to a confident, wrong answer by matching "entertainment" as a
+synonym — and that once the ladder was deleted, nothing pinned which tool a
+given question SHOULD reach. That ladder is gone; the model now owns 100%
+of tool SELECTION.
+
+**What this file actually catches, precisely stated:** CATALOG regressions
+— a tool disappearing from the schema list offered to the model, or a
+tool's description drifting away from the concept it is supposed to cover.
+It does **not**, and cannot, catch a live model misjudging a novel
+question — that is genuine routing JUDGEMENT, which happens inside
+OpenRouter, not in this codebase, and no code-level test can pin it
+without a real model call (which this suite must run without, see below).
+The distinction matters: this is a net under the CATALOG the model reads,
+not a stand-in for the model's own reasoning.
+
+~30 questions are drawn from the four screen-by-screen inventories in
+docs/penny/question-inventory/, each asserting which tool(s)
 `run_penny_agent` selects for it, never the phrasing of the answer.
 
 ## How the fake model is driven, and why this is honest
@@ -24,39 +36,46 @@ wall-clock bookkeeping), and the REAL round-by-round loop mechanics all run
 exactly as they would against a real model.
 
 The one thing genuinely impossible to exercise without a network call is
-the MODEL'S OWN judgement of which tool a question calls for — that
-reasoning happens inside OpenRouter, not in this codebase. `_GoldenFakeClient`
-does not pretend to replicate it with a second, hand-rolled classifier
-(that would just be a second opinion to keep in sync, not a check on the
-real one). Instead, each golden case is authored with an `anchors` list per
-expected tool: a short phrase that must appear, verbatim and
-case-insensitively, in that tool's OWN description exactly as it will be
-sent to the model this round. Every anchor below was copied out of the real
-`app.services.penny_tools.TOOL_SCHEMAS`/`_explain_tool_description()` text
-at authoring time (see each case's own comment), not invented — so the
-harness is asserting "the concept a person would actually ask about is
-still where the catalog says it is", grounded in the live schema text, not
-in a second copy of it. On its turn, the fake model:
+the MODEL'S OWN judgement of which tool a question calls for. Each golden
+case therefore declares which tool(s) it expects, and the fake model
+"calls" that tool on its turn — but only after checking, against the REAL
+request payload `run_penny_agent` actually built this round, that calling
+it is still honest:
 
 1. Looks up the case's next expected tool NAME in the REAL `tools` array of
-   the request `run_penny_agent` actually built this round. If the name is
-   missing from the catalog entirely (removed, renamed, or gated off by a
-   flag), the harness records `missing_from_catalog` and stops — this is
-   the "missing tool" regression shape.
-2. Checks that tool's REAL description (as sent this round, not a cached
-   copy) contains at least one of the case's anchor phrases. If not — the
-   description was edited, or swapped with another tool's — the harness
-   records `anchor_mismatch` and stops. This is the "swapped descriptions"
-   regression shape: swap two tools' text and the anchor that used to live
-   in tool A's description is no longer there.
+   the request. If the name is missing from the catalog entirely (removed,
+   renamed, or gated off by a flag), the harness records
+   `missing_from_catalog` and stops.
+2. Computes a sha256 of that tool's REAL description (as sent this round,
+   normalised whitespace, never a cached copy) and compares it against a
+   PINNED hash captured at authoring time (`PINNED_TOOL_DESCRIPTION_HASHES`
+   below). If the live hash no longer matches, the harness records
+   `description_changed` and stops.
 3. Otherwise it "calls" that tool, in that round, and moves on.
 
 This means the harness's decision is genuinely driven by the real code's
 own output, not a lookup table independent of it, and a routing regression
-in the catalog (the wrong tool, a missing tool, or by extension a
-description that no longer actually justifies the tool it is attached to)
-changes what the harness can even attempt to call — exactly the class of
-bug this item exists to catch.
+in the catalog (the wrong tool, a missing tool, or a description that has
+silently drifted) changes what the harness can even attempt to call —
+exactly the class of bug this item exists to catch.
+
+### Re-pinning after an intentional description edit
+
+When a tool's description is deliberately rewritten, every golden case
+that names it will start failing with `description_changed:<tool>` — this
+is expected, not a bug. Re-pin from `backend/`, with `app.services.
+penny_tools` importable (`PYTHONPATH=.` if running the file directly
+rather than through pytest):
+
+    PYTHONPATH=. .venv/bin/python -m tests.test_penny_golden_eval --repin
+
+This rewrites `PINNED_TOOL_DESCRIPTION_HASHES` below in place with the
+live hash of every tool name already a key in it (it never adds or removes
+a key — a brand new golden case still needs one hand-added entry, the same
+as adding the case itself). Review the resulting diff before committing it,
+the same discipline as any other pinned-fixture update: a `--repin` that
+silently absorbed an unintended drift would defeat the whole point of
+pinning.
 
 ## What this does NOT exercise
 
@@ -64,10 +83,10 @@ bug this item exists to catch.
   novel phrasing of a question calls for is not tested here at all — that
   would require a real OpenRouter call, which this suite must run without
   (OPENROUTER_API_KEY unset). This file catches a regression in the
-  CATALOG (a tool disappearing, being renamed, or its description drifting
-  away from the concept it is supposed to cover) and in the LOOP's own
-  mechanics (rounds, dispatch, consent gating) — not a regression in the
-  model's judgement itself, which no code-level test can pin.
+  CATALOG (a tool disappearing, being renamed, or its description
+  drifting) and in the LOOP's own mechanics (rounds, dispatch, consent
+  gating) — not a regression in the model's judgement itself, which no
+  code-level test can pin.
 - **Real tool execution.** `execute_tool` is replaced with a recorder that
   returns a canned `{"ok": True}` for any tool name (never real engine
   calls, no database access at all for these tests beyond the loop's own
@@ -83,6 +102,9 @@ bug this item exists to catch.
   version of this gate.
 """
 import asyncio
+import hashlib
+import pathlib
+import sys
 
 import pytest
 
@@ -120,20 +142,62 @@ class _ToolCallResponse:
         return self._payload
 
 
+def _normalise_description(text: str) -> str:
+    """Collapse whitespace only — never lowercase or otherwise fold the
+    text, since a hash is meant to catch ANY drift, not just drift a
+    case-insensitive comparison would notice."""
+    return " ".join((text or "").split())
+
+
+def _description_sha256(text: str) -> str:
+    return hashlib.sha256(_normalise_description(text).encode("utf-8")).hexdigest()
+
+
+# Pinned sha256 hashes of each golden tool's full, real description text
+# (normalised per `_normalise_description`), captured at authoring time
+# directly from the live `app.services.penny_tools.TOOL_SCHEMAS`. The
+# harness recomputes this same hash from the REAL description sent in each
+# round's request payload and fails the moment it no longer matches — see
+# the module docstring for why this replaced a substring-anchor check, and
+# "Re-pinning" above for how to refresh these after an intentional edit.
+PINNED_TOOL_DESCRIPTION_HASHES = {
+    "calculate": "5cc43cf069e72da75ac0c00009a45e4fd89714c56d245d3a297931f9696ae2d0",
+    "check_affordability": "96f7e3bc9eab7718e3c8382f10b4a8396da740931003787c9b87afeabe55b7f8",
+    "explain": "ece7e202055770a96c8e64b851ce8923113024513ead6a1444faefab7ed89c9f",
+    "get_account_activity": "a177a9327880d3e518b6164b375da8926fb345a9ac20b3675904c6ed1e20e3f7",
+    "get_accounts": "635f1a49e599affcc455cba594ddffdd6e69d5ec17d29aa41e701a1bbba83c9b",
+    "get_category_spend": "e96c666d2f3b75b3fca8fcd200c352eb680f237bc117e89a01577c497e2fa179",
+    "get_debt_position": "4384fc55409fa7e83abb58d1edd609406ee2d36085f5fe3839e36da194480fbf",
+    "get_goals": "d504516898d9a2b0cbc4fec716a7d88b89d4b2160a50265ee55226f37a27a2ec",
+    "get_insights": "3a6f2039c14cae734953e189a4328f17d54111b25cfdfed1b17acbdc03763796",
+    "get_mirror": "62c640cc13425dff91c281793ad8570f1ec4f0858d82ccfed6ca421781cce73e",
+    "get_recurring_payments": "e4caca1797c55e0241e0c70d74a473c5ece947dd2c1e51875b00ecfb18117156",
+    "get_safe_to_spend": "baaa1f0578aa7c514542cd4e8f2d39c18cef781080f06572eeabcf59ad41e0c6",
+    "get_savings_position": "2abe7641269e463cf0a5e5b6b0e95e1acaf0b4766932bd5a39b49e1295dc7de9",
+    "get_spend_verdict": "2a8e965e78811fdea43e7b2a8c9a34ff178888e1367add2383fcbf1093200a36",
+    "get_tax_position": "2cb73ca7b40a8670724cd6014cb33e60b0c03d09a536976fef57bfaddc1e67f7",
+    "get_today_brief": "c1b006e6ee70be2d273bfea5582f4a7ae72fe41411f36370726ee6a4325cacc6",
+    "get_upcoming_bills": "924033842d2e0d1cc61b44cc97c3a8fc7864fee85752d3790ea1b7ed12c3bce4",
+    "search_transactions": "e011209a2b1d5d7878f3e38fa22a2789451780f36f458899340d05175050bfaa",
+}
+
+
 class _GoldenFakeClient:
-    """See module docstring. `expected_tools`/`anchors` are the golden
-    case's own declared shape; `self.outcome` starts `"ok"` and is set to
-    `"missing_from_catalog:<tool>"` or `"anchor_mismatch:<tool>"` the
+    """See module docstring. `expected_tools` is the golden case's own
+    declared shape; `self.outcome` starts `"ok"` and is set to
+    `"missing_from_catalog:<tool>"` or `"description_changed:<tool>"` the
     moment the REAL catalog sent this round can't honestly justify the
     next expected tool — callers must check `outcome == "ok"` before
-    trusting `self.attempted` at all."""
+    trusting `self.attempted` at all. `self.detail` carries the
+    human-readable elaboration (naming the tool and, for a hash mismatch,
+    the re-pin command) that assertion messages surface."""
 
-    def __init__(self, expected_tools: list[str], anchors: list[list[str]]):
+    def __init__(self, expected_tools: list[str]):
         self._expected = expected_tools
-        self._anchors = anchors
         self.calls: list[dict] = []
         self.attempted: list[str] = []
         self.outcome = "ok"
+        self.detail = ""
 
     def __call__(self, *args, **kwargs):
         return self
@@ -160,26 +224,44 @@ class _GoldenFakeClient:
         fn = catalog.get(tool_name)
         if fn is None:
             self.outcome = f"missing_from_catalog:{tool_name}"
+            self.detail = (
+                f"{tool_name} is missing from the tool catalog run_penny_agent actually sent "
+                f"this round (removed, renamed, or gated off by a flag)."
+            )
             return _FinalResponse("HEADLINE: n/a\nREPLY: n/a")
 
-        description = (fn.get("description") or "").lower()
-        anchors = self._anchors[round_index]
-        if not any(anchor.lower() in description for anchor in anchors):
-            self.outcome = f"anchor_mismatch:{tool_name}"
+        pinned_hash = PINNED_TOOL_DESCRIPTION_HASHES.get(tool_name)
+        if pinned_hash is None:
+            self.outcome = f"unpinned_tool:{tool_name}"
+            self.detail = (
+                f"{tool_name} has no entry in PINNED_TOOL_DESCRIPTION_HASHES — add one "
+                f"(e.g. via --repin, see module docstring) before this case can run."
+            )
+            return _FinalResponse("HEADLINE: n/a\nREPLY: n/a")
+
+        live_hash = _description_sha256(fn.get("description") or "")
+        if live_hash != pinned_hash:
+            self.outcome = f"description_changed:{tool_name}"
+            self.detail = (
+                f"{tool_name}'s description changed (live sha256 {live_hash[:12]}... != "
+                f"pinned {pinned_hash[:12]}...). Description changed, re-read the case and "
+                f"re-pin with `PYTHONPATH=. .venv/bin/python -m tests.test_penny_golden_eval "
+                f"--repin` (run from backend/, review the diff before committing it)."
+            )
             return _FinalResponse("HEADLINE: n/a\nREPLY: n/a")
 
         self.attempted.append(tool_name)
         return _ToolCallResponse(tool_name, call_id=f"call_{round_index + 1}")
 
 
-def run_case(monkeypatch, question, screen, expected_tools, anchors):
+def run_case(monkeypatch, question, screen, expected_tools):
     """Drives one golden case through the REAL `run_penny_agent` loop with
     `_GoldenFakeClient` standing in for OpenRouter and a recording stub
     standing in for `execute_tool` (see module docstring's "What this does
-    NOT exercise"). Returns the client (for `.outcome`/`.calls`), the
-    ordered list of tool names actually dispatched, and the loop's own
+    NOT exercise"). Returns the client (for `.outcome`/`.detail`/`.calls`),
+    the ordered list of tool names actually dispatched, and the loop's own
     return value."""
-    client = _GoldenFakeClient(expected_tools, anchors)
+    client = _GoldenFakeClient(expected_tools)
     monkeypatch.setattr(penny_agent_module.httpx, "AsyncClient", client)
 
     dispatched: list[str] = []
@@ -199,11 +281,11 @@ def run_case(monkeypatch, question, screen, expected_tools, anchors):
 # ── The golden set ──────────────────────────────────────────────────────────
 #
 # Each case: id, source inventory file, question, screen context, the
-# expected ordered tool sequence, one anchor-phrase list per expected tool
-# (copied verbatim from the real TOOL_SCHEMAS description at authoring
-# time), and a one-line "why" so a future routing change can argue with the
-# case rather than just flip it. 30 cases, spread across all four inventory
-# files rather than concentrated in one.
+# expected ordered tool sequence, and a one-line "why" so a future routing
+# change can argue with the case rather than just flip it. Every tool in
+# `expected` must have a pinned hash in PINNED_TOOL_DESCRIPTION_HASHES
+# above. 30 cases, spread across all four inventory files rather than
+# concentrated in one.
 
 GOLDEN_CASES = [
     # ── docs/penny/question-inventory/home-and-penny.md (8) ─────────────
@@ -213,7 +295,6 @@ GOLDEN_CASES = [
         question="How much can I safely spend before payday?",
         screen="home",
         expected=["get_safe_to_spend"],
-        anchors=[["how much the user can afford"]],
         why="The Home hero's own 'how much can I spend' question, get_safe_to_spend's reason for existing.",
     ),
     dict(
@@ -222,7 +303,6 @@ GOLDEN_CASES = [
         question="What is Penny suggesting I do today?",
         screen="home",
         expected=["get_today_brief"],
-        anchors=[["currently asking/suggesting on home"]],
         why="A3 (the Brief companion feed) is get_today_brief's own worked example, distinct from get_upcoming_bills' whole-list shape.",
     ),
     dict(
@@ -231,7 +311,6 @@ GOLDEN_CASES = [
         question="What's my payday plan for this pay period?",
         screen="penny",
         expected=["get_today_brief"],
-        anchors=[["what's my payday plan"]],
         why="'Payday plan' is named explicitly inside get_today_brief's description; must not be confused with get_upcoming_bills.",
     ),
     dict(
@@ -240,7 +319,6 @@ GOLDEN_CASES = [
         question="How much can I safely spend, and what bills are coming up before my next payday?",
         screen="home",
         expected=["get_safe_to_spend", "get_upcoming_bills"],
-        anchors=[["how much the user can afford"], ["what's due, what's coming up"]],
         why="A compound ask needing two tools in sequence, the shape most likely to regress if the loop stops after one tool call.",
     ),
     dict(
@@ -249,7 +327,6 @@ GOLDEN_CASES = [
         question="Why did my ISA balance change this week?",
         screen="accounts",
         expected=["get_account_activity"],
-        anchors=[["why did my balance change"]],
         why="A named-account balance-change question is get_account_activity's own worked example, never search_transactions (which cannot match an account name).",
     ),
     dict(
@@ -258,7 +335,6 @@ GOLDEN_CASES = [
         question="What subscriptions am I paying right now, and when does Netflix renew?",
         screen="home",
         expected=["get_recurring_payments"],
-        anchors=[["what subscriptions am i paying"]],
         why="Naming a specific recurring bill/renewal date is get_recurring_payments' own worked example, not the whole-list get_upcoming_bills.",
     ),
     dict(
@@ -267,7 +343,6 @@ GOLDEN_CASES = [
         question="What is the Mirror, and why does it say I'm a weekend spender?",
         screen="penny",
         expected=["get_mirror"],
-        anchors=[["what is the mirror"]],
         why="The behavioural-portrait 'why do you say this about me' shape maps to get_mirror, never get_insights (a different kind of tip).",
     ),
     dict(
@@ -276,7 +351,6 @@ GOLDEN_CASES = [
         question="How much of my personal allowance do I have left this tax year?",
         screen="penny",
         expected=["get_tax_position"],
-        anchors=[["how much personal allowance do i have left"]],
         why="A personal tax figure must ground on the user's own numbers via get_tax_position, never general tax knowledge.",
     ),
 
@@ -287,7 +361,6 @@ GOLDEN_CASES = [
         question="Am I overspending this pay period?",
         screen="spend",
         expected=["get_spend_verdict"],
-        anchors=[["how is my spending going"]],
         why="The core 'am I overspending' shape get_spend_verdict exists for; its reading sentence must be quoted verbatim.",
     ),
     dict(
@@ -296,7 +369,6 @@ GOLDEN_CASES = [
         question="How much have I spent on Eating Out this period, and where did it go?",
         screen="spend",
         expected=["get_category_spend"],
-        anchors=[["how much did i spend on x"]],
         why="Category-detail with top merchants is get_category_spend's own worked shape, not the whole-verdict tool.",
     ),
     dict(
@@ -305,7 +377,6 @@ GOLDEN_CASES = [
         question="How much did I spend at Tesco in April?",
         screen="spend",
         expected=["search_transactions"],
-        anchors=[["how much did i spend at x"]],
         why="A named merchant plus a date range is search_transactions' own worked example; get_category_spend has no merchant/date filter at all.",
     ),
     dict(
@@ -314,7 +385,6 @@ GOLDEN_CASES = [
         question="What does 'moved' mean on my Spend page? Why is it shown in green?",
         screen="spend",
         expected=["explain"],
-        anchors=[["jargon term"]],
         why="A jargon-definition ask ('what does X mean') routes to explain's registry, never a live-figures tool.",
     ),
     dict(
@@ -323,7 +393,6 @@ GOLDEN_CASES = [
         question="Why doesn't my Out figure match what my bank statement shows?",
         screen="spend",
         expected=["explain"],
-        anchors=[["headline number"]],
         why="A headline-number reconciliation ask is explain's registry category, grounded rather than the model guessing an explanation.",
     ),
     dict(
@@ -332,7 +401,6 @@ GOLDEN_CASES = [
         question="What's driving my Entertainment spend this period, and how can I cut it?",
         screen="spend",
         expected=["get_category_spend"],
-        anchors=[["how can i cut my x"]],
         why="The exact motivating bug this rebuild fixed (an advice-shaped spend question) must still ground on get_category_spend's own facts, never a prescriptive answer with no tool call.",
     ),
     dict(
@@ -341,7 +409,6 @@ GOLDEN_CASES = [
         question="Was I over usual on Groceries last pay period?",
         screen="spend",
         expected=["get_spend_verdict"],
-        anchors=[["was i over usual on x"]],
         why="Same tool as spend-01 but exercises the prior-period argument, a distinct regression surface from the current-period default.",
     ),
     dict(
@@ -350,7 +417,6 @@ GOLDEN_CASES = [
         question="How do I recategorise a transaction so it always files that way from now on?",
         screen="spend",
         expected=["explain"],
-        anchors=[["how-do-i walkthrough"]],
         why="An app-action walkthrough ask routes to explain's registry, never a live tool.",
     ),
 
@@ -361,7 +427,6 @@ GOLDEN_CASES = [
         question="How much debt do I have across my cards, and how much interest am I paying a month?",
         screen="planning",
         expected=["get_debt_position"],
-        anchors=[["credit-card debt position"]],
         why="The core debt-position shape (Planning's debt row) maps directly to get_debt_position.",
     ),
     dict(
@@ -370,7 +435,6 @@ GOLDEN_CASES = [
         question="How is my Japan trip goal progressing?",
         screen="planning",
         expected=["get_goals"],
-        anchors=[["target amount and target date"]],
         why="A named-goal progress ask is get_goals' own worked example, distinct from get_savings_position's whole-buffer figure.",
     ),
     dict(
@@ -379,7 +443,6 @@ GOLDEN_CASES = [
         question="How much is in my savings buffer, and am I on track for my target?",
         screen="planning",
         expected=["get_savings_position"],
-        anchors=[["savings buffer"]],
         why="The whole-buffer/target-percent-funded shape is get_savings_position's own reason for existing, distinct from a single named goal.",
     ),
     dict(
@@ -388,7 +451,6 @@ GOLDEN_CASES = [
         question="Can I afford a £2,000 holiday next August?",
         screen="planning",
         expected=["check_affordability"],
-        anchors=[["can i afford/spend x"]],
         why="check_affordability owns the amount+timeframe arithmetic; the model must extract the £ figure and hand it over, never eyeball it itself.",
     ),
     dict(
@@ -397,7 +459,6 @@ GOLDEN_CASES = [
         question="If I paid an extra £50.32 a week off my card for 6 months, roughly how much would that add up to?",
         screen="planning",
         expected=["calculate"],
-        anchors=[["generic arithmetic calculator"]],
         why="Multi-step arithmetic the model must never do in its head routes to calculate, restated repeatedly in PENNY_TOOLS.md's own doctrine.",
     ),
     dict(
@@ -406,7 +467,6 @@ GOLDEN_CASES = [
         question="What does 'buffer' mean on the Grow screen?",
         screen="planning",
         expected=["explain"],
-        anchors=[["jargon term"]],
         why="A jargon-term case on Planning/Grow rather than Spend, proving explain routes the same way regardless of which screen asks.",
     ),
     dict(
@@ -415,7 +475,6 @@ GOLDEN_CASES = [
         question="What would it take to clear my most expensive card first?",
         screen="planning",
         expected=["get_debt_position"],
-        anchors=[["per-card breakdown"]],
         why="The avalanche 'what it would take' agency block still grounds on get_debt_position's own per-card facts, never a model-invented plan.",
     ),
     dict(
@@ -424,7 +483,6 @@ GOLDEN_CASES = [
         question="What is an ISA, and should I use one instead of a regular savings account?",
         screen="planning",
         expected=["explain"],
-        anchors=[["money-basics"]],
         why="General UK money education, not personal to the user, routes to explain's registry rather than get_savings_position.",
     ),
 
@@ -435,7 +493,6 @@ GOLDEN_CASES = [
         question="What's the best money-saving tip you've got for me right now?",
         screen="insights",
         expected=["get_insights"],
-        anchors=[["saving ideas"]],
         why="'What's the best insight' is get_insights' own worked example; rank 1 must be reproduced, never re-ranked.",
     ),
     dict(
@@ -444,7 +501,6 @@ GOLDEN_CASES = [
         question="Which accounts do I have connected, and what's my Monzo balance?",
         screen="accounts",
         expected=["get_accounts"],
-        anchors=[["which accounts the user has"]],
         why="A specific-account-balance ask is get_accounts' own worked shape, and the required first stop before get_account_activity when names collide.",
     ),
     dict(
@@ -453,7 +509,6 @@ GOLDEN_CASES = [
         question="What was the first payment into my Saving Challenge pot?",
         screen="accounts",
         expected=["get_account_activity"],
-        anchors=[["first/earliest/latest payment into x pot"]],
         why="Named-pot activity is get_account_activity's own worked example; the app keeps no other balance-history chart for it.",
     ),
     dict(
@@ -462,7 +517,6 @@ GOLDEN_CASES = [
         question="What traits has the Mirror picked up about me, and how is my spending aim going?",
         screen="mirror",
         expected=["get_mirror"],
-        anchors=[["how is my aim going"]],
         why="Traits plus aim-progress in one ask, exercising the other half of get_mirror's own description from home-07.",
     ),
     dict(
@@ -471,7 +525,6 @@ GOLDEN_CASES = [
         question="How much did I spend on Eating Out over the last 3 months?",
         screen="insights",
         expected=["get_category_spend"],
-        anchors=[["last n months"]],
         why="Exercises get_category_spend's `months` argument path, a distinct regression surface from spend-02's current-period-only case.",
     ),
     dict(
@@ -480,16 +533,16 @@ GOLDEN_CASES = [
         question="What does 'dormant' mean next to one of my accounts?",
         screen="accounts",
         expected=["explain"],
-        anchors=[["jargon term"]],
         why="A third jargon-term case, triggered from the Accounts surface, proving explain's routing is screen-agnostic.",
     ),
 ]
 
 # Sanity on the golden set's own shape — catches a typo in this file itself
-# (a case missing its own anchors list, or an anchors list too short for
-# its own expected-tools list) before it ever reaches the harness.
+# (a case naming a tool with no pinned hash) before it ever reaches the
+# harness.
 for _case in GOLDEN_CASES:
-    assert len(_case["anchors"]) == len(_case["expected"]), _case["id"]
+    for _tool in _case["expected"]:
+        assert _tool in PINNED_TOOL_DESCRIPTION_HASHES, f"{_case['id']}: no pinned hash for {_tool}"
 
 _SOURCE_COUNTS = {
     "home-and-penny.md": 8, "spend.md": 8, "planning-grow-debt.md": 8,
@@ -511,10 +564,10 @@ def test_golden_set_spread_across_all_four_inventory_files():
 @pytest.mark.parametrize("case", GOLDEN_CASES, ids=[c["id"] for c in GOLDEN_CASES])
 def test_golden_tool_selection(monkeypatch, case):
     client, dispatched, result = run_case(
-        monkeypatch, case["question"], case["screen"], case["expected"], case["anchors"],
+        monkeypatch, case["question"], case["screen"], case["expected"],
     )
     assert client.outcome == "ok", (
-        f"{case['id']} ({case['question']!r}): harness outcome {client.outcome!r}, "
+        f"{case['id']} ({case['question']!r}): {client.detail or client.outcome}. "
         f"expected tool sequence {case['expected']} to be reachable. {case['why']}"
     )
     assert dispatched == case["expected"], (
@@ -532,7 +585,7 @@ def test_golden_tool_selection(monkeypatch, case):
 # case and asserts the harness names the failure. This is what "break
 # routing deliberately... and show which golden cases fail" (the item's own
 # verification step) looks like as a permanent regression test: it proves
-# the eval gate itself would have caught these two real regression shapes,
+# the eval gate itself would have caught these real regression shapes,
 # without leaving routing broken for any other test in the suite.
 
 def _tool_names(schemas):
@@ -552,9 +605,7 @@ def test_break_missing_tool_is_caught(monkeypatch):
     monkeypatch.setattr(penny_agent_module, "TOOL_SCHEMAS", mutated)
 
     case = next(c for c in GOLDEN_CASES if c["id"] == "home-01-safe-to-spend")
-    client, dispatched, result = run_case(
-        monkeypatch, case["question"], case["screen"], case["expected"], case["anchors"],
-    )
+    client, dispatched, result = run_case(monkeypatch, case["question"], case["screen"], case["expected"])
     assert client.outcome == "missing_from_catalog:get_safe_to_spend", (
         f"expected the harness to name home-01-safe-to-spend as broken by a missing tool, got {client.outcome!r}"
     )
@@ -564,9 +615,9 @@ def test_break_missing_tool_is_caught(monkeypatch):
 def test_break_swapped_descriptions_is_caught(monkeypatch):
     """Simulates the item's own named example: two tools' descriptions
     swapped (a plausible copy-paste-during-refactor mistake). plan-04
-    (check_affordability) and plan-01 (get_debt_position) each lose the
-    anchor phrase that used to justify calling them, because that text now
-    lives on the OTHER tool."""
+    (check_affordability) and plan-01 (get_debt_position) each end up with
+    the wrong description attached, so their pinned hash no longer
+    matches."""
     import copy
 
     mutated = copy.deepcopy(penny_agent_module.TOOL_SCHEMAS)
@@ -577,20 +628,108 @@ def test_break_swapped_descriptions_is_caught(monkeypatch):
 
     affordability_case = next(c for c in GOLDEN_CASES if c["id"] == "plan-04-affordability")
     client, dispatched, _ = run_case(
-        monkeypatch, affordability_case["question"], affordability_case["screen"],
-        affordability_case["expected"], affordability_case["anchors"],
+        monkeypatch, affordability_case["question"], affordability_case["screen"], affordability_case["expected"],
     )
-    assert client.outcome == "anchor_mismatch:check_affordability", (
+    assert client.outcome == "description_changed:check_affordability", (
         f"expected plan-04-affordability to fail on the swapped description, got {client.outcome!r}"
     )
     assert dispatched != affordability_case["expected"]
 
     debt_case = next(c for c in GOLDEN_CASES if c["id"] == "plan-01-debt-position")
     client, dispatched, _ = run_case(
-        monkeypatch, debt_case["question"], debt_case["screen"],
-        debt_case["expected"], debt_case["anchors"],
+        monkeypatch, debt_case["question"], debt_case["screen"], debt_case["expected"],
     )
-    assert client.outcome == "anchor_mismatch:get_debt_position", (
+    assert client.outcome == "description_changed:get_debt_position", (
         f"expected plan-01-debt-position to fail on the swapped description, got {client.outcome!r}"
     )
     assert dispatched != debt_case["expected"]
+
+
+def test_break_description_drift_with_old_anchor_phrase_preserved_is_caught(monkeypatch):
+    """The exact false pass an independent review found (2026-09-28, gap
+    1): a substring-anchor check cannot tell a genuine drift from a
+    description that happens to still contain the anchor phrase. Rewrites
+    get_safe_to_spend's live description into unrelated weather-forecast
+    copy that DELIBERATELY still contains the phrase this file's old
+    anchor-based version keyed on ('how much the user can afford'), proving
+    the pinned-hash check catches it where a substring check did not."""
+    import copy
+
+    mutated = copy.deepcopy(penny_agent_module.TOOL_SCHEMAS)
+    for entry in mutated:
+        if entry["function"]["name"] == "get_safe_to_spend":
+            entry["function"]["description"] = (
+                "Weather forecast for the user's local area: temperature, rain "
+                "chance, and wind for today and the next few days. (Keeps the "
+                "phrase 'how much the user can afford' only to prove an old "
+                "substring-anchor check would have missed this drift.)"
+            )
+    monkeypatch.setattr(penny_agent_module, "TOOL_SCHEMAS", mutated)
+
+    case = next(c for c in GOLDEN_CASES if c["id"] == "home-01-safe-to-spend")
+    client, dispatched, _ = run_case(monkeypatch, case["question"], case["screen"], case["expected"])
+    assert client.outcome == "description_changed:get_safe_to_spend", (
+        f"expected the pinned-hash check to catch a drifted description even though it still "
+        f"contains the old anchor phrase, got {client.outcome!r}"
+    )
+    assert dispatched != case["expected"]
+
+
+# ── --repin: refresh the pinned hashes after an intentional edit ──────────
+#
+# Runnable directly (not via pytest): from backend/, with app.services.
+# penny_tools importable —
+#     PYTHONPATH=. .venv/bin/python -m tests.test_penny_golden_eval --repin
+# Rewrites PINNED_TOOL_DESCRIPTION_HASHES above in place; review the diff
+# before committing it.
+
+def _live_hashes_for(tool_names):
+    from app.services.penny_tools import PROPOSE_TOOL_SCHEMAS, TOOL_SCHEMAS
+
+    catalog = {
+        entry["function"]["name"]: entry["function"]["description"]
+        for entry in TOOL_SCHEMAS + PROPOSE_TOOL_SCHEMAS
+    }
+    missing = [name for name in tool_names if name not in catalog]
+    if missing:
+        raise SystemExit(f"--repin: tool(s) no longer exist in the catalog: {missing}")
+    return {name: _description_sha256(catalog[name]) for name in tool_names}
+
+
+def _repin(path=None):
+    """Rewrites this file's own `PINNED_TOOL_DESCRIPTION_HASHES` dict in
+    place with freshly computed hashes for every tool name already a key
+    in it — never adds or removes a key, so a brand new golden case still
+    needs one hand-added entry, the same as authoring the case itself.
+    Returns `{tool_name: new_hash}` for every hash that actually changed."""
+    target = pathlib.Path(path or __file__)
+    old = dict(PINNED_TOOL_DESCRIPTION_HASHES)
+    new = _live_hashes_for(sorted(old))
+
+    lines = ["PINNED_TOOL_DESCRIPTION_HASHES = {\n"]
+    for name in sorted(new):
+        lines.append(f'    "{name}": "{new[name]}",\n')
+    lines.append("}\n")
+    block = "".join(lines)
+
+    src = target.read_text(encoding="utf-8")
+    start_marker = "PINNED_TOOL_DESCRIPTION_HASHES = {\n"
+    start = src.index(start_marker)
+    end = src.index("\n}\n", start) + len("\n}\n")
+    target.write_text(src[:start] + block + src[end:], encoding="utf-8")
+
+    return {name: new[name] for name in new if new[name] != old.get(name)}
+
+
+if __name__ == "__main__":
+    if "--repin" in sys.argv:
+        _changed = _repin()
+        if _changed:
+            print(f"re-pinned {len(_changed)} tool description hash(es): {sorted(_changed)}")
+        else:
+            print("no descriptions changed, nothing to re-pin")
+    else:
+        print(
+            "usage: PYTHONPATH=. .venv/bin/python -m tests.test_penny_golden_eval --repin\n"
+            "(run from backend/; review the diff before committing it)"
+        )
