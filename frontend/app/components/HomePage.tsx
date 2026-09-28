@@ -533,6 +533,39 @@ export default function HomePage() {
     }
   }, []);
 
+  // G146 review fix 3 (2026-09-28): handleTxUpdated below used to call the
+  // whole loadData() to pick up a correction — 5 requests (accounts,
+  // investments, safeToSpend, today, recentTxns) fired for a write that
+  // touches none of the first three. This refetches ONLY GET /today, the
+  // one call a category correction can actually move: companionItems (the
+  // Home brief) and accountEligibility both come off it. Deliberately
+  // does NOT set `todayStatus("loading")` first the way loadData()'s own
+  // today branch does on mount/retry/sync (loadData DOES set loading
+  // states — todayStatus and accountsStatus both go to "loading" at its
+  // top; an earlier version of this comment claimed otherwise, which was
+  // wrong) — that reset exists so a RETRY after a failure visibly goes
+  // back to "checking" instead of leaving a stale "we could not check"
+  // line on screen, which does not apply here: this is a routine
+  // background refresh after an unrelated write succeeded, not a retry,
+  // so it should be invisible unless it actually changes something.
+  // Reuses loadRequestRef, the same "last request wins" guard loadData's
+  // own today branch uses, so a loadData() or another refetchToday() call
+  // landing after this one makes this one's response a no-op instead of a
+  // stale overwrite.
+  const refetchToday = useCallback(() => {
+    const requestId = ++loadRequestRef.current;
+    api.getToday()
+      .then((v) => {
+        if (requestId !== loadRequestRef.current) return;
+        setCompanionItems(v.items);
+        setAccountEligibility(v.account_eligibility);
+        setTodayStatus("ready");
+      })
+      .catch(() => {
+        if (requestId === loadRequestRef.current) setTodayStatus("failed");
+      });
+  }, []);
+
   useEffect(() => { loadData(); }, [loadData]);
 
   // Tour readiness: `loading` only clears once accsP (estate section) and
@@ -663,11 +696,12 @@ export default function HomePage() {
     // live and its own `companionItems`/`accountEligibility` state (the
     // Home brief) is not one of the two lists patched above, so it would
     // otherwise keep painting the pre-correction cards until the user
-    // navigates away and back. `loadData()` is the same "invalidate, then
-    // reload everything" call handleSync already makes for the same
-    // reason (a sync can move the same figures) — it doesn't set `loading`
-    // itself, so this is a silent background refresh, not a skeleton flash.
-    loadData();
+    // navigates away and back. `refetchToday()` (declared above, next to
+    // loadData) is the narrow fix (2026-09-28 review): it refetches only
+    // GET /today, not the full loadData() this used to call, which also
+    // re-requested accounts/investments/safeToSpend for no reason a
+    // category correction ever changes those.
+    refetchToday();
   }
 
   // Spending totals are home-currency only; the recent list still shows
