@@ -1729,7 +1729,15 @@ function isUnauthorizedHookExempt(responseUrl: string): boolean {
   } catch {
     pathname = responseUrl.split("?")[0] || responseUrl;
   }
-  return UNAUTHORIZED_HOOK_EXEMPT_PATHS.some((exempt) => pathname === exempt || pathname.endsWith(exempt));
+  // A124 review tightening: `pathname.endsWith(exempt)` exempted anything
+  // ENDING in an exempt suffix — "/push/health" would have matched "/health"
+  // the same as "/health" itself, and a future nested route under a
+  // protected router could accidentally inherit an exemption it never
+  // earned. Strip only a leading "/api" (the one path prefix this app's own
+  // deployments put in front of every real route — see API_BASE), then
+  // require EXACT equality against the exempt list, not a suffix match.
+  const normalized = pathname.startsWith("/api/") ? pathname.slice(4) : pathname;
+  return UNAUTHORIZED_HOOK_EXEMPT_PATHS.includes(normalized);
 }
 
 type UnauthorizedHandler = () => void;

@@ -275,6 +275,27 @@ function scanApiTsForUngatedFetches(lines) {
   );
 }
 
+// ── 8. Exemption matcher tightening (A124 review #2): pathname.endsWith(exempt)
+//      used to exempt ANYTHING ending in an exempt suffix — "/push/health"
+//      read as exempt purely because it ends in "/health". The matcher now
+//      strips only a leading "/api" and requires EXACT equality ─────────
+{
+  const probes = [
+    { url: "https://api.example.com/push/health", exempt: false, label: '/push/health must NOT be exempt (old endsWith("/health") false positive)' },
+    { url: "https://api.example.com/api/auth/google", exempt: true, label: "/api/auth/google (leading /api stripped) must be exempt" },
+    { url: "https://api.example/auth/google", exempt: true, label: "https://api.example/auth/google (no /api prefix) must be exempt" },
+    { url: "https://api.example.com/auth/google/native-something", exempt: false, label: "/auth/google/native-something must NOT be exempt" },
+  ];
+  for (const { url, exempt, label } of probes) {
+    resetUnauthorizedGate();
+    let fireCount = 0;
+    setUnauthorizedHandler(() => { fireCount += 1; });
+    fetchImpl = async () => fakeResponse({ status: 401, url });
+    await expectRejects(api.getProfile());
+    check(label, exempt ? fireCount === 0 : fireCount === 1);
+  }
+}
+
 if (failures > 0) {
   console.error(`\n${failures} check(s) failed.`);
   process.exit(1);
