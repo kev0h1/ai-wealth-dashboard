@@ -430,3 +430,90 @@ def test_run_check_gate_invokes_exactly_the_real_manifests_declared_checks_minus
         assert reason, f"checkGate.exclude[{excluded_name!r}] has an empty reason"
         assert f"skipping {excluded_name}" in output, f"exclusion of {excluded_name} was not logged: {output}"
         assert reason in output, f"exclusion reason for {excluded_name} was not logged: {output}"
+
+
+# ---------------------------------------------------------------------
+# H83 review round 2 (low-severity finding): a malformed checkGate.exclude
+# (not an object, or a value that is not a plain string reason) must
+# fail loudly rather than silently parsing to "no exclusions" -- that
+# direction happens to be safe (more checks run, not fewer) but a typo
+# that silently stops excluding a check nobody touched could sit
+# unnoticed indefinitely, defeating the whole point of a mechanism whose
+# job is to make an exception visible.
+# ---------------------------------------------------------------------
+
+RUN_CHECK_GATE_ON_DIR_DRIVER = """#!/usr/bin/env bash
+set -uo pipefail
+_SESSION_SH="$1"; shift
+_FRONTEND_DIR="$1"; shift
+source "$_SESSION_SH" "" >/dev/null
+run_check_gate "$_FRONTEND_DIR"
+"""
+
+
+def _run_check_gate_against(tmp_path: Path, package_json: dict) -> subprocess.CompletedProcess:
+    frontend_dir = tmp_path / "frontend"
+    frontend_dir.mkdir(exist_ok=True)
+    (frontend_dir / "package.json").write_text(json.dumps(package_json), encoding="utf-8")
+
+    bindir = tmp_path / "stubbin"
+    bindir.mkdir(exist_ok=True)
+    npm = bindir / "npm"
+    npm.write_text(STUB_EXIT_0, encoding="utf-8")
+    npm.chmod(0o755)
+
+    driver = tmp_path / "run_check_gate_on_dir_driver.sh"
+    driver.write_text(RUN_CHECK_GATE_ON_DIR_DRIVER, encoding="utf-8")
+
+    env = dict(os.environ)
+    env["PATH"] = f"{bindir}{os.pathsep}{env['PATH']}"
+
+    return subprocess.run(
+        ["bash", str(driver), str(SESSION_SH), str(frontend_dir)],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+
+def test_a_non_object_check_gate_exclude_fails_loudly_instead_of_silently_running_everything(tmp_path):
+    result = _run_check_gate_against(tmp_path, {"scripts": {"check:a": "true"}, "checkGate": {"exclude": "oops"}})
+    assert result.returncode != 0, "a malformed checkGate.exclude must refuse, not silently proceed"
+    assert "checkGate.exclude" in result.stdout + result.stderr
+    assert "malformed" in result.stdout + result.stderr
+
+
+def test_a_nested_object_check_gate_exclude_value_fails_loudly(tmp_path):
+    result = _run_check_gate_against(
+        tmp_path,
+        {
+            "scripts": {"check:a": "true"},
+            "checkGate": {"exclude": {"check:a": {"nested": "object, not a one-line reason string"}}},
+        },
+    )
+    assert result.returncode != 0, "a non-string exclusion reason must refuse, not silently proceed"
+    assert "checkGate.exclude" in result.stdout + result.stderr
+    assert "malformed" in result.stdout + result.stderr
+
+
+def test_a_well_formed_check_gate_exclude_still_works_after_the_malformed_case_is_rejected(tmp_path):
+    result = _run_check_gate_against(
+        tmp_path,
+        {
+            "scripts": {"check:a": "true", "check:b": "true"},
+            "checkGate": {"exclude": {"check:b": "a good one-line reason"}},
+        },
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "skipping check:b (excluded from finish gate: a good one-line reason)" in result.stdout + result.stderr
+
+
+def test_no_check_gate_key_at_all_is_not_malformed(tmp_path):
+    """Absence of "checkGate" entirely (every check:* script today) must
+    not be confused with a malformed exclude block: jq's `// {}` handles
+    a genuinely missing key, only a present-but-wrong-shaped value should
+    refuse."""
+    result = _run_check_gate_against(tmp_path, {"scripts": {"check:a": "true"}})
+    assert result.returncode == 0, result.stdout + result.stderr

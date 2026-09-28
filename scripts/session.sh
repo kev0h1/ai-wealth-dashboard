@@ -184,12 +184,24 @@ run_check_gate() {
     exit 1
   fi
 
+  # A malformed "checkGate.exclude" (not an object, or a value that
+  # isn't a plain string reason) must fail loudly, not quietly parse to
+  # "no exclusions" -- that direction is safe (more checks run, not
+  # fewer) but a typo that silently stops excluding a check nobody
+  # touched could sit unnoticed for a long time, and the whole point of
+  # this mechanism is that an exception is visible, not invisible.
+  local exclude_raw exclude_rc=0
+  exclude_raw="$(jq -r '(.checkGate.exclude // {}) | to_entries[] | [.key, .value] | @tsv' "$manifest" 2>&1)" || exclude_rc=$?
+  if [[ "$exclude_rc" -ne 0 ]]; then
+    err "$manifest's checkGate.exclude is malformed (expected an object mapping check:* script names to one-line reason strings): $exclude_raw"
+    exit 1
+  fi
   local -A exclude_reasons=()
   local excl_name excl_reason
   while IFS=$'\t' read -r excl_name excl_reason; do
     [[ -n "$excl_name" ]] || continue
     exclude_reasons["$excl_name"]="$excl_reason"
-  done < <(jq -r '(.checkGate.exclude // {}) | to_entries[] | [.key, .value] | @tsv' "$manifest" 2>/dev/null)
+  done <<<"$exclude_raw"
 
   local check
   for check in "${all_checks[@]}"; do
