@@ -2291,6 +2291,10 @@ async def compute_today_items(
     # ── 6. Build MOVE items ─────────────────────────────────────────────────
     items: list[dict] = []
     dismissed = await _get_dismissed(uid)
+    # G168 (2026-09-28): a SEPARATE, surface-scoped dismissal set, used only
+    # by the needle item (8b) below — see `_get_home_dismissed`'s and
+    # `dismiss_item`'s own docstrings for why this can't share `dismissed`.
+    home_dismissed = await _get_home_dismissed(uid)
 
     # ── 5c. Reactivation — undo a stale "done" when a shortfall genuinely
     # reopens ─────────────────────────────────────────────────────────────
@@ -4819,6 +4823,16 @@ async def compute_today_items(
                         })
 
     # ── 8b. NEEDLE item (period close reward) ──────────────────────────────
+    # G168 fix (2026-09-28, rejection from 2026-09-27): this item is ALWAYS
+    # built through its whole two-day window, regardless of dismissal.
+    # Home's dismiss chip is scoped to `home_dismissed` (a SEPARATE field on
+    # the same per-user doc, populated by `dismiss_item` only when called
+    # with `surface="home"` — see that function's own docstring) rather than
+    # the shared `dismissed` set every other item type above is gated on.
+    # This item is therefore never removed from `needle_items` itself — only
+    # stamped `home_dismissed` — so Penny (PennyPage.tsx reads the raw,
+    # unfiltered `/today` feed for its permanent copy) can never lose it to
+    # a Home dismissal the way it did before this fix.
     needle_items: list[dict] = []
     try:
         from app.services.needle import compute_needle
@@ -4833,18 +4847,18 @@ async def compute_today_items(
             # The just-closed period
             closed_start, closed_end = _prev_pay_period(curr_start, pay_cfg)
             needle_id = f"needle:{closed_end.isoformat()}"
-            if needle_id not in dismissed:
-                # Invitation only — no figures (figures live in ThisMonthStrip LAST MONTH mode)
-                weekday = closed_end.strftime("%A")
-                needle_items.append({
-                    "id": needle_id,
-                    "type": "needle",
-                    "headline": f"Your month closed on {weekday}.",
-                    "body": "",
-                    "action": {"label": "Here's how it went ›", "route": "/month/story?which=last"},
-                    "estimated": False,
-                    "_period_end": closed_end.isoformat(),
-                })
+            # Invitation only — no figures (figures live in ThisMonthStrip LAST MONTH mode)
+            weekday = closed_end.strftime("%A")
+            needle_items.append({
+                "id": needle_id,
+                "type": "needle",
+                "headline": f"Your month closed on {weekday}.",
+                "body": "",
+                "action": {"label": "Here's how it went ›", "route": "/month/story?which=last"},
+                "estimated": False,
+                "_period_end": closed_end.isoformat(),
+                "home_dismissed": needle_id in home_dismissed,
+            })
     except Exception as _needle_exc:
         log.warning("needle item failed for %s: %s", uid, _needle_exc)
 
@@ -5347,8 +5361,49 @@ async def _get_dismissed(uid: str) -> set[str]:
     return set(doc.get("ids", []))
 
 
-async def dismiss_item(uid: str, item_id: str) -> None:
-    """Persist a dismissed item id so it never shows again."""
+async def _get_home_dismissed(uid: str) -> set[str]:
+    """Load Home-surface-scoped dismissed item IDs (needle items only, for
+    now). Lives on the SAME per-user doc as `_get_dismissed`, but under its
+    own `home_dismissed` field, never the shared `ids` field — see
+    `dismiss_item`'s docstring for why the two must stay separate."""
+    doc = await companion_items_col.find_one({"_id": f"dismissed:{uid}"})
+    if not doc:
+        return set()
+    return set(doc.get("home_dismissed", []))
+
+
+async def dismiss_item(uid: str, item_id: str, *, surface: str | None = None) -> None:
+    """Persist a dismissed item id so it never shows again.
+
+    G168 fix (2026-09-28). Before this, a needle item (`needle:<period_end>`)
+    dismissed on Home was written into the SAME shared `ids` set every other
+    item type uses, and the needle builder (companion.py 8b) gated the item
+    on that same set for every caller of `/today` — Penny included, since
+    PennyPage.tsx reads the item straight off the raw feed. A Home dismiss
+    therefore silently deleted Penny's supposed-to-be-permanent copy too
+    (found in review, 2026-09-27).
+
+    The fix: a needle item MUST be dismissed with `surface="home"` (the
+    router rejects any other value with 400 before this is ever called),
+    and is written to a SEPARATE `home_dismissed` field on the same
+    per-user doc. The needle builder no longer gates the item's existence
+    on either set — it always builds the item through its whole two-day
+    window and only reads `home_dismissed` to stamp a boolean on the item
+    so Home knows to hide its own copy; Penny's raw-feed read is
+    untouched, so it can never lose the item to a Home dismissal again.
+
+    Every other item type is unaffected: `surface` is ignored for them and
+    they still go into the shared `ids` set exactly as before.
+    """
+    if item_id.startswith("needle:"):
+        if surface != "home":
+            raise ValueError('needle item dismissal must be scoped, e.g. surface="home"')
+        await companion_items_col.update_one(
+            {"_id": f"dismissed:{uid}"},
+            {"$addToSet": {"home_dismissed": item_id}},
+            upsert=True,
+        )
+        return
     await companion_items_col.update_one(
         {"_id": f"dismissed:{uid}"},
         {"$addToSet": {"ids": item_id}},

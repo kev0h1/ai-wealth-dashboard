@@ -1,6 +1,6 @@
 """Companion spine — today-engine router."""
 from datetime import timedelta
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.auth import current_user
 from app.core import timeutil
@@ -112,12 +112,27 @@ async def get_cover_plan(user: dict = Depends(current_user)):
 
 @router.post("/today/dismiss")
 async def dismiss_today_item(body: dict, user: dict = Depends(current_user)):
+    """G168 (2026-09-28): `surface` is optional for most item types — every
+    caller before this ticket omitted it and still gets the same shared-set
+    behaviour. A needle item (`needle:<period_end>`, the month-closed card)
+    is the one exception: it MUST be dismissed with `surface="home"`, or
+    this refuses with 400. That item's Penny copy is meant to be permanent
+    (never dismissible), so an unscoped dismiss — which would otherwise
+    land in the shared set the needle builder gates the item's very
+    existence on for every caller of `/today`, Penny included — could
+    silently delete Penny's copy. Requiring the scope here, not just
+    honouring it, closes that off structurally rather than trusting every
+    future caller to remember to pass it. See `dismiss_item`'s own
+    docstring for the storage-level detail.
+    """
     uid = user["email"]
     item_id = (body.get("item_id") or "").strip()
+    surface = body.get("surface")
     if not item_id:
-        from fastapi import HTTPException
         raise HTTPException(400, "item_id required")
-    await dismiss_item(uid, item_id)
+    if item_id.startswith("needle:") and surface != "home":
+        raise HTTPException(400, 'a needle item dismissal must be scoped, e.g. surface="home"')
+    await dismiss_item(uid, item_id, surface=surface)
     response_cache.invalidate(uid, "today")
     return {"ok": True}
 
