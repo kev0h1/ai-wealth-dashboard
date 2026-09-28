@@ -118,7 +118,12 @@ async def dismiss_today_item(body: dict, user: dict = Depends(current_user)):
         from fastapi import HTTPException
         raise HTTPException(400, "item_id required")
     await dismiss_item(uid, item_id)
-    response_cache.invalidate(uid, "today")
+    # G183: this handler is already async, and a dismissal changes what the
+    # Home brief renders (the item disappears from GET /today's list), so
+    # use the awaited, full invalidation rather than the narrow
+    # fire-and-forget `invalidate(uid, "today")` — same fix as G181's five
+    # endpoints, closing the one remaining narrow synchronous call.
+    await response_cache.ainvalidate(uid)
     return {"ok": True}
 
 

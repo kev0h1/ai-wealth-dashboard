@@ -305,7 +305,25 @@ async def add_rule(body: dict, user: dict = Depends(current_user)):
     # TeachingSheet's "Undo" reverts each one by id (fix-round HIGH finding).
     affected = await apply_single_rule(uid, pattern.lower(), category)
 
+    # G183: `apply_single_rule` above has already re-filed rows by the time
+    # we get here, but nothing has bumped the user's data version yet — the
+    # bulk sweep below is detached specifically so this response doesn't
+    # wait on it (it walks the user's WHOLE transaction set). Without this
+    # awaited call, a Home brief refetched the instant this response lands
+    # is served the cached pre-rule payload for however long the detached
+    # sweep takes to get scheduled and complete (unbounded — it's a full
+    # scan, not a fixed delay), the same shape G181 closed for five other
+    # write endpoints. `ainvalidate` here makes the response cache cold for
+    # exactly the rows `apply_single_rule` already changed, synchronously,
+    # before we return.
+    await response_cache.ainvalidate(uid)
+
     async def _apply_rules_bulk_and_bump(u: str) -> None:
+        # This sweep can re-file OTHER (sibling) transactions the awaited
+        # call above never touched — apply_single_rule only applied this
+        # one new rule, not the full rule set against every existing row.
+        # It keeps its own bump so THOSE later changes also invalidate the
+        # cache once the sweep finishes, same as before this change.
         await apply_rules_bulk(u)
         await data_version.bump(u)
 
