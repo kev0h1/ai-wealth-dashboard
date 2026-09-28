@@ -5187,9 +5187,12 @@ async def dismiss_miscategorised(txn_id: str, user: dict = Depends(current_user)
         {"$addToSet": {"dismissed_miscategorised": txn_id}, "$set": {"user_id": uid}},
         upsert=True,
     )
-    response_cache.invalidate(uid, "miscategorised_count")
-    response_cache.invalidate(uid, "miscategorised_list")
-    response_cache.invalidate(uid, "transfer_pair_suggestions")
+    # G181: full, AWAITED invalidation — see resolve_movement's comment in
+    # transactions.py for the guarantee this closes (a name-scoped
+    # fire-and-forget `invalidate` doesn't wait for the version bump to
+    # land, so an immediate refetch of miscategorised_count/list can still
+    # hit the pre-dismiss cached entry).
+    await response_cache.ainvalidate(uid)
     return {"ok": True}
 
 
@@ -5207,9 +5210,8 @@ async def dismiss_miscategorised_series(body: dict, user: dict = Depends(current
         {"$addToSet": {"dismissed_miscategorised_series": series}, "$set": {"user_id": uid}},
         upsert=True,
     )
-    response_cache.invalidate(uid, "miscategorised_count")
-    response_cache.invalidate(uid, "miscategorised_list")
-    response_cache.invalidate(uid, "transfer_pair_suggestions")
+    # G181: full, AWAITED invalidation — see dismiss_miscategorised above.
+    await response_cache.ainvalidate(uid)
     return {"ok": True}
 
 
@@ -5617,9 +5619,13 @@ async def confirm_transfer_pair(body: dict, user: dict = Depends(current_user)):
         )
         learned = True
 
-    response_cache.invalidate(uid, "miscategorised_count")
-    response_cache.invalidate(uid, "miscategorised_list")
-    response_cache.invalidate(uid, "transfer_pair_suggestions")
+    # G181: full, AWAITED invalidation (not the name-scoped fire-and-forget
+    # `invalidate`, whose `data_version.bump_soon` schedules the version
+    # bump but doesn't wait for it to land) — matches
+    # update_transaction/resolve_movement's pattern, so a client refetch
+    # immediately after this response can't race the 1s in-process
+    # data_version memo into serving the pre-confirm cached category.
+    await response_cache.ainvalidate(uid)
 
     # credit_category/debit_category reflect the FINAL effective category —
     # the computed target for a leg we wrote, or the pre-existing (locked)
@@ -5652,8 +5658,6 @@ async def dismiss_transfer_pair(body: dict, user: dict = Depends(current_user)):
         {"$addToSet": {"dismissed_transfer_pairs": pair_key}, "$set": {"user_id": uid}},
         upsert=True,
     )
-    response_cache.invalidate(uid, "transfer_pair_suggestions")
-    response_cache.invalidate(uid, "miscategorised_count")
     # Owner device-testing fix 2 — the dismissed pair's legs are no longer
     # excluded from the miscategorised list (they only lose their exclusion
     # once _pair_leg_ids no longer contains them, i.e. once the suggestions
@@ -5662,7 +5666,11 @@ async def dismiss_transfer_pair(body: dict, user: dict = Depends(current_user)):
     # until the 90s response-cache TTL expires. Without this line the
     # transaction only naturally reappears in miscategorised_list once its
     # own TTL lapses, not immediately on dismissal.
-    response_cache.invalidate(uid, "miscategorised_list")
+    #
+    # G181: full, AWAITED invalidation (not the three name-scoped
+    # fire-and-forget calls this used to make) — see dismiss_miscategorised
+    # above for the guarantee.
+    await response_cache.ainvalidate(uid)
     return {"ok": True}
 
 

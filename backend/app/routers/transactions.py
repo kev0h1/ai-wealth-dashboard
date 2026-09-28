@@ -775,9 +775,14 @@ async def resolve_movement(transaction_id: str, body: dict, user: dict = Depends
         from app.routers.analytics import compute_and_cache_cashflow
         import asyncio as _asyncio
         _asyncio.create_task(compute_and_cache_cashflow(uid, clear_ai_cache=False))
-        response_cache.invalidate(uid, "miscategorised_count")
-        response_cache.invalidate(uid, "miscategorised_list")
-        response_cache.invalidate(uid, "transfer_pair_suggestions")
+        # G181: full, AWAITED invalidation (not the name-scoped fire-and-forget
+        # `invalidate`, whose `data_version.bump_soon` schedules the version
+        # bump but doesn't wait for it to land) — matches update_transaction's
+        # already-correct pattern, so a client refetch immediately after this
+        # response is guaranteed a cold read rather than racing the 1s
+        # in-process data_version memo. See response_cache.ainvalidate's
+        # docstring for the full guarantee.
+        await response_cache.ainvalidate(uid)
 
     return result
 
