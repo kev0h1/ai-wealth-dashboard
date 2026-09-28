@@ -1,22 +1,43 @@
 import asyncio
 import os
+import re
+import time
+import uuid
 
-# H90 (2026-09-28): force every backend test process onto a disposable
-# Mongo DATABASE before a single line below gets the chance to import
-# anything that creates the real "wealth" collection handles.
-# app/db/collections.py now reads MONGO_DB (app/core/config.py, default
-# "wealth" — every real process, API and worker, never sets this and is
-# therefore unaffected) to choose which database inside MONGO_URI's
-# deployment it opens; setting it here, as literally the first statement
-# in this file, before the `import app...` lines below, means every
-# module they pull in (transitively, all the way down to
-# app.db.collections) resolves against MONGO_DB, not a hardcoded
-# "wealth". `os.environ.setdefault` rather than a plain assignment so an
-# operator CAN point the suite at a different database on purpose (e.g. a
-# CI Mongo container already set up with its own name), but see
-# `_refuse_unless_test_db` below: whatever ends up in MONGO_DB, real or
-# forced, MUST be "_test"-suffixed or collection aborts before any test
-# runs.
+# H90/H94 (2026-09-28, review round): force every backend test process
+# onto a disposable Mongo DATABASE, and give each RUN its own name,
+# before a single line below gets the chance to import anything that
+# creates the real "wealth" collection handles. app/db/collections.py now
+# reads MONGO_DB (app/core/config.py, default "wealth" — every real
+# process, API and worker, never sets this and is therefore unaffected)
+# to choose which database inside MONGO_URI's deployment it opens;
+# setting it here, as literally the first statements in this file, before
+# the `import app...` lines below, means every module they pull in
+# (transitively, all the way down to app.db.collections) resolves against
+# MONGO_DB, not a hardcoded "wealth".
+#
+# H94 correction: H90 shipped a single shared literal, "wealth_test", for
+# every run. This VPS runs several sessions' `finish` gates and an
+# `integrate` pass against ONE local mongod, sometimes concurrently (seven
+# finishes one morning) — each one's own session-end teardown dropped the
+# SAME "wealth_test" database by name, so session B's teardown wiped
+# session A's still-running fixtures mid-test. A new flaky-failure mode
+# versus `main`, where nothing ever dropped anything at all. The fix is a
+# per-run name: "wealth_test_<epoch seconds>_<8 hex>", unique enough
+# across concurrent processes that no two sessions' teardowns can ever
+# collide, with the epoch embedded so `_sweep_stale_test_databases` below
+# can find and reap ones a crashed session (an OOM kill, a Ctrl-C) never
+# got to drop itself, without needing a separate metadata store.
+#
+# `os.environ.setdefault` rather than a plain assignment so a caller CAN
+# pass its own name (see scripts/session.sh's `finish` and
+# scripts/integrate.py's `_run_backend_tests`, which both generate and
+# pass their OWN per-run name explicitly — belt and braces, not reliance
+# on this file's import ordering, for the two callers most likely to run
+# concurrently with each other) — but see `_refuse_unless_test_db` below:
+# whatever ends up in MONGO_DB, generated here, passed by a caller, or set
+# by hand, MUST still look like a test database or collection aborts
+# before any test runs.
 #
 # `app.core.config`'s `load_dotenv(..., override=False)` (the
 # python-dotenv default) is why this is safe even when a real
@@ -24,10 +45,23 @@ import os
 # which runs the suite from the shared tree rather than a worktree, and
 # whose `backend/.env` really does carry `MONGO_DB=wealth` — see
 # docs/ops/ENV.md): dotenv only fills in names ABSENT from the process
-# environment, and this line has already filled MONGO_DB in by the time
-# `app.core.config` (imported transitively below) calls `load_dotenv`, so
-# the real .env's `wealth` is never allowed to overwrite it.
-os.environ.setdefault("MONGO_DB", "wealth_test")
+# environment, and this line (or the caller's own explicit env, set even
+# earlier, before the subprocess starts) has already filled MONGO_DB in
+# by the time `app.core.config` (imported transitively below) calls
+# `load_dotenv`, so the real .env's `wealth` is never allowed to
+# overwrite it.
+
+
+def _generate_test_db_name() -> str:
+    """The shape scripts/session.sh and scripts/integrate.py's own
+    generators duplicate (search those files for "wealth_test_" if this
+    ever needs to change) — kept in sync by convention, not by a shared
+    import, since neither of those is test code and this file must not
+    become something a production ops script depends on."""
+    return f"wealth_test_{int(time.time())}_{uuid.uuid4().hex[:8]}"
+
+
+os.environ.setdefault("MONGO_DB", _generate_test_db_name())
 
 import pytest
 
@@ -36,64 +70,165 @@ import app.routers.subscription as subscription_router_module
 import app.services.billing as billing_module
 from app.services import data_version, response_cache
 
+# H94: matches ONLY our own generated shape, "wealth_test_<epoch>_<8 hex
+# lowercase>" — deliberately narrower than `_looks_like_a_test_database`
+# below (which also accepts a bare "wealth_test" or any other
+# "..._test_..." name a human might set by hand), so the stale-database
+# sweep never touches a database it didn't itself create the naming
+# convention for.
+_GENERATED_TEST_DB_RE = re.compile(r"^wealth_test_(\d+)_[0-9a-f]{8}$")
+_STALE_TEST_DB_AGE_SECONDS = 3600
+
+
+def _looks_like_a_test_database(name: str) -> bool:
+    """H94: broadened from a plain `.endswith("_test")` check (correct
+    when every run shared the one literal "wealth_test") to also accept
+    any per-run generated name — "wealth_test_<epoch>_<8 hex>" starts
+    with "wealth_test" — or any other name carrying "test" as a whole
+    underscore-delimited component (covering a hand-set "MONGO_DB" like
+    "foo_test_bar" without accepting a substring coincidence like
+    "wealthtest" or, the one case that must never pass, literal
+    "wealth")."""
+    if name.startswith("wealth_test"):
+        return True
+    return "test" in name.split("_")
+
 
 def _refuse_unless_test_db() -> None:
     """Fail-hard backstop (H90). Runs once, at collection time, before any
     test in the suite executes. However MONGO_DB ended up resolved --
-    the `setdefault` above, an explicit override, or (if a future refactor
-    ever moves that `setdefault` below this point, or removes it) nothing
-    at all -- this is the one check that cannot be bypassed by import
-    order: if the database this process would touch is not "_test"-
-    suffixed, abort collection outright rather than let even one test
-    reach a Mongo write against what could be the real UAT/production
-    "wealth" database. This is deliberately independent of, and a backstop
-    for, the `os.environ.setdefault` above -- that line is the actual
-    mechanism (a genuinely disposable database), this is the guard that
-    fires if the mechanism is ever missing, misordered, or overridden to
-    something unsafe.
+    the `setdefault` above, an explicit override from session.sh/
+    integrate.py, or (if a future refactor ever moves that `setdefault`
+    below this point, or removes it) nothing at all -- this is the one
+    check that cannot be bypassed by import order: if the database this
+    process would touch does not look like a test database
+    (`_looks_like_a_test_database` above), abort collection outright
+    rather than let even one test reach a Mongo write against what could
+    be the real UAT/production "wealth" database. This is deliberately
+    independent of, and a backstop for, the naming mechanism above -- that
+    is the actual mechanism (a genuinely disposable, per-run database),
+    this is the guard that fires if the mechanism is ever missing,
+    misordered, or overridden to something unsafe.
     """
     from app.db.collections import db as _app_db
-    if not _app_db.name.endswith("_test"):
+    if not _looks_like_a_test_database(_app_db.name):
         raise pytest.UsageError(
             f"refusing to collect the backend suite: Mongo database "
-            f"{_app_db.name!r} is not \"_test\"-suffixed, so running tests "
-            f"would write into what may be the real UAT/production "
-            f"database. Set MONGO_DB=wealth_test (or unset MONGO_DB "
-            f"entirely -- this file already defaults it to that) before "
+            f"{_app_db.name!r} does not look like a test database, so "
+            f"running tests would write into what may be the real "
+            f"UAT/production database. Set MONGO_DB to a name starting "
+            f"with \"wealth_test\" (or unset MONGO_DB entirely -- this "
+            f"file already defaults it to a fresh per-run name) before "
             f"running pytest again."
         )
 
 
-_refuse_unless_test_db()
+async def _drop_database_with_fresh_client(name: str) -> None:
+    """A standalone Motor client for exactly one operation, never the
+    app's own shared `app.db.collections` client -- that client can only
+    ever be driven from the FIRST asyncio event loop that touches it for
+    its whole process lifetime (see `_clear_response_cache`'s own
+    docstring below), so reusing it here from a fresh `asyncio.run()` risks
+    "Event loop is closed" for no reason: a throwaway client, used once
+    and closed, has no such history to fight."""
+    from motor.motor_asyncio import AsyncIOMotorClient
+
+    from app.core.config import MONGO_URI
+
+    client = AsyncIOMotorClient(MONGO_URI, serverSelectionTimeoutMS=8000)
+    try:
+        await client.drop_database(name)
+    finally:
+        client.close()
+
+
+async def _sweep_stale_test_databases(own_name: str) -> list[str]:
+    """H94: reap any "wealth_test_<epoch>_<8 hex>" database older than
+    `_STALE_TEST_DB_AGE_SECONDS`, left behind by a session that crashed
+    (OOM-killed, Ctrl-C'd) before its own `_drop_test_database_at_session_
+    end` teardown ran -- otherwise these accumulate forever on a host
+    that runs many short sessions a day. Only ever matches OUR OWN
+    generated name shape exactly (`_GENERATED_TEST_DB_RE`, never a bare
+    "wealth_test" a human might have set up on purpose, never "wealth"
+    itself) and never drops `own_name`, this run's own database, however
+    the age check might read it (in practice it never can: the epoch in
+    a freshly-generated name is always "now"). Returns the names actually
+    dropped so the caller can report them."""
+    from motor.motor_asyncio import AsyncIOMotorClient
+
+    from app.core.config import MONGO_URI
+
+    dropped: list[str] = []
+    client = AsyncIOMotorClient(MONGO_URI, serverSelectionTimeoutMS=8000)
+    try:
+        try:
+            names = await client.list_database_names()
+        except Exception:
+            return dropped
+        now = time.time()
+        for name in names:
+            if name == own_name:
+                continue
+            m = _GENERATED_TEST_DB_RE.match(name)
+            if not m:
+                continue
+            if now - int(m.group(1)) < _STALE_TEST_DB_AGE_SECONDS:
+                continue
+            try:
+                await client.drop_database(name)
+                dropped.append(name)
+            except Exception:
+                pass
+    finally:
+        client.close()
+    return dropped
+
+
+def _refuse_unless_test_db_and_sweep_stale() -> None:
+    _refuse_unless_test_db()
+    from app.db.collections import db as _app_db
+    try:
+        dropped = asyncio.run(_sweep_stale_test_databases(_app_db.name))
+    except Exception:
+        dropped = []
+    if dropped:
+        print(
+            f"[H94] dropped {len(dropped)} stale test database(s) "
+            f"(>{_STALE_TEST_DB_AGE_SECONDS}s old, left behind by a "
+            f"crashed session): {', '.join(sorted(dropped))}"
+        )
+
+
+_refuse_unless_test_db_and_sweep_stale()
 
 
 @pytest.fixture(scope="session", autouse=True)
 def _drop_test_database_at_session_end():
-    """H90: the disposable database `MONGO_DB` points the whole suite at
-    (see the module-level `setdefault`/`_refuse_unless_test_db` above) is
-    dropped once, after every test in the session has run, so it never
-    quietly accumulates fixture debris across suite runs. Guarded again
-    on `.endswith("_test")` even though `_refuse_unless_test_db` already
-    aborted collection otherwise -- a second, independent check right
-    before the one truly destructive operation this file performs, same
-    "cheap enough to just re-check" spirit as `_mongo_cleanup_allowed`
-    below re-checking rather than trusting a module-level flag.
+    """H90/H94: the disposable, per-run database `MONGO_DB` points this
+    session at (see the module-level generator/`_refuse_unless_test_db`
+    above) is dropped once, after every test in the session has run, so
+    it never quietly accumulates fixture debris. `_sweep_stale_test_
+    databases` above is the backstop for the case this fixture never
+    gets to run at all (a crash, an OOM kill). Guarded again on
+    `_looks_like_a_test_database` even though `_refuse_unless_test_db`
+    already aborted collection otherwise -- a second, independent check
+    right before the one truly destructive operation this file performs,
+    same "cheap enough to just re-check" spirit as `_mongo_cleanup_
+    allowed` below re-checking rather than trusting a module-level flag.
 
-    Wrapped in try/except like every other real-Mongo touch in this file:
-    per this file's own `_clear_response_cache` docstring, the Motor
-    client can only ever be driven from the FIRST asyncio event loop that
-    touches it for the whole process lifetime, so by the time the session
-    ends, `asyncio.run()` here (a fresh loop) may well raise "Event loop
-    is closed" the same way most mid-suite Mongo touches already silently
-    do. That is a missed best-effort cleanup, not a correctness problem:
-    the database stays disposable and unread by the real app either way.
+    Uses a standalone client (`_drop_database_with_fresh_client`), not
+    the app's own shared one, specifically so THIS drop is not subject to
+    the single-event-loop constraint the rest of this file's Mongo
+    touches accept as best-effort -- the whole point of a session-end
+    teardown is that it should actually run, not join the same
+    degrade-to-noop most mid-suite Mongo touches already do.
     """
     yield
     from app.db.collections import db as _app_db
-    if not _app_db.name.endswith("_test"):
+    if not _looks_like_a_test_database(_app_db.name):
         return
     try:
-        asyncio.run(_app_db.client.drop_database(_app_db.name))
+        asyncio.run(_drop_database_with_fresh_client(_app_db.name))
     except Exception:
         pass
 
@@ -121,18 +256,21 @@ def _mongo_cleanup_allowed() -> bool:
     (`app/db/collections.py` hardcoded the "wealth" db, no MONGO_DB env var
     existed to key off), so an unconditional `delete_many` here would have
     wiped the real app's live cache/version collections out from under it
-    between runs. Since H90, `MONGO_DB` defaults to "wealth_test" (see this
-    file's module-level `os.environ.setdefault` and `_refuse_unless_test_db`
-    above), so `_app_db.name.endswith("_test")` is now true by construction
-    for every normal run — collection would already have aborted otherwise
-    — and this cleanup genuinely runs. `TEST_DB=1` stays as an explicit
-    force for the (currently hypothetical) case of a non-"_test"-named
-    database someone has independently confirmed is safe to wipe; kept for
-    backward compatibility rather than because anything still needs it."""
+    between runs. Since H90, `MONGO_DB` defaults to a fresh per-run
+    "wealth_test_<epoch>_<hex>" name (H94: no longer the single shared
+    literal "wealth_test" — see this file's module-level generator and
+    `_refuse_unless_test_db` above), so `_looks_like_a_test_database`
+    is now true by construction for every normal run — collection would
+    already have aborted otherwise — and this cleanup genuinely runs.
+    `TEST_DB=1` stays as an explicit force for the (currently
+    hypothetical) case of a database name `_looks_like_a_test_database`
+    wouldn't recognise that someone has independently confirmed is safe
+    to wipe; kept for backward compatibility rather than because anything
+    still needs it."""
     if os.getenv("TEST_DB") == "1":
         return True
     from app.db.collections import db as _app_db
-    return _app_db.name.endswith("_test")
+    return _looks_like_a_test_database(_app_db.name)
 
 
 async def _best_effort_clear_mongo_cache_state():
@@ -171,8 +309,9 @@ def _clear_response_cache():
     safely: `_mongo_cleanup_allowed()` kept the real-Mongo `delete_many`
     OFF unless a test database was explicitly configured, because the
     suite's configured Mongo WAS the real app's "wealth" database. Since
-    H90 the suite runs against a disposable "wealth_test" database by
-    default (see this file's module-level `os.environ.setdefault` and
+    H90 the suite runs against a disposable database by default (H94: a
+    fresh PER-RUN "wealth_test_<epoch>_<hex>" name, not a single shared
+    literal — see this file's module-level generator and
     `_refuse_unless_test_db`), so `_mongo_cleanup_allowed()` now genuinely
     returns True and this Mongo-layer cleanup runs for real.
 

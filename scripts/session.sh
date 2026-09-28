@@ -890,14 +890,28 @@ cmd_finish() {
   fi
 
   log "running backend tests in $worktree_dir/backend..."
-  # H90: explicit MONGO_DB=wealth_test alongside conftest.py's own default
-  # (belt and suspenders -- conftest.py's `os.environ.setdefault` already
-  # picks "wealth_test" when this is unset, and aborts collection outright
-  # if whatever it resolves to isn't "_test"-suffixed) so a finish can
-  # never write into the real UAT/production "wealth" database, and so
-  # this line itself is proof of that, without needing to trace conftest.py's
-  # import ordering to believe it.
-  (cd "$worktree_dir/backend" && MONGO_DB=wealth_test "$worktree_dir/backend/.venv/bin/python" -m pytest -q -x \
+  # H90/H94: explicit MONGO_DB alongside conftest.py's own default (belt
+  # and suspenders -- conftest.py's `os.environ.setdefault` already picks
+  # a fresh per-run name when this is unset, and aborts collection
+  # outright if whatever it resolves to doesn't look like a test
+  # database) so a finish can never write into the real UAT/production
+  # "wealth" database, and so this line itself is proof of that, without
+  # needing to trace conftest.py's import ordering to believe it.
+  #
+  # H94 correction: a single shared literal here ("wealth_test") let two
+  # concurrent `finish` gates against this VPS's one local mongod collide
+  # -- one session's teardown dropped the other's still-in-flight
+  # fixtures mid-run (found in review, reproduced directly). Generated
+  # fresh per invocation instead, same "wealth_test_<epoch
+  # seconds>_<8 hex>" shape conftest.py's own default generates (kept in
+  # sync by convention -- see that file if this ever needs to change),
+  # so two `finish` runs overlapping in time can never pick the same
+  # name. $RANDOM is bash's own 0-32767 generator; two calls concatenated
+  # give 8 lowercase hex digits, ample entropy against a same-second
+  # collision between a handful of concurrent sessions.
+  local mongo_test_db
+  mongo_test_db="wealth_test_$(date +%s)_$(printf '%04x%04x' "$RANDOM" "$RANDOM")"
+  (cd "$worktree_dir/backend" && MONGO_DB="$mongo_test_db" "$worktree_dir/backend/.venv/bin/python" -m pytest -q -x \
     tests)
 
   log "checking no raw pentest evidence is staged or tracked in $worktree_dir..."

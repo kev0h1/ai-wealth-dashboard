@@ -86,6 +86,7 @@ import re
 import subprocess
 import sys
 import time
+import uuid
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator, Optional
@@ -624,6 +625,23 @@ def _run_frontend_checks(changed: set[str]) -> None:
         raise IntegrateError(f"check:legal-content failed:\n{out}")
 
 
+def _fresh_test_db_name() -> str:
+    """H94: the same "wealth_test_<epoch seconds>_<8 hex>" shape
+    backend/tests/conftest.py's own default generator produces,
+    duplicated rather than imported (this script must not depend on test
+    code) — kept in sync by convention; see that file if this ever needs
+    to change. A per-run name, not the single shared "wealth_test"
+    literal H90 originally passed here: this VPS can run several
+    `session.sh finish` gates and an `integrate` pass against the one
+    local mongod at once, and a shared literal let one run's session-end
+    teardown drop another's still-in-flight fixtures mid-test (found and
+    reproduced in review). The epoch prefix is what lets conftest.py's
+    own stale-database sweep find and reap a name like this one if the
+    process that generated it never reaches its own teardown (crashed,
+    OOM-killed)."""
+    return f"wealth_test_{int(time.time())}_{uuid.uuid4().hex[:8]}"
+
+
 def _run_backend_tests() -> None:
     """Runs the suite from the SHARED TREE's own backend, unlike
     `scripts/session.sh finish` (a worktree). That matters for H90: this
@@ -631,12 +649,16 @@ def _run_backend_tests() -> None:
     `app.core.config`'s `load_dotenv(..., override=False)` would read
     MONGO_DB="wealth" out of — the real value, not a test one — the
     instant the pytest subprocess imports `app.core.config` transitively.
-    `conftest.py`'s own `os.environ.setdefault("MONGO_DB", "wealth_test")`
-    still wins that race on its own (it runs before those imports, and
-    dotenv's override=False never clobbers an already-set var), but
-    passing MONGO_DB=wealth_test here too means this invocation is its
-    own proof of the mechanism, not something that only holds up if
-    conftest.py's import order is never disturbed."""
+    `conftest.py`'s own module-level `os.environ.setdefault("MONGO_DB",
+    ...)` still wins that race on its own (it runs before those imports,
+    and dotenv's override=False never clobbers an already-set var), but
+    passing a MONGO_DB here too means this invocation is its own proof of
+    the mechanism, not something that only holds up if conftest.py's
+    import order is never disturbed. H94: that value is now generated
+    fresh per call (`_fresh_test_db_name`), not the single shared
+    "wealth_test" literal H90 originally used here, so an integrate pass
+    running concurrently with a `session.sh finish` (or another integrate
+    pass) can never collide with it."""
     venv_python = REPO_ROOT / "backend" / ".venv" / "bin" / "python"
     rc, out = _sh(
         [
@@ -645,7 +667,7 @@ def _run_backend_tests() -> None:
         ],
         cwd=REPO_ROOT / "backend",
         timeout=600,
-        env={"MONGO_DB": "wealth_test"},
+        env={"MONGO_DB": _fresh_test_db_name()},
     )
     if rc != 0:
         raise IntegrateError(f"backend test suite failed:\n{out}")
