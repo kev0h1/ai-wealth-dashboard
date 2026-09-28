@@ -143,7 +143,14 @@ OBSERVATION_LOOKBACK_DAYS = 6   # real bills land up to 5 days before their anch
 # before this exists has no such field on any entry, so `income_credit_ok`
 # can't recognise a detected series as standing in for a confirmed one under
 # a changed payroll reference until the doc is recomputed under this version.
-PATTERNS_VERSION = 10
+# v11 (G157): income is now grouped by payer identity (`key` on a
+# recurring_income entry is a payer_key, not a raw series_key), and
+# `confirmed_alias` is now stamped by payer-identity token match rather
+# than date/amount proximity, replacing G174's dedupe heuristic. Entries
+# also carry `lapsed`/`missed_cycles`. A cache doc computed before this
+# version still has the OLD raw-key-shaped `key`s and no `lapsed` field, so
+# it must be recomputed rather than read as-is.
+PATTERNS_VERSION = 11
 
 def _next_working_day(d):  # d: datetime.date -> datetime.date
     while d.weekday() >= 5 or d.isoformat() in UK_BANK_HOLIDAYS_EW:
@@ -2910,7 +2917,20 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
         "recurring_spend":  [_serialise_pattern(r) for r in recurring_spend],
         "bnpl_commitments": bnpl_commitments,
         "recurring_income": [
-            {**_serialise_pattern(r), "occurrences": r.get("occurrences"), "amounts_recent": r.get("amounts_recent")}
+            {
+                **_serialise_pattern(r),
+                "occurrences": r.get("occurrences"),
+                "amounts_recent": r.get("amounts_recent"),
+                # G157 build step 4: missed-cycles lapse marker, carried
+                # through to the cache doc so the companion ask pipeline can
+                # raise the payday-confirmation ask without recomputing it.
+                # None/False for a detected (non-synthesised) entry, which
+                # never lapses by construction (it only exists because a
+                # credit landed recently enough to detect it).
+                "lapsed": r.get("lapsed", False),
+                "missed_cycles": r.get("missed_cycles"),
+                "source": r.get("source"),
+            }
             for r in recurring_income
         ],
         # The engine's own vetoes (app/services/recurring_judge.py) — kept

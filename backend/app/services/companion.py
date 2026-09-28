@@ -4917,6 +4917,54 @@ async def compute_today_items(
     except Exception as _ask_exc:
         log.warning("ask:payday item failed for %s: %s", uid, _ask_exc)
 
+    # ── 8c-bis. ASK item (has your pay changed?) ────────────────────────────
+    # G157 build step 4: a confirmed income stream never silently drops to
+    # zero -- it keeps forecasting at its confirmed cadence/amount even once
+    # `income_payer.is_lapsed` says it has missed enough full cycles (2 for
+    # monthly, scaled for other cadences -- never a fixed day count that
+    # could expire between two ordinary paydays). Once lapsed, this raises
+    # the SAME kind of ask as `ask:payday` above (hedged, dismissible, never
+    # a silent decision) so the user says whether pay actually changed.
+    try:
+        from app.services.income_payer import stable_stream_id as _stable_stream_id
+
+        for _stream in (cached.get("recurring_income") or []):
+            if not _stream.get("lapsed") or _stream.get("source") != "confirmed":
+                continue
+            _stream_ask_id = f"ask:payer_lapsed:{_stable_stream_id(_stream.get('key', ''))}"
+            if _stream_ask_id in dismissed:
+                continue
+            _amt = _stream.get("avg_amount")
+            if not _amt:
+                continue
+            # Renders via the generic ask card (AskGenericCard), not the
+            # payday-specific one: this id never matches "ask:payday", so
+            # it never triggers that card's confirm-payday call, which
+            # expects a fresh DETECTED proposal that a lapsed-but-still-
+            # confirmed stream may not have. A single `action` routes to
+            # income management to update the stream if pay genuinely
+            # changed; dismissing (Home's own "Not now") stands in for
+            # "no, still the same" -- there is nothing to confirm, the
+            # stream is already confirmed and still forecasting.
+            ask_items.append({
+                "id": _stream_ask_id,
+                "type": "ask",
+                "headline": "Has your pay changed?",
+                "body": (
+                    f"Your usual pay of about £{_amt:,.0f} hasn't been seen for a "
+                    "couple of paydays. Still forecasting it as usual until you say "
+                    "otherwise."
+                ),
+                "action": {"label": "Update my income", "route": "/spend", "kind": "set_payday"},
+                "estimated": False,
+                "brief_lead": {
+                    "value": "Pay check",
+                    "companion": f"about £{_amt:,.0f} expected, unconfirmed for a couple of paydays",
+                },
+            })
+    except Exception as _lapsed_ask_exc:
+        log.warning("ask:payer_lapsed item failed for %s: %s", uid, _lapsed_ask_exc)
+
     # ── 8d. ASK item (card terms) ───────────────────────────────────────────
     # Debt advice needs card terms (APR, promo end dates) and open banking
     # never provides them — they must be ASKED (Consent Rule: one dismissible

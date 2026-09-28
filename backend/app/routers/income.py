@@ -7,6 +7,7 @@ from app.db.collections import preferences_col, transactions_col, yapily_transac
 from app.routers.analytics import compute_and_cache_cashflow, _detect_recurring
 from app.services.income import derive_schedule, next_occurrence, schedule_label, get_confirmed_payday
 from app.services.categorisation import series_key
+from app.services.income_payer import payer_key, resolve_confirmed_alias
 
 router = APIRouter(tags=["income"])
 
@@ -41,10 +42,14 @@ async def _get_detected_income_streams(uid: str) -> list[dict]:
 
 
 async def _get_txn_dates_for_key(uid: str, key: str) -> list[_date]:
-    """Fetch all transaction dates for a given merchant key (same bucketing as _detect_recurring)."""
+    """Fetch all transaction dates for a given income PAYER key (G157: same
+    payer-identity bucketing `_detect_recurring` uses for income -- see
+    app/services/income_payer.py -- not the raw `series_key`, so a stream
+    confirmed here keeps matching the same transactions even after a
+    payment reference change)."""
     cutoff = datetime.now() - timedelta(days=90)
     proj = {"merchant_name": 1, "description": 1, "date": 1, "transaction_type": 1,
-            "category": 1, "custom_category": 1}
+            "category": 1, "custom_category": 1, "account_id": 1}
     raw = await transactions_col.find(
         {"user_id": uid, "date": {"$gte": cutoff}, "transaction_type": "credit"}, proj
     ).to_list(None)
@@ -53,8 +58,7 @@ async def _get_txn_dates_for_key(uid: str, key: str) -> list[_date]:
     ).to_list(None)
     dates = []
     for t in raw:
-        t_key = series_key(t)
-        if t_key == key:
+        if payer_key(t) == key:
             d = t["date"]
             if isinstance(d, datetime):
                 d = d.date()
@@ -82,7 +86,16 @@ async def get_income_streams(user: dict = Depends(current_user)):
         if stream["occurrences"] < 2:
             continue
         key = stream["key"]
+        # G157: `stored` is still keyed on whatever raw text the user
+        # confirmed under -- old `series_key`-shaped text for a
+        # pre-existing stream, or a payer_key going forward. Alias by
+        # payer identity so a detected payer_key bucket is still
+        # recognised as "confirmed" after a reference change.
         stored_entry = stored.get(key)
+        if stored_entry is None:
+            _resolved = resolve_confirmed_alias(stored, key)
+            if _resolved is not None:
+                stored_entry = _resolved[1]
         status = stored_entry["status"] if stored_entry else "suggested"
 
         if status == "rejected":
@@ -151,6 +164,13 @@ async def get_income_streams(user: dict = Depends(current_user)):
         if not key or key == "manual" or s.get("status") != "confirmed":
             continue
         if key in result_keys:
+            continue
+        # G157: this raw key may already be showing in `result` under a
+        # DIFFERENT (payer_key) key, aliased above -- e.g. a reference
+        # change means the detected bucket's key differs from this stored
+        # entry's own raw key, but they are the same payer. Don't show the
+        # same confirmed salary twice.
+        if any(resolve_confirmed_alias({key: s}, r["key"]) for r in result):
             continue
         sched = s.get("schedule")
         if not sched:
