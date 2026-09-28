@@ -325,3 +325,19 @@ def test_full_real_shaped_set_matches_expected_table():
     }
     names = list(got.values())
     assert len(set(names)) == len(names)
+
+
+# ── A127: holder_name degrades safely when the session name is empty ───────
+
+def test_empty_or_none_holder_name_degrades_safely():
+    """cards.py passes user.get("name") straight through as holder_name,
+    which D7 made empty for the normal case of Apple sign-in / a Google
+    account with no display name. _matches_holder_name's own
+    `if not holder_name: return False` already makes this safe: no
+    exception, rule 3 of looks_like_holder_name simply never fires, so a
+    name-shaped descriptor keeps its own (title-cased) name instead of
+    being suppressed down to just the bank name."""
+    assert looks_like_holder_name("KEVIN MAINGI", holder_name=None) is False
+    assert looks_like_holder_name("KEVIN MAINGI", holder_name="") is False
+    assert build_display_name("KEVIN MAINGI", "HSBC", holder_name=None) == "HSBC Kevin Maingi"
+    assert build_display_name("KEVIN MAINGI", "HSBC", holder_name="") == "HSBC Kevin Maingi"
