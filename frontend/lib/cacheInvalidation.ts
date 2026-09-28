@@ -61,12 +61,21 @@ import { invalidateTransactionsCache } from "@/lib/useAllTransactions";
 
 export function invalidateAfterTransactionCorrection(
   txnId: string,
-  detail: { oldCategory?: string; newCategory: string },
+  detail: { oldCategory?: string; newCategory?: string },
 ): void {
   // txnId/detail are accepted for callers to document what changed and for
   // a future per-category-keyed cache to narrow against — every cache
   // cleared today is a whole-payload cache with no per-transaction key, so
   // clearing is unconditional regardless of which row or category moved.
+  // `newCategory` is OPTIONAL, not `string`: Transaction.category itself is
+  // optional (shared/src/types.ts), and every real caller (TeachingSheet.
+  // tsx's notifyUpdated, SpendPage.tsx's handleTxUpdated) passes a live
+  // transaction's `.category` straight through — a non-optional field here
+  // would force a call site to invent a placeholder category just to
+  // satisfy the type, which is worse than admitting the value can be
+  // missing (an independent review caught this: tsc failed on exactly
+  // that, TeachingSheet.tsx:177 and SpendPage.tsx:993 passing an optional
+  // value into a required parameter).
   void txnId;
   void detail;
   invalidateTransactionsCache();
