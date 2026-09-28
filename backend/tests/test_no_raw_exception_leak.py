@@ -32,95 +32,205 @@ entry below is deliberate; if you're adding a NEW allowlist entry, first
 convince yourself the forwarded exception type is one this codebase
 authors itself, not a system/library exception whose wording we don't
 control.
+
+ALLOWLIST KEYING (H82 / A40, 2026-09-28): entries used to be keyed by
+`(file, 1-indexed line number)`. That broke every time an UNRELATED edit
+added or removed a line anywhere above an allowlisted handler in the same
+file — a docstring sweep, an import, a new function — which silently
+re-pointed the entry at whatever now sat on that line number and failed
+`scripts/session.sh finish`'s gate for a reason that had nothing to do with
+the change actually being made (it happened twice on 2026-09-28 alone: H64's
+review-driven edit to `routers/ops.py`, and separately to this same file's
+own history while it still carried line-shift narration in its comments).
+`scripts/check_naive_dates.py` solved the identical problem for its own
+naive-datetime scan by keying on `(file, exact stripped source-line text)`
+instead of a line number; this file adopts the same design, for the same
+reason: the code that was audited and allowlisted is still recognised
+wherever it ends up in the file, because its own text doesn't change when
+something else nearby does.
+
+The trade-off that keying by text introduces, exactly as it does in
+`check_naive_dates.py`: two DIFFERENT call sites can share identical source
+text (`return _tool_error(str(e.detail))` is the case in this codebase,
+repeated across a dozen distinct `_validate_*`/`_normalise_*` forwarders in
+`penny_tools.py`), so a bare per-file "this text is allowed" entry would let
+a newly added, un-triaged COPY of that exact line slip past unnoticed right
+next to the original allowed one. Each entry therefore carries a `count`:
+the number of occurrences of that exact text this file is allowed to
+contain (defaulting to 1 when omitted). If the actual number of matching
+lines exceeds the allowed count, the excess is reported as a failure, so
+duplicating an allowlisted line is still caught even though the two
+occurrences read identically.
+
+That `count` mechanism only works when every occurrence sharing the text
+genuinely shares the SAME reason — a dict entry has exactly one `reason`
+per `(file, text)` key, so it cannot represent two occurrences of identical
+text that are allowed for two DIFFERENT reasons. When that happens (it
+doesn't anywhere in this codebase today, but a future call site could
+collide with an existing allowlisted line's exact text for an unrelated
+reason), the central entry must NOT simply have its `count` bumped: add a
+`# leak-ok: <reason>` comment on the new, different-reason line instead.
+The inline pragma suppresses that specific line from the scan entirely
+(checked before any allowlist lookup), so it never contributes to the
+central entry's occurrence count and carries its own reason right next to
+the code it's about — the same escape hatch `check_naive_dates.py` offers
+via `# naive-ok: <reason>` for a genuine one-off that doesn't warrant a
+central entry.
+
+A31's own reviewer (A37) separately found that this scan only catches
+zero-hop leaks (`except E as e: return f"...{e}"`), not one where the
+exception is stored in a variable first (`msg = str(e); return msg`) — that
+gap is a different, open item (A37), not something this rewrite widens or
+narrows.
 """
 import ast
+import re
 from pathlib import Path
 
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
 SCAN_DIRS = ["app/routers", "app/services", "app/core"]
 
-# (path relative to backend/, 1-indexed line number of the return/raise)
-ALLOWLIST: set[tuple[str, int]] = {
-    # app.services.backlog.BacklogError — "Raised for any user/caller-facing
-    # failure (unknown id, bad enum)" per its own docstring; owner-only
-    # /ops/go-live admin surface.
-    ("app/routers/ops.py", 241),
-    ("app/routers/ops.py", 259),
-    # ValueError raised by app.services.spend_impact.compute_intent_preview /
-    # app.services.checkpoints.delete_intent with an authored message
-    # ("'<category>' is not currently over usual, nothing to preview", etc.)
-    ("app/routers/spend_verdict.py", 79),
-    ("app/routers/spend_verdict.py", 95),
-    # ValueError raised by app.services.checkpoints.create_checkpoint /
-    # record_intent with an authored message ("ref must be a non-empty
-    # category name", "answer must be 'one_off' or 'new_normal'", etc.)
-    ("app/routers/checkpoints.py", 36),
-    ("app/routers/checkpoints.py", 74),
-    # app.services.broadcast.BroadcastError — admin-only broadcast compose/
-    # send, authored messages only.
-    ("app/routers/broadcast.py", 94),
-    ("app/routers/broadcast.py", 108),
-    # app.services.billing.BillingError — "Base class for billing-service
-    # errors that should surface to the caller as a 400" per its own
-    # docstring; every raise site is a static, authored string.
-    ("app/routers/billing.py", 172),
-    ("app/routers/billing.py", 195),
-    # ValueError raised by app.core.subscription.grant_pack with an authored
-    # message ("pack_id must be one of: ..."); admin-only endpoint.
-    ("app/routers/subscription.py", 246),
-    ("app/routers/subscription.py", 278),
-    # app.services.safe_calc._CalcError — "Internal only" per its own
-    # docstring, every raise site in that module is a static, authored,
-    # already-calm string written for this exact Penny-facing surface.
-    ("app/services/safe_calc.py", 136),
-    # app.routers.mcp.McpError — the MCP JSON-RPC error contract IS
-    # (code, message, data); every raise site is a static, authored string.
-    # A90 (2026-09-22) added version-negotiation and top-level JSON-RPC
-    # envelope-validation helpers earlier in this file
-    # (SUPPORTED_PROTOCOL_VERSIONS/_negotiate_protocol_version,
-    # _has_valid_jsonrpc_id_type/_jsonrpc_envelope_error), A91 added
-    # content-sanitisation helpers earlier still, and A84's rework added
-    # the resolve_mcp_principal tombstone check (is_revoked) earlier
-    # again; none of these is a new exception site. Line re-derived
-    # empirically post-merge (AST scan of the merged file), not carried
-    # forward from any one branch.
-    ("app/routers/mcp.py", 621),
-    # penny_tools.py: `except HTTPException as e: return _tool_error(str(e.detail))`
-    # / `return {"error": str(e.detail)}` — forwarding HTTPException.detail
-    # raised by our own _validate_*/_normalise_* helpers a few lines above
-    # (app.routers.allocations, app.routers.commitments, app.routers.card_terms,
-    # app.routers.allocations.fill_candidates, app.routers.transactions
-    # source-scope resolution), never a caught system/library exception.
-    # G80 (2026-09-16) shifted every line below by +13: the reframed
-    # money-basics/page-explainer copy sweep added lines earlier in this
-    # file (the "upcoming" explain entry and expanded insights/debt/grow
-    # copy), none of these are new exception sites. A98 (2026-09-21) then
-    # shifted every line below by -6, removing the Kenya region's
-    # get_user_region import and its two KES/GBP home-currency branches
-    # earlier in this file; likewise not new exception sites.
-    ("app/services/penny_tools.py", 3865),
-    ("app/services/penny_tools.py", 3930),  # ValueError from compute_intent_preview, see above
-    ("app/services/penny_tools.py", 4433),
-    ("app/services/penny_tools.py", 4453),
-    ("app/services/penny_tools.py", 4489),
-    ("app/services/penny_tools.py", 4512),
-    ("app/services/penny_tools.py", 4654),
-    ("app/services/penny_tools.py", 4659),
-    ("app/services/penny_tools.py", 4664),
-    ("app/services/penny_tools.py", 4751),
-    ("app/services/penny_tools.py", 4756),
-    ("app/services/penny_tools.py", 4761),
-    ("app/services/penny_tools.py", 5702),
-    ("app/services/penny_tools.py", 6357),
-    ("app/services/penny_tools.py", 6371),
-    # app.services.billing._handle_checkout_completed: `str(exc)` here is an
-    # authored ValueError message from grant_pack (see above), returned as
-    # the body of a Stripe *webhook* response — read by Stripe's own retry
-    # logic / dashboard, never rendered to an end user. Ambiguous by the
-    # letter of "reaches an HTTP response body", allowlisted rather than
-    # silently skipped; tighten this if the webhook response is ever
-    # surfaced anywhere a person reads it.
-    ("app/services/billing.py", 480),
+# A one-off escape hatch for a line that doesn't warrant (or, per the
+# docstring above, can't share) a central ALLOWLIST entry: `# leak-ok:
+# <reason>` on the source line suppresses that line from the scan.
+INLINE_PRAGMA_RE = re.compile(r"#\s*leak-ok\s*:")
+
+# ALLOWLIST[relative_path][exact stripped source-line text] = {
+#     "reason": "...",       # why this forwarded text is safe (required)
+#     "count": N,             # occurrences of this exact text allowed in
+#                              # this file; defaults to 1 when omitted
+# }
+ALLOWLIST: dict[str, dict[str, dict]] = {
+    "app/routers/ops.py": {
+        "raise HTTPException(404, str(exc)) from exc": {
+            "reason": (
+                "app.services.backlog.BacklogError — \"Raised for any "
+                "user/caller-facing failure (unknown id, bad enum)\" per its "
+                "own docstring; owner-only /ops/go-live admin surface."
+            ),
+            "count": 2,
+        },
+    },
+    "app/routers/spend_verdict.py": {
+        "raise HTTPException(400, str(e))": {
+            "reason": (
+                "ValueError raised by app.services.spend_impact."
+                "compute_intent_preview / app.services.checkpoints."
+                "delete_intent with an authored message (\"'<category>' is "
+                "not currently over usual, nothing to preview\", etc.)."
+            ),
+            "count": 2,
+        },
+    },
+    "app/routers/checkpoints.py": {
+        "raise HTTPException(400, str(e))": {
+            "reason": (
+                "ValueError raised by app.services.checkpoints."
+                "create_checkpoint / record_intent with an authored message "
+                "(\"ref must be a non-empty category name\", \"answer must "
+                "be 'one_off' or 'new_normal'\", etc.)."
+            ),
+            "count": 2,
+        },
+    },
+    "app/routers/broadcast.py": {
+        "raise HTTPException(400, str(e))": {
+            "reason": (
+                "app.services.broadcast.BroadcastError — admin-only "
+                "broadcast compose/send, authored messages only."
+            ),
+        },
+        "raise HTTPException(404, str(e))": {
+            "reason": (
+                "app.services.broadcast.BroadcastError — admin-only "
+                "broadcast compose/send, authored messages only."
+            ),
+        },
+    },
+    "app/routers/billing.py": {
+        "raise HTTPException(400, str(exc))": {
+            "reason": (
+                "app.services.billing.BillingError — \"Base class for "
+                "billing-service errors that should surface to the caller "
+                "as a 400\" per its own docstring; every raise site is a "
+                "static, authored string."
+            ),
+            "count": 2,
+        },
+    },
+    "app/routers/subscription.py": {
+        "raise HTTPException(400, str(exc))": {
+            "reason": (
+                "ValueError raised by app.core.subscription.grant_pack with "
+                "an authored message (\"pack_id must be one of: ...\"); "
+                "admin-only endpoint."
+            ),
+            "count": 2,
+        },
+    },
+    "app/services/safe_calc.py": {
+        "return _fail(str(e))": {
+            "reason": (
+                "app.services.safe_calc._CalcError — \"Internal only\" per "
+                "its own docstring, every raise site in that module is a "
+                "static, authored, already-calm string written for this "
+                "exact Penny-facing surface."
+            ),
+        },
+    },
+    "app/routers/mcp.py": {
+        "return {\"jsonrpc\": \"2.0\", \"id\": msg_id, \"error\": _error_obj(e.code, e.message, e.data)}": {
+            "reason": (
+                "app.routers.mcp.McpError — the MCP JSON-RPC error contract "
+                "IS (code, message, data); every raise site is a static, "
+                "authored string."
+            ),
+        },
+    },
+    "app/services/penny_tools.py": {
+        "return _tool_error(str(e.detail))": {
+            "reason": (
+                "forwarding HTTPException.detail raised by our own "
+                "_validate_*/_normalise_* helpers a few lines above "
+                "(app.routers.allocations, app.routers.commitments, "
+                "app.routers.card_terms, app.routers.allocations."
+                "fill_candidates, app.routers.transactions source-scope "
+                "resolution), never a caught system/library exception."
+            ),
+            "count": 13,
+        },
+        "return _tool_error(str(e))": {
+            "reason": (
+                "ValueError from app.services.spend_impact."
+                "compute_intent_preview / app.services.checkpoints."
+                "delete_intent — the same authored-message family as "
+                "routers/spend_verdict.py above."
+            ),
+        },
+        "return {\"error\": str(e.detail)}": {
+            "reason": (
+                "same family as the _tool_error(str(e.detail)) group above "
+                "(HTTPException.detail from our own _validate_*/"
+                "_normalise_* helpers), just a bare-dict call site instead "
+                "of the _tool_error() helper."
+            ),
+        },
+    },
+    "app/services/billing.py": {
+        "return {\"handled\": False, \"reason\": str(exc)}": {
+            "reason": (
+                "app.services.billing._handle_checkout_completed: str(exc) "
+                "here is an authored ValueError message from grant_pack "
+                "(see routers/subscription.py above), returned as the body "
+                "of a Stripe *webhook* response — read by Stripe's own "
+                "retry logic / dashboard, never rendered to an end user. "
+                "Ambiguous by the letter of \"reaches an HTTP response "
+                "body\", allowlisted rather than silently skipped; tighten "
+                "this if the webhook response is ever surfaced anywhere a "
+                "person reads it."
+            ),
+        },
+    },
 }
 
 
@@ -140,7 +250,11 @@ def _name_in_subtree(node: ast.AST, bound_name: str) -> bool:
 
 
 def _scan_file(path: Path) -> list[tuple[int, str]]:
-    """Return a list of (lineno, snippet) violations in this file."""
+    """Return a list of (lineno, stripped source text) violations in this
+    file: a `return`/`raise` inside an `except ... as name:` handler whose
+    value embeds `name`. A `# leak-ok: <reason>` comment on the violating
+    line suppresses it entirely (it never reaches the caller, so it isn't
+    counted against any ALLOWLIST entry either)."""
     try:
         source = path.read_text()
         tree = ast.parse(source, filename=str(path))
@@ -166,33 +280,76 @@ def _scan_file(path: Path) -> list[tuple[int, str]]:
                 continue
             if _name_in_subtree(target, bound_name):
                 lineno = sub.lineno
-                snippet = source_lines[lineno - 1].strip() if 0 < lineno <= len(source_lines) else ""
-                violations.append((lineno, snippet))
+                line = source_lines[lineno - 1] if 0 < lineno <= len(source_lines) else ""
+                if INLINE_PRAGMA_RE.search(line):
+                    continue
+                violations.append((lineno, line.strip()))
 
     return violations
+
+
+def _check_file(
+    rel: str, hits_by_text: dict[str, list[int]], allowed_here: dict[str, dict]
+) -> tuple[list[str], list[str]]:
+    """Compare one file's scan hits (grouped by exact stripped source text)
+    against its ALLOWLIST entries. Returns (new_violations, stale_entries).
+
+    A hit's text with no entry, or with more occurrences than its entry's
+    `count` allows, is a new violation. An entry whose text no longer
+    matches any hit at all in this file is stale (the line moved, was
+    fixed, or was deleted) and would silently stop guarding anything, so it
+    is reported too, exactly as the old line-keyed version reported a
+    (file, line) pair that no longer matched.
+    """
+    new_violations: list[str] = []
+    for text, linenos in hits_by_text.items():
+        entry = allowed_here.get(text)
+        allowed_count = entry.get("count", 1) if entry else 0
+        if len(linenos) <= allowed_count:
+            continue
+        if entry is None:
+            for lineno in linenos:
+                new_violations.append(f"{rel}:{lineno}: {text}")
+        else:
+            where = ", ".join(str(n) for n in linenos)
+            new_violations.append(
+                f"{rel}: {len(linenos)} occurrence(s) of {text!r} found "
+                f"(lines: {where}) but only {allowed_count} allowlisted "
+                f"under that exact text — a new, un-triaged copy of an "
+                f"allowed line? Bump 'count' if every occurrence shares the "
+                f"same reason, or add a '# leak-ok: <reason>' comment on "
+                f"the line(s) that don't, to disambiguate."
+            )
+
+    stale_entries = [
+        f"{rel}: {text!r}" for text in allowed_here if text not in hits_by_text
+    ]
+    return new_violations, stale_entries
 
 
 def test_no_handler_returns_raw_exception_text():
     """Every `except ... as name:` handler in app/routers, app/services, and
     app/core must not thread `name`'s text into a `return` or `raise`
-    value, unless the specific (file, line) is in ALLOWLIST above with a
-    documented reason.
+    value, unless the exact source line is in ALLOWLIST above with a
+    documented reason (or carries a `# leak-ok:` comment).
 
     A future violation (new file, new line, anywhere in these three trees)
     fails this test exactly the same way the original ~30 sites did —
-    nothing here depends on today's known offenders.
+    nothing here depends on today's known offenders, and nothing here
+    depends on which line number they happen to sit on today either.
     """
     new_violations: list[str] = []
-    stale_allowlist = set(ALLOWLIST)
+    stale_entries: list[str] = []
 
     for path in _iter_py_files():
         rel = str(path.relative_to(BACKEND_ROOT))
-        for lineno, snippet in _scan_file(path):
-            key = (rel, lineno)
-            if key in ALLOWLIST:
-                stale_allowlist.discard(key)
-                continue
-            new_violations.append(f"{rel}:{lineno}: {snippet}")
+        hits_by_text: dict[str, list[int]] = {}
+        for lineno, text in _scan_file(path):
+            hits_by_text.setdefault(text, []).append(lineno)
+
+        file_new, file_stale = _check_file(rel, hits_by_text, ALLOWLIST.get(rel, {}))
+        new_violations.extend(file_new)
+        stale_entries.extend(file_stale)
 
     assert not new_violations, (
         "Found handler(s) returning/raising raw exception text (not in "
@@ -202,10 +359,221 @@ def test_no_handler_returns_raw_exception_text():
         + "\n  ".join(new_violations)
     )
 
-    # A stale allowlist entry (line moved/removed, no violation found there
-    # any more) would silently stop guarding anything — surface it so the
-    # list stays honest as the surrounding code changes.
-    assert not stale_allowlist, (
-        "ALLOWLIST entries no longer match any violation (code moved or was "
-        "fixed) — remove them: " + ", ".join(f"{f}:{l}" for f, l in sorted(stale_allowlist))
+    assert not stale_entries, (
+        "ALLOWLIST entries no longer match any violation (the line moved, "
+        "was fixed, or was deleted) — remove them: " + ", ".join(stale_entries)
     )
+
+
+# --- Tests of the guard itself ------------------------------------------
+#
+# These don't scan the real backend tree; they run the same `_scan_file` /
+# `_check_file` machinery above against small scratch files, so they can
+# assert on line-shift and new-violation behaviour deterministically.
+
+
+def test_allowlist_survives_unrelated_line_shift(tmp_path):
+    """H82 / A40: a text-keyed entry must keep matching an allowlisted
+    handler after an unrelated edit shifts its line number. Proves red
+    under the OLD (file, line-number) scheme and green under the new
+    (file, text) scheme for the identical shift."""
+    original_source = (
+        "from fastapi import HTTPException\n"
+        "\n"
+        "def handler():\n"
+        "    try:\n"
+        "        do_something()\n"
+        "    except ValueError as exc:\n"
+        "        raise HTTPException(400, str(exc)) from exc\n"
+    )
+    shifted_source = (
+        "from fastapi import HTTPException\n"
+        "\n"
+        "# An unrelated comment added above the handler by a later, totally\n"
+        "# unconnected change — this must not break the allowlist entry below.\n"
+        "def handler():\n"
+        "    try:\n"
+        "        do_something()\n"
+        "    except ValueError as exc:\n"
+        "        raise HTTPException(400, str(exc)) from exc\n"
+    )
+
+    scratch = tmp_path / "fake_handler.py"
+    allowlist_text = "raise HTTPException(400, str(exc)) from exc"
+    allowed_here = {
+        allowlist_text: {"reason": "test fixture: authored HTTPException forward"}
+    }
+
+    # Before the shift: the raise sits on line 7, and the OLD line-keyed
+    # scheme (reconstructed inline here) matches it fine.
+    scratch.write_text(original_source)
+    original_hits = _scan_file(scratch)
+    assert original_hits == [(7, allowlist_text)]
+    old_line_keyed_allowlist = {(str(scratch), 7)}
+    assert (str(scratch), 7) in old_line_keyed_allowlist
+
+    hits_by_text: dict[str, list[int]] = {}
+    for lineno, text in original_hits:
+        hits_by_text.setdefault(text, []).append(lineno)
+    new_v, stale_v = _check_file("fake_handler.py", hits_by_text, allowed_here)
+    assert not new_v and not stale_v
+
+    # After the shift: the SAME raise is now on line 9, two lines later.
+    scratch.write_text(shifted_source)
+    shifted_hits = _scan_file(scratch)
+    assert shifted_hits == [(9, allowlist_text)]
+
+    # RED under the old (file, line-number) scheme — line 9 was never
+    # allowlisted, so this unrelated edit would fail the finish gate.
+    assert (str(scratch), 9) not in old_line_keyed_allowlist
+
+    # GREEN under the new (file, text) scheme — the entry matches by exact
+    # source text regardless of which line the handler now sits on.
+    hits_by_text = {}
+    for lineno, text in shifted_hits:
+        hits_by_text.setdefault(text, []).append(lineno)
+    new_v, stale_v = _check_file("fake_handler.py", hits_by_text, allowed_here)
+    assert not new_v and not stale_v
+
+
+def test_new_raw_exception_leak_still_caught(tmp_path):
+    """A brand new handler that leaks raw exception text must still fail
+    the guard, even in a file that also contains an allowlisted line —
+    proves the text-keyed scheme doesn't accidentally widen what's
+    allowed."""
+    source = (
+        "from fastapi import HTTPException\n"
+        "\n"
+        "def handler_ok():\n"
+        "    try:\n"
+        "        do_something()\n"
+        "    except ValueError as exc:\n"
+        "        raise HTTPException(400, str(exc)) from exc\n"
+        "\n"
+        "def handler_new_leak():\n"
+        "    try:\n"
+        "        do_other_thing()\n"
+        "    except RuntimeError as boom:\n"
+        "        return {\"error\": str(boom)}\n"
+    )
+    scratch = tmp_path / "fake_handler2.py"
+    scratch.write_text(source)
+
+    allowed_here = {
+        "raise HTTPException(400, str(exc)) from exc": {"reason": "test fixture"},
+    }
+
+    hits_by_text: dict[str, list[int]] = {}
+    for lineno, text in _scan_file(scratch):
+        hits_by_text.setdefault(text, []).append(lineno)
+
+    new_v, stale_v = _check_file("fake_handler2.py", hits_by_text, allowed_here)
+    assert not stale_v
+    assert len(new_v) == 1
+    assert 'return {"error": str(boom)}' in new_v[0]
+
+
+def test_inline_leak_ok_pragma_suppresses_without_central_entry(tmp_path):
+    """A one-off leak site can be allowed with a `# leak-ok: <reason>`
+    comment on the line itself, with no central ALLOWLIST entry needed —
+    the escape hatch check_naive_dates.py offers via `# naive-ok:`."""
+    source = (
+        "def handler():\n"
+        "    try:\n"
+        "        do_something()\n"
+        "    except RuntimeError as exc:\n"
+        "        return {\"error\": str(exc)}  # leak-ok: test fixture, one-off\n"
+    )
+    scratch = tmp_path / "fake_handler3.py"
+    scratch.write_text(source)
+
+    hits_by_text: dict[str, list[int]] = {}
+    for lineno, text in _scan_file(scratch):
+        hits_by_text.setdefault(text, []).append(lineno)
+
+    assert hits_by_text == {}  # the pragma suppressed the hit entirely
+
+    new_v, stale_v = _check_file("fake_handler3.py", hits_by_text, {})
+    assert not new_v and not stale_v
+
+
+def test_stale_allowlist_entry_is_flagged(tmp_path):
+    """An ALLOWLIST entry whose text no longer matches anything in the file
+    (fixed, moved, or deleted) must be reported, so the list stays honest —
+    same guarantee the old line-keyed version gave via its own
+    stale-allowlist check."""
+    source = (
+        "def handler():\n"
+        "    try:\n"
+        "        do_something()\n"
+        "    except ValueError as exc:\n"
+        "        raise ValueError(\"a designed, static message\") from exc\n"
+    )
+    scratch = tmp_path / "fake_handler4.py"
+    scratch.write_text(source)
+
+    allowed_here = {
+        "raise HTTPException(400, str(exc)) from exc": {"reason": "no longer present"},
+    }
+
+    hits_by_text: dict[str, list[int]] = {}
+    for lineno, text in _scan_file(scratch):
+        hits_by_text.setdefault(text, []).append(lineno)
+
+    assert hits_by_text == {}  # this handler doesn't leak at all any more
+
+    new_v, stale_v = _check_file("fake_handler4.py", hits_by_text, allowed_here)
+    assert not new_v
+    assert len(stale_v) == 1
+
+
+def test_duplicate_identical_text_uses_count_same_reason(tmp_path):
+    """Two call sites sharing identical source text are covered by one
+    entry via `count` when they share the same reason (penny_tools.py's
+    `return _tool_error(str(e.detail))` in the real ALLOWLIST is exactly
+    this shape). A THIRD, newly added copy of that same text must still be
+    caught as a genuinely new, un-triaged occurrence."""
+    source = (
+        "def handler_a():\n"
+        "    try:\n"
+        "        one()\n"
+        "    except ValueError as exc:\n"
+        "        raise HTTPException(400, str(exc)) from exc\n"
+        "\n"
+        "def handler_b():\n"
+        "    try:\n"
+        "        two()\n"
+        "    except ValueError as exc:\n"
+        "        raise HTTPException(400, str(exc)) from exc\n"
+    )
+    scratch = tmp_path / "fake_dup.py"
+    scratch.write_text(source)
+
+    allowed_here = {
+        "raise HTTPException(400, str(exc)) from exc": {
+            "reason": "both sites forward an authored ValueError, same reason",
+            "count": 2,
+        },
+    }
+
+    hits_by_text: dict[str, list[int]] = {}
+    for lineno, text in _scan_file(scratch):
+        hits_by_text.setdefault(text, []).append(lineno)
+    new_v, stale_v = _check_file("fake_dup.py", hits_by_text, allowed_here)
+    assert not new_v and not stale_v
+
+    source_with_third = source + (
+        "\n"
+        "def handler_c():\n"
+        "    try:\n"
+        "        three()\n"
+        "    except ValueError as exc:\n"
+        "        raise HTTPException(400, str(exc)) from exc\n"
+    )
+    scratch.write_text(source_with_third)
+    hits_by_text = {}
+    for lineno, text in _scan_file(scratch):
+        hits_by_text.setdefault(text, []).append(lineno)
+    new_v, stale_v = _check_file("fake_dup.py", hits_by_text, allowed_here)
+    assert len(new_v) == 1
+    assert "3 occurrence" in new_v[0]
