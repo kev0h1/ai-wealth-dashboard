@@ -498,7 +498,7 @@ def test_block_writes_single_sanitised_line_logs_full_text_and_adds_note(monkeyp
 
     def fake_add_note(item_id, text, actor="claude"):
         add_note_calls.append((item_id, text, actor))
-        return {"id": item_id}, True
+        return {"id": item_id}, True, {}
 
     monkeypatch.setattr(integrate.backlog, "set_state", fake_set_state)
     monkeypatch.setattr(integrate.backlog, "add_note", fake_add_note)
@@ -1495,7 +1495,7 @@ def test_integrate_one_blocks_with_merge_not_rebase_reason_on_conflict(monkeypat
         return {}, True
 
     monkeypatch.setattr(integrate.backlog, "set_state", fake_set_state)
-    monkeypatch.setattr(integrate.backlog, "add_note", lambda *a, **k: None)
+    monkeypatch.setattr(integrate.backlog, "add_note", lambda *a, **k: ({}, True, {}))
 
     item = {"id": "H99", "branch": "feature-H99-thing", "title": "Some item", "uat_review": False}
     result, detail = integrate._integrate_one(item)
@@ -1545,7 +1545,7 @@ def test_integrate_one_records_verified_single_slug_link(monkeypatch):
     notify_calls: list[tuple] = []
     monkeypatch.setattr(integrate.backlog, "set_uat", lambda item_id, link, actor="claude": (uat_calls.append((item_id, link)), ({}, True))[1])
     monkeypatch.setattr(integrate.backlog, "set_done", lambda *a, **k: ({}, True))
-    monkeypatch.setattr(integrate.backlog, "add_note", lambda item_id, text, actor="claude": (note_calls.append((item_id, text)), ({}, True))[1])
+    monkeypatch.setattr(integrate.backlog, "add_note", lambda item_id, text, actor="claude": (note_calls.append((item_id, text)), ({}, True, {}))[1])
     monkeypatch.setattr(
         integrate, "_notify_uat_ready", lambda item_id, title, link, detail=None: notify_calls.append((item_id, title, link, detail))
     )
@@ -1578,7 +1578,7 @@ def test_integrate_one_records_first_slug_and_notes_the_rest_for_several_directo
     notify_calls: list[tuple] = []
     monkeypatch.setattr(integrate.backlog, "set_uat", lambda item_id, link, actor="claude": (uat_calls.append((item_id, link)), ({}, True))[1])
     monkeypatch.setattr(integrate.backlog, "set_done", lambda *a, **k: ({}, True))
-    monkeypatch.setattr(integrate.backlog, "add_note", lambda item_id, text, actor="claude": (note_calls.append((item_id, text)), ({}, True))[1])
+    monkeypatch.setattr(integrate.backlog, "add_note", lambda item_id, text, actor="claude": (note_calls.append((item_id, text)), ({}, True, {}))[1])
     monkeypatch.setattr(
         integrate, "_notify_uat_ready", lambda item_id, title, link, detail=None: notify_calls.append((item_id, title, link, detail))
     )
@@ -1612,7 +1612,7 @@ def test_integrate_one_records_index_link_when_no_slug_can_be_derived(monkeypatc
     notify_calls: list[tuple] = []
     monkeypatch.setattr(integrate.backlog, "set_uat", lambda item_id, link, actor="claude": (uat_calls.append((item_id, link)), ({}, True))[1])
     monkeypatch.setattr(integrate.backlog, "set_done", lambda *a, **k: ({}, True))
-    monkeypatch.setattr(integrate.backlog, "add_note", lambda *a, **k: ({}, True))
+    monkeypatch.setattr(integrate.backlog, "add_note", lambda *a, **k: ({}, True, {}))
     monkeypatch.setattr(
         integrate, "_notify_uat_ready", lambda item_id, title, link, detail=None: notify_calls.append((item_id, title, link, detail))
     )

@@ -1204,6 +1204,7 @@ def test_cli_reject_and_state_display(tmp_path):
     compliance_dir = board_root / "docs" / "compliance"
     compliance_dir.mkdir(parents=True)
     (compliance_dir / "finexer-agent-controls-2026-09.md").write_text(COMPLIANCE_FIXTURE, encoding="utf-8")
+    _init_git_repo(board_root)
 
     env = dict(os.environ)
     env["BACKLOG_ROOT"] = str(board_root)
@@ -1274,6 +1275,11 @@ def test_cli_note_warns_on_stderr_when_truncated_but_exits_zero_without_strict(t
     compliance_dir = board_root / "docs" / "compliance"
     compliance_dir.mkdir(parents=True)
     (compliance_dir / "finexer-agent-controls-2026-09.md").write_text(COMPLIANCE_FIXTURE, encoding="utf-8")
+    # H93: the CLI now exits non-zero whenever the git commit/push itself
+    # fails, so this test (asserting a *successful* exit) needs a
+    # board_root that can really commit and push -- see _init_git_repo's
+    # own docstring below for why.
+    _init_git_repo(board_root)
 
     env = dict(os.environ)
     env["BACKLOG_ROOT"] = str(board_root)
@@ -1297,6 +1303,10 @@ def test_cli_note_strict_exits_non_zero_when_truncated(tmp_path):
     compliance_dir = board_root / "docs" / "compliance"
     compliance_dir.mkdir(parents=True)
     (compliance_dir / "finexer-agent-controls-2026-09.md").write_text(COMPLIANCE_FIXTURE, encoding="utf-8")
+    # H93: a real git repo, so the non-zero exit this test asserts on is
+    # unambiguously --strict's truncation check, not an incidental git
+    # commit failure from a board_root that was never a git repo at all.
+    _init_git_repo(board_root)
 
     env = dict(os.environ)
     env["BACKLOG_ROOT"] = str(board_root)
@@ -1321,6 +1331,7 @@ def test_cli_note_strict_exits_zero_when_not_truncated(tmp_path):
     compliance_dir = board_root / "docs" / "compliance"
     compliance_dir.mkdir(parents=True)
     (compliance_dir / "finexer-agent-controls-2026-09.md").write_text(COMPLIANCE_FIXTURE, encoding="utf-8")
+    _init_git_repo(board_root)
 
     env = dict(os.environ)
     env["BACKLOG_ROOT"] = str(board_root)
@@ -1542,6 +1553,7 @@ def test_cli_add_and_review_edit_backlog_root_regardless_of_cwd(tmp_path):
     compliance_dir = board_root / "docs" / "compliance"
     compliance_dir.mkdir(parents=True)
     (compliance_dir / "finexer-agent-controls-2026-09.md").write_text(COMPLIANCE_FIXTURE, encoding="utf-8")
+    _init_git_repo(board_root)
 
     other_cwd = tmp_path / "elsewhere"
     other_cwd.mkdir()
@@ -1610,6 +1622,40 @@ SHOW_FIXTURE = """# Backlog fixture for `show` tests
 """
 
 
+def _init_git_repo(board_root: Path) -> None:
+    """Wires `board_root` as a real, pushable git repo (H93): a local
+    bare repo one directory over stands in for `origin`, so the CLI's
+    real `git add` / `git commit` / `git push` all succeed end to end
+    against this fixture, exactly as they do against the real shared tree
+    at /root/ai-wealth-dashboard.
+
+    Before H93, `scripts/backlog.py` printed a footnote and exited 0 when
+    the git commit/push failed, so every CLI test here could get away
+    with a `board_root` that was never a real git repo at all — the
+    real `git add`/`commit` calls genuinely failed (exit 128, "not a
+    git repository"), but nothing asserted on that, so it went
+    unnoticed. Since H93 makes that outcome a loud non-zero exit (the
+    whole point of the fix), any test whose CLI call is expected to
+    *succeed* now needs a `board_root` that can actually commit and push,
+    or it fails for the wrong reason. Tests that only exercise a refusal
+    path (the CLI errors out before ever reaching `_git_commit_and_push`)
+    do not need this."""
+    origin = board_root.parent / (board_root.name + "-origin.git")
+    run = lambda *args: subprocess.run(  # noqa: E731
+        list(args), cwd=board_root, check=True, capture_output=True, text=True, timeout=15
+    )
+    subprocess.run(
+        ["git", "init", "--bare", "-q", str(origin)], check=True, capture_output=True, text=True, timeout=15
+    )
+    run("git", "init", "-q", ".")
+    run("git", "config", "user.email", "backlog-test@example.com")
+    run("git", "config", "user.name", "Backlog Test")
+    run("git", "remote", "add", "origin", str(origin))
+    run("git", "add", "-A")
+    run("git", "commit", "-q", "-m", "initial fixture commit")
+    run("git", "push", "-q", "-u", "origin", "HEAD")
+
+
 def _make_board_root(tmp_path: Path, todo_text: str) -> Path:
     board_root = tmp_path / "board"
     board_root.mkdir()
@@ -1617,6 +1663,7 @@ def _make_board_root(tmp_path: Path, todo_text: str) -> Path:
     compliance_dir = board_root / "docs" / "compliance"
     compliance_dir.mkdir(parents=True)
     (compliance_dir / "finexer-agent-controls-2026-09.md").write_text(COMPLIANCE_FIXTURE, encoding="utf-8")
+    _init_git_repo(board_root)
     return board_root
 
 
@@ -2116,6 +2163,7 @@ def test_cli_uat_and_approve_round_trip(tmp_path):
     compliance_dir = board_root / "docs" / "compliance"
     compliance_dir.mkdir(parents=True)
     (compliance_dir / "finexer-agent-controls-2026-09.md").write_text(COMPLIANCE_FIXTURE, encoding="utf-8")
+    _init_git_repo(board_root)
 
     env = dict(os.environ)
     env["BACKLOG_ROOT"] = str(board_root)
@@ -3013,6 +3061,7 @@ def test_cli_start_with_branch_flag_round_trips(tmp_path):
     compliance_dir = board_root / "docs" / "compliance"
     compliance_dir.mkdir(parents=True)
     (compliance_dir / "finexer-agent-controls-2026-09.md").write_text(COMPLIANCE_FIXTURE, encoding="utf-8")
+    _init_git_repo(board_root)
 
     env = dict(os.environ)
     env["BACKLOG_ROOT"] = str(board_root)
@@ -3039,6 +3088,7 @@ def test_cli_start_without_branch_flag_records_no_branch(tmp_path):
     compliance_dir = board_root / "docs" / "compliance"
     compliance_dir.mkdir(parents=True)
     (compliance_dir / "finexer-agent-controls-2026-09.md").write_text(COMPLIANCE_FIXTURE, encoding="utf-8")
+    _init_git_repo(board_root)
 
     env = dict(os.environ)
     env["BACKLOG_ROOT"] = str(board_root)
@@ -3067,6 +3117,7 @@ def test_end_to_end_uat_loop_including_start_after_approve(tmp_path):
     compliance_dir = board_root / "docs" / "compliance"
     compliance_dir.mkdir(parents=True)
     (compliance_dir / "finexer-agent-controls-2026-09.md").write_text(COMPLIANCE_FIXTURE, encoding="utf-8")
+    _init_git_repo(board_root)
 
     env = dict(os.environ)
     env["BACKLOG_ROOT"] = str(board_root)
@@ -3243,6 +3294,7 @@ def test_cli_lint_dry_run_then_apply(tmp_path):
     compliance_dir = board_root / "docs" / "compliance"
     compliance_dir.mkdir(parents=True)
     (compliance_dir / "finexer-agent-controls-2026-09.md").write_text(COMPLIANCE_FIXTURE, encoding="utf-8")
+    _init_git_repo(board_root)
 
     env = dict(os.environ)
     env["BACKLOG_ROOT"] = str(board_root)
