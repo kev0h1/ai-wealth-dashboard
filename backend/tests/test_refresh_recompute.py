@@ -280,6 +280,27 @@ def test_user_refresh_debounce_does_not_swallow_real_new_transactions(monkeypatc
     assert len(spy.calls) == 2
 
 
+def test_user_refresh_after_a_data_bearing_tap_debounces_the_immediate_zero_tap(monkeypatch):
+    """G159 re-review finding: the debounce window was only ever armed on a
+    new_count=0 call. A first tap that itself pulled new data (new_count>0)
+    correctly bypasses the debounce and recomputes, but never recorded a
+    start time — so an immediately-following tap that pulled nothing was
+    NOT debounced either, missing the common real shape (a refresh that
+    finds something, right away followed by a second tap that finds
+    nothing) that the debounce exists to collapse."""
+    spy = _Spy()
+    monkeypatch.setattr(derived_caches, "cashflow_cache_col", FakeCol())
+    monkeypatch.setattr(analytics, "compute_and_cache_cashflow", spy)
+    monkeypatch.setattr(money_shape, "compute_and_cache_money_shape", _noop)
+
+    first = asyncio.run(derived_caches.recompute_derived_caches(UID, new_count=5, trigger="user"))
+    second = asyncio.run(derived_caches.recompute_derived_caches(UID, new_count=0, trigger="user"))
+
+    assert first == {"recomputed": True, "reason": "user_refresh"}
+    assert second == {"recomputed": False, "reason": "debounced"}
+    assert len(spy.calls) == 1, "the immediate zero-new tap must not pay for a second recompute"
+
+
 def test_debounce_is_per_user(monkeypatch):
     spy = _Spy()
     monkeypatch.setattr(derived_caches, "cashflow_cache_col", FakeCol())

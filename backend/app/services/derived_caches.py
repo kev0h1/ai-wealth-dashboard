@@ -72,7 +72,9 @@ _STARTUP_PAUSE_SECONDS = 0.5
 # service; see docs/ops/ENV.md and the Performance memory note), not a
 # distributed lock: correct here because there is only one process to
 # dedupe against, and simpler than standing up a Redis lock for a window
-# this short.
+# this short. Must be revisited when E2 (web replicas) lands: two API
+# processes each holding their own dict would stop coordinating, and a
+# rapid double-tap routed to different replicas would no longer collapse.
 #
 # Stamped at START, not completion, of the recompute: two taps landing
 # while the first recompute is still in flight must also collapse to one,
@@ -98,23 +100,30 @@ _last_user_recompute_started: dict[str, float] = {}
 def _debounce_user_refresh(uid: str) -> bool:
     """True if a user-triggered recompute for `uid` started within the
     debounce window and this call should therefore be skipped. Marks the
-    window's start when it returns False (i.e. when the caller is about to
-    proceed), so the very recompute that is about to run is what the next
-    rapid tap debounces against."""
+    window's start UNCONDITIONALLY, before returning, not only on the
+    branch that goes on to recompute: a re-review (2026-09-28) found the
+    window was only ever armed on a new_count=0 call, so a first tap whose
+    OWN sync found new data (new_count>0, which always bypasses the
+    debounce below) never recorded a start time, and an immediately
+    following tap that found nothing was therefore not debounced either —
+    missing the common real shape, a refresh that finds something followed
+    right away by one that finds nothing."""
     now = time.monotonic()
     last = _last_user_recompute_started.get(uid)
-    if last is not None and (now - last) < USER_REFRESH_DEBOUNCE_SECONDS:
-        return True
+    debounced = last is not None and (now - last) < USER_REFRESH_DEBOUNCE_SECONDS
     _last_user_recompute_started[uid] = now
-    return False
+    return debounced
 
 
 async def cache_needs_recompute(uid: str, *, new_count: int, trigger: SyncTrigger) -> tuple[bool, str]:
     """Whether this sync must recompute the derived caches, and why."""
     if trigger == "user":
+        # Always call this first, unconditionally, so the window is armed
+        # even when new_count > 0 goes on to bypass the debounce below.
+        debounced = _debounce_user_refresh(uid)
         if new_count > 0:
             return True, "user_refresh"
-        if _debounce_user_refresh(uid):
+        if debounced:
             return False, "debounced"
         return True, "user_refresh"
     if new_count > 0:
