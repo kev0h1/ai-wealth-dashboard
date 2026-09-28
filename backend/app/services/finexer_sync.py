@@ -247,11 +247,16 @@ async def _resolve_customer_name(user: dict) -> str:
          id IS the user's email (see billing.py's _get_or_create_customer
          docstring) — there is no separate numeric/opaque id to key off —
          so the suffix is a SHA-256 digest of the lower-cased email,
-         truncated to 8 hex characters and upper-cased. This is
-         deterministic (the same user always gets the same placeholder, so
-         a customer created today isn't renamed on a later lookup) but
-         one-way: the email is not recoverable from the digest, and the
-         digest itself is never sent as, or alongside, an email value.
+         truncated to 12 hex characters (48 bits) and upper-cased. 12 hex
+         chars rather than 8: nothing documents whether Finexer treats
+         `name` as unique, and 8 hex chars (32 bits) is only a ~1.2%
+         collision chance at 10,000 users (birthday bound), a needless
+         risk of two different users' placeholder names colliding when
+         48 bits costs nothing extra. This is deterministic (the same
+         user always gets the same placeholder, so a customer created
+         today isn't renamed on a later lookup) but one-way: the email is
+         not recoverable from the digest, and the digest itself is never
+         sent as, or alongside, an email value.
     """
     email = user["email"]
 
@@ -266,7 +271,7 @@ async def _resolve_customer_name(user: dict) -> str:
     if session_name and session_name.lower() not in (email_lower, local_part):
         return session_name
 
-    digest = hashlib.sha256(email_lower.encode()).hexdigest()[:8].upper()
+    digest = hashlib.sha256(email_lower.encode()).hexdigest()[:12].upper()
     return f"Sorted customer #{digest}"
 
 

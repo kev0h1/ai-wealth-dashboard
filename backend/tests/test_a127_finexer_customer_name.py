@@ -122,6 +122,20 @@ def test_profile_beats_a_valid_session_name(monkeypatch):
     assert name == "Kevin Maingi"
 
 
+def test_whitespace_only_profile_full_name_is_treated_as_absent(monkeypatch):
+    """A profile doc with full_name = "   " (whitespace only) must not win
+    over a real fallback — .strip() on the stored value makes it falsy, so
+    resolution falls through past the profile step exactly as if no
+    full_name were saved at all, landing on the placeholder here since
+    there's no usable session name either."""
+    _wire(monkeypatch, profile_docs=[{"_id": "kevin@example.com", "full_name": "   "}])
+    name = asyncio.run(finexer_sync._resolve_customer_name(
+        {"email": "kevin@example.com", "name": ""},
+    ))
+    assert name != "   "
+    assert name.startswith("Sorted customer #")
+
+
 def test_session_name_used_when_no_profile_and_not_email_shaped(monkeypatch):
     _wire(monkeypatch, profile_docs=[])
     name = asyncio.run(finexer_sync._resolve_customer_name(
@@ -159,7 +173,7 @@ def test_empty_name_and_no_profile_uses_placeholder_never_email(monkeypatch):
     assert name != email
     assert email not in name
     assert name.startswith("Sorted customer #")
-    digest = hashlib.sha256(email.lower().encode()).hexdigest()[:8].upper()
+    digest = hashlib.sha256(email.lower().encode()).hexdigest()[:12].upper()
     assert name == f"Sorted customer #{digest}"
 
 
