@@ -1,8 +1,11 @@
 import asyncio
+import fcntl
 import os
 import re
+import tempfile
 import time
 import uuid
+from pathlib import Path
 
 # H90/H94 (2026-09-28, review round): force every backend test process
 # onto a disposable Mongo DATABASE, and give each RUN its own name,
@@ -69,6 +72,101 @@ import app.routers.billing as billing_router_module
 import app.routers.subscription as subscription_router_module
 import app.services.billing as billing_module
 from app.services import data_version, response_cache
+
+# H90 review round (finding 3, 2026-09-28): a stale-database sweep keyed
+# on age ALONE reintroduces the exact collision class this whole file
+# exists to prevent, one layer up -- a session whose suite legitimately
+# runs past an hour (this box has been memory-starved all day; a slow
+# suite is not far-fetched) would have ANOTHER session's collection-time
+# sweep drop its still-live database out from under it, reproduced
+# directly by the H96 reviewer against throwaway names. Age is now only
+# ever a SECONDARY condition: `_sweep_stale_test_databases` below also
+# requires proof the owning process is actually gone, via a non-blocking
+# `flock` on a per-database lockfile every session holds for its own
+# lifetime (`_acquire_own_lock`, called once at collection time,
+# released in `_drop_test_database_at_session_end`'s teardown). `flock`
+# is process-scoped and kernel-held: if the owning process dies for any
+# reason (crash, OOM kill, `Ctrl-C`) without a chance to run its own
+# teardown, the OS releases the lock the instant the process exits, so a
+# LATER sweep's own non-blocking attempt to acquire that same lock
+# succeeds immediately -- proof, not inference, that no one is still
+# using this database, exactly the same "kernel enforces it, not our own
+# bookkeeping" property this file already leans on for Mongo's single
+# event loop per client.
+_LOCK_DIR = Path(tempfile.gettempdir()) / "wealth_test_locks"
+
+# Kept open for this process's entire lifetime once acquired --
+# closing it (explicitly in `_release_own_lock`, or implicitly at
+# process exit) is what releases the underlying `flock`.
+_own_lock_file = None
+
+
+def _lock_path_for(name: str) -> Path:
+    return _LOCK_DIR / f"{name}.lock"
+
+
+def _acquire_own_lock(name: str) -> None:
+    """Best-effort: a lock directory that can't be created or written to
+    (an unusual host, a permissions problem) must not crash the whole
+    suite over a liveness nicety -- it degrades to the pre-lock behaviour
+    for THIS run's own liveness signal (another session's sweep would
+    have no lock to find for us), printed loudly rather than silently
+    swallowed, since that degradation is worth knowing about."""
+    global _own_lock_file
+    try:
+        _LOCK_DIR.mkdir(parents=True, exist_ok=True)
+        fh = open(_lock_path_for(name), "w")
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError as exc:
+        print(f"[H90] could not acquire a liveness lock for {name!r}: {exc}")
+        return
+    _own_lock_file = fh
+
+
+def _release_own_lock(name: str) -> None:
+    global _own_lock_file
+    if _own_lock_file is not None:
+        try:
+            fcntl.flock(_own_lock_file.fileno(), fcntl.LOCK_UN)
+        except OSError:
+            pass
+        try:
+            _own_lock_file.close()
+        except OSError:
+            pass
+        _own_lock_file = None
+    try:
+        _lock_path_for(name).unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _has_a_live_owner(name: str) -> bool:
+    """Non-blocking probe of the SAME lockfile `_acquire_own_lock` above
+    holds for a database's whole-session lifetime. No lockfile at all
+    (predates this mechanism, or `_acquire_own_lock` degraded above) is
+    treated as "no evidence of a live owner", not as "definitely dead" --
+    conservative in the direction of a stale entry surviving one extra
+    sweep, never in the direction of dropping something live."""
+    path = _lock_path_for(name)
+    if not path.exists():
+        return False
+    try:
+        fh = open(path, "r+")
+    except OSError:
+        return False
+    try:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return True
+    except OSError:
+        return False
+    else:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+        return False
+    finally:
+        fh.close()
+
 
 # H94: matches ONLY our own generated shape, "wealth_test_<epoch>_<8 hex
 # lowercase>" — deliberately narrower than `_looks_like_a_test_database`
@@ -157,17 +255,23 @@ async def _drop_database_with_fresh_client(name: str) -> None:
 
 
 async def _sweep_stale_test_databases(own_name: str) -> list[str]:
-    """H94: reap any "wealth_test_<epoch>_<8 hex>" database older than
-    `_STALE_TEST_DB_AGE_SECONDS`, left behind by a session that crashed
+    """Reap a "wealth_test_<epoch>_<8 hex>" database that is BOTH older
+    than `_STALE_TEST_DB_AGE_SECONDS` AND has no live owner
+    (`_has_a_live_owner` above) -- left behind by a session that crashed
     (OOM-killed, Ctrl-C'd) before its own `_drop_test_database_at_session_
-    end` teardown ran -- otherwise these accumulate forever on a host
-    that runs many short sessions a day. Only ever matches OUR OWN
-    generated name shape exactly (`_GENERATED_TEST_DB_RE`, never a bare
-    "wealth_test" a human might have set up on purpose, never "wealth"
-    itself) and never drops `own_name`, this run's own database, however
-    the age check might read it (in practice it never can: the epoch in
-    a freshly-generated name is always "now"). Returns the names actually
-    dropped so the caller can report them."""
+    end` teardown ran, otherwise these accumulate forever on a host that
+    runs many short sessions a day. Age ALONE is deliberately not enough
+    (H90 review round, finding 3): a session whose suite legitimately
+    runs past an hour on a memory-starved box is still alive and must
+    survive another session's sweep, which age-only sweeping cannot tell
+    apart from a genuinely abandoned database -- reproduced directly by
+    the H96 reviewer. Only ever matches OUR OWN generated name shape
+    exactly (`_GENERATED_TEST_DB_RE`, never a bare "wealth_test" a human
+    might have set up on purpose, never "wealth" itself) and never drops
+    `own_name`, this run's own database, however the age check might read
+    it (in practice it never can: the epoch in a freshly-generated name
+    is always "now"). Returns the names actually dropped so the caller
+    can report them."""
     from motor.motor_asyncio import AsyncIOMotorClient
 
     from app.core.config import MONGO_URI
@@ -188,6 +292,8 @@ async def _sweep_stale_test_databases(own_name: str) -> list[str]:
                 continue
             if now - int(m.group(1)) < _STALE_TEST_DB_AGE_SECONDS:
                 continue
+            if _has_a_live_owner(name):
+                continue
             try:
                 await client.drop_database(name)
                 dropped.append(name)
@@ -201,15 +307,20 @@ async def _sweep_stale_test_databases(own_name: str) -> list[str]:
 def _refuse_unless_test_db_and_sweep_stale() -> None:
     _refuse_unless_test_db()
     from app.db.collections import db as _app_db
+    # Acquire OUR OWN liveness lock BEFORE sweeping, not after: two
+    # sessions starting near-simultaneously must each see the other
+    # already holding its lock by the time either one sweeps, or the
+    # liveness check has no evidence to find yet.
+    _acquire_own_lock(_app_db.name)
     try:
         dropped = asyncio.run(_sweep_stale_test_databases(_app_db.name))
     except Exception:
         dropped = []
     if dropped:
         print(
-            f"[H94] dropped {len(dropped)} stale test database(s) "
-            f"(>{_STALE_TEST_DB_AGE_SECONDS}s old, left behind by a "
-            f"crashed session): {', '.join(sorted(dropped))}"
+            f"[H90] dropped {len(dropped)} stale test database(s) "
+            f"(>{_STALE_TEST_DB_AGE_SECONDS}s old, no live owner): "
+            f"{', '.join(sorted(dropped))}"
         )
 
 
@@ -218,7 +329,7 @@ _refuse_unless_test_db_and_sweep_stale()
 
 @pytest.fixture(scope="session", autouse=True)
 def _drop_test_database_at_session_end():
-    """H90/H94: the disposable, per-run database `MONGO_DB` points this
+    """H90: the disposable, per-run database `MONGO_DB` points this
     session at (see the module-level generator/`_refuse_unless_test_db`
     above) is dropped once, after every test in the session has run, so
     it never quietly accumulates fixture debris. `_sweep_stale_test_
@@ -230,6 +341,12 @@ def _drop_test_database_at_session_end():
     same "cheap enough to just re-check" spirit as `_mongo_cleanup_
     allowed` below re-checking rather than trusting a module-level flag.
 
+    Releases this session's OWN liveness lock (`_acquire_own_lock`,
+    taken at collection time) FIRST, in every case, whether or not this
+    database looks droppable -- a session that used a hand-set,
+    non-generated name still held a lock other sessions' sweeps may have
+    checked, and it must not outlive this process on disk.
+
     Uses a standalone client (`_drop_database_with_fresh_client`), not
     the app's own shared one, specifically so THIS drop is not subject to
     the single-event-loop constraint the rest of this file's Mongo
@@ -239,6 +356,7 @@ def _drop_test_database_at_session_end():
     """
     yield
     from app.db.collections import db as _app_db
+    _release_own_lock(_app_db.name)
     if not _looks_like_a_test_database(_app_db.name):
         return
     try:
