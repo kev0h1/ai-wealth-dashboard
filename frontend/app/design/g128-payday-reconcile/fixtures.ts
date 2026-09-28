@@ -80,6 +80,15 @@ export const KEVIN_REAL_ITEM: CompanionItem = {
       target: 0,
       move: 100,
       usual: 100,
+      // Hand-added (G129): this row is the one genuine habitual top-up in
+      // Kevin's frozen 2026-09-18 payload (nothing owed, £100 habitually
+      // moving) — `target: 0` above is the OLD backend defect's accidental
+      // by-product, kept as-is because this object is frozen evidence (see
+      // the file header), not a live payload. The explicit field is what a
+      // fixed backend now returns for this shape; adding it here keeps
+      // isHabitualTopUp's rendering identical without regenerating the rest
+      // of the frozen figures.
+      habitual_top_up: true,
     },
     {
       account_id: "dest-starling-personal",
@@ -195,6 +204,9 @@ export const COVERED_ITEM: CompanionItem = {
       target: 0,
       move: 100,
       usual: 100,
+      // Invented savings-pot habitual top-up shape (G129): nothing owed,
+      // £100 habitually moving.
+      habitual_top_up: true,
     },
   ],
   payday_split: {
@@ -291,6 +303,9 @@ export const NO_SPLIT_ITEM: CompanionItem = {
       target: 0,
       move: 60,
       usual: 60,
+      // Invented savings-pot habitual top-up shape (G129): nothing owed,
+      // £60 habitually moving.
+      habitual_top_up: true,
     },
   ],
   // payday_split intentionally omitted.
