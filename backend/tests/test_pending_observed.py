@@ -20,7 +20,7 @@ fakes, following the same pattern test_internal_inflows.py/test_transfer_pairs.p
 already established for this suite.
 """
 import asyncio
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import app.core.timeutil as timeutil
 import app.routers.analytics as analytics
@@ -31,6 +31,46 @@ from app.services.pending_transactions import (
     replace_pending_for_account,
     PENDING_TXN_MAX_AGE_DAYS,
 )
+
+
+# ── Frozen-clock helper (H94) ────────────────────────────────────────────────
+# Copied from tests/test_london_today.py's own `_freeze`, the established
+# pattern for this suite: patch `app.core.timeutil`'s `datetime` name with a
+# subclass whose `now(tz)` returns a fixed instant, so every
+# `timeutil.user_today()`/`user_now()` call this module's `_pattern()`/
+# `_pending_doc()` helpers make resolves to the same frozen day on every run.
+#
+# WHY (2026-09-28, H94): `_pattern()`'s default `next_date=timeutil.user_today()`
+# with `avg_interval=30` and `monthly_anchor=None` (EOM) makes `_occurrences`
+# project a SECOND legitimate occurrence next month, on that month's last
+# calendar day. Whenever "today" lands close enough to its own month-end that
+# (days to next month's EOM) + the up-to-2-day Saturday/Sunday
+# `_next_working_day` roll reaches the 35-day `window_end` horizon, that
+# second occurrence stops being clipped and leaks into `upcoming_bills` --
+# exactly what happened on 2026-09-28 (2 days from month end), which every
+# test below asserting a single bill or an empty `upcoming_bills` was not
+# expecting. It is a real, calendar-driven second occurrence (the same kind
+# `test_pending_match_bypasses_the_give_up_horizon` already documents as
+# "unrelated to this bug, expected" for its own 45-day-interval pattern), not
+# a defect in `_build_cashflow_response` -- these tests just need a stable
+# "today" comfortably clear of any month boundary, same as any other
+# calendar-shaped fixture in this suite (see test_london_today.py).
+_SAFE_TODAY_ISO = "2026-06-15T09:00:00"  # mid-month: next month's EOM is 40+ days out even after a weekend roll
+
+
+def _freeze(monkeypatch, iso_utc: str = _SAFE_TODAY_ISO) -> datetime:
+    """Patch `app.core.timeutil`'s `datetime` name so `user_now()`/
+    `user_today()` see a fixed UTC instant, converted through the REAL
+    Europe/London ZoneInfo data (mirrors test_london_today.py's `_freeze`)."""
+    instant = datetime.fromisoformat(iso_utc).replace(tzinfo=timezone.utc)
+
+    class _FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return instant.astimezone(tz) if tz is not None else instant.replace(tzinfo=None)
+
+    monkeypatch.setattr(timeutil, "datetime", _FrozenDatetime)
+    return instant
 
 
 # ── Generic fake-Mongo plumbing, copied per this suite's existing
@@ -281,6 +321,7 @@ def test_pending_match_excludes_from_upcoming_bills_and_walks(monkeypatch):
     bank-side pending debit must vanish from `upcoming_bills` -- the ONE
     list every at-risk/shortfall/payday-plan/frontend walk reads -- so
     nothing double-debits the already-reduced live balance."""
+    _freeze(monkeypatch)
     pending = [_pending_doc("p1", "SEVERN TRENT WATER", 43.57, timeutil.user_today())]
     resp = _run_build_response(monkeypatch, [_pattern()], pending=pending)
 
@@ -299,6 +340,7 @@ def test_settled_match_always_wins_over_a_stale_pending_row(monkeypatch):
     its own settled feed) -- the occurrence must close ENTIRELY (settled
     behaviour), not surface as observed_pending, and must not double-count
     across the two lists."""
+    _freeze(monkeypatch)
     observed = [_settled_txn("SEVERN TRENT WATER", 43.57, timeutil.user_today())]
     pending = [_pending_doc("p1", "SEVERN TRENT WATER", 43.57, timeutil.user_today())]
     resp = _run_build_response(monkeypatch, [_pattern()], observed=observed, pending=pending)
@@ -340,6 +382,7 @@ def test_pending_vanishing_reverts_to_an_ordinary_projected_bill(monkeypatch):
     up here again must let the occurrence fall straight back into the
     ordinary overdue/give-up handling, exactly as if this module never
     existed for that call."""
+    _freeze(monkeypatch)
     pattern = _pattern()
     pending = [_pending_doc("p1", "SEVERN TRENT WATER", 43.57, timeutil.user_today())]
 
@@ -359,6 +402,7 @@ def test_pending_row_not_matched_when_amount_outside_tolerance(monkeypatch):
     """Same tolerance rule as `_match_observed` (max(£2, 15%)) -- a pending
     row for a materially different amount must not be treated as this
     bill's twin, fails closed to the ordinary (walk-facing) bill instead."""
+    _freeze(monkeypatch)
     pending = [_pending_doc("p1", "SEVERN TRENT WATER", 90.00, timeutil.user_today())]
     resp = _run_build_response(monkeypatch, [_pattern()], pending=pending)
 
@@ -369,8 +413,45 @@ def test_pending_row_not_matched_when_amount_outside_tolerance(monkeypatch):
 def test_pending_row_not_matched_across_accounts(monkeypatch):
     """Account-scoped, same as `_match_observed`: a pending debit on a
     DIFFERENT account must never close this occurrence."""
+    _freeze(monkeypatch)
     pending = [_pending_doc("p1", "SEVERN TRENT WATER", 43.57, timeutil.user_today(), account_id="barclays")]
     resp = _run_build_response(monkeypatch, [_pattern()], pending=pending)
 
     assert len(resp["upcoming_bills"]) == 1
     assert resp["observed_pending_bills"] == []
+
+
+# ── G180 guard: lock down the exact edge that caused the rot ───────────────
+#
+# Every test above now freezes "today" comfortably clear of any month
+# boundary (H94/G180's fix). That hides the leak from THIS suite, but the
+# leak itself is real, calendar-driven, and correct (see the H94 comment on
+# `_freeze` above and `test_pending_match_bypasses_the_give_up_horizon`'s
+# own note on a 45-day interval's legitimate second occurrence). Nothing
+# else in this file exercises it deliberately any more, which is exactly
+# how it went unnoticed until the real calendar happened to reproduce it on
+# 2026-09-28. Rather than leave that edge untested, pin "today" to the
+# actual incident date and assert the leak happens ON PURPOSE: if a future
+# change to `_occurrences`/`_advance_month_to_anchor` ever stops projecting
+# this second occurrence (or starts projecting a third), this test fails
+# immediately instead of the class rediscovering itself by accident on some
+# future 28th-of-a-30-day-month.
+def test_pattern_default_eom_anchor_near_month_end_legitimately_projects_a_second_occurrence(monkeypatch):
+    """`_pattern()`'s default `monthly_anchor: None` (EOM) with
+    `avg_interval: 30` and `next_date` defaulted to "today": on 2026-09-28
+    (2 days from September's end), `_occurrences` correctly projects a
+    SECOND occurrence on October's last calendar day (31st, a Saturday),
+    rolled to Monday 2 November by `_next_working_day` -- which lands
+    exactly on `window_end` (today + 35 days) and so is correctly included,
+    not excluded. This is the precise leak that broke five other tests in
+    this file (and is the direct reason they now freeze "today" instead)."""
+    _freeze(monkeypatch, "2026-09-28T09:00:00")
+    resp = _run_build_response(monkeypatch, [_pattern()])
+
+    assert len(resp["upcoming_bills"]) == 2
+    first, second = resp["upcoming_bills"]
+    assert first["expected_date"] == "2026-09-28"
+    assert first["days_away"] == 0
+    assert second["expected_date"] == "2026-11-02"  # 31 Oct (EOM), rolled off Sat onto Mon
+    assert second["days_away"] == 35
+    assert second["original_date"] == "2026-10-31"

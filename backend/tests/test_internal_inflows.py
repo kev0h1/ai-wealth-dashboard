@@ -667,6 +667,57 @@ def test_upcoming_income_unaffected_by_internal_inflows(monkeypatch):
     assert resp_with["upcoming_income"][0]["amount"] == 2500.0
 
 
+def test_upcoming_income_carries_confirmed_alias_from_the_cached_pattern(monkeypatch):
+    """G174: `_serialise_pattern` (analytics.py, inside `_compute_cashflow_
+    patterns`) stamps `confirmed_alias` onto a recurring_income entry
+    standing in for a confirmed stream under a changed payroll reference
+    (see `_confirmed_income_fallback`'s dedupe guard) -- this is what the
+    cached doc's `recurring_income` list carries into this function's
+    `income_patterns` local. Prove the field survives all the way to the
+    built `upcoming_income` item, since that is the shape `income_credit_ok`
+    (via `app.services.companion._pp_income_candidates`/`_pp_salary_income`)
+    actually reads it off."""
+    income_pattern = {
+        "key": "0201-GOLDMAN SACHS GOLDMAN SACHS PA",
+        "avg_amount": 4798.08,
+        "avg_interval": 45,
+        "next_date": (timeutil.user_today() + timedelta(days=7)).isoformat(),
+        "account_id": "barclays",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 5000.0,
+        "category": "Income",
+        "occurrences": 2,
+        "amounts_recent": [4798.08, 4798.08],
+        "confirmed_alias": "185008 12702436 Goldman Sachs BGC",
+    }
+    resp = _run_build_response(monkeypatch, [], recurring_income=[income_pattern])
+    assert len(resp["upcoming_income"]) == 1
+    assert resp["upcoming_income"][0]["confirmed_alias"] == "185008 12702436 Goldman Sachs BGC"
+
+
+def test_upcoming_income_confirmed_alias_defaults_to_none_when_absent(monkeypatch):
+    """An ordinary pattern with no `confirmed_alias` key at all (every
+    pre-G174 cache doc, and every income series that isn't standing in for a
+    confirmed one) must not crash the carry-through and must read back
+    `None`, never raise a KeyError."""
+    income_pattern = {
+        "key": "ACME PAYROLL",
+        "avg_amount": 2500.0,
+        "avg_interval": 45,
+        "next_date": (timeutil.user_today() + timedelta(days=7)).isoformat(),
+        "account_id": "barclays",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 5000.0,
+        "category": "Income",
+        "occurrences": 3,
+        "amounts_recent": [2500.0, 2500.0, 2500.0],
+    }
+    resp = _run_build_response(monkeypatch, [], recurring_income=[income_pattern])
+    assert resp["upcoming_income"][0]["confirmed_alias"] is None
+
+
 # ── at_risk_count: consuming internal_inflows in the running-balance walk ───
 
 def _run_at_risk(monkeypatch, bills, inflows, *, next_pay_in_days=10):

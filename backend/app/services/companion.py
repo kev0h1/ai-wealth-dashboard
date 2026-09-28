@@ -1989,6 +1989,27 @@ async def compute_today_items(
     if not cached:
         return []
 
+    # G174 review: mirror analytics.at_risk_count's own staleness guard --
+    # without this, a cache doc computed before a `PATTERNS_VERSION` bump
+    # (e.g. the confirmed_alias field this round adds) keeps serving the
+    # OLD shape into the payday plan/every other card this function builds
+    # until the next sync or a `/cashflow` GET happens to recompute it.
+    # Lazy import to avoid a companion<->analytics import cycle, same
+    # convention this module already uses for its other analytics imports
+    # (see `_has_affinity` above). Failure-tolerant: any error here (a bad
+    # recompute, a transient Mongo hiccup) logs and falls back to the stale
+    # doc already in hand rather than ever raising through to the caller.
+    try:
+        from app.routers.analytics import PATTERNS_VERSION, compute_and_cache_cashflow
+        if (cached.get("patterns_version") or 0) < PATTERNS_VERSION:
+            await compute_and_cache_cashflow(uid)
+            cached = await cashflow_cache_col.find_one({"_id": uid}) or cached
+    except Exception:
+        log.exception(
+            "G174: patterns_version staleness recompute failed for %r, "
+            "continuing with the stale cache doc", uid,
+        )
+
     prefs = await preferences_col.find_one({"user_id": uid}) or {}
     excluded_sources = {str(a) for a in (prefs.get("cover_plan_excluded_accounts") or [])}
     confirmed_income_keys = {
@@ -2075,9 +2096,28 @@ async def compute_today_items(
         i for i in _orig_window_income + _orig_payday_day_income
         if income_credit_ok(i, str(i.get("account_id") or ""), confirmed_income_keys)
     ]
+    # G174: a confirmed candidate (its own key, or a detected series aliased
+    # to a confirmed key after a payroll reference change -- see
+    # `income_credit_ok`) must always win the salary slot over a merely
+    # RELIABLE detected candidate, however large the reliable one's amount.
+    # Before this, `max(..., key=amount)` over the whole candidate pool could
+    # let a small but well-established standing order (reliable by pattern,
+    # never confirmed) outrank -- or rather, stand in unchallenged for -- the
+    # user's actual confirmed salary the moment its payroll reference changed
+    # and the fresh series hadn't yet cleared the reliability floor on its
+    # own (G174's board note: a £2 standing order became "the pay" while a
+    # ~£4,800 confirmed salary sat unrecognised under its new reference). A
+    # £2 standing order must never become "the pay": prefer the confirmed
+    # set, largest amount among it; fall back to the old amount-only rule
+    # only when nothing confirmed is present this window.
+    _pp_confirmed_candidates = [
+        i for i in _pp_income_candidates
+        if i.get("name") in confirmed_income_keys or i.get("confirmed_alias") in confirmed_income_keys
+    ]
     _pp_salary_income = (
-        max(_pp_income_candidates, key=lambda i: float(i["amount"]))
-        if _pp_income_candidates else None
+        max(_pp_confirmed_candidates, key=lambda i: float(i["amount"]))
+        if _pp_confirmed_candidates
+        else (max(_pp_income_candidates, key=lambda i: float(i["amount"])) if _pp_income_candidates else None)
     )
 
     # Skip bills where we have no balance data, or the bill is on a credit card
@@ -2960,7 +3000,7 @@ async def compute_today_items(
                 f"around {_when}. It has landed in {_landing}, not {_dest_nm.strip()}. "
                 f"If it does arrive, you'll simply need less."
             )
-        elif _inc.get("name") in confirmed_income_keys:
+        elif _inc.get("name") in confirmed_income_keys or _inc.get("confirmed_alias") in confirmed_income_keys:
             # G160: a stream the user confirmed is not "unsteady" merely
             # because Sorted couldn't attribute it to a landing account
             # (e.g. too few matching credits inside the window). Saying so
