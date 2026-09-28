@@ -321,21 +321,35 @@ export function humaniseBillName(name: string): string {
 // can't guarantee. See computeHeadsUp/HeadsUpSentence for the sibling
 // verdict that DOES name a bill, where it's the only fact in the sentence
 // and has the room.
-// G17: named days in this sentence read as a bare weekday ("Monday") or
-// "today"/"tomorrow" — never a day count ("the next 5 days"). A day count
-// shrinks every day as "today" advances toward the same fixed crossing day,
-// which reads as unstable even though nothing about the underlying data
-// changed; naming the day directly needs no such mental subtraction, and
-// since `frontLoaded` caps crossDay at 6 there's only ever one calendar
-// instance of that weekday inside the window, so it can't be ambiguous.
-// G170: Kevin's decided form is short weekday + day WITH ordinal suffix +
-// short month ("Wed 19th Aug"), and today/tomorrow keep their word with
-// the date after ("tomorrow, Sat 27th Sep") rather than standing alone or
-// expanding to the full weekday name. Reads the day off the bill's own
-// pre-formatted `date` ("Wed 19 Aug", the same string formatShortDate and
-// the design fixtures already produce) rather than re-deriving a date
-// independently — see lib/dates.ts's shortDateWithOrdinal for why that's
-// the safer source of truth than re-parsing into a Date.
+// G17: named days in this sentence read as a named day — never a day count
+// ("the next 5 days"). A day count shrinks every day as "today" advances
+// toward the same fixed crossing day, which reads as unstable even though
+// nothing about the underlying data changed; naming the day directly needs
+// no such mental subtraction.
+// G17 originally proposed a BARE weekday ("Monday") for that named day, on
+// the reasoning that `frontLoaded` caps crossDay at 6 so only one calendar
+// instance of that weekday can fall inside the window. That reasoning holds
+// for crossDayLabel/leadWhen (concentrated branch, always <= day 6), but the
+// same weekdayLabel helper also backs heavyWhen in the spread-out/quiet
+// branches (computeDrop's "calm"/"landing" shapes), where the heaviest day
+// can sit anywhere in the fortnight — a 14-day window holds two calendar
+// instances of every weekday, so a bare "Thursday" there would misread as
+// this week's Thursday when the money in fact lands on the window's SECOND
+// Thursday (G152, Kevin 2026-09-23).
+// G170 superseded the bare-weekday form entirely, for every branch: Kevin's
+// decided form is short weekday + day WITH ordinal suffix + short month
+// ("Wed 19th Aug") always, and today/tomorrow keep their word with the date
+// after ("tomorrow, Sat 27th Sep") rather than standing alone or expanding
+// to the full weekday name. Because weekdayLabel now always carries the
+// date, not just within the first week, the G152 ambiguity in heavyWhen
+// cannot occur any more — do not narrow this back to a bare weekday for
+// near-term days "since it's unambiguous there", that reopens the same gap
+// G152 found and makes the tile's day labels inconsistent with each other.
+// Reads the day off the bill's own pre-formatted `date` ("Wed 19 Aug", the
+// same string formatShortDate and the design fixtures already produce)
+// rather than re-deriving a date independently — see lib/dates.ts's
+// shortDateWithOrdinal for why that's the safer source of truth than
+// re-parsing into a Date.
 function weekdayLabel(bill: ComingUpBill): string {
   if (bill.daysAway === 0) return `today, ${shortDateWithOrdinal(bill.date)}`;
   if (bill.daysAway === 1) return `tomorrow, ${shortDateWithOrdinal(bill.date)}`;

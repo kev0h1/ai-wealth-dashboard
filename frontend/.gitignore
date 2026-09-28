@@ -15,6 +15,12 @@
 
 # next.js
 /.next/
+# H51 atomic UAT build (scripts/frontend_build.py): previous build kept
+# for one step back, shared Turbopack cache, build lock. The build itself
+# happens in the sibling mirror ../.frontend-staging/ (root .gitignore).
+/.next-prev/
+/.next-cache/
+/.next-build.lock
 /out/
 /.mobile-build/
 

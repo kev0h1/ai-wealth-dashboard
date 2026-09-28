@@ -1972,6 +1972,20 @@ async def compute_today_items(
     below is gated on this flag; the in-memory item is still computed and
     returned either way, only the persistence is skipped.
 
+    H90 correction (2026-09-28): "EVERY write" above was not, in fact,
+    true until this fix — the trajectory item's `get_debt_plan_cached(uid)`
+    call (section 8f, below) wrote a fresh `debt_plan` response-cache doc
+    on a cache miss regardless of `persist`, because that helper had no
+    `persist` parameter of its own to thread this flag through. That
+    single unguarded write is what let `GET /today/cover-plan` (persist
+    False, called on every Settings load) and `get_today_brief` (persist
+    False, the case this docstring describes above) each write a doc under
+    whatever uid they ran for — including, once, Kevin's own uid, from
+    unmerged code exercising this exact path. Fixed by giving
+    `get_debt_plan_cached` its own `persist` parameter and passing this
+    one through to it; the claim above is now actually enforced, not just
+    documented.
+
     `account_eligibility_out` (G50, 2026-09-12): an optional out-param —
     when a caller passes a dict, this function fills it in place with
     `{account_id: {"short": bool, "headroom": float}}` for every account
@@ -3263,7 +3277,8 @@ async def compute_today_items(
                 bills_total, bill_count, own_transfers_skipped = _acct_bills(acct_id)
                 balance = _bal(acct_id)
                 usual = usual_moves.get(acct_id)  # int or None — None means "no usual pattern seen"
-                if _is_savings(acc):
+                _dest_is_savings = _is_savings(acc)
+                if _dest_is_savings:
                     # Savings pots: the user's saving intent is theirs (Grow
                     # owns recommendations) — mirror their ritual, never
                     # auto-buffer. No spend/buffer padding; the move is
@@ -3291,10 +3306,21 @@ async def compute_today_items(
                     _c_slice = int(_commit.get("slice_total") or 0)
                     if _c_slice > 0 and move < _c_slice:
                         move = _c_slice
-                        if _is_savings(acc):
+                        if _dest_is_savings:
                             target = move + bills_total
                 if not (move > 0 or usual is not None):
                     continue
+                # G129 fix: a savings pot with no bills owed but a habitual
+                # amount still moving (e.g. Kevin's Barclays "Personal GBP"
+                # pot, £0 owed, £100 moving) is an accumulation top-up, not a
+                # shortfall — the frontend must be told this explicitly
+                # rather than infer it from `target == 0`, which only held
+                # by accident of the re-derive bug below (G129 note,
+                # 2026-09-18). Computed here, before the trim phases, since
+                # neither `bills_total` nor `move` for a savings destination
+                # is touched by Phase 1/2 trimming (those only cut
+                # buffer/spend_typical, both 0 for savings).
+                _habitual_top_up = _dest_is_savings and bills_total <= 0 and move > 0
                 _dest_entry = {
                     "account_id": acct_id,
                     "name": _clean_name(acc.get("name"), acct_id),
@@ -3307,6 +3333,19 @@ async def compute_today_items(
                     "target": int(round(target)),
                     "move": int(move),
                     "usual": int(usual) if usual is not None else None,
+                    # Explicit destination kind (G129) — "savings" carries its
+                    # own target formula (target = move + bills_total, no
+                    # spend/buffer padding, see above); "spend" is the
+                    # ordinary bill/everyday-spend account. The trimmed-month
+                    # re-derive block below reads this to decide which
+                    # formula to reapply, instead of unconditionally
+                    # overwriting every destination's target with the
+                    # non-savings formula.
+                    "destination_kind": "savings" if _dest_is_savings else "spend",
+                    # Explicit habitual-top-up flag (G129) — see comment
+                    # above `_habitual_top_up`. Never infer this from
+                    # `target == 0` on the frontend.
+                    "habitual_top_up": _habitual_top_up,
                     # Sum of MOVEMENT bills on THIS account excluded from
                     # `bills_total` above because their learned destination is
                     # one of the user's own accounts (see
@@ -3366,6 +3405,22 @@ async def compute_today_items(
 
                 # Re-derive final integer moves (respecting each dest's
                 # bills-only floor) and re-round the other fields.
+                #
+                # G129 fix: this used to recompute EVERY destination's
+                # target as bills_total + spend_typical + buffer,
+                # unconditionally overwriting a savings destination's own
+                # formula from the dest-building loop above (target = move +
+                # bills_total — see that loop's comment). Neither
+                # spend_typical nor buffer is ever non-zero for a savings
+                # destination (both trim phases above only cut those two
+                # fields, and they start at 0 for savings), so the old line
+                # silently collapsed a savings pot's target to its
+                # bills_total alone — 0 whenever the pot has no bills, even
+                # while `move` stayed positive (Kevin's Barclays "Personal
+                # GBP" pot: target 0, move 100). `destination_kind` (set
+                # above) is read here so each kind keeps its own formula
+                # through this re-derive, exactly as it had it before
+                # trimming.
                 for d in dests:
                     floor = max(0.0, d["bills_total"] - d["balance"])
                     floor_ceil = _ceil5(floor) if floor > 0 else 0
@@ -3373,7 +3428,10 @@ async def compute_today_items(
                     d["move"] = max(move_ceil, floor_ceil)
                     d["buffer"] = int(round(d["buffer"]))
                     d["spend_typical"] = int(round(d["spend_typical"]))
-                    d["target"] = int(round(d["bills_total"])) + d["spend_typical"] + d["buffer"]
+                    if d.get("destination_kind") == "savings":
+                        d["target"] = d["move"] + int(round(d["bills_total"]))
+                    else:
+                        d["target"] = int(round(d["bills_total"])) + d["spend_typical"] + d["buffer"]
 
                 total = sum(d["move"] for d in dests)
             else:
@@ -3388,7 +3446,19 @@ async def compute_today_items(
             stays = int(distributable - total) if (distributable - total) >= 0 else 0
 
             if total > 0:
-                headline = f"Payday plan: split £{salary_amount:,} across {n_moves} accounts"
+                # G129 fix: this used to quote `salary_amount` (the whole
+                # landed pay, £4,798 in Kevin's 2026-09-18 payload) as the
+                # figure being "split", when the amount actually distributed
+                # across the destinations is `total` (£3,075 in that same
+                # payload — the gap is whatever the plan leaves in the
+                # salary account plus any trimming). PaydayPlanCard.tsx
+                # strips the figure out of a salary-backed headline before
+                # rendering it (the hero figure carries the number instead),
+                # so this string wasn't visibly wrong on Home, but it is
+                # still the string persisted verbatim into the companion
+                # item document, and any other consumer (Penny tools, MCP)
+                # reads it as-is.
+                headline = f"Payday plan: split £{total:,} across {n_moves} accounts"
             else:
                 headline = "Payday plan: every account is already set"
 
@@ -5176,7 +5246,15 @@ async def compute_today_items(
     try:
         from app.services.debt_plan import get_debt_plan_cached as _get_debt_plan
 
-        _plan = await _get_debt_plan(uid)
+        # H90: this is the one write inside compute_today_items that was
+        # NOT already gated on `persist` (every other write site in this
+        # function is an explicit `if persist:` above) — a cache MISS here
+        # called `response_cache.aput` regardless, so `persist=False`
+        # (GET /today/cover-plan, penny_tools.get_today_brief) still wrote
+        # a fresh debt_plan cache doc under whatever uid it was called
+        # with. Threading `persist` through makes get_debt_plan_cached's
+        # own promise ("EVERY write... gated on this flag") actually true.
+        _plan = await _get_debt_plan(uid, persist=persist)
         _verdict_str = _plan["totals"]["verdict"]
 
         if _verdict_str != "good":

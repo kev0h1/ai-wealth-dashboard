@@ -1,9 +1,11 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
+import { Capacitor } from "@capacitor/core";
+import { App } from "@capacitor/app";
 import { getToken, setToken, clearToken } from "@/lib/auth";
-import { api, API_BASE } from "@/lib/api";
+import { api, API_BASE, setUnauthorizedHandler, resetUnauthorizedGate } from "@/lib/api";
 import { WEB_PRODUCT_OFF } from "@/lib/webProduct";
 import LoginScreen from "@/components/LoginScreen";
 import AppOnlyPage from "@/components/AppOnlyPage";
@@ -27,12 +29,31 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue>({ user: null, logout: () => {} });
 export const useAuth = () => useContext(AuthContext);
 
+// A124: how often the window-focus/app-resume listeners below are allowed
+// to re-run POST /auth/session/validate. One cheap, bodyless call is well
+// inside backend/app/core/ratelimit.py's own "/auth/" budget (30 requests
+// per 60s), but a floor still stops a user alt-tabbing repeatedly from
+// turning "check on focus" into "check on every window event".
+const MIN_REVALIDATE_INTERVAL_MS = 60_000;
+
+function nativePlatform(): boolean {
+  try {
+    return Capacitor.isNativePlatform();
+  } catch {
+    return false;
+  }
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [user, setUser] = useState<AuthUser | null>(null);
   const [checking, setChecking] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
   const [needsOnboarding, setNeedsOnboarding] = useState(false);
+  // Stamped by both the mount-time validate below and the periodic
+  // revalidate effect, so the two share one rate-limit clock rather than
+  // each independently allowing a call within the same second.
+  const lastValidateAtRef = useRef(0);
 
   useEffect(() => {
     async function init() {
@@ -72,6 +93,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       const profileP = api.getProfile().catch(() => null);
 
+      lastValidateAtRef.current = Date.now();
       try {
         const res = await fetch(`${API_BASE}/auth/session/validate`, {
           method: "POST",
@@ -81,6 +103,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           const data = await res.json();
           if (data.email) {
             setUser({ email: data.email, name: data.name || "", owner: !!data.owner });
+            // A124: a session confirmed good here can be revoked again
+            // later, and lib/api.ts's own 401 gate only fires its
+            // sign-out hook once per revoke — reopen it now so a LATER
+            // revocation of THIS session is not silently swallowed by a
+            // gate an earlier session's sign-out already closed.
+            resetUnauthorizedGate();
 
             // F2: the OAuth consent page (/oauth/consent) stashes its own
             // `req` id in sessionStorage before sending the browser off to
@@ -144,6 +172,89 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch {}
     clearHomeDismissedAdvice();
   }
+
+  // A124: registers the ONE hook lib/api.ts's get/post/del/toJson call on a
+  // 401 from any authenticated route (see that file's own comment for the
+  // exempt login/session-validate/public list). Re-registered whenever
+  // `user` changes so the closure below always checks the CURRENT signed-in
+  // state, not whatever it was when the effect first ran — a stale `user`
+  // captured once at mount would still read `null` after a real sign-in.
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      // No signed-in user means there is no session to have been revoked —
+      // most likely this already IS the login screen. LoginScreen's own
+      // sign-in never goes through lib/api.ts's get/post/del in the first
+      // place (lib/nativeAuth.ts calls Google/Apple with a raw `fetch`), so
+      // this should be unreachable in practice; bailing here is what stops
+      // it looping if that ever changes.
+      if (!user) return;
+      logout();
+      setAuthError("You were signed out on another device.");
+    });
+    return () => setUnauthorizedHandler(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
+
+  // A124: periodic re-validation, so a backgrounded tab, a second tab, or
+  // a second device learns of a revoke without waiting for its next data
+  // fetch to 401. Runs on window focus, tab visibility, and (native only)
+  // Capacitor's `resume` — the same event BiometricLock.tsx already uses
+  // for "the app genuinely returned from the background" (see that file's
+  // own comment for why `resume`, not `appStateChange`, is the right one on
+  // Android). No promptingRef-style guard is needed here the way that file
+  // needs one: this call is idempotent and rate-limited by
+  // lastValidateAtRef/MIN_REVALIDATE_INTERVAL_MS below, so an extra
+  // spurious `resume` is just silently dropped rather than re-triggering
+  // anything visible.
+  useEffect(() => {
+    async function revalidate() {
+      const token = getToken();
+      if (!token) return; // already signed out — nothing to check
+      const now = Date.now();
+      if (now - lastValidateAtRef.current < MIN_REVALIDATE_INTERVAL_MS) return;
+      lastValidateAtRef.current = now;
+      try {
+        const res = await fetch(`${API_BASE}/auth/session/validate`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.status === 401) {
+          logout();
+          setAuthError("You were signed out on another device.");
+          return;
+        }
+        if (res.ok) resetUnauthorizedGate();
+      } catch {
+        // Offline, or a network hiccup — not a reason to sign anyone out.
+        // A real request's own 401 (lib/api.ts) or the next successful
+        // revalidate is the backstop.
+      }
+    }
+
+    function onFocus() { void revalidate(); }
+    function onVisibilityChange() {
+      if (document.visibilityState === "visible") void revalidate();
+    }
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    let resumeHandle: { remove: () => void } | undefined;
+    let cancelled = false;
+    if (nativePlatform()) {
+      App.addListener("resume", () => { void revalidate(); }).then((h) => {
+        if (cancelled) h.remove();
+        else resumeHandle = h;
+      });
+    }
+
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      cancelled = true;
+      resumeHandle?.remove();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // /design/* pages are static mockups with zero user data — always public.
   // /terms and /privacy are the published legal documents — anonymous
