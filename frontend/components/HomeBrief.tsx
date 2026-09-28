@@ -9,6 +9,7 @@ import { api } from "@/lib/api";
 import { invalidateVerdictCache } from "@/lib/verdictCache";
 import { useAuth } from "@/components/AuthProvider";
 import PaydayPlanCard from "@/components/PaydayPlanCard";
+import MonthClosedCard from "@/components/MonthClosedCard";
 import PennyMark from "@/components/PennyMark";
 import { BRAND_GRADIENT } from "@/lib/brand";
 import { BankBadge, BANK_META, bankKey, bankLogoSrc } from "@/components/AccountMiniCard";
@@ -2099,21 +2100,34 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth =
           )
         )}
 
-        {/* Needle item — invitation to review the closed month */}
+        {/* Needle item — invitation to review the closed month. Extracted
+            into MonthClosedCard (G168) so Home and Penny render the
+            identical card. Dismiss on Home does BOTH: goes through the
+            same onHomeDismiss (useHomeDismissedAdvice's dismiss) every
+            other dismissible card above uses, so the id is written to
+            localStorage and added to dismissedIds immediately, filtering
+            it out of `items` on this very render and on any future remount
+            seeded from the warm cache (without this, the card would flash
+            back until a fresh /today landed, and the cleared-row logic
+            could never fire when this was the only card) — AND fires the
+            real server dismiss (companion.py already honours the dismissed
+            set for this item type, keyed needle:<period_end>), so the
+            suppression also holds across devices/a fresh session, not just
+            this browser's localStorage. */}
         {needleItem && (
-          <div className="glass-card rounded-2xl p-4">
-            <p className="text-[15px] font-semibold text-slate-700 dark:text-slate-300 leading-snug mb-2">
-              {needleItem.headline}
-            </p>
-            {needleItem.action && (
-              <button
-                onClick={() => router.push(needleItem.action!.route)}
-                className="text-[14px] text-indigo-600 dark:text-indigo-400 font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
-              >
-                {needleItem.action.label}
-              </button>
-            )}
-          </div>
+          <MonthClosedCard
+            item={needleItem}
+            router={router}
+            surface="home"
+            onDismiss={() => {
+              if (dismissible && onHomeDismiss) {
+                onHomeDismiss(needleItem.id);
+              }
+              api.dismissTodayItem(needleItem.id).catch(() => {
+                /* card already removed locally; the backend will re-surface next run */
+              });
+            }}
+          />
         )}
 
         {otherItems.map(item => (
