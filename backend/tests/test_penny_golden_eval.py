@@ -210,7 +210,7 @@ def _description_sha256(text: str) -> str:
 # suite, while still changing the moment either variant's own wording
 # drifts (see `_canonical_variant_hash` immediately below).
 ENV_VARIANT_TOOLS = {
-    "explain": lambda enabled: penny_tools_module._explain_tool_description(enabled),
+    "explain": penny_tools_module._explain_tool_description,
 }
 
 
@@ -968,9 +968,12 @@ def test_no_flag_dependent_description_builder_missing_from_env_variant_registry
         body = inspect.getsource(func)
         if any(marker in body for marker in env_markers):
             flagged.add(name)
-    assert flagged == set(ENV_VARIANT_TOOLS), (
+    registered_builder_names = {
+        getattr(builder, "__name__", None) for builder in ENV_VARIANT_TOOLS.values()
+    }
+    assert flagged == registered_builder_names, (
         f"description builder(s) read an environment-derived value with no matching "
-        f"entry in ENV_VARIANT_TOOLS: {flagged - set(ENV_VARIANT_TOOLS)}. Add a "
+        f"entry in ENV_VARIANT_TOOLS: {flagged - registered_builder_names}. Add a "
         f"canonicalisation entry (see ENV_VARIANT_TOOLS above) before pinning, or this "
         f"pin will again be environment-dependent (B42)."
     )
