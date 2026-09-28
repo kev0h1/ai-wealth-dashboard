@@ -291,6 +291,164 @@ function scanFrontendForUngatedFetches() {
   );
 }
 
+// ── 7. Review of A121 at 4513aff9: components/BiometricLock.tsx's
+//      `attemptUnlock` is async and awaits real I/O (the hardware
+//      availability check, the native OS prompt) — a remote sign-out, or
+//      any other unmount, can land mid-await, and a stale continuation
+//      calling `setLockedState(true)`/`setAppLocked(true)` after that
+//      point would leave the shared lock signal stuck true with no lock
+//      screen left mounted to ever clear it, stranding the NEXT sign-in
+//      behind lib/api.ts's AppLockedError gate — the same class of bug the
+//      A125 unmount-reset effect closes for an ordinary sign-out, but this
+//      one is a genuine RACE (a resolved-after-unmount promise
+//      continuation), not something a synchronous unmount effect alone can
+//      catch, since the continuation runs strictly AFTER that effect's own
+//      cleanup already fired.
+//
+// This logic can't be pulled out as a pure function the way the cold-start
+// /resume-timeout decisions were (lib/appLockTiming.ts): it's genuinely
+// entangled with real async I/O (isAvailable(), the native authenticate()
+// prompt) that only exists on a device. What CAN be verified off-device is
+// that the guard is actually present at each point a stale continuation
+// could otherwise slip through — a static source assertion, the same
+// spirit as the fetch-gate scan above, just checking for a specific
+// sentinel (`if (!mountedRef.current) return;`) rather than a call shape.
+//
+// The check is DIRECTIONAL, not a fixed-size window either side of the
+// dangerous line: for each danger zone (the synchronous code between one
+// await/entry point and the next), scan forward from that anchor and ask
+// "is the FIRST thing found a guard, or a mutating call?" — a guard found
+// before any mutator passes; a mutator found before any guard fails, even
+// if a guard exists further away (e.g. protecting an EARLIER, unrelated
+// danger zone) — see check 8 below for the false-positive a naive nearby
+// -window check let through during review of this exact test.
+const MUTATORS = ["setLockedState(", "setLockEnabled(", "setAwaitingAuth(", "setAutoDisabledNotice(", "setErrorMessage("];
+const GUARD = "if (!mountedRef.current) return;";
+
+function firstGuardBeforeFirstMutation(lines, anchorIndex, endIndex) {
+  for (let i = anchorIndex + 1; i < endIndex; i++) {
+    // Stripped, not raw: a prose comment explaining WHY the guard matters
+    // (this file has several, quoting `setLockedState(true)` etc. in
+    // backticks) would otherwise read as a real mutating line and falsely
+    // fail a zone that is, in fact, correctly guarded.
+    const line = stripLineForScan(lines[i]);
+    if (line.includes(GUARD)) return true; // guard found before any mutation in this zone
+    if (MUTATORS.some((m) => line.includes(m))) return false; // mutation found first — not guarded
+  }
+  return false; // neither found before endIndex — treat as unguarded
+}
+
+{
+  const bioLockPath = path.join(SCAN_ROOT, "components", "BiometricLock.tsx");
+  const bioSource = readFileSync(bioLockPath, "utf8");
+  const bioLines = bioSource.split("\n");
+
+  function firstLineIndexContaining(needle, fromIndex = 0) {
+    for (let i = fromIndex; i < bioLines.length; i++) {
+      if (bioLines[i].includes(needle)) return i;
+    }
+    return -1;
+  }
+
+  const declIndex = firstLineIndexContaining("const mountedRef = useRef(true)");
+  ok("mounted guard: mountedRef is declared as a ref (not state)", declIndex >= 0);
+
+  // The unmount effect that resets it — outside attemptUnlock entirely,
+  // paired with the A125 setAppLocked(false) reset.
+  const unmountResetIndex = firstLineIndexContaining("mountedRef.current = false;");
+  ok("mounted guard: an unmount effect sets mountedRef.current = false", unmountResetIndex >= 0);
+
+  const attemptUnlockStart = firstLineIndexContaining("const attemptUnlock = useCallback(async () => {");
+  ok("mounted guard: attemptUnlock is found", attemptUnlockStart >= 0);
+  const attemptUnlockEnd = firstLineIndexContaining("}, [setLockedState]);", attemptUnlockStart + 1);
+  ok("mounted guard: attemptUnlock's closing brace is found", attemptUnlockEnd > attemptUnlockStart);
+
+  // Zone 1 — entry: the very first check in the function body, before the
+  // single-flight guard, before anything else — catches a call that races
+  // the unmount itself (e.g. a resume listener callback already in flight).
+  ok(
+    "mounted guard: attemptUnlock's entry has a mountedRef guard before any state mutation",
+    firstGuardBeforeFirstMutation(bioLines, attemptUnlockStart, attemptUnlockEnd)
+  );
+
+  // Zone 2 — after `await isAvailable()`, before the `!supported` branch's
+  // own mutating calls. Bounded at the NEXT await (the authenticate() one),
+  // not attemptUnlockEnd, so this zone can't accidentally pass by finding
+  // the LATER guard meant for zone 3 instead of its own.
+  const isAvailableIndex = firstLineIndexContaining("await isAvailable()", attemptUnlockStart);
+  ok("mounted guard: isAvailable() call site is found inside attemptUnlock", isAvailableIndex > attemptUnlockStart && isAvailableIndex < attemptUnlockEnd);
+  const authAwaitIndex = firstLineIndexContaining("ok = await withTimeout(", isAvailableIndex + 1);
+  ok("mounted guard: the authenticate() await is found inside attemptUnlock", authAwaitIndex > isAvailableIndex && authAwaitIndex < attemptUnlockEnd);
+  ok(
+    "mounted guard: a mountedRef guard is the first thing after await isAvailable(), before the !supported branch's own mutations",
+    firstGuardBeforeFirstMutation(bioLines, isAvailableIndex, authAwaitIndex)
+  );
+
+  // Zone 3 — after the authenticate() await settles (past its own
+  // `finally` cleanup), before `setAwaitingAuth(false); setLockedState(!ok)`
+  // — the actual finding: a failed/cancelled prompt resolving after unmount
+  // must not reach setLockedState(!ok).
+  const setLockedNotOkIndex = firstLineIndexContaining("setLockedState(!ok);", attemptUnlockStart);
+  ok("mounted guard: setLockedState(!ok) call site is found inside attemptUnlock", setLockedNotOkIndex > authAwaitIndex && setLockedNotOkIndex < attemptUnlockEnd);
+  ok(
+    "mounted guard: a mountedRef guard is the first thing after the authenticate() await settles, before setLockedState(!ok)",
+    firstGuardBeforeFirstMutation(bioLines, authAwaitIndex, attemptUnlockEnd)
+  );
+
+  // Zone 4 — inside the timeout/error `catch` block, before its own
+  // setAwaitingAuth(false)/setErrorMessage(...).
+  const catchIndex = firstLineIndexContaining("} catch {", attemptUnlockStart);
+  ok("mounted guard: attemptUnlock's catch block is found", catchIndex > attemptUnlockStart && catchIndex < attemptUnlockEnd);
+  ok(
+    "mounted guard: a mountedRef guard is the first thing inside the catch block, before its own setAwaitingAuth(false)",
+    firstGuardBeforeFirstMutation(bioLines, catchIndex, attemptUnlockEnd)
+  );
+}
+
+// ── 8. The mounted-guard scan above is not fooled by a decoy that has A
+//      guard somewhere in the function but not covering the actual
+//      dangerous line — proven the same way check 5 proves the fetch
+//      scanner isn't fooled by a decoy comment. This decoy has a real,
+//      correctly-placed guard after isAvailable() (zone 2), but the
+//      regression under test is a MISSING guard for zone 3 (after the
+//      authenticate() await, before setLockedState(!ok)) — an earlier
+//      review pass of this exact test used a fixed-size nearby-line window
+//      instead of this directional scan, and that window was wide enough
+//      to let zone 2's real guard "cover" zone 3's missing one purely by
+//      proximity. This decoy is what caught that. ───────────────────────
+{
+  const decoyLines = [
+    "const attemptUnlock = useCallback(async () => {",
+    "  if (!mountedRef.current) return;",
+    "  if (!nativePlatform() || !isLockEnabled()) {",
+    "    setLockedState(false);",
+    "    return;",
+    "  }",
+    "  try {",
+    "    const { supported } = await isAvailable();",
+    "    if (!mountedRef.current) return;",
+    "    let ok = false;",
+    "    ok = await withTimeout(authenticate('Unlock Sorted'), AUTH_TIMEOUT_MS);",
+    "    // regression: no mountedRef check here before the dangerous call",
+    "    setAwaitingAuth(false);",
+    "    setLockedState(!ok);",
+    "  } catch {",
+    "    setAwaitingAuth(false);",
+    "  }",
+    "}, [setLockedState]);",
+  ];
+  const decoyAuthAwaitIndex = decoyLines.findIndex((l) => l.includes("ok = await withTimeout("));
+  const decoyGuardedZone3 = firstGuardBeforeFirstMutation(decoyLines, decoyAuthAwaitIndex, decoyLines.length);
+  check("mounted guard scanner: a regression missing zone 3's guard is NOT read as guarded", decoyGuardedZone3, false);
+
+  // Sanity: the SAME decoy's zone 2 (after isAvailable(), before the
+  // authenticate() await) genuinely IS guarded — proves the scanner isn't
+  // just failing everything.
+  const decoyIsAvailableIndex = decoyLines.findIndex((l) => l.includes("await isAvailable()"));
+  const decoyGuardedZone2 = firstGuardBeforeFirstMutation(decoyLines, decoyIsAvailableIndex, decoyAuthAwaitIndex);
+  check("mounted guard scanner: the decoy's own correctly-guarded zone 2 still reads as guarded", decoyGuardedZone2, true);
+}
+
 if (failures > 0) {
   console.error(`\n${failures} check(s) failed.`);
   process.exit(1);

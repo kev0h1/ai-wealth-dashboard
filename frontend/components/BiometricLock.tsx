@@ -147,6 +147,17 @@ export default function BiometricLock({ children }: { children: React.ReactNode 
   // Timestamp of the last successful unlock, used by the belt-and-braces
   // check in `attemptUnlock` below.
   const unlockedAtRef = useRef<number | null>(null);
+  // A121 review: `attemptUnlock` is async and awaits real I/O (the hardware
+  // availability check, the native OS prompt) — a remote sign-out, or any
+  // other unmount, can land mid-await. Checked before every mutating call
+  // in that function past its first `await` (see attemptUnlock's own
+  // guards below) so a continuation that resolves after unmount never
+  // calls setLockedState(true)/setAppLocked(true) with no lock screen left
+  // mounted to ever clear it — the exact way a failed/cancelled prompt
+  // racing a remote sign-out would otherwise strand the NEXT sign-in
+  // behind the gate. Plain ref, not state: it must be readable synchronously
+  // inside a promise continuation, not just at render time.
+  const mountedRef = useRef(true);
 
   // A121: the single seam every DOM lock/unlock transition passes through,
   // so `locked` (this component's own render state) and the shared
@@ -168,6 +179,11 @@ export default function BiometricLock({ children }: { children: React.ReactNode 
   }, [autoDisabledNotice]);
 
   const attemptUnlock = useCallback(async () => {
+    // A121 review: guards a call that races the unmount itself — e.g. the
+    // pause/resume listener's own `cancelled` flag (see that effect below)
+    // stops it re-registering its native handle, but not a callback that
+    // was already invoked and is mid-flight as teardown begins.
+    if (!mountedRef.current) return;
     if (!nativePlatform() || !isLockEnabled()) {
       setLockedState(false);
       return;
@@ -185,6 +201,13 @@ export default function BiometricLock({ children }: { children: React.ReactNode 
     setErrorMessage(null);
     try {
       const { supported } = await isAvailable();
+      // A121 review: unmounted while awaiting the hardware check (e.g. a
+      // remote sign-out landed mid-check) — nothing left to update, and
+      // critically `setLockedState(true)`/`setAppLocked(true)` further down
+      // this function must not run with no lock screen left mounted to
+      // ever clear it again, which is exactly what would strand the NEXT
+      // sign-in behind the gate.
+      if (!mountedRef.current) return;
       if (!supported) {
         // Lock was enabled previously but hardware/enrolment is no longer
         // available on this device — gating on a check that can never
@@ -214,6 +237,15 @@ export default function BiometricLock({ children }: { children: React.ReactNode 
           promptingRef.current = false;
         }, PROMPT_GRACE_MS);
       }
+      // A121 review: unmounted while awaiting the native prompt itself —
+      // this is the guard that closes the actual finding: a prompt that
+      // resolves failed/cancelled (`ok === false`) after a remote sign-out
+      // unmounted this component mid-prompt must NOT reach
+      // `setLockedState(!ok)` below, which would call
+      // setAppLocked(true)/setLocked(true) with no lock screen left
+      // mounted to ever clear it again — stranding the NEXT sign-in behind
+      // AppLockedError (lib/api.ts's gate) indefinitely.
+      if (!mountedRef.current) return;
       setAwaitingAuth(false);
       setLockedState(!ok);
       if (ok) {
@@ -232,6 +264,11 @@ export default function BiometricLock({ children }: { children: React.ReactNode 
       // prompt never resolved) — lib/biometrics.ts's authenticate() itself
       // never throws, it resolves false on any recognized failure. Either
       // way: don't leave the lock screen with no controls.
+      // A121 review: same unmount-race guard as above — a timeout that
+      // fires after this component is gone has no controls left to leave
+      // in any particular state, and must not touch React state on an
+      // unmounted component.
+      if (!mountedRef.current) return;
       setAwaitingAuth(false);
       setErrorMessage("Face/fingerprint didn't respond. Try again.");
     } finally {
@@ -276,9 +313,13 @@ export default function BiometricLock({ children }: { children: React.ReactNode 
   // Unconditional and unmount-only: every unlock path this component
   // already knows about clears the signal itself, so this is pure
   // belt-and-braces for any path that doesn't (or a future one that
-  // forgets to).
+  // forgets to). Also flips `mountedRef` (see its own definition above),
+  // the guard `attemptUnlock`'s own async continuations check below.
   useEffect(() => {
-    return () => setAppLocked(false);
+    return () => {
+      mountedRef.current = false;
+      setAppLocked(false);
+    };
   }, []);
 
   // Re-check every time the app genuinely returns from the background.
