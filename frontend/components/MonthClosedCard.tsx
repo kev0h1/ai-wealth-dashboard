@@ -13,12 +13,15 @@ import type { CompanionItem } from "@/lib/api";
 // actionable/informational split never surfaced it there). Extracted here so
 // both surfaces render the identical card:
 //   - Home: dismissible via the standard glass × (DismissChip below), wired
-//     by the caller to a REAL server dismiss (api.dismissTodayItem, keyed
-//     `needle:<period_end>`) — companion.py already honours that dismissed
-//     set for this item type, so this is a genuine two-day suppression, not
-//     a local "hide on Home" preference (unlike the advice-card convention
-//     in HomeBrief.tsx, there is no separate Penny archive for this card to
-//     preserve).
+//     by the caller (HomeBrief.tsx) to a Home-only, LOCAL suppression —
+//     the same onHomeDismiss/useHomeDismissedAdvice convention every other
+//     advice card on Home uses, never the shared server dismiss
+//     (api.dismissTodayItem). Rejection fix (2026-09-27): companion.py's
+//     needle builder gates the item on ONE per-user dismissed set shared by
+//     every caller of /today, Penny included, so a server dismiss on Home
+//     would delete Penny's permanent copy too. A per-device localStorage
+//     suppression is the only shape that keeps this genuinely two-way:
+//     gone from Home (this browser), still permanent on Penny.
 //   - Penny: permanent, minimise-only, never dismiss, mirroring the payday
 //     plan's own owner rule (G164). Collapses to a one-line row; the
 //     minimised state is remembered locally per item id so it stays

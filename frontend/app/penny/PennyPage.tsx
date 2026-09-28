@@ -11,7 +11,7 @@ import { usePennySheet } from "@/components/PennySheetProvider";
 import { usePreferences } from "@/components/PreferencesContext";
 import { BriefBody, BriefSkeleton, PaydayPlanSection } from "@/components/HomeBrief";
 import MonthClosedCard from "@/components/MonthClosedCard";
-import { isActionableCompanionItem } from "@/lib/companionItems";
+import { isActionableCompanionItem, pennyInformationalItems } from "@/lib/companionItems";
 import { isPaydayWindowActive, writePaydayDotCache } from "@/lib/paydayWindow";
 import { readHomeDismissedAdvice } from "@/lib/homeDismissedAdvice";
 import MoneyText from "@/components/MoneyText";
@@ -113,9 +113,13 @@ export default function PennyPage() {
   // let "X is covered" / "£X/mo staying in your pocket" cards linger here
   // after a Home dismissal, the incoherence the owner flagged).
   const actionablePennyItems = items.filter(isActionableCompanionItem);
-  const informationalPennyItems = items.filter(
-    i => !isActionableCompanionItem(i) && !dismissedKeys.has(i.id)
-  );
+  // lib/companionItems.ts's pennyInformationalItems excludes "needle" —
+  // see its own doc comment for why: BriefBody has its own hardcoded,
+  // Home-shaped rendering for any needle item it's handed (surface="home",
+  // a real Dismiss ×), which would double-render the card here otherwise —
+  // once wrongly via this section, and again correctly (chevron Minimise,
+  // never a dismiss) via the dedicated `needleItem`/section c2 below.
+  const informationalPennyItems = pennyInformationalItems(items, dismissedKeys);
   // Whether BriefBody will actually paint a card for `actionablePennyItems`
   // — excludes payday_plan, which is actionable but rendered exclusively by
   // PaydayPlanSection (section c below), never by BriefBody. Gates the

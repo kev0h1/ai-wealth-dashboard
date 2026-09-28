@@ -2102,18 +2102,28 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth =
 
         {/* Needle item — invitation to review the closed month. Extracted
             into MonthClosedCard (G168) so Home and Penny render the
-            identical card. Dismiss on Home does BOTH: goes through the
-            same onHomeDismiss (useHomeDismissedAdvice's dismiss) every
-            other dismissible card above uses, so the id is written to
-            localStorage and added to dismissedIds immediately, filtering
-            it out of `items` on this very render and on any future remount
-            seeded from the warm cache (without this, the card would flash
-            back until a fresh /today landed, and the cleared-row logic
-            could never fire when this was the only card) — AND fires the
-            real server dismiss (companion.py already honours the dismissed
-            set for this item type, keyed needle:<period_end>), so the
-            suppression also holds across devices/a fresh session, not just
-            this browser's localStorage. */}
+            identical card. Rejection fix (2026-09-27): dismiss on Home is
+            Home-only, the SAME onHomeDismiss (useHomeDismissedAdvice's
+            dismiss) every other dismissible card above uses — the id is
+            written to localStorage and added to dismissedIds immediately,
+            filtering it out of `items` on this render and any future
+            remount seeded from the warm cache. It deliberately does NOT
+            also call api.dismissTodayItem (the shared server dismiss):
+            companion.py's needle builder gates the item on that SAME
+            per-user dismissed set for every caller of /today, Penny
+            included (PennyPage.tsx reads needleItem straight off the raw,
+            unfiltered feed, see its own comment there), so a server
+            dismiss here would delete Penny's permanent copy too — the
+            exact defect the rejection found. lib/homeDismissedAdvice.ts's
+            own docstring states this rule already ("must never remove it
+            server-side... that would also erase it from Penny"); this is
+            that rule, not a new mechanism. The trade-off is Home's
+            suppression is per-device only (no cross-device sync), same as
+            the payday plan's own entry-row dismiss
+            (writeDismissedPaydayEntry, below) — the two-day life of this
+            card makes that an acceptable ceiling, and it's the only shape
+            that keeps Penny genuinely permanent under today's single
+            shared feed/dismissed-set. */}
         {needleItem && (
           <MonthClosedCard
             item={needleItem}
@@ -2123,9 +2133,6 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth =
               if (dismissible && onHomeDismiss) {
                 onHomeDismiss(needleItem.id);
               }
-              api.dismissTodayItem(needleItem.id).catch(() => {
-                /* card already removed locally; the backend will re-surface next run */
-              });
             }}
           />
         )}

@@ -91,3 +91,29 @@ export function isActionableCompanionItem(item: CompanionItem): boolean {
       return false;
   }
 }
+
+/**
+ * Penny hub's informational bucket (app/penny/PennyPage.tsx section b) —
+ * factored out so it's one importable, testable definition rather than an
+ * inline filter expression a test can only re-copy, not exercise.
+ *
+ * Everything `isActionableCompanionItem` calls informational, EXCEPT
+ * "needle": that type has its own dedicated, permanent, minimise-only
+ * rendering on Penny (PennyPage.tsx's `needleItem` read straight off the
+ * raw, unfiltered feed, section c2 — mirrors the payday plan's owner rule,
+ * G168). Without this exclusion a needle item would ALSO land here on any
+ * device that hasn't locally dismissed it on Home yet (`dismissedKeys` is
+ * per-device localStorage, lib/homeDismissedAdvice.ts), and BriefBody has
+ * its own unconditional, Home-shaped rendering for any needle item it's
+ * handed (surface="home", a real Dismiss ×) — double-rendering the card:
+ * once wrongly, with a dismiss control, via this bucket, and once
+ * correctly via section c2.
+ */
+export function pennyInformationalItems(
+  items: CompanionItem[],
+  dismissedKeys: Set<string>
+): CompanionItem[] {
+  return items.filter(
+    (i) => !isActionableCompanionItem(i) && i.type !== "needle" && !dismissedKeys.has(i.id)
+  );
+}
