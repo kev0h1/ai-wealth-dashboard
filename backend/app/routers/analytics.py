@@ -154,7 +154,13 @@ OBSERVATION_LOOKBACK_DAYS = 6   # real bills land up to 5 days before their anch
 # `account_changed_from_usual` (True when a deterministically-attached
 # credit landed in a different account than the confirmed stream's usual
 # one). A cache doc computed before this version has no such field.
-PATTERNS_VERSION = 12
+# v13 (G157 review fix, account-moved ask): recurring_income entries also
+# carry `usual_account_id` (only set alongside `account_changed_from_usual:
+# True`) so the companion ask pipeline can name both accounts by display
+# name without re-deriving the hint itself. A cache doc computed before
+# this version has no such field, so a moved salary shows no "usual"
+# account until recomputed.
+PATTERNS_VERSION = 13
 
 def _next_working_day(d):  # d: datetime.date -> datetime.date
     while d.weekday() >= 5 or d.isoformat() in UK_BANK_HOLIDAYS_EW:
@@ -1410,6 +1416,11 @@ def _confirmed_income_fallback(
             # somewhere new" for this, rather than the old G160 shape's
             # silent account inference.
             "account_changed_from_usual": account_changed_from_usual,
+            # The usual account itself, ONLY when `account_changed_from_
+            # usual` is True (None otherwise -- nothing to compare) -- lets
+            # the companion ask name both accounts by display name without
+            # re-deriving this hint itself.
+            "usual_account_id": _usual_account_hint if account_changed_from_usual else None,
         })
     return fallback
 
@@ -2984,6 +2995,7 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
                 # the companion ask pipeline raises "your pay seems to
                 # land somewhere new" for this rather than inferring.
                 "account_changed_from_usual": r.get("account_changed_from_usual", False),
+                "usual_account_id": r.get("usual_account_id"),
             }
             for r in recurring_income
         ],

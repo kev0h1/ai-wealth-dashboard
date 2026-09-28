@@ -305,6 +305,45 @@ def test_fallback_confidently_attaches_on_full_evidence():
     assert log[0]["stream_id"] != stream_key
 
 
+def test_accepted_residual_short_name_fully_contained_in_longer_name_is_confident():
+    """Documents an ACCEPTED residual of the full-containment rule (added
+    for blocker 1, independent review of a165200d): "ACME" is a single
+    token, and it is fully contained in "ACME HOLDINGS"'s two-token set,
+    so containment alone does not distinguish a genuine subsidiary/trading-
+    name variation from a short, generic-sounding name that merely happens
+    to prefix a longer one. This is accepted because containment is only
+    ONE of four ANDed gates in `deterministic_match` -- the other three
+    (same destination account, amount within the stream's 15% band, and
+    landing on the stream's own cadence) must ALSO independently hold
+    before a match is ever "confident". A single short token can only ever
+    win alongside strong corroborating evidence on every other axis, never
+    on the name alone -- which the second assertion below proves directly:
+    change nothing but the destination account, and the same name pair
+    drops to "ambiguous"."""
+    stream_key = "9942 ACME LTD"  # tokenises to {"acme"}
+    stream = {"schedule": {"type": "day_of_month", "day": 28}, "avg_amount": 3000.0}
+    same_account_candidate = income_txn(
+        "ACME HOLDINGS PAYROLL", date(2026, 8, 28), 3000.00, account_id="acc-usual",
+    )
+    verdict = deterministic_match(
+        stream_key, stream, same_account_candidate, date(2026, 9, 24),
+        stream_account_id="acc-usual",
+    )
+    assert verdict is not None
+    assert verdict["decision"] == "confident"
+
+    different_account_candidate = income_txn(
+        "ACME HOLDINGS PAYROLL", date(2026, 8, 28), 3000.00, account_id="acc-different",
+    )
+    verdict_diff_account = deterministic_match(
+        stream_key, stream, different_account_candidate, date(2026, 9, 24),
+        stream_account_id="acc-usual",
+    )
+    assert verdict_diff_account is not None
+    assert verdict_diff_account["decision"] != "confident"
+    assert verdict_diff_account["decision"] == "ambiguous"
+
+
 # ── blocker 2 (independent review of a165200d): the wider-window "latest ──
 # ── credit under the old key" candidate must clear the SAME evidence gate ──
 # ── as any other candidate, never win attribution on key equality alone ────

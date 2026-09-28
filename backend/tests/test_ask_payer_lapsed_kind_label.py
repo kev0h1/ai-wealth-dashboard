@@ -176,3 +176,104 @@ def test_card_terms_ask_carries_its_own_kind_label_when_it_fires(monkeypatch):
     card_asks = [i for i in items if i["id"] == "ask:card_terms"]
     assert len(card_asks) == 1
     assert card_asks[0]["kind_label"] == "Card detail"
+
+
+# ── G157 review fix (independent review of f431d576): the "your pay seems ──
+# ── to land somewhere new" ask account_changed_from_usual data was for ──────
+
+NEW_ACCT_ID = "acc-new-destination"
+
+
+def _two_accounts():
+    return [
+        _account(1000.0),
+        {
+            "_id": NEW_ACCT_ID, "name": "Monzo Current Account", "balance": 500.0,
+            "subtype": "TRANSACTION", "type": "TRANSACTION", "provider": "Monzo",
+            "currency": "GBP",
+        },
+    ]
+
+
+def test_ask_payer_account_moved_fires_on_a_genuine_move_naming_accounts_not_numbers(monkeypatch):
+    moved_entry = {
+        "key": STREAM_KEY,
+        "source": "confirmed",
+        "lapsed": False,
+        "missed_cycles": 0.0,
+        "avg_amount": 4798.08,
+        "account_id": NEW_ACCT_ID,
+        "usual_account_id": ACCT_ID,
+        "account_changed_from_usual": True,
+        "next_date": "2026-09-28",
+    }
+    items = _run(monkeypatch, lapsed_income_entry=moved_entry, accounts=_two_accounts())
+
+    moved_asks = [i for i in items if i["id"].startswith("ask:payer_account_moved:")]
+    assert len(moved_asks) == 1
+    item = moved_asks[0]
+    assert item["headline"] == "Your pay seems to land somewhere new"
+    assert item["kind_label"] == "Your pay"
+    # Display names only -- the two real account names appear in the body...
+    assert "Premier Current Account" in item["body"]
+    assert "Monzo Current Account" in item["body"]
+    # ...and nothing that looks like an account number/sort code anywhere in
+    # the item at all.
+    import json
+    blob = json.dumps(item)
+    assert not any(fragment in blob for fragment in ["12702436", "185008", "sort", "acc-current", "acc-new-destination"])
+    # Never also the lapsed ask for the same stream.
+    assert not any(i["id"].startswith("ask:payer_lapsed:") for i in items)
+
+
+def test_ask_payer_account_moved_does_not_fire_without_the_flag(monkeypatch):
+    not_moved_entry = {
+        "key": STREAM_KEY,
+        "source": "confirmed",
+        "lapsed": False,
+        "missed_cycles": 0.0,
+        "avg_amount": 4798.08,
+        "account_id": ACCT_ID,
+        "usual_account_id": None,
+        "account_changed_from_usual": False,
+        "next_date": "2026-09-28",
+    }
+    items = _run(monkeypatch, lapsed_income_entry=not_moved_entry, accounts=_two_accounts())
+    assert not any(i["id"].startswith("ask:payer_account_moved:") for i in items)
+
+
+def test_ask_payer_account_moved_absent_flag_also_does_not_fire(monkeypatch):
+    """Regression guard: an entry that simply omits the field entirely
+    (e.g. a detected, non-synthesised series, which never carries it) must
+    not fire either -- not just an explicit False."""
+    no_flag_entry = {
+        "key": STREAM_KEY, "source": "confirmed", "lapsed": False,
+        "missed_cycles": 0.0, "avg_amount": 4798.08, "account_id": ACCT_ID,
+        "next_date": "2026-09-28",
+    }
+    items = _run(monkeypatch, lapsed_income_entry=no_flag_entry, accounts=_two_accounts())
+    assert not any(i["id"].startswith("ask:payer_account_moved:") for i in items)
+
+
+def test_ask_payer_account_moved_takes_precedence_over_lapsed_for_the_same_stream(monkeypatch):
+    """A stream can genuinely be BOTH lapsed (missed cycles) and moved
+    (the one credit that did attach landed somewhere new) -- the moved ask
+    must win; a moved salary is still landing, just somewhere new, not
+    something that stopped."""
+    moved_and_lapsed_entry = {
+        "key": STREAM_KEY,
+        "source": "confirmed",
+        "lapsed": True,
+        "missed_cycles": 2.4,
+        "avg_amount": 4798.08,
+        "account_id": NEW_ACCT_ID,
+        "usual_account_id": ACCT_ID,
+        "account_changed_from_usual": True,
+        "next_date": "2026-09-28",
+    }
+    items = _run(monkeypatch, lapsed_income_entry=moved_and_lapsed_entry, accounts=_two_accounts())
+
+    moved_asks = [i for i in items if i["id"].startswith("ask:payer_account_moved:")]
+    lapsed_asks = [i for i in items if i["id"].startswith("ask:payer_lapsed:")]
+    assert len(moved_asks) == 1
+    assert lapsed_asks == []
