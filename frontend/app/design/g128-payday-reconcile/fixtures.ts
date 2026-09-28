@@ -5,6 +5,10 @@ import type { CompanionItem } from "@/lib/api";
 // G128) plus three INVENTED secondary states so the redesign proves out
 // beyond one payload. Every invented number is commented as such; none of
 // it is Kevin's real bank data.
+// Note (G129, 2026-09-28): KEVIN_REAL_ITEM is no longer byte-for-byte the
+// 2026-09-18 API response — two fields (destination_kind, habitual_top_up)
+// were hand-added to its savings-pot row to mirror G129's backend change,
+// with no figure altered.
 
 /**
  * Kevin's real payload, unmodified. This is what makes the round honest:
@@ -88,6 +92,7 @@ export const KEVIN_REAL_ITEM: CompanionItem = {
       // fixed backend now returns for this shape; adding it here keeps
       // isHabitualTopUp's rendering identical without regenerating the rest
       // of the frozen figures.
+      destination_kind: "savings",
       habitual_top_up: true,
     },
     {
@@ -206,6 +211,7 @@ export const COVERED_ITEM: CompanionItem = {
       usual: 100,
       // Invented savings-pot habitual top-up shape (G129): nothing owed,
       // £100 habitually moving.
+      destination_kind: "savings",
       habitual_top_up: true,
     },
   ],
@@ -305,6 +311,7 @@ export const NO_SPLIT_ITEM: CompanionItem = {
       usual: 60,
       // Invented savings-pot habitual top-up shape (G129): nothing owed,
       // £60 habitually moving.
+      destination_kind: "savings",
       habitual_top_up: true,
     },
   ],
