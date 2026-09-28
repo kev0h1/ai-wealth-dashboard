@@ -1,18 +1,21 @@
-"""H94 (review round on H90, 2026-09-28): concurrent backend suite runs
-against this VPS's one local mongod must never see or destroy each
-other's data. The independent review reproduced this directly: H90
-shipped a single shared literal database name, "wealth_test", for every
-run, so on a host that ran seven `session.sh finish` gates (plus an
-`integrate` pass) in one morning, one session's session-end teardown
-(`drop_database("wealth_test")`) could and did drop another session's
-still-in-flight fixtures mid-test -- a new flaky-failure mode versus
-`main`, where nothing ever dropped anything at all.
+"""H90 (review round, 2026-09-28): concurrent backend suite runs against
+this VPS's one local mongod must never see or destroy each other's data.
+An independent review of this item reproduced this directly: the first
+version of this fix shipped a single shared literal database name,
+"wealth_test", for every run, so on a host that ran seven `session.sh
+finish` gates (plus an `integrate` pass) in one morning, one session's
+session-end teardown (`drop_database("wealth_test")`) could and did drop
+another session's still-in-flight fixtures mid-test -- a new
+flaky-failure mode versus `main`, where nothing ever dropped anything at
+all. (Filed and fixed entirely under H90; an earlier draft of this file
+mislabelled it as a separate item "H94", which is a real, unrelated item
+about test date drift -- corrected in the same review round.)
 
 This test reproduces that collision mechanically with two real `pytest`
 subprocesses (not a mock of concurrency): worker A
-(tests/_h94_worker_write_then_wait.py) writes a marker doc and then waits
+(tests/_h90_worker_write_then_wait.py) writes a marker doc and then waits
 ~2s before re-reading it; worker B
-(tests/_h94_worker_quick_finish.py) is a single trivial assertion that
+(tests/_h90_worker_quick_finish.py) is a single trivial assertion that
 finishes near-instantly, landing its own session-end teardown squarely
 inside worker A's wait window. Both processes are launched with MONGO_DB
 scrubbed from their environment, exactly like two independent `session.sh
@@ -20,11 +23,11 @@ finish` invocations (or two ad-hoc `pytest` runs) that never coordinate a
 database name with each other -- each is left to its own conftest.py
 default.
 
-Before H94 (both workers defaulting to the same literal "wealth_test"),
-worker B's teardown drops worker A's database out from under it and
-worker A's own assertion fails: this test is RED on that code. Since H94
-(each worker's conftest.py generates its own "wealth_test_<epoch>_<hex>"
-name), the two never collide: GREEN.
+Before the per-run-name fix (both workers defaulting to the same literal
+"wealth_test"), worker B's teardown drops worker A's database out from
+under it and worker A's own assertion fails: this test is RED on that
+code. Since the fix (each worker's conftest.py generates its own
+"wealth_test_<epoch>_<hex>" name), the two never collide: GREEN.
 """
 import os
 import subprocess
@@ -34,8 +37,8 @@ from pathlib import Path
 _TESTS_DIR = Path(__file__).resolve().parent
 _BACKEND_DIR = _TESTS_DIR.parent
 _VENV_PYTHON = _BACKEND_DIR / ".venv" / "bin" / "python"
-_WORKER_A = _TESTS_DIR / "_h94_worker_write_then_wait.py"
-_WORKER_B = _TESTS_DIR / "_h94_worker_quick_finish.py"
+_WORKER_A = _TESTS_DIR / "_h90_worker_write_then_wait.py"
+_WORKER_B = _TESTS_DIR / "_h90_worker_quick_finish.py"
 
 # Worker A sleeps this long after writing its marker (see that file) --
 # worker B is started well inside that window and, being a single trivial
@@ -84,7 +87,7 @@ def test_two_concurrent_runs_do_not_collide():
 
     assert proc_b.returncode == 0, f"worker B itself failed unexpectedly:\n{proc_b.stdout}"
     assert proc_a.returncode == 0, (
-        f"worker A failed -- see H94: its marker doc was almost "
+        f"worker A failed -- see H90: its marker doc was almost "
         f"certainly wiped mid-test by a concurrent run's teardown "
         f"dropping a shared database name:\n{out_a}"
     )

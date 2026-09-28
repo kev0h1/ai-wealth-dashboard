@@ -7,7 +7,7 @@ import time
 import uuid
 from pathlib import Path
 
-# H90/H94 (2026-09-28, review round): force every backend test process
+# H90 (2026-09-28, review round): force every backend test process
 # onto a disposable Mongo DATABASE, and give each RUN its own name,
 # before a single line below gets the chance to import anything that
 # creates the real "wealth" collection handles. app/db/collections.py now
@@ -19,7 +19,8 @@ from pathlib import Path
 # (transitively, all the way down to app.db.collections) resolves against
 # MONGO_DB, not a hardcoded "wealth".
 #
-# H94 correction: H90 shipped a single shared literal, "wealth_test", for
+# Review-round correction: the first version of this fix shipped a
+# single shared literal, "wealth_test", for
 # every run. This VPS runs several sessions' `finish` gates and an
 # `integrate` pass against ONE local mongod, sometimes concurrently (seven
 # finishes one morning) — each one's own session-end teardown dropped the
@@ -168,7 +169,7 @@ def _has_a_live_owner(name: str) -> bool:
         fh.close()
 
 
-# H94: matches ONLY our own generated shape, "wealth_test_<epoch>_<8 hex
+# Matches ONLY our own generated shape, "wealth_test_<epoch>_<8 hex
 # lowercase>" — deliberately narrower than `_looks_like_a_test_database`
 # below (which also accepts a bare "wealth_test" or any other
 # "..._test_..." name a human might set by hand), so the stale-database
@@ -389,9 +390,10 @@ def _mongo_cleanup_allowed() -> bool:
     existed to key off), so an unconditional `delete_many` here would have
     wiped the real app's live cache/version collections out from under it
     between runs. Since H90, `MONGO_DB` defaults to a fresh per-run
-    "wealth_test_<epoch>_<hex>" name (H94: no longer the single shared
-    literal "wealth_test" — see this file's module-level generator and
-    `_refuse_unless_test_db` above), so `_looks_like_a_test_database`
+    "wealth_test_<epoch>_<hex>" name (the review round's own fix: no
+    longer the single shared literal "wealth_test" — see this file's
+    module-level generator and `_refuse_unless_test_db` above), so
+    `_looks_like_a_test_database`
     is now true by construction for every normal run — collection would
     already have aborted otherwise — and this cleanup genuinely runs.
     `TEST_DB=1` stays as an explicit force for the (currently
@@ -441,10 +443,11 @@ def _clear_response_cache():
     safely: `_mongo_cleanup_allowed()` kept the real-Mongo `delete_many`
     OFF unless a test database was explicitly configured, because the
     suite's configured Mongo WAS the real app's "wealth" database. Since
-    H90 the suite runs against a disposable database by default (H94: a
-    fresh PER-RUN "wealth_test_<epoch>_<hex>" name, not a single shared
-    literal — see this file's module-level generator and
-    `_refuse_unless_test_db`), so `_mongo_cleanup_allowed()` now genuinely
+    H90 the suite runs against a disposable database by default (the
+    review round's own fix: a fresh PER-RUN "wealth_test_<epoch>_<hex>"
+    name, not a single shared literal — see this file's module-level
+    generator and `_refuse_unless_test_db`), so `_mongo_cleanup_allowed()`
+    now genuinely
     returns True and this Mongo-layer cleanup runs for real.
 
     One long-standing limitation is unchanged by H90 and still applies:

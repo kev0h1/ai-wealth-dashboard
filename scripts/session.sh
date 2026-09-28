@@ -890,7 +890,7 @@ cmd_finish() {
   fi
 
   log "running backend tests in $worktree_dir/backend..."
-  # H90/H94: explicit MONGO_DB alongside conftest.py's own default (belt
+  # H90: explicit MONGO_DB alongside conftest.py's own default (belt
   # and suspenders -- conftest.py's `os.environ.setdefault` already picks
   # a fresh per-run name when this is unset, and aborts collection
   # outright if whatever it resolves to doesn't look like a test
@@ -898,9 +898,9 @@ cmd_finish() {
   # "wealth" database, and so this line itself is proof of that, without
   # needing to trace conftest.py's import ordering to believe it.
   #
-  # H94 correction: a single shared literal here ("wealth_test") let two
-  # concurrent `finish` gates against this VPS's one local mongod collide
-  # -- one session's teardown dropped the other's still-in-flight
+  # Review-round correction: a single shared literal here ("wealth_test")
+  # let two concurrent `finish` gates against this VPS's one local mongod
+  # collide -- one session's teardown dropped the other's still-in-flight
   # fixtures mid-run (found in review, reproduced directly). Generated
   # fresh per invocation instead, same "wealth_test_<epoch
   # seconds>_<8 hex>" shape conftest.py's own default generates (kept in

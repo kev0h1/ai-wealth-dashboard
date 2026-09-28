@@ -626,19 +626,19 @@ def _run_frontend_checks(changed: set[str]) -> None:
 
 
 def _fresh_test_db_name() -> str:
-    """H94: the same "wealth_test_<epoch seconds>_<8 hex>" shape
+    """The same "wealth_test_<epoch seconds>_<8 hex>" shape
     backend/tests/conftest.py's own default generator produces,
     duplicated rather than imported (this script must not depend on test
     code) — kept in sync by convention; see that file if this ever needs
     to change. A per-run name, not the single shared "wealth_test"
-    literal H90 originally passed here: this VPS can run several
-    `session.sh finish` gates and an `integrate` pass against the one
-    local mongod at once, and a shared literal let one run's session-end
-    teardown drop another's still-in-flight fixtures mid-test (found and
-    reproduced in review). The epoch prefix is what lets conftest.py's
-    own stale-database sweep find and reap a name like this one if the
-    process that generated it never reaches its own teardown (crashed,
-    OOM-killed)."""
+    literal H90's first pass originally passed here: this VPS can run
+    several `session.sh finish` gates and an `integrate` pass against the
+    one local mongod at once, and a shared literal let one run's
+    session-end teardown drop another's still-in-flight fixtures mid-test
+    (found and reproduced in review). The epoch prefix is what lets
+    conftest.py's own stale-database sweep find and reap a name like this
+    one if the process that generated it never reaches its own teardown
+    (crashed, OOM-killed)."""
     return f"wealth_test_{int(time.time())}_{uuid.uuid4().hex[:8]}"
 
 
@@ -654,11 +654,11 @@ def _run_backend_tests() -> None:
     and dotenv's override=False never clobbers an already-set var), but
     passing a MONGO_DB here too means this invocation is its own proof of
     the mechanism, not something that only holds up if conftest.py's
-    import order is never disturbed. H94: that value is now generated
-    fresh per call (`_fresh_test_db_name`), not the single shared
-    "wealth_test" literal H90 originally used here, so an integrate pass
-    running concurrently with a `session.sh finish` (or another integrate
-    pass) can never collide with it."""
+    import order is never disturbed. Review-round correction: that value
+    is now generated fresh per call (`_fresh_test_db_name`), not the
+    single shared "wealth_test" literal H90's first pass originally used
+    here, so an integrate pass running concurrently with a `session.sh
+    finish` (or another integrate pass) can never collide with it."""
     venv_python = REPO_ROOT / "backend" / ".venv" / "bin" / "python"
     rc, out = _sh(
         [
