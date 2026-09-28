@@ -42,7 +42,7 @@ vanish with no explanation at all.
      then runs the backend test suite. If `frontend/` or `shared/` changed in
      the merge, also runs `npm run -s check:design-index` and
      `npm run -s check:legal-content` (the same gate `scripts/session.sh
-     finish` runs - see H23), then `npm run build` + restart
+     finish` runs - see H23), then an atomic frontend build + restart
      `wealth-frontend`; if `backend/` changed, restart `wealth-api` and
      `wealth-worker` (the worker imports services and core modules under
      `backend/app`, not just `backend/app/workers`, so any backend change
@@ -91,7 +91,11 @@ from typing import Iterator, Optional
 
 REPO_ROOT = Path("/root/ai-wealth-dashboard")
 sys.path.insert(0, str(REPO_ROOT / "backend"))
+# scripts/frontend_build.py lives next to this file; import it from there
+# (not from REPO_ROOT) so a worktree's tests exercise the worktree's copy.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import frontend_build  # noqa: E402
 from app.services import backlog  # noqa: E402
 
 LOCK_PATH = REPO_ROOT / ".integrate.lock"
@@ -533,9 +537,29 @@ def _restart_services(changed: set[str]) -> None:
     backend_changed = any(p == "backend" or p.startswith("backend/") for p in changed)
 
     if frontend_or_shared:
-        rc, out = _sh(["npm", "run", "build"], cwd=REPO_ROOT / "frontend", timeout=900)
-        if rc != 0:
-            raise IntegrateError(f"frontend build failed:\n{out}")
+        # H51: never build in place. frontend_build builds in a scratch
+        # mirror of frontend/ (<repo>/.frontend-staging), verifies BUILD_ID
+        # and every file required-server-files.json lists, and only then
+        # swaps the result into frontend/.next with one atomic rename, keeping
+        # the previous build at frontend/.next-prev (revert with
+        # `scripts/frontend_build.py --revert`). A failed, interrupted or
+        # unverified build raises and leaves the live .next untouched, so
+        # the running wealth-frontend keeps serving the last good build
+        # and the restart below never happens. It takes its own
+        # non-blocking lock on frontend/.next-build.lock, so an overlapping
+        # build (a session's own scripts/frontend_build.py run in the
+        # shared tree) fails loudly here rather than the two builds
+        # corrupting each other; that failure blocks the item like any
+        # other build failure, re-run finish/integrate once the other
+        # build has finished.
+        try:
+            result = frontend_build.build_and_swap(REPO_ROOT / "frontend")
+        except frontend_build.FrontendBuildError as exc:
+            raise IntegrateError(f"frontend build failed:\n{exc}") from None
+        print(
+            f"frontend build {result.build_id} swapped into frontend/.next "
+            f"(previous {result.previous_build_id or 'none'} kept at frontend/.next-prev)"
+        )
         _systemctl_restart("wealth-frontend")
     if backend_changed:
         _systemctl_restart("wealth-api")
