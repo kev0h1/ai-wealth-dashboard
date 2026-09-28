@@ -88,11 +88,30 @@ def _git(*args: str, cwd: Path) -> str:
 
 def _pre_h83_session_sh(tmp_path: Path) -> Path:
     """The honest "old gate" baseline (see the H83 item text and
-    CLAUDE.md's "Finishing" note on this item): this worktree's own HEAD,
-    i.e. scripts/session.sh exactly as it stood before this item's edits,
-    not a hand-written stand-in for the bug."""
+    CLAUDE.md's "Finishing" note on this item): scripts/session.sh
+    exactly as it stood before this item's edits, not a hand-written
+    stand-in for the bug.
+
+    This is NOT `git show HEAD:...` -- HEAD on this branch IS the H83
+    commit (and, after a merge of origin/main into this branch, a merge
+    commit sitting on top of it), so `HEAD:scripts/session.sh` is the
+    NEW gate, not the old one; a test built that way would be asserting
+    the fix against itself. The correct "before this item" point is the
+    merge-base of this branch's HEAD and origin/main: the last commit
+    both share, which by construction predates every commit this item
+    added, and stays correct across any number of `git merge
+    origin/main` calls into this branch (each just advances the
+    merge-base along main, never past H83's own commits, since main has
+    not received them yet)."""
     old = tmp_path / "old-session.sh"
-    content = _git("show", "HEAD:scripts/session.sh", cwd=REPO_ROOT)
+    base_sha = _git("merge-base", "HEAD", "origin/main", cwd=REPO_ROOT).strip()
+    content = _git("show", f"{base_sha}:scripts/session.sh", cwd=REPO_ROOT)
+    if "run_check_gate" in content:
+        raise AssertionError(
+            f"merge-base {base_sha} of HEAD and origin/main already contains run_check_gate; "
+            "this is no longer a pre-H83 baseline (has H83 landed on main already?), "
+            "so this test cannot tell red from green."
+        )
     old.write_text(content, encoding="utf-8")
     old.chmod(0o755)
     return old
