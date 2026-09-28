@@ -98,21 +98,21 @@ ALLOWLIST: set[tuple[str, int]] = {
     # shifted every line below by -6, removing the Kenya region's
     # get_user_region import and its two KES/GBP home-currency branches
     # earlier in this file; likewise not new exception sites.
-    ("app/services/penny_tools.py", 3865),
-    ("app/services/penny_tools.py", 3930),  # ValueError from compute_intent_preview, see above
-    ("app/services/penny_tools.py", 4433),
-    ("app/services/penny_tools.py", 4453),
-    ("app/services/penny_tools.py", 4489),
-    ("app/services/penny_tools.py", 4512),
-    ("app/services/penny_tools.py", 4654),
-    ("app/services/penny_tools.py", 4659),
-    ("app/services/penny_tools.py", 4664),
-    ("app/services/penny_tools.py", 4751),
-    ("app/services/penny_tools.py", 4756),
-    ("app/services/penny_tools.py", 4761),
-    ("app/services/penny_tools.py", 5702),
-    ("app/services/penny_tools.py", 6357),
-    ("app/services/penny_tools.py", 6371),
+    ("app/services/penny_tools.py", 3882),
+    ("app/services/penny_tools.py", 3947),  # ValueError from compute_intent_preview, see above
+    ("app/services/penny_tools.py", 4450),
+    ("app/services/penny_tools.py", 4470),
+    ("app/services/penny_tools.py", 4506),
+    ("app/services/penny_tools.py", 4529),
+    ("app/services/penny_tools.py", 4671),
+    ("app/services/penny_tools.py", 4676),
+    ("app/services/penny_tools.py", 4681),
+    ("app/services/penny_tools.py", 4768),
+    ("app/services/penny_tools.py", 4773),
+    ("app/services/penny_tools.py", 4778),
+    ("app/services/penny_tools.py", 5719),
+    ("app/services/penny_tools.py", 6374),
+    ("app/services/penny_tools.py", 6388),
     # app.services.billing._handle_checkout_completed: `str(exc)` here is an
     # authored ValueError message from grant_pack (see above), returned as
     # the body of a Stripe *webhook* response — read by Stripe's own retry
