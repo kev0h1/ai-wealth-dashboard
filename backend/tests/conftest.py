@@ -223,7 +223,7 @@ _STALE_TEST_DB_AGE_SECONDS = 3600
 # an underscore (a per-run generated name, "wealth_test_<epoch>_<hex>",
 # or any other "wealth_test_..." shape) or the end of the string (the
 # bare name "wealth_test" itself) -- never just followed by more letters.
-_TEST_DB_PREFIX_RE = re.compile(r"^wealth_test(_|$)")
+_TEST_DB_PREFIX_RE = re.compile(r"^wealth_test(_|\Z)")
 
 
 def _looks_like_a_test_database(name: str) -> bool:
@@ -237,7 +237,29 @@ def _looks_like_a_test_database(name: str) -> bool:
     literal "wealth"). The prefix check is ANCHORED (H96 review round --
     see `_TEST_DB_PREFIX_RE`'s own comment): "wealth_testing" is not
     "wealth_test" plus a component boundary, so it is refused, not
-    accepted on a substring coincidence."""
+    accepted on a substring coincidence.
+
+    Round-three correction: ANY whitespace anywhere in `name` refuses it
+    outright, checked first, before either the regex or the fallback.
+    Two independent reasons this exists rather than relying on either
+    check alone: (1) `_TEST_DB_PREFIX_RE` used a bare `$`, which in
+    Python (without `re.MULTILINE`) matches not only the true end of the
+    string but also the position immediately before a single trailing
+    newline character -- so the literal name "wealth_test" plus a
+    trailing newline matched `^wealth_test$` even though it is not, in
+    fact, the bare name. Fixed there too (an end-of-string-only anchor,
+    which has no such exception), but this whitespace check is defence in depth, not
+    a substitute. (2) The split-based fallback below (`"test" in
+    name.split("_")`) never examined the CONTENT of each component, only
+    whether "test" was exactly one of them -- " wealth_test".split("_")
+    is `[" wealth", "test"]`, and "test" is still in that list, so a
+    leading space on the first component changed nothing. No generator
+    in this file has ever produced a name with any whitespace in it, and
+    Mongo's own database-name rules make one vanishingly unlikely to be
+    legitimate, so refusing on sight is unambiguous, not a false
+    negative risk."""
+    if any(ch.isspace() for ch in name):
+        return False
     if _TEST_DB_PREFIX_RE.match(name):
         return True
     return "test" in name.split("_")

@@ -41,6 +41,13 @@ CASES = [
     ("wealthtest", False),
     ("wealth_testament", False),        # anchor bug: was True
     ("wealth_testers_prod", False),     # anchor bug: was True
+    ("wealth_test\n", False),          # round-three finding 2: bare `$` matches
+                                         # before a trailing newline in Python regex
+                                         # (no re.MULTILINE needed) -- was True
+    (" wealth_test", False),            # round-three finding 2: the split-based
+                                         # fallback ("test" in name.split("_")) did
+                                         # not care about a leading space on the
+                                         # first component -- was True
 ]
 
 
