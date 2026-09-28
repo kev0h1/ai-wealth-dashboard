@@ -112,6 +112,34 @@ class IntegrateError(RuntimeError):
     (not on main, dirty tree, lock already held)."""
 
 
+# H93: every `backlog.set_state`/`set_done`/`set_uat`/`add_note` call
+# below returns `(dict, committed: bool)`, and before this fix every one
+# of them was called for its side effect only, with the tuple (and so
+# `committed`) discarded outright -- worse than the CLI's own "(saved to
+# file; git commit or push failed)" footnote, since nothing was printed
+# at all. `_warn_if_not_committed` is the one place that discard is fixed:
+# every call site below now unpacks `committed` and passes it through
+# here, which prints a loud, specific warning and records the item so a
+# run's own exit code can reflect it (see `integrate_once`'s use of this
+# list). A failed board write here never undoes or blocks an already
+# -successful merge/push to origin/main -- the code has genuinely
+# shipped by the time any of these run, so the only honest response is to
+# surface the disagreement loudly, not to pretend the merge didn't
+# happen.
+_BOARD_WRITE_FAILURES: list[str] = []
+
+
+def _warn_if_not_committed(item_id: str, action: str, committed: bool) -> None:
+    if committed:
+        return
+    msg = (
+        f"error: {item_id} {action} was written to TODO.md but the git commit/push failed; the board file "
+        f"and origin/main may now disagree for {item_id} until this is retried or fixed by hand."
+    )
+    print(msg, file=sys.stderr)
+    _BOARD_WRITE_FAILURES.append(f"{item_id}: {action}")
+
+
 def _sh(cmd: list[str], cwd: Path = REPO_ROOT, timeout: int = GIT_TIMEOUT) -> tuple[int, str]:
     """Run a command, returning (returncode, combined stdout+stderr). Never
     raises for a non-zero exit — callers decide what that means."""
@@ -704,16 +732,19 @@ def _block(item_id: str, reason: str) -> None:
         print(f"error: {item_id} blocked, full detail follows:\n{full_text}", file=sys.stderr)
     one_line = _one_line_reason(full_text)
     try:
-        backlog.set_state(item_id, "blocked", reason=one_line, actor="claude")
+        _, committed = backlog.set_state(item_id, "blocked", reason=one_line, actor="claude")
     except backlog.BacklogError:
         logger_note = f"integrate: could not write block reason for {item_id}: {one_line}"
         print(logger_note, file=sys.stderr)
         return
+    _warn_if_not_committed(item_id, "blocked", committed)
     if full_text.strip():
         try:
-            backlog.add_note(item_id, _extract_diagnostic_tail(full_text), actor="claude")
+            _, note_committed = backlog.add_note(item_id, _extract_diagnostic_tail(full_text), actor="claude")
         except backlog.BacklogError as exc:
             print(f"warning: could not add detail note for {item_id}: {exc}", file=sys.stderr)
+        else:
+            _warn_if_not_committed(item_id, "block detail note", note_committed)
 
 
 def _rollback_and_restart(pre_sha: str, changed: set[str]) -> None:
@@ -846,27 +877,35 @@ def _integrate_one(item: dict) -> tuple[str, str]:
             print(f"warning: could not derive a design preview link for {item_id}: {exc}", file=sys.stderr)
             preview_link, preview_detail = _DESIGN_INDEX_LINK, None
         try:
-            backlog.set_uat(item_id, preview_link, actor="claude")
+            _, uat_committed = backlog.set_uat(item_id, preview_link, actor="claude")
             landed_detail = f"landed in uat, preview {preview_link}"
             if preview_detail:
                 landed_detail += f" ({preview_detail})"
         except backlog.BacklogError as exc:
             print(f"warning: {item_id} merged but board write failed: {exc}", file=sys.stderr)
             landed_detail = "landed in uat, board write failed"
+        else:
+            _warn_if_not_committed(item_id, "sent to uat", uat_committed)
         if preview_detail:
             try:
-                backlog.add_note(item_id, f"Preview: {preview_link}. {preview_detail}", actor="claude")
+                _, note_committed = backlog.add_note(
+                    item_id, f"Preview: {preview_link}. {preview_detail}", actor="claude"
+                )
             except backlog.BacklogError as exc:
                 print(f"warning: could not record preview detail note for {item_id}: {exc}", file=sys.stderr)
+            else:
+                _warn_if_not_committed(item_id, "preview detail note", note_committed)
         try:
             _notify_uat_ready(item_id, title, preview_link, detail=preview_detail)
         except Exception as exc:  # noqa: BLE001 - a push failure must never fail the integrate run
             print(f"warning: could not notify Kevin for {item_id}: {exc}", file=sys.stderr)
     else:
         try:
-            backlog.set_done(item_id, True, commit=merge_sha, actor="claude")
+            _, done_committed = backlog.set_done(item_id, True, commit=merge_sha, actor="claude")
         except backlog.BacklogError as exc:
             print(f"warning: {item_id} merged but board write failed: {exc}", file=sys.stderr)
+        else:
+            _warn_if_not_committed(item_id, "marked done", done_committed)
         landed_detail = "done"
 
     _sh(["git", "push", "origin", "--delete", branch], timeout=30)
@@ -879,6 +918,7 @@ def _integrate_one(item: dict) -> tuple[str, str]:
 
 
 def integrate_once(allow_branch: Optional[str] = None) -> int:
+    _BOARD_WRITE_FAILURES.clear()
     try:
         with _locked():
             _check_preconditions(allow_branch)
@@ -952,6 +992,21 @@ def integrate_once(allow_branch: Optional[str] = None) -> int:
                 f"{len(rejected)} rejected, {len(cancelled)} cancelled{review_no_branch_bit} "
                 f"(not eligible for merge)."
             )
+            if _BOARD_WRITE_FAILURES:
+                # H93: a merge/push to origin/main that succeeded is never
+                # undone here just because the matching board write's git
+                # commit failed -- the code has genuinely shipped by this
+                # point. But this run is not clean: the board may now
+                # disagree with origin/main for these items until someone
+                # notices and retries the write, so the exit code says so
+                # rather than the usual 0 every merged/blocked/skipped
+                # outcome above gets.
+                print(
+                    f"error: {len(_BOARD_WRITE_FAILURES)} board write(s) saved to TODO.md but did not commit: "
+                    f"{'; '.join(_BOARD_WRITE_FAILURES)}",
+                    file=sys.stderr,
+                )
+                return 1
             return 0
     except IntegrateError as exc:
         print(f"error: {exc}", file=sys.stderr)

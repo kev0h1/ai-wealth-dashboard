@@ -84,11 +84,25 @@ Questions in the compliance doc keep their existing `## Qn <title>` /
 blocked-deploy, submitted.
 
 Every public mutator (`set_done`, `set_state`, `set_owner`, `add_note`,
-`set_question_status`) writes the file atomically (temp file + rename)
-under an `fcntl.flock` on `.backlog.lock` in the repo root, then attempts
-a `git add` + `git commit` + `git push` of just that file. A failed
-commit or push is logged and reported back as `committed: False`; the
-file write itself is never lost because it happens before any git call.
+`set_question_status`) writes the file atomically (temp file + rename),
+then attempts a `git add` + `git commit` + `git push` of just that file —
+and, since H93, both the write and the commit/push happen under the same
+`fcntl.flock` on `.backlog.lock` in the repo root (see `_locked`), so two
+sessions writing the board at once queue rather than race each other's
+git commit. That lock acquisition is bounded (`BOARD_LOCK_WAIT_SECONDS`),
+not the indefinite wait it used to be, and logs when it is contended.
+Before either git call, `_wait_for_git_index_lock` also clears a stale
+`.git/index.lock` (git's own lock, left behind by a commit that died
+mid-operation, once nothing is found holding it and it is old enough —
+see `GIT_LOCK_STALE_SECONDS`) or waits out and reports a live one, so
+that lock stops being a silent reason a commit fails. A failed commit or
+push (lock-related or not) is logged and reported back as `committed:
+False`; the file write itself is never lost because it happens before
+any git call. `scripts/backlog.py` (the CLI) treats `committed: False`
+as a hard, non-zero-exit failure rather than a footnote — see
+`_print_result` there — but this module's own public mutators keep
+returning it rather than raising, since `/ops/go-live` needs to report a
+failed commit in its response body rather than 500 the request.
 """
 from __future__ import annotations
 
@@ -97,6 +111,7 @@ import logging
 import os
 import re
 import subprocess
+import time
 import urllib.parse
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -145,6 +160,45 @@ COMPLIANCE_PATH = _compliance_path()
 
 GIT_AUTHOR = "Sorted Ops <ops@auriqltd.co.uk>"
 GIT_TIMEOUT = 15
+
+# H93: how stale a `.git/index.lock` has to be, with no live process
+# holding it, before this module removes it itself rather than let it
+# turn a routine commit into a swallowed "saved but not committed"
+# outcome. The incident this closes found one 30 minutes old with no git
+# process anywhere near it. 90s (6x GIT_TIMEOUT) is the threshold chosen:
+# comfortably longer than this module's own worst case (`git add` then
+# `git commit` back to back, each capped at GIT_TIMEOUT=15s, so a lock
+# *this module* legitimately created and is still working under never
+# gets close to 90s), while recovering in well under two minutes instead
+# of the 30 the real incident sat for. The age threshold is only a
+# secondary sanity check, though -- the real safety gate is
+# `_lock_holder_pids`: a lock is only ever removed once nothing is found
+# holding it, however old or young it is, so a genuinely live git process
+# (a slow push, a rebase step actually running) is never touched no
+# matter how long it runs.
+GIT_LOCK_STALE_SECONDS = 90.0
+# Bounded wait for a *live* .git/index.lock (held by a real process) to
+# clear before giving up and reporting the commit as failed. 20s gives a
+# holder comfortably more than one GIT_TIMEOUT-capped subprocess call to
+# finish without making a caller wait very long for a lock that turns out
+# to be genuinely stuck.
+GIT_LOCK_WAIT_SECONDS = 20.0
+GIT_LOCK_POLL_SECONDS = 0.5
+
+# H93: this module's own writer lock (`.backlog.lock`, see `_locked`
+# below) now also covers the git commit/push, not just the file rewrite,
+# so two sessions writing the board at once (the normal case on this
+# project) queue instead of racing each other's git commit. The wait is
+# bounded, not the indefinite fcntl.flock(LOCK_EX) this used to be: an
+# unbounded wait would turn one genuinely stuck holder (a process that
+# died mid-write, still holding the fd) into every future session hanging
+# forever with nothing to show for it. 30s is well beyond one mutator's
+# realistic total (a file rewrite plus `git add`+`commit`, and only on
+# success `git push`, each subprocess call capped at GIT_TIMEOUT=15s) so
+# ordinary queuing under contention almost never times out, while a
+# genuinely stuck holder is still reported within one command.
+BOARD_LOCK_WAIT_SECONDS = 30.0
+BOARD_LOCK_POLL_SECONDS = 0.2
 
 ITEM_STATES = ("todo", "in-progress", "blocked", "review", "rejected", "uat", "cancelled")
 # Human-facing labels for a state key, matching the board's own vocabulary
@@ -379,15 +433,193 @@ def _atomic_write(path: Path, text: str) -> None:
 
 
 @contextmanager
-def _locked(repo_root: Path) -> Iterator[None]:
+def _locked(repo_root: Path, *, timeout: float = BOARD_LOCK_WAIT_SECONDS) -> Iterator[None]:
+    """Serialises a full read-modify-write-commit-push sequence against
+    every other caller of this module in this `repo_root` (H93). Before
+    this fix the lock only covered the file rewrite: two concurrent
+    sessions could each cleanly load, mutate and save TODO.md one after
+    the other, then both call `_git_commit_and_push` outside the lock at
+    the same time, racing each other's `git add`/`git commit` against the
+    same working tree. `git commit` on a path commits *every* uncommitted
+    change to that path, not just the caller's own diff, so whichever
+    process won the race committed both sessions' writes under its own
+    message -- exactly what piled up three writes from two sessions into
+    one file on 2026-09-27. Every public mutator below now calls
+    `_git_commit_and_push` from *inside* this same `with` block, so the
+    two are one atomic unit again: load, mutate, save, commit, push, then
+    release.
+
+    Bounded, not the indefinite `fcntl.flock(LOCK_EX)` this used to be —
+    contention is the ordinary case here (this file is shared by every
+    Claude and Codex session plus `/ops/go-live`), so callers queue
+    briefly and that queuing is logged, rather than either blocking
+    forever behind a holder that might be dead, or racing git the way the
+    old code did. See `BOARD_LOCK_WAIT_SECONDS` for why 30s."""
     repo_root.mkdir(parents=True, exist_ok=True)
     lock_path = repo_root / ".backlog.lock"
     with open(lock_path, "a+") as fh:
-        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        deadline = time.monotonic() + timeout
+        logged_contention = False
+        while True:
+            try:
+                fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if not logged_contention:
+                    logger.warning(
+                        "backlog: .backlog.lock in %s is held by another session, waiting up to %.0fs",
+                        repo_root,
+                        timeout,
+                    )
+                    logged_contention = True
+                if time.monotonic() >= deadline:
+                    raise BacklogError(
+                        f"backlog: could not acquire the board write lock (.backlog.lock in {repo_root}) "
+                        f"within {timeout:.0f}s; another session appears to be stuck holding it. Nothing was "
+                        f"written for this call."
+                    )
+                time.sleep(BOARD_LOCK_POLL_SECONDS)
         try:
             yield
         finally:
             fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+
+
+class _GitLockHeld(Exception):
+    """Internal only: `.git/index.lock` is held by a live process and
+    stayed that way for `GIT_LOCK_WAIT_SECONDS`. Always caught inside
+    `_git_commit_and_push`, which folds it into the same `committed:
+    False` outcome as any other git failure — this never escapes this
+    module on its own."""
+
+
+def _lock_holder_pids(lock_path: Path) -> list[str]:
+    """Best-effort: which live process(es), if any, currently hold
+    `lock_path` open. This is the actual safety gate for whether a stale
+    `.git/index.lock` may be removed (H93) — age alone is never enough,
+    since a slow but genuine git operation must never have its lock
+    pulled out from under it.
+
+    Prefers `fuser`/`lsof` (fast, exact, and what the item asked for);
+    falls back to a manual /proc scan for a live `git` process whose cwd
+    is this lock's repo, for a host where neither tool is installed. If
+    every check finds nothing, the lock is treated as unheld -- correct
+    for the common case (git leaves the file byte for byte but nothing
+    has an fd on it once the process exits), and safely conservative
+    against a false "clear to remove": the age threshold in
+    `_wait_for_git_index_lock` still has to elapse before anything is
+    actually deleted."""
+    for tool, extra_args in (("fuser", []), ("lsof", ["-t"])):
+        try:
+            result = subprocess.run(
+                [tool, *extra_args, str(lock_path)], capture_output=True, text=True, timeout=5
+            )
+        except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
+            continue
+        pids = [tok.strip().lstrip("+") for tok in result.stdout.split() if tok.strip().lstrip("+").isdigit()]
+        if pids:
+            return pids
+        if result.returncode == 0:
+            # The tool ran and positively found no holder -- trust that
+            # rather than falling through to the /proc scan.
+            return []
+    # Neither tool available: scan /proc for a live `git` process whose
+    # working directory is this lock's repo root.
+    repo_root = lock_path.parent.parent
+    try:
+        resolved_repo_root = repo_root.resolve()
+    except OSError:
+        return []
+    proc_dir = Path("/proc")
+    holders: list[str] = []
+    if not proc_dir.is_dir():
+        return holders
+    for entry in proc_dir.iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            cmdline = (entry / "cmdline").read_bytes()
+        except OSError:
+            continue
+        if b"git" not in cmdline:
+            continue
+        try:
+            cwd = Path(os.readlink(entry / "cwd")).resolve()
+        except OSError:
+            continue
+        if cwd == resolved_repo_root:
+            holders.append(entry.name)
+    return holders
+
+
+def _wait_for_git_index_lock(
+    repo_root: Path,
+    *,
+    stale_after: float = GIT_LOCK_STALE_SECONDS,
+    max_wait: float = GIT_LOCK_WAIT_SECONDS,
+    poll_interval: float = GIT_LOCK_POLL_SECONDS,
+) -> None:
+    """H93: called before ever shelling out to `git add`/`git commit`, so
+    a leftover `.git/index.lock` (git's own lock, distinct from this
+    module's `.backlog.lock`) does not have to fail a commit that a
+    little patience or cleanup could have recovered. The incident this
+    closes was exactly a stale one of these: left behind by a commit that
+    died mid-operation, 30 minutes old, no git process anywhere near it,
+    silently turning every write behind it into "saved but not
+    committed".
+
+    Never removes a lock a live process holds — `_lock_holder_pids` is
+    checked fresh on every poll, and finding a holder always means "wait
+    and recheck", never "remove". Only once nothing holds it AND it is
+    older than `stale_after` is it deleted, with a warning logged saying
+    so. Otherwise (held, or unheld but too fresh to trust as abandoned)
+    this polls every `poll_interval` up to `max_wait` total, then raises
+    `_GitLockHeld`, which `_git_commit_and_push` treats like any other
+    commit failure."""
+    lock_path = repo_root / ".git" / "index.lock"
+    deadline = time.monotonic() + max_wait
+    attempt = 0
+    while True:
+        if not lock_path.exists():
+            return
+        attempt += 1
+        holders = _lock_holder_pids(lock_path)
+        if holders:
+            logger.warning(
+                "backlog: .git/index.lock in %s is held by pid(s) %s, waiting (attempt %d)",
+                repo_root,
+                ",".join(holders),
+                attempt,
+            )
+        else:
+            try:
+                age = time.time() - lock_path.stat().st_mtime
+            except FileNotFoundError:
+                return  # released between the exists() check above and this stat()
+            if age >= stale_after:
+                logger.warning(
+                    "backlog: removing stale .git/index.lock in %s (age %.0fs, no live process holding it)",
+                    repo_root,
+                    age,
+                )
+                try:
+                    lock_path.unlink()
+                except FileNotFoundError:
+                    pass
+                return
+            logger.warning(
+                "backlog: .git/index.lock present in %s (age %.0fs, no holder found yet, not stale, "
+                "attempt %d)",
+                repo_root,
+                age,
+                attempt,
+            )
+        if time.monotonic() >= deadline:
+            holder_detail = f"held by pid(s) {','.join(holders)}" if holders else "no live holder found, but not yet stale"
+            raise _GitLockHeld(
+                f".git/index.lock in {repo_root} is still present after waiting {max_wait:.0f}s ({holder_detail})"
+            )
+        time.sleep(poll_interval)
 
 
 def _git_commit_and_push(paths: list[Path], message: str, repo_root: Path) -> bool:
@@ -396,7 +628,11 @@ def _git_commit_and_push(paths: list[Path], message: str, repo_root: Path) -> bo
     Returns True only if both the commit and the push succeed. Any failure
     (including a timeout) is logged and swallowed — the caller has already
     written the file by the time this runs, so a git failure never loses
-    the edit, it just means the page should show "git commit failed"."""
+    the edit, it just means the page should show "git commit failed".
+
+    H93: before either git call, `_wait_for_git_index_lock` clears a
+    stale `.git/index.lock` (or waits out and reports a live one) so that
+    lock stops being a reason a perfectly good commit fails."""
     rel: list[str] = []
     for p in paths:
         try:
@@ -404,6 +640,7 @@ def _git_commit_and_push(paths: list[Path], message: str, repo_root: Path) -> bo
         except ValueError:
             rel.append(str(p))
     try:
+        _wait_for_git_index_lock(repo_root)
         subprocess.run(
             ["git", "add", *rel], cwd=repo_root, check=True, capture_output=True, timeout=GIT_TIMEOUT
         )
@@ -1359,11 +1596,11 @@ def repair_todo(
             else:
                 doc.lines[f.line_no] = f.replacement
         doc.save(resolved_path)
-    committed = _git_commit_and_push(
-        [resolved_path],
-        f"backlog: repaired {len(findings)} malformed line(s) by {actor}",
-        resolved_root,
-    )
+        committed = _git_commit_and_push(
+            [resolved_path],
+            f"backlog: repaired {len(findings)} malformed line(s) by {actor}",
+            resolved_root,
+        )
     return [f.to_dict() for f in findings], committed
 
 
@@ -1384,12 +1621,12 @@ def set_done(
 ) -> tuple[dict, bool]:
     resolved_path = todo_path or _todo_path()
     resolved_root = repo_root or _repo_root()
+    action = "done" if done else "reopened"
     with _locked(resolved_root):
         doc = TodoDoc.load(resolved_path)
         item = doc.set_done(item_id, done, commit=commit, actor=actor)
         doc.save(resolved_path)
-    action = "done" if done else "reopened"
-    committed = _git_commit_and_push([resolved_path], f"backlog: {item_id} {action} by {actor}", resolved_root)
+        committed = _git_commit_and_push([resolved_path], f"backlog: {item_id} {action} by {actor}", resolved_root)
     return item.to_dict(), committed
 
 
@@ -1413,24 +1650,26 @@ def set_state(
             item_id, state, reason=reason, branch=branch, link=link, uat_review=uat_review, actor=actor
         )
         doc.save(resolved_path)
-    action = {
-        "in-progress": (f"started (branch {branch})" if branch else "started"),
-        "blocked": "blocked",
-        "todo": "reset to to-do",
-        "review": f"sent to review ({branch})",
-        "rejected": f"rejected ({reason})",
-        "uat": f"sent to uat ({item.link})",
-        # H80 correction round (MEDIUM 5): this dict is keyed by every
-        # value in ITEM_STATES, on purpose, so a caller of this documented
-        # public mutator (not just set_cancelled's own wrapper) can never
-        # hit a KeyError here after the file has already been written and
-        # the lock released -- that would leave the item genuinely
-        # cancelled on disk while the caller sees a raised exception and
-        # no commit message, contradicting set_state's own guard comment
-        # that every caller and future wrapper funnels through one check.
-        "cancelled": f"cancelled ({reason})",
-    }[state]
-    committed = _git_commit_and_push([resolved_path], f"backlog: {item_id} {action} by {actor}", resolved_root)
+        action = {
+            "in-progress": (f"started (branch {branch})" if branch else "started"),
+            "blocked": "blocked",
+            "todo": "reset to to-do",
+            "review": f"sent to review ({branch})",
+            "rejected": f"rejected ({reason})",
+            "uat": f"sent to uat ({item.link})",
+            # H80 correction round (MEDIUM 5): this dict is keyed by every
+            # value in ITEM_STATES, on purpose, so a caller of this documented
+            # public mutator (not just set_cancelled's own wrapper) can never
+            # hit a KeyError here after the file has already been written,
+            # while still holding the same lock (H93: now covering the
+            # commit too, see `_locked`) -- that would leave the item
+            # genuinely cancelled on disk while the caller sees a raised
+            # exception and no commit message, contradicting set_state's own
+            # guard comment that every caller and future wrapper funnels
+            # through one check.
+            "cancelled": f"cancelled ({reason})",
+        }[state]
+        committed = _git_commit_and_push([resolved_path], f"backlog: {item_id} {action} by {actor}", resolved_root)
     return item.to_dict(), committed
 
 
@@ -1508,9 +1747,9 @@ def set_approved(
         doc.add_note(item_id, f"approved: {choice_clean}", actor)
         item = doc.set_state(item_id, "in-progress", actor=actor)
         doc.save(resolved_path)
-    committed = _git_commit_and_push(
-        [resolved_path], f"backlog: {item_id} approved ({choice_clean}) by {actor}", resolved_root
-    )
+        committed = _git_commit_and_push(
+            [resolved_path], f"backlog: {item_id} approved ({choice_clean}) by {actor}", resolved_root
+        )
     return item.to_dict(), committed
 
 
@@ -1588,9 +1827,9 @@ def set_cancelled(
             )
         item = doc.item(item_id)
         doc.save(resolved_path)
-    committed = _git_commit_and_push(
-        [resolved_path], f"backlog: {item_id} cancelled by {actor}", resolved_root
-    )
+        committed = _git_commit_and_push(
+            [resolved_path], f"backlog: {item_id} cancelled by {actor}", resolved_root
+        )
     return item.to_dict(), committed
 
 
@@ -1654,9 +1893,9 @@ def set_uncancelled(
         doc.add_note(item_id, f"uncancelled: {reason_clean}", actor)
         item = doc.item(item_id)
         doc.save(resolved_path)
-    committed = _git_commit_and_push(
-        [resolved_path], f"backlog: {item_id} uncancelled by {actor}", resolved_root
-    )
+        committed = _git_commit_and_push(
+            [resolved_path], f"backlog: {item_id} uncancelled by {actor}", resolved_root
+        )
     return item.to_dict(), committed
 
 
@@ -1675,7 +1914,7 @@ def add_item(
         doc = TodoDoc.load(resolved_path)
         item = doc.add_item(section, title, owner=owner)
         doc.save(resolved_path)
-    committed = _git_commit_and_push([resolved_path], f"backlog: {item.item_id} added by {actor}", resolved_root)
+        committed = _git_commit_and_push([resolved_path], f"backlog: {item.item_id} added by {actor}", resolved_root)
     return item.to_dict(), committed
 
 
@@ -1693,9 +1932,9 @@ def set_owner(
         doc = TodoDoc.load(resolved_path)
         item = doc.set_owner(item_id, owner)
         doc.save(resolved_path)
-    committed = _git_commit_and_push(
-        [resolved_path], f"backlog: {item_id} owner set to {owner} by {actor}", resolved_root
-    )
+        committed = _git_commit_and_push(
+            [resolved_path], f"backlog: {item_id} owner set to {owner} by {actor}", resolved_root
+        )
     return item.to_dict(), committed
 
 
@@ -1713,9 +1952,9 @@ def set_priority(
         doc = TodoDoc.load(resolved_path)
         item = doc.set_priority(item_id, priority)
         doc.save(resolved_path)
-    committed = _git_commit_and_push(
-        [resolved_path], f"backlog: {item_id} priority set to {priority} by {actor}", resolved_root
-    )
+        committed = _git_commit_and_push(
+            [resolved_path], f"backlog: {item_id} priority set to {priority} by {actor}", resolved_root
+        )
     return item.to_dict(), committed
 
 
@@ -1733,10 +1972,10 @@ def set_unblocks(
         doc = TodoDoc.load(resolved_path)
         item = doc.set_unblocks(item_id, questions)
         doc.save(resolved_path)
-    label = ", ".join(item.unblocks) if item.unblocks else "none"
-    committed = _git_commit_and_push(
-        [resolved_path], f"backlog: {item_id} unblocks set to {label} by {actor}", resolved_root
-    )
+        label = ", ".join(item.unblocks) if item.unblocks else "none"
+        committed = _git_commit_and_push(
+            [resolved_path], f"backlog: {item_id} unblocks set to {label} by {actor}", resolved_root
+        )
     return item.to_dict(), committed
 
 
@@ -1761,9 +2000,9 @@ def clear_branch(
         doc = TodoDoc.load(resolved_path)
         item = doc.clear_branch(item_id)
         doc.save(resolved_path)
-    committed = _git_commit_and_push(
-        [resolved_path], f"backlog: {item_id} branch tag cleared by {actor}", resolved_root
-    )
+        committed = _git_commit_and_push(
+            [resolved_path], f"backlog: {item_id} branch tag cleared by {actor}", resolved_root
+        )
     return item.to_dict(), committed
 
 
@@ -1781,7 +2020,7 @@ def add_note(
         doc = TodoDoc.load(resolved_path)
         item = doc.add_note(item_id, text, actor)
         doc.save(resolved_path)
-    committed = _git_commit_and_push([resolved_path], f"backlog: {item_id} note added by {actor}", resolved_root)
+        committed = _git_commit_and_push([resolved_path], f"backlog: {item_id} note added by {actor}", resolved_root)
     return item.to_dict(), committed
 
 
@@ -1800,7 +2039,7 @@ def set_question_status(
         doc.set_status(q_id, status)
         doc.save(resolved_path)
         result = doc.question_dict(q_id)
-    committed = _git_commit_and_push(
-        [resolved_path], f"backlog: {q_id} status set to {status} by {actor}", resolved_root
-    )
+        committed = _git_commit_and_push(
+            [resolved_path], f"backlog: {q_id} status set to {status} by {actor}", resolved_root
+        )
     return result, committed
