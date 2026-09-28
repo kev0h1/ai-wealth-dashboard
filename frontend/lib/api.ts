@@ -1766,6 +1766,99 @@ export class ApiError extends Error {
   }
 }
 
+// A124: global 401 handling. A session revoked elsewhere (another device's
+// sign-out, account deletion, the dormant sweep) used to be experienced as a
+// wall of per-card errors — every card's own fetch 401s and each renders
+// whatever error state it happens to have, never a clean sign-out. get<T>/
+// post<T>/del<T> below, plus toJson (the shared parser every hand-rolled
+// `fetch(...).then(r => toJson(r))` call in this file already routes
+// through), all funnel a 401 through reportIfUnauthorized so AuthProvider
+// only has to register ONE hook to react everywhere at once.
+//
+// This is a closed, explicit exemption list, not an "/auth/" prefix match:
+// several bank-LINKING routes also happen to live under /auth/ (finexer,
+// yapily, truelayer, the legacy provider — see LEGACY_BANK_ID above) and
+// those are ordinary authenticated calls that must still trigger sign-out on
+// a revoked session. Only the login/session-check surface, and the one
+// truly public route this file calls, are exempt:
+//   - POST /auth/session/validate — the re-validation check itself. A 401
+//     here means "you are not signed in", which is the exact case
+//     AuthProvider is asking about, not a surprise revoke to react to.
+//     AuthProvider calls this with a raw `fetch`, not get/post/del, so this
+//     entry is defensive (a future caller routing it through this file)
+//     rather than live today.
+//   - GET /auth/google, /auth/google/callback, /auth/google/mobile,
+//     /auth/google/mobile-callback, POST /auth/google/native, POST
+//     /auth/apple/native, GET /auth/mobile/poll — the Google/Apple sign-in
+//     round trip. This app has no separate "sign-up" route: the same OAuth
+//     flow doubles as sign-up, gated server-side by the invite allowlist.
+//     All of these are called via lib/nativeAuth.ts's own raw `fetch`, not
+//     through this file's helpers, so these entries are defensive too.
+//   - GET /health — the one route this file calls that needs no bearer at
+//     all (backend/app/core/auth.py's `_OPEN_PATHS`), so it can never
+//     genuinely 401 on a revoked session either way.
+const UNAUTHORIZED_HOOK_EXEMPT_PATHS = [
+  "/auth/session/validate",
+  "/auth/google",
+  "/auth/google/callback",
+  "/auth/google/mobile",
+  "/auth/google/mobile-callback",
+  "/auth/google/native",
+  "/auth/apple/native",
+  "/auth/mobile/poll",
+  "/health",
+];
+
+function isUnauthorizedHookExempt(responseUrl: string): boolean {
+  let pathname: string;
+  try {
+    pathname = new URL(responseUrl).pathname;
+  } catch {
+    pathname = responseUrl.split("?")[0] || responseUrl;
+  }
+  // A124 review tightening: `pathname.endsWith(exempt)` exempted anything
+  // ENDING in an exempt suffix — "/push/health" would have matched "/health"
+  // the same as "/health" itself, and a future nested route under a
+  // protected router could accidentally inherit an exemption it never
+  // earned. Strip only a leading "/api" (the one path prefix this app's own
+  // deployments put in front of every real route — see API_BASE), then
+  // require EXACT equality against the exempt list, not a suffix match.
+  const normalized = pathname.startsWith("/api/") ? pathname.slice(4) : pathname;
+  return UNAUTHORIZED_HOOK_EXEMPT_PATHS.includes(normalized);
+}
+
+type UnauthorizedHandler = () => void;
+let unauthorizedHandler: UnauthorizedHandler | null = null;
+// Debounce: three cards firing the same stale token in parallel must still
+// only sign the user out once. Set the instant the FIRST 401 is seen (not
+// after the handler runs), so two 401s that resolve back-to-back before the
+// handler's own state updates commit still only fire it once.
+let unauthorizedFired = false;
+
+/** Registered by AuthProvider once on mount. `null` unregisters (component
+ * teardown, though AuthProvider itself never unmounts in practice). */
+export function setUnauthorizedHandler(handler: UnauthorizedHandler | null): void {
+  unauthorizedHandler = handler;
+}
+
+/** Call once a session is confirmed good — a fresh sign-in, or a
+ * session/validate call that came back ok — so a LATER revocation of that
+ * new session can fire the handler again. Without this, the gate stays
+ * shut forever after the first sign-out-elsewhere of a tab's lifetime. */
+export function resetUnauthorizedGate(): void {
+  unauthorizedFired = false;
+}
+
+function reportIfUnauthorized(res: Response): void {
+  if (res.status !== 401 || isUnauthorizedHookExempt(res.url) || unauthorizedFired) return;
+  unauthorizedFired = true;
+  try {
+    unauthorizedHandler?.();
+  } catch {
+    /* a broken handler must never break the caller's own rejection below */
+  }
+}
+
 async function apiErrorFromResponse(res: Response): Promise<ApiError> {
   const fallback = `${res.status} ${res.statusText}`;
   let detail: unknown;
@@ -1789,7 +1882,10 @@ async function get<T>(path: string, attempt = 0): Promise<T> {
       headers: authHeaders(),
       signal: controller.signal,
     });
-    if (!res.ok) throw await apiErrorFromResponse(res);
+    if (!res.ok) {
+      reportIfUnauthorized(res);
+      throw await apiErrorFromResponse(res);
+    }
     return await res.json();
   } catch (e) {
     const aborted = e instanceof DOMException && e.name === "AbortError";
@@ -1807,7 +1903,10 @@ async function post<T>(path: string, body?: unknown, extraHeaders?: HeadersInit)
     headers: { "Content-Type": "application/json", ...authHeaders(), ...extraHeaders },
     body: body ? JSON.stringify(body) : undefined,
   });
-  if (!res.ok) throw await apiErrorFromResponse(res);
+  if (!res.ok) {
+    reportIfUnauthorized(res);
+    throw await apiErrorFromResponse(res);
+  }
   return res.json();
 }
 
@@ -1816,7 +1915,10 @@ async function del<T>(path: string): Promise<T> {
     method: "DELETE",
     headers: authHeaders(),
   });
-  if (!res.ok) throw await apiErrorFromResponse(res);
+  if (!res.ok) {
+    reportIfUnauthorized(res);
+    throw await apiErrorFromResponse(res);
+  }
   return res.json();
 }
 
@@ -1854,6 +1956,7 @@ function humanizeErrorDetail(detail: unknown, fallback: string): string {
 // Route every one of them through this so a non-2xx always throws.
 async function toJson<T>(res: Response): Promise<T> {
   if (!res.ok) {
+    reportIfUnauthorized(res);
     const fallback = `${res.status} ${res.statusText}`;
     let detail: unknown = fallback;
     try {
@@ -2315,6 +2418,7 @@ export const api = {
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(body),
     });
+    reportIfUnauthorized(res);
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.detail || "Failed to save");
     return data as UserProfile;
@@ -2333,6 +2437,7 @@ export const api = {
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ image }),
     });
+    reportIfUnauthorized(res);
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.detail || "Couldn't scan that receipt");
     return data as Basket;
@@ -2463,6 +2568,7 @@ export const api = {
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ confirm: "DELETE" }),
     });
+    reportIfUnauthorized(res);
     if (!res.ok) throw new Error("Delete failed");
     return res.json();
   },
@@ -2587,6 +2693,7 @@ export const api = {
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ question, history, context, screen, view }),
     });
+    reportIfUnauthorized(res);
     if (res.status === 402) {
       let detail: unknown = null;
       try {
@@ -2620,6 +2727,7 @@ export const api = {
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ chip_id, params, screen }),
     });
+    reportIfUnauthorized(res);
     if (res.status === 404) return null;
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
     return res.json();
@@ -2696,6 +2804,7 @@ export const api = {
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(body),
     }).then((r) => {
+      reportIfUnauthorized(r);
       if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
       return r.json();
     }) as Promise<Commitment>,
@@ -2716,6 +2825,7 @@ export const api = {
       method: "DELETE",
       headers: authHeaders(),
     }).then((r) => {
+      reportIfUnauthorized(r);
       if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
     }),
 
@@ -3042,6 +3152,7 @@ export const api = {
       throw new Error(`Network error: ${msg}`);
     }
     clearTimeout(timer);
+    reportIfUnauthorized(r);
 
     if (!r.ok) {
       const fallback = `Server error (${r.status})`;
@@ -3088,6 +3199,7 @@ export const api = {
       throw new Error(err instanceof Error ? err.message : String(err));
     }
     clearTimeout(timer);
+    reportIfUnauthorized(r);
     if (!r.ok) {
       let detail = `Server error (${r.status})`;
       try { const b = await r.json(); if (b?.detail) detail = b.detail; } catch { try { detail = await r.text() || detail; } catch { /* ignore */ } }
@@ -3110,6 +3222,7 @@ export const api = {
       method: "POST",
       headers: authHeaders(),
     });
+    reportIfUnauthorized(r);
     if (!r.ok) {
       const b = await r.json().catch(() => ({})) as Record<string, unknown>;
       throw new Error((b?.detail as string) || `Error ${r.status}`);
@@ -3140,6 +3253,7 @@ export const api = {
       throw new Error(err instanceof Error ? err.message : String(err));
     }
     clearTimeout(timer);
+    reportIfUnauthorized(r);
     if (!r.ok) {
       let detail = `Server error (${r.status})`;
       try { const b = await r.json(); if (b?.detail) detail = b.detail; } catch { try { detail = await r.text() || detail; } catch { /* ignore */ } }
@@ -3168,6 +3282,7 @@ export const api = {
       throw new Error(err instanceof Error ? err.message : String(err));
     }
     clearTimeout(timer);
+    reportIfUnauthorized(r);
     if (!r.ok) {
       let detail = `Server error (${r.status})`;
       try { const b = await r.json(); if (b?.detail) detail = b.detail; } catch { try { detail = await r.text() || detail; } catch { /* ignore */ } }
@@ -3181,6 +3296,7 @@ export const api = {
       method: "DELETE",
       headers: authHeaders(),
     });
+    reportIfUnauthorized(r);
     if (!r.ok) {
       const b = await r.json().catch(() => ({})) as Record<string, unknown>;
       throw new Error((b?.detail as string) || `Error ${r.status}`);
@@ -3458,7 +3574,7 @@ export const api = {
   deletePlanned: (id: string) =>
     fetch(`${API_BASE}/planned/${encodeURIComponent(id)}`, { method: "DELETE", headers: authHeaders() }).then((r) => toJson<{ ok: boolean }>(r)),
   updatePlanned: (id: string, patch: { name?: string; amount?: number; date?: string; account_id?: string | null }) =>
-    fetch(`${API_BASE}/planned/${encodeURIComponent(id)}`, { method: "PATCH", headers: { ...authHeaders(), "Content-Type": "application/json" }, body: JSON.stringify(patch) }).then(r => { if (!r.ok) throw new Error("patch failed"); return r.json(); }) as Promise<PlannedExpense>,
+    fetch(`${API_BASE}/planned/${encodeURIComponent(id)}`, { method: "PATCH", headers: { ...authHeaders(), "Content-Type": "application/json" }, body: JSON.stringify(patch) }).then(r => { reportIfUnauthorized(r); if (!r.ok) throw new Error("patch failed"); return r.json(); }) as Promise<PlannedExpense>,
 
   createCheckpoint: (ref: string, aim_amount?: number) =>
     post<Checkpoint>("/checkpoints", aim_amount == null ? { ref } : { ref, aim_amount }),
