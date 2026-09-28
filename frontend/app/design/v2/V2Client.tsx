@@ -72,8 +72,8 @@ export default function V2Client() {
     reload,
   } = useHomeTopData();
 
-  const { hideNetWorth: hidden, setHideNetWorth, region } = usePreferences();
-  const sym = region === "Kenya" ? "KES " : "£";
+  const { hideNetWorth: hidden, setHideNetWorth } = usePreferences();
+  const sym = "£";
 
   // ── Greeting ────────────────────────────────────────────────────────────────
   const hour = new Date().getHours();

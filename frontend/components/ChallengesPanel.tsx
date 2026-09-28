@@ -9,9 +9,14 @@ export const TIER_CONFIG = {
   stretch: { label: "Stretch", cadenceLabel: "Weekly", color: "#e11d48", bg: "bg-rose-50 dark:bg-rose-900/20",        badge: "bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-300" },
 } as const;
 
-function fmtAmt(n: number, currency: string) {
-  const s = currency === "KES" ? "KES " : "£";
-  return `${s}${Math.abs(n).toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+// A98: `challenge.currency` is not read here any more. It is always "GBP"
+// (routers/challenges.py hardcodes it when it generates a challenge, and no
+// document has ever carried anything else), so branching on it was an
+// unreachable arm, not defensive handling of real multi-currency data the
+// way components/AccountMiniCard.tsx's own symbol lookup is. The field is
+// still persisted and still returned by the API, it is just not a decision.
+function fmtAmt(n: number) {
+  return `£${Math.abs(n).toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 }
 
 function dateLabel(iso: string) {
@@ -25,8 +30,7 @@ export function TierCard({ challenge, hideNetWorth, onTips }: {
 }) {
   const cfg = TIER_CONFIG[challenge.tier as keyof typeof TIER_CONFIG];
   const p = challenge.progress;
-  const sym = challenge.currency === "KES" ? "KES " : "£";
-  const fmtA = (n: number) => `${sym}${Math.abs(n).toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+  const fmtA = (n: number) => `£${Math.abs(n).toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 
   return (
     <div className={`rounded-xl p-3 ${cfg.bg}`}>
@@ -126,7 +130,7 @@ export default function ChallengesPanel({ data, hideNetWorth, onOpenChat }: {
               challenge={ch}
               hideNetWorth={hideNetWorth}
               onTips={() => onOpenChat(
-                `Help me with this goal: "${ch.title}". My target is ${fmtAmt(ch.target, ch.currency)} (down ${Math.round(ch.reduction_pct * 100)}% from my usual ${fmtAmt(ch.baseline, ch.currency)}). Give me 3 specific, actionable tips.`
+                `Help me with this goal: "${ch.title}". My target is ${fmtAmt(ch.target)} (down ${Math.round(ch.reduction_pct * 100)}% from my usual ${fmtAmt(ch.baseline)}). Give me 3 specific, actionable tips.`
               )}
             />
           ))
@@ -149,7 +153,7 @@ export default function ChallengesPanel({ data, hideNetWorth, onOpenChat }: {
                   <span className="text-[10px] text-slate-600 dark:text-slate-300 flex-1 truncate">{ch.category} ↓{Math.round(ch.reduction_pct * 100)}%</span>
                   <span className={`text-[9px] font-semibold flex-shrink-0 ${ch.status === "completed" ? "text-amber-600" : "text-slate-400"}`}>
                     {ch.status === "completed" ? `+${ch.xp_reward} XP` : (
-                      <span className="font-mono tabular-nums">{hideNetWorth ? "••" : ch.actual !== null ? fmtAmt(ch.actual, ch.currency) : ""}</span>
+                      <span className="font-mono tabular-nums">{hideNetWorth ? "••" : ch.actual !== null ? fmtAmt(ch.actual) : ""}</span>
                     )}
                   </span>
                 </div>

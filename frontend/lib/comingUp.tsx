@@ -12,6 +12,7 @@
 // port was meant to close off).
 
 import { Fragment, type ReactNode } from "react";
+import { shortDateWithOrdinal } from "./dates";
 
 export type ComingUpBill = {
   name: string;
@@ -72,8 +73,11 @@ export function settleClusters(bills: ComingUpBill[]): [Cluster, Cluster, Cluste
   ];
 }
 
+// G170: same day-label convention as weekdayLabel below (today/tomorrow
+// keep their word with the date after; any other day is short-weekday +
+// ordinal day + short month) — delegates to it so the two can't drift.
 export function nextPaymentWhen(bill: ComingUpBill): string {
-  return bill.daysAway === 0 ? "today" : bill.daysAway === 1 ? "tomorrow" : bill.date;
+  return weekdayLabel(bill);
 }
 
 // The one fact-pair a heads-up card exists to answer: how long until money
@@ -317,30 +321,39 @@ export function humaniseBillName(name: string): string {
 // can't guarantee. See computeHeadsUp/HeadsUpSentence for the sibling
 // verdict that DOES name a bill, where it's the only fact in the sentence
 // and has the room.
-// G17: named days in this sentence read as a bare weekday ("Monday") or
-// "today"/"tomorrow" — never a day count ("the next 5 days"). A day count
-// shrinks every day as "today" advances toward the same fixed crossing day,
-// which reads as unstable even though nothing about the underlying data
-// changed; naming the day directly needs no such mental subtraction, and
-// since `frontLoaded` caps crossDay at 6 there's only ever one calendar
-// instance of that weekday inside the window, so it can't be ambiguous.
-// Reads the weekday off the bill's own pre-formatted `date` ("Wed 19 Aug",
-// the same string formatShortDate and the design fixtures already produce)
-// rather than re-deriving a date independently.
-const FULL_WEEKDAY: Record<string, string> = {
-  Sun: "Sunday",
-  Mon: "Monday",
-  Tue: "Tuesday",
-  Wed: "Wednesday",
-  Thu: "Thursday",
-  Fri: "Friday",
-  Sat: "Saturday",
-};
-
+// G17: named days in this sentence read as a named day — never a day count
+// ("the next 5 days"). A day count shrinks every day as "today" advances
+// toward the same fixed crossing day, which reads as unstable even though
+// nothing about the underlying data changed; naming the day directly needs
+// no such mental subtraction.
+// G17 originally proposed a BARE weekday ("Monday") for that named day, on
+// the reasoning that `frontLoaded` caps crossDay at 6 so only one calendar
+// instance of that weekday can fall inside the window. That reasoning holds
+// for crossDayLabel/leadWhen (concentrated branch, always <= day 6), but the
+// same weekdayLabel helper also backs heavyWhen in the spread-out/quiet
+// branches (computeDrop's "calm"/"landing" shapes), where the heaviest day
+// can sit anywhere in the fortnight — a 14-day window holds two calendar
+// instances of every weekday, so a bare "Thursday" there would misread as
+// this week's Thursday when the money in fact lands on the window's SECOND
+// Thursday (G152, Kevin 2026-09-23).
+// G170 superseded the bare-weekday form entirely, for every branch: Kevin's
+// decided form is short weekday + day WITH ordinal suffix + short month
+// ("Wed 19th Aug") always, and today/tomorrow keep their word with the date
+// after ("tomorrow, Sat 27th Sep") rather than standing alone or expanding
+// to the full weekday name. Because weekdayLabel now always carries the
+// date, not just within the first week, the G152 ambiguity in heavyWhen
+// cannot occur any more — do not narrow this back to a bare weekday for
+// near-term days "since it's unambiguous there", that reopens the same gap
+// G152 found and makes the tile's day labels inconsistent with each other.
+// Reads the day off the bill's own pre-formatted `date` ("Wed 19 Aug", the
+// same string formatShortDate and the design fixtures already produce)
+// rather than re-deriving a date independently — see lib/dates.ts's
+// shortDateWithOrdinal for why that's the safer source of truth than
+// re-parsing into a Date.
 function weekdayLabel(bill: ComingUpBill): string {
-  if (bill.daysAway === 0) return "today";
-  if (bill.daysAway === 1) return "tomorrow";
-  return FULL_WEEKDAY[bill.date.slice(0, 3)] ?? bill.date;
+  if (bill.daysAway === 0) return `today, ${shortDateWithOrdinal(bill.date)}`;
+  if (bill.daysAway === 1) return `tomorrow, ${shortDateWithOrdinal(bill.date)}`;
+  return shortDateWithOrdinal(bill.date);
 }
 
 export type DropInsight =
@@ -383,7 +396,7 @@ export type DropInsight =
   // instead, same as `calm` leads with the runway.
   | {
       kind: "landing";
-      when: "today" | "tomorrow";
+      when: string; // G170: weekdayLabel(landingBill) — "today, Sat 26th Sep" or "tomorrow, Sat 27th Sep"
       landingAmount: number; // the landing day's own total, already a sum
       sameDay: boolean; // the landing day IS the heaviest day in the window
       heavyExtra: number; // other bills sharing heavyWhen's date
@@ -454,9 +467,13 @@ export function computeDrop(bills: ComingUpBill[]): DropInsight {
     // a false "nothing's due" claim. `landingAmount` is the day's own total
     // (may be several bills, e.g. today's four small hits), read straight
     // off `days[]` so it can never drift from the daily buckets.
+    // A bill with daysAway === gapDays always exists (gapDays is itself
+    // derived as the minimum daysAway across `bills`), so `landingBill` is
+    // never the fallback.
+    const landingBill = bills.find((b) => b.daysAway === gapDays) ?? bills[0];
     return {
       kind: "landing",
-      when: gapDays === 0 ? "today" : "tomorrow",
+      when: weekdayLabel(landingBill),
       landingAmount: days[gapDays],
       sameDay: gapDays === heaviestDayIndex,
       heavyExtra: otherBillsOnDay(heaviestDayIndex),
@@ -500,8 +517,8 @@ export function DropSentence({ bills, sym = "£" }: { bills: ComingUpBill[]; sym
       return (
         <Fragment>
           <span className="font-mono tabular-nums">{fmtSum(insight.leadDayTotal, sym)}</span> of the{" "}
-          <span className="font-mono tabular-nums">{fmtSum(insight.total, sym)}</span> due this fortnight lands
-          today, across {paymentCount(insight.leadExtra + 1)}.
+          <span className="font-mono tabular-nums">{fmtSum(insight.total, sym)}</span> due this fortnight lands{" "}
+          {insight.crossDayLabel}, across {paymentCount(insight.leadExtra + 1)}.
         </Fragment>
       );
     }
@@ -534,7 +551,7 @@ export function DropSentence({ bills, sym = "£" }: { bills: ComingUpBill[]; sym
       // don't restate the same total twice, just fold it into one clause.
       return (
         <Fragment>
-          <span className="font-mono tabular-nums">{fmtSum(insight.landingAmount, sym)}</span> due {insight.when}{" "}
+          <span className="font-mono tabular-nums">{fmtSum(insight.landingAmount, sym)}</span> due {insight.when},{" "}
           across {paymentCount(insight.heavyExtra + 1)}, the heaviest hit of the{" "}
           <span className="font-mono tabular-nums">{fmtSum(insight.total, sym)}</span> due this fortnight.
         </Fragment>

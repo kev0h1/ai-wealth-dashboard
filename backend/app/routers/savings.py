@@ -6,22 +6,22 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.auth import current_user
+from app.core import timeutil
 from app.db.collections import (
     accounts_col, transactions_col, yapily_transactions_col,
     savings_goals_col, manual_accounts_col,
 )
-from app.services.region import get_user_region, get_kenya_transactions
 from app.services.cashflow import monthly_cashflow_cached
 from app.services import response_cache
 
 router = APIRouter(tags=["savings"])
 
 
-async def _cashflow(uid: str, region: str, cutoff: datetime) -> tuple[float, float, float]:
+async def _cashflow(uid: str, cutoff: datetime) -> tuple[float, float, float]:
     """(monthly_income, monthly_everyday_spending, monthly_surplus_after_debt), each a
     spike-smoothed 'typical month'. Surplus subtracts committed debt repayments so it
     reflects genuinely free cash. See app/services/cashflow.py."""
-    cf = await monthly_cashflow_cached(uid, region, cutoff)
+    cf = await monthly_cashflow_cached(uid, cutoff)
     surplus = round(cf["income"] - cf["spending"] - cf["debt"], 2)
     return cf["income"], cf["spending"], surplus
 
@@ -67,18 +67,17 @@ def _project_funded(current: float, target: float, surplus: float) -> tuple[int,
         return 999, None
     import math
     months = math.ceil((target - current) / surplus)
-    future = datetime.now().replace(day=1) + timedelta(days=32 * months)
+    future = timeutil.user_now().replace(day=1, tzinfo=None) + timedelta(days=32 * months)
     return months, future.strftime("%Y-%m")
 
 
 @router.get("/savings/insights")
 async def savings_insights(user: dict = Depends(current_user)):
     uid    = user["email"]
-    region = await get_user_region(uid)
     cutoff = datetime.now() - timedelta(days=90)
 
     goal = await savings_goals_col.find_one({"_id": uid})
-    monthly_income, monthly_spending, monthly_surplus = await _cashflow(uid, region, cutoff)
+    monthly_income, monthly_spending, monthly_surplus = await _cashflow(uid, cutoff)
 
     banks       = await _bank_accounts(uid)
     manuals     = await _manual_accounts(uid)

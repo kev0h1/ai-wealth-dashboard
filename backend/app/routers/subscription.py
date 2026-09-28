@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from app.core import timeutil
 from app.core.auth import current_user
 from app.core.config import BILLING_ENABLED, PRIMARY_EMAIL
 from app.core.subscription import (
@@ -107,7 +108,13 @@ async def get_subscription_info(user: dict = Depends(current_user)):
         "billing_periods": billing_periods,
         "trial_periods": list(SUBSCRIPTION_TRIAL_PERIODS),
         "trial_days": SUBSCRIPTION_TRIAL_DAYS,
-        "trial_charge_on": (datetime.now(timezone.utc) + timedelta(days=SUBSCRIPTION_TRIAL_DAYS)).date().isoformat(),
+        # G166 follow-up: shown to the user as "your trial charges on
+        # <date>" (PlanPicker.tsx), so the date must be the Europe/London
+        # calendar day, not a UTC-instant date() -- a UTC evening instant
+        # during BST can already be the next London day (see
+        # app.core.timeutil's module docstring, the same class of bug G161
+        # fixed elsewhere).
+        "trial_charge_on": (timeutil.user_today() + timedelta(days=SUBSCRIPTION_TRIAL_DAYS)).isoformat(),
         "billing_period": getattr(sub, "billing_period", None),
         "trial_ends_at": sub.trial_ends_at.isoformat() if getattr(sub, "trial_ends_at", None) else None,
         "renews_at": sub.renews_at.isoformat() if getattr(sub, "renews_at", None) else None,

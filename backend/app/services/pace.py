@@ -22,6 +22,7 @@ import statistics
 from collections.abc import Callable
 from datetime import date, datetime, timedelta
 
+from app.core import timeutil
 from app.db.collections import (
     cashflow_cache_col,
     preferences_col,
@@ -54,7 +55,7 @@ def _norm(raw: dict) -> _Txn:
     elif isinstance(raw_date, date):
         d_obj = raw_date
     else:
-        d_obj = date.today()
+        d_obj = timeutil.user_today()
 
     key = series_key(raw)
     cat = (raw.get("custom_category") or raw.get("category") or "Other")
@@ -209,7 +210,7 @@ async def load_spend_txns(
         elif isinstance(raw_date, date):
             d_obj = raw_date
         else:
-            d_obj = date.today()
+            d_obj = timeutil.user_today()
 
         cat = doc.get("custom_category") or doc.get("category") or "Other"
         if is_non_spend(kind_map, cat):
@@ -430,7 +431,7 @@ async def compute_pace(
     # ── B. Period window ──────────────────────────────────────────────────────
     prefs    = await preferences_col.find_one({"user_id": uid}) or {}
     pay_cfg  = prefs.get("pay_period_config", {"type": "calendar_month"})
-    today    = date.today()
+    today    = timeutil.user_today()
 
     period_start, _period_end = get_pay_period_for_date(today, pay_cfg)
     # days_elapsed = completed days since period start; today is NOT yet elapsed —
@@ -729,7 +730,7 @@ async def compute_pace_detail(uid: str, sts: dict | None = None, offset: int = 0
     # ── A. Resolve the target period ─────────────────────────────────────────
     prefs   = await preferences_col.find_one({"user_id": uid}) or {}
     pay_cfg = prefs.get("pay_period_config", {"type": "calendar_month"})
-    today   = date.today()
+    today   = timeutil.user_today()
 
     period_start, period_end = get_pay_period_for_date(today, pay_cfg)
     for _ in range(-offset):
@@ -1293,7 +1294,7 @@ async def shaped_fraction(
     degrades to the plain linear f_now, so every caller's existing "pace data
     unavailable" fallback still fires exactly as before.
     """
-    today = date.today()
+    today = timeutil.user_today()
     _, period_end = get_pay_period_for_date(period_start, pay_cfg)
     total_days = (period_end - period_start).days + 1
     days_elapsed = max(1, min(total_days, (today - period_start).days))
@@ -1360,7 +1361,7 @@ async def compute_category_signals(
     # ── Resolve the target period ─────────────────────────────────────────────
     prefs   = await preferences_col.find_one({"user_id": uid}) or {}
     pay_cfg = prefs.get("pay_period_config", {"type": "calendar_month"})
-    today   = date.today()
+    today   = timeutil.user_today()
 
     period_start, period_end = get_pay_period_for_date(today, pay_cfg)
     for _ in range(-offset):

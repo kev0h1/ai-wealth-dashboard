@@ -33,6 +33,16 @@ from app.db.collections import connections_col, finexer_consents_col, webhook_ev
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
+# A67: the TrueLayer receiver lives on its OWN router so `app.main` can
+# mount the Finexer one (production's only provider) without it. Splitting
+# the module in two was the alternative and would have been worse: the two
+# receivers share `_enqueue`, the `webhook_events_col` logging shape and
+# this file's whole explanation of the secret-in-URL scheme, and keeping
+# them side by side is what makes the deliberate difference between them
+# (Finexer additionally verifies an HMAC signature; TrueLayer's Data API
+# sends none) readable. See `app.core.config.TRUELAYER_ENABLED`.
+truelayer_router = APIRouter(prefix="/webhooks", tags=["webhooks"])
+
 
 async def _enqueue(task: str, **kwargs):
     pool = await create_pool(RedisSettings.from_dsn(REDIS_URL))
@@ -40,9 +50,9 @@ async def _enqueue(task: str, **kwargs):
     await pool.aclose()
 
 
-@router.post("/truelayer/{secret}", status_code=200)
+@truelayer_router.post("/truelayer/{secret}", status_code=200)
 async def truelayer_webhook(secret: str, request: Request):
-    if secret != TRUELAYER_WEBHOOK_SECRET:
+    if not hmac.compare_digest(secret.encode("utf-8"), TRUELAYER_WEBHOOK_SECRET.encode("utf-8")):
         raise HTTPException(status_code=401, detail="Invalid token")
 
     body = await request.body()
@@ -250,7 +260,7 @@ async def finexer_webhook(secret: str, request: Request):
     never raises for unknown-but-authentic event shapes — those degrade to a
     logged "skipped"/"ignored" status and a 200, not a 5xx.
     """
-    if secret != FINEXER_WEBHOOK_SECRET:
+    if not hmac.compare_digest(secret.encode("utf-8"), FINEXER_WEBHOOK_SECRET.encode("utf-8")):
         raise HTTPException(status_code=401, detail="Invalid token")
 
     body = await request.body()

@@ -15,7 +15,7 @@
 // glass-card banner was) because BANK_META resolution pulls in BankBadge,
 // bankKey and a small logo-source helper — enough surface area to earn its
 // own file, consistent with the app's other Home card components
-// (SafeToSpendCard, UpcomingBillsStrip, ThisMonthStrip, HomeInsightSpotlight).
+// (SafeToSpendCard, UpcomingBillsStrip, HomeInsightSpotlight).
 
 import { ChevronDown } from "lucide-react";
 import { BankBadge, bankKey, bankLogoSrc, BANK_META, type BankMeta } from "@/components/AccountMiniCard";

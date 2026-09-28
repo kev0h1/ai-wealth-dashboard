@@ -13,8 +13,11 @@ one plain push (only one fired), or nothing, all landing on "/" (home, where
 both the payday plan and the move recommendation cards live).
 """
 import logging
+import math
 from datetime import datetime, timedelta
 from datetime import date as _date
+
+from app.core import timeutil
 
 from app.core.config import PRIMARY_EMAIL
 from app.core.push import send_push_to_user, notify_new_transactions
@@ -92,7 +95,7 @@ async def _maybe_settle_planned(user_id: str) -> None:
     await settle_planned_expenses(user_id)
 
 
-async def notify_after_sync(user_id: str, region: str, new_txns: list) -> None:
+async def notify_after_sync(user_id: str, new_txns: list) -> None:
     """Run every preference-gated check after a sync brought new transactions."""
     if not user_id or user_id == "unknown":
         return
@@ -102,16 +105,16 @@ async def notify_after_sync(user_id: str, region: str, new_txns: list) -> None:
     # generic loop below for the same reason it always was: the two checks
     # need to see each other's result before either can send.
     try:
-        await _maybe_money_movement(user_id, region)
+        await _maybe_money_movement(user_id)
     except Exception as e:  # one failing check must not block the others
         log.warning("notify_after_sync money_movement failed for %s: %s", user_id, e)
 
     for label, coro in (
         ("planned_settlement", _maybe_settle_planned(user_id)),
         ("transactions", _maybe_transactions(user_id, new_txns)),
-        ("goal_milestones", _maybe_goal_funded(user_id, region)),
+        ("goal_milestones", _maybe_goal_funded(user_id)),
         ("insights", _maybe_new_insights(user_id)),
-        ("category_pace", _maybe_category_pace(user_id, region)),
+        ("category_pace", _maybe_category_pace(user_id)),
         ("classification_attention", _maybe_classification_attention(user_id)),
     ):
         try:
@@ -125,7 +128,7 @@ async def _maybe_transactions(user_id: str, new_txns: list) -> None:
         await notify_new_transactions(user_id, new_txns)
 
 
-async def _maybe_goal_funded(user_id: str, region: str) -> None:
+async def _maybe_goal_funded(user_id: str) -> None:
     if not await notif_pref(user_id, "goal_milestones"):
         return
     from app.routers.savings import _current_savings, _target_amount, _cashflow
@@ -134,7 +137,7 @@ async def _maybe_goal_funded(user_id: str, region: str) -> None:
     if not goal:
         return
     cutoff = datetime.now() - timedelta(days=90)
-    _income, monthly_spending, _surplus = await _cashflow(user_id, region, cutoff)
+    _income, monthly_spending, _surplus = await _cashflow(user_id, cutoff)
     target = _target_amount(goal, monthly_spending)
     if target <= 0:
         return
@@ -146,7 +149,7 @@ async def _maybe_goal_funded(user_id: str, region: str) -> None:
     state = await _state(user_id)
     if state.get("goal_funded") == target_key:
         return
-    sym = "KES " if region == "Kenya" else "£"
+    sym = "£"
     # Was "/insights" — the Insights page retired 2026-09-05 (now a client
     # redirect to /spend/shape or /tax, neither of which is where a savings
     # goal lives). This push has no insight doc to build the new deep-link
@@ -282,7 +285,7 @@ def _bill_shortfall_body(b: dict, sym: str) -> str:
     )
 
 
-async def _maybe_bill_shortfall(user_id: str, region: str, covered_dest_accts: set[str] | None = None) -> list[dict]:
+async def _maybe_bill_shortfall(user_id: str, covered_dest_accts: set[str] | None = None) -> list[dict]:
     """Detect (never send) bills at risk of not clearing. Returns the newly
     at-risk bills (each augmented with a "body" string), for the caller to
     send alone or merged with a move recommendation. Detection, thresholds
@@ -314,13 +317,13 @@ async def _maybe_bill_shortfall(user_id: str, region: str, covered_dest_accts: s
 
     prefs = await preferences_col.find_one({"user_id": user_id}, {"pay_period_config": 1})
     pay_config = (prefs or {}).get("pay_period_config", {"type": "calendar_month"})
-    start, _end = get_pay_period_for_date(_date.today(), pay_config)
+    start, _end = get_pay_period_for_date(timeutil.user_today(), pay_config)
     period_key = start.isoformat()
 
     state = await _state(user_id)
     already: list[str] = (state.get("bill_shortfall") or {}).get(period_key, [])
 
-    sym = "KES " if region == "Kenya" else "£"
+    sym = "£"
     newly: list[str] = []
     new_bills: list[dict] = []
     for b in at_risk:
@@ -340,7 +343,7 @@ async def _maybe_bill_shortfall(user_id: str, region: str, covered_dest_accts: s
     return new_bills
 
 
-async def _maybe_money_movement(user_id: str, region: str) -> None:
+async def _maybe_money_movement(user_id: str) -> None:
     """Merged send/landing layer for the two money-movement checks.
 
     Runs `_maybe_move_recommendation` first and carries its covered accounts
@@ -376,7 +379,7 @@ async def _maybe_money_movement(user_id: str, region: str) -> None:
 
     new_bills: list[dict] = []
     try:
-        new_bills = await _maybe_bill_shortfall(user_id, region, dest_accts)
+        new_bills = await _maybe_bill_shortfall(user_id, dest_accts)
     except Exception as e:
         log.warning("money_movement bill_shortfall failed for %s: %s", user_id, e)
 
@@ -414,17 +417,33 @@ def _pace_line(multiple: float, excess: float, days_elapsed: int, sym: str) -> s
     three branches, same rounding, same wording, so the push never says
     something the Spend page itself wouldn't. Kept in sync deliberately
     rather than shared, since the frontend has no server call to make for a
-    push body."""
+    push body. G153: this drifted once already (G151 changed the frontend's
+    third branch and this docstring's promise alone didn't catch it), so
+    backend/tests/test_pace_line_mirror.py now shells out to Node to run the
+    ACTUAL `paceLine` (via frontend/scripts/pace-line-mirror.mjs) and
+    compares its output byte-for-byte against this function - do not rely on
+    this comment alone.
+
+    `excess` is always > 0 here: this is only ever called with a notable's
+    excess (spend_verdict.py's `build_notables_and_majority` filters
+    `excess <= 0` out before a category can qualify as notable), so the
+    round-half-up note below never needs to handle a negative value."""
     day_label = f"day {days_elapsed}"
     rounded = round(multiple, 1)
     if 1.9 <= rounded <= 2.1:
         return f"about twice your usual pace for {day_label}."
     if rounded > 2.1:
         return f"about {rounded:.1f}× your usual pace for {day_label}."
-    return f"running about {sym}{round(excess):,} ahead of usual for {day_label}."
+    # Round-half-up, not Python's round() (banker's rounding), to match the
+    # frontend's `Math.round` (half away from zero) at the .5 boundary -
+    # e.g. round(1234.5) rounds to 1234 in Python but 1235 in JS. `excess`
+    # is always positive at this call site, so floor(x+0.5) is equivalent to
+    # JS's Math.round here without needing a general round-half-away-from-
+    # zero helper.
+    return f"{sym}{math.floor(excess + 0.5):,} more than usual by {day_label}."
 
 
-async def _maybe_category_pace(user_id: str, region: str) -> None:
+async def _maybe_category_pace(user_id: str) -> None:
     """Push once per category per pay period the first time it becomes a
     Spend-page "notable" — the exact qualification `spend_verdict.py`'s
     `build_notables_and_majority` already applies (the "N.N× usual pace for
@@ -455,7 +474,7 @@ async def _maybe_category_pace(user_id: str, region: str) -> None:
     state = await _state(user_id)
     already: list[str] = (state.get("category_pace") or {}).get(period_key, [])
 
-    sym = "KES " if region == "Kenya" else "£"
+    sym = "£"
     newly: list[str] = []
     for n in notables:
         cat = n["category"]
@@ -643,7 +662,7 @@ async def send_period_digest(user_id: str) -> None:
         return
     prefs = await preferences_col.find_one({"user_id": user_id}) or {}
     pay_config = prefs.get("pay_period_config", {"type": "calendar_month"})
-    today = _date.today()
+    today = timeutil.user_today()
     start, _end = get_pay_period_for_date(today, pay_config)
     if start != today:
         return  # not a period boundary
@@ -651,13 +670,12 @@ async def send_period_digest(user_id: str) -> None:
     if state.get("last_digest_period") == start.isoformat():
         return  # already sent for this period
 
-    region = prefs.get("region", "UK")
     from app.routers.goals import goals_summary
 
     parts: list[str] = []
 
     # Standing goals
-    for g in await goals_summary(user_id, region):
+    for g in await goals_summary(user_id):
         parts.append(f"{g['label']}: {g['detail']}")
 
     if not parts:

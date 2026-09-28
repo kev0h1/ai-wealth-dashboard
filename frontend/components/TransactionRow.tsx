@@ -4,6 +4,8 @@ import { useState } from "react";
 import { Transaction, logoUrl } from "@/lib/api";
 import { useColours } from "@/components/ColourProvider";
 import { getCategoryColour } from "@/lib/categories";
+import { getCategoryIcon } from "@/lib/categoryIcons";
+import { useCategoryIcons } from "@/components/IconProvider";
 import { formatDate } from "@/lib/payPeriod";
 import { formatCurrency } from "@/lib/currency";
 
@@ -11,6 +13,23 @@ interface TransactionRowProps {
   transaction: Transaction;
   onClick?: () => void;
   showAccount?: boolean;
+  // "merchant" (default, unchanged everywhere else this row renders: Home,
+  // Accounts, Spend) shows the favicon/initial MerchantIcon below.
+  // "category" (G119, the transactions hub only) shows a 28px tinted
+  // category-icon chip instead — Kevin's approved treatment: `w-7 h-7
+  // rounded-lg` at `${colour}26` holding getCategoryIcon(tx.category,
+  // iconOverrides) at size 14 in the full category colour, the same chip
+  // pattern DetailPanel.tsx's own header already uses, sized down to fit
+  // inside a 64px row. Scoped to this one prop rather than changing the
+  // default so Home/Accounts/Spend keep their existing merchant-favicon
+  // look untouched.
+  iconVariant?: "merchant" | "category";
+  // G122: true everywhere except the day-grouped transactions hub. Once
+  // rows sit under a day heading ("13 September") the row's own date is a
+  // repeat, not new information — Kevin's approved G119 row reads merchant,
+  // category, amount only in that context. Default true preserves every
+  // other caller (Home, Accounts, Spend, CategorySheet…) exactly as before.
+  showDate?: boolean;
 }
 
 // Map merchant name keywords to known domains for favicon lookup
@@ -130,18 +149,34 @@ export default function TransactionRow({
   transaction,
   onClick,
   showAccount = false,
+  iconVariant = "merchant",
+  showDate = true,
 }: TransactionRowProps) {
   const { colours } = useColours();
+  const { icons: iconOverrides } = useCategoryIcons();
   const colour = getCategoryColour(transaction.category ?? "Other", colours);
+  const CategoryIcon = getCategoryIcon(transaction.category ?? "Other", iconOverrides);
   const isCredit = transaction.transaction_type === "credit";
   const amount = transaction.amount;
 
   return (
     <button
       onClick={onClick}
-      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700/40 active:bg-slate-100 dark:active:bg-slate-700 transition-colors text-left"
+      className={`w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700/40 active:bg-slate-100 dark:active:bg-slate-700 transition-colors text-left ${
+        iconVariant === "category" ? "min-h-[64px]" : ""
+      }`}
     >
-      <MerchantIcon transaction={transaction} colour={colour} />
+      {iconVariant === "category" ? (
+        <span
+          className="flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center"
+          style={{ backgroundColor: `${colour}26` }}
+          aria-hidden="true"
+        >
+          <CategoryIcon size={14} style={{ color: colour }} />
+        </span>
+      ) : (
+        <MerchantIcon transaction={transaction} colour={colour} />
+      )}
 
       {/* Name + date */}
       <div className="flex-1 min-w-0">
@@ -149,8 +184,9 @@ export default function TransactionRow({
           {displayName(transaction)}
         </p>
         <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-          {formatDate(transaction.date)}
-          {transaction.category ? ` · ${transaction.category}` : ""}
+          {showDate
+            ? `${formatDate(transaction.date)}${transaction.category ? ` · ${transaction.category}` : ""}`
+            : (transaction.category || "Other")}
         </p>
       </div>
 

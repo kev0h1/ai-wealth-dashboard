@@ -17,7 +17,7 @@ from app.core.llm import openrouter_chat
 from app.core.models import Transaction
 from app.db.collections import (
     transactions_col, accounts_col, yapily_accounts_col, yapily_transactions_col,
-    mono_transactions_col, mpesa_transactions_col, statement_transactions_col,
+    statement_transactions_col,
     commitments_col, manual_accounts_col, teaching_events_col,
 )
 from app.services.categorisation import (
@@ -25,6 +25,7 @@ from app.services.categorisation import (
     apply_rules_bulk, rule_categorise, tavily_lookup_merchants,
     canonical_merchant_key, cache_merchant, user_allowed_categories,
     strip_date_fragments, LEADING_DATE_RE, build_rule_pattern,
+    teaching_decision_times,
 )
 from app.services.categories import get_category_kinds, is_non_spend
 from app.services import response_cache
@@ -56,7 +57,7 @@ async def oldest_transaction(user: dict = Depends(current_user)):
     uid = user["email"]
     oldest = None
     for col in (transactions_col, yapily_transactions_col,
-                mono_transactions_col, statement_transactions_col):
+                statement_transactions_col):
         doc = await col.find_one({"user_id": uid}, {"date": 1}, sort=[("date", 1)])
         if doc and doc.get("date") and (oldest is None or doc["date"] < oldest):
             oldest = doc["date"]
@@ -65,15 +66,40 @@ async def oldest_transaction(user: dict = Depends(current_user)):
 
 async def _txn_source(account_id: str, uid: str):
     """Which collection holds this account's transactions."""
-    if account_id.startswith("mono-"):
-        return mono_transactions_col
-    if account_id.startswith("mpesa-"):
-        return mpesa_transactions_col
     if account_id.startswith("statement-"):
         return statement_transactions_col
     if await yapily_accounts_col.find_one({"_id": account_id, "user_id": uid}, {"_id": 1}):
         return yapily_transactions_col
     return transactions_col
+
+
+_CONTROL_CHARS_RE = re.compile(r'[\x00-\x1f\x7f-\x9f]')
+_SEARCH_WHITESPACE_RE = re.compile(r'\s+')
+_SEARCH_QUERY_MAX_LEN = 200  # comfortably above anything the search box lets a user type
+
+
+def _normalise_search_text(q: Optional[str]) -> Optional[str]:
+    """Sanitise free-text search input before it is embedded in a Mongo
+    `$regex` clause (via `re.escape`, which only escapes regex metacharacters
+    — it does not touch NUL or other control characters).
+
+    A NUL byte (or any other C0/C1 control character) in a `$regex` pattern
+    fails BSON encoding, since regex patterns are encoded as cstrings, and
+    raised an unhandled 500 instead of a clean result (A93 / pentest
+    API-11). Stripping those characters, collapsing whitespace, and capping
+    the length means every caller that runs text through this helper before
+    building a regex clause can no longer be crashed by malformed input.
+
+    Returns None (never "") once nothing usable is left, so callers written
+    as `if q:` behave exactly as they do today for an absent or blank
+    query."""
+    if not q:
+        return None
+    cleaned = _CONTROL_CHARS_RE.sub('', q)
+    cleaned = _SEARCH_WHITESPACE_RE.sub(' ', cleaned).strip()
+    if not cleaned:
+        return None
+    return cleaned[:_SEARCH_QUERY_MAX_LEN]
 
 
 def _category_clause(cat: str) -> dict:
@@ -113,8 +139,9 @@ async def get_transactions(
     if txn_type in ("debit", "credit"):
         base["transaction_type"] = txn_type
     clauses = [base]
-    if q and q.strip():
-        rx = {"$regex": re.escape(q.strip()), "$options": "i"}
+    q = _normalise_search_text(q)
+    if q:
+        rx = {"$regex": re.escape(q), "$options": "i"}
         clauses.append({"$or": [
             {"description": rx}, {"merchant_name": rx},
             {"category": rx}, {"custom_category": rx},
@@ -178,8 +205,7 @@ async def all_transactions(days: int = 365, user: dict = Depends(current_user)):
     23-account user) and filtered client-side."""
     uid    = user["email"]
     cutoff = datetime.now() - timedelta(days=min(days, 730))
-    cols = (transactions_col, yapily_transactions_col,
-            statement_transactions_col, mono_transactions_col, mpesa_transactions_col)
+    cols = (transactions_col, yapily_transactions_col, statement_transactions_col)
     results = await asyncio.gather(
         *(c.find({"user_id": uid, "date": {"$gte": cutoff}}).to_list(None) for c in cols)
     )
@@ -261,8 +287,9 @@ def _search_query(
     if txn_type in ("debit", "credit"):
         base["transaction_type"] = txn_type
     clauses = [base]
-    if q and q.strip():
-        rx = {"$regex": re.escape(q.strip()), "$options": "i"}
+    q = _normalise_search_text(q)
+    if q:
+        rx = {"$regex": re.escape(q), "$options": "i"}
         clauses.append({"$or": [
             {"description": rx}, {"merchant_name": rx}, {"merchant_key": rx},
             {"category": rx}, {"custom_category": rx},
@@ -273,7 +300,9 @@ def _search_query(
     elif category:
         clauses.append(_category_clause(category))
     if merchants:
-        names = [n.strip() for n in merchants.split(",") if n.strip()]
+        names = [n for n in (
+            _normalise_search_text(n) for n in merchants.split(",")
+        ) if n]
         if names:
             merchant_or: list[dict] = []
             for name in names:
@@ -345,8 +374,7 @@ async def search_transactions(
     fetch_n   = page * page_size
 
     query = _search_query(uid, q, category, days, merchants, date_from, date_to, txn_type, categories)
-    cols  = (transactions_col, yapily_transactions_col,
-             statement_transactions_col, mono_transactions_col, mpesa_transactions_col)
+    cols  = (transactions_col, yapily_transactions_col, statement_transactions_col)
 
     counts, per_collection = await asyncio.gather(
         asyncio.gather(*(c.count_documents(query) for c in cols)),
@@ -666,7 +694,9 @@ async def resolve_movement(transaction_id: str, body: dict, user: dict = Depends
         )
 
     elif resolution == "mine-offline":
-        pot_name = (body.get("offline_pot_name") or "").strip()[:60] or "An account of mine elsewhere"
+        # A93: raw body text straight into re.escape/$regex — same NUL-byte
+        # crash class as the search endpoints above, normalise first.
+        pot_name = (_normalise_search_text(body.get("offline_pot_name")) or "")[:60] or "An account of mine elsewhere"
         existing = await manual_accounts_col.find_one({
             "user_id": uid,
             "name": {"$regex": f"^{re.escape(pot_name)}$", "$options": "i"},
@@ -815,13 +845,55 @@ async def auto_categorise(
         {"user_id": uid,
          "$or": [{"custom_category": {"$ne": None}},
                  {"category": {"$nin": list(RAW_TRUELAYER_CATEGORIES) + [None]}}]},
-        {"merchant_name": 1, "description": 1, "category": 1, "custom_category": 1, "transaction_type": 1},
+        {"merchant_name": 1, "description": 1, "category": 1, "custom_category": 1,
+         "transaction_type": 1, "date": 1},
     ).to_list(None)
+    # G139: same "first key seen wins" defect as categorisation.py's Pass 4
+    # propagation (see `apply_rules_bulk`'s own Pass 4 comment and
+    # `teaching_decision_times`'s docstring for the full rationale) — the
+    # order `.find()` happens to return has no relationship to which
+    # historical row should win a merchant-key collision. Sort by the real
+    # correction timestamp where one exists; a row here can also be a plain
+    # auto-categorised transaction rather than an explicit correction (this
+    # endpoint's `historical` pool is wider than Pass 4's — it also includes
+    # rows whose AUTO `category` is already meaningful, not just
+    # `custom_category` corrections), and a row like that never had a
+    # teaching event to begin with, so it falls back to its own transaction
+    # `date` — the same accepted approximation `teaching_decision_times`
+    # documents for legacy/TTL-expired corrections.
+    _decision_time = await teaching_decision_times(uid)
+    historical.sort(
+        key=lambda h: _decision_time.get(h["_id"]) or h.get("date") or datetime.min,
+        reverse=True,
+    )
 
     merchant_map: dict[tuple[str, str], str] = {}
     for h in historical:
         cat = h.get("custom_category") or h.get("category")
-        if not cat or cat in RAW_TRUELAYER_CATEGORIES:
+        # G139: this "Other" exclusion covers two different cases, both
+        # deliberate:
+        #
+        # 1. An unexamined AUTO-category "Other" — not a real signal, same
+        #    reason RAW_TRUELAYER_CATEGORIES is already excluded above. The
+        #    `$nin` clause that widens `historical` past Pass 4's candidate
+        #    pool deliberately admits a still-"Other" row so it can be
+        #    RE-EXAMINED here on a later run, but it must never WIN the map
+        #    for its own merchant key — a still-uncategorised row is very
+        #    often the MOST RECENT transaction for its merchant (that's WHY
+        #    it's still uncategorised), so once `historical` is sorted by
+        #    recency (above) it would otherwise deterministically sort first
+        #    and hand back its own "Other", silently blocking a real
+        #    historical category from ever being found for that merchant.
+        #
+        # 2. Because `cat` resolves `custom_category` before `category`,
+        #    this line ALSO excludes a row where the user deliberately
+        #    corrected custom_category to "Other" — a real, user-selectable
+        #    category in the picker, not a placeholder there. That IS
+        #    discarding a genuine signal, accepted anyway: letting one
+        #    explicit "Other" pick dominate every future row of that
+        #    merchant is worse than leaving those rows for the categoriser
+        #    to keep deciding on their own merits.
+        if not cat or cat in RAW_TRUELAYER_CATEGORIES or cat == "Other":
             continue
         txn_type = h.get("transaction_type", "")
         for key in [h.get("merchant_name"), h.get("description")]:

@@ -85,6 +85,7 @@ from bson.errors import InvalidId
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.core.auth import current_user
+from app.core import timeutil
 from app.db.collections import (
     accounts_col,
     allocations_col,
@@ -219,7 +220,7 @@ def _is_completed(doc: dict) -> bool:
         return False
     if isinstance(end, datetime):
         end = end.date()
-    return date.today() > end
+    return timeutil.user_today() > end
 
 
 def _as_date(value, default: date) -> date:
@@ -371,7 +372,7 @@ async def _list_enriched(uid: str, *, active_only: bool) -> list[dict]:
     if not docs:
         return []
     cfg = await _pay_cfg(uid)
-    start, end = get_pay_period_for_date(date.today(), cfg)
+    start, end = get_pay_period_for_date(timeutil.user_today(), cfg)
     return [await _serialise(doc, start, end) for doc in docs]
 
 
@@ -501,7 +502,7 @@ async def create_allocation(body: dict, user: dict = Depends(current_user)):
         raise HTTPException(400, "an active allocation already fills from this payment")
 
     cfg = await _pay_cfg(uid)
-    start, end = get_pay_period_for_date(date.today(), cfg)
+    start, end = get_pay_period_for_date(timeutil.user_today(), cfg)
     effective_from = _validate_effective_from(body.get("effective_from"), start)
 
     doc = {
@@ -558,7 +559,7 @@ async def update_allocation(
         updates["fill_display_name"] = _validate_display_name(body.get("fill_display_name"), fallback)
     if "effective_from" in body:
         cfg = await _pay_cfg(uid)
-        cur_start, _cur_end = get_pay_period_for_date(date.today(), cfg)
+        cur_start, _cur_end = get_pay_period_for_date(timeutil.user_today(), cfg)
         ef = _validate_effective_from(body.get("effective_from"), cur_start)
         updates["effective_from"] = datetime(ef.year, ef.month, ef.day)
     if "active" in body:
@@ -574,7 +575,7 @@ async def update_allocation(
         # ignores created_period_start/end entirely (see _serialise).
         if new_recurrence == "once" and prev_recurrence != "once":
             cfg = await _pay_cfg(uid)
-            start, end = get_pay_period_for_date(date.today(), cfg)
+            start, end = get_pay_period_for_date(timeutil.user_today(), cfg)
             updates["created_period_start"] = datetime(start.year, start.month, start.day)
             updates["created_period_end"]   = datetime(end.year, end.month, end.day, 23, 59, 59)
 
@@ -604,7 +605,7 @@ async def update_allocation(
 
     response_cache.invalidate(uid)
     cfg = await _pay_cfg(uid)
-    start, end = get_pay_period_for_date(date.today(), cfg)
+    start, end = get_pay_period_for_date(timeutil.user_today(), cfg)
     return await _serialise(doc, start, end)
 
 

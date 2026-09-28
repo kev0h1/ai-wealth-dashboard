@@ -83,8 +83,6 @@
  * type-stripping erases entirely and never tries to resolve at runtime. */
 import type { PayPeriodConfig } from "./payPeriod.js";
 
-export type Region = "UK" | "Kenya";
-
 /** Structural match for a React ref (or any mutable holder) tracking the
  * highest preferences `version` accepted so far — a type, not an import,
  * so this module stays dependency-free of React. */
@@ -154,7 +152,6 @@ export interface WholeDocumentApplyCallbacks {
   applyHideNetWorth: (v: boolean) => void;
   applyDarkMode: (v: boolean) => void;
   applyPayPeriodConfig: (v: PayPeriodConfig) => void;
-  applyRegion: (v: Region) => void;
   applyDebtTargetMonths: (v: number) => void;
   applyDebtTrackingStart: (v: string) => void;
   setSpendWidgets: (v: string[]) => void;
@@ -176,7 +173,6 @@ export interface WholeDocumentApplySkip {
   hideNetWorth?: () => boolean;
   darkMode?: () => boolean;
   payPeriodConfig?: () => boolean;
-  region?: () => boolean;
   debtTargetMonths?: () => boolean;
   debtTrackingStart?: () => boolean;
 }
@@ -203,7 +199,6 @@ export function applyWholeDocument(
   if (!skip.hideNetWorth?.()) cb.applyHideNetWorth(p.hide_net_worth);
   if (p.dark_mode !== undefined && !skip.darkMode?.()) cb.applyDarkMode(p.dark_mode);
   if (p.pay_period_config && !skip.payPeriodConfig?.()) cb.applyPayPeriodConfig(p.pay_period_config as PayPeriodConfig);
-  if (p.region && !skip.region?.()) cb.applyRegion(p.region as Region);
   if (p.debt_target_months && !skip.debtTargetMonths?.()) cb.applyDebtTargetMonths(p.debt_target_months as number);
   if (p.debt_tracking_start && !skip.debtTrackingStart?.()) cb.applyDebtTrackingStart(p.debt_tracking_start as string);
   if (Array.isArray(p.spend_widgets)) cb.setSpendWidgets(p.spend_widgets as string[]);

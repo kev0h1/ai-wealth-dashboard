@@ -171,6 +171,15 @@ export type MobileRibbonBoardProps = {
   todoSampleItems: GoLiveItem[];
   doneTotalCount: number;
   doneSampleItems: GoLiveItem[];
+  /** H80: cancelled items collapse at the bottom beside To do and Done,
+   *  behind their own count — Kevin's decision, not a sixth chip on the
+   *  ribbon strip above, which already overflows a true 390px width with
+   *  its current five (see the RIBBON_STATES comment). Optional so the
+   *  older /design/ops-board-mobile reference preview (whose fixtures
+   *  predate this state and carry no cancelled item) keeps compiling
+   *  unchanged; the real board (BoardView.tsx) always passes both. */
+  cancelledTotalCount?: number;
+  cancelledSampleItems?: GoLiveItem[];
   onOpen: (item: GoLiveItem) => void;
 };
 
@@ -184,6 +193,8 @@ export function MobileRibbonBoard({
   todoSampleItems,
   doneTotalCount,
   doneSampleItems,
+  cancelledTotalCount = 0,
+  cancelledSampleItems = [],
   onOpen,
 }: MobileRibbonBoardProps) {
   const countsByState: Record<GoLiveFilterState, number> = RIBBON_STATES.reduce(
@@ -263,6 +274,19 @@ export function MobileRibbonBoard({
           <div className="space-y-2.5 pt-1">
             <CollapsedSection label="To do" totalCount={todoTotalCount} sampleItems={todoSampleItems} onOpen={onOpen} />
             <CollapsedSection label="Done" totalCount={doneTotalCount} sampleItems={doneSampleItems} onOpen={onOpen} />
+            {/* H80: collapsed beside To do and Done, behind its own count
+                — Kevin's decision, not a sixth ribbon chip above. Only
+                rendered when there's at least one, so an ordinary board
+                with no cancelled items doesn't grow a permanent empty
+                section. */}
+            {cancelledTotalCount > 0 && (
+              <CollapsedSection
+                label="Cancelled"
+                totalCount={cancelledTotalCount}
+                sampleItems={cancelledSampleItems}
+                onOpen={onOpen}
+              />
+            )}
           </div>
         </>
       )}

@@ -29,13 +29,10 @@ class _FakeCol:
 
 
 def _patch_common(monkeypatch, *, sts, monthly_income=2000.0, monthly_spending=1934.0, monthly_surplus=66.0):
-    async def fake_region(uid):
-        return "UK"
 
-    monkeypatch.setattr(penny_tools, "get_user_region", fake_region)
     monkeypatch.setattr(penny_tools, "savings_goals_col", _FakeCol([{"_id": UID, "target_months": 3}]))
 
-    async def fake_cashflow(uid, region, cutoff):
+    async def fake_cashflow(uid, cutoff):
         return monthly_income, monthly_spending, monthly_surplus
 
     monkeypatch.setattr(penny_tools, "_cashflow", fake_cashflow)

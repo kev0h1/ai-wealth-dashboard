@@ -3,13 +3,10 @@
 import { useEffect, useState } from "react";
 import { CheckCircle2 } from "lucide-react";
 import { api, ValueDelivered } from "@/lib/api";
-import { usePreferences } from "@/components/PreferencesContext";
 
-const SYM: Record<string, string> = { UK: "£", Kenya: "KSh " };
 
 export default function ValueDeliveredStat() {
-  const { region } = usePreferences();
-  const sym = SYM[region] ?? "£";
+  const sym = "£";
   const [data, setData] = useState<ValueDelivered | null>(null);
 
   useEffect(() => {

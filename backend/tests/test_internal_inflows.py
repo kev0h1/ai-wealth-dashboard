@@ -27,6 +27,7 @@ import asyncio
 import re
 from datetime import date, datetime, timedelta
 
+import app.core.timeutil as timeutil
 import app.routers.analytics as analytics
 import app.services.companion as companion
 import app.services.spend_impact as spend_impact
@@ -432,7 +433,7 @@ def _pattern(**overrides):
         "key": "KEVIN MAINGI HSBC STO",
         "avg_amount": 1758.33,
         "avg_interval": 45,  # outside weekly/monthly stepping ranges: exactly one occurrence in the 35-day window
-        "next_date": (date.today() + timedelta(days=5)).isoformat(),
+        "next_date": (timeutil.user_today() + timedelta(days=5)).isoformat(),
         "account_id": "barclays",
         "account_name": "Barclays Current",
         "account_bank": "barclays",
@@ -536,7 +537,7 @@ def test_mirror_dropped_when_source_occurrence_closed_by_observed_debit(monkeypa
         "merchant_name": None,
         "description": "KEVIN MAINGI HSBC STO",
         "amount": 1758.33,
-        "date": date.today(),
+        "date": timeutil.user_today(),
         "category": "Transfer",
         "custom_category": None,
         "account_id": "barclays",
@@ -608,7 +609,7 @@ def test_planned_one_off_never_carries_dest_fields(monkeypatch):
     planned_doc = {
         "_id": "planned1", "user_id": UID, "status": "planned",
         "name": "New sofa", "amount": 400.0,
-        "date": date.today() + timedelta(days=3),
+        "date": timeutil.user_today() + timedelta(days=3),
         "account_id": None,
     }
     monkeypatch.setattr(analytics, "transactions_col", FakeCol([]))
@@ -625,68 +626,24 @@ def test_planned_one_off_never_carries_dest_fields(monkeypatch):
     assert "dest_account_spendable" not in bill
 
 
-# ── Task 2 (Chase/mono tracing): investigated against live UAT data, NOT
+# ── Task 2 (Chase tracing): investigated against live UAT data, NOT
 # shipped. Full findings are in the handoff report, summarised here so a
 # future reader does not have to re-run the same probes:
 #
-# `mono_accounts_col`/`mono_transactions_col` hold zero documents for ANY
-# user in the live UAT database (verified with a direct read-only query),
-# and the Chase account behind the owner's report ("KEVIN MAINGI
-# CHASEACCOUNT STO") is a Finexer-sourced row already inside `accounts_col`
-# (provider "Chase UK", source "finexer"), already inside `account_map` and
-# `raw` today. Widening `_compute_cashflow_patterns` to also read
-# `mono_accounts_col`/`mono_transactions_col` would therefore be a pure
-# no-op against real data and would not fix the reported bug. The real
-# cause, confirmed by running `_compute_cashflow_patterns` against live
-# data: a same-day, same-amount coincidence with an unrelated series
-# ("KEVIN MAINGI STARLING STO", also a real recurring transfer) makes the
-# greedy matcher's account_id/id tiebreak award the one real destination
-# credit inconsistently across the two occurrences that have one, so
-# neither series ever reaches the evidence gate's 2-match bar. That is a
-# separate, deliberate fix, out of this task's scope.
+# The Chase account behind the owner's report ("KEVIN MAINGI CHASEACCOUNT
+# STO") is a Finexer-sourced row already inside `accounts_col` (provider
+# "Chase UK", source "finexer"), already inside `account_map` and `raw`
+# today. The real cause, confirmed by running `_compute_cashflow_patterns`
+# against live data: a same-day, same-amount coincidence with an unrelated
+# series ("KEVIN MAINGI STARLING STO", also a real recurring transfer)
+# makes the greedy matcher's account_id/id tiebreak award the one real
+# destination credit inconsistently across the two occurrences that have
+# one, so neither series ever reaches the evidence gate's 2-match bar.
+# That is a separate, deliberate fix, out of this task's scope.
 #
-# The two tests below document, rather than exercise, the mono account-doc
-# SHAPE `mono_sync.sync_mono_connection` actually writes (see
-# app/services/mono_sync.py), so a future widening starts from a verified
-# shape instead of an assumed one: no `subtype` field is ever written, only
-# `type` (the Mono API's own type string, lowercased with spaces turned to
-# underscores).
-
-def test_mono_account_shape_transaction_account_classified_spendable():
-    """A mono bank-type account with no dedicated subtype (mono_sync.py never
-    writes one) falls through to the same "no subtype, not a credit card"
-    default an ordinary current account would use."""
-    acct = {"name": "Main G", "type": "current_account", "balance": 50.0,
-            "currency": "GBP", "provider": "Mono"}
-    assert analytics._account_pool_kind(acct) == "spendable"
-    assert analytics.is_credit_card_account(acct) is False
-
-
-def test_mono_account_shape_savings_type_not_recognised_as_savings():
-    """Documents a known, pre-existing gap rather than a new one:
-    `mono_sync.py` writes `type`, never `subtype`, so a savings-type mono
-    account is NOT bucketed into the savings pool by `_account_pool_kind`
-    (which only ever inspects `subtype` for its "saving" test) -- it falls
-    through to the same spendable default as any other no-subtype account.
-    `_account_pool_kind`'s own docstring already calls this out ("covers
-    e.g. Mono accounts, which don't populate subtype today"). Flagged here
-    so a future mono-savings widening does not silently assume `subtype`
-    exists."""
-    acct = {"name": "Round up", "type": "savings_account", "balance": 0.0,
-            "currency": "GBP", "provider": "Mono"}
-    assert analytics._account_pool_kind(acct) == "spendable"
-
-
-def test_mono_account_shape_credit_card_excluded():
-    """A mono credit-card-type account is excluded on the `type` field
-    alone (mono_sync.py lowercases and underscores the Mono API's `type`);
-    `is_credit_card_account`/`_account_pool_kind`'s credit exclusion never
-    depends on `subtype`, so this classifies correctly even though mono
-    never populates it."""
-    acct = {"name": "Credit Card", "type": "credit_card", "balance": -100.0,
-            "currency": "GBP", "provider": "Mono"}
-    assert analytics._account_pool_kind(acct) is None
-    assert analytics.is_credit_card_account(acct) is True
+# A98 (2026-09-21) removed the three Mono account-shape tests that used to
+# sit here. They only documented the doc shape `mono_sync.py` wrote, and
+# that module and the whole Kenya region are gone.
 
 
 def test_upcoming_income_unaffected_by_internal_inflows(monkeypatch):
@@ -694,7 +651,7 @@ def test_upcoming_income_unaffected_by_internal_inflows(monkeypatch):
         "key": "ACME PAYROLL",
         "avg_amount": 2500.0,
         "avg_interval": 45,
-        "next_date": (date.today() + timedelta(days=7)).isoformat(),
+        "next_date": (timeutil.user_today() + timedelta(days=7)).isoformat(),
         "account_id": "barclays",
         "account_name": "Barclays Current",
         "account_bank": "barclays",
@@ -708,6 +665,57 @@ def test_upcoming_income_unaffected_by_internal_inflows(monkeypatch):
     assert resp_with["upcoming_income"] == resp_without["upcoming_income"]
     assert len(resp_with["upcoming_income"]) == 1
     assert resp_with["upcoming_income"][0]["amount"] == 2500.0
+
+
+def test_upcoming_income_carries_confirmed_alias_from_the_cached_pattern(monkeypatch):
+    """G174: `_serialise_pattern` (analytics.py, inside `_compute_cashflow_
+    patterns`) stamps `confirmed_alias` onto a recurring_income entry
+    standing in for a confirmed stream under a changed payroll reference
+    (see `_confirmed_income_fallback`'s dedupe guard) -- this is what the
+    cached doc's `recurring_income` list carries into this function's
+    `income_patterns` local. Prove the field survives all the way to the
+    built `upcoming_income` item, since that is the shape `income_credit_ok`
+    (via `app.services.companion._pp_income_candidates`/`_pp_salary_income`)
+    actually reads it off."""
+    income_pattern = {
+        "key": "0201-GOLDMAN SACHS GOLDMAN SACHS PA",
+        "avg_amount": 4798.08,
+        "avg_interval": 45,
+        "next_date": (timeutil.user_today() + timedelta(days=7)).isoformat(),
+        "account_id": "barclays",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 5000.0,
+        "category": "Income",
+        "occurrences": 2,
+        "amounts_recent": [4798.08, 4798.08],
+        "confirmed_alias": "185008 12702436 Goldman Sachs BGC",
+    }
+    resp = _run_build_response(monkeypatch, [], recurring_income=[income_pattern])
+    assert len(resp["upcoming_income"]) == 1
+    assert resp["upcoming_income"][0]["confirmed_alias"] == "185008 12702436 Goldman Sachs BGC"
+
+
+def test_upcoming_income_confirmed_alias_defaults_to_none_when_absent(monkeypatch):
+    """An ordinary pattern with no `confirmed_alias` key at all (every
+    pre-G174 cache doc, and every income series that isn't standing in for a
+    confirmed one) must not crash the carry-through and must read back
+    `None`, never raise a KeyError."""
+    income_pattern = {
+        "key": "ACME PAYROLL",
+        "avg_amount": 2500.0,
+        "avg_interval": 45,
+        "next_date": (timeutil.user_today() + timedelta(days=7)).isoformat(),
+        "account_id": "barclays",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 5000.0,
+        "category": "Income",
+        "occurrences": 3,
+        "amounts_recent": [2500.0, 2500.0, 2500.0],
+    }
+    resp = _run_build_response(monkeypatch, [], recurring_income=[income_pattern])
+    assert resp["upcoming_income"][0]["confirmed_alias"] is None
 
 
 # ── at_risk_count: consuming internal_inflows in the running-balance walk ───
@@ -749,7 +757,7 @@ def _bill(name, days_away, amount, account_id, balance, kind="commitment"):
         "is_credit_card": False, "kind": kind,
         # Only read by spend_impact._bills_risk (for its result payload),
         # but harmless to carry on every bill fixture.
-        "expected_date": (date.today() + timedelta(days=days_away)).isoformat(),
+        "expected_date": (timeutil.user_today() + timedelta(days=days_away)).isoformat(),
     }
 
 

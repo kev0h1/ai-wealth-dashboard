@@ -28,7 +28,6 @@ from app.db.collections import (
     transactions_col, cashflow_cache_col, preferences_col,
 )
 from app.services.cashflow import monthly_cashflow
-from app.services.region import get_user_region
 from app.services.pace import compute_pace
 from app.services.behaviour import compute_portrait
 from app.services.pay_period import get_pay_period_for_date
@@ -55,26 +54,20 @@ CHALLENGE_CATS = {"Eating Out", "Entertainment", "Shopping", "Groceries", "Trans
 async def _challenge_eligible_count(uid: str) -> int:
     """Read-only replica of _generate_all_challenges' `ranked` list length —
     does NOT call the writing function."""
-    from app.services.region import get_kenya_transactions
-    region = await get_user_region(uid)
-    min_weekly = 500 if region == "Kenya" else 5
+    min_weekly = 5
 
     now = datetime.utcnow()
     week_start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
     four_weeks_ago = week_start - timedelta(days=28)
 
-    if region == "Kenya":
-        raw_txns = await get_kenya_transactions(uid, four_weeks_ago)
-        raw_txns = [t for t in raw_txns if t.get("transaction_type") == "debit"]
-    else:
-        from app.db.collections import yapily_transactions_col
-        tl = await transactions_col.find(
-            {"user_id": uid, "transaction_type": "debit", "date": {"$gte": four_weeks_ago}}
-        ).to_list(None)
-        yap = await yapily_transactions_col.find(
-            {"user_id": uid, "transaction_type": "debit", "date": {"$gte": four_weeks_ago}}
-        ).to_list(None)
-        raw_txns = tl + yap
+    from app.db.collections import yapily_transactions_col
+    tl = await transactions_col.find(
+        {"user_id": uid, "transaction_type": "debit", "date": {"$gte": four_weeks_ago}}
+    ).to_list(None)
+    yap = await yapily_transactions_col.find(
+        {"user_id": uid, "transaction_type": "debit", "date": {"$gte": four_weeks_ago}}
+    ).to_list(None)
+    raw_txns = tl + yap
 
     hist_txns = [t for t in raw_txns if t.get("date", datetime.min) < week_start]
 
@@ -147,11 +140,8 @@ async def main():
         print(f"=== {uid} ===")
         entry: dict = {}
 
-        region = await get_user_region(uid)
-        entry["region"] = region
-
         # 1. monthly_cashflow
-        cf = await monthly_cashflow(uid, region, cutoff90)
+        cf = await monthly_cashflow(uid, cutoff90)
         entry["monthly_cashflow"] = cf
 
         # 2. pace verdict + split

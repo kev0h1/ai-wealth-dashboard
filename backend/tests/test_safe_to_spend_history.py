@@ -18,6 +18,7 @@ tests/test_safe_to_spend_hardening.py and tests/test_mcp_audit_retention.py.
 import asyncio
 from datetime import date, datetime, timezone
 
+import app.core.timeutil as timeutil
 import app.routers.analytics as analytics
 import app.services.safe_to_spend_history as sts_history
 
@@ -141,8 +142,8 @@ def test_run_safe_to_spend_snapshot_writes_one_doc_per_ok_user_and_skips_the_res
     summary = _run(sts_history.run_safe_to_spend_snapshot())
 
     assert summary == {"users": 3, "written": 1, "skipped": 1, "failed": 1}
-    assert list(history_col.docs.keys()) == [f"user-a@example.com:{date.today().isoformat()}"]
-    written_doc = history_col.docs[f"user-a@example.com:{date.today().isoformat()}"]
+    assert list(history_col.docs.keys()) == [f"user-a@example.com:{timeutil.user_today().isoformat()}"]
+    written_doc = history_col.docs[f"user-a@example.com:{timeutil.user_today().isoformat()}"]
     assert written_doc["user_id"] == "user-a@example.com"
     assert written_doc["safe_to_spend"] == 100.0
     assert written_doc["bills"] == [{"name": "Rent", "amount": 50.0, "days_away": 2}]
@@ -171,7 +172,7 @@ def test_run_safe_to_spend_snapshot_never_leaks_one_users_figures_into_another(m
     summary = _run(sts_history.run_safe_to_spend_snapshot())
 
     assert summary["written"] == 2
-    today = date.today().isoformat()
+    today = timeutil.user_today().isoformat()
     alice_doc = history_col.docs[f"alice@example.com:{today}"]
     bob_doc = history_col.docs[f"bob@example.com:{today}"]
     assert alice_doc["user_id"] == "alice@example.com"
@@ -204,5 +205,5 @@ def test_run_safe_to_spend_snapshot_is_idempotent_per_user_per_day(monkeypatch):
     _run(sts_history.run_safe_to_spend_snapshot())
 
     assert len(history_col.docs) == 1
-    today = date.today().isoformat()
+    today = timeutil.user_today().isoformat()
     assert history_col.docs[f"alice@example.com:{today}"]["safe_to_spend"] == 20.0

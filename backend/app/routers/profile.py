@@ -7,6 +7,7 @@ import json as _json
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.auth import current_user
+from app.core.session_revocation import revoke_sessions
 from app.db.collections import user_profiles_col
 from app.services.retention import erase_user
 
@@ -69,6 +70,12 @@ async def delete_account(body: dict, user: dict = Depends(current_user)):
     if body.get("confirm") != "DELETE":
         raise HTTPException(400, "Confirmation required")
     uid = user["email"]
+    # A84: revoke this user's session tokens BEFORE erasing, not inside
+    # erase_user itself (that function is shared with the dormant sweep,
+    # and is out of scope for this call site's edit), so a concurrent
+    # request racing the deletion, using the same still-valid token, is
+    # already locked out from the moment erasure starts.
+    await revoke_sessions(uid)
     removed = await erase_user(uid)
     return {"deleted": True, "removed": removed}
 

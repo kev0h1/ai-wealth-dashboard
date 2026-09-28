@@ -100,6 +100,34 @@ function resolveBuildTag(): string {
   return `build ${date} ${sha}${buildNumber}`;
 }
 
+// A67: TrueLayer is a UAT-only provider. Finexer is the only provider
+// production uses, and Kevin's constraint on this item was that "behind a
+// flag is not enough if the flag could be switched on in production, so
+// enforce absence rather than rely on configuration".
+//
+// A plain `NEXT_PUBLIC_*` boolean read in a component does NOT achieve that,
+// and this was measured rather than assumed: a production build of the code
+// as it stood still contained `ep.TRUELAYER_PICKER&&...jsx(...,{label:"Add
+// Bank via TrueLayer",onClick:()=>{...eG("truelayer")}})` and `"Secure open
+// banking · Powered by TrueLayer"` verbatim in
+// `.next/static/chunks/3e_ntl57es5n_.js` and `3a3ccmf8hu7li.js`. The flag is
+// a cross-module `const`, so the minifier cannot fold the branch away, and
+// `api`'s `truelayerProviders`/`connectLink` entries are object properties,
+// which are never tree-shaken at all. The strings shipped; only a `&&`
+// stopped them rendering.
+//
+// So the identifier and the display name are INLINED HERE instead, at build
+// time, as empty strings for a production build. `frontend/lib/
+// legacyBankProvider.ts` derives everything else (the URL paths, the menu
+// label, the sheet subtitle) from them, so a production bundle contains no
+// TrueLayer identifier, label, or endpoint path to begin with — there is no
+// branch to get past. `NEXT_PUBLIC_TRUELAYER_PICKER` remains the single
+// operator-facing switch (docs/ops/ENV.md), it is just read here rather than
+// in a component; UAT's `frontend/.env.local` and
+// `frontend/scripts/build-mobile.sh` set it exactly as before. Next loads
+// `.env*` files before this config module, so `.env.local` still reaches it.
+const LEGACY_BANK_PROVIDER_ON = process.env.NEXT_PUBLIC_TRUELAYER_PICKER === "on";
+
 // Capacitor/mobile static export: Next's `output: 'export'` does not support
 // rewrites() or redirects(), so both are disabled when MOBILE_EXPORT is set.
 // The API base is instead baked in directly via NEXT_PUBLIC_API_URL.
@@ -226,13 +254,35 @@ const nextConfig: NextConfig = {
   output: MOBILE_EXPORT ? "export" : process.env.VERCEL ? undefined : "standalone",
   env: {
     NEXT_PUBLIC_BUILD_TAG: resolveBuildTag(),
+    // A67, see LEGACY_BANK_PROVIDER_ON above. Empty string = the legacy
+    // provider does not exist in this build, and neither does its name.
+    NEXT_PUBLIC_LEGACY_BANK_ID: LEGACY_BANK_PROVIDER_ON ? "truelayer" : "",
+    NEXT_PUBLIC_LEGACY_BANK_NAME: LEGACY_BANK_PROVIDER_ON ? "TrueLayer" : "",
   },
   ...(turbopackRoot ? { turbopack: { root: turbopackRoot } } : {}),
   transpilePackages: ["@wealth/shared"],
   async headers() {
     const headers = await securityHeaders();
-    if (headers.length === 0) return [];
-    return [{ source: "/:path*", headers }];
+    const result = headers.length > 0 ? [{ source: "/:path*", headers }] : [];
+    // A76 (DSGN-04, A48 pentest): /design/* previews are unreleased product
+    // directions and must not be indexed. MOBILE_EXPORT already returns []
+    // above via securityHeaders() short-circuiting (output: 'export' doesn't
+    // support headers() at all), so this only ever ships on the web build,
+    // where robots.txt alone isn't enough (it stops crawling, not indexing
+    // a URL a crawler already has from elsewhere) — hence the explicit
+    // header too. See also app/robots.ts and app/design/page.tsx's
+    // per-route `metadata.robots`.
+    if (!MOBILE_EXPORT) {
+      result.push({
+        source: "/design",
+        headers: [{ key: "X-Robots-Tag", value: "noindex, nofollow" }],
+      });
+      result.push({
+        source: "/design/:path*",
+        headers: [{ key: "X-Robots-Tag", value: "noindex, nofollow" }],
+      });
+    }
+    return result;
   },
   async rewrites() {
     if (MOBILE_EXPORT) return [];

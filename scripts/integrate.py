@@ -18,7 +18,17 @@ line per rejected item and counts them in the summary, so a rejection
 that keeps a branch out of a merge is visible in the run's own output
 rather than a silent absence (see H25 — before this, a rejection that
 only existed in conversation was invisible to a concurrent integrate
-pass, which merged the rejected branch anyway).
+pass, which merged the rejected branch anyway). A `cancelled` item (H80)
+is never a merge candidate for the same reason, even one that still
+carries a `[branch: ...]` tag (retained deliberately by `set_cancelled`
+so a live worktree stays visible, not so integrate can find it): each
+pass prints one `[skipped-cancelled]` line per cancelled item and counts
+them in the summary too, mirroring `[skipped-rejected]`. A `review` item
+that somehow has no branch recorded (this should not normally happen; see
+`TodoDoc.clear_branch`'s own guard) is dropped by `_review_items()`'s
+filter the same way, so each pass also prints one
+`[skipped-review-no-branch]` line per such item, rather than letting it
+vanish with no explanation at all.
 
   1. Warns (but does not block) if the recorded branch doesn't start with
      `feature-<ID>` for that item's id — branches are named
@@ -32,7 +42,7 @@ pass, which merged the rejected branch anyway).
      then runs the backend test suite. If `frontend/` or `shared/` changed in
      the merge, also runs `npm run -s check:design-index` and
      `npm run -s check:legal-content` (the same gate `scripts/session.sh
-     finish` runs - see H23), then `npm run build` + restart
+     finish` runs - see H23), then an atomic frontend build + restart
      `wealth-frontend`; if `backend/` changed, restart `wealth-api` and
      `wealth-worker` (the worker imports services and core modules under
      `backend/app`, not just `backend/app/workers`, so any backend change
@@ -71,17 +81,23 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import os
 import re
 import subprocess
 import sys
 import time
+import uuid
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator, Optional
 
 REPO_ROOT = Path("/root/ai-wealth-dashboard")
 sys.path.insert(0, str(REPO_ROOT / "backend"))
+# scripts/frontend_build.py lives next to this file; import it from there
+# (not from REPO_ROOT) so a worktree's tests exercise the worktree's copy.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import frontend_build  # noqa: E402
 from app.services import backlog  # noqa: E402
 
 LOCK_PATH = REPO_ROOT / ".integrate.lock"
@@ -102,12 +118,52 @@ class IntegrateError(RuntimeError):
     (not on main, dirty tree, lock already held)."""
 
 
-def _sh(cmd: list[str], cwd: Path = REPO_ROOT, timeout: int = GIT_TIMEOUT) -> tuple[int, str]:
+# H93: every `backlog.set_state`/`set_done`/`set_uat`/`add_note` call
+# below returns `(dict, committed: bool)`, and before this fix every one
+# of them was called for its side effect only, with the tuple (and so
+# `committed`) discarded outright -- worse than the CLI's own "(saved to
+# file; git commit or push failed)" footnote, since nothing was printed
+# at all. `_warn_if_not_committed` is the one place that discard is fixed:
+# every call site below now unpacks `committed` and passes it through
+# here, which prints a loud, specific warning and records the item so a
+# run's own exit code can reflect it (see `integrate_once`'s use of this
+# list). A failed board write here never undoes or blocks an already
+# -successful merge/push to origin/main -- the code has genuinely
+# shipped by the time any of these run, so the only honest response is to
+# surface the disagreement loudly, not to pretend the merge didn't
+# happen.
+_BOARD_WRITE_FAILURES: list[str] = []
+
+
+def _warn_if_not_committed(item_id: str, action: str, committed: bool) -> None:
+    if committed:
+        return
+    msg = (
+        f"error: {item_id} {action} was written to TODO.md but the git commit/push failed; the board file "
+        f"and origin/main may now disagree for {item_id} until this is retried or fixed by hand."
+    )
+    print(msg, file=sys.stderr)
+    _BOARD_WRITE_FAILURES.append(f"{item_id}: {action}")
+
+
+def _sh(
+    cmd: list[str], cwd: Path = REPO_ROOT, timeout: int = GIT_TIMEOUT,
+    env: Optional[dict] = None,
+) -> tuple[int, str]:
     """Run a command, returning (returncode, combined stdout+stderr). Never
-    raises for a non-zero exit — callers decide what that means."""
+    raises for a non-zero exit — callers decide what that means.
+
+    `env` (H90): merged ON TOP of this process's own environment (never
+    replaces it) when given, so a caller can add or override one variable
+    (see `_run_backend_tests` below) without having to reconstruct the
+    rest of `os.environ` itself. `None` (the default, every other caller)
+    keeps the previous behaviour exactly: `subprocess.run(..., env=None)`
+    inherits the parent environment unchanged."""
     try:
+        run_env = {**os.environ, **env} if env else None
         proc = subprocess.run(
-            cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=timeout
+            cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+            timeout=timeout, env=run_env,
         )
         return proc.returncode, proc.stdout
     except subprocess.TimeoutExpired as exc:
@@ -169,6 +225,26 @@ def _review_items() -> list[dict]:
     return items
 
 
+def _review_items_missing_branch() -> list[dict]:
+    """MEDIUM 1 (H80 correction round, reviewer round 3): `_review_items()`
+    above filters on state `review` AND a branch, so an item that is
+    `review` but somehow has no branch recorded is silently dropped --
+    matching no `[skipped-*]` line at all, with `integrate_once` printing
+    "nothing to integrate (no board items in review state)" even though
+    the board plainly shows one "In review", the exact silent-absence
+    shape H25 closed for `rejected`. Traced concretely to
+    `scripts/backlog.py clear-branch` (now refused unless the item is
+    `cancelled`, see `TodoDoc.clear_branch`) being pointed at a `review`
+    item by mistake and stripping the one field this needs it by; this
+    exists as a second line of defence in case some future path does the
+    same thing a different way. Purely for visibility, exactly like
+    `_rejected_items`/`_cancelled_items` above."""
+    snapshot = backlog.load()
+    items = [i for i in snapshot.items() if i.get("state") == "review" and not i.get("branch")]
+    items.sort(key=lambda i: _id_sort_key(i["id"]))
+    return items
+
+
 def _rejected_items() -> list[dict]:
     """Items a reviewer has rejected (see H25: a reviewer's rejection has
     to land on the board immediately, because `review` alone is treated as
@@ -179,6 +255,21 @@ def _rejected_items() -> list[dict]:
     so a skip-because-rejected never reads as a silent absence."""
     snapshot = backlog.load()
     items = [i for i in snapshot.items() if i.get("state") == "rejected"]
+    items.sort(key=lambda i: _id_sort_key(i["id"]))
+    return items
+
+
+def _cancelled_items() -> list[dict]:
+    """H80 correction round (LOW): items Kevin has cancelled, mirroring
+    `_rejected_items()` above for the same reason. `_review_items()`
+    already excludes these outright -- a cancelled item's state is
+    `cancelled`, not `review`, even when it still carries a `branch` tag
+    (see `set_cancelled`, which deliberately retains a live worktree's
+    branch purely so it stays visible) -- so this exists purely for
+    visibility, so a skip-because-cancelled never reads as a silent
+    absence the way an unlabelled skip did for rejected before H25."""
+    snapshot = backlog.load()
+    items = [i for i in snapshot.items() if i.get("state") == "cancelled"]
     items.sort(key=lambda i: _id_sort_key(i["id"]))
     return items
 
@@ -488,9 +579,29 @@ def _restart_services(changed: set[str]) -> None:
     backend_changed = any(p == "backend" or p.startswith("backend/") for p in changed)
 
     if frontend_or_shared:
-        rc, out = _sh(["npm", "run", "build"], cwd=REPO_ROOT / "frontend", timeout=900)
-        if rc != 0:
-            raise IntegrateError(f"frontend build failed:\n{out}")
+        # H51: never build in place. frontend_build builds in a scratch
+        # mirror of frontend/ (<repo>/.frontend-staging), verifies BUILD_ID
+        # and every file required-server-files.json lists, and only then
+        # swaps the result into frontend/.next with one atomic rename, keeping
+        # the previous build at frontend/.next-prev (revert with
+        # `scripts/frontend_build.py --revert`). A failed, interrupted or
+        # unverified build raises and leaves the live .next untouched, so
+        # the running wealth-frontend keeps serving the last good build
+        # and the restart below never happens. It takes its own
+        # non-blocking lock on frontend/.next-build.lock, so an overlapping
+        # build (a session's own scripts/frontend_build.py run in the
+        # shared tree) fails loudly here rather than the two builds
+        # corrupting each other; that failure blocks the item like any
+        # other build failure, re-run finish/integrate once the other
+        # build has finished.
+        try:
+            result = frontend_build.build_and_swap(REPO_ROOT / "frontend")
+        except frontend_build.FrontendBuildError as exc:
+            raise IntegrateError(f"frontend build failed:\n{exc}") from None
+        print(
+            f"frontend build {result.build_id} swapped into frontend/.next "
+            f"(previous {result.previous_build_id or 'none'} kept at frontend/.next-prev)"
+        )
         _systemctl_restart("wealth-frontend")
     if backend_changed:
         _systemctl_restart("wealth-api")
@@ -566,7 +677,40 @@ def _run_frontend_checks(changed: set[str]) -> None:
         raise IntegrateError(f"check:legal-content failed:\n{out}")
 
 
+def _fresh_test_db_name() -> str:
+    """The same "wealth_test_<epoch seconds>_<8 hex>" shape
+    backend/tests/conftest.py's own default generator produces,
+    duplicated rather than imported (this script must not depend on test
+    code) — kept in sync by convention; see that file if this ever needs
+    to change. A per-run name, not the single shared "wealth_test"
+    literal H90's first pass originally passed here: this VPS can run
+    several `session.sh finish` gates and an `integrate` pass against the
+    one local mongod at once, and a shared literal let one run's
+    session-end teardown drop another's still-in-flight fixtures mid-test
+    (found and reproduced in review). The epoch prefix is what lets
+    conftest.py's own stale-database sweep find and reap a name like this
+    one if the process that generated it never reaches its own teardown
+    (crashed, OOM-killed)."""
+    return f"wealth_test_{int(time.time())}_{uuid.uuid4().hex[:8]}"
+
+
 def _run_backend_tests() -> None:
+    """Runs the suite from the SHARED TREE's own backend, unlike
+    `scripts/session.sh finish` (a worktree). That matters for H90: this
+    process's cwd here has a real `backend/.env` (UAT's), which
+    `app.core.config`'s `load_dotenv(..., override=False)` would read
+    MONGO_DB="wealth" out of — the real value, not a test one — the
+    instant the pytest subprocess imports `app.core.config` transitively.
+    `conftest.py`'s own module-level `os.environ.setdefault("MONGO_DB",
+    ...)` still wins that race on its own (it runs before those imports,
+    and dotenv's override=False never clobbers an already-set var), but
+    passing a MONGO_DB here too means this invocation is its own proof of
+    the mechanism, not something that only holds up if conftest.py's
+    import order is never disturbed. Review-round correction: that value
+    is now generated fresh per call (`_fresh_test_db_name`), not the
+    single shared "wealth_test" literal H90's first pass originally used
+    here, so an integrate pass running concurrently with a `session.sh
+    finish` (or another integrate pass) can never collide with it."""
     venv_python = REPO_ROOT / "backend" / ".venv" / "bin" / "python"
     rc, out = _sh(
         [
@@ -575,6 +719,7 @@ def _run_backend_tests() -> None:
         ],
         cwd=REPO_ROOT / "backend",
         timeout=600,
+        env={"MONGO_DB": _fresh_test_db_name()},
     )
     if rc != 0:
         raise IntegrateError(f"backend test suite failed:\n{out}")
@@ -659,16 +804,19 @@ def _block(item_id: str, reason: str) -> None:
         print(f"error: {item_id} blocked, full detail follows:\n{full_text}", file=sys.stderr)
     one_line = _one_line_reason(full_text)
     try:
-        backlog.set_state(item_id, "blocked", reason=one_line, actor="claude")
+        _, committed = backlog.set_state(item_id, "blocked", reason=one_line, actor="claude")
     except backlog.BacklogError:
         logger_note = f"integrate: could not write block reason for {item_id}: {one_line}"
         print(logger_note, file=sys.stderr)
         return
+    _warn_if_not_committed(item_id, "blocked", committed)
     if full_text.strip():
         try:
-            backlog.add_note(item_id, _extract_diagnostic_tail(full_text), actor="claude")
+            _, note_committed, _truncation = backlog.add_note(item_id, _extract_diagnostic_tail(full_text), actor="claude")
         except backlog.BacklogError as exc:
             print(f"warning: could not add detail note for {item_id}: {exc}", file=sys.stderr)
+        else:
+            _warn_if_not_committed(item_id, "block detail note", note_committed)
 
 
 def _rollback_and_restart(pre_sha: str, changed: set[str]) -> None:
@@ -801,27 +949,35 @@ def _integrate_one(item: dict) -> tuple[str, str]:
             print(f"warning: could not derive a design preview link for {item_id}: {exc}", file=sys.stderr)
             preview_link, preview_detail = _DESIGN_INDEX_LINK, None
         try:
-            backlog.set_uat(item_id, preview_link, actor="claude")
+            _, uat_committed = backlog.set_uat(item_id, preview_link, actor="claude")
             landed_detail = f"landed in uat, preview {preview_link}"
             if preview_detail:
                 landed_detail += f" ({preview_detail})"
         except backlog.BacklogError as exc:
             print(f"warning: {item_id} merged but board write failed: {exc}", file=sys.stderr)
             landed_detail = "landed in uat, board write failed"
+        else:
+            _warn_if_not_committed(item_id, "sent to uat", uat_committed)
         if preview_detail:
             try:
-                backlog.add_note(item_id, f"Preview: {preview_link}. {preview_detail}", actor="claude")
+                _, note_committed, _truncation = backlog.add_note(
+                    item_id, f"Preview: {preview_link}. {preview_detail}", actor="claude"
+                )
             except backlog.BacklogError as exc:
                 print(f"warning: could not record preview detail note for {item_id}: {exc}", file=sys.stderr)
+            else:
+                _warn_if_not_committed(item_id, "preview detail note", note_committed)
         try:
             _notify_uat_ready(item_id, title, preview_link, detail=preview_detail)
         except Exception as exc:  # noqa: BLE001 - a push failure must never fail the integrate run
             print(f"warning: could not notify Kevin for {item_id}: {exc}", file=sys.stderr)
     else:
         try:
-            backlog.set_done(item_id, True, commit=merge_sha, actor="claude")
+            _, done_committed = backlog.set_done(item_id, True, commit=merge_sha, actor="claude")
         except backlog.BacklogError as exc:
             print(f"warning: {item_id} merged but board write failed: {exc}", file=sys.stderr)
+        else:
+            _warn_if_not_committed(item_id, "marked done", done_committed)
         landed_detail = "done"
 
     _sh(["git", "push", "origin", "--delete", branch], timeout=30)
@@ -834,6 +990,7 @@ def _integrate_one(item: dict) -> tuple[str, str]:
 
 
 def integrate_once(allow_branch: Optional[str] = None) -> int:
+    _BOARD_WRITE_FAILURES.clear()
     try:
         with _locked():
             _check_preconditions(allow_branch)
@@ -845,18 +1002,42 @@ def integrate_once(allow_branch: Optional[str] = None) -> int:
 
             items = _review_items()
             rejected = _rejected_items()
+            cancelled = _cancelled_items()
+            review_no_branch = _review_items_missing_branch()
             for item in rejected:
                 branch_note = f", branch {item['branch']}" if item.get("branch") else ""
                 print(
                     f"[skipped-rejected] {item['id']}: rejected "
                     f"({item.get('reason') or 'no reason recorded'}){branch_note}, not eligible for merge"
                 )
+            for item in cancelled:
+                branch_note = f", branch {item['branch']}" if item.get("branch") else ""
+                print(
+                    f"[skipped-cancelled] {item['id']}: cancelled "
+                    f"({item.get('reason') or 'no reason recorded'}){branch_note}, not eligible for merge"
+                )
+            for item in review_no_branch:
+                # MEDIUM 1: this should not normally happen (see
+                # _review_items_missing_branch's own docstring) -- printed
+                # so it is never a silent absence if it ever does.
+                print(
+                    f"[skipped-review-no-branch] {item['id']}: in review with no branch recorded, "
+                    f"not eligible for merge (this is not a normal state -- check how its branch tag "
+                    f"was lost)"
+                )
 
             if not items:
+                not_eligible_bits = []
                 if rejected:
+                    not_eligible_bits.append(f"{len(rejected)} item(s) rejected")
+                if cancelled:
+                    not_eligible_bits.append(f"{len(cancelled)} item(s) cancelled")
+                if review_no_branch:
+                    not_eligible_bits.append(f"{len(review_no_branch)} item(s) in review with no branch")
+                if not_eligible_bits:
                     print(
                         f"nothing to integrate (no board items in review state; "
-                        f"{len(rejected)} item(s) rejected, not eligible)"
+                        f"{', '.join(not_eligible_bits)}, not eligible)"
                     )
                 else:
                     print("nothing to integrate (no board items in review state)")
@@ -877,10 +1058,27 @@ def integrate_once(allow_branch: Optional[str] = None) -> int:
                 {"merged": merged, "blocked": blocked, "skipped": skipped}[result].append(detail)
 
             print()
+            review_no_branch_bit = f", {len(review_no_branch)} in review with no branch" if review_no_branch else ""
             print(
                 f"Summary: {len(merged)} merged, {len(blocked)} blocked, {len(skipped)} skipped, "
-                f"{len(rejected)} rejected (not eligible for merge)."
+                f"{len(rejected)} rejected, {len(cancelled)} cancelled{review_no_branch_bit} "
+                f"(not eligible for merge)."
             )
+            if _BOARD_WRITE_FAILURES:
+                # H93: a merge/push to origin/main that succeeded is never
+                # undone here just because the matching board write's git
+                # commit failed -- the code has genuinely shipped by this
+                # point. But this run is not clean: the board may now
+                # disagree with origin/main for these items until someone
+                # notices and retries the write, so the exit code says so
+                # rather than the usual 0 every merged/blocked/skipped
+                # outcome above gets.
+                print(
+                    f"error: {len(_BOARD_WRITE_FAILURES)} board write(s) saved to TODO.md but did not commit: "
+                    f"{'; '.join(_BOARD_WRITE_FAILURES)}",
+                    file=sys.stderr,
+                )
+                return 1
             return 0
     except IntegrateError as exc:
         print(f"error: {exc}", file=sys.stderr)

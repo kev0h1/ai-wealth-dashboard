@@ -25,12 +25,16 @@ NOT shared across test files by convention here).
 """
 import asyncio
 from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 from bson import ObjectId
 from fastapi import HTTPException
 
+import app.core.timeutil as timeutil
 import app.routers.allocations as allocations
+
+_LONDON = ZoneInfo("Europe/London")
 
 UID = "kevin"
 
@@ -46,7 +50,14 @@ class _FixedDate(date):
     matching the pattern established in test_home_suppression_registry.py
     / test_scenario.py. Pinned mid-month (day 15) so there are always
     several elapsed days in the current pay period, e.g. for the
-    effective_from "mid-period exclusion" tests below."""
+    effective_from "mid-period exclusion" tests below.
+
+    G161: the router's own period-boundary calls (`date.today()`) were
+    swept to `app.core.timeutil.user_today()`, a Europe/London-aware helper
+    that no longer reads this patched `date` name at all. `_setup` below
+    additionally freezes `app.core.timeutil`'s `datetime` name to the SAME
+    calendar day (see `_FrozenTimeutilDatetime`), so both call styles stay
+    pinned to one deterministic "today" together."""
 
     _fixed: date = date(2026, 6, 15)
 
@@ -58,6 +69,20 @@ class _FixedDate(date):
 TODAY = _FixedDate.today()
 FIXED_NOW = datetime.combine(TODAY, datetime.min.time()) + timedelta(hours=12)
 PERIOD_START = TODAY.replace(day=1)
+
+
+class _FrozenTimeutilDatetime(datetime):
+    """G161 twin of `_FixedDate`, for `app.core.timeutil.user_now()`/
+    `user_today()` (`datetime.now(Europe/London)`). Treats FIXED_NOW's
+    naive wall-clock value as the London instant directly (this suite only
+    ever asserts on whole calendar days, never sub-day precision), so
+    `.date()` off the frozen value always equals TODAY regardless of the
+    host process's own timezone."""
+
+    @classmethod
+    def now(cls, tz=None):
+        aware = FIXED_NOW.replace(tzinfo=_LONDON)
+        return aware.astimezone(tz) if tz is not None else aware.replace(tzinfo=None)
 if TODAY.month == 12:
     _next_month = TODAY.replace(year=TODAY.year + 1, month=1, day=1)
 else:
@@ -197,6 +222,7 @@ def _account(acct_id, uid=UID):
 def _setup(monkeypatch, *, accounts=None, allocations_docs=None, txns=None,
            yapily_txns=None, prefs=None):
     monkeypatch.setattr(allocations, "date", _FixedDate)
+    monkeypatch.setattr(timeutil, "datetime", _FrozenTimeutilDatetime)
     monkeypatch.setattr(allocations, "accounts_col", FakeCol(accounts or []))
     monkeypatch.setattr(allocations, "yapily_accounts_col", FakeCol([]))
     monkeypatch.setattr(allocations, "manual_accounts_col", FakeCol([]))

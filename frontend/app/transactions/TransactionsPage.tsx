@@ -19,6 +19,10 @@ import Spinner from "@/components/Spinner";
 import { TipsLine } from "@/components/TipsLine";
 import { openTipsFor, tipsForMerchants } from "@/lib/spendTips";
 import { getAccountsCached } from "@/lib/accountsCache";
+import { FilterChips, FilterTrigger } from "@/components/TransactionFilterChips";
+import FilterSheet, { draftFromFilters, type FilterDraft } from "@/components/TransactionFilterSheet";
+import type { SearchFilters } from "@/lib/transactionFilters";
+import { groupByDay } from "@/lib/transactionGrouping";
 
 const PAGE_SIZE = 20;
 
@@ -82,6 +86,12 @@ export default function TransactionsPage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
+  // G119: the filter sheet's own open/close state — there was previously no
+  // filter-opening control at all on this page, chips only ever arrived via
+  // deep-link params. Kevin's approved trigger (ghost, demoted from the
+  // solid puck that read as Penny's FAB) opens the same FilterSheet the
+  // design round built.
+  const [filterOpen, setFilterOpen] = useState(false);
   // Loaded through the shared accounts cache (lib/accountsCache.ts) so
   // TeachingSheet can resolve selectedTx's bank/badge the same way Home and
   // Spend do (G37) — fetched once on mount, never blocking the transaction
@@ -228,17 +238,28 @@ export default function TransactionsPage() {
     return qs ? `/transactions?${qs}` : "/transactions";
   }
 
-  // Category, label and txn_type are one filter unit (a multi-category deep-
-  // link like "money you moved" always carries all three together) — clear
-  // them together so the chip's X never leaves a stuck debit-only scope or a
-  // stale label behind. Clearing wipes both the scalar and multi-category
-  // state so a genuinely unfiltered list results either way.
+  // Category, label and txn_type are one filter unit ONLY when categoryLabel
+  // is set — a deep link like "Money you moved" (or the overspent-only
+  // "Everything that went out", MoneyShapeHero.tsx's jobHref) always names
+  // all three together, so the chip's X must clear them together, never
+  // leaving a stuck debit-only scope or a stale label behind. When
+  // categoryLabel is absent, any txn_type present was composed
+  // independently in FilterSheet.tsx (G119 review fix) and now renders as
+  // its OWN chip with its own onClearDirection — this must leave it alone,
+  // or picking "Bills" + "Money out" together would make the category chip's
+  // X silently drop the direction filter too, the exact bug the review
+  // caught (see TransactionFilterChips.tsx's buildChipItems docstring).
   function clearCategoryFilter() {
+    const clearingLabelledUnit = Boolean(categoryLabel);
     setCategoryFilter(null);
     setCategoriesFilter(null);
     setCategoryLabel(null);
-    setTxnType(null);
-    router.replace(urlFor({ category: null, categories: null, label: null, txnType: null }));
+    if (clearingLabelledUnit) {
+      setTxnType(null);
+      router.replace(urlFor({ category: null, categories: null, label: null, txnType: null }));
+    } else {
+      router.replace(urlFor({ category: null, categories: null, label: null }));
+    }
   }
 
   function clearMerchantsFilter() {
@@ -255,6 +276,59 @@ export default function TransactionsPage() {
     router.replace(urlFor({ from: null, to: null }));
   }
 
+  // G119: a direction-only filter (no category) is new — the filter sheet
+  // can now set txn_type on its own, which needs its own independent chip
+  // and its own clear, distinct from clearCategoryFilter's "category+label+
+  // txn_type as one unit" (that unit still applies whenever a category IS
+  // set; this only fires for the standalone "Money out"/"Money in" chip
+  // FilterChips renders when there's no category alongside it).
+  function clearDirection() {
+    setTxnType(null);
+    router.replace(urlFor({ txnType: null }));
+  }
+
+  // "Clear all" — shown by FilterChips once more than one chip is active.
+  // Wipes every filter dimension in one go, same one-tap-to-widen principle
+  // as clearPeriodFilter above.
+  function clearAllFilters() {
+    setCategoryFilter(null);
+    setCategoriesFilter(null);
+    setCategoryLabel(null);
+    setTxnType(null);
+    setMerchantsFilter(null);
+    setPeriodFrom(null);
+    setPeriodTo(null);
+    router.replace(urlFor({
+      category: null, categories: null, label: null, txnType: null,
+      merchants: null, from: null, to: null,
+    }));
+    setFilterOpen(false);
+  }
+
+  // FilterSheet applies one merged draft (category/merchant/date/direction
+  // all at once, "Show results") rather than one param at a time. A
+  // sheet-applied category is always user-picked, never a deep-link label,
+  // so categoryLabel resets to null here (the label only means "this
+  // exact display text came from wherever the deep link named it").
+  function applyFilterDraft(draft: FilterDraft) {
+    const merch = draft.merchant.split(",").map((s) => s.trim()).filter(Boolean);
+    const cat = draft.categories.length === 1 ? draft.categories[0] : null;
+    const cats = draft.categories.length > 1 ? draft.categories : null;
+    setCategoryFilter(cat);
+    setCategoriesFilter(cats);
+    setCategoryLabel(null);
+    setMerchantsFilter(merch.length > 0 ? merch : null);
+    setPeriodFrom(draft.from);
+    setPeriodTo(draft.to);
+    setTxnType(draft.txnType);
+    router.replace(urlFor({
+      category: cat, categories: cats, label: null,
+      merchants: merch.length > 0 ? merch : null,
+      from: draft.from, to: draft.to, txnType: draft.txnType,
+    }));
+    setFilterOpen(false);
+  }
+
   function handleTxUpdated(updated: Transaction, additionalIds?: string[]) {
     setItems((prev) => prev.map((t) => {
       if (t.id === updated.id) return { ...t, category: updated.category };
@@ -263,22 +337,30 @@ export default function TransactionsPage() {
     }));
   }
 
-  function formatPeriodChip(from: string | null, to: string | null): string {
-    const fmt = (iso: string) => {
-      const d = new Date(iso + "T00:00:00");
-      return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-    };
-    if (from && to) return `${fmt(from)} → ${fmt(to)}`;
-    if (from) return `From ${fmt(from)}`;
-    return `Until ${fmt(to!)}`;
-  }
-
   const hasPeriodFilter = Boolean(periodFrom || periodTo);
   // With a period chip applied the line must not claim "all time" — the chip
   // itself states the exact range, this only states the account scope.
   const scopeLine = hasPeriodFilter
     ? "Searching all accounts"
     : "Searching everything · all accounts, all time";
+
+  // G119: the same SearchFilters shape FilterChips/FilterSheet/FilterTrigger
+  // share with the design round's own preview — built fresh each render
+  // from this page's existing (deep-link-or-user-set) filter state so a
+  // deep-linked filter and a sheet-applied one render through the exact
+  // same chips, unchanged from before this fold-in.
+  const filters: SearchFilters = {
+    category: categoryFilter,
+    categories: categoriesFilter,
+    merchants: merchantsFilter,
+    from: periodFrom,
+    to: periodTo,
+    txnType,
+  };
+  const filtersActive = Boolean(
+    categoryFilter || (categoriesFilter && categoriesFilter.length > 0) ||
+    (merchantsFilter && merchantsFilter.length > 0) || periodFrom || periodTo || txnType,
+  );
 
   // The collapsed tips line's own data — computed here (not inline in the
   // JSX) so `!loading` and a `key={tipsLineCategory}` remount can both gate
@@ -343,12 +425,18 @@ export default function TransactionsPage() {
           >
             <ArrowLeft size={18} className="text-slate-500 dark:text-slate-400" />
           </button>
-          <div>
+          <div className="flex-1 min-w-0">
             <p className="text-xs text-slate-600 dark:text-slate-400 font-medium uppercase tracking-wide">
               Every payment
             </p>
             <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Search</h1>
           </div>
+          {/* G119: the filter trigger, Kevin's approved "ghost" demoted
+              control — a hairline-bordered circle with a small active dot,
+              never the solid indigo puck (that read as Penny's FAB). There
+              was previously no filter-opening control on this page at all;
+              its chips only ever arrived via deep-link params. */}
+          <FilterTrigger active={filtersActive} onOpen={() => setFilterOpen(true)} />
         </div>
       </div>
 
@@ -357,10 +445,11 @@ export default function TransactionsPage() {
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 pointer-events-none" />
           <input
             type="search"
+            enterKeyHint="search"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search transactions…"
-            className="w-full pl-9 pr-9 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 dark:placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm"
+            className="w-full pl-9 pr-9 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 dark:placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm [&::-webkit-search-cancel-button]:hidden"
           />
           {searchQuery && (
             <button
@@ -376,43 +465,31 @@ export default function TransactionsPage() {
 
         <div className="mt-2 flex items-center justify-between gap-2 min-h-[28px] flex-wrap">
           <p className="text-[11px] text-slate-600 dark:text-slate-400">{scopeLine}</p>
-          <div className="flex items-center gap-1.5 flex-wrap">
-            {(categoryFilter || (categoriesFilter && categoriesFilter.length > 0)) && (
-              <button
-                type="button"
-                onClick={clearCategoryFilter}
-                aria-label={`Remove ${categoryLabel ?? categoryFilter ?? categoriesFilter!.join(", ")} filter`}
-                className="flex-shrink-0 inline-flex items-center gap-1 min-h-[28px] px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 text-[11px] font-semibold active:opacity-70 transition-opacity"
-              >
-                {categoryLabel ?? categoryFilter ?? categoriesFilter!.join(", ")}
-                <X size={10} />
-              </button>
-            )}
-            {merchantsFilter && merchantsFilter.length > 0 && (
-              <button
-                type="button"
-                onClick={clearMerchantsFilter}
-                aria-label={`Remove ${merchantsFilter.join(", ")} filter`}
-                className="flex-shrink-0 inline-flex items-center gap-1 min-h-[28px] px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 text-[11px] font-semibold active:opacity-70 transition-opacity"
-              >
-                {merchantsFilter[0]}
-                {merchantsFilter.length > 1 && ` +${merchantsFilter.length - 1}`}
-                <X size={10} />
-              </button>
-            )}
-            {hasPeriodFilter && (
-              <button
-                type="button"
-                onClick={clearPeriodFilter}
-                aria-label="Remove period filter, widen to all history"
-                className="flex-shrink-0 inline-flex items-center gap-1 min-h-[28px] px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 text-[11px] font-semibold active:opacity-70 transition-opacity"
-              >
-                {formatPeriodChip(periodFrom, periodTo)}
-                <X size={10} />
-              </button>
-            )}
-          </div>
         </div>
+
+        {/* G119: Kevin's approved "tint" treatment — indigo-50 fill,
+            indigo-500 hairline border, indigo-700 text (dark:
+            indigo-900/30 fill, indigo-400 border). The border is load-
+            bearing: the fill alone measures ~1.00:1 against this page's
+            #f0f2f7 canvas, no better than the old bg-slate-100 pill it
+            replaces (that was the flagged defect, ~1.02:1, effectively
+            invisible). 44px chips, whole chip is the tap target, "Clear
+            all" once more than one is active. Renders category+label+
+            txn_type as ONE clearable unit (clearCategoryFilter), merchants
+            and the date window independently — same grouping this page
+            has always used, now shared with the design round's own
+            preview via components/TransactionFilterChips.tsx. */}
+        <FilterChips
+          filters={filters}
+          categoryLabel={categoryLabel}
+          onClearCategory={clearCategoryFilter}
+          onClearDirection={clearDirection}
+          onClearMerchants={clearMerchantsFilter}
+          onClearPeriod={clearPeriodFilter}
+          onClearAll={clearAllFilters}
+          treatment="tint"
+          className="mt-2"
+        />
 
         {/* Mounted only once `tips` is non-empty AND the list itself has
             settled (`!loading`) — never inserted above a payments list that
@@ -444,8 +521,19 @@ export default function TransactionsPage() {
           </div>
         ) : (
           <>
+            {/* G122: day-group headings ("13 September"), matching the G119
+                preview's approved Variant A grammar — grouping now lives in
+                lib/transactionGrouping.ts, shared verbatim with
+                app/design/g119-transactions-live/VariantA.tsx so this page
+                can't silently drift from what Kevin approved. Grouping is
+                built from THIS PAGE's current items only, so it re-groups
+                fresh on every page change; a calendar day that straddles a
+                page boundary legitimately reopens its own heading on the
+                next page (see transactionGrouping.ts's own comment) — every
+                row still renders exactly once, under whichever page's
+                heading it falls on, which is the disclosed limit of
+                page-based Prev/Next paging, not a lost or duplicated row. */}
             <div
-              className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden"
               onTouchStart={(e) => {
                 swipeTouchStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
               }}
@@ -460,7 +548,7 @@ export default function TransactionsPage() {
               }}
             >
               {items.length === 0 ? (
-                <div className="py-8 text-center">
+                <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden py-8 text-center">
                   <p className="text-sm text-slate-600 dark:text-slate-400">
                     {searchQuery || categoryFilter || (categoriesFilter && categoriesFilter.length > 0) || merchantsFilter
                       ? `No payments matching ${searchQuery ? `"${searchQuery}"` : (categoryLabel ?? categoryFilter ?? (categoriesFilter && categoriesFilter.length > 0 ? categoriesFilter.join(", ") : merchantsFilter!.join(", ")))}`
@@ -480,9 +568,16 @@ export default function TransactionsPage() {
                   )}
                 </div>
               ) : (
-                <div className="divide-y divide-slate-50 dark:divide-slate-700">
-                  {items.map((tx) => (
-                    <TransactionRow key={tx.id} transaction={tx} onClick={() => setSelectedTx(tx)} />
+                <div className="space-y-4">
+                  {groupByDay(items).map((g) => (
+                    <section key={g.key} className="rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800 overflow-hidden">
+                      <h2 className="px-4 pt-4 pb-1 text-sm font-bold text-slate-950 dark:text-slate-50">{g.heading}</h2>
+                      <div className="divide-y divide-slate-100 dark:divide-slate-700">
+                        {g.rows.map((tx) => (
+                          <TransactionRow key={tx.id} transaction={tx} onClick={() => setSelectedTx(tx)} iconVariant="category" showDate={false} />
+                        ))}
+                      </div>
+                    </section>
                   ))}
                 </div>
               )}
@@ -523,6 +618,15 @@ export default function TransactionsPage() {
           account={accounts.find(a => a.id === selectedTx.account_id)}
           onClose={() => setSelectedTx(null)}
           onUpdated={handleTxUpdated}
+        />
+      )}
+
+      {filterOpen && (
+        <FilterSheet
+          initial={draftFromFilters(filters)}
+          onApply={applyFilterDraft}
+          onClearAll={clearAllFilters}
+          onClose={() => setFilterOpen(false)}
         />
       )}
     </div>

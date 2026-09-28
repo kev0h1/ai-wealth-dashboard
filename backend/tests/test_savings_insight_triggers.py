@@ -109,7 +109,6 @@ def _patch_collections(monkeypatch, primary_docs, *, labels=None, recurring_spen
     monkeypatch.setattr(savings_insights, "transactions_col", FakeCol(primary_docs))
     monkeypatch.setattr(savings_insights, "yapily_transactions_col", FakeCol())
     monkeypatch.setattr(savings_insights, "statement_transactions_col", FakeCol())
-    monkeypatch.setattr(savings_insights, "mono_transactions_col", FakeCol())
     monkeypatch.setattr(savings_insights, "savings_labels_col", FakeCol(labels or []))
     cache_docs = [{"_id": UID, "recurring_spend": recurring_spend}] if recurring_spend is not None else []
     monkeypatch.setattr(savings_insights, "cashflow_cache_col", FakeCol(cache_docs))

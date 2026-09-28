@@ -778,9 +778,9 @@ async def check_statement_upload_allowed(email: str) -> None:
 
 
 async def record_statement_upload(
-    email: str, *, kind: str, filename: str, region: str, account_id: str,
+    email: str, *, kind: str, filename: str, account_id: str,
 ) -> None:
-    """Record one successful statement/M-Pesa upload against the calendar
+    """Record one successful statement upload against the calendar
     month it happened in, for `check_statement_upload_allowed` to count
     against. Only call this after a parse-and-store succeeds; a failed
     parse must not count against the monthly cap."""
@@ -793,6 +793,5 @@ async def record_statement_upload(
         "year_month": now.strftime("%Y-%m"),
         "kind": kind,
         "filename": filename,
-        "region": region,
         "account_id": account_id,
     })

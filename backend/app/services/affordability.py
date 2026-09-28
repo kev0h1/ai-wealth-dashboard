@@ -27,9 +27,9 @@ import logging
 import re
 from datetime import date, datetime, timedelta
 
+from app.core import timeutil
 from app.routers.analytics import compute_safe_to_spend
 from app.routers.savings import _cashflow
-from app.services.region import get_user_region
 
 logger = logging.getLogger(__name__)
 
@@ -267,9 +267,8 @@ async def check_affordability(uid: str, amount: float, timeframe: str | None = N
 
     monthly_surplus = 0.0
     try:
-        region = await get_user_region(uid)
         cutoff = datetime.now() - timedelta(days=90)
-        _, _, monthly_surplus = await _cashflow(uid, region, cutoff)
+        _, _, monthly_surplus = await _cashflow(uid, cutoff)
     except Exception:
         logger.exception("affordability: monthly cashflow lookup failed for %s", uid)
 
@@ -281,7 +280,7 @@ async def check_affordability(uid: str, amount: float, timeframe: str | None = N
         "goes_negative": free_after_spend < 0,
     }
 
-    months_until_target = _parse_timeframe(timeframe or "", date.today())
+    months_until_target = _parse_timeframe(timeframe or "", timeutil.user_today())
     if months_until_target is not None and months_until_target > 0:
         what_ifs["months_until_target"] = months_until_target
         what_ifs["savable_by_target"] = (

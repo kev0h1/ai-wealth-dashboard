@@ -169,7 +169,8 @@ def _account(acct_id, balance, provider="barclays", name=None, subtype="TRANSACT
 
 
 def _run(monkeypatch, bills, *, accounts=None, payday_window=False,
-         income_streams=None, window_income=None, companion_items=None):
+         income_streams=None, window_income=None, companion_items=None,
+         late_income=None):
     """Full-stack harness: patches every collection compute_today_items
     touches and calls it for real, following test_internal_inflows.py's
     `_run_compute_today_items` pattern (extended with `accounts_col` so the
@@ -242,6 +243,8 @@ def _run(monkeypatch, bills, *, accounts=None, payday_window=False,
             "upcoming_bills": bills,
             "upcoming_income": window_income or [],
             "internal_inflows": [],
+            # G163/G167 interim lapse signal — see analytics._late_reliable_income.
+            "late_income": late_income or [],
         }
 
     monkeypatch.setattr(companion, "_build_cashflow_response", fake_resp)
@@ -312,6 +315,94 @@ def test_neither_pending_nor_bounced_does_not_fire(monkeypatch):
                        pending=False, days_away=5)]
     items, _ = _run(mp, bills, accounts=accounts)
     assert _find(items, "unfunded_move") is None
+
+
+# ── G163: confirmed same-day income covers a pending move; lapsed income
+# names itself on the card ───────────────────────────────────────────────
+
+def test_pending_move_covered_by_same_day_confirmed_income_does_not_fire():
+    """Kevin, 2026-09-24: "the AI should know money is coming in so perhaps
+    I shouldn't flag this, it only becomes a problem the day after." A
+    movement due TODAY on a source account that's short on its own, but a
+    confirmed income stream is ALSO expected into that exact account today
+    — the single G163 walk (credits before debits on a shared day) covers
+    it, so it never lands in `bounced_bills` and `unfunded_move` never
+    fires. Before G163 this was indistinguishable from a genuine bounce,
+    since the walk always processed the bill first."""
+    import pytest
+    mp = pytest.MonkeyPatch()
+    try:
+        accounts = [_account("barclays", 20.0)]
+        bills = [_mv_bill("KEVIN MAINGI HSBC FT", 81.67, "barclays",
+                           pending=True, days_away=0)]
+        window_income = [{
+            "name": "Salary", "amount": 200.0, "days_away": 0, "account_id": "barclays",
+            "account_name": "Barclays Current",
+        }]
+        items, _ = _run(
+            mp, bills, accounts=accounts,
+            income_streams=[{"key": "Salary", "status": "confirmed"}],
+            window_income=window_income,
+        )
+        assert _find(items, "unfunded_move") is None
+    finally:
+        mp.undo()
+
+
+def test_lapsed_income_names_the_late_pay():
+    """Same shortfall shape as `test_pending_and_bounced_fires` (no income
+    at all covers it this time, so the card fires as usual), but
+    `resp["late_income"]` (the G163 interim lapse signal — see
+    `analytics._late_reliable_income`) carries an entry for this exact
+    source account. The card's body must name the late pay, not just say
+    the move "may not have the funds"."""
+    import pytest
+    mp = pytest.MonkeyPatch()
+    try:
+        accounts = [_account("barclays", 20.0)]
+        bills = [_mv_bill("KEVIN MAINGI HSBC FT", 81.67, "barclays",
+                           pending=True, days_past_due=9, original_date="2026-08-18")]
+        late_income = [{
+            "key": "Salary", "label": "Salary", "amount": 2000.0,
+            "expected_date": "2026-08-20", "days_late": 3, "account_id": "barclays",
+        }]
+        items, _ = _run(mp, bills, accounts=accounts, late_income=late_income)
+        item = _find(items, "unfunded_move")
+        assert item is not None
+        assert "Salary pay was expected" in item["body"]
+        assert "has not arrived yet" in item["body"]
+        assert "~£2,000" in item["body"]
+        assert "—" not in item["body"]  # house style: no em-dashes in user-facing copy
+    finally:
+        mp.undo()
+
+
+def test_lapsed_detected_income_names_it_without_calling_it_pay():
+    """G167: a merely DETECTED (unconfirmed) reliable pattern gets the same
+    treatment as a confirmed stream, but the sentence must not call it
+    "pay" — the user never confirmed it as income, only Sorted noticed the
+    pattern. `source: "detected"` selects the "from {label}" wording."""
+    import pytest
+    mp = pytest.MonkeyPatch()
+    try:
+        accounts = [_account("barclays", 20.0)]
+        bills = [_mv_bill("KEVIN MAINGI HSBC FT", 81.67, "barclays",
+                           pending=True, days_past_due=9, original_date="2026-08-18")]
+        late_income = [{
+            "key": "FREELANCE CLIENT", "label": "Freelance Client", "amount": 800.0,
+            "expected_date": "2026-08-20", "days_late": 3, "account_id": "barclays",
+            "source": "detected",
+        }]
+        items, _ = _run(mp, bills, accounts=accounts, late_income=late_income)
+        item = _find(items, "unfunded_move")
+        assert item is not None
+        assert "Freelance Client pay was expected" not in item["body"]
+        assert "from Freelance Client was expected" in item["body"]
+        assert "has not arrived yet" in item["body"]
+        assert "~£800" in item["body"]
+        assert "—" not in item["body"]  # house style: no em-dashes in user-facing copy
+    finally:
+        mp.undo()
 
 
 # ── Aggregation ───────────────────────────────────────────────────────────
@@ -1135,4 +1226,58 @@ def test_no_viable_source_suggestion_carries_no_sources(monkeypatch):
     assert (
         "Top up the account, make the move if you already have, or skip it for this month."
         in _find(items, "unfunded_move")["body"]
+    )
+
+
+# ── G84: the single shared gate G71 introduced (`_gate_regular_move_cards`,
+# section 5d) is called OUTSIDE any try/except of its own, whereas the two
+# hand-aligned copies it replaced were not symmetric: section 5d's shadow
+# copy used to sit INSIDE the unfunded_move try/except (so a transient
+# failure there degraded only unfunded_move), while section 6's own probe
+# was already uncaught (a failure there already failed the whole request,
+# same as today). Because compute_today_items has many OTHER sections after
+# this one, each wrapped in its own independent try/except (windows, needle,
+# ask, cliff, trajectory, ...), an uncaught failure in the shared gate call
+# now takes all of THOSE down too, not just section 5d's card — a strictly
+# wider blast radius than existed before G71 for a transient error in this
+# specific spot. Fixed by giving the shared gate call its own try/except,
+# falling back to an empty gate (nothing emitted) on failure so both callers
+# degrade together (a symmetric, honest "no cover-plan cards this compute"
+# instead of one surviving by luck) without the exception propagating past
+# this point and killing every unrelated section of the brief.
+def test_regular_move_gate_failure_does_not_crash_the_whole_brief(monkeypatch):
+    """A transient failure inside the shared `_gate_regular_move_cards` call
+    must not raise out of `compute_today_items` — it must degrade (no
+    regular move/plan cards this compute) rather than fail the entire Home
+    brief, restoring the isolation section 5d's OWN try/except used to give
+    a database hiccup here before G71 merged the two probes into one call
+    sitting outside any try/except. Fails against the pre-G84 code (the bare
+    `await _gate_regular_move_cards(...)` with no try/except around it): the
+    injected RuntimeError propagates straight out of compute_today_items and
+    asyncio.run(...) re-raises it, erroring this test instead of letting it
+    reach the assertions below."""
+    accounts = [_account("premier", 10.0, name="Premier Current")]
+    bills = [
+        _mv_bill("PREMIER MOVE", 40.0, "premier", pending=True,
+                 days_past_due=2, original_date="2026-09-02"),
+        _commitment_bill("Council Tax", 50.0, "premier", days_away=1),
+    ]
+
+    async def _boom(**kwargs):
+        raise RuntimeError("transient companion_items_col failure")
+
+    monkeypatch.setattr(companion, "_gate_regular_move_cards", _boom)
+
+    # This fixture normally produces exactly one regular "move" card (see
+    # test_mixed_account_without_a_safe_source_still_has_one_skippable_card,
+    # same accounts/bills). If the gate failure were uncaught, the line
+    # below would raise and this test would error before reaching a single
+    # assertion.
+    items, _ = _run(monkeypatch, bills, accounts=accounts)
+
+    assert isinstance(items, list)
+    moves = [item for item in items if item["type"] == "move"]
+    assert moves == [], (
+        "the regular move card must degrade to absent on a gate failure, "
+        "not be emitted from a half-failed gate"
     )

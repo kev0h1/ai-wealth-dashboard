@@ -108,12 +108,9 @@ def _patch_grow_collaborators(monkeypatch):
     monkeypatch.setattr(grow, "savings_goals_col", _FakeCol([]))
     monkeypatch.setattr(grow, "investment_accounts_col", _FakeCol([]))
 
-    async def fake_region(uid):
-        return "UK"
 
-    monkeypatch.setattr(grow, "get_user_region", fake_region)
 
-    async def fake_monthly_cashflow(uid, region, cutoff):
+    async def fake_monthly_cashflow(uid, cutoff):
         return {"income": 2000.0, "spending": 1934.0, "debt": 0.0, "cat": {}, "n_months": 3}
 
     monkeypatch.setattr(grow, "monthly_cashflow_cached", fake_monthly_cashflow)

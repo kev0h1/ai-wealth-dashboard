@@ -13,7 +13,7 @@ from app.core.llm import openrouter_chat
 from app.db.collections import (
     transactions_col, accounts_col, user_rules_col, user_profiles_col,
     merchant_categories_col, confirmed_transfer_pairs_col,
-    statement_transactions_col, mono_transactions_col, mpesa_transactions_col,
+    statement_transactions_col, teaching_events_col,
 )
 from app.services.categories import get_category_kinds, kind_of, MOVEMENT, BUILTIN_CATEGORY_KINDS, NON_SPEND_KINDS
 # G39: the mortgage/car-finance savings insights (app.routers.savings_insights)
@@ -25,6 +25,8 @@ from app.services.categories import get_category_kinds, kind_of, MOVEMENT, BUILT
 # lists that can drift apart. No cycle: app.routers.savings_insights imports
 # nothing from this module.
 from app.routers.savings_insights import INSIGHT_CATEGORIES as _INSIGHT_TRIGGER_CATEGORIES
+
+log = logging.getLogger(__name__)
 
 RAW_TRUELAYER_CATEGORIES = {
     "BILL_PAYMENT", "DEBIT", "DIRECT_DEBIT", "PURCHASE",
@@ -827,6 +829,82 @@ async def tavily_lookup_merchants(merchants: list[str]) -> dict[str, str]:
     return results
 
 
+# G139: every code path that actually writes a transaction's custom_category
+# to a real value appends a `created_at`-stamped event to teaching_events_col
+# — this is the SAME event, not two different concepts, as far as the two
+# call sites below are concerned:
+#   "correction"          — PATCH /transactions/{id} (routers/transactions.py
+#                            `update_transaction`), the ordinary category-
+#                            picker path.
+#   "movement_mine_here"  — POST /transactions/{id}/resolve-movement,
+#   "movement_mine_goal"    each non-no-op outcome of the movement teaching
+#   "movement_mine_offline" sheet that sets custom_category to Transfer (or
+#   "movement_spending"     to a chosen spend category, or clears it).
+# "movement_someone_else" is deliberately excluded — it never writes
+# custom_category at all (see resolve-movement's own docstring), so an event
+# of that type is not evidence of a decision changing.
+_CORRECTION_EVENT_TYPES = {
+    "correction", "movement_mine_here", "movement_mine_goal",
+    "movement_mine_offline", "movement_spending",
+}
+
+
+async def teaching_decision_times(user_id: str) -> dict:
+    """When did the user's own custom_category on each transaction id last
+    change, per `teaching_events_col` — the real decision-time signal.
+
+    G139: sorting a merchant-level override map by an override row's own
+    transaction `date` conflates PURCHASE recency with DECISION recency. A
+    user who corrects an older row (say, one from June) after a newer one
+    (say, one from September) has their most recent intent lose under a
+    date-sort, because the June row is still dated June — the exact "wrong
+    row wins" bug class this closes, not merely Kevin's own instance of it.
+    `date` is a proxy for "when did the user decide", not the thing itself.
+
+    A bulk correction (PATCH /transactions/{id} with `additional_ids`) only
+    gets ONE event row, keyed on the primary id, with the companion ids
+    listed inside `payload.additional_ids` — folded in here so every row a
+    bulk correction touched gets the same decision timestamp as its primary.
+
+    Returns {transaction_id: latest `created_at`} for every id covered by at
+    least one matching event. A row absent from the returned map has NO
+    decision-time signal at all — every caller here falls back to that row's
+    own `date` in that case. Two reasons an id can be absent, both benign:
+    the correction predates teaching_events_col, or its event aged out of
+    the 365-day TTL index on teaching_events_col (see `main.py`'s
+    `_ensure_index(teaching_events_col, [("created_at", 1)],
+    expireAfterSeconds=31536000)`) even though the transaction's own
+    custom_category value never expires. For those rows, recency can only be
+    approximated by purchase date — a real, accepted limitation for
+    corrections roughly a year or older, not a bug to re-litigate; a future
+    reader hitting a mis-ordered legacy/expired correction should recognise
+    this as that known gap, not a regression.
+
+    Read-only, and deliberately fails soft (returns whatever it has, or {}
+    on a hard failure) — a missing decision-time signal only demotes a row
+    to the `date` fallback everywhere it's used, never breaks the caller.
+    """
+    decision_time: dict = {}
+    try:
+        events = await teaching_events_col.find(
+            {"user_id": user_id, "type": {"$in": list(_CORRECTION_EVENT_TYPES)}},
+            {"transaction_id": 1, "payload.additional_ids": 1, "created_at": 1},
+        ).to_list(None)
+    except Exception:
+        log.exception("teaching_decision_times: failed loading events for %s", user_id)
+        return decision_time
+    for ev in events:
+        ts = ev.get("created_at")
+        if not ts:
+            continue
+        candidates = [ev.get("transaction_id")]
+        candidates += (ev.get("payload") or {}).get("additional_ids") or []
+        for tid in candidates:
+            if tid and ts > decision_time.get(tid, datetime.min):
+                decision_time[tid] = ts
+    return decision_time
+
+
 async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
     """Apply merchant rules + structural passes to categorise transactions.
     Returns count of updated docs."""
@@ -1237,10 +1315,46 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
     # on canonical_merchant_key (not the raw lowercased field — no date/
     # reference stripping at all), tried against merchant_name and description
     # independently so either field alone can still resolve a match.
+    #
+    # G139: the MOST RECENT correction per (key, transaction_type) wins.
+    # `transactions_col.find(...).to_list(None)` returns rows in Mongo's
+    # natural (insertion/on-disk) order, which has no guaranteed relationship
+    # to when the user actually made each correction — proven against
+    # Kevin's own history, where a single Playtomic row corrected to "Golf"
+    # on 2026-06-11 sorted before six later rows corrected to "Padel" between
+    # 2026-06-26 and 2026-09-22, so the stale June decision won permanently
+    # under the old "first key seen wins" rule below.
+    #
+    # Recency here means DECISION recency, not purchase recency — sorting on
+    # each row's own transaction `date` alone would fix Kevin's instance (his
+    # corrections happened to correlate with transaction dates) but not the
+    # class: a user who corrects an OLDER-dated row after a NEWER-dated one
+    # has their latest intent lose under a pure date-sort. `teaching_decision_
+    # times` (see its own docstring for the full rationale, the bulk-
+    # correction handling, and the residual limitation) returns the real
+    # correction timestamp from teaching_events_col per transaction id; only
+    # a row with no matching event — a pre-teaching_events_col correction, or
+    # one whose event has aged out of that collection's 365-day TTL — falls
+    # back to its own transaction `date`, which is a known, accepted
+    # approximation for that legacy/expired subset only, not a general rule.
+    #
+    # Fetch user_overrides FIRST and skip the teaching_events_col round trip
+    # entirely when it's empty — Pass 4 runs unconditionally on every sync
+    # (and several lighter paths besides), so a user with no corrections at
+    # all (every brand-new signup, until their first PATCH) would otherwise
+    # pay for a query with nothing to sort, on a project with a documented
+    # cold-start performance problem. An empty `_decision_time` map behaves
+    # identically to the fail-soft path `teaching_decision_times` already
+    # returns on error — every lookup below just falls through to `date`.
     user_overrides = await transactions_col.find(
         {"user_id": user_id, "custom_category": {"$ne": None}},
-        {"merchant_name": 1, "description": 1, "custom_category": 1, "transaction_type": 1},
+        {"merchant_name": 1, "description": 1, "custom_category": 1, "transaction_type": 1, "date": 1},
     ).to_list(None)
+    _decision_time = await teaching_decision_times(user_id) if user_overrides else {}
+    user_overrides.sort(
+        key=lambda h: _decision_time.get(h["_id"]) or h.get("date") or datetime.min,
+        reverse=True,
+    )
 
     override_map2: dict[tuple[str, str], str] = {}
     for h in user_overrides:
@@ -1376,7 +1490,7 @@ async def categorise_others_bg(uid: str) -> int:
     # instead of being limited to the 19 shared built-ins.
     allowed_cats = await user_allowed_categories(uid)
 
-    col_map = [transactions_col, statement_transactions_col, mono_transactions_col, mpesa_transactions_col]
+    col_map = [transactions_col, statement_transactions_col]
     # Structural / money-to-self categories (Transfer, Savings, Debt, Investment) are
     # assigned deterministically by earlier passes (Pass 2 / 2.6) and must never be
     # something the LLM guesses at — exclude them from the list it's allowed to pick.

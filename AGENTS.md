@@ -39,6 +39,75 @@ unrecorded.
   green: `scripts/session.sh finish <ID>`. This pushes the branch and
   marks the item in review. It refuses to run if the worktree is dirty or
   either check fails, fix that first rather than forcing it through.
+- The backend test suite runs against a disposable, PER-RUN database,
+  never the real UAT/production `wealth` one (H90, 2026-09-28; naming
+  corrected the same day, in review). `app/db/collections.py` selects
+  its database via the `MONGO_DB` env var (default `"wealth"`, so the API
+  and worker processes are unaffected); `backend/tests/conftest.py`
+  defaults `MONGO_DB` to a freshly generated
+  `"wealth_test_<epoch seconds>_<8 hex>"` name before any test can create
+  a collection handle, and `scripts/session.sh finish` /
+  `scripts/integrate.py` both also generate and pass their OWN per-run
+  name of the same shape explicitly on the pytest invocation itself
+  (never a single shared literal — the review round found and fixed a
+  real collision: two concurrent runs against this VPS's one local
+  mongod, both defaulting to the same name, where one session's teardown
+  dropped another's still-in-flight fixtures mid-test). `conftest.py` aborts
+  collection outright if the resolved database name doesn't look like a
+  test database, so a misconfigured environment fails loudly rather than
+  silently writing real data; it also sweeps and drops any leftover
+  per-run test database older than an hour at session start, so a
+  crashed session (OOM-killed, Ctrl-C'd) doesn't accumulate them forever
+  -- the sweep requires BOTH the age past an hour AND proof there is no
+  live owner (a non-blocking `flock` on a per-database lockfile every
+  session holds for its own lifetime), never age alone: incident H96
+  (same day) found age-only sweeping let one session's sweep drop
+  ANOTHER session's still-live database just for running long, which a
+  memory-starved box makes a real risk, not a hypothetical one. H96 is
+  also why `_looks_like_a_test_database` (the fail-hard guard itself) now
+  has direct unit-test coverage
+  (`backend/tests/test_h90_guard_looks_like_test_database.py`) and an
+  ANCHORED prefix check: during H96's own re-review, a reviewer mutated
+  the guard to accept the literal `"wealth"`, ran `MONGO_DB=wealth
+  pytest`, and the mutated guard let the real teardown through -- it
+  dropped the real UAT database (restored from backup, ~5h40m of data
+  lost). Never mutate this guard to test it; call
+  `_looks_like_a_test_database` directly in a unit test instead, exactly
+  as that test file does. Do not remove or bypass any of this: it closes
+  a real incident (a suite run, and separately an agent's own
+  verification script, each wrote a document under a real or fixture
+  user id into the live database from unmerged code), on top of H96
+  itself. If you ever need to point the suite at Mongo yourself (a
+  one-off script, not through `pytest`), set `MONGO_DB` to any name
+  starting with `wealth_test` first -- never `wealth`.
+- `finish` and `abandon` resolve `<ID>` to a worktree through the branch
+  the board records for it, never through a name match (item H85). They
+  print the worktree and branch they resolved to before doing anything,
+  and refuse, listing what they found, rather than guessing: when no
+  worktree is on the recorded branch, when that branch is checked out
+  somewhere that is not one of `<ID>`'s own worktrees, when `<ID>`
+  records no branch and more than one worktree carries its id, when the
+  board cannot be read at all, or when git cannot list the shared tree's
+  worktrees. If you hit one of those refusals, read it: it names the
+  fix, and a refusal is always a stop, never a warning it then works
+  around.
+- `abandon <ID> --worktree <path>` names a worktree explicitly, which is
+  the way past a refused resolution. It refuses a path that is not under
+  `/root/worktrees` (normalised, so `..` does not get you out), is not a
+  directory, or is not a git worktree. Otherwise it removes that
+  worktree, and whether it ALSO resets `<ID>` on the board depends on
+  what you named. Only if the worktree is on the branch `<ID>` records
+  is the item reset the way a plain `abandon` would. If it is a stale
+  duplicate, another branch, an item that records no branch, or the
+  board could not be read, the item is left untouched and the command
+  prints the deliberate `backlog.py todo <ID>` to run if you did want it
+  reset.
+- The full model, and the 2026-09-18 incident behind it (a stale
+  worktree resolved first, so `finish` pushed a branch that had already
+  been rejected and marked the item `review` against it), is in
+  `docs/ops/BACKLOG.md` under "Resolving `<ID>` to a worktree", which is
+  also where the rest of the board's state machine and the `add` /
+  `review` / `reject` / `uat` / `approve` commands are documented.
 - `npm run build` (Turbopack) in a worktree now works unmodified:
   `frontend/next.config.ts` widens `turbopack.root` to `/root` whenever it
   detects `frontend/node_modules` is a symlink pointing outside the
@@ -63,6 +132,67 @@ unrecorded.
   `backend/.venv/bin/python scripts/backlog.py reject <ID> "<reason>"`
   requires a reason and keeps the item's branch so the next person can
   see which one was refused. `start` or `todo` moves it back out again.
+- There is also a `cancelled` state (H80): Kevin's own call that a piece
+  of work should not happen at all — obsolete, superseded, or simply not
+  wanted — distinct from `rejected` (a defect, fix it) and `blocked`
+  (can't proceed yet). Be precise about how this is actually gated,
+  because two prior correction rounds overclaimed it: `/ops/go-live`'s
+  Cancel control is the genuinely **kevin-only** path, because that page
+  is gated by real account-owner auth end to end and hardcodes the actor
+  to `kevin` regardless of who is signed in — but that same page's
+  `ItemDetailSheet` "Move to" chips (To do, In progress, Done, Blocked)
+  mostly fire straight through on a cancelled item with no refusal at
+  all, since the page calls the service layer directly rather than
+  through the CLI's guard; accepted for To do, In progress and Blocked,
+  since it is still Kevin's own tap, and `set_state` itself still carries
+  no cancelled check, so a `BoardView.tsx` drag onto those columns fires
+  straight through unrefused too. Done is the one exception, closed as a
+  blocking defect found in the 2026-09-18 review: dragging a cancelled
+  card onto Done used to fire the done action with no confirmation,
+  silently clearing `item.reason` and ticking the item complete, the
+  exact transition the CLI already refused. `TodoDoc.set_done` itself now
+  refuses a cancelled item with no override, the same shape
+  `_refuse_if_cancelled` already used on the CLI, so that one transition
+  is genuinely universal rather than CLI-only, `backend/app/routers/ops.py`
+  surfaces the refusal as a 4xx with the reason rather than a 500, and
+  `BoardView.tsx`'s own `isValidDropTarget` refuses Done as a drop target
+  for a cancelled card client-side too, so a drag never even sends the
+  request. `backend/app/services/backlog.py`'s
+  `TodoDoc.set_state` refuses to set this state for any CLI `--actor`
+  other than `kevin` — that is a guard against forgetting, not against
+  intent: nothing stops a session typing `--actor kevin` on purpose, so
+  do not treat it as a hard barrier. (A `BACKLOG_AGENT` environment check
+  was tried here too and removed: it broke every Codex `finish`, since
+  this file has every Codex session export `BACKLOG_AGENT=codex` and
+  `scripts/session.sh finish` runs the whole suite in that same
+  environment, and it bought nothing besides — `env -u BACKLOG_AGENT`
+  defeats it in one token.) Either way, a Codex session must never decide
+  work is unnecessary and cancel it on its own, exactly the same
+  restriction a Claude session has: if you believe an item should be
+  cancelled, say so with a note instead —
+  `backend/.venv/bin/python scripts/backlog.py note <ID> "recommend
+  cancelling: <why>"` — and let Kevin run
+  `backend/.venv/bin/python scripts/backlog.py cancel <ID> "<reason>"
+  --actor kevin` (or use the Cancel control on `/ops/go-live`) himself.
+  On the CLI, `start`, `block`, `review`, `reject`, `uat`, `todo` and
+  `done` all refuse a cancelled item outright, with NO override at all —
+  not a `--force` flag, which left a board commit indistinguishable from
+  an ordinary start/todo with no record a cancellation was overridden or
+  why. The only way out is `scripts/backlog.py uncancel <ID> "<why>"`,
+  which requires a reason (like `cancel`/`reject` do), writes a dated
+  note, and moves the item to `todo` — kevin-only, the same shape and the
+  same honest framing as `cancel` itself: a cancellation is Kevin's own
+  input, deciding a ticket should not happen, so a Codex session must not
+  be the one to undo that decision either. If you meet a cancelled item,
+  leave a note recommending it be reopened
+  (`backend/.venv/bin/python scripts/backlog.py note <ID> "recommend
+  reopening: <why>"`) and let Kevin run `uncancel` himself, rather than
+  reaching for it directly. This closed a real bug where
+  `scripts/session.sh finish`/`abandon` could push a cancelled item into
+  review or back to to-do without anyone deciding to, and a "reject then
+  start" laundering path that
+  needed no flag at all. A cancelled item is closed but never counted as
+  done.
 - Never commit `backend/.env` or any other key/secret file. Never edit
   files outside this repository.
 - Copy rules apply to every user-facing string you write: no em dashes,

@@ -241,6 +241,12 @@ def test_aget_falls_back_to_mongo_when_memory_cold(monkeypatch):
         cache_col.docs[(UID, "grow")] = {
             "user_id": UID, "name": "grow", "version": version,
             "day": response_cache.local_day(),
+            # G148: a hand-built doc must now also carry the response SHAPE
+            # stamp `aput` writes, or aget correctly refuses it as a payload
+            # built by code that emitted a different set of fields. The
+            # rejection path itself is covered by
+            # tests/test_response_cache_shape_version.py.
+            "shape": response_cache.SHAPE_VERSION,
             "payload": {"verdict": "ok"}, "computed_at": datetime.now(timezone.utc),
         }
         assert response_cache._caches.get("grow", {}).get(UID) is None  # memory cold

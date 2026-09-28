@@ -27,7 +27,7 @@ import PennyUsageRow from "@/components/PennyUsageRow";
 import PlanPicker from "@/components/PlanPicker";
 import { refreshPennyUsage } from "@/components/PennySheetProvider";
 import { useSheetA11y } from "@/lib/useSheetA11y";
-import { canPurchaseInApp, PURCHASE_UNAVAILABLE_SENTENCE } from "@/lib/nativeAuth";
+import { usePurchaseAvailability, PURCHASE_UNAVAILABLE_SENTENCE } from "@/lib/nativeAuth";
 
 const INDIGO = "#4f46e5";
 
@@ -75,6 +75,7 @@ export default function YourPlanCard({
   const [pickerOpen, setPickerOpen] = useState(false);
   const subtitle = formatSubtitle(info, error);
   const panelRef = useSheetA11y<HTMLDivElement>(() => setPickerOpen(false));
+  const purchaseAvailability = usePurchaseAvailability();
 
   useEffect(() => {
     if (!pickerOpen) return;
@@ -121,7 +122,14 @@ export default function YourPlanCard({
             purchase integration) — only shown for a free-tier user, an
             existing paid subscriber's status already reads from the
             subtitle above with nothing further to say here. */}
-        {!canPurchaseInApp() ? (
+        {/* B40: usePurchaseAvailability() starts "unknown" through SSR and
+            the first client render, resolving to "web"/"native" only
+            after mount, so this never shows the wrong branch during the
+            server-render/hydration gap the way a direct canPurchaseInApp()
+            call in render could. "unknown" reads the same as "native"
+            here (falls into the unavailable-sentence branch), matching
+            the fail-closed direction of canPurchaseInApp() itself. */}
+        {purchaseAvailability !== "web" ? (
           info?.tier === "statements" && (
             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{PURCHASE_UNAVAILABLE_SENTENCE}</p>
           )

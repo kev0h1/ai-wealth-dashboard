@@ -20,6 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.core.auth import current_user
+from app.core import timeutil
 from app.db.collections import accounts_col, card_terms_col
 from app.services import response_cache
 from app.services.account_kinds import is_credit_card_account
@@ -222,7 +223,7 @@ def _normalise_promos(body: "CardTermsBody") -> list[dict]:
             until_d = date.fromisoformat(until)
         except ValueError:
             raise HTTPException(400, "until must be an ISO date (YYYY-MM-DD)")
-        if until_d < date.today():
+        if until_d < timeutil.user_today():
             raise HTTPException(400, "until must be today or in the future")
         until = until_d.isoformat()
 
@@ -264,7 +265,7 @@ def _normalise_bt_offers(body: "CardTermsBody") -> list[dict]:
                 ends_d = date.fromisoformat(ends)
             except ValueError:
                 raise HTTPException(400, "ends must be an ISO date (YYYY-MM-DD)")
-            if ends_d < date.today():
+            if ends_d < timeutil.user_today():
                 raise HTTPException(400, "ends must be today or in the future")
             ends = ends_d.isoformat()
 

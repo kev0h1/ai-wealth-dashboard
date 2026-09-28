@@ -23,8 +23,9 @@ This file covers two things:
      state-machine exhaustiveness suite), plus idempotency: reading the same
      expired doc twice must never flip state.
 """
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
+import app.core.timeutil as timeutil
 from app.routers.savings_insights import (
     _compute_content_valid_until,
     _derive_insight_state,
@@ -105,9 +106,24 @@ class _FrozenDatetime(datetime):
         return NOW
 
 
+class _FrozenTimeutilDatetime(datetime):
+    """G161 follow-up: `_derive_insight_state`/`_serialize_insight`'s
+    day-scale reads (`fresh`, `is_new`, `_expiry_line`) now go through
+    `app.core.timeutil.user_today()`/`to_user_date()` instead of this
+    module's own `datetime.utcnow()`, so freezing `savings_insights.datetime`
+    alone (below) no longer reaches them. NOW is naive, treated as UTC
+    (the same convention every stored timestamp in this file already uses)."""
+
+    @classmethod
+    def now(cls, tz=None):
+        aware = NOW.replace(tzinfo=timezone.utc)
+        return aware.astimezone(tz) if tz is not None else aware.replace(tzinfo=None)
+
+
 def _freeze(monkeypatch):
     import app.routers.savings_insights as savings_insights
     monkeypatch.setattr(savings_insights, "datetime", _FrozenDatetime)
+    monkeypatch.setattr(timeutil, "datetime", _FrozenTimeutilDatetime)
 
 
 def test_content_valid_until_in_the_future_is_fresh(monkeypatch):
@@ -121,8 +137,13 @@ def test_content_valid_until_in_the_future_is_fresh(monkeypatch):
 
 
 def test_content_valid_until_in_the_past_is_quiet_and_content_is_withheld(monkeypatch):
+    # G161 follow-up (independent review, day-scale bug): freshness is
+    # compared as Europe/London CALENDAR DATES now, "valid through the end
+    # of that London day" -- not a strict instant boundary (see
+    # `_derive_insight_state`'s `fresh` comment). A full calendar day
+    # earlier is unambiguously a past London day either way.
     _freeze(monkeypatch)
-    doc = _fresh_doc(content_valid_until=NOW - timedelta(hours=1))
+    doc = _fresh_doc(content_valid_until=NOW - timedelta(days=1))
     assert _derive_insight_state(doc) == "quiet"
     out = _serialize_insight(doc)
     assert out["state"] == "quiet"
@@ -134,11 +155,30 @@ def test_content_valid_until_in_the_past_is_quiet_and_content_is_withheld(monkey
     assert out["expiry_line"] is None
 
 
-def test_content_valid_until_exactly_now_is_no_longer_fresh(monkeypatch):
-    # `now < content_valid_until` — the boundary instant itself is NOT
-    # fresh, same "strictly before" contract as the old RESEARCH_TTL gate.
+def test_content_valid_until_same_london_day_is_still_fresh_even_hours_earlier(monkeypatch):
+    # G161 follow-up: content stays fresh through the END of the London
+    # calendar day content_valid_until falls on -- an instant an hour
+    # earlier THE SAME London day is still fresh, unlike the old strict
+    # "now < content_valid_until" instant boundary this replaces.
     _freeze(monkeypatch)
-    doc = _fresh_doc(content_valid_until=NOW)
+    doc = _fresh_doc(content_valid_until=NOW - timedelta(hours=1))
+    assert _derive_insight_state(doc) == "fresh"
+
+
+def test_content_valid_until_the_previous_london_day_is_no_longer_fresh(monkeypatch):
+    # The day-scale analogue of the old "exactly now is no longer fresh"
+    # boundary test: once today's London date has moved past
+    # content_valid_until's London date at all, it reads quiet -- proven
+    # here at the tightest possible gap (content_valid_until is the last
+    # instant of the previous London day).
+    _freeze(monkeypatch)
+    import app.core.timeutil as timeutil_mod
+    yesterday_end_ld = timeutil_mod.to_user_date(NOW) - timedelta(days=1)
+    from datetime import datetime as _dt, time as _time
+    # Last London instant of yesterday, expressed back as the naive-UTC
+    # instant this codebase stores (23:59:59 London -> UTC).
+    yesterday_end_london = _dt.combine(yesterday_end_ld, _time(23, 59, 59), tzinfo=timeutil_mod.LONDON)
+    doc = _fresh_doc(content_valid_until=yesterday_end_london.astimezone(timezone.utc).replace(tzinfo=None))
     assert _derive_insight_state(doc) == "quiet"
 
 
@@ -155,8 +195,8 @@ def test_expiry_is_category_independent_a_former_push_category_expires_the_same_
     # aged out at all in `_derive_insight_state` — this proves that
     # distinction no longer exists: mobile and gym behave identically now.
     _freeze(monkeypatch)
-    mobile = _fresh_doc(category="mobile", content_valid_until=NOW - timedelta(hours=1))
-    gym = _fresh_doc(category="gym", content_valid_until=NOW - timedelta(hours=1))
+    mobile = _fresh_doc(category="mobile", content_valid_until=NOW - timedelta(days=1))
+    gym = _fresh_doc(category="gym", content_valid_until=NOW - timedelta(days=1))
     assert _derive_insight_state(mobile) == _derive_insight_state(gym) == "quiet"
 
 
@@ -216,7 +256,7 @@ def test_expiry_line_is_generic_when_the_default_ttl_governs(monkeypatch):
 
 def test_expiry_line_is_null_once_the_card_is_quiet(monkeypatch):
     _freeze(monkeypatch)
-    doc = _fresh_doc(content_valid_until=NOW - timedelta(hours=1))
+    doc = _fresh_doc(content_valid_until=NOW - timedelta(days=1))
     out = _serialize_insight(doc)
     assert out["state"] == "quiet"
     assert out["expiry_line"] is None

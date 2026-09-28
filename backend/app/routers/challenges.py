@@ -1,15 +1,15 @@
 """Weekly spending challenges endpoints."""
 import uuid as uuid_lib
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta, timezone
 
 from fastapi import APIRouter, Depends
 
+from app.core import timeutil
 from app.core.auth import current_user
 from app.db.collections import (
     challenges_col,
     transactions_col, yapily_transactions_col,
 )
-from app.services.region import get_user_region, get_kenya_transactions
 
 router = APIRouter(tags=["challenges"])
 
@@ -30,24 +30,37 @@ CHALLENGE_CATS = {"Eating Out", "Entertainment", "Shopping", "Groceries", "Trans
 # challenges back.
 
 
+def _london_midnight_as_naive_utc(day) -> datetime:
+    """Midnight at the start of `day` in Europe/London, expressed as the
+    naive-UTC instant this file's other timestamps (period_start/period_end,
+    compared against `datetime.utcnow()` elsewhere in this module) already
+    use. G166 follow-up: the daily/weekly reset boundary used to be UTC
+    midnight (`datetime.utcnow().replace(hour=0, ...)`), which is up to an
+    hour wrong for a London user during BST -- the same "app believes it's
+    tomorrow/yesterday" bug class G161 fixed elsewhere (see
+    app.core.timeutil's module docstring). Converting via the real
+    Europe/London ZoneInfo means this is correct across the BST/GMT
+    transition too, not just a fixed offset."""
+    london_midnight = datetime.combine(day, time.min, tzinfo=timeutil.LONDON)
+    return london_midnight.astimezone(timezone.utc).replace(tzinfo=None)
+
+
 def _week_bounds():
-    now        = datetime.utcnow()
-    week_start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+    today      = timeutil.user_today()
+    monday     = today - timedelta(days=today.weekday())
+    week_start = _london_midnight_as_naive_utc(monday)
     week_end   = week_start + timedelta(days=6, hours=23, minutes=59, seconds=59)
     return week_start, week_end
 
 
 def _day_bounds():
-    now       = datetime.utcnow()
-    day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    today     = timeutil.user_today()
+    day_start = _london_midnight_as_naive_utc(today)
     day_end   = day_start + timedelta(hours=23, minutes=59, seconds=59)
     return day_start, day_end
 
 
 async def _get_debit_txns_challenge(uid: str, since: datetime) -> list:
-    region = await get_user_region(uid)
-    if region == "Kenya":
-        return await get_kenya_transactions(uid, since)
     tl  = await transactions_col.find({"user_id": uid, "transaction_type": "debit", "date": {"$gte": since}}).to_list(None)
     yap = await yapily_transactions_col.find({"user_id": uid, "transaction_type": "debit", "date": {"$gte": since}}).to_list(None)
     return tl + yap
@@ -103,9 +116,8 @@ async def _get_challenge_stats(uid: str) -> dict:
 async def _generate_all_challenges(uid: str) -> list[dict]:
     week_start, week_end = _week_bounds()
     day_start,  day_end  = _day_bounds()
-    region   = await get_user_region(uid)
-    currency = "KES" if region == "Kenya" else "GBP"
-    min_weekly = 500 if region == "Kenya" else 5
+    currency = "GBP"
+    min_weekly = 5
 
     four_weeks_ago = week_start - timedelta(days=28)
     raw_txns       = await _get_debit_txns_challenge(uid, four_weeks_ago)

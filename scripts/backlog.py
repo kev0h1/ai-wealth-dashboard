@@ -33,11 +33,16 @@ Commands:
                                         with no worktree attached. Refuses a
                                         done item (H57) unless --force is
                                         passed; use "reopen" to deliberately
-                                        reopen one instead.
+                                        reopen one instead. Also refuses a
+                                        cancelled item (H80) with NO
+                                        override at all; use "uncancel"
+                                        instead (see below).
     block <id> "<reason>" [--force]     Mark an item blocked, with a reason.
                                         Refuses a done item (H57) unless
                                         --force is passed; use "reopen" to
                                         deliberately reopen one instead.
+                                        Also refuses a cancelled item (H80)
+                                        with NO override; use "uncancel".
     review <id> --branch <name> [--uat-review] [--force]
                                         Mark an item in review on a branch
                                         (see docs/ops/BACKLOG.md "Branch per
@@ -50,6 +55,8 @@ Commands:
                                         Refuses a done item (H57) unless
                                         --force is passed; use "reopen" to
                                         deliberately reopen one instead.
+                                        Also refuses a cancelled item (H80)
+                                        with NO override; use "uncancel".
     reject <id> "<reason>" [--force]    Reject an item sitting in review,
                                         with a reason (required). Use this
                                         the moment a reviewer finds a defect
@@ -62,7 +69,12 @@ Commands:
                                         todo moves it back out again. Refuses
                                         a done item (H57) unless --force is
                                         passed; use "reopen" to deliberately
-                                        reopen one instead.
+                                        reopen one instead. Also refuses a
+                                        cancelled item (H80) with NO
+                                        override; use "uncancel" (this
+                                        closes a real "reject then start"
+                                        laundering path that needed no flag
+                                        at all).
     uat <id> --link <url> [--force]     Move an item into "uat": a design
                                         round has landed on a rebuilt UAT
                                         and is waiting on Kevin's review, not
@@ -79,7 +91,9 @@ Commands:
                                         is for a manual retrofit. Refuses a
                                         done item (H57) unless --force is
                                         passed; use "reopen" to deliberately
-                                        reopen one instead.
+                                        reopen one instead. Also refuses a
+                                        cancelled item (H80) with NO
+                                        override; use "uncancel".
     approve <id> "<choice>"             Record which variant Kevin picked
                                         from a "uat" round (required) as a
                                         dated note, and move the item back
@@ -88,25 +102,108 @@ Commands:
                                         implements the winner on a fresh
                                         branch. Only valid on an item
                                         currently in "uat".
+    cancel <id> "<reason>"              Kevin-only on the CLI: cancel an
+                                        item because this work should not
+                                        happen at all (obsolete, superseded,
+                                        or simply not wanted), distinct
+                                        from "rejected" (a reviewer found a
+                                        defect, fix it) and "blocked"
+                                        (can't proceed yet). The reason is
+                                        required and is written as BOTH the
+                                        one-line "[state: cancelled: ...]"
+                                        tag AND a full dated note
+                                        automatically. Actor "kevin" here is
+                                        the guard against typing --actor
+                                        kevin by accident, not a hard
+                                        barrier against intent (nothing
+                                        stops a caller lying about who it
+                                        is); the genuinely enforced kevin-
+                                        only path is the Cancel control on
+                                        /ops/go-live, which is real account-
+                                        owner auth end to end. An agent that
+                                        thinks something should be cancelled
+                                        should leave a note recommending it
+                                        and let Kevin decide. Refuses a done
+                                        item outright (no override:
+                                        cancelling something already done
+                                        is meaningless). If the item had a
+                                        live branch attached, it is retained
+                                        on the item and recorded in its own
+                                        note along with the exact command to
+                                        clean up the worktree
+                                        (scripts/session.sh abandon <id>),
+                                        the branch/worktree itself is never
+                                        touched. On the CLI (not
+                                        /ops/go-live, see below), start,
+                                        block, review, reject, uat, todo
+                                        and done all refuse a cancelled item
+                                        outright now, with no override at
+                                        all; "uncancel" (below) is the only
+                                        way out.
+    uncancel <id> "<why>"               The only way out of "cancelled" on
+                                        the CLI: requires a reason (like
+                                        "cancel"/"reject" do), writes a
+                                        dated note recording it, and moves
+                                        the item to "todo". A dedicated
+                                        verb rather than a --force flag on
+                                        the commands above, so reversing a
+                                        cancellation always leaves its own
+                                        attributable record of who did it
+                                        and why, the same shape "reopen"
+                                        already gives the done/not-done
+                                        boundary. Kevin-only on the CLI,
+                                        the same shape and the same honest
+                                        framing as "cancel" (actor "kevin"
+                                        is a guard against forgetting, not
+                                        a barrier against intent; --actor
+                                        kevin is required): reopening a
+                                        cancelled item is Kevin's own call,
+                                        the same way cancelling it was, so
+                                        an agent that meets one should
+                                        leave a note recommending it be
+                                        reopened and let Kevin run this
+                                        himself.
     todo <id> [--force]                 Reset an item to to-do (clears any
                                         state tag, including a rejection;
-                                        used by session.sh abandon). Refuses
-                                        a done item (H57) unless --force is
+                                        used by session.sh abandon on a
+                                        non-cancelled item). Refuses a done
+                                        item (H57) unless --force is
                                         passed; use "reopen" to deliberately
-                                        reopen one instead.
+                                        reopen one instead. Also refuses a
+                                        cancelled item (H80) with NO
+                                        override; use "uncancel".
     done <id> [--commit <sha>] [--merge <sha>]
                                         Tick an item done. --merge is an
                                         alias for --commit for the case
                                         where the id is the merge commit on
                                         main (scripts/integrate.py uses it).
+                                        Refuses a cancelled item (H80) with
+                                        NO override at all: uncancel it
+                                        first rather than completing work
+                                        Kevin decided should not happen.
     reopen <id>                         Untick a done item.
-    note <id> "<text>"                  Add a dated note under an item.
+    note <id> "<text>" [--strict]        Add a dated note under an item. Notes
+                                        over NOTE_CAP (1500 chars) are still
+                                        truncated on write, but a truncation
+                                        now warns on stderr with the original
+                                        and truncated lengths and the last 40
+                                        characters dropped (H64); --strict
+                                        additionally exits non-zero when that
+                                        happens (the note is still written
+                                        either way).
     owner <id> kevin|claude|codex       Change who owns an item.
     priority <id> p1|p2|p3             Set an item's priority (defaults to
                                         p3 when the tag is absent).
     unblocks <id> Q5,Q6                 Set the questions an item unblocks
                                         (comma-separated ids; empty string
                                         clears the tag).
+    clear-branch <id>                   Clear a dangling "[branch: ...]" tag
+                                        after its branch/worktree has
+                                        actually been deleted (H80;
+                                        scripts/session.sh abandon uses this
+                                        on a cancelled item so the tag never
+                                        outlives the branch it names). Not
+                                        actor-gated.
     status Q7 ready|needs-kevin|blocked-deploy|submitted
                                         Set a questionnaire question's status.
     lint [--apply]                      Scan TODO.md for H38-shaped damage:
@@ -147,10 +244,38 @@ sys.path.insert(0, str(REPO_ROOT / "backend"))
 from app.services import backlog  # noqa: E402
 
 
+class BoardCommitFailed(backlog.BacklogError):
+    """H93: the board file itself was written, but the matching git
+    commit/push failed. Before this, that outcome was a footnote printed
+    alongside a 0 exit code — exactly how the 2026-09-27 incident's writes
+    went invisible: `/ops/go-live` reads the deployed `main`, not a
+    session's local, uncommitted `TODO.md`, so nobody saw anything was
+    wrong until someone went looking for it by hand. Raising this turns
+    it into a non-zero exit with a clear message instead, so a caller
+    under `set -euo pipefail` (`scripts/session.sh`) aborts right here
+    rather than carrying on believing the board is current."""
+
+
+def _require_committed(description: str) -> None:
+    """Called after printing the existing "(saved to file; ...)" footnote
+    so the diagnostic text is never lost, then raises `BoardCommitFailed`
+    (a `backlog.BacklogError` subclass `main()` already turns into exit
+    code 1 with the message on stderr) so this is a loud failure rather
+    than a silently-continuing one."""
+    raise BoardCommitFailed(
+        f"{description} was written to TODO.md but the git commit/push failed; the board file and "
+        f"origin/main now disagree until this is retried or fixed by hand. Check the logs on this host "
+        f"(this process's own stderr, or journalctl -u wealth-api if it came from /ops/go-live) for the "
+        f"underlying git error, then 'git status' and 'git log -- TODO.md' in the shared tree before "
+        f"writing to the board again."
+    )
+
+
 def _print_result(item_id: str, result: dict, committed: bool) -> None:
     print(f"{item_id}: {result}")
     if not committed:
         print("  (saved to file; git commit or push failed — see logs)")
+        _require_committed(item_id)
 
 
 def _refuse_if_done(item_id: str, command: str, force: bool) -> None:
@@ -177,11 +302,63 @@ def _refuse_if_done(item_id: str, command: str, force: bool) -> None:
         )
 
 
+def _refuse_if_cancelled(item_id: str, command: str) -> None:
+    """H80 correction round (reviewer round 2): unlike `_refuse_if_done`
+    above, this has NO override at all. Before this round's own first fix,
+    `review`/`done`/`todo`/`start` had no idea an item might be cancelled,
+    so `scripts/session.sh finish` on a worktree Kevin had cancelled out
+    from under it would push the branch and land it in `review`, and
+    `scripts/session.sh abandon`'s own cleanup call (`todo`) would silently
+    un-cancel the item as a side effect. That fix guarded start/review/
+    todo/done with a --force override, but left `block`/`reject`/`uat`
+    unrefused entirely -- measured, `reject` then `start` was a complete
+    two-command laundering path needing no flag at all, since `start`
+    already reverses a plain rejection with no override, and `block` was
+    the realistic accident (CLAUDE.md tells every session to record a
+    hand-back on the board in the same turn). A --force escape here also
+    produced a board commit indistinguishable from an ordinary start/todo,
+    with no record that a cancellation was overridden or why, and it
+    handed an agent the exact token to type while asking it to judge
+    whether the reopen was "genuine", which it cannot. So this guard now
+    covers all seven commands that could otherwise move a cancelled item
+    (`start`, `block`, `review`, `reject`, `uat`, `todo`, `done`) and
+    offers no override at all -- the same shape H57's own
+    `_refuse_if_done` already uses for its *primary* route: that guard
+    points at the dedicated `reopen` verb rather than leading with
+    --force, because a dedicated verb requiring its own reason leaves an
+    attributable record a flag cannot. `uncancel <id> "<why>"` is that
+    verb for cancelled: it is the only way out, on the CLI (`/ops/go-live`
+    and its ItemDetailSheet "Move to" chips are a different, owner-only-
+    auth path this guard does not cover, see docs/ops/BACKLOG.md).
+
+    `uncancel` is Kevin's call, the same way `cancel` is (H80 final
+    round): a cancellation is Kevin's own input, deciding a ticket should
+    not happen, so an agent must not be the one to undo that decision
+    either -- an agent that meets a cancelled item should stop, not
+    reopen it. This refusal message says so and points at leaving a note
+    instead, rather than just naming the command."""
+    snapshot = backlog.load()
+    item = snapshot.todo.item(item_id)  # raises BacklogError if unknown
+    if item.to_dict()["state"] == "cancelled":
+        reason = item.to_dict().get("reason") or ""
+        detail = f": {reason}" if reason else ""
+        raise backlog.BacklogError(
+            f"{item_id} is cancelled{detail}; Kevin decided this should not happen. '{command}' cannot "
+            f"move it out of cancelled, and there is no override for this one. Reopening it is Kevin's "
+            f"call: leave a note recommending it be reopened "
+            f"('scripts/backlog.py note {item_id} \"recommend reopening: <why>\"') and let Kevin run "
+            f"'backend/.venv/bin/python scripts/backlog.py uncancel {item_id} \"<why>\" --actor kevin' "
+            f"himself."
+        )
+
+
 def _state_display(item: dict) -> str:
     if item["state"] == "review" and item.get("branch"):
         return f"review:{item['branch']}"
     if item["state"] == "rejected" and item.get("branch"):
         return f"rejected:{item['branch']}"
+    if item["state"] == "cancelled" and item.get("branch"):
+        return f"cancelled:{item['branch']}"
     return item["state"]
 
 
@@ -201,45 +378,63 @@ def cmd_list(args: argparse.Namespace) -> None:
 
 def cmd_show(args: argparse.Namespace) -> None:
     snapshot = backlog.load()
-    item = snapshot.todo.item(args.item_id)  # raises BacklogError if unknown
+    if not snapshot.todo.items:
+        # A board that parses to zero items is empty or truncated, not a
+        # board that happens not to contain this id. Without this it
+        # raises UnknownItemError like any typo, and the caller is told
+        # to go and add something to a file that is mid-loss (item H85).
+        raise backlog.BacklogError(
+            "the board parsed to zero items, so TODO.md looks empty or truncated; "
+            "do not add to it. Check it first with 'git status' and 'git diff TODO.md' "
+            "in the shared tree."
+        )
+    item = snapshot.todo.item(args.item_id)  # raises UnknownItemError if unknown
     print(json.dumps(item.to_dict()))
 
 
 def cmd_add(args: argparse.Namespace) -> None:
     result, committed = backlog.add_item(args.section, args.title, owner=args.owner, actor=args.actor)
     # Print just the new id on stdout so callers (scripts/session.sh) can
-    # capture it directly; everything else goes to stderr.
+    # capture it directly; everything else goes to stderr. Printed before
+    # the commit check below so a caller still learns the id it must deal
+    # with even though this command then exits non-zero.
     print(result["id"])
     if not committed:
         print("(saved to file; git commit or push failed — see logs)", file=sys.stderr)
+        _require_committed(f"{result['id']} (add)")
 
 
 def cmd_start(args: argparse.Namespace) -> None:
     _refuse_if_done(args.item_id, "start", args.force)
+    _refuse_if_cancelled(args.item_id, "start")
     result, committed = backlog.set_state(args.item_id, "in-progress", branch=args.branch, actor=args.actor)
     _print_result(args.item_id, result, committed)
 
 
 def cmd_block(args: argparse.Namespace) -> None:
     _refuse_if_done(args.item_id, "block", args.force)
+    _refuse_if_cancelled(args.item_id, "block")
     result, committed = backlog.set_state(args.item_id, "blocked", reason=args.reason, actor=args.actor)
     _print_result(args.item_id, result, committed)
 
 
 def cmd_review(args: argparse.Namespace) -> None:
     _refuse_if_done(args.item_id, "review", args.force)
+    _refuse_if_cancelled(args.item_id, "review")
     result, committed = backlog.set_review(args.item_id, args.branch, actor=args.actor, uat_review=args.uat_review)
     _print_result(args.item_id, result, committed)
 
 
 def cmd_reject(args: argparse.Namespace) -> None:
     _refuse_if_done(args.item_id, "reject", args.force)
+    _refuse_if_cancelled(args.item_id, "reject")
     result, committed = backlog.set_rejected(args.item_id, args.reason, actor=args.actor)
     _print_result(args.item_id, result, committed)
 
 
 def cmd_uat(args: argparse.Namespace) -> None:
     _refuse_if_done(args.item_id, "uat", args.force)
+    _refuse_if_cancelled(args.item_id, "uat")
     result, committed = backlog.set_uat(args.item_id, args.link, actor=args.actor)
     _print_result(args.item_id, result, committed)
 
@@ -249,13 +444,51 @@ def cmd_approve(args: argparse.Namespace) -> None:
     _print_result(args.item_id, result, committed)
 
 
+def cmd_cancel(args: argparse.Namespace) -> None:
+    # No _refuse_if_done/_refuse_if_cancelled here (unlike
+    # start/block/review/reject/uat/todo/done above): a cancel on a done
+    # item is refused outright, by backend.services.backlog.TodoDoc.set_state
+    # itself, with no override, see H80. The kevin-only actor check lives
+    # at that same layer too, so a non-kevin --actor (or the "claude"
+    # default) makes NO change to the board; this command never needs its
+    # own duplicate guard for either rule. Re-cancelling an already-
+    # cancelled item is fine (lets a reason be corrected), so there is
+    # nothing to refuse there either.
+    result, committed = backlog.set_cancelled(args.item_id, args.reason, actor=args.actor)
+    _print_result(args.item_id, result, committed)
+    if result.get("branch"):
+        print(
+            f"  a live branch, {result['branch']}, was attached, so clean it up from the shared tree with "
+            f"'scripts/session.sh abandon {args.item_id}' (never auto-run; the worktree is untouched)."
+        )
+
+
+def cmd_uncancel(args: argparse.Namespace) -> None:
+    # The only way out of `cancelled`: a dedicated verb, not a --force
+    # flag, exactly the shape H57's `_refuse_if_done` already uses for its
+    # own primary route (`reopen`, not --force). Requires a reason the
+    # same way `cancel`/`reject` do, and writes a dated note, so reversing
+    # Kevin's cancellation always leaves its own attributable record of
+    # who did it and why, rather than a commit indistinguishable from an
+    # ordinary start/todo. Kevin-only (H80 final round), the same shape as
+    # `cancel`: reopening a cancelled item is Kevin's own call to make,
+    # the same way cancelling it was -- an agent must not be the one to
+    # undo that decision either. backlog.set_uncancelled enforces this
+    # (self-declared --actor, same honest guard-not-barrier framing as
+    # cancel); this command never needs its own duplicate check.
+    result, committed = backlog.set_uncancelled(args.item_id, args.reason, actor=args.actor)
+    _print_result(args.item_id, result, committed)
+
+
 def cmd_todo(args: argparse.Namespace) -> None:
     _refuse_if_done(args.item_id, "todo", args.force)
+    _refuse_if_cancelled(args.item_id, "todo")
     result, committed = backlog.set_state(args.item_id, "todo", actor=args.actor)
     _print_result(args.item_id, result, committed)
 
 
 def cmd_done(args: argparse.Namespace) -> None:
+    _refuse_if_cancelled(args.item_id, "done")
     sha = args.commit or args.merge
     result, committed = backlog.set_done(args.item_id, True, commit=sha, actor=args.actor)
     _print_result(args.item_id, result, committed)
@@ -267,8 +500,22 @@ def cmd_reopen(args: argparse.Namespace) -> None:
 
 
 def cmd_note(args: argparse.Namespace) -> None:
-    result, committed = backlog.add_note(args.item_id, args.text, actor=args.actor)
+    result, committed, truncation = backlog.add_note(args.item_id, args.text, actor=args.actor)
     _print_result(args.item_id, result, committed)
+    if truncation["truncated"]:
+        # H64: _collapse_note_text used to truncate at NOTE_CAP and say
+        # nothing, so a caller believed it recorded content it did not.
+        # Warn on stderr with enough to act on -- both lengths and the
+        # tail that got cut off -- every time; --strict additionally exits
+        # non-zero so a script that checks the exit code notices too.
+        print(
+            f"warning: note for {args.item_id} truncated from {truncation['original_length']} to "
+            f"{truncation['cap']} characters ({truncation['dropped_length']} characters dropped); "
+            f"last 40 characters dropped: {truncation['dropped_tail']!r}",
+            file=sys.stderr,
+        )
+        if args.strict:
+            sys.exit(1)
 
 
 def cmd_owner(args: argparse.Namespace) -> None:
@@ -284,6 +531,11 @@ def cmd_priority(args: argparse.Namespace) -> None:
 def cmd_unblocks(args: argparse.Namespace) -> None:
     questions = [q.strip() for q in args.questions.split(",") if q.strip()]
     result, committed = backlog.set_unblocks(args.item_id, questions, actor=args.actor)
+    _print_result(args.item_id, result, committed)
+
+
+def cmd_clear_branch(args: argparse.Namespace) -> None:
+    result, committed = backlog.clear_branch(args.item_id, actor=args.actor)
     _print_result(args.item_id, result, committed)
 
 
@@ -311,6 +563,7 @@ def cmd_lint(args: argparse.Namespace) -> None:
     print(f"\n{len(findings)} finding(s){' fixed' if args.apply else ' (dry run, pass --apply to fix)'}.")
     if args.apply and not committed:
         print("  (saved to file; git commit or push failed — see logs)")
+        _require_committed("lint --apply repair")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -424,6 +677,24 @@ def build_parser() -> argparse.ArgumentParser:
     add_actor(p_approve)
     p_approve.set_defaults(func=cmd_approve)
 
+    p_cancel = sub.add_parser(
+        "cancel",
+        help="Kevin-only: cancel an item (this work should not happen at all), with a reason.",
+    )
+    p_cancel.add_argument("item_id")
+    p_cancel.add_argument("reason")
+    add_actor(p_cancel)
+    p_cancel.set_defaults(func=cmd_cancel)
+
+    p_uncancel = sub.add_parser(
+        "uncancel",
+        help="Kevin-only: the only way out of cancelled, reverse it with a reason (required, leaves its own note).",
+    )
+    p_uncancel.add_argument("item_id")
+    p_uncancel.add_argument("reason")
+    add_actor(p_uncancel)
+    p_uncancel.set_defaults(func=cmd_uncancel)
+
     p_todo = sub.add_parser("todo", help="Reset an item to to-do (clears any state tag, including a rejection).")
     p_todo.add_argument("item_id")
     p_todo.add_argument(
@@ -450,6 +721,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_note = sub.add_parser("note", help="Add a dated note under an item.")
     p_note.add_argument("item_id")
     p_note.add_argument("text")
+    p_note.add_argument(
+        "--strict",
+        action="store_true",
+        help="Exit non-zero if the note is truncated at NOTE_CAP (H64); the warning still "
+        "prints to stderr either way.",
+    )
     add_actor(p_note)
     p_note.set_defaults(func=cmd_note)
 
@@ -473,6 +750,15 @@ def build_parser() -> argparse.ArgumentParser:
     add_actor(p_unblocks)
     p_unblocks.set_defaults(func=cmd_unblocks)
 
+    p_clear_branch = sub.add_parser(
+        "clear-branch",
+        help="H80: clear a dangling [branch: ...] tag after its branch/worktree has actually been "
+        "deleted (scripts/session.sh abandon uses this on a cancelled item). Not actor-gated.",
+    )
+    p_clear_branch.add_argument("item_id")
+    add_actor(p_clear_branch)
+    p_clear_branch.set_defaults(func=cmd_clear_branch)
+
     p_status = sub.add_parser("status", help="Set a questionnaire question's status.")
     p_status.add_argument("item_id")
     p_status.add_argument("status", choices=["ready", "needs-kevin", "blocked-deploy", "submitted"])
@@ -489,11 +775,26 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+# Exit status for "that id is not on the board", distinct from 1, which
+# means any other caller-facing failure including the board itself being
+# unreadable (item H85).
+EXIT_UNKNOWN_ITEM = 3
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
         args.func(args)
+    except backlog.UnknownItemError as exc:
+        # Distinct from the generic failure below so callers do not have
+        # to match on the message: "that id is not on the board" and
+        # "the board could not be read" need different remedies, and the
+        # message alone cannot tell them apart because a truncated
+        # TODO.md produces the unknown-item wording too. See item H85 and
+        # scripts/session.sh's recorded_branch_for_id.
+        print(f"error: {exc}", file=sys.stderr)
+        return EXIT_UNKNOWN_ITEM
     except backlog.BacklogError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

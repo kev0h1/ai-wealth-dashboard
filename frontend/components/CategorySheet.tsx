@@ -6,6 +6,7 @@ import { X, ChevronDown, ChevronRight, Fuel, ReceiptText } from "lucide-react";
 import FuelSavingsCard from "@/components/FuelSavingsCard";
 import GroceryBasketCard from "@/components/GroceryBasketCard";
 import { Transaction, api, Checkpoint } from "@/lib/api";
+import { invalidateVerdictCache } from "@/lib/verdictCache";
 import { useColours } from "@/components/ColourProvider";
 import { getCategoryColour } from "@/lib/categories";
 import { getCategoryIcon } from "@/lib/categoryIcons";
@@ -106,6 +107,10 @@ function DoorBlock({ door }: { door: DoorProps }) {
             onClick={async () => {
               try {
                 await api.recordTrendIntent(category, "one_off");
+                // G83 fix-round: same category_intent_col write as
+                // SpendPage's own intent handlers — see HomeBrief.tsx's
+                // identical comment.
+                invalidateVerdictCache();
                 setLocalIntent("one_off");
                 setLocalDoorEngaged(true);
                 onChanged();
@@ -121,6 +126,7 @@ function DoorBlock({ door }: { door: DoorProps }) {
             onClick={async () => {
               try {
                 await api.recordTrendIntent(category, "new_normal");
+                invalidateVerdictCache();
                 setLocalIntent("new_normal");
                 setLocalDoorEngaged(true);
                 onChanged();
@@ -203,7 +209,7 @@ function DoorBlock({ door }: { door: DoorProps }) {
                 placeholder={String(Math.round(suggestedAim))}
                 value={customValue}
                 onChange={e => { setCustomValue(e.target.value); setSaveError(false); }}
-                className="text-[13px] text-slate-900 dark:text-slate-100 bg-transparent outline-none w-20"
+                className="text-[13px] text-slate-900 dark:text-slate-100 bg-transparent outline-none w-20 [@media(pointer:coarse)]:w-24"
               />
             </div>
             <button

@@ -1,4 +1,5 @@
 """arq worker: bank sync tasks + reconciliation cron."""
+import asyncio
 import logging
 import math
 from datetime import datetime, timedelta
@@ -7,19 +8,19 @@ from typing import Optional
 from arq import ArqRedis, cron
 from arq.connections import RedisSettings
 
+from app.core import timeutil
 from app.core.config import (
     REDIS_URL, RECONCILE_SPREAD_MINUTES, RECONCILE_MAX_PER_MINUTE,
     RECONCILE_MIN_GAP_SECONDS,
 )
 from app.core.push import send_push_to_user
 from app.db.collections import (
-    accounts_col, connections_col, yapily_consents_col, mono_connections_col,
+    accounts_col, connections_col, yapily_consents_col,
     webhook_events_col, push_subscriptions_col, apns_tokens_col, fcm_tokens_col,
     finexer_consents_col, worker_runs_col,
 )
 from app.services.truelayer_sync import sync_connection, cull_orphaned_connections
 from app.services.yapily_sync import sync_yapily_consent
-from app.services.mono_sync import sync_mono_connection
 from app.services.finexer_sync import finexer_sync_pipeline
 from app.services.categorisation import apply_rules_bulk, categorise_others_bg
 from app.services.manual_account_rules import apply_rules as apply_mirror_rules
@@ -99,15 +100,13 @@ async def task_sync_truelayer(ctx, connection_id: str, user_id: str):
     await apply_rules_bulk(user_id, structural=True)
     await categorise_others_bg(user_id)
     await apply_mirror_rules(user_id)
-    if new_count > 0:
-        from app.routers.analytics import compute_and_cache_cashflow
-        await compute_and_cache_cashflow(user_id)
-        try:
-            from app.services.money_shape import compute_and_cache_money_shape
-            await compute_and_cache_money_shape(user_id)
-        except Exception:
-            import logging
-            logging.getLogger(__name__).exception("money_shape compute failed for %s", user_id)
+    # trigger="auto": the reconcile cron and webhook syncs keep the
+    # new-transactions gate (a recompute is ~1.3 s of CPU plus a Haiku call
+    # per user, see app.services.derived_caches), but also recompute a cache
+    # doc that is missing or was written by an older engine build, so a
+    # deploy can never sit invisible behind the cache (G159).
+    from app.services.derived_caches import recompute_derived_caches
+    await recompute_derived_caches(user_id, new_count=new_count, trigger="auto")
     await _enqueue_weekly_insight_refresh(ctx, user_id)
     await _warm_after_sync(user_id)
     return {"synced": len(ids), "new_transactions": new_count}
@@ -120,13 +119,6 @@ async def task_sync_yapily(ctx, consent_token: str, user_id: str):
     await apply_mirror_rules(user_id)
     await _warm_after_sync(user_id)
     return {"ok": True}
-
-
-async def task_sync_mono(ctx, connection_id: str, user_id: str):
-    ids = await sync_mono_connection(connection_id, user_id)
-    await apply_mirror_rules(user_id)
-    await _warm_after_sync(user_id)
-    return {"synced": len(ids)}
 
 
 async def task_sync_finexer(ctx, consent_id: str, user_id: str):
@@ -426,8 +418,13 @@ async def task_reconcile_truelayer(ctx):
 
 def _reconnect_body(bank: str, last_synced: Optional[datetime]) -> str:
     if isinstance(last_synced, datetime):
+        # G161 follow-up: the displayed day is `last_synced`'s Europe/London
+        # calendar date, not its raw (naive-UTC, per this module's own
+        # convention) date -- a late-evening UTC sync can already be the
+        # next London day.
+        _synced_ld = timeutil.to_user_date(last_synced)
         return (
-            f"{bank} last synced {last_synced.strftime('%-d %b')} and its bank permission "
+            f"{bank} last synced {_synced_ld.strftime('%-d %b')} and its bank permission "
             f"has ended. Tap Reconnect on the Accounts page to carry on."
         )
     return (
@@ -437,9 +434,17 @@ def _reconnect_body(bank: str, last_synced: Optional[datetime]) -> str:
 
 
 def _expiring_copy(bank: str, expires_at: datetime, now: datetime) -> tuple[str, str]:
-    days = (expires_at - now).days
+    # G161 follow-up: "expires tomorrow" / "in N days" and the displayed
+    # date are both Europe/London calendar-day arithmetic, not a raw
+    # instant delta/date -- see `_reconnect_body` above for why. The
+    # is_expiring/throttle GATES in task_consent_watch stay on raw instant
+    # comparisons (deliberately, per that function's own docstring); only
+    # this rendered copy needs the day-scale conversion.
+    _expires_ld = timeutil.to_user_date(expires_at)
+    _now_ld = timeutil.to_user_date(now)
+    days = (_expires_ld - _now_ld).days
     title = f"{bank} access expires tomorrow" if days <= 1 else f"{bank} access expires in {days} days"
-    body = f"Reconnect before {expires_at.strftime('%-d %b')} to keep {bank} syncing without a gap."
+    body = f"Reconnect before {_expires_ld.strftime('%-d %b')} to keep {bank} syncing without a gap."
     return title, body
 
 
@@ -680,7 +685,10 @@ async def task_trial_reminder(ctx):
             continue
 
         amount = f"£{total:.2f}"
-        charge_date = trial_ends_at.strftime("%-d %B %Y")
+        # G161 follow-up: displayed as trial_ends_at's Europe/London
+        # calendar date -- the eligibility gate above stays a raw instant
+        # comparison (now <= trial_ends_at <= warn_cutoff), correct as-is.
+        charge_date = timeutil.to_user_date(trial_ends_at).strftime("%-d %B %Y")
         title = "Your free trial ends soon"
         body = (
             f"Your free trial ends on {charge_date}. {amount} will be charged "
@@ -727,11 +735,35 @@ async def task_safe_to_spend_snapshot(ctx):
     return summary
 
 
+async def _engine_refresh_on_startup() -> None:
+    try:
+        from app.services.derived_caches import refresh_stale_cashflow_caches
+        await refresh_stale_cashflow_caches(reason="worker_startup")
+    except Exception:
+        logger.exception("engine refresh on worker startup failed")
+
+
+async def _on_startup(ctx: dict) -> None:
+    """Deploy-time recompute of every user's forecast whose cache doc was
+    written by a different engine build (G159, app.services.derived_caches).
+
+    Runs here rather than in the API's own startup migrations because a
+    recompute blocks the event loop for over a second per user and the API
+    is a single uvicorn process serving page loads; the worker restarts on
+    every backend deploy too (scripts/integrate.py restarts wealth-worker
+    on any backend change; Railway redeploys both services per release)
+    and has nothing latency-sensitive to protect. Started as a background
+    task so the queue is served from the first second; the engine-build
+    stamp makes a restart without a code change a no-op. The task handle
+    is kept on `ctx` so it cannot be garbage-collected mid-flight."""
+    ctx["engine_refresh_task"] = asyncio.create_task(_engine_refresh_on_startup())
+
+
 class WorkerSettings:
     # task_refresh_savings_insights is defined in ai_worker but registered here
     # too: this is the worker systemd actually runs, so post-sync enqueues of
     # the weekly insights refresh land somewhere that executes them.
-    functions = [task_sync_truelayer, task_sync_yapily, task_sync_mono,
+    functions = [task_sync_truelayer, task_sync_yapily,
                  task_sync_finexer, task_reconcile_truelayer, task_period_digests,
                  task_refresh_investment_prices, task_refresh_savings_insights,
                  task_consent_watch, task_retention_sweep, task_trial_reminder,
@@ -758,3 +790,4 @@ class WorkerSettings:
     redis_settings = RedisSettings.from_dsn(REDIS_URL)
     max_jobs = 5
     job_timeout = 600
+    on_startup = _on_startup

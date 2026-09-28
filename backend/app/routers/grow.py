@@ -18,6 +18,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends
 
 from app.core.auth import current_user
+from app.core import timeutil
 from app.services import response_cache
 from app.db.collections import (
     card_terms_col,
@@ -25,7 +26,6 @@ from app.db.collections import (
     preferences_col,
     savings_goals_col,
 )
-from app.services.region import get_user_region
 from app.routers.card_terms import _promos_from_legacy
 from app.routers.savings import _current_savings, _target_amount
 from app.services.cashflow import monthly_cashflow_cached
@@ -216,7 +216,7 @@ async def _promo_cliff(uid: str, account_ids: set[str]) -> Optional[str]:
     """Earliest active 0% promo end (ISO date) across the given card accounts."""
     if not account_ids:
         return None
-    today = date.today()
+    today = timeutil.user_today()
     earliest: Optional[date] = None
     async for doc in card_terms_col.find({"user_id": uid, "account_id": {"$in": list(account_ids)}}):
         stored_promos = doc.get("promos")
@@ -252,7 +252,6 @@ async def grow_view(user: dict = Depends(current_user)):
         return cached
     v = await response_cache.snapshot(uid)
 
-    region = await get_user_region(uid)
     cutoff = datetime.now() - timedelta(days=90)
 
     # ── Income preferences (single read — powers the pension rungs) ──────────
@@ -286,7 +285,7 @@ async def grow_view(user: dict = Depends(current_user)):
     period_gate = _period_gate(_sts)
 
     # ── Surplus & buffer (reuses savings.py helpers) ─────────────────────────
-    cf = await monthly_cashflow_cached(uid, region, cutoff)
+    cf = await monthly_cashflow_cached(uid, cutoff)
     monthly_income = cf["income"]
     monthly_spending = cf["spending"]
     monthly_debt = cf["debt"]
@@ -554,7 +553,7 @@ async def grow_view(user: dict = Depends(current_user)):
         "debt_deducted": True,
         "surplus": monthly_surplus,
         "n_months": cf["n_months"],
-        "month_labels": _cashflow_month_labels(cf["n_months"], datetime.now()),
+        "month_labels": _cashflow_month_labels(cf["n_months"], timeutil.user_now()),
     }
 
     result = {

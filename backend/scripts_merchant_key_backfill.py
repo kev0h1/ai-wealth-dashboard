@@ -4,10 +4,9 @@ transaction rows, plus a purge of dead ("poisoned") learned-cache entries.
 WHAT THIS DOES
 ---------------
 1. For every transaction collection (transactions_col, yapily_transactions_col,
-   mono_transactions_col, statement_transactions_col, mpesa_transactions_col),
-   finds rows with no `merchant_key` field and sets it to
-   `canonical_merchant_key(merchant_name, description)` via a bulk write.
-   Sync-time writers (truelayer/yapily/finexer/mono_sync.py) already set this
+   statement_transactions_col), finds rows with no `merchant_key` field and
+   sets it to `canonical_merchant_key(merchant_name, description)` via a bulk
+   write. Sync-time writers (truelayer/yapily/finexer) already set this
    field for every row going forward — this script only catches history.
 
 2. Purges merchant_categories_col entries that are dead on arrival under the
@@ -37,14 +36,13 @@ import asyncio
 import sys
 
 from app.db.collections import (
-    transactions_col, yapily_transactions_col, mono_transactions_col,
-    statement_transactions_col, mpesa_transactions_col, merchant_categories_col,
+    transactions_col, yapily_transactions_col,
+    statement_transactions_col, merchant_categories_col,
 )
 from app.services.categorisation import canonical_merchant_key
 
 COLLECTIONS = [
-    transactions_col, yapily_transactions_col, mono_transactions_col,
-    statement_transactions_col, mpesa_transactions_col,
+    transactions_col, yapily_transactions_col, statement_transactions_col,
 ]
 
 

@@ -1,16 +1,17 @@
 "use client";
 
 // The "more actions" menu on a list-view item row: Start, Block, Reject
-// (review items only, with a required reason), Note, Priority (three-way)
-// and Unblocks (comma-separated inline field). Same shape as the original
-// page.tsx ItemMenu, extended with the priorities/unblocks controls and
-// (H25) Reject.
+// (review items only, with a required reason), Cancel (H80, kevin-only,
+// with a required reason), Note, Priority (three-way) and Unblocks
+// (comma-separated inline field). Same shape as the original page.tsx
+// ItemMenu, extended with the priorities/unblocks controls and (H25)
+// Reject.
 
 import { useState } from "react";
 import { MoreHorizontal } from "lucide-react";
 import { PRIORITY_LABEL, PRIORITY_ORDER, type GoLiveItem, type GoLivePriority } from "@/lib/goLive";
 
-type Mode = "menu" | "block" | "reject" | "approve" | "note" | "unblocks";
+type Mode = "menu" | "block" | "reject" | "cancel" | "approve" | "note" | "unblocks";
 
 export function ItemMenu({
   item,
@@ -19,6 +20,7 @@ export function ItemMenu({
   onMoveToTodo,
   onBlock,
   onReject,
+  onCancel,
   onApprove,
   onNote,
   onPriority,
@@ -30,6 +32,7 @@ export function ItemMenu({
   onMoveToTodo: () => void;
   onBlock: (reason: string) => void;
   onReject: (reason: string) => void;
+  onCancel: (reason: string) => void;
   onApprove: (choice: string) => void;
   onNote: (text: string) => void;
   onPriority: (priority: GoLivePriority) => void;
@@ -113,6 +116,18 @@ export function ItemMenu({
               Approve
             </button>
           )}
+          {/* H80: kevin-only, enforced server-side (this page is already
+              reachable only by the account owner) — offered from any
+              state, unlike Reject which only appears on a review item, so
+              Kevin can cancel obsolete/superseded/unwanted work whenever
+              he spots it, not only out of review. */}
+          <button
+            type="button"
+            onClick={() => setMode("cancel")}
+            className="flex min-h-9 w-full items-center rounded-lg px-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-white/5"
+          >
+            Cancel item…
+          </button>
           <button
             type="button"
             onClick={() => setMode("note")}
@@ -156,13 +171,15 @@ export function ItemMenu({
         </div>
       )}
 
-      {open && (mode === "block" || mode === "reject" || mode === "approve" || mode === "note") && (
+      {open && (mode === "block" || mode === "reject" || mode === "cancel" || mode === "approve" || mode === "note") && (
         <div className="absolute right-0 top-10 z-10 w-64 rounded-xl border border-slate-200 bg-white p-2.5 shadow-lg dark:border-white/10 dark:bg-slate-800">
           <label className="mb-1.5 block text-[11px] font-semibold text-slate-500 dark:text-slate-400">
             {mode === "block"
               ? "Reason for blocking"
               : mode === "reject"
               ? "Reason for rejecting"
+              : mode === "cancel"
+              ? "Reason for cancelling (Kevin only)"
               : mode === "approve"
               ? "Which variant"
               : "Note"}
@@ -188,6 +205,7 @@ export function ItemMenu({
               onClick={() => {
                 if (mode === "block") onBlock(draft.trim());
                 else if (mode === "reject") onReject(draft.trim());
+                else if (mode === "cancel") onCancel(draft.trim());
                 else if (mode === "approve") onApprove(draft.trim());
                 else onNote(draft.trim());
                 closeAll();

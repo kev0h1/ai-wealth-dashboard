@@ -8,6 +8,7 @@ from app.core.config import (
     API_PUBLIC_URL, MCP_CONNECTOR_ENABLED, SESSION_MAX_AGE, serializer,
 )
 from app.core.ratelimit import check_rate_limit
+from app.core.session_revocation import is_revoked
 
 # F2/F8/F11: the value an unauthenticated (or expired-token) request to /mcp
 # gets back in its 401's WWW-Authenticate header, per RFC 9728. This is how
@@ -90,10 +91,24 @@ async def current_user(request: Request) -> dict:
             raise HTTPException(status, detail)
         return {"name": "Bot", "email": None, "bot_name": cred["bot_name"], "scopes": cred["scopes"]}
     try:
-        data = serializer.loads(token, max_age=SESSION_MAX_AGE)
+        data, issued_at = serializer.loads(token, max_age=SESSION_MAX_AGE, return_timestamp=True)
         result = data if isinstance(data, dict) else {"email": "unknown", "name": ""}
     except (SignatureExpired, BadSignature):
         raise HTTPException(401, "Session expired")
+
+    # A84: a session token is a stateless signature with no id of its own,
+    # so revocation works by cutoff, not by blocklisting individual tokens
+    # — `is_revoked` is true when this token was ISSUED before the email's
+    # most recent revoke_sessions() call (DELETE /account, or the dormant
+    # sweep). Fails CLOSED: a tombstone-lookup error must not silently let
+    # a possibly-revoked token through as if nothing happened.
+    try:
+        if await is_revoked(result.get("email"), issued_at):
+            raise HTTPException(401, "Session expired")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(503, "Session check unavailable")
 
     # Back the dormant-account sweep's 12-month clock (SECURITY.md section
     # 6): stamp_activity is throttled to ~once per 6h per user and swallows
@@ -112,7 +127,21 @@ async def auth_middleware(request: Request, call_next):
         return await call_next(request)
     path = request.url.path
     if path.startswith("/auth/") or path.startswith("/webhooks/") or path.startswith("/logo/"):
+        # A95: check_rate_limit only returns non-None when a RULES prefix
+        # both matched AND the caller was over that prefix's own budget, so
+        # passing it (None) means either "under budget on a matched rule"
+        # or "no RULES entry matches this path at all" — the two are
+        # indistinguishable from the return value alone, and /logo/ used to
+        # be the latter with no rule of its own (A95's finding). Falling
+        # through to the same IP catch-all every other protected route
+        # gets closes that gap for any future prefix added to this branch
+        # without its own RULES entry, not just /logo/ today. A tighter,
+        # more specific RULES entry (e.g. /logo/'s new rule, or /auth/'s
+        # 30/60) still fires its own 429 first above when it's the
+        # stricter limit; this is a backstop, not a replacement.
         if limited := await check_rate_limit(request):
+            return limited
+        if limited := await ratelimit.check_catch_all_ip_limit(request):
             return limited
         return await call_next(request)
     if path in _OPEN_PATHS or (MCP_CONNECTOR_ENABLED and path in _MCP_OPEN_PATHS):

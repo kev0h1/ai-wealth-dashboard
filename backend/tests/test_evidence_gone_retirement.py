@@ -36,8 +36,9 @@ level-name convention already established by test_refresh_savings_insights.py.
 convention.
 """
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
+import app.core.timeutil as timeutil
 import app.routers.savings_insights as savings_insights
 from app.routers.savings_insights import (
     _refresh_savings_insights_for_user,
@@ -57,6 +58,17 @@ class _FrozenDatetime(datetime):
     @classmethod
     def utcnow(cls):
         return NOW
+
+
+class _FrozenTimeutilDatetime(datetime):
+    """G161 follow-up: freshness/evidence-gone day-scale reads now go
+    through app.core.timeutil, which this file's own `_FrozenDatetime`
+    patch no longer reaches. NOW is naive, treated as UTC."""
+
+    @classmethod
+    def now(cls, tz=None):
+        aware = NOW.replace(tzinfo=timezone.utc)
+        return aware.astimezone(tz) if tz is not None else aware.replace(tzinfo=None)
 
 
 def _run(coro):
@@ -214,6 +226,7 @@ def _setup_refresh(monkeypatch, *, applicable, docs, triggered_by_map, spend_map
     col = FakeInsightsCol(seed)
     monkeypatch.setattr(savings_insights, "savings_insights_col", col)
     monkeypatch.setattr(savings_insights, "datetime", _FrozenDatetime)
+    monkeypatch.setattr(timeutil, "datetime", _FrozenTimeutilDatetime)
 
     calls = {"content": 0, "spend_check": []}
 
@@ -417,6 +430,7 @@ def _setup_get_endpoint(monkeypatch, docs):
     col = FakeInsightsCol(docs)
     monkeypatch.setattr(savings_insights, "savings_insights_col", col)
     monkeypatch.setattr(savings_insights, "datetime", _FrozenDatetime)
+    monkeypatch.setattr(timeutil, "datetime", _FrozenTimeutilDatetime)
     # GET /savings-insights now resolves each insight's `job` field via a
     # real per-user kind lookup (app.services.categories.get_category_kinds,
     # ONE DB read per request) — no mongomock here, so stub it out with the

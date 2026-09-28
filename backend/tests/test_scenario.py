@@ -7,8 +7,8 @@ is exercised by the routing layer's own tests (test_scenario_routing.py) plus
 manual verification against a live UID; this file covers the deterministic
 maths that must never drift regardless of what's in the database. The
 `reasons`/`lumpy` structural-contract section near the bottom is the one
-exception: every I/O boundary `simulate()` touches (`get_user_region`,
-`monthly_cashflow_cached`, `_build_debt_block`, `_build_plans_block`,
+exception: every I/O boundary `simulate()` touches
+(`monthly_cashflow_cached`, `_build_debt_block`, `_build_plans_block`,
 `_build_grow_block`, `_build_absorb_block`) is a plain name resolved from
 `app.services.scenario`'s own module namespace at call time, so monkeypatching
 the attribute on that module object drives `simulate()` end to end (real
@@ -28,10 +28,12 @@ currently has no active commitments, so that path has only ever run its
 `None` branch in practice.
 """
 import asyncio
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 import pytest
 
+import app.core.timeutil as timeutil
 import app.routers.commitments as commitments_router
 import app.services.scenario as scenario_mod
 from app.routers.scenario import _is_lumpy_scenario
@@ -42,6 +44,25 @@ from app.services.scenario import (
     normalise_items,
     steady_monthly_delta,
 )
+
+_LONDON = ZoneInfo("Europe/London")
+
+
+def _frozen_timeutil_datetime(fixed_date: date):
+    """G161: `app.services.scenario`'s `today = date.today()` calls were
+    swept to `app.core.timeutil.user_today()`, which no longer reads this
+    file's various `_FixedDate` patches of `scenario_mod.date` at all.
+    Returns a `datetime` subclass pinning `timeutil.user_now()`/
+    `user_today()` to the same calendar day, for use alongside each
+    `_FixedDate` patch below."""
+
+    class _Frozen(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            aware = datetime.combine(fixed_date, datetime.min.time(), tzinfo=_LONDON)
+            return aware.astimezone(tz) if tz is not None else aware.replace(tzinfo=None)
+
+    return _Frozen
 
 
 def make_item(**overrides) -> dict:
@@ -130,6 +151,7 @@ def test_past_start_one_month_ago_is_clamped_not_rejected(monkeypatch):
             return TODAY
 
     monkeypatch.setattr(scenario_mod, "date", _FixedDate)
+    monkeypatch.setattr(timeutil, "datetime", _frozen_timeutil_datetime(TODAY))
     items, rejected = normalise_items([make_item(starts="2026-07-15")])
     assert rejected == []
     assert len(items) == 1
@@ -147,6 +169,7 @@ def test_start_two_months_ago_is_rejected(monkeypatch):
             return TODAY
 
     monkeypatch.setattr(scenario_mod, "date", _FixedDate)
+    monkeypatch.setattr(timeutil, "datetime", _frozen_timeutil_datetime(TODAY))
     items, rejected = normalise_items([make_item(starts="2026-06-01")])
     assert items == []
     assert len(rejected) == 1
@@ -161,6 +184,7 @@ def test_start_beyond_horizon_is_rejected(monkeypatch):
             return TODAY
 
     monkeypatch.setattr(scenario_mod, "date", _FixedDate)
+    monkeypatch.setattr(timeutil, "datetime", _frozen_timeutil_datetime(TODAY))
     # 30 months ahead of August 2026 is well past the 24-month horizon.
     items, rejected = normalise_items([make_item(starts="2029-02-01")])
     assert items == []
@@ -613,10 +637,7 @@ def _patch_simulate_io(
     grow_result = grow_result if grow_result is not None else (_default_grow_block(), None)
     absorb_result = absorb_result if absorb_result is not None else (_default_absorb_block(), None)
 
-    async def fake_region(uid):
-        return "GB"
-
-    async def fake_cf(uid, region, cutoff):
+    async def fake_cf(uid, cutoff):
         return {"income": 3000.0, "spending": 2000.0, "debt": 200.0, "n_months": n_months, "cat": {}}
 
     async def fake_debt_block(uid, recurring_delta, today):
@@ -632,7 +653,7 @@ def _patch_simulate_io(
         return absorb_result
 
     monkeypatch.setattr(scenario_mod, "date", _FixedDate)
-    monkeypatch.setattr(scenario_mod, "get_user_region", fake_region)
+    monkeypatch.setattr(timeutil, "datetime", _frozen_timeutil_datetime(TODAY_FIXED))
     monkeypatch.setattr(scenario_mod, "monthly_cashflow_cached", fake_cf)
     monkeypatch.setattr(scenario_mod, "_build_debt_block", fake_debt_block)
     monkeypatch.setattr(scenario_mod, "_build_plans_block", fake_plans_block)

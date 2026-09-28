@@ -435,6 +435,6 @@ async def sync_connection(connection_id: str, user_id: Optional[str] = None, fro
             )
 
     if all_new_txns and not is_initial_sync and user_id and user_id != "unknown":
-        asyncio.create_task(notify_after_sync(user_id, "UK", all_new_txns))
+        asyncio.create_task(notify_after_sync(user_id, all_new_txns))
 
     return fetched, len(all_new_txns)

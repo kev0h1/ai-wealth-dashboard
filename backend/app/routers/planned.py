@@ -7,6 +7,7 @@ from bson.errors import InvalidId
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.auth import current_user
+from app.core import timeutil
 from app.db.collections import (
     accounts_col,
     planned_expenses_col,
@@ -50,7 +51,7 @@ async def create_planned_expense(body: dict, user: dict = Depends(current_user))
         expense_date = date.fromisoformat(body["date"])
     except (KeyError, TypeError, ValueError):
         raise HTTPException(400, "date must be an ISO date string (YYYY-MM-DD)")
-    if expense_date < date.today():
+    if expense_date < timeutil.user_today():
         raise HTTPException(400, "date must be today or in the future")
 
     # ── Validate account_id (optional) ──────────────────────────────────────
@@ -217,7 +218,7 @@ async def update_planned_expense(planned_id: str, body: dict, user: dict = Depen
         if isinstance(stored_date, datetime):
             stored_date = stored_date.date()
         # Grandfathering: if new date == stored date, always accept (rolled pending item)
-        if new_date != stored_date and new_date < date.today():
+        if new_date != stored_date and new_date < timeutil.user_today():
             raise HTTPException(400, "date must be today or in the future")
         updates["date"] = datetime(new_date.year, new_date.month, new_date.day)
 

@@ -82,7 +82,9 @@ Route all LLM calls through OpenRouter (`openrouter.ai/api/v1/chat/completions`)
 
 ## ADR-005: TrueLayer + Yapily + Mono as open-banking providers
 
-**Status:** Accepted  
+**Status:** Superseded (2026-09-21, A98) — the Kenya region and the Mono
+provider were removed entirely. TrueLayer and Yapily remain as recorded
+below; Finexer is now the primary provider.  
 **Date:** 2026-06-15
 
 ### Context

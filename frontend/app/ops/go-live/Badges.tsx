@@ -89,6 +89,23 @@ export function StatePill({ item, compact = false }: { item: GoLiveItem; compact
       </span>
     );
   }
+  if (item.state === "cancelled") {
+    // H80: a deliberate, calm slate — never red (cancelling is a decision,
+    // not a failure) and never the amber used for "needs a decision"
+    // states (Blocked/Rejected/UAT): Kevin has already decided, there is
+    // nothing left to look at. Same free-text-reason truncation pattern
+    // as Blocked/Rejected (the full reason is one tap away in
+    // ItemDetailSheet). text-slate-600 (not -500, correction round MEDIUM
+    // 4): -500 on bg-slate-100 measured 4.34:1, below AA for 10px text;
+    // -600 measures about 7:1, the same -700/-800-on-tint pattern every
+    // sibling pill here already uses, while staying inside the calm slate
+    // (not amber/red) family.
+    return (
+      <span className="inline-flex max-w-[220px] min-w-0 shrink-0 items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-600 dark:bg-white/10 dark:text-slate-300">
+        <span className="min-w-0 truncate">Cancelled{!compact && item.reason ? `: ${item.reason}` : ""}</span>
+      </span>
+    );
+  }
   // done
   const short = item.commit ? item.commit.slice(0, 7) : null;
   return (

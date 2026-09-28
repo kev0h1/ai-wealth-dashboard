@@ -44,8 +44,8 @@ ALLOWLIST: set[tuple[str, int]] = {
     # app.services.backlog.BacklogError — "Raised for any user/caller-facing
     # failure (unknown id, bad enum)" per its own docstring; owner-only
     # /ops/go-live admin surface.
-    ("app/routers/ops.py", 221),
-    ("app/routers/ops.py", 239),
+    ("app/routers/ops.py", 248),
+    ("app/routers/ops.py", 272),
     # ValueError raised by app.services.spend_impact.compute_intent_preview /
     # app.services.checkpoints.delete_intent with an authored message
     # ("'<category>' is not currently over usual, nothing to preview", etc.)
@@ -67,15 +67,24 @@ ALLOWLIST: set[tuple[str, int]] = {
     ("app/routers/billing.py", 195),
     # ValueError raised by app.core.subscription.grant_pack with an authored
     # message ("pack_id must be one of: ..."); admin-only endpoint.
-    ("app/routers/subscription.py", 239),
-    ("app/routers/subscription.py", 271),
+    ("app/routers/subscription.py", 246),
+    ("app/routers/subscription.py", 278),
     # app.services.safe_calc._CalcError — "Internal only" per its own
     # docstring, every raise site in that module is a static, authored,
     # already-calm string written for this exact Penny-facing surface.
     ("app/services/safe_calc.py", 136),
     # app.routers.mcp.McpError — the MCP JSON-RPC error contract IS
     # (code, message, data); every raise site is a static, authored string.
-    ("app/routers/mcp.py", 522),
+    # A90 (2026-09-22) added version-negotiation and top-level JSON-RPC
+    # envelope-validation helpers earlier in this file
+    # (SUPPORTED_PROTOCOL_VERSIONS/_negotiate_protocol_version,
+    # _has_valid_jsonrpc_id_type/_jsonrpc_envelope_error), A91 added
+    # content-sanitisation helpers earlier still, and A84's rework added
+    # the resolve_mcp_principal tombstone check (is_revoked) earlier
+    # again; none of these is a new exception site. Line re-derived
+    # empirically post-merge (AST scan of the merged file), not carried
+    # forward from any one branch.
+    ("app/routers/mcp.py", 621),
     # penny_tools.py: `except HTTPException as e: return _tool_error(str(e.detail))`
     # / `return {"error": str(e.detail)}` — forwarding HTTPException.detail
     # raised by our own _validate_*/_normalise_* helpers a few lines above
@@ -85,22 +94,31 @@ ALLOWLIST: set[tuple[str, int]] = {
     # G80 (2026-09-16) shifted every line below by +13: the reframed
     # money-basics/page-explainer copy sweep added lines earlier in this
     # file (the "upcoming" explain entry and expanded insights/debt/grow
-    # copy), none of these are new exception sites.
-    ("app/services/penny_tools.py", 3870),
-    ("app/services/penny_tools.py", 3935),  # ValueError from compute_intent_preview, see above
-    ("app/services/penny_tools.py", 4438),
-    ("app/services/penny_tools.py", 4458),
-    ("app/services/penny_tools.py", 4494),
-    ("app/services/penny_tools.py", 4517),
-    ("app/services/penny_tools.py", 4659),
-    ("app/services/penny_tools.py", 4664),
-    ("app/services/penny_tools.py", 4669),
-    ("app/services/penny_tools.py", 4756),
-    ("app/services/penny_tools.py", 4761),
-    ("app/services/penny_tools.py", 4766),
-    ("app/services/penny_tools.py", 5707),
-    ("app/services/penny_tools.py", 6362),
-    ("app/services/penny_tools.py", 6376),
+    # copy), none of these are new exception sites. A98 (2026-09-21) then
+    # shifted every line below by -6, removing the Kenya region's
+    # get_user_region import and its two KES/GBP home-currency branches
+    # earlier in this file; likewise not new exception sites. G159
+    # (2026-09-28) merged main into this branch: main gained unrelated
+    # content earlier in the file (independent of G159's own
+    # `engine_build`/`_load_cashflow_cache` stamp change) which shifted
+    # every line below again. Re-derived empirically post-merge by an AST
+    # scan of the merged file (the same scan this test runs), not by
+    # arithmetic on either side's shift comment.
+    ("app/services/penny_tools.py", 3888),
+    ("app/services/penny_tools.py", 3953),  # ValueError from compute_intent_preview, see above
+    ("app/services/penny_tools.py", 4456),
+    ("app/services/penny_tools.py", 4476),
+    ("app/services/penny_tools.py", 4512),
+    ("app/services/penny_tools.py", 4535),
+    ("app/services/penny_tools.py", 4677),
+    ("app/services/penny_tools.py", 4682),
+    ("app/services/penny_tools.py", 4687),
+    ("app/services/penny_tools.py", 4774),
+    ("app/services/penny_tools.py", 4779),
+    ("app/services/penny_tools.py", 4784),
+    ("app/services/penny_tools.py", 5725),
+    ("app/services/penny_tools.py", 6380),
+    ("app/services/penny_tools.py", 6394),
     # app.services.billing._handle_checkout_completed: `str(exc)` here is an
     # authored ValueError message from grant_pack (see above), returned as
     # the body of a Stripe *webhook* response — read by Stripe's own retry

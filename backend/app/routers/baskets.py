@@ -15,6 +15,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.auth import current_user
+from app.core import timeutil
 from app.core.llm import openrouter_chat
 from app.db.collections import shopping_baskets_col
 
@@ -166,7 +167,7 @@ async def scan_receipt(body: dict, user: dict = Depends(current_user)):
     purchased_at   = parsed.get("purchased_at") or None
     date_estimated = purchased_at is None
     if date_estimated:
-        purchased_at = datetime.now().strftime("%Y-%m-%d")
+        purchased_at = timeutil.user_today().isoformat()
 
     doc = {
         "_id": uuid.uuid4().hex,

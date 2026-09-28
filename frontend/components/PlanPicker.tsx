@@ -3,7 +3,8 @@
 import { useMemo, useState, type KeyboardEvent } from "react";
 import { Check, ChevronDown, Crown, FileText, Globe, Landmark, Link2, Zap } from "lucide-react";
 import { api } from "@/lib/api";
-import { canPurchaseInApp, PURCHASE_UNAVAILABLE_SENTENCE } from "@/lib/nativeAuth";
+import { invalidateOpenBankingAccess } from "@/lib/openBankingAccess";
+import { usePurchaseAvailability, PURCHASE_UNAVAILABLE_SENTENCE } from "@/lib/nativeAuth";
 import type {
   SubscriptionBillingPeriod,
   SubscriptionBillingPeriodDetail,
@@ -209,8 +210,13 @@ export default function PlanPicker({
   // untouched by this, it never talks to Stripe. B29: `nativeOverride`
   // only exists for the design preview (see the prop's own doc comment);
   // every real caller leaves it undefined, so this reduces to the
-  // original `canPurchaseInApp()` call everywhere it matters.
-  const purchasingAllowed = nativeOverride === undefined ? canPurchaseInApp() : !nativeOverride;
+  // real availability everywhere it matters. B40: real availability comes
+  // from usePurchaseAvailability(), not a direct canPurchaseInApp() call,
+  // so this starts (and, on the server, stays) "unknown" — never "web" —
+  // until an effect resolves it against the real Capacitor bridge after
+  // mount; see that hook's own comment.
+  const availability = usePurchaseAvailability();
+  const purchasingAllowed = nativeOverride === undefined ? availability === "web" : !nativeOverride;
 
   // B22: the exact disclosure the trial control needs adjacent to it —
   // the amount, the named charge date, and a cancel-any-time line naming
@@ -273,6 +279,24 @@ export default function PlanPicker({
           return;
         }
         if (current !== "statements") await api.selectFreePlan();
+        // A67: the plan just changed, so the shared GET /subscription cache
+        // is stale. Signup's very next step is the bank step, which asks
+        // that cache whether this plan includes open banking — without this
+        // it would answer from the pre-selection snapshot for up to the full
+        // TTL and offer Connect a bank to someone who just chose the free
+        // plan.
+        //
+        // AWAITED, not fire and forget. `onContinue()` below is a
+        // synchronous `setStep("income")`, and the income step can be left
+        // with a single tap (`Onboarding.skipIncome` is just
+        // `setStep("bank")`), so the bank step can render one commit and one
+        // tap later — faster than a cold `GET /subscription` on a
+        // single-worker API. Unawaited, the user sees "Connect your first
+        // bank" swap to the statements copy mid-signup, and can reach a 402
+        // in the gap. The button stays busy for the extra round trip, which
+        // is the right trade on a screen that has just taken a decision.
+        // See lib/openBankingAccess.ts.
+        await invalidateOpenBankingAccess();
         onContinue?.();
         return;
       }

@@ -155,7 +155,11 @@ done
 
 # TrueLayer picker flag (backlog A16): the Accounts "Add" menu's legacy
 # "Add Bank via TrueLayer" entry only renders when NEXT_PUBLIC_TRUELAYER_PICKER
-# is "on" (see frontend/lib/featureFlags.ts). Mobile builds should show it on
+# is "on" (read in frontend/next.config.ts, which A67 moved it to from
+# frontend/lib/featureFlags.ts; it now inlines NEXT_PUBLIC_LEGACY_BANK_ID /
+# NEXT_PUBLIC_LEGACY_BANK_NAME so an "off" build contains no TrueLayer
+# identifier or label at all, rather than a hidden one. Nothing about how
+# this script SETS the flag changed). Mobile builds should show it on
 # UAT (day-to-day Android APKs and the ios-capacitor TestFlight workflow) and
 # hide it on prod (the ios-capacitor-prod TestFlight workflow and
 # build:mobile:prod), matching Vercel prod, which never sets this var. An

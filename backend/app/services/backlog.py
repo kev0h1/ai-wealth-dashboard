@@ -13,7 +13,8 @@ Model on a TODO.md item line:
       - note (2026-09-06, kevin): a note about A1.
 
 `[state: ...]` is one of `in-progress`, `blocked: <reason>`,
-`review: <branch>`, `rejected: <reason>`, or `uat: <link>` (see
+`review: <branch>`, `rejected: <reason>`, `uat: <link>`, or
+`cancelled: <reason>` (see
 docs/ops/BACKLOG.md "Branch per item" — a session finishing work on a
 worktree branch sends the item to review with the branch name attached,
 and `scripts/integrate.py` either merges it to `done`, to `uat` (a
@@ -44,7 +45,35 @@ the whole point, so it can never be merged a second time. `approve <id>
 "<choice>"` records which variant Kevin picked as a dated note and moves
 the item back to `in-progress` with its owner unchanged, so the same
 agent implements the winner on a fresh branch. See H31 and
-docs/ops/BACKLOG.md. The checkbox carries done/not-done, independent of
+docs/ops/BACKLOG.md. `cancelled` (H80) is Kevin's own call that a piece of
+work should not happen at all — obsolete, superseded, or simply not
+wanted — distinct from `rejected` (a reviewer found a defect, fix it) and
+`blocked` (can't proceed yet): closed, but never `[x]` and never counted
+as done. It requires a reason (`[state: cancelled: <reason>]`, capped at
+REASON_CAP=200 like blocked/rejected, plus a full uncapped-up-to-NOTE_CAP
+note written automatically alongside it) and refuses any CLI `actor`
+other than `kevin` — an agent must never decide work is unnecessary, it
+can only leave a note recommending cancellation; see `CANCEL_ACTOR`'s own
+comment below for how honestly this is (and isn't) enforced (on the CLI
+alone; `/ops/go-live` is the one genuinely enforced path). Cancelling an
+already-done item is refused outright (no override): a done item already
+happened, there is nothing left to declare should not happen. UNLIKE
+`rejected`, `start`/`todo` do NOT reverse a cancellation by themselves any
+more (H80 correction round): on the CLI, `scripts/backlog.py`'s own
+`_refuse_if_cancelled` guard refuses a cancelled item on `start`/`block`/
+`review`/`reject`/`uat`/`todo`/`done` with NO override at all — the only
+way out is the dedicated `uncancel <id> "<why>"` verb (requires a reason,
+writes a dated note, moves the item to `todo`), the same shape H57's
+`reopen` already gives the done/not-done boundary, chosen over a --force
+flag specifically so reversing a cancellation always leaves its own
+attributable record rather than a commit indistinguishable from an
+ordinary start/todo. This closes the exact hole where
+`scripts/session.sh finish`/`abandon` used to reopen a cancelled item
+without anyone deciding to, and the "reject then start" two-command
+laundering path that needed no flag at all. See `set_cancelled` and
+`set_uncancelled` below.
+
+The checkbox carries done/not-done, independent of
 the state tag — marking an item done clears any state tag. A done item
 gets a trailing `(done 2026-09-06, abc1234)` marker (commit hash optional,
 and for an integrated item is the merge commit on main). Notes are
@@ -55,11 +84,64 @@ Questions in the compliance doc keep their existing `## Qn <title>` /
 blocked-deploy, submitted.
 
 Every public mutator (`set_done`, `set_state`, `set_owner`, `add_note`,
-`set_question_status`) writes the file atomically (temp file + rename)
-under an `fcntl.flock` on `.backlog.lock` in the repo root, then attempts
-a `git add` + `git commit` + `git push` of just that file. A failed
-commit or push is logged and reported back as `committed: False`; the
-file write itself is never lost because it happens before any git call.
+`set_question_status`) writes the file atomically (temp file + rename),
+then attempts a `git add` + `git commit` + `git push` of just that file —
+and, since H93, both the write and the commit/push happen under the same
+`fcntl.flock` on `.backlog.lock` in the repo root (see `_locked`), so two
+sessions writing the board at once queue rather than race each other's
+git commit. That lock acquisition is bounded (`BOARD_LOCK_WAIT_SECONDS`),
+not the indefinite wait it used to be, and logs when it is contended.
+Before either git call, `_wait_for_git_index_lock` also clears a stale
+`.git/index.lock` (git's own lock, left behind by a commit that died
+mid-operation, once nothing is found holding it and it is old enough —
+see `GIT_LOCK_STALE_SECONDS`) or waits out and reports a live one, so
+that lock stops being a silent reason a commit fails. A failed commit or
+push (lock-related or not) is logged and reported back as `committed:
+False`; the file write itself is never lost because it happens before
+any git call. `scripts/backlog.py` (the CLI) treats `committed: False`
+as a hard, non-zero-exit failure rather than a footnote — see
+`_print_result` there — but this module's own public mutators keep
+returning it rather than raising, since `/ops/go-live` needs to report a
+failed commit in its response body rather than 500 the request.
+
+A false-positive holder (`_lock_holder_pids` wrongly reporting a live
+process on a genuinely stale `.git/index.lock`) does not corrupt
+anything, but it does stall: the write already landed on disk before any
+git call runs, so `.git/index.lock` staying in place just means that one
+call's `git add`/`commit` times out via `_GitLockHeld`, folded into the
+usual `committed: False`. The next real risk is downstream of this
+module, in `scripts/integrate.py`: its own precondition check refuses to
+run against a dirty shared tree, and a board write that landed on disk
+but never committed leaves `TODO.md` exactly that — dirty — so every
+subsequent integrate pass blocks with a generic "dirty tree" refusal
+until a human notices and runs `git add && git commit` (or an unstuck
+retry) by hand in the shared tree. `integrate.py` does not currently
+distinguish that specific cause from an arbitrary dirty tree; see its own
+`_check_preconditions` if that distinction is ever worth adding.
+
+The opposite mistake — a false NEGATIVE, `_lock_holder_pids` wrongly
+reporting no holder on a `.git/index.lock` a real process still has open
+— is treated far more strictly than the false-positive case above,
+deliberately asymmetrically: a stall inside this module is recoverable
+by anyone who notices, but deleting a live process's lock corrupts that
+THIRD-PARTY git process's own in-flight operation, mid-write, with no
+downstream check in this codebase able to repair it afterwards. That is
+why every code path in `_lock_holder_pids` that cannot positively confirm
+"nothing holds this file" — an unreadable /proc fd table, an unreadable
+/proc listing itself, a tool that ran but reported an error rather than a
+clean "no holder" — reports a holder rather than silently treating "I
+could not look" as "I looked and found nothing".
+
+A genuine limit, not a defect (confirmed in the H93 review round 3): a
+tool that answers CLEANLY but WRONGLY — exit code and stderr both saying
+"no holder" (the honest shape this module trusts, by design, in
+`_lock_holder_pids_via_tool`) while a real process does in fact have the
+lock open — is undetectable by any check here. There is no signal left
+to fail closed on once the tool itself reports success with no error;
+catching that would need a source of truth this module does not have
+(the kernel's own fd tables, which is exactly what the /proc fallback
+already reads directly, used only when the tool gives no trustworthy
+answer at all rather than a wrong one it is confident in).
 """
 from __future__ import annotations
 
@@ -68,10 +150,13 @@ import logging
 import os
 import re
 import subprocess
+import time
 import urllib.parse
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import date
+
+from app.core import timeutil
 from pathlib import Path
 from typing import Iterator, Optional
 
@@ -115,7 +200,46 @@ COMPLIANCE_PATH = _compliance_path()
 GIT_AUTHOR = "Sorted Ops <ops@auriqltd.co.uk>"
 GIT_TIMEOUT = 15
 
-ITEM_STATES = ("todo", "in-progress", "blocked", "review", "rejected", "uat")
+# H93: how stale a `.git/index.lock` has to be, with no live process
+# holding it, before this module removes it itself rather than let it
+# turn a routine commit into a swallowed "saved but not committed"
+# outcome. The incident this closes found one 30 minutes old with no git
+# process anywhere near it. 90s (6x GIT_TIMEOUT) is the threshold chosen:
+# comfortably longer than this module's own worst case (`git add` then
+# `git commit` back to back, each capped at GIT_TIMEOUT=15s, so a lock
+# *this module* legitimately created and is still working under never
+# gets close to 90s), while recovering in well under two minutes instead
+# of the 30 the real incident sat for. The age threshold is only a
+# secondary sanity check, though -- the real safety gate is
+# `_lock_holder_pids`: a lock is only ever removed once nothing is found
+# holding it, however old or young it is, so a genuinely live git process
+# (a slow push, a rebase step actually running) is never touched no
+# matter how long it runs.
+GIT_LOCK_STALE_SECONDS = 90.0
+# Bounded wait for a *live* .git/index.lock (held by a real process) to
+# clear before giving up and reporting the commit as failed. 20s gives a
+# holder comfortably more than one GIT_TIMEOUT-capped subprocess call to
+# finish without making a caller wait very long for a lock that turns out
+# to be genuinely stuck.
+GIT_LOCK_WAIT_SECONDS = 20.0
+GIT_LOCK_POLL_SECONDS = 0.5
+
+# H93: this module's own writer lock (`.backlog.lock`, see `_locked`
+# below) now also covers the git commit/push, not just the file rewrite,
+# so two sessions writing the board at once (the normal case on this
+# project) queue instead of racing each other's git commit. The wait is
+# bounded, not the indefinite fcntl.flock(LOCK_EX) this used to be: an
+# unbounded wait would turn one genuinely stuck holder (a process that
+# died mid-write, still holding the fd) into every future session hanging
+# forever with nothing to show for it. 30s is well beyond one mutator's
+# realistic total (a file rewrite plus `git add`+`commit`, and only on
+# success `git push`, each subprocess call capped at GIT_TIMEOUT=15s) so
+# ordinary queuing under contention almost never times out, while a
+# genuinely stuck holder is still reported within one command.
+BOARD_LOCK_WAIT_SECONDS = 30.0
+BOARD_LOCK_POLL_SECONDS = 0.2
+
+ITEM_STATES = ("todo", "in-progress", "blocked", "review", "rejected", "uat", "cancelled")
 # Human-facing labels for a state key, matching the board's own vocabulary
 # (frontend/lib/goLive.ts BOARD_COLUMNS) exactly, so an audit note written
 # by set_state/set_done (H57) reads "moved to In progress" the way the
@@ -129,6 +253,7 @@ STATE_DISPLAY_LABEL = {
     "review": "In review",
     "rejected": "Rejected",
     "uat": "UAT",
+    "cancelled": "Cancelled",
 }
 QUESTION_STATUSES = ("ready", "needs-kevin", "blocked-deploy", "submitted")
 OWNERS = ("kevin", "claude", "codex")
@@ -136,6 +261,31 @@ PRIORITIES = ("p1", "p2", "p3")
 DEFAULT_PRIORITY = "p3"
 REASON_CAP = 200
 NOTE_CAP = 1500  # see _collapse_note_text below (H46)
+
+# H80 correction round: `cancelled` is Kevin's own call that a piece of
+# work should not happen at all (obsolete, superseded, or simply not
+# wanted) — distinct from `rejected` (a reviewer found a defect, fix it)
+# and `blocked` (can't proceed yet). An agent must never be the one
+# deciding a piece of work is unnecessary, but be honest about how this is
+# actually gated: `TodoDoc.set_state` refuses to set `state="cancelled"`
+# unless `actor` is exactly this value, which is the same self-declared
+# string every other actor check in this codebase already relies on (the
+# `--actor` flag on scripts/backlog.py) — nothing stops a caller typing
+# `--actor kevin` on purpose, so this check by itself is a guard against
+# forgetting, not a barrier against intent. (A `BACKLOG_AGENT` environment
+# check was added here for "defence in depth" and removed in the same
+# correction round: it made every Codex session's `finish` fail dozens of
+# unrelated tests, since AGENTS.md has Codex sessions export
+# BACKLOG_AGENT=codex and `scripts/session.sh finish` runs the backend
+# suite in that same environment, and it bought nothing anyway — `env -u
+# BACKLOG_AGENT` defeats it in one token.) The one place this genuinely IS
+# enforced is `/ops/go-live` (backend/app/routers/ops.py), which is gated
+# by real account-owner auth (`_require_owner`/`current_user`) and always
+# attributes its own writes to `_PAGE_ACTOR = "kevin"` regardless of who
+# is signed in — cancelling through the browser is the actual kevin-only
+# path; cancelling through this CLI only refuses the default and the
+# common accidental case.
+CANCEL_ACTOR = "kevin"
 
 # H31: the only host a `uat` preview link is ever allowed to point at.
 # Kevin opens these links from his phone, not this VPS's loopback
@@ -253,13 +403,48 @@ def _collapse_note_text(text: str, cap: int = NOTE_CAP) -> str:
     return collapsed
 
 
+def _note_truncation_info(text: str, cap: int = NOTE_CAP) -> dict:
+    """H64: `_collapse_note_text` truncates and appends an ellipsis with no
+    way for a caller to know it happened — the write still succeeds, so an
+    agent believes it recorded something it did not (hit four times in one
+    session on 2026-09-17, the worst case cutting the operational half of
+    a note, the worktree path and the exact resume commands, while keeping
+    the prose rationale). This runs the same newline-collapsing
+    `_collapse_note_text` does, so the length comparison is apples to
+    apples with what actually gets written, then reports whether it would
+    be truncated and, if so, the tail of the text that gets cut off (up to
+    40 characters), so a caller can react instead of finding out later by
+    measuring the stored string directly."""
+    parts = [p.strip() for p in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+    collapsed = " / ".join(p for p in parts if p)
+    original_length = len(collapsed)
+    truncated = original_length > cap
+    if not truncated:
+        return {
+            "truncated": False,
+            "original_length": original_length,
+            "cap": cap,
+            "dropped_length": 0,
+            "dropped_tail": "",
+        }
+    kept_length = cap - 3 if cap > 3 else cap
+    dropped = collapsed[kept_length:]
+    return {
+        "truncated": True,
+        "original_length": original_length,
+        "cap": cap,
+        "dropped_length": len(dropped),
+        "dropped_tail": dropped[-40:],
+    }
+
+
 SECTION_HEADING_RE = re.compile(r"^## ([A-H])\. (.+)$")
 ITEM_RE = re.compile(
     r"^(?P<prefix>- \[(?P<check>[ xX])\] \*\*(?P<id>[A-H]\d+)\.\s*(?P<title>.*?)\*\*)"
     r"(?P<tail>.*)$"
 )
 OWNER_RE = re.compile(r"\[owner:\s*(kevin|claude|codex)\]")
-STATE_RE = re.compile(r"\[state:\s*(in-progress|blocked|review|rejected|uat)(?::\s*([^\]]*))?\]")
+STATE_RE = re.compile(r"\[state:\s*(in-progress|blocked|review|rejected|uat|cancelled)(?::\s*([^\]]*))?\]")
 PRIORITY_RE = re.compile(r"\[priority:\s*(p1|p2|p3)\]")
 UNBLOCKS_RE = re.compile(r"\[unblocks:\s*([^\]]*)\]")
 # A rejected (or uat) item's branch is stored separately from `[state:
@@ -290,8 +475,23 @@ class BacklogError(RuntimeError):
     """Raised for any user/caller-facing failure (unknown id, bad enum)."""
 
 
+class UnknownItemError(BacklogError):
+    """Raised specifically when <id> is not on the board.
+
+    A subclass of BacklogError, so every existing ``except BacklogError``
+    keeps catching it unchanged. It exists so a caller can tell "that id
+    does not exist" from "the board could not be read" without matching
+    on the message text: ``scripts/backlog.py`` gives it its own exit
+    status. The text match it replaces was wrong for a truncated or
+    half-written TODO.md, which produces this same message, and the
+    advice that followed from that misreading ("open it with --title")
+    would have written a fresh item into the truncated file and cemented
+    the loss. See item H85.
+    """
+
+
 def today_str() -> str:
-    return date.today().isoformat()
+    return timeutil.user_today().isoformat()
 
 
 # --------------------------------------------------------------------------
@@ -307,15 +507,371 @@ def _atomic_write(path: Path, text: str) -> None:
 
 
 @contextmanager
-def _locked(repo_root: Path) -> Iterator[None]:
+def _locked(repo_root: Path, *, timeout: float = BOARD_LOCK_WAIT_SECONDS) -> Iterator[None]:
+    """Serialises a full read-modify-write-commit-push sequence against
+    every other caller of this module in this `repo_root` (H93). Before
+    this fix the lock only covered the file rewrite: two concurrent
+    sessions could each cleanly load, mutate and save TODO.md one after
+    the other, then both call `_git_commit_and_push` outside the lock at
+    the same time, racing each other's `git add`/`git commit` against the
+    same working tree. `git commit` on a path commits *every* uncommitted
+    change to that path, not just the caller's own diff, so whichever
+    process won the race committed both sessions' writes under its own
+    message -- exactly what piled up three writes from two sessions into
+    one file on 2026-09-27. Every public mutator below now calls
+    `_git_commit_and_push` from *inside* this same `with` block, so the
+    two are one atomic unit again: load, mutate, save, commit, push, then
+    release.
+
+    Bounded, not the indefinite `fcntl.flock(LOCK_EX)` this used to be —
+    contention is the ordinary case here (this file is shared by every
+    Claude and Codex session plus `/ops/go-live`), so callers queue
+    briefly and that queuing is logged, rather than either blocking
+    forever behind a holder that might be dead, or racing git the way the
+    old code did. See `BOARD_LOCK_WAIT_SECONDS` for why 30s."""
     repo_root.mkdir(parents=True, exist_ok=True)
     lock_path = repo_root / ".backlog.lock"
     with open(lock_path, "a+") as fh:
-        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        deadline = time.monotonic() + timeout
+        logged_contention = False
+        while True:
+            try:
+                fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if not logged_contention:
+                    logger.warning(
+                        "backlog: .backlog.lock in %s is held by another session, waiting up to %.0fs",
+                        repo_root,
+                        timeout,
+                    )
+                    logged_contention = True
+                if time.monotonic() >= deadline:
+                    raise BacklogError(
+                        f"backlog: could not acquire the board write lock (.backlog.lock in {repo_root}) "
+                        f"within {timeout:.0f}s; another session appears to be stuck holding it. Nothing was "
+                        f"written for this call."
+                    )
+                time.sleep(BOARD_LOCK_POLL_SECONDS)
         try:
             yield
         finally:
             fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+
+
+class _GitLockHeld(Exception):
+    """Internal only: `.git/index.lock` is held by a live process and
+    stayed that way for `GIT_LOCK_WAIT_SECONDS`. Always caught inside
+    `_git_commit_and_push`, which folds it into the same `committed:
+    False` outcome as any other git failure — this never escapes this
+    module on its own."""
+
+
+def _lock_holder_pids(lock_path: Path) -> list[str]:
+    """Best-effort, but FAIL-CLOSED: which live process(es), if any,
+    currently have `lock_path` open, OR could not be ruled out. This is
+    the actual safety gate for whether a stale `.git/index.lock` may be
+    removed (H93) — age alone is never enough, since a slow but genuine
+    git operation must never have its lock pulled out from under it.
+
+    The governing rule, added in the H93 review round 2 after two
+    separate fail-OPEN defects were found and reproduced in the first
+    fix (see `_lock_holder_pids_via_tool`/`_lock_holder_pids_via_proc`
+    below for each): "I could not look" must never be read as "I looked
+    and found nothing". Every code path that cannot positively confirm
+    "nothing holds this file" reports a holder — real or a
+    `(...unreadable)`-suffixed placeholder pid — rather than silently
+    falling through to "unheld". An empty list from this function is
+    therefore a genuine positive claim (something actually checked and
+    found nothing), never a default for "couldn't tell".
+
+    Tries `_lock_holder_pids_via_tool` (fuser/lsof) first; only when that
+    returns `None` (neither tool gave a trustworthy answer at all) does
+    this fall back to `_lock_holder_pids_via_proc`, a raw /proc fd walk,
+    itself fail-closed the same way.
+
+    Even a correct "no holder" answer from this function is still only a
+    necessary condition for removal, never sufficient on its own: the
+    age threshold and the immediately-before-deleting re-stat in
+    `_wait_for_git_index_lock` are what close the remaining race — a lock
+    just created by a process that has not yet opened an fd on it (or
+    rewritten it) at the exact instant this function runs."""
+    tool_result = _lock_holder_pids_via_tool(lock_path)
+    if tool_result is not None:
+        return tool_result
+    return _lock_holder_pids_via_proc(lock_path)
+
+
+def _lock_holder_pids_via_tool(lock_path: Path) -> Optional[list[str]]:
+    """Asks `fuser`/`lsof` (fast, exact, and what the item asked for).
+    Returns pids if a tool found any, `[]` only when a tool gave a
+    genuinely trustworthy "no holder" answer, or `None` if neither tool
+    gave an answer that can be trusted at all (not installed, timed out,
+    or ran but reported an error rather than a clean "no holder") — the
+    caller then falls back to a /proc walk rather than treating `None`
+    as "unheld".
+
+    Both tools exit 0 with the holder's pid(s) on stdout when something
+    has the file open, and exit NON-zero when nothing does — the inverse
+    of the usual "0 means success" shell convention, verified empirically
+    on this host. The first cut of this function got that backwards
+    (`if result.returncode == 0: return []`), unreachable dead code:
+    returncode is only ever 0 when stdout already produced a non-empty
+    `pids` list, which the branch above it already returns. Fixed in
+    round 1: a non-empty `pids` list is trusted outright, regardless of
+    exit code or any stderr noise alongside it — a real pid on stdout is
+    positive evidence a false alarm elsewhere cannot manufacture.
+
+    Round 2 (Critical B): a non-zero exit with EMPTY stdout is not, on
+    its own, "confirmed no holder" — fuser's and lsof's own documented
+    contract is non-zero for EITHER "nothing has this file open" OR "a
+    fatal error", indistinguishable by exit code alone. Round 1 trusted
+    every non-zero/empty-stdout result unconditionally, which a
+    malfunctioning or shadowed tool (bad permissions, a corrupt install,
+    a stand-in script earlier on PATH) exploits for free — reproduced by
+    swapping in fuser/lsof stand-ins that exit 1 with empty stdout and a
+    stderr diagnostic, and the lock was removed out from under a live
+    holder. The fix: a non-zero exit is trusted as "no holder" ONLY when
+    stderr is ALSO empty — a genuine "nothing has this open" answer from
+    either tool prints nothing there. A non-zero exit WITH stderr output
+    means the tool ran but failed, not that it found nothing; that
+    result is discarded (not returned as `[]`) and the next tool (or, if
+    none is left, the /proc walk) gets a chance to give a real answer."""
+    for tool, extra_args in (("fuser", []), ("lsof", ["-t"])):
+        try:
+            result = subprocess.run(
+                [tool, *extra_args, str(lock_path)], capture_output=True, text=True, timeout=5
+            )
+        except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
+            continue
+        pids = [tok.strip().lstrip("+") for tok in result.stdout.split() if tok.strip().lstrip("+").isdigit()]
+        if pids:
+            return pids
+        if result.returncode != 0 and not result.stderr.strip():
+            return []
+        # Either returncode == 0 with nothing parsed on stdout (not
+        # possible per the tools' own contract, so not trusted if it
+        # somehow happens) or a non-zero exit WITH stderr output (an
+        # actual tool failure, not a clean "no holder"): this tool's
+        # answer is discarded; try the next one instead of trusting it.
+    return None
+
+
+def _lock_holder_pids_via_proc(lock_path: Path) -> list[str]:
+    """Raw /proc fd walk, used only when `_lock_holder_pids_via_tool`
+    could not get a trustworthy answer from either fuser or lsof at all
+    (H93 review round 2). Walks every live process's open file
+    descriptors (`/proc/<pid>/fd/*`) and keeps one whose fd resolves to
+    this exact lock file — the only fd-table signal that actually means
+    "holds this file open".
+
+    Round 1 matched any process merely cwd'd at the repo root with the
+    substring `git` anywhere in its command line, which proved to be two
+    separate live bugs, both reproduced against real processes on this
+    host: (1) a long-running `git fetch`-polling loop parked at the repo
+    root (the normal shape of a Claude/Codex session on this VPS)
+    matched every time, reporting a genuinely stale, abandoned lock as
+    held forever; and (2) with a real holder's cwd different from
+    `repo_root` (nothing enforced that they match), the holder was
+    invisible and its lock was deleted out from under it. Neither is
+    possible once the check is "does an fd point at this exact file", so
+    the cwd and command-line heuristics are gone entirely.
+
+    Round 2 (Critical A): `os.listdir(fd_dir)` raising `OSError` was
+    treated as "process exited mid-scan, or its fd table isn't readable
+    (not ours), either way skip it" — conflating two very different
+    cases. A process that has genuinely exited is safe to skip (nothing
+    left to hold anything). A process that still EXISTS but whose fd
+    table this cannot read (`PermissionError`) is NOT safe to skip: this
+    simply could not look, and per the governing rule on
+    `_lock_holder_pids` above, "could not look" must be reported as a
+    holder, never silently passed over. Reproduced: a live holder with a
+    genuinely open fd, `os.listdir` forced to raise `PermissionError` for
+    that one pid, tools absent — the lock was removed while the holder
+    was still 8 seconds into a 30-second hold. Fixed here: `FileNotFoundError`
+    (the process, or that specific fd, is actually gone) is the only
+    exception treated as "skip, safe" — every other `OSError` on an
+    existing pid's fd table, or on an individual fd within it, appends a
+    `(fd table unreadable)`/`(fd ... unreadable)`-suffixed placeholder to
+    the holder list instead of continuing past it, which is enough on its
+    own to keep `_wait_for_git_index_lock` from ever deleting the lock.
+
+    Round 3: `if not proc_dir.is_dir(): return []` had exactly the same
+    fail-open shape Round 2 just fixed one level down, at the very top of
+    this function -- /proc itself being missing, or unreadable, is the
+    purest form of "could not look" there is (nothing about ANY process
+    could be checked at all), yet it was reported as "confirmed no
+    holder". Reproduced: a live holder, fuser/lsof absent, `Path.is_dir`
+    mocked to return `False` for /proc -- the stale-lock branch removed a
+    genuinely held index.lock. Fixed: both `proc_dir.is_dir()` being
+    false/erroring and `proc_dir.iterdir()` itself raising `OSError`
+    return a `"?(/proc unavailable)"` placeholder holder, the same shape
+    as an unreadable fd table, rather than `[]`. The one path still
+    genuinely treated as unheld — resolving `lock_path` itself failing —
+    is left as-is: that never gets far enough to look at any process, so
+    there is nothing to fail closed ABOUT (round 3 review agreed this one
+    is a legitimate exception, not a third instance of the same bug)."""
+    try:
+        resolved_lock = str(lock_path.resolve())
+    except OSError:
+        # Cannot even resolve the path being checked, so there is
+        # nothing to compare any fd against; nothing to fail closed
+        # ABOUT either -- moot, not a "could not look" case (round 3
+        # review agreed this one is legitimately an exception to the
+        # governing rule, since it never gets far enough to look at any
+        # process at all). Unheld, same as before this round.
+        return []
+    proc_dir = Path("/proc")
+    try:
+        proc_is_dir = proc_dir.is_dir()
+    except OSError:
+        proc_is_dir = False
+    if not proc_is_dir:
+        # /proc itself is missing or cannot even be stat'd. Round 2 left
+        # this as `return []` -- "confirmed no holder" -- which directly
+        # contradicts the governing rule above: unable to enumerate
+        # ANY process at all is the purest form of "could not look",
+        # not "looked and found nothing". Reproduced (round 3 review): a
+        # live holder, fuser/lsof absent, `Path.is_dir` mocked False on
+        # /proc -- the stale-lock branch removed a genuinely held
+        # index.lock. Fixed: report a holder placeholder so
+        # `_wait_for_git_index_lock` takes the held branch instead.
+        return ["?(/proc unavailable)"]
+    holders: list[str] = []
+    try:
+        proc_entries = list(proc_dir.iterdir())
+    except OSError:
+        # Same failure mode one level down: /proc exists as a directory
+        # but its own listing could not be read. Equally "could not
+        # look" -- reported the same way, not silently treated as no
+        # holder.
+        return ["?(/proc unavailable)"]
+    for entry in proc_entries:
+        if not entry.name.isdigit():
+            continue
+        fd_dir = entry / "fd"
+        try:
+            fd_names = os.listdir(fd_dir)
+        except FileNotFoundError:
+            continue  # the process itself exited between the /proc listing and this read -- genuinely gone
+        except OSError:
+            # The process still exists (that's the only reason
+            # /proc/<pid> is listed at all) but its fd table could not
+            # be read (typically PermissionError). Unknown, not unheld:
+            # reported as a holder rather than silently skipped.
+            holders.append(f"{entry.name}(fd table unreadable)")
+            continue
+        for fd_name in fd_names:
+            try:
+                target = os.readlink(fd_dir / fd_name)
+            except FileNotFoundError:
+                continue  # that individual fd closed mid-scan -- genuinely gone
+            except OSError:
+                holders.append(f"{entry.name}(fd {fd_name} unreadable)")
+                break
+            if target == resolved_lock:
+                holders.append(entry.name)
+                break
+    return holders
+
+
+def _wait_for_git_index_lock(
+    repo_root: Path,
+    *,
+    stale_after: float = GIT_LOCK_STALE_SECONDS,
+    max_wait: float = GIT_LOCK_WAIT_SECONDS,
+    poll_interval: float = GIT_LOCK_POLL_SECONDS,
+) -> None:
+    """H93: called before ever shelling out to `git add`/`git commit`, so
+    a leftover `.git/index.lock` (git's own lock, distinct from this
+    module's `.backlog.lock`) does not have to fail a commit that a
+    little patience or cleanup could have recovered. The incident this
+    closes was exactly a stale one of these: left behind by a commit that
+    died mid-operation, 30 minutes old, no git process anywhere near it,
+    silently turning every write behind it into "saved but not
+    committed".
+
+    Never removes a lock a live process holds — `_lock_holder_pids` is
+    checked fresh on every poll, and finding a holder always means "wait
+    and recheck", never "remove". Only once nothing holds it AND it is
+    older than `stale_after` is it deleted, with a warning logged saying
+    so. Otherwise (held, or unheld but too fresh to trust as abandoned)
+    this polls every `poll_interval` up to `max_wait` total, then raises
+    `_GitLockHeld`, which `_git_commit_and_push` treats like any other
+    commit failure.
+
+    H93 review round: `_lock_holder_pids` alone cannot see a lock file
+    that was just created by a process that has not yet opened an fd on
+    it (or is about to rewrite it) at the exact instant this function
+    samples /proc — that race is inherent to any point-in-time fd check,
+    not a bug in that function. Closed here instead, right before the
+    delete: the lock's `(inode, mtime)` is captured before the holder
+    scan runs and re-checked immediately before `unlink()`; if either
+    changed in between, something touched the file during the very scan
+    that just called it unheld, so this treats it as live and loops
+    again rather than deleting a lock a process may have just started
+    writing to."""
+    lock_path = repo_root / ".git" / "index.lock"
+    deadline = time.monotonic() + max_wait
+    attempt = 0
+    while True:
+        try:
+            pre_scan_stat = lock_path.stat()
+        except FileNotFoundError:
+            return
+        attempt += 1
+        holders = _lock_holder_pids(lock_path)
+        if holders:
+            logger.warning(
+                "backlog: .git/index.lock in %s is held by pid(s) %s, waiting (attempt %d)",
+                repo_root,
+                ",".join(holders),
+                attempt,
+            )
+        else:
+            age = time.time() - pre_scan_stat.st_mtime
+            if age >= stale_after:
+                try:
+                    post_scan_stat = lock_path.stat()
+                except FileNotFoundError:
+                    return  # released while we were about to remove it
+                if (post_scan_stat.st_ino, post_scan_stat.st_mtime) != (
+                    pre_scan_stat.st_ino,
+                    pre_scan_stat.st_mtime,
+                ):
+                    logger.warning(
+                        "backlog: .git/index.lock in %s changed while being checked for staleness "
+                        "(a process may have just started writing to it); treating as live, not "
+                        "removing (attempt %d)",
+                        repo_root,
+                        attempt,
+                    )
+                else:
+                    logger.warning(
+                        "backlog: removing stale .git/index.lock in %s (age %.0fs, no live process "
+                        "holding it)",
+                        repo_root,
+                        age,
+                    )
+                    try:
+                        lock_path.unlink()
+                    except FileNotFoundError:
+                        pass
+                    return
+            else:
+                logger.warning(
+                    "backlog: .git/index.lock present in %s (age %.0fs, no holder found yet, not stale, "
+                    "attempt %d)",
+                    repo_root,
+                    age,
+                    attempt,
+                )
+        if time.monotonic() >= deadline:
+            holder_detail = f"held by pid(s) {','.join(holders)}" if holders else "no live holder found, but not yet stale"
+            raise _GitLockHeld(
+                f".git/index.lock in {repo_root} is still present after waiting {max_wait:.0f}s ({holder_detail})"
+            )
+        time.sleep(poll_interval)
 
 
 def _git_commit_and_push(paths: list[Path], message: str, repo_root: Path) -> bool:
@@ -324,7 +880,11 @@ def _git_commit_and_push(paths: list[Path], message: str, repo_root: Path) -> bo
     Returns True only if both the commit and the push succeed. Any failure
     (including a timeout) is logged and swallowed — the caller has already
     written the file by the time this runs, so a git failure never loses
-    the edit, it just means the page should show "git commit failed"."""
+    the edit, it just means the page should show "git commit failed".
+
+    H93: before either git call, `_wait_for_git_index_lock` clears a
+    stale `.git/index.lock` (or waits out and reports a live one) so that
+    lock stops being a reason a perfectly good commit fails."""
     rel: list[str] = []
     for p in paths:
         try:
@@ -332,6 +892,7 @@ def _git_commit_and_push(paths: list[Path], message: str, repo_root: Path) -> bo
         except ValueError:
             rel.append(str(p))
     try:
+        _wait_for_git_index_lock(repo_root)
         subprocess.run(
             ["git", "add", *rel], cwd=repo_root, check=True, capture_output=True, timeout=GIT_TIMEOUT
         )
@@ -383,14 +944,14 @@ class BacklogItem:
     text: str
     owner: Optional[str]
     done: bool
-    state: str  # "todo" | "in-progress" | "blocked" | "review" | "rejected" | "uat" (meaningless once done)
+    state: str  # "todo" | "in-progress" | "blocked" | "review" | "rejected" | "uat" | "cancelled" (meaningless once done)
     reason: Optional[str]
     done_at: Optional[str]
     commit: Optional[str]
     line_no: int
     raw_line: str
     notes: list[BacklogNote] = field(default_factory=list)
-    branch: Optional[str] = None  # set when state == "review", "rejected", "uat", or "in-progress" with a live worktree attached (see H31 "start after approve")
+    branch: Optional[str] = None  # set when state == "review", "rejected", "uat", "cancelled", or "in-progress" with a live worktree attached (see H31 "start after approve")
     priority: str = DEFAULT_PRIORITY  # "p1" | "p2" | "p3", defaults to p3 when absent
     unblocks: list[str] = field(default_factory=list)  # question ids this item unblocks
     link: Optional[str] = None  # preview link, set when state == "uat" (see H31)
@@ -405,8 +966,8 @@ class BacklogItem:
             "text": self.text,
             "owner": self.owner,
             "state": state,
-            "reason": self.reason if state in ("blocked", "rejected") else None,
-            "branch": self.branch if state in ("review", "rejected", "uat", "in-progress") else None,
+            "reason": self.reason if state in ("blocked", "rejected", "cancelled") else None,
+            "branch": self.branch if state in ("review", "rejected", "uat", "cancelled", "in-progress") else None,
             "link": self.link if state == "uat" else None,
             "uat_review": self.uat_review if state == "review" else False,
             "done_at": self.done_at,
@@ -473,7 +1034,7 @@ def _parse_item_line(match: "re.Match[str]", section: str, line_no: int, raw_lin
     if state_m:
         state = state_m.group(1)
         detail = (state_m.group(2) or "").strip() or None
-        if state in ("blocked", "rejected"):
+        if state in ("blocked", "rejected", "cancelled"):
             reason = detail
         elif state == "review":
             branch = detail
@@ -491,12 +1052,12 @@ def _parse_item_line(match: "re.Match[str]", section: str, line_no: int, raw_lin
         owner=owner,
         done=done,
         state=state,
-        reason=reason if state in ("blocked", "rejected") else None,
+        reason=reason if state in ("blocked", "rejected", "cancelled") else None,
         done_at=done_at if done else None,
         commit=commit if done else None,
         line_no=line_no,
         raw_line=raw_line,
-        branch=branch if state in ("review", "rejected", "uat", "in-progress") else None,
+        branch=branch if state in ("review", "rejected", "uat", "cancelled", "in-progress") else None,
         priority=priority,
         unblocks=unblocks,
         link=link if state == "uat" else None,
@@ -526,6 +1087,15 @@ def _render_item_line(item: BacklogItem) -> str:
                 segments.append(f"[branch: {item.branch}]")
         elif item.state == "uat":
             segments.append(f"[state: uat: {item.link or ''}]")
+            if item.branch:
+                segments.append(f"[branch: {item.branch}]")
+        elif item.state == "cancelled":
+            # Same shape as rejected/uat: the reason lives in the
+            # `[state: cancelled: ...]` slot itself, so a live branch (a
+            # worktree that was in-progress or review when Kevin cancelled
+            # it) is retained in a separate `[branch: ...]` tag rather than
+            # lost — see set_cancelled() below and H80.
+            segments.append(f"[state: cancelled: {item.reason or ''}]")
             if item.branch:
                 segments.append(f"[branch: {item.branch}]")
         elif item.state == "in-progress":
@@ -602,7 +1172,7 @@ class TodoDoc:
         try:
             return self.items[item_id]
         except KeyError:
-            raise BacklogError(f"{item_id} is not a known backlog item.") from None
+            raise UnknownItemError(f"{item_id} is not a known backlog item.") from None
 
     def _rewrite(self, item: BacklogItem) -> None:
         self.lines[item.line_no] = _render_item_line(item)
@@ -648,6 +1218,34 @@ class TodoDoc:
         self, item_id: str, done: bool, commit: Optional[str] = None, actor: str = "claude"
     ) -> BacklogItem:
         item = self.item(item_id)
+        # H80 blocking defect (2026-09-18 review): a cancelled item can
+        # never be marked done. This is the one guard every surface must
+        # inherit, because this method is the service layer everything
+        # else funnels through -- the CLI's `done` command (on top of its
+        # own, separate `_refuse_if_cancelled` belt-and-braces check in
+        # scripts/backlog.py), the /ops/go-live "done" action, and
+        # therefore BoardView.tsx's drag-onto-Done, which called straight
+        # through to `backlog.set_done` -> `TodoDoc.set_done` with no
+        # state check at all. Before this fix, dragging a cancelled card
+        # onto Done fired with no confirmation, silently cleared
+        # `item.reason` and ticked the item complete, while the CLI
+        # refused the identical transition -- the two surfaces disagreed
+        # about the same rule. Same refusal shape as `set_state`'s
+        # "cancel a done item" guard and `_refuse_if_cancelled` in
+        # scripts/backlog.py: no override, point at the dedicated
+        # `uncancel` verb rather than a --force flag, so reopening always
+        # leaves its own attributable record.
+        if done and item.state == "cancelled":
+            reason = item.reason or ""
+            detail = f": {reason}" if reason else ""
+            raise BacklogError(
+                f"{item_id} is cancelled{detail}; Kevin decided this should not happen. 'done' cannot "
+                f"move it out of cancelled, and there is no override for this one. Reopening it is "
+                f"Kevin's call: leave a note recommending it be reopened "
+                f"('scripts/backlog.py note {item_id} \"recommend reopening: <why>\"') and let Kevin run "
+                f"'backend/.venv/bin/python scripts/backlog.py uncancel {item_id} \"<why>\" --actor kevin' "
+                f"himself."
+            )
         # H57 finding F2: `reopen` (done -> False) is the command the guard
         # in `scripts/backlog.py`'s refusal message and docs/ops/BACKLOG.md
         # both point operators at, and the Done -> To do board drag maps
@@ -692,6 +1290,43 @@ class TodoDoc:
             raise BacklogError("reason is required to set state to rejected")
         if state == "uat" and not link:
             raise BacklogError("link is required to set state to uat")
+        if state == "cancelled":
+            if not reason or not reason.strip():
+                raise BacklogError("a reason is required to cancel an item")
+            # H80 correction round (reviewer round 3): `actor` here is the
+            # same self-declared string every actor check in this codebase
+            # already relies on (the `--actor` flag on scripts/backlog.py)
+            # — nothing stops a caller typing `--actor kevin` on purpose,
+            # so this check alone is a guard against forgetting, not a
+            # barrier against intent. CLAUDE.md/AGENTS.md say so plainly
+            # rather than claim it is enforced. The one place this
+            # genuinely IS enforced is `/ops/go-live`
+            # (`backend/app/routers/ops.py`): that page is gated by real
+            # account-owner auth (`_require_owner`/`current_user`) and
+            # hardcodes `_PAGE_ACTOR = "kevin"` for every write regardless
+            # of who is signed in, so a browser call can never disagree
+            # about who is cancelling.
+            #
+            # A `BACKLOG_AGENT` environment check was tried here as
+            # further "defence in depth" and removed in the same
+            # correction round: `scripts/session.sh finish` runs the whole
+            # backend test suite in the session's own environment, and
+            # AGENTS.md tells every Codex session to export
+            # `BACKLOG_AGENT=codex`, so it made every Codex session's
+            # `finish` on every branch fail dozens of unrelated tests with
+            # a confusing "kevin-only" message whose actual cause was an
+            # environment variable — including this delta's own tests, and
+            # a false positive against Kevin himself running the CLI from
+            # a shell an agent harness had already set BACKLOG_AGENT=claude
+            # in. It also bought nothing: `env -u BACKLOG_AGENT` defeats it
+            # in one token. Not reintroduced.
+            if actor != CANCEL_ACTOR:
+                raise BacklogError(
+                    f"cancel is kevin-only: actor {actor!r} may not cancel an item. An agent must not "
+                    "decide work is unnecessary, leave a note recommending cancellation instead "
+                    f"('scripts/backlog.py note {item_id} \"recommend cancelling: <why>\"') and let Kevin "
+                    f"cancel it himself with --actor {CANCEL_ACTOR}."
+                )
         # Sanitise before storing so a raw multi-line reason (e.g. command
         # output passed straight through from scripts/integrate.py) can
         # never corrupt the item's one-line `[state: ...]` tag — see
@@ -703,6 +1338,21 @@ class TodoDoc:
         # write a loopback URL to disk either.
         normalised_link = normalise_preview_link(link) if state == "uat" else None
         item = self.item(item_id)
+        if state == "cancelled" and item.done:
+            # H80, Kevin's stated view: cancelling something already done
+            # is meaningless — a done item already happened, there is
+            # nothing left to declare "should not happen". Unlike the H57
+            # done-item guard on start/block/review/reject/uat (which
+            # exists only to stop an accidental un-tick and can be
+            # overridden with --force), this refusal has no override: if
+            # an already-done item genuinely needs undoing, `reopen` is
+            # the deliberate command for that, and the item can be
+            # cancelled afterwards if it still should be.
+            raise BacklogError(
+                f"{item_id} is already done; cancelling a done item is meaningless. Use "
+                f"'backend/.venv/bin/python scripts/backlog.py reopen {item_id}' first if it genuinely "
+                "needs undoing."
+            )
         # `state` here is always one of ITEM_STATES above, which never
         # includes "done" — done is the separate `item.done` flag set by
         # `set_done`, not a value this method ever receives. `to_dict()`
@@ -732,7 +1382,7 @@ class TodoDoc:
         item.done_at = None
         item.commit = None
         item.state = state
-        item.reason = sanitised_reason if state in ("blocked", "rejected") else None
+        item.reason = sanitised_reason if state in ("blocked", "rejected", "cancelled") else None
         if state == "review":
             item.branch = branch
             item.link = None
@@ -742,6 +1392,16 @@ class TodoDoc:
             # retain whatever branch the item already had (the branch it's
             # being rejected on) unless the caller explicitly passes a
             # different one; going to any other state below clears it.
+            item.branch = branch or item.branch
+            item.link = None
+            item.uat_review = False
+        elif state == "cancelled":
+            # H80: Kevin can cancel an item from any live state, including
+            # in-progress or review with a genuinely live worktree
+            # attached — that branch/worktree is never touched by this
+            # (see set_cancelled() below), so retain it the same way
+            # rejected/uat do, purely so it stays visible on the item
+            # rather than silently vanishing.
             item.branch = branch or item.branch
             item.link = None
             item.uat_review = False
@@ -872,6 +1532,44 @@ class TodoDoc:
     def set_unblocks(self, item_id: str, questions: list[str]) -> BacklogItem:
         item = self.item(item_id)
         item.unblocks = [q.strip() for q in questions if q.strip()]
+        self._rewrite(item)
+        return item
+
+    def clear_branch(self, item_id: str) -> BacklogItem:
+        """H80 correction round: clears a stale `[branch: <name>]` tag left
+        on an item after its worktree/branch has actually been deleted
+        (e.g. `scripts/session.sh abandon` on a cancelled item — cancel
+        deliberately retains the branch so abandon can still name what it
+        is removing, see `set_cancelled` below, but once abandon has
+        physically deleted that branch/worktree the tag is a dangling
+        reference to nothing, which reads worse than no tag at all: a
+        reader would otherwise think a live worktree still exists).
+        Touches nothing else (not `state`, `reason`, `done`, or any other
+        field), and is not actor-gated: clearing a reference to something
+        that has already been physically deleted is routine cleanup, not
+        a decision about the item's own workflow state the way cancelling
+        one is.
+
+        MEDIUM 1 (reviewer round 2): refuses unless the item is currently
+        `cancelled` -- its only real caller's case
+        (`scripts/session.sh abandon` on a cancelled item). Without this,
+        calling it on a `review` item (the state that actually needs its
+        branch to be found) would strip the one field
+        `scripts/integrate.py`'s `_review_items()` filters on (state
+        `review` AND a branch), silently dropping it from every future
+        integrate pass with no `[skipped-*]` line anywhere to explain why
+        -- exactly the H25 "silent absence" shape this whole state exists
+        to avoid repeating, just by a different route (a stray
+        `clear-branch` call rather than a stray board edit)."""
+        item = self.item(item_id)
+        if item.state != "cancelled":
+            raise BacklogError(
+                f"{item_id} is not cancelled (state: {item.state}); clear-branch only tidies a dangling "
+                "branch tag left on a cancelled item after its worktree has actually been deleted, "
+                "clearing it on any other state risks dropping a branch scripts/integrate.py still needs "
+                "(e.g. a review item's branch is how it's found as a merge candidate at all)."
+            )
+        item.branch = None
         self._rewrite(item)
         return item
 
@@ -1150,11 +1848,11 @@ def repair_todo(
             else:
                 doc.lines[f.line_no] = f.replacement
         doc.save(resolved_path)
-    committed = _git_commit_and_push(
-        [resolved_path],
-        f"backlog: repaired {len(findings)} malformed line(s) by {actor}",
-        resolved_root,
-    )
+        committed = _git_commit_and_push(
+            [resolved_path],
+            f"backlog: repaired {len(findings)} malformed line(s) by {actor}",
+            resolved_root,
+        )
     return [f.to_dict() for f in findings], committed
 
 
@@ -1175,12 +1873,12 @@ def set_done(
 ) -> tuple[dict, bool]:
     resolved_path = todo_path or _todo_path()
     resolved_root = repo_root or _repo_root()
+    action = "done" if done else "reopened"
     with _locked(resolved_root):
         doc = TodoDoc.load(resolved_path)
         item = doc.set_done(item_id, done, commit=commit, actor=actor)
         doc.save(resolved_path)
-    action = "done" if done else "reopened"
-    committed = _git_commit_and_push([resolved_path], f"backlog: {item_id} {action} by {actor}", resolved_root)
+        committed = _git_commit_and_push([resolved_path], f"backlog: {item_id} {action} by {actor}", resolved_root)
     return item.to_dict(), committed
 
 
@@ -1204,15 +1902,26 @@ def set_state(
             item_id, state, reason=reason, branch=branch, link=link, uat_review=uat_review, actor=actor
         )
         doc.save(resolved_path)
-    action = {
-        "in-progress": (f"started (branch {branch})" if branch else "started"),
-        "blocked": "blocked",
-        "todo": "reset to to-do",
-        "review": f"sent to review ({branch})",
-        "rejected": f"rejected ({reason})",
-        "uat": f"sent to uat ({item.link})",
-    }[state]
-    committed = _git_commit_and_push([resolved_path], f"backlog: {item_id} {action} by {actor}", resolved_root)
+        action = {
+            "in-progress": (f"started (branch {branch})" if branch else "started"),
+            "blocked": "blocked",
+            "todo": "reset to to-do",
+            "review": f"sent to review ({branch})",
+            "rejected": f"rejected ({reason})",
+            "uat": f"sent to uat ({item.link})",
+            # H80 correction round (MEDIUM 5): this dict is keyed by every
+            # value in ITEM_STATES, on purpose, so a caller of this documented
+            # public mutator (not just set_cancelled's own wrapper) can never
+            # hit a KeyError here after the file has already been written,
+            # while still holding the same lock (H93: now covering the
+            # commit too, see `_locked`) -- that would leave the item
+            # genuinely cancelled on disk while the caller sees a raised
+            # exception and no commit message, contradicting set_state's own
+            # guard comment that every caller and future wrapper funnels
+            # through one check.
+            "cancelled": f"cancelled ({reason})",
+        }[state]
+        committed = _git_commit_and_push([resolved_path], f"backlog: {item_id} {action} by {actor}", resolved_root)
     return item.to_dict(), committed
 
 
@@ -1290,9 +1999,9 @@ def set_approved(
         doc.add_note(item_id, f"approved: {choice_clean}", actor)
         item = doc.set_state(item_id, "in-progress", actor=actor)
         doc.save(resolved_path)
-    committed = _git_commit_and_push(
-        [resolved_path], f"backlog: {item_id} approved ({choice_clean}) by {actor}", resolved_root
-    )
+        committed = _git_commit_and_push(
+            [resolved_path], f"backlog: {item_id} approved ({choice_clean}) by {actor}", resolved_root
+        )
     return item.to_dict(), committed
 
 
@@ -1315,6 +2024,133 @@ def set_rejected(
     return set_state(item_id, "rejected", reason=reason, actor=actor, todo_path=todo_path, repo_root=repo_root)
 
 
+def set_cancelled(
+    item_id: str,
+    reason: str,
+    actor: str = "claude",
+    *,
+    todo_path: Optional[Path] = None,
+    repo_root: Optional[Path] = None,
+) -> tuple[dict, bool]:
+    """Kevin-only (H80): cancel `item_id` because this work should not
+    happen at all — obsolete, superseded, or simply not wanted — distinct
+    from `rejected` (a reviewer found a defect, fix it) and `blocked`
+    (can't proceed yet). `TodoDoc.set_state` is where the real checks live
+    (requires `actor == CANCEL_ACTOR`; requires a non-empty reason;
+    refuses an already-done item outright); this wrapper composes with
+    that rather than duplicating it, the same shape as `set_rejected`/
+    `set_uat` above. See `CANCEL_ACTOR`'s own comment for how honestly
+    "kevin-only" holds here: the CLI's `--actor` is self-declared, so this
+    is a guard against forgetting, not a barrier against intent;
+    `/ops/go-live` is the actual enforced path. See `set_uncancelled`
+    below for the only way back out of `cancelled`.
+
+    H54/Part 3: a caller's reason must survive both the short one-line
+    `[state: cancelled: ...]` tag (capped at REASON_CAP=200 via
+    `one_line_reason`, same as blocked/rejected) AND a full, separately
+    capped note (NOTE_CAP=1500 via `add_note`/`_collapse_note_text`) — a
+    200-character state tag must never be the only place a reason
+    survives. If the item had a branch attached (genuinely live if it was
+    `in-progress`/`review` when Kevin cancelled it), that branch is
+    written into ITS OWN separate note too, along with the exact cleanup
+    command, rather than sharing a note with the reason: a very long
+    reason competing with the branch/cleanup text for the same 1500-char
+    budget could otherwise truncate the actual reason to make room for the
+    cleanup notice, which is worse than two shorter notes. Neither the
+    worktree nor the branch is ever touched, merged, or deleted here —
+    only surfaced."""
+    if not reason or not reason.strip():
+        raise BacklogError("a reason is required to cancel an item")
+    resolved_path = todo_path or _todo_path()
+    resolved_root = repo_root or _repo_root()
+    reason_clean = reason.strip()
+    with _locked(resolved_root):
+        doc = TodoDoc.load(resolved_path)
+        prior_branch = doc.item(item_id).branch
+        doc.set_state(item_id, "cancelled", reason=reason_clean, actor=actor)
+        doc.add_note(item_id, f"cancelled: {reason_clean}", actor)
+        if prior_branch:
+            doc.add_note(
+                item_id,
+                f"a live branch, {prior_branch}, was attached when this was cancelled; the branch and its "
+                f"worktree are untouched, so clean it up from the shared tree with "
+                f"'scripts/session.sh abandon {item_id}' when ready.",
+                actor,
+            )
+        item = doc.item(item_id)
+        doc.save(resolved_path)
+        committed = _git_commit_and_push(
+            [resolved_path], f"backlog: {item_id} cancelled by {actor}", resolved_root
+        )
+    return item.to_dict(), committed
+
+
+def set_uncancelled(
+    item_id: str,
+    reason: str,
+    actor: str = "claude",
+    *,
+    todo_path: Optional[Path] = None,
+    repo_root: Optional[Path] = None,
+) -> tuple[dict, bool]:
+    """The only way out of `cancelled` (H80 correction round): a dedicated
+    verb, not a `--force` flag on `start`/`todo`/etc. The guard's job was
+    never to make reopening hard (Kevin may change his mind), it is to
+    make reopening ATTRIBUTABLE. A `--force` escape produces a board
+    commit indistinguishable from an ordinary start/todo, with nothing
+    recording that a cancellation was overridden or why, and it hands a
+    caller the exact token to type while asking it to judge whether the
+    reopen is "genuine", which it cannot. This is the same shape H57's own
+    `_refuse_if_done` already prefers for its primary route: `reopen`, not
+    `--force`, is what that guard's own message points at first. Requires
+    a reason, exactly as `cancel`/`reject` do (raises before anything is
+    written if missing); records it as a dated note (not a state-tag
+    reason -- `todo` carries no reason slot); and moves the item to
+    `todo`, clearing the cancelled reason and any retained branch tag the
+    same way any other transition into `todo` already does.
+
+    Kevin-only (H80 final round), the same shape as `cancel`, reversed:
+    a cancellation is Kevin's own input, deciding a ticket should not
+    happen. If an agent could uncancel and then work the item, that
+    decision would be undone by the same class of actor the cancel guard
+    exists to stop -- and a note recording the reversal only tells Kevin
+    afterwards, which is not the same as him deciding it. So this refuses
+    any `actor` other than `kevin`, on the CLI, with the same honest
+    framing `cancel` gets: self-declared, a guard against an agent
+    forgetting who it is, not a barrier against intent (nothing stops a
+    caller typing `--actor kevin` on purpose) -- `/ops/go-live` is the
+    only place this is genuinely enforced, since that page hardcodes the
+    actor to `kevin` behind real account-owner auth. An agent that meets
+    a cancelled item should leave a note recommending it be reopened and
+    let Kevin do it, not decide the reopen itself. Raises if the item
+    isn't currently `cancelled`."""
+    if not reason or not reason.strip():
+        raise BacklogError("a reason is required to uncancel an item")
+    if actor != CANCEL_ACTOR:
+        raise BacklogError(
+            f"uncancel is kevin-only: actor {actor!r} may not uncancel an item. An agent must not decide "
+            f"a cancelled item should be reopened, leave a note recommending it instead "
+            f"('scripts/backlog.py note {item_id} \"recommend reopening: <why>\"') and let Kevin uncancel "
+            f"it himself with --actor {CANCEL_ACTOR}."
+        )
+    resolved_path = todo_path or _todo_path()
+    resolved_root = repo_root or _repo_root()
+    reason_clean = reason.strip()
+    with _locked(resolved_root):
+        doc = TodoDoc.load(resolved_path)
+        item = doc.item(item_id)
+        if item.state != "cancelled":
+            raise BacklogError(f"{item_id} is not cancelled (state: {item.state})")
+        doc.set_state(item_id, "todo", actor=actor)
+        doc.add_note(item_id, f"uncancelled: {reason_clean}", actor)
+        item = doc.item(item_id)
+        doc.save(resolved_path)
+        committed = _git_commit_and_push(
+            [resolved_path], f"backlog: {item_id} uncancelled by {actor}", resolved_root
+        )
+    return item.to_dict(), committed
+
+
 def add_item(
     section: str,
     title: str,
@@ -1330,7 +2166,7 @@ def add_item(
         doc = TodoDoc.load(resolved_path)
         item = doc.add_item(section, title, owner=owner)
         doc.save(resolved_path)
-    committed = _git_commit_and_push([resolved_path], f"backlog: {item.item_id} added by {actor}", resolved_root)
+        committed = _git_commit_and_push([resolved_path], f"backlog: {item.item_id} added by {actor}", resolved_root)
     return item.to_dict(), committed
 
 
@@ -1348,9 +2184,9 @@ def set_owner(
         doc = TodoDoc.load(resolved_path)
         item = doc.set_owner(item_id, owner)
         doc.save(resolved_path)
-    committed = _git_commit_and_push(
-        [resolved_path], f"backlog: {item_id} owner set to {owner} by {actor}", resolved_root
-    )
+        committed = _git_commit_and_push(
+            [resolved_path], f"backlog: {item_id} owner set to {owner} by {actor}", resolved_root
+        )
     return item.to_dict(), committed
 
 
@@ -1368,9 +2204,9 @@ def set_priority(
         doc = TodoDoc.load(resolved_path)
         item = doc.set_priority(item_id, priority)
         doc.save(resolved_path)
-    committed = _git_commit_and_push(
-        [resolved_path], f"backlog: {item_id} priority set to {priority} by {actor}", resolved_root
-    )
+        committed = _git_commit_and_push(
+            [resolved_path], f"backlog: {item_id} priority set to {priority} by {actor}", resolved_root
+        )
     return item.to_dict(), committed
 
 
@@ -1388,10 +2224,37 @@ def set_unblocks(
         doc = TodoDoc.load(resolved_path)
         item = doc.set_unblocks(item_id, questions)
         doc.save(resolved_path)
-    label = ", ".join(item.unblocks) if item.unblocks else "none"
-    committed = _git_commit_and_push(
-        [resolved_path], f"backlog: {item_id} unblocks set to {label} by {actor}", resolved_root
-    )
+        label = ", ".join(item.unblocks) if item.unblocks else "none"
+        committed = _git_commit_and_push(
+            [resolved_path], f"backlog: {item_id} unblocks set to {label} by {actor}", resolved_root
+        )
+    return item.to_dict(), committed
+
+
+def clear_branch(
+    item_id: str,
+    actor: str = "claude",
+    *,
+    todo_path: Optional[Path] = None,
+    repo_root: Optional[Path] = None,
+) -> tuple[dict, bool]:
+    """See `TodoDoc.clear_branch` above for the full rationale (H80): tidies
+    a `[branch: ...]` tag left dangling after the branch/worktree it named
+    was actually deleted (`scripts/session.sh abandon` on a cancelled
+    item). Not actor-gated, but refuses (writes nothing) unless the item
+    is currently `cancelled` (MEDIUM 1, reviewer round 2) -- calling this
+    on, say, a `review` item would strip the one field
+    `scripts/integrate.py` finds it by, silently dropping it from every
+    future merge pass."""
+    resolved_path = todo_path or _todo_path()
+    resolved_root = repo_root or _repo_root()
+    with _locked(resolved_root):
+        doc = TodoDoc.load(resolved_path)
+        item = doc.clear_branch(item_id)
+        doc.save(resolved_path)
+        committed = _git_commit_and_push(
+            [resolved_path], f"backlog: {item_id} branch tag cleared by {actor}", resolved_root
+        )
     return item.to_dict(), committed
 
 
@@ -1402,15 +2265,24 @@ def add_note(
     *,
     todo_path: Optional[Path] = None,
     repo_root: Optional[Path] = None,
-) -> tuple[dict, bool]:
+) -> tuple[dict, bool, dict]:
+    """H64: the note itself is still written via `TodoDoc.add_note` ->
+    `_collapse_note_text`, unchanged, but the truncation fact `_collapse_
+    note_text` used to swallow silently is now computed here (via
+    `_note_truncation_info`, the same newline-collapsing so it agrees with
+    what actually gets stored) and returned as a third element, so both
+    callers of this function -- `scripts/backlog.py note` and the `/ops/
+    go-live` API route -- can surface it instead of reporting bare
+    success on a write that quietly lost content."""
     resolved_path = todo_path or _todo_path()
     resolved_root = repo_root or _repo_root()
+    truncation = _note_truncation_info(text)
     with _locked(resolved_root):
         doc = TodoDoc.load(resolved_path)
         item = doc.add_note(item_id, text, actor)
         doc.save(resolved_path)
-    committed = _git_commit_and_push([resolved_path], f"backlog: {item_id} note added by {actor}", resolved_root)
-    return item.to_dict(), committed
+        committed = _git_commit_and_push([resolved_path], f"backlog: {item_id} note added by {actor}", resolved_root)
+    return item.to_dict(), committed, truncation
 
 
 def set_question_status(
@@ -1428,7 +2300,7 @@ def set_question_status(
         doc.set_status(q_id, status)
         doc.save(resolved_path)
         result = doc.question_dict(q_id)
-    committed = _git_commit_and_push(
-        [resolved_path], f"backlog: {q_id} status set to {status} by {actor}", resolved_root
-    )
+        committed = _git_commit_and_push(
+            [resolved_path], f"backlog: {q_id} status set to {status} by {actor}", resolved_root
+        )
     return result, committed

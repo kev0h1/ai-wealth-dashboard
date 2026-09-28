@@ -24,8 +24,9 @@ A TODO.md item line looks like this:
   optional). Marking an item done clears any state tag; reopening it
   clears the done marker and leaves the state at to do.
 - `[state: in-progress]`, `[state: blocked: <reason>]`,
-  `[state: review: feature-<ID>-<slug>]`, `[state: rejected: <reason>]` or
-  `[state: uat: <link>]` is the workflow state. Absent means to do. While
+  `[state: review: feature-<ID>-<slug>]`, `[state: rejected: <reason>]`,
+  `[state: uat: <link>]` or `[state: cancelled: <reason>]` is the workflow
+  state. Absent means to do. While
   the item is done, this tag is never rendered on the line (the checkbox
   wins) — but writing to it is not meaningless (H55/H57 correction: that
   used to read the other way round, when a state-setting write on a done
@@ -107,6 +108,149 @@ A TODO.md item line looks like this:
   (FCM/APNs/webpush, same path as every other push) with the preview link
   in the body, gated by his own notification preference and sent only to
   him, never broadcast — see "Notification" below.
+- `cancelled` (H80) is Kevin's own call that a piece of work should not
+  happen at all — obsolete, superseded, or simply not wanted — distinct
+  from `rejected` (a reviewer found a defect in something already built;
+  fix it) and `blocked` (can't proceed yet, but the work still stands).
+  Closed, but never done: cancelling an item never ticks its checkbox and
+  is never counted as done or as outstanding by any progress figure on
+  the board (`frontend/lib/goLive.ts` `itemTotals` AND `headerFigures`'
+  `p1Open` both exclude a cancelled item, so cancelling something never
+  moves the percentage or the P1-open count Kevin reads on
+  `/ops/go-live`; both have their own test coverage, see "The page"
+  below). An agent must never be the one deciding a piece of work is
+  unnecessary — be precise about how that is actually gated, because the
+  honest version matters more than the reassuring one (this is the third
+  correction round to find overclaimed enforcement language here, so
+  treat the wording itself as part of the fix, not a footnote):
+  `TodoDoc.set_state` (`backend/app/services/backlog.py`) refuses to set
+  this state unless `actor` is exactly `"kevin"`, the same self-declared-
+  identity mechanism every other actor check on `scripts/backlog.py`
+  already relies on — nothing stops a caller typing `--actor kevin` on
+  purpose, so **on the CLI** this is a guard against forgetting, not a
+  barrier against intent. (A `BACKLOG_AGENT` environment check was tried
+  here too, as further "defence in depth", and removed in the same
+  correction round: `scripts/session.sh finish` runs the whole backend
+  suite in the calling session's own environment, and AGENTS.md has every
+  Codex session export `BACKLOG_AGENT=codex`, so it made every Codex
+  `finish` on every branch fail dozens of unrelated tests with a
+  confusing kevin-only message whose real cause was an environment
+  variable, and it also false-positived against Kevin's own
+  `cancel --actor kevin` if his shell had inherited `BACKLOG_AGENT=claude`
+  from an agent harness, with no override on `cancel` by design and
+  nowhere in the message to point him. It bought nothing either: `env -u
+  BACKLOG_AGENT` defeats it in one token, exactly as its own comment
+  conceded.) `/ops/go-live` (`backend/app/routers/ops.py`) is the one
+  path where this is a genuine hard barrier: the page is gated by real
+  account-owner auth (`_require_owner`) and always attributes its own
+  writes to `_PAGE_ACTOR = "kevin"` regardless of who is signed in, so
+  cancelling through the browser is truly kevin-only. Reversed, this same
+  page-versus-CLI split means the CLI's own `_refuse_if_cancelled` guard
+  (below) does NOT reach `/ops/go-live` at all: `backend/app/routers/
+  ops.py` calls `backlog.set_state`/`backlog.set_done` directly, never
+  through `scripts/backlog.py`, so `ItemDetailSheet`'s "Move to" chips
+  (To do, In progress, Done, Blocked) mostly fire straight through on a
+  cancelled item with no refusal, accepted for To do, In progress and
+  Blocked since that is Kevin's own tap behind the same owner-only auth
+  and `set_state` itself still carries no cancelled check, so a
+  `BoardView.tsx` drag onto those columns fires straight through
+  unrefused too. Done is the one exception, closed as a blocking defect
+  found in the 2026-09-18 review: dragging a cancelled card onto Done
+  used to fire the done action with no confirmation, silently clearing
+  `item.reason` and ticking the item complete, the exact transition the
+  CLI already refused via `_refuse_if_cancelled`, so the two surfaces
+  disagreed. `TodoDoc.set_done` (`backend/app/services/backlog.py`)
+  itself now refuses a cancelled item with no override, the same
+  refusal shape `_refuse_if_cancelled` already used on the CLI, so that
+  one transition is genuinely universal rather than CLI-only;
+  `backend/app/routers/ops.py` surfaces the refusal as a 4xx with the
+  reason rather than a 500 through its existing `except
+  backlog.BacklogError` handling, and `BoardView.tsx`'s own
+  `isValidDropTarget` refuses Done as a drop target for a cancelled card
+  client-side too, so a drag never even sends the request. An agent that believes something
+  should be cancelled leaves a note recommending it instead
+  (`scripts/backlog.py note <id> "recommend cancelling: <why>"`) and lets
+  Kevin decide. `cancelled` requires a reason, the same way `rejected`
+  does, written as BOTH the short one-line `[state: cancelled: <reason>]`
+  tag (capped at 200 characters like `blocked`/`rejected`) AND a full,
+  separately capped note (1,500 characters, same `NOTE_CAP` every note on
+  this board already has) automatically, so a long reason is never lost
+  to the short tag's cap the way H54 found on a different board. Cancelling
+  an item that already carries a branch (a genuinely live worktree, if it
+  was `in-progress` or `review` when Kevin cancelled it) never touches,
+  merges, or deletes that branch or its worktree: the branch is retained
+  on the item in a separate `[branch: <name>]` tag (the `[state:
+  cancelled: ...]` slot already carries the reason, same shape as
+  `rejected`/`uat`), recorded again in a note of its own together with the
+  exact cleanup command (`scripts/session.sh abandon <id>`), which is
+  never run automatically. Cancelling an item that is already `done` is
+  refused outright, with no override: unlike the H57 done-item guard on
+  `start`/`block`/`review`/`reject`/`uat` (which exists only to stop an
+  accidental un-tick and takes `--force`), a done item already happened,
+  so there is nothing left to declare should not happen — `reopen` is the
+  deliberate command if it genuinely needs undoing first.
+  `scripts/integrate.py`'s own merge-candidate selection
+  (`_review_items()`) only ever looks at `review` state, so a cancelled
+  item, even one that still carries a branch, is never a merge candidate,
+  same as `rejected`/`uat` — each pass still prints one
+  `[skipped-cancelled]` line per cancelled item and counts them in its
+  summary, mirroring `[skipped-rejected]` (H25), so a skip caused by a
+  cancellation is never a silent absence either.
+
+  On the CLI, no path silently reverses a cancellation, and none of them
+  offer `--force` to do it deliberately either (H80 correction round,
+  closing bugs proven by execution): `scripts/backlog.py`'s `start`,
+  `block`, `review`, `reject`, `uat`, `todo` and `done` commands all now
+  refuse a cancelled item outright, with NO override at all
+  (`_refuse_if_cancelled`, alongside the existing H57 `_refuse_if_done`
+  guard, which keeps its own `--force` unchanged for the done-item case).
+  The first correction round covered only `start`/`review`/`todo`/`done`
+  with a `--force` escape; that left `block`/`reject`/`uat` unrefused
+  entirely, and since `start` already reverses a plain `rejected` with no
+  override, `reject` then `start` was a complete two-command laundering
+  path needing no flag at all -- `block` was the realistic accident,
+  since this file tells every session to record a hand-back on the board
+  in the same turn. A `--force` escape was also the wrong shape even where
+  it existed: it produced a board commit indistinguishable from an
+  ordinary start/todo, with nothing recording that a cancellation had been
+  overridden or why, and it handed a caller the exact token to type while
+  asking it to judge whether the reopen was "genuine", which it cannot.
+  The fix is a dedicated verb instead, the same shape H57's own
+  `_refuse_if_done` already prefers for its *primary* route (`reopen`, not
+  `--force`, is what that guard's message leads with): `scripts/backlog.py
+  uncancel <id> "<why>"` is the only way out of `cancelled` on the CLI. It
+  requires a reason exactly as `cancel`/`reject` do, writes it as a dated
+  note, and moves the item to `todo` — kevin-only on the CLI, the same
+  shape and the same honest framing as `cancel` itself (H80 final round):
+  a cancellation is Kevin's own input, deciding a ticket should not
+  happen, and if an agent could uncancel and then work the item, that
+  decision would be undone by the same class of actor the cancel guard
+  exists to stop — a note recording the reversal only tells Kevin
+  afterwards, which is not the same as him deciding it. An agent that
+  meets a cancelled item leaves a note recommending it be reopened
+  instead and lets Kevin run `uncancel` himself. Before this round's
+  first fix, `scripts/session.sh finish` ran `backlog.py review`
+  with no state check at all, so a session mid-flight, unaware Kevin had
+  cancelled its item, would push the branch and land it in review anyway,
+  one integrate pass away from being merged and ticked done; and
+  `scripts/session.sh abandon` unconditionally ran `backlog.py todo`,
+  which silently un-cancelled the very item its cleanup was meant to
+  tidy up after. `scripts/session.sh finish` now refuses outright on a
+  cancelled item before running any tests or pushing anything (reading
+  the item's state itself, not skipping the check if that read fails);
+  `scripts/session.sh abandon` now branches on state, so a cancelled
+  item's worktree/branch are still removed but the item itself stays
+  `cancelled` (the `todo` call is skipped) with its now-dangling
+  `[branch: ...]` tag cleared via `scripts/backlog.py clear-branch`,
+  which itself refuses unless the item is currently `cancelled` (so it
+  can't be pointed at a `review` item and strip the branch
+  `scripts/integrate.py` finds it by; `_review_items()` also now prints a
+  `[skipped-review-no-branch]` line if that ever happens some other way,
+  rather than silently dropping the item). Mobile `/ops/go-live` collapses
+  a cancelled item at the bottom of the board beside To do and Done,
+  behind its own count, rather than a sixth chip on the ribbon counts
+  strip, which already overflows a true 390px width with its current five
+  (see "The page" below).
 - `[owner: kevin]`, `[owner: claude]` or `[owner: codex]` says who is
   doing the work. Each agent only starts items it owns: a Claude session
   only starts `[owner: claude]` items, a Codex session only starts
@@ -159,9 +303,12 @@ either file. It exposes:
   `state` is `"todo"`, `"in-progress"` (optionally takes `branch`, see
   below), `"blocked"` (needs `reason`), `"review"` (needs `branch`),
   `"rejected"` (needs `reason`; retains the item's existing branch unless
-  a different one is passed explicitly) or `"uat"` (needs `link`,
+  a different one is passed explicitly), `"uat"` (needs `link`,
   validated/normalised by `normalise_preview_link`; retains the item's
-  existing branch the same way `rejected` does). `uat_review=True` only
+  existing branch the same way `rejected` does) or `"cancelled"` (needs
+  `reason`; kevin-only, refuses an already-done item outright with no
+  override, retains the item's existing branch the same way
+  `rejected`/`uat` do — see H80 above). `uat_review=True` only
   does anything when `state="review"`, where it sets the item's
   `[uat-review]` flag. `"in-progress"` is the one state where `branch` is
   neither required nor retained from whatever the item had before: it is
@@ -181,6 +328,15 @@ either file. It exposes:
   `set_state(..., "uat", link=link)` — what `scripts/integrate.py` calls
   when it lands a design round, or what a session/Kevin calls by hand to
   retrofit an item that should have gone through this path.
+- `set_cancelled(item_id, reason, actor="claude")` (H80): convenience
+  wrapper over `set_state(..., "cancelled", reason=reason)` — kevin-only,
+  enforced by `set_state` itself refusing any other `actor`. Writes the
+  reason as both the short `[state: cancelled: ...]` tag AND a full note
+  automatically; if the item had a branch, writes a *second*, separate
+  note recording it plus the exact `scripts/session.sh abandon <id>`
+  cleanup command, so a very long reason can never crowd the cleanup text
+  out of the 1,500-character note cap (or vice versa). Never merges,
+  deletes, or otherwise touches a retained branch/worktree.
 - `set_approved(item_id, choice, actor="kevin")`: records `choice` as a
   dated note and calls `set_state(..., "in-progress")`, leaving `owner`
   untouched. Raises `BacklogError` if the item isn't currently in `uat`.
@@ -230,6 +386,8 @@ backend/.venv/bin/python scripts/backlog.py review <id> --branch feature-<id>-<s
 backend/.venv/bin/python scripts/backlog.py reject <id> "<reason>" [--force]
 backend/.venv/bin/python scripts/backlog.py uat <id> --link <url> [--force]
 backend/.venv/bin/python scripts/backlog.py approve <id> "<choice>"
+backend/.venv/bin/python scripts/backlog.py cancel <id> "<reason>" --actor kevin
+backend/.venv/bin/python scripts/backlog.py uncancel <id> "<why>" --actor kevin
 backend/.venv/bin/python scripts/backlog.py todo <id> [--force]
 backend/.venv/bin/python scripts/backlog.py done <id> --commit <sha>
 backend/.venv/bin/python scripts/backlog.py reopen <id>
@@ -237,6 +395,7 @@ backend/.venv/bin/python scripts/backlog.py note <id> "<text>"
 backend/.venv/bin/python scripts/backlog.py owner <id> kevin|claude
 backend/.venv/bin/python scripts/backlog.py priority <id> p1|p2|p3
 backend/.venv/bin/python scripts/backlog.py unblocks <id> Q5,Q6
+backend/.venv/bin/python scripts/backlog.py clear-branch <id>
 backend/.venv/bin/python scripts/backlog.py status Q7 ready|needs-kevin|blocked-deploy|submitted
 ```
 
@@ -256,7 +415,54 @@ one that just clears the done marker without stamping a new
 `[state: ...]` tag on top of it. `review` was the correction round's
 sharpest finding (H57 F1): it both un-ticks the item and records a
 branch, which the next integrate pass would then pick up as a fresh merge
-candidate on an item that was already shipped.
+candidate on an item that was already shipped. `cancel` (H80) refuses a
+done item too, but with no `--force` override at all: cancelling
+something already done is meaningless (a done item already happened,
+there is nothing left to declare should not happen), so `reopen` is the
+only way past this one, not a flag.
+
+On the CLI, `start`, `block`, `review`, `reject`, `uat`, `todo` and `done`
+ALSO refuse an item whose state is `cancelled`, with NO override at all
+(`_refuse_if_cancelled`, H80 correction round, added alongside
+`_refuse_if_done` above rather than as a one-off patch on any single
+command). The first pass at this fix covered only `start`/`review`/
+`todo`/`done`, with a `--force` escape; that left `block`/`reject`/`uat`
+unrefused entirely, which measured out to a complete two-command
+laundering path needing no flag at all (`reject` then `start`, since
+`start` already reverses a plain rejection with no override) and a
+realistic accident on `block` (this file tells every session to record a
+hand-back on the board in the same turn). The `--force` escape was also
+the wrong shape on the commands it did cover: it left a board commit
+indistinguishable from an ordinary start/todo, with nothing recording
+that a cancellation had been overridden or why. This closed two further
+real bugs, both proven by execution before the first fix:
+`scripts/session.sh finish` ran `review` with no state check at all, so a
+session unaware Kevin had cancelled its item would push the branch
+straight into `review`; and `scripts/session.sh abandon` ran `todo`
+unconditionally, silently un-cancelling the very item its own cleanup
+note recommended running it on. Unlike the `done`-item guard, this is a
+genuinely different asymmetry from `rejected`: reopening a `rejected`
+item with plain `start`/`todo` is correct, because rejected means fix it
+and come back; reopening a `cancelled` item is a decision, not a side
+effect, so it now needs its own dedicated verb rather than a flag —
+`scripts/backlog.py uncancel <id> "<why>"` requires a reason, writes a
+dated note, and moves the item to `todo`; it is the only way out, on the
+CLI, and is itself kevin-only (see "cancelled state" above for the exact
+honest framing, and the `/ops/go-live` caveat). An agent that meets a
+cancelled item leaves a note recommending it be reopened rather than
+reaching for `uncancel` itself. `scripts/session.sh finish` refuses a
+cancelled item outright before running any tests or pushing anything, and
+treats a failed board read the same way (errs and exits, rather than
+silently proceeding); `scripts/session.sh abandon` on a cancelled item
+removes the worktree/branch and adds a note but does NOT call `todo`, and
+instead clears the item's now-dangling `[branch: ...]` tag with the
+`clear-branch <id>` command (not actor-gated, but refuses unless the item
+is currently `cancelled`, so it can never be pointed at a `review` item
+and strip the branch `scripts/integrate.py` finds it by). To reopen a
+cancelled item on purpose, Kevin runs `backend/.venv/bin/python
+scripts/backlog.py uncancel <id> "<why>" --actor kevin` from the shared
+tree, then `scripts/session.sh start <id>` attaches a fresh worktree to
+the now-`todo` item.
 
 `priority` defaults to `p3` when never set. `unblocks` takes a
 comma-separated list of question ids (`Q5,Q6`); pass an empty string
@@ -274,14 +480,30 @@ into `uat` by hand (the link is validated/normalised, see
 calls automatically on a clean design-round merge, use it directly only
 to retrofit an item. `approve <id> "<choice>"` requires the item to
 currently be in `uat`, records the choice as a note, and moves it back to
-`in-progress` with its owner unchanged.
+`in-progress` with its owner unchanged. `cancel <id> "<reason>"` (H80)
+requires a reason; any CLI actor other than `kevin` is refused with no
+change to the board at all, though this is a guard against forgetting
+rather than a barrier against intent, since `--actor` is self-declared
+like every actor flag on this CLI — see "cancelled" above for the honest
+version and why `/ops/go-live` is the actually enforced path. An agent
+that thinks something should be cancelled should run `note <id>
+"recommend cancelling: <why>"` instead and let Kevin run `cancel`
+himself. There is no override for `cancel` itself — an already-done item
+is refused outright, use `reopen` first if it genuinely needs undoing.
+`uncancel <id> "<why>"` requires a reason too and is the only way back
+out of `cancelled` on the CLI (see "cancelled" above); like `cancel`, it
+is kevin-only on the CLI, same honest framing, same required
+`--actor kevin`.
 
 Every command takes `--actor kevin|claude` (defaults to `claude`), which
 is what shows up in the commit message and any note. Sessions should
 always use this instead of hand-editing `TODO.md`, a hand edit still
 works (the parser tolerates it), but it skips the lock, the atomic write
 and the commit, which is how the file and the git history quietly drift
-apart.
+apart. `cancel` is the one command where this default matters beyond
+attribution: `--actor` defaulting to `claude` means an agent that forgets
+to pass `--actor kevin` gets refused rather than silently cancelling
+something on Kevin's behalf.
 
 This CLI's repo root is fixed to `/root/ai-wealth-dashboard` regardless of
 the caller's working directory (override with `BACKLOG_ROOT`, tests only),
@@ -311,8 +533,8 @@ false.
 
 A sticky filter bar sits under the header: owner (All / Kevin / Claude),
 priority chips (P1/P2/P3, multi-select), state chips (Open / In progress
-/ Blocked / In review / Rejected / UAT / Done, "Open" means not done), a
-search box, and a List/Board view toggle. All of it persists together under one
+/ Blocked / In review / Rejected / UAT / Cancelled / Done, "Open" means
+not done), a search box, and a List/Board view toggle. All of it persists together under one
 localStorage key (`wd_go_live_filters`, see `lib/goLive.ts`). The filters
 apply to both views and to the questionnaire section: a question is shown
 when its own status falls in the selected state chips, or, once an owner
@@ -333,29 +555,49 @@ in conversation, with no board state of its own). The item's "more
 actions" menu gained "Priority" (three-way) and "Unblocks…" (a
 comma-separated inline field) alongside Start/Block/Note, plus "Reject"
 (shown only on an item in `review`, requires a reason, same
-reason-textarea pattern as Block) and "Approve" (H31, shown only on an
+reason-textarea pattern as Block), "Cancel item…" (H80, kevin-only,
+enforced server-side, offered from any state unlike Reject, requires a
+reason, same reason-textarea pattern) and "Approve" (H31, shown only on an
 item in `uat`, records which variant Kevin picked, same textarea
 pattern). Board view is a kanban: columns To do / In progress / Blocked /
-In review / Rejected / UAT / Done, swimlanes by section or owner (a
+In review / Rejected / UAT / Cancelled / Done, swimlanes by section or owner (a
 "Lanes: Section | Owner" switch), each lane collapsible with per-column
 counts and a horizontally scrolling row of columns (the lane label stays
 put). Cards show the id in mono, a two-line-clamped title, an
 owner-initial chip, the priority pill, unblocks tags and a note count;
 tapping one opens `ItemDetailSheet.tsx`, a popover with the same controls
 as the list row (done, reopen, start, block with reason, reject with
-reason on a review item, approve which variant on a uat item with a
-tappable preview link, note, owner, priority, unblocks). Review, Rejected
-and UAT are never drag targets: review is set automatically, rejecting
-needs a reason a drag can't capture, and approving a uat item needs a
-choice a drag can't capture either, so all three only ever change through
-a control, same discipline as every other state change. The header hero
-keeps the overall done/total count and adds five figures computed from
-the whole (unfiltered) board: P1 items still open, blocked items, items
-in review, rejected items, and items in uat. Rejected and UAT both read
-amber everywhere on this page, the same treatment as Blocked, never red:
-a rejection means a reviewer wants a decision and a uat item means Kevin
-has a real page to look at, neither means anything has failed (DESIGN.md
-"The Red Is Risk Rule").
+reason on a review item, cancel with a reason (H80, kevin-only), approve
+which variant on a uat item with a tappable preview link, note, owner,
+priority, unblocks). Review, Rejected, UAT and Cancelled are never drag
+targets: review is set automatically, rejecting needs a reason a drag
+can't capture, approving a uat item needs a choice a drag can't capture
+either, and cancelling needs both a reason and being Kevin, neither of
+which a drag can express, so all four only ever change through a
+control, same discipline as every other state change. The header hero
+keeps the overall done/total count (H80: a cancelled item is excluded
+from both sides of this count, `frontend/lib/goLive.ts` `itemTotals` —
+closed but not done, so cancelling something never moves the percentage)
+and adds five figures computed from the whole (unfiltered) board: P1
+items still open, blocked items, items in review, rejected items, and
+items in uat — deliberately five, not six: cancelled has no figure here
+either, the same "no sixth chip in an already-cramped counts area"
+decision that also keeps it off the phone-width ribbon board's own
+sticky status-count strip (`MobileRibbonBoard.tsx`, the sub-`lg` tree
+below), which already overflows a true 390px width with its current five
+state chips. There, a cancelled item instead collapses into its own
+"Cancelled" section at the bottom of the board, beside "To do" and
+"Done" and behind its own count, rather than being hidden. The desktop
+kanban grid is a different, roomier surface: it gets Cancelled as a full
+column like every other state (see the column list above), annotated
+"Kevin only" under its header the same way Review/UAT are annotated
+"Automatic".
+Rejected and UAT both read amber everywhere on this page, the same
+treatment as Blocked, never red: a rejection means a reviewer wants a
+decision and a uat item means Kevin has a real page to look at, neither
+means anything has failed (DESIGN.md "The Red Is Risk Rule"). Cancelled
+reads slate, never red or amber: it is a deliberate, calm decision Kevin
+has already made, not something needing a look.
 
 ## The shared working tree caveat
 
@@ -471,14 +713,191 @@ scripts/session.sh list
   dirty or either check fails. On success it pushes the branch and calls
   `scripts/backlog.py review <ID> --branch feature-<ID>[-slug]`, which is
   the new `[state: review: feature-<ID>[-slug]]` tag integrate looks for.
+  The backend test suite (H90, 2026-09-28, two review rounds the same
+  day) runs against a disposable, PER-RUN database, never the real
+  UAT/production `wealth` one: `app/db/collections.py` selects its
+  database via `MONGO_DB` (`app/core/config.py`, default `"wealth"` —
+  every real process is unaffected), and `backend/tests/conftest.py`
+  defaults `MONGO_DB` to a freshly generated
+  `"wealth_test_<epoch seconds>_<8 hex>"` name before a single test
+  module can create a collection handle, then aborts collection outright
+  (`pytest.UsageError`) if the resolved database name doesn't look like a
+  test database (`_looks_like_a_test_database`, unit-tested directly in
+  `backend/tests/test_h90_guard_looks_like_test_database.py` — see H96
+  below for why that coverage exists) — a fail-hard backstop independent
+  of the default, so a misconfigured environment fails loudly rather than
+  quietly writing into real data. `finish` (this command) and
+  `scripts/integrate.py`'s own `_run_backend_tests` both also generate
+  and pass their OWN per-run name of the same shape explicitly on the
+  pytest invocation itself, belt and suspenders on top of conftest.py's
+  default — this matters most for `integrate.py`, which runs the suite
+  from the shared tree's own `backend/` rather than a worktree, and whose
+  `backend/.env` genuinely carries `MONGO_DB=wealth` (python-dotenv's
+  `override=False` default means conftest.py's own earlier `setdefault`
+  wins that race regardless, but the explicit pass makes the invocation
+  itself proof of the mechanism rather than something that only holds up
+  as long as conftest.py's import order is undisturbed).
+  First review-round correction: H90's first pass shipped a single shared
+  literal, `"wealth_test"`, for every run — an independent review
+  reproduced two concurrent runs against this VPS's one local mongod
+  colliding on it, one session's teardown dropping another's
+  still-in-flight fixtures mid-test, a new flaky-failure mode versus
+  `main`, where nothing ever dropped anything. The per-run name closes
+  that; the epoch embedded in it also lets conftest.py sweep stale
+  leftovers at session start. The disposable database is dropped at
+  session end via a standalone Motor client, not the app's own shared one
+  — that one really can silently no-op on this, per Motor's
+  single-event-loop-per-process-lifetime constraint conftest.py's own
+  docstrings document; a throwaway client used once has no such history
+  to fight.
+  Second review-round correction, incident H96: during re-review of this
+  same branch, a reviewer mutated `_looks_like_a_test_database` to accept
+  the literal `"wealth"`, ran `MONGO_DB=wealth pytest`, and the mutated
+  guard let the real teardown through — it dropped the real UAT database
+  (restored from the 03:15 backup; roughly 5h40m of data lost). The
+  committed guard logic was correct; the mutation is what did it, but the
+  incident exposed two real gaps closed the same day: the guard had zero
+  dedicated test coverage (closed by
+  `test_h90_guard_looks_like_test_database.py`, called directly against
+  the real function, never by running the suite with an unsafe
+  `MONGO_DB`), and its `name.startswith("wealth_test")` prefix check was
+  unanchored, accepting `"wealth_testing"`/`"wealth_testament"`/
+  `"wealth_testers_prod"` on a substring coincidence (fixed with an
+  anchored `^wealth_test(_|$)` regex). The same review also found the
+  stale-database sweep inferred abandonment from AGE ALONE, which
+  reintroduces the exact collision the per-run name was meant to close
+  one layer up: a session whose suite legitimately runs past an hour (a
+  real risk on a memory-starved box) would have its still-live database
+  dropped by another session's sweep. Fixed with a liveness check: every
+  session holds a non-blocking `flock` on a per-database lockfile for its
+  own database's whole lifetime (acquired before the sweep runs, released
+  at session end); the sweep now requires BOTH age past the threshold AND
+  no live owner before dropping anything, tested in
+  `backend/tests/test_h90_stale_sweep_liveness.py`.
+  Before H90, `persist=False` on
+  `app.services.companion.compute_today_items` (used by `GET
+  /today/cover-plan` on every Settings load, and by
+  `penny_tools.get_today_brief`) did not actually suppress every write:
+  one unconditional cache read-through
+  (`app.services.debt_plan.get_debt_plan_cached`) wrote a fresh
+  `debt_plan` response-cache doc regardless, which is how a backend
+  suite run and, separately, an agent's own verification script each
+  wrote a document under a real or fixture user id from unmerged code.
+  `get_debt_plan_cached` now takes its own `persist` flag (default
+  `True`, unchanged for every other caller) so the outer flag's promise
+  is actually enforced.
   `--uat-review` additionally passes `--uat-review` through to that call,
   flagging the branch as a design round (H31): a clean integrate pass
   lands it in `uat` instead of `done`. Pass this whenever the branch's
   only job is new preview variants under `frontend/app/design/<slug>/`
   for Kevin to choose between; see "Design work" in `CLAUDE.md` /
-  `AGENTS.md`.
-- `abandon` deletes the worktree and its local branch and resets the item
-  to to-do with a note, for a session that didn't pan out.
+  `AGENTS.md`. `finish` refuses outright, before any of the above, if the
+  item is `cancelled` (H80 correction round): it reads the item's own
+  state first and errs with the real reason if that read itself fails,
+  rather than silently proceeding to push a branch Kevin has already
+  decided should not happen.
+- `abandon [--worktree <path>]` deletes the worktree and its local branch
+  and resets the item to to-do with a note, for a session that didn't pan
+  out. A detached worktree is removed with an accurate note and no
+  attempt to delete a branch called `HEAD`. A leftover directory that is
+  no longer a git worktree is not matched and is not removed here: clear
+  it by hand with `rm -rf`, nothing in `session.sh` deletes arbitrary
+  directories. For a `cancelled` item (H80 correction round) it does NOT
+  reset to to-do: the item stays `cancelled`, with a note recording the
+  abandon and its now-dangling `[branch: ...]` tag cleared instead
+  (`scripts/backlog.py clear-branch`), since abandoning a cancelled
+  item's worktree is cleanup, not a decision to un-cancel it.
+
+  `--worktree <path>` names the directory explicitly and is the way past
+  a refused resolution. The path is normalised before it is checked, so
+  it cannot be walked back out of `/root/worktrees` with `..` (a plain
+  string prefix test let `/root/worktrees/../../tmp/g70-review` through,
+  and that is a live checkout). It removes the worktree **only**: the
+  board is reset for `<ID>` just when the named worktree is the session
+  `<ID>` actually records. Clearing a stale duplicate therefore never
+  touches the live item, which it used to: run on today's G94
+  (`rejected`, `feature-G94-fold-in-approved-variant-c` recorded, one
+  stale sibling) it would have reset G94 to `todo`, cleared its recorded
+  branch and noted the wrong branch as discarded.
+- **Resolving `<ID>` to a worktree** (H85). `finish` and `abandon` do not
+  guess. The branch the board records for `<ID>` is the authority: git
+  knows which worktree has that branch checked out (`git worktree list
+  --porcelain`, and git will not let two worktrees share a branch), so
+  exactly one worktree is possible and no other can be chosen. If no
+  worktree has it, that is a hard refusal listing what was found, never a
+  fallback to a name match. Only when the item records **no** branch at
+  all (the shape `approve` leaves it in, and the window before `start`
+  records one) does the worktree *name* decide, and only if exactly one
+  matches; two matches are listed and refused. Both `feature-<ID>[-slug]`
+  and the older `item-<ID>-<slug>` names are matched, anchored on the
+  whole id so `G12` never matches `G127`'s worktree. `finish` prints the
+  worktree, its branch and the board's branch before it runs anything, so
+  a wrong resolution is visible rather than silent, and `list` warns about
+  any id that has more than one worktree.
+
+  This replaces a single `find ... | head -1` that globbed the names, took
+  whatever the filesystem listed first, and never looked at the board. On
+  2026-09-18 it picked a stale, never-cleaned worktree for G127
+  (`feature-G127-upcoming-round3`, sitting at a commit that had been
+  **rejected** on review) over the live `feature-G127-round3-fix`:
+  `finish` pushed the rejected branch and marked the item `review` against
+  it, and the next integrate pass would have merged rejected code into
+  `main` and UAT while the board read as a clean review. The only thing
+  that caught it was the agent knowing its own fix could not exist on that
+  branch. Covered end to end (real worktrees, a synthetic fake shared
+  tree, both orderings of the ambiguous case) by
+  `backend/tests/test_session_worktree_resolve.py`, which the backend
+  suite — and therefore `finish` itself — runs.
+
+  Several bounds keep "the board is the authority" from becoming its own
+  hazard. A recorded branch checked out **outside** `/root/worktrees`
+  (the shared tree, a scratch clone) is refused. A recorded branch
+  checked out in a worktree that is **not one of `<ID>`'s own** name
+  candidates, while such candidates exist, is refused too: a mistyped or
+  copy-pasted `[branch: ...]` tag would otherwise have `finish` push
+  another item's branch and mark this one in review against it, and
+  `integrate.py` already warns that recorded branches drift from their
+  id. And a failed board read is never flattened into "no branch
+  recorded", because that would silently downgrade the rule back to the
+  name match it replaced: `finish` and `abandon` stop, and that refusal
+  is returned rather than merely printed (bash suppresses `errexit`
+  inside a command substitution whose assignment status is tested, so
+  the first version of this printed "refusing to continue" and then
+  carried on and pushed a name match, which is worse than not refusing
+  at all). The one exception is `abandon --worktree`, where the caller
+  has named the directory: it warns and carries on, and does not touch
+  the board. The board read captures stdout and stderr separately, never
+  with `2>&1`, so warning noise from a successful `show` cannot be
+  concatenated ahead of the JSON and break the parse. A
+  directory with no `.git` entry is not a worktree and is not a
+  candidate at all, so an `rm -rf`'d or half-pruned session cannot make
+  an id ambiguous, and a worktree git still lists but whose directory is
+  gone is refused with a pointer to `git worktree prune` rather than
+  resolved to a path that does not exist. If `git worktree list
+  --porcelain` itself fails, that too is a refusal, with git's own
+  message on stderr rather than only an exit status.
+
+  Two failure-mode notes worth keeping in mind when editing this code.
+  A refusal must be *returned*, not merely printed: bash suppresses
+  `errexit` inside a command substitution whose assignment status is
+  tested, and both call sites are of that shape, so a bare assignment
+  prints the refusal and then carries on. And the worktree listing is
+  captured whole rather than piped into `awk ... exit`: under
+  `set -o pipefail` that `exit` closes the pipe mid-write, so git takes
+  SIGPIPE and the pipeline returns 141 *on the success path* once the
+  listing passes git's 4096-byte stdout buffer. Measured on this host
+  on 2026-09-21 (`git worktree list --porcelain | wc -c` over
+  `grep -c '^worktree '`): 21 worktrees, 2896 bytes, about 137 bytes
+  each, so **8 more worktrees** reaches the threshold, not 25 as an
+  earlier draft of this paragraph said. Every stale worktree left
+  behind spends part of that margin. A typo'd id is told it is not on
+  the board rather than that the board is unreadable, and the two are
+  told apart by `backlog.py`'s exit status (`EXIT_UNKNOWN_ITEM`), not
+  by matching its message: a truncated `TODO.md` produces the
+  unknown-item wording too, and the remedy that followed from reading
+  it that way would have written a new item into the half-lost file.
+  `backlog.py show` also refuses outright when the board parses to zero
+  items.
 
 **Integrate** (`scripts/integrate.py`, run with `backend/.venv/bin/python`
 from the shared tree):
@@ -514,7 +933,49 @@ changed at all (the worker imports services and core modules under
 stale), and checks both health endpoints. Any failure there rolls the merge back
 (`git reset --hard ORIG_HEAD`), restores services from the reverted tree,
 and blocks the item; main never sits on a broken merge waiting for someone
-to notice. Block and reject reasons are stored on the board as a single
+to notice.
+
+The frontend rebuild is atomic (H51, after the 2026-09-17 blank-page
+outage, when an interrupted in-place `npm run build` left
+`frontend/.next` with manifests but no `BUILD_ID`, the live `next start`
+served chunks that no longer existed, and the restart meant to fix it
+could not boot at all). Integrate never builds into `frontend/.next`
+itself: it calls `scripts/frontend_build.py`, which mirrors `frontend/`
+(source, `public/`, `.env.local`; not `node_modules`, `.git` or any
+`.next*`) into the sibling scratch directory `.frontend-staging/` with
+rsync, symlinks `node_modules`, runs an ordinary `npm run build` there
+(default `.next`, no config override, so nothing keyed to the name
+`.next` such as tsconfig's `.next/types/**` include or the generated
+`next-env.d.ts` ever sees anything unusual, and nothing the build writes
+lands in the shared tree; the Turbopack cache is kept warm in the stable
+`frontend/.next-cache`, and the build tag is precomputed from git and
+passed in as `NEXT_PUBLIC_BUILD_TAG` because the mirror has no `.git`,
+exactly as `frontend/scripts/build-mobile.sh` does), verifies the result
+(`BUILD_ID` present and every file the build's own
+`required-server-files.json` lists), and only then exchanges the
+mirror's `.next` with `frontend/.next` in one atomic rename
+(`renameat2(RENAME_EXCHANGE)`), keeping what was live at
+`frontend/.next-prev`, before `wealth-frontend` is restarted. `next
+start` locates the build by the runtime `distDir` under its working
+directory and nothing it reads carries the build directory's absolute
+path, so a `.next` built elsewhere and renamed into place is a valid
+target (proven with a scratch `next start` on the H51 branch). A build
+that fails, is killed, or does not verify is discarded with the mirror
+and `.next` is never touched, so UAT keeps serving the last good build
+and the item is rolled back and blocked as before. The whole build-verify-swap holds a
+non-blocking lock on `frontend/.next-build.lock`; a second build while
+one is running fails loudly with "another frontend build is already in
+progress" rather than queuing, and in integrate that failure blocks the
+item like any other build failure (re-run `finish` once the other build
+has finished). The same script is the only sanctioned way to rebuild UAT
+by hand from the shared tree, and it is also the one-step rollback for a
+build that succeeded but turned out to be bad:
+
+```bash
+backend/.venv/bin/python scripts/frontend_build.py            # build, verify, swap, restart wealth-frontend
+backend/.venv/bin/python scripts/frontend_build.py --revert   # put .next-prev back, restart (one step only)
+backend/.venv/bin/python scripts/frontend_build.py --status   # live / previous / staging build ids
+``` Block and reject reasons are stored on the board as a single
 sanitised line of at most 200 characters (first line only, whitespace
 collapsed, no `[`/`]`), whatever the caller passed in; the full command
 output goes to the integrate log at error level and to a board note

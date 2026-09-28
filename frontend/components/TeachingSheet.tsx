@@ -40,6 +40,7 @@ import { useCategoryIcons } from "@/components/IconProvider";
 import { formatDate } from "@/lib/payPeriod";
 import { formatCurrency } from "@/lib/currency";
 import { accountBrand, BankBadge } from "@/components/AccountMiniCard";
+import { invalidateAfterTransactionCorrection } from "@/lib/cacheInvalidation";
 
 const MINUS = "−"; // U+2212, never ASCII hyphen-minus, for money (copy rule)
 
@@ -145,6 +146,38 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
     toastTimer.current = setTimeout(onClose, 5000);
   }
 
+  // G83 fix-round (2026-09-18 review): every successful write below
+  // (commitSpend/undoToSpend, commitMovement/undoMovement,
+  // commitCreditMovement/undoCreditMovement) changes what /spend/verdict
+  // returns for this period — a re-categorised or re-resolved transaction
+  // moves notables/majority/unresolved. This sheet is the ONE place all
+  // four mount points that recategorise a transaction (SpendPage,
+  // HomePage, AccountsPage, transactions hub) actually funnel through, so
+  // invalidating here once — instead of trusting each of those four
+  // pages' own `onUpdated` to remember to do it — is what makes this
+  // exhaustive rather than three-out-of-four. SpendPage's own
+  // `handleTxUpdated` also calls `invalidateVerdictCache()` itself; that's
+  // a harmless redundant clear, not a second bug, kept so its own comment
+  // there still reads true. Money-shape is unaffected by a single
+  // transaction's category — only a category's KIND does, wired in
+  // CategoriesContext, not here.
+  //
+  // G146 (2026-09-28): this is ALSO the one place every correction that
+  // goes through this sheet funnels through, so it's the right spot to
+  // close the client-cache gap that item found — lib/homeCache.ts's
+  // companionItems snapshot (the Home brief) and lib/signalsCache.ts's
+  // category multiples (the spending-pattern card) were never told a
+  // correction had happened at all, on any of the four mount points, and
+  // kept painting pre-correction figures from module memory until a hard
+  // refresh. `invalidateAfterTransactionCorrection` folds the previously
+  // solitary `invalidateVerdictCache()` call in here too — same effect,
+  // one fewer call — so every correction clears all four caches that can
+  // hold stale figures for it in one place.
+  function notifyUpdated(tx: Transaction, additionalIds?: string[]) {
+    invalidateAfterTransactionCorrection(tx.id, { oldCategory: originalCategory, newCategory: tx.category });
+    onUpdated(tx, additionalIds);
+  }
+
   // ── Spend fork: existing category or newly-named one ──────────────────
   // Whenever the row is CURRENTLY a movement-kind read, route through
   // resolve-movement's "spending" branch instead of a plain PATCH — that
@@ -156,12 +189,12 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
     try {
       if (isMovementRead) {
         await api.resolveMovement(transaction.id, { resolution: "spending", category });
-        onUpdated({ ...transaction, category });
+        notifyUpdated({ ...transaction, category });
         finish(`Filed as ${category}.`, () => undoToSpend(category));
         return;
       }
       const res = await api.patchTransaction(transaction.id, { category });
-      onUpdated({ ...transaction, category });
+      notifyUpdated({ ...transaction, category });
       if (res.matches_past > 0 && res.rule_suggestion) {
         setProposal({ category, matchesPast: res.matches_past, pattern: res.rule_suggestion.pattern });
         setStep("propose-rule");
@@ -182,7 +215,7 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
       } else {
         await api.patchTransaction(transaction.id, { category: originalCategory });
       }
-      onUpdated({ ...transaction, category: originalCategory });
+      notifyUpdated({ ...transaction, category: originalCategory });
     } catch {
       // Undo failing quietly is the least-bad outcome here — the sheet is
       // already closing and there's no surface left to report to.
@@ -213,7 +246,7 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
     setError(null);
     try {
       await api.resolveMovement(transaction.id, { resolution, ...extra });
-      onUpdated({ ...transaction, category: "Transfer" });
+      notifyUpdated({ ...transaction, category: "Transfer" });
       finish(successMessage, undoMovement);
     } catch (e) {
       setError(saveErrorMessage(e));
@@ -225,7 +258,7 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
   async function undoMovement() {
     try {
       await api.resolveMovement(transaction.id, { resolution: "spending", category: originalCategory });
-      onUpdated({ ...transaction, category: originalCategory });
+      notifyUpdated({ ...transaction, category: originalCategory });
     } catch {
       // see undoToSpend
     }
@@ -248,7 +281,7 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
     setError(null);
     try {
       await api.patchTransaction(transaction.id, { category });
-      onUpdated({ ...transaction, category });
+      notifyUpdated({ ...transaction, category });
       finish(`Filed as ${category}.`, undoCreditMovement);
     } catch (e) {
       setError(saveErrorMessage(e));
@@ -260,7 +293,7 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
   async function undoCreditMovement() {
     try {
       await api.patchTransaction(transaction.id, { category: originalCategory });
-      onUpdated({ ...transaction, category: originalCategory });
+      notifyUpdated({ ...transaction, category: originalCategory });
     } catch {
       // see undoToSpend
     }
@@ -273,6 +306,19 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
     try {
       const merchantLabel = name;
       const saved = await api.addRule(`${merchantLabel} → ${proposal.category}`, proposal.pattern, proposal.category);
+      // G83 fix-round: this bulk-recategorises every past `saved.affected`
+      // sibling too, on top of the primary transaction `commitSpend`'s own
+      // `notifyUpdated` already invalidated for — those siblings are a
+      // SECOND wave of transactions_col writes landing after that first
+      // invalidation, so without clearing again here a verdict cached in
+      // the gap between the two (e.g. another tab, or this one navigating
+      // away and back while the propagation card was showing) would still
+      // be missing the siblings' effect for up to the TTL. G146: the
+      // siblings can also move the signals/home-brief caches the same way
+      // the primary transaction did, so this uses the same shared
+      // invalidator `notifyUpdated` does above, not the narrower verdict-
+      // only clear this used before that item.
+      invalidateAfterTransactionCorrection(transaction.id, { oldCategory: originalCategory, newCategory: proposal.category });
       finish("Filed and rule saved. Undo", async () => {
         await undoToSpend(proposal.category);
         try { await api.deleteRule(saved.id); } catch { /* best-effort */ }

@@ -54,6 +54,11 @@ export type WidgetId = "category_pie" | "daily_bars" | "period_compare" | "size_
 // means the person has removed every chart, so never repopulate it here.
 export const DEFAULT_WIDGETS: WidgetId[] = ["category_pie", "daily_bars", "pace_curve", "period_compare"];
 
+// Mirrors backend/app/routers/preferences.py's DEFAULT_HOME_PINNED_WIDGET.
+// The two previews below import this rather than repeating the string so a
+// backend default change can't drift silently out of what they show.
+export const DEFAULT_HOME_PINNED_WIDGET: WidgetId = "period_compare";
+
 const WIDGET_META: Record<WidgetId, { title: string; description: string; Icon: typeof ChartPie }> = {
   category_pie: {
     title: "Category breakdown",
@@ -582,11 +587,11 @@ export function PaceCurveWidget({ data, compact }: { data: WidgetData; compact?:
               {" so far"}
               {diff > 0 ? (
                 <span className="text-amber-600 dark:text-amber-400">
-                  {" · "}<span className="font-bold font-mono tabular-nums">{fmtGBP(Math.abs(diff))}</span>{" ahead of usual"}
+                  {" · "}<span className="font-bold font-mono tabular-nums">{fmtGBP(Math.abs(diff))}</span>{" more than usual"}
                 </span>
               ) : diff < 0 ? (
                 <span className="text-emerald-600 dark:text-emerald-400">
-                  {" · "}<span className="font-bold font-mono tabular-nums">{fmtGBP(Math.abs(diff))}</span>{" behind usual"}
+                  {" · "}<span className="font-bold font-mono tabular-nums">{fmtGBP(Math.abs(diff))}</span>{" less than usual"}
                 </span>
               ) : (
                 " · right on usual"
@@ -1422,8 +1427,9 @@ export function PinnedWidgetCard({
     const hit = cachedVerdict(0);
     if (hit) {
       // Shared with SpendPage.tsx via lib/verdictCache.ts — a recent Spend
-      // visit means this paints with no fetch at all (TTL 90s, matches the
-      // server's own /spend/verdict cache window).
+      // visit means this paints with no fetch at all (VERDICT_TTL_MS, 90s —
+      // a client-side policy, see that constant's own comment for why it
+      // does not need to match anything server-side).
       setPaceSeries(hit.pace_series);
       setPaceStatus("ok");
       return;

@@ -153,15 +153,14 @@ already rotated it, or races the legitimate client to redeem it first.
   other dead token. Tested: `test_refresh_rotation_revokes_old_refresh_token`
   (sequential reuse) and `test_concurrent_refresh_rotation_only_one_winner`
   (the race, added this pass).
-- Unlike authorization-code reuse, refresh-token reuse does **not**
-  currently revoke the whole family the way code reuse does — it just fails
-  the individual redemption. This is a smaller gap than it sounds (the
-  attacker's stolen token is already dead either way, and the legitimate
-  client's next legitimate rotation continues working), but it means a
-  detected refresh-token-reuse event doesn't proactively kill the access
-  token that was issued alongside the stolen refresh token. **Not fixed in
-  this pass** (see "Residual risks" below) — flagged rather than
-  silently patched, per this item's brief.
+- Unlike authorization-code reuse, refresh-token reuse previously did
+  **not** revoke the whole family the way code reuse does; it just failed
+  the individual redemption, without proactively killing the access token
+  issued alongside the stolen refresh token. **Fixed under A74** (commit
+  `eac94538574c59ff1aa4b429a753675a640d45c1`, 2026-09-22): refresh-token
+  reuse now cascade-revokes the whole `pair_id`/`origin_code_hash` family,
+  the same as authorization-code reuse. Merged to `main`, not yet released
+  to production; to be re-run as OAUTH-06 in the production retest.
 
 ### T5 — Revocation not actually effective
 
@@ -270,13 +269,12 @@ for cross-contamination between the two:
 
 ## Residual risks (not fixed this pass, flagged rather than patched)
 
-- **T4's partial gap**: refresh-token reuse fails the individual redemption
-  but doesn't revoke the sibling access token the way code reuse revokes
-  the whole family. Closing this fully means deciding whether refresh reuse
-  should be treated as seriously as code reuse (revoke everything under
-  that `pair_id`/`origin_code_hash`) — a five-line change once that product
-  decision is made, but a decision, not a "small and safe" fix to make
-  silently in a pentest-readiness pass.
+- **T4's gap, fixed under A74**: refresh-token reuse previously failed only the
+  individual redemption without revoking the sibling access token the way
+  code reuse revokes the whole family. **Fixed under A74** (commit
+  `eac94538574c59ff1aa4b429a753675a640d45c1`, 2026-09-22): reuse now
+  revokes everything under that `pair_id`/`origin_code_hash`. Merged to
+  `main`; production release and the OAUTH-06 retest are still pending.
 - **No per-client rate limit beyond the IP-based rules in
   `app/core/ratelimit.py`** (A27's file): a single compromised or malicious
   client_id can still hit `/auth/oauth/token` at the generic 30/60 budget

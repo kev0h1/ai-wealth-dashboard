@@ -25,10 +25,11 @@ fresh/quiet) IS covered below via `test_derive_insight_state_exhaustive`,
 since the frontend's hero now switches on the same `state` field this
 proves is well-defined.
 """
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
+import app.core.timeutil as timeutil
 import app.routers.savings_insights as savings_insights
 from app.routers.savings_insights import (
     _derive_insight_state,
@@ -48,6 +49,17 @@ class _FrozenDatetime(datetime):
     @classmethod
     def utcnow(cls):
         return NOW
+
+
+class _FrozenTimeutilDatetime(datetime):
+    """G161 follow-up: freshness/is_new/expiry-line day-scale reads now go
+    through app.core.timeutil, which this file's own `_FrozenDatetime`
+    patch no longer reaches. NOW is naive, treated as UTC."""
+
+    @classmethod
+    def now(cls, tz=None):
+        aware = NOW.replace(tzinfo=timezone.utc)
+        return aware.astimezone(tz) if tz is not None else aware.replace(tzinfo=None)
 
 
 def _run(coro):
@@ -86,8 +98,13 @@ def _run(coro):
         ({"category": "mobile", "title": "T", "body": "",
           "content_valid_until": NOW + timedelta(days=1)}, "quiet"),  # half-written doc
         ({"category": "mobile"}, "quiet"),  # fields entirely absent
+        # G161 follow-up: expired is now a Europe/London CALENDAR-DATE
+        # comparison ("valid through the end of that London day"), so a
+        # minute-level offset on the SAME day (NOW - 1 minute) is actually
+        # still fresh now -- a full day back is used here to stay
+        # unambiguously expired.
         ({"category": "gym", "title": "T", "body": "B",
-          "content_valid_until": NOW - timedelta(minutes=1)}, "quiet"),  # expired TTL
+          "content_valid_until": NOW - timedelta(days=1)}, "quiet"),  # expired TTL
         ({"category": "mobile", "title": "T", "body": "B",
           "content_valid_until": NOW - timedelta(days=200)}, "quiet"),  # long-expired TTL
         ({"category": "gym", "title": "T", "body": "B", "content_valid_until": None}, "quiet"),
@@ -106,6 +123,7 @@ def _run(coro):
 )
 def test_derive_insight_state_exhaustive(monkeypatch, overrides, expected):
     monkeypatch.setattr(savings_insights, "datetime", _FrozenDatetime)
+    monkeypatch.setattr(timeutil, "datetime", _FrozenTimeutilDatetime)
     base = {"category": "mobile"}
     base.update(overrides)
     assert _derive_insight_state(base) == expected
@@ -113,6 +131,7 @@ def test_derive_insight_state_exhaustive(monkeypatch, overrides, expected):
 
 def test_derive_insight_state_return_type_is_always_one_of_the_four_live_states(monkeypatch):
     monkeypatch.setattr(savings_insights, "datetime", _FrozenDatetime)
+    monkeypatch.setattr(timeutil, "datetime", _FrozenTimeutilDatetime)
     live_states = {"verified", "substituted", "fresh", "quiet", "retired"}
     combos = [
         {}, {"verified_at": NOW}, {"substituted_at": NOW}, {"retired_at": NOW},
@@ -147,6 +166,7 @@ def _tri_state_eating_out_doc():
 
 def test_incoherence_a_tri_state_doc_serializes_as_substituted_only(monkeypatch):
     monkeypatch.setattr(savings_insights, "datetime", _FrozenDatetime)
+    monkeypatch.setattr(timeutil, "datetime", _FrozenTimeutilDatetime)
     out = _serialize_insight(_tri_state_eating_out_doc())
     assert out["state"] == "substituted"
     # Banked must mean verified-tier only — a doc corrupted with both
@@ -189,6 +209,7 @@ def test_incoherence_a_repair_pass_heals_the_corrupted_doc(monkeypatch):
     col = FakeCol(doc)
     monkeypatch.setattr(savings_insights, "savings_insights_col", col)
     monkeypatch.setattr(savings_insights, "datetime", _FrozenDatetime)
+    monkeypatch.setattr(timeutil, "datetime", _FrozenTimeutilDatetime)
 
     async def fake_detect(user_id):
         return ["eating_out"]
@@ -217,6 +238,7 @@ def test_incoherence_b_pull_category_missing_researched_at_field_entirely_is_qui
     from an explicit `False`. No tri-state slip possible: `state` is a
     plain string equality check, never a boolean combination."""
     monkeypatch.setattr(savings_insights, "datetime", _FrozenDatetime)
+    monkeypatch.setattr(timeutil, "datetime", _FrozenTimeutilDatetime)
     doc = {"category": "car_finance", "title": "", "body": ""}  # no researched_at key at all
     assert _derive_insight_state(doc) == "quiet"
     out = _serialize_insight({**doc, "_id": "x", "insight_id": "car_finance-x",
@@ -229,6 +251,7 @@ def test_incoherence_b_identical_states_render_identically(monkeypatch):
     state must serialize identically (the actual owner complaint: car_finance
     rendered as a hollow full card while its siblings rendered compact)."""
     monkeypatch.setattr(savings_insights, "datetime", _FrozenDatetime)
+    monkeypatch.setattr(timeutil, "datetime", _FrozenTimeutilDatetime)
     base = {"title": "", "body": "", "savings_estimate": None, "researched_at": None,
             "pinned": False, "is_new": False, "refreshed_at": NOW,
             "verified_savings": None, "substituted_at": None, "verified_at": None}
@@ -250,6 +273,7 @@ def test_incoherence_c_energy_title_strips_the_ungrounded_figure_leaves_the_user
     The user's own £160 (from `triggered_by`) must survive; only the
     ungrounded £173 clause is stripped."""
     monkeypatch.setattr(savings_insights, "datetime", _FrozenDatetime)
+    monkeypatch.setattr(timeutil, "datetime", _FrozenTimeutilDatetime)
     doc = {
         "_id": "x", "insight_id": "energy-x", "category": "energy",
         "title": "You pay £160/mo, fixed deals could save up to £173",
@@ -273,6 +297,7 @@ def test_incoherence_c_repaired_at_serve_time_without_a_regen(monkeypatch):
     special marker, just the raw stored text) must be repaired on every
     serve, not require a regen to pick up the fix."""
     monkeypatch.setattr(savings_insights, "datetime", _FrozenDatetime)
+    monkeypatch.setattr(timeutil, "datetime", _FrozenTimeutilDatetime)
     doc = {
         "_id": "x", "insight_id": "energy-x", "category": "energy",
         "title": "Switching could save you up to £999 this year",
@@ -370,6 +395,7 @@ def test_incoherence_d_push_category_content_survives_a_refresh_pass_untouched(m
     col = FakeInsightsCol([old_mobile])
     monkeypatch.setattr(savings_insights, "savings_insights_col", col)
     monkeypatch.setattr(savings_insights, "datetime", _FrozenDatetime)
+    monkeypatch.setattr(timeutil, "datetime", _FrozenTimeutilDatetime)
 
     async def fake_detect(user_id):
         return ["mobile"]
@@ -408,6 +434,7 @@ def test_incoherence_d_quiet_state_renders_when_content_genuinely_absent(monkeyp
     outcome now, whether the cause is "never researched" or "genuinely
     absent despite being a normally-reliable category"."""
     monkeypatch.setattr(savings_insights, "datetime", _FrozenDatetime)
+    monkeypatch.setattr(timeutil, "datetime", _FrozenTimeutilDatetime)
     doc = {"_id": "x", "insight_id": "mobile-x", "category": "mobile",
            "title": "", "body": "", "savings_estimate": None,
            "pinned": False, "is_new": False, "refreshed_at": NOW}
@@ -436,6 +463,7 @@ def test_incoherence_d_quiet_state_renders_when_content_genuinely_absent(monkeyp
 
 def test_regression_3_recent_refreshed_at_but_no_ttl_serves_as_quiet_with_no_content(monkeypatch):
     monkeypatch.setattr(savings_insights, "datetime", _FrozenDatetime)
+    monkeypatch.setattr(timeutil, "datetime", _FrozenTimeutilDatetime)
     doc = {
         "_id": "x", "insight_id": "subscriptions-x", "category": "subscriptions",
         "title": "You pay £22/mo on Netflix and Prime - try free trials first",
@@ -494,6 +522,7 @@ _STATE_ANATOMY: dict[str, dict[str, bool]] = {
 @pytest.mark.parametrize("state,anatomy", list(_STATE_ANATOMY.items()))
 def test_state_anatomy_invariant(monkeypatch, state, anatomy):
     monkeypatch.setattr(savings_insights, "datetime", _FrozenDatetime)
+    monkeypatch.setattr(timeutil, "datetime", _FrozenTimeutilDatetime)
     base = {
         "_id": "x", "insight_id": "energy-x", "category": "energy",
         "pinned": False, "is_new": False, "refreshed_at": NOW,
@@ -549,9 +578,14 @@ def test_expiry_line_never_contains_cadence_wording(researched_at, content_valid
 
 
 def test_expiry_line_claim_governed_states_the_date_not_the_cadence():
+    # G161 follow-up: the displayed day is the deadline's Europe/London
+    # calendar date, not its raw UTC date -- 2026-09-07T23:59:59Z (Monday,
+    # UTC) is already 2026-09-08T00:59:59+01:00 in London (BST), i.e.
+    # Tuesday the 8th. This is deliberate: an offer's "valid until" deadline
+    # is stated and shown in the user's own day, not a UTC one they never see.
     deadline = datetime(2026, 9, 7, 23, 59, 59)
     line = _expiry_line(NOW - timedelta(days=1), deadline, deadline, NOW)
-    assert line == "Valid until Mon 7 Sep"
+    assert line == "Valid until Tue 8 Sep"
 
 
 def test_expiry_line_default_ttl_states_the_age_not_the_cadence():

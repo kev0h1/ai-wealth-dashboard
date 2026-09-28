@@ -379,25 +379,67 @@ workflows:
         script: |
           # App Store Connect rejects a TestFlight upload that reuses a
           # (CFBundleShortVersionString, CFBundleVersion) pair. Capacitor's
-          # `cap add ios` template ships a static CFBundleVersion of 1, so the
-          # second and every subsequent upload of the same marketing version
-          # collides with "The provided entity includes an attribute with a
-          # value that has already been used" — this step fixes that by
-          # stamping CFBundleVersion with Codemagic's auto-incrementing
-          # $BUILD_NUMBER before the IPA is built. Marketing version
-          # (CFBundleShortVersionString) is left untouched — bumping the
-          # build number alone is enough to make the pair unique.
+          # `cap add ios` template ships a static CFBundleVersion of 1, so
+          # every upload needs a fresh, ever-increasing CFBundleVersion.
+          # Marketing version (CFBundleShortVersionString) is left
+          # untouched here — bumping the build number alone is enough to
+          # make the pair unique.
+          #
+          # This used to stamp CFBundleVersion with Codemagic's own
+          # $BUILD_NUMBER, an auto-incrementing counter that is scoped PER
+          # WORKFLOW. That broke because TWO workflows — ios-capacitor
+          # (UAT) and ios-capacitor-prod (production) — publish to the
+          # SAME App Store Connect app (co.uk.auriqltd.sorted), each with
+          # its own independent $BUILD_NUMBER counter starting at 1: a
+          # per-workflow counter cannot stay monotonic across two
+          # workflows sharing one build-number namespace. In practice,
+          # ios-capacitor-prod's first build uploaded as 1.0 (1), below
+          # the ios-capacitor UAT builds already sitting in TestFlight
+          # (e.g. build 36), so App Store Connect silently never offered
+          # it — TestFlight only ever offers the highest build number it
+          # has seen for a given app.
+          #
+          # Fix: ask App Store Connect itself for the latest TestFlight
+          # build number it has actually seen for this app (which reflects
+          # uploads from BOTH workflows) and increment that, instead of
+          # trusting either workflow's local counter. This step is shared
+          # by both workflows via the &step_build_number / *step_build_number
+          # anchor, so they read from the same source of truth and stay
+          # monotonic together no matter which workflow uploads next.
+          #
+          # Auth: the app_store_connect integration ("AURIQ LTD", see
+          # `integrations:` above, auth: integration below) is already
+          # wired into this build image, so the app-store-connect CLI picks
+          # up credentials automatically — no --issuer-id/--key-id/
+          # --private-key flags needed here.
           cd "$CM_BUILD_DIR/capacitor-spike/ios/App"
-          echo "Setting build number to $BUILD_NUMBER"
-          agvtool new-version -all "$BUILD_NUMBER" || \
-            sed -i '' "s/CURRENT_PROJECT_VERSION = [^;]*;/CURRENT_PROJECT_VERSION = $BUILD_NUMBER;/g" App.xcodeproj/project.pbxproj
+
+          BUNDLE_ID="co.uk.auriqltd.sorted"
+          echo "Resolving the App Store Connect app id for bundle id $BUNDLE_ID..."
+          APP_ID=$(app-store-connect apps list \
+            --bundle-id-identifier "$BUNDLE_ID" \
+            --strict-match-identifier \
+            --json | jq -r '.[0].id // empty')
+          if [ -z "$APP_ID" ]; then
+            echo "ERROR: could not resolve an App Store Connect app id for bundle id $BUNDLE_ID (app-store-connect apps list returned no match). Refusing to guess a build number — check the 'AURIQ LTD' app_store_connect integration has access to this app."
+            exit 1
+          fi
+          echo "App Store Connect app id: $APP_ID"
+
+          LATEST=$(app-store-connect get-latest-testflight-build-number "$APP_ID")
+          case "$LATEST" in
+            ''|*[!0-9]*)
+              echo "ERROR: app-store-connect get-latest-testflight-build-number returned a non-numeric or empty value ('$LATEST') for app id $APP_ID. Refusing to fall back to \$BUILD_NUMBER — that per-workflow counter is exactly what caused this bug."
+              exit 1
+              ;;
+          esac
+          NEXT=$((LATEST + 1))
+          echo "Latest TestFlight build number across all workflows is $LATEST, setting build number to $NEXT"
+
+          agvtool new-version -all "$NEXT" || \
+            sed -i '' "s/CURRENT_PROJECT_VERSION = [^;]*;/CURRENT_PROJECT_VERSION = $NEXT;/g" App.xcodeproj/project.pbxproj
           # Confirm it took
           agvtool what-version -terse || grep -m1 "CURRENT_PROJECT_VERSION" App.xcodeproj/project.pbxproj
-          # If this ever collides again (e.g. agvtool/sed both silently no-op
-          # on a future Capacitor project layout change), switch to reading
-          # the last-used build number from App Store Connect instead:
-          #   app-store-connect get-latest-testflight-build-number <app_apple_id>
-          # and incrementing that by 1.
       - &step_provisioning
         name: Apply provisioning profiles
         script: |

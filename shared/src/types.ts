@@ -13,6 +13,10 @@ export interface Account {
   status: string;
   account_number?: string;
   sort_code?: string;
+  /** Joins this account to a `Connection` from GET /connections (A113). Empty
+   *  string or absent for statement uploads, manual accounts and other
+   *  sources that carry no live bank consent. */
+  connection_id?: string;
   manual?: boolean;
   /** Whether the settled cover-plan source finder can consider this account. */
   cover_source_eligible?: boolean;
@@ -20,6 +24,22 @@ export interface Account {
   bg_colors?: string[];
   apr?: number | null;
   source?: "truelayer" | "finexer" | string;
+}
+
+/** One live bank connection/consent, from GET /connections
+ * (backend/app/routers/accounts.py:list_connections). `provider` here is the
+ * data source ("truelayer" | "finexer"), not the bank's display name — join
+ * to `Account.connection_id` to find which accounts and which bank a
+ * connection belongs to. `expires_at` is the bank consent's own expiry
+ * (nullable: some connections never recorded one), used by A113 to make the
+ * Terms/Privacy v1.1 promise "the Service shows when your current consent
+ * ends" actually true. */
+export interface Connection {
+  connection_id: string;
+  provider: "truelayer" | "finexer" | string;
+  status: string;
+  expires_at: string | null;
+  accounts: number;
 }
 
 export type ManualAccountType = "savings" | "current" | "credit_card";
@@ -65,28 +85,6 @@ export interface Transaction {
   category?: string;
   transaction_type: "debit" | "credit";
   planned?: boolean;
-}
-
-export interface MonoAccount {
-  id: string;
-  name: string;
-  type: string;
-  balance: number;
-  currency: string;
-  provider: string;
-  status: string;
-  source: "mono";
-}
-
-export interface MpesaAccount {
-  id: string;
-  name: string;
-  type: string;
-  balance: number;
-  currency: string;
-  provider: string;
-  status: string;
-  source: "mpesa";
 }
 
 export interface KPIs {
@@ -582,7 +580,6 @@ export interface DebtBurndown {
 export interface UserPreferences {
   hide_net_worth: boolean;
   dark_mode?: boolean;
-  region?: string;
   pay_period_config?: unknown;
 }
 

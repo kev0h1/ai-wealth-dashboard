@@ -22,6 +22,7 @@ from fastapi.responses import PlainTextResponse, RedirectResponse
 
 import app.core.auth as auth_mod
 import app.core.subscription as subscription_module
+import app.db.collections as db_collections
 import app.routers.mcp as mcp
 import app.routers.oauth as oauth
 
@@ -50,6 +51,25 @@ def _mcp_connector_enabled(monkeypatch):
     its auth_middleware integration points assuming the connector IS turned
     on. See tests/test_mcp_connector_flag.py for the flag-off behaviour."""
     monkeypatch.setattr(auth_mod, "MCP_CONNECTOR_ENABLED", True)
+
+
+class _FakeTombstoneCol:
+    """A84 rework: `resolve_mcp_principal` and `_handle_refresh_token_
+    grant` now both consult `is_revoked`, which looks up
+    `session_tombstones_col` fresh from `app.db.collections` on every
+    call. None of this file's own tests are about revocation (that's
+    tests/test_session_revocation.py's job) — this fake just needs to
+    answer "no tombstone" so those two functions' existing behaviour is
+    unaffected, rather than every test in this file reaching a real Motor
+    client with no DB behind it."""
+
+    async def find_one(self, query):
+        return None
+
+
+@pytest.fixture(autouse=True)
+def _no_tombstones(monkeypatch):
+    monkeypatch.setattr(db_collections, "session_tombstones_col", _FakeTombstoneCol())
 
 
 # ── shared fakes ─────────────────────────────────────────────────────────
@@ -662,6 +682,154 @@ def test_concurrent_refresh_rotation_only_one_winner(monkeypatch):
     assert len(tokens.docs) == 4
 
 
+def _mcp_check(tokens: "_FakeCollection", monkeypatch, access_token: str):
+    """Runs the real `/mcp` bearer-resolution path (mcp.resolve_mcp_principal)
+    against `access_token`, sharing the same fake tokens collection oauth.py
+    was just exercised against. Returns the resolved principal, or raises
+    HTTPException the same way a real 401 would surface to a caller."""
+    monkeypatch.setattr(mcp, "oauth_tokens_col", tokens)
+    return _run(mcp.resolve_mcp_principal(_FakeRequestWithAuth(access_token)))
+
+
+def test_refresh_rotation_revokes_sibling_access_token(monkeypatch):
+    """A74 (T4, pentest OAUTH-06): live-confirmed 2026-09-20 that access1
+    stayed usable at /mcp after its sibling refresh1 was rotated out. The
+    fix cascade-revokes the sibling access token the instant its refresh
+    token is rotated, so access1 must now be rejected at /mcp immediately
+    after rotation, while the freshly minted access2 keeps working."""
+    clients, codes, tokens, _ = _install_fakes(monkeypatch)
+    clients.docs["client-1"] = {"_id": "client-1", "client_id": "client-1", "client_name": "Claude"}
+    code, verifier, code_doc = _run(_approve_and_get_code())
+    codes.docs[code_doc["_id"]] = code_doc
+
+    import json
+    first_body = json.loads(_run(oauth.token_endpoint(_FakeFormRequest({
+        "grant_type": "authorization_code", "code": code,
+        "redirect_uri": code_doc["redirect_uri"], "client_id": "client-1",
+        "code_verifier": verifier,
+    }))).body)
+
+    # access1 is live immediately after the code exchange.
+    principal = _mcp_check(tokens, monkeypatch, first_body["access_token"])
+    assert principal["uid"] == "user@example.com"
+
+    second_body = json.loads(_run(oauth.token_endpoint(_FakeFormRequest({
+        "grant_type": "refresh_token", "refresh_token": first_body["refresh_token"],
+        "client_id": "client-1",
+    }))).body)
+
+    # access1 (the rotated-out refresh token's sibling) must now be dead...
+    with pytest.raises(HTTPException) as exc:
+        _mcp_check(tokens, monkeypatch, first_body["access_token"])
+    assert exc.value.status_code == 401
+
+    # ...while access2 (minted by the rotation) works.
+    principal2 = _mcp_check(tokens, monkeypatch, second_body["access_token"])
+    assert principal2["uid"] == "user@example.com"
+
+
+def test_refresh_replay_revokes_whole_grant_including_newest_access_token(monkeypatch):
+    """A74 (T4, pentest OAUTH-06): replaying an already-rotated-out refresh
+    token is the standard signal for token theft, so the response is the
+    standard breach response — revoke the WHOLE grant, not just the dead
+    token itself. Rotate twice (pair1 -> pair2 -> pair3) so "the newest
+    access token" (access3, from pair3) is a different pair than the one
+    directly sharing refresh1's pair_id, then replay refresh1 and confirm
+    access3 dies too, not just access1/access2."""
+    clients, codes, tokens, _ = _install_fakes(monkeypatch)
+    clients.docs["client-1"] = {"_id": "client-1", "client_id": "client-1", "client_name": "Claude"}
+    code, verifier, code_doc = _run(_approve_and_get_code())
+    codes.docs[code_doc["_id"]] = code_doc
+
+    import json
+    pair1 = json.loads(_run(oauth.token_endpoint(_FakeFormRequest({
+        "grant_type": "authorization_code", "code": code,
+        "redirect_uri": code_doc["redirect_uri"], "client_id": "client-1",
+        "code_verifier": verifier,
+    }))).body)
+    pair2 = json.loads(_run(oauth.token_endpoint(_FakeFormRequest({
+        "grant_type": "refresh_token", "refresh_token": pair1["refresh_token"],
+        "client_id": "client-1",
+    }))).body)
+    pair3 = json.loads(_run(oauth.token_endpoint(_FakeFormRequest({
+        "grant_type": "refresh_token", "refresh_token": pair2["refresh_token"],
+        "client_id": "client-1",
+    }))).body)
+
+    # access3 is genuinely live before the replay.
+    principal3 = _mcp_check(tokens, monkeypatch, pair3["access_token"])
+    assert principal3["uid"] == "user@example.com"
+
+    # Replay the long-dead refresh1 (rotated out when pair2 was minted).
+    replay = _run(oauth.token_endpoint(_FakeFormRequest({
+        "grant_type": "refresh_token", "refresh_token": pair1["refresh_token"],
+        "client_id": "client-1",
+    })))
+    assert replay.status_code == 400
+    assert json.loads(replay.body)["error"] == "invalid_grant"
+
+    # Every token this grant ever produced is now dead, including access3
+    # and refresh3, the newest pair, minted well after refresh1 was retired.
+    assert all(t["revoked_at"] is not None for t in tokens.docs.values())
+    with pytest.raises(HTTPException) as exc:
+        _mcp_check(tokens, monkeypatch, pair3["access_token"])
+    assert exc.value.status_code == 401
+
+    refresh3_again = _run(oauth.token_endpoint(_FakeFormRequest({
+        "grant_type": "refresh_token", "refresh_token": pair3["refresh_token"],
+        "client_id": "client-1",
+    })))
+    assert refresh3_again.status_code == 400
+    assert json.loads(refresh3_again.body)["error"] == "invalid_grant"
+
+
+def test_refresh_replay_leaves_unrelated_grant_for_same_user_untouched(monkeypatch):
+    """A74: the cascade above must be scoped to the compromised grant's own
+    `origin_code_hash` lineage, not to the user account as a whole. A
+    second, wholly unrelated grant for the SAME user (e.g. a second device
+    or a second connector authorised separately) must survive a replay
+    detected on the first grant."""
+    clients, codes, tokens, _ = _install_fakes(monkeypatch)
+    clients.docs["client-1"] = {"_id": "client-1", "client_id": "client-1", "client_name": "Claude"}
+
+    code_a, verifier_a, code_doc_a = _run(_approve_and_get_code())
+    codes.docs[code_doc_a["_id"]] = code_doc_a
+    code_b, verifier_b, code_doc_b = _run(_approve_and_get_code())
+    codes.docs[code_doc_b["_id"]] = code_doc_b
+
+    import json
+    grant_a_pair1 = json.loads(_run(oauth.token_endpoint(_FakeFormRequest({
+        "grant_type": "authorization_code", "code": code_a,
+        "redirect_uri": code_doc_a["redirect_uri"], "client_id": "client-1",
+        "code_verifier": verifier_a,
+    }))).body)
+    grant_a_pair2 = json.loads(_run(oauth.token_endpoint(_FakeFormRequest({
+        "grant_type": "refresh_token", "refresh_token": grant_a_pair1["refresh_token"],
+        "client_id": "client-1",
+    }))).body)
+    grant_b_pair1 = json.loads(_run(oauth.token_endpoint(_FakeFormRequest({
+        "grant_type": "authorization_code", "code": code_b,
+        "redirect_uri": code_doc_b["redirect_uri"], "client_id": "client-1",
+        "code_verifier": verifier_b,
+    }))).body)
+
+    # Replay grant A's rotated-out refresh1 — should nuke grant A only.
+    replay = _run(oauth.token_endpoint(_FakeFormRequest({
+        "grant_type": "refresh_token", "refresh_token": grant_a_pair1["refresh_token"],
+        "client_id": "client-1",
+    })))
+    assert replay.status_code == 400
+
+    grant_a_hash = hashlib.sha256(grant_a_pair2["access_token"].encode()).hexdigest()
+    grant_b_hash = hashlib.sha256(grant_b_pair1["access_token"].encode()).hexdigest()
+    assert tokens.docs[grant_a_hash]["revoked_at"] is not None
+    assert tokens.docs[grant_b_hash]["revoked_at"] is None
+
+    # Grant B's access token still works at /mcp, untouched.
+    principal_b = _mcp_check(tokens, monkeypatch, grant_b_pair1["access_token"])
+    assert principal_b["uid"] == "user@example.com"
+
+
 def test_unsupported_grant_type(monkeypatch):
     _install_fakes(monkeypatch)
     resp = _run(oauth.token_endpoint(_FakeFormRequest({"grant_type": "password"})))
@@ -754,6 +922,39 @@ def test_delete_connection_revokes_every_token_for_that_client(monkeypatch):
     assert tokens.docs["h1"]["revoked_at"] is not None
     assert tokens.docs["h2"]["revoked_at"] is not None
     assert tokens.docs["h3"]["revoked_at"] is None  # a different client, untouched
+
+
+def test_delete_connection_by_a_different_user_matches_nothing(monkeypatch):
+    """A52 (2026-09-20, pentest OAUTH-08): the previous test above only ever
+    exercises the SAME user deleting their own connection for a different
+    client_id. It never exercises a different user attempting to delete a
+    client_id they never granted — the exact cross-tenant shape the
+    reconciled pentest catalogue's OAUTH-08 flagged as a genuine coverage
+    gap. Live-run against UAT on 2026-09-20 confirmed the code's own
+    `{"uid": uid, "client_id": client_id, ...}` filter already matches zero
+    documents for a client_id a caller never granted, leaving the true
+    owner's tokens completely untouched. This test pins that OBSERVED
+    behaviour (a record of what the code currently does), not a new
+    control; see docs/security/pentest-runs/A52-2026-09-20/records.md,
+    OAUTH-08."""
+    now = datetime.now(timezone.utc)
+    _, _, tokens, _ = _install_fakes(monkeypatch, seed_tokens=[
+        {"_id": "h1", "kind": "access", "client_id": "claude-1", "client_name": "Claude",
+         "uid": "victim@example.com", "scopes": ["accounts:read"], "created_at": now,
+         "expires_at": now + timedelta(hours=1), "last_used_at": None, "revoked_at": None,
+         "pair_id": "p1", "origin_code_hash": "x"},
+        {"_id": "h2", "kind": "refresh", "client_id": "claude-1", "client_name": "Claude",
+         "uid": "victim@example.com", "scopes": ["accounts:read"], "created_at": now,
+         "expires_at": now + timedelta(days=29), "last_used_at": None, "revoked_at": None,
+         "pair_id": "p1", "origin_code_hash": "x"},
+    ])
+    # A different user attempts to delete "claude-1" — a client_id they
+    # never granted anything to (it belongs to "victim@example.com" above).
+    result = _run(oauth.revoke_connection("claude-1", user={"email": "attacker@example.com"}))
+    assert result["revoked"] == 0
+    # The victim's own tokens for that exact client_id remain completely untouched.
+    assert tokens.docs["h1"]["revoked_at"] is None
+    assert tokens.docs["h2"]["revoked_at"] is None
 
 
 # ── resolve_mcp_principal accepting a real OAuth access token ───────────

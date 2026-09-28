@@ -89,8 +89,8 @@ rule above. If their original source is ever identified, add it here.
 
 ## Deliberately not bundled
 
-Every other `BANK_META` entry without a `logoFile` (Kenyan statement-import
-banks, M-Pesa, Mono, Offline, and any UK provider not listed above) stays
+Every other `BANK_META` entry without a `logoFile` (the remaining
+statement-import banks, Offline, and any UK provider not listed above) stays
 on the initials chip. That chip is the honest fallback, not a failure
 state — see `BankBadge` in `AccountMiniCard.tsx`. Nothing was shipped
 without being able to record where it came from and on what basis; where

@@ -20,6 +20,7 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.core.auth import current_user
+from app.core import timeutil
 from app.db.collections import (
     accounts_col,
     preferences_col,
@@ -80,7 +81,7 @@ async def cards_story(
         raise HTTPException(status_code=400, detail="which must be 'current' or 'last'")
 
     uid = user["email"]
-    today = date.today()
+    today = timeutil.user_today()
 
     # ── Pay period ────────────────────────────────────────────────────────────
     prefs = await preferences_col.find_one({"user_id": uid}) or {}

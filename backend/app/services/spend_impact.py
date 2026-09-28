@@ -104,6 +104,7 @@ import logging
 import math
 from datetime import date, datetime, timedelta
 
+from app.core import timeutil
 from app.db.collections import (
     accounts_col,
     cashflow_cache_col,
@@ -250,7 +251,7 @@ async def _infer_salary_account(uid: str, kind_map: dict | None = None) -> str |
     """
     if kind_map is None:
         kind_map = await get_category_kinds(uid)
-    since = datetime.combine(date.today() - timedelta(days=_SALARY_LOOKBACK_DAYS), datetime.min.time())
+    since = datetime.combine(timeutil.user_today() - timedelta(days=_SALARY_LOOKBACK_DAYS), datetime.min.time())
     sums: dict[str, float] = {}
     try:
         async for t in transactions_col.find(
@@ -325,12 +326,12 @@ async def _cashflow_window(uid: str) -> dict | None:
     prefs = await preferences_col.find_one({"user_id": uid}) or {}
     confirmed_income_keys = {
         s.get("key") for s in (prefs.get("income_streams") or [])
-        if s.get("status") == "confirmed"
+        if isinstance(s, dict) and s.get("status") == "confirmed"
     }
     resp = await _build_cashflow_response(cached, uid=uid, prefs=prefs)
 
     pay_cfg = prefs.get("pay_period_config", {"type": "calendar_month"})
-    today_d = date.today()
+    today_d = timeutil.user_today()
     confirmed_result = _get_confirmed_payday(prefs, today_d)
     next_pay = confirmed_result[0] if confirmed_result else _calc_next_payday(today_d, pay_cfg)
     days_to_pay = (next_pay - today_d).days
@@ -374,11 +375,22 @@ async def _cashflow_window(uid: str) -> dict | None:
     # lockstep with those two. Only credited to an account the walk already
     # tracks (`acct in balances`): an inflow must never seed a brand-new
     # account into the simulation.
+    #
+    # G167: no reliability gate here, and deliberately no late-income line
+    # for one either — see the comment block above `walk_sort_key` in
+    # services/companion.py for why a lapsed inflow is already spoken for
+    # by its source-side pending copy.
     for n in window_inflows:
         acct = str(n.get("account_id") or "")
         if acct in balances:
             events.append((n["days_away"], acct, float(n["amount"]), True, n))
-    events.sort(key=lambda e: (e[0], 1 if e[3] else 0))  # bills before income same-day, matching companion.py
+    # G163: same-day, credits before debits, matching companion.py — a
+    # confirmed income stream expected in an account on day D covers what
+    # leaves it on day D; it only lapses the day after, with no matching
+    # credit.
+    from app.services.companion import walk_sort_key
+
+    events.sort(key=walk_sort_key)
 
     return {"events": events, "balances": balances, "today": today_d}
 
@@ -407,7 +419,7 @@ async def _bills_risk(uid: str, total_excess: float, period: dict) -> dict | Non
             return None
         events, balances, today_d = window["events"], window["balances"], window["today"]
 
-        from app.services.companion import _humanise_bill_name, _walk_events
+        from app.services.companion import _humanise_bill_name, _walk_events, walk_sort_key
 
         # Baseline: the same walk companion.py's own shortfall sim runs, no
         # extra outflow. This is the "at usual pace" comparison — a bill
@@ -431,7 +443,9 @@ async def _bills_risk(uid: str, total_excess: float, period: dict) -> dict | Non
             (day, salary_acct, daily_excess_rate, False, {"_synthetic_pace": True})
             for day in range(1, int(days_left) + 1)
         ]
-        paced_events = sorted(events + extra_events, key=lambda e: (e[0], 1 if e[3] else 0))
+        # G163: same-day, credits before debits (walk_sort_key) — same
+        # ordering as the baseline walk above.
+        paced_events = sorted(events + extra_events, key=walk_sort_key)
         _, paced_min_running, paced_shortfall_bill, _ = _walk_events(paced_events, balances)
 
         # Causation test: only a bill whose account was NOT already
@@ -560,7 +574,7 @@ async def _debt_horizon(uid: str, delta: float) -> dict | None:
 
         movement_monthly = (card.get("movement") or {}).get("monthly") or 0.0
         adjusted_movement = movement_monthly - delta
-        adjusted = _amortise(card["debt"], adjusted_movement, date.today(), card.get("rate_schedule") or [])
+        adjusted = _amortise(card["debt"], adjusted_movement, timeutil.user_today(), card.get("rate_schedule") or [])
         new_payoff = adjusted.get("payoff_month")
         if not new_payoff or new_payoff == card["payoff_month"]:
             return None
@@ -601,7 +615,7 @@ async def _goal_horizon(uid: str, delta: float, pay_cfg: dict) -> dict | None:
         if not docs:
             return None
         ledger = await compute_pot_ledger(uid, docs=docs)
-        today = date.today()
+        today = timeutil.user_today()
         for doc in sorted(docs, key=_ledger_sort_key):
             info = await _pot_progress_and_slice(doc, pay_cfg, ledger, today)
             remaining = info["remaining"]

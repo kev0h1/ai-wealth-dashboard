@@ -76,7 +76,7 @@ Consent withdrawal initiated at the bank or via Finexer is received by our webho
 
 ## Q6 Regulatory disclosures
 
-Status: blocked-deploy
+Status: needs-kevin
 
 ```text
 Attached screenshots:
@@ -84,7 +84,7 @@ A. Terms and Conditions, section 2 "Regulatory status" at https://wealth.auriqlt
 B. Privacy Policy, section 1 "Our regulated status" at https://wealth.auriqltd.co.uk/privacy: same disclosure, and section 4 describing the open banking consent through Finexer.
 C. In-app bank connection step: the disclosure line "Account information is provided by Finexer LTD, authorised by the FCA. AURIQ LTD acts as Finexer's agent." is shown in the connect-bank sheet and the sign-in footer (`frontend/lib/regulatoryCopy.ts`, single source of truth for both), live in production. [KEVIN: screenshot of this line still to be captured, see A6.]
 
-[KEVIN: the FRN field on this form is blank. The published wording says "registered agent" in the present tense. Confirm with Finexer that the agent registration will appear on the register before go-live, or agree interim wording such as "AURIQ LTD has applied to be registered as an agent of Finexer LTD; the account information service is provided under Finexer LTD's authorisation."]
+FRN: 1062474. AURIQ LTD is a registered agent of Finexer LTD on the FCA Financial Services Register under this reference; Finexer LTD is the authorised principal for the account information service.
 ```
 
 ## Q7 Terms and Privacy Policy
@@ -115,13 +115,14 @@ Status: ready
 Confirmed. The AI-assisted coaching, budgeting, debt-payoff and savings functionality remains as described at onboarding and has not expanded into personalised recommendations for specific investments, financial products, lenders, debt solutions or any other regulated products or services.
 
 How this is enforced in the product:
-- The assistant ("Penny") operates under a hard rule that it never names or recommends a specific financial product or provider. Verdicts such as "can I afford this" are computed deterministically from the customer's own data; the model only phrases the explanation.
-- Savings insights are generated under fixed rules: no suggestion to move card debt, third-party predictions always hedged, all savings figures presented as estimates. A post-processing guard rejects any output that breaches them.
+- The assistant ("Penny") operates under a hard rule that it never names or recommends a specific financial product or provider. Verdicts such as "can I afford this" are computed deterministically from the customer's own data; the model only phrases them.
+- Savings insights follow fixed rules: no suggestion to move card debt, third-party predictions always hedged, all savings figures presented as estimates. A post-processing guard rejects any breach.
 - Debt payoff shows the customer's own repayment order and timelines from their existing accounts; it does not propose consolidation, balance transfers, lenders or debt solutions.
 - Investment holdings can be tracked as a category; the product offers no investment recommendations, comparisons or execution.
-- Tax content is limited to general explanation of UK rules. The live tax explainer's prompt (Penny agent loop) carries a hard rule, shipped 2026-09-06: never suggest, name or recommend a specific product, provider, scheme or investment, including EIS/SEIS opportunities, to obtain a relief; explain the mechanics only, and point to a regulated adviser for anything recommendation-shaped. Covered by an automated test.
+- The Planning ladder orders generic steps (buffer, expensive debt, pension, ISA) using the customer's own figures, phrased as options ("some people do this, others that"); it names no product or provider.
+- Tax content is general explanation of UK rules only. The tax explainer's prompt carries a hard rule (shipped 2026-09-06, under automated test): never suggest, name or recommend a specific product, provider, scheme or investment, including EIS/SEIS opportunities, to obtain a relief; explain the mechanics only, and point to a regulated adviser for anything recommendation-shaped.
 
-The planned connected assistant feature (Q2) does not change this. Sorted's tools only return the customer's own data and Sorted's own deterministic figures; any advice a customer's external assistant gives is that assistant's, under the customer's contract with its provider, and nothing in Sorted recommends or steers towards it.
+The planned connected assistant feature (Q2) does not change this. Sorted's tools only return the customer's own data and Sorted's own deterministic figures; any advice a customer's own assistant gives is that assistant's, under their contract with its provider, and nothing in Sorted recommends or steers towards it.
 ```
 
 ## Q9 AI and third-party processing
@@ -131,7 +132,7 @@ Status: ready
 ```text
 Confirmed; the arrangements are as described at onboarding, with the additions below.
 
-Data shared with the AI gateway (OpenRouter, routing to Amazon Bedrock, Google, Anthropic or Microsoft Azure): merchant name, a truncated transaction description, amount and direction, and the customer's first name (only to recognise their own name in transfer descriptions). For the in-app assistant: the customer's question plus the derived figures needed to answer it.
+Data shared with the AI gateway (OpenRouter, routing to Amazon Bedrock, Google, Anthropic or Microsoft Azure): merchant name, a truncated transaction description, amount and direction, and the customer's name (only to recognise their own name in transfer descriptions). For the in-app assistant: the customer's question plus the derived figures needed to answer it.
 
 Never shared with AI providers: account numbers, sort codes, IBANs, card numbers, bank access or refresh tokens, Finexer consent or customer identifiers, credentials, email addresses, dates of birth or addresses.
 
@@ -139,8 +140,7 @@ No training: every request carries a routing preference of "data collection: den
 
 International transfers: hosting is in the EU (Railway EU West, MongoDB Atlas Frankfurt) under UK adequacy; US processing by AI providers is under the UK IDTA or Addendum, as stated in Privacy Policy section 7.
 
-Changes since onboarding: (1) Sign in with Apple; Apple receives only the sign-in event and we receive a verified email or Apple relay address. (2) Apple and Google push services carry only a device token and notification text, never transaction data. (3) Planned, not live: the connected assistant feature described in Q2. The customer's chosen AI provider then receives account information at the customer's own instruction, under the customer's contract with that provider; it is not a sub-processor of ours. Sharing is limited to what the assistant requests through named read-only scopes, identifiers are masked, calls are rate-limited and logged, and access can be revoked at any time. The Privacy Policy will gain a section "AI assistants you connect" before launch.
-[KEVIN: confirm nothing else changed in the list given at onboarding.]
+Changes since onboarding: (1) Sign in with Apple; Apple receives only the sign-in event and we receive a verified email or Apple relay address. (2) Apple and Google push services carry only a device token and notification text, never transaction data. (3) Planned, not live: the connected assistant feature described in Q2. The customer's chosen AI provider then receives account information at the customer's own instruction, under the customer's contract with that provider; it is not a sub-processor of ours. Sharing is limited to what the assistant requests through named read-only scopes, identifiers are masked, calls are rate-limited and logged, and access can be revoked at any time. The Privacy Policy already contains an "AI assistants you connect" section for this; it is withheld from the published policy while the feature is off and appears automatically when it is enabled.
 ```
 
 ## Q10 Retention, deletion and consent withdrawal
@@ -161,18 +161,17 @@ Retention: account and transaction data deleted within 30 days of closure, withd
 
 ## Q11 Security and incident controls, testing
 
-Status: blocked-deploy
+Status: needs-kevin
 
 ```text
-Confirmed; the controls in our Security and Incident Response Policy are implemented in production: bank tokens encrypted at rest (AES via Fernet), key held only in platform secrets; all secrets outside source control; signed, time-limited session tokens verified on every request; sign-in only via verified Google or Apple identities, registration allow-listed until launch; TLS in transit; restricted CORS; rate limiting on authentication and webhook routes; HMAC signature verification on Finexer webhooks; API documentation and introspection disabled in production; MongoDB Atlas with network access controls; encrypted nightly backups with 30-day retention; platform logging on Vercel, Railway and Atlas.
+Confirmed; the controls in our Security and Incident Response Policy are implemented in production: bank tokens encrypted at rest (AES/Fernet), key held only in platform secrets outside source control; signed, time-limited session tokens on every request; sign-in only via verified Google/Apple identities, registration allow-listed until launch; TLS in transit; restricted CORS; rate limiting on auth/webhook routes; HMAC verification on Finexer webhooks; API docs disabled; MongoDB Atlas access controls; encrypted nightly backups, 30-day retention; platform logging on Vercel, Railway, Atlas.
 
-Testing completed prior to launch:
-- Automated backend test suite of over 1,150 tests run on every change, including tests for the webhook signature verification, sign-in gating and safe-to-spend hardening.
-- Internal security review of authentication, session handling, data hygiene on logout, and the webhook receiver (August and September 2026).
-- Dependency vulnerability audit, dated 2026-09-10, re-audited 2026-09-11. Backend (`pip-audit` 2.10.1, 81 pkgs): 0 known advisories. Frontend production (`npm audit --omit=dev`): 0 advisories; a moderate baseline-browser-mapping finding from 2026-09-10 was fixed by upgrading the transitive dependency. Full `npm audit` incl. dev tooling: 5 advisories (1 low, 1 moderate, 3 high), all dev-only, never shipped.
-- No independent penetration test has been commissioned at this stage. [KEVIN: decide whether to commission one; Finexer may expect it.]
+Testing completed:
+- Automated backend test suite (2,700+ tests) on every change; internal review of auth, session and logout hygiene, webhook receiver (Aug/Sep 2026); CI-automated dependency scanning (SECURITY.md 2).
+- Internal security testing, 2026-09, under signed rules of engagement (2026-09-20), covering the web shell, API, tenant isolation, deletion, input handling, OAuth 2.1, MCP, Android (static), Finexer/TrueLayer, Stripe and OpenRouter/Penny. No Critical findings. Four High: three form one deletion-lifecycle issue (deletion did not revoke the Finexer consent, the connections list omitted it, deleted sessions stayed valid up to 7 days); the fourth is an MCP prompt-injection gap; MCP is not enabled in production. All four are fixed and regression-tested on our pre-production build (2026-09-22); production release and retest are due before 1 October. Remaining findings are Medium/Low/Info. Detail: SECURITY.md, docs/security/pentest-runs/.
+- An independent CREST-accredited penetration test will be commissioned ahead of public launch.
 
-Outstanding findings: none rated Critical or High. Two Medium items from internal review are closed and live in production: the legacy PIN-entry login (hardcoded PIN, unreferenced) was deleted, and the client-side reconnect cache that held a raw account number and sort code in localStorage now stores only the provider, account id and a masked last four digits.
+Outstanding: production release and retest of the four High fixes, due before 1 October; findings summary and retest evidence to follow on release. MCP stays disabled in production, not enabled without Finexer's written sign-off. Two earlier Medium items (legacy PIN login, reconnect-cache data) remain closed, unchanged since last submission.
 ```
 
 ## Q12 Insurance
@@ -198,14 +197,14 @@ Business continuity and disaster recovery: the service runs on managed platforms
 
 Regulatory incident reporting: our policy requires that any breach of our systems, non-compliance, suspected money-laundering or other relevant incident is reported to Finexer as soon as practicable and within 24 hours of becoming aware, with ICO notification within 72 hours where a personal-data breach meets the threshold, and affected customers notified without undue delay where high risk exists. The Information Security Manager (Kevin Maingi) owns this process.
 
-There are no other material regulatory, security or operational matters to bring to Finexer's attention. [KEVIN: if the FRN is still pending, or if any earlier issue was disclosed to Finexer, mention it here.]
+There are no other material regulatory, security or operational matters to bring to Finexer's attention. [KEVIN: if any earlier issue was disclosed to Finexer, mention it here.]
 ```
 
 ## Prerequisites before submitting
 
 1. Done 2026-09-10. Deployed to production (Vercel frontend and both Railway services), tagged `release-20260910-1137`. `/terms` and `/privacy` return 200, API docs are disabled (404), and the Finexer webhook receiver is live.
 2. Done. The legacy PIN login and the localStorage account-number/sort-code item are both closed in source and deployed; verified again 2026-09-11: `frontend/components/LoginOverlay.tsx` and `frontend/app/login/` no longer exist and nothing references them, and `reconnect_expected` in localStorage now stores only the provider, account id and a masked last four digits (`frontend/app/components/AccountsPage.tsx`). Dependency audit re-run 2026-09-11: backend and frontend production dependencies both 0 known advisories (SECURITY.md section 2).
-3. The in-app agent disclosure line is added and live (connect-bank sheet and sign-in footer). Verified again 2026-09-11 against `frontend/lib/regulatoryCopy.ts`, `LoginScreen.tsx` and `BankPickerSheet.tsx`: the wording matches exactly and renders unconditionally on both screens. Still outstanding: decide the FRN wording (A5).
+3. The in-app agent disclosure line is added and live (connect-bank sheet and sign-in footer). Verified again 2026-09-11 against `frontend/lib/regulatoryCopy.ts`, `LoginScreen.tsx` and `BankPickerSheet.tsx`: the wording matches exactly and renders unconditionally on both screens. FRN confirmed by Kevin 2026-09-21: AURIQ LTD is on the FCA register as a registered agent of Finexer LTD, FRN 1062474, so the published "registered agent" wording stands. Whether to quote the FRN on the legal pages and in the in-app line is still Kevin's call (A5).
 4. The Privacy Policy is updated for Sign in with Apple and live, confirmed 2026-09-11 by fetching the production page: the account-details paragraph names Apple's Hide My Email relay behaviour and the sub-processor table lists Apple. Root `TERMS.md` and `PRIVACY.md` are now reconciled with `frontend/content/` (A22, 2026-09-11); the root `.pdf` copies remain stale exports, but submission uses PDFs exported directly from the live site (Q7), so this does not block submission.
 5. Create the Play Console record so the Q4 Play URL exists (A9, still open).
 6. Capture the Q5 recording and Q6 screenshots on production (A6, still open).

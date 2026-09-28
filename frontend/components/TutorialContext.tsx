@@ -127,6 +127,16 @@ export const TUTORIAL_FLOWS: TutorialFlow[] = [
       {
         id: "accounts-bank",
         target: "tutorial-add-bank",
+        // A67: the Add Bank row is hidden on a plan with no open banking
+        // (Statements), so this step falls back to anchoring on the Add
+        // button itself rather than going unanchored, and its copy says
+        // where the row lives instead of asserting it is on screen. A
+        // tier-aware tutorial that drops the step entirely is a bigger
+        // change than this item warrants (the flow's step indices live in
+        // TutorialContext's provider, so filtering means teaching the
+        // app-wide provider about subscriptions); today every user is on
+        // DEFAULT_TIER=max, so nobody sees this yet.
+        fallbackTarget: "tutorial-add-account",
         tooltipSide: "below",
         iconName: "Building2",
         color: "#2563eb",
@@ -135,7 +145,7 @@ export const TUTORIAL_FLOWS: TutorialFlow[] = [
         cleanup: "accounts:add-menu:close",
         title: "Connect a bank",
         description:
-          "Add Bank links a UK bank through open banking, then transactions and balances keep syncing on their own.",
+          "Add Bank links a UK bank through open banking, then transactions and balances keep syncing on their own. It sits in this menu on plans that include bank connections.",
         tip: "Bank connections expire after a while. Sorted shows a reconnect prompt here when one does.",
       },
       {

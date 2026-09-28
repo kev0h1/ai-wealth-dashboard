@@ -459,10 +459,7 @@ def test_get_account_activity_single_account_splits_spend_vs_movement(monkeypatc
 
     monkeypatch.setattr(accounts_router_module, "get_accounts", fake_get_accounts)
 
-    async def fake_region(uid):
-        return "UK"
 
-    monkeypatch.setattr(penny_tools_module, "get_user_region", fake_region)
 
     async def fake_kind_map(uid):
         return {"Groceries": "discretionary", "Savings": "movement"}
@@ -506,10 +503,7 @@ def test_get_account_activity_no_account_given_summarises_every_account(monkeypa
 
     monkeypatch.setattr(accounts_router_module, "get_accounts", fake_get_accounts)
 
-    async def fake_region(uid):
-        return "UK"
 
-    monkeypatch.setattr(penny_tools_module, "get_user_region", fake_region)
 
     async def fake_kind_map(uid):
         return {}
@@ -584,10 +578,7 @@ def test_get_account_activity_unique_name_still_resolves(monkeypatch):
 
     monkeypatch.setattr(accounts_router_module, "get_accounts", fake_get_accounts)
 
-    async def fake_region(uid):
-        return "UK"
 
-    monkeypatch.setattr(penny_tools_module, "get_user_region", fake_region)
 
     async def fake_kind_map(uid):
         return {}
@@ -618,10 +609,7 @@ def test_get_account_activity_id_always_resolves_even_with_duplicate_names(monke
 
     monkeypatch.setattr(accounts_router_module, "get_accounts", fake_get_accounts)
 
-    async def fake_region(uid):
-        return "UK"
 
-    monkeypatch.setattr(penny_tools_module, "get_user_region", fake_region)
 
     async def fake_kind_map(uid):
         return {}
@@ -673,10 +661,7 @@ def test_get_account_activity_resolves_pot_by_the_plural_phrasing_a_user_types(m
 
     monkeypatch.setattr(accounts_router_module, "get_accounts", fake_get_accounts)
 
-    async def fake_region(uid):
-        return "UK"
 
-    monkeypatch.setattr(penny_tools_module, "get_user_region", fake_region)
 
     async def fake_kind_map(uid):
         return {}
@@ -714,10 +699,7 @@ def test_get_account_activity_date_from_takes_priority_over_days(monkeypatch):
 
     monkeypatch.setattr(accounts_router_module, "get_accounts", fake_get_accounts)
 
-    async def fake_region(uid):
-        return "UK"
 
-    monkeypatch.setattr(penny_tools_module, "get_user_region", fake_region)
 
     async def fake_kind_map(uid):
         return {}
@@ -756,10 +738,7 @@ def test_get_account_activity_first_transaction_survives_beyond_top_n(monkeypatc
 
     monkeypatch.setattr(accounts_router_module, "get_accounts", fake_get_accounts)
 
-    async def fake_region(uid):
-        return "UK"
 
-    monkeypatch.setattr(penny_tools_module, "get_user_region", fake_region)
 
     async def fake_kind_map(uid):
         return {}

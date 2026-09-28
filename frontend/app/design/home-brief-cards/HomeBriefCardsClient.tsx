@@ -11,9 +11,14 @@ import { useSearchParams } from "next/navigation";
 import VariantA from "./VariantA";
 import VariantB from "./VariantB";
 import VariantC from "./VariantC";
+import TrajectoryStates from "./TrajectoryStates";
 
 export type PreviewVariant = "a" | "b" | "c";
-export type PreviewState = "stack" | "family";
+// G103 added "trajectory": the four debt-trajectory states (plus the card as
+// it read before the change), rendered through the production CliffCard. It
+// is a state rather than a fourth variant because it is not a competing art
+// direction, it is one card's content in every direction it can now take.
+export type PreviewState = "stack" | "family" | "trajectory";
 export type PreviewMode = "light" | "dark";
 
 const VARIANTS: { key: PreviewVariant; short: string; label: string }[] = [
@@ -52,25 +57,44 @@ function ReviewControls({
       className="pointer-events-auto max-w-[calc(100vw-24px)] rounded-2xl border border-white/15 bg-slate-950/92 p-1.5 shadow-xl"
     >
       <div className="flex items-center justify-center gap-1">
-        {VARIANTS.map((item) => (
-          <a
-            key={item.key}
-            href={hrefFor({ variant: item.key, state, mode })}
-            aria-current={item.key === variant ? "page" : undefined}
-            aria-label={`Variant ${item.short}: ${item.label}`}
-            className={`flex min-h-11 min-w-11 touch-manipulation items-center justify-center rounded-xl px-3 text-xs font-bold [-webkit-tap-highlight-color:transparent] transition-[transform,background-color,color] duration-150 motion-reduce:transition-none active:scale-95 ${focus} ${
-              item.key === variant ? "bg-indigo-600 text-white" : inactive
-            }`}
-          >
-            {item.short}
-          </a>
-        ))}
+        {VARIANTS.map((item) => {
+          // The Debt state has no variants, so a variant link leaving it
+          // returns to that variant's Home stack rather than silently doing
+          // nothing, and none of them claim to be the current page while it
+          // is showing.
+          const active = item.key === variant && state !== "trajectory";
+          return (
+            <a
+              key={item.key}
+              href={hrefFor({ variant: item.key, state: state === "trajectory" ? "stack" : state, mode })}
+              aria-current={active ? "page" : undefined}
+              aria-label={`Variant ${item.short}: ${item.label}`}
+              className={`flex min-h-11 min-w-11 touch-manipulation items-center justify-center rounded-xl px-3 text-xs font-bold [-webkit-tap-highlight-color:transparent] transition-[transform,background-color,color] duration-150 motion-reduce:transition-none active:scale-95 ${focus} ${
+                active ? "bg-indigo-600 text-white" : inactive
+              }`}
+            >
+              {item.short}
+            </a>
+          );
+        })}
         <span className="mx-0.5 h-6 w-px bg-white/15" aria-hidden="true" />
         <a
           href={hrefFor({ variant, state: state === "stack" ? "family" : "stack", mode })}
-          className={`flex min-h-11 touch-manipulation items-center justify-center rounded-xl px-3 text-xs font-semibold [-webkit-tap-highlight-color:transparent] transition-[transform,background-color,color] duration-150 motion-reduce:transition-none active:scale-95 ${focus} ${inactive}`}
+          aria-current={state === "family" ? "page" : undefined}
+          className={`flex min-h-11 touch-manipulation items-center justify-center rounded-xl px-3 text-xs font-semibold [-webkit-tap-highlight-color:transparent] transition-[transform,background-color,color] duration-150 motion-reduce:transition-none active:scale-95 ${focus} ${
+            state === "family" ? "bg-indigo-600 text-white" : inactive
+          }`}
         >
-          {state === "stack" ? "All 8" : "Home stack"}
+          {state === "family" ? "Home stack" : "All 8"}
+        </a>
+        <a
+          href={hrefFor({ variant, state: state === "trajectory" ? "stack" : "trajectory", mode })}
+          aria-current={state === "trajectory" ? "page" : undefined}
+          className={`flex min-h-11 touch-manipulation items-center justify-center rounded-xl px-3 text-xs font-semibold [-webkit-tap-highlight-color:transparent] transition-[transform,background-color,color] duration-150 motion-reduce:transition-none active:scale-95 ${focus} ${
+            state === "trajectory" ? "bg-indigo-600 text-white" : inactive
+          }`}
+        >
+          Debt
         </a>
         <a
           href={hrefFor({ variant, state, mode: mode === "dark" ? "light" : "dark" })}
@@ -87,7 +111,9 @@ export default function HomeBriefCardsClient() {
   const params = useSearchParams();
   const rawVariant = params.get("variant");
   const variant: PreviewVariant = rawVariant === "b" || rawVariant === "c" ? rawVariant : "a";
-  const state: PreviewState = params.get("state") === "family" ? "family" : "stack";
+  const rawState = params.get("state");
+  const state: PreviewState =
+    rawState === "family" ? "family" : rawState === "trajectory" ? "trajectory" : "stack";
   const mode: PreviewMode = params.get("mode") === "dark" ? "dark" : "light";
 
   useEffect(() => {
@@ -117,7 +143,9 @@ export default function HomeBriefCardsClient() {
               Home brief card family
             </h1>
             <p className="mx-auto mt-2 max-w-xl text-pretty text-sm leading-6 text-slate-600 dark:text-slate-300">
-              {selected.label}. The same 8 behaviours, real scenario values and settled actions, with one shared reading grammar.
+              {state === "trajectory"
+                ? "G103. The debt-trajectory card leads on movement over a stated window instead of the carried total, rendered here through the production card."
+                : `${selected.label}. The same 8 behaviours, real scenario values and settled actions, with one shared reading grammar.`}
             </p>
             <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
               Preview only. No bank data or preferences are changed.
@@ -125,9 +153,15 @@ export default function HomeBriefCardsClient() {
           </header>
 
           <div className="mt-7 sm:mt-9">
-            {variant === "a" && <VariantA state={state} />}
-            {variant === "b" && <VariantB state={state} />}
-            {variant === "c" && <VariantC state={state} />}
+            {state === "trajectory" ? (
+              <TrajectoryStates />
+            ) : (
+              <>
+                {variant === "a" && <VariantA state={state} />}
+                {variant === "b" && <VariantB state={state} />}
+                {variant === "c" && <VariantC state={state} />}
+              </>
+            )}
           </div>
         </div>
       </main>

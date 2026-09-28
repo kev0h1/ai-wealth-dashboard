@@ -109,6 +109,7 @@ function ItemRow({
             onMoveToTodo={() => onAction({ action: "todo" })}
             onBlock={(reason) => onAction({ action: "block", reason })}
             onReject={(reason) => onAction({ action: "reject", reason })}
+            onCancel={(reason) => onAction({ action: "cancel", reason })}
             onApprove={(choice) => onAction({ action: "approve", choice })}
             onNote={(text) => onAction({ action: "note", text })}
             onPriority={(priority) => onAction({ action: "priority", priority })}

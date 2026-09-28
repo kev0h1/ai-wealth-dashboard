@@ -33,6 +33,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.core.auth import current_user
 from app.core.config import OPENROUTER_API_KEY
 from app.core.subscription import penny_allowance
+from app.core import timeutil
 from app.db.collections import commitments_col, penny_proposals_col, preferences_col
 from app.routers.analytics import get_cached_safe_to_spend
 from app.routers.scenario import looks_like_scenario, parse_question
@@ -574,7 +575,7 @@ _REASSURANCE_CHIPS = [
 def _weekend_or_week() -> str:
     """"this week" early in the pay-week (Mon-Wed), "this weekend" once it's
     close enough to be the natural next spend occasion (Thu-Sun)."""
-    return "this week" if date.today().weekday() < 3 else "this weekend"
+    return "this week" if timeutil.user_today().weekday() < 3 else "this weekend"
 
 
 def _amount_chip(label: str, amount: float, occasion: str) -> dict:
@@ -620,7 +621,7 @@ async def _discretionary_chip_candidate(uid: str, kind_map) -> tuple[str, float]
     wins outright, and the tightest-spread category wins any count tie."""
     from app.services.pace import load_spend_txns
 
-    end = date.today()
+    end = timeutil.user_today()
     start = end - timedelta(days=_CHIP_B_LOOKBACK_DAYS)
     txns = await load_spend_txns(uid, start, end, kind_map=kind_map)
 
@@ -677,7 +678,7 @@ async def _commitment_chip_candidate(uid: str) -> tuple[str, float] | None:
         return None
     cfg = await _commitments_pay_cfg(uid)
     ledger = await compute_pot_ledger(uid, docs=[doc])
-    info = await _pot_progress_and_slice(doc, cfg, ledger, date.today())
+    info = await _pot_progress_and_slice(doc, cfg, ledger, timeutil.user_today())
     slice_amount = float(info.get("per_period_slice") or 0)
     if slice_amount <= 0:
         return None

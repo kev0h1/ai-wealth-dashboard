@@ -31,9 +31,17 @@ logger = logging.getLogger(__name__)
 
 
 async def _compute_today(uid: str) -> dict:
-    from app.services.companion import compute_today_items
-    items = await compute_today_items(uid, payday_preview=False)
-    return {"status": "ok", "items": items}
+    # Shared with GET /today (app.routers.companion.get_today) so the two
+    # call sites can never drift on this endpoint's shape — the same
+    # reasoning as `_compute_safe_to_spend` below, and the fix for G148:
+    # this function used to build its own `{"status": "ok", "items": items}`
+    # literal, which never grew the `account_eligibility` key G110 added to
+    # the route in September 2026. The warm-up's payload is the one that
+    # gets persisted after every sync and served verbatim on the next Home
+    # load, so that one missing key made the whole spend-from rail
+    # disappear from Home with no error anywhere.
+    from app.routers.companion import build_today_payload
+    return await build_today_payload(uid, payday_preview=False)
 
 
 async def _compute_safe_to_spend(uid: str) -> dict:

@@ -129,19 +129,12 @@ export const BANK_META: Record<string, BankMeta> = {
   CHASE:        { label: "Chase",        bg: "linear-gradient(135deg,#117aca,#003087)", logoFile: "chase.png",      initials: "Ch" },
   FIRST_DIRECT: { label: "first direct", bg: "linear-gradient(135deg,#111,#444)",       logoFile: "first_direct.png", initials: "fd" },
   TSB:          { label: "TSB",          bg: "linear-gradient(135deg,#006ab0,#003f6b)", logoFile: "tsb.png",        initials: "TSB", initialsSize: "9px" },
-  MONO:         { label: "Mono",         bg: "linear-gradient(135deg,#1a1a2e,#16213e)", initials: "M" },
-  MPESA:        { label: "M-Pesa",       bg: "linear-gradient(135deg,#4caf50,#1b5e20)", initials: "MP", initialsSize: "10px" },
-  // Kenyan banks (statement uploads)
-  EQUITY:       { label: "Equity Bank",  bg: "linear-gradient(135deg,#e60000,#8b0000)",  initials: "EQ" },
-  KCB:          { label: "KCB",          bg: "linear-gradient(135deg,#006400,#003300)",  initials: "KCB", initialsSize: "10px" },
-  NCBA:         { label: "NCBA",         bg: "linear-gradient(135deg,#00205b,#001133)",  initials: "NCBA", initialsSize: "8px" },
-  STANBIC:      { label: "Stanbic",      bg: "linear-gradient(135deg,#003087,#001f5b)",  initials: "SB" },
+  // Statement-import banks that trade in the UK (see BANK_SLUG_MAP in
+  // backend/app/routers/statements.py). A98 removed the Kenya-only entries
+  // along with the Kenya region.
   ABSA:         { label: "Absa",         bg: "linear-gradient(135deg,#dc143c,#8b0000)",  initials: "ABS", initialsSize: "9px" },
   COOP:         { label: "Co-op Bank",   bg: "linear-gradient(135deg,#003087,#1a5276)",  initials: "CO" },
-  DTB:          { label: "DTB",          bg: "linear-gradient(135deg,#1a237e,#0d47a1)",  initials: "DTB", initialsSize: "10px" },
   STANCHART:    { label: "Std Chartered",bg: "linear-gradient(135deg,#00a0e3,#005b9f)",  initials: "SC" },
-  FAMILY:       { label: "Family Bank",  bg: "linear-gradient(135deg,#ff6600,#cc3300)",  initials: "FB" },
-  IMBANK:       { label: "I&M Bank",     bg: "linear-gradient(135deg,#b22222,#7b0000)",  initials: "I&M", initialsSize: "9px" },
   // Manually tracked accounts (backend sets provider: "Offline", see
   // companion.py) — deliberately no logoFile/domain, there is no bank brand
   // to fetch. Flat Slate Voice tone (#64748b, DESIGN.md) rather than a
@@ -324,6 +317,7 @@ export function BankBadge({
   altText,
   brandBg,
   size,
+  onLogoError,
 }: {
   logoSrc: string | null;
   initials: string;
@@ -334,6 +328,8 @@ export function BankBadge({
   /** Overrides the default 36px (w-9 h-9) chip size. Omit for byte-identical
    *  rendering to every pre-existing call site. */
   size?: number;
+  /** Lets a composed treatment replace the whole logo group on asset failure. */
+  onLogoError?: () => void;
 }) {
   const [imgFailed, setImgFailed] = useState(false);
   const sized = size !== undefined && size !== 36;
@@ -344,7 +340,10 @@ export function BankBadge({
       <img
         src={logoSrc}
         alt={altText}
-        onError={() => setImgFailed(true)}
+        onError={() => {
+          setImgFailed(true);
+          onLogoError?.();
+        }}
         className={`${sized ? "" : "w-9 h-9 rounded-xl"} object-contain bg-white p-0.5 ring-1 ring-black/[0.06] dark:ring-white/[0.12]`}
         style={sized ? { width: size, height: size, borderRadius: radius } : undefined}
       />

@@ -122,7 +122,7 @@ async def go_live(user: dict = Depends(current_user)):
 class ItemActionRequest(BaseModel):
     action: Literal[
         "done", "reopen", "start", "block", "reject", "note", "owner", "priority", "unblocks", "todo",
-        "uat", "approve",
+        "uat", "approve", "cancel",
     ]
     reason: Optional[str] = None
     text: Optional[str] = None
@@ -149,6 +149,11 @@ async def go_live_item_action(item_id: str, body: ItemActionRequest, user: dict 
     _require_owner(user)
     root = _repo_root()
     todo_path = root / _FILES["todo"]
+    # H64: only the "note" branch below ever populates this -- add_note is
+    # the one action whose write can silently truncate content at
+    # NOTE_CAP, so this is the one branch with a truncation fact to
+    # surface back to the page.
+    note_truncation: Optional[dict] = None
 
     try:
         if body.action == "done":
@@ -188,7 +193,9 @@ async def go_live_item_action(item_id: str, body: ItemActionRequest, user: dict 
         elif body.action == "note":
             if not body.text:
                 raise HTTPException(400, "text is required to add a note")
-            _, committed = backlog.add_note(item_id, body.text, actor=_PAGE_ACTOR, todo_path=todo_path, repo_root=root)
+            _, committed, note_truncation = backlog.add_note(
+                item_id, body.text, actor=_PAGE_ACTOR, todo_path=todo_path, repo_root=root
+            )
         elif body.action == "owner":
             if not body.owner:
                 raise HTTPException(400, "owner is required")
@@ -215,6 +222,26 @@ async def go_live_item_action(item_id: str, body: ItemActionRequest, user: dict 
             _, committed = backlog.set_approved(
                 item_id, body.choice, actor=_PAGE_ACTOR, todo_path=todo_path, repo_root=root
             )
+        elif body.action == "cancel":
+            if not body.reason:
+                raise HTTPException(400, "reason is required to cancel an item")
+            # H80: this page is owner-only end to end (_require_owner
+            # above), so _PAGE_ACTOR is hardcoded "kevin" regardless of
+            # what an unauthenticated caller might claim — the same real
+            # account-owner auth every other write on this route already
+            # relies on. backlog.set_cancelled still enforces the
+            # actor/reason/not-already-done rules itself either way (see
+            # TodoDoc.set_state); this call passes its own actor check
+            # today because _PAGE_ACTOR and TodoDoc.CANCEL_ACTOR both
+            # happen to be the literal string "kevin", not because the
+            # route is structurally guaranteed to agree with that
+            # constant forever — a correction round already found one
+            # overclaim in this area (the BACKLOG_AGENT check, removed),
+            # so this comment states what is true today rather than what
+            # can "never" fail.
+            _, committed = backlog.set_cancelled(
+                item_id, body.reason, actor=_PAGE_ACTOR, todo_path=todo_path, repo_root=root
+            )
         else:  # unreachable given the Literal type, kept for clarity
             raise HTTPException(400, f"unknown action: {body.action}")
     except backlog.BacklogError as exc:
@@ -222,6 +249,12 @@ async def go_live_item_action(item_id: str, body: ItemActionRequest, user: dict 
 
     payload = await _go_live_payload(user)
     payload["committed"] = committed
+    if note_truncation is not None:
+        # H64: only ever set for action == "note" above, and only carries
+        # a truthy "truncated" when _collapse_note_text actually cut the
+        # text, so the page can warn Kevin instead of reporting bare
+        # success on a write that silently lost content.
+        payload["note_truncation"] = note_truncation
     return payload
 
 

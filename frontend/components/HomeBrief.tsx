@@ -3,9 +3,10 @@
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { RefreshCw, AlertTriangle, AlertCircle, TrendingDown, X, ChevronRight, ChevronDown, UserRound, CalendarDays, CreditCard, Check, CheckCircle2, Clock3, ArrowRight, ArrowRightLeft, Circle } from "lucide-react";
+import { RefreshCw, AlertTriangle, AlertCircle, TrendingDown, TrendingUp, Minus, CircleDashed, X, ChevronRight, ChevronDown, UserRound, CalendarDays, CreditCard, Check, CheckCircle2, Clock3, ArrowRight, ArrowRightLeft, Circle } from "lucide-react";
 import type { CompanionItem, PlanDest, PlanDestBill, SafeToSpend, UnfundedMoveEntry } from "@/lib/api";
 import { api } from "@/lib/api";
+import { invalidateVerdictCache } from "@/lib/verdictCache";
 import { useAuth } from "@/components/AuthProvider";
 import PaydayPlanCard from "@/components/PaydayPlanCard";
 import PennyMark from "@/components/PennyMark";
@@ -18,7 +19,7 @@ import { getCategoryColour } from "@/lib/categories";
 import type { AttentionTarget } from "@/lib/attention";
 import { isPaydayWindowActive } from "@/lib/paydayWindow";
 import { readHomeDismissedAdvice, dismissOnHome, pruneHomeDismissedAdvice } from "@/lib/homeDismissedAdvice";
-import { isActionableCompanionItem } from "@/lib/companionItems";
+import { hasFundedCoverMove, isActionableCompanionItem } from "@/lib/companionItems";
 import MoneyText from "@/components/MoneyText";
 
 // Window-scoped local dismiss for the Payday plan ENTRY ROW (the Home-only
@@ -82,6 +83,8 @@ interface HomeBriefProps {
   onClearedChange?: (cleared: { count: number; type: CompanionItem["type"] } | null) => void;
   /** Home-only: forwarded straight to BriefBody, see BriefBodyProps.onInsightWinVisibleChange. */
   onInsightWinVisibleChange?: (visible: boolean) => void;
+  /** Home-only: forwarded straight to BriefBody, see BriefBodyProps.onCoverMoveVisibleChange. */
+  onCoverMoveVisibleChange?: (visible: boolean) => void;
   /**
    * Home-only: rendered directly beneath the greeting row (avatar/"Good
    * morning"/refresh), above everything else the brief renders (sync-error
@@ -770,13 +773,39 @@ interface CliffCardProps {
 // payload-less rhythm info items. NO Penny gradient (the indigo→violet
 // gradient marks advice surfaces; these state facts). Amber mark only:
 // approaching/projected risk, not materialised risk — red stays strictly
-// reserved for materialised risk (Red-is-Risk rule). Icon varies by type:
-// AlertTriangle for cliff, TrendingDown for trajectory. The ✕ only renders
+// reserved for materialised risk (Red-is-Risk rule). Rhythm items stay
+// neutral, they state an observed pattern, not a risk. The mark is the small
+// dot/check in KindLabel, not the label text or headline (Amber Lives In The
+// Signifier, DESIGN.md). The ✕ only renders
 // when `dismissible` (Home) — a local, Home-only hide; Penny never renders it.
+//
+// G103: a trajectory item is no longer assumed to be a risk reading. It now
+// leads on the movement in what is owed, which can be PROGRESS, so
+// companion.py sends its own `tone` (emerald check only when the balance is
+// coming down AND nothing on it is charging interest and no 0% cliff is on
+// file, amber whenever it is not coming down and that costs money or the
+// cost cannot be ruled out, neutral otherwise) and its own `trend`, which
+// picks the icon. Both are optional on the wire: an item persisted before
+// G103 has neither, and falls back to the pre-G103 behaviour (watch tone,
+// TrendingDown) rather than rendering blank.
+//
+// Every trend gets its OWN icon. `unknown` shared `Minus` with `flat` at
+// first, which made the icon assert "no change" on the one card that
+// explicitly refuses to make that claim; CircleDashed reads as unresolved
+// instead. The direction is always spoken in the headline too, so the icon
+// never carries meaning on its own (DESIGN.md).
+const TRAJECTORY_ICON = {
+  rising: TrendingUp,
+  falling: TrendingDown,
+  flat: Minus,
+  unknown: CircleDashed,
+} as const;
+
 export function CliffCard({ item, maskAmounts, dismissible, onHomeDismiss }: CliffCardProps) {
   const isTrajectory = item.type === "trajectory";
   const isRhythm = item.type === "rhythm";
-  const Icon = isTrajectory ? TrendingDown : isRhythm ? Clock3 : AlertTriangle;
+  const trajectoryIcon = (item.trend && TRAJECTORY_ICON[item.trend]) || TrendingDown;
+  const Icon = isTrajectory ? trajectoryIcon : isRhythm ? Clock3 : AlertTriangle;
   const label = isTrajectory ? "Debt trajectory" : isRhythm ? "Spending pattern" : "Rate change";
   const [hidden, setHidden] = useState(false);
   if (hidden) return null;
@@ -798,7 +827,7 @@ export function CliffCard({ item, maskAmounts, dismissible, onHomeDismiss }: Cli
       <div className="flex items-start gap-3 pr-9">
         <BriefIcon><Icon size={16} /></BriefIcon>
         <div className="min-w-0 flex-1">
-          <KindLabel tone={item.type === "cliff" ? "watch" : "neutral"}>{label}</KindLabel>
+          <KindLabel tone={item.type === "cliff" ? "watch" : isTrajectory ? (item.tone ?? "watch") : "neutral"}>{label}</KindLabel>
           <p className="mt-1 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-white">
             <MoneyText text={maskAmounts(item.headline)} />
           </p>
@@ -1591,6 +1620,12 @@ export function RhythmCard({ item, router, maskAmounts, onRefresh, previewMode =
     }
     try {
       await api.recordTrendIntent(category, answer);
+      // G83 fix-round: this card's one_off/new_normal answer changes the
+      // SAME category_intent_col row /spend/verdict's notables read (same
+      // gap as SpendPage's own handleFileNewNormal/onIntent) — a later
+      // Spend visit within the TTL window must not repaint the pre-answer
+      // verdict.
+      invalidateVerdictCache();
       setConfirmed(answer);
       onRefresh?.();
     } catch {
@@ -1838,9 +1873,16 @@ export interface BriefBodyProps {
    * onClearedChange above.
    */
   onInsightWinVisibleChange?: (visible: boolean) => void;
+  /**
+   * Home-only: reports whether a cover-plan move card is currently visible
+   * after the same local-dismissal filter MoveCard renders from. Home passes
+   * this to SafeToSpendCard so G115 can say a visible move above is already
+   * held back without leaving that sentence behind after the card is hidden.
+   */
+  onCoverMoveVisibleChange?: (visible: boolean) => void;
 }
 
-export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth = false, onRefresh, attnTarget, dismissible = false, hideAttribution = false, onClearedChange, onInsightWinVisibleChange }: BriefBodyProps) {
+export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth = false, onRefresh, attnTarget, dismissible = false, hideAttribution = false, onClearedChange, onInsightWinVisibleChange, onCoverMoveVisibleChange }: BriefBodyProps) {
   // Hooks must run unconditionally, before the items.length early return below.
   const { dismissedIds, dismiss: homeDismiss } = useHomeDismissedAdvice(rawItems, dismissible);
   const items = dismissible ? rawItems.filter(i => !dismissedIds.has(i.id)) : rawItems;
@@ -1853,6 +1895,7 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth =
   const hasInsightWinCelebration = items.some(
     i => i.type === "celebration" && i.id.startsWith("insight_win:")
   );
+  const hasVisibleCoverMove = hasFundedCoverMove(items);
 
   // Latest-ref, not a dep: onClearedChange is public on BriefBodyProps, so
   // nothing stops a future caller passing a fresh inline function every
@@ -1912,6 +1955,13 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth =
   useLayoutEffect(() => {
     onInsightWinVisibleChangeRef.current?.(hasInsightWinCelebration);
   }, [hasInsightWinCelebration]);
+
+  const onCoverMoveVisibleChangeRef = useRef(onCoverMoveVisibleChange);
+  onCoverMoveVisibleChangeRef.current = onCoverMoveVisibleChange;
+
+  useLayoutEffect(() => {
+    onCoverMoveVisibleChangeRef.current?.(hasVisibleCoverMove);
+  }, [hasVisibleCoverMove]);
 
   if (items.length === 0) {
     // Home-only: everything that existed got hidden via "Hide on Home", not
@@ -2110,7 +2160,10 @@ export interface HomeBriefClearedRowProps {
 const CLEARED_TYPE_LABEL: Record<string, string> = {
   move: "a money move",
   cliff: "an upcoming bill",
-  trajectory: "an upcoming bill",
+  // G103: a trajectory item is a reading of which way the card balances are
+  // going, never a bill. "an upcoming bill" here was simply wrong, and it
+  // got more wrong once the card could report progress.
+  trajectory: "a debt reading",
   rhythm: "a spending change",
   intent_pace: "a pace note",
   celebration: "a win",
@@ -2163,7 +2216,7 @@ export function HomeBriefClearedRow({ cleared, router }: HomeBriefClearedRowProp
   );
 }
 
-export default function HomeBrief({ items, firstName, safeToSpend, loading, syncing, syncError, onSync, hideNetWorth, onRefresh, attnTarget, dismissible, hasAccounts, onClearedChange, onInsightWinVisibleChange, banner }: HomeBriefProps) {
+export default function HomeBrief({ items, firstName, safeToSpend, loading, syncing, syncError, onSync, hideNetWorth, onRefresh, attnTarget, dismissible, hasAccounts, onClearedChange, onInsightWinVisibleChange, onCoverMoveVisibleChange, banner }: HomeBriefProps) {
   const router = useRouter();
   const { user } = useAuth();
   const name = firstName || "there";
@@ -2241,7 +2294,7 @@ export default function HomeBrief({ items, firstName, safeToSpend, loading, sync
         {loading ? (
           <BriefSkeleton />
         ) : (
-          <BriefBody items={items} safeToSpend={safeToSpend} router={router} hideNetWorth={hideNetWorth} onRefresh={onRefresh} attnTarget={attnTarget} dismissible={dismissible} onClearedChange={onClearedChange} onInsightWinVisibleChange={onInsightWinVisibleChange} />
+          <BriefBody items={items} safeToSpend={safeToSpend} router={router} hideNetWorth={hideNetWorth} onRefresh={onRefresh} attnTarget={attnTarget} dismissible={dismissible} onClearedChange={onClearedChange} onInsightWinVisibleChange={onInsightWinVisibleChange} onCoverMoveVisibleChange={onCoverMoveVisibleChange} />
         )}
       </div>
 
@@ -2286,71 +2339,15 @@ export interface PaydayPlanSectionProps {
   hasAccounts?: boolean;
 }
 
-// Third state (2026-08-29 FIX A): the window's live payday_plan has already
-// auto-verified ("done") — nothing left to forecast, only to report. A
-// quiet, single tap target ("Already split: £600 to 2 accounts ›") that
-// expands IN PLACE into the same full PaydayPlanCard using the item's own
-// (already-fetched) data — never a fresh preview fetch, and no glow (the
-// attention rung was removed app-wide, 2026-08-29 — this state is calm,
-// not something that needs eyes on it).
-//
-// FIX D (2026-08-29, owner report): passes `onClose` (never `dismissible`)
-// to the expanded PaydayPlanCard below, on BOTH Home and Penny. Before
-// PaydayPlanCard's `showCloseButton`/`onClose` fix, its × branched on
-// `item.preview` — false for an executed item — so this expand's × fell
-// into `handleDismiss`: the row looked like it "disappeared" on click
-// (rather than collapsing) and silently persisted a backend dismiss that
-// didn't even suppress regeneration (companion.py's executed-item path
-// never consulted the dismissed set), hence "clears but comes back on
-// refresh". Now the × here only ever collapses back to the summary row —
-// never a real dismiss — so it's safe to keep on Penny too, which per the
-// owner's rule (payday plan is Penny's permanent, non-dismissible content)
-// must never let this report be dismissed away, only shown or collapsed.
-function ExecutedPaydayRow({
-  item, router, hideNetWorth, maskAmounts, onRefresh,
-}: {
-  item: CompanionItem;
-  router: ReturnType<typeof useRouter>;
-  hideNetWorth: boolean;
-  maskAmounts: (text: string) => string;
-  onRefresh?: () => void;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const moveCount = (item.dests ?? []).filter(d => d.move > 0).length;
-  const total = Math.round(item.total ?? 0);
-  const summary = hideNetWorth
-    ? `Already split: £•••• to ${moveCount} ${moveCount === 1 ? "account" : "accounts"}`
-    : `Already split: £${total.toLocaleString("en-GB")} to ${moveCount} ${moveCount === 1 ? "account" : "accounts"}`;
-
-  if (expanded) {
-    return (
-      <PaydayPlanCard
-        item={item}
-        router={router}
-        hideNetWorth={hideNetWorth}
-        maskAmounts={maskAmounts}
-        onRefresh={onRefresh}
-        onClose={() => setExpanded(false)}
-      />
-    );
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={() => setExpanded(true)}
-      aria-expanded={false}
-      className="glass-card rounded-2xl w-full min-h-[44px] px-4 py-3 flex items-center justify-between gap-3 text-left active:scale-[0.99] transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-    >
-      <span className="min-w-0">
-        <span className="block text-[15px] font-semibold text-slate-900 dark:text-slate-100 leading-snug">
-          {maskAmounts(summary)}
-        </span>
-      </span>
-      <ChevronRight size={16} aria-hidden="true" className="flex-shrink-0 text-slate-400 dark:text-slate-500" />
-    </button>
-  );
-}
+// G164 (2026-09-26, Kevin): there is no third ("executed"/"already split")
+// state any more — `ExecutedPaydayRow` is deleted outright. The payday plan
+// is purely advisory: a forward-looking suggestion for the period that
+// starts on payday, an alternative to fixed standing orders. Once the pay
+// lands there is nothing left to validate, so there is nothing to report
+// either. Home shows the live entry row/plan until the period's salary is
+// observed, then nothing; Penny always shows the plan for the NEXT payday
+// (see `hasLivePlan`/`paydaySubline` below), with a minimise-only chevron,
+// never an X.
 
 // Extracted out of HomeBrief/BriefBody so both Home (gated to a timely
 // window) and the Penny screen (its permanent, ungated home) render the
@@ -2365,6 +2362,16 @@ export function PaydayPlanSection({ items, safeToSpend, hideNetWorth = false, on
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
 
+  // Review fix (G164): on Penny (no `gate`), a LIVE active plan rendered
+  // with neither `dismissible` nor `onClose` — `showCloseButton` in
+  // PaydayPlanCard came out false, so the card had no control at all.
+  // Penny is minimise-only (never dismissible), so a live card there gets
+  // `onClose` instead: collapsing it back to this same entry-row shape
+  // (below) rather than the full card, exactly like the preview toggle
+  // already does. Home's card is untouched — it keeps its real
+  // `dismissible` X and never sets this.
+  const [liveMinimised, setLiveMinimised] = useState(false);
+
   // No-accounts guard — Home-only (gate is only ever true on Home). Once
   // accounts have loaded and there genuinely are none, this section must
   // never render, no matter what a stale/edge-case safeToSpend response says.
@@ -2372,20 +2379,16 @@ export function PaydayPlanSection({ items, safeToSpend, hideNetWorth = false, on
 
   const paydayPlanItems = items.filter(i => i.type === "payday_plan");
   // Hide the entry row entirely once a real payday_plan item is already
-  // surfaced in items (payday itself) — no duplication on payday. An
-  // `executed` item (2026-08-29 FIX A: the window's live plan has already
-  // auto-verified) still counts as "there's a plan here" for this purpose —
-  // it renders its own quiet row below rather than the entry row reopening
-  // a preview that, inside an already-paid window, has nothing left to
-  // forecast.
+  // surfaced in items (payday itself) — no duplication on payday. G172
+  // (2026-09-27): there is no third "executed" state any more, and no
+  // lifecycle at all — the plan is a distribution recommendation,
+  // recomputed fresh every call, with nothing to verify or celebrate. A
+  // plan with nothing left to move still surfaces (backend companion.py
+  // section 5b's "every account is already set" headline), so every
+  // payday_plan item reaching this component is a live, dismissible
+  // (Home) or minimisable (Penny) plan.
   const hasLivePlan = paydayPlanItems.length > 0;
-  // Third state (window active + plan executed): a quiet "Already split"
-  // row, expandable in place into the SAME full PaydayPlanCard using data
-  // already on hand — never a fresh `/today?payday_preview=1` fetch, which
-  // is exactly the call FIX A's gate now knows to answer with this same
-  // executed summary anyway.
-  const executedPlanItems = paydayPlanItems.filter(i => i.executed);
-  const activePlanItems = paydayPlanItems.filter(i => !i.executed);
+  const activePlanItems = paydayPlanItems;
 
   const windowActive = isPaydayWindowActive({
     hasLivePlan,
@@ -2475,13 +2478,42 @@ export function PaydayPlanSection({ items, safeToSpend, hideNetWorth = false, on
 
   return (
     <div className="mt-3 space-y-3">
-      {activePlanItems.map(item => (
-        <PaydayPlanCard key={item.id} item={item} router={router} hideNetWorth={hideNetWorth} maskAmounts={maskAmounts} onRefresh={onRefresh} dismissible={!!gate} />
+      {!liveMinimised && activePlanItems.map(item => (
+        <PaydayPlanCard
+          key={item.id}
+          item={item}
+          router={router}
+          hideNetWorth={hideNetWorth}
+          maskAmounts={maskAmounts}
+          onRefresh={onRefresh}
+          dismissible={!!gate}
+          onClose={!gate ? () => setLiveMinimised(true) : undefined}
+        />
       ))}
 
-      {executedPlanItems.map(item => (
-        <ExecutedPaydayRow key={item.id} item={item} router={router} hideNetWorth={hideNetWorth} maskAmounts={maskAmounts} onRefresh={onRefresh} />
-      ))}
+      {/* Minimised live plan — Penny only (`!gate`). Same collapsed-row
+          shape as the entry row below, so minimising a live plan and
+          reopening it reads as one consistent affordance rather than two
+          different rows. Tapping re-expands the SAME item, already held in
+          `items`/`activePlanItems` — no re-fetch. */}
+      {!gate && liveMinimised && hasLivePlan && (
+        <button
+          type="button"
+          onClick={() => setLiveMinimised(false)}
+          aria-expanded={false}
+          className="glass-card rounded-2xl w-full min-h-[44px] px-4 py-3 flex items-center justify-between gap-3 text-left active:scale-[0.99] transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+        >
+          <span className="min-w-0">
+            <span className="block text-[15px] font-semibold text-slate-900 dark:text-slate-100 leading-snug">
+              Payday plan
+            </span>
+            <span className="block text-[13px] text-slate-500 dark:text-slate-400 leading-snug">
+              {paydaySubline}
+            </span>
+          </span>
+          <ChevronRight size={16} aria-hidden="true" className="flex-shrink-0 text-slate-400 dark:text-slate-500" />
+        </button>
+      )}
 
       {showEntryRow && (
         <div className="space-y-2">

@@ -273,6 +273,58 @@ def test_verdict_mcp_flag_present_on_vercel_is_red():
     assert "vercel" in item.message
 
 
+# ── A67: TrueLayer stays absent in production ──────────────────────────────
+# Same shape as the MCP flag checks above, one question wider: four Railway
+# credential names rather than one flag, plus the Vercel picker flag.
+
+
+def test_verdict_truelayer_absent_everywhere_is_green():
+    item = release.verdict_truelayer_absent({"ai-wealth-dashboard": [], "worker": []}, False)
+    assert item.verdict == "green"
+
+
+def test_verdict_truelayer_credentials_on_railway_is_red():
+    item = release.verdict_truelayer_absent(
+        {"ai-wealth-dashboard": ["TRUELAYER_CLIENT_ID"], "worker": []}, False
+    )
+    assert item.verdict == "red"
+    assert "ai-wealth-dashboard" in item.message
+    assert "TRUELAYER_CLIENT_ID" in item.message
+
+
+def test_verdict_truelayer_names_every_offending_variable():
+    item = release.verdict_truelayer_absent(
+        {"ai-wealth-dashboard": list(release.TRUELAYER_RAILWAY_VARS), "worker": []}, False
+    )
+    assert item.verdict == "red"
+    for name in release.TRUELAYER_RAILWAY_VARS:
+        assert name in item.message
+
+
+def test_verdict_truelayer_picker_flag_on_vercel_is_red():
+    item = release.verdict_truelayer_absent({"ai-wealth-dashboard": [], "worker": []}, True)
+    assert item.verdict == "red"
+    assert "vercel" in item.message
+    assert release.TRUELAYER_VERCEL_VAR in item.message
+
+
+def test_verdict_truelayer_unknown_remote_state_is_not_red():
+    """A failed Railway/Vercel lookup gives empty lists and None, the same
+    "nothing to judge" shape verdict_mcp_flag treats as clean — an
+    infrastructure blip must not masquerade as a policy breach."""
+    item = release.verdict_truelayer_absent({"ai-wealth-dashboard": [], "worker": []}, None)
+    assert item.verdict == "green"
+
+
+def test_truelayer_railway_vars_are_the_four_from_the_manifest():
+    assert sorted(release.TRUELAYER_RAILWAY_VARS) == [
+        "TRUELAYER_CLIENT_ID",
+        "TRUELAYER_CLIENT_SECRET",
+        "TRUELAYER_REDIRECT_URI",
+        "TRUELAYER_WEBHOOK_SECRET",
+    ]
+
+
 def test_verdict_env_drift_clean():
     assert release.verdict_env_drift([]).verdict == "green"
 

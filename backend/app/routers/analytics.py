@@ -20,19 +20,20 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.auth import current_user
+from app.core.build import engine_build
 from app.core.config import OPENROUTER_API_KEY
 from app.core.llm import openrouter_chat
 from app.core.models import KPIResponse, Insight
+from app.core import timeutil
 from app.db.collections import (
     accounts_col, transactions_col, yapily_accounts_col, yapily_transactions_col,
     yapily_consents_col,
-    statement_accounts_col, investment_accounts_col, mono_accounts_col, mpesa_accounts_col,
-    mono_transactions_col, mpesa_transactions_col, statement_transactions_col,
+    statement_accounts_col, investment_accounts_col,
+    statement_transactions_col,
     preferences_col, savings_insights_col, cashflow_cache_col, upcoming_overrides_col,
     upcoming_rules_col, planned_expenses_col, investment_notes_col,
     confirmed_transfer_pairs_col, pending_transactions_col, card_terms_col,
 )
-from app.services.region import get_user_region, get_kenya_transactions
 from app.services.pay_period import get_pay_period_for_date, prev_pay_period
 from app.services import response_cache
 from app.services.sync_freshness import last_bank_sync
@@ -129,14 +130,23 @@ OBSERVATION_LOOKBACK_DAYS = 6   # real bills land up to 5 days before their anch
 # `bnpl_commitments` key at all; `_build_cashflow_response` treats that as
 # "nothing to project" rather than misreading absence as an empty list of a
 # newer shape.
-PATTERNS_VERSION = 9
+# v10 (G174): recurring_income entries can now carry `confirmed_alias` (set
+# by `_confirmed_income_fallback`'s dedupe guard) -- a cache doc computed
+# before this exists has no such field on any entry, so `income_credit_ok`
+# can't recognise a detected series as standing in for a confirmed one under
+# a changed payroll reference until the doc is recomputed under this version.
+PATTERNS_VERSION = 10
 
 def _next_working_day(d):  # d: datetime.date -> datetime.date
     while d.weekday() >= 5 or d.isoformat() in UK_BANK_HOLIDAYS_EW:
         d += timedelta(days=1)
     return d
 
-from app.services.income import next_occurrence as _next_occ_svc, schedule_label as _schedule_label_svc
+from app.services.income import (
+    next_occurrence as _next_occ_svc,
+    schedule_label as _schedule_label_svc,
+    income_merchant_label,
+)
 
 # Friendly display labels for upstream bank provider codes (uppercase keys).
 # Any code not in the map is title-cased by default (e.g. "MONZO" → "Monzo").
@@ -193,32 +203,13 @@ def _avg_monthly_burn(debits: list, fallback: float = 1000.0) -> float:
 @router.get("/kpis", response_model=KPIResponse)
 async def get_kpis(user: dict = Depends(current_user)):
     uid    = user["email"]
-    region = await get_user_region(uid)
     cutoff = datetime.now() - timedelta(days=90)
     _last_sync = await last_bank_sync(uid)
-
-    if region == "Kenya":
-        mono_accs  = await mono_accounts_col.find({"user_id": uid}).to_list(None)
-        mpesa_accs = await mpesa_accounts_col.find({"user_id": uid}).to_list(None)
-        stmt_accs  = await statement_accounts_col.find({"user_id": uid}).to_list(None)
-        all_accs   = mono_accs + mpesa_accs + stmt_accs
-        if not all_accs:
-            return KPIResponse(net_worth=0, cash=0, runway=0, investments=0, pensions=0, last_updated=_last_sync)
-        net_worth = sum(a.get("balance", 0) for a in all_accs)
-        cash      = net_worth
-        debits    = await get_kenya_transactions(uid, cutoff)
-        debits    = [d for d in debits if d.get("transaction_type") == "debit"]
-        avg_spend = _avg_monthly_burn(debits)
-        runway    = cash / avg_spend if avg_spend else 0
-        return KPIResponse(
-            net_worth=net_worth, cash=cash, runway=round(runway, 1),
-            investments=0, pensions=0, last_updated=_last_sync,
-        )
 
     accounts      = await accounts_col.find({"user_id": uid}).to_list(None)
     yapily_accs   = await yapily_accounts_col.find({"user_id": uid}).to_list(None)
     stmt_accs_all = await statement_accounts_col.find({"user_id": uid}).to_list(None)
-    # GBP net worth only — a KES statement upload must not be summed as £
+    # GBP net worth only — a non-GBP statement account must not be summed as £
     stmt_accs     = [a for a in stmt_accs_all if str(a.get("currency", "GBP")).upper() == "GBP"]
     inv_accs      = await investment_accounts_col.find({"user_id": uid}).to_list(None)
     # Aggregate contract notes since each account's statement date (display_value semantics)
@@ -299,7 +290,10 @@ async def compute_insights(uid: str) -> List[Insight]:
         if len(ts) >= 2:
             sorted_ts  = sorted(ts, key=lambda x: x["date"])
             avg_amount = sum(t["amount"] for t in sorted_ts) / len(sorted_ts)
-            last_days  = (datetime.now() - sorted_ts[-1]["date"]).days
+            # Calendar-day count (Europe/London "today" vs the stored txn's
+            # date component), not an instant-based delta, so this label is
+            # independent of host clock/timezone (G161).
+            last_days  = (timeutil.user_today() - sorted_ts[-1]["date"].date()).days
             if last_days > 60:
                 insights.append(Insight(
                     id=f"sub-{merchant.lower().replace(' ', '-')}",
@@ -668,6 +662,61 @@ def _advance_month_to_anchor(d, anchor):
     return d.replace(year=year, month=month, day=day)
 
 
+def _retreat_month_to_anchor(d, anchor):
+    """Mirror of `_advance_month_to_anchor`: move to the PRECEDING calendar
+    month, landing on `anchor` (same three shapes — see that function's
+    docstring). Only `d`'s year/month are used, same reason.
+
+    Used by `_late_reliable_income` (G167) to step a monthly-anchored
+    `recurring_income` entry's `next_date` back exactly one cycle. This is
+    provably the entry's own previous DUE occurrence, not an approximation
+    of it: `_detect_recurring` builds `next_date` by repeatedly calling
+    `_advance_month_to_anchor` forward from `last_date` until it lands
+    strictly after today (see that function's monthly branch), so the
+    sequence of values it steps through is exactly the anchor date in each
+    successive month — stepping one month BACKWARD from `next_date` with
+    the identical anchor lands on exactly the value that sequence held one
+    step earlier, whether or not a real payment was ever observed there.
+    """
+    year = d.year - (1 if d.month == 1 else 0)
+    month = 12 if d.month == 1 else d.month - 1
+    if isinstance(anchor, dict):
+        return _nth_weekday_of_month(year, month, anchor["weekday"], anchor["nth"])
+    month_len = monthrange(year, month)[1]
+    day = month_len if anchor is _MONTHLY_ANCHOR_EOM else min(anchor, month_len)
+    return d.replace(year=year, month=month, day=day)
+
+
+def _majority_landing_account(items: list) -> str | None:
+    """The account a set of transactions actually landed in: majority
+    account across occurrences, tie-broken by recency. Bills reliably come
+    from one account, so majority == most-recent for them; income can
+    wander between accounts, majority is the truth a per-account
+    simulation may rely on. Returns None for an empty list or one with no
+    account_id at all.
+
+    Shared by `_detect_recurring` (a detected series' own attribution
+    below) and `_confirmed_income_fallback` (G160: a synthesised
+    confirmed-income entry must attribute to the same landing account a
+    detected series would, otherwise `income_credit_ok`'s per-account check
+    rejects it before it ever reaches the confirmed-stream clause) so the
+    two never drift apart.
+    """
+    if not items:
+        return None
+    most_recent = max(items, key=lambda t: t["date"])
+    _acct_counts: dict[str, int] = {}
+    for _t in items:
+        _a = str(_t.get("account_id", "") or "")
+        if _a:
+            _acct_counts[_a] = _acct_counts.get(_a, 0) + 1
+    _recent_acct = str(most_recent.get("account_id", "") or "")
+    return (
+        max(_acct_counts, key=lambda a: (_acct_counts[a], 1 if a == _recent_acct else 0))
+        if _acct_counts else None
+    )
+
+
 def _detect_recurring(txns: list, min_occurrences: int = 2, trusted_categories: set | None = None, today: _date | None = None, is_income: bool = False, pay_period_config: dict | None = None, confirmed_income: dict | None = None, reversal_credits: list | None = None) -> list[dict]:
     """Group transactions by merchant key and detect those with a regular interval (7–35 days)."""
     # BNPL guard (unconditional): a Klarna/Clearpay/PayPal-Pay-in-3/etc.
@@ -808,7 +857,7 @@ def _detect_recurring(txns: list, min_occurrences: int = 2, trusted_categories: 
         # breaks comparisons against _today (a date) and .replace() calls below.
         _d2date = lambda d: d.date() if isinstance(d, datetime) else d
         last_date  = _d2date(dates[-1])
-        _today = today or _date.today()
+        _today = today or timeutil.user_today()
 
         # A genuinely-stopped series (e.g. a cancelled gym membership last
         # paid four months ago) would otherwise keep getting a fresh
@@ -949,22 +998,9 @@ def _detect_recurring(txns: list, min_occurrences: int = 2, trusted_categories: 
                 next_date = last_date + timedelta(days=round(avg_interval))
                 while next_date <= _today - _grace:
                     next_date += timedelta(days=round(avg_interval))
-        # Attribute the pattern to the account its transactions actually landed
-        # in: majority account across occurrences, tie-broken by recency.
-        # (Bills reliably come from one account, so majority == most-recent for
-        # them; income can wander between accounts — majority is the truth a
-        # per-account simulation may rely on.)
-        most_recent = max(items, key=lambda t: t["date"])
-        _acct_counts: dict[str, int] = {}
-        for _t in items:
-            _a = str(_t.get("account_id", "") or "")
-            if _a:
-                _acct_counts[_a] = _acct_counts.get(_a, 0) + 1
-        _recent_acct = str(most_recent.get("account_id", "") or "")
-        attributed_acct = (
-            max(_acct_counts, key=lambda a: (_acct_counts[a], 1 if a == _recent_acct else 0))
-            if _acct_counts else None
-        )
+        # Attribute the pattern to the account its transactions actually
+        # landed in (see `_majority_landing_account`'s docstring).
+        attributed_acct = _majority_landing_account(items)
         results.append({
             "key":          key,
             "avg_interval": round(avg_interval, 1),
@@ -990,6 +1026,513 @@ def _detect_recurring(txns: list, min_occurrences: int = 2, trusted_categories: 
     return results
 
 
+def _raw_income_stream_map(income_streams: list | None) -> dict[str, dict]:
+    """Key -> stream map over the FULL `income_streams` list, no status
+    filter (unlike `_build_confirmed_income_map`) -- used where a caller
+    needs to look up a stream's status/amount regardless of whether it is
+    confirmed, suggested or rejected (e.g. `compute_safe_to_spend`'s
+    income_suggestion step, which explicitly excludes confirmed/rejected
+    streams from its own candidate list). Same malformed-entry guard: a
+    non-dict entry or one missing "key" is skipped, not raised on
+    (G158 2026-09-24 review).
+    """
+    return {
+        _s["key"]: _s for _s in (income_streams or [])
+        if isinstance(_s, dict) and _s.get("key")
+    }
+
+
+def _build_confirmed_income_map(income_streams: list | None) -> dict[str, dict]:
+    """Build the key -> confirmed-stream map both `_detect_recurring`'s
+    `confirmed_income` param and `_confirmed_income_fallback` key off, from
+    the user's raw `preferences.income_streams` list.
+
+    Defensive against a malformed entry -- not a dict (a stray string/None
+    from a partial migration write), or a dict missing "key" -- either of
+    which would otherwise raise on the bracket access this replaced
+    (`_s["key"]`) and crash Safe to Spend for that user. The entry is
+    skipped instead (G158 follow-up, 2026-09-24 review).
+    """
+    out: dict[str, dict] = {}
+    for _s in (income_streams or []):
+        if not isinstance(_s, dict):
+            continue
+        _key = _s.get("key")
+        if _key and _s.get("status") == "confirmed" and _s.get("schedule"):
+            out[_key] = _s
+    return out
+
+
+def _within_pct_tolerance(a: float, b: float, pct: float = 0.15) -> bool:
+    """Same tolerance rule `_compute_cashflow_patterns`'s locally-scoped
+    `_within_15pct` uses for its own recurring-spend dedupe (that one is a
+    closure over `recurring_spend`/`single_debits`, not importable from a
+    module-level function) -- kept as one module-level helper so
+    `_confirmed_income_fallback`'s dedupe guard (G158 2026-09-24 review) can
+    reuse the identical maths rather than drift from it.
+    """
+    ref = max(abs(a), abs(b))
+    return ref == 0 or abs(a - b) / ref <= pct
+
+
+def _confirmed_income_fallback(
+    recurring_income: list[dict],
+    confirmed_income_map: dict[str, dict],
+    dismissed: set | frozenset,
+    today: _date,
+    credits_by_key: dict[str, list] | None = None,
+    latest_credit_by_key: dict[str, dict] | None = None,
+) -> list[dict]:
+    """G158: a stream the user explicitly confirmed must keep forecasting even
+    when `_detect_recurring`'s own window/floor loses it -- e.g. the flat
+    90-day income window sliding past an older occurrence the day before
+    payday, or a payroll reference change splitting one salary across two
+    series keys, each alone under the 2-occurrence floor (see line 709). Pure
+    and Mongo-free so it is unit-testable on its own: takes the ALREADY
+    dismissed-filtered `recurring_income` list, the confirmed-stream map
+    keyed the same way `_detect_recurring`'s `confirmed_income` param is
+    (see the `_confirmed_income_map` build above), the dismissed-key set, and
+    `today`. `credits_by_key` (series_key -> matching credit txns, same
+    grouping `_detect_recurring` itself buckets by) is optional and only
+    feeds the synthesised `occurrences`/`amounts_recent` fields; omit it (as
+    the unit tests below do) and those come back empty/zero.
+
+    `latest_credit_by_key` (series_key -> the single newest credit txn under
+    that key, from whatever wider window the caller already has loaded, e.g.
+    the 180-day `credits_180`) backs up `account_id` attribution (below) when
+    `credits_by_key` holds nothing for a key -- a confirmed stream can be
+    real and current while still having no credit inside the narrower
+    matching window (G160). Optional; omit it and that fallback step is
+    simply unavailable, same as `credits_by_key`.
+
+    Returns entries in the SAME dict shape `_detect_recurring` produces for
+    an income series (see its `results.append` above), so a synthesised
+    entry can be appended straight onto `recurring_income` and flow through
+    `_serialise_pattern`/`upcoming_income`/`payday_income` exactly like a
+    detected one. The one addition is `source: "confirmed"`, a marker so
+    downstream code and tests can tell a synthesised entry from a detected
+    one; nothing currently reads it, it is deliberately inert until
+    something needs to.
+    """
+    credits_by_key = credits_by_key or {}
+    latest_credit_by_key = latest_credit_by_key or {}
+    detected_keys = {r["key"] for r in recurring_income}
+    fallback: list[dict] = []
+    for key, stream in confirmed_income_map.items():
+        # `manual` has no transaction history to key off and today's
+        # forecast plumbing does not honour it (grep confirms no reader) --
+        # out of scope here, see G158's own note.
+        if key == "manual" or stream.get("status") != "confirmed":
+            continue
+        if key in detected_keys or key in dismissed:
+            continue
+        schedule = stream.get("schedule")
+        if not schedule:
+            continue
+        try:
+            next_date = _next_occ_svc(schedule, today)
+        except (KeyError, ValueError, TypeError):
+            # TypeError: a truthy but non-dict schedule (e.g. a stray
+            # string) -- `schedule["type"]` raises TypeError, not KeyError,
+            # for a non-mapping subscript (G158 follow-up).
+            continue
+        avg_amount = stream.get("avg_amount")
+        if avg_amount is None:
+            continue
+        # G160: attribute the synthesised entry to a landing account with
+        # the same precedence `income_credit_ok`'s per-account check needs
+        # to actually see it -- otherwise it fails attribution on the very
+        # first line, before it ever reaches the confirmed-stream clause,
+        # and a confirmed salary is silently invisible to every per-account
+        # simulation (cover plan, at-risk badge, source walks) even though
+        # the pooled forecast already counts it.
+        #   1. Majority landing account of the matched (in-window) credits,
+        #      same rule `_majority_landing_account` gives a detected
+        #      series -- the strongest evidence, real transactions inside
+        #      the window this fallback is actually forecasting from.
+        #   2. No in-window match: the most recent credit under this key
+        #      from the wider window the caller loaded anyway (see
+        #      `latest_credit_by_key`'s docstring) -- still real evidence,
+        #      just older than the window `credits_by_key` was built from.
+        #   3. Neither: None, same as before this fix -- a per-account
+        #      simulation correctly refuses to credit an account it has no
+        #      evidence for.
+        #
+        # Computed BEFORE the dedupe/alias decision below (moved there by
+        # the G174 review) so the alias guard can compare against the exact
+        # same account the synthesis path would otherwise attribute this
+        # confirmed stream to -- the two must never disagree about which
+        # account this confirmed stream belongs to.
+        matching = sorted(credits_by_key.get(key, []), key=lambda t: t["date"])
+        attributed_acct = _majority_landing_account(matching)
+        if attributed_acct is None:
+            _latest = latest_credit_by_key.get(key)
+            if _latest is not None:
+                attributed_acct = str(_latest.get("account_id", "") or "") or None
+
+        # G158 2026-09-24 review: a payroll reference change means the SAME
+        # payer can accrue enough fresh occurrences under the NEW key to
+        # clear `_detect_recurring`'s own floor before the confirmed
+        # stream's owner ever re-confirms under it (see G157). Without this
+        # guard, the confirmed key (old reference) and the newly-detected
+        # key (new reference) both end up in `recurring_income`, doubling
+        # the same salary in `upcoming_income`/`payday_income`. Suppress the
+        # synthesis when an already-detected entry lands within 3 days AND
+        # within 15% of amount -- close enough to be the same payer, not a
+        # coincidence -- and leave the DETECTED entry (real transaction
+        # evidence) in place rather than the synthesised one.
+        _dup = next(
+            (
+                r for r in recurring_income
+                if r.get("next_date") is not None
+                and abs((r["next_date"] - next_date).days) <= 3
+                and _within_pct_tolerance(float(r.get("avg_amount") or 0), float(avg_amount))
+            ),
+            None,
+        )
+        if _dup is not None:
+            _dup_acct = str(_dup.get("account_id") or "") or None
+            # G174 review, finding 1: date+amount closeness alone is not
+            # enough to call this the SAME payer -- a partner's similarly-
+            # sized salary landing on a similar date, but into a DIFFERENT
+            # account, must never be aliased or suppressed as a duplicate.
+            # None-permissive: when either side has no known account (no
+            # matched credits to attribute from), there is no account
+            # evidence to contradict, so the date/amount closeness stands
+            # alone, same as before this guard.
+            if attributed_acct is not None and _dup_acct is not None and _dup_acct != attributed_acct:
+                logger.info(
+                    "G174 confirmed-income alias skipped for %r: detected entry %r "
+                    "matches on date/amount but landed in a different account "
+                    "(%r vs %r) -- not the same payer, synthesising both",
+                    key, _dup.get("key"), _dup_acct, attributed_acct,
+                )
+                # Fall through: NOT a duplicate, so the confirmed stream is
+                # synthesised normally below rather than suppressed.
+            else:
+                # G174: stamp the confirmed key onto the detected entry it
+                # defers to, so `income_credit_ok` (and everything
+                # downstream that reads its output -- `_serialise_pattern`,
+                # `upcoming_income`, `payday_income`) can recognise this
+                # detected series as the SAME payer as the confirmed stream,
+                # under its new reference, and accept it as confirmed rather
+                # than requiring it to independently clear
+                # `_income_pattern_reliable`'s 3-occurrence floor. Without
+                # this, a fresh payroll-reference change leaves the
+                # confirmed salary invisible to income_credit_ok for its
+                # first two occurrences, and a per-account plan can pick an
+                # unrelated, merely-reliable candidate (e.g. a small
+                # standing order) as "the pay" instead. See G174's board
+                # note for the exact failure.
+                #
+                # G174 review, finding 2: a pathological doc where TWO
+                # confirmed streams both land within tolerance of the SAME
+                # detected entry must not let the second overwrite the
+                # first's alias -- keep the first, log both keys so the
+                # collision is visible rather than silently losing one.
+                _existing_alias = _dup.get("confirmed_alias")
+                if _existing_alias is not None and _existing_alias != key:
+                    logger.warning(
+                        "G174 confirmed-income alias collision for detected entry %r: "
+                        "already aliased to %r, leaving that in place rather than "
+                        "overwriting with second matching confirmed key %r",
+                        _dup.get("key"), _existing_alias, key,
+                    )
+                else:
+                    _dup["confirmed_alias"] = key
+                logger.info(
+                    "G158 confirmed-income fallback suppressed for %r: already detected "
+                    "as %r (next_date within 3 days, amount within 15%%) -- not "
+                    "double-counting the same payer under two series keys",
+                    key, _dup.get("key"),
+                )
+                continue
+        last_date = None
+        last_seen = stream.get("last_seen")
+        if last_seen:
+            try:
+                last_date = _date.fromisoformat(str(last_seen)[:10])
+            except ValueError:
+                last_date = None
+        amounts_recent = [
+            round(abs(float(_t.get("amount", 0))), 2) for _t in matching[-3:]
+        ]
+        fallback.append({
+            "key":          key,
+            "avg_interval": None,
+            "avg_amount":   round(float(avg_amount), 2),
+            "last_date":    last_date,
+            "next_date":    next_date,
+            "monthly_anchor": None,
+            "occurrences":  len(matching),
+            "account_id":   attributed_acct,
+            "amounts_recent": amounts_recent,
+            "category":     "Income",
+            "trusted_bypass_reason": None,
+            "occurrences_detail": [
+                {
+                    "date": (_t["date"].date() if isinstance(_t["date"], datetime) else _t["date"]).isoformat(),
+                    "amount": round(abs(float(_t.get("amount", 0))), 2),
+                }
+                for _t in matching
+            ],
+            "source": "confirmed",
+        })
+    return fallback
+
+
+def _prev_scheduled_occurrence(schedule: dict, today: _date, lookback_days: int = 45) -> _date | None:
+    """The latest schedule occurrence strictly BEFORE `today` — walks
+    `next_occurrence` (which returns the next date strictly AFTER the date
+    it's given) forward from `today - lookback_days` until it reaches or
+    passes `today`, keeping the last one that was still short of it.
+    Returns None when the schedule can't be stepped at all (malformed) or
+    has no such occurrence inside the lookback window (a brand-new
+    schedule, or one whose cadence is wider than the window).
+    """
+    cursor = today - timedelta(days=lookback_days)
+    prev: _date | None = None
+    for _ in range(lookback_days + 5):  # safety bound: far more steps than any real cadence needs
+        try:
+            nxt = _next_occ_svc(schedule, cursor)
+        except (KeyError, ValueError, TypeError):
+            break
+        if nxt >= today:
+            break
+        prev = nxt
+        cursor = nxt
+    return prev
+
+
+def _credit_date(t: dict) -> _date:
+    d = t.get("date")
+    return d.date() if isinstance(d, datetime) else d
+
+
+def _income_credit_landed(
+    avg_amount: float,
+    account_id: str | None,
+    prev_expected: _date,
+    today: _date,
+    income_credits_180: list[dict],
+) -> bool:
+    """Shared by both branches of `_late_reliable_income`: did a credit
+    matching `avg_amount` (AMOUNT BAND, `_within_pct_tolerance`, 15 percent)
+    land in `account_id` inside `[prev_expected - OBSERVATION_LOOKBACK_DAYS,
+    today]`? Deliberately NOT matched by series key — a payroll reference
+    change forks the series key (the exact G157 bug the confirmed branch
+    stands in for until that lands), so matching on key would report a
+    stream lapsed the moment its payer's reference changes, even though the
+    money landed under a different key. `account_id is None` means no
+    per-account simulation ever credited this entry anyway, so match on
+    amount and date alone.
+    """
+    lo = prev_expected - timedelta(days=OBSERVATION_LOOKBACK_DAYS)
+    return any(
+        _within_pct_tolerance(abs(float(c.get("amount") or 0)), float(avg_amount))
+        and lo <= _credit_date(c) <= today
+        and (account_id is None or str(c.get("account_id") or "") == str(account_id))
+        for c in income_credits_180
+    )
+
+
+def _late_reliable_income(
+    confirmed_income_map: dict[str, dict],
+    recurring_income: list[dict],
+    income_credits_180: list[dict],
+    today: _date,
+) -> list[dict]:
+    """G163's interim lapse signal (until G157's own payer-matcher replaces
+    it), widened by G167 to cover every income population `income_credit_ok`
+    will actually credit into a per-account walk, not just confirmed
+    streams — otherwise a merely-DETECTED but reliable pattern (3+
+    occurrences, stable amounts — see `_income_pattern_reliable`) suppresses
+    an at-risk warning on the day it's expected without ever being named
+    when it fails to land. Kevin, 2026-09-24, on the original confirmed-only
+    signal: "the AI should know money is coming in so perhaps I shouldn't
+    flag this, it only becomes a problem the day after." Lapse = expected
+    date + 1 day with no matching credit — pure and Mongo-free, unit-tested
+    directly in tests/test_expected_income_cover.py.
+
+    Decision (Fable, 2026-09-25, G167): the credit gate itself
+    (`income_credit_ok`) stays exactly as it is — tightening it to
+    confirmed-only would paint bills red on the very day a reliable
+    unconfirmed payment lands, the complaint G163 fixed. Instead, every
+    stream reliable enough to suppress a warning is accounted for in copy,
+    confirmed or not.
+
+    Two sources, same output shape plus a `"source"` field so callers/copy
+    can tell them apart:
+
+      - "confirmed": unchanged from the original signal. For each confirmed
+        stream with a schedule and `avg_amount`:
+          - `prev_expected` (`_prev_scheduled_occurrence`) is the most
+            recent occurrence strictly before `today`; a stream with none
+            (too new, or expected today or later) has nothing to have
+            lapsed, so is skipped.
+          - `days_late = today - prev_expected`. Once that exceeds
+            PENDING_GIVE_UP_DAYS (10), this stops reporting the stream as
+            late: by then G157's own missed-cycles rule and
+            payday-confirmation ask take over, and
+            `_confirmed_income_fallback`'s own `next_date` has already
+            rolled on to the FOLLOWING cycle (see its docstring), which is
+            what lets the per-account walks go negative on their own past
+            that point without this signal's help. This branch's job is
+            only the narrow window between "just missed" and "the
+            forecasting machinery has already moved on".
+          - `account_id` on each `confirmed_income_map` entry is expected to
+            already carry the attribution the matching `recurring_income`
+            entry landed in (the raw `preferences.income_streams` entry
+            itself has no account_id — the caller merges this in; see the
+            `_compute_cashflow_patterns` call site).
+
+      - "detected": a `recurring_income` entry whose key is NOT in
+        `confirmed_income_map` (skipped by key membership, not by the
+        item's own presence/absence of a `source` field — a confirmed
+        stream's `recurring_income` entry, real detected occurrences or the
+        G158 synthesised fallback, carries no dependable marker of its own,
+        so the confirmed map is the authoritative split) and which clears
+        `_income_pattern_reliable`. `prev_expected`:
+          - MONTHLY cadence (`26 <= avg_interval <= 35` — the same band
+            `_detect_recurring` gates its own monthly branch on, so this
+            reliably tells whether the entry's `monthly_anchor` field is a
+            real anchor or just the unused default): EXACT, not an
+            approximation. `_detect_recurring`'s `next_date` there is built
+            by `_advance_month_to_anchor(last_date, anchor)`, then
+            repeatedly re-advanced a month at a time until strictly after
+            today. `_retreat_month_to_anchor(next_date, anchor)` — the
+            mirror image, one month back, same anchor — lands on exactly
+            the value that stepping sequence held one step earlier,
+            whichever anchor shape `monthly_anchor` carries (int
+            day-of-month, `None` for EOM, or the `{"weekday", "nth"}`
+            dict). This is the case worth being exact about: an anchor
+            near month-end (e.g. the 31st) clamped into a shorter month
+            can otherwise be off by a few days, which is a meaningful
+            fraction of PENDING_GIVE_UP_DAYS.
+          - Every other cadence (weekly `6-10`, biweekly `11-18`, or the
+            generic fallback outside every named band): kept as
+            `next_date - round(avg_interval)` days, same as before this
+            review round. This remains an approximation for weekly/
+            biweekly specifically — `_detect_recurring` actually re-anchors
+            those on a fixed 7-day/14-day step from the series' modal
+            weekday, not literally `avg_interval` itself — bounded to
+            within a day or two, same as it always was. (For the generic
+            fallback band alone, `_detect_recurring` genuinely does step by
+            `round(avg_interval)`, so this is already exact there too.)
+            Exact weekday-anchored stepping for weekly/biweekly was scoped
+            out of this round: the monthly case is where day-clamping
+            produces the largest drift, and this signal is an interim
+            stand-in pending G157 regardless.
+
+    Returns `{"key", "label", "amount", "expected_date", "days_late",
+    "account_id", "source"}` for every stream/pattern that has genuinely
+    lapsed.
+    """
+    out: list[dict] = []
+
+    for key, stream in confirmed_income_map.items():
+        if key == "manual" or stream.get("status") != "confirmed":
+            continue
+        schedule = stream.get("schedule")
+        if not schedule:
+            continue
+        avg_amount = stream.get("avg_amount")
+        if avg_amount is None:
+            continue
+        prev_expected = _prev_scheduled_occurrence(schedule, today)
+        if prev_expected is None:
+            continue
+        days_late = (today - prev_expected).days
+        if days_late > PENDING_GIVE_UP_DAYS:
+            continue
+        account_id = stream.get("account_id")
+        if _income_credit_landed(avg_amount, account_id, prev_expected, today, income_credits_180):
+            continue
+        out.append({
+            "key": key,
+            "label": income_merchant_label(key),
+            "amount": round(float(avg_amount), 2),
+            "expected_date": prev_expected.isoformat(),
+            "days_late": days_late,
+            "account_id": account_id,
+            "source": "confirmed",
+        })
+
+    for item in recurring_income:
+        key = item.get("key")
+        if not key or key in confirmed_income_map:
+            continue  # confirmed streams are reported by the branch above only
+        # G174: a detected entry standing in for a confirmed stream under a
+        # changed payroll reference (`confirmed_alias`, stamped by
+        # `_confirmed_income_fallback`'s dedupe guard) is the SAME payer the
+        # branch above already considers under the confirmed key -- reporting
+        # it again here as a second, unrelated "detected" lapse would double-
+        # report one missed payday as two.
+        if item.get("confirmed_alias") in confirmed_income_map:
+            continue
+        if not _income_pattern_reliable(item):
+            continue
+        avg_amount = item.get("avg_amount")
+        avg_interval = item.get("avg_interval")
+        next_date = item.get("next_date")
+        if avg_amount is None or avg_interval is None or next_date is None:
+            continue
+        if isinstance(next_date, datetime):
+            next_date = next_date.date()
+        elif isinstance(next_date, str):
+            next_date = _date.fromisoformat(next_date)
+        avg_interval_f = float(avg_interval)
+        if 26 <= avg_interval_f <= 35:
+            # Monthly-anchored: exact mirror of `_detect_recurring`'s own
+            # forward stepping — see this function's docstring.
+            prev_expected = _retreat_month_to_anchor(next_date, item.get("monthly_anchor"))
+        else:
+            prev_expected = next_date - timedelta(days=round(avg_interval_f))
+        if prev_expected >= today:
+            continue  # own cadence says nothing was due yet
+        days_late = (today - prev_expected).days
+        if days_late > PENDING_GIVE_UP_DAYS:
+            continue
+        account_id = item.get("account_id")
+        if _income_credit_landed(avg_amount, account_id, prev_expected, today, income_credits_180):
+            continue
+        out.append({
+            "key": key,
+            "label": income_merchant_label(key),
+            "amount": round(float(avg_amount), 2),
+            "expected_date": prev_expected.isoformat(),
+            "days_late": days_late,
+            "account_id": account_id,
+            "source": "detected",
+        })
+
+    return out
+
+
+def _income_pattern_reliable(item: dict) -> bool:
+    """The RELIABILITY half of `income_credit_ok`'s two-part gate, extracted
+    so `_late_reliable_income` (G167) can find every DETECTED (unconfirmed)
+    income pattern reliable enough to be credited into a per-account walk in
+    the first place, without the two predicates being able to drift apart —
+    a stream must never be reliable enough to silently suppress an at-risk
+    warning while failing the bar that decides whether it explains itself
+    when it lapses.
+
+    3+ occurrences with stable recent amounts (max/min ≤ 1.5 over the last
+    3). Two-occurrence self-transfer patterns ("From <own name>") fail this
+    gate by construction. Deliberately says nothing about attribution
+    (matching `account_id`) or user confirmation — those are
+    `income_credit_ok`'s other two gates, callers of this predicate apply
+    their own.
+    """
+    if (item.get("occurrences") or 0) < 3:
+        return False
+    amts = [float(a) for a in (item.get("amounts_recent") or []) if a and float(a) > 0]
+    if len(amts) < 2:
+        return False
+    return max(amts) / min(amts) <= 1.5
+
+
 def income_credit_ok(item: dict, account_id: str, confirmed_keys: set | frozenset = frozenset()) -> bool:
     """Whether a predicted income may be credited to `account_id` inside a
     PER-ACCOUNT balance simulation (cover plans, at-risk badge, source walks).
@@ -1000,10 +1543,9 @@ def income_credit_ok(item: dict, account_id: str, confirmed_keys: set | frozense
          Broadcast-crediting predicted income to every account is how a
          self-transfer that historically landed in one bank silently
          underwrote another bank's cover plan.
-      2. Reliability — the prediction is solid: a user-confirmed income
-         stream, or 3+ occurrences with stable recent amounts
-         (max/min ≤ 1.5 over the last 3). Two-occurrence self-transfer
-         patterns ("From <own name>") fail this gate by construction.
+      2. Reliability — a user-confirmed income stream, or a pattern that
+         clears `_income_pattern_reliable` (3+ occurrences with stable
+         recent amounts).
 
     Items from stale caches missing this metadata are excluded outright —
     deliberately conservative: per-account arithmetic never leans on money
@@ -1011,14 +1553,14 @@ def income_credit_ok(item: dict, account_id: str, confirmed_keys: set | frozense
     """
     if not account_id or str(item.get("account_id") or "") != str(account_id):
         return False
-    if item.get("name") in confirmed_keys:
+    # G174: `confirmed_alias` (stamped by `_confirmed_income_fallback`'s
+    # dedupe guard) names the confirmed stream a DETECTED series is standing
+    # in for after a payroll reference change -- treat it as confirmed the
+    # same as a direct key match, so a fresh reference never has to
+    # independently clear the reliability floor before the plan trusts it.
+    if item.get("name") in confirmed_keys or item.get("confirmed_alias") in confirmed_keys:
         return True
-    if (item.get("occurrences") or 0) < 3:
-        return False
-    amts = [float(a) for a in (item.get("amounts_recent") or []) if a and float(a) > 0]
-    if len(amts) < 2:
-        return False
-    return max(amts) / min(amts) <= 1.5
+    return _income_pattern_reliable(item)
 
 
 def is_assessable_bill(b: dict) -> bool:
@@ -1072,8 +1614,8 @@ def _account_pool_kind(acc: dict) -> str | None:
       - subtype contains "saving" (case-insensitive) -> "savings"
       - everything else -> "spendable" (accounts with no subtype and no
         credit marker fall back to spendable, so the figure is never
-        silently zero -- covers e.g. Mono accounts, which don't populate
-        subtype today)
+        silently zero -- covers e.g. statement-upload accounts, which
+        don't populate subtype today)
 
     Pulled out of `_split_balances` so `_learn_transfer_destinations` can
     classify an inflow's DESTINATION account against the exact same rule
@@ -1911,13 +2453,12 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
     # design, see apply_verdicts' docstring in recurring_judge.py.
     judge_overrides = set(prefs.get("judge_overrides") or [])
     pay_period_config = prefs.get("pay_period_config") or {"type": "calendar_month"}
-    _today = _date.today()
+    _today = timeutil.user_today()
 
-    # Build confirmed income map for schedule-aware detection
-    _confirmed_income_map: dict = {}
-    for _s in (prefs.get("income_streams") or []):
-        if _s.get("status") == "confirmed" and _s.get("schedule"):
-            _confirmed_income_map[_s["key"]] = _s
+    # Build confirmed income map for schedule-aware detection (see
+    # `_build_confirmed_income_map`'s docstring for why this is a pure
+    # helper, not inline, and what it guards against).
+    _confirmed_income_map = _build_confirmed_income_map(prefs.get("income_streams"))
 
     recurring_spend  = _detect_recurring(debits_180, trusted_categories=trusted, today=_today, is_income=False, pay_period_config=pay_period_config, reversal_credits=credits_180)
     recurring_spend  = [r for r in recurring_spend if r["key"] not in dismissed]
@@ -1942,6 +2483,59 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
     card_repayment_projection = _card_repayment_projection(recurring_spend, raw, account_map, card_dest_by_key, _today)
     recurring_income = _detect_recurring(income_credits, today=_today, is_income=True, pay_period_config=pay_period_config, confirmed_income=_confirmed_income_map)
     recurring_income = [r for r in recurring_income if r["key"] not in dismissed]
+    # G158: a stream the user confirmed must keep forecasting even when the
+    # 90-day window/2-occurrence floor above loses it (see
+    # `_confirmed_income_fallback`'s docstring for the exact failure this
+    # closes). `income_credits_by_key` mirrors `_detect_recurring`'s own
+    # bucketing so the synthesised entry's `occurrences`/`amounts_recent`
+    # reflect whatever evidence is actually still in the 90-day window (0 or
+    # 1 points -- below the floor is exactly why this fallback exists).
+    income_credits_by_key: dict[str, list] = defaultdict(list)
+    for _t in income_credits:
+        _k = series_key(_t)
+        if _k:
+            income_credits_by_key[_k].append(_t)
+    # G160: widest-window landing-account evidence, for when a confirmed
+    # stream's narrower (90-day) matches above are empty -- see
+    # `_confirmed_income_fallback`'s `latest_credit_by_key` docstring for
+    # why this needs to be the newest CREDIT under the key, not a detected
+    # pattern. Built from `credits_180` (already loaded above for bill
+    # detection, no new Mongo query), filtered to Income the same way
+    # `income_credits` filters `credits_90`.
+    income_credits_180 = [
+        t for t in credits_180
+        if (t.get("custom_category") or t.get("category") or "Other") == "Income"
+    ]
+    latest_income_credit_by_key: dict[str, dict] = {}
+    for _t in income_credits_180:
+        _k = series_key(_t)
+        if not _k:
+            continue
+        _prev = latest_income_credit_by_key.get(_k)
+        if _prev is None or _t["date"] > _prev["date"]:
+            latest_income_credit_by_key[_k] = _t
+    recurring_income = recurring_income + _confirmed_income_fallback(
+        recurring_income, _confirmed_income_map, dismissed, _today,
+        income_credits_by_key, latest_income_credit_by_key,
+    )
+
+    # G163/G167 interim lapse signal (until G157's payer matcher replaces
+    # it): has each confirmed stream's, or each reliable DETECTED pattern's,
+    # most recently due occurrence actually landed? See
+    # `_late_reliable_income`'s docstring. The raw `preferences.income_
+    # streams` entry carries no account_id of its own (a user-confirmed
+    # schedule/amount only) — attribute each stream to the account its own
+    # `recurring_income` entry (detected, or the G158 fallback just merged
+    # in above) landed in, same precedence `income_credit_ok`'s per-account
+    # check already relies on.
+    _recurring_income_by_key = {r["key"]: r for r in recurring_income}
+    _confirmed_map_with_accounts = {
+        _k: {**_v, "account_id": (_recurring_income_by_key.get(_k) or {}).get("account_id")}
+        for _k, _v in _confirmed_income_map.items()
+    }
+    late_income = _late_reliable_income(
+        _confirmed_map_with_accounts, recurring_income, income_credits_180, _today,
+    )
 
     heuristic_keys = {r["key"] for r in recurring_spend}
     single_debits: dict[str, dict] = {}
@@ -2014,7 +2608,6 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
     all_accounts = (
         await accounts_col.find({"user_id": uid}, acct_proj).to_list(None)
         + await yapily_accounts_col.find({"user_id": uid}, acct_proj).to_list(None)
-        + await mono_accounts_col.find({"user_id": uid}, acct_proj).to_list(None)
     )
     available_balance = round(sum(
         float(a.get("balance", 0))
@@ -2054,6 +2647,14 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
             suppressed = card_proj["suppressed"]
         return {
             "key":             r["key"],
+            # G174: set only on a DETECTED entry `_confirmed_income_fallback`
+            # deferred to instead of synthesising a duplicate (see its
+            # dedupe-guard comment) -- the confirmed stream's own key, so
+            # `income_credit_ok` can treat this series as that confirmed
+            # stream under a changed payroll reference. None for every
+            # ordinary pattern (ordinary bills, recurring_spend, and any
+            # income series that isn't standing in for a confirmed one).
+            "confirmed_alias": r.get("confirmed_alias"),
             "avg_amount":      round(avg_amount, 2),
             "avg_interval":    r.get("avg_interval"),
             "next_date":       r["next_date"].isoformat(),
@@ -2147,6 +2748,8 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
         "available_balance": available_balance,
         "spendable_balance": spendable_balance,
         "savings_balance":  savings_balance,
+        # G163/G167 interim lapse signal — see `_late_reliable_income`.
+        "late_income":      late_income,
     }
 
 
@@ -2161,13 +2764,18 @@ async def compute_and_cache_cashflow(uid: str, clear_ai_cache: bool = True) -> N
         data = await _compute_cashflow_patterns(uid)
         data["computed_at"] = datetime.now()
         data["patterns_version"] = PATTERNS_VERSION
+        # Which build of the engine produced this doc (G159): the reconcile
+        # and the worker's deploy-time pass compare it with the running
+        # build (app.services.derived_caches) so an engine change reaches
+        # every user's forecast without waiting for a new transaction or a
+        # hand-bumped PATTERNS_VERSION.
+        data["engine_build"] = engine_build()
         # Refresh the memoised monthly cash-flow alongside the patterns so
         # per-request callers (safe-to-spend, debt, savings) read it for free.
         try:
             from app.services.cashflow import monthly_cashflow as _mcf
-            _region = await get_user_region(uid)
-            _cf = await _mcf(uid, _region, datetime.now() - timedelta(days=90))
-            data["monthly_cf"] = {"data": _cf, "region": _region, "computed_at": datetime.now()}
+            _cf = await _mcf(uid, datetime.now() - timedelta(days=90))
+            data["monthly_cf"] = {"data": _cf, "computed_at": datetime.now()}
         except Exception as _mcf_e:
             print(f"[cashflow_cache] monthly_cf refresh failed for {uid}: {_mcf_e}")
         await cashflow_cache_col.update_one(
@@ -2212,10 +2820,9 @@ async def at_risk_count(user: dict = Depends(current_user)):
 
     from app.services.pay_period import get_pay_period_for_date as _get_period, _next_payday as _calc_next_payday
     from app.services.income import get_confirmed_payday as _get_confirmed_payday
-    from datetime import date as _date_cls
     _user_prefs = await preferences_col.find_one({"user_id": user["email"]}) or {}
     _pay_cfg    = _user_prefs.get("pay_period_config", {"type": "calendar_month"})
-    _today_d    = _date_cls.today()
+    _today_d    = timeutil.user_today()
     _confirmed_result = _get_confirmed_payday(_user_prefs, _today_d)
     if _confirmed_result:
         _next_pay, _ = _confirmed_result
@@ -2279,7 +2886,7 @@ async def at_risk_count(user: dict = Depends(current_user)):
     # and only when the prediction is reliable — see income_credit_ok.
     _confirmed_keys = {
         s.get("key") for s in (_user_prefs.get("income_streams") or [])
-        if s.get("status") == "confirmed"
+        if isinstance(s, dict) and s.get("status") == "confirmed"
     }
     events: list[tuple[int, str, float, bool, str]] = []  # (days_away, acct_id, amount, is_income, kind)
     for b in assessable_bills:
@@ -2298,12 +2905,24 @@ async def at_risk_count(user: dict = Depends(current_user)):
     # the walk already tracks (`acct in running`): an inflow must never seed
     # a brand-new account into the simulation, since an account with no
     # assessable bill of its own can never be "at risk" in the first place.
+    #
+    # G167: no reliability gate here, and deliberately no late-income line
+    # for one either — see the comment block above `walk_sort_key` in
+    # services/companion.py for why a lapsed inflow is already spoken for
+    # by its source-side pending copy.
     for n in window_inflows:
         acct = str(n.get("account_id") or "")
         if acct in running:
             events.append((n["days_away"], acct, float(n["amount"]), True, None))
 
-    events.sort(key=lambda e: (e[0], 1 if e[3] else 0))  # bills before income on the same day (conservative)
+    # G163: same-day, credits before debits — a confirmed income stream
+    # expected in an account on day D covers what leaves it on day D; it
+    # only lapses, and the deficit becomes real, the day after it was
+    # expected with no matching credit. Lazy import to avoid a module-level
+    # cycle (companion.py imports from this module).
+    from app.services.companion import walk_sort_key
+
+    events.sort(key=walk_sort_key)
 
     at_risk = 0
     for days_away, acct, amount, is_income, kind in events:
@@ -2690,7 +3309,7 @@ def _validate_schedule(schedule: dict) -> dict | None:
         try:
             anchor_date = _date.fromisoformat(str(anchor_str))
         except (ValueError, TypeError):
-            anchor_date = _date.today()
+            anchor_date = timeutil.user_today()
         # Shift anchor to the nearest matching weekday (forward)
         delta = (wd - anchor_date.weekday()) % 7
         if delta != 0:
@@ -2824,7 +3443,6 @@ async def skip_occurrence(body: dict, user: dict = Depends(current_user)):
 @router.post("/cashflow/preview-rule")
 async def preview_rule(body: dict, user: dict = Depends(current_user)):
     """Parse plain-English recurrence description via Haiku → return schedule + next 3 dates."""
-    from datetime import date as _d_today
     uid = user["email"]
     key = (body.get("key") or "").strip()
     text = (body.get("text") or "").strip()
@@ -2838,9 +3456,9 @@ async def preview_rule(body: dict, user: dict = Depends(current_user)):
     try:
         anchor_date = _date.fromisoformat(anchor_str)
     except (ValueError, TypeError):
-        anchor_date = _date.today()
+        anchor_date = timeutil.user_today()
 
-    today_iso = _date.today().isoformat()
+    today_iso = timeutil.user_today().isoformat()
     prompt = (
         f"Today is {today_iso}. The recurring item is: \"{key}\". "
         f"The anchor date (last known occurrence) is: {anchor_date.isoformat()}.\n\n"
@@ -2900,7 +3518,7 @@ async def preview_rule(body: dict, user: dict = Depends(current_user)):
 
     # Compute next 3 occurrences (today counts if it matches)
     from datetime import timedelta as _td2
-    d = _next_occ_svc(schedule, _date.today() - timedelta(days=1))
+    d = _next_occ_svc(schedule, timeutil.user_today() - timedelta(days=1))
     next_dates = [d]
     for _ in range(2):
         d = _next_occ_svc(schedule, d)
@@ -2974,7 +3592,13 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
 
     Pass `prefs` (the user's preferences doc) when the caller has already
     fetched it, to avoid a duplicate find_one per request."""
-    today = datetime.now()
+    # Naive Europe/London wall-clock "now" (G161): today_d/window_end below
+    # are user-facing calendar arithmetic (bill due dates, days_away) and
+    # must use the user's London day regardless of host TZ. The generous
+    # `_obs_since` lookback further down reuses this same value as a Mongo
+    # query bound against naive-UTC-stored transaction dates; the window is
+    # wide enough (weeks) that the sub-hour London/UTC offset is immaterial.
+    today = timeutil.user_now().replace(tzinfo=None)
     today_d = today.date()
     # 35 days covers any monthly pay period; the frontend clips to period end.
     # Weekly-ish bills repeat within the window instead of showing once.
@@ -3072,13 +3696,14 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
     if uid:
         overrides = await upcoming_overrides_col.find({"uid": uid}).to_list(None)
 
-    # Load confirmed income schedules so _occurrences can step correctly
+    # Load confirmed income schedules so _occurrences can step correctly.
+    # Same construction as `_compute_cashflow_patterns`'s `_confirmed_income_map`
+    # -- reuse the one guarded builder rather than a second unguarded copy
+    # (2026-09-24 review: this site had the same unguarded `s["key"]` bug).
     confirmed_income: dict[str, dict] = {}
     if uid:
         _prefs_doc = prefs if prefs is not None else (await preferences_col.find_one({"user_id": uid}) or {})
-        for s in (_prefs_doc.get("income_streams") or []):
-            if s.get("status") == "confirmed" and s.get("schedule"):
-                confirmed_income[s["key"]] = s
+        confirmed_income = _build_confirmed_income_map(_prefs_doc.get("income_streams"))
 
     # Load user-defined AI recurrence rules (highest priority)
     rules: dict[str, dict] = {}
@@ -3541,6 +4166,10 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                 continue
             raw_income.append({
                 "name":          r["key"],
+                # G174: carried from `_serialise_pattern` so `income_credit_ok`
+                # can see it on the built `upcoming_income`/`payday_income`
+                # item, not just the internal `recurring_income` list.
+                "confirmed_alias": r.get("confirmed_alias"),
                 "amount":        final_amount,
                 "expected_date": final_date,
                 "days_away":     days_away,
@@ -3602,6 +4231,12 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
         # silently rendering a stale/incorrect 0.
         "spendable_balance": cached.get("spendable_balance"),
         "savings_balance":   cached.get("savings_balance", 0),
+        # G163/G167 interim lapse signal (until G157's payer matcher
+        # replaces it): confirmed income streams AND reliable detected
+        # patterns whose most recently due occurrence has lapsed (expected
+        # date + 1 day, no matching credit) — see `_late_reliable_income`.
+        # `[]` default for a cache doc computed before this field existed.
+        "late_income":       cached.get("late_income", []),
     }
 
 
@@ -3655,6 +4290,14 @@ async def get_cashflow(user: dict = Depends(current_user)):
         data = await _compute_cashflow_patterns(uid)
         data["computed_at"] = datetime.now()
         data["patterns_version"] = PATTERNS_VERSION
+        # G159 review fix #5: this is the other writer of a cashflow_cache
+        # doc besides compute_and_cache_cashflow itself (a cache miss on a
+        # plain GET), and it must carry the same stamp — an unstamped doc
+        # reads as `engine_build() != None`, so cache_needs_recompute's
+        # "auto" self-heal branch would treat it as stale forever and
+        # recompute it on the very next reconcile tick regardless of
+        # engine build.
+        data["engine_build"] = engine_build()
         await cashflow_cache_col.update_one({"_id": uid}, {"$set": data}, upsert=True)
         resp = await _build_cashflow_response(data, uid=uid)
 
@@ -3663,7 +4306,7 @@ async def get_cashflow(user: dict = Depends(current_user)):
     from app.services.pay_period import _next_payday as _calc_np
     _prefs = await preferences_col.find_one({"user_id": uid}) or {}
     _pay_cfg = _prefs.get("pay_period_config", {"type": "calendar_month"})
-    _today_d = _date.today()
+    _today_d = timeutil.user_today()
 
     _confirmed = _gcp(_prefs, _today_d)
     if _confirmed:
@@ -3678,7 +4321,7 @@ async def get_cashflow(user: dict = Depends(current_user)):
 
     # income_suggestion: largest mature un-rejected unconfirmed stream
     _dismissed = set(_prefs.get("dismissed_recurring") or [])
-    _stored_map = {s["key"]: s for s in (_prefs.get("income_streams") or [])}
+    _stored_map = _raw_income_stream_map(_prefs.get("income_streams"))
     _income_patterns = data.get("recurring_income", [])
 
     _candidates = []
@@ -3792,10 +4435,6 @@ async def compute_safe_to_spend(uid: str) -> dict:
        an unconfirmed card bill.
     8. estimated = True when history is thin (n_months < 2).
 
-    Kenya note: this pooled cash runway currently has UK-provider and GBP
-    semantics. It must return insufficient_data for Kenya rather than claim
-    a zero-cash UK result from an unsupported account universe.
-
     NOTE — `net_position` (period_net's period-to-date income/outflow/
     card-growth flow frame) is deliberately NOT computed here, unlike
     card_growth_unpaid above, and is NOT attached to this endpoint's
@@ -3810,28 +4449,17 @@ async def compute_safe_to_spend(uid: str) -> dict:
     only consumer now is spend_impact.compute_spend_impact's net-negative
     permission gate, which fetches it directly, on its own request path.
     """
-    from datetime import date as _date_cls, timedelta as _td
+    from datetime import timedelta as _td
     from app.services.income import get_confirmed_payday as _gcp
     from app.services.pay_period import _next_payday as _calc_next_payday
     from app.services.pay_period import period_rhythm_label as _period_rhythm_label
     from app.services.cashflow import monthly_cashflow_cached as _monthly_cashflow
-    from app.services.region import get_user_region as _get_region
     from bson import ObjectId
 
     # ── 1. Payday ──────────────────────────────────────────────────────────────
     _prefs    = await preferences_col.find_one({"user_id": uid}) or {}
-    _region   = await _get_region(uid)
-    if _region == "Kenya":
-        # This endpoint's balance pool deliberately understands only UK GBP
-        # connected accounts. Returning an ordinary `ok` response seeded at
-        # £0 for a Kenya user is materially worse than withholding a verdict.
-        return {
-            "status": "insufficient_data",
-            "calculation_status": "unsupported",
-            "unavailable_components": ["kenya_spendable_cash"],
-        }
     _pay_cfg  = _prefs.get("pay_period_config", {"type": "calendar_month"})
-    _today_d  = _date_cls.today()
+    _today_d  = timeutil.user_today()
 
     _confirmed = _gcp(_prefs, _today_d)
     if _confirmed:
@@ -4095,7 +4723,7 @@ async def compute_safe_to_spend(uid: str) -> dict:
     # pace, spend_impact and Can I all reason over the same period boundary.
     from datetime import datetime as _dt
     _cutoff = _dt.now() - _td(days=90)
-    _cf = await _monthly_cashflow(uid, _region, _cutoff)
+    _cf = await _monthly_cashflow(uid, _cutoff)
     monthly_spend = _cf.get("spending", 0.0)
     tight_threshold = max(100.0, monthly_spend * 0.10)
 
@@ -4374,7 +5002,7 @@ async def _resolve_period_bounds(uid: str, offset: int) -> tuple[_date, _date]:
     pay period `offset` times. offset is expected pre-clamped to [-60, 0]."""
     prefs = await preferences_col.find_one({"user_id": uid}) or {}
     pay_cfg = prefs.get("pay_period_config", {"type": "calendar_month"})
-    today = _date.today()
+    today = timeutil.user_today()
     period_start, period_end = get_pay_period_for_date(today, pay_cfg)
     for _ in range(-offset):
         period_start, period_end = prev_pay_period(period_start, pay_cfg)

@@ -39,7 +39,7 @@ import { api } from "@/lib/api";
 import type { OAuthConnection } from "@/lib/api";
 import { describeScopes } from "@/lib/oauthScopes";
 import { MCP_URL } from "@/lib/featureFlags";
-import { canPurchaseInApp, PURCHASE_UNAVAILABLE_LABEL } from "@/lib/nativeAuth";
+import { usePurchaseAvailability, PURCHASE_UNAVAILABLE_LABEL } from "@/lib/nativeAuth";
 import { formatPennyResetDate } from "@/components/PennySheetProvider";
 import type { SubscriptionMcpPack } from "@wealth/shared";
 
@@ -255,8 +255,12 @@ export default function ConnectedAssistantsCard({
   const [packPendingId, setPackPendingId] = useState<string | null>(null);
   const [packError, setPackError] = useState<string | null>(null);
   // B26: see McpPackRow's own comment — no native build can ever reach
-  // Stripe Checkout.
-  const purchasingAllowed = canPurchaseInApp();
+  // Stripe Checkout. B40: usePurchaseAvailability() starts "unknown"
+  // through SSR and the first client render and only resolves to
+  // "web"/"native" after mount, so this can never read as purchasable
+  // during the server-render/hydration gap the way a direct
+  // canPurchaseInApp() call in render could.
+  const purchasingAllowed = usePurchaseAvailability() === "web";
 
   async function handleBuyPack(packId: string) {
     if (packPendingId || !purchasingAllowed) return;

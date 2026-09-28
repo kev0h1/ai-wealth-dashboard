@@ -27,15 +27,117 @@ import time
 from datetime import datetime, timezone
 
 import httpx
+from fastapi import HTTPException
+from pymongo import ReturnDocument
 
-from app.core.config import APP_URL, OPENROUTER_API_KEY, OPENROUTER_PROVIDER_PREFS
-from app.db.collections import llm_usage_col
+from app.core.config import (
+    APP_URL, LLM_GLOBAL_MONTHLY_CALL_CEILING, OPENROUTER_API_KEY, OPENROUTER_PROVIDER_PREFS,
+)
+from app.db.collections import llm_global_usage_col, llm_usage_col
 
 logger = logging.getLogger(__name__)
 
 _CHAT_COMPLETIONS_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 _indexes_ready = False
+
+# A80: same family as every other quota-exceeded signal already raised from
+# service-layer code in this app (app.core.subscription's
+# CONNECTION_LIMIT_REACHED/OPEN_BANKING_NOT_IN_TIER/STATEMENT_UPLOAD_LIMIT_
+# REACHED, app.routers.can_i's PENNY_LIMIT_REACHED) — a plain
+# `fastapi.HTTPException(402, detail={"code": ...})`, still 402 and still
+# caught by ordinary `except HTTPException`/unhandled-propagates-to-FastAPI
+# code everywhere. Given its own subclass (`LLMCeilingReached`, exported)
+# so a caller that needs to react to THIS refusal specifically — as opposed
+# to any other 402 in the app — can `except LLMCeilingReached` without
+# accidentally also swallowing an unrelated HTTPException raised elsewhere
+# in the same call stack (penny_agent.py's `_call_openrouter_with_retry`
+# does exactly this: it must not widen its catch to every HTTPException,
+# only recognise this one signal and re-raise it as `_ProviderFailure`, the
+# same as a non-retryable HTTP status — see that module).
+_GLOBAL_CEILING_CODE = "LLM_GLOBAL_CEILING_REACHED"
+
+
+class LLMCeilingReached(HTTPException):
+    """Raised by `_check_global_ceiling` when the service-wide monthly
+    OpenRouter call ceiling (A80) refuses a call, either because the
+    incremented counter exceeds `LLM_GLOBAL_MONTHLY_CALL_CEILING` or
+    because the counter write itself failed (fail closed). A subclass of
+    `HTTPException`, not a distinct exception hierarchy, so every existing
+    "propagate to FastAPI, return 402" code path keeps working unchanged;
+    it exists only so a caller can single this specific refusal out from
+    any other 402 raised elsewhere in the same stack."""
+
+
+def _global_ceiling_exception(ym: str) -> LLMCeilingReached:
+    return LLMCeilingReached(
+        status_code=402,
+        detail={
+            "code": _GLOBAL_CEILING_CODE,
+            "year_month": ym,
+            "ceiling": LLM_GLOBAL_MONTHLY_CALL_CEILING,
+        },
+    )
+
+
+async def _check_global_ceiling() -> None:
+    """A80 (pentest LLM-07): service-wide monthly call ceiling, on top of
+    (never instead of — A81's per-user fail-open decision is untouched) the
+    per-user allowances in core/subscription.py. No-op when
+    `LLM_GLOBAL_MONTHLY_CALL_CEILING` is 0 (disabled, the default): no
+    counter write happens at all in that case.
+
+    When enabled, atomically increments this calendar month's counter doc
+    in `llm_global_usage_col` BEFORE the request is sent, and raises
+    `HTTPException` (see `_global_ceiling_exception`) without sending it if
+    the incremented value exceeds the ceiling.
+
+    Fails CLOSED, not open, unlike the per-user check this sits alongside
+    (A81, a deliberate, separate decision that is not being revisited
+    here): a global cost control that fails open on its own storage error
+    stops being a ceiling at all, so a counter-write error here is logged
+    at ERROR (not the WARNING the rest of this module's metering uses,
+    since this one is not allowed to be silently harmless) and treated as
+    over the ceiling.
+    """
+    if LLM_GLOBAL_MONTHLY_CALL_CEILING <= 0:
+        return
+    ym = datetime.now(timezone.utc).strftime("%Y-%m")
+    try:
+        doc = await llm_global_usage_col.find_one_and_update(
+            {"_id": ym},
+            {"$inc": {"count": 1}},
+            upsert=True,
+            return_document=ReturnDocument.AFTER,
+        )
+        count = int((doc or {}).get("count", 0))
+    except Exception:
+        logger.error(
+            "llm: global ceiling counter write failed for %s, refusing the call (fail closed)",
+            ym, exc_info=True,
+        )
+        raise _global_ceiling_exception(ym)
+
+    warn_threshold = LLM_GLOBAL_MONTHLY_CALL_CEILING * 0.8
+    if count >= warn_threshold and not (doc or {}).get("warned_80"):
+        try:
+            flagged = await llm_global_usage_col.update_one(
+                {"_id": ym, "warned_80": {"$ne": True}}, {"$set": {"warned_80": True}},
+            )
+            if flagged.modified_count:
+                logger.warning(
+                    "llm: global monthly call count %d has crossed 80%% of the %d ceiling for %s",
+                    count, LLM_GLOBAL_MONTHLY_CALL_CEILING, ym,
+                )
+        except Exception:
+            logger.warning("llm: failed to record/emit global-ceiling 80%% warning for %s", ym, exc_info=True)
+
+    if count > LLM_GLOBAL_MONTHLY_CALL_CEILING:
+        logger.error(
+            "llm: global monthly call ceiling (%d) exceeded for %s (count=%d), refusing the call",
+            LLM_GLOBAL_MONTHLY_CALL_CEILING, ym, count,
+        )
+        raise _global_ceiling_exception(ym)
 
 
 async def _ensure_indexes() -> None:
@@ -64,6 +166,8 @@ async def record_llm_usage(
     usage: dict,
     latency_ms: int,
     message_id: str | None = None,
+    round_num: int | None = None,
+    tools_called: list[str] | None = None,
 ) -> None:
     """Insert one `llm_usage_col` doc for a single completed OpenRouter
     call. `usage` is that response's own `usage` object (OpenRouter's
@@ -77,6 +181,19 @@ async def record_llm_usage(
     doc here, all sharing the message's id, so `monthly_usage` can count
     Penny MESSAGES (distinct message_id) rather than rounds while still
     summing every round's cost.
+
+    B38 (2026-09-28): `round_num`/`tools_called` are the Penny tool trace,
+    populated ONLY by `openrouter_chat` on the Penny loop's own calls (see
+    that function's own doctrine comment) — `round_num` is the 1-indexed
+    round this doc belongs to within its `message_id`, `tools_called` is
+    the ordered list of tool NAMES the model's response for THIS round
+    asked to call (never the arguments, which may hold user data). Reading
+    every doc sharing a `message_id`, ordered by `round_num`, reconstructs
+    the whole question's tool sequence without a second collection — the
+    gap PENNY_TOOLS.md and `penny_chips.py` both flagged ("nothing
+    persists which tools were chosen for which question, and nothing can
+    replay a question"). Neither field is written for any other pipeline,
+    which never offers tool schemas to the model today.
 
     Never raises — a metering failure must never surface as a user-facing
     error on what was otherwise a successful LLM call.
@@ -103,6 +220,10 @@ async def record_llm_usage(
         }
         if message_id:
             doc["message_id"] = message_id
+        if round_num is not None:
+            doc["round"] = int(round_num)
+        if tools_called is not None:
+            doc["tools_called"] = list(tools_called)
         await llm_usage_col.insert_one(doc)
     except Exception:
         logger.warning(
@@ -118,6 +239,7 @@ async def openrouter_chat(
     timeout: float = 60.0,
     client: httpx.AsyncClient | None = None,
     message_id: str | None = None,
+    round_num: int | None = None,
 ) -> httpx.Response:
     """POST `body` to OpenRouter's chat completions endpoint and meter the
     result. Returns the raw `httpx.Response` — callers keep doing exactly
@@ -137,7 +259,29 @@ async def openrouter_chat(
     `async with httpx.AsyncClient(...)` block), it is reused rather than a
     second client being opened — this changes nothing about connection
     pooling/timeouts that the caller didn't already control itself.
+
+    A80: one deliberate exception to the "never raises" contract above —
+    before anything is sent, `_check_global_ceiling` is consulted. When
+    `LLM_GLOBAL_MONTHLY_CALL_CEILING` is 0 (the default) this is a no-op.
+    When it is set and this call would push the service-wide monthly count
+    over it (or the counter itself cannot be written), this raises
+    `HTTPException(402, ...)` instead of sending the request — see that
+    function's own docstring for why this one control fails closed while
+    the per-user allowance next to it (A81) deliberately does not.
+
+    B38 (2026-09-28): `round_num`, when given (only `app.services.
+    penny_agent` passes it, one per tool-calling round, 1-indexed), is
+    forwarded to `record_llm_usage` verbatim. Alongside it, the tool
+    NAMES this response's own `choices[0].message.tool_calls` asked to
+    call are extracted here (never the arguments — those may hold user
+    data, and the tool trace this exists for only needs to answer "which
+    tool, which round") and passed through as `tools_called`. This reads
+    the SAME response `record_llm_usage` already gets `usage`/`model`
+    from, so a round with no tool call (the loop's final answer) simply
+    records an empty list, no separate lookup needed.
     """
+    await _check_global_ceiling()
+
     payload = dict(body)
     if "provider" not in payload:
         payload["provider"] = OPENROUTER_PROVIDER_PREFS
@@ -168,9 +312,20 @@ async def openrouter_chat(
         if isinstance(data, dict):
             usage = data.get("usage") or {}
             model = data.get("model") or payload.get("model", "")
+            tools_called: list[str] | None = None
+            if round_num is not None:
+                choice = (data.get("choices") or [{}])[0]
+                msg = (choice or {}).get("message") or {}
+                raw_tool_calls = msg.get("tool_calls") or []
+                tools_called = [
+                    tc["function"]["name"]
+                    for tc in raw_tool_calls
+                    if isinstance(tc, dict) and isinstance(tc.get("function"), dict) and tc["function"].get("name")
+                ]
             await record_llm_usage(
                 user_id=user_id, pipeline=pipeline, model=model, usage=usage,
                 latency_ms=latency_ms, message_id=message_id,
+                round_num=round_num, tools_called=tools_called,
             )
 
     return response

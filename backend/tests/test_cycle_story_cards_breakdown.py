@@ -17,10 +17,14 @@ fake the pay-period cache or the needle "close" chapter.
 """
 import asyncio
 from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
+import app.core.timeutil as timeutil
 import app.services.cycle_story as cycle_story
 from app.services.cycle_story import compute_cycle_story
 from app.services.categories import CategoryKinds, BUILTIN_CATEGORY_KINDS
+
+_LONDON = ZoneInfo("Europe/London")
 
 
 UID = "kevin"
@@ -52,6 +56,20 @@ class _FixedDate(date):
     @classmethod
     def today(cls):
         return cls._fixed
+
+
+class _FrozenTimeutilDatetime(datetime):
+    """G161 twin of `_FixedDate`: `compute_cycle_story`'s `today = date.today()`
+    calls were swept to `app.core.timeutil.user_today()`
+    (`datetime.now(Europe/London)`), which no longer reads the patched
+    `date` name above at all. Pins the SAME calendar day (15 Aug 2026) so
+    the "period hasn't closed yet" branch stays selected regardless of the
+    real wall clock or host timezone."""
+
+    @classmethod
+    def now(cls, tz=None):
+        aware = datetime.combine(_FixedDate._fixed, datetime.min.time(), tzinfo=_LONDON)
+        return aware.astimezone(tz) if tz is not None else aware.replace(tzinfo=None)
 
 
 class FakeCol:
@@ -104,6 +122,7 @@ def _txn(account_id, amount, on_date, ttype, category="Shopping", desc="Payee"):
 
 def _run_compute(monkeypatch, accounts, cc_ids, txns, *, current_ids=None):
     monkeypatch.setattr(cycle_story, "date", _FixedDate)
+    monkeypatch.setattr(timeutil, "datetime", _FrozenTimeutilDatetime)
     monkeypatch.setattr(cycle_story, "accounts_col", FakeCol(accounts))
     monkeypatch.setattr(cycle_story, "behaviour_portrait_col", FakeCol([]))
     monkeypatch.setattr(cycle_story, "get_category_kinds", _fake_get_category_kinds)

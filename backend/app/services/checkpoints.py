@@ -29,6 +29,7 @@ from datetime import date, datetime, timezone
 
 from bson import ObjectId
 
+from app.core import timeutil
 from app.db.collections import (
     category_intent_col,
     checkpoints_col,
@@ -91,7 +92,7 @@ async def _pay_cfg(uid: str) -> dict:
 
 async def current_period(uid: str) -> tuple[date, date]:
     cfg = await _pay_cfg(uid)
-    return get_pay_period_for_date(date.today(), cfg)
+    return get_pay_period_for_date(timeutil.user_today(), cfg)
 
 
 # ── Total spend for a category in a window ───────────────────────────────────
@@ -147,7 +148,7 @@ async def create_checkpoint(
         )
 
     pay_cfg = await _pay_cfg(uid)
-    period_start, period_end = get_pay_period_for_date(date.today(), pay_cfg)
+    period_start, period_end = get_pay_period_for_date(timeutil.user_today(), pay_cfg)
 
     # Reject duplicate active checkpoint for this category+period
     existing = await checkpoints_col.find_one({
@@ -207,7 +208,7 @@ async def create_checkpoint(
 
     # Attach live progress
     spent = await category_total_spend(uid, ref, period_start, period_end, kind_map=kind_map)
-    today = date.today()
+    today = timeutil.user_today()
     days_left    = max(0, (period_end - today).days + 1)
     # Shaped fraction (pace.py's shared S(f_now)) instead of the linear
     # days_elapsed/total_days fraction, so the Door's on_track verdict never
@@ -233,8 +234,8 @@ async def list_active(uid: str) -> list[dict]:
     await resolve_due(uid, kind_map=kind_map)
 
     pay_cfg = await _pay_cfg(uid)
-    _, period_end = get_pay_period_for_date(date.today(), pay_cfg)
-    today = date.today()
+    _, period_end = get_pay_period_for_date(timeutil.user_today(), pay_cfg)
+    today = timeutil.user_today()
     cursor = checkpoints_col.find({
         "user_id":    uid,
         "status":     "active",
@@ -324,7 +325,7 @@ async def resolve_due(uid: str, kind_map: dict[str, str] | None = None) -> list[
     it fetches ONE, reused for every due checkpoint in this call — never one
     per checkpoint.
     """
-    today = date.today()
+    today = timeutil.user_today()
     if kind_map is None:
         kind_map = await get_category_kinds(uid)
 
@@ -412,7 +413,7 @@ async def checkpoint_map_for_period(
                and no map was supplied — that's the only branch that needs
                one, since a supplied `cat_spent` requires no further DB read.
     """
-    today = date.today()
+    today = timeutil.user_today()
 
     cursor = checkpoints_col.find({
         "user_id":    uid,

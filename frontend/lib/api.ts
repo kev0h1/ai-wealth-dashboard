@@ -1,8 +1,9 @@
 import { Capacitor } from "@capacitor/core";
 import { getToken } from "./auth";
+import { LEGACY_BANK_AVAILABLE, LEGACY_BANK_ID } from "./legacyBankProvider";
 import type { GoLiveItem, GoLiveQuestion, GoLiveOwner } from "./goLive";
 import type {
-  Account, Transaction, MonoAccount, MpesaAccount, KPIs, Insight,
+  Account, Connection, Transaction, KPIs, Insight,
   SavingsInsight, WorkflowStep, WorkflowDef, ChallengeProgress, Challenge,
   ChallengesData, InvestmentAccount, InvestmentHolding, InvestmentNote, BudgetItem,
   DebtInsights, DebtBurndown, UserPreferences, CategoryRule, BillLabel,
@@ -13,7 +14,7 @@ import type {
   MoneyShapePeriodEntry, MoneyShapeAverageEntry,
 } from "@wealth/shared";
 export type {
-  Account, Transaction, MonoAccount, MpesaAccount, KPIs, Insight,
+  Account, Connection, Transaction, KPIs, Insight,
   SavingsInsight, WorkflowStep, WorkflowDef, ChallengeProgress, Challenge,
   ChallengesData, InvestmentAccount, InvestmentHolding, InvestmentNote, BudgetItem,
   DebtInsights, DebtBurndown, UserPreferences, CategoryRule, BillLabel,
@@ -278,6 +279,35 @@ export type CashflowData = {
    * computed before allocations existed; callers must treat a missing value
    * as "no allocations to subtract", never as an error. */
   allocations?: Allocation[];
+  /**
+   * G163/G167 interim lapse signal (until G157's payer matcher replaces
+   * it): confirmed income streams, AND reliable but merely DETECTED
+   * patterns (3+ occurrences, stable recent amounts), whose most recently
+   * due occurrence has lapsed (expected date + 1 day, no matching
+   * credit). Pre-lapse, a stream/pattern due today or covered by a recent
+   * credit is simply absent from this list — no card should treat it as a
+   * problem. Post-lapse, cards naming the late pay (cover-plan move,
+   * unfunded-move, payday split) read this list to find which account and
+   * how much, and use `source` to decide whether to call it "pay" (only
+   * ever for a confirmed stream). Optional, defaults to `[]` for older
+   * cached responses.
+   */
+  late_income?: LateIncome[];
+};
+
+/** One lapsed confirmed income stream or reliable detected pattern — see
+ * `CashflowData.late_income`. */
+export type LateIncome = {
+  key: string;
+  label: string;
+  amount: number;
+  expected_date: string;
+  days_late: number;
+  account_id: string | null;
+  /** "confirmed": a user-confirmed income stream — copy may call it "pay".
+   * "detected": a merely detected pattern the user never confirmed as
+   * income — copy must not call it "pay". */
+  source: "confirmed" | "detected";
 };
 
 export type TransportMode = {
@@ -610,8 +640,6 @@ export type Pace = {
 export type SafeToSpend =
   | {
       status: "insufficient_data";
-      calculation_status?: "unsupported" | "unavailable";
-      unavailable_components?: string[];
     }
   | {
       status: "ok";
@@ -1240,6 +1268,25 @@ export type PaydayPlanDest = {
   move: number;
   usual: number | null;
   /**
+   * Which target/move formula this destination follows (G129, backend/app/
+   * services/companion.py's dest-building loop): "savings" keeps its own
+   * accumulation formula (target = move + bills_total, no spend/buffer
+   * padding — the user's saving ritual, mirrored not auto-buffered);
+   * "spend" is the ordinary bill/everyday-spend account (target =
+   * bills_total + spend_typical + buffer). Optional only because older
+   * frozen fixtures captured before G129 landed don't carry it.
+   */
+  destination_kind?: "savings" | "spend";
+  /**
+   * True when this is a savings pot with nothing owed (no bills) but a
+   * habitual amount still moving — an accumulation top-up, not a shortfall
+   * to cover (G129, G128 note). Server-computed; never infer this from
+   * `target === 0`, which only ever held by accident of a backend defect
+   * (G129) now fixed. Optional only for the same frozen-fixture reason as
+   * `destination_kind` above.
+   */
+  habitual_top_up?: boolean;
+  /**
    * Active commitment(s) (goals v2) whose per-period slice is flooring this
    * dest's move — e.g. ["Summer holiday"] on a Saving Challenge leg. Absent
    * when no commitment routes here. See backend/app/services/companion.py's
@@ -1274,10 +1321,14 @@ export type PaydaySplit = {
 };
 
 /**
- * Present only when an account funding the payday_split is at risk of
- * missing it if the salary lands late. Omitted entirely (not null) when no
- * account is at risk — see companion.py section 5c. `copy` arrives
- * pre-written and hedged; render it verbatim, never re-derive its wording.
+ * Present only when an account funding the payday_split is genuinely at
+ * risk: its payday-morning balance, INCLUDING any confirmed payday-day
+ * income already vetted for that account, still falls short of what
+ * leaves it on payday (G163, 2026-09-25 — replaces the old "if the salary
+ * is late" conservatism, which assumed the salary away by construction).
+ * Omitted entirely (not null) when no account is at risk — see
+ * companion.py section 5c. `copy` arrives pre-written and hedged; render
+ * it verbatim, never re-derive its wording.
  */
 export type PaydaySplitRisk = {
   account_id: string;
@@ -1348,6 +1399,22 @@ export type CompanionItem = {
   action: CompanionAction | null;
   estimated: boolean;
   brief_lead?: CompanionBriefLead;
+  /**
+   * G103, trajectory items only. The signifier the card should wear, decided
+   * server-side because only the debt engine knows whether a balance that is
+   * not coming down is also costing interest. "positive" = coming down,
+   * "watch" = not coming down and either accruing interest or facing a known
+   * 0% cliff, "neutral" = drift that is not costing anything yet. Absent on
+   * any item persisted before G103, and on every other item type; CliffCard
+   * falls back to the pre-G103 "watch" in that case.
+   */
+  tone?: "neutral" | "watch" | "positive";
+  /**
+   * G103, trajectory items only. Direction of the three-month movement in
+   * what is owed. Drives the card's icon only — the direction is always
+   * spoken in `headline` too, never carried by icon or colour alone.
+   */
+  trend?: "rising" | "falling" | "flat" | "unknown";
   move_map?: MoveMap;
   // `PlanMove[]` when type === "move" (MoveCard's leg list). When type ===
   // "unfunded_move" the backend reuses this SAME field name for an
@@ -1387,17 +1454,17 @@ export type CompanionItem = {
    * is dated at (2026-08-29 FIX B — "the payday plan should forecast how we
    * should move money for the next period not today"). Present only on a
    * genuine `preview: true` item; drives the dated, hedged heading in
-   * PaydayPlanCard. Absent on a live or `executed` item — there's nothing
-   * to hedge, the plan already ran (or already happened).
+   * PaydayPlanCard. Absent on a live item — there's nothing to hedge, the
+   * plan is the live one for the current window.
+   *
+   * G164 (2026-09-26): there is no `executed` state any more — the payday
+   * plan is purely advisory, so once the pay lands there is nothing left to
+   * validate or report; a plan whose destinations already clear on their
+   * own the moment it would first be proposed (the user's own standing
+   * orders got there first) is never persisted or built at all, so it
+   * never reaches the frontend as an item.
    */
   next_pay?: string;
-  /**
-   * True when this item is a quiet summary of a plan that has ALREADY
-   * auto-verified ("done") for the current window — no computation ran,
-   * this is the persisted record. See companion.py's FIX A gate
-   * (`_executed_payday_plan_item`). Mutually exclusive with `preview`.
-   */
-  executed?: boolean;
   dests?: PaydayPlanDest[];
   salary?: PaydayPlanSalary;
   trimmed?: boolean;
@@ -1434,7 +1501,21 @@ export type CompanionItem = {
  * not just `GET /today/cover-plan` — same underlying snapshot, one more
  * key on a response Home already fetches every load, no extra backend work.
  */
-export type AccountEligibility = { short: boolean; headroom: number };
+// G114 (2026-09-17): `headroom` is the STANDING figure — bills/income netted
+// off, unaffected by any live cover-plan move — which is what Settings'
+// cover-plan sources card legitimately wants ("can this account ever be a
+// source"). `spend_from_headroom` is a second, narrower figure: `headroom`
+// less any amount a currently-displayed cover-plan move card is already
+// taking out of this account. Home's spend-from line (lib/spendFromAccount.ts)
+// must read `spend_from_headroom`, not `headroom` — spending the standing
+// figure can make the account's own live move card impossible. Optional so
+// older cached payloads (pre-G114) degrade to the standing figure rather
+// than breaking; see spendFromAccount.ts's rankByHeadroom for the fallback.
+export type AccountEligibility = {
+  short: boolean;
+  headroom: number;
+  spend_from_headroom?: number;
+};
 
 export type TodayResponse = {
   status: "ok";
@@ -1595,7 +1676,8 @@ export type GoLiveItemAction =
   | { action: "priority"; priority: "p1" | "p2" | "p3" }
   | { action: "unblocks"; questions: string[] }
   | { action: "uat"; link: string }
-  | { action: "approve"; choice: string };
+  | { action: "approve"; choice: string }
+  | { action: "cancel"; reason: string };
 
 /** Thrown by get<T>/post<T> on a non-2xx response. Carries the HTTP
  * `status` and the raw `detail` from the JSON error body (if any) so a
@@ -1613,6 +1695,99 @@ export class ApiError extends Error {
     this.name = "ApiError";
     this.status = status;
     this.detail = detail;
+  }
+}
+
+// A124: global 401 handling. A session revoked elsewhere (another device's
+// sign-out, account deletion, the dormant sweep) used to be experienced as a
+// wall of per-card errors — every card's own fetch 401s and each renders
+// whatever error state it happens to have, never a clean sign-out. get<T>/
+// post<T>/del<T> below, plus toJson (the shared parser every hand-rolled
+// `fetch(...).then(r => toJson(r))` call in this file already routes
+// through), all funnel a 401 through reportIfUnauthorized so AuthProvider
+// only has to register ONE hook to react everywhere at once.
+//
+// This is a closed, explicit exemption list, not an "/auth/" prefix match:
+// several bank-LINKING routes also happen to live under /auth/ (finexer,
+// yapily, truelayer, the legacy provider — see LEGACY_BANK_ID above) and
+// those are ordinary authenticated calls that must still trigger sign-out on
+// a revoked session. Only the login/session-check surface, and the one
+// truly public route this file calls, are exempt:
+//   - POST /auth/session/validate — the re-validation check itself. A 401
+//     here means "you are not signed in", which is the exact case
+//     AuthProvider is asking about, not a surprise revoke to react to.
+//     AuthProvider calls this with a raw `fetch`, not get/post/del, so this
+//     entry is defensive (a future caller routing it through this file)
+//     rather than live today.
+//   - GET /auth/google, /auth/google/callback, /auth/google/mobile,
+//     /auth/google/mobile-callback, POST /auth/google/native, POST
+//     /auth/apple/native, GET /auth/mobile/poll — the Google/Apple sign-in
+//     round trip. This app has no separate "sign-up" route: the same OAuth
+//     flow doubles as sign-up, gated server-side by the invite allowlist.
+//     All of these are called via lib/nativeAuth.ts's own raw `fetch`, not
+//     through this file's helpers, so these entries are defensive too.
+//   - GET /health — the one route this file calls that needs no bearer at
+//     all (backend/app/core/auth.py's `_OPEN_PATHS`), so it can never
+//     genuinely 401 on a revoked session either way.
+const UNAUTHORIZED_HOOK_EXEMPT_PATHS = [
+  "/auth/session/validate",
+  "/auth/google",
+  "/auth/google/callback",
+  "/auth/google/mobile",
+  "/auth/google/mobile-callback",
+  "/auth/google/native",
+  "/auth/apple/native",
+  "/auth/mobile/poll",
+  "/health",
+];
+
+function isUnauthorizedHookExempt(responseUrl: string): boolean {
+  let pathname: string;
+  try {
+    pathname = new URL(responseUrl).pathname;
+  } catch {
+    pathname = responseUrl.split("?")[0] || responseUrl;
+  }
+  // A124 review tightening: `pathname.endsWith(exempt)` exempted anything
+  // ENDING in an exempt suffix — "/push/health" would have matched "/health"
+  // the same as "/health" itself, and a future nested route under a
+  // protected router could accidentally inherit an exemption it never
+  // earned. Strip only a leading "/api" (the one path prefix this app's own
+  // deployments put in front of every real route — see API_BASE), then
+  // require EXACT equality against the exempt list, not a suffix match.
+  const normalized = pathname.startsWith("/api/") ? pathname.slice(4) : pathname;
+  return UNAUTHORIZED_HOOK_EXEMPT_PATHS.includes(normalized);
+}
+
+type UnauthorizedHandler = () => void;
+let unauthorizedHandler: UnauthorizedHandler | null = null;
+// Debounce: three cards firing the same stale token in parallel must still
+// only sign the user out once. Set the instant the FIRST 401 is seen (not
+// after the handler runs), so two 401s that resolve back-to-back before the
+// handler's own state updates commit still only fire it once.
+let unauthorizedFired = false;
+
+/** Registered by AuthProvider once on mount. `null` unregisters (component
+ * teardown, though AuthProvider itself never unmounts in practice). */
+export function setUnauthorizedHandler(handler: UnauthorizedHandler | null): void {
+  unauthorizedHandler = handler;
+}
+
+/** Call once a session is confirmed good — a fresh sign-in, or a
+ * session/validate call that came back ok — so a LATER revocation of that
+ * new session can fire the handler again. Without this, the gate stays
+ * shut forever after the first sign-out-elsewhere of a tab's lifetime. */
+export function resetUnauthorizedGate(): void {
+  unauthorizedFired = false;
+}
+
+function reportIfUnauthorized(res: Response): void {
+  if (res.status !== 401 || isUnauthorizedHookExempt(res.url) || unauthorizedFired) return;
+  unauthorizedFired = true;
+  try {
+    unauthorizedHandler?.();
+  } catch {
+    /* a broken handler must never break the caller's own rejection below */
   }
 }
 
@@ -1639,7 +1814,10 @@ async function get<T>(path: string, attempt = 0): Promise<T> {
       headers: authHeaders(),
       signal: controller.signal,
     });
-    if (!res.ok) throw await apiErrorFromResponse(res);
+    if (!res.ok) {
+      reportIfUnauthorized(res);
+      throw await apiErrorFromResponse(res);
+    }
     return await res.json();
   } catch (e) {
     const aborted = e instanceof DOMException && e.name === "AbortError";
@@ -1657,7 +1835,10 @@ async function post<T>(path: string, body?: unknown, extraHeaders?: HeadersInit)
     headers: { "Content-Type": "application/json", ...authHeaders(), ...extraHeaders },
     body: body ? JSON.stringify(body) : undefined,
   });
-  if (!res.ok) throw await apiErrorFromResponse(res);
+  if (!res.ok) {
+    reportIfUnauthorized(res);
+    throw await apiErrorFromResponse(res);
+  }
   return res.json();
 }
 
@@ -1666,7 +1847,10 @@ async function del<T>(path: string): Promise<T> {
     method: "DELETE",
     headers: authHeaders(),
   });
-  if (!res.ok) throw await apiErrorFromResponse(res);
+  if (!res.ok) {
+    reportIfUnauthorized(res);
+    throw await apiErrorFromResponse(res);
+  }
   return res.json();
 }
 
@@ -1704,6 +1888,7 @@ function humanizeErrorDetail(detail: unknown, fallback: string): string {
 // Route every one of them through this so a non-2xx always throws.
 async function toJson<T>(res: Response): Promise<T> {
   if (!res.ok) {
+    reportIfUnauthorized(res);
     const fallback = `${res.status} ${res.statusText}`;
     let detail: unknown = fallback;
     try {
@@ -2165,6 +2350,7 @@ export const api = {
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(body),
     });
+    reportIfUnauthorized(res);
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.detail || "Failed to save");
     return data as UserProfile;
@@ -2183,6 +2369,7 @@ export const api = {
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ image }),
     });
+    reportIfUnauthorized(res);
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.detail || "Couldn't scan that receipt");
     return data as Basket;
@@ -2196,6 +2383,11 @@ export const api = {
       headers: authHeaders(),
     }).then((r) => toJson<{ ok: boolean }>(r)),
   accounts: () => get<Account[]>("/accounts"),
+  // A113: per-connection bank consent (provider, status, expiry, account
+  // count) — GET /accounts never carried this, so the Accounts surface
+  // couldn't show when a consent ends until this was wired up. See
+  // backend/app/routers/accounts.py:list_connections.
+  connections: () => get<Connection[]>("/connections"),
   syncAccounts: () => post<{ message: string; total_accounts: number }>("/accounts/sync"),
   transactions: (accountId: string, opts?: {
     page?: number; pageSize?: number; q?: string; category?: string; days?: number;
@@ -2308,12 +2500,25 @@ export const api = {
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ confirm: "DELETE" }),
     });
+    reportIfUnauthorized(res);
     if (!res.ok) throw new Error("Delete failed");
     return res.json();
   },
   insights: () => get<Insight[]>("/insights"),
-  truelayerProviders: () => get<{ id: string; name: string; logo: string }[]>("/auth/truelayer/providers"),
-  connectLink: (provider?: string) => get<{ auth_url: string }>(`/auth/truelayer/link${provider ? `?provider=${encodeURIComponent(provider)}` : ""}`),
+  // A67: the legacy (UAT-only) provider's two endpoints. Named and pathed
+  // off LEGACY_BANK_ID rather than spelled out, because an object property
+  // is never tree-shaken — `truelayerProviders:` and `/auth/truelayer/link`
+  // shipped in the production bundle verbatim before this change, whether
+  // or not anything called them. With LEGACY_BANK_ID inlined as "" in a
+  // production build there is no such path to ship. Both refuse outright
+  // when the provider is absent, so a caller that forgets to check
+  // LEGACY_BANK_AVAILABLE fails closed instead of requesting "/auth//link".
+  legacyBankProviders: () => LEGACY_BANK_AVAILABLE
+    ? get<{ id: string; name: string; logo: string }[]>(`/auth/${LEGACY_BANK_ID}/providers`)
+    : Promise.reject(new Error("This bank connection method is not available.")),
+  legacyBankConnectLink: (provider?: string) => LEGACY_BANK_AVAILABLE
+    ? get<{ auth_url: string }>(`/auth/${LEGACY_BANK_ID}/link${provider ? `?provider=${encodeURIComponent(provider)}` : ""}`)
+    : Promise.reject(new Error("This bank connection method is not available.")),
   finexerProviders: () => get<{ id: string; name: string; logo: string; bg_colors?: string[] }[]>("/auth/finexer/providers"),
   finexerConnectLink: (provider?: string) => get<{ auth_url: string; connection_id: string }>(`/auth/finexer/link${provider ? `?provider=${encodeURIComponent(provider)}` : ""}`),
   mockData: () => get<unknown>("/test/mock-data"),
@@ -2420,6 +2625,7 @@ export const api = {
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ question, history, context, screen, view }),
     });
+    reportIfUnauthorized(res);
     if (res.status === 402) {
       let detail: unknown = null;
       try {
@@ -2453,6 +2659,7 @@ export const api = {
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ chip_id, params, screen }),
     });
+    reportIfUnauthorized(res);
     if (res.status === 404) return null;
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
     return res.json();
@@ -2529,6 +2736,7 @@ export const api = {
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(body),
     }).then((r) => {
+      reportIfUnauthorized(r);
       if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
       return r.json();
     }) as Promise<Commitment>,
@@ -2549,6 +2757,7 @@ export const api = {
       method: "DELETE",
       headers: authHeaders(),
     }).then((r) => {
+      reportIfUnauthorized(r);
       if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
     }),
 
@@ -2849,49 +3058,11 @@ export const api = {
       headers: authHeaders(),
     }).then((r) => toJson<{ deleted: string }>(r)),
 
-  // Mono (Kenya open banking)
-  monoPublicKey: () => get<{ public_key: string }>("/auth/mono/public-key"),
-  monoExchange: (code: string) => post<{ message: string; account_id: string }>("/auth/mono/exchange", { code }),
-  monoSync: () => post<{ message: string }>("/mono/sync", {}),
-  getMonoAccounts: () => get<MonoAccount[]>("/mono/accounts"),
-  getMonoTransactions: (id: string) => get<Transaction[]>(`/mono/accounts/${id}/transactions`),
-  deleteMonoConnection: (id: string) =>
-    fetch(`${API_BASE}/mono/connections/${id}`, {
-      method: "DELETE",
-      headers: authHeaders(),
-    }).then((r) => toJson<{ deleted: boolean }>(r)),
-
-  // M-Pesa CSV upload (legacy — kept for backward compat)
-  uploadMpesa: (file: File, password?: string) => {
+  // Bank statement upload (any UK bank, PDF or CSV)
+  uploadStatement: async (file: File, password?: string) => {
     const form = new FormData();
     form.append("file", file);
     if (password) form.append("password", password);
-    return fetch(`${API_BASE}/mpesa/upload`, {
-      method: "POST",
-      headers: authHeaders(),
-      body: form,
-    }).then(async r => {
-      if (!r.ok) {
-        const fallback = `${r.status}`;
-        let detail: unknown = fallback;
-        try {
-          const body = await r.json();
-          if (body?.detail) detail = body.detail;
-        } catch {
-          try { detail = (await r.text()) || fallback; } catch { /* ignore */ }
-        }
-        throw new Error(humanizeErrorDetail(detail, fallback));
-      }
-      return r.json() as Promise<{ inserted: number; account_id: string }>;
-    });
-  },
-
-  // Generic bank statement upload (any bank, any region)
-  uploadStatement: async (file: File, password?: string, region = "Kenya") => {
-    const form = new FormData();
-    form.append("file", file);
-    if (password) form.append("password", password);
-    form.append("region", region);
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 150_000); // 2.5 min
@@ -2913,6 +3084,7 @@ export const api = {
       throw new Error(`Network error: ${msg}`);
     }
     clearTimeout(timer);
+    reportIfUnauthorized(r);
 
     if (!r.ok) {
       const fallback = `Server error (${r.status})`;
@@ -2959,6 +3131,7 @@ export const api = {
       throw new Error(err instanceof Error ? err.message : String(err));
     }
     clearTimeout(timer);
+    reportIfUnauthorized(r);
     if (!r.ok) {
       let detail = `Server error (${r.status})`;
       try { const b = await r.json(); if (b?.detail) detail = b.detail; } catch { try { detail = await r.text() || detail; } catch { /* ignore */ } }
@@ -2981,6 +3154,7 @@ export const api = {
       method: "POST",
       headers: authHeaders(),
     });
+    reportIfUnauthorized(r);
     if (!r.ok) {
       const b = await r.json().catch(() => ({})) as Record<string, unknown>;
       throw new Error((b?.detail as string) || `Error ${r.status}`);
@@ -3011,6 +3185,7 @@ export const api = {
       throw new Error(err instanceof Error ? err.message : String(err));
     }
     clearTimeout(timer);
+    reportIfUnauthorized(r);
     if (!r.ok) {
       let detail = `Server error (${r.status})`;
       try { const b = await r.json(); if (b?.detail) detail = b.detail; } catch { try { detail = await r.text() || detail; } catch { /* ignore */ } }
@@ -3039,6 +3214,7 @@ export const api = {
       throw new Error(err instanceof Error ? err.message : String(err));
     }
     clearTimeout(timer);
+    reportIfUnauthorized(r);
     if (!r.ok) {
       let detail = `Server error (${r.status})`;
       try { const b = await r.json(); if (b?.detail) detail = b.detail; } catch { try { detail = await r.text() || detail; } catch { /* ignore */ } }
@@ -3052,6 +3228,7 @@ export const api = {
       method: "DELETE",
       headers: authHeaders(),
     });
+    reportIfUnauthorized(r);
     if (!r.ok) {
       const b = await r.json().catch(() => ({})) as Record<string, unknown>;
       throw new Error((b?.detail as string) || `Error ${r.status}`);
@@ -3133,8 +3310,6 @@ export const api = {
       method: "DELETE",
       headers: authHeaders(),
     }).then((r) => toJson<{ deleted: string }>(r)),
-  getMpesaAccounts: () => get<MpesaAccount[]>("/mpesa/accounts"),
-  getMpesaTransactions: (id: string) => get<Transaction[]>(`/mpesa/accounts/${id}/transactions`),
   getAccountRate: (accountId: string) => get<{ apr: number | null }>(`/accounts/${encodeURIComponent(accountId)}/rate`),
   setAccountRate: (accountId: string, apr: number | null) =>
     fetch(`${API_BASE}/accounts/${encodeURIComponent(accountId)}/rate`, {
@@ -3301,6 +3476,10 @@ export const api = {
   getToday: (paydayPreview?: boolean) =>
     get<TodayResponse>(paydayPreview ? "/today?payday_preview=1" : "/today"),
   getCoverPlan: () => get<CoverPlanResponse>("/today/cover-plan"),
+  // G169: no frontend caller left after ThisMonthStrip (Home's "Last month"
+  // strip) was removed as a duplicate of the month-closed card. Kept because
+  // Penny (backend/app/services/companion.py, penny_tools.py) and the MCP
+  // connector still read GET /needle/summary directly on the backend.
   getNeedleSummary: () => get<NeedleSummary>("/needle/summary"),
   getCardsStory: (which: "current" | "last" = "current") => get<CardsStory>(`/cards/story?which=${which}`),
 
@@ -3327,7 +3506,7 @@ export const api = {
   deletePlanned: (id: string) =>
     fetch(`${API_BASE}/planned/${encodeURIComponent(id)}`, { method: "DELETE", headers: authHeaders() }).then((r) => toJson<{ ok: boolean }>(r)),
   updatePlanned: (id: string, patch: { name?: string; amount?: number; date?: string; account_id?: string | null }) =>
-    fetch(`${API_BASE}/planned/${encodeURIComponent(id)}`, { method: "PATCH", headers: { ...authHeaders(), "Content-Type": "application/json" }, body: JSON.stringify(patch) }).then(r => { if (!r.ok) throw new Error("patch failed"); return r.json(); }) as Promise<PlannedExpense>,
+    fetch(`${API_BASE}/planned/${encodeURIComponent(id)}`, { method: "PATCH", headers: { ...authHeaders(), "Content-Type": "application/json" }, body: JSON.stringify(patch) }).then(r => { reportIfUnauthorized(r); if (!r.ok) throw new Error("patch failed"); return r.json(); }) as Promise<PlannedExpense>,
 
   createCheckpoint: (ref: string, aim_amount?: number) =>
     post<Checkpoint>("/checkpoints", aim_amount == null ? { ref } : { ref, aim_amount }),

@@ -74,12 +74,13 @@ from datetime import date, datetime, timedelta, timezone
 
 from fastapi import HTTPException
 
+from app.core.build import engine_build
 from app.core.config import MCP_CONNECTOR_ENABLED
+from app.core import timeutil
 from app.db.collections import (
     accounts_col, behaviour_portrait_col, card_terms_col, cashflow_cache_col,
     connections_col, finexer_consents_col, manual_account_rules_col,
-    manual_accounts_col, mono_transactions_col, mpesa_transactions_col,
-    penny_proposals_col, preferences_col, savings_goals_col,
+    manual_accounts_col, penny_proposals_col, preferences_col, savings_goals_col,
     savings_insights_col, savings_labels_col, statement_transactions_col,
     transactions_col, yapily_accounts_col, yapily_transactions_col,
 )
@@ -100,7 +101,6 @@ from app.services.companion import compute_today_items
 from app.services.behaviour import compute_portrait as _compute_portrait
 from app.services.checkpoints import list_active as _list_active_checkpoints
 from app.services.debt_plan import get_debt_plan_cached
-from app.services.region import get_user_region
 from app.services.safe_calc import evaluate as _safe_calc_evaluate
 from app.services.spend_verdict import compute_spend_verdict
 from app.services.sync_freshness import last_bank_sync
@@ -128,7 +128,7 @@ def _money(amount, decimals: int = 0) -> dict:
     return {"raw": round(val, 2), "formatted": _fmt_gbp(val, decimals)}
 
 
-def _explain_tool_description() -> str:
+def _explain_tool_description(connector_enabled: bool | None = None) -> str:
     """The `explain` tool's own description, built by reading
     `MCP_CONNECTOR_ENABLED` at CALL time rather than baking a fixed string
     at import time, so a test can monkeypatch this module's own name for it
@@ -141,6 +141,21 @@ def _explain_tool_description() -> str:
     a running process, so a production process that boots with the
     connector off can never send this tool's description to the model with
     `mcp_connector` mentioned in it at all.
+
+    `connector_enabled` (B42): an explicit override, defaulting to this
+    module's own live `MCP_CONNECTOR_ENABLED` when left `None` — the
+    parameter exists purely so `tests/test_penny_golden_eval.py` can build
+    BOTH variants of this description directly, by calling this function
+    with `True` and `False`, without needing the process environment (or
+    this module's already-imported flag) to be in any particular state.
+    Before this parameter existed, the golden eval's pinned description
+    hash for `explain` silently baked in whichever state
+    `MCP_CONNECTOR_ENABLED` happened to hold in the process that captured
+    the pin, so the same suite passed in a worktree (no `backend/.env`,
+    flag unset/false) and failed wherever `backend/.env` sets the flag true
+    (the shared tree `scripts/integrate.py` actually tests in) — see B42.
+    `TOOL_SCHEMAS` below still calls this with no argument, so real request
+    traffic is completely unaffected by this parameter's existence.
 
     F16 rework, 2026-09-10 (Kevin, after rejecting the first pass): A17
     exists specifically so a connector-off deployment ships with the
@@ -156,11 +171,13 @@ def _explain_tool_description() -> str:
     unknown-topic valid-keys list `_exec_explain` returns (see that
     function) — no unreleased-feature copy sits in the production bundle
     in any form."""
+    if connector_enabled is None:
+        connector_enabled = MCP_CONNECTOR_ENABLED
     mcp_clause = (
         ", mcp_connector ('how do I connect the app as an MCP', 'connect "
         "Claude to my account', 'what is the MCP connector', 'can I use "
         "this with an AI assistant')"
-        if MCP_CONNECTOR_ENABLED else ""
+        if connector_enabled else ""
     )
     return (
         "Fixed, pre-written explanations the model must use instead of "
@@ -2003,6 +2020,11 @@ async def _load_cashflow_cache(uid: str) -> dict | None:
     cached = await _compute_cashflow_patterns(uid)
     cached["computed_at"] = datetime.now()
     cached["patterns_version"] = PATTERNS_VERSION
+    # G159 review fix #5: same stamp analytics.py's own cache-miss branch
+    # writes, for the same reason — an unstamped doc reads as a different
+    # build to cache_needs_recompute's "auto" self-heal check forever, not
+    # just until the next real engine change.
+    cached["engine_build"] = engine_build()
     await cashflow_cache_col.update_one({"_id": uid}, {"$set": cached}, upsert=True)
     return cached
 
@@ -2138,12 +2160,11 @@ async def _exec_get_recurring_payments(uid: str) -> dict:
     return result
 
 
-# Same five source collections GET /transactions/search gathers across —
-# reused verbatim rather than a new hardcoded tuple, so a new source added to
-# that endpoint is automatically picked up here too.
+# Same source collections GET /transactions/search gathers across — reused
+# verbatim rather than a new hardcoded tuple, so a new source added to that
+# endpoint is automatically picked up here too.
 _SEARCH_COLLECTIONS = (
     transactions_col, yapily_transactions_col, statement_transactions_col,
-    mono_transactions_col, mpesa_transactions_col,
 )
 _SEARCH_CAP = 20
 
@@ -2371,10 +2392,9 @@ async def _exec_get_account_activity(
             }
 
     try:
-        region = await get_user_region(uid)
         kind_map = await get_category_kinds(uid)
-        home_currency = "KES" if region == "Kenya" else "GBP"
-        end_dt = to_dt or datetime.now()
+        home_currency = "GBP"
+        end_dt = to_dt or timeutil.user_now()
         start_dt = from_dt or (end_dt - timedelta(days=days))
         targets = [target] if target else accs[:_ACTIVITY_ACCOUNT_CAP]
         summaries = []
@@ -2604,10 +2624,9 @@ async def _exec_get_spend_verdict(uid: str, period_offset: int) -> dict:
 
 async def _exec_get_savings_position(uid: str) -> dict:
     try:
-        region = await get_user_region(uid)
         cutoff = datetime.now() - timedelta(days=90)
         goal = await savings_goals_col.find_one({"_id": uid})
-        monthly_income, monthly_spending, monthly_surplus = await _cashflow(uid, region, cutoff)
+        monthly_income, monthly_spending, monthly_surplus = await _cashflow(uid, cutoff)
         current = await _current_savings(uid, goal)
         target = _target_amount(goal, monthly_spending)
     except Exception:
@@ -2835,16 +2854,15 @@ async def _exec_check_affordability(uid: str, amount, timeframe) -> dict:
 #
 # Audit fix, 2026-08-26: this used to have no currency filter at all, while
 # _load_period_txns (spend_verdict.py) drops any row whose `currency` isn't
-# the user's home currency (a foreign-currency row, e.g. a KES M-Pesa line on
-# a UK account, must never inflate a total beyond what the Spend page's own
+# the user's home currency (a foreign-currency row must never inflate a
+# total beyond what the Spend page's own
 # tiles show — that module's own docstring, "fix-round LOW finding"). Without
 # the same filter here, `last_n_months`/`top_merchants` could disagree with
 # `this_period` (which DOES go through the engine's filtered aggregate) for
-# the exact same category — reusing the identical region-aware mechanism
+# the exact same category — reusing the identical home-currency mechanism
 # _load_period_txns uses, not a re-derived approximation of it.
 async def _category_txn_rows(uid: str, category: str, start: datetime, end: datetime) -> list[dict]:
-    region = await get_user_region(uid)
-    home_currency = "KES" if region == "Kenya" else "GBP"
+    home_currency = "GBP"
     rows: list[dict] = []
     for col in (transactions_col, yapily_transactions_col):
         async for doc in col.find(
@@ -2913,7 +2931,7 @@ async def _exec_get_category_spend(uid: str, category: str | None, months) -> di
     # months total: the rolling months window when requested (it naturally
     # covers the current pay period too, at most ~31 days), else just the
     # current period's own bounds — one query, never two.
-    today = date.today()
+    today = timeutil.user_today()
     try:
         if months:
             months = max(1, min(24, int(months)))
@@ -4385,7 +4403,7 @@ async def _exec_propose_add_planned(uid: str, name, amount, date_str, account_id
         expense_date = date.fromisoformat(str(date_str))
     except (TypeError, ValueError):
         return _tool_error("date must be an ISO date string (YYYY-MM-DD)")
-    if expense_date < date.today():
+    if expense_date < timeutil.user_today():
         return _tool_error("date must be today or in the future")
     resolved_account = await _resolve_account_for_propose(uid, account_id)
     if resolved_account.get("ambiguous"):
@@ -4451,7 +4469,7 @@ async def _exec_propose_create_allocation(
         return _tool_error("an active allocation already fills from this payment")
 
     cfg = await _alloc_pay_cfg(uid)
-    start, _end = get_pay_period_for_date(date.today(), cfg)
+    start, _end = get_pay_period_for_date(timeutil.user_today(), cfg)
     try:
         eff_from = _alloc_validate_effective_from(effective_from, start)
     except HTTPException as e:
@@ -4582,7 +4600,7 @@ async def _exec_propose_update_planned(uid: str, planned_ref, name=None, amount=
         stored_date = date.fromisoformat(doc["date"])
         # Grandfathering: an unchanged date is always accepted even if it
         # has since rolled into the past, exactly like the router.
-        if new_date != stored_date and new_date < date.today():
+        if new_date != stored_date and new_date < timeutil.user_today():
             return _tool_error("date must be today or in the future")
         updates["date"] = new_date.isoformat()
 
@@ -4953,21 +4971,21 @@ _RECAT_PROJ = {
 
 
 async def _find_transaction_doc_by_id(uid: str, transaction_id: str) -> dict | None:
-    """Looks `transaction_id` up across the SAME 5 source collections
+    """Looks `transaction_id` up across the SAME source collections
     search_transactions/get_account_activity read from (see
     `_SEARCH_COLLECTIONS`), so an id either of those tools handed back
     always resolves to SOMETHING here — but only a hit in `transactions_col`
     is ACTIONABLE: `PATCH /transactions/{id}` and the rule-application
     machinery (`apply_single_rule`/`count_rule_matches`,
     app.services.categorisation) both only ever touch `transactions_col`,
-    never the other 4 (Yapily/statement/Mono/M-Pesa). A hit there is real
+    never the other two (Yapily/statement). A hit there is real
     but out of reach for this tool; returns the sentinel dict
     `{"_out_of_reach": True}` so the caller can return an honest error
     instead of silently building a proposal that would no-op on execute."""
     doc = await transactions_col.find_one({"_id": transaction_id, "user_id": uid}, _RECAT_PROJ)
     if doc is not None:
         return doc
-    for col in (yapily_transactions_col, statement_transactions_col, mono_transactions_col, mpesa_transactions_col):
+    for col in (yapily_transactions_col, statement_transactions_col):
         other = await col.find_one({"_id": transaction_id, "user_id": uid}, {"_id": 1})
         if other is not None:
             return {"_out_of_reach": True}
