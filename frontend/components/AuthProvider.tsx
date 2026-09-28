@@ -10,6 +10,7 @@ import AppOnlyPage from "@/components/AppOnlyPage";
 import Onboarding from "@/components/Onboarding";
 import { invalidateAllAccountData } from "@/lib/accountMutations";
 import { clearHomeDismissedAdvice } from "@/lib/homeDismissedAdvice";
+import { resolveFullName } from "@/lib/displayName";
 
 interface AuthUser {
   email: string;
@@ -179,7 +180,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   if (needsOnboarding) {
-    return <Onboarding defaultName={user.name} onComplete={() => setNeedsOnboarding(false)} />;
+    // D7: `user.name` is the raw sign-in provider claim on the session
+    // token — an old token issued before the apple_native() fix (or any
+    // other path that still hands over an email-shaped name) could carry
+    // an Apple relay local part or similar junk here. Route it through
+    // the same never-email-derived resolution as the rest of the app
+    // rather than pre-filling Onboarding's name field with it — see
+    // lib/displayName.ts.
+    const prefillName = resolveFullName({ sessionName: user.name, email: user.email }) ?? "";
+    return <Onboarding defaultName={prefillName} onComplete={() => setNeedsOnboarding(false)} />;
   }
 
   return (
