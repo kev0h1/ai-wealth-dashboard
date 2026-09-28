@@ -202,17 +202,37 @@ def test_charge_and_its_repayment_together_reduce_cash_only_once(monkeypatch):
     """The full reproduction of Kevin's bug report: the £180 charge AND the
     £180 repayment both in the window. Before the fix this walked to
     603 - 180 (charge) - 180 (repayment) = 243. After the fix, only the
-    repayment (the actual cash leaving Barclays) counts: 603 - 180 = 423."""
+    repayment (the actual cash leaving Barclays) counts: 603 - 180 = 423.
+
+    H94, 2026-09-28: same date rot as `test_reserve_still_catches_growth_
+    with_no_predicted_repayment` below (see its G137 comment) — this test's
+    `days_away: 3` repayment sat exactly on `0 <= days_away < days_until_payday`
+    under an UNPINNED "today", and a real calendar month's final few days
+    shrink `days_until_payday` (calendar_month payday = the 1st of next
+    month) to 3 or less, pushing `days_away: 3` outside the window and
+    dropping the repayment out of `raw_window_bills` entirely (bills_total
+    fell to 0 instead of 180). Pinned the same way, to a payday fixed at
+    "today" + 15 days, so both `days_away: 1` and `days_away: 3` stay inside
+    the window on every calendar day."""
     _wire_common(monkeypatch)
+
+    today = date.today()
+    next_payday = today + timedelta(days=15)  # days_until_payday == 15, always
+
+    def fake_confirmed_payday(_prefs, _today):
+        return (next_payday, {"schedule": "fixed"})
+
+    monkeypatch.setattr(income_service, "get_confirmed_payday", fake_confirmed_payday)
+
     bills = [
         {
             "name": "Anthropic", "days_away": 1, "amount": 180.0,
-            "expected_date": "2026-09-17", "kind": "discretionary",
+            "expected_date": (today + timedelta(days=1)).isoformat(), "kind": "discretionary",
             "account_id": "amex", "is_credit_card": True,
         },
         {
             "name": "Amex repayment", "days_away": 3, "amount": 180.0,
-            "expected_date": "2026-09-19", "kind": analytics.MOVEMENT,
+            "expected_date": (today + timedelta(days=3)).isoformat(), "kind": analytics.MOVEMENT,
             "account_id": "barclays", "is_credit_card": False,
             "card_dest_account_id": "amex", "dest_account_spendable": None,
         },
@@ -368,11 +388,28 @@ def test_reserve_catches_a_not_yet_posted_charge_even_with_zero_past_growth(monk
     and new_spend == 0 with no `future_unposted_charges` field to check),
     so the reserve would sit at £0 while a real, predicted charge sat
     completely unaccounted for — cash overstated by the full amount.
+
+    H94, 2026-09-28: same date rot as `test_reserve_still_catches_growth_
+    with_no_predicted_repayment` (see its G137 comment) — `days_away: 3`
+    under an UNPINNED "today" falls outside `0 <= days_away < days_until_payday`
+    once a real calendar month's final few days shrink the calendar_month
+    payday gap to 3 or less, dropping the charge out of `raw_window_bills`
+    (and so out of `card_charges_excluded_from_walk` too) entirely. Pinned
+    the same way, to a payday fixed at "today" + 15 days.
     """
     _wire_common(monkeypatch, recurring_spend=[])
+
+    today = date.today()
+    next_payday = today + timedelta(days=15)  # days_until_payday == 15, always
+
+    def fake_confirmed_payday(_prefs, _today):
+        return (next_payday, {"schedule": "fixed"})
+
+    monkeypatch.setattr(income_service, "get_confirmed_payday", fake_confirmed_payday)
+
     bills = [{
         "name": "New Phone Contract", "days_away": 3, "amount": 45.0,
-        "expected_date": "2026-09-19", "kind": "commitment",
+        "expected_date": (today + timedelta(days=3)).isoformat(), "kind": "commitment",
         "account_id": "newcard", "is_credit_card": True,
     }]
     accounts = [{"balance": 200.0, "type": "bank", "subtype": "CURRENT", "currency": "GBP"}]
