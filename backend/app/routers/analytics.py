@@ -5,7 +5,7 @@ import logging
 import re
 from calendar import monthrange
 from collections import defaultdict, Counter
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from datetime import date as _date
 from typing import List
 
@@ -1437,7 +1437,7 @@ async def _process_income_payer_attachments(
     key/reference -- see `income_payer.stable_stream_id`'s docstring)."""
     from app.db.collections import income_payer_attachments_col
     for att in attachments:
-        doc = {**att, "user_id": uid, "logged_at": datetime.utcnow()}
+        doc = {**att, "user_id": uid, "logged_at": datetime.now(timezone.utc)}  # naive-ok: audit instant, not a calendar day
         try:
             await income_payer_attachments_col.update_one(
                 {"user_id": uid, "stream_id": att["stream_id"], "credit_id": att["credit_id"]},
@@ -1497,7 +1497,7 @@ async def _judge_income_payer_match(uid: str, attachment: dict) -> None:
                 "judge_same_payer": bool(verdict["same_payer"]),
                 "judge_confidence": float(verdict.get("confidence", 0.5)),
                 "judge_reason": str(verdict.get("reason", "")).strip(),
-                "judged_at": datetime.utcnow(),
+                "judged_at": datetime.now(timezone.utc),  # naive-ok: audit instant, not a calendar day
             }},
         )
     except Exception:
