@@ -392,10 +392,29 @@ def test_item_action_note_and_owner(tmp_path, monkeypatch, mock_git):
         item = next(i for i in result["items"] if i["id"] == "H3")
         assert item["notes"][-1]["text"] == "Board write-side smoke test"
         assert item["notes"][-1]["actor"] == "kevin"
+        # H64: note_truncation is always present on a note action, and a
+        # short note reports that no truncation happened.
+        assert result["note_truncation"]["truncated"] is False
+
+        # H64: a note over NOTE_CAP (1500) is silently collapsed by
+        # add_note, so the route must surface the truncation fact.
+        long_note = "A" * 1800
+        result = await ops.go_live_item_action(
+            "H3", ItemActionRequest(action="note", text=long_note), user=user
+        )
+        assert result["note_truncation"] == {
+            "truncated": True,
+            "original_length": 1800,
+            "cap": 1500,
+            "dropped_length": 303,
+            "dropped_tail": "A" * 40,
+        }
 
         result = await ops.go_live_item_action("H3", ItemActionRequest(action="owner", owner="kevin"), user=user)
         item = next(i for i in result["items"] if i["id"] == "H3")
         assert item["owner"] == "kevin"
+        # H64: note_truncation is only ever set on the note branch.
+        assert "note_truncation" not in result
 
         result = await ops.go_live_item_action("H3", ItemActionRequest(action="owner", owner="codex"), user=user)
         item = next(i for i in result["items"] if i["id"] == "H3")
