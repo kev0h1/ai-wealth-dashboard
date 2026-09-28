@@ -318,7 +318,7 @@ until it is on production and retested.
 | A83 | `GET /connections` does not list live Finexer connections, hiding the connection A82's disconnect-first step needs | Connections listing route | Fixed on main | `c35ac008` | Deployed 2026-09-27 (`release-20260927-0947`) | Listing half confirmed Fixed live 2026-09-27 (A112); disconnect-before-delete half source-confirmed Fixed only, live retest Blocked (same as A82) |
 | A84 | A deleted account's session token is not invalidated and remains usable for up to 7 days, including for writes that can reattach if the account is recreated with the same email | Session/auth lifecycle | Fixed on main | `40fed391` | Deployed 2026-09-27 (`release-20260927-0947`) | Source-confirmed Fixed 2026-09-27 (A112); live retest Blocked, same as A82 |
 | A91 | MCP output masking is structural only and never sanitises kept field content; an instruction-shaped merchant/category/insight string reaches the connecting assistant unmodified (prompt-injection surface) | MCP connector output masking | Fixed on main | `9c5b7ef9` | Deployed 2026-09-27 (`release-20260927-0947`); connector itself is off in production (A17), so not exploitable there today | Confirmed Fixed live 2026-09-27 (A112), tested on UAT since the connector is not registered on production |
-| A121 | The iOS biometric privacy lock is bypassable: with the lock engaged (cold start or via a notification tap), the nav bar and Penny suggestion chips are tappable behind the visual overlay, and a chip tap renders live safe-to-spend and upcoming-bills figures with no authentication. Android's equivalent overlay held | iOS lock overlay / `BiometricLock`, nav bar, Penny chips | Open, found in device testing 2026-09-27 | none | N/A | Pending |
+| A121 | The iOS biometric privacy lock is bypassable: with the lock engaged (cold start or via a notification tap), the nav bar and Penny suggestion chips are tappable behind the visual overlay, and a chip tap renders live safe-to-spend and upcoming-bills figures with no authentication. Android's equivalent overlay held | iOS lock overlay / `BiometricLock`, nav bar, Penny chips | In progress, found in device testing 2026-09-27 (board item A121) | none | N/A | Pending |
 
 **A82.** WP3's live account-deletion case (`API-15`, run
 `A50-2026-09-20`) found that `erase_user` deletes every local trace of an
@@ -398,7 +398,8 @@ confirmed, repeatable, and needs only physical possession of an
 already-locked, previously-signed-in phone, no `adb`, cable, or root
 access of any kind. Android's own lock overlay held under the equivalent
 reproduction (`A55-2026-09-27`, `AND-03`). This finding is not yet fixed:
-no fix commit exists, and it is not deployed or retested. It is the
+no fix commit exists, and it is not deployed or retested; a fix is in
+progress (board item A121, updated 2026-09-28). It is the
 headline result of the 2026-09-27 device testing round and, per
 `PENTEST-METHODOLOGY.md` section 3.5's stop condition, met the bar for a
 repeatable, previously undocumented High finding.

@@ -174,7 +174,7 @@ ISM's sign-off and the still-owed cross-model review above.
 | A83 | `GET /connections` does not list live Finexer connections, hiding the very connection A82's disconnect-first step needs | Fixed on main 2026-09-22 (c35ac008), regression-tested; released to production 2026-09-27 (`release-20260927-0947`); retested 2026-09-27: the `GET /connections` listing half confirmed Fixed live (Pass); the disconnect-before-delete half source-confirmed Fixed (live retest Blocked, same as A82; see A112's `API-15` record) |
 | A84 | A deleted account's session token is not invalidated and remains usable for up to 7 days; it has been shown able to write persistent data that reattaches if the account is later recreated with the same email | Fixed on main 2026-09-22 (40fed391), regression-tested; released to production 2026-09-27 (`release-20260927-0947`); retested 2026-09-27, source-confirmed Fixed (live retest Blocked, same as A82; see A112's `API-15` record) |
 | A91 | The MCP connector's output masking is structural only (drops fields by shape) and never sanitises the content it keeps, so an instruction-shaped string in a merchant name, recurring-series description or insight trigger reaches the connecting external assistant unmodified: a live prompt-injection surface with no content-level mitigation. The connector is off in production by design (A17), so this exposure is UAT-only today; it must be fixed before the connector is enabled in production (board item F1, Finexer design sign-off, still open), it is not actively exploitable in production now | Fixed on main 2026-09-22 (9c5b7ef9), regression-tested; released to production 2026-09-27 (`release-20260927-0947`); retested 2026-09-27 on UAT (MCP connector off in production by design, A17), confirmed Fixed live |
-| A121 | The iOS biometric privacy lock is bypassable: with the lock engaged (cold start and via notification tap), the nav bar and Penny suggestion chips are tappable behind the visual overlay, and a chip tap renders live safe-to-spend and upcoming-bills figures with no authentication. Android's overlay held | Found in device testing 2026-09-27; open, not yet remediated |
+| A121 | The iOS biometric privacy lock is bypassable: with the lock engaged (cold start and via notification tap), the nav bar and Penny suggestion chips are tappable behind the visual overlay, and a chip tap renders live safe-to-spend and upcoming-bills figures with no authentication. Android's overlay held | Found in device testing 2026-09-27; not yet remediated, a fix is in progress (board item A121) |
 
 A82, A83 and A84 are one deletion-lifecycle root cause: account deletion
 does not disconnect a customer's bank connection before erasing local
@@ -240,7 +240,8 @@ freshly issued credential is still owed to close that to a clean live
 Pass. The fifth, and newest, is **A121**: the iOS biometric privacy lock is
 bypassable, exposing live safe-to-spend and upcoming-bills figures with no
 authentication, found in device testing on 2026-09-27 and, unlike the
-other four, **not yet remediated**. Of the remaining twenty Medium, Low
+other four, **not yet remediated**; a fix is in progress (board item
+A121). Of the remaining twenty Medium, Low
 and Informational findings, eleven are fixed on `main` with production
 release pending (A92 additionally gated on A110, trusted-proxy hop
 handling); nine (A73, A77, A79, A81, A94, A118, A119, A120, A122) remain
