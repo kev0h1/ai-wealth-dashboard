@@ -305,6 +305,60 @@ def test_fallback_confidently_attaches_on_full_evidence():
     assert log[0]["stream_id"] != stream_key
 
 
+# ── blocker 2 (independent review of a165200d): the wider-window "latest ──
+# ── credit under the old key" candidate must clear the SAME evidence gate ──
+# ── as any other candidate, never win attribution on key equality alone ────
+
+def test_stale_latest_credit_under_key_never_blindly_attributed():
+    """Reviewer-reproduced blocker: a confirmed stream's `latest_credit_by_
+    key` candidate (real transaction evidence, but from OUTSIDE the narrow
+    matching window) used to set `attributed_acct` directly with no amount/
+    cadence/account check at all -- so an unrelated payer's credit sitting
+    in `unattributed_credits` could never even be considered, and the stale
+    candidate's account won by key equality alone regardless of whether the
+    amount made any sense. Now it is just one more candidate offered to
+    `deterministic_match`: a stale candidate whose amount is wildly outside
+    the stream's band is logged as (at best) ambiguous, never confidently
+    attached, and a genuinely unrelated payer's credit at a DIFFERENT
+    account is never attributed either (no shared counterparty token at
+    all -- not even ambiguous)."""
+    stream_key = "9942 GOLDMAN SACHS"
+    stream = {
+        "key": stream_key, "status": "confirmed",
+        "schedule": {"type": "day_of_month", "day": 28},
+        "avg_amount": 4798.08, "last_seen": "2026-03-28",
+    }
+    # Stale: same exact key text (so it WOULD have won blindly before this
+    # fix), but the amount is nowhere near the stream's band -- no genuine
+    # evidence this is the same payer's pay, just a shared statement string.
+    stale_under_old_key = income_txn(
+        stream_key, date(2026, 3, 28), 100.00, account_id="account-a",
+    )
+    # Unrelated payer entirely, sitting in the caller's unattributed pool,
+    # landing in a DIFFERENT account.
+    unrelated_payer = income_txn(
+        "SUNRISE RETAIL WAGES", date(2026, 8, 28), 4750.00, account_id="account-b",
+    )
+    log: list = []
+    result = _confirmed_income_fallback(
+        [], {stream_key: stream}, set(), date(2026, 9, 24),
+        latest_credit_by_key={stream_key: stale_under_old_key},
+        unattributed_credits=[unrelated_payer],
+        attachments_log=log,
+    )
+    assert len(result) == 1
+    # Never attributed to either account -- the stale candidate fails the
+    # evidence gate, and the unrelated payer shares no counterparty token.
+    assert result[0]["account_id"] is None
+    assert result[0]["account_id"] != "account-a"
+    assert result[0]["account_id"] != "account-b"
+    # The deterministic step genuinely ran: the stale candidate produced an
+    # explicit (non-confident) evidence record.
+    assert len(log) >= 1
+    assert all(entry["decision"] != "confident" for entry in log)
+    assert any(entry["credit_id"] for entry in log)
+
+
 # ── (e) the attachment log is scoped by user_id and carries no raw ────────
 # ── reference ───────────────────────────────────────────────────────────────
 

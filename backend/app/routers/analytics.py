@@ -150,7 +150,11 @@ OBSERVATION_LOOKBACK_DAYS = 6   # real bills land up to 5 days before their anch
 # also carry `lapsed`/`missed_cycles`. A cache doc computed before this
 # version still has the OLD raw-key-shaped `key`s and no `lapsed` field, so
 # it must be recomputed rather than read as-is.
-PATTERNS_VERSION = 11
+# v12 (G157 review fix, blocker 2): recurring_income entries also carry
+# `account_changed_from_usual` (True when a deterministically-attached
+# credit landed in a different account than the confirmed stream's usual
+# one). A cache doc computed before this version has no such field.
+PATTERNS_VERSION = 12
 
 def _next_working_day(d):  # d: datetime.date -> datetime.date
     while d.weekday() >= 5 or d.isoformat() in UK_BANK_HOLIDAYS_EW:
@@ -1131,11 +1135,19 @@ def _confirmed_income_fallback(
 
     `latest_credit_by_key` (series_key -> the single newest credit txn under
     that key, from whatever wider window the caller already has loaded, e.g.
-    the 180-day `credits_180`) backs up `account_id` attribution (below) when
-    `credits_by_key` holds nothing for a key -- a confirmed stream can be
-    real and current while still having no credit inside the narrower
-    matching window (G160). Optional; omit it and that fallback step is
-    simply unavailable, same as `credits_by_key`.
+    the 180-day `credits_180`) is a CANDIDATE for `account_id` attribution
+    (below) when `credits_by_key` holds nothing for a key -- a confirmed
+    stream can be real and current while still having no credit inside the
+    narrower matching window. G157 review fix (blocker 2, independent
+    review of a165200d): this candidate is no longer trusted on key
+    equality alone (the original G160 shape) -- it is offered to the SAME
+    evidence-gated `deterministic_match` step build step 2/3 uses, so
+    attribution is always per matched credit, never inferred merely because
+    the key matches. Its own account is kept as a hint so a genuine account
+    CHANGE (the final attribution lands somewhere else) can be flagged via
+    `account_changed_from_usual` rather than silently accepted. Optional;
+    omit it and that candidate is simply unavailable, same as
+    `credits_by_key`.
 
     G157 replaces the old G174 heuristic (a detected entry landing within 3
     days AND within 15% of amount was treated as the same payer and
@@ -1263,9 +1275,9 @@ def _confirmed_income_fallback(
         avg_amount = stream.get("avg_amount")
         if avg_amount is None:
             continue
-        # G160: attribute the synthesised entry to a landing account with
-        # the same precedence `income_credit_ok`'s per-account check needs
-        # to actually see it -- otherwise it fails attribution on the very
+        # Attribute the synthesised entry to a landing account with the
+        # same precedence `income_credit_ok`'s per-account check needs to
+        # actually see it -- otherwise it fails attribution on the very
         # first line, before it ever reaches the confirmed-stream clause,
         # and a confirmed salary is silently invisible to every per-account
         # simulation (cover plan, at-risk badge, source walks) even though
@@ -1274,27 +1286,41 @@ def _confirmed_income_fallback(
         #      same rule `_majority_landing_account` gives a detected
         #      series -- the strongest evidence, real transactions inside
         #      the window this fallback is actually forecasting from.
-        #   2. No in-window match: the most recent credit under this key
-        #      from the wider window the caller loaded anyway (see
-        #      `latest_credit_by_key`'s docstring) -- still real evidence,
-        #      just older than the window `credits_by_key` was built from.
-        #   3. Neither: fall through to the G157 deterministic-attach step
-        #      below (payer identity over an unattributed credit) before
-        #      finally giving up.
+        #   2. No in-window match: fall through to the G157 deterministic-
+        #      attach step below (payer identity, evidence-gated) -- which
+        #      now ALSO considers the wider-window "latest credit under this
+        #      exact key" candidate (`latest_credit_by_key`) as just one
+        #      more candidate to run through the SAME evidence gate, not a
+        #      blindly-trusted attribution (G157 review fix, blocker 2: the
+        #      original G160 shape set `attributed_acct` from this
+        #      candidate's account with no amount/cadence/account check at
+        #      all, which meant this branch was already non-None by the
+        #      time the deterministic-attach step below ran, so that step
+        #      never even fired for a stream with a stale credit under its
+        #      old key).
         matching = sorted(credits_by_key.get(key, []), key=lambda t: t["date"])
         attributed_acct = _majority_landing_account(matching)
-        if attributed_acct is None:
-            _latest = latest_credit_by_key.get(key)
-            if _latest is not None:
-                attributed_acct = str(_latest.get("account_id", "") or "") or None
 
-        # G157 build step 2/3: still no evidence at all -- scan whatever
-        # unattributed income-sized credits the caller found for a
-        # deterministic payer match. Only ever attaches on "confident"; an
-        # "ambiguous" verdict is logged for the caller's judge step and
-        # left unattached.
+        # Real evidence of where this stream's payer has USUALLY landed --
+        # kept only as a HINT for the account-change check below, never
+        # used to set `attributed_acct` directly.
+        _latest_under_key = latest_credit_by_key.get(key)
+        _usual_account_hint = (
+            str(_latest_under_key.get("account_id", "") or "") or None
+            if _latest_under_key is not None else None
+        )
+
+        # G157 build step 2/3: still no in-window evidence -- scan the
+        # wider-window candidate (if any) plus whatever unattributed
+        # income-sized credits the caller found, for a deterministic payer
+        # match. Only ever attaches on "confident"; an "ambiguous" verdict
+        # is logged for the caller's judge step and left unattached.
+        account_changed_from_usual = False
         if not matching and attributed_acct is None:
-            for cand in unattributed_credits:
+            _candidate_pool = list(unattributed_credits)
+            if _latest_under_key is not None:
+                _candidate_pool = [_latest_under_key] + _candidate_pool
+            for cand in _candidate_pool:
                 cand_id = str(cand.get("_id") or id(cand))
                 if cand_id in used_candidate_ids:
                     continue
@@ -1318,6 +1344,21 @@ def _confirmed_income_fallback(
                         _stable_stream_id(key), cand_id, verdict["evidence"],
                     )
                     break
+            # G157 review fix (blocker 2): the credit that ends up attached
+            # (via ANY candidate that cleared the evidence gate, including
+            # `_latest_under_key` itself) may land in a DIFFERENT account
+            # than this stream has usually been seen in -- that is exactly
+            # "your pay seems to land somewhere new", never something to
+            # silently infer. When the same credit IS the usual-account
+            # hint (the ordinary case: the stale credit under the exact old
+            # key clears the gate on its own evidence), the two trivially
+            # agree and nothing is flagged.
+            if (
+                attributed_acct is not None
+                and _usual_account_hint is not None
+                and attributed_acct != _usual_account_hint
+            ):
+                account_changed_from_usual = True
         last_date = None
         last_seen = stream.get("last_seen")
         if last_seen:
@@ -1362,6 +1403,13 @@ def _confirmed_income_fallback(
             "source": "confirmed",
             "lapsed": lapsed,
             "missed_cycles": round(cycles_missed, 2),
+            # G157 review fix (blocker 2): True when the credit actually
+            # attached (build step 2's deterministic match) landed in a
+            # DIFFERENT account than this stream's own usual one -- the
+            # companion ask pipeline raises "your pay seems to land
+            # somewhere new" for this, rather than the old G160 shape's
+            # silent account inference.
+            "account_changed_from_usual": account_changed_from_usual,
         })
     return fallback
 
@@ -2930,6 +2978,12 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
                 "lapsed": r.get("lapsed", False),
                 "missed_cycles": r.get("missed_cycles"),
                 "source": r.get("source"),
+                # G157 review fix (blocker 2): True when the credit
+                # deterministically attached to a confirmed stream landed
+                # in a different account than the stream's own usual one --
+                # the companion ask pipeline raises "your pay seems to
+                # land somewhere new" for this rather than inferring.
+                "account_changed_from_usual": r.get("account_changed_from_usual", False),
             }
             for r in recurring_income
         ],
