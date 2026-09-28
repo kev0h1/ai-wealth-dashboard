@@ -97,22 +97,26 @@ ALLOWLIST: set[tuple[str, int]] = {
     # copy), none of these are new exception sites. A98 (2026-09-21) then
     # shifted every line below by -6, removing the Kenya region's
     # get_user_region import and its two KES/GBP home-currency branches
-    # earlier in this file; likewise not new exception sites.
-    ("app/services/penny_tools.py", 3865),
-    ("app/services/penny_tools.py", 3930),  # ValueError from compute_intent_preview, see above
-    ("app/services/penny_tools.py", 4433),
-    ("app/services/penny_tools.py", 4453),
-    ("app/services/penny_tools.py", 4489),
-    ("app/services/penny_tools.py", 4512),
-    ("app/services/penny_tools.py", 4654),
-    ("app/services/penny_tools.py", 4659),
-    ("app/services/penny_tools.py", 4664),
-    ("app/services/penny_tools.py", 4751),
-    ("app/services/penny_tools.py", 4756),
-    ("app/services/penny_tools.py", 4761),
-    ("app/services/penny_tools.py", 5702),
-    ("app/services/penny_tools.py", 6357),
-    ("app/services/penny_tools.py", 6371),
+    # earlier in this file; likewise not new exception sites. G159
+    # (2026-09-28) then shifted every line below by +6: an `engine_build`
+    # import plus a comment and one stamp line in `_load_cashflow_cache`
+    # (review fix #5, stamping a second cashflow_cache writer), earlier in
+    # this file; not a new exception site either.
+    ("app/services/penny_tools.py", 3871),
+    ("app/services/penny_tools.py", 3936),  # ValueError from compute_intent_preview, see above
+    ("app/services/penny_tools.py", 4439),
+    ("app/services/penny_tools.py", 4459),
+    ("app/services/penny_tools.py", 4495),
+    ("app/services/penny_tools.py", 4518),
+    ("app/services/penny_tools.py", 4660),
+    ("app/services/penny_tools.py", 4665),
+    ("app/services/penny_tools.py", 4670),
+    ("app/services/penny_tools.py", 4757),
+    ("app/services/penny_tools.py", 4762),
+    ("app/services/penny_tools.py", 4767),
+    ("app/services/penny_tools.py", 5708),
+    ("app/services/penny_tools.py", 6363),
+    ("app/services/penny_tools.py", 6377),
     # app.services.billing._handle_checkout_completed: `str(exc)` here is an
     # authored ValueError message from grant_pack (see above), returned as
     # the body of a Stripe *webhook* response — read by Stripe's own retry

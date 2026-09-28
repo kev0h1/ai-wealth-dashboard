@@ -74,6 +74,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from fastapi import HTTPException
 
+from app.core.build import engine_build
 from app.core.config import MCP_CONNECTOR_ENABLED
 from app.core import timeutil
 from app.db.collections import (
@@ -2002,6 +2003,11 @@ async def _load_cashflow_cache(uid: str) -> dict | None:
     cached = await _compute_cashflow_patterns(uid)
     cached["computed_at"] = datetime.now()
     cached["patterns_version"] = PATTERNS_VERSION
+    # G159 review fix #5: same stamp analytics.py's own cache-miss branch
+    # writes, for the same reason — an unstamped doc reads as a different
+    # build to cache_needs_recompute's "auto" self-heal check forever, not
+    # just until the next real engine change.
+    cached["engine_build"] = engine_build()
     await cashflow_cache_col.update_one({"_id": uid}, {"$set": cached}, upsert=True)
     return cached
 

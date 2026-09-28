@@ -13,27 +13,43 @@ Resolution order, first non-empty wins:
 
 1. `ENGINE_BUILD_ID` env: an explicit operator override, also what a test
    sets to pin the value.
-2. `RAILWAY_GIT_COMMIT_SHA` env: platform-injected on both Railway services
-   (production). The backend image has no `.git` (see backend/Dockerfile),
-   so this is the only build identity available there.
-3. `git rev-parse HEAD` on the checkout this package is imported from: UAT,
-   where both systemd units run from /root/ai-wealth-dashboard/backend, and
-   any worktree.
-4. A content hash of every `.py` under `app/`: never changes on a restart
-   without a code change, always changes with one, so the mechanism can
-   never silently no-op in an environment with neither an env stamp nor
-   git.
+2. A content hash of every `.py` under `app/`: deterministic across
+   processes and environments, changes if and only if the backend's own
+   code changes, and always resolves (so this mechanism can never silently
+   no-op for lack of a fallback).
+
+A prior version of this file preferred `git rev-parse HEAD` (and, before
+that, `RAILWAY_GIT_COMMIT_SHA`) over the source hash. Both were dropped by
+the G159 review: `git rev-parse HEAD` identifies a moment the *checkout*
+was at, not a version of *this package*'s code — on UAT, where both
+systemd units run straight from the shared tree, HEAD moves on every board
+commit (`scripts/backlog.py`) and every frontend-only integrate, neither of
+which touches `backend/` at all. A worker restart after either kind of
+commit — for any reason, not just a deploy — read a new HEAD and
+recomputed the entire user population for nothing, and a lone
+`systemctl restart wealth-api` (or a board commit landing between
+integrate's two service restarts) could leave the API and the worker
+holding two DIFFERENT stamps, after which they spent the next four hours
+recomputing each other's docs with `reason="engine_build"` until the next
+backend integrate happened to realign them. `RAILWAY_GIT_COMMIT_SHA` was
+never confirmed to actually behave better in practice (see docs/ops/ENV.md)
+and shares the same shape of risk if Railway ever redeploys on a change
+outside `backend/`, so it was dropped too rather than kept as a
+now-untested middle rung. The source hash has neither failure mode: it
+depends only on this package's own `.py` bytes, so two processes with
+identical backend code always agree regardless of which commit, branch or
+platform produced them, and a restart with no code change is always a
+true no-op.
 
 The value is resolved once per process and cached: it is read on every
-recompute and every reconcile tick, and a subprocess per call would be
-silly. A restart without a deploy therefore produces the same value and
+recompute and every reconcile tick, and hashing every file per call would
+be silly. A restart without a deploy therefore produces the same value and
 the deploy-time pass (see `derived_caches.refresh_stale_cashflow_caches`)
-finds nothing to do.
+finds nothing to do — on Railway and on UAT alike.
 """
 import hashlib
 import logging
 import os
-import subprocess
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -54,20 +70,9 @@ def _source_hash() -> str:
 
 
 def _detect() -> str:
-    for name in ("ENGINE_BUILD_ID", "RAILWAY_GIT_COMMIT_SHA"):
-        value = (os.getenv(name) or "").strip()
-        if value:
-            return value
-    try:
-        out = subprocess.run(
-            ["git", "-C", str(_APP_DIR), "rev-parse", "HEAD"],
-            capture_output=True, text=True, timeout=5, check=False,
-        )
-        sha = (out.stdout or "").strip()
-        if out.returncode == 0 and sha:
-            return sha
-    except Exception:
-        pass
+    value = (os.getenv("ENGINE_BUILD_ID") or "").strip()
+    if value:
+        return value
     return _source_hash()
 
 

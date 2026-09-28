@@ -4204,6 +4204,14 @@ async def get_cashflow(user: dict = Depends(current_user)):
         data = await _compute_cashflow_patterns(uid)
         data["computed_at"] = datetime.now()
         data["patterns_version"] = PATTERNS_VERSION
+        # G159 review fix #5: this is the other writer of a cashflow_cache
+        # doc besides compute_and_cache_cashflow itself (a cache miss on a
+        # plain GET), and it must carry the same stamp — an unstamped doc
+        # reads as `engine_build() != None`, so cache_needs_recompute's
+        # "auto" self-heal branch would treat it as stale forever and
+        # recompute it on the very next reconcile tick regardless of
+        # engine build.
+        data["engine_build"] = engine_build()
         await cashflow_cache_col.update_one({"_id": uid}, {"$set": data}, upsert=True)
         resp = await _build_cashflow_response(data, uid=uid)
 

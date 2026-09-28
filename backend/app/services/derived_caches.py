@@ -55,10 +55,67 @@ SyncTrigger = Literal["user", "auto"]
 # from being starved by a back-to-back recompute of the whole population.
 _STARTUP_PAUSE_SECONDS = 0.5
 
+# G159 review fix #1: a burst of explicit refreshes with nothing new must
+# not each pay the ~1.2s of blocked event-loop CPU plus one Haiku call.
+# The frontend's own `setSyncing` guard cannot prevent this by itself: it
+# releases as soon as POST /accounts/sync's HTTP response returns, which is
+# BEFORE `_post_sync` (routers/accounts.py) even starts running in the
+# background, so a second tap a few seconds later queues a second full
+# recompute regardless of what the button shows. EXPENSIVE_PREFIXES
+# (app.core.ratelimit) is the blunt per-identity backstop against a real
+# flood; this is the mechanism that actually avoids paying twice for two
+# taps that land close together.
+#
+# Per-process, in-memory, keyed by uid — the same trade-off the AI
+# recurring-predictions cache (`analytics._ai_recurring_cache`) already
+# makes for this exact deployment (a single uvicorn/arq worker process per
+# service; see docs/ops/ENV.md and the Performance memory note), not a
+# distributed lock: correct here because there is only one process to
+# dedupe against, and simpler than standing up a Redis lock for a window
+# this short.
+#
+# Stamped at START, not completion, of the recompute: two taps landing
+# while the first recompute is still in flight must also collapse to one,
+# not just two that land after the first has already finished.
+#
+# Only debounces a trigger="user" call whose OWN sync pulled zero new
+# transactions. A refresh that pulled genuinely new data always recomputes
+# regardless of the window — matching the "auto" trigger's own
+# always-recompute-on-new-data rule below — because the bug this closes is
+# bursts of nothing happening, not a real bill landing inside the window
+# and then silently going unrepresented until the window elapses.
+#
+# N = 20s: comfortably longer than the observed failure (a second tap ~2s
+# after the first) and than a recompute's own ~1.2s CPU + one Haiku call
+# (so overlapping taps reliably collapse to one), while short enough that a
+# genuinely separate refresh later in the same visit still gets a fresh
+# recompute rather than silently serving a stale doc to someone actively
+# watching the screen.
+USER_REFRESH_DEBOUNCE_SECONDS = 20
+_last_user_recompute_started: dict[str, float] = {}
+
+
+def _debounce_user_refresh(uid: str) -> bool:
+    """True if a user-triggered recompute for `uid` started within the
+    debounce window and this call should therefore be skipped. Marks the
+    window's start when it returns False (i.e. when the caller is about to
+    proceed), so the very recompute that is about to run is what the next
+    rapid tap debounces against."""
+    now = time.monotonic()
+    last = _last_user_recompute_started.get(uid)
+    if last is not None and (now - last) < USER_REFRESH_DEBOUNCE_SECONDS:
+        return True
+    _last_user_recompute_started[uid] = now
+    return False
+
 
 async def cache_needs_recompute(uid: str, *, new_count: int, trigger: SyncTrigger) -> tuple[bool, str]:
     """Whether this sync must recompute the derived caches, and why."""
     if trigger == "user":
+        if new_count > 0:
+            return True, "user_refresh"
+        if _debounce_user_refresh(uid):
+            return False, "debounced"
         return True, "user_refresh"
     if new_count > 0:
         return True, "new_transactions"
@@ -100,7 +157,19 @@ async def refresh_stale_cashflow_caches(*, reason: str) -> dict:
     """Deploy-time pass: recompute the forecast for every user whose cache
     doc is missing or was written by another engine build. One user at a
     time, a short pause between users, one user's failure never stops the
-    rest. See the module docstring for where and why this runs."""
+    rest. See the module docstring for where and why this runs.
+
+    G159 review fix #4: `recomputed: True` only means `cache_needs_recompute`
+    decided a recompute was owed and `compute_and_cache_cashflow` ran to
+    completion without raising — it does NOT mean a fresh doc actually
+    landed. `compute_and_cache_cashflow` (routers/analytics.py) catches
+    every exception itself and only prints, by design (a broken forecast
+    for one user must never take down the sync that triggered it), so a
+    real compute failure never raises up to here and `failed` alone would
+    never count it. This pass re-reads each user's stamp after the call and
+    counts a STILL-stale stamp as a failure instead of a success, so the
+    summary reflects what's actually in the database, not just what ran
+    without throwing."""
     t0 = time.monotonic()
     user_ids = [u for u in await transactions_col.distinct("user_id") if u]
     recomputed = 0
@@ -109,7 +178,15 @@ async def refresh_stale_cashflow_caches(*, reason: str) -> dict:
         try:
             result = await recompute_derived_caches(uid, new_count=0, trigger="auto")
             if result["recomputed"]:
-                recomputed += 1
+                doc = await cashflow_cache_col.find_one({"_id": uid}, {"engine_build": 1})
+                if doc and doc.get("engine_build") == engine_build():
+                    recomputed += 1
+                else:
+                    failed += 1
+                    logger.error(
+                        "engine refresh (%s): recompute for %s returned but the stamp is still stale "
+                        "(compute_and_cache_cashflow likely swallowed an exception)", reason, uid,
+                    )
                 if _STARTUP_PAUSE_SECONDS:
                     await asyncio.sleep(_STARTUP_PAUSE_SECONDS)
         except Exception:
