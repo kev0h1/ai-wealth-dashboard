@@ -361,6 +361,29 @@ def test_confirmed_key_never_double_reported_from_the_detected_branch():
     assert result[0]["source"] == "confirmed"
 
 
+def test_confirmed_alias_never_double_reported_from_the_detected_branch():
+    """G174: the SAME rule as `test_confirmed_key_never_double_reported_
+    from_the_detected_branch` above, but for a detected series under a
+    DIFFERENT key than the confirmed stream -- the shape a payroll
+    reference change actually produces. `confirmed_alias` (stamped by
+    `_confirmed_income_fallback`'s dedupe guard) is what ties the two
+    together here, since the key itself no longer matches. Without this
+    guard, a reliable detected pattern aliased to a confirmed stream would
+    surface as a second "detected" lapse alongside the confirmed branch's
+    own report of the same missed payday."""
+    today = date(2026, 9, 26)
+    confirmed_income_map = {"SALARY": _stream()}
+    aliased_detected = _detected_pattern(
+        key="SALARY NEW REF", account_id="acc-1", avg_amount=2000.0,
+        next_date=date(2026, 9, 25), avg_interval=1,
+    )
+    aliased_detected["confirmed_alias"] = "SALARY"
+    result = _late_reliable_income(confirmed_income_map, [aliased_detected], [], today)
+    assert len(result) == 1
+    assert result[0]["key"] == "SALARY"
+    assert result[0]["source"] == "confirmed"
+
+
 def test_detected_pattern_not_yet_due_is_not_reported():
     """`next_date` far enough in the future that `prev_expected` (next_date
     minus avg_interval) is still today or later — nothing has lapsed yet."""
