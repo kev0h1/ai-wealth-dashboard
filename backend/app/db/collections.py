@@ -1,6 +1,6 @@
 """All MongoDB collection handles as module-level singletons."""
 from motor.motor_asyncio import AsyncIOMotorClient
-from app.core.config import MONGO_URI
+from app.core.config import MONGO_DB, MONGO_URI
 
 # Cap the pool per process. The web and worker run as separate Railway
 # services, each opening its own client; on Atlas M0 (500-connection cap)
@@ -8,7 +8,12 @@ from app.core.config import MONGO_URI
 # for a future replica. serverSelectionTimeoutMS fails fast if Atlas is
 # unreachable instead of hanging a request for the default 30s.
 _mongo = AsyncIOMotorClient(MONGO_URI, maxPoolSize=20, serverSelectionTimeoutMS=8000)
-db     = _mongo["wealth"]
+# H90: database NAME is MONGO_DB (defaults to "wealth", the same name this
+# used to hardcode) so backend/tests/conftest.py can point the whole
+# backend suite at a disposable "wealth_test" database in the SAME
+# deployment, before this module is ever imported, without needing a
+# second Mongo deployment or a Mongo double.
+db     = _mongo[MONGO_DB]
 
 # TrueLayer
 connections_col         = db["connections"]

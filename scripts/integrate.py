@@ -81,10 +81,12 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import os
 import re
 import subprocess
 import sys
 import time
+import uuid
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator, Optional
@@ -116,12 +118,24 @@ class IntegrateError(RuntimeError):
     (not on main, dirty tree, lock already held)."""
 
 
-def _sh(cmd: list[str], cwd: Path = REPO_ROOT, timeout: int = GIT_TIMEOUT) -> tuple[int, str]:
+def _sh(
+    cmd: list[str], cwd: Path = REPO_ROOT, timeout: int = GIT_TIMEOUT,
+    env: Optional[dict] = None,
+) -> tuple[int, str]:
     """Run a command, returning (returncode, combined stdout+stderr). Never
-    raises for a non-zero exit — callers decide what that means."""
+    raises for a non-zero exit — callers decide what that means.
+
+    `env` (H90): merged ON TOP of this process's own environment (never
+    replaces it) when given, so a caller can add or override one variable
+    (see `_run_backend_tests` below) without having to reconstruct the
+    rest of `os.environ` itself. `None` (the default, every other caller)
+    keeps the previous behaviour exactly: `subprocess.run(..., env=None)`
+    inherits the parent environment unchanged."""
     try:
+        run_env = {**os.environ, **env} if env else None
         proc = subprocess.run(
-            cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=timeout
+            cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+            timeout=timeout, env=run_env,
         )
         return proc.returncode, proc.stdout
     except subprocess.TimeoutExpired as exc:
@@ -635,7 +649,40 @@ def _run_frontend_checks(changed: set[str]) -> None:
         raise IntegrateError(f"check:legal-content failed:\n{out}")
 
 
+def _fresh_test_db_name() -> str:
+    """The same "wealth_test_<epoch seconds>_<8 hex>" shape
+    backend/tests/conftest.py's own default generator produces,
+    duplicated rather than imported (this script must not depend on test
+    code) — kept in sync by convention; see that file if this ever needs
+    to change. A per-run name, not the single shared "wealth_test"
+    literal H90's first pass originally passed here: this VPS can run
+    several `session.sh finish` gates and an `integrate` pass against the
+    one local mongod at once, and a shared literal let one run's
+    session-end teardown drop another's still-in-flight fixtures mid-test
+    (found and reproduced in review). The epoch prefix is what lets
+    conftest.py's own stale-database sweep find and reap a name like this
+    one if the process that generated it never reaches its own teardown
+    (crashed, OOM-killed)."""
+    return f"wealth_test_{int(time.time())}_{uuid.uuid4().hex[:8]}"
+
+
 def _run_backend_tests() -> None:
+    """Runs the suite from the SHARED TREE's own backend, unlike
+    `scripts/session.sh finish` (a worktree). That matters for H90: this
+    process's cwd here has a real `backend/.env` (UAT's), which
+    `app.core.config`'s `load_dotenv(..., override=False)` would read
+    MONGO_DB="wealth" out of — the real value, not a test one — the
+    instant the pytest subprocess imports `app.core.config` transitively.
+    `conftest.py`'s own module-level `os.environ.setdefault("MONGO_DB",
+    ...)` still wins that race on its own (it runs before those imports,
+    and dotenv's override=False never clobbers an already-set var), but
+    passing a MONGO_DB here too means this invocation is its own proof of
+    the mechanism, not something that only holds up if conftest.py's
+    import order is never disturbed. Review-round correction: that value
+    is now generated fresh per call (`_fresh_test_db_name`), not the
+    single shared "wealth_test" literal H90's first pass originally used
+    here, so an integrate pass running concurrently with a `session.sh
+    finish` (or another integrate pass) can never collide with it."""
     venv_python = REPO_ROOT / "backend" / ".venv" / "bin" / "python"
     rc, out = _sh(
         [
@@ -644,6 +691,7 @@ def _run_backend_tests() -> None:
         ],
         cwd=REPO_ROOT / "backend",
         timeout=600,
+        env={"MONGO_DB": _fresh_test_db_name()},
     )
     if rc != 0:
         raise IntegrateError(f"backend test suite failed:\n{out}")

@@ -713,6 +713,79 @@ scripts/session.sh list
   dirty or either check fails. On success it pushes the branch and calls
   `scripts/backlog.py review <ID> --branch feature-<ID>[-slug]`, which is
   the new `[state: review: feature-<ID>[-slug]]` tag integrate looks for.
+  The backend test suite (H90, 2026-09-28, two review rounds the same
+  day) runs against a disposable, PER-RUN database, never the real
+  UAT/production `wealth` one: `app/db/collections.py` selects its
+  database via `MONGO_DB` (`app/core/config.py`, default `"wealth"` —
+  every real process is unaffected), and `backend/tests/conftest.py`
+  defaults `MONGO_DB` to a freshly generated
+  `"wealth_test_<epoch seconds>_<8 hex>"` name before a single test
+  module can create a collection handle, then aborts collection outright
+  (`pytest.UsageError`) if the resolved database name doesn't look like a
+  test database (`_looks_like_a_test_database`, unit-tested directly in
+  `backend/tests/test_h90_guard_looks_like_test_database.py` — see H96
+  below for why that coverage exists) — a fail-hard backstop independent
+  of the default, so a misconfigured environment fails loudly rather than
+  quietly writing into real data. `finish` (this command) and
+  `scripts/integrate.py`'s own `_run_backend_tests` both also generate
+  and pass their OWN per-run name of the same shape explicitly on the
+  pytest invocation itself, belt and suspenders on top of conftest.py's
+  default — this matters most for `integrate.py`, which runs the suite
+  from the shared tree's own `backend/` rather than a worktree, and whose
+  `backend/.env` genuinely carries `MONGO_DB=wealth` (python-dotenv's
+  `override=False` default means conftest.py's own earlier `setdefault`
+  wins that race regardless, but the explicit pass makes the invocation
+  itself proof of the mechanism rather than something that only holds up
+  as long as conftest.py's import order is undisturbed).
+  First review-round correction: H90's first pass shipped a single shared
+  literal, `"wealth_test"`, for every run — an independent review
+  reproduced two concurrent runs against this VPS's one local mongod
+  colliding on it, one session's teardown dropping another's
+  still-in-flight fixtures mid-test, a new flaky-failure mode versus
+  `main`, where nothing ever dropped anything. The per-run name closes
+  that; the epoch embedded in it also lets conftest.py sweep stale
+  leftovers at session start. The disposable database is dropped at
+  session end via a standalone Motor client, not the app's own shared one
+  — that one really can silently no-op on this, per Motor's
+  single-event-loop-per-process-lifetime constraint conftest.py's own
+  docstrings document; a throwaway client used once has no such history
+  to fight.
+  Second review-round correction, incident H96: during re-review of this
+  same branch, a reviewer mutated `_looks_like_a_test_database` to accept
+  the literal `"wealth"`, ran `MONGO_DB=wealth pytest`, and the mutated
+  guard let the real teardown through — it dropped the real UAT database
+  (restored from the 03:15 backup; roughly 5h40m of data lost). The
+  committed guard logic was correct; the mutation is what did it, but the
+  incident exposed two real gaps closed the same day: the guard had zero
+  dedicated test coverage (closed by
+  `test_h90_guard_looks_like_test_database.py`, called directly against
+  the real function, never by running the suite with an unsafe
+  `MONGO_DB`), and its `name.startswith("wealth_test")` prefix check was
+  unanchored, accepting `"wealth_testing"`/`"wealth_testament"`/
+  `"wealth_testers_prod"` on a substring coincidence (fixed with an
+  anchored `^wealth_test(_|$)` regex). The same review also found the
+  stale-database sweep inferred abandonment from AGE ALONE, which
+  reintroduces the exact collision the per-run name was meant to close
+  one layer up: a session whose suite legitimately runs past an hour (a
+  real risk on a memory-starved box) would have its still-live database
+  dropped by another session's sweep. Fixed with a liveness check: every
+  session holds a non-blocking `flock` on a per-database lockfile for its
+  own database's whole lifetime (acquired before the sweep runs, released
+  at session end); the sweep now requires BOTH age past the threshold AND
+  no live owner before dropping anything, tested in
+  `backend/tests/test_h90_stale_sweep_liveness.py`.
+  Before H90, `persist=False` on
+  `app.services.companion.compute_today_items` (used by `GET
+  /today/cover-plan` on every Settings load, and by
+  `penny_tools.get_today_brief`) did not actually suppress every write:
+  one unconditional cache read-through
+  (`app.services.debt_plan.get_debt_plan_cached`) wrote a fresh
+  `debt_plan` response-cache doc regardless, which is how a backend
+  suite run and, separately, an agent's own verification script each
+  wrote a document under a real or fixture user id from unmerged code.
+  `get_debt_plan_cached` now takes its own `persist` flag (default
+  `True`, unchanged for every other caller) so the outer flag's promise
+  is actually enforced.
   `--uat-review` additionally passes `--uat-review` through to that call,
   flagging the branch as a design round (H31): a clean integrate pass
   lands it in `uat` instead of `done`. Pass this whenever the branch's
