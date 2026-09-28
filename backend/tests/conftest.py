@@ -65,7 +65,17 @@ def _generate_test_db_name() -> str:
     return f"wealth_test_{int(time.time())}_{uuid.uuid4().hex[:8]}"
 
 
-os.environ.setdefault("MONGO_DB", _generate_test_db_name())
+# Round-three correction (finding 3): a plain `setdefault` only kicks in
+# when MONGO_DB is ABSENT -- MONGO_DB="" (present, but empty or
+# whitespace-only) sails straight through unchanged, and pymongo raises
+# `InvalidName: database name cannot be the empty string` the instant
+# `app.db.collections` is imported below, well before `_refuse_unless_
+# test_db` ever gets a turn to catch it with a useful message. Treat
+# EMPTY or WHITESPACE-ONLY the same as ABSENT: both regenerate a fresh
+# per-run name, exactly like the missing-entirely case.
+_configured_mongo_db = os.environ.get("MONGO_DB")
+if _configured_mongo_db is None or not _configured_mongo_db.strip():
+    os.environ["MONGO_DB"] = _generate_test_db_name()
 
 import pytest
 
