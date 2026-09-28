@@ -160,13 +160,34 @@ def _lock_dir_is_usable() -> tuple[bool, str]:
     (which already tolerates failure here, degrading for THIS session's
     own liveness signal) and `_sweep_stale_test_databases` (which must
     NOT tolerate it -- see that function's own docstring, H90 round
-    three)."""
+    three).
+
+    H90 round four: `mkdir(parents=True, exist_ok=True)` succeeds as a
+    NO-OP whenever the directory already exists, whether or not this
+    process can actually write to it -- an existing directory that has
+    since LOST write access (root bypasses an ordinary `chmod`, but
+    `chattr +i` on ext4 blocks writes even for root -- reproduced by the
+    round-four reviewer) passed this check every time under the mkdir-
+    only version, so a subsequent real write (a lockfile) silently never
+    happened, `_has_a_live_owner` correctly found no lockfile for
+    anyone, and the sweep read that as "no live owner" for every
+    candidate -- exactly the H96 class of defect, one precondition
+    deeper than round three's own fix already closed. Write access is
+    now PROVEN, not inferred from mkdir: a real, uniquely-named probe
+    file is created inside the directory and immediately removed; any
+    `OSError` on that attempt means unusable, mkdir's own success
+    notwithstanding."""
     try:
         _LOCK_DIR.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
         return False, f"cannot create or use lock directory {_LOCK_DIR}: {exc}"
     if not _LOCK_DIR.is_dir():
         return False, f"{_LOCK_DIR} exists but is not a directory"
+    try:
+        with tempfile.NamedTemporaryFile(dir=_LOCK_DIR, prefix=".probe_"):
+            pass
+    except OSError as exc:
+        return False, f"lock directory {_LOCK_DIR} exists but is not writable: {exc}"
     return True, ""
 
 
@@ -174,34 +195,34 @@ def _has_a_live_owner(name: str) -> bool:
     """Non-blocking probe of the SAME lockfile `_acquire_own_lock` above
     holds for a database's whole-session lifetime.
 
-    FAIL CLOSED (H90 round three): the only answer that means "no
-    evidence of a live owner" (False) is a clean, unambiguous "the
-    lockfile plainly does not exist". EVERY OTHER failure -- the lock
-    directory itself broken or colliding with something else, a
-    permissions problem, `.exists()` itself raising, `open()` failing,
-    `flock()` failing for any reason besides "already held" -- is
-    treated as "yes, a live owner" (True), not as "no evidence, so
-    probably safe". The earlier version conflated these: it treated ANY
-    open/stat failure the same as "no lock file at all" and returned
-    False, which let a broken lock directory (the H96 class of defect,
-    one precondition deeper -- see `_sweep_stale_test_databases`) make
-    every candidate look unowned regardless of whether anything actually
-    was. `_sweep_stale_test_databases` also short-circuits the whole
-    sweep via `_lock_dir_is_usable` above before this function is ever
-    called with the directory in that state, but this function fails
-    closed on its own too, independent of that guard, rather than
-    relying on it alone."""
+    FAIL CLOSED (H90 round three, tightened round four): the only answer
+    that means "no evidence of a live owner" (False) is a clean,
+    unambiguous `FileNotFoundError` opening the lockfile path directly.
+    EVERY OTHER failure -- the lock directory itself broken or colliding
+    with something else, a permissions problem (`PermissionError`, the
+    `EACCES`/`EPERM` shapes an immutable directory or a stripped-write
+    ACL produce), `NotADirectoryError`, `open()` failing for any other
+    reason, `flock()` failing for any reason besides "already held" --
+    is treated as "yes, a live owner" (True), not as "no evidence, so
+    probably safe".
+
+    Round four: no longer calls `Path.exists()` first. `.exists()`
+    itself swallows several of the exact OSError shapes this function
+    needs to see -- a `NotADirectoryError` from a path component that
+    isn't a directory, in particular, is caught internally and reported
+    as a plain `False` ("does not exist"), which is not the same claim
+    as "definitely no owner" and let a broken lock directory read as
+    safe even after round three's fail-closed rewrite. Opening the path
+    directly (`open(path, "r+")`) and reading the REAL exception type
+    off that single call is the only way to keep "not found" and "found
+    but unusable" from collapsing into the same answer."""
     path = _lock_path_for(name)
     try:
-        exists = path.exists()
-    except OSError:
-        return True  # could not even ask -- fail closed, not "no evidence"
-    if not exists:
-        return False
-    try:
         fh = open(path, "r+")
+    except FileNotFoundError:
+        return False
     except OSError:
-        return True  # exists but unopenable -- fail closed
+        return True  # exists (or path itself is broken) but unopenable -- fail closed
     try:
         fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:

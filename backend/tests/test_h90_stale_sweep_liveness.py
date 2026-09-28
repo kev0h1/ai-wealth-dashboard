@@ -21,10 +21,13 @@ and is dropped again by this file's own cleanup regardless of which
 assertion runs, real or not.
 """
 import asyncio
+import shutil
+import subprocess
 import time
 import uuid
 
 import conftest
+import pytest
 from app.core.config import MONGO_URI
 from motor.motor_asyncio import AsyncIOMotorClient
 
@@ -151,3 +154,72 @@ def test_lock_dir_unusable_means_no_database_is_dropped(tmp_path, monkeypatch):
         )
     finally:
         asyncio.run(_drop(name))
+
+
+def test_lock_dir_immutable_means_no_database_is_dropped(tmp_path, monkeypatch):
+    """H90 round four: an existing, ordinary-looking lock directory that
+    has LOST write access must not pass `_lock_dir_is_usable` just
+    because `mkdir(parents=True, exist_ok=True)` succeeds as a no-op
+    against a directory that is already there -- mkdir's success says
+    nothing about whether a WRITE into it would also succeed. Before
+    this fix: no lockfile could ever be created inside it, so
+    `_has_a_live_owner` correctly (on its own narrow terms) found no
+    lockfile for any name and reported no live owner for everything, and
+    the sweep read that absence as proof of nothing live, when the real
+    explanation was that nobody could ever have registered a lock here
+    at all.
+
+    Reproduced with `chattr +i` (ext4), not `chmod`: root bypasses
+    ordinary DAC permission bits entirely, so a directory chmod'd to
+    read-only is still perfectly writable by this process, and would not
+    have caught the bug the round-four reviewer actually found. The
+    immutable attribute blocks writes at the filesystem level regardless
+    of who is asking, the same shape a real "lost write access" incident
+    (a remount, a quota, a broken overlay) could plausibly take.
+
+    Skips cleanly, printing why, if `chattr` is not on this host or this
+    filesystem refuses `+i` (tmpfs and several container overlay setups
+    do) -- this is an environment capability check, not a test outcome.
+    `chattr -i` always runs in a `finally`, whether or not the body's
+    assertions ran, so the temp directory is never left immutable.
+    """
+    if shutil.which("chattr") is None:
+        pytest.skip("chattr is not available on this host")
+
+    fake_lock_dir = tmp_path / "wealth_test_locks"
+    fake_lock_dir.mkdir()
+
+    set_immutable = subprocess.run(
+        ["chattr", "+i", str(fake_lock_dir)], capture_output=True, text=True
+    )
+    if set_immutable.returncode != 0:
+        pytest.skip(
+            f"this filesystem refused chattr +i on {fake_lock_dir}: "
+            f"{set_immutable.stderr.strip() or set_immutable.stdout.strip()}"
+        )
+
+    try:
+        monkeypatch.setattr(conftest, "_LOCK_DIR", fake_lock_dir)
+
+        name = _old_test_db_name()
+        asyncio.run(_seed_marker(name))
+        try:
+            dropped = asyncio.run(
+                conftest._sweep_stale_test_databases(own_name="wealth_test_unrelated_sentinel")
+            )
+            assert dropped == [], (
+                f"{name!r} is old, but the lock directory exists and "
+                f"mkdir(exist_ok=True) against it succeeds -- it has "
+                f"simply lost write access (chattr +i), so no lockfile "
+                f"could ever have been created for anyone. The sweep "
+                f"must skip entirely, not read the absence of a lockfile "
+                f"as proof nothing is live."
+            )
+            assert asyncio.run(_database_exists(name)), (
+                f"{name!r} vanished even though the sweep claims it "
+                f"dropped nothing."
+            )
+        finally:
+            asyncio.run(_drop(name))
+    finally:
+        subprocess.run(["chattr", "-i", str(fake_lock_dir)], capture_output=True, text=True)
