@@ -142,26 +142,62 @@ def _release_own_lock(name: str) -> None:
         pass
 
 
+def _lock_dir_is_usable() -> tuple[bool, str]:
+    """Can the lock directory actually be used right now, as a real,
+    writable directory -- not colliding with a plain file, not blocked
+    by permissions, not otherwise broken. Returns `(True, "")` when
+    usable, `(False, <reason>)` otherwise. Shared by `_acquire_own_lock`
+    (which already tolerates failure here, degrading for THIS session's
+    own liveness signal) and `_sweep_stale_test_databases` (which must
+    NOT tolerate it -- see that function's own docstring, H90 round
+    three)."""
+    try:
+        _LOCK_DIR.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        return False, f"cannot create or use lock directory {_LOCK_DIR}: {exc}"
+    if not _LOCK_DIR.is_dir():
+        return False, f"{_LOCK_DIR} exists but is not a directory"
+    return True, ""
+
+
 def _has_a_live_owner(name: str) -> bool:
     """Non-blocking probe of the SAME lockfile `_acquire_own_lock` above
-    holds for a database's whole-session lifetime. No lockfile at all
-    (predates this mechanism, or `_acquire_own_lock` degraded above) is
-    treated as "no evidence of a live owner", not as "definitely dead" --
-    conservative in the direction of a stale entry surviving one extra
-    sweep, never in the direction of dropping something live."""
+    holds for a database's whole-session lifetime.
+
+    FAIL CLOSED (H90 round three): the only answer that means "no
+    evidence of a live owner" (False) is a clean, unambiguous "the
+    lockfile plainly does not exist". EVERY OTHER failure -- the lock
+    directory itself broken or colliding with something else, a
+    permissions problem, `.exists()` itself raising, `open()` failing,
+    `flock()` failing for any reason besides "already held" -- is
+    treated as "yes, a live owner" (True), not as "no evidence, so
+    probably safe". The earlier version conflated these: it treated ANY
+    open/stat failure the same as "no lock file at all" and returned
+    False, which let a broken lock directory (the H96 class of defect,
+    one precondition deeper -- see `_sweep_stale_test_databases`) make
+    every candidate look unowned regardless of whether anything actually
+    was. `_sweep_stale_test_databases` also short-circuits the whole
+    sweep via `_lock_dir_is_usable` above before this function is ever
+    called with the directory in that state, but this function fails
+    closed on its own too, independent of that guard, rather than
+    relying on it alone."""
     path = _lock_path_for(name)
-    if not path.exists():
+    try:
+        exists = path.exists()
+    except OSError:
+        return True  # could not even ask -- fail closed, not "no evidence"
+    if not exists:
         return False
     try:
         fh = open(path, "r+")
     except OSError:
-        return False
+        return True  # exists but unopenable -- fail closed
     try:
         fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
         return True
     except OSError:
-        return False
+        return True  # any other flock failure -- fail closed too
     else:
         fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
         return False
@@ -272,7 +308,25 @@ async def _sweep_stale_test_databases(own_name: str) -> list[str]:
     `own_name`, this run's own database, however the age check might read
     it (in practice it never can: the epoch in a freshly-generated name
     is always "now"). Returns the names actually dropped so the caller
-    can report them."""
+    can report them.
+
+    H90 round three: checks `_lock_dir_is_usable()` FIRST and skips the
+    ENTIRE sweep, printing why, if it is not -- a broken lock directory
+    means NO session on this host could have registered a lock for
+    anything, so there is no evidence either way for any candidate, and
+    "no evidence" must never read as "safe to drop". This is a
+    short-circuit ahead of `_has_a_live_owner`'s own fail-closed
+    behaviour (see that function's docstring), not a replacement for
+    it -- belt and braces, same as everywhere else in this file."""
+    lock_dir_ok, lock_dir_reason = _lock_dir_is_usable()
+    if not lock_dir_ok:
+        print(
+            f"[H90] skipping the stale-database sweep entirely: "
+            f"{lock_dir_reason} -- no liveness evidence is available for "
+            f"any candidate, so nothing can safely be dropped this run."
+        )
+        return []
+
     from motor.motor_asyncio import AsyncIOMotorClient
 
     from app.core.config import MONGO_URI

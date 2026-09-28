@@ -101,3 +101,53 @@ def test_old_database_with_no_owner_is_still_reaped():
         # sweep dropped it, this is a no-op; if the sweep somehow didn't,
         # this still cleans up rather than leaving fixture debris.
         asyncio.run(_drop(name))
+
+
+def test_lock_dir_unusable_means_no_database_is_dropped(tmp_path, monkeypatch):
+    """H90 round three: a lock directory that cannot be created or used
+    (disk full, permissions, or -- reproduced here -- something else
+    already occupying that exact path) must never be read as "so no
+    lock could possibly be held, therefore nothing is proven live,
+    therefore it's safe to drop". Before this fix, `_has_a_live_owner`
+    treated ANY failure to open/stat a lockfile the same as a clean
+    "the file plainly does not exist" answer (False -- no live owner),
+    which is provably wrong here: the lock directory itself is broken,
+    so NO session on this host could have registered a lock for
+    anything, live or dead, and the sweep has no actual evidence either
+    way. `_sweep_stale_test_databases` now checks the lock directory is
+    usable BEFORE evaluating any candidate at all, and skips the whole
+    sweep (printing why) rather than silently treating "I can't tell" as
+    "go ahead".
+
+    Uses a temp override of `conftest._LOCK_DIR`, monkeypatched for this
+    test only, never the real `/tmp/wealth_test_locks` -- collides that
+    path with a plain FILE (not a directory), so `_LOCK_DIR.mkdir(...)`
+    genuinely raises `FileExistsError`, the same shape a real disk/
+    permissions problem would produce.
+    """
+    fake_lock_dir = tmp_path / "wealth_test_locks"
+    fake_lock_dir.write_text("a plain file occupying the lock directory's path")
+    monkeypatch.setattr(conftest, "_LOCK_DIR", fake_lock_dir)
+
+    name = _old_test_db_name()
+    asyncio.run(_seed_marker(name))
+    try:
+        dropped = asyncio.run(
+            conftest._sweep_stale_test_databases(own_name="wealth_test_unrelated_sentinel")
+        )
+        assert name not in dropped, (
+            f"{name!r} is old, but the lock directory itself is unusable "
+            f"-- the sweep has no way to prove ANY database is unowned "
+            f"right now and must not drop anything, not just skip the "
+            f"ones it happens to check."
+        )
+        assert dropped == [], (
+            "an unusable lock directory must skip the WHOLE sweep, not "
+            "just decline individual candidates"
+        )
+        assert asyncio.run(_database_exists(name)), (
+            f"{name!r} vanished even though the sweep claims it dropped "
+            f"nothing."
+        )
+    finally:
+        asyncio.run(_drop(name))
