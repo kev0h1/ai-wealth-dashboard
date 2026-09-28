@@ -740,18 +740,47 @@ cmd_start() {
   [[ -d "$worktree_dir/backend" ]] && ln -s "$SHARED_TREE/backend/.venv" "$worktree_dir/backend/.venv"
 
   if [[ -d "$worktree_dir/backend" ]]; then
-    local resolved
-    resolved="$(cd "$worktree_dir/backend" && "$worktree_dir/backend/.venv/bin/python" -c "import app; print(app.__file__)")"
-    case "$resolved" in
-      "$worktree_dir"/*)
-        log "venv import check ok: app resolves to the worktree ($resolved)"
-        ;;
-      *)
-        err "venv import check FAILED: 'import app' resolved to $resolved, not the worktree."
-        err "This usually means a .pth file or editable install in backend/.venv points at the shared tree."
-        err "Work around it by exporting PYTHONPATH=. from $worktree_dir/backend before running python/pytest there."
-        ;;
-    esac
+    # H89: this used to be a bare `resolved="$(...)"` assignment. That is a
+    # context where `set -e` (errexit) DOES fire, so a genuinely failing
+    # import (a broken venv, an ImportError, a syntax error somewhere on
+    # the path) killed cmd_start right here, before the `case` block below
+    # ever ran -- the session saw a bare non-zero exit with none of the
+    # explanatory `err` lines that block was written to print. That is the
+    # opposite of what this check exists for: the sibling "resolves
+    # outside the worktree" branch below has always been a non-fatal
+    # warning (it never exits), so a total import failure should get the
+    # same treatment -- surfaced, not swallowed -- rather than a different,
+    # accidental, silent one. Same fix shape H85/H80 already use elsewhere
+    # in this file for the identical class of bug: test the assignment
+    # inline with `||` so errexit never fires, and capture stderr into its
+    # own file (not merged with stdout) so the real traceback reaches the
+    # user.
+    local resolved import_rc=0 import_errfile
+    import_errfile="$(mktemp "${TMPDIR:-/tmp}/session-start-import-check.XXXXXX")" || {
+      err "could not create a temp file to check the worktree's venv import."
+      exit 1
+    }
+    trap 'rm -f "$import_errfile"' EXIT INT TERM
+    resolved="$(cd "$worktree_dir/backend" && "$worktree_dir/backend/.venv/bin/python" -c "import app; print(app.__file__)" 2>"$import_errfile")" || import_rc=$?
+    trap - EXIT INT TERM
+    if [[ "$import_rc" -ne 0 ]]; then
+      err "venv import check FAILED: 'import app' exited $import_rc in $worktree_dir/backend:"
+      while IFS= read -r line; do err "  $line"; done < "$import_errfile"
+      err "This usually means a broken or missing backend/.venv (or a .pth file/editable install pointing at the wrong tree); the worktree was still created, but python/pytest won't work there until this is fixed."
+      rm -f "$import_errfile"
+    else
+      rm -f "$import_errfile"
+      case "$resolved" in
+        "$worktree_dir"/*)
+          log "venv import check ok: app resolves to the worktree ($resolved)"
+          ;;
+        *)
+          err "venv import check FAILED: 'import app' resolved to $resolved, not the worktree."
+          err "This usually means a .pth file or editable install in backend/.venv points at the shared tree."
+          err "Work around it by exporting PYTHONPATH=. from $worktree_dir/backend before running python/pytest there."
+          ;;
+      esac
+    fi
   fi
 
   log "marking $id in-progress on the board (branch $branch)..."
