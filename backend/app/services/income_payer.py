@@ -42,12 +42,14 @@ from app.services.categorisation import _CHANNEL_CODES, series_key
 # its own smaller copy here rather than imported -- analytics.py imports
 # THIS module, so the reverse import would cycle).
 _GENERIC_PAYER_TOKENS = {
-    "payment", "payments", "paid", "pay", "salary", "salaries", "wage", "wages",
-    "wagepayment", "transfer", "transfers", "transferred", "deposit", "deposits",
-    "standing", "order", "orders", "faster", "request", "account", "accounts",
-    "reference", "ref", "thank", "you", "from", "for", "via", "the", "and", "of",
-    "on", "at", "in", "out", "ltd", "limited", "plc", "llp", "mr", "mrs", "ms",
-    "dr", "bank", "banking", "new", "not", "your", "with", "bgc", "bacs",
+    "payment", "payments", "paid", "pay", "payroll", "salary", "salaries",
+    "wage", "wages", "wagepayment", "credit", "credits", "transfer",
+    "transfers", "transferred", "deposit", "deposits", "standing", "order",
+    "orders", "faster", "request", "account", "accounts", "reference", "ref",
+    "thank", "you", "from", "for", "via", "the", "and", "of", "on", "at",
+    "in", "out", "ltd", "limited", "plc", "llp", "inc", "corp", "mr", "mrs",
+    "ms", "dr", "bank", "banking", "new", "not", "your", "with", "bgc",
+    "bacs",
 }
 
 _MONTH_TOKENS = {
@@ -188,10 +190,15 @@ def deterministic_match(
 
     "confident" (build step 2 -- deterministic, no model needed) requires
     ALL of:
-      - at least one shared counterparty token with the stream's own raw
-        key text (`payer_tokens` overlap, not exact-set: the reference text
-        may have changed further than a pure alias match tolerates, but the
-        counterparty name itself is still there);
+      - FULL containment, not merely one shared token: the smaller side's
+        entire (already non-generic -- `payer_tokens` filters rail codes,
+        month names and payroll/banking boilerplate before either set is
+        built) token set must be a subset of the larger side's, and equal
+        to the shared set. One coincidental shared word between two
+        otherwise-different counterparties (e.g. two unrelated employers
+        both trading as "... CORP", or a shared "PAYROLL"/"WAGES" suffix
+        that slipped past the generic list) is explicitly NOT enough --
+        see the ACME/SUNRISE regression test this guards;
       - same destination account as the stream's own known landing account
         (or the stream has no known account yet -- nothing to contradict);
       - amount within the stream's band (15%, `_within_pct`);
@@ -200,11 +207,14 @@ def deterministic_match(
 
     "ambiguous" (build step 3 -- routes to the judge, never auto-attaches)
     is any case with at least one shared token and cadence support, but
-    where the account or amount evidence disagrees -- e.g. tokens overlap
-    but the account is different (a partner's similar salary), or the
-    account matches but the amount is well outside the band (a genuine
-    pay change, not evidence of a DIFFERENT payer, but not confident enough
-    to auto-attach either).
+    where full containment fails, or the account or amount evidence
+    disagrees -- e.g. tokens partially overlap but the account is
+    different (a partner's similar salary), or the account matches but the
+    amount is well outside the band (a genuine pay change, not evidence of
+    a DIFFERENT payer, but not confident enough to auto-attach either).
+
+    Returns None only when there is NO shared token, or no cadence support,
+    at all -- no evidence whatsoever, nothing even worth asking about.
     """
     cand_text = f"{candidate.get('merchant_name') or ''} {candidate.get('description') or ''}"
     cand_tokens = payer_tokens(cand_text)
@@ -227,6 +237,17 @@ def deterministic_match(
     avg_amount = stream.get("avg_amount")
     amount_ok = avg_amount is not None and _within_pct(abs(float(candidate.get("amount") or 0)), float(avg_amount))
 
+    # Full containment: the SMALLER token set must be entirely covered by
+    # the shared set (equivalently, entirely covered by the larger set) --
+    # one word in common out of several is partial evidence (ambiguous at
+    # best), never confident on its own. Guards the ACME/SUNRISE case:
+    # "PAYROLL SALARY LTD ACME" and "PAYROLL SALARY LTD SUNRISE" would
+    # otherwise both reduce to a single shared token if a boilerplate word
+    # ever slipped past `_GENERIC_PAYER_TOKENS` -- this is deliberate
+    # defence in depth on top of that list, not a replacement for it.
+    smaller = stream_tokens if len(stream_tokens) <= len(cand_tokens) else cand_tokens
+    full_containment = bool(smaller) and shared == smaller
+
     evidence = {
         "shared_tokens": sorted(shared),
         "candidate_account_id": cand_acct,
@@ -235,7 +256,7 @@ def deterministic_match(
         "stream_avg_amount": round(float(avg_amount), 2) if avg_amount is not None else None,
         "candidate_date": cand_date.isoformat(),
     }
-    if same_account and amount_ok:
+    if full_containment and same_account and amount_ok:
         return {"decision": "confident", "evidence": evidence}
     return {"decision": "ambiguous", "evidence": evidence}
 

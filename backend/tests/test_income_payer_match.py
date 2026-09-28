@@ -117,6 +117,63 @@ def test_couple_with_similar_paydays_and_amounts_stay_separate():
     assert verdict is None
 
 
+def test_two_employers_sharing_only_boilerplate_words_never_confident():
+    """Reviewer-reproduced blocker (independent review of a165200d): two
+    genuinely different employers on the SAME account with similar amounts
+    on cadence, whose statement text happens to share ONLY a payroll-
+    boilerplate word ("PAYROLL") once that word is filtered as generic --
+    before this fix, "payroll" was missing from `_GENERIC_PAYER_TOKENS`, so
+    `deterministic_match` saw `shared_tokens == ["payroll"]` and returned
+    "confident", auto-merging two unrelated payers with no confirmation.
+    Must now return None (no non-generic token in common at all) or, if
+    any other coincidental single-word overlap survives the generic list
+    in future, at most "ambiguous" via the full-containment rule -- NEVER
+    "confident"."""
+    acme_stream_key = "PAYROLL SALARY LTD ACME"
+    acme_stream = {
+        "schedule": {"type": "day_of_month", "day": 28},
+        "avg_amount": 3000.0,
+    }
+    sunrise_candidate = income_txn(
+        "PAYROLL SALARY LTD SUNRISE", date(2026, 8, 28), 3050.00, account_id="joint-acc",
+    )
+    verdict = deterministic_match(
+        acme_stream_key, acme_stream, sunrise_candidate, date(2026, 9, 24),
+        stream_account_id="joint-acc",
+    )
+    assert verdict is None or verdict["decision"] == "ambiguous"
+    if verdict is not None:
+        assert verdict["decision"] != "confident"
+
+    # And via `_detect_recurring`/`_confirmed_income_fallback`, end to end:
+    # never merged into one series, and the fallback's own deterministic-
+    # attach step never confidently attaches SUNRISE's credit to ACME's
+    # confirmed stream.
+    acme_1 = income_txn("PAYROLL SALARY LTD ACME", date(2026, 6, 28), 3000.00, account_id="joint-acc")
+    acme_2 = income_txn("PAYROLL SALARY LTD ACME", date(2026, 7, 28), 3000.00, account_id="joint-acc")
+    recurring_income = _detect_recurring([acme_1, acme_2], today=date(2026, 9, 24), is_income=True)
+    assert len(recurring_income) == 1
+
+    confirmed_stream = {
+        "key": acme_stream_key, "status": "confirmed",
+        "schedule": {"type": "day_of_month", "day": 28},
+        "avg_amount": 3000.0, "last_seen": "2026-07-28",
+    }
+    log: list = []
+    result = _confirmed_income_fallback(
+        recurring_income, {acme_stream_key: confirmed_stream}, set(), date(2026, 9, 24),
+        unattributed_credits=[sunrise_candidate], attachments_log=log,
+    )
+    # ACME's own series is already detected/aliased -- nothing left to
+    # synthesise, and the deterministic-attach step is never even reached
+    # (an already-covered confirmed stream skips it entirely), so SUNRISE's
+    # credit is never confidently attached to ACME's stream under either
+    # path.
+    assert result == []
+    assert recurring_income[0]["confirmed_alias"] == acme_stream_key
+    assert all(entry.get("decision") != "confident" for entry in log)
+
+
 # ── (c) lapse counts missed CYCLES, not days ───────────────────────────────
 
 def test_lapse_counts_cycles_not_a_fixed_day_count():
