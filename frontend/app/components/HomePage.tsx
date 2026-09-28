@@ -35,7 +35,7 @@ import { getAccountsCached } from "@/lib/accountsCache";
 import { useHomePinnedAccounts } from "@/lib/homePinnedAccounts";
 import { isLegacyBankSource } from "@/lib/legacyBankProvider";
 import { useOpenBankingAccess } from "@/lib/openBankingAccess";
-import { resolveDisplayName, firstNameOf } from "@/lib/displayName";
+import { resolveDisplayName, resolveFullName } from "@/lib/displayName";
 // A67: a STATIC import, deliberately, after measuring the alternative.
 // Lazy-loading this the way PinnedWidgetCard below is lazy-loaded was tried
 // and reverted: it does not remove anything from Home's first load, because
@@ -266,8 +266,9 @@ export default function HomePage() {
   useEffect(() => {
     api.getProfile().then((p) => setProfileFullName(p.full_name || undefined)).catch(() => {});
   }, []);
-  const displayName = resolveDisplayName({ profileName: profileFullName, sessionName: user?.name, email: user?.email });
-  const firstName = firstNameOf(displayName);
+  const nameSources = { fullName: profileFullName, sessionName: user?.name, email: user?.email };
+  const displayName = resolveFullName(nameSources) ?? undefined;
+  const firstName = resolveDisplayName(nameSources) ?? undefined;
   const { hideNetWorth, preferencesReady, payPeriodConfig, homePinnedWidget } = usePreferences();
   const { colours } = useColours();
   // Read once per render so every initializer/guard below sees the same

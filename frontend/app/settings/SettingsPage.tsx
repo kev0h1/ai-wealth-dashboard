@@ -29,7 +29,7 @@ import { usePennyUsage, refreshPennyUsage } from "@/components/PennySheetProvide
 import YourPlanCard from "@/components/YourPlanCard";
 import { getAccountsCached } from "@/lib/accountsCache";
 import { MCP_CONNECTOR } from "@/lib/featureFlags";
-import { resolveDisplayName, initialsOf } from "@/lib/displayName";
+import { resolveFullName, initialsOf } from "@/lib/displayName";
 import { isNativePlatform, isIOSNative, linkAppleIdentity } from "@/lib/nativeAuth";
 import { initCapacitorPush, getCapacitorPushPermission, onPushReceivedOnce } from "@/lib/capacitorPush";
 import {
@@ -1054,9 +1054,11 @@ export default function SettingsPage() {
   // D7: prefer the persisted profile name (profileLoaded.name — set on load
   // and after a successful save, so it stays put while the user is
   // mid-edit in the form below) over the session name, and never fall
-  // back to an email or its local part — see lib/displayName.ts.
-  const settingsDisplayName = resolveDisplayName({
-    profileName: profileLoaded?.name,
+  // back to an email or its local part — see lib/displayName.ts. Uses the
+  // full-name resolver (not resolveDisplayName, which truncates to a
+  // first name for greetings) because the header shows the whole name.
+  const settingsDisplayName = resolveFullName({
+    fullName: profileLoaded?.name,
     sessionName: user?.name,
     email: user?.email,
   });

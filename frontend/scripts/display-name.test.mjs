@@ -9,7 +9,7 @@
 // or:
 //   npm run -s check:display-name
 
-import { resolveDisplayName, firstNameOf, initialsOf } from "../lib/displayName.ts";
+import { resolveDisplayName, resolveFullName, firstNameOf, initialsOf } from "../lib/displayName.ts";
 
 let failures = 0;
 
@@ -24,81 +24,152 @@ function check(label, actual, expected) {
   }
 }
 
-// ── profile name present ────────────────────────────────────────────────
-// Onboarding has saved a real full_name — it wins even when the session
-// name looks fine too, because the profile is what the user actually told
-// us, not a provider's guess.
+// ── resolveDisplayName: profile full name present ───────────────────────
+// A saved profile name wins even when the session name looks fine too,
+// because the profile is what the user actually told us, not a provider's
+// guess — and the greeting only ever wants the first word of it.
 check(
-  "profile name present beats a real session name",
+  "resolveDisplayName: profile full name beats a real session name, first word only",
   resolveDisplayName({
-    profileName: "Kevin Maingi",
+    fullName: "Kevin Maingi",
     sessionName: "Kevin",
     email: "kevin@example.com",
   }),
-  "Kevin Maingi"
+  "Kevin"
 );
 
-// ── only a real session name ────────────────────────────────────────────
+// ── resolveDisplayName: only a real session name ────────────────────────
 // No profile saved yet, but the session carries a genuine display name
 // (e.g. a Google account with a display name set) — use it.
 check(
-  "falls back to a real session name when there is no profile name",
+  "resolveDisplayName: falls back to a real session name when there is no profile name",
   resolveDisplayName({
-    profileName: null,
+    fullName: null,
     sessionName: "Kevin Maingi",
     email: "kevin@example.com",
   }),
-  "Kevin Maingi"
+  "Kevin"
 );
 
-// ── session name is an email local part ─────────────────────────────────
+// ── resolveDisplayName: session name is an email local part ─────────────
 // The exact shape of the reported bug: no profile name yet, and the
 // session name is just the local part of the user's own email (the
 // pre-D7 auth.py fallback for a repeat Apple sign-in, or any other path
 // that ever lands the local part in the name claim).
 check(
-  "rejects a session name that is exactly the email's local part",
+  "resolveDisplayName: rejects a session name that is exactly the email's local part",
   resolveDisplayName({
-    profileName: null,
+    fullName: null,
     sessionName: "jjdk4",
     email: "jjdk4@privaterelay.appleid.com",
   }),
-  undefined
+  null
 );
 
-// ── Apple relay placeholder ──────────────────────────────────────────────
+// ── resolveDisplayName: Apple relay placeholder shape, different email ──
+// Guards the case where the `email` passed in doesn't byte-for-byte match
+// whatever address a stale session token's name was derived from — the
+// name is still an opaque, digit-bearing token, not a real name, so it
+// must be rejected on shape alone, not just on an exact local-part match.
+check(
+  "resolveDisplayName: rejects an email-shaped placeholder even when it doesn't match the given email's local part",
+  resolveDisplayName({
+    fullName: null,
+    sessionName: "ab3fk9",
+    email: "kevin.maingi12@gmail.com",
+  }),
+  null
+);
+
+// ── resolveDisplayName: session name is the full relay email address ────
 // A relay email leaking into the name field whole (not just its local
 // part) must be rejected too — it is even less name-shaped than the local
 // part alone.
 check(
-  "rejects a session name that is the full relay email address",
+  "resolveDisplayName: rejects a session name that is the full relay email address",
   resolveDisplayName({
-    profileName: null,
+    fullName: null,
     sessionName: "jjdk4@privaterelay.appleid.com",
     email: "jjdk4@privaterelay.appleid.com",
   }),
-  undefined
+  null
 );
 
-// ── both empty ───────────────────────────────────────────────────────────
+// ── resolveDisplayName: both empty ───────────────────────────────────────
 // Neither source has a real name — greet without one rather than with a
 // fragment of an address.
 check(
-  "returns undefined when profile and session both have no real name",
+  "resolveDisplayName: returns null when profile and session both have no real name",
   resolveDisplayName({
-    profileName: "",
+    fullName: "",
     sessionName: "",
     email: "jjdk4@privaterelay.appleid.com",
   }),
-  undefined
+  null
+);
+
+// ── resolveDisplayName: a real single-word session name with no digits ──
+// Sanity check that the digit-shaped-placeholder rule doesn't reject an
+// ordinary first-name-only session claim (e.g. a Google account whose
+// display name is just "Kevin").
+check(
+  "resolveDisplayName: accepts a real single-word session name with no digits",
+  resolveDisplayName({
+    fullName: null,
+    sessionName: "Kevin",
+    email: "kevin.maingi12@gmail.com",
+  }),
+  "Kevin"
+);
+
+// ── resolveDisplayName: profile name is whitespace-only ─────────────────
+// A profile full_name of "" or whitespace must not win over a real,
+// usable session name — it is not "present", just empty after trimming.
+check(
+  "resolveDisplayName: whitespace-only profile name falls through to the session name",
+  resolveDisplayName({
+    fullName: "   ",
+    sessionName: "Kevin Maingi",
+    email: "kevin@example.com",
+  }),
+  "Kevin"
+);
+
+// ── resolveFullName: mirrors the same rules but keeps the whole name ────
+// Used by Settings (full name in the header) and the avatar initials,
+// which need more than just the first word.
+check(
+  "resolveFullName: profile name present, kept in full",
+  resolveFullName({ fullName: "Kevin Maingi", sessionName: "Kevin", email: "kevin@example.com" }),
+  "Kevin Maingi"
+);
+check(
+  "resolveFullName: real session name kept in full when there is no profile name",
+  resolveFullName({ fullName: null, sessionName: "Kevin Maingi", email: "kevin@example.com" }),
+  "Kevin Maingi"
+);
+check(
+  "resolveFullName: rejects an email-local-part session name just like resolveDisplayName",
+  resolveFullName({ fullName: null, sessionName: "jjdk4", email: "jjdk4@privaterelay.appleid.com" }),
+  null
+);
+check(
+  "resolveFullName: a profile name is trusted even if it happens to contain a digit",
+  // Onboarding collects free-text name fields — a user is free to type a
+  // name that contains a digit (e.g. "Neo2"); only the session-name
+  // fallback is subjected to the email-shaped-placeholder heuristic.
+  resolveFullName({ fullName: "Neo2 Anderson", sessionName: null, email: "neo@example.com" }),
+  "Neo2 Anderson"
 );
 
 // ── firstNameOf / initialsOf ─────────────────────────────────────────────
 check("firstNameOf takes the first word", firstNameOf("Kevin Maingi"), "Kevin");
 check("firstNameOf of undefined is undefined", firstNameOf(undefined), undefined);
+check("firstNameOf of null is undefined", firstNameOf(null), undefined);
 check("initialsOf takes up to two initials", initialsOf("Kevin Maingi"), "KM");
 check("initialsOf of a single word is one initial", initialsOf("Kevin"), "K");
 check("initialsOf of undefined is undefined", initialsOf(undefined), undefined);
+check("initialsOf of null is undefined", initialsOf(null), undefined);
 
 if (failures > 0) {
   console.error(`\n${failures} failure(s).`);
