@@ -136,7 +136,7 @@ async def send_relay_claim_code(*, sub: str, target_email: str) -> None:
     routers/auth.py's send_relay_claim_code_endpoint).
     """
     code = _generate_code()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(timezone.utc)  # naive-ok: code-TTL start instant + persisted created_at/expires_at audit timestamps, not a calendar day
     doc_id = _doc_id(sub, target_email)
     await allowed_relay_codes_col.update_one(
         {"_id": doc_id},
@@ -209,7 +209,7 @@ async def verify_relay_code(*, sub: str, target_email: str, code: str) -> str:
     if doc.get("used_at"):
         return ClaimOutcome.USED
     expires_at = doc.get("expires_at")
-    now = datetime.now(timezone.utc)
+    now = datetime.now(timezone.utc)  # naive-ok: raw-instant TTL comparison against stored expires_at, not a calendar day
     if expires_at is None or _as_aware(expires_at) < now:
         return ClaimOutcome.EXPIRED
     if int(doc.get("attempts", 0)) >= int(doc.get("max_attempts", CODE_MAX_ATTEMPTS)):
@@ -244,7 +244,7 @@ async def mark_allowlist_claimed(*, target_email: str, sub: str) -> bool:
     key = _gmail_key(target_email)
     result = await allowed_signups_col.update_one(
         {"key": key},
-        {"$set": {"apple_sub": sub, "apple_relay_claimed_at": datetime.now(timezone.utc)}},
+        {"$set": {"apple_sub": sub, "apple_relay_claimed_at": datetime.now(timezone.utc)}},  # naive-ok: persisted claimed-at audit timestamp, not a calendar day
     )
     matched = getattr(result, "matched_count", 0) or 0
     return bool(matched)
@@ -253,7 +253,7 @@ async def mark_allowlist_claimed(*, target_email: str, sub: str) -> bool:
 def _as_aware(value: datetime) -> datetime:
     """Fake Mongo collections in tests may hand back a naive datetime
     (Motor/pymongo return tz-aware UTC for real documents); treat naive as
-    UTC so comparisons against datetime.now(timezone.utc) never raise."""
+    UTC so comparisons against datetime.now(timezone.utc) never raise."""  # naive-ok: docstring reference to the call pattern above, not a call site
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value
