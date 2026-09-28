@@ -141,15 +141,29 @@ check(
 //     the CLIENT bundle) has no meaning there at all; gating them would be
 //     a no-op at best and a misleading comment at worst.
 // A file that defines its OWN local `fetch` identifier (`const fetch = `/
-// `function fetch(`) shadows the global one for every `fetch(` call site
-// inside it — components/GoalsStrip.tsx and components/UpcomingBillsStrip.tsx
-// both do this today (a `useCallback`-wrapped refetch helper, unrelated to
-// the network primitive) — those files are skipped whole rather than
-// producing false positives on a call that was never the global fetch.
+// `function fetch(`) shadows the global one for every BARE `fetch()` call
+// site inside it — components/GoalsStrip.tsx and
+// components/UpcomingBillsStrip.tsx both do this today (a
+// `useCallback`-wrapped refetch helper, unrelated to the network
+// primitive, always invoked as `fetch();` with no arguments). This used to
+// skip the whole FILE once such a declaration was found anywhere in it —
+// review of this item found that let a planted `globalThis.fetch(...)`
+// elsewhere in the SAME file read as clean, since the file-level skip never
+// looked at that line at all. Narrowed to a per-line exclusion instead,
+// the way GATE_DEFINITION_LINE_RE (scripts/global-401.test.mjs) narrowly
+// excludes lib/api.ts's own two fetch-primitive lines rather than the
+// whole file: only the shadow's own declaration line, and a BARE call to
+// it (`fetch()`, no arguments — the shadow here is a no-arg callback, and
+// the real `fetch` always needs at least a URL, so a bare call can never
+// be a real network request either way) are excluded. `globalThis.fetch(`,
+// `window.fetch(`, or any `fetch(` call carrying an argument still gets
+// flagged, local shadow or not — see the GoalsStrip decoy in check 6 below
+// for the case this closes.
 const SCAN_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SCAN_DIRS = ["app", "components", "lib"];
 const FETCH_CALL_RE = /\bfetch\(/;
-const LOCAL_FETCH_SHADOW_RE = /\b(const fetch = |function fetch\()/;
+const LOCAL_FETCH_DECL_RE = /^\s*(const fetch = |function fetch\()/;
+const LOCAL_FETCH_BARE_CALL_RE = /\bfetch\(\s*\)/;
 
 function stripLineForScan(line) {
   const trimmed = line.trim();
@@ -172,6 +186,31 @@ function listSourceFiles(dir) {
   return out;
 }
 
+/** Pure per-file scan, exported in spirit (not literally — this is a plain
+ * Node test file, not a module) so check 6 below can exercise it directly
+ * against synthetic content shaped like GoalsStrip.tsx, the same way
+ * scanApiTsForUngatedFetches in global-401.test.mjs is exercised against a
+ * synthetic decoy rather than only ever running against real files on
+ * disk. `relPath` is used only for the two structural exclusions
+ * (lib/api.ts itself, server-only route.ts/route.tsx) and for labelling an
+ * offender's location. */
+function scanFileForUngatedFetches(relPath, source) {
+  if (relPath === path.join("lib", "api.ts")) return []; // the gate's own home
+  const basename = path.basename(relPath);
+  if (basename === "route.ts" || basename === "route.tsx") return []; // server-only
+
+  const offenders = [];
+  const lines = source.split("\n");
+  lines.forEach((line, i) => {
+    const stripped = stripLineForScan(line);
+    if (!FETCH_CALL_RE.test(stripped)) return;
+    if (LOCAL_FETCH_DECL_RE.test(stripped)) return; // the local shadow's own declaration
+    if (LOCAL_FETCH_BARE_CALL_RE.test(stripped)) return; // a bare call — `globalThis.fetch()`/`window.fetch()` with truly no argument would ALSO match this, but neither is a real request (fetch() with no URL throws) and neither appears anywhere in this codebase today
+    offenders.push(`${relPath}:${i + 1}`);
+  });
+  return offenders;
+}
+
 function scanFrontendForUngatedFetches() {
   const offenders = [];
   for (const dir of SCAN_DIRS) {
@@ -184,18 +223,8 @@ function scanFrontendForUngatedFetches() {
     }
     for (const file of files) {
       const rel = path.relative(SCAN_ROOT, file);
-      if (rel === path.join("lib", "api.ts")) continue; // the gate's own home
-      const basename = path.basename(file);
-      if (basename === "route.ts" || basename === "route.tsx") continue; // server-only
-
       const source = readFileSync(file, "utf8");
-      if (LOCAL_FETCH_SHADOW_RE.test(source)) continue; // own local `fetch`, not the global one
-
-      const lines = source.split("\n");
-      lines.forEach((line, i) => {
-        const stripped = stripLineForScan(line);
-        if (FETCH_CALL_RE.test(stripped)) offenders.push(`${rel}:${i + 1}`);
-      });
+      offenders.push(...scanFileForUngatedFetches(rel, source));
     }
   }
   return offenders;
@@ -224,6 +253,42 @@ function scanFrontendForUngatedFetches() {
     .map((line, i) => (FETCH_CALL_RE.test(stripLineForScan(line)) ? i : -1))
     .filter((i) => i >= 0);
   check("scanner: a genuine raw fetch( call is flagged", bypassOffenders.length, 1);
+}
+
+// ── 6. The GoalsStrip decoy (review of A121 at 4513aff9): a file shaped
+//      exactly like components/GoalsStrip.tsx — a local `const fetch = `
+//      shadow, called bare elsewhere in the file — used to read entirely
+//      clean under the old whole-file skip even with a planted
+//      `globalThis.fetch(...)` sitting right next to it. Verified
+//      red-then-green against the fix: this reproduces red against the
+//      PRE-fix `LOCAL_FETCH_SHADOW_RE`-whole-file-skip logic (the file-level
+//      `if (LOCAL_FETCH_SHADOW_RE.test(source)) continue;` would have
+//      skipped this synthetic file outright, reporting zero offenders) and
+//      green against scanFileForUngatedFetches above, which is what
+//      scanFrontendForUngatedFetches now actually calls. ───────────────
+{
+  const decoyGoalsStrip = [
+    "export function GoalsStrip() {",
+    "  const fetch = useCallback(() => {",
+    "    setLoading(true);",
+    "  }, []);",
+    "",
+    "  useEffect(() => { fetch(); }, [fetch]);",
+    "",
+    "  // Planted decoy: bypasses the local shadow above via globalThis,",
+    "  // reaching the REAL network fetch — must still be caught.",
+    "  globalThis.fetch(`${API_BASE}/decoy-bypass`);",
+    "",
+    "  return null;",
+    "}",
+  ].join("\n");
+
+  const offenders = scanFileForUngatedFetches(path.join("components", "GoalsStrip.tsx"), decoyGoalsStrip);
+  check(
+    `GoalsStrip decoy: the planted globalThis.fetch( is caught despite the local shadow (offenders: ${JSON.stringify(offenders)})`,
+    offenders.length === 1 && offenders[0] === `${path.join("components", "GoalsStrip.tsx")}:10`,
+    true
+  );
 }
 
 if (failures > 0) {
