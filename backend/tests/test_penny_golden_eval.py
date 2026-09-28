@@ -8,14 +8,15 @@ given question SHOULD reach. That ladder is gone; the model now owns 100%
 of tool SELECTION.
 
 **What this file actually catches, precisely stated:** CATALOG regressions
-— a tool disappearing from the schema list offered to the model, or a
-tool's description drifting away from the concept it is supposed to cover.
-It does **not**, and cannot, catch a live model misjudging a novel
-question — that is genuine routing JUDGEMENT, which happens inside
-OpenRouter, not in this codebase, and no code-level test can pin it
-without a real model call (which this suite must run without, see below).
-The distinction matters: this is a net under the CATALOG the model reads,
-not a stand-in for the model's own reasoning.
+— a tool disappearing from the schema list offered to the model, a tool's
+description drifting away from the concept it is supposed to cover, or a
+golden case's own question no longer matching what its cited inventory
+file actually documents. It does **not**, and cannot, catch a live model
+misjudging a novel question — that is genuine routing JUDGEMENT, which
+happens inside OpenRouter, not in this codebase, and no code-level test can
+pin it without a real model call (which this suite must run without, see
+below). The distinction matters: this is a net under the CATALOG the model
+reads, not a stand-in for the model's own reasoning.
 
 ~30 questions are drawn from the four screen-by-screen inventories in
 docs/penny/question-inventory/, each asserting which tool(s)
@@ -51,6 +52,22 @@ it is still honest:
    PINNED hash captured at authoring time (`PINNED_TOOL_DESCRIPTION_HASHES`
    below). If the live hash no longer matches, the harness records
    `description_changed` and stops.
+
+   This replaces an earlier version of this file that checked for a short
+   anchor SUBSTRING instead of a full-description hash — an independent
+   review (2026-09-28) found that check gave a false pass: a description
+   rewritten into something unrelated but that happened to still contain
+   the anchor phrase (e.g. get_safe_to_spend's description replaced with
+   weather-forecast copy that kept the words "how much the user can
+   afford" somewhere in it) sailed straight through. A hash of the WHOLE
+   normalised description has no such blind spot — ANY drift changes it,
+   whether or not the old anchor phrase happens to survive. See
+   `test_break_description_drift_with_old_anchor_phrase_preserved_is_caught`
+   for a permanent regression test proving exactly that false pass is now
+   caught. The trade-off, honestly stated: a hash tells you THAT a
+   description changed, never WHAT changed or whether the change was
+   harmless — re-reading the tool's real description and re-pinning (see
+   `--repin` below) is a deliberate manual step, not automated away.
 3. Otherwise it "calls" that tool, in that round, and moves on.
 
 This means the harness's decision is genuinely driven by the real code's
@@ -85,8 +102,9 @@ pinning.
   (OPENROUTER_API_KEY unset). This file catches a regression in the
   CATALOG (a tool disappearing, being renamed, or its description
   drifting) and in the LOOP's own mechanics (rounds, dispatch, consent
-  gating) — not a regression in the model's judgement itself, which no
-  code-level test can pin.
+  gating), plus a golden case's own question falling out of step with the
+  inventory file it cites — not a regression in the model's judgement
+  itself, which no code-level test can pin.
 - **Real tool execution.** `execute_tool` is replaced with a recorder that
   returns a canned `{"ok": True}` for any tool name (never real engine
   calls, no database access at all for these tests beyond the loop's own
@@ -281,11 +299,26 @@ def run_case(monkeypatch, question, screen, expected_tools):
 # ── The golden set ──────────────────────────────────────────────────────────
 #
 # Each case: id, source inventory file, question, screen context, the
-# expected ordered tool sequence, and a one-line "why" so a future routing
-# change can argue with the case rather than just flip it. Every tool in
-# `expected` must have a pinned hash in PINNED_TOOL_DESCRIPTION_HASHES
-# above. 30 cases, spread across all four inventory files rather than
-# concentrated in one.
+# expected ordered tool sequence, a `source_quote` (a short substring
+# copied VERBATIM from the named inventory file at authoring time — never
+# the full question, which is usually a paraphrase, not a quote — see
+# `test_golden_set_questions_are_grounded_in_their_named_inventory_file`),
+# and a one-line "why" so a future routing change can argue with the case
+# rather than just flip it. Every tool in `expected` must have a pinned
+# hash in PINNED_TOOL_DESCRIPTION_HASHES above.
+#
+# Three cases were relabelled during the 2026-09-28 review after their
+# original `source` turned out not to actually document the question's own
+# concept (the review's gap 2): the Home screen has no subscriptions/
+# recurring content of its own (that lives in insights-accounts-mirror.md's
+# "PART 4 — SUBSCRIPTIONS / COMMITMENTS / RECURRING"), the cross-screen
+# "Can I...?" quick-ask chip is documented on the Penny sheet in
+# home-and-penny.md rather than on the Planning screen, and multi-period
+# category comparison is spend.md's own "Over time" content rather than
+# anything in the Insights tab. Ids keep their original numeric suffix
+# where it caused no confusion, appending a fresh number only where the
+# file changed, to keep this diff legible rather than renumbering every
+# sibling case.
 
 GOLDEN_CASES = [
     # ── docs/penny/question-inventory/home-and-penny.md (8) ─────────────
@@ -295,6 +328,7 @@ GOLDEN_CASES = [
         question="How much can I safely spend before payday?",
         screen="home",
         expected=["get_safe_to_spend"],
+        source_quote="how much can I spend",
         why="The Home hero's own 'how much can I spend' question, get_safe_to_spend's reason for existing.",
     ),
     dict(
@@ -303,6 +337,7 @@ GOLDEN_CASES = [
         question="What is Penny suggesting I do today?",
         screen="home",
         expected=["get_today_brief"],
+        source_quote="companion items",
         why="A3 (the Brief companion feed) is get_today_brief's own worked example, distinct from get_upcoming_bills' whole-list shape.",
     ),
     dict(
@@ -311,7 +346,8 @@ GOLDEN_CASES = [
         question="What's my payday plan for this pay period?",
         screen="penny",
         expected=["get_today_brief"],
-        why="'Payday plan' is named explicitly inside get_today_brief's description; must not be confused with get_upcoming_bills.",
+        source_quote="What is a payday plan?",
+        why="'Payday plan' is a Brief item type covered by A3's own worked questions; must not be confused with get_upcoming_bills.",
     ),
     dict(
         id="home-04-safe-then-bills",
@@ -319,6 +355,7 @@ GOLDEN_CASES = [
         question="How much can I safely spend, and what bills are coming up before my next payday?",
         screen="home",
         expected=["get_safe_to_spend", "get_upcoming_bills"],
+        source_quote="how much can I spend",
         why="A compound ask needing two tools in sequence, the shape most likely to regress if the loop stops after one tool call.",
     ),
     dict(
@@ -327,15 +364,17 @@ GOLDEN_CASES = [
         question="Why did my ISA balance change this week?",
         screen="accounts",
         expected=["get_account_activity"],
+        source_quote="Is my ISA counted in net worth?",
         why="A named-account balance-change question is get_account_activity's own worked example, never search_transactions (which cannot match an account name).",
     ),
     dict(
-        id="home-06-recurring",
+        id="home-06-affordability",
         source="home-and-penny.md",
-        question="What subscriptions am I paying right now, and when does Netflix renew?",
-        screen="home",
-        expected=["get_recurring_payments"],
-        why="Naming a specific recurring bill/renewal date is get_recurring_payments' own worked example, not the whole-list get_upcoming_bills.",
+        question="Can I afford a £2,000 holiday next August?",
+        screen="penny",
+        expected=["check_affordability"],
+        source_quote="Can I spend £45 this weekend?",
+        why="check_affordability backs the Penny sheet's own cross-screen 'Ask Penny: Can I spend...' quick ask, not a Planning-page element; relabelled from planning-grow-debt.md in the 2026-09-28 review (gap 2), which never documents an affordability chip.",
     ),
     dict(
         id="home-07-mirror",
@@ -343,6 +382,7 @@ GOLDEN_CASES = [
         question="What is the Mirror, and why does it say I'm a weekend spender?",
         screen="penny",
         expected=["get_mirror"],
+        source_quote="the Mirror and why does it have opinions about me",
         why="The behavioural-portrait 'why do you say this about me' shape maps to get_mirror, never get_insights (a different kind of tip).",
     ),
     dict(
@@ -351,16 +391,18 @@ GOLDEN_CASES = [
         question="How much of my personal allowance do I have left this tax year?",
         screen="penny",
         expected=["get_tax_position"],
+        source_quote="Is this about MY situation or general rules?",
         why="A personal tax figure must ground on the user's own numbers via get_tax_position, never general tax knowledge.",
     ),
 
-    # ── docs/penny/question-inventory/spend.md (8) ──────────────────────
+    # ── docs/penny/question-inventory/spend.md (9) ──────────────────────
     dict(
         id="spend-01-verdict",
         source="spend.md",
         question="Am I overspending this pay period?",
         screen="spend",
         expected=["get_spend_verdict"],
+        source_quote="running high across the board",
         why="The core 'am I overspending' shape get_spend_verdict exists for; its reading sentence must be quoted verbatim.",
     ),
     dict(
@@ -369,6 +411,7 @@ GOLDEN_CASES = [
         question="How much have I spent on Eating Out this period, and where did it go?",
         screen="spend",
         expected=["get_category_spend"],
+        source_quote="by single payment or by merchant total",
         why="Category-detail with top merchants is get_category_spend's own worked shape, not the whole-verdict tool.",
     ),
     dict(
@@ -377,6 +420,7 @@ GOLDEN_CASES = [
         question="How much did I spend at Tesco in April?",
         screen="spend",
         expected=["search_transactions"],
+        source_quote="where do I find one specific payment",
         why="A named merchant plus a date range is search_transactions' own worked example; get_category_spend has no merchant/date filter at all.",
     ),
     dict(
@@ -385,6 +429,7 @@ GOLDEN_CASES = [
         question="What does 'moved' mean on my Spend page? Why is it shown in green?",
         screen="spend",
         expected=["explain"],
+        source_quote='does "moved" mean',
         why="A jargon-definition ask ('what does X mean') routes to explain's registry, never a live-figures tool.",
     ),
     dict(
@@ -393,6 +438,7 @@ GOLDEN_CASES = [
         question="Why doesn't my Out figure match what my bank statement shows?",
         screen="spend",
         expected=["explain"],
+        source_quote="different from my bank's",
         why="A headline-number reconciliation ask is explain's registry category, grounded rather than the model guessing an explanation.",
     ),
     dict(
@@ -401,6 +447,7 @@ GOLDEN_CASES = [
         question="What's driving my Entertainment spend this period, and how can I cut it?",
         screen="spend",
         expected=["get_category_spend"],
+        source_quote="what would make it go away",
         why="The exact motivating bug this rebuild fixed (an advice-shaped spend question) must still ground on get_category_spend's own facts, never a prescriptive answer with no tool call.",
     ),
     dict(
@@ -409,6 +456,7 @@ GOLDEN_CASES = [
         question="Was I over usual on Groceries last pay period?",
         screen="spend",
         expected=["get_spend_verdict"],
+        source_quote="Can I still act on last month?",
         why="Same tool as spend-01 but exercises the prior-period argument, a distinct regression surface from the current-period default.",
     ),
     dict(
@@ -417,16 +465,27 @@ GOLDEN_CASES = [
         question="How do I recategorise a transaction so it always files that way from now on?",
         screen="spend",
         expected=["explain"],
+        source_quote="recategorise from there",
         why="An app-action walkthrough ask routes to explain's registry, never a live tool.",
     ),
+    dict(
+        id="spend-09-multi-month",
+        source="spend.md",
+        question="How much did I spend on Eating Out over the last 3 months?",
+        screen="insights",
+        expected=["get_category_spend"],
+        source_quote="£X this period · £Y (Z%) more/less than last",
+        why="Exercises get_category_spend's `months` argument path; relabelled from insights-accounts-mirror.md in the 2026-09-28 review (gap 2) — multi-period comparison is spend.md's own 'Over time' content, not anything in the Insights tab.",
+    ),
 
-    # ── docs/penny/question-inventory/planning-grow-debt.md (8) ─────────
+    # ── docs/penny/question-inventory/planning-grow-debt.md (7) ─────────
     dict(
         id="plan-01-debt-position",
         source="planning-grow-debt.md",
         question="How much debt do I have across my cards, and how much interest am I paying a month?",
         screen="planning",
         expected=["get_debt_position"],
+        source_quote="a month in interest right now",
         why="The core debt-position shape (Planning's debt row) maps directly to get_debt_position.",
     ),
     dict(
@@ -435,6 +494,7 @@ GOLDEN_CASES = [
         question="How is my Japan trip goal progressing?",
         screen="planning",
         expected=["get_goals"],
+        source_quote="per pay period slice",
         why="A named-goal progress ask is get_goals' own worked example, distinct from get_savings_position's whole-buffer figure.",
     ),
     dict(
@@ -443,15 +503,8 @@ GOLDEN_CASES = [
         question="How much is in my savings buffer, and am I on track for my target?",
         screen="planning",
         expected=["get_savings_position"],
+        source_quote="against a 1-month target",
         why="The whole-buffer/target-percent-funded shape is get_savings_position's own reason for existing, distinct from a single named goal.",
-    ),
-    dict(
-        id="plan-04-affordability",
-        source="planning-grow-debt.md",
-        question="Can I afford a £2,000 holiday next August?",
-        screen="planning",
-        expected=["check_affordability"],
-        why="check_affordability owns the amount+timeframe arithmetic; the model must extract the £ figure and hand it over, never eyeball it itself.",
     ),
     dict(
         id="plan-05-calculate",
@@ -459,6 +512,7 @@ GOLDEN_CASES = [
         question="If I paid an extra £50.32 a week off my card for 6 months, roughly how much would that add up to?",
         screen="planning",
         expected=["calculate"],
+        source_quote="clears every carried card by",
         why="Multi-step arithmetic the model must never do in its head routes to calculate, restated repeatedly in PENNY_TOOLS.md's own doctrine.",
     ),
     dict(
@@ -467,6 +521,7 @@ GOLDEN_CASES = [
         question="What does 'buffer' mean on the Grow screen?",
         screen="planning",
         expected=["explain"],
+        source_quote="Buffer mini readout",
         why="A jargon-term case on Planning/Grow rather than Spend, proving explain routes the same way regardless of which screen asks.",
     ),
     dict(
@@ -475,6 +530,7 @@ GOLDEN_CASES = [
         question="What would it take to clear my most expensive card first?",
         screen="planning",
         expected=["get_debt_position"],
+        source_quote="DEAREST CARD FIRST",
         why="The avalanche 'what it would take' agency block still grounds on get_debt_position's own per-card facts, never a model-invented plan.",
     ),
     dict(
@@ -483,6 +539,7 @@ GOLDEN_CASES = [
         question="What is an ISA, and should I use one instead of a regular savings account?",
         screen="planning",
         expected=["explain"],
+        source_quote="WHY am I being told about ISA limits?",
         why="General UK money education, not personal to the user, routes to explain's registry rather than get_savings_position.",
     ),
 
@@ -493,6 +550,7 @@ GOLDEN_CASES = [
         question="What's the best money-saving tip you've got for me right now?",
         screen="insights",
         expected=["get_insights"],
+        source_quote="start with the top one",
         why="'What's the best insight' is get_insights' own worked example; rank 1 must be reproduced, never re-ranked.",
     ),
     dict(
@@ -501,6 +559,7 @@ GOLDEN_CASES = [
         question="Which accounts do I have connected, and what's my Monzo balance?",
         screen="accounts",
         expected=["get_accounts"],
+        source_quote="which accounts add up to this number?",
         why="A specific-account-balance ask is get_accounts' own worked shape, and the required first stop before get_account_activity when names collide.",
     ),
     dict(
@@ -509,6 +568,7 @@ GOLDEN_CASES = [
         question="What was the first payment into my Saving Challenge pot?",
         screen="accounts",
         expected=["get_account_activity"],
+        source_quote="is this account filed as \"Current\" when it's a savings pot?",
         why="Named-pot activity is get_account_activity's own worked example; the app keeps no other balance-history chart for it.",
     ),
     dict(
@@ -517,15 +577,8 @@ GOLDEN_CASES = [
         question="What traits has the Mirror picked up about me, and how is my spending aim going?",
         screen="mirror",
         expected=["get_mirror"],
+        source_quote="WHAT YOU'RE WORKING ON",
         why="Traits plus aim-progress in one ask, exercising the other half of get_mirror's own description from home-07.",
-    ),
-    dict(
-        id="insights-05-multi-month",
-        source="insights-accounts-mirror.md",
-        question="How much did I spend on Eating Out over the last 3 months?",
-        screen="insights",
-        expected=["get_category_spend"],
-        why="Exercises get_category_spend's `months` argument path, a distinct regression surface from spend-02's current-period-only case.",
     ),
     dict(
         id="insights-06-jargon-dormant",
@@ -533,21 +586,34 @@ GOLDEN_CASES = [
         question="What does 'dormant' mean next to one of my accounts?",
         screen="accounts",
         expected=["explain"],
+        source_quote='2.12 "Inactive" (dormant) collapsed bucket',
         why="A third jargon-term case, triggered from the Accounts surface, proving explain's routing is screen-agnostic.",
+    ),
+    dict(
+        id="insights-07-recurring",
+        source="insights-accounts-mirror.md",
+        question="What subscriptions am I paying right now, and when does Netflix renew?",
+        screen="home",
+        expected=["get_recurring_payments"],
+        source_quote="when does this renew",
+        why="Naming a specific recurring bill/renewal date is get_recurring_payments' own worked example; relabelled from home-and-penny.md in the 2026-09-28 review (gap 2) — subscriptions/recurring content is documented in this file's own 'PART 4 — SUBSCRIPTIONS / COMMITMENTS / RECURRING', not on the Home screen.",
     ),
 ]
 
 # Sanity on the golden set's own shape — catches a typo in this file itself
-# (a case naming a tool with no pinned hash) before it ever reaches the
-# harness.
+# (a case whose expected tool has no pinned hash, or that is missing its
+# own grounding quote) before it ever reaches the harness.
 for _case in GOLDEN_CASES:
     for _tool in _case["expected"]:
         assert _tool in PINNED_TOOL_DESCRIPTION_HASHES, f"{_case['id']}: no pinned hash for {_tool}"
+    assert _case.get("source_quote"), f"{_case['id']}: missing source_quote"
 
 _SOURCE_COUNTS = {
-    "home-and-penny.md": 8, "spend.md": 8, "planning-grow-debt.md": 8,
+    "home-and-penny.md": 8, "spend.md": 9, "planning-grow-debt.md": 7,
     "insights-accounts-mirror.md": 6,
 }
+
+_INVENTORY_DIR = pathlib.Path(__file__).resolve().parent.parent.parent / "docs" / "penny" / "question-inventory"
 
 
 def test_golden_set_spread_across_all_four_inventory_files():
@@ -559,6 +625,31 @@ def test_golden_set_spread_across_all_four_inventory_files():
     assert counts == _SOURCE_COUNTS
     assert sum(counts.values()) == len(GOLDEN_CASES)
     assert 28 <= len(GOLDEN_CASES) <= 32
+
+
+def test_golden_set_questions_are_grounded_in_their_named_inventory_file():
+    """B38 review (gap 2): the spread test above only ever compared each
+    case's SELF-DECLARED `source` label against a fixed count — it never
+    opened a single file in docs/penny/question-inventory/, so relabelling
+    a case to the wrong file (or a file that never actually covers the
+    question's own concept) silently passed. Each case now carries a
+    `source_quote`: a short substring copied VERBATIM from the real
+    inventory file at authoring time (never the full `question`, which is
+    usually a paraphrase inspired by the file's content, not a literal
+    quote from it). This test opens the four real files exactly once and
+    asserts every case's quote is actually there, so a genuinely
+    mislabelled case — or a quote that bit-rotted after the inventory doc
+    was later edited — fails here with the case id named, rather than
+    only in a reviewer's head."""
+    contents = {
+        name: (_INVENTORY_DIR / name).read_text(encoding="utf-8")
+        for name in sorted({c["source"] for c in GOLDEN_CASES})
+    }
+    for case in GOLDEN_CASES:
+        assert case["source_quote"] in contents[case["source"]], (
+            f"{case['id']}: source_quote {case['source_quote']!r} not found in "
+            f"docs/penny/question-inventory/{case['source']} — is `source` labelled correctly?"
+        )
 
 
 @pytest.mark.parametrize("case", GOLDEN_CASES, ids=[c["id"] for c in GOLDEN_CASES])
@@ -614,31 +705,27 @@ def test_break_missing_tool_is_caught(monkeypatch):
 
 def test_break_swapped_descriptions_is_caught(monkeypatch):
     """Simulates the item's own named example: two tools' descriptions
-    swapped (a plausible copy-paste-during-refactor mistake). plan-04
-    (check_affordability) and plan-01 (get_debt_position) each end up with
-    the wrong description attached, so their pinned hash no longer
-    matches."""
+    swapped (a plausible copy-paste-during-refactor mistake). plan-05
+    (calculate, formerly plan-04's slot before the affordability case moved
+    to Home) and plan-01 (get_debt_position) each end up with the wrong
+    description attached, so their pinned hash no longer matches."""
     import copy
 
     mutated = copy.deepcopy(penny_agent_module.TOOL_SCHEMAS)
     by_name = {entry["function"]["name"]: entry["function"] for entry in mutated}
-    a, b = by_name["check_affordability"], by_name["get_debt_position"]
+    a, b = by_name["calculate"], by_name["get_debt_position"]
     a["description"], b["description"] = b["description"], a["description"]
     monkeypatch.setattr(penny_agent_module, "TOOL_SCHEMAS", mutated)
 
-    affordability_case = next(c for c in GOLDEN_CASES if c["id"] == "plan-04-affordability")
-    client, dispatched, _ = run_case(
-        monkeypatch, affordability_case["question"], affordability_case["screen"], affordability_case["expected"],
+    calc_case = next(c for c in GOLDEN_CASES if c["id"] == "plan-05-calculate")
+    client, dispatched, _ = run_case(monkeypatch, calc_case["question"], calc_case["screen"], calc_case["expected"])
+    assert client.outcome == "description_changed:calculate", (
+        f"expected plan-05-calculate to fail on the swapped description, got {client.outcome!r}"
     )
-    assert client.outcome == "description_changed:check_affordability", (
-        f"expected plan-04-affordability to fail on the swapped description, got {client.outcome!r}"
-    )
-    assert dispatched != affordability_case["expected"]
+    assert dispatched != calc_case["expected"]
 
     debt_case = next(c for c in GOLDEN_CASES if c["id"] == "plan-01-debt-position")
-    client, dispatched, _ = run_case(
-        monkeypatch, debt_case["question"], debt_case["screen"], debt_case["expected"],
-    )
+    client, dispatched, _ = run_case(monkeypatch, debt_case["question"], debt_case["screen"], debt_case["expected"])
     assert client.outcome == "description_changed:get_debt_position", (
         f"expected plan-01-debt-position to fail on the swapped description, got {client.outcome!r}"
     )
