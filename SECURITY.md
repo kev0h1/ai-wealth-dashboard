@@ -190,7 +190,7 @@ device testing, is unrelated to either.
 | A79 | Bank narrative text is sent to OpenRouter for categorisation and Penny read tools, unredacted (pre-documented design concern) | Open |
 | A88 | Finexer consent callback accepts a missing `state` parameter (defence-in-depth gap only; no cross-account path exists because binding is fixed at session-gated consent creation) | Fixed on main 2026-09-22 (683078c8); production release pending |
 | A89 | Webhook path-secret comparison is not constant-time (no practical timing exploit identified; the secret also functions as a long random URL segment) | Fixed on main 2026-09-22 (f4983f8e); production release pending |
-| A92 | Production's proxy chain does not strip a caller-supplied `X-Real-IP`/`X-Forwarded-For` header, so any IP-keyed rate limit on production can be bypassed by rotating the header. Triaged to Medium, down from the board's own initially proposed High: there is no password login to brute-force behind this, and per-user (not IP-keyed) limits on data routes are untouched | Fixed on main 2026-09-22 (d5fbdfe1); production release pending, gated on A110 (trusted-proxy hop handling) |
+| A92 | Production's proxy chain does not strip a caller-supplied `X-Real-IP`/`X-Forwarded-For` header, so any IP-keyed rate limit on production can be bypassed by rotating the header. Triaged to Medium, down from the board's own initially proposed High: there is no password login to brute-force behind this, and per-user (not IP-keyed) limits on data routes are untouched | Fixed on main 2026-09-22 (d5fbdfe1); production release pending (its A110 gate, trusted-proxy hop handling, is done, 2026-09-24) |
 | A95 | `GET /logo/{domain}` carries no rate limit at all, not even the general IP catch-all, so an unlimited caller can drive cost through the server-side image proxy | Fixed on main 2026-09-22 (aeadb348); production release pending |
 | A118 | After logout, the Android session token value is still recoverable on disk (LevelDB append-only storage) | Found in device testing 2026-09-27; open, not yet remediated |
 | A119 | On the Android debug build the WebView is remotely inspectable, and the authenticated DOM plus Capacitor bridge are reachable behind the lock overlay; the deciding follow-up is to verify the signed release APK disables WebView content debugging | Found in device testing 2026-09-27; open, not yet remediated |
@@ -243,8 +243,9 @@ authentication, found in device testing on 2026-09-27 and, unlike the
 other four, **not yet remediated**; a fix is in progress (board item
 A121). Of the remaining twenty Medium, Low
 and Informational findings, eleven are fixed on `main` with production
-release pending (A92 additionally gated on A110, trusted-proxy hop
-handling); nine (A73, A77, A79, A81, A94, A118, A119, A120, A122) remain
+release pending (A92 was additionally gated on A110, trusted-proxy hop
+handling; A110 is done, 2026-09-24, so that gate is clear, though A92
+itself has no production release recorded here); nine (A73, A77, A79, A81, A94, A118, A119, A120, A122) remain
 open.
 
 **Production status as of 2026-09-27 (updated from the original
@@ -255,8 +256,10 @@ in `release-20260927-1844`) and were retested the same day, board item
 A112, see the Headline and High findings table above for the per-finding
 outcome. The remaining eleven (A74, A76, A80, A85, A86, A88, A89, A90,
 A92, A93, A95) are merged to `main` with regression tests but their
-production release is not recorded here; A92's release is additionally
-gated on A110 (trusted-proxy hop handling). The deletion-lifecycle retest
+production release is not recorded here; A92's release was additionally
+gated on A110 (trusted-proxy hop handling), which is done (2026-09-24),
+so that gate is clear even though A92's own production release is not
+recorded here. The deletion-lifecycle retest
 (API-15: deletion revokes the Finexer consent, the connections list shows
 Finexer, and both the deleted account's session token and its OAuth
 tokens are rejected) has run (A112, 2026-09-27) and is recorded under
