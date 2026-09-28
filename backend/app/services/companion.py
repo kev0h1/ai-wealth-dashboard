@@ -1972,6 +1972,20 @@ async def compute_today_items(
     below is gated on this flag; the in-memory item is still computed and
     returned either way, only the persistence is skipped.
 
+    H90 correction (2026-09-28): "EVERY write" above was not, in fact,
+    true until this fix — the trajectory item's `get_debt_plan_cached(uid)`
+    call (section 8f, below) wrote a fresh `debt_plan` response-cache doc
+    on a cache miss regardless of `persist`, because that helper had no
+    `persist` parameter of its own to thread this flag through. That
+    single unguarded write is what let `GET /today/cover-plan` (persist
+    False, called on every Settings load) and `get_today_brief` (persist
+    False, the case this docstring describes above) each write a doc under
+    whatever uid they ran for — including, once, Kevin's own uid, from
+    unmerged code exercising this exact path. Fixed by giving
+    `get_debt_plan_cached` its own `persist` parameter and passing this
+    one through to it; the claim above is now actually enforced, not just
+    documented.
+
     `account_eligibility_out` (G50, 2026-09-12): an optional out-param —
     when a caller passes a dict, this function fills it in place with
     `{account_id: {"short": bool, "headroom": float}}` for every account
@@ -5020,7 +5034,15 @@ async def compute_today_items(
     try:
         from app.services.debt_plan import get_debt_plan_cached as _get_debt_plan
 
-        _plan = await _get_debt_plan(uid)
+        # H90: this is the one write inside compute_today_items that was
+        # NOT already gated on `persist` (every other write site in this
+        # function is an explicit `if persist:` above) — a cache MISS here
+        # called `response_cache.aput` regardless, so `persist=False`
+        # (GET /today/cover-plan, penny_tools.get_today_brief) still wrote
+        # a fresh debt_plan cache doc under whatever uid it was called
+        # with. Threading `persist` through makes get_debt_plan_cached's
+        # own promise ("EVERY write... gated on this flag") actually true.
+        _plan = await _get_debt_plan(uid, persist=persist)
         _verdict_str = _plan["totals"]["verdict"]
 
         if _verdict_str != "good":
