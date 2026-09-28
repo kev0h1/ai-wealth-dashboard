@@ -123,6 +123,26 @@ def _spawn_lock_holder(lock_path: Path, hold_seconds: float, *, delete_after: bo
     return proc
 
 
+_DECOY_SCRIPT = """
+import sys, time
+time.sleep(float(sys.argv[1]))
+"""
+
+
+def _spawn_decoy_process(cwd: Path, hold_seconds: float) -> subprocess.Popen:
+    """A live process cwd'd at `cwd` whose command line contains the
+    substring "git" (mimicking a `git fetch`-polling loop — the exact
+    shape of a real Claude/Codex session parked at a repo root), which
+    never opens any lock file at all. This is the decoy that broke the
+    pre-fix /proc-fallback heuristic (H93 review round, Critical 1):
+    matched on cwd + "git"-in-argv alone, with no check that the process
+    actually held anything open."""
+    return subprocess.Popen(
+        [sys.executable, "-c", _DECOY_SCRIPT, str(hold_seconds), "git", "fetch-loop-decoy"],
+        cwd=cwd,
+    )
+
+
 # ---------------------------------------------------------------------
 # .git/index.lock: stale (no live holder) is removed, live is waited on
 # and never removed.
@@ -206,6 +226,114 @@ def test_live_index_lock_that_never_clears_is_never_removed_and_times_out_loudly
         # NEVER removed, no matter how long it has existed or how long
         # this waited.
         assert lock_path.exists(), "a live-held .git/index.lock must never be removed out from under its holder"
+    finally:
+        holder.kill()
+        holder.wait(timeout=10)
+
+
+# ---------------------------------------------------------------------
+# H93 review round: _lock_holder_pids had two critical defects, both
+# reproduced end to end against real processes before this round's fix.
+# ---------------------------------------------------------------------
+
+
+def test_stale_lock_removed_despite_a_decoy_process_sharing_cwd_and_git_in_argv(tmp_path, caplog):
+    """Critical 1. Two compounding bugs, both fixed in this round: (a)
+    fuser/lsof exit 0 with a pid when they find a holder and NON-zero
+    with empty output when they don't (verified empirically) — the old
+    `if result.returncode == 0: return []` branch was therefore dead
+    code, so a tool's correct "no holder" answer was never trusted and
+    always fell through to (b) a /proc fallback that matched ANY process
+    merely cwd'd at the repo root with the substring "git" in its command
+    line, with no check it held anything open at all. On the real VPS
+    this matches a long-running `git fetch`-polling loop parked at the
+    repo root — precisely what a live Claude/Codex session's own bash
+    process looks like — making a genuinely stale, abandoned lock
+    unremovable forever whenever one happened to be running nearby. This
+    reproduces both: a decoy at the board root's own cwd with "git" in
+    argv, never touching the lock file, next to a real stale lock nothing
+    holds."""
+    board_root = _make_real_board_root(tmp_path)
+    lock_path = board_root / ".git" / "index.lock"
+    lock_path.write_text("stale, abandoned by a commit that died mid-operation\n", encoding="utf-8")
+    old = time.time() - (backlog.GIT_LOCK_STALE_SECONDS + 60)
+    os.utime(lock_path, (old, old))
+
+    # Held well past the module's default GIT_LOCK_WAIT_SECONDS (20s):
+    # under the pre-fix code, this decoy is (wrongly) treated as a
+    # holder, so if that bug were still present the wait would time out
+    # loudly (committed=False) while the decoy is still alive, rather
+    # than coincidentally "passing" once the decoy happens to exit on
+    # its own mid-wait and the next poll finds no holder by chance.
+    decoy = _spawn_decoy_process(board_root, hold_seconds=30.0)
+    try:
+        with caplog.at_level(logging.WARNING, logger="app.services.backlog"):
+            item, committed = backlog.add_note(
+                "A1", "note written despite a cwd/argv decoy", actor="claude",
+                todo_path=board_root / "TODO.md", repo_root=board_root,
+            )
+    finally:
+        decoy.kill()
+        decoy.wait(timeout=10)
+
+    assert committed is True
+    assert not lock_path.exists(), "a decoy sharing cwd and \"git\" in argv must never count as a holder"
+    assert any("removing stale .git/index.lock" in r.message for r in caplog.records), caplog.text
+    saved = (board_root / "TODO.md").read_text(encoding="utf-8")
+    assert "note written despite a cwd/argv decoy" in saved
+
+
+def test_proc_fallback_detects_a_live_holder_by_fd_regardless_of_cwd(tmp_path):
+    """Critical 2. With fuser/lsof unavailable, the pre-fix /proc
+    fallback matched a holder only when its cwd equalled repo_root —
+    nothing enforces that a real holder's cwd matches the repo it is
+    committing in, so a holder parked elsewhere was invisible and its
+    lock was deleted out from under it, reproduced by the reviewer as a
+    live process at cwd /tmp with a real open fd on a lock file elsewhere.
+    The fix matches on the fd itself, so this must detect the holder even
+    though `_spawn_lock_holder` (deliberately, see its own docstring)
+    never sets cwd to board_root — it inherits this test process's own
+    cwd instead, which is not board_root."""
+    board_root = _make_real_board_root(tmp_path)
+    lock_path = board_root / ".git" / "index.lock"
+
+    real_run = backlog.subprocess.run
+
+    def _hide_fuser_and_lsof(cmd, *args, **kwargs):
+        if cmd and cmd[0] in ("fuser", "lsof"):
+            raise FileNotFoundError(cmd[0])
+        return real_run(cmd, *args, **kwargs)
+
+    holder = _spawn_lock_holder(lock_path, hold_seconds=10.0, delete_after=False)
+    try:
+        import unittest.mock as _mock
+
+        with _mock.patch.object(backlog.subprocess, "run", side_effect=_hide_fuser_and_lsof):
+            holders = backlog._lock_holder_pids(lock_path)
+            assert holders, "a real fd holder at a different cwd must still be detected via the /proc fallback"
+
+            with pytest.raises(backlog._GitLockHeld):
+                backlog._wait_for_git_index_lock(
+                    board_root, stale_after=90.0, max_wait=1.0, poll_interval=0.1
+                )
+        assert lock_path.exists(), "a live holder at a different cwd must never have its lock removed"
+    finally:
+        holder.kill()
+        holder.wait(timeout=10)
+
+
+def test_live_holder_at_a_different_cwd_is_still_detected_via_fuser_or_lsof(tmp_path):
+    """Regression guard: the fuser/lsof path was never cwd-dependent (it
+    inspects the lock file directly, not any process's working
+    directory) — only the /proc fallback was. Pinned down explicitly so a
+    future change cannot quietly reintroduce a cwd dependency on the
+    primary (tools-present) path, which every host in this fleet has."""
+    board_root = _make_real_board_root(tmp_path)
+    lock_path = board_root / ".git" / "index.lock"
+    holder = _spawn_lock_holder(lock_path, hold_seconds=5.0, delete_after=False)
+    try:
+        holders = backlog._lock_holder_pids(lock_path)
+        assert holders
     finally:
         holder.kill()
         holder.wait(timeout=10)

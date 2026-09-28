@@ -103,6 +103,21 @@ as a hard, non-zero-exit failure rather than a footnote — see
 `_print_result` there — but this module's own public mutators keep
 returning it rather than raising, since `/ops/go-live` needs to report a
 failed commit in its response body rather than 500 the request.
+
+A false-positive holder (`_lock_holder_pids` wrongly reporting a live
+process on a genuinely stale `.git/index.lock`) does not corrupt
+anything, but it does stall: the write already landed on disk before any
+git call runs, so `.git/index.lock` staying in place just means that one
+call's `git add`/`commit` times out via `_GitLockHeld`, folded into the
+usual `committed: False`. The next real risk is downstream of this
+module, in `scripts/integrate.py`: its own precondition check refuses to
+run against a dirty shared tree, and a board write that landed on disk
+but never committed leaves `TODO.md` exactly that — dirty — so every
+subsequent integrate pass blocks with a generic "dirty tree" refusal
+until a human notices and runs `git add && git commit` (or an unstuck
+retry) by hand in the shared tree. `integrate.py` does not currently
+distinguish that specific cause from an arbitrary dirty tree; see its own
+`_check_preconditions` if that distinction is ever worth adding.
 """
 from __future__ import annotations
 
@@ -494,21 +509,51 @@ class _GitLockHeld(Exception):
 
 
 def _lock_holder_pids(lock_path: Path) -> list[str]:
-    """Best-effort: which live process(es), if any, currently hold
+    """Best-effort: which live process(es), if any, currently have
     `lock_path` open. This is the actual safety gate for whether a stale
     `.git/index.lock` may be removed (H93) — age alone is never enough,
     since a slow but genuine git operation must never have its lock
     pulled out from under it.
 
-    Prefers `fuser`/`lsof` (fast, exact, and what the item asked for);
-    falls back to a manual /proc scan for a live `git` process whose cwd
-    is this lock's repo, for a host where neither tool is installed. If
-    every check finds nothing, the lock is treated as unheld -- correct
-    for the common case (git leaves the file byte for byte but nothing
-    has an fd on it once the process exits), and safely conservative
-    against a false "clear to remove": the age threshold in
-    `_wait_for_git_index_lock` still has to elapse before anything is
-    actually deleted."""
+    Prefers `fuser`/`lsof` (fast, exact, and what the item asked for).
+    Both exit 0 with the holder's pid(s) on stdout when something has the
+    file open, and exit NON-zero with empty stdout when nothing does —
+    the inverse of the usual "0 means success" shell convention, verified
+    empirically on this host. The first cut of this function got that
+    backwards (`if result.returncode == 0: return []`), which is
+    unreachable dead code: returncode is only ever 0 when stdout already
+    produced a non-empty `pids` list, which the branch above it already
+    returns. The effect was that a tool positively confirming "no
+    holder" (exit 1, no stdout) was never trusted and always fell through
+    to the /proc scan below. Fixed here: once a tool actually runs (no
+    matter its exit code), its answer is final — pids if it found any,
+    `[]` if it didn't — and the loop stops there.
+
+    Falls back to a raw /proc scan only when NEITHER tool is installed
+    (`FileNotFoundError` from both). That scan walks every live
+    process's open file descriptors (`/proc/<pid>/fd/*`) and keeps only
+    one whose fd resolves to this exact lock file — the only fd-table
+    signal that actually means "holds this file open". The first cut
+    matched any process merely cwd'd at the repo root with the substring
+    `git` anywhere in its command line, which proved to be two separate
+    live bugs, both reproduced against real processes on this host in
+    the H93 review round: (1) a long-running `git fetch`-polling loop
+    parked at the repo root (the normal shape of a Claude/Codex session
+    on this VPS) matched every time, so a genuinely stale, abandoned lock
+    was reported as held forever, defeating the whole point of this
+    function; and (2) with both tools absent and a real holder's cwd
+    different from `repo_root` (nothing enforced that they match), the
+    holder was invisible to the cwd check and its lock was deleted out
+    from under it — the opposite failure. Neither is possible once the
+    check is "does an fd point at this exact file", so the cwd and
+    command-line heuristics are gone entirely rather than patched.
+
+    Even a correct "no holder" answer from this function is still only a
+    necessary condition for removal, never sufficient on its own: the
+    age threshold and the immediately-before-deleting re-stat in
+    `_wait_for_git_index_lock` are what close the remaining race — a lock
+    just created by a process that has not yet opened an fd on it (or
+    rewritten it) at the exact instant this function samples /proc."""
     for tool, extra_args in (("fuser", []), ("lsof", ["-t"])):
         try:
             result = subprocess.run(
@@ -517,38 +562,36 @@ def _lock_holder_pids(lock_path: Path) -> list[str]:
         except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
             continue
         pids = [tok.strip().lstrip("+") for tok in result.stdout.split() if tok.strip().lstrip("+").isdigit()]
-        if pids:
-            return pids
-        if result.returncode == 0:
-            # The tool ran and positively found no holder -- trust that
-            # rather than falling through to the /proc scan.
-            return []
-    # Neither tool available: scan /proc for a live `git` process whose
-    # working directory is this lock's repo root.
-    repo_root = lock_path.parent.parent
+        # The tool ran, successfully or not — its answer is trusted
+        # outright either way (pids found, or genuinely none), with no
+        # fall-through to the /proc scan below.
+        return pids
+    # Neither tool is installed: walk every live process's fd table for
+    # one that genuinely points at this exact lock file.
     try:
-        resolved_repo_root = repo_root.resolve()
+        resolved_lock = str(lock_path.resolve())
     except OSError:
         return []
     proc_dir = Path("/proc")
-    holders: list[str] = []
     if not proc_dir.is_dir():
-        return holders
+        return []
+    holders: list[str] = []
     for entry in proc_dir.iterdir():
         if not entry.name.isdigit():
             continue
+        fd_dir = entry / "fd"
         try:
-            cmdline = (entry / "cmdline").read_bytes()
+            fd_names = os.listdir(fd_dir)
         except OSError:
-            continue
-        if b"git" not in cmdline:
-            continue
-        try:
-            cwd = Path(os.readlink(entry / "cwd")).resolve()
-        except OSError:
-            continue
-        if cwd == resolved_repo_root:
-            holders.append(entry.name)
+            continue  # process exited mid-scan, or its fd table isn't readable (not ours)
+        for fd_name in fd_names:
+            try:
+                target = os.readlink(fd_dir / fd_name)
+            except OSError:
+                continue  # that individual fd closed mid-scan
+            if target == resolved_lock:
+                holders.append(entry.name)
+                break
     return holders
 
 
@@ -575,12 +618,26 @@ def _wait_for_git_index_lock(
     so. Otherwise (held, or unheld but too fresh to trust as abandoned)
     this polls every `poll_interval` up to `max_wait` total, then raises
     `_GitLockHeld`, which `_git_commit_and_push` treats like any other
-    commit failure."""
+    commit failure.
+
+    H93 review round: `_lock_holder_pids` alone cannot see a lock file
+    that was just created by a process that has not yet opened an fd on
+    it (or is about to rewrite it) at the exact instant this function
+    samples /proc — that race is inherent to any point-in-time fd check,
+    not a bug in that function. Closed here instead, right before the
+    delete: the lock's `(inode, mtime)` is captured before the holder
+    scan runs and re-checked immediately before `unlink()`; if either
+    changed in between, something touched the file during the very scan
+    that just called it unheld, so this treats it as live and loops
+    again rather than deleting a lock a process may have just started
+    writing to."""
     lock_path = repo_root / ".git" / "index.lock"
     deadline = time.monotonic() + max_wait
     attempt = 0
     while True:
-        if not lock_path.exists():
+        try:
+            pre_scan_stat = lock_path.stat()
+        except FileNotFoundError:
             return
         attempt += 1
         holders = _lock_holder_pids(lock_path)
@@ -592,28 +649,43 @@ def _wait_for_git_index_lock(
                 attempt,
             )
         else:
-            try:
-                age = time.time() - lock_path.stat().st_mtime
-            except FileNotFoundError:
-                return  # released between the exists() check above and this stat()
+            age = time.time() - pre_scan_stat.st_mtime
             if age >= stale_after:
+                try:
+                    post_scan_stat = lock_path.stat()
+                except FileNotFoundError:
+                    return  # released while we were about to remove it
+                if (post_scan_stat.st_ino, post_scan_stat.st_mtime) != (
+                    pre_scan_stat.st_ino,
+                    pre_scan_stat.st_mtime,
+                ):
+                    logger.warning(
+                        "backlog: .git/index.lock in %s changed while being checked for staleness "
+                        "(a process may have just started writing to it); treating as live, not "
+                        "removing (attempt %d)",
+                        repo_root,
+                        attempt,
+                    )
+                else:
+                    logger.warning(
+                        "backlog: removing stale .git/index.lock in %s (age %.0fs, no live process "
+                        "holding it)",
+                        repo_root,
+                        age,
+                    )
+                    try:
+                        lock_path.unlink()
+                    except FileNotFoundError:
+                        pass
+                    return
+            else:
                 logger.warning(
-                    "backlog: removing stale .git/index.lock in %s (age %.0fs, no live process holding it)",
+                    "backlog: .git/index.lock present in %s (age %.0fs, no holder found yet, not stale, "
+                    "attempt %d)",
                     repo_root,
                     age,
+                    attempt,
                 )
-                try:
-                    lock_path.unlink()
-                except FileNotFoundError:
-                    pass
-                return
-            logger.warning(
-                "backlog: .git/index.lock present in %s (age %.0fs, no holder found yet, not stale, "
-                "attempt %d)",
-                repo_root,
-                age,
-                attempt,
-            )
         if time.monotonic() >= deadline:
             holder_detail = f"held by pid(s) {','.join(holders)}" if holders else "no live holder found, but not yet stale"
             raise _GitLockHeld(
