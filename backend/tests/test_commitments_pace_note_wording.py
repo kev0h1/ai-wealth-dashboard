@@ -36,6 +36,22 @@ def test_pace_note_uses_more_than_usual_wording_not_ahead_of_usual():
     assert note["link"] == "spend"
 
 
+def test_pace_note_rounds_half_up_like_js_math_round():
+    # Same G153 rounding fix as notifications.py's _pace_line: Python's
+    # round() is banker's rounding (round(150.5) == 150 here), but the
+    # frontend's Math.round is half-away-from-zero (150.5 -> 151). Both
+    # excess and per_period_slice are always positive at this call site
+    # (see module docstring), so math.floor(x + 0.5) matches JS.
+    items = [_item(per_period_slice=450.5)]
+    docs = [_doc()]
+    _apply_pace_notes(items, docs, {"excess": 150.5})
+
+    assert items[0]["pace_note"]["text"] == (
+        "Spending is £151 more than usual this period, "
+        "which may squeeze the £451 this plan needs."
+    )
+
+
 def test_pace_note_none_when_excess_below_slice_ratio():
     items = [_item(per_period_slice=900.0)]  # ratio floor is excess/3 = 300
     docs = [_doc()]

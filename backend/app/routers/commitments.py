@@ -738,9 +738,12 @@ def _apply_pace_notes(items: list[dict], docs: list[dict], pace_ctx: dict | None
                 # more-than-usual phrasing as notifications.py's _pace_line.
                 # Only ever built above with excess > 0 (the caller already
                 # returns None otherwise), so there is no under-usual branch
-                # to mirror here.
-                f"Spending is £{round(excess):,} more than usual this period, "
-                f"which may squeeze the £{round(slice_):,} this plan needs."
+                # to mirror here. Round-half-up (not Python's banker's-
+                # rounding round()) for the same JS-parity reason as
+                # notifications.py's _pace_line - both amounts here are
+                # always positive, so floor(x+0.5) matches Math.round.
+                f"Spending is £{math.floor(excess + 0.5):,} more than usual this period, "
+                f"which may squeeze the £{math.floor(slice_ + 0.5):,} this plan needs."
             ),
             "link": "spend",
         }
