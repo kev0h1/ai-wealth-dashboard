@@ -29,6 +29,7 @@ import { usePennyUsage, refreshPennyUsage } from "@/components/PennySheetProvide
 import YourPlanCard from "@/components/YourPlanCard";
 import { getAccountsCached } from "@/lib/accountsCache";
 import { MCP_CONNECTOR } from "@/lib/featureFlags";
+import { resolveDisplayName, initialsOf } from "@/lib/displayName";
 import { isNativePlatform, isIOSNative, linkAppleIdentity } from "@/lib/nativeAuth";
 import { initCapacitorPush, getCapacitorPushPermission, onPushReceivedOnce } from "@/lib/capacitorPush";
 import {
@@ -93,14 +94,6 @@ function SectionHeader({
       </div>
     </div>
   );
-}
-
-function deriveInitials(name: string | undefined): string {
-  const trimmed = (name ?? "").trim();
-  if (!trimmed) return "";
-  const words = trimmed.split(/\s+/).filter(Boolean);
-  if (words.length === 1) return words[0].charAt(0).toUpperCase();
-  return (words[0].charAt(0) + words[1].charAt(0)).toUpperCase();
 }
 
 type CoverPlanView = {
@@ -1058,7 +1051,16 @@ export default function SettingsPage() {
     </div>
   );
 
-  const initials = deriveInitials(user?.name);
+  // D7: prefer the persisted profile name (profileLoaded.name — set on load
+  // and after a successful save, so it stays put while the user is
+  // mid-edit in the form below) over the session name, and never fall
+  // back to an email or its local part — see lib/displayName.ts.
+  const settingsDisplayName = resolveDisplayName({
+    profileName: profileLoaded?.name,
+    sessionName: user?.name,
+    email: user?.email,
+  });
+  const initials = initialsOf(settingsDisplayName) ?? "";
   const bioLabel = bioState?.enabled ? "Face ID on" : "Face ID off";
 
   return (
@@ -1078,7 +1080,7 @@ export default function SettingsPage() {
               {initials || <UserRound size={20} />}
             </span>
             <div className="min-w-0">
-              <p className="text-base font-bold text-slate-900 dark:text-slate-100 truncate">{user?.name || "—"}</p>
+              <p className="text-base font-bold text-slate-900 dark:text-slate-100 truncate">{settingsDisplayName || "—"}</p>
               <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{user?.email}</p>
             </div>
           </div>

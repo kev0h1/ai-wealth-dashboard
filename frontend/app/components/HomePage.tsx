@@ -35,6 +35,7 @@ import { getAccountsCached } from "@/lib/accountsCache";
 import { useHomePinnedAccounts } from "@/lib/homePinnedAccounts";
 import { isLegacyBankSource } from "@/lib/legacyBankProvider";
 import { useOpenBankingAccess } from "@/lib/openBankingAccess";
+import { resolveDisplayName, firstNameOf } from "@/lib/displayName";
 // A67: a STATIC import, deliberately, after measuring the alternative.
 // Lazy-loading this the way PinnedWidgetCard below is lazy-loaded was tried
 // and reverted: it does not remove anything from Home's first load, because
@@ -253,7 +254,20 @@ function FirstAccountCard({
 export default function HomePage() {
   const router = useRouter();
   const { user } = useAuth();
-  const firstName = user?.name?.split(" ")[0]?.trim();
+  // D7: the session name alone is not reliable (empty, or an Apple relay
+  // address's local part on a repeat sign-in — see lib/displayName.ts) —
+  // read the profile's own full_name fresh here and prefer it, so the
+  // greeting is right immediately after onboarding without waiting on a
+  // session refresh. Read once per mount; onboarding itself already runs
+  // before Home ever renders (AuthProvider renders it instead of the app
+  // shell), so there is no "just finished onboarding this render" case to
+  // race here.
+  const [profileFullName, setProfileFullName] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    api.getProfile().then((p) => setProfileFullName(p.full_name || undefined)).catch(() => {});
+  }, []);
+  const displayName = resolveDisplayName({ profileName: profileFullName, sessionName: user?.name, email: user?.email });
+  const firstName = firstNameOf(displayName);
   const { hideNetWorth, preferencesReady, payPeriodConfig, homePinnedWidget } = usePreferences();
   const { colours } = useColours();
   // Read once per render so every initializer/guard below sees the same
@@ -883,6 +897,7 @@ export default function HomePage() {
             <HomeBrief
               items={isFreshUser ? [] : companionItems}
               firstName={firstName}
+              displayName={displayName}
               safeToSpend={safeToSpend}
               loading={loading}
               syncing={syncing}

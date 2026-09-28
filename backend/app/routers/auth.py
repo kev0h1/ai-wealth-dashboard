@@ -19,7 +19,7 @@ from app.core.config import (
 from app.core.identity import resolve_signin_email
 from app.core.pending_login import _pop_pending, _store_pending
 from app.core.session_revocation import is_revoked
-from app.db.collections import linked_identities_col
+from app.db.collections import linked_identities_col, user_profiles_col
 from app.services.retention import erase_orphaned_relay_account
 from itsdangerous import SignatureExpired, BadSignature
 
@@ -83,6 +83,29 @@ async def validate_session(request: Request):
     # "Sorted is an app" shell when NEXT_PUBLIC_WEB_PRODUCT=off.
     owner = email.strip().lower() == PRIMARY_EMAIL
     return {"valid": True, "name": name, "email": email, "owner": owner}
+
+
+@router.post("/auth/session/refresh")
+async def refresh_session(user: dict = Depends(current_user)):
+    """D7: re-issue the caller's session token with their current profile
+    name, so the greeting is right immediately after onboarding rather
+    than waiting for the next login.
+
+    The session token's `name` is only ever as fresh as the sign-in
+    provider's claim at the moment of login (see the sign-in routes
+    below); it does not update when the user later saves a real name via
+    PUT /profile in onboarding. Home's own greeting reads profile.full_name
+    directly and does not depend on this endpoint at all — this exists as
+    belt and braces for any other reader of the session's `name`, so a
+    long-lived session token still catches up once the profile is saved.
+    """
+    email = user.get("email")
+    if not email:
+        raise HTTPException(401, "Not authenticated")
+    doc = await user_profiles_col.find_one({"_id": email})
+    full_name = (doc or {}).get("full_name") or ""
+    session_token = serializer.dumps({"email": email, "name": full_name})
+    return {"session_token": session_token, "ok": True}
 
 
 @router.post("/auth/google/native")

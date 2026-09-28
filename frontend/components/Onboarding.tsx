@@ -15,6 +15,7 @@ import {
 } from "@/lib/biometrics";
 import BankPickerSheet from "@/components/BankPickerSheet";
 import { getSubscriptionCached, useOpenBankingAccess } from "@/lib/openBankingAccess";
+import { setToken } from "@/lib/auth";
 
 interface OnboardingProps {
   defaultName?: string;
@@ -168,7 +169,15 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
   async function finish() {
     // Mark onboarding complete only here — at the very end — so refreshing
     // mid-flow doesn't skip the pay-period and bank steps.
-    try { await api.updateProfile(`${firstName.trim()} ${lastName.trim()}`, postcode.trim()); } catch {}
+    try {
+      await api.updateProfile(`${firstName.trim()} ${lastName.trim()}`, postcode.trim());
+      // D7: catch up the session token's own `name` too, belt and braces —
+      // Home's greeting reads profile.full_name directly (lib/displayName.ts)
+      // and does not wait on this, but anything still reading the session
+      // name should not have to wait for the next login either.
+      const refreshed = await api.refreshSession();
+      setToken(refreshed.session_token);
+    } catch {}
     localStorage.removeItem("wealth_onboarding_resume");
     localStorage.setItem("wealth_tutorial_pending", "1");
     onComplete();
