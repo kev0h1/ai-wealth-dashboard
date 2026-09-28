@@ -349,3 +349,84 @@ def test_a_declared_exclusion_is_skipped_with_its_reason_logged(tmp_path):
         if line.strip()
     }
     assert "feature-H900-manifest-probe" in origin_branches, "the rest of the gate should still have passed and pushed"
+
+
+# ---------------------------------------------------------------------
+# H83 review round 2: the tests above only ever exercise a synthetic
+# package.json with a throwaway probe, so a hardcoded, undeclared skip
+# of a REAL check inside run_check_gate (bypassing the manifest read
+# entirely for that one name) would pass every test above unnoticed --
+# exactly the class of regression this item exists to make impossible.
+# This drives run_check_gate against the ACTUAL frontend/package.json in
+# this checkout, with npm stubbed to a no-op that only records which
+# check name it was asked to run (never runs a real check, which would
+# make this slow and coupled to check content rather than to the gate's
+# own enumeration logic), and asserts the recorded set is exactly the
+# declared check:* set minus whatever checkGate.exclude declares.
+# ---------------------------------------------------------------------
+
+REAL_FRONTEND_PACKAGE_JSON = REPO_ROOT / "frontend" / "package.json"
+
+RUN_CHECK_GATE_DRIVER = """#!/usr/bin/env bash
+set -uo pipefail
+_SESSION_SH="$1"; shift
+_FRONTEND_DIR="$1"; shift
+source "$_SESSION_SH" "" >/dev/null
+run_check_gate "$_FRONTEND_DIR"
+"""
+
+
+def _real_declared_checks_and_exclusions() -> tuple[set[str], dict[str, str]]:
+    data = json.loads(REAL_FRONTEND_PACKAGE_JSON.read_text(encoding="utf-8"))
+    scripts = data.get("scripts", {})
+    declared = {name for name in scripts if name.startswith("check:")}
+    exclude = dict((data.get("checkGate") or {}).get("exclude") or {})
+    return declared, exclude
+
+
+def test_run_check_gate_invokes_exactly_the_real_manifests_declared_checks_minus_its_declared_exclusions(tmp_path):
+    declared, exclusions = _real_declared_checks_and_exclusions()
+    assert declared, "frontend/package.json declared no check:* scripts -- fixture assumption broken"
+
+    log_file = tmp_path / "invocations.log"
+    log_file.write_text("", encoding="utf-8")
+    bindir = tmp_path / "stubbin"
+    bindir.mkdir()
+    npm = bindir / "npm"
+    npm.write_text(
+        "#!/usr/bin/env bash\n"
+        f'echo "${{3:-}}" >> {str(log_file)!r}\n'
+        "exit 0\n",
+        encoding="utf-8",
+    )
+    npm.chmod(0o755)
+
+    driver = tmp_path / "run_check_gate_driver.sh"
+    driver.write_text(RUN_CHECK_GATE_DRIVER, encoding="utf-8")
+
+    env = dict(os.environ)
+    env["PATH"] = f"{bindir}{os.pathsep}{env['PATH']}"
+
+    result = subprocess.run(
+        ["bash", str(driver), str(SESSION_SH), str(REPO_ROOT / "frontend")],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    invoked = {line.strip() for line in log_file.read_text(encoding="utf-8").splitlines() if line.strip()}
+    expected = declared - set(exclusions.keys())
+    assert invoked == expected, (
+        f"run_check_gate invoked {invoked!r} against the real manifest, expected exactly "
+        f"{expected!r} (declared check:* scripts minus checkGate.exclude); missing: "
+        f"{expected - invoked!r}, unexpected extra: {invoked - expected!r}"
+    )
+
+    output = result.stdout + result.stderr
+    for excluded_name, reason in exclusions.items():
+        assert reason, f"checkGate.exclude[{excluded_name!r}] has an empty reason"
+        assert f"skipping {excluded_name}" in output, f"exclusion of {excluded_name} was not logged: {output}"
+        assert reason in output, f"exclusion reason for {excluded_name} was not logged: {output}"
