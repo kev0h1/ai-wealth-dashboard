@@ -13,15 +13,21 @@ import type { CompanionItem } from "@/lib/api";
 // actionable/informational split never surfaced it there). Extracted here so
 // both surfaces render the identical card:
 //   - Home: dismissible via the standard glass × (DismissChip below), wired
-//     by the caller (HomeBrief.tsx) to a Home-only, LOCAL suppression —
-//     the same onHomeDismiss/useHomeDismissedAdvice convention every other
-//     advice card on Home uses, never the shared server dismiss
-//     (api.dismissTodayItem). Rejection fix (2026-09-27): companion.py's
-//     needle builder gates the item on ONE per-user dismissed set shared by
-//     every caller of /today, Penny included, so a server dismiss on Home
-//     would delete Penny's permanent copy too. A per-device localStorage
-//     suppression is the only shape that keeps this genuinely two-way:
-//     gone from Home (this browser), still permanent on Penny.
+//     by the caller (HomeBrief.tsx) to BOTH the local onHomeDismiss/
+//     useHomeDismissedAdvice convention every other advice card on Home
+//     uses (instant hide, no round trip) AND a real, surface-scoped server
+//     dismiss (api.dismissTodayItem(id, "home")). Rejection fix
+//     (2026-09-27 → 2026-09-28): the ORIGINAL build called the shared
+//     server dismiss with no scope, and companion.py's needle builder
+//     gated the item's existence on that SAME per-user set for every
+//     caller of /today, Penny included, so it deleted Penny's permanent
+//     copy too. The fix is server-side, not "make Home local-only": the
+//     needle builder now always builds the item through its two-day
+//     window and only stamps a separate `home_dismissed` field (from its
+//     own, surface-scoped dismissed set) for Home to hide its own copy —
+//     see backend/app/services/companion.py's `dismiss_item` docstring.
+//     That keeps this a genuine, cross-device suppression on Home while
+//     Penny (reading the same raw feed) is structurally unable to lose it.
 //   - Penny: permanent, minimise-only, never dismiss, mirroring the payday
 //     plan's own owner rule (G164). Collapses to a one-line row; the
 //     minimised state is remembered locally per item id so it stays

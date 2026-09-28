@@ -1459,6 +1459,15 @@ export type CompanionItem = {
     period_end?: string;
     dominant?: { name: string; amount: number; date: string } | null;
   } | null;
+  /**
+   * needle items only (G168, 2026-09-28). True once this item's id has
+   * been dismissed with `surface: "home"` (see `dismissTodayItem` above) —
+   * HomeBrief.tsx uses this to hide its OWN copy, cross-device, without
+   * the item ever leaving the feed: PennyPage.tsx reads the same raw
+   * `items` array for its permanent copy and ignores this field entirely,
+   * so a Home dismiss can never remove Penny's copy again.
+   */
+  home_dismissed?: boolean;
 };
 
 /**
@@ -3361,8 +3370,16 @@ export const api = {
         : `/cycle/story?which=${which}${preview ? "&preview_close=1" : ""}`
     ),
 
-  dismissTodayItem: (item_id: string) =>
-    post<{ ok: boolean }>("/today/dismiss", { item_id }),
+  // `surface` is optional and ignored server-side for every item type
+  // except a needle item (`needle:<period_end>`, the month-closed card,
+  // G168): that one MUST be dismissed with `surface: "home"` or the
+  // backend refuses with 400, since an unscoped dismiss would land in the
+  // shared set the needle builder gates the item's existence on for every
+  // caller of `/today` — Penny included — silently deleting Penny's
+  // supposed-to-be-permanent copy (the 2026-09-27 rejection). See
+  // backend/app/services/companion.py's `dismiss_item` docstring.
+  dismissTodayItem: (item_id: string, surface?: "home") =>
+    post<{ ok: boolean }>("/today/dismiss", surface ? { item_id, surface } : { item_id }),
 
   // Planned one-off expenses
   addPlanned: (params: { name: string; amount: number; date: string; account_id?: string }) =>

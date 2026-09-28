@@ -1,4 +1,4 @@
-// Plain-Node regression test for G168's rejection fix.
+// Plain-Node regression test for G168's cross-surface dismiss fix.
 //
 // Run with:
 //   node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs --experimental-loader ./scripts/g168-stub-loader.mjs scripts/month-closed-dismiss.test.mjs
@@ -7,27 +7,42 @@
 //
 // What was rejected (TODO.md G168, 2026-09-27): the approved design ("Chip
 // and chevron") was built faithfully in every visible respect, but the
-// Home dismiss chip's onDismiss handler ALSO called the shared server
-// dismiss (api.dismissTodayItem). companion.py's needle-item builder gates
-// the item on ONE per-user dismissed set read by every caller of /today —
-// Penny included, since app/penny/PennyPage.tsx reads the identical feed —
-// so dismissing on Home silently deleted Penny's supposedly-permanent copy
-// too, directly contradicting the approved "Penny never dismisses" rule.
+// Home dismiss chip's onDismiss handler called the shared, UNSCOPED server
+// dismiss (api.dismissTodayItem(id)). companion.py's needle-item builder
+// gated the item's existence on that ONE per-user dismissed set read by
+// every caller of /today — Penny included, since app/penny/PennyPage.tsx
+// reads the identical feed — so dismissing on Home silently deleted
+// Penny's supposedly-permanent copy too, directly contradicting the
+// approved "Penny never dismisses" rule.
 //
-// The fix: Home's dismiss is now Home-only, the SAME onHomeDismiss
-// (useHomeDismissedAdvice) convention every other advice card on Home
-// already uses (a purely local, per-device localStorage suppression,
-// lib/homeDismissedAdvice.ts) — and it no longer calls
-// api.dismissTodayItem at all for this item type. This file pins two
-// properties:
+// The fix (2026-09-28) is server-side, not "make Home local-only" (an
+// earlier draft of this fix took that path and was replaced: it gave up
+// cross-device persistence for Home's own dismissal, which the ticket
+// requires): companion.py's needle builder now ALWAYS builds the item
+// through its two-day window regardless of dismissal, and only stamps a
+// `home_dismissed` boolean read from a SEPARATE, surface-scoped dismissed
+// set (`dismiss_item(uid, item_id, surface="home")`, written to a
+// `home_dismissed` field the shared `ids` field never touches). The
+// backend refuses an unscoped dismiss of a needle id with 400. This file
+// pins the frontend half of that contract:
 //
-//   1. Home's dismiss of the needle item calls onHomeDismiss (the local
-//      store) and NEVER api.dismissTodayItem.
-//   2. A second BriefBody render in Penny's shape (dismissible=false, the
+//   1. Home's dismiss of the needle item calls the REAL server dismiss,
+//      scoped: api.dismissTodayItem(id, "home") — not unscoped, not
+//      skipped — AND still writes the local onHomeDismiss suppression for
+//      an instant, no-round-trip hide (the existing convention every other
+//      advice card on Home already uses).
+//   2. HomeBrief hides a needle item the server has already stamped
+//      `home_dismissed: true` on (the cross-device case: dismissed on
+//      another device, this device's next /today fetch reflects it).
+//   3. Penny's own dedicated read (app/penny/PennyPage.tsx's `needleItem`)
+//      finds the SAME item regardless of `home_dismissed` — it is never
+//      filtered on that field, so a Home dismissal (from any device) can
+//      never remove Penny's copy.
+//   4. A second BriefBody render in Penny's shape (dismissible=false, the
 //      exact mode app/penny/PennyPage.tsx renders informational items in)
-//      still surfaces the SAME needle item after Home's local dismissal —
-//      proving the suppression never reached the shared feed.
-//   3. The real MonthClosedCard, rendered as PennyPage.tsx actually renders
+//      never double-renders the needle item — proven via the real,
+//      exported `pennyInformationalItems` helper, not a re-implementation.
+//   5. The real MonthClosedCard, rendered as PennyPage.tsx actually renders
 //      it (surface="penny", no onDismiss prop), exposes a Minimise control
 //      and NO Dismiss control at all — there is no way to fire a dismiss
 //      from Penny's card, structurally.
@@ -39,9 +54,8 @@
 // constructs — via scripts/g168-stub-loader.mjs substituting
 // components/MonthClosedCard with a props-capturing stub — and calling it
 // directly, a plain function call, which is exactly what dispatching a
-// real click ultimately does. Properties 2 and 3 need no substitution:
-// they're read straight from rendered markup / the real component's
-// filtering logic.
+// real click ultimately does. The rest need no substitution: they're read
+// straight from rendered markup / the real filtering logic.
 
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -89,11 +103,12 @@ const NEEDLE_ITEM = {
   estimated: false,
 };
 
-// ── 1. Home's dismiss must never fire the shared server dismiss ───────────
+// ── 1. Home's dismiss must call the SCOPED server dismiss, plus the local
+//      optimistic suppression ─────────────────────────────────────────────
 
 const dismissTodayItemCalls = [];
-api.dismissTodayItem = (itemId) => {
-  dismissTodayItemCalls.push(itemId);
+api.dismissTodayItem = (itemId, surface) => {
+  dismissTodayItemCalls.push([itemId, surface]);
   return Promise.resolve();
 };
 
@@ -118,49 +133,74 @@ check("Home render supplies an onDismiss function", typeof homeNeedleProps?.onDi
 homeNeedleProps.onDismiss();
 
 check(
-  "dismissing on Home never calls api.dismissTodayItem",
-  dismissTodayItemCalls.length === 0
+  "dismissing on Home calls api.dismissTodayItem exactly once",
+  dismissTodayItemCalls.length === 1
 );
 check(
-  "dismissing on Home DOES write the Home-only local suppression",
+  "dismissing on Home scopes the call to surface=\"home\" (the regression: an earlier build sent it unscoped, deleting Penny's copy)",
+  dismissTodayItemCalls[0]?.[0] === NEEDLE_ITEM.id && dismissTodayItemCalls[0]?.[1] === "home"
+);
+check(
+  "dismissing on Home ALSO writes the local suppression, for an instant hide with no round trip",
   readHomeDismissedAdvice().has(NEEDLE_ITEM.id)
 );
 
-// ── 2. Penny's shape must still see the item after Home's local dismiss,
-//      through exactly ONE path (its own dedicated `needleItem`/section c2
-//      rendering), never a second time via BriefBody's informational
-//      bucket. ───────────────────────────────────────────────────────────
+// ── 2. HomeBrief must hide a needle item the server has already stamped
+//      home_dismissed on (the cross-device case) ──────────────────────────
+
+capturedProps.length = 0;
+renderToStaticMarkup(
+  React.createElement(BriefBody, {
+    items: [{ ...NEEDLE_ITEM, home_dismissed: true }],
+    safeToSpend: null,
+    router: fakeRouter,
+    dismissible: true,
+  })
+);
+
+check(
+  "a needle item with home_dismissed=true is never handed to MonthClosedCard on Home",
+  capturedProps.find((p) => p.item?.id === NEEDLE_ITEM.id) === undefined
+);
+
+// ── 3. Penny's own dedicated read must find the item regardless of
+//      home_dismissed — this is the property that makes Penny's copy
+//      genuinely permanent under the new design. Mirrors the exact
+//      expression app/penny/PennyPage.tsx uses for its `needleItem`
+//      constant, not a re-implementation of different logic. ─────────────
+
+const pennyDedicatedNeedleItem =
+  [{ ...NEEDLE_ITEM, home_dismissed: true }].find((i) => i.type === "needle") ?? null;
+
+check(
+  "Penny's dedicated read finds the needle item even when home_dismissed is true",
+  pennyDedicatedNeedleItem?.id === NEEDLE_ITEM.id
+);
+
+// ── 4. Penny's shape must never double-render the needle item through
+//      BriefBody's informational bucket. ─────────────────────────────────
 //
 // app/penny/PennyPage.tsx computes `informationalPennyItems` by calling
 // the REAL, exported lib/companionItems.ts `pennyInformationalItems`
-// helper directly (imported below, not re-implemented) — so this exercises
+// helper directly (imported above, not re-implemented) — so this exercises
 // the actual production logic, not a copy of it. "needle" is classified
 // INFORMATIONAL by isActionableCompanionItem, so without
 // pennyInformationalItems' own explicit "needle" exclusion it would ALSO
-// land in this bucket on any device that hasn't dismissed it on Home yet
-// (dismissedKeys is per-device localStorage) — and BriefBody has its OWN
-// hardcoded, Home-shaped rendering for any needle item it's handed
-// (surface="home", a real Dismiss ×, unconditionally, see its block
-// above), which would double-render the card: once wrongly, with a
-// dismiss control, via this section, and once correctly (chevron Minimise
-// only) via the dedicated `needleItem` line PennyPage.tsx reads straight
-// off the RAW, unfiltered items (section c2, exercised directly in part 3
-// below). `dismissedKeys` is passed empty here deliberately — this must
-// hold even on a device that has never dismissed anything on Home.
+// land in this bucket — and BriefBody has its OWN hardcoded, Home-shaped
+// rendering for any needle item it's handed (surface="home", a real
+// Dismiss ×, unconditionally, see its block above), which would
+// double-render the card: once wrongly, with a dismiss control, via this
+// section, and once correctly (chevron Minimise only) via the dedicated
+// `needleItem` read exercised directly in part 3 above.
 
 const informationalPennyItems = pennyInformationalItems([NEEDLE_ITEM], new Set());
-const pennyDedicatedNeedleItem = [NEEDLE_ITEM].find(i => i.type === "needle") ?? null;
 
 check(
   "pennyInformationalItems excludes the needle item — no double-render on Penny",
   informationalPennyItems.length === 0
 );
-check(
-  "needle item still resolves via Penny's own dedicated (raw, unfiltered) read",
-  pennyDedicatedNeedleItem?.id === NEEDLE_ITEM.id
-);
 
-// ── 3. The REAL card, rendered exactly as PennyPage.tsx renders it, has no
+// ── 5. The REAL card, rendered exactly as PennyPage.tsx renders it, has no
 //      dismiss control at all — only Minimise. ─────────────────────────────
 // app/penny/PennyPage.tsx's section c2 renders
 // `<MonthClosedCard item={needleItem} router={router} surface="penny" />`

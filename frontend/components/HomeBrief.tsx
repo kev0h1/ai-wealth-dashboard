@@ -2013,7 +2013,14 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth =
   // that exclusively (live full card + entry/preview state) so a live plan
   // never renders twice. otherItems still excludes the type explicitly so a
   // payday_plan item never falls through to the bare-paragraph fallback.
-  const needleItem = items.find(i => i.type === "needle");
+  // `!i.home_dismissed` (G168, 2026-09-28): a needle item dismissed on Home
+  // (any device) carries this flag from companion.py's SEPARATE, Home-
+  // scoped dismissed set — see the render block below for the full story.
+  // PennyPage.tsx never reaches this filter for a needle item at all (its
+  // own `informationalPennyItems` excludes type "needle" before `items` is
+  // ever passed into BriefBody, see lib/companionItems.ts), so this is
+  // Home-only in effect even though the filter itself doesn't check surface.
+  const needleItem = items.find(i => i.type === "needle" && !i.home_dismissed);
   const askItem = items.find(i => i.type === "ask");
   const celebrationItems = items.filter(i => i.type === "celebration");
   const cliffItems = items.filter(i => i.type === "cliff");
@@ -2102,28 +2109,27 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth =
 
         {/* Needle item — invitation to review the closed month. Extracted
             into MonthClosedCard (G168) so Home and Penny render the
-            identical card. Rejection fix (2026-09-27): dismiss on Home is
-            Home-only, the SAME onHomeDismiss (useHomeDismissedAdvice's
-            dismiss) every other dismissible card above uses — the id is
-            written to localStorage and added to dismissedIds immediately,
-            filtering it out of `items` on this render and any future
-            remount seeded from the warm cache. It deliberately does NOT
-            also call api.dismissTodayItem (the shared server dismiss):
-            companion.py's needle builder gates the item on that SAME
-            per-user dismissed set for every caller of /today, Penny
-            included (PennyPage.tsx reads needleItem straight off the raw,
-            unfiltered feed, see its own comment there), so a server
-            dismiss here would delete Penny's permanent copy too — the
-            exact defect the rejection found. lib/homeDismissedAdvice.ts's
-            own docstring states this rule already ("must never remove it
-            server-side... that would also erase it from Penny"); this is
-            that rule, not a new mechanism. The trade-off is Home's
-            suppression is per-device only (no cross-device sync), same as
-            the payday plan's own entry-row dismiss
-            (writeDismissedPaydayEntry, below) — the two-day life of this
-            card makes that an acceptable ceiling, and it's the only shape
-            that keeps Penny genuinely permanent under today's single
-            shared feed/dismissed-set. */}
+            identical card. Cross-surface fix (2026-09-28, rejection from
+            2026-09-27): the item is filtered here on `home_dismissed`
+            (`needleItem` above requires `!home_dismissed`), a field
+            companion.py's needle builder stamps from a SEPARATE, Home-
+            scoped dismissed set — never the shared one every other item
+            type uses — so it can never affect Penny's copy (PennyPage.tsx
+            reads needleItem straight off the raw, unfiltered feed, see its
+            own comment there). Dismissing here does BOTH: goes through the
+            same onHomeDismiss (useHomeDismissedAdvice's dismiss) every
+            other dismissible card above uses, so the id is written to
+            localStorage and filtered out of `items` on this very render
+            and any future remount seeded from the warm cache, giving an
+            instant hide with no round trip — AND fires the real server
+            dismiss, `api.dismissTodayItem(needleItem.id, "home")`, whose
+            explicit `"home"` argument is what makes this a genuine,
+            surface-scoped, cross-device suppression rather than the
+            per-device-only convention the other advice cards above use.
+            The backend refuses an unscoped dismiss of a needle id with
+            400, so no caller of this endpoint can accidentally repeat the
+            2026-09-27 defect (a plain dismiss landing in the shared set
+            and deleting Penny's copy). */}
         {needleItem && (
           <MonthClosedCard
             item={needleItem}
@@ -2133,6 +2139,9 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth =
               if (dismissible && onHomeDismiss) {
                 onHomeDismiss(needleItem.id);
               }
+              api.dismissTodayItem(needleItem.id, "home").catch(() => {
+                /* card already hidden locally; the backend will re-surface next run */
+              });
             }}
           />
         )}
