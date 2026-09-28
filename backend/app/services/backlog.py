@@ -2051,9 +2051,9 @@ def set_rejected(
         doc.add_note(item_id, f"rejected: {reason_clean}", actor)
         item = doc.item(item_id)
         doc.save(resolved_path)
-    committed = _git_commit_and_push(
-        [resolved_path], f"backlog: {item_id} rejected ({reason_clean}) by {actor}", resolved_root
-    )
+        committed = _git_commit_and_push(
+            [resolved_path], f"backlog: {item_id} rejected ({reason_clean}) by {actor}", resolved_root
+        )
     return item.to_dict(), committed
 
 
