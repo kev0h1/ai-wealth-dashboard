@@ -427,11 +427,31 @@ def prepare_staging(frontend_dir: Path, log: Callable[[str], None] = print) -> P
 def swap_in(built: Path, frontend_dir: Path) -> tuple[Path, Optional[str]]:
     """Make `built` (a verified .next inside the mirror) the live `.next`,
     keeping the old live build at `.next-prev`. Returns (live_dir,
-    previous_build_id)."""
+    previous_build_id).
+
+    Refuses outright when `live` is absent but `previous` exists: that is
+    exactly the shape a kill leaves behind partway through the plain-rename
+    fallback (live renamed to previous, built not yet renamed to live), and
+    `previous` is then the only good build there is. Proceeding here would
+    unconditionally delete it (the old unconditional `_safe_rmtree(previous)`
+    ran before checking whether `live` existed at all) and silently report
+    `previous_build_id` as None, losing the last known-good build with no
+    trace. `--revert` is the one place that is allowed to touch `previous`
+    in that state, because it puts it back at `live` rather than discarding
+    it."""
     live = frontend_dir / LIVE_NAME
     previous = frontend_dir / PREVIOUS_NAME
+    live_exists = live.exists() or live.is_symlink()
+    previous_exists = previous.exists() or previous.is_symlink()
+    if not live_exists and previous_exists:
+        raise FrontendBuildError(
+            f"{live} is missing but {previous} exists: an earlier swap was interrupted between "
+            f"moving the live build to {PREVIOUS_NAME} and moving the new one into place, "
+            f"leaving {previous} as the only good build. Run `scripts/frontend_build.py --revert` "
+            f"first to restore it to {live}, then re-run the build; refusing to delete it."
+        )
     _safe_rmtree(previous, frontend_dir)
-    if not live.exists() and not live.is_symlink():
+    if not live_exists:
         os.rename(built, live)
         return live, None
     previous_build_id = read_build_id(live)

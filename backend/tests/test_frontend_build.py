@@ -618,6 +618,46 @@ def test_swap_in_uses_rename_exchange_when_available(frontend: Path):
     assert (b / "who").read_text() == "a"
 
 
+def test_swap_in_refuses_when_live_missing_but_previous_exists(frontend: Path):
+    # H51 review gap 1: a kill inside the plain-rename fallback's window
+    # (old live renamed to .next-prev, the new build not yet renamed into
+    # live) leaves exactly this shape: no live, but a real previous build.
+    # The old code ran `_safe_rmtree(previous)` unconditionally before ever
+    # checking whether `live` existed, so a later swap_in call would have
+    # silently deleted the only good build left and reported
+    # previous_build_id as None. It must refuse instead, and previous must
+    # come out of this call completely untouched.
+    previous = frontend / fb.PREVIOUS_NAME
+    _write_complete_build(previous, "only-good-build")
+    (previous / "marker-of-only-good-build").write_text("keep me")
+    before = _snapshot(previous)
+    built = _mirror(frontend) / fb.LIVE_NAME
+    _write_complete_build(built, "new")
+
+    assert not (frontend / fb.LIVE_NAME).exists()
+    with pytest.raises(fb.FrontendBuildError, match="is missing but .* exists"):
+        fb.swap_in(built, frontend)
+
+    assert fb.read_build_id(previous) == "only-good-build"
+    assert _snapshot(previous) == before
+    assert built.exists()  # the new build was never touched either
+    assert not (frontend / fb.LIVE_NAME).exists()
+
+
+def test_swap_in_still_works_normally_when_neither_live_nor_previous_exist(frontend: Path):
+    # Guard against the gap-1 fix being too broad: the ordinary first-ever-
+    # build shape (no live, no previous) must still succeed exactly as
+    # before, since there is nothing to lose there.
+    built = _mirror(frontend) / fb.LIVE_NAME
+    _write_complete_build(built, "first")
+
+    live, previous_id = fb.swap_in(built, frontend)
+
+    assert previous_id is None
+    assert fb.read_build_id(live) == "first"
+    assert not (frontend / fb.PREVIOUS_NAME).exists()
+
+
 def test_safe_rmtree_refuses_anything_that_is_not_a_managed_dir(frontend: Path, tmp_path: Path):
     other = tmp_path / "elsewhere"
     other.mkdir()
