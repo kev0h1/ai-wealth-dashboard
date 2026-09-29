@@ -755,3 +755,34 @@ def test_logout_is_idempotent_second_call_401s_not_500():
     # moves not_before later, never earlier.
     result = _run(auth_router.logout(user={"email": EMAIL, "name": "Test"}))
     assert result == {"ok": True}
+
+
+def test_logout_refuses_a_bot_principal_and_never_revokes_email_none(monkeypatch):
+    """A bot principal (email None) must not reach revoke_sessions(None):
+    current_user 401/403s it (logout is not in ROUTE_SCOPES), and the route
+    body refuses with 403 as a second line of defence."""
+    called = []
+
+    async def _spy(email, now=None):
+        called.append(email)
+
+    monkeypatch.setattr(auth_router, "revoke_sessions", _spy)
+    bot = {"name": "Bot", "email": None, "bot_name": "x", "scopes": ["admin:sync"]}
+    with pytest.raises(HTTPException) as exc:
+        _run(auth_router.logout(user=bot))
+    assert exc.value.status_code == 403
+    assert called == []
+
+    # And the dependency itself refuses a bot token on this route.
+    async def _not_ok(method, path, token):
+        return False, {"bot_name": "x", "scopes": ["admin:sync"]}
+
+    monkeypatch.setattr(auth_mod.bot_credentials, "check_bot_request", _not_ok)
+
+    async def _noop(*a, **k):
+        return None
+
+    monkeypatch.setattr(auth_mod.bot_credentials, "record_use", _noop)
+    with pytest.raises(HTTPException) as exc2:
+        _run(auth_mod.current_user(_FakeRequest("sorted_bot_abc")))
+    assert exc2.value.status_code in (401, 403)

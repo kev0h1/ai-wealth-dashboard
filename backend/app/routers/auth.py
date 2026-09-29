@@ -104,6 +104,16 @@ async def logout(user: dict = Depends(current_user)):
     means "every session for this identity, from now", the same meaning
     delete_account's revoke already carries.
 
+    Scope of the revoke (revoke_sessions, A84): every app session for the
+    email, AND every active OAuth/MCP access and refresh token, AND every
+    pending OAuth authorization code for that identity. So logging out
+    also disconnects Claude/MCP connectors; they must re-authorise.
+
+    Bot principals (`email` is None, see current_user) are refused: a bot
+    credential is never in bot_credentials.ROUTE_SCOPES for this route, so
+    current_user already 401/403s it, and the explicit check below is a
+    second line of defence so a revoke for email None can never be written.
+
     Idempotent: revoke_sessions' `$max` on `not_before` only ever moves a
     tombstone later, never earlier, so calling this twice is harmless. A
     second call presenting the SAME (now-revoked) token never reaches this
@@ -111,6 +121,8 @@ async def logout(user: dict = Depends(current_user)):
     first, which is the correct outcome (not a 500), before revoke_sessions
     runs again.
     """
+    if not user.get("email"):
+        raise HTTPException(403, "Bot credentials cannot log out")
     await revoke_sessions(user["email"])
     logging.info("Logged out %s (all sessions revoked)", mask_email(user["email"]))
     return {"ok": True}
