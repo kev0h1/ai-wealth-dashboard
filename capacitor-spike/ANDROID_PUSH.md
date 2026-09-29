@@ -64,7 +64,9 @@ Run from `capacitor-spike/` unless noted:
 # 1. Generate the Android project (wipes and recreates capacitor-spike/android/)
 npx cap add android
 
-# 2. Patch it for FCM (idempotent — safe to re-run)
+# 2. Patch it for FCM (idempotent — safe to re-run). Its last step also runs
+# scripts/setup-android-privacy.sh (A122: installs and registers the
+# PrivacyScreen FLAG_SECURE plugin in MainActivity, also safe to run alone).
 bash scripts/setup-android-push.sh
 
 # 2a. H66 (2026-09-17): add the "board" product flavour (Board, a separate
