@@ -1215,6 +1215,11 @@ export type PlanDest = {
   balance: number;
   needs_total: number;
   needs_by: string;
+  /** Label of the latest bill's date (G184); absent on older cached plans. */
+  needs_by_last?: string;
+  /** ISO dates behind `needs_by` / `needs_by_last`. */
+  needs_by_date?: string | null;
+  needs_by_last_date?: string | null;
   bills: PlanDestBill[];
   // True when this destination has no in-window bill at all — the account
   // is simply overdrawn right now (a live balance read, not a projection).

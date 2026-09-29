@@ -122,6 +122,11 @@ function daysFromNow(days: number): string {
   return date.toISOString();
 }
 
+function isoDateFromNow(days: number): string {
+  // Local calendar date, so it matches shortDateFromNow across UTC offsets.
+  return new Intl.DateTimeFormat("en-CA").format(new Date(daysFromNow(days)));
+}
+
 function shortDateFromNow(days: number): string {
   return new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" }).format(new Date(daysFromNow(days)));
 }
@@ -179,10 +184,13 @@ function coverPlan(source: Account, amount: number, destination: Account): Compa
       ...destinationAccount,
       needs_total: 133,
       needs_by: shortDateFromNow(5),
+      needs_by_last: shortDateFromNow(26),
+      needs_by_date: isoDateFromNow(5),
+      needs_by_last_date: isoDateFromNow(26),
       bills: [
-        { label: "Energy", amount: 58 },
-        { label: "Broadband", amount: 45 },
-        { label: "Insurance", amount: 30 },
+        { label: "Energy", amount: 58, expected_date: isoDateFromNow(5) },
+        { label: "Broadband", amount: 45, expected_date: isoDateFromNow(12) },
+        { label: "Insurance", amount: 30, expected_date: isoDateFromNow(26) },
       ],
     },
     moves: [{

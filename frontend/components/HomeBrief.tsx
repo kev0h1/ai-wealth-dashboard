@@ -7,6 +7,7 @@ import { RefreshCw, AlertTriangle, AlertCircle, TrendingDown, TrendingUp, Minus,
 import type { CompanionItem, PlanDest, PlanDestBill, SafeToSpend, UnfundedMoveEntry } from "@/lib/api";
 import { api } from "@/lib/api";
 import { invalidateVerdictCache } from "@/lib/verdictCache";
+import { coverPlanProtectsHeader, coverPlanSummary, type DueRange } from "@/lib/coverPlanDue";
 import PaydayPlanCard from "@/components/PaydayPlanCard";
 import PennyMark from "@/components/PennyMark";
 import { BRAND_GRADIENT } from "@/lib/brand";
@@ -317,12 +318,14 @@ function MoveSourcesDisclosure({
 function MovePaymentEvidence({
   bills,
   due,
+  dueRange,
   hideNetWorth,
   onSkip,
   skippingKey,
 }: {
   bills: readonly (PlanDestBill & { due?: string; overdue?: boolean })[];
   due: string;
+  dueRange?: DueRange;
   hideNetWorth: boolean;
   onSkip?: (bill: PlanDestBill) => void;
   skippingKey?: string | null;
@@ -364,7 +367,7 @@ function MovePaymentEvidence({
         <span className="min-w-0">
           <span className="block text-[13px] font-semibold text-slate-800 dark:text-slate-100">Protects {bills.length} payments</span>
           <span className="block text-[12px] leading-4 text-slate-500 dark:text-slate-400">
-            {hasOverdue ? (hasCurrent ? "Overdue and upcoming" : "Overdue") : `Due by ${due}`}
+            {hasOverdue ? (hasCurrent ? "Overdue and upcoming" : "Overdue") : coverPlanProtectsHeader(dueRange ?? { needs_by: due }, bills.length)}
           </span>
         </span>
         <span className="flex shrink-0 items-center gap-2">
@@ -1216,7 +1219,7 @@ function overduePaymentCountCopy(count: number): string {
 
 /**
  * One source of truth for payment timing on both MoveCard render paths.
- * `plan_dest.needs_by` is the account's earliest event, so a mixed card
+ * `plan_dest.needs_by` is the account's earliest event (`needs_by_last` the latest), so a mixed card
  * must derive its upcoming deadline from the non-overdue bill rows instead.
  */
 function movePaymentCopy(destination: PlanDest, bills: readonly MovePaymentBill[], covered: boolean) {
@@ -1251,7 +1254,7 @@ function movePaymentCopy(destination: PlanDest, bills: readonly MovePaymentBill[
       : bills.length === 1
         ? `Payment due ${destination.needs_by}`
         : bills.length > 1
-          ? `${bills.length} payments due by ${destination.needs_by}`
+          ? coverPlanSummary(destination, bills.length)
           : "Move ready to review";
 
   const clearClause = !covered
@@ -1379,6 +1382,7 @@ export function MoveCard({ item, hideNetWorth, maskAmounts, hideAttribution, dis
         <MovePaymentEvidence
           bills={paymentBills}
           due={destination.needs_by}
+          dueRange={destination}
           hideNetWorth={hideNetWorth}
           onSkip={handleSkip}
           skippingKey={skippingKey}
@@ -1469,6 +1473,7 @@ export function MoveCard({ item, hideNetWorth, maskAmounts, hideAttribution, dis
           <MovePaymentEvidence
             bills={paymentBills}
             due={item.plan_dest.needs_by}
+            dueRange={item.plan_dest}
             hideNetWorth={hideNetWorth}
             onSkip={handleSkip}
             skippingKey={skippingKey}

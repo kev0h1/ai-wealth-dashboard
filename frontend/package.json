@@ -46,7 +46,8 @@
     "check:app-lock-inert": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/app-lock-inert.test.mjs",
     "check:app-lock-gate": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/app-lock-gate.test.mjs",
     "check:display-name": "node --no-warnings --experimental-strip-types scripts/display-name.test.mjs",
-    "check:global-401": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/global-401.test.mjs"
+    "check:global-401": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/global-401.test.mjs",
+    "check:cover-plan-due": "node --no-warnings --experimental-strip-types scripts/cover-plan-due.test.mjs"
   },
   "dependencies": {
     "@aparajita/capacitor-biometric-auth": "^10.0.0",
