@@ -150,11 +150,35 @@ def test_touches_pooled_cash_defaults_true_for_a_bill_missing_the_field():
 def test_a_charge_on_a_credit_card_does_not_reduce_the_walk(monkeypatch):
     """The exact Kevin shape: £180 Anthropic charge sitting on the Amex.
     card_growth_by_card is stubbed to [] here so this test isolates the
-    walk itself from the separate reserve mechanism (covered below)."""
+    walk itself from the separate reserve mechanism (covered below).
+
+    H98, 2026-09-29: same date rot as `test_charge_and_its_repayment_
+    together_reduce_cash_only_once` below (see its H94/G180 comment) — this
+    fixture's bare `days_away: 2` under an UNPINNED "today" depends on
+    `days_until_payday` (calendar_month payday = the 1st of next month)
+    staying above 2, which a real calendar month's final couple of days
+    shrinks below 2. When that happens the charge silently drops out of
+    `raw_window_bills` and this test keeps passing for the wrong reason
+    (`bills_total == 0.0` either way, since a card charge is excluded from
+    the walk regardless of the window), which is exactly the "neutered"
+    failure mode G180 warned about: the test stops exercising
+    `_touches_pooled_cash` at all and would not notice if that predicate
+    broke. Pinned the same way, to a payday fixed at "today" + 15 days, so
+    `days_away: 2` stays inside the window (and so genuinely exercised) on
+    every calendar day."""
     _wire_common(monkeypatch)
+
+    today = date.today()
+    next_payday = today + timedelta(days=15)  # days_until_payday == 15, always
+
+    def fake_confirmed_payday(_prefs, _today):
+        return (next_payday, {"schedule": "fixed"})
+
+    monkeypatch.setattr(income_service, "get_confirmed_payday", fake_confirmed_payday)
+
     bills = [{
         "name": "Anthropic", "days_away": 2, "amount": 180.0,
-        "expected_date": "2026-09-18", "kind": "discretionary",
+        "expected_date": (today + timedelta(days=2)).isoformat(), "kind": "discretionary",
         "account_id": "amex", "is_credit_card": True,
     }]
     accounts = [{"balance": 603.0, "type": "bank", "subtype": "CURRENT", "currency": "GBP"}]
@@ -175,11 +199,33 @@ def test_a_charge_on_a_credit_card_does_not_reduce_the_walk(monkeypatch):
 def test_a_repayment_to_that_card_does_reduce_the_walk(monkeypatch):
     """The separate Amex repayment from Barclays — a MOVEMENT bill whose
     OWN account is Barclays (not a card), so is_credit_card is false on the
-    bill itself even though card_dest_account_id names the card."""
+    bill itself even though card_dest_account_id names the card.
+
+    H98, 2026-09-29: THE failure this item was raised for. Reproduced on
+    unmodified main 2026-09-29 ('assert 0 == 180.0' for `bills_total`):
+    same class as H94/G180 and `test_charge_and_its_repayment_together_
+    reduce_cash_only_once` below — this fixture's bare `days_away: 2` under
+    an UNPINNED "today" needs `days_until_payday` (calendar_month payday =
+    the 1st of next month) to stay above 2; on the 29th of a 30-day month
+    `days_until_payday` is 2, so `0 <= 2 < 2` is false and the repayment
+    drops out of `raw_window_bills` entirely (`bills_total` fell to 0
+    instead of 180, unlike the charge test above, this one has no fallback
+    exclusion to hide behind). Pinned the same way, to a payday fixed at
+    "today" + 15 days, so `days_away: 2` stays inside the window on every
+    calendar day."""
     _wire_common(monkeypatch)
+
+    today = date.today()
+    next_payday = today + timedelta(days=15)  # days_until_payday == 15, always
+
+    def fake_confirmed_payday(_prefs, _today):
+        return (next_payday, {"schedule": "fixed"})
+
+    monkeypatch.setattr(income_service, "get_confirmed_payday", fake_confirmed_payday)
+
     bills = [{
         "name": "Amex repayment", "days_away": 2, "amount": 180.0,
-        "expected_date": "2026-09-18", "kind": analytics.MOVEMENT,
+        "expected_date": (today + timedelta(days=2)).isoformat(), "kind": analytics.MOVEMENT,
         "account_id": "barclays", "is_credit_card": False,
         "card_dest_account_id": "amex", "dest_account_spendable": None,
     }]
@@ -256,17 +302,35 @@ def test_a_movement_between_two_pooled_accounts_does_not_reduce_cash(monkeypatch
     traced standing order into another of the user's own spendable accounts
     stays a no-op even in the same window as a card charge and a repayment,
     proving the two exclusions (`_is_pooled_spendable_transfer` and
-    `_touches_pooled_cash`) compose correctly rather than fighting."""
+    `_touches_pooled_cash`) compose correctly rather than fighting.
+
+    H98, 2026-09-29: same date rot as `test_a_repayment_to_that_card_does_
+    reduce_the_walk` above — this fixture's bare `days_away: 1` under an
+    UNPINNED "today" needs `days_until_payday` (calendar_month payday = the
+    1st of next month) to stay above 1, which the LAST day of any calendar
+    month (`days_until_payday == 1`) fails, dropping both bills out of
+    `raw_window_bills` and breaking `pooled_transfers_excluded == 50.0`
+    below. Pinned the same way, to a payday fixed at "today" + 15 days, so
+    `days_away: 1` stays inside the window on every calendar day."""
     _wire_common(monkeypatch)
+
+    today = date.today()
+    next_payday = today + timedelta(days=15)  # days_until_payday == 15, always
+
+    def fake_confirmed_payday(_prefs, _today):
+        return (next_payday, {"schedule": "fixed"})
+
+    monkeypatch.setattr(income_service, "get_confirmed_payday", fake_confirmed_payday)
+
     bills = [
         {
             "name": "Anthropic", "days_away": 1, "amount": 180.0,
-            "expected_date": "2026-09-17", "kind": "discretionary",
+            "expected_date": (today + timedelta(days=1)).isoformat(), "kind": "discretionary",
             "account_id": "amex", "is_credit_card": True,
         },
         {
             "name": "To ISA saver", "days_away": 1, "amount": 50.0,
-            "expected_date": "2026-09-17", "kind": analytics.MOVEMENT,
+            "expected_date": (today + timedelta(days=1)).isoformat(), "kind": analytics.MOVEMENT,
             "account_id": "barclays", "is_credit_card": False,
             "dest_account_spendable": True,
         },
