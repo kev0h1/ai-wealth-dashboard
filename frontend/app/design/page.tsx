@@ -32,6 +32,21 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "g176-upcoming-rows",
+    name: "g176-upcoming-rows",
+    description:
+      "G176, skill: impeccable · Upcoming row-density round for six late own-account moves that currently repeat two caution notes and a dismissal link on every row · A Status shelf states the shared condition once beneath the day heading and keeps the explanation in an in-card disclosure · B Exception cluster separates ordinary payments from one compact group of moves still waiting · C Inline summary makes the smallest structural change with one quiet caption above the familiar ledger · every direction gives the full payee name room to wrap, keeps money right-aligned in mono, uses one amber group signifier only, and moves Dismiss for this month into the row sheet · the preview imports the same production UpcomingRow component now rendered by PlanningPage.tsx; production remains on treatment=current until Kevin picks a direction · static invented fixtures only, safe local interactions, no API calls or mutations · ?variant=a|b|c&state=late|mixed&mode=light|dark",
+    states: [
+      { label: "Six late moves", value: "late" },
+      { label: "Mixed payment day", value: "mixed" },
+    ],
+    variants: [
+      { label: "A · Status shelf", value: "a" },
+      { label: "B · Exception cluster", value: "b" },
+      { label: "C · Inline summary", value: "c" },
+    ],
+  },
+  {
     slug: "payday-plan-standing-orders",
     name: "payday-plan-standing-orders",
     description:
