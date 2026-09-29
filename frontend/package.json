@@ -41,6 +41,7 @@
     "check:consent-expiry": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/consent-expiry.test.mjs",
     "check:purchase-availability-ssr": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/purchase-availability-ssr.test.mjs",
     "check:coming-up-dates": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/coming-up-dates.test.mjs",
+    "check:display-name": "node --no-warnings --experimental-strip-types scripts/display-name.test.mjs",
     "check:global-401": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/global-401.test.mjs",
     "check:month-closed-dismiss": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs --experimental-loader ./scripts/g168-stub-loader.mjs scripts/month-closed-dismiss.test.mjs"
   },

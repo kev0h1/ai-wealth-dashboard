@@ -8,6 +8,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import type { KPIs, SafeToSpend, CompanionItem, GoalSummary, ValueDelivered } from "@/lib/api";
 import { useAuth } from "@/components/AuthProvider";
+import { resolveDisplayName } from "@/lib/displayName";
 
 export interface HomeTopData {
   loading: boolean;
@@ -23,7 +24,10 @@ export interface HomeTopData {
 
 export function useHomeTopData(): HomeTopData {
   const { user } = useAuth();
-  const firstName = user?.name?.split(" ")[0]?.trim();
+  // D7: these /design/v* previews only have the session name to go on (no
+  // profile fetch here), so this can only apply the "never an email or its
+  // local part" half of the rule — see lib/displayName.ts.
+  const firstName = resolveDisplayName({ sessionName: user?.name, email: user?.email }) ?? undefined;
   const [loading, setLoading] = useState(true);
   const [kpis, setKpis] = useState<KPIs | null>(null);
   const [safeToSpend, setSafeToSpend] = useState<SafeToSpend | null>(null);
