@@ -63,7 +63,7 @@ await t("(b) native hydrate: secure hit", async () => {
 await t("(c) migration: legacy -> secure, read-back verified, then localStorage removed", async () => {
   const secure = fakeSecure(); const storage = fakeStorage({ [KEY]: "old" });
   setup({ native: true, secure, storage });
-  await auth.hydrateToken();
+  await auth.hydrateToken(); await auth.__tokenWritesSettled();
   assert.equal(auth.getToken(), "old");
   assert.equal(secure.m.get(KEY), "old");
   assert.equal(storage.m.has(KEY), false);
@@ -77,7 +77,7 @@ await t("(c) migration: legacy -> secure, read-back verified, then localStorage 
 await t("(c2) migration: read-back mismatch keeps legacy copy", async () => {
   const secure = fakeSecure({}, { setDropped: true }); const storage = fakeStorage({ [KEY]: "old" });
   setup({ native: true, secure, storage });
-  await auth.hydrateToken();
+  await auth.hydrateToken(); await auth.__tokenWritesSettled();
   assert.equal(auth.getToken(), "old");
   assert.equal(storage.m.get(KEY), "old");
 });
@@ -85,7 +85,7 @@ await t("(c2) migration: read-back mismatch keeps legacy copy", async () => {
 await t("(d) failed secure.set leaves localStorage intact, token still in memory", async () => {
   const secure = fakeSecure({}, { setThrows: true }); const storage = fakeStorage({ [KEY]: "old" });
   setup({ native: true, secure, storage });
-  await auth.hydrateToken();
+  await auth.hydrateToken(); await auth.__tokenWritesSettled();
   assert.equal(auth.getToken(), "old");
   assert.equal(storage.m.get(KEY), "old");
 });
@@ -151,6 +151,80 @@ await t("(i) a setToken during a slow hydrate is not overwritten by it", async (
   auth.setToken("fresh");
   release(); await h;
   assert.equal(auth.getToken(), "fresh");
+});
+
+
+// Controllable latency: every set/get/remove waits on a deferred the test releases.
+function slowSecure(init = {}) {
+  const m = new Map(Object.entries(init));
+  const pending = [];
+  const gate = (fn) => new Promise((resolve) => pending.push(() => resolve(fn())));
+  return {
+    m, pending,
+    get: (k) => { const snap = m.has(k) ? m.get(k) : null; return gate(() => snap); }, // value as of call time (a slow read)
+    set: (k, v) => gate(() => { m.set(k, v); }),
+    remove: (k) => gate(() => m.delete(k)),
+    async flush() { // release the MOST RECENTLY started operation first (worst-case reordering), until quiet
+      for (let i = 0; i < 50; i++) {
+        await new Promise((r) => setTimeout(r, 2));
+        const next = pending.pop();
+        if (next) next(); else if (i > 5) return;
+      }
+    },
+  };
+}
+
+await t("(j) slow set then clearToken leaves the store empty", async () => {
+  const secure = slowSecure(); const storage = fakeStorage();
+  setup({ native: true, secure, storage, timeoutMs: 5000 });
+  auth.setToken("a");
+  await new Promise((r) => setTimeout(r, 5));
+  auth.clearToken();
+  await secure.flush(); await auth.__tokenWritesSettled();
+  assert.equal(secure.m.has(KEY), false);
+  assert.equal(auth.getToken(), null);
+});
+
+await t("(k) slow migration write then clearToken leaves the store empty and memory null", async () => {
+  const secure = slowSecure(); const storage = fakeStorage({ [KEY]: "old" });
+  setup({ native: true, secure, storage, timeoutMs: 5000 });
+  const h = auth.hydrateToken();
+  await new Promise((r) => setTimeout(r, 5)); secure.pending.pop()(); // release the initial get -> null
+  await h;
+  await new Promise((r) => setTimeout(r, 5)); // migration set now in flight
+  auth.clearToken();
+  await secure.flush(); await auth.__tokenWritesSettled();
+  assert.equal(secure.m.has(KEY), false);
+  assert.equal(auth.getToken(), null);
+  assert.equal(storage.m.has(KEY), false);
+});
+
+await t("(l) clear then set ends with the new token", async () => {
+  const secure = slowSecure({ [KEY]: "old" }); const storage = fakeStorage();
+  setup({ native: true, secure, storage, timeoutMs: 5000 });
+  auth.clearToken();
+  auth.setToken("new");
+  await secure.flush(); await auth.__tokenWritesSettled();
+  assert.equal(secure.m.get(KEY), "new");
+  assert.equal(auth.getToken(), "new");
+});
+
+await t("(n) setToken during hydrate's slow read is not overwritten by the legacy migration", async () => {
+  const secure = slowSecure(); const storage = fakeStorage({ [KEY]: "old" });
+  setup({ native: true, secure, storage, timeoutMs: 5000 });
+  const h = auth.hydrateToken();
+  await new Promise((r) => setTimeout(r, 5)); // initial get in flight
+  auth.setToken("fresh");
+  await secure.flush(); await h; await secure.flush(); await auth.__tokenWritesSettled();
+  assert.equal(secure.m.get(KEY), "fresh");
+  assert.equal(auth.getToken(), "fresh");
+});
+
+await t("(m) a hung loadSecure is bounded by the timeout", async () => {
+  setup({ native: true, secure: null, storage: fakeStorage({ [KEY]: "old" }), timeoutMs: 20 });
+  auth.__configureTokenStoreForTests({ isNative: () => true, loadSecure: () => new Promise(() => {}), storage: () => fakeStorage(), timeoutMs: 20 });
+  await auth.hydrateToken();
+  assert.equal(auth.getToken(), null);
 });
 
 await t("static guard: the storage key appears only in lib/auth.ts", () => {

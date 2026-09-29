@@ -100,11 +100,18 @@ async function doHydrate(): Promise<void> {
     return;
   }
 
-  let secure: SecureStore;
+  let secure: SecureStore | undefined;
   let stored: unknown;
   try {
-    secure = await env.loadSecure();
-    stored = await withTimeout(secure.get(TOKEN_KEY, false, false), env.timeoutMs);
+    // loadSecure() (a dynamic import) is inside the timeout too, so a hung
+    // import can never leave AuthProvider's `checking` true forever.
+    stored = await withTimeout(
+      (async () => {
+        secure = await env.loadSecure();
+        return secure.get(TOKEN_KEY, false, false);
+      })(),
+      env.timeoutMs,
+    );
   } catch (err) {
     // Read error or timeout: signed out. Deliberately NO localStorage
     // fallback here, and the legacy value is left alone for a later launch.
@@ -126,14 +133,25 @@ async function doHydrate(): Promise<void> {
     return;
   }
   assign(legacy); // usable in memory even if the write below fails
-  try {
-    await withTimeout(secure.set(TOKEN_KEY, legacy, false, false, KEYCHAIN_WHEN_UNLOCKED_THIS_DEVICE_ONLY), env.timeoutMs);
-    const back = await withTimeout(secure.get(TOKEN_KEY, false, false), env.timeoutMs);
-    if (back === legacy) legacyRemove(); // only after a verified write
-    else console.warn("[auth] token migration read-back mismatch; legacy copy kept");
-  } catch (err) {
-    console.warn("[auth] token migration failed; legacy copy kept", err);
-  }
+  // The migration write goes through the same ordered queue as
+  // setTokenAsync/clearToken, and is abandoned if either ran since hydrate
+  // began, so a slow migration can never re-save a signed-out token or
+  // overwrite a fresh login. Deliberately not awaited: memory is already
+  // set, and the queue keeps any later clear/set behind it.
+  const store = secure as SecureStore;
+  void queueWrite(async () => {
+    if (_epoch !== startEpoch) return;
+    try {
+      await withTimeout(store.set(TOKEN_KEY, legacy, false, false, KEYCHAIN_WHEN_UNLOCKED_THIS_DEVICE_ONLY), env.timeoutMs);
+      if (_epoch !== startEpoch) return; // a later clear/set is queued behind us and owns the store
+      const back = await withTimeout(store.get(TOKEN_KEY, false, false), env.timeoutMs);
+      if (_epoch !== startEpoch) return;
+      if (back === legacy) legacyRemove(); // only after a verified write
+      else console.warn("[auth] token migration read-back mismatch; legacy copy kept");
+    } catch (err) {
+      console.warn("[auth] token migration failed; legacy copy kept", err);
+    }
+  });
 }
 
 // Idempotent: every caller shares one promise. Never rejects.
