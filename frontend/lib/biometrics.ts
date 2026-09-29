@@ -1,4 +1,5 @@
 import { Capacitor } from "@capacitor/core";
+import { syncNativePrivacyScreen } from "@/lib/privacyScreen";
 
 // Persisted the same way as other local prefs (see PreferencesContext's
 // "wd_dark" pattern) — read directly by BiometricLock before the app shell
@@ -28,6 +29,8 @@ export function setLockEnabled(enabled: boolean): void {
   } catch {
     /* ignore */
   }
+  // A122: keep the Android FLAG_SECURE window flag in step with the pref.
+  syncNativePrivacyScreen(enabled);
 }
 
 export interface BiometryAvailability {

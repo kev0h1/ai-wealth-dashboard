@@ -1,0 +1,37 @@
+
+    // A122: app-switcher privacy cover, merged into AppDelegate by the
+    // "Patch AppDelegate for app-switcher privacy" step in codemagic.yaml.
+    // iOS snapshots the window when didEnterBackground returns, so the cover
+    // must be added synchronously here, not from a JS listener. Notification
+    // observers (not the delegate callbacks) so it works whether or not the
+    // template has adopted UIScene. Deliberately keyed on background/foreground,
+    // not resign-active, so the Face ID sheet does not blank the lock screen.
+    private var sortedPrivacyCover: UIView?
+
+    func sortedInstallPrivacyCover() {
+        let center = NotificationCenter.default
+        center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
+            guard let self = self, self.sortedPrivacyCover == nil else { return }
+            let windows = UIApplication.shared.connectedScenes
+                .compactMap { $0 as? UIWindowScene }
+                .flatMap { $0.windows }
+            guard let window = windows.first(where: { $0.isKeyWindow }) ?? windows.first else { return }
+            let cover = UIView(frame: window.bounds)
+            cover.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            cover.backgroundColor = window.traitCollection.userInterfaceStyle == .dark
+                ? UIColor(red: 0.059, green: 0.090, blue: 0.165, alpha: 1)
+                : UIColor(red: 0.941, green: 0.949, blue: 0.969, alpha: 1)
+            let tile = UIView(frame: CGRect(x: 0, y: 0, width: 80, height: 80))
+            tile.backgroundColor = UIColor(red: 0.388, green: 0.400, blue: 0.945, alpha: 1)
+            tile.layer.cornerRadius = 24
+            tile.center = CGPoint(x: cover.bounds.midX, y: cover.bounds.midY)
+            tile.autoresizingMask = [.flexibleTopMargin, .flexibleBottomMargin, .flexibleLeftMargin, .flexibleRightMargin]
+            cover.addSubview(tile)
+            window.addSubview(cover)
+            self.sortedPrivacyCover = cover
+        }
+        center.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.sortedPrivacyCover?.removeFromSuperview()
+            self?.sortedPrivacyCover = nil
+        }
+    }

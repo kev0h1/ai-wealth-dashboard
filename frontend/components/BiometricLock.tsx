@@ -11,6 +11,8 @@ import { BUILD_TAG } from "@/lib/buildTag";
 import { setAppLocked } from "@/lib/appLock";
 import { createInertTracker, APP_LOCK_OVERLAY_ATTR } from "@/lib/appLockInert";
 import { isColdStartLocked, shouldRelockOnResume } from "@/lib/appLockTiming";
+import { coverAfterEvent, type PrivacyCoverEvent } from "@/lib/privacyCover";
+import { syncNativePrivacyScreen } from "@/lib/privacyScreen";
 
 // A121 (pentest IOS-07/IOS-03, HIGH): dispatched on `window` right after a
 // successful unlock. Nothing that runs on a genuine background→foreground
@@ -411,6 +413,62 @@ export default function BiometricLock({ children }: { children: React.ReactNode 
       resumeHandle?.remove();
     };
   }, [attemptUnlock]);
+
+  // A122: app-switcher privacy cover. Whenever the lock pref is on, an
+  // opaque, figure-free node is appended to document.body the instant the app
+  // is paused / resigns active / the document is hidden, and removed on the
+  // matching return. Plain DOM, not React state, so the node lands
+  // synchronously inside the event handler with no render pass in between.
+  // The native pieces (Android FLAG_SECURE, iOS overlay) cover what this
+  // cannot: on iOS the snapshot can be taken before the WKWebView process
+  // paints a JS-driven node, so this layer alone is best-effort there.
+  useEffect(() => {
+    if (!nativePlatform()) return;
+    // Bring the Android window flag in line with the stored pref on every
+    // cold start (the pref lives in localStorage, native cannot read it).
+    syncNativePrivacyScreen(isLockEnabled());
+
+    let cover: HTMLElement | null = null;
+    const apply = (event: PrivacyCoverEvent) => {
+      const want = coverAfterEvent(cover != null, event, true, isLockEnabled());
+      if (want && !cover) {
+        const el = document.createElement("div");
+        el.setAttribute("data-privacy-cover", "true");
+        el.setAttribute("aria-hidden", "true");
+        const dark = document.documentElement.classList.contains("dark");
+        el.style.cssText =
+          "position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;" +
+          `background:${dark ? "linear-gradient(#0f172a,#131c33)" : "linear-gradient(#f0f2f7,#e4e8f5)"};`;
+        const tile = document.createElement("div");
+        tile.style.cssText = "width:80px;height:80px;border-radius:24px;background:#6366f1;";
+        el.appendChild(tile);
+        document.body.appendChild(el);
+        cover = el;
+      } else if (!want && cover) {
+        cover.remove();
+        cover = null;
+      }
+    };
+
+    const onVisibility = () => apply(document.visibilityState === "hidden" ? "inactive" : "active");
+    document.addEventListener("visibilitychange", onVisibility);
+
+    const handles: { remove: () => void }[] = [];
+    let cancelled = false;
+    const track = (p: Promise<{ remove: () => void }>) =>
+      p.then((h) => (cancelled ? h.remove() : handles.push(h)));
+    track(App.addListener("pause", () => apply("pause")));
+    track(App.addListener("resume", () => apply("resume")));
+    track(App.addListener("appStateChange", ({ isActive }) => apply(isActive ? "active" : "inactive")));
+
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", onVisibility);
+      handles.forEach((h) => h.remove());
+      cover?.remove();
+      cover = null;
+    };
+  }, []);
 
   // A121 part 2c: while locked, every OTHER direct child of document.body
   // (the Next root that holds BottomNav and #app-shell, Sidebar, and any
