@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { api } from "@/lib/api";
 import { resyncCapacitorPush } from "@/lib/capacitorPush";
+import { hydrateToken } from "@/lib/auth";
 
 // Self-heals native push registration drift on app launch: an FCM/APNs
 // token that rotated silently, or a token whose registration POST failed
@@ -28,7 +29,13 @@ export default function NativePushResync() {
   const { user } = useAuth();
   const email = user?.email ?? null;
   useEffect(() => {
-    resyncCapacitorPush().catch(() => {});
+    // A123: on native the token is hydrated from Keychain/Keystore before
+    // AuthProvider renders its children, so on ordinary routes this is
+    // already done. On AuthProvider's exempt routes (/design, /terms,
+    // /privacy, /oauth/consent) children mount before hydration, so wait on
+    // the shared, idempotent promise rather than let resyncCapacitorPush's
+    // getToken() guard skip registration on a cold start.
+    hydrateToken().then(() => resyncCapacitorPush()).catch(() => {});
     if (email) resyncWebPush().catch(() => {});
   }, [email]);
   return null;
