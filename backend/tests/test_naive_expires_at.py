@@ -65,3 +65,34 @@ def test_penny_allowance_with_naive_pack_expiry(monkeypatch):
     allowance = asyncio.run(subscription_module.penny_allowance(UID))
     assert allowance["topup_messages"] == 80
     assert allowance["topup_expires_soonest"] is not None
+
+
+def test_mcp_allowance_with_naive_pack_expiry(monkeypatch):
+    class _Sub:
+        tier_name = "max"
+
+        def limit(self, key):
+            return 100
+
+    now = datetime.now(timezone.utc)
+    live = {"remaining": 40, "year_month": now.strftime("%Y-%m"),
+            "expires_at": _naive(timedelta(days=30))}
+    dead = {"remaining": 25, "year_month": "2025-01",
+            "expires_at": _naive(timedelta(days=-10))}
+
+    async def fake_sub(email):
+        return _Sub()
+
+    async def fake_settle(email, now, *, persist=True):
+        return [live, dead]
+
+    async def fake_count(email, ym):
+        return 0
+
+    monkeypatch.setattr(subscription_module, "get_subscription", fake_sub)
+    monkeypatch.setattr(subscription_module, "settle_mcp_packs", fake_settle)
+    monkeypatch.setattr(subscription_module, "_mcp_call_count", fake_count)
+    allowance = asyncio.run(subscription_module.mcp_allowance(UID))
+    assert allowance["pack_calls"] == 40
+    assert allowance["limit"] == 140
+    assert allowance["pack_expires_soonest"] is not None
