@@ -1,7 +1,7 @@
 // Plain-Node test for A122 (app-switcher privacy cover): the pure decision in
 // lib/privacyCover.ts. The DOM node itself and the native FLAG_SECURE / iOS
 // overlay need the device retest (no DOM implementation in this runner).
-import { coverAfterEvent, needsNativePrivacyBridge } from "../lib/privacyCover.ts";
+import { coverAfterEvent, needsNativePrivacyBridge, LOCK_PREF_CHANGED_EVENT } from "../lib/privacyCover.ts";
 
 let failed = 0;
 function check(label, actual, expected) {
@@ -26,6 +26,9 @@ check("ios inactive does NOT cover (Face ID sheet)", coverAfterEvent(false, "ina
 check("ios pause DOES cover", coverAfterEvent(false, "pause", true, true, "ios"), true);
 check("ios inactive keeps an existing cover", coverAfterEvent(true, "inactive", true, true, "ios"), true);
 check("android inactive covers", coverAfterEvent(false, "inactive", true, true, "android"), true);
+
+check("lock-pref-changed event name is stable", LOCK_PREF_CHANGED_EVENT, "sorted:lock-pref-changed");
+check("pref-changed with lock now off removes an existing cover", coverAfterEvent(true, "active", true, false, "android"), false);
 
 check("android needs the bridge", needsNativePrivacyBridge(true, "android"), true);
 check("ios does not need the bridge", needsNativePrivacyBridge(true, "ios"), false);

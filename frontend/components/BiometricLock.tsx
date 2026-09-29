@@ -11,7 +11,7 @@ import { BUILD_TAG } from "@/lib/buildTag";
 import { setAppLocked } from "@/lib/appLock";
 import { createInertTracker, APP_LOCK_OVERLAY_ATTR } from "@/lib/appLockInert";
 import { isColdStartLocked, shouldRelockOnResume } from "@/lib/appLockTiming";
-import { coverAfterEvent, type PrivacyCoverEvent } from "@/lib/privacyCover";
+import { coverAfterEvent, LOCK_PREF_CHANGED_EVENT, type PrivacyCoverEvent } from "@/lib/privacyCover";
 import { syncNativePrivacyScreen } from "@/lib/privacyScreen";
 
 // A121 (pentest IOS-07/IOS-03, HIGH): dispatched on `window` right after a
@@ -447,12 +447,10 @@ export default function BiometricLock({ children }: { children: React.ReactNode 
       }
     };
 
-    // Lock switched off while the cover is up: drop it. setLockEnabled has no
-    // event, so re-check on the next lifecycle signal (below) and on a poll of
-    // the pref while covered.
-    const offTimer = setInterval(() => {
-      if (cover && !isLockEnabled()) apply("active");
-    }, 500);
+    // Lock switched off while the cover is up: setLockEnabled() dispatches
+    // this event, and coverAfterEvent drops the cover when the pref is off.
+    const onPrefChanged = () => apply("active");
+    window.addEventListener(LOCK_PREF_CHANGED_EVENT, onPrefChanged);
 
     const onVisibility = () => apply(document.visibilityState === "hidden" ? "inactive" : "active");
     document.addEventListener("visibilitychange", onVisibility);
@@ -467,7 +465,7 @@ export default function BiometricLock({ children }: { children: React.ReactNode 
 
     return () => {
       cancelled = true;
-      clearInterval(offTimer);
+      window.removeEventListener(LOCK_PREF_CHANGED_EVENT, onPrefChanged);
       document.removeEventListener("visibilitychange", onVisibility);
       handles.forEach((h) => h.remove());
       cover?.remove();

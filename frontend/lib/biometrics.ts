@@ -1,5 +1,6 @@
 import { Capacitor } from "@capacitor/core";
 import { syncNativePrivacyScreen } from "@/lib/privacyScreen";
+import { LOCK_PREF_CHANGED_EVENT } from "@/lib/privacyCover";
 
 // Persisted the same way as other local prefs (see PreferencesContext's
 // "wd_dark" pattern) — read directly by BiometricLock before the app shell
@@ -31,6 +32,10 @@ export function setLockEnabled(enabled: boolean): void {
   }
   // A122: keep the Android FLAG_SECURE window flag in step with the pref.
   syncNativePrivacyScreen(enabled);
+  // A122: let the app-switcher cover drop itself if the lock was just turned off.
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent(LOCK_PREF_CHANGED_EVENT, { detail: { enabled } }));
+  }
 }
 
 export interface BiometryAvailability {

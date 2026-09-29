@@ -52,3 +52,6 @@ export function coverAfterEvent(
 export function needsNativePrivacyBridge(native: boolean, platform: string): boolean {
   return native && platform === "android";
 }
+
+/** Dispatched on `window` by setLockEnabled() whenever the lock pref is written. */
+export const LOCK_PREF_CHANGED_EVENT = "sorted:lock-pref-changed";
