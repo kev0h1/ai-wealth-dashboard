@@ -2659,11 +2659,22 @@ export const api = {
   // otherwise survives on disk after clearToken() and keeps authenticating
   // for its full 7-day expiry). Called from AuthProvider.logout() BEFORE
   // clearToken(), since authHeaders() reads the token at call time.
-  logout: () =>
-    fetch(`${API_BASE}/auth/logout`, {
-      method: "POST",
-      headers: authHeaders(),
-    }).then((r) => toJson<{ ok: boolean }>(r)),
+  // ~4s abort so a hung connection can never leave the user stuck on Sign
+  // out; the caller treats any rejection (including the abort) as
+  // best-effort and still clears locally.
+  logout: async () => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 4000);
+    try {
+      return await fetch(`${API_BASE}/auth/logout`, {
+        method: "POST",
+        headers: authHeaders(),
+        signal: controller.signal,
+      }).then((r) => toJson<{ ok: boolean }>(r));
+    } finally {
+      clearTimeout(timer);
+    }
+  },
   patchTransaction: (id: string, data: { category: string; additional_ids?: string[] }) =>
     fetch(`${API_BASE}/transactions/${id}`, {
       method: "PATCH",

@@ -166,7 +166,7 @@ function coverPlanView(
 
 export default function SettingsPage() {
   const router = useRouter();
-  const { user, logout } = useAuth();
+  const { user, logout, clearLocalSession } = useAuth();
   const { darkMode, setDarkMode, rawPrefs, refreshPreferences, notePreferencesVersion, preferencesSaveError, hideNetWorth, preferencesReady } = usePreferences();
   const { startFlow } = useTutorial();
 
@@ -640,7 +640,9 @@ export default function SettingsPage() {
     setDeleting(true);
     try {
       await api.deleteUserAccount();
-      await logout();
+      // Account deletion already revoked every session server-side, so a
+      // second /auth/logout would just 401: clear locally only.
+      clearLocalSession();
     } catch {
       setDeleting(false);
       setProfileMsg({ text: "Deletion failed, try again", ok: false });
