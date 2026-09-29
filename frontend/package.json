@@ -12,6 +12,7 @@
     "check:design-index": "node scripts/check-design-index.mjs",
     "check:bank-logos": "node scripts/check-bank-logos.mjs",
     "check:design-no-live-data": "node scripts/check-design-no-live-data.mjs",
+    "check:g176-preview": "node --no-warnings --experimental-strip-types scripts/g176-preview.test.mjs",
     "check:build-mobile-guard": "bash scripts/build-mobile-guard.test.sh",
     "check:legal-content": "node scripts/legal-content.test.mjs",
     "check:nav-coverage": "node --no-warnings --experimental-strip-types scripts/check-nav-coverage.mjs",
@@ -48,7 +49,8 @@
     "check:display-name": "node --no-warnings --experimental-strip-types scripts/display-name.test.mjs",
     "check:global-401": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/global-401.test.mjs",
     "check:cover-plan-due": "node --no-warnings --experimental-strip-types scripts/cover-plan-due.test.mjs",
-    "check:no-raw-fetch": "node scripts/check-no-raw-fetch.mjs"
+    "check:no-raw-fetch": "node scripts/check-no-raw-fetch.mjs",
+    "check:privacy-cover": "node --no-warnings --experimental-strip-types scripts/privacy-cover.test.mjs"
   },
   "dependencies": {
     "@aparajita/capacitor-biometric-auth": "^10.0.0",

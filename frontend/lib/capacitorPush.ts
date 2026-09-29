@@ -357,9 +357,18 @@ export async function initCapacitorPush(): Promise<PushInitResult> {
 /**
  * Tells the backend to drop this device's push token and unregisters the
  * device locally. No-op off native platforms.
+ *
+ * A120: `remote: false` is the local-only teardown for a session that is
+ * already revoked (401 handler, revalidate, account deletion): the server
+ * already dropped every registration, and a DELETE would just 401 with the
+ * dead token. It still forgets the stored token and unregisters with the OS.
+ * Either way it re-arms resyncCapacitorPush so the next sign-in registers
+ * this device again.
  */
-export async function unregisterCapacitorPush(): Promise<void> {
+export async function unregisterCapacitorPush(opts: { remote?: boolean } = {}): Promise<void> {
   if (!isNative()) return;
+  const remote = opts.remote !== false;
+  resyncCompleted = false;
   try {
     const { PushNotifications } = await import("@capacitor/push-notifications");
     let token: string | null = null;
@@ -369,11 +378,13 @@ export async function unregisterCapacitorPush(): Promise<void> {
       /* ignore */
     }
     if (token) {
-      const unregistration =
-        platform() === "android"
-          ? api.unregisterFcmToken(token)
-          : api.unregisterApnsToken(token);
-      await unregistration.catch(() => {});
+      if (remote) {
+        const unregistration =
+          platform() === "android"
+            ? api.unregisterFcmToken(token)
+            : api.unregisterApnsToken(token);
+        await unregistration.catch(() => {});
+      }
       try {
         localStorage.removeItem(TOKEN_STORAGE_KEY);
       } catch {

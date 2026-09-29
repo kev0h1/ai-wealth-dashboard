@@ -307,6 +307,96 @@ function scanApiTsForUngatedFetches(lines) {
   }
 }
 
+// ── 9. A118: a 401 on POST /auth/logout (token already revoked, e.g. another
+//      device signed out everywhere first) must NOT raise the "signed out on
+//      another device" hook on the device that tapped logout ───────────
+{
+  resetUnauthorizedGate();
+  let fireCount = 0;
+  setUnauthorizedHandler(() => { fireCount += 1; });
+  setToken("session-logout");
+  let calledUrl = null;
+  fetchImpl = async (url, init) => {
+    calledUrl = String(url);
+    return fakeResponse({ status: 401, url: "https://api.example.com/auth/logout" });
+  };
+  const err = await expectRejects(api.logout());
+  check("api.logout() hits /auth/logout and still rejects on 401 (caller clears locally)", err instanceof Error && calledUrl.endsWith("/auth/logout"));
+  check("a 401 on /auth/logout does NOT invoke the unauthorized handler", fireCount === 0);
+  clearToken();
+}
+
+// ── 10. A118: the 401 handler and the revalidate 401 branch in AuthProvider
+//       must sign out LOCALLY only. Calling the server-revoking logout()
+//       there would send a pointless request with a dead token, and a stray
+//       401 on an unrelated route would sign out EVERY device ───────────
+{
+  const authPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "components", "AuthProvider.tsx");
+  // Strip comments so prose mentioning logout() can't satisfy or fail the scan.
+  const src = readFileSync(authPath, "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+  function block(startNeedle) {
+    const i = src.indexOf(startNeedle);
+    if (i < 0) return null;
+    const open = src.indexOf("{", i + startNeedle.length - 1);
+    let depth = 0;
+    for (let j = open; j < src.length; j++) {
+      if (src[j] === "{") depth++;
+      else if (src[j] === "}" && --depth === 0) return src.slice(open, j + 1);
+    }
+    return null;
+  }
+  const handlerBlock = block("setUnauthorizedHandler(() => {");
+  const revalBlock = block("if (res.status === 401) {");
+  check("found the 401 handler and the revalidate 401 branch in AuthProvider", !!handlerBlock && !!revalBlock);
+  const callsServerLogout = (b) => /(^|[^.\w])logout\s*\(|api\.logout\s*\(/.test(b || "");
+  check("the A124 401 handler does not call logout()/api.logout() (no revoke-everywhere on a stray 401)", !callsServerLogout(handlerBlock));
+  check("the revalidate 401 branch does not call logout()/api.logout()", !callsServerLogout(revalBlock));
+  check("both use clearLocalSession()", /clearLocalSession\(\)/.test(handlerBlock || "") && /clearLocalSession\(\)/.test(revalBlock || ""));
+}
+
+// ── 11. A118: api.logout() carries an abort timeout so a hung connection
+//       cannot leave the user stuck on Sign out ─────────────────────────
+{
+  const apiSrc = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "lib", "api.ts"), "utf8");
+  const i = apiSrc.indexOf("logout: async () => {");
+  const body = i < 0 ? "" : apiSrc.slice(i, i + 700);
+  check("api.logout() uses an AbortController with a timeout and passes its signal", /new AbortController\(\)/.test(body) && /setTimeout\(/.test(body) && /signal:\s*controller\.signal/.test(body));
+}
+
+// ── 12. A120: logout() drops the device push registration before the
+//       server revoke; clearLocalSession() tears it down locally only ──────
+{
+  const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+  const strip = (t) => t.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+  const src = strip(readFileSync(path.join(root, "components", "AuthProvider.tsx"), "utf8"));
+  const push = strip(readFileSync(path.join(root, "lib", "capacitorPush.ts"), "utf8"));
+  const fnBody = (needle) => {
+    const i = src.indexOf(needle);
+    if (i < 0) return "";
+    const open = src.indexOf("{", i);
+    let depth = 0;
+    for (let j = open; j < src.length; j++) {
+      if (src[j] === "{") depth++;
+      else if (src[j] === "}" && --depth === 0) return src.slice(open, j + 1);
+    }
+    return "";
+  };
+  const logoutBody = fnBody("async function logout()");
+  const localBody = fnBody("function clearLocalSession()");
+  const iPush = logoutBody.indexOf("unregisterCapacitorPush(");
+  const iApi = logoutBody.indexOf("api.logout(");
+  check("logout() calls unregisterCapacitorPush() before api.logout()", iPush >= 0 && iApi > iPush);
+  check("logout() bounds the push unregister with a timeout race", /Promise\.race\(/.test(logoutBody) && /setTimeout\(/.test(logoutBody));
+  check("clearLocalSession() tears push down locally with remote:false", /unregisterCapacitorPush\(\{\s*remote:\s*false\s*\}\)/.test(localBody));
+  const resync = strip(readFileSync(path.join(root, "components", "NativePushResync.tsx"), "utf8"));
+  check("NativePushResync reads the user from useAuth and its effect depends on the email",
+    /useAuth\(\)/.test(resync) && /\},\s*\[email\]\)/.test(resync));
+  check("NativePushResync re-POSTs the existing browser subscription on sign-in (web resync)",
+    /getSubscription\(\)/.test(resync) && /api\.subscribePush\(/.test(resync) && /if \(email\) resyncWebPush\(\)/.test(resync));
+  check("logout() clears its push race timer", /clearTimeout\(pushTimer\)/.test(logoutBody));
+  check("unregisterCapacitorPush skips the network DELETE when remote is false", /if \(remote\)/.test(push) && /resyncCompleted = false/.test(push));
+}
+
 if (failures > 0) {
   console.error(`\n${failures} check(s) failed.`);
   process.exit(1);

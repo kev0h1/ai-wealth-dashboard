@@ -11,6 +11,8 @@ import { BUILD_TAG } from "@/lib/buildTag";
 import { setAppLocked } from "@/lib/appLock";
 import { createInertTracker, APP_LOCK_OVERLAY_ATTR } from "@/lib/appLockInert";
 import { isColdStartLocked, shouldRelockOnResume } from "@/lib/appLockTiming";
+import { coverAfterEvent, LOCK_PREF_CHANGED_EVENT, type PrivacyCoverEvent } from "@/lib/privacyCover";
+import { syncNativePrivacyScreen } from "@/lib/privacyScreen";
 
 // A121 (pentest IOS-07/IOS-03, HIGH): dispatched on `window` right after a
 // successful unlock. Nothing that runs on a genuine background→foreground
@@ -412,6 +414,65 @@ export default function BiometricLock({ children }: { children: React.ReactNode 
     };
   }, [attemptUnlock]);
 
+  // A122: app-switcher privacy cover. Whenever the lock pref is on, an
+  // opaque, figure-free node is appended to document.body the instant the app
+  // is paused / resigns active / the document is hidden, and removed on the
+  // matching return. Plain DOM, not React state, so the node lands
+  // synchronously inside the event handler with no render pass in between.
+  // The native pieces (Android FLAG_SECURE, iOS overlay) cover what this
+  // cannot: on iOS the snapshot can be taken before the WKWebView process
+  // paints a JS-driven node, so this layer alone is best-effort there.
+  useEffect(() => {
+    if (!nativePlatform()) return;
+    // Bring the Android window flag in line with the stored pref on every
+    // cold start (the pref lives in localStorage, native cannot read it).
+    syncNativePrivacyScreen(isLockEnabled());
+
+    let cover: HTMLElement | null = null;
+    const apply = (event: PrivacyCoverEvent) => {
+      const want = coverAfterEvent(cover != null, event, true, isLockEnabled(), Capacitor.getPlatform());
+      if (want && !cover) {
+        const el = document.createElement("div");
+        el.setAttribute("data-privacy-cover", "true");
+        el.setAttribute("aria-hidden", "true");
+        // Plain canvas token (Mist / Midnight Canvas via --background), no
+        // gradient, no brand colour, no figures. Mirrored in the iOS cover.
+        el.style.cssText =
+          "position:fixed;inset:0;z-index:2147483647;background:var(--background,#f0f2f7);";
+        document.body.appendChild(el);
+        cover = el;
+      } else if (!want && cover) {
+        cover.remove();
+        cover = null;
+      }
+    };
+
+    // Lock switched off while the cover is up: setLockEnabled() dispatches
+    // this event, and coverAfterEvent drops the cover when the pref is off.
+    const onPrefChanged = () => apply("active");
+    window.addEventListener(LOCK_PREF_CHANGED_EVENT, onPrefChanged);
+
+    const onVisibility = () => apply(document.visibilityState === "hidden" ? "inactive" : "active");
+    document.addEventListener("visibilitychange", onVisibility);
+
+    const handles: { remove: () => void }[] = [];
+    let cancelled = false;
+    const track = (p: Promise<{ remove: () => void }>) =>
+      p.then((h) => (cancelled ? h.remove() : handles.push(h)));
+    track(App.addListener("pause", () => apply("pause")));
+    track(App.addListener("resume", () => apply("resume")));
+    track(App.addListener("appStateChange", ({ isActive }) => apply(isActive ? "active" : "inactive")));
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener(LOCK_PREF_CHANGED_EVENT, onPrefChanged);
+      document.removeEventListener("visibilitychange", onVisibility);
+      handles.forEach((h) => h.remove());
+      cover?.remove();
+      cover = null;
+    };
+  }, []);
+
   // A121 part 2c: while locked, every OTHER direct child of document.body
   // (the Next root that holds BottomNav and #app-shell, Sidebar, and any
   // portal node — PennySheet's chip layer chief among them, since that is
@@ -485,7 +546,9 @@ export default function BiometricLock({ children }: { children: React.ReactNode 
     // /auth/logout by path regardless of lock state (A118/A121), so
     // logout()'s server-side session revocation would go through even if
     // this ran while still locked.
-    logout();
+    // logout() is async (A118: it calls the backend before clearing the
+    // local token); fire-and-forget, nothing here depends on it settling.
+    void logout();
     // setLockedState has a stable identity (see its own definition above) —
     // listed for exhaustive-deps only.
   }, [logout, setLockedState]);
