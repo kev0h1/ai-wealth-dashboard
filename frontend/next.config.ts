@@ -5,17 +5,24 @@ import path from "path";
 
 const BACKEND = process.env.BACKEND_URL || "http://localhost:8000";
 
-// scripts/session.sh's branch-per-item worktrees (see CLAUDE.md, "Backlog")
-// symlink frontend/node_modules to the shared tree at /root/ai-wealth-dashboard
-// rather than installing a separate copy per worktree. Turbopack refuses to
-// follow a node_modules symlink that resolves outside the project directory
-// ("Symlink [project]/node_modules is invalid, it points out of the
-// filesystem root"), which only bites in that worktree layout: the shared
-// tree's own node_modules is a real directory, not a symlink, so this is a
-// no-op there and in every other build environment (Vercel, Codemagic, the
-// systemd `next start` deploy). Detect the symlinked-worktree case and widen
-// Turbopack's root to the nearest ancestor that contains both the worktree
-// and the shared tree (/root) so it can resolve packages through the link.
+// Two build layouts put a symlinked node_modules in the frontend directory
+// rather than a real one: scripts/session.sh's branch-per-item worktrees
+// (see CLAUDE.md, "Backlog") link it to the shared tree at
+// /root/ai-wealth-dashboard, and scripts/frontend_build.py's staging mirror
+// (/root/ai-wealth-dashboard/.frontend-staging, H51) links it to the live
+// frontend/node_modules. Turbopack refuses to follow a node_modules symlink
+// that resolves outside its root ("Symlink [project]/node_modules is
+// invalid, it points out of the filesystem root"), and its default root is
+// this frontend directory itself. So "outside" is judged against this
+// directory (__dirname), NOT its parent: in the staging mirror the target
+// (/root/ai-wealth-dashboard/frontend/node_modules) sits inside the mirror's
+// parent but is still outside the mirror, which is the case a parent-based
+// check missed. The shared tree's own node_modules is a real directory, not
+// a symlink, so this is a no-op there and in every other build environment
+// (Vercel, Codemagic, the systemd `next start` deploy). When widening,
+// Turbopack's root becomes the nearest ancestor containing both this
+// frontend directory and the link target's frontend directory: /root for a
+// worktree, /root/ai-wealth-dashboard for the staging mirror.
 function resolveTurbopackRoot(): string | undefined {
   const nodeModulesPath = path.join(__dirname, "node_modules");
   let stat;
@@ -33,8 +40,7 @@ function resolveTurbopackRoot(): string | undefined {
     return undefined;
   }
 
-  const projectDir = path.resolve(__dirname, "..");
-  const relative = path.relative(projectDir, target);
+  const relative = path.relative(__dirname, target);
   const pointsOutsideProject = relative.startsWith("..") || path.isAbsolute(relative);
   if (!pointsOutsideProject) return undefined;
 
