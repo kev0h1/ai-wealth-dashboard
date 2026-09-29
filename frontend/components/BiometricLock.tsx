@@ -485,7 +485,9 @@ export default function BiometricLock({ children }: { children: React.ReactNode 
     // /auth/logout by path regardless of lock state (A118/A121), so
     // logout()'s server-side session revocation would go through even if
     // this ran while still locked.
-    logout();
+    // logout() is async (A118: it calls the backend before clearing the
+    // local token); fire-and-forget, nothing here depends on it settling.
+    void logout();
     // setLockedState has a stable identity (see its own definition above) —
     // listed for exhaustive-deps only.
   }, [logout, setLockedState]);

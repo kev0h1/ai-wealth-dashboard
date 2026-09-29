@@ -1847,6 +1847,12 @@ export class ApiError extends Error {
 //     flow doubles as sign-up, gated server-side by the invite allowlist.
 //     All of these are called via lib/nativeAuth.ts's own raw `fetch`, not
 //     through this file's helpers, so these entries are defensive too.
+//   - POST /auth/logout (A118) — the explicit sign-out call. A 401 here just
+//     means the token was already revoked (another device signed out
+//     everywhere first); the caller is signing out anyway, so it must NOT
+//     raise the "signed out on another device" flow on the device that
+//     tapped logout. AuthProvider.logout() calls api.logout() (which routes
+//     through toJson) BEFORE clearing the token locally.
 //   - GET /health — the one route this file calls that needs no bearer at
 //     all (backend/app/core/auth.py's `_OPEN_PATHS`), so it can never
 //     genuinely 401 on a revoked session either way.
@@ -1859,6 +1865,7 @@ const UNAUTHORIZED_HOOK_EXEMPT_PATHS = [
   "/auth/google/native",
   "/auth/apple/native",
   "/auth/mobile/poll",
+  "/auth/logout",
   "/health",
 ];
 
@@ -2648,6 +2655,26 @@ export const api = {
       method: "POST",
       headers: authHeaders(),
     }).then((r) => r.ok),
+  // A118: server-side session revocation on explicit logout (the token
+  // otherwise survives on disk after clearToken() and keeps authenticating
+  // for its full 7-day expiry). Called from AuthProvider.logout() BEFORE
+  // clearToken(), since authHeaders() reads the token at call time.
+  // ~4s abort so a hung connection can never leave the user stuck on Sign
+  // out; the caller treats any rejection (including the abort) as
+  // best-effort and still clears locally.
+  logout: async () => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 4000);
+    try {
+      return await fetch(`${API_BASE}/auth/logout`, {
+        method: "POST",
+        headers: authHeaders(),
+        signal: controller.signal,
+      }).then((r) => toJson<{ ok: boolean }>(r));
+    } finally {
+      clearTimeout(timer);
+    }
+  },
   patchTransaction: (id: string, data: { category: string; additional_ids?: string[] }) =>
     fetch(`${API_BASE}/transactions/${id}`, {
       method: "PATCH",

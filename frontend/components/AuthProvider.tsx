@@ -24,10 +24,12 @@ interface AuthUser {
 
 interface AuthContextValue {
   user: AuthUser | null;
-  logout: () => void;
+  logout: () => Promise<void>;
+  /** Local-only sign-out (no server revoke), for when the token is already revoked. */
+  clearLocalSession: () => void;
 }
 
-const AuthContext = createContext<AuthContextValue>({ user: null, logout: () => {} });
+const AuthContext = createContext<AuthContextValue>({ user: null, logout: async () => {}, clearLocalSession: () => {} });
 export const useAuth = () => useContext(AuthContext);
 
 // A124: how often the window-focus/app-resume listeners below are allowed
@@ -146,7 +148,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     init();
   }, []);
 
-  function logout() {
+  // A118 review: a deliberate user tap (Settings sign out, BiometricLock's
+  // "sign out instead") revokes the session server-side FIRST, which signs
+  // out EVERY device for this email. authHeaders() reads the token at call
+  // time, so the request MUST go before the local clear or it would be sent
+  // unauthenticated and the tombstone never written. Best-effort: a failed
+  // or timed-out request (api.logout aborts at ~4s) never blocks local
+  // sign-out. The 401 handler, revalidate and account deletion must NOT use
+  // this: their token is already revoked, and a stray 401 on an unrelated
+  // route must never sign out every device. They use clearLocalSession().
+  async function logout() {
+    try {
+      await api.logout();
+    } catch (e) {
+      console.error("[AuthProvider] logout request failed", e);
+    }
+    clearLocalSession();
+  }
+
+  // Local-only sign-out: no network call. See logout() above for who uses which.
+  function clearLocalSession() {
     clearToken();
     setUser(null);
 
@@ -189,7 +210,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // this should be unreachable in practice; bailing here is what stops
       // it looping if that ever changes.
       if (!user) return;
-      logout();
+      clearLocalSession();
       setAuthError("You were signed out on another device.");
     });
     return () => setUnauthorizedHandler(null);
@@ -220,7 +241,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (res.status === 401) {
-          logout();
+          clearLocalSession();
           setAuthError("You were signed out on another device.");
           return;
         }
@@ -303,7 +324,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, logout }}>
+    <AuthContext.Provider value={{ user, logout, clearLocalSession }}>
       {children}
     </AuthContext.Provider>
   );
