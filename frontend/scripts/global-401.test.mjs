@@ -363,6 +363,40 @@ function scanApiTsForUngatedFetches(lines) {
   check("api.logout() uses an AbortController with a timeout and passes its signal", /new AbortController\(\)/.test(body) && /setTimeout\(/.test(body) && /signal:\s*controller\.signal/.test(body));
 }
 
+// ── 12. A120: logout() drops the device push registration before the
+//       server revoke; clearLocalSession() tears it down locally only ──────
+{
+  const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+  const strip = (t) => t.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+  const src = strip(readFileSync(path.join(root, "components", "AuthProvider.tsx"), "utf8"));
+  const push = strip(readFileSync(path.join(root, "lib", "capacitorPush.ts"), "utf8"));
+  const fnBody = (needle) => {
+    const i = src.indexOf(needle);
+    if (i < 0) return "";
+    const open = src.indexOf("{", i);
+    let depth = 0;
+    for (let j = open; j < src.length; j++) {
+      if (src[j] === "{") depth++;
+      else if (src[j] === "}" && --depth === 0) return src.slice(open, j + 1);
+    }
+    return "";
+  };
+  const logoutBody = fnBody("async function logout()");
+  const localBody = fnBody("function clearLocalSession()");
+  const iPush = logoutBody.indexOf("unregisterCapacitorPush(");
+  const iApi = logoutBody.indexOf("api.logout(");
+  check("logout() calls unregisterCapacitorPush() before api.logout()", iPush >= 0 && iApi > iPush);
+  check("logout() bounds the push unregister with a timeout race", /Promise\.race\(/.test(logoutBody) && /setTimeout\(/.test(logoutBody));
+  check("clearLocalSession() tears push down locally with remote:false", /unregisterCapacitorPush\(\{\s*remote:\s*false\s*\}\)/.test(localBody));
+  const resync = strip(readFileSync(path.join(root, "components", "NativePushResync.tsx"), "utf8"));
+  check("NativePushResync reads the user from useAuth and its effect depends on the email",
+    /useAuth\(\)/.test(resync) && /\},\s*\[email\]\)/.test(resync));
+  check("NativePushResync re-POSTs the existing browser subscription on sign-in (web resync)",
+    /getSubscription\(\)/.test(resync) && /api\.subscribePush\(/.test(resync) && /if \(email\) resyncWebPush\(\)/.test(resync));
+  check("logout() clears its push race timer", /clearTimeout\(pushTimer\)/.test(logoutBody));
+  check("unregisterCapacitorPush skips the network DELETE when remote is false", /if \(remote\)/.test(push) && /resyncCompleted = false/.test(push));
+}
+
 if (failures > 0) {
   console.error(`\n${failures} check(s) failed.`);
   process.exit(1);
