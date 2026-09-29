@@ -90,29 +90,28 @@ function breakdownParts(dest: PaydayPlanDest): string[] {
   return parts;
 }
 
-/** True for the savings-pot habitual top-up shape: nothing owed (target 0)
- * but a habitual amount still moves. Framed as a top-up, never as a
+/** True for the savings-pot habitual top-up shape: nothing owed but a
+ * habitual amount still moves. Framed as a top-up, never as a
  * needs/has/moving shortfall (G128 fact 2: a savings top-up is not a gap).
  *
- * FRAGILE HEURISTIC, read before touching this function: `target === 0` is
- * a provisional stand-in, not a real "this is a savings top-up" signal. It
- * only happens to identify Kevin's Personal GBP savings destination in the
- * fixture correctly because of a backend defect, filed as G129: the
- * trimmed-month re-derive block in backend/app/services/companion.py
- * (around line 2816) recomputes `target` for every destination, including
- * savings ones, using the non-savings formula (bills_total + spend_typical
- * + buffer). A savings destination has none of those three inputs, so its
- * target happens to come out as 0, which is what this check keys off.
- * Once G129 is fixed, this destination's target would become 100 (its real
- * need), it would fall through to the normal branch instead, and it would
- * render "Needs £100 · has £100 · moving £100": still correct-looking, but
- * arrived at by accident, since target === 0 would stop being true even
- * though the row is still, semantically, a habitual top-up. The durable
- * fix is an explicit savings/top-up flag supplied by the backend on the
- * destination object, not a target-equals-zero inference. Update this
- * check when G129 lands, or this row will misrender silently. */
+ * G129 landed the explicit `habitual_top_up` field the backend computes
+ * server-side (backend/app/services/companion.py's dest-building loop) —
+ * this reads that field directly rather than inferring the shape from
+ * `target === 0`, which only ever held by accident of the G129 defect (the
+ * trimmed-month re-derive block unconditionally overwrote a savings
+ * destination's own target formula with the non-savings one, so a savings
+ * pot with no bills happened to land on target 0). That heuristic would
+ * have silently stopped matching the moment the backend target bug was
+ * fixed, since a fixed savings destination reports its real target (move +
+ * bills_total) instead of 0.
+ *
+ * `dest.habitual_top_up` is optional only because Kevin's real 2026-09-18
+ * payload above (`KEVIN_REAL_ITEM`) is frozen evidence captured before
+ * G129 existed — it carries the field by hand on the one row it actually
+ * applies to (Personal GBP) so this fixture's visual output is unchanged,
+ * rather than being regenerated from a live (now-fixed) backend call. */
 function isHabitualTopUp(dest: PaydayPlanDest): boolean {
-  return dest.target === 0 && dest.move > 0;
+  return dest.habitual_top_up === true;
 }
 
 /**

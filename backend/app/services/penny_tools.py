@@ -74,6 +74,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from fastapi import HTTPException
 
+from app.core.build import engine_build
 from app.core.config import MCP_CONNECTOR_ENABLED
 from app.core import timeutil
 from app.db.collections import (
@@ -127,7 +128,7 @@ def _money(amount, decimals: int = 0) -> dict:
     return {"raw": round(val, 2), "formatted": _fmt_gbp(val, decimals)}
 
 
-def _explain_tool_description() -> str:
+def _explain_tool_description(connector_enabled: bool | None = None) -> str:
     """The `explain` tool's own description, built by reading
     `MCP_CONNECTOR_ENABLED` at CALL time rather than baking a fixed string
     at import time, so a test can monkeypatch this module's own name for it
@@ -140,6 +141,21 @@ def _explain_tool_description() -> str:
     a running process, so a production process that boots with the
     connector off can never send this tool's description to the model with
     `mcp_connector` mentioned in it at all.
+
+    `connector_enabled` (B42): an explicit override, defaulting to this
+    module's own live `MCP_CONNECTOR_ENABLED` when left `None` — the
+    parameter exists purely so `tests/test_penny_golden_eval.py` can build
+    BOTH variants of this description directly, by calling this function
+    with `True` and `False`, without needing the process environment (or
+    this module's already-imported flag) to be in any particular state.
+    Before this parameter existed, the golden eval's pinned description
+    hash for `explain` silently baked in whichever state
+    `MCP_CONNECTOR_ENABLED` happened to hold in the process that captured
+    the pin, so the same suite passed in a worktree (no `backend/.env`,
+    flag unset/false) and failed wherever `backend/.env` sets the flag true
+    (the shared tree `scripts/integrate.py` actually tests in) — see B42.
+    `TOOL_SCHEMAS` below still calls this with no argument, so real request
+    traffic is completely unaffected by this parameter's existence.
 
     F16 rework, 2026-09-10 (Kevin, after rejecting the first pass): A17
     exists specifically so a connector-off deployment ships with the
@@ -155,11 +171,13 @@ def _explain_tool_description() -> str:
     unknown-topic valid-keys list `_exec_explain` returns (see that
     function) — no unreleased-feature copy sits in the production bundle
     in any form."""
+    if connector_enabled is None:
+        connector_enabled = MCP_CONNECTOR_ENABLED
     mcp_clause = (
         ", mcp_connector ('how do I connect the app as an MCP', 'connect "
         "Claude to my account', 'what is the MCP connector', 'can I use "
         "this with an AI assistant')"
-        if MCP_CONNECTOR_ENABLED else ""
+        if connector_enabled else ""
     )
     return (
         "Fixed, pre-written explanations the model must use instead of "
@@ -2002,6 +2020,11 @@ async def _load_cashflow_cache(uid: str) -> dict | None:
     cached = await _compute_cashflow_patterns(uid)
     cached["computed_at"] = datetime.now()
     cached["patterns_version"] = PATTERNS_VERSION
+    # G159 review fix #5: same stamp analytics.py's own cache-miss branch
+    # writes, for the same reason — an unstamped doc reads as a different
+    # build to cache_needs_recompute's "auto" self-heal check forever, not
+    # just until the next real engine change.
+    cached["engine_build"] = engine_build()
     await cashflow_cache_col.update_one({"_id": uid}, {"$set": cached}, upsert=True)
     return cached
 

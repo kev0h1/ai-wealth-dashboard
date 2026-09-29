@@ -1269,6 +1269,25 @@ export type PaydayPlanDest = {
   move: number;
   usual: number | null;
   /**
+   * Which target/move formula this destination follows (G129, backend/app/
+   * services/companion.py's dest-building loop): "savings" keeps its own
+   * accumulation formula (target = move + bills_total, no spend/buffer
+   * padding — the user's saving ritual, mirrored not auto-buffered);
+   * "spend" is the ordinary bill/everyday-spend account (target =
+   * bills_total + spend_typical + buffer). Optional only because older
+   * frozen fixtures captured before G129 landed don't carry it.
+   */
+  destination_kind?: "savings" | "spend";
+  /**
+   * True when this is a savings pot with nothing owed (no bills) but a
+   * habitual amount still moving — an accumulation top-up, not a shortfall
+   * to cover (G129, G128 note). Server-computed; never infer this from
+   * `target === 0`, which only ever held by accident of a backend defect
+   * (G129) now fixed. Optional only for the same frozen-fixture reason as
+   * `destination_kind` above.
+   */
+  habitual_top_up?: boolean;
+  /**
    * Active commitment(s) (goals v2) whose per-period slice is flooring this
    * dest's move — e.g. ["Summer holiday"] on a Saving Challenge leg. Absent
    * when no commitment routes here. See backend/app/services/companion.py's

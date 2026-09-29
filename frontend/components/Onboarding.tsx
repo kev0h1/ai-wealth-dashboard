@@ -168,7 +168,23 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
   async function finish() {
     // Mark onboarding complete only here — at the very end — so refreshing
     // mid-flow doesn't skip the pay-period and bank steps.
-    try { await api.updateProfile(`${firstName.trim()} ${lastName.trim()}`, postcode.trim()); } catch {}
+    //
+    // D7: this used to also re-issue the session token (a since-removed
+    // POST /auth/session/refresh) so its `name` field caught up with the
+    // profile save. That endpoint only required a valid bearer and
+    // resigned with the current timestamp, so calling it reset the
+    // session's SESSION_MAX_AGE expiry from now — a stolen token could be
+    // kept alive indefinitely just by hitting it. Removed rather than
+    // fixed: nothing needs it. Home's greeting reads profile.full_name
+    // directly (lib/displayName.ts) via its own api.getProfile() call on
+    // mount, and HomePage only ever mounts after onboarding completes
+    // (AuthProvider renders this component instead of the app shell while
+    // onboarding is pending), so the fresh name is there with no race and
+    // no session re-issue needed. A name refresh must never double as a
+    // session-lifetime refresh.
+    try {
+      await api.updateProfile(`${firstName.trim()} ${lastName.trim()}`, postcode.trim());
+    } catch {}
     localStorage.removeItem("wealth_onboarding_resume");
     localStorage.setItem("wealth_tutorial_pending", "1");
     onComplete();

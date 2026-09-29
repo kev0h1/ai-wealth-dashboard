@@ -29,6 +29,7 @@
     "check:verdict-cache": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/verdict-cache.test.mjs",
     "check:category-mutations": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/category-mutations.test.mjs",
     "check:account-mutations": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/account-mutations.test.mjs",
+    "check:correction-cache-clear": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/correction-cache-clear.test.mjs",
     "check:account-cache-coverage": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/check-account-cache-coverage.mjs",
     "check:home-cache-shape": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/home-cache-shape.test.mjs",
     "check:spend-from-render": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/spend-from-render.test.mjs",
@@ -43,6 +44,7 @@
     "check:app-lock": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/app-lock.test.mjs",
     "check:app-lock-inert": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/app-lock-inert.test.mjs",
     "check:app-lock-gate": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/app-lock-gate.test.mjs",
+    "check:display-name": "node --no-warnings --experimental-strip-types scripts/display-name.test.mjs",
     "check:global-401": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/global-401.test.mjs"
   },
   "dependencies": {

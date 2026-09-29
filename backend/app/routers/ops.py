@@ -149,6 +149,11 @@ async def go_live_item_action(item_id: str, body: ItemActionRequest, user: dict 
     _require_owner(user)
     root = _repo_root()
     todo_path = root / _FILES["todo"]
+    # H64: only the "note" branch below ever populates this -- add_note is
+    # the one action whose write can silently truncate content at
+    # NOTE_CAP, so this is the one branch with a truncation fact to
+    # surface back to the page.
+    note_truncation: Optional[dict] = None
 
     try:
         if body.action == "done":
@@ -188,7 +193,9 @@ async def go_live_item_action(item_id: str, body: ItemActionRequest, user: dict 
         elif body.action == "note":
             if not body.text:
                 raise HTTPException(400, "text is required to add a note")
-            _, committed = backlog.add_note(item_id, body.text, actor=_PAGE_ACTOR, todo_path=todo_path, repo_root=root)
+            _, committed, note_truncation = backlog.add_note(
+                item_id, body.text, actor=_PAGE_ACTOR, todo_path=todo_path, repo_root=root
+            )
         elif body.action == "owner":
             if not body.owner:
                 raise HTTPException(400, "owner is required")
@@ -242,6 +249,12 @@ async def go_live_item_action(item_id: str, body: ItemActionRequest, user: dict 
 
     payload = await _go_live_payload(user)
     payload["committed"] = committed
+    if note_truncation is not None:
+        # H64: only ever set for action == "note" above, and only carries
+        # a truthy "truncated" when _collapse_note_text actually cut the
+        # text, so the page can warn Kevin instead of reporting bare
+        # success on a write that silently lost content.
+        payload["note_truncation"] = note_truncation
     return payload
 
 

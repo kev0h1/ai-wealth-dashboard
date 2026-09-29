@@ -108,6 +108,17 @@ Redis unavailability as a page, not a shrug. With this in place, E2
   TOKEN_KEY, TrueLayer creds, OpenRouter, etc.). No `$PORT` needed.
 - The 4-hourly reconcile and daily digest are in-process arq crons; the worker
   just needs to stay running. No external scheduler.
+- On every start the worker also runs a background pass that recomputes the
+  cashflow forecast for any user whose cache doc was written by a different
+  engine build (G159, `app/services/derived_caches.py`). The build identity
+  is a content hash of the backend's own `.py` files (`app/core/build.py`),
+  the same on Railway and on UAT, so a restart without a deploy — for any
+  reason, not just an intentional one — genuinely does nothing there
+  either; a deploy costs roughly 1.5 s plus one Haiku call per user with a
+  stale doc, sequentially, off the API's event loop. (An earlier version of
+  this identity preferred `git rev-parse HEAD` on UAT, which moved on every
+  board commit whether or not `backend/` changed and was dropped for that
+  reason — see the module docstring.)
 
 ## Step 6: Vercel: frontend
 

@@ -1875,13 +1875,33 @@ async def compute_debt_plan(uid: str) -> dict:
     }
 
 
-async def get_debt_plan_cached(uid: str) -> dict:
+async def get_debt_plan_cached(uid: str, *, persist: bool = True) -> dict:
     """Return debt plan from the Mongo-backed response cache (6h safety
     bound, exact invalidation via the per-user data version — see
-    app/services/response_cache.py), else compute and store."""
+    app/services/response_cache.py), else compute and store.
+
+    `persist=False` (H90, 2026-09-28): skip the cache WRITE entirely — a
+    cache HIT is still served (reading is not a side effect), but a MISS
+    computes fresh and returns without ever calling `response_cache.aput`.
+    Added because `app.services.companion.compute_today_items`'s own
+    `persist` flag documented itself as gating "EVERY write this function
+    makes" while this call, unconditional, was the one write that slipped
+    through: a read-only caller (`GET /today/cover-plan` on every Settings
+    load, and `app.services.penny_tools.get_today_brief`'s "what's Penny
+    suggesting" read) still wrote a fresh `debt_plan` cache entry on a
+    miss, under whatever `uid` it was called with — the exact write that
+    landed a doc under a fixture test uid, and separately under Kevin's
+    own uid, from unmerged code (see H90's board item). Every OTHER caller
+    (`app/routers/debt_plan.py`, `commitments.py`, `cards.py`,
+    `spend_impact.py`, `penny_tools.py`'s own direct call, `grow.py`,
+    `scenario.py`) keeps calling this with no `persist` argument, so they
+    are unaffected: default is still `True`, still write-through, byte
+    identical to before."""
     cached = await response_cache.aget(_CACHE_NAME, uid)
     if cached is not None:
         return cached
+    if not persist:
+        return await compute_debt_plan(uid)
     v = await response_cache.snapshot(uid)
     plan = await compute_debt_plan(uid)
     await response_cache.aput(_CACHE_NAME, uid, plan, version=v)
