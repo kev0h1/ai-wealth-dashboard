@@ -807,6 +807,13 @@ that directory (review finding P3/FIX4, 2026-09-17 round 3 — an earlier
 version applied this fix to only the third snippet, so reading top to
 bottom the second one still failed the same way the third used to):
 
+Before any build from a freshly generated `android/` project, run
+`bash capacitor-spike/scripts/setup-android-push.sh`; its final step runs
+`setup-android-privacy.sh` (A122), which installs the `PrivacyScreen` plugin
+that keeps live figures out of the recents thumbnail while the biometric lock
+is on. Skipping it ships an APK without the plugin (the app logs a
+`console.warn` naming A122, nothing else fails).
+
 ```bash
 cd "$(git rev-parse --show-toplevel)/capacitor-spike/android"
 ./gradlew bundleSortedRelease

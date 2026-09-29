@@ -42,8 +42,11 @@ regeneration, same as `setup-android-push.sh` and `apply-icons.sh`.
 
 ## App-switcher privacy (A122)
 
-- Android: after `npx cap add android`, run `bash scripts/setup-android-privacy.sh`
-  (installs `android-privacy/PrivacyScreenPlugin.java` and registers it in
+- Android: `scripts/setup-android-push.sh` now calls `setup-android-privacy.sh`
+  as its last step, so the normal regeneration flow covers it (run it alone
+  with `bash scripts/setup-android-privacy.sh` if needed). If H73 commits
+  `android/`, the plugin and its registration become committed source and this
+  script is replaced. It installs `android-privacy/PrivacyScreenPlugin.java` and registers it in
   `MainActivity`). The web layer then sets `FLAG_SECURE` while the biometric
   lock preference is on, which blanks the recents thumbnail and also blocks
   user screenshots and screen recording during that time.

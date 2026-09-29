@@ -19,8 +19,15 @@ export function syncNativePrivacyScreen(enabled: boolean): void {
   try {
     if (!needsNativePrivacyBridge(Capacitor.isNativePlatform(), Capacitor.getPlatform())) return;
     plugin ??= registerPlugin<PrivacyScreenPlugin>("PrivacyScreen");
-    plugin.setEnabled({ enabled }).catch(() => {
-      /* plugin not installed in this build: the web cover still applies */
+    plugin.setEnabled({ enabled }).catch((err: unknown) => {
+      // Plugin not installed in this build: the web cover still applies, but
+      // the recents thumbnail is NOT protected on Android, so say so loudly.
+      const msg = String((err as { message?: string } | null)?.message ?? err);
+      if (/not implemented|not available/i.test(msg)) {
+        console.warn(
+          "A122: PrivacyScreen plugin missing from this Android build, recents thumbnail is not protected. Run capacitor-spike/scripts/setup-android-privacy.sh (via setup-android-push.sh) and rebuild."
+        );
+      }
     });
   } catch {
     /* never let a privacy nicety break the lock */

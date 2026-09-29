@@ -430,18 +430,15 @@ export default function BiometricLock({ children }: { children: React.ReactNode 
 
     let cover: HTMLElement | null = null;
     const apply = (event: PrivacyCoverEvent) => {
-      const want = coverAfterEvent(cover != null, event, true, isLockEnabled());
+      const want = coverAfterEvent(cover != null, event, true, isLockEnabled(), Capacitor.getPlatform());
       if (want && !cover) {
         const el = document.createElement("div");
         el.setAttribute("data-privacy-cover", "true");
         el.setAttribute("aria-hidden", "true");
-        const dark = document.documentElement.classList.contains("dark");
+        // Plain canvas token (Mist / Midnight Canvas via --background), no
+        // gradient, no brand colour, no figures. Mirrored in the iOS cover.
         el.style.cssText =
-          "position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;" +
-          `background:${dark ? "linear-gradient(#0f172a,#131c33)" : "linear-gradient(#f0f2f7,#e4e8f5)"};`;
-        const tile = document.createElement("div");
-        tile.style.cssText = "width:80px;height:80px;border-radius:24px;background:#6366f1;";
-        el.appendChild(tile);
+          "position:fixed;inset:0;z-index:2147483647;background:var(--background,#f0f2f7);";
         document.body.appendChild(el);
         cover = el;
       } else if (!want && cover) {
@@ -449,6 +446,13 @@ export default function BiometricLock({ children }: { children: React.ReactNode 
         cover = null;
       }
     };
+
+    // Lock switched off while the cover is up: drop it. setLockEnabled has no
+    // event, so re-check on the next lifecycle signal (below) and on a poll of
+    // the pref while covered.
+    const offTimer = setInterval(() => {
+      if (cover && !isLockEnabled()) apply("active");
+    }, 500);
 
     const onVisibility = () => apply(document.visibilityState === "hidden" ? "inactive" : "active");
     document.addEventListener("visibilitychange", onVisibility);
@@ -463,6 +467,7 @@ export default function BiometricLock({ children }: { children: React.ReactNode 
 
     return () => {
       cancelled = true;
+      clearInterval(offTimer);
       document.removeEventListener("visibilitychange", onVisibility);
       handles.forEach((h) => h.remove());
       cover?.remove();

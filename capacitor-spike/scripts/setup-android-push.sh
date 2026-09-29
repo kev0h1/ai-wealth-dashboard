@@ -394,5 +394,12 @@ fi
 python3 "${SCRIPT_DIR}/ensure-wealthdash-manifest.py" "${ANDROID_DIR}"
 echo "[7/7] wealthdash:// deep-link intent-filter placement done (see above)."
 
+# --- 8. A122: app-switcher privacy plugin (FLAG_SECURE) ---
+# Same gitignored, regenerated project, so it rides the same regeneration
+# step every Android build already runs. Idempotent. Until H73 commits
+# android/, this is what keeps the plugin in every hand-built APK.
+bash "${SCRIPT_DIR}/setup-android-privacy.sh"
+echo "[8/8] A122 PrivacyScreen plugin installed."
+
 echo
 echo "Android push setup complete."

@@ -19,23 +19,27 @@ export type PrivacyCoverEvent =
   | "active"; // appStateChange { isActive: true } or document visible
 
 /**
- * Should the cover be showing after `event`, given whether it is showing
- * now? Never on web or with the lock pref off. Leaving-signals raise it,
- * returning-signals drop it. Nothing here consults the lock screen: when
- * the lock overlay is already up the cover is simply redundant, and it is
- * removed again on the next returning-signal either way.
+ * Should the cover be showing after `event`? Never on web or with the lock
+ * pref off. On Android, leaving-signals (pause, inactive) raise it. On iOS
+ * only `pause` (didEnterBackground) raises it: `inactive` (willResignActive)
+ * also fires when the Face ID sheet appears and would blank the lock screen
+ * mid-prompt, and the native didEnterBackground overlay is the real iOS fix.
+ * Returning-signals drop it everywhere. Switching the lock off while covered
+ * drops it too.
  */
 export function coverAfterEvent(
   current: boolean,
   event: PrivacyCoverEvent,
   native: boolean,
-  lockEnabled: boolean
+  lockEnabled: boolean,
+  platform: string = "android"
 ): boolean {
   if (!native || !lockEnabled) return false;
   switch (event) {
     case "pause":
-    case "inactive":
       return true;
+    case "inactive":
+      return platform === "ios" ? current : true;
     case "resume":
     case "active":
       return false;

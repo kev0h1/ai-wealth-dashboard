@@ -22,6 +22,11 @@ for (const ev of ["resume", "active"]) {
 check("lock switched off while covered drops the cover", coverAfterEvent(true, "pause", true, false), false);
 check("repeated pause stays covered", coverAfterEvent(true, "pause", true, true), true);
 
+check("ios inactive does NOT cover (Face ID sheet)", coverAfterEvent(false, "inactive", true, true, "ios"), false);
+check("ios pause DOES cover", coverAfterEvent(false, "pause", true, true, "ios"), true);
+check("ios inactive keeps an existing cover", coverAfterEvent(true, "inactive", true, true, "ios"), true);
+check("android inactive covers", coverAfterEvent(false, "inactive", true, true, "android"), true);
+
 check("android needs the bridge", needsNativePrivacyBridge(true, "android"), true);
 check("ios does not need the bridge", needsNativePrivacyBridge(true, "ios"), false);
 check("web does not need the bridge", needsNativePrivacyBridge(false, "web"), false);
