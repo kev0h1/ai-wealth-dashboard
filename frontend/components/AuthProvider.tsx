@@ -10,6 +10,7 @@ import { WEB_PRODUCT_OFF } from "@/lib/webProduct";
 import LoginScreen from "@/components/LoginScreen";
 import AppOnlyPage from "@/components/AppOnlyPage";
 import Onboarding from "@/components/Onboarding";
+import { unregisterCapacitorPush } from "@/lib/capacitorPush";
 import { invalidateAllAccountData } from "@/lib/accountMutations";
 import { clearHomeDismissedAdvice } from "@/lib/homeDismissedAdvice";
 import { resolveFullName } from "@/lib/displayName";
@@ -24,10 +25,12 @@ interface AuthUser {
 
 interface AuthContextValue {
   user: AuthUser | null;
-  logout: () => void;
+  logout: () => Promise<void>;
+  /** Local-only sign-out (no server revoke), for when the token is already revoked. */
+  clearLocalSession: () => void;
 }
 
-const AuthContext = createContext<AuthContextValue>({ user: null, logout: () => {} });
+const AuthContext = createContext<AuthContextValue>({ user: null, logout: async () => {}, clearLocalSession: () => {} });
 export const useAuth = () => useContext(AuthContext);
 
 // A124: how often the window-focus/app-resume listeners below are allowed
@@ -152,7 +155,45 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     init();
   }, []);
 
-  function logout() {
+  // A118 review: a deliberate user tap (Settings sign out, BiometricLock's
+  // "sign out instead") revokes the session server-side FIRST, which signs
+  // out EVERY device for this email. authHeaders() reads the token at call
+  // time, so the request MUST go before the local clear or it would be sent
+  // unauthenticated and the tombstone never written. Best-effort: a failed
+  // or timed-out request (api.logout aborts at ~4s) never blocks local
+  // sign-out. The 401 handler, revalidate and account deletion must NOT use
+  // this: their token is already revoked, and a stray 401 on an unrelated
+  // route must never sign out every device. They use clearLocalSession().
+  //
+  // A120: the device's native push registration is dropped FIRST (it also
+  // needs the still-live token for its DELETE), bounded to ~3s so it can
+  // never block sign-out. The server-side /auth/logout then deletes every
+  // push registration for the email as the backstop.
+  async function logout() {
+    let pushTimer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        unregisterCapacitorPush(),
+        new Promise<void>((resolve) => { pushTimer = setTimeout(resolve, 3000); }),
+      ]);
+    } catch (e) {
+      console.error("[AuthProvider] push unregister failed", e);
+    } finally {
+      clearTimeout(pushTimer);
+    }
+    try {
+      await api.logout();
+    } catch (e) {
+      console.error("[AuthProvider] logout request failed", e);
+    }
+    clearLocalSession();
+  }
+
+  // Local-only sign-out: no network call. See logout() above for who uses which.
+  function clearLocalSession() {
+    // A120: session already revoked (or being deleted), so the server has
+    // dropped the registrations; tear the device side down without a call.
+    void unregisterCapacitorPush({ remote: false });
     clearToken();
     setUser(null);
 
@@ -195,7 +236,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // this should be unreachable in practice; bailing here is what stops
       // it looping if that ever changes.
       if (!user) return;
-      logout();
+      clearLocalSession();
       setAuthError("You were signed out on another device.");
     });
     return () => setUnauthorizedHandler(null);
@@ -226,7 +267,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (res.status === 401) {
-          logout();
+          clearLocalSession();
           setAuthError("You were signed out on another device.");
           return;
         }
@@ -309,7 +350,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, logout }}>
+    <AuthContext.Provider value={{ user, logout, clearLocalSession }}>
       {children}
     </AuthContext.Provider>
   );
