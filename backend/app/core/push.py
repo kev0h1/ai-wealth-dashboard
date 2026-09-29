@@ -88,6 +88,23 @@ def _apns_provider_jwt() -> str:
     return _apns_jwt_cache["token"]
 
 
+async def drop_user_push_registrations(user_id: str) -> dict:
+    """A120: delete EVERY web-push, APNs and FCM registration for this user.
+
+    Called from /auth/logout, which signs out every device for the email, so
+    a signed-out device must not keep receiving that user's pushes. Not
+    per-device: there is no device-to-session link in this app. Raises on DB
+    failure; the caller decides whether that may block (logout: it must not).
+    """
+    removed = {}
+    for name, col in (
+        ("web", push_subscriptions_col), ("apns", apns_tokens_col), ("fcm", fcm_tokens_col),
+    ):
+        r = await col.delete_many({"user_id": user_id})
+        removed[name] = r.deleted_count
+    return removed
+
+
 async def send_apns_push(user_id: str, title: str, body: str, url: str = "/") -> dict:
     """Deliver to the user's native iOS (APNs) device tokens. Prunes dead tokens."""
     global _apns_warned_unconfigured

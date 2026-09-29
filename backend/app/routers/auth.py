@@ -18,6 +18,7 @@ from app.core.config import (
 )
 from app.core.identity import resolve_signin_email
 from app.core.pending_login import _pop_pending, _store_pending
+from app.core.push import drop_user_push_registrations
 from app.core.session_revocation import is_revoked, revoke_sessions
 from app.db.collections import linked_identities_col
 from app.services.retention import erase_orphaned_relay_account
@@ -120,9 +121,23 @@ async def logout(user: dict = Depends(current_user)):
     body at all — the `current_user` dependency above rejects it with 401
     first, which is the correct outcome (not a 500), before revoke_sessions
     runs again.
+
+    A120 (pentest AND-07 / IOS-07): also deletes EVERY web-push, APNs and
+    FCM registration for the email (not just the calling device's), matching
+    the sign-out-everywhere meaning above, so a signed-out device stops
+    receiving pushes even if the client-side unregister never ran. Fail-safe:
+    a cleanup error is logged (masked email only) and the revoke still runs.
+    A device that signs in again re-registers itself.
     """
     if not user.get("email"):
         raise HTTPException(403, "Bot credentials cannot log out")
+    try:
+        await drop_user_push_registrations(user["email"])
+    except Exception as exc:
+        logging.warning(
+            "Logout push cleanup failed for %s (%s); revoking anyway",
+            mask_email(user["email"]), type(exc).__name__,
+        )
     await revoke_sessions(user["email"])
     logging.info("Logged out %s (all sessions revoked)", mask_email(user["email"]))
     return {"ok": True}
