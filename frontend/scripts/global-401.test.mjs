@@ -388,6 +388,12 @@ function scanApiTsForUngatedFetches(lines) {
   check("logout() calls unregisterCapacitorPush() before api.logout()", iPush >= 0 && iApi > iPush);
   check("logout() bounds the push unregister with a timeout race", /Promise\.race\(/.test(logoutBody) && /setTimeout\(/.test(logoutBody));
   check("clearLocalSession() tears push down locally with remote:false", /unregisterCapacitorPush\(\{\s*remote:\s*false\s*\}\)/.test(localBody));
+  const resync = strip(readFileSync(path.join(root, "components", "NativePushResync.tsx"), "utf8"));
+  check("NativePushResync reads the user from useAuth and its effect depends on the email",
+    /useAuth\(\)/.test(resync) && /\},\s*\[email\]\)/.test(resync));
+  check("NativePushResync re-POSTs the existing browser subscription on sign-in (web resync)",
+    /getSubscription\(\)/.test(resync) && /api\.subscribePush\(/.test(resync) && /if \(email\) resyncWebPush\(\)/.test(resync));
+  check("logout() clears its push race timer", /clearTimeout\(pushTimer\)/.test(logoutBody));
   check("unregisterCapacitorPush skips the network DELETE when remote is false", /if \(remote\)/.test(push) && /resyncCompleted = false/.test(push));
 }
 

@@ -164,13 +164,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // never block sign-out. The server-side /auth/logout then deletes every
   // push registration for the email as the backstop.
   async function logout() {
+    let pushTimer: ReturnType<typeof setTimeout> | undefined;
     try {
       await Promise.race([
         unregisterCapacitorPush(),
-        new Promise<void>((resolve) => setTimeout(resolve, 3000)),
+        new Promise<void>((resolve) => { pushTimer = setTimeout(resolve, 3000); }),
       ]);
     } catch (e) {
       console.error("[AuthProvider] push unregister failed", e);
+    } finally {
+      clearTimeout(pushTimer);
     }
     try {
       await api.logout();
