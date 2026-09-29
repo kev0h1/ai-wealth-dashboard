@@ -10,6 +10,7 @@ import { WEB_PRODUCT_OFF } from "@/lib/webProduct";
 import LoginScreen from "@/components/LoginScreen";
 import AppOnlyPage from "@/components/AppOnlyPage";
 import Onboarding from "@/components/Onboarding";
+import { unregisterCapacitorPush } from "@/lib/capacitorPush";
 import { invalidateAllAccountData } from "@/lib/accountMutations";
 import { clearHomeDismissedAdvice } from "@/lib/homeDismissedAdvice";
 import { resolveFullName } from "@/lib/displayName";
@@ -157,7 +158,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // sign-out. The 401 handler, revalidate and account deletion must NOT use
   // this: their token is already revoked, and a stray 401 on an unrelated
   // route must never sign out every device. They use clearLocalSession().
+  //
+  // A120: the device's native push registration is dropped FIRST (it also
+  // needs the still-live token for its DELETE), bounded to ~3s so it can
+  // never block sign-out. The server-side /auth/logout then deletes every
+  // push registration for the email as the backstop.
   async function logout() {
+    try {
+      await Promise.race([
+        unregisterCapacitorPush(),
+        new Promise<void>((resolve) => setTimeout(resolve, 3000)),
+      ]);
+    } catch (e) {
+      console.error("[AuthProvider] push unregister failed", e);
+    }
     try {
       await api.logout();
     } catch (e) {
@@ -168,6 +182,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Local-only sign-out: no network call. See logout() above for who uses which.
   function clearLocalSession() {
+    // A120: session already revoked (or being deleted), so the server has
+    // dropped the registrations; tear the device side down without a call.
+    void unregisterCapacitorPush({ remote: false });
     clearToken();
     setUser(null);
 
