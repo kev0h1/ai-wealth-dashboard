@@ -7,7 +7,7 @@ import { RefreshCw, AlertTriangle, AlertCircle, TrendingDown, TrendingUp, Minus,
 import type { CompanionItem, PlanDest, PlanDestBill, SafeToSpend, UnfundedMoveEntry } from "@/lib/api";
 import { api } from "@/lib/api";
 import { invalidateVerdictCache } from "@/lib/verdictCache";
-import { useAuth } from "@/components/AuthProvider";
+import { coverPlanProtectsHeader, coverPlanSummary, type DueRange } from "@/lib/coverPlanDue";
 import PaydayPlanCard from "@/components/PaydayPlanCard";
 import PennyMark from "@/components/PennyMark";
 import { BRAND_GRADIENT } from "@/lib/brand";
@@ -21,6 +21,7 @@ import { isPaydayWindowActive } from "@/lib/paydayWindow";
 import { readHomeDismissedAdvice, dismissOnHome, pruneHomeDismissedAdvice } from "@/lib/homeDismissedAdvice";
 import { hasFundedCoverMove, isActionableCompanionItem } from "@/lib/companionItems";
 import MoneyText from "@/components/MoneyText";
+import { initialsOf } from "@/lib/displayName";
 
 // Window-scoped local dismiss for the Payday plan ENTRY ROW (the Home-only
 // teaser, not the live PaydayPlanCard, which already dismisses itself
@@ -55,6 +56,13 @@ function writeDismissedPaydayEntry(nextPayday: string): void {
 interface HomeBriefProps {
   items: CompanionItem[];
   firstName?: string;
+  /** D7: the full resolved name (profile.full_name preferred, session name
+   * as fallback, never an email or its local part — see lib/displayName.ts)
+   * used for the avatar's initials below. `firstName` above is already
+   * derived from this same resolution by the caller (HomePage.tsx); this
+   * is passed separately only because the avatar wants up to two initials,
+   * not just the first word. */
+  displayName?: string;
   safeToSpend: SafeToSpend | null;
   loading: boolean;
   syncing: boolean;
@@ -310,12 +318,14 @@ function MoveSourcesDisclosure({
 function MovePaymentEvidence({
   bills,
   due,
+  dueRange,
   hideNetWorth,
   onSkip,
   skippingKey,
 }: {
   bills: readonly (PlanDestBill & { due?: string; overdue?: boolean })[];
   due: string;
+  dueRange?: DueRange;
   hideNetWorth: boolean;
   onSkip?: (bill: PlanDestBill) => void;
   skippingKey?: string | null;
@@ -357,7 +367,7 @@ function MovePaymentEvidence({
         <span className="min-w-0">
           <span className="block text-[13px] font-semibold text-slate-800 dark:text-slate-100">Protects {bills.length} payments</span>
           <span className="block text-[12px] leading-4 text-slate-500 dark:text-slate-400">
-            {hasOverdue ? (hasCurrent ? "Overdue and upcoming" : "Overdue") : `Due by ${due}`}
+            {hasOverdue ? (hasCurrent ? "Overdue and upcoming" : "Overdue") : coverPlanProtectsHeader(dueRange ?? { needs_by: due }, bills.length)}
           </span>
         </span>
         <span className="flex shrink-0 items-center gap-2">
@@ -646,7 +656,7 @@ export function AskGenericCard({ item, router, maskAmounts, dismissible, onHomeD
       <div className="flex items-start gap-3">
         <BriefIcon tone="penny"><CreditCard size={16} /></BriefIcon>
         <div className="min-w-0 flex-1">
-          <PennyKindLabel hideAttribution={hideAttribution}>Card detail</PennyKindLabel>
+          <PennyKindLabel hideAttribution={hideAttribution}>{item.kind_label ?? "Card detail"}</PennyKindLabel>
           <p className="mt-1 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-slate-100">
             {item.headline}
           </p>
@@ -1209,7 +1219,7 @@ function overduePaymentCountCopy(count: number): string {
 
 /**
  * One source of truth for payment timing on both MoveCard render paths.
- * `plan_dest.needs_by` is the account's earliest event, so a mixed card
+ * `plan_dest.needs_by` is the account's earliest event (`needs_by_last` the latest), so a mixed card
  * must derive its upcoming deadline from the non-overdue bill rows instead.
  */
 function movePaymentCopy(destination: PlanDest, bills: readonly MovePaymentBill[], covered: boolean) {
@@ -1244,7 +1254,7 @@ function movePaymentCopy(destination: PlanDest, bills: readonly MovePaymentBill[
       : bills.length === 1
         ? `Payment due ${destination.needs_by}`
         : bills.length > 1
-          ? `${bills.length} payments due by ${destination.needs_by}`
+          ? coverPlanSummary(destination, bills.length)
           : "Move ready to review";
 
   const clearClause = !covered
@@ -1372,6 +1382,7 @@ export function MoveCard({ item, hideNetWorth, maskAmounts, hideAttribution, dis
         <MovePaymentEvidence
           bills={paymentBills}
           due={destination.needs_by}
+          dueRange={destination}
           hideNetWorth={hideNetWorth}
           onSkip={handleSkip}
           skippingKey={skippingKey}
@@ -1462,6 +1473,7 @@ export function MoveCard({ item, hideNetWorth, maskAmounts, hideAttribution, dis
           <MovePaymentEvidence
             bills={paymentBills}
             due={item.plan_dest.needs_by}
+            dueRange={item.plan_dest}
             hideNetWorth={hideNetWorth}
             onSkip={handleSkip}
             skippingKey={skippingKey}
@@ -2216,24 +2228,18 @@ export function HomeBriefClearedRow({ cleared, router }: HomeBriefClearedRowProp
   );
 }
 
-export default function HomeBrief({ items, firstName, safeToSpend, loading, syncing, syncError, onSync, hideNetWorth, onRefresh, attnTarget, dismissible, hasAccounts, onClearedChange, onInsightWinVisibleChange, onCoverMoveVisibleChange, banner }: HomeBriefProps) {
+export default function HomeBrief({ items, firstName, displayName, safeToSpend, loading, syncing, syncError, onSync, hideNetWorth, onRefresh, attnTarget, dismissible, hasAccounts, onClearedChange, onInsightWinVisibleChange, onCoverMoveVisibleChange, banner }: HomeBriefProps) {
   const router = useRouter();
-  const { user } = useAuth();
   const name = firstName || "there";
 
-  // Avatar initials — derived from the full account name (not just firstName),
-  // up to two initials from the first two words. Falls back to a generic
-  // person icon when there's no name to work with yet.
-  const avatarInitials = (() => {
-    const full = user?.name?.trim();
-    if (!full) return null;
-    const words = full.split(/\s+/).filter(Boolean);
-    const initials = words
-      .slice(0, 2)
-      .map((w) => w[0]?.toUpperCase() ?? "")
-      .join("");
-    return initials || null;
-  })();
+  // Avatar initials — derived from the full resolved name (not just
+  // firstName), up to two initials from the first two words. Falls back to
+  // a generic person icon when there's no real name to work with yet.
+  // D7: this used to read the raw session name (`user?.name`) directly,
+  // which is not reliable — see lib/displayName.ts for why — so it now
+  // reads the same profile-preferred `displayName` the caller already
+  // resolved for the greeting above.
+  const avatarInitials = initialsOf(displayName) ?? null;
 
   // Hydration guard: render a neutral greeting on first paint to avoid SSR/client
   // mismatch from new Date().getHours(), then swap to the time-aware version after mount.

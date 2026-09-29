@@ -40,7 +40,7 @@ import { useCategoryIcons } from "@/components/IconProvider";
 import { formatDate } from "@/lib/payPeriod";
 import { formatCurrency } from "@/lib/currency";
 import { accountBrand, BankBadge } from "@/components/AccountMiniCard";
-import { invalidateVerdictCache } from "@/lib/verdictCache";
+import { invalidateAfterTransactionCorrection } from "@/lib/cacheInvalidation";
 
 const MINUS = "−"; // U+2212, never ASCII hyphen-minus, for money (copy rule)
 
@@ -161,8 +161,20 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
   // there still reads true. Money-shape is unaffected by a single
   // transaction's category — only a category's KIND does, wired in
   // CategoriesContext, not here.
+  //
+  // G146 (2026-09-28): this is ALSO the one place every correction that
+  // goes through this sheet funnels through, so it's the right spot to
+  // close the client-cache gap that item found — lib/homeCache.ts's
+  // companionItems snapshot (the Home brief) and lib/signalsCache.ts's
+  // category multiples (the spending-pattern card) were never told a
+  // correction had happened at all, on any of the four mount points, and
+  // kept painting pre-correction figures from module memory until a hard
+  // refresh. `invalidateAfterTransactionCorrection` folds the previously
+  // solitary `invalidateVerdictCache()` call in here too — same effect,
+  // one fewer call — so every correction clears all four caches that can
+  // hold stale figures for it in one place.
   function notifyUpdated(tx: Transaction, additionalIds?: string[]) {
-    invalidateVerdictCache();
+    invalidateAfterTransactionCorrection(tx.id, { oldCategory: originalCategory, newCategory: tx.category });
     onUpdated(tx, additionalIds);
   }
 
@@ -301,8 +313,12 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
       // invalidation, so without clearing again here a verdict cached in
       // the gap between the two (e.g. another tab, or this one navigating
       // away and back while the propagation card was showing) would still
-      // be missing the siblings' effect for up to the TTL.
-      invalidateVerdictCache();
+      // be missing the siblings' effect for up to the TTL. G146: the
+      // siblings can also move the signals/home-brief caches the same way
+      // the primary transaction did, so this uses the same shared
+      // invalidator `notifyUpdated` does above, not the narrower verdict-
+      // only clear this used before that item.
+      invalidateAfterTransactionCorrection(transaction.id, { oldCategory: originalCategory, newCategory: proposal.category });
       finish("Filed and rule saved. Undo", async () => {
         await undoToSpend(proposal.category);
         try { await api.deleteRule(saved.id); } catch { /* best-effort */ }

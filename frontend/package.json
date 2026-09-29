@@ -17,7 +17,9 @@
     "check:nav-coverage": "node --no-warnings --experimental-strip-types scripts/check-nav-coverage.mjs",
     "check:preferences-version": "node --no-warnings --experimental-strip-types scripts/preferences-version.test.mjs",
     "check:serial-queue": "node --no-warnings --experimental-strip-types scripts/serial-queue.test.mjs",
+    "check:turbopack-root": "node scripts/turbopack-root.test.mjs",
     "check:scroll-nav-detect": "node --no-warnings --experimental-strip-types scripts/scroll-nav-detect.test.mjs",
+    "check:account-sheet-history": "node --no-warnings --experimental-strip-types scripts/account-sheet-history.test.mjs",
     "check:preference-save": "node --no-warnings --experimental-strip-types scripts/preference-save.test.mjs",
     "check:preferences-snapshot": "node --no-warnings --experimental-strip-types scripts/preferences-snapshot.test.mjs",
     "check:penny-screen-views": "node --no-warnings --experimental-strip-types scripts/penny-screen-views.test.mjs",
@@ -28,6 +30,7 @@
     "check:verdict-cache": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/verdict-cache.test.mjs",
     "check:category-mutations": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/category-mutations.test.mjs",
     "check:account-mutations": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/account-mutations.test.mjs",
+    "check:correction-cache-clear": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/correction-cache-clear.test.mjs",
     "check:account-cache-coverage": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/check-account-cache-coverage.mjs",
     "check:home-cache-shape": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/home-cache-shape.test.mjs",
     "check:spend-from-render": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/spend-from-render.test.mjs",
@@ -38,7 +41,13 @@
     "check:legacy-bank-provider": "node --no-warnings --experimental-strip-types scripts/legacy-bank-provider.test.mjs",
     "check:consent-expiry": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/consent-expiry.test.mjs",
     "check:purchase-availability-ssr": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/purchase-availability-ssr.test.mjs",
-    "check:coming-up-dates": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/coming-up-dates.test.mjs"
+    "check:coming-up-dates": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/coming-up-dates.test.mjs",
+    "check:app-lock": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/app-lock.test.mjs",
+    "check:app-lock-inert": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/app-lock-inert.test.mjs",
+    "check:app-lock-gate": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/app-lock-gate.test.mjs",
+    "check:display-name": "node --no-warnings --experimental-strip-types scripts/display-name.test.mjs",
+    "check:global-401": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/global-401.test.mjs",
+    "check:cover-plan-due": "node --no-warnings --experimental-strip-types scripts/cover-plan-due.test.mjs"
   },
   "dependencies": {
     "@aparajita/capacitor-biometric-auth": "^10.0.0",

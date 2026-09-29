@@ -109,12 +109,17 @@ def test_valid_token_issues_session():
     assert data["name"] == "Kevin M"
 
 
-def test_valid_token_without_fullname_falls_back_to_email_localpart():
+def test_valid_token_without_fullname_leaves_session_name_empty():
+    # D7: this used to fall back to the email's local part
+    # ("kevin.maingi12"), which then showed up verbatim as a Home greeting
+    # for a repeat Apple sign-in (worse still for a Hide My Email relay
+    # address). It must not manufacture a name from the email server-side;
+    # an empty name is something the frontend can safely fall back past.
     token = _make_token()
     result = _run(auth_module.apple_native({"identityToken": token}))
     from app.core.config import serializer, SESSION_MAX_AGE
     data = serializer.loads(result["session_token"], max_age=SESSION_MAX_AGE)
-    assert data["name"] == "kevin.maingi12"
+    assert data["name"] == ""
 
 
 def test_wrong_audience_rejected():

@@ -13,6 +13,8 @@ from typing import Optional
 
 from fastapi import HTTPException
 
+from app.core.timeutil import as_utc
+
 logger = logging.getLogger(__name__)
 
 
@@ -267,7 +269,7 @@ async def get_subscription(email: str) -> Subscription:
     if doc.get("status") == "expired":
         return Subscription(default_tier, "expired", has_paid_subscription=stripe_backed)
 
-    expires_at = doc.get("expires_at")
+    expires_at = as_utc(doc.get("expires_at"))
     if expires_at and expires_at < datetime.now(timezone.utc):
         return Subscription(default_tier, "expired", has_paid_subscription=stripe_backed)
 
@@ -288,7 +290,7 @@ async def get_subscription(email: str) -> Subscription:
         tier, doc.get("status", "active"),
         billing_period=doc.get("billing_period"),
         trial_ends_at=doc.get("trial_ends_at"),
-        renews_at=doc.get("expires_at"),
+        renews_at=expires_at,
         cancel_at_period_end=bool(doc.get("cancel_at_period_end")),
         has_paid_subscription=stripe_backed,
     )
@@ -313,7 +315,7 @@ def _pack_covers_month(pack: dict, ym: str) -> bool:
     purchased_ym = pack.get("year_month") or ""
     if purchased_ym > ym:
         return False
-    expires_at = pack.get("expires_at")
+    expires_at = as_utc(pack.get("expires_at"))
     if expires_at is None:
         return True
     return expires_at.strftime("%Y-%m") >= ym
@@ -510,10 +512,10 @@ async def penny_allowance(email: str, *, persist: bool = True) -> dict:
     active_packs = [
         p for p in packs
         if int(p.get("remaining") or 0) > 0
-        and (p.get("expires_at") is None or p["expires_at"] > now)
+        and (p.get("expires_at") is None or as_utc(p["expires_at"]) > now)
     ]
     topup_messages = sum(int(p.get("remaining") or 0) for p in active_packs)
-    expiring_dates = [p["expires_at"] for p in active_packs if p.get("expires_at")]
+    expiring_dates = [as_utc(p["expires_at"]) for p in active_packs if p.get("expires_at")]
     topup_expires_soonest = min(expiring_dates).date().isoformat() if expiring_dates else None
     packs_bought_this_month = sum(1 for p in packs if (p.get("year_month") or "") == ym)
 
@@ -574,10 +576,10 @@ async def mcp_allowance(email: str, *, persist: bool = True) -> dict:
     active_packs = [
         p for p in packs
         if int(p.get("remaining") or 0) > 0
-        and (p.get("expires_at") is None or p["expires_at"] > now)
+        and (p.get("expires_at") is None or as_utc(p["expires_at"]) > now)
     ]
     pack_calls = sum(int(p.get("remaining") or 0) for p in active_packs)
-    expiring_dates = [p["expires_at"] for p in active_packs if p.get("expires_at")]
+    expiring_dates = [as_utc(p["expires_at"]) for p in active_packs if p.get("expires_at")]
     pack_expires_soonest = min(expiring_dates).date().isoformat() if expiring_dates else None
     packs_bought_this_month = sum(1 for p in packs if (p.get("year_month") or "") == ym)
 

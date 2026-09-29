@@ -476,9 +476,14 @@ def test_income_avg_amount_unaffected_by_recent_averaging():
     for i, amount in enumerate([500, 500, 500, 500, 600, 600, 600, 600]):
         txns.append(txn("ACME PAYROLL WEEKLY", d + timedelta(days=7 * i), amount, category="Income"))
     results = _detect_recurring(txns, today=date(2026, 7, 25), is_income=True)
-    matches = [r for r in results if r["key"] == "ACME PAYROLL WEEKLY"]
-    assert len(matches) == 1
-    assert matches[0]["avg_amount"] == 550.0
+    # G157: income series are keyed by PAYER identity (counterparty tokens
+    # + destination account), not the raw merchant/description text -- see
+    # app/services/income_payer.py -- so this no longer matches the literal
+    # merchant string. Only one series exists in this fixture, so matching
+    # on that is enough to keep testing what this test is actually about
+    # (recent-amount averaging must not leak into the income branch).
+    assert len(results) == 1
+    assert results[0]["avg_amount"] == 550.0
 
 
 # ---------------------------------------------------------------------------

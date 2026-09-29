@@ -220,7 +220,15 @@ async def apple_native(body: dict):
     Apple only includes the user's name in the *first* authorization ever
     performed with this app, so the client passes it through as `fullName`
     on that first call; every call after that has no name in the token or
-    from the client, so we fall back to the email's local-part.
+    from the client. D7: this used to fall back to the email's local-part
+    (e.g. "jjdk4" for a Hide My Email relay address), which then showed up
+    verbatim as a greeting on Home ("Good evening, jjdk4..."). The session
+    `name` is left empty in that case instead, the same as the Google
+    sign-in routes below already do when their provider hands over no
+    display name — callers (see frontend/lib/displayName.ts) prefer the
+    user's own profile.full_name over this session name anyway, and an
+    empty string is something they can safely fall back past, unlike an
+    email fragment that reads as a real name.
 
     Hide My Email caveat: when a user chooses to relay their email, Apple
     issues a stable, per-app, *verified* @privaterelay.appleid.com address.
@@ -251,7 +259,7 @@ async def apple_native(body: dict):
         # D5: see google_native()'s equivalent comment above.
         raise HTTPException(403, detail={"code": "INVITE_ONLY"})
 
-    name = body.get("fullName") or email.split("@")[0]
+    name = body.get("fullName") or ""
     session_token = serializer.dumps({"email": email, "name": name})
     return {"session_token": session_token, "ok": True}
 

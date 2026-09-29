@@ -45,11 +45,12 @@ _TOMBSTONE_MARGIN = timedelta(minutes=5)
 def _key(email: str) -> str:
     """Hash the tombstone key rather than keying by the raw email, because
     `app.services.retention.erase_user` deletes every `*_col` document
-    whose `_id` equals the raw email (its dir()-based sweep walks every
-    collection on `app.db.collections` by that exact rule) — a tombstone
-    keyed by the plain email would be erased by the very call it exists to
-    outlive. Hashing sidesteps that without needing to special-case this
-    collection in erase_user's sweep."""
+    whose `_id` equals the raw email (its manifest-driven sweep, see A101's
+    `app.db.collections.ERASURE_MANIFEST`, walks every collection listed
+    there by that exact rule) — a tombstone keyed by the plain email would
+    be erased by the very call it exists to outlive. Hashing sidesteps that
+    without needing to special-case this collection in erase_user's
+    sweep."""
     normalised = (email or "").strip().lower()
     return hashlib.sha256(normalised.encode()).hexdigest()
 
@@ -62,11 +63,11 @@ async def revoke_sessions(email: str, now: datetime | None = None) -> None:
     later call already caught.
 
     Looks up `session_tombstones_col` fresh from `app.db.collections` on
-    each call (like `app.services.retention.erase_user`'s own dir()-based
-    sweep) rather than binding it at import time, so a test that broadly
-    replaces every `*_col` collection on that module (retention.py's own
-    test suite does this for `erase_user`) transparently covers this call
-    too, instead of silently reaching the real Motor client.
+    each call (like `app.services.retention.erase_user`'s own manifest-
+    driven sweep) rather than binding it at import time, so a test that
+    broadly replaces every `*_col` collection on that module (retention.py's
+    own test suite does this for `erase_user`) transparently covers this
+    call too, instead of silently reaching the real Motor client.
 
     A84 rework: the itsdangerous session tombstone above was the only
     thing this function revoked, but F2's OAuth 2.1 server

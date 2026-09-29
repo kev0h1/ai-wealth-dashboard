@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, useRef, type ReactNode } from "react";
 import dynamic from "next/dynamic";
-import { AlertTriangle, AlertCircle, Clock, ChevronDown, EyeOff, X } from "lucide-react";
+import { EyeOff, X } from "lucide-react";
 import { api, Account, Allocation, CashflowData } from "@/lib/api";
 import { getAccountsCached } from "@/lib/accountsCache";
 import { usePreferences } from "@/components/PreferencesContext";
@@ -21,7 +21,7 @@ import { computeClusterMarkers } from "@/lib/upcomingMarkers";
 import UpcomingHeroCard from "@/components/upcoming/UpcomingHeroCard";
 import UpcomingDayCard from "@/components/upcoming/UpcomingDayCard";
 import UpcomingDivider from "@/components/upcoming/UpcomingDivider";
-import SwipeDismissRow from "@/components/upcoming/SwipeDismissRow";
+import UpcomingRow, { type UpcomingRowModel } from "@/components/upcoming/UpcomingRow";
 import SetAsideList, { type SetAsideItem } from "@/components/upcoming/SetAsideList";
 
 // Editing flows are not needed to understand the initial runway. Keeping them
@@ -1187,11 +1187,6 @@ export default function PlanningPage() {
           return d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
         }
 
-        function formatPendingDate(iso: string) {
-          const d = new Date(iso);
-          return d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
-        }
-
         function renderRow(item: typeof displayItems[0]) {
           const isPlanned = item.type === "bill" && item.planned;
           // Risk doesn't care who authored the bill — planned rows flag the
@@ -1245,348 +1240,61 @@ export default function PlanningPage() {
               setEditItem({ name: item.name, amount: item.amount, expected_date: item.expected_date, original_date: item.original_date, type: item.type, category: item.category, edited: item.edited, rule_label: item.rule_label });
             }
           };
+          const model: UpcomingRowModel = {
+            rowKey,
+            type: item.type,
+            name: item.name,
+            amount: item.amount,
+            expectedDate: item.expected_date,
+            originalDate: item.original_date,
+            category: item.category,
+            accountLabel: item.account_bank || item.account_name,
+            accountBalance: item.account_balance,
+            edited: item.edited,
+            isPlanned,
+            createdViaPenny: item.type === "bill" && item.created_via === "penny",
+            isMovement: item.isMovement,
+            isCreditCard: item.is_credit_card,
+            isSettling,
+            pending: item.pending,
+            daysPastDue: item.days_past_due,
+            amountBasis: item.type === "bill" ? item.amount_basis : null,
+            flagged,
+            timingRisk,
+            accountShort: item.account_short,
+            accountTiming: item.account_timing,
+            atRisk: item.at_risk,
+            movementCalm,
+            unfundedMovement: !!(item.at_risk_raw || item.account_short_raw),
+            highlighted,
+            why: atRiskMatch?.movementCulprit ? {
+              open: whyOpen.has(rowKey),
+              culprit: {
+                amount: atRiskMatch.movementCulprit.amount,
+                expectedDate: atRiskMatch.movementCulprit.expected_date,
+              },
+            } : undefined,
+            after: isSettling
+              ? { kind: "settling" }
+              : isPooledNoOp(item)
+                ? { kind: "pooled-transfer" }
+                : item.is_credit_card
+                  ? { kind: "credit-card" }
+                  : { kind: "balance", value: item.balance_after },
+            categoryColour: colour,
+            CategoryIcon: Icon,
+          };
+
           return (
-            <SwipeDismissRow
+            <UpcomingRow
               key={rowKey}
+              model={model}
+              treatment="current"
+              onOpen={openItem}
               onDismiss={() => isPlanned ? deletePlannedWithUndo(item.planned_id!) : dismissUpcoming(item.name)}
-              label={isPlanned ? "Delete" : "Not recurring"}
-            >
-              <div
-                data-bill-key={rowKey}
-                // Variant A, "The Ledger" (owner pick, 2026-08-28): at-risk
-                // rows carry no tinted background or coloured border —
-                // red/amber is spent only on the icon chip and the amount
-                // figure below, never on a filled card.
-                //
-                // G131 (g124-upcoming-refine fold-in): the row no longer
-                // owns its own rounded-2xl/glass-card surface. Same-day
-                // rows now sit flush, hairline-divided, inside one bounded
-                // UpcomingDayCard (the transactions-hub grammar) — see
-                // renderGroups below. A highlighted row (jumped to via the
-                // hero's Review link) keeps its ring but inset and square,
-                // so it never spills its corners across the hairline into
-                // a neighbouring row.
-                className={`relative${highlighted ? " ring-2 ring-inset ring-rose-400 dark:ring-rose-500" : ""}`}
-              >
-                <button
-                  type="button"
-                  onClick={openItem}
-                  aria-label={isPlanned ? `Edit planned payment: ${item.name}` : `Edit ${item.name}`}
-                  className="absolute inset-0 z-0 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/40 active:bg-slate-100 dark:active:bg-slate-700/60 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500"
-                />
-                <div className="relative z-[1] pointer-events-none px-4 py-3 flex items-center gap-3">
-                {flagged ? (
-                  <span className="w-8 h-8 rounded-lg bg-rose-100 dark:bg-rose-900/40 flex items-center justify-center flex-shrink-0 text-rose-500" aria-hidden="true">
-                    <AlertTriangle size={14} />
-                  </span>
-                ) : timingRisk ? (
-                  <span className="w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center flex-shrink-0 text-amber-500 dark:text-amber-400" aria-hidden="true">
-                    <AlertCircle size={14} />
-                  </span>
-                ) : isSettling ? (
-                  // Neutral slate, never the category colour: a Debt-kind
-                  // settling row (category brand colour #f87171, a red hue)
-                  // would otherwise leak a red-looking chip onto a row that
-                  // is fully resolved, the exact bug the owner flagged.
-                  // Same "status icon overrides identity icon" convention
-                  // the flagged/timingRisk chips already use above.
-                  <span className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center flex-shrink-0 text-slate-400 dark:text-slate-500" aria-hidden="true">
-                    <Clock size={14} />
-                  </span>
-                ) : (
-                  <span
-                    className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-                    style={{ backgroundColor: `${colour}26` }}
-                    aria-hidden="true"
-                  >
-                    <Icon size={15} style={{ color: colour }} />
-                  </span>
-                )}
-
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5 min-w-0">
-                    {/* Bill name stays ink regardless of risk severity
-                        (Variant A: red is confined to the icon chip and
-                        the amount figure only, never the row's text). */}
-                    <p className="text-sm font-medium truncate text-slate-800 dark:text-slate-100">
-                      {item.name}
-                    </p>
-                    {isPlanned ? (
-                      <span className="flex-shrink-0 text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 px-1.5 py-0.5 rounded-md">planned</span>
-                    ) : item.edited && (
-                      <span className="flex-shrink-0 text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 px-1.5 py-0.5 rounded-md">edited</span>
-                    )}
-                  </div>
-
-                  {/* Origin badge — same whisper-tier treatment as the
-                      allocation cards' own badge (AllocationCards above):
-                      no icon, no gradient, quiet caption only, only ever
-                      meaningful on a planned row. */}
-                  {item.type === "bill" && item.created_via === "penny" && (
-                    <p className="text-[10px] text-slate-400 dark:text-slate-500">set up with Penny</p>
-                  )}
-
-                  {/* Variant A, "The Ledger": the repeated "Includes a
-                      £X move" sentence is told once already, on the merged
-                      verdict card above. Each row instead carries a
-                      collapsed "Why? ›" toggle (user-invoked disclosure,
-                      not an animation gate) that reveals the same fact
-                      locally, keyed by rowKey in the page-level `whyOpen`
-                      set (renderRow is a plain helper, not a component, so
-                      per-row toggle state can't live in a local hook).
-                      Figures Are Ink / Variant A: the subline and the "Why"
-                      link both stay neutral ink, red is confined to the
-                      icon chip and the amount figure only. */}
-                  {item.account_short && (item.account_bank || item.account_name) && (
-                    <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1.5 min-w-0">
-                      <span className="truncate min-w-0">
-                        {item.account_bank || item.account_name} · only <span className="font-mono tabular-nums">{sym}{(item.account_balance ?? 0).toLocaleString("en-GB", { maximumFractionDigits: 0 })}</span> available
-                      </span>
-                      {atRiskMatch?.movementCulprit && (
-                        <button
-                          type="button"
-                          onClick={(e) => { e.stopPropagation(); toggleWhy(rowKey); }}
-                          className="pointer-events-auto flex-shrink-0 font-medium text-slate-400 dark:text-slate-500 underline-offset-2 hover:underline focus:outline-none focus-visible:underline"
-                        >
-                          Why? {whyOpen.has(rowKey) ? <ChevronDown size={10} className="inline" aria-hidden="true" /> : "›"}
-                        </button>
-                      )}
-                    </p>
-                  )}
-                  {item.account_short && whyOpen.has(rowKey) && atRiskMatch?.movementCulprit && (
-                    <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
-                      Includes a <span className="font-mono tabular-nums">{sym}{atRiskMatch.movementCulprit.amount.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span> move {formatItemDate(atRiskMatch.movementCulprit.expected_date)}
-                    </p>
-                  )}
-                  {/* Timing-risk twin of the line above: same account, same
-                      atRiskKeySet membership, but genuineAccountIds says the
-                      money due in would have covered it if credited first.
-                      Hedged like the callout's copy, never claims the
-                      transfer has landed, only that it's due. */}
-                  {item.account_timing && (item.account_bank || item.account_name) && (
-                    <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1.5 min-w-0">
-                      <span aria-hidden className="inline-block w-1.5 h-1.5 rounded-full bg-amber-600 dark:bg-amber-400 flex-shrink-0" />
-                      <span className="truncate min-w-0">{item.account_bank || item.account_name} · money&apos;s due in around now</span>
-                      {atRiskMatch?.movementCulprit && (
-                        <button
-                          type="button"
-                          onClick={(e) => { e.stopPropagation(); toggleWhy(rowKey); }}
-                          className="pointer-events-auto flex-shrink-0 font-medium text-slate-400 dark:text-slate-500 underline-offset-2 hover:underline focus:outline-none focus-visible:underline"
-                        >
-                          Why? {whyOpen.has(rowKey) ? <ChevronDown size={10} className="inline" aria-hidden="true" /> : "›"}
-                        </button>
-                      )}
-                    </p>
-                  )}
-                  {item.account_timing && whyOpen.has(rowKey) && atRiskMatch?.movementCulprit && (
-                    <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1.5 min-w-0">
-                      <span aria-hidden className="inline-block w-1.5 h-1.5 rounded-full bg-amber-600 dark:bg-amber-400 flex-shrink-0" />
-                      <span className="truncate">Includes a <span className="font-mono tabular-nums">{sym}{atRiskMatch.movementCulprit.amount.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span> move {formatItemDate(atRiskMatch.movementCulprit.expected_date)}</span>
-                    </p>
-                  )}
-                  {item.at_risk && !item.account_short && !item.account_timing && (
-                    <>
-                      <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">Overall balance will be low</p>
-                      {item.type === "bill" && (item.account_bank || item.account_name) && (
-                        <p className="text-xs text-slate-400 dark:text-slate-500 truncate">
-                          {item.account_bank || item.account_name}
-                        </p>
-                      )}
-                    </>
-                  )}
-                  {/* A movement that the simulation says may not be covered
-                      is not a risk (no fee, no cut-off, no credit damage,
-                      worst case it just doesn't happen) — calm, uncoloured
-                      copy with a small amber signifier dot rather than the
-                      red treatment above. */}
-                  {movementCalm && (
-                    <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
-                      <span aria-hidden className="inline-block w-1.5 h-1.5 rounded-full bg-amber-600 dark:bg-amber-400 flex-shrink-0" />
-                      May not go through if the balance is tight. No fee either way.
-                    </p>
-                  )}
-                  {item.is_credit_card && (item.account_bank || item.account_name) && !flagged && !timingRisk && (
-                    <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
-                      {item.account_bank || item.account_name}
-                    </p>
-                  )}
-                  {item.type === "bill" && !item.account_short && !item.account_timing && !item.is_credit_card && !item.at_risk && !movementCalm && (item.account_bank || item.account_name) && (
-                    <p className="text-xs text-slate-400 dark:text-slate-500 truncate">
-                      {item.account_bank || item.account_name}
-                    </p>
-                  )}
-
-                  {/* G131 (g124-upcoming-refine fold-in, ask #4): no
-                      per-row date any more — the bounded day-card's own
-                      heading above already states this row's absolute
-                      date, so repeating it here (previously muted one step
-                      further for a next-period row) would just be noise.
-                      The distance a next-period row used to signal via
-                      that muted date is now carried by which day-group
-                      it's in, on the far side of the payday-boundary
-                      divider. */}
-                  {item.type === "bill" && item.pending && (() => {
-                    const dpd = item.days_past_due ?? 0;
-                    // Owner decision (Kevin, 2026-08-27): a pending OWN
-                    // transfer is not a merchant payment, so it never gets
-                    // the "worth checking with them" copy below, there's no
-                    // "them". Instead: quiet, non-red copy, and when the
-                    // conservative walk says the source account can't fund
-                    // it (at_risk_raw / account_short_raw, already computed
-                    // above for exactly this purpose, no new arithmetic
-                    // here), a small leading amber dot plus the skip
-                    // affordance from day one of pending rather than
-                    // waiting for the 5-day threshold below. Movements
-                    // still never take the red flagged container or the
-                    // account-level amber timing-risk container, this is a
-                    // row-level amber signifier only (Figures Are Ink).
-                    if (item.isMovement) {
-                      const pendingDateStr = formatPendingDate(item.original_date ?? item.expected_date);
-                      const unfunded = !!(item.at_risk_raw || item.account_short_raw);
-                      const showDismiss = unfunded || dpd >= 5;
-                      return (
-                        <div>
-                          {unfunded ? (
-                            <p className="text-xs leading-snug text-slate-500 dark:text-slate-400 flex items-center gap-1.5 min-w-0">
-                              <span aria-hidden className="inline-block w-1.5 h-1.5 rounded-full bg-amber-600 dark:bg-amber-400 flex-shrink-0" />
-                              <span className="truncate">Planned for {pendingDateStr}, hasn&apos;t left. {item.account_bank || item.account_name || "The account"} may not have the funds for it.</span>
-                            </p>
-                          ) : (
-                            <p className="text-xs leading-snug text-slate-500 dark:text-slate-400">
-                              Planned for {pendingDateStr}, hasn&apos;t left yet.
-                            </p>
-                          )}
-                          {showDismiss && (
-                            <button
-                              type="button"
-                              onClick={(e) => { e.stopPropagation(); skipOccurrence(item); }}
-                              className="pointer-events-auto text-xs font-medium text-slate-500 dark:text-slate-400 hover:underline underline-offset-2 mt-0.5 focus:outline-none focus-visible:underline"
-                            >
-                              Dismiss for this month
-                            </button>
-                          )}
-                        </div>
-                      );
-                    }
-                    if (dpd >= 5) {
-                      const pendingDateStr = formatPendingDate(item.original_date ?? item.expected_date);
-                      const isDebt = item.category === "Debt";
-                      return (
-                        <div>
-                          <p className={`text-xs leading-snug ${isDebt ? "text-red-600 dark:text-red-400" : "text-slate-500 dark:text-slate-400"}`}>
-                            {isDebt
-                              ? `Expected ${pendingDateStr}, hasn't left. A missed card payment can mean fees, so worth checking today.`
-                              : `Expected ${pendingDateStr}, we haven't seen it leave. Worth checking with them.`}
-                          </p>
-                          <button
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); skipOccurrence(item); }}
-                            className="pointer-events-auto text-xs font-medium text-slate-500 dark:text-slate-400 hover:underline underline-offset-2 mt-0.5 focus:outline-none focus-visible:underline"
-                          >
-                            Dismiss for this month
-                          </button>
-                        </div>
-                      );
-                    }
-                    return (
-                      <p className="text-xs text-slate-400 dark:text-slate-500">
-                        expected {new Date(item.original_date ?? item.expected_date).toLocaleDateString("en-GB", { weekday: "short" })}, hasn&apos;t left yet
-                      </p>
-                    );
-                  })()}
-                </div>
-
-                <div className="text-right flex-shrink-0">
-                  {/* Settling figure: one weight down (semibold, not bold)
-                      and one muted step off full ink (matches the row's
-                      own secondary-text slate, same ramp as its "pool left"
-                      caption) — never red/amber (Figures Are Ink / Red Is
-                      Risk), and never hedged with "~" (the amount is exact,
-                      sourced from the bank's own pending feed, not a
-                      prediction). This is the one deliberate de-emphasis:
-                      a settling row's amount should read as quieter than a
-                      still-live figure at a glance, without needing the
-                      caption line below to explain why. */}
-                  <p className={`text-base font-mono tabular-nums ${
-                    item.type === "income" ? "font-bold text-emerald-500" :
-                    flagged ? "font-bold text-rose-600 dark:text-rose-400" :
-                    isSettling ? "font-semibold text-slate-500 dark:text-slate-400" :
-                    "font-bold text-slate-800 dark:text-slate-100"
-                  }`}>
-                    {item.type === "income" ? "+" : "−"}
-                    {/* Forward contract: a credit-card repayment bill can
-                        optionally carry amount_basis: "balance_estimate"
-                        (derived from the card's live balance rather than
-                        history) — render it with a leading "~", the minus
-                        sign stays exactly where it already was. Absent
-                        field renders exactly as today. */}
-                    {item.type === "bill" && item.amount_basis === "balance_estimate" ? "~" : ""}
-                    {sym}{item.amount.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </p>
-                  {/* Variant A, "The Ledger": this column is relabelled
-                      "pool left" (it's the pooled spendable total, not a
-                      per-account figure) and stays neutral ink always, even
-                      when it goes negative — red is confined to the icon
-                      chip and the amount figure above, never this rail. A
-                      pooled no-op transfer (Kevin, 2026-08-26) never
-                      touched `running` above, so showing "£X pool left" on
-                      that row would just repeat the figure from the row
-                      before it while implying this transfer shrank it,
-                      which is exactly the reading he flagged as wrong.
-                      Same size, weight and muted colour as the "pool left"
-                      line so the column still reads as one continuous
-                      rail, just a different final phrase. */}
-                  {isSettling ? (
-                    // Checked before isPooledNoOp so it always wins for a
-                    // settling row regardless of pooled-transfer status:
-                    // these rows sit outside the balance walk by
-                    // construction (backend/app/routers/analytics.py's
-                    // raw_observed_pending_bills never enters raw_bills),
-                    // so `balance_after` is just spendableNow repeated
-                    // identically on every settling row, a frozen figure
-                    // that implies a walk that isn't happening (the exact
-                    // "£1,765 pool left" repetition the owner flagged). One
-                    // quiet word, same caption ramp as "pool left" itself,
-                    // is the honest answer rather than a real-looking but
-                    // meaningless number.
-                    //
-                    // G131 (g124-upcoming-refine fold-in, ask #7): this is
-                    // the ONE right-hand slot a settling row's status word
-                    // lives in now — capitalised ("Settling") per Kevin's
-                    // own correction (2026-09-18), reversing an earlier
-                    // reading that had removed this line and kept a
-                    // descriptive sentence under the payment name instead;
-                    // that sentence ("Left earlier today, still settling")
-                    // is gone, this word is the whole story.
-                    <p className="text-xs font-medium text-slate-400 dark:text-slate-500">
-                      Settling
-                    </p>
-                  ) : isPooledNoOp(item) ? (
-                    <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
-                      stays in your accounts
-                    </p>
-                  ) : item.is_credit_card ? (
-                    // G109 fix-up: a card charge no longer decrements `running`
-                    // (doesNotTouchCash above), so without this branch its row
-                    // would fall through to the plain "After: £X left" caption
-                    // below with the SAME figure as the row before it -- the
-                    // exact frozen/repeated-balance misread the isSettling
-                    // comment above already flags for a different case. One
-                    // quiet word, same caption ramp as "settling"/"stays in
-                    // your accounts", is the honest answer: this charge sits
-                    // on the card, not against the cash pool this column walks.
-                    <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
-                      on your card
-                    </p>
-                  ) : (
-                    <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
-                      After: <span className="font-mono tabular-nums">{item.balance_after >= 0 ? "" : "−"}{sym}{Math.abs(item.balance_after).toLocaleString("en-GB", { maximumFractionDigits: 0 })}</span> {item.balance_after < 0 ? "short" : "left"}
-                    </p>
-                  )}
-                </div>
-                </div>
-              </div>
-            </SwipeDismissRow>
+              onToggleWhy={atRiskMatch?.movementCulprit ? () => toggleWhy(rowKey) : undefined}
+              onSkipOccurrence={item.type === "bill" && item.pending ? () => skipOccurrence(item) : undefined}
+            />
           );
         }
 
@@ -1885,8 +1593,7 @@ export default function PlanningPage() {
   );
 }
 
-// G133: SwipeDismissRow moved to components/upcoming/SwipeDismissRow.tsx
-// (imported above) so the g124-upcoming-refine design preview can share
-// the exact same component instead of never demonstrating swipe at all.
-// See that file's doctrine comment for the full history and the surface
-// fix.
+// G176: UpcomingRow now owns the row presentation and composes
+// SwipeDismissRow for the shipped treatment. PlanningPage keeps the financial
+// derivation, grouping and API state, while design previews exercise the same
+// production row boundary with fixture-safe props.

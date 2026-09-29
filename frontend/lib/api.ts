@@ -1,5 +1,6 @@
 import { Capacitor } from "@capacitor/core";
 import { getToken } from "./auth";
+import { isAppLocked } from "./appLock";
 import { LEGACY_BANK_AVAILABLE, LEGACY_BANK_ID } from "./legacyBankProvider";
 import type { GoLiveItem, GoLiveQuestion, GoLiveOwner } from "./goLive";
 import type {
@@ -1214,6 +1215,11 @@ export type PlanDest = {
   balance: number;
   needs_total: number;
   needs_by: string;
+  /** Label of the latest bill's date (G184); absent on older cached plans. */
+  needs_by_last?: string;
+  /** ISO dates behind `needs_by` / `needs_by_last`. */
+  needs_by_date?: string | null;
+  needs_by_last_date?: string | null;
   bills: PlanDestBill[];
   // True when this destination has no in-window bill at all — the account
   // is simply overdrawn right now (a live balance read, not a projection).
@@ -1267,6 +1273,25 @@ export type PaydayPlanDest = {
   target: number;
   move: number;
   usual: number | null;
+  /**
+   * Which target/move formula this destination follows (G129, backend/app/
+   * services/companion.py's dest-building loop): "savings" keeps its own
+   * accumulation formula (target = move + bills_total, no spend/buffer
+   * padding — the user's saving ritual, mirrored not auto-buffered);
+   * "spend" is the ordinary bill/everyday-spend account (target =
+   * bills_total + spend_typical + buffer). Optional only because older
+   * frozen fixtures captured before G129 landed don't carry it.
+   */
+  destination_kind?: "savings" | "spend";
+  /**
+   * True when this is a savings pot with nothing owed (no bills) but a
+   * habitual amount still moving — an accumulation top-up, not a shortfall
+   * to cover (G129, G128 note). Server-computed; never infer this from
+   * `target === 0`, which only ever held by accident of a backend defect
+   * (G129) now fixed. Optional only for the same frozen-fixture reason as
+   * `destination_kind` above.
+   */
+  habitual_top_up?: boolean;
   /**
    * Active commitment(s) (goals v2) whose per-period slice is flooring this
    * dest's move — e.g. ["Summer holiday"] on a Saving Challenge leg. Absent
@@ -1426,6 +1451,15 @@ export type CompanionItem = {
   envelope_reserved?: boolean;
   amount?: number;
   secondary_action?: CompanionAction | null;
+  /**
+   * Review fix (G157, blocker 3): the small kind label AskGenericCard shows
+   * above the headline ("Card detail" today) was hardcoded for the one ask
+   * type that first used that card; a second ask type (ask:payer_lapsed)
+   * rendered through it with the wrong label. The backend now sends the
+   * right label per item; absent on any ask item persisted before this,
+   * which the card falls back to "Card detail" for.
+   */
+  kind_label?: string;
   proposal?: PaydayProposal;
   // payday_plan fields — present when type === "payday_plan"
   total?: number;
@@ -1543,6 +1577,112 @@ export function authHeaders(): HeadersInit {
   const token = getToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
+
+// A121 (pentest IOS-07/IOS-03, HIGH): the request gate. Thrown/rejected
+// instead of a plain Error so callers can tell "the app lock refused this"
+// apart from a real network failure and stay silent rather than showing an
+// error toast for something that isn't a fault.
+export class AppLockedError extends Error {
+  constructor() {
+    super("Request refused: Sorted is locked.");
+    this.name = "AppLockedError";
+  }
+}
+
+// Every network call this module makes goes through the bare identifier
+// `fetch` — get/post/del just below, plus every hand-rolled call further
+// down in `api`. Verified: every one of those ~65 call sites already builds
+// its headers from authHeaders() (this file has no unauthenticated fetch to
+// accidentally over-gate), so shadowing the global here, once, is the
+// single choke point every one of them passes through — there is no actual
+// "the fetch wrapper" already in this file (get/post/del are three separate
+// functions, and most other calls skip them entirely for FormData uploads,
+// custom retry, etc.), so this shadow IS that wrapper, retrofitted in the
+// one place common to all of them.
+//
+// Deliberately a rejected PROMISE, not a synchronous throw: most call sites
+// below are plain, non-`async` arrow functions
+// (`id => fetch(...).then(r => toJson(r))`), where a synchronous throw
+// during evaluation of fetch's own arguments would escape the call as an
+// uncaught exception at the CALL SITE, not a `.catch`-able rejection —
+// exactly the "issues NO fetch, rejects with AppLockedError" contract this
+// exists to guarantee needs a promise either way. `globalThis.fetch` is
+// read lazily on every call (not captured once at module load) so a test
+// stubbing `global.fetch` before calling an `api.*` method is honoured.
+//
+// Exemptions, matched on the request URL's PATHNAME (ignoring query/hash),
+// not a substring of the raw URL string, so a request to an unrelated path
+// cannot spoof an exemption by carrying one in a query parameter (e.g.
+// `/foo?next=/auth/logout`), and `/auth/logout-not-really` does not match
+// either since pathname equality (via endsWith on a full path segment
+// boundary the API_BASE prefix already guarantees) requires the path to
+// end exactly there.
+//
+//   - POST /auth/logout (A118) — revoking your OWN session is always safe
+//     and desirable regardless of lock state, and A118's server-side
+//     revocation is the entire point of that item (today, the client only
+//     forgets the token locally; a stolen-but-not-yet-expired token stays
+//     valid for up to 7 days otherwise). Independent review of THIS item
+//     (A121) found that without this exemption, that guarantee would
+//     depend on caller order: components/BiometricLock.tsx's
+//     signOutInstead() happens to clear the lock signal before calling
+//     logout(), so today the gate is already open by the time the
+//     revocation call fires — but that is incidental and undocumented, not
+//     a property of the gate itself. A future logout() caller that runs
+//     while still locked (A124's auto-logout-on-401 handler) would have
+//     its revocation POST silently rejected by this gate and swallowed by
+//     A118's own try/catch, leaving the token valid for 7 days — exactly
+//     the finding A118 exists to close.
+//   - POST /auth/session/validate (A125) — components/AuthProvider.tsx's
+//     mount-time check and its A124 focus/visibilitychange/resume
+//     revalidate both need to keep confirming the session, including a
+//     revoked-elsewhere 401, WHILE the device is biometric-locked, so a
+//     phone left locked in a pocket still discovers a remote sign-out
+//     rather than silently going stale until the next unlock. Added when
+//     both call sites were moved from a raw `fetch` onto this shared
+//     `gatedFetch`, closing the structural gap the A121 review raised
+//     (A125): those two sites, plus lib/nativeAuth.ts's pre-session Apple/
+//     Google exchange calls, previously bypassed this gate entirely by
+//     construction rather than by an explicit, reviewable exemption.
+const APP_LOCK_EXEMPT_PATHS = ["/auth/logout", "/auth/session/validate"];
+
+function isAppLockExemptPath(input: RequestInfo | URL): boolean {
+  try {
+    let pathname: string;
+    if (typeof Request !== "undefined" && input instanceof Request) {
+      pathname = new URL(input.url).pathname;
+    } else if (input instanceof URL) {
+      pathname = input.pathname;
+    } else {
+      // Plain string — may be relative (this file's own calls are, e.g.
+      // "/api/auth/logout"), so resolve against a throwaway base purely to
+      // reach a proper `.pathname` with query/hash stripped; the base
+      // itself is never used for anything but that parse. The cast is
+      // safe: the two `instanceof` checks above have already excluded
+      // Request and URL, so only the `string` arm of `RequestInfo | URL`
+      // can reach here — TS just can't narrow that through the compound
+      // `typeof Request !== "undefined"` guard on its own.
+      pathname = new URL(input as string, "http://localhost").pathname;
+    }
+    return APP_LOCK_EXEMPT_PATHS.some((p) => pathname.endsWith(p));
+  } catch {
+    return false;
+  }
+}
+
+function fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  if (isAppLocked() && !isAppLockExemptPath(input)) return Promise.reject(new AppLockedError());
+  return globalThis.fetch(input, init);
+}
+
+// Test-only escape hatch: scripts/app-lock.test.mjs exercises the gate
+// (including the /auth/logout exemption above) directly with raw URLs,
+// since A118 (which adds the real api.logout() caller) is a sibling branch
+// and does not exist here yet — the exemption is matched by path, so it
+// works regardless of which of A118/A121 merges first. Same function as
+// the shadowed `fetch` above, just reachable without importing the
+// shadowed identifier itself.
+export const gatedFetch = fetch;
 
 // B31: server-side backstop on the native purchase gate (backend/app/routers/billing.py's
 // _reject_native_platform) — see that function's own comment for the full
@@ -1679,6 +1819,106 @@ export class ApiError extends Error {
   }
 }
 
+// A124: global 401 handling. A session revoked elsewhere (another device's
+// sign-out, account deletion, the dormant sweep) used to be experienced as a
+// wall of per-card errors — every card's own fetch 401s and each renders
+// whatever error state it happens to have, never a clean sign-out. get<T>/
+// post<T>/del<T> below, plus toJson (the shared parser every hand-rolled
+// `fetch(...).then(r => toJson(r))` call in this file already routes
+// through), all funnel a 401 through reportIfUnauthorized so AuthProvider
+// only has to register ONE hook to react everywhere at once.
+//
+// This is a closed, explicit exemption list, not an "/auth/" prefix match:
+// several bank-LINKING routes also happen to live under /auth/ (finexer,
+// yapily, truelayer, the legacy provider — see LEGACY_BANK_ID above) and
+// those are ordinary authenticated calls that must still trigger sign-out on
+// a revoked session. Only the login/session-check surface, and the one
+// truly public route this file calls, are exempt:
+//   - POST /auth/session/validate — the re-validation check itself. A 401
+//     here means "you are not signed in", which is the exact case
+//     AuthProvider is asking about, not a surprise revoke to react to.
+//     AuthProvider calls this with a raw `fetch`, not get/post/del, so this
+//     entry is defensive (a future caller routing it through this file)
+//     rather than live today.
+//   - GET /auth/google, /auth/google/callback, /auth/google/mobile,
+//     /auth/google/mobile-callback, POST /auth/google/native, POST
+//     /auth/apple/native, GET /auth/mobile/poll — the Google/Apple sign-in
+//     round trip. This app has no separate "sign-up" route: the same OAuth
+//     flow doubles as sign-up, gated server-side by the invite allowlist.
+//     All of these are called via lib/nativeAuth.ts's own raw `fetch`, not
+//     through this file's helpers, so these entries are defensive too.
+//   - POST /auth/logout (A118) — the explicit sign-out call. A 401 here just
+//     means the token was already revoked (another device signed out
+//     everywhere first); the caller is signing out anyway, so it must NOT
+//     raise the "signed out on another device" flow on the device that
+//     tapped logout. AuthProvider.logout() calls api.logout() (which routes
+//     through toJson) BEFORE clearing the token locally.
+//   - GET /health — the one route this file calls that needs no bearer at
+//     all (backend/app/core/auth.py's `_OPEN_PATHS`), so it can never
+//     genuinely 401 on a revoked session either way.
+const UNAUTHORIZED_HOOK_EXEMPT_PATHS = [
+  "/auth/session/validate",
+  "/auth/google",
+  "/auth/google/callback",
+  "/auth/google/mobile",
+  "/auth/google/mobile-callback",
+  "/auth/google/native",
+  "/auth/apple/native",
+  "/auth/mobile/poll",
+  "/auth/logout",
+  "/health",
+];
+
+function isUnauthorizedHookExempt(responseUrl: string): boolean {
+  let pathname: string;
+  try {
+    pathname = new URL(responseUrl).pathname;
+  } catch {
+    pathname = responseUrl.split("?")[0] || responseUrl;
+  }
+  // A124 review tightening: `pathname.endsWith(exempt)` exempted anything
+  // ENDING in an exempt suffix — "/push/health" would have matched "/health"
+  // the same as "/health" itself, and a future nested route under a
+  // protected router could accidentally inherit an exemption it never
+  // earned. Strip only a leading "/api" (the one path prefix this app's own
+  // deployments put in front of every real route — see API_BASE), then
+  // require EXACT equality against the exempt list, not a suffix match.
+  const normalized = pathname.startsWith("/api/") ? pathname.slice(4) : pathname;
+  return UNAUTHORIZED_HOOK_EXEMPT_PATHS.includes(normalized);
+}
+
+type UnauthorizedHandler = () => void;
+let unauthorizedHandler: UnauthorizedHandler | null = null;
+// Debounce: three cards firing the same stale token in parallel must still
+// only sign the user out once. Set the instant the FIRST 401 is seen (not
+// after the handler runs), so two 401s that resolve back-to-back before the
+// handler's own state updates commit still only fire it once.
+let unauthorizedFired = false;
+
+/** Registered by AuthProvider once on mount. `null` unregisters (component
+ * teardown, though AuthProvider itself never unmounts in practice). */
+export function setUnauthorizedHandler(handler: UnauthorizedHandler | null): void {
+  unauthorizedHandler = handler;
+}
+
+/** Call once a session is confirmed good — a fresh sign-in, or a
+ * session/validate call that came back ok — so a LATER revocation of that
+ * new session can fire the handler again. Without this, the gate stays
+ * shut forever after the first sign-out-elsewhere of a tab's lifetime. */
+export function resetUnauthorizedGate(): void {
+  unauthorizedFired = false;
+}
+
+function reportIfUnauthorized(res: Response): void {
+  if (res.status !== 401 || isUnauthorizedHookExempt(res.url) || unauthorizedFired) return;
+  unauthorizedFired = true;
+  try {
+    unauthorizedHandler?.();
+  } catch {
+    /* a broken handler must never break the caller's own rejection below */
+  }
+}
+
 async function apiErrorFromResponse(res: Response): Promise<ApiError> {
   const fallback = `${res.status} ${res.statusText}`;
   let detail: unknown;
@@ -1702,7 +1942,10 @@ async function get<T>(path: string, attempt = 0): Promise<T> {
       headers: authHeaders(),
       signal: controller.signal,
     });
-    if (!res.ok) throw await apiErrorFromResponse(res);
+    if (!res.ok) {
+      reportIfUnauthorized(res);
+      throw await apiErrorFromResponse(res);
+    }
     return await res.json();
   } catch (e) {
     const aborted = e instanceof DOMException && e.name === "AbortError";
@@ -1720,7 +1963,10 @@ async function post<T>(path: string, body?: unknown, extraHeaders?: HeadersInit)
     headers: { "Content-Type": "application/json", ...authHeaders(), ...extraHeaders },
     body: body ? JSON.stringify(body) : undefined,
   });
-  if (!res.ok) throw await apiErrorFromResponse(res);
+  if (!res.ok) {
+    reportIfUnauthorized(res);
+    throw await apiErrorFromResponse(res);
+  }
   return res.json();
 }
 
@@ -1729,7 +1975,10 @@ async function del<T>(path: string): Promise<T> {
     method: "DELETE",
     headers: authHeaders(),
   });
-  if (!res.ok) throw await apiErrorFromResponse(res);
+  if (!res.ok) {
+    reportIfUnauthorized(res);
+    throw await apiErrorFromResponse(res);
+  }
   return res.json();
 }
 
@@ -1767,6 +2016,7 @@ function humanizeErrorDetail(detail: unknown, fallback: string): string {
 // Route every one of them through this so a non-2xx always throws.
 async function toJson<T>(res: Response): Promise<T> {
   if (!res.ok) {
+    reportIfUnauthorized(res);
     const fallback = `${res.status} ${res.statusText}`;
     let detail: unknown = fallback;
     try {
@@ -2228,6 +2478,7 @@ export const api = {
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(body),
     });
+    reportIfUnauthorized(res);
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.detail || "Failed to save");
     return data as UserProfile;
@@ -2246,6 +2497,7 @@ export const api = {
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ image }),
     });
+    reportIfUnauthorized(res);
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.detail || "Couldn't scan that receipt");
     return data as Basket;
@@ -2376,6 +2628,7 @@ export const api = {
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ confirm: "DELETE" }),
     });
+    reportIfUnauthorized(res);
     if (!res.ok) throw new Error("Delete failed");
     return res.json();
   },
@@ -2509,6 +2762,7 @@ export const api = {
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ question, history, context, screen, view }),
     });
+    reportIfUnauthorized(res);
     if (res.status === 402) {
       let detail: unknown = null;
       try {
@@ -2542,6 +2796,7 @@ export const api = {
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ chip_id, params, screen }),
     });
+    reportIfUnauthorized(res);
     if (res.status === 404) return null;
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
     return res.json();
@@ -2618,6 +2873,7 @@ export const api = {
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(body),
     }).then((r) => {
+      reportIfUnauthorized(r);
       if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
       return r.json();
     }) as Promise<Commitment>,
@@ -2638,6 +2894,7 @@ export const api = {
       method: "DELETE",
       headers: authHeaders(),
     }).then((r) => {
+      reportIfUnauthorized(r);
       if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
     }),
 
@@ -2964,6 +3221,7 @@ export const api = {
       throw new Error(`Network error: ${msg}`);
     }
     clearTimeout(timer);
+    reportIfUnauthorized(r);
 
     if (!r.ok) {
       const fallback = `Server error (${r.status})`;
@@ -3010,6 +3268,7 @@ export const api = {
       throw new Error(err instanceof Error ? err.message : String(err));
     }
     clearTimeout(timer);
+    reportIfUnauthorized(r);
     if (!r.ok) {
       let detail = `Server error (${r.status})`;
       try { const b = await r.json(); if (b?.detail) detail = b.detail; } catch { try { detail = await r.text() || detail; } catch { /* ignore */ } }
@@ -3032,6 +3291,7 @@ export const api = {
       method: "POST",
       headers: authHeaders(),
     });
+    reportIfUnauthorized(r);
     if (!r.ok) {
       const b = await r.json().catch(() => ({})) as Record<string, unknown>;
       throw new Error((b?.detail as string) || `Error ${r.status}`);
@@ -3062,6 +3322,7 @@ export const api = {
       throw new Error(err instanceof Error ? err.message : String(err));
     }
     clearTimeout(timer);
+    reportIfUnauthorized(r);
     if (!r.ok) {
       let detail = `Server error (${r.status})`;
       try { const b = await r.json(); if (b?.detail) detail = b.detail; } catch { try { detail = await r.text() || detail; } catch { /* ignore */ } }
@@ -3090,6 +3351,7 @@ export const api = {
       throw new Error(err instanceof Error ? err.message : String(err));
     }
     clearTimeout(timer);
+    reportIfUnauthorized(r);
     if (!r.ok) {
       let detail = `Server error (${r.status})`;
       try { const b = await r.json(); if (b?.detail) detail = b.detail; } catch { try { detail = await r.text() || detail; } catch { /* ignore */ } }
@@ -3103,6 +3365,7 @@ export const api = {
       method: "DELETE",
       headers: authHeaders(),
     });
+    reportIfUnauthorized(r);
     if (!r.ok) {
       const b = await r.json().catch(() => ({})) as Record<string, unknown>;
       throw new Error((b?.detail as string) || `Error ${r.status}`);
@@ -3380,7 +3643,7 @@ export const api = {
   deletePlanned: (id: string) =>
     fetch(`${API_BASE}/planned/${encodeURIComponent(id)}`, { method: "DELETE", headers: authHeaders() }).then((r) => toJson<{ ok: boolean }>(r)),
   updatePlanned: (id: string, patch: { name?: string; amount?: number; date?: string; account_id?: string | null }) =>
-    fetch(`${API_BASE}/planned/${encodeURIComponent(id)}`, { method: "PATCH", headers: { ...authHeaders(), "Content-Type": "application/json" }, body: JSON.stringify(patch) }).then(r => { if (!r.ok) throw new Error("patch failed"); return r.json(); }) as Promise<PlannedExpense>,
+    fetch(`${API_BASE}/planned/${encodeURIComponent(id)}`, { method: "PATCH", headers: { ...authHeaders(), "Content-Type": "application/json" }, body: JSON.stringify(patch) }).then(r => { reportIfUnauthorized(r); if (!r.ok) throw new Error("patch failed"); return r.json(); }) as Promise<PlannedExpense>,
 
   createCheckpoint: (ref: string, aim_amount?: number) =>
     post<Checkpoint>("/checkpoints", aim_amount == null ? { ref } : { ref, aim_amount }),

@@ -50,6 +50,23 @@ def _weekday_name(d: date) -> str:
     return _WEEKDAYS[d.weekday()]
 
 
+def _dest_due_range(dest_bills: list[dict], today: date) -> dict:
+    """First and last due dates for a destination's bills (G184).
+
+    `needs_by` stays the earliest label; `needs_by_last` is the latest bill's
+    label so the UI can say "First due X, last due Y" instead of implying
+    every payment lands by the first date.
+    """
+    dates = sorted(date.fromisoformat(b["expected_date"]) for b in dest_bills)
+    first, last = dates[0], dates[-1]
+    return {
+        "needs_by": _when_label(first, today),
+        "needs_by_last": _when_label(last, today),
+        "needs_by_date": first.isoformat(),
+        "needs_by_last_date": last.isoformat(),
+    }
+
+
 def _when_label(d: date, today: date) -> str:
     """Distance-aware date label: today/tomorrow/weekday-name (2-6 days)/short-date (>=7 days).
     Prevents "lands Friday" reading as "this Friday" when the date is actually weeks away."""
@@ -1972,6 +1989,20 @@ async def compute_today_items(
     below is gated on this flag; the in-memory item is still computed and
     returned either way, only the persistence is skipped.
 
+    H90 correction (2026-09-28): "EVERY write" above was not, in fact,
+    true until this fix — the trajectory item's `get_debt_plan_cached(uid)`
+    call (section 8f, below) wrote a fresh `debt_plan` response-cache doc
+    on a cache miss regardless of `persist`, because that helper had no
+    `persist` parameter of its own to thread this flag through. That
+    single unguarded write is what let `GET /today/cover-plan` (persist
+    False, called on every Settings load) and `get_today_brief` (persist
+    False, the case this docstring describes above) each write a doc under
+    whatever uid they ran for — including, once, Kevin's own uid, from
+    unmerged code exercising this exact path. Fixed by giving
+    `get_debt_plan_cached` its own `persist` parameter and passing this
+    one through to it; the claim above is now actually enforced, not just
+    documented.
+
     `account_eligibility_out` (G50, 2026-09-12): an optional out-param —
     when a caller passes a dict, this function fills it in place with
     `{account_id: {"short": bool, "headroom": float}}` for every account
@@ -1988,6 +2019,27 @@ async def compute_today_items(
     cached = await cashflow_cache_col.find_one({"_id": uid})
     if not cached:
         return []
+
+    # G174 review: mirror analytics.at_risk_count's own staleness guard --
+    # without this, a cache doc computed before a `PATTERNS_VERSION` bump
+    # (e.g. the confirmed_alias field this round adds) keeps serving the
+    # OLD shape into the payday plan/every other card this function builds
+    # until the next sync or a `/cashflow` GET happens to recompute it.
+    # Lazy import to avoid a companion<->analytics import cycle, same
+    # convention this module already uses for its other analytics imports
+    # (see `_has_affinity` above). Failure-tolerant: any error here (a bad
+    # recompute, a transient Mongo hiccup) logs and falls back to the stale
+    # doc already in hand rather than ever raising through to the caller.
+    try:
+        from app.routers.analytics import PATTERNS_VERSION, compute_and_cache_cashflow
+        if (cached.get("patterns_version") or 0) < PATTERNS_VERSION:
+            await compute_and_cache_cashflow(uid)
+            cached = await cashflow_cache_col.find_one({"_id": uid}) or cached
+    except Exception:
+        log.exception(
+            "G174: patterns_version staleness recompute failed for %r, "
+            "continuing with the stale cache doc", uid,
+        )
 
     prefs = await preferences_col.find_one({"user_id": uid}) or {}
     excluded_sources = {str(a) for a in (prefs.get("cover_plan_excluded_accounts") or [])}
@@ -2075,9 +2127,28 @@ async def compute_today_items(
         i for i in _orig_window_income + _orig_payday_day_income
         if income_credit_ok(i, str(i.get("account_id") or ""), confirmed_income_keys)
     ]
+    # G174: a confirmed candidate (its own key, or a detected series aliased
+    # to a confirmed key after a payroll reference change -- see
+    # `income_credit_ok`) must always win the salary slot over a merely
+    # RELIABLE detected candidate, however large the reliable one's amount.
+    # Before this, `max(..., key=amount)` over the whole candidate pool could
+    # let a small but well-established standing order (reliable by pattern,
+    # never confirmed) outrank -- or rather, stand in unchallenged for -- the
+    # user's actual confirmed salary the moment its payroll reference changed
+    # and the fresh series hadn't yet cleared the reliability floor on its
+    # own (G174's board note: a £2 standing order became "the pay" while a
+    # ~£4,800 confirmed salary sat unrecognised under its new reference). A
+    # £2 standing order must never become "the pay": prefer the confirmed
+    # set, largest amount among it; fall back to the old amount-only rule
+    # only when nothing confirmed is present this window.
+    _pp_confirmed_candidates = [
+        i for i in _pp_income_candidates
+        if i.get("name") in confirmed_income_keys or i.get("confirmed_alias") in confirmed_income_keys
+    ]
     _pp_salary_income = (
-        max(_pp_income_candidates, key=lambda i: float(i["amount"]))
-        if _pp_income_candidates else None
+        max(_pp_confirmed_candidates, key=lambda i: float(i["amount"]))
+        if _pp_confirmed_candidates
+        else (max(_pp_income_candidates, key=lambda i: float(i["amount"])) if _pp_income_candidates else None)
     )
 
     # Skip bills where we have no balance data, or the bill is on a credit card
@@ -2792,6 +2863,9 @@ async def compute_today_items(
                 "balance": float(dest_balance),
                 "needs_total": 0,
                 "needs_by": "",
+                "needs_by_last": "",
+                "needs_by_date": None,
+                "needs_by_last_date": None,
                 "bills": [],
                 "is_overdraft": True,
             }
@@ -2819,7 +2893,7 @@ async def compute_today_items(
                 "provider": dest_provider,
                 "balance": float(dest_balance),
                 "needs_total": int(round(sum(float(b["amount"]) for b in dest_bills))),
-                "needs_by": _when_label(date.fromisoformat(dest_bills[0]["expected_date"]), today_d),
+                **_dest_due_range(dest_bills, today_d),
                 "bills": [
                     _plan_dest_bill(b, dest_acct)
                     for b in dest_bills
@@ -2960,7 +3034,7 @@ async def compute_today_items(
                 f"around {_when}. It has landed in {_landing}, not {_dest_nm.strip()}. "
                 f"If it does arrive, you'll simply need less."
             )
-        elif _inc.get("name") in confirmed_income_keys:
+        elif _inc.get("name") in confirmed_income_keys or _inc.get("confirmed_alias") in confirmed_income_keys:
             # G160: a stream the user confirmed is not "unsteady" merely
             # because Sorted couldn't attribute it to a landing account
             # (e.g. too few matching credits inside the window). Saying so
@@ -3223,7 +3297,8 @@ async def compute_today_items(
                 bills_total, bill_count, own_transfers_skipped = _acct_bills(acct_id)
                 balance = _bal(acct_id)
                 usual = usual_moves.get(acct_id)  # int or None — None means "no usual pattern seen"
-                if _is_savings(acc):
+                _dest_is_savings = _is_savings(acc)
+                if _dest_is_savings:
                     # Savings pots: the user's saving intent is theirs (Grow
                     # owns recommendations) — mirror their ritual, never
                     # auto-buffer. No spend/buffer padding; the move is
@@ -3251,10 +3326,21 @@ async def compute_today_items(
                     _c_slice = int(_commit.get("slice_total") or 0)
                     if _c_slice > 0 and move < _c_slice:
                         move = _c_slice
-                        if _is_savings(acc):
+                        if _dest_is_savings:
                             target = move + bills_total
                 if not (move > 0 or usual is not None):
                     continue
+                # G129 fix: a savings pot with no bills owed but a habitual
+                # amount still moving (e.g. Kevin's Barclays "Personal GBP"
+                # pot, £0 owed, £100 moving) is an accumulation top-up, not a
+                # shortfall — the frontend must be told this explicitly
+                # rather than infer it from `target == 0`, which only held
+                # by accident of the re-derive bug below (G129 note,
+                # 2026-09-18). Computed here, before the trim phases, since
+                # neither `bills_total` nor `move` for a savings destination
+                # is touched by Phase 1/2 trimming (those only cut
+                # buffer/spend_typical, both 0 for savings).
+                _habitual_top_up = _dest_is_savings and bills_total <= 0 and move > 0
                 _dest_entry = {
                     "account_id": acct_id,
                     "name": _clean_name(acc.get("name"), acct_id),
@@ -3267,6 +3353,19 @@ async def compute_today_items(
                     "target": int(round(target)),
                     "move": int(move),
                     "usual": int(usual) if usual is not None else None,
+                    # Explicit destination kind (G129) — "savings" carries its
+                    # own target formula (target = move + bills_total, no
+                    # spend/buffer padding, see above); "spend" is the
+                    # ordinary bill/everyday-spend account. The trimmed-month
+                    # re-derive block below reads this to decide which
+                    # formula to reapply, instead of unconditionally
+                    # overwriting every destination's target with the
+                    # non-savings formula.
+                    "destination_kind": "savings" if _dest_is_savings else "spend",
+                    # Explicit habitual-top-up flag (G129) — see comment
+                    # above `_habitual_top_up`. Never infer this from
+                    # `target == 0` on the frontend.
+                    "habitual_top_up": _habitual_top_up,
                     # Sum of MOVEMENT bills on THIS account excluded from
                     # `bills_total` above because their learned destination is
                     # one of the user's own accounts (see
@@ -3326,6 +3425,22 @@ async def compute_today_items(
 
                 # Re-derive final integer moves (respecting each dest's
                 # bills-only floor) and re-round the other fields.
+                #
+                # G129 fix: this used to recompute EVERY destination's
+                # target as bills_total + spend_typical + buffer,
+                # unconditionally overwriting a savings destination's own
+                # formula from the dest-building loop above (target = move +
+                # bills_total — see that loop's comment). Neither
+                # spend_typical nor buffer is ever non-zero for a savings
+                # destination (both trim phases above only cut those two
+                # fields, and they start at 0 for savings), so the old line
+                # silently collapsed a savings pot's target to its
+                # bills_total alone — 0 whenever the pot has no bills, even
+                # while `move` stayed positive (Kevin's Barclays "Personal
+                # GBP" pot: target 0, move 100). `destination_kind` (set
+                # above) is read here so each kind keeps its own formula
+                # through this re-derive, exactly as it had it before
+                # trimming.
                 for d in dests:
                     floor = max(0.0, d["bills_total"] - d["balance"])
                     floor_ceil = _ceil5(floor) if floor > 0 else 0
@@ -3333,7 +3448,10 @@ async def compute_today_items(
                     d["move"] = max(move_ceil, floor_ceil)
                     d["buffer"] = int(round(d["buffer"]))
                     d["spend_typical"] = int(round(d["spend_typical"]))
-                    d["target"] = int(round(d["bills_total"])) + d["spend_typical"] + d["buffer"]
+                    if d.get("destination_kind") == "savings":
+                        d["target"] = d["move"] + int(round(d["bills_total"]))
+                    else:
+                        d["target"] = int(round(d["bills_total"])) + d["spend_typical"] + d["buffer"]
 
                 total = sum(d["move"] for d in dests)
             else:
@@ -3348,7 +3466,19 @@ async def compute_today_items(
             stays = int(distributable - total) if (distributable - total) >= 0 else 0
 
             if total > 0:
-                headline = f"Payday plan: split £{salary_amount:,} across {n_moves} accounts"
+                # G129 fix: this used to quote `salary_amount` (the whole
+                # landed pay, £4,798 in Kevin's 2026-09-18 payload) as the
+                # figure being "split", when the amount actually distributed
+                # across the destinations is `total` (£3,075 in that same
+                # payload — the gap is whatever the plan leaves in the
+                # salary account plus any trimming). PaydayPlanCard.tsx
+                # strips the figure out of a salary-backed headline before
+                # rendering it (the hero figure carries the number instead),
+                # so this string wasn't visibly wrong on Home, but it is
+                # still the string persisted verbatim into the companion
+                # item document, and any other consumer (Penny tools, MCP)
+                # reads it as-is.
+                headline = f"Payday plan: split £{total:,} across {n_moves} accounts"
             else:
                 headline = "Payday plan: every account is already set"
 
@@ -4877,6 +5007,117 @@ async def compute_today_items(
     except Exception as _ask_exc:
         log.warning("ask:payday item failed for %s: %s", uid, _ask_exc)
 
+    # ── 8c-bis. ASK items (has your pay changed? / your pay moved) ─────────
+    # G157 build step 4: a confirmed income stream never silently drops to
+    # zero -- it keeps forecasting at its confirmed cadence/amount even once
+    # `income_payer.is_lapsed` says it has missed enough full cycles (2 for
+    # monthly, scaled for other cadences -- never a fixed day count that
+    # could expire between two ordinary paydays). Once lapsed, this raises
+    # the SAME kind of ask as `ask:payday` above (hedged, dismissible, never
+    # a silent decision) so the user says whether pay actually changed.
+    #
+    # G157 review fix (independent review of f431d576): `account_changed_
+    # from_usual` (set by `_confirmed_income_fallback`'s deterministic-
+    # attach step in analytics.py when the credit it confidently attaches
+    # lands in a DIFFERENT account than the stream's own usual one) was
+    # computed and persisted but never read anywhere -- the "your pay seems
+    # to land somewhere new" ask the item describes did not exist. Both
+    # asks are decided together, ONE pass over `recurring_income`, so a
+    # stream can never raise both: a moved salary is still landing, just
+    # somewhere new, not something that stopped, so the moved ask takes
+    # precedence over the lapsed one for the same stream.
+    try:
+        from app.services.income_payer import stable_stream_id as _stable_stream_id
+
+        def _acct_display_name(acct_id):
+            # Display name only, NEVER an account number -- `_account_map`
+            # entries are the same account docs every other card in this
+            # function reads `["name"]` off. An id this function can't
+            # resolve (offline/removed account) falls back to a generic,
+            # still-safe phrase rather than omitting the account entirely.
+            _acc = _account_map.get(str(acct_id or "")) if acct_id else None
+            return (_acc or {}).get("name") or "another account"
+
+        for _stream in (cached.get("recurring_income") or []):
+            if _stream.get("source") != "confirmed":
+                continue
+            _stream_id = _stable_stream_id(_stream.get("key", ""))
+            _amt = _stream.get("avg_amount")
+            if not _amt:
+                continue
+
+            if _stream.get("account_changed_from_usual"):
+                _moved_ask_id = f"ask:payer_account_moved:{_stream_id}"
+                if _moved_ask_id in dismissed:
+                    continue
+                _usual_name = _acct_display_name(_stream.get("usual_account_id"))
+                _new_name = _acct_display_name(_stream.get("account_id"))
+                # Renders via the generic ask card, dismissible through the
+                # same answer path as every other ask here -- "Not now"
+                # (Home) or POST /companion/dismiss (Penny) both hit the
+                # existing dismiss-by-id machinery, so this never repeats
+                # once answered, the same as ask:payer_lapsed below.
+                ask_items.append({
+                    "id": _moved_ask_id,
+                    "type": "ask",
+                    "headline": "Your pay seems to land somewhere new",
+                    "body": (
+                        f"It usually lands in {_usual_name}, but the most recent "
+                        f"payment looks like it went to {_new_name} instead. "
+                        "Still forecasting it as usual until you say otherwise."
+                    ),
+                    "action": {"label": "Update my income", "route": "/spend", "kind": "set_payday"},
+                    "estimated": False,
+                    "kind_label": "Your pay",
+                    "brief_lead": {
+                        "value": "Pay check",
+                        "companion": f"about £{_amt:,.0f} expected, now in {_new_name}",
+                    },
+                })
+                continue  # precedence: never also raise the lapsed ask below
+
+            if not _stream.get("lapsed"):
+                continue
+            _stream_ask_id = f"ask:payer_lapsed:{_stream_id}"
+            if _stream_ask_id in dismissed:
+                continue
+            # Renders via the generic ask card (AskGenericCard), not the
+            # payday-specific one: this id never matches "ask:payday", so
+            # it never triggers that card's confirm-payday call, which
+            # expects a fresh DETECTED proposal that a lapsed-but-still-
+            # confirmed stream may not have. A single `action` routes to
+            # income management to update the stream if pay genuinely
+            # changed; dismissing (Home's own "Not now") stands in for
+            # "no, still the same" -- there is nothing to confirm, the
+            # stream is already confirmed and still forecasting.
+            ask_items.append({
+                "id": _stream_ask_id,
+                "type": "ask",
+                "headline": "Has your pay changed?",
+                "body": (
+                    f"Your usual pay of about £{_amt:,.0f} hasn't been seen for a "
+                    "couple of paydays. Still forecasting it as usual until you say "
+                    "otherwise."
+                ),
+                "action": {"label": "Update my income", "route": "/spend", "kind": "set_payday"},
+                "estimated": False,
+                # Review fix (blocker 3, independent review of a165200d):
+                # AskGenericCard hardcoded "Card detail" as its kind label
+                # (written for the card-terms ask below, the only ask that
+                # ever used this card before this item), so this item's
+                # "Has your pay changed?" headline rendered under the wrong
+                # label. `kind_label` lets the card show the right one per
+                # item; the frontend falls back to "Card detail" when it is
+                # absent, so nothing else regresses.
+                "kind_label": "Your pay",
+                "brief_lead": {
+                    "value": "Pay check",
+                    "companion": f"about £{_amt:,.0f} expected, unconfirmed for a couple of paydays",
+                },
+            })
+    except Exception as _lapsed_ask_exc:
+        log.warning("ask:payer_lapsed item failed for %s: %s", uid, _lapsed_ask_exc)
+
     # ── 8d. ASK item (card terms) ───────────────────────────────────────────
     # Debt advice needs card terms (APR, promo end dates) and open banking
     # never provides them — they must be ASKED (Consent Rule: one dismissible
@@ -4915,6 +5156,11 @@ async def compute_today_items(
                         "body": _ct_body,
                         "action": {"label": "Add my rates", "route": "/accounts?cardTerms=1", "kind": "card_terms"},
                         "estimated": False,
+                        # Explicit now (review fix, blocker 3) rather than
+                        # relying on AskGenericCard's own hardcoded
+                        # fallback -- see ask:payer_lapsed above for why
+                        # the fallback exists at all.
+                        "kind_label": "Card detail",
                         "brief_lead": {
                             "value": "Card details",
                             "companion": "one answer keeps the debt plan accurate",
@@ -5020,7 +5266,15 @@ async def compute_today_items(
     try:
         from app.services.debt_plan import get_debt_plan_cached as _get_debt_plan
 
-        _plan = await _get_debt_plan(uid)
+        # H90: this is the one write inside compute_today_items that was
+        # NOT already gated on `persist` (every other write site in this
+        # function is an explicit `if persist:` above) — a cache MISS here
+        # called `response_cache.aput` regardless, so `persist=False`
+        # (GET /today/cover-plan, penny_tools.get_today_brief) still wrote
+        # a fresh debt_plan cache doc under whatever uid it was called
+        # with. Threading `persist` through makes get_debt_plan_cached's
+        # own promise ("EVERY write... gated on this flag") actually true.
+        _plan = await _get_debt_plan(uid, persist=persist)
         _verdict_str = _plan["totals"]["verdict"]
 
         if _verdict_str != "good":
