@@ -4987,6 +4987,117 @@ async def compute_today_items(
     except Exception as _ask_exc:
         log.warning("ask:payday item failed for %s: %s", uid, _ask_exc)
 
+    # ── 8c-bis. ASK items (has your pay changed? / your pay moved) ─────────
+    # G157 build step 4: a confirmed income stream never silently drops to
+    # zero -- it keeps forecasting at its confirmed cadence/amount even once
+    # `income_payer.is_lapsed` says it has missed enough full cycles (2 for
+    # monthly, scaled for other cadences -- never a fixed day count that
+    # could expire between two ordinary paydays). Once lapsed, this raises
+    # the SAME kind of ask as `ask:payday` above (hedged, dismissible, never
+    # a silent decision) so the user says whether pay actually changed.
+    #
+    # G157 review fix (independent review of f431d576): `account_changed_
+    # from_usual` (set by `_confirmed_income_fallback`'s deterministic-
+    # attach step in analytics.py when the credit it confidently attaches
+    # lands in a DIFFERENT account than the stream's own usual one) was
+    # computed and persisted but never read anywhere -- the "your pay seems
+    # to land somewhere new" ask the item describes did not exist. Both
+    # asks are decided together, ONE pass over `recurring_income`, so a
+    # stream can never raise both: a moved salary is still landing, just
+    # somewhere new, not something that stopped, so the moved ask takes
+    # precedence over the lapsed one for the same stream.
+    try:
+        from app.services.income_payer import stable_stream_id as _stable_stream_id
+
+        def _acct_display_name(acct_id):
+            # Display name only, NEVER an account number -- `_account_map`
+            # entries are the same account docs every other card in this
+            # function reads `["name"]` off. An id this function can't
+            # resolve (offline/removed account) falls back to a generic,
+            # still-safe phrase rather than omitting the account entirely.
+            _acc = _account_map.get(str(acct_id or "")) if acct_id else None
+            return (_acc or {}).get("name") or "another account"
+
+        for _stream in (cached.get("recurring_income") or []):
+            if _stream.get("source") != "confirmed":
+                continue
+            _stream_id = _stable_stream_id(_stream.get("key", ""))
+            _amt = _stream.get("avg_amount")
+            if not _amt:
+                continue
+
+            if _stream.get("account_changed_from_usual"):
+                _moved_ask_id = f"ask:payer_account_moved:{_stream_id}"
+                if _moved_ask_id in dismissed:
+                    continue
+                _usual_name = _acct_display_name(_stream.get("usual_account_id"))
+                _new_name = _acct_display_name(_stream.get("account_id"))
+                # Renders via the generic ask card, dismissible through the
+                # same answer path as every other ask here -- "Not now"
+                # (Home) or POST /companion/dismiss (Penny) both hit the
+                # existing dismiss-by-id machinery, so this never repeats
+                # once answered, the same as ask:payer_lapsed below.
+                ask_items.append({
+                    "id": _moved_ask_id,
+                    "type": "ask",
+                    "headline": "Your pay seems to land somewhere new",
+                    "body": (
+                        f"It usually lands in {_usual_name}, but the most recent "
+                        f"payment looks like it went to {_new_name} instead. "
+                        "Still forecasting it as usual until you say otherwise."
+                    ),
+                    "action": {"label": "Update my income", "route": "/spend", "kind": "set_payday"},
+                    "estimated": False,
+                    "kind_label": "Your pay",
+                    "brief_lead": {
+                        "value": "Pay check",
+                        "companion": f"about £{_amt:,.0f} expected, now in {_new_name}",
+                    },
+                })
+                continue  # precedence: never also raise the lapsed ask below
+
+            if not _stream.get("lapsed"):
+                continue
+            _stream_ask_id = f"ask:payer_lapsed:{_stream_id}"
+            if _stream_ask_id in dismissed:
+                continue
+            # Renders via the generic ask card (AskGenericCard), not the
+            # payday-specific one: this id never matches "ask:payday", so
+            # it never triggers that card's confirm-payday call, which
+            # expects a fresh DETECTED proposal that a lapsed-but-still-
+            # confirmed stream may not have. A single `action` routes to
+            # income management to update the stream if pay genuinely
+            # changed; dismissing (Home's own "Not now") stands in for
+            # "no, still the same" -- there is nothing to confirm, the
+            # stream is already confirmed and still forecasting.
+            ask_items.append({
+                "id": _stream_ask_id,
+                "type": "ask",
+                "headline": "Has your pay changed?",
+                "body": (
+                    f"Your usual pay of about £{_amt:,.0f} hasn't been seen for a "
+                    "couple of paydays. Still forecasting it as usual until you say "
+                    "otherwise."
+                ),
+                "action": {"label": "Update my income", "route": "/spend", "kind": "set_payday"},
+                "estimated": False,
+                # Review fix (blocker 3, independent review of a165200d):
+                # AskGenericCard hardcoded "Card detail" as its kind label
+                # (written for the card-terms ask below, the only ask that
+                # ever used this card before this item), so this item's
+                # "Has your pay changed?" headline rendered under the wrong
+                # label. `kind_label` lets the card show the right one per
+                # item; the frontend falls back to "Card detail" when it is
+                # absent, so nothing else regresses.
+                "kind_label": "Your pay",
+                "brief_lead": {
+                    "value": "Pay check",
+                    "companion": f"about £{_amt:,.0f} expected, unconfirmed for a couple of paydays",
+                },
+            })
+    except Exception as _lapsed_ask_exc:
+        log.warning("ask:payer_lapsed item failed for %s: %s", uid, _lapsed_ask_exc)
+
     # ── 8d. ASK item (card terms) ───────────────────────────────────────────
     # Debt advice needs card terms (APR, promo end dates) and open banking
     # never provides them — they must be ASKED (Consent Rule: one dismissible
@@ -5025,6 +5136,11 @@ async def compute_today_items(
                         "body": _ct_body,
                         "action": {"label": "Add my rates", "route": "/accounts?cardTerms=1", "kind": "card_terms"},
                         "estimated": False,
+                        # Explicit now (review fix, blocker 3) rather than
+                        # relying on AskGenericCard's own hardcoded
+                        # fallback -- see ask:payer_lapsed above for why
+                        # the fallback exists at all.
+                        "kind_label": "Card detail",
                         "brief_lead": {
                             "value": "Card details",
                             "companion": "one answer keeps the debt plan accurate",
