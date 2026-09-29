@@ -521,6 +521,7 @@ ERASURE_MANIFEST = frozenset({
     "mcp_call_counters_col", "broadcasts_col", "broadcast_receipts_col",
     "oauth_clients_col", "oauth_codes_col", "oauth_tokens_col",
     "safe_to_spend_history_col", "session_tombstones_col",
+    "income_payer_attachments_col",
 })
 
 # A99/A101: these five collections lost their `*_col` binding when A98
