@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { Capacitor } from "@capacitor/core";
 import { App } from "@capacitor/app";
 import { getToken, setToken, clearToken } from "@/lib/auth";
-import { api, API_BASE, setUnauthorizedHandler, resetUnauthorizedGate } from "@/lib/api";
+import { api, API_BASE, gatedFetch, setUnauthorizedHandler, resetUnauthorizedGate } from "@/lib/api";
 import { WEB_PRODUCT_OFF } from "@/lib/webProduct";
 import LoginScreen from "@/components/LoginScreen";
 import AppOnlyPage from "@/components/AppOnlyPage";
@@ -96,7 +96,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       lastValidateAtRef.current = Date.now();
       try {
-        const res = await fetch(`${API_BASE}/auth/session/validate`, {
+        const res = await gatedFetch(`${API_BASE}/auth/session/validate`, {
           method: "POST",
           headers: { Authorization: `Bearer ${token}` },
         });
@@ -215,7 +215,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (now - lastValidateAtRef.current < MIN_REVALIDATE_INTERVAL_MS) return;
       lastValidateAtRef.current = now;
       try {
-        const res = await fetch(`${API_BASE}/auth/session/validate`, {
+        const res = await gatedFetch(`${API_BASE}/auth/session/validate`, {
           method: "POST",
           headers: { Authorization: `Bearer ${token}` },
         });

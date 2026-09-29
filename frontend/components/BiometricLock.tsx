@@ -1,12 +1,31 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useState, useCallback, useRef } from "react";
+import { createPortal } from "react-dom";
 import { Capacitor } from "@capacitor/core";
 import { App } from "@capacitor/app";
 import { ShieldCheck, Fingerprint, LogOut } from "lucide-react";
 import { isAvailable, authenticate, isLockEnabled, setLockEnabled } from "@/lib/biometrics";
 import { useAuth } from "@/components/AuthProvider";
 import { BUILD_TAG } from "@/lib/buildTag";
+import { setAppLocked } from "@/lib/appLock";
+import { createInertTracker, APP_LOCK_OVERLAY_ATTR } from "@/lib/appLockInert";
+import { isColdStartLocked, shouldRelockOnResume } from "@/lib/appLockTiming";
+
+// A121 (pentest IOS-07/IOS-03, HIGH): dispatched on `window` right after a
+// successful unlock. Nothing that runs on a genuine background→foreground
+// transition today refetches financial data on `resume` (BiometricLock's own
+// pause/resume listener below only re-triggers the biometric prompt, never
+// an api.* call) — Home's data loads once on mount and simply survives
+// backgrounding, since `{children}` is never unmounted. This event exists
+// for the case that DOES change once the request gate below lands: anything
+// that happened to attempt an api.* call while locked (a page's own
+// interval, a queued retry) got refused with AppLockedError rather than
+// served, and must not be left showing stale/failed data forever once the
+// user is back in. Home listens for this and reloads; wire any future
+// resume-triggered fetch consumer to the same event rather than inventing a
+// second signal.
+export const APP_LOCK_UNLOCKED_EVENT = "applock:unlocked";
 
 function nativePlatform(): boolean {
   try {
@@ -16,11 +35,12 @@ function nativePlatform(): boolean {
   }
 }
 
-// A `resume` must follow a `pause` that was at least this long ago to count
-// as a genuine background -> foreground transition. Filters out any resume
-// that fires with little/no measured time paused (e.g. a spurious event with
-// no matching pause at all, which is treated as 0ms hidden below).
-const MIN_HIDDEN_MS = 1000;
+// MIN_HIDDEN_MS itself now lives in lib/appLockTiming.ts (imported above),
+// alongside the pure `isColdStartLocked`/`shouldRelockOnResume` decisions
+// this file's effects below delegate to — pulled out for the same reason
+// lib/appLockInert.ts's DOM-attribute logic was: testable in
+// scripts/app-lock-gate.test.mjs without a browser or jsdom, neither of
+// which is available in this repo's plain-Node test runner.
 
 // How long after `authenticate()` settles we keep ignoring pause/resume
 // events. On Android the native prompt is a separate Activity (see
@@ -127,6 +147,30 @@ export default function BiometricLock({ children }: { children: React.ReactNode 
   // Timestamp of the last successful unlock, used by the belt-and-braces
   // check in `attemptUnlock` below.
   const unlockedAtRef = useRef<number | null>(null);
+  // A121 review: `attemptUnlock` is async and awaits real I/O (the hardware
+  // availability check, the native OS prompt) — a remote sign-out, or any
+  // other unmount, can land mid-await. Checked before every mutating call
+  // in that function past its first `await` (see attemptUnlock's own
+  // guards below) so a continuation that resolves after unmount never
+  // calls setLockedState(true)/setAppLocked(true) with no lock screen left
+  // mounted to ever clear it — the exact way a failed/cancelled prompt
+  // racing a remote sign-out would otherwise strand the NEXT sign-in
+  // behind the gate. Plain ref, not state: it must be readable synchronously
+  // inside a promise continuation, not just at render time.
+  const mountedRef = useRef(true);
+
+  // A121: the single seam every DOM lock/unlock transition passes through,
+  // so `locked` (this component's own render state) and the shared
+  // lib/appLock.ts signal (which lib/api.ts's request gate reads) can never
+  // drift apart. setAppLocked() writes a plain module variable and is
+  // synchronous/immediate; setLocked() only schedules a re-render — calling
+  // both here, together, at every one of the six places that used to call
+  // setLocked() alone, means the signal is already correct before React
+  // ever gets to paint the DOM state it describes.
+  const setLockedState = useCallback((next: boolean) => {
+    setAppLocked(next);
+    setLocked(next);
+  }, []);
 
   useEffect(() => {
     if (!autoDisabledNotice) return;
@@ -135,8 +179,13 @@ export default function BiometricLock({ children }: { children: React.ReactNode 
   }, [autoDisabledNotice]);
 
   const attemptUnlock = useCallback(async () => {
+    // A121 review: guards a call that races the unmount itself — e.g. the
+    // pause/resume listener's own `cancelled` flag (see that effect below)
+    // stops it re-registering its native handle, but not a callback that
+    // was already invoked and is mid-flight as teardown begins.
+    if (!mountedRef.current) return;
     if (!nativePlatform() || !isLockEnabled()) {
-      setLocked(false);
+      setLockedState(false);
       return;
     }
     // Belt-and-braces (see `unlockedAtRef` above): a re-lock trigger that
@@ -147,11 +196,18 @@ export default function BiometricLock({ children }: { children: React.ReactNode 
     }
     if (inFlightRef.current) return;
     inFlightRef.current = true;
-    setLocked(true);
+    setLockedState(true);
     setAwaitingAuth(true);
     setErrorMessage(null);
     try {
       const { supported } = await isAvailable();
+      // A121 review: unmounted while awaiting the hardware check (e.g. a
+      // remote sign-out landed mid-check) — nothing left to update, and
+      // critically `setLockedState(true)`/`setAppLocked(true)` further down
+      // this function must not run with no lock screen left mounted to
+      // ever clear it again, which is exactly what would strand the NEXT
+      // sign-in behind the gate.
+      if (!mountedRef.current) return;
       if (!supported) {
         // Lock was enabled previously but hardware/enrolment is no longer
         // available on this device — gating on a check that can never
@@ -159,7 +215,7 @@ export default function BiometricLock({ children }: { children: React.ReactNode 
         // turn the preference off, unlock, and say so briefly.
         setLockEnabled(false);
         setAwaitingAuth(false);
-        setLocked(false);
+        setLockedState(false);
         setAutoDisabledNotice(true);
         return;
       }
@@ -181,10 +237,25 @@ export default function BiometricLock({ children }: { children: React.ReactNode 
           promptingRef.current = false;
         }, PROMPT_GRACE_MS);
       }
+      // A121 review: unmounted while awaiting the native prompt itself —
+      // this is the guard that closes the actual finding: a prompt that
+      // resolves failed/cancelled (`ok === false`) after a remote sign-out
+      // unmounted this component mid-prompt must NOT reach
+      // `setLockedState(!ok)` below, which would call
+      // setAppLocked(true)/setLocked(true) with no lock screen left
+      // mounted to ever clear it again — stranding the NEXT sign-in behind
+      // AppLockedError (lib/api.ts's gate) indefinitely.
+      if (!mountedRef.current) return;
       setAwaitingAuth(false);
-      setLocked(!ok);
+      setLockedState(!ok);
       if (ok) {
         unlockedAtRef.current = Date.now();
+        // A121 part 3: tell anything that queued a refetch while locked (and
+        // was refused with AppLockedError) that it can safely retry now. See
+        // this event's own doc comment above for what actually listens.
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new Event(APP_LOCK_UNLOCKED_EVENT));
+        }
       } else {
         setErrorMessage("Face/fingerprint wasn't confirmed. Try again.");
       }
@@ -193,28 +264,63 @@ export default function BiometricLock({ children }: { children: React.ReactNode 
       // prompt never resolved) — lib/biometrics.ts's authenticate() itself
       // never throws, it resolves false on any recognized failure. Either
       // way: don't leave the lock screen with no controls.
+      // A121 review: same unmount-race guard as above — a timeout that
+      // fires after this component is gone has no controls left to leave
+      // in any particular state, and must not touch React state on an
+      // unmounted component.
+      if (!mountedRef.current) return;
       setAwaitingAuth(false);
       setErrorMessage("Face/fingerprint didn't respond. Try again.");
     } finally {
       inFlightRef.current = false;
     }
-  }, []);
+    // setLockedState is itself a useCallback with an empty dependency array
+    // (see its own definition above), so its identity never changes across
+    // renders — listing it here satisfies exhaustive-deps without changing
+    // when this callback is recreated.
+  }, [setLockedState]);
 
   // Synchronously flip to locked BEFORE the browser paints, if applicable —
   // this is what prevents a flash of unlocked content on native.
   useLayoutEffect(() => {
-    if (nativePlatform() && isLockEnabled()) {
-      setLocked(true);
+    if (isColdStartLocked(nativePlatform(), isLockEnabled())) {
+      setLockedState(true);
     }
-  }, []);
+    // setLockedState has a stable identity (see its own definition above) —
+    // listed for exhaustive-deps, this still only ever runs once on mount.
+  }, [setLockedState]);
 
   // Kick off the actual biometric prompt after mount (the check + OS prompt
   // are inherently async, so they can't run inside useLayoutEffect itself).
   useEffect(() => {
-    if (nativePlatform() && isLockEnabled()) {
+    if (isColdStartLocked(nativePlatform(), isLockEnabled())) {
       void attemptUnlock();
     }
   }, [attemptUnlock]);
+
+  // A125: this component only exists while there is a session —
+  // components/AuthProvider.tsx renders LoginScreen/Onboarding/AppOnlyPage
+  // in its place otherwise, unmounting this one, see that file's own
+  // routing. Whatever caused the unmount (an ordinary sign-out, A124's
+  // auto-logout-on-401, the escape hatch below) must leave the shared
+  // lib/appLock.ts signal false behind it: a stale `true` left over from a
+  // lock that was engaged right up to sign-out would silently block the
+  // NEXT session's own requests, since lib/nativeAuth.ts's native sign-in
+  // exchange and AuthProvider's own session/validate check both now route
+  // through lib/api.ts's shared `gatedFetch` (closing the A125 structural
+  // gap below) — with no lock screen mounted any more to unlock it from,
+  // that would stall a fresh login behind AppLockedError indefinitely.
+  // Unconditional and unmount-only: every unlock path this component
+  // already knows about clears the signal itself, so this is pure
+  // belt-and-braces for any path that doesn't (or a future one that
+  // forgets to). Also flips `mountedRef` (see its own definition above),
+  // the guard `attemptUnlock`'s own async continuations check below.
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+      setAppLocked(false);
+    };
+  }, []);
 
   // Re-check every time the app genuinely returns from the background.
   //
@@ -289,7 +395,7 @@ export default function BiometricLock({ children }: { children: React.ReactNode 
       if (promptingRef.current) return;
       const hiddenFor = hiddenAtRef.current != null ? Date.now() - hiddenAtRef.current : 0;
       hiddenAtRef.current = null;
-      if (hiddenFor < MIN_HIDDEN_MS) return;
+      if (!shouldRelockOnResume(hiddenFor)) return;
       void attemptUnlock();
     }).then((h) => {
       if (cancelled) {
@@ -306,6 +412,58 @@ export default function BiometricLock({ children }: { children: React.ReactNode 
     };
   }, [attemptUnlock]);
 
+  // A121 part 2c: while locked, every OTHER direct child of document.body
+  // (the Next root that holds BottomNav and #app-shell, Sidebar, and any
+  // portal node — PennySheet's chip layer chief among them, since that is
+  // literally the leak this item closes) becomes `inert` and
+  // `aria-hidden="true"`. Structural, not cosmetic: `inert` removes the
+  // subtree from focus, hit-testing AND the accessibility tree, so a tap on
+  // a chip behind the overlay has nothing to land on, whatever the overlay's
+  // own stacking/paint behaviour turns out to be on a given WebKit/Chromium
+  // build (see the portal + z-index reasoning below this component's return
+  // for why we no longer trust paint order alone).
+  //
+  // A MutationObserver on document.body's own childList (not a one-off scan)
+  // is required, not optional: a sheet or toast that portals to body can
+  // mount WHILE already locked (a queued event, a push notification banner),
+  // and this is what catches that new node and inerts it too, rather than
+  // leaving a one-shot scan's blind spot as the next bypass.
+  //
+  // lib/appLockInert.ts's tracker is what makes the unlock-time restore
+  // exact: it snapshots each element's PRIOR inert/aria-hidden state before
+  // touching it, and only elements THIS effect touched are ever restored —
+  // an element that was already inert before the lock engaged for its own,
+  // unrelated reason (components/TipsLine.tsx's collapsed-panel usage is
+  // the existing example) is never a direct child of body, so it is never
+  // snapshotted or modified here at all, in either direction.
+  useLayoutEffect(() => {
+    if (typeof document === "undefined") return;
+    if (!locked) return;
+
+    const tracker = createInertTracker();
+    const isOverlayNode = (el: Element): boolean =>
+      el instanceof HTMLElement && el.hasAttribute(APP_LOCK_OVERLAY_ATTR);
+    const maybeLock = (el: Element) => {
+      if (el instanceof HTMLElement && !isOverlayNode(el)) tracker.lock(el);
+    };
+
+    Array.from(document.body.children).forEach(maybeLock);
+
+    const observer = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        mutation.addedNodes.forEach((node) => {
+          if (node instanceof Element) maybeLock(node);
+        });
+      }
+    });
+    observer.observe(document.body, { childList: true });
+
+    return () => {
+      observer.disconnect();
+      tracker.restoreAll();
+    };
+  }, [locked]);
+
   // The escape hatch: turn the biometric-lock preference off and sign out
   // of the Google session, dropping back to the normal login screen.
   //
@@ -319,68 +477,115 @@ export default function BiometricLock({ children }: { children: React.ReactNode 
   // that would defeat its only purpose here.
   const signOutInstead = useCallback(() => {
     setLockEnabled(false);
-    setLocked(false);
+    setLockedState(false);
     setAwaitingAuth(false);
     setErrorMessage(null);
+    // Order kept as belt-and-braces (unlock signal before logout()), but it
+    // is NOT load-bearing: lib/api.ts's request gate exempts POST
+    // /auth/logout by path regardless of lock state (A118/A121), so
+    // logout()'s server-side session revocation would go through even if
+    // this ran while still locked.
     logout();
-  }, [logout]);
+    // setLockedState has a stable identity (see its own definition above) —
+    // listed for exhaustive-deps only.
+  }, [logout, setLockedState]);
+
+  // A121 part 2a/2b: portaled straight to document.body instead of rendered
+  // as a sibling inside #app-shell. #app-shell picks up `filter:
+  // blur(8px) brightness(0.92)` whenever a sheet is open (globals.css's
+  // `.sheet-open`, toggled by lib/useSheetOpen.ts) — a non-none `filter` on
+  // an ancestor creates a containing block for `position: fixed`
+  // descendants, which traps a `fixed` overlay inside THAT ancestor's own
+  // stacking context. A body-level portal (PennySheet's own chip/panel
+  // layer, z-[56]/z-[58]) can then paint above a `fixed` child of
+  // #app-shell regardless of that child's z-index, which is the likely
+  // mechanism behind the iOS bypass this item closes (WebKit and Chromium
+  // have historically differed on exactly this). Portaling to body removes
+  // #app-shell as a possible containing block entirely.
+  //
+  // The `data-app-lock-overlay` wrapper is a plain, unstyled div (its
+  // children are `fixed`, so they position against the viewport regardless
+  // of the wrapper) — its only job is being the one node the inert effect
+  // above, and any MutationObserver-driven late-comer, can recognise and
+  // skip by attribute rather than by ref-identity timing.
+  //
+  // z-index: z-[999] sits ABOVE every documented tier in the app, including
+  // PennySheet's own inventory (components/PennySheet.tsx, ~line 94) — z-40
+  // (nav), z-50 (BottomNav rail), z-[56]/z-[58] (PennySheet), z-[60]
+  // (TutorialModal/Overlay), z-[65]/z-[70] (the sheet backdrop/panel tier),
+  // and z-[80] (SpendPage's toast alerts, the highest tier that inventory
+  // names). This is deliberate, not an oversight left over from the old
+  // sibling-render approach: a privacy lock screen has exactly one job, and
+  // that job means outranking literally everything else the app can put on
+  // screen, including a toast that was already in flight when the lock
+  // engaged. Keeping it a fixed z-[999] rather than folding it into that
+  // inventory's own numbering keeps the "everything else" tiers free to
+  // grow toward it without ever needing to renumber the lock.
+  const overlay = (locked || autoDisabledNotice) && typeof document !== "undefined"
+    ? createPortal(
+        <div data-app-lock-overlay="true">
+          {autoDisabledNotice && (
+            <div
+              role="status"
+              className="fixed inset-x-4 z-[999] flex items-center justify-center rounded-2xl bg-slate-900/90 dark:bg-slate-800/90 px-4 py-3 text-center text-sm font-medium text-white shadow-lg"
+              style={{ top: "calc(env(safe-area-inset-top, 0px) + 12px)" }}
+            >
+              Biometric lock turned off, it&apos;s no longer available on this device.
+            </div>
+          )}
+          {locked && (
+            <div className="fixed inset-0 z-[999] flex flex-col items-center justify-center bg-gradient-to-b from-[#f0f2f7] to-[#e4e8f5] dark:from-[#0f172a] dark:to-[#131c33] px-6">
+              <div className="w-20 h-20 rounded-3xl bg-indigo-500 shadow-xl flex items-center justify-center mb-6">
+                <Fingerprint size={36} className="text-white" />
+              </div>
+              <h1 className="text-lg font-bold text-slate-900 dark:text-slate-100 mb-1.5">Sorted is locked</h1>
+              <p className="text-sm text-slate-500 dark:text-slate-400 text-center mb-8 max-w-xs">
+                {errorMessage ?? "Confirm it's you to see your accounts."}
+              </p>
+              {!awaitingAuth && (
+                <div className="flex flex-col items-center gap-3">
+                  <button
+                    onClick={() => void attemptUnlock()}
+                    className="flex items-center gap-2 px-5 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-700 active:scale-[0.97] text-sm font-semibold text-white transition-all shadow-md shadow-indigo-200 dark:shadow-none"
+                  >
+                    <ShieldCheck size={16} />
+                    {errorMessage ? "Try again" : "Unlock"}
+                  </button>
+                  {/* Always available once an attempt has settled without
+                      unlocking — not just on a specific error type. We can't
+                      reliably tell "the user just cancelled" apart from "this
+                      device can never satisfy this prompt" from here, and the
+                      cost of over-showing an escape hatch is nothing; the cost
+                      of under-showing one is a locked-out owner. */}
+                  {errorMessage && (
+                    <button
+                      onClick={signOutInstead}
+                      className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
+                    >
+                      <LogOut size={13} />
+                      Sign out and use Google instead
+                    </button>
+                  )}
+                </div>
+              )}
+              {/* Whisper build tag — lets Kevin confirm from the phone itself
+                  which build is running, so a stuck screen can't be mistaken
+                  for "the fix didn't ship" when it's actually a stale APK
+                  download. See lib/buildTag.ts. */}
+              <p className="absolute bottom-6 text-[10px] text-slate-400/70 dark:text-slate-500/60 tracking-wide">
+                {BUILD_TAG}
+              </p>
+            </div>
+          )}
+        </div>,
+        document.body
+      )
+    : null;
 
   return (
     <>
       {children}
-      {autoDisabledNotice && (
-        <div
-          role="status"
-          className="fixed inset-x-4 z-[999] flex items-center justify-center rounded-2xl bg-slate-900/90 dark:bg-slate-800/90 px-4 py-3 text-center text-sm font-medium text-white shadow-lg"
-          style={{ top: "calc(env(safe-area-inset-top, 0px) + 12px)" }}
-        >
-          Biometric lock turned off, it&apos;s no longer available on this device.
-        </div>
-      )}
-      {locked && (
-        <div className="fixed inset-0 z-[999] flex flex-col items-center justify-center bg-gradient-to-b from-[#f0f2f7] to-[#e4e8f5] dark:from-[#0f172a] dark:to-[#131c33] px-6">
-          <div className="w-20 h-20 rounded-3xl bg-indigo-500 shadow-xl flex items-center justify-center mb-6">
-            <Fingerprint size={36} className="text-white" />
-          </div>
-          <h1 className="text-lg font-bold text-slate-900 dark:text-slate-100 mb-1.5">Sorted is locked</h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400 text-center mb-8 max-w-xs">
-            {errorMessage ?? "Confirm it's you to see your accounts."}
-          </p>
-          {!awaitingAuth && (
-            <div className="flex flex-col items-center gap-3">
-              <button
-                onClick={() => void attemptUnlock()}
-                className="flex items-center gap-2 px-5 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-700 active:scale-[0.97] text-sm font-semibold text-white transition-all shadow-md shadow-indigo-200 dark:shadow-none"
-              >
-                <ShieldCheck size={16} />
-                {errorMessage ? "Try again" : "Unlock"}
-              </button>
-              {/* Always available once an attempt has settled without
-                  unlocking — not just on a specific error type. We can't
-                  reliably tell "the user just cancelled" apart from "this
-                  device can never satisfy this prompt" from here, and the
-                  cost of over-showing an escape hatch is nothing; the cost
-                  of under-showing one is a locked-out owner. */}
-              {errorMessage && (
-                <button
-                  onClick={signOutInstead}
-                  className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
-                >
-                  <LogOut size={13} />
-                  Sign out and use Google instead
-                </button>
-              )}
-            </div>
-          )}
-          {/* Whisper build tag — lets Kevin confirm from the phone itself
-              which build is running, so a stuck screen can't be mistaken
-              for "the fix didn't ship" when it's actually a stale APK
-              download. See lib/buildTag.ts. */}
-          <p className="absolute bottom-6 text-[10px] text-slate-400/70 dark:text-slate-500/60 tracking-wide">
-            {BUILD_TAG}
-          </p>
-        </div>
-      )}
+      {overlay}
     </>
   );
 }

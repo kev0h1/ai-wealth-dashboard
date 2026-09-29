@@ -30,6 +30,7 @@ import { invalidateAllAccountData } from "@/lib/accountMutations";
 import { resolveAttention } from "@/lib/attention";
 import { isPaydayWindowActive, writePaydayDotCache } from "@/lib/paydayWindow";
 import { useTutorialReady } from "@/components/TutorialContext";
+import { APP_LOCK_UNLOCKED_EVENT } from "@/components/BiometricLock";
 import { fetchVerdictData } from "@/lib/verdictCache";
 import { getAccountsCached } from "@/lib/accountsCache";
 import { useHomePinnedAccounts } from "@/lib/homePinnedAccounts";
@@ -582,6 +583,23 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  // A121: the app-lock request gate (lib/api.ts) refuses any of the fetches
+  // above while the biometric lock is engaged. Nothing here currently
+  // refetches on a background/foreground cycle by itself (this data simply
+  // survives backgrounding, since BiometricLock never unmounts `{children}`)
+  // — but a call that DID happen to fire while locked (this effect re-running
+  // for an unrelated reason, a manual sync mid-lock) would otherwise be
+  // refused and never retried. Reload once biometric unlock actually
+  // succeeds, so Home is never left showing stale or failed data past that
+  // point.
+  useEffect(() => {
+    function onUnlocked() {
+      loadData();
+    }
+    window.addEventListener(APP_LOCK_UNLOCKED_EVENT, onUnlocked);
+    return () => window.removeEventListener(APP_LOCK_UNLOCKED_EVENT, onUnlocked);
+  }, [loadData]);
 
   // Tour readiness: `loading` only clears once accsP (estate section) and
   // safeP (hero) have both settled (see loadData above), so it already
