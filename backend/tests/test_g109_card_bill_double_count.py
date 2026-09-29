@@ -33,7 +33,9 @@ below, which is the dangerous-failure-mode check the ticket calls for.
 Same fake-Mongo/monkeypatch conventions as test_safe_to_spend_hardening.py
 (no mongomock in this environment).
 """
+import ast
 import asyncio
+import inspect
 from datetime import date, timedelta
 
 import app.routers.analytics as analytics
@@ -499,3 +501,76 @@ def test_reserve_catches_a_not_yet_posted_charge_even_with_zero_past_growth(monk
     assert result["card_growth_total"] == 0.0  # nothing has posted — the descriptive fact stays honest
     assert result["card_growth_reserved"] == 45.0  # but the forecasted charge is still reserved for
     assert result["safe_to_spend"] == 155.0  # 200 - 45, not 200
+
+
+# ── H98 guard: the fourth blockage cannot come from this file ──────────────
+#
+# Three separate calendar-drift blockages have come out of this one file in
+# two days (G137, G180/H94, H98) because each fix pinned only the test that
+# happened to be red that day rather than the underlying pattern: a fixture
+# built from `date.today()` plus a bare `days_away`/`expected_date` literal
+# is silently at the mercy of `days_until_payday`, which shrinks to zero as
+# any calendar month ends (the `calendar_month` payday fallback used
+# whenever `get_confirmed_payday` finds no confirmed income stream in a
+# bare prefs doc). This file's own established fix (G180, extended by H98
+# above) is not "freeze a global clock" (that's test_pending_observed.py's
+# idiom, via timeutil.datetime) but "read the real date.today() once, then
+# pin income_service.get_confirmed_payday to today + 15 days so
+# days_until_payday is always 15, immune to the calendar" -- so the source
+# scan below does not forbid date.today() outright, it requires every test
+# that reads it to also carry that pin in the same function body. A test
+# with neither (no date.today() and no days_away fixture at all, like the
+# four `_touches_pooled_cash` unit tests above) is unaffected by either
+# check and passes trivially.
+def test_no_test_reads_the_real_clock_without_pinning_payday():
+    """Source-scan guard: every test function in this file that calls
+    date.today()/datetime.utcnow()/datetime.now() must also monkeypatch
+    income_service.get_confirmed_payday within the same function body.
+    Catches a future test being added back into the unpinned shape that
+    caused H98 (and, one test over, the shape G180/H94 already fixed)."""
+    import tests.test_g109_card_bill_double_count as _this_module
+
+    source = inspect.getsource(_this_module)
+    tree = ast.parse(source)
+
+    def reads_real_clock(fn_node: ast.FunctionDef) -> bool:
+        for n in ast.walk(fn_node):
+            if (
+                isinstance(n, ast.Call)
+                and isinstance(n.func, ast.Attribute)
+                and isinstance(n.func.value, ast.Name)
+                and n.func.value.id in ("date", "datetime")
+                and n.func.attr in ("today", "utcnow", "now")
+            ):
+                return True
+        return False
+
+    def pins_confirmed_payday(fn_node: ast.FunctionDef) -> bool:
+        for n in ast.walk(fn_node):
+            if (
+                isinstance(n, ast.Call)
+                and isinstance(n.func, ast.Attribute)
+                and n.func.attr == "setattr"
+                and len(n.args) >= 2
+                and isinstance(n.args[0], ast.Name)
+                and n.args[0].id == "income_service"
+                and isinstance(n.args[1], ast.Constant)
+                and n.args[1].value == "get_confirmed_payday"
+            ):
+                return True
+        return False
+
+    offending = [
+        node.name
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name.startswith("test_")
+        and reads_real_clock(node)
+        and not pins_confirmed_payday(node)
+    ]
+
+    assert offending == [], (
+        "these tests read the real clock without pinning "
+        "income_service.get_confirmed_payday, the exact rot class behind "
+        f"H98/H94/G180: {offending}"
+    )
