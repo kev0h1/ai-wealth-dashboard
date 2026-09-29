@@ -50,6 +50,23 @@ def _weekday_name(d: date) -> str:
     return _WEEKDAYS[d.weekday()]
 
 
+def _dest_due_range(dest_bills: list[dict], today: date) -> dict:
+    """First and last due dates for a destination's bills (G184).
+
+    `needs_by` stays the earliest label; `needs_by_last` is the latest bill's
+    label so the UI can say "First due X, last due Y" instead of implying
+    every payment lands by the first date.
+    """
+    dates = sorted(date.fromisoformat(b["expected_date"]) for b in dest_bills)
+    first, last = dates[0], dates[-1]
+    return {
+        "needs_by": _when_label(first, today),
+        "needs_by_last": _when_label(last, today),
+        "needs_by_date": first.isoformat(),
+        "needs_by_last_date": last.isoformat(),
+    }
+
+
 def _when_label(d: date, today: date) -> str:
     """Distance-aware date label: today/tomorrow/weekday-name (2-6 days)/short-date (>=7 days).
     Prevents "lands Friday" reading as "this Friday" when the date is actually weeks away."""
@@ -2846,6 +2863,9 @@ async def compute_today_items(
                 "balance": float(dest_balance),
                 "needs_total": 0,
                 "needs_by": "",
+                "needs_by_last": "",
+                "needs_by_date": None,
+                "needs_by_last_date": None,
                 "bills": [],
                 "is_overdraft": True,
             }
@@ -2873,7 +2893,7 @@ async def compute_today_items(
                 "provider": dest_provider,
                 "balance": float(dest_balance),
                 "needs_total": int(round(sum(float(b["amount"]) for b in dest_bills))),
-                "needs_by": _when_label(date.fromisoformat(dest_bills[0]["expected_date"]), today_d),
+                **_dest_due_range(dest_bills, today_d),
                 "bills": [
                     _plan_dest_bill(b, dest_acct)
                     for b in dest_bills

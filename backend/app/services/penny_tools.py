@@ -3098,6 +3098,7 @@ def _shape_plan_dest(dest: dict | None) -> dict | None:
         "balance": _money(dest.get("balance")),
         "needs_total": _money(dest.get("needs_total")),
         "needs_by": dest.get("needs_by"),
+        "needs_by_last": dest.get("needs_by_last"),
         "bills": [
             {"label": b.get("label"), "amount": _money(b.get("amount"))}
             for b in (dest.get("bills") or [])
