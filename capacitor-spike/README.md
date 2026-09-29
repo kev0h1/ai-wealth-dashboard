@@ -47,7 +47,7 @@ regeneration, same as `setup-android-push.sh` and `apply-icons.sh`.
   with `bash scripts/setup-android-privacy.sh` if needed). If H73 commits
   `android/`, the plugin and its registration become committed source and this
   script is replaced. It installs `android-privacy/PrivacyScreenPlugin.java` and registers it in
-  `MainActivity`). The web layer then sets `FLAG_SECURE` while the biometric
+  `MainActivity`. The web layer then sets `FLAG_SECURE` while the biometric
   lock preference is on, which blanks the recents thumbnail and also blocks
   user screenshots and screen recording during that time.
 - iOS: `codemagic.yaml` step "Patch AppDelegate for app-switcher privacy"
