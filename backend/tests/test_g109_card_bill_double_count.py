@@ -175,11 +175,29 @@ def test_a_charge_on_a_credit_card_does_not_reduce_the_walk(monkeypatch):
 def test_a_repayment_to_that_card_does_reduce_the_walk(monkeypatch):
     """The separate Amex repayment from Barclays — a MOVEMENT bill whose
     OWN account is Barclays (not a card), so is_credit_card is false on the
-    bill itself even though card_dest_account_id names the card."""
+    bill itself even though card_dest_account_id names the card.
+
+    H94-style date rot (found in this merge-conflict-resolution pass,
+    2026-09-29, same mechanism as the two neighbouring fixtures H94 already
+    pinned): the window keeps bills with `days_away < days_until_payday`,
+    and this fixture's hardcoded `days_away: 2` silently fell outside that
+    window the moment a real calendar month's final two days shrank the
+    calendar_month payday gap to 2 (bills_total dropped to 0 instead of
+    180). Pinned the same way, to a payday fixed at "today" + 15 days, so
+    `days_away: 2` stays inside the window on every calendar day."""
     _wire_common(monkeypatch)
+
+    today = date.today()
+    next_payday = today + timedelta(days=15)  # days_until_payday == 15, always
+
+    def fake_confirmed_payday(_prefs, _today):
+        return (next_payday, {"schedule": "fixed"})
+
+    monkeypatch.setattr(income_service, "get_confirmed_payday", fake_confirmed_payday)
+
     bills = [{
         "name": "Amex repayment", "days_away": 2, "amount": 180.0,
-        "expected_date": "2026-09-18", "kind": analytics.MOVEMENT,
+        "expected_date": (today + timedelta(days=2)).isoformat(), "kind": analytics.MOVEMENT,
         "account_id": "barclays", "is_credit_card": False,
         "card_dest_account_id": "amex", "dest_account_spendable": None,
     }]
