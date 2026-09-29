@@ -179,10 +179,13 @@ function coverPlan(source: Account, amount: number, destination: Account): Compa
       ...destinationAccount,
       needs_total: 133,
       needs_by: shortDateFromNow(5),
+      needs_by_last: shortDateFromNow(26),
+      needs_by_date: daysFromNow(5).slice(0, 10),
+      needs_by_last_date: daysFromNow(26).slice(0, 10),
       bills: [
-        { label: "Energy", amount: 58 },
-        { label: "Broadband", amount: 45 },
-        { label: "Insurance", amount: 30 },
+        { label: "Energy", amount: 58, expected_date: daysFromNow(5).slice(0, 10) },
+        { label: "Broadband", amount: 45, expected_date: daysFromNow(12).slice(0, 10) },
+        { label: "Insurance", amount: 30, expected_date: daysFromNow(26).slice(0, 10) },
       ],
     },
     moves: [{
