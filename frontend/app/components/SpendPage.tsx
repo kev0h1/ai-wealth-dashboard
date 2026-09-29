@@ -12,7 +12,6 @@ import { cachedVerdict, fetchVerdictData, invalidateVerdictCache } from "@/lib/v
 import { cachedSignals, fetchSignals, invalidateSignalsCache, SignalMap } from "@/lib/signalsCache";
 import { invalidateAfterTransactionCorrection } from "@/lib/cacheInvalidation";
 import { useColours } from "@/components/ColourProvider";
-import { getToken, setToken } from "@/lib/auth";
 import {
   getPayPeriodWithConfig,
   prevPeriodWithConfig,

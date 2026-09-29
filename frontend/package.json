@@ -48,11 +48,13 @@
     "check:app-lock-gate": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/app-lock-gate.test.mjs",
     "check:display-name": "node --no-warnings --experimental-strip-types scripts/display-name.test.mjs",
     "check:global-401": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/global-401.test.mjs",
+    "check:auth-token-store": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/auth-token-store.test.mjs",
     "check:cover-plan-due": "node --no-warnings --experimental-strip-types scripts/cover-plan-due.test.mjs",
     "check:privacy-cover": "node --no-warnings --experimental-strip-types scripts/privacy-cover.test.mjs"
   },
   "dependencies": {
     "@aparajita/capacitor-biometric-auth": "^10.0.0",
+    "@aparajita/capacitor-secure-storage": "8.0.1",
     "@capacitor-community/apple-sign-in": "^7.1.0",
     "@capacitor/app": "^8.1.1",
     "@capacitor/browser": "^8.0.4",

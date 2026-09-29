@@ -4,7 +4,7 @@ import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { Capacitor } from "@capacitor/core";
 import { App } from "@capacitor/app";
-import { getToken, setToken, clearToken } from "@/lib/auth";
+import { getToken, setTokenAsync, clearToken, hydrateToken } from "@/lib/auth";
 import { api, API_BASE, gatedFetch, setUnauthorizedHandler, resetUnauthorizedGate } from "@/lib/api";
 import { WEB_PRODUCT_OFF } from "@/lib/webProduct";
 import LoginScreen from "@/components/LoginScreen";
@@ -61,13 +61,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     async function init() {
+      // A123: on native the token lives in Keychain/Keystore. Hydrate the
+      // in-memory cache BEFORE anything reads or writes it (including the
+      // ?token= write below, which hydration would otherwise overwrite).
+      // `checking` stays true until this resolves, so no authed fetch fires.
+      if (nativePlatform()) await hydrateToken();
+
       // Pick up token from Google OAuth redirect
       const params = new URLSearchParams(window.location.search);
       const urlToken = params.get("token");
       const errParam = params.get("error");
 
       if (urlToken) {
-        setToken(urlToken);
+        await setTokenAsync(urlToken);
         params.delete("token");
       }
       if (errParam) {
