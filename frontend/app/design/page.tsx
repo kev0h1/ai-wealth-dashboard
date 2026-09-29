@@ -35,15 +35,17 @@ const ROUTES: PreviewRoute[] = [
     slug: "g176-upcoming-rows",
     name: "g176-upcoming-rows",
     description:
-      "G176, skill: impeccable · Upcoming row-density round for six late own-account moves that currently repeat two caution notes and a dismissal link on every row · A Status shelf states the shared condition once beneath the day heading and keeps the explanation in an in-card disclosure · B Exception cluster separates ordinary payments from one compact group of moves still waiting · C Inline summary makes the smallest structural change with one quiet caption above the familiar ledger · every direction gives the full payee name room to wrap, keeps money right-aligned in mono, uses one amber group signifier only, and moves Dismiss for this month into the row sheet · the preview imports the same production UpcomingRow component now rendered by PlanningPage.tsx; production remains on treatment=current until Kevin picks a direction · static invented fixtures only, safe local interactions, no API calls or mutations · ?variant=a|b|c&state=late|mixed&mode=light|dark",
+      "G176, skill: impeccable · Second round: show whether each source account can cover its upcoming payments, including covered payments within an account that runs short later · A By account groups rows within the existing day cards · B Cash view compares labelled cash and payment bars on one scale, alongside the familiar ledger on desktop · C Needs a look leaves short payments visible and folds covered payments into a disclosure per day · all use the production UpcomingRow and UpcomingDayCard components with invented fixtures and a shared calculation in pence · mixed state has £185 left overall but £200 needed in two source accounts; these are different figures with their own working · own transfers use amber and unfunded wording, genuine bill gaps use a small red signifier · account and payment sheets show the calculation, local transfer dismissal recalculates all views and supports Undo · production remains on treatment=current pending a choice · ?variant=a|b|c&state=mixed|short|covered|moves&mode=light|dark",
     states: [
-      { label: "Six late moves", value: "late" },
-      { label: "Mixed payment day", value: "mixed" },
+      { label: "Some accounts short", value: "mixed" },
+      { label: "All accounts short", value: "short" },
+      { label: "All covered", value: "covered" },
+      { label: "Own transfers", value: "moves" },
     ],
     variants: [
-      { label: "A · Status shelf", value: "a" },
-      { label: "B · Exception cluster", value: "b" },
-      { label: "C · Inline summary", value: "c" },
+      { label: "A · By account", value: "a" },
+      { label: "B · Cash view", value: "b" },
+      { label: "C · Needs a look", value: "c" },
     ],
   },
   {
