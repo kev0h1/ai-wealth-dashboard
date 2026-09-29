@@ -3,7 +3,7 @@ import { Capacitor } from "@capacitor/core";
 import { Browser } from "@capacitor/browser";
 import { App } from "@capacitor/app";
 import { API_BASE, api, gatedFetch } from "./api";
-import { setToken } from "./auth";
+import { setTokenAsync } from "./auth";
 
 export function isNativePlatform(): boolean {
   try {
@@ -206,7 +206,7 @@ export async function nativeAppleLogin(): Promise<"ok" | "invite_only" | "failed
     }
     const data = await res.json();
     if (data.ok && data.session_token) {
-      setToken(data.session_token);
+      await setTokenAsync(data.session_token);
       return "ok";
     }
     return "failed";
@@ -255,7 +255,7 @@ export async function nativeGoogleLogin(): Promise<"ok" | "invite_only" | "faile
       if (!res.ok) return "pending";
       const d = await res.json();
       if (d.status === "token" && d.token) {
-        setToken(d.token);
+        await setTokenAsync(d.token);
         return "ok";
       }
       if (d.status === "error") {
