@@ -107,6 +107,7 @@ from app.services.account_plan_sources import (
     eligible_source_account_map,
     owned_plan_balance,
     owned_account_map,
+    source_link_snapshot,
     validate_source_account,
 )
 
@@ -659,7 +660,7 @@ async def create_allocation(body: dict, user: dict = Depends(current_user)):
     result = await allocations_col.insert_one(doc)
     doc["_id"] = result.inserted_id
 
-    response_cache.invalidate(uid)  # safe-to-spend reserve changed
+    await response_cache.ainvalidate(uid)  # subsequent reads must see the write
     return await _serialise(doc, start, end)
 
 
@@ -669,6 +670,9 @@ async def update_allocation(
 ):
     uid = user["email"]
     doc = await _get_owned(uid, allocation_id)
+    update_filter = {"_id": doc["_id"], "user_id": uid}
+    if "source_account_id" in body or "fill_account_id" in body:
+        update_filter.update(source_link_snapshot(doc, "source_account_id", "fill_account_id"))
 
     updates: dict = {}
     if "name" in body:
@@ -741,10 +745,12 @@ async def update_allocation(
         if await _conflicts(uid, eff_fill, eff_match_type, eff_match_value, exclude_id=doc["_id"]):
             raise HTTPException(400, "an active allocation already fills from this payment")
 
-    await allocations_col.update_one({"_id": doc["_id"]}, {"$set": updates})
+    result = await allocations_col.update_one(update_filter, {"$set": updates})
+    if result.matched_count == 0:
+        raise HTTPException(409, "Allocation changed while you were editing. Refresh and try again.")
     doc.update(updates)
 
-    response_cache.invalidate(uid)
+    await response_cache.ainvalidate(uid)
     cfg = await _pay_cfg(uid)
     start, end = get_pay_period_for_date(timeutil.user_today(), cfg)
     return await _serialise(doc, start, end)

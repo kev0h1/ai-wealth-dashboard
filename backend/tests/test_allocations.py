@@ -143,6 +143,12 @@ class _InsertResult:
         self.inserted_id = inserted_id
 
 
+class _UpdateResult:
+    """Motor-compatible result for PATCH compare-and-set checks."""
+    def __init__(self, matched_count):
+        self.matched_count = matched_count
+
+
 class FakeCol:
     """Stand-in for a Motor collection — enough of find()/find_one()/
     insert_one()/update_one()/delete_one() to drive the real router code."""
@@ -171,11 +177,12 @@ class FakeCol:
         for d in self.docs:
             if _match(d, filt):
                 self._apply(d, update)
-                return
+                return _UpdateResult(1)
         if upsert:
             new_doc = dict(filt)
             self._apply(new_doc, update)
             self.docs.append(new_doc)
+        return _UpdateResult(0)
 
     async def delete_one(self, filt):
         for i, d in enumerate(self.docs):
@@ -232,7 +239,8 @@ def _setup(monkeypatch, *, accounts=None, allocations_docs=None, txns=None,
     monkeypatch.setattr(allocations, "preferences_col", FakeCol(
         prefs if prefs is not None else [{"user_id": UID, "pay_period_config": {"type": "calendar_month"}}]
     ))
-    # response_cache.invalidate touches nothing DB-backed — leave it real.
+    async def no_cache_invalidate(_): pass
+    monkeypatch.setattr(allocations.response_cache, "ainvalidate", no_cache_invalidate)
 
 
 USER = {"email": UID}

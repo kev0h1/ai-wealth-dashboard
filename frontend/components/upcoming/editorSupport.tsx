@@ -60,7 +60,13 @@ export function EditorActions({ formId, busy, needsRefresh = false, onCancel, re
 }
 
 export function EditorError({ message }: { message: string }) {
-  return message ? <p role="alert" className="rounded-xl border border-slate-300 p-3 text-sm leading-6 text-slate-700 dark:border-slate-600 dark:text-slate-200">{message}</p> : null;
+  const ref = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    // The actions stay in the sheet footer while a long form scrolls. Make
+    // a failed save visible without stealing focus or opening another sheet.
+    if (message) ref.current?.scrollIntoView({ block: "nearest", behavior: "instant" });
+  }, [message]);
+  return message ? <p ref={ref} role="alert" className="rounded-xl border border-slate-300 p-3 text-sm leading-6 text-slate-700 dark:border-slate-600 dark:text-slate-200">{message}</p> : null;
 }
 
 export function validDate(value: string) {

@@ -6,6 +6,7 @@ participate in allocation reserves or commitment feasibility calculations.
 from __future__ import annotations
 
 import math
+from copy import deepcopy
 
 from fastapi import HTTPException
 
@@ -15,6 +16,24 @@ from app.services.account_kinds import (
     is_current_account,
     is_savings_account,
 )
+
+
+def source_link_snapshot(doc: dict, *fields: str) -> dict:
+    """CAS predicates for the source/destination state validation relied on.
+
+    Both ends are guarded: a source edit must not race a destination edit,
+    and a destination edit must not overwrite a newly selected source. Keep
+    absent and explicit-null distinct, as only absent sources can be inferred.
+    Use raw stored pots, not their normalised read shape, for Mongo equality.
+    """
+    return {
+        field: (
+            {"$exists": False} if field not in doc
+            else {"$exists": True, "$eq": None} if doc[field] is None
+            else deepcopy(doc[field])
+        )
+        for field in fields
+    }
 
 
 def _account_id(doc: dict) -> str:

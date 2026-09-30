@@ -22,19 +22,24 @@ class _Collection:
     def find(self, query, *args):
         def matches(d):
             for key, value in query.items():
+                if key == "$and":
+                    if not all(matches_clause(d, clause) for clause in value): return False
+                    continue
                 if key == "$or":
                     if not any(matches_clause(d, clause) for clause in value): return False
                     continue
-                if isinstance(value, dict) and "$ne" in value:
-                    if d.get(key) == value["$ne"]: return False
-                elif isinstance(value, dict) and "$exists" in value:
-                    if (key in d) != value["$exists"]: return False
+                if isinstance(value, dict):
+                    if "$ne" in value and d.get(key) == value["$ne"]: return False
+                    if "$exists" in value and (key in d) != value["$exists"]: return False
+                    if "$eq" in value and (key not in d or d.get(key) != value["$eq"]): return False
                 elif d.get(key) != value: return False
             return True
         def matches_clause(d, clause):
             for key, value in clause.items():
-                if isinstance(value, dict) and "$exists" in value:
-                    if (key in d) != value["$exists"]: return False
+                if isinstance(value, dict):
+                    if "$exists" in value and (key in d) != value["$exists"]: return False
+                    if "$eq" in value and (key not in d or d.get(key) != value["$eq"]): return False
+                    if "$ne" in value and d.get(key) == value["$ne"]: return False
                 elif d.get(key) != value:
                     return False
             return True
@@ -47,7 +52,7 @@ class _Collection:
         return SimpleNamespace(inserted_id=doc["_id"])
     async def update_one(self, query, update):
         for doc in self.docs:
-            if all(doc.get(k) == v for k, v in query.items()):
+            if any(doc is candidate for candidate in self.find(query).docs):
                 doc.update(update.get("$set", {}))
                 return SimpleNamespace(matched_count=1)
         return SimpleNamespace(matched_count=0)
@@ -209,6 +214,8 @@ def test_allocation_create_update_owns_source_and_null_clears_without_omission_r
     monkeypatch.setattr(allocations, "_pay_cfg", cfg)
     monkeypatch.setattr(allocations, "owned_account_map", sources)
     monkeypatch.setattr(allocations, "_serialise", serial)
+    async def no_cache_invalidate(_): pass
+    monkeypatch.setattr(allocations.response_cache, "ainvalidate", no_cache_invalidate)
     body = {"name": "Rainy", "amount_per_period": 20, "fill_account_id": "saving",
             "match_type": "description_contains", "match_value": "transfer", "recurrence": "every_period",
             "source_account_id": "current"}

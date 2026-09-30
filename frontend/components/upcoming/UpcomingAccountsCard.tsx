@@ -3,7 +3,7 @@
 import { useId } from "react";
 import { BANK_META, BankBadge, bankKey, bankLogoSrc } from "@/components/AccountMiniCard";
 import type { UpcomingAccountSummary } from "@/lib/upcomingAccounts";
-import { accountPlan, remaining, type Plan } from "@/lib/upcomingPlans";
+import { accountPlan, hasChosenPlanSource, remaining, type Plan } from "@/lib/upcomingPlans";
 
 export interface UpcomingAccountsCardProps {
   accounts: UpcomingAccountSummary[];
@@ -48,7 +48,7 @@ function AccountResult({ account, plans }: { account: UpcomingAccountSummary; pl
  */
 export default function UpcomingAccountsCard({ accounts, periodLabel, onOpen, plans = [], plansStatus = "ready", onPlan, onRetry }: UpcomingAccountsCardProps) {
   const headingId = useId();
-  const unassigned = plans.filter((plan) => plan.active && remaining(plan) > 0 && (!plan.sourceId || plan.evidence === "unknown"));
+  const unassigned = plans.filter((plan) => plan.active && remaining(plan) > 0 && !hasChosenPlanSource(plan));
   const readyPlans = plansStatus === "ready" ? plans : [];
 
   return (
@@ -82,7 +82,7 @@ export default function UpcomingAccountsCard({ accounts, periodLabel, onOpen, pl
         </div>
       )}
       {plansStatus !== "ready" && <div className="border-t border-slate-100 px-4 py-3 text-xs leading-5 text-slate-600 dark:border-slate-700 dark:text-slate-300" role="status">{plansStatus === "loading" ? "Loading goals and allocations. Figures show payments only." : "Goals and allocations could not be checked. Figures show payments only."}{plansStatus === "error" && onRetry && <button type="button" className={`ml-1 min-h-11 rounded-lg px-2 font-semibold text-indigo-600 dark:text-indigo-300 ${focus}`} onClick={onRetry}>Try again</button>}</div>}
-      {plansStatus === "ready" && unassigned.length > 0 && <details className="border-t border-slate-100 px-4 dark:border-slate-700"><summary className={`min-h-11 cursor-pointer py-3 text-xs font-medium text-slate-700 dark:text-slate-200 ${focus}`}>{unassigned.length} {unassigned.length === 1 ? "plan needs a paying account" : "plans need paying accounts"}</summary><div className="pb-3">{unassigned.map((plan) => <button key={plan.id} type="button" onClick={() => onPlan?.(plan.id)} className={`min-h-11 w-full rounded-lg text-left text-sm font-medium ${focus}`}>{plan.name}<span className="block text-xs font-normal text-slate-600 dark:text-slate-400">Choose paying account</span></button>)}</div></details>}
+      {plansStatus === "ready" && unassigned.length > 0 && <details className="border-t border-slate-100 px-4 dark:border-slate-700"><summary className={`min-h-11 cursor-pointer py-3 text-xs font-medium text-slate-700 dark:text-slate-200 ${focus}`}>{unassigned.length} {unassigned.length === 1 ? "plan needs a paying account" : "plans need paying accounts"}</summary><div className="pb-3">{unassigned.map((plan) => <button key={plan.id} type="button" onClick={() => onPlan?.(plan.id)} className={`min-h-11 w-full rounded-lg text-left text-sm font-medium ${focus}`}>{plan.name}<span className="block text-xs font-normal text-slate-600 dark:text-slate-400">{plan.evidence === "recent-transfers" && plan.sourceId ? "Suggested · choose paying account" : "Choose paying account"}</span></button>)}</div></details>}
       {accounts.length > 0 && <p className="px-4 pb-4 pt-2 text-xs leading-5 text-slate-600 dark:text-slate-400">Tap an account for its working.</p>}
     </section>
   );

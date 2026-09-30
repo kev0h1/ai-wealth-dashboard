@@ -340,7 +340,7 @@ export default function PlanningPage() {
   // coverage. They are source-account evidence, never inputs to the hero.
   const accountEndMs = upcomingAccountWindow(periodEnd.getTime(), planningNow);
   const plans = cashflow ? assessPlanOverlap(plansFromApi(accountPlans ?? []), cashflow, accountEndMs) : [];
-  const sourceIds = new Set(plans.filter((plan) => plan.active && plan.evidence !== "unknown").map((plan) => plan.sourceId));
+  const sourceIds = new Set(plans.filter((plan) => plan.active && plan.evidence === "chosen" && plan.sourceId).map((plan) => plan.sourceId));
   const planSources = accounts.filter((account) => sourceIds.has(account.id) && isPlanSourceAccount(account)).map((account) => ({ id: account.id, bank: account.provider, name: account.name, balance: account.balance }));
   const accountWalk = cashflow ? walkUpcomingAccounts(cashflow, accountEndMs, planSources) : null;
   const accountPeriodLabel = `Payments through ${new Date(accountEndMs).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" })}`;

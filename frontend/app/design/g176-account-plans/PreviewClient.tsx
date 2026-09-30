@@ -25,7 +25,7 @@ function cardPayment(): PaymentDetail {
 
 function Preview({ scenario, mode, initial, plansStatus }: { scenario: Scenario; mode: "light" | "dark"; initial: UpcomingDetailView | null; plansStatus: "loading" | "error" | "ready" }) {
   const [plans, setPlans] = useState<Plan[]>(() => plansFor(scenario));
-  const [allocation, setAllocation] = useState(() => ({ ...initialAllocation, source_account_id: scenario === "unassigned" ? null : "monzo" }));
+  const [allocation, setAllocation] = useState(() => ({ ...initialAllocation, source_account_id: scenario === "unassigned" || scenario === "suggested" ? null : "monzo" }));
   const [planned, setPlanned] = useState({ id: "planned-example", name: "Birthday meal", amount: 40, date: "2026-10-18", account_id: "monzo" as string | null });
   const [plannedPresent, setPlannedPresent] = useState(true);
   const [paymentPresent, setPaymentPresent] = useState(true);
@@ -75,7 +75,7 @@ function Preview({ scenario, mode, initial, plansStatus }: { scenario: Scenario;
           ...plan, name: updated.name, periodPence: Math.round(updated.amount_per_period * 100),
           remainingPence: Math.round(updated.remaining * 100), active: updated.active,
           destination: accounts.find((account) => account.id === updated.fill_account_id)?.name ?? "Receiving pot",
-          destinationIds: [updated.fill_account_id], sourceId: updated.source_account_id,
+          destinationIds: [updated.fill_account_id], sourceId: patch.source_account_id === undefined ? plan.sourceId : updated.source_account_id,
           evidence: patch.source_account_id === undefined ? plan.evidence : patch.source_account_id ? "chosen" : "unknown",
         } : plan));
         return updated;

@@ -92,7 +92,7 @@ from app.services.debt_plan import (
     month_label_to_human,
 )
 from app.services.pay_period import get_pay_period_for_date, period_rhythm_label
-from app.services.account_plan_sources import owned_account_map, validate_source_account
+from app.services.account_plan_sources import owned_account_map, source_link_snapshot, validate_source_account
 
 logger = logging.getLogger(__name__)
 
@@ -260,10 +260,16 @@ async def _migrate_legacy(doc: dict) -> None:
     if isinstance(doc.get("funding_pots"), list):
         return
     pots = _doc_pots(doc)
-    await commitments_col.update_one(
-        {"_id": doc["_id"]}, {"$set": {"funding_pots": pots}}
+    result = await commitments_col.update_one(
+        {"_id": doc["_id"], "user_id": doc["user_id"], **source_link_snapshot(
+            doc, "funding_pots", "funding_account_id", "baseline_balance",
+        )},
+        {"$set": {"funding_pots": pots}},
     )
-    doc["funding_pots"] = pots
+    if result.matched_count:
+        doc["funding_pots"] = pots
+    # A concurrent re-link wins. A stale list read must never restore its
+    # previous destination after a guarded PATCH chose a different one.
 
 
 # ── Pot ledger (one pound, one claim) ─────────────────────────────────────────
@@ -1129,7 +1135,7 @@ async def create_commitment(
     result = await commitments_col.insert_one(doc)
     doc["_id"] = result.inserted_id
 
-    response_cache.invalidate(uid)  # safe-to-spend reserve changed
+    await response_cache.ainvalidate(uid)  # subsequent reads must see the write
     return await _serialise_one_with_siblings(uid, doc)
 
 
@@ -1314,6 +1320,14 @@ async def update_commitment(
 ):
     uid = user["email"]
     doc = await _get_owned(uid, commitment_id)
+    update_filter = {"_id": doc["_id"], "user_id": uid}
+    link_changed = any(field in body for field in ("source_account_id", "funding_pots", "funding_account_id"))
+    if link_changed:
+        # Validate and write against the same raw stored destination/source,
+        # including the legacy single-pot shape and an absent source key.
+        update_filter.update(source_link_snapshot(
+            doc, "source_account_id", "funding_pots", "funding_account_id", "status",
+        ))
 
     current_status = doc.get("status") or "active"
     # A86 rework: `target_status` is the status this request would leave the
@@ -1395,6 +1409,8 @@ async def update_commitment(
         updates["funding_pots"] = pots
         updates.update(_pot_mirrors(pots))
     if "source_account_id" in body:
+        if target_status != "active":
+            raise HTTPException(409, "Paying accounts can only be changed for active goals.")
         sources = await owned_account_map(uid)
         effective_pots = updates.get("funding_pots", _doc_pots(doc))
         updates["source_account_id"] = validate_source_account(
@@ -1438,18 +1454,19 @@ async def update_commitment(
     # write (another cancel, another contribute-triggering PATCH) means
     # matched_count == 0, and we 409 rather than silently applying updates
     # computed against a status that's no longer current.
-    update_filter: dict = {"_id": doc["_id"]}
     if cas_status is not None:
-        update_filter["status"] = cas_status
+        update_filter.update(source_link_snapshot(doc, "status"))
     result = await commitments_col.update_one(update_filter, {"$set": updates})
-    if cas_status is not None and getattr(result, "matched_count", 1) == 0:
+    if result.matched_count == 0:
+        if link_changed or cas_status is None:
+            raise HTTPException(409, "Goal changed while you were editing. Refresh and try again.")
         raise HTTPException(
             409,
             "commitment status changed since it was read; refresh and retry",
         )
     doc.update(updates)
 
-    response_cache.invalidate(uid)
+    await response_cache.ainvalidate(uid)
     return await _serialise_one_with_siblings(uid, doc)
 
 

@@ -4,8 +4,10 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import UpcomingHeroCard from "../components/upcoming/UpcomingHeroCard.tsx";
 import UpcomingAccountDetails from "../components/upcoming/UpcomingAccountDetails.tsx";
+import UpcomingAccountsCard from "../components/upcoming/UpcomingAccountsCard.tsx";
 import UpcomingPlanDetails from "../components/upcoming/UpcomingPlanDetails.tsx";
-import { accountPlan, assessPlanOverlap, plansFromApi, remaining } from "../lib/upcomingPlans.ts";
+import { AllocationEditForm } from "../components/AllocationEditForm.tsx";
+import { accountPlan, assessPlanOverlap, hasChosenPlanSource, plansFromApi, remaining } from "../lib/upcomingPlans.ts";
 import { walkUpcomingAccounts } from "../lib/upcomingAccountWalk.ts";
 import { cashflowFor, forecastFor, heroFor, plansFor } from "../app/design/g176-account-plans/fixtures.ts";
 
@@ -45,6 +47,32 @@ const overlap = assessPlanOverlap(plansFor("overlap"), cashflowFor("overlap"), e
 assert.ok(overlap.some((plan) => plan.overlapUncertain));
 assert.equal(accountPlan(gap, overlap).afterPlans, null, "Possible scheduled transfer overlap makes total unknown");
 assert.match(renderDetails(gap, overlap), /Calculation needs checking/);
+
+const suggested = plansFor("suggested");
+assert.ok(suggested.every((plan) => !hasChosenPlanSource(plan)), "Recent transfers are suggestions, not chosen sources");
+assert.equal(accountPlan(gap, suggested).reservedPence, 0, "Suggested sources do not change account arithmetic");
+assert.equal(accountPlan(gap, suggested).afterPlans, accountPlan(gap, []).afterPlans);
+assert.deepEqual(accountPlan(gap, suggested).unassigned.map((plan) => plan.id), ["round-ups", "holiday"]);
+const suggestedDetails = renderDetails(gap, suggested);
+const suggestedCard = renderToStaticMarkup(React.createElement(UpcomingAccountsCard, { accounts: forecastFor("suggested").accounts, plans: suggested, periodLabel: "Through Thu 29 Oct", onOpen() {} }));
+assert.doesNotMatch(suggestedDetails, /−£300|After payments and plans/, "Suggested allocation never leaks into the account ledger");
+assert.match(suggestedDetails, /Suggested/);
+assert.match(suggestedCard, /By account/);
+assert.doesNotMatch(suggestedCard, /after plans|−£300/i, "Suggested allocation never leaks into the account card");
+const confirmedSuggested = suggested.map((plan) => plan.id === "round-ups" ? { ...plan, evidence: "chosen" } : plan);
+assert.equal(accountPlan(gap, confirmedSuggested).reservedPence, 30000, "Saving a selected suggestion changes that allocation to chosen account working");
+assert.equal(accountPlan(gap, confirmedSuggested).afterPlans, 3600);
+assert.deepEqual(accountPlan(gap, confirmedSuggested).unassigned.map((plan) => plan.id), ["holiday"]);
+const suggestedOverlap = assessPlanOverlap([{ ...suggested[0], destinationIds: ["shared"] }, { ...plansFor("gap")[1], destinationIds: ["shared"] }], cashflowFor("gap"), end);
+assert.equal(suggestedOverlap[1].overlapUncertain, false, "A suggestion cannot poison overlap checks for a chosen goal");
+const clearedSuggested = confirmedSuggested.map((plan) => plan.id === "round-ups" ? { ...plan, sourceId: null, evidence: "unknown" } : plan);
+assert.equal(accountPlan(gap, clearedSuggested).reservedPence, 0, "Clearing a source remains unknown rather than retaining prior account arithmetic");
+
+const roundedAmountForm = renderToStaticMarkup(React.createElement(AllocationEditForm, {
+  allocation: { id: "rounded", name: "Rounded allocation", amount_per_period: 33.333, fill_account_id: "challenge", source_account_id: null, match_type: "description_contains", match_value: "ROUND", fill_display_name: "Rounded allocation", effective_from: "2026-10-01", recurrence: "every_period", completed: false, pending: false, active: true, filled_this_period: 0, remaining: 33.333, period_start: "2026-10-01", period_end: "2026-10-29" },
+  accounts: [{ id: "challenge", provider: "Monzo", name: "Challenge pot", type: "saving", subtype: "saving", currency: "GBP", balance: 60, status: "active", manual: false }], periodStart: new Date("2026-10-01T12:00:00Z"), onCancel() {}, onSaved() {}, onDeleted() {},
+}));
+assert.match(roundedAmountForm, /value="33\.33"/, "The initial amount honours the input's two-decimal step");
 
 const missing = forecastFor("missing").accounts[0];
 assert.equal(accountPlan(missing, plans).afterPayments, null);

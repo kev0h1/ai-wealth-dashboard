@@ -37,6 +37,11 @@ export function remaining(plan: Plan) {
   return plan.active ? Math.max(0, plan.remainingPence ?? (plan.periodPence - plan.filledPence)) : 0;
 }
 
+/** A transfer pattern is a prompt, not account-plan evidence. */
+export function hasChosenPlanSource(plan: Plan) {
+  return plan.evidence === "chosen" && Boolean(plan.sourceId);
+}
+
 export function isPlanSourceAccount(account: Account) {
   const kind = `${account.type} ${account.subtype ?? ""}`.toLowerCase();
   return account.currency.toUpperCase() === "GBP" && !kind.includes("credit")
@@ -63,9 +68,9 @@ export function plansFromApi(items: AccountPlanData[]): Plan[] {
  */
 export function assessPlanOverlap(plans: Plan[], cashflow: Pick<CashflowData, "upcoming_bills">, endMs: number): Plan[] {
   return plans.map((plan) => {
-    if (!plan.active || remaining(plan) === 0 || !plan.sourceId || plan.evidence === "unknown") return plan;
+    if (!plan.active || remaining(plan) === 0 || !hasChosenPlanSource(plan)) return plan;
     const shared = plans.some((other) => other.id !== plan.id && other.active && remaining(other) > 0
-      && other.sourceId === plan.sourceId && other.evidence !== "unknown"
+      && other.sourceId === plan.sourceId && hasChosenPlanSource(other)
       && other.destinationIds?.some((id) => plan.destinationIds?.includes(id)));
     const move = cashflow.upcoming_bills.some((bill) => bill.kind === "movement"
       && bill.account_id === plan.sourceId && !bill.is_credit_card && !bill.observed_pending
@@ -76,8 +81,8 @@ export function assessPlanOverlap(plans: Plan[], cashflow: Pick<CashflowData, "u
 }
 
 export function accountPlan(account: UpcomingAccountSummary, plans: Plan[]) {
-  const assigned = plans.filter((plan) => plan.active && plan.sourceId === account.id && plan.evidence !== "unknown");
-  const unassigned = plans.filter((plan) => plan.active && (plan.amountUnavailable || remaining(plan) > 0) && (!plan.sourceId || plan.evidence === "unknown"));
+  const assigned = plans.filter((plan) => plan.active && plan.sourceId === account.id && hasChosenPlanSource(plan));
+  const unassigned = plans.filter((plan) => plan.active && (plan.amountUnavailable || remaining(plan) > 0) && !hasChosenPlanSource(plan));
   const uncertain = assigned.some((plan) => plan.amountUnavailable || plan.overlapUncertain);
   const allocationPence = assigned.filter((plan) => plan.kind === "allocation" && !plan.amountUnavailable).reduce((sum, plan) => sum + remaining(plan), 0);
   const goalPence = assigned.filter((plan) => plan.kind === "goal" && !plan.amountUnavailable).reduce((sum, plan) => sum + remaining(plan), 0);

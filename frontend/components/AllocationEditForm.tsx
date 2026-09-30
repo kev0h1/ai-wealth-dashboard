@@ -18,7 +18,7 @@ function todayIso() { const d = new Date(); return d.getFullYear() + "-" + Strin
 export function AllocationEditForm({ allocation, accounts, sourceChoices, suggestedSourceId, periodStart, onCancel, onSaved, onDeleted, services = api, renderActions }: AllocationEditFormProps) {
   const formId = useId();
   const [name, setName] = useState(allocation.name);
-  const [amount, setAmount] = useState(String(allocation.amount_per_period));
+  const [amount, setAmount] = useState(() => Number(allocation.amount_per_period).toFixed(2));
   const [recurrence, setRecurrence] = useState<AllocationRhythm>(allocation.recurrence);
   const [destination, setDestination] = useState(allocation.fill_account_id);
   const [source, setSource] = useState(allocation.source_account_id ?? "");
