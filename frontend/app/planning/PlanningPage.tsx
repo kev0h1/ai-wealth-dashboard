@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useRef, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import { EyeOff } from "lucide-react";
-import { api, Account, Allocation, CashflowData } from "@/lib/api";
+import { api, Account, Allocation, CashflowData, type AccountPlanData } from "@/lib/api";
 import { getAccountsCached } from "@/lib/accountsCache";
 import { usePreferences } from "@/components/PreferencesContext";
 import { useColours } from "@/components/ColourProvider";
@@ -22,22 +22,20 @@ import UpcomingHeroCard from "@/components/upcoming/UpcomingHeroCard";
 import UpcomingAttentionDay from "@/components/upcoming/UpcomingAttentionDay";
 import UpcomingDivider from "@/components/upcoming/UpcomingDivider";
 import type { UpcomingRowModel } from "@/components/upcoming/UpcomingRow";
-import UpcomingDetailsSheet from "@/components/upcoming/UpcomingDetailsSheet";
-import UpcomingRowDetails, { upcomingDate } from "@/components/upcoming/UpcomingRowDetails";
+import type { PaymentDetail, UpcomingDetailView } from "@/components/upcoming/UpcomingDetailFlow";
 import { canDismissUpcomingOccurrence, upcomingPaymentKey as atRiskKey } from "@/lib/upcomingAttention";
 import { compareUpcomingEvents, upcomingAccountAssessment, walkUpcomingAccounts } from "@/lib/upcomingAccountWalk";
 import { upcomingAccountWindow } from "@/lib/upcomingAccounts";
 import UpcomingAccountsCard from "@/components/upcoming/UpcomingAccountsCard";
-import UpcomingAccountDetails from "@/components/upcoming/UpcomingAccountDetails";
+import { assessPlanOverlap, isPlanSourceAccount, plansFromApi } from "@/lib/upcomingPlans";
 import { upcomingDisplayName } from "@/lib/upcomingDisplayName";
 import SetAsideList, { type SetAsideItem } from "@/components/upcoming/SetAsideList";
 
 // Editing flows are not needed to understand the initial runway. Keeping them
 // out of the first Planning bundle makes the forecast usable sooner while the
 // same components load on demand when a user opens a sheet.
-const UpcomingEditSheet = dynamic(() => import("@/components/UpcomingEditSheet"));
+const UpcomingDetailFlow = dynamic(() => import("@/components/upcoming/UpcomingDetailFlow"));
 const PlanOneOffSheet = dynamic(() => import("@/components/PlanOneOffSheet"));
-const PlannedEditSheet = dynamic(() => import("@/components/PlannedEditSheet"));
 const PayPeriodSettingsSheet = dynamic(() => import("@/components/PayPeriodSettingsSheet"));
 const AllocationSheet = dynamic(() => import("@/components/AllocationSheet"));
 const SetAsideSheet = dynamic(() => import("@/components/SetAsideSheet"));
@@ -228,6 +226,8 @@ export default function PlanningPage() {
   // distinction (null = loading/genuinely none, error = GET failed).
   const [allocations, setAllocations] = useState<Allocation[] | null>(null);
   const [allocationsError, setAllocationsError] = useState(false);
+  const [accountPlans, setAccountPlans] = useState<AccountPlanData[] | null>(null);
+  const [accountPlansError, setAccountPlansError] = useState(false);
   // Edit-only now — creation moved into SetAsideSheet's envelope step
   // (owner consolidation, 2026-08-29).
   const [allocationSheet, setAllocationSheet] = useState<Allocation | null>(null);
@@ -242,12 +242,7 @@ export default function PlanningPage() {
   // fetch effect below for why this must never gate the page's main data.
   const [dismissedCount, setDismissedCount] = useState(0);
 
-  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
-  const [detailItem, setDetailItem] = useState<{
-    model: UpcomingRowModel;
-    edit: () => void;
-    skip?: () => Promise<void>;
-  } | null>(null);
+  const [flowView, setFlowView] = useState<UpcomingDetailView | null>(null);
 
   // Derived rather than mirrored into state: changing the pay-period setting
   // now produces one render instead of an effect-driven second render.
@@ -282,6 +277,7 @@ export default function PlanningPage() {
       getAccountsCached().catch(() => [] as Account[]).then(setAccounts);
       // Allocations are additive and must never block the forecast.
       api.listAllocations().then(setAllocations).catch(() => setAllocationsError(true));
+      api.listAccountPlans().then(setAccountPlans).catch(() => setAccountPlansError(true));
       api.dismissedSeries()
         .then((d) => setDismissedCount(d.user.length + d.engine.length))
         .catch(() => {});
@@ -304,6 +300,25 @@ export default function PlanningPage() {
   function refreshAllocations() {
     api.listAllocations().then(setAllocations).catch(() => {});
     api.cashflow().then(setCashflow).catch(() => {});
+    api.listAccountPlans().then((items) => { setAccountPlans(items); setAccountPlansError(false); }).catch(() => setAccountPlansError(true));
+  }
+
+  async function refreshAccountFlow() {
+    // One committed refresh updates details and the underlying page together.
+    // If it fails after a write, retry only this refresh, never the mutation.
+    try {
+      const [forecast, envelopes, plans] = await Promise.all([api.cashflow(), api.listAllocations(), api.listAccountPlans()]);
+      setCashflow(forecast); setAllocations(envelopes); setAccountPlans(plans);
+      setAccountPlansError(false); setAllocationsError(false);
+    } catch (error) {
+      setAccountPlansError(true);
+      throw error;
+    }
+  }
+
+  function openAllocation(allocation: Allocation) {
+    if (accountPlans?.some((plan) => plan.id === `allocation:${allocation.id}`)) setFlowView({ kind: "plan", id: `allocation:${allocation.id}` });
+    else setAllocationSheet(allocation);
   }
 
   function retryCashflow() {
@@ -324,10 +339,14 @@ export default function PlanningPage() {
   // One window and one result feed the account card, its working and row
   // coverage. They are source-account evidence, never inputs to the hero.
   const accountEndMs = upcomingAccountWindow(periodEnd.getTime(), planningNow);
-  const accountWalk = cashflow ? walkUpcomingAccounts(cashflow, accountEndMs) : null;
+  const plans = cashflow ? assessPlanOverlap(plansFromApi(accountPlans ?? []), cashflow, accountEndMs) : [];
+  const sourceIds = new Set(plans.filter((plan) => plan.active && plan.evidence === "chosen" && plan.sourceId).map((plan) => plan.sourceId));
+  const planSources = accounts.filter((account) => sourceIds.has(account.id) && isPlanSourceAccount(account)).map((account) => ({ id: account.id, bank: account.provider, name: account.name, balance: account.balance }));
+  const accountWalk = cashflow ? walkUpcomingAccounts(cashflow, accountEndMs, planSources) : null;
   const accountPeriodLabel = `Payments through ${new Date(accountEndMs).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" })}`;
   const accountSummaries = accountWalk?.accounts ?? [];
-  const selectedAccount = accountSummaries.find((account) => account.id === selectedAccountId);
+  const plansStatus = accountPlansError ? "error" : accountPlans === null ? "loading" : "ready";
+  const paymentDetails: PaymentDetail[] = [];
 
   // ── Undo state ──────────────────────────────────────────────────────────────
   const [undoBar, setUndoBar] = useState<{ kind: "recurring"; name: string } | { kind: "planned"; id: string } | null>(null);
@@ -352,18 +371,6 @@ export default function PlanningPage() {
   // does have content, or outlive the scroll landing it was explaining.
   const [dayFallbackNote, setDayFallbackNote] = useState<string | null>(null);
   const [planSheetOpen, setPlanSheetOpen] = useState(false);
-  const [editItem, setEditItem] = useState<null | {
-    name: string;
-    display_name?: string | null;
-    amount: number;
-    expected_date: string;
-    original_date?: string | null;
-    type: "bill" | "income";
-    category?: string | null;
-    edited?: boolean;
-    rule_label?: string | null;
-  }>(null);
-  const [editPlanned, setEditPlanned] = useState<null | { id: string; name: string; amount: number; date: string; account_id: string | null }>(null);
 
   // Highlight scroll effect — no view guard needed (always on planning
   // page). Scrolls to the day group for a bare ISO date, or the bill row
@@ -635,12 +642,13 @@ export default function PlanningPage() {
               <div className="glass-card rounded-2xl p-8 text-center">
                 <p className="text-slate-500 dark:text-slate-400 text-sm">Nothing more expected this pay period</p>
               </div>
+              <UpcomingAccountsCard accounts={accountSummaries} periodLabel={accountPeriodLabel} plans={plans} plansStatus={plansStatus} onPlan={(id) => setFlowView({ kind: "plan", id })} onOpen={(account) => setFlowView({ kind: "account", id: account.id })} />
               <PlansSection
                 allocations={allocations}
                 allocationsError={allocationsError}
                 accounts={accounts}
                 onAdd={() => setSetAsideSheetOpen(true)}
-                onEditAllocation={(a) => setAllocationSheet(a)}
+                onEditAllocation={openAllocation}
               />
               {/* PennyPromptBar removed here too (owner, 2026-08-25: "I
                   think we can remove penny from the planning page") — see
@@ -832,13 +840,6 @@ export default function PlanningPage() {
           const catName = item.type === "income" ? (item.category || "Income") : (item.category || "Other");
           const colour = getCategoryColour(catName, colours);
           const Icon = getCategoryIcon(catName, iconOverrides);
-          const openItem = () => {
-            if (isPlanned) {
-              setEditPlanned({ id: item.planned_id!, name: item.name, amount: item.amount, date: item.expected_date, account_id: item.account_id ?? null });
-            } else {
-              setEditItem({ name: item.name, display_name: upcomingDisplayName(item), amount: item.amount, expected_date: item.expected_date, original_date: item.original_date, type: item.type, category: item.category, edited: item.edited, rule_label: item.rule_label });
-            }
-          };
           const model: UpcomingRowModel = {
             rowKey,
             identity: item.type === "bill" && item.planned_id ? item.planned_id : `${item.type}-${atRiskKey(item)}-${isSettling ? "settling-" : ""}${item.sourceIndex}`,
@@ -877,12 +878,16 @@ export default function PlanningPage() {
             CategoryIcon: Icon,
           };
 
+          const detailId = isPlanned ? `planned:${item.planned_id}` : `${item.type}:${item.name}:${item.original_date ?? item.expected_date}:${item.sourceIndex}:${isSettling ? "settling" : "expected"}`;
+          paymentDetails.push({
+            id: detailId, model,
+            editor: { name: item.name, amount: item.amount, expected_date: item.expected_date, original_date: item.original_date, type: item.type, edited: item.edited, rule_label: item.rule_label },
+            planned: isPlanned ? { id: item.planned_id!, name: item.name, amount: item.amount, date: item.expected_date, account_id: item.account_id ?? null } : undefined,
+            skip: canDismissUpcomingOccurrence(model) ? () => skipOccurrence(item) : undefined,
+          });
           return {
             model,
-            open: () => setDetailItem({
-              model, edit: openItem,
-              skip: canDismissUpcomingOccurrence(model) ? () => skipOccurrence(item) : undefined,
-            }),
+            open: () => setFlowView({ kind: "payment", id: detailId }),
             dismiss: () => isPlanned ? deletePlannedWithUndo(item.planned_id!) : dismissUpcoming(item.name),
           };
         }
@@ -985,14 +990,14 @@ export default function PlanningPage() {
               />
             )}
 
-            <UpcomingAccountsCard accounts={accountSummaries} periodLabel={accountPeriodLabel} onOpen={(account) => setSelectedAccountId(account.id)} />
+            <UpcomingAccountsCard accounts={accountSummaries} periodLabel={accountPeriodLabel} plans={plans} plansStatus={plansStatus} onPlan={(id) => setFlowView({ kind: "plan", id })} onRetry={() => { setAccountPlansError(false); api.listAccountPlans().then(setAccountPlans).catch(() => setAccountPlansError(true)); }} onOpen={(account) => setFlowView({ kind: "account", id: account.id })} />
 
             <PlansSection
               allocations={allocations}
               allocationsError={allocationsError}
               accounts={accounts}
               onAdd={() => setSetAsideSheetOpen(true)}
-              onEditAllocation={(a) => setAllocationSheet(a)}
+              onEditAllocation={openAllocation}
             />
 
             {currentPeriodItems.length === 0 && groups.length > 0 && (
@@ -1017,7 +1022,7 @@ export default function PlanningPage() {
   /* eslint-enable react-hooks/refs */
 
   return (
-    <div inert={detailItem !== null || !!selectedAccount} aria-hidden={detailItem || selectedAccount ? true : undefined} className="mx-auto min-h-dvh max-w-xl pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
+    <div inert={flowView !== null} aria-hidden={flowView ? true : undefined} className="mx-auto min-h-dvh max-w-xl pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       <div className="px-4 pt-6 pb-2">
         {/* G127 ask #2 — header typography matches the codex reference
             exactly (app/design/upcoming-canvas-before-cards/
@@ -1091,44 +1096,7 @@ export default function PlanningPage() {
         </div>
       )}
 
-      {selectedAccount && <UpcomingDetailsSheet title={selectedAccount.bank} subtitle={`${selectedAccount.name} · ${accountPeriodLabel}`} onClose={() => setSelectedAccountId(null)}>
-        <UpcomingAccountDetails account={selectedAccount} periodLabel={accountPeriodLabel} />
-      </UpcomingDetailsSheet>}
-
-      {detailItem && <UpcomingDetailsSheet
-        title={detailItem.model.name}
-        subtitle={`${detailItem.model.accountLabel ? `${detailItem.model.accountLabel} · ` : ""}${upcomingDate(detailItem.model.expectedDate)}`}
-        onClose={() => setDetailItem(null)}
-        onEdit={() => { detailItem.edit(); setDetailItem(null); }}
-        editLabel={detailItem.model.isPlanned ? "Edit planned payment" : "Edit prediction"}
-        onSkipOccurrence={detailItem.skip}
-      ><UpcomingRowDetails model={detailItem.model} /></UpcomingDetailsSheet>}
-
-      {/* UpcomingEditSheet */}
-      {editItem && (
-        <UpcomingEditSheet
-          item={editItem}
-          onClose={() => setEditItem(null)}
-          onDismiss={() => dismissUpcoming(editItem.name)}
-          onSaved={async () => {
-            try {
-              const fresh = await api.cashflow();
-              setCashflow(fresh);
-            } catch {}
-          }}
-        />
-      )}
-
-      {/* PlannedEditSheet */}
-      {editPlanned && (
-        <PlannedEditSheet
-          item={editPlanned}
-          accounts={accounts}
-          onClose={() => setEditPlanned(null)}
-          onDelete={() => deletePlannedWithUndo(editPlanned.id)}
-          onSaved={() => { api.cashflow().then(setCashflow).catch(() => {}); }}
-        />
-      )}
+      {flowView && <UpcomingDetailFlow initialView={flowView} onClose={() => setFlowView(null)} accounts={accounts} summaries={accountSummaries} plans={plans} plansStatus={plansStatus} allocations={allocations ?? []} payments={paymentDetails} periodLabel={accountPeriodLabel} periodStart={periodStart} onRefresh={refreshAccountFlow} onDismiss={(payment) => dismissUpcoming(payment.editor.name)} onDeletePlanned={deletePlannedWithUndo} />}
 
       {/* PlanOneOffSheet */}
       {planSheetOpen && (

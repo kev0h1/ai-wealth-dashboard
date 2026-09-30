@@ -722,6 +722,8 @@ export type CommitmentPot = {
 };
 
 export type Commitment = {
+  /** Paying account only. Funding pots remain receiving/progress accounts. */
+  source_account_id?: string | null;
   id: string;
   name: string;
   amount: number;
@@ -770,6 +772,22 @@ export type Commitment = {
  * "stretch" is neither (attention — amber, never red); "funded" has nothing
  * left to save (remaining <= 0) — render exactly like "surplus". */
 export type CommitmentFeasibility = "surplus" | "savings" | "stretch" | "funded";
+
+/** Live current-period planning data, separate from forecast arithmetic. */
+export type AccountPlanData = {
+  id: string;
+  record_id: string;
+  kind: "allocation" | "goal";
+  name: string;
+  destination: string;
+  destination_account_ids: string[];
+  source_account_id: string | null;
+  source_basis: "chosen" | "recent-transfers" | "unknown";
+  period_amount: number;
+  filled_amount: number | null;
+  remaining: number;
+  active: boolean;
+};
 
 /** Per-pot conflict detail on a commitment preview — who ELSE is drawing
  * from this pot (through the shared pot ledger) and what's left free. */
@@ -830,6 +848,8 @@ export type CommitmentPreview = {
  * `remaining` is always 0 (it reserves nothing further) but the record
  * stays in listings — never deleted — so history stays honest. */
 export type Allocation = {
+  /** Explicit paying account. Omitted legacy choices may be suggested separately. */
+  source_account_id?: string | null;
   id: string;
   name: string;
   amount_per_period: number;
@@ -2861,6 +2881,7 @@ export const api = {
     }).then((r) => toJson<{ penny_agent_consent: null; proposals_cancelled: number }>(r)),
   listCommitments: () => get<{ items: Commitment[] }>("/commitments"),
   createCommitment: (body: {
+    source_account_id?: string | null;
     name: string;
     amount: number;
     target_date: string;
@@ -2871,6 +2892,7 @@ export const api = {
     source?: "manual" | "can_i";
   }) => post<Commitment>("/commitments", body),
   updateCommitment: (id: string, body: {
+    source_account_id?: string | null;
     name?: string;
     amount?: number;
     target_date?: string;
@@ -2916,6 +2938,7 @@ export const api = {
   // server shape, no client-side fill/remaining maths.
   // Wrapped in `items`, same shape as GET /commitments (verified live
   // 2026-08-29 against the real endpoint, NOT a bare array).
+  listAccountPlans: () => get<{ items: AccountPlanData[] }>("/account-plans").then((d) => d.items),
   listAllocations: () => get<{ items: Allocation[] }>("/allocations").then((d) => d.items),
   // GET /allocations/fill-candidates — powers the "which payment fills it?"
   // picker step, own accounts only, most-recent series first.
@@ -2923,6 +2946,7 @@ export const api = {
     get<{ items: FillCandidate[] }>(`/allocations/fill-candidates?account_id=${encodeURIComponent(accountId)}`)
       .then((d) => d.items),
   createAllocation: (body: {
+    source_account_id?: string | null;
     name: string;
     amount_per_period: number;
     fill_account_id: string;
@@ -2936,6 +2960,7 @@ export const api = {
     fill_display_name?: string;
   }) => post<Allocation>("/allocations", body),
   updateAllocation: (id: string, body: {
+    source_account_id?: string | null;
     name?: string;
     amount_per_period?: number;
     fill_account_id?: string;
