@@ -16,6 +16,12 @@ assert.equal(buildForecast("covered").payments.every((item) => item.shortfall ==
 assert.equal(buildForecast("moves").payments.every((item) => item.model.flagged === false && item.model.coverage.optionalMove), true, "Optional own moves never inherit bill-risk flags");
 assert.equal(buildForecast("moves", new Set(["mortgage"])).shortfall, 8000, "Dismissing a move recomputes its source account and total");
 assert.equal(money(-8000), "−£80", "Negative account forecast keeps its minus sign");
+assert.equal(money(-8012), "−£80.12", "Edited amounts preserve meaningful pennies");
+const edited = buildForecast("mixed", new Set(), { mortgage: { name: "Changed example", pence: 62012 } });
+assert.equal(edited.payments[2].name, "Changed example");
+assert.equal(edited.payments[2].model.amount, 620.12);
+assert.equal(edited.payments[2].model.coverage.shortfall, 120.12);
+assert.equal(edited.payments[2].model.after.value, 394.88, "Pooled working is separate from source account's −£120.12");
 
 // Every possible combination of locally dismissed fixtures must continue to
 // reconcile. The individual row status follows that account, never the pool.
@@ -26,6 +32,11 @@ for (const scenario of ["mixed", "short", "covered", "moves"]) {
     const forecast = buildForecast(scenario, dismissed);
     assert.equal(forecast.closing, forecast.cash - forecast.outgoing);
     assert.equal(forecast.payments.length, ids.length - dismissed.size);
+    let pooled = forecast.cash;
+    for (const payment of forecast.payments) {
+      pooled -= payment.pence;
+      assert.equal(payment.model.after.value, pooled / 100);
+    }
     for (const account of forecast.accounts) {
       let cash = account.opening;
       for (const payment of account.payments) {

@@ -1,8 +1,8 @@
 "use client";
 
-import { ChevronDown } from "lucide-react";
 import { BANK_META, BankBadge, bankLogoSrc } from "@/components/AccountMiniCard";
 import UpcomingDayCard from "@/components/upcoming/UpcomingDayCard";
+import UpcomingAttentionDay from "@/components/upcoming/UpcomingAttentionDay";
 import UpcomingRow from "@/components/upcoming/UpcomingRow";
 import { DAYS, type AccountForecast, type Forecast, type ForecastPayment, money } from "./fixtures";
 
@@ -163,17 +163,24 @@ export function DayGroups({
   variant,
   onPayment,
   onAccount,
+  onDismiss,
 }: {
   forecast: Forecast;
   variant: "a" | "b" | "c";
   onPayment: (payment: ForecastPayment) => void;
   onAccount: (account: AccountForecast) => void;
+  onDismiss: (payment: ForecastPayment) => void;
 }) {
   return (
     <div className="space-y-4">
       {DAYS.map((day) => {
         const payments = forecast.payments.filter((payment) => payment.date === day.date);
         if (payments.length === 0) return null;
+        if (variant === "c") return <UpcomingAttentionDay
+          key={day.date} dayKeyIso={day.date} heading={day.heading} rows={payments.map((payment) => payment.model)}
+          onOpen={(model) => { const payment = payments.find((item) => item.model === model); if (payment) onPayment(payment); }}
+          onDismiss={(model) => { const payment = payments.find((item) => item.model === model); if (payment) onDismiss(payment); }}
+        />;
 
         let activeRows: React.ReactNode[];
         if (variant === "a") {
@@ -183,26 +190,8 @@ export function DayGroups({
               ? [<AccountDayGroup key={account.account.id} account={account} payments={accountPayments} dayLabel={day.heading.startsWith("Today") ? "today" : "tomorrow"} onAccount={onAccount} onPayment={onPayment} />]
               : [];
           });
-        } else if (variant === "b") {
-          activeRows = payments.map((payment) => <PaymentRow key={payment.id} payment={payment} onPayment={onPayment} />);
         } else {
-          const visiblePayments = payments.filter((payment) => payment.shortfall > 0);
-          const coveredPayments = payments.filter((payment) => payment.shortfall <= 0);
-          activeRows = [
-            ...visiblePayments.map((payment) => <PaymentRow key={payment.id} payment={payment} onPayment={onPayment} />),
-            ...(coveredPayments.length > 0 ? [
-              <details key="covered" className="group">
-                <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 dark:text-slate-200 dark:hover:bg-slate-700 [&::-webkit-details-marker]:hidden">
-                  <span className="min-w-0 flex-1">{coveredPayments.length} covered {forecast.optionalMoves ? (coveredPayments.length === 1 ? "move" : "moves") : (coveredPayments.length === 1 ? "payment" : "payments")} · <span className="font-mono tabular-nums">{money(coveredPayments.reduce((sum, payment) => sum + payment.pence, 0))}</span></span>
-                  <span className="text-xs font-medium text-slate-600 dark:text-slate-400"><span className="group-open:hidden">Show</span><span className="hidden group-open:inline">Hide</span></span>
-                  <ChevronDown size={15} className="shrink-0 transition-transform motion-reduce:transition-none group-open:rotate-180" aria-hidden="true" />
-                </summary>
-                <div className="divide-y divide-slate-100 border-t border-slate-100 dark:divide-slate-700 dark:border-slate-700">
-                  {coveredPayments.map((payment) => <PaymentRow key={payment.id} payment={payment} onPayment={onPayment} />)}
-                </div>
-              </details>,
-            ] : []),
-          ];
+          activeRows = payments.map((payment) => <PaymentRow key={payment.id} payment={payment} onPayment={onPayment} />);
         }
 
         return <UpcomingDayCard key={day.date} dayKeyIso={day.date} heading={day.heading} activeRows={activeRows} settlingRows={[]} />;

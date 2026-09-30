@@ -3,6 +3,7 @@
 import type { LucideIcon } from "lucide-react";
 import { AlertCircle, AlertTriangle, Check, ChevronDown, Clock } from "lucide-react";
 import SwipeDismissRow from "@/components/upcoming/SwipeDismissRow";
+import { getUpcomingStatus, upcomingMoney, upcomingStatusText } from "@/lib/upcomingAttention";
 
 /**
  * G176 row boundary. The default `current` treatment preserves the shipped
@@ -15,7 +16,8 @@ export type UpcomingRowTreatment =
   | "status-shelf"
   | "exception-cluster"
   | "inline-summary"
-  | "account-coverage";
+  | "account-coverage"
+  | "needs-attention";
 
 export type UpcomingRowAfter =
   | { kind: "balance"; value: number }
@@ -23,6 +25,7 @@ export type UpcomingRowAfter =
 
 export type UpcomingRowModel = {
   rowKey: string;
+  identity?: string;
   type: "bill" | "income";
   name: string;
   amount: number;
@@ -48,9 +51,12 @@ export type UpcomingRowModel = {
   movementCalm?: boolean;
   unfundedMovement?: boolean;
   highlighted?: boolean;
+  assessment?: "unverified" | "future";
   coverage?: {
     shortfall: number;
     optionalMove?: boolean;
+    before?: number;
+    after?: number;
   };
   why?: {
     open: boolean;
@@ -331,6 +337,14 @@ function CoverageCopy({ coverage }: { coverage: NonNullable<UpcomingRowModel["co
   );
 }
 
+function AttentionCopy({ model }: { model: UpcomingRowModel }) {
+  const status = getUpcomingStatus(model);
+  return <p className="flex items-center justify-end gap-1.5 text-xs font-medium text-slate-600 dark:text-slate-400">
+    {status.tone !== "neutral" ? <span className={`size-1.5 shrink-0 rounded-full ${status.tone === "risk" ? "bg-red-600 dark:bg-red-400" : "bg-amber-600 dark:bg-amber-400"}`} aria-hidden="true" /> : status.kind === "covered" ? <Check size={13} aria-hidden="true" /> : null}
+    <span>{status.shortfall !== undefined && <><span className="font-mono tabular-nums">{upcomingMoney(status.shortfall)}</span> </>}{status.label}</span>
+  </p>;
+}
+
 export default function UpcomingRow({
   model,
   treatment = "current",
@@ -343,20 +357,21 @@ export default function UpcomingRow({
   onSkipOccurrence,
 }: UpcomingRowProps) {
   const isCurrent = treatment === "current";
-  const isAccountCoverage = treatment === "account-coverage";
+  const isAttention = treatment === "needs-attention";
+  const isAccountCoverage = treatment === "account-coverage" || isAttention;
   const compact = treatment === "exception-cluster";
   const amountSign = model.type === "income" ? "+" : "−";
-  const coverageStatus = model.coverage
+  const coverageStatus = isAttention ? upcomingStatusText(getUpcomingStatus(model)) : model.coverage
     ? model.coverage.shortfall <= 0
       ? "covered"
       : `${sym}${model.coverage.shortfall.toLocaleString("en-GB", { maximumFractionDigits: 0 })} ${model.coverage.optionalMove ? "unfunded" : "short"}`
     : null;
-  const accountCoverageLabel = `Open details for ${model.name}${model.accountLabel ? ` from ${model.accountLabel}` : ""}, ${amountSign}${sym}${model.amount.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${coverageStatus ? `, ${coverageStatus}` : ""}`;
+  const accountCoverageLabel = `Open details for ${model.name}${model.accountLabel ? ` ${model.type === "income" ? "into" : "from"} ${model.accountLabel}` : ""}, ${amountSign}${sym}${model.amount.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${coverageStatus ? `, ${coverageStatus}` : ""}`;
 
   const content = (
     <div
       data-bill-key={model.rowKey}
-      className={`relative${model.highlighted ? " ring-2 ring-inset ring-rose-400 dark:ring-rose-500" : ""}`}
+      className={`relative${model.highlighted ? " ring-2 ring-inset ring-indigo-400 dark:ring-indigo-500" : ""}`}
     >
       <button
         type="button"
@@ -365,7 +380,7 @@ export default function UpcomingRow({
         className="absolute inset-0 z-0 cursor-pointer transition-colors hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 active:bg-slate-100 dark:hover:bg-slate-700/40 dark:active:bg-slate-700/60"
       />
       <div className={`pointer-events-none relative z-[1] flex gap-3 px-4 ${compact ? "items-start py-2.5" : "items-center py-3"} ${!isCurrent ? "max-[350px]:grid max-[350px]:grid-cols-[2rem_minmax(0,1fr)] max-[350px]:items-start max-[350px]:gap-y-0" : ""}`}>
-        <StatusIcon model={model} categoryOnly={isAccountCoverage} />
+        <StatusIcon model={model} categoryOnly={isAccountCoverage && !model.isSettling} />
 
         <div className={`min-w-0 flex-1 ${!isCurrent ? "max-[350px]:col-start-2 max-[350px]:row-start-1" : ""}`}>
           {isCurrent ? (
@@ -398,7 +413,9 @@ export default function UpcomingRow({
 
         <div className={`shrink-0 text-right ${!isCurrent ? "max-[350px]:col-start-2 max-[350px]:row-start-2 max-[350px]:justify-self-end max-[350px]:pt-1" : ""}`}>
           <p className={`font-mono text-base tabular-nums ${
-            isAccountCoverage
+            isAttention && model.isSettling
+              ? "font-semibold text-slate-600 dark:text-slate-400"
+              : isAccountCoverage
               ? "font-bold text-slate-800 dark:text-slate-100"
               : model.type === "income"
               ? "font-bold text-emerald-500"
@@ -413,13 +430,13 @@ export default function UpcomingRow({
           {model.amountBasis === "balance_estimate" && !isCurrent && (
             <p className="text-[10px] font-medium text-slate-400 dark:text-slate-500">estimated</p>
           )}
-          {isAccountCoverage && model.coverage ? <CoverageCopy coverage={model.coverage} /> : <AfterCopy model={model} compact={compact} />}
+          {isAttention ? <AttentionCopy model={model} /> : isAccountCoverage && model.coverage ? <CoverageCopy coverage={model.coverage} /> : <AfterCopy model={model} compact={compact} />}
         </div>
       </div>
     </div>
   );
 
-  if (!isCurrent) return content;
+  if (!isCurrent && !isAttention) return content;
 
   return (
     <SwipeDismissRow onDismiss={onDismiss} label={dismissLabel}>

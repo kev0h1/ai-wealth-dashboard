@@ -9,12 +9,15 @@ import { BANK_META, BankBadge, bankLogoSrc } from "@/components/AccountMiniCard"
 import FixtureBottomNav from "@/app/design/_components/FixtureBottomNav";
 import { useSheetA11y } from "@/lib/useSheetA11y";
 import { useSheetOpen } from "@/lib/useSheetOpen";
+import UpcomingDetailsSheet from "@/components/upcoming/UpcomingDetailsSheet";
+import UpcomingRowDetails from "@/components/upcoming/UpcomingRowDetails";
+import { canDismissUpcomingOccurrence } from "@/lib/upcomingAttention";
 import { AccountOverview, DayGroups } from "./CoverageViews";
-import { buildForecast, dateLabel, money, SCENARIOS, type AccountForecast, type AccountId, type Forecast, type ForecastPayment, type Scenario } from "./fixtures";
+import { buildForecast, dateLabel, money, SCENARIOS, type AccountForecast, type AccountId, type Forecast, type ForecastPayment, type FixtureEdits, type Scenario } from "./fixtures";
 
 type Variant = "a" | "b" | "c";
 type Mode = "light" | "dark";
-type Selected = { kind: "account"; id: AccountId } | { kind: "payment"; id: string } | null;
+type Selected = { kind: "account"; id: AccountId } | { kind: "payment" | "edit"; id: string } | null;
 const VARIANTS = [
   { id: "a" as const, name: "By account", description: "Each day groups payments by the account they leave. One account subtotal holds the context." },
   { id: "b" as const, name: "Cash view", description: "Compare cash with what is due in each account, then scan the familiar day-by-day list." },
@@ -61,13 +64,13 @@ function Verdict({ forecast }: { forecast: Forecast }) {
   return (
     <section aria-labelledby="coverage-verdict" className="space-y-3">
       <h2 id="coverage-verdict" className="text-xl font-semibold leading-7 tracking-tight text-slate-950 dark:text-slate-50">
-        {empty ? "No moves left in this example" : isShort ? <>
+        {empty ? "Nothing left in this example" : isShort ? <>
           <span className={`${mono} text-3xl font-bold`}>{money(forecast.shortfall)}</span>
           <span className="mt-1 block">{forecast.optionalMoves ? "unfunded across" : "needed in"} {forecast.shortAccounts} {forecast.shortAccounts === 1 ? "account" : "accounts"}</span>
         </> : forecast.optionalMoves ? "Every shown move is covered" : "Every shown payment is covered"}
       </h2>
       <p className="max-w-prose text-sm leading-6 text-slate-600 dark:text-slate-300">
-        {empty ? "Reset the example to compare the original six moves again." : forecast.optionalMoves
+        {empty ? "Reset the example to compare the original six rows again." : forecast.optionalMoves
           ? <>After these moves, <span className={`${mono} font-medium`}>{money(forecast.closing)}</span> would remain in these source accounts. An unfunded move to your own savings may stay put, with no fee. Moving money does not reduce what you own.</>
           : !isShort ? <>Each account can cover its payments, leaving <span className={`${mono} font-medium`}>{money(forecast.closing)} overall</span>. Open a payment to see the working.</>
           : forecast.closing >= 0 ? <>There would be <span className={`${mono} font-medium`}>{money(forecast.closing)} left overall</span> after these payments. The gap is in the accounts they leave from.</>
@@ -160,16 +163,43 @@ function PaymentDetail({ payment, onAccount, onDismiss, onClose }: { payment: Fo
   </div>;
 }
 
+// Local fixture editor only. The authenticated page hands the same sheet's
+// edit action to its existing prediction/planned-payment editors instead.
+function EditExample({ payment, onSave }: { payment: ForecastPayment; onSave: (edit: FixtureEdits[string]) => void }) {
+  const [name, setName] = useState(payment.name);
+  const [amount, setAmount] = useState((payment.pence / 100).toFixed(2));
+  const [error, setError] = useState("");
+  const input = `mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-base text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-white ${focus}`;
+  return <form className="space-y-4" onSubmit={(event) => {
+    event.preventDefault();
+    const pence = Math.round(Number(amount) * 100);
+    if (!name.trim() || !Number.isFinite(pence) || pence <= 0 || pence > 100000000) { setError("Enter a name and an amount between £0.01 and £1,000,000."); return; }
+    onSave({ name: name.trim(), pence });
+  }}>
+    <label className="block text-sm font-semibold">Name<input name="example-name" value={name} onChange={(event) => setName(event.target.value)} maxLength={120} required className={input} autoComplete="off" /></label>
+    <label className="block text-sm font-semibold">Amount (£)<input name="example-amount" type="number" min="0.01" max="1000000" step="0.01" required value={amount} onChange={(event) => setAmount(event.target.value)} inputMode="decimal" className={input} autoComplete="off" /></label>
+    {error && <p role="alert" className="text-sm text-slate-700 dark:text-slate-200">{error}</p>}
+    <button type="submit" className={`min-h-12 w-full rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white hover:bg-indigo-700 active:scale-95 ${focus}`}>Save example</button>
+    <p className="text-xs leading-5 text-slate-600 dark:text-slate-400">Only these invented figures change. Your accounts and predictions are untouched.</p>
+  </form>;
+}
+
 function Preview({ variant, scenario, mode }: { variant: Variant; scenario: Scenario; mode: Mode }) {
   const [selected, setSelected] = useState<Selected>(null);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [lastDismissed, setLastDismissed] = useState<string | null>(null);
-  const forecast = buildForecast(scenario, dismissed);
-  const payment = selected?.kind === "payment" ? forecast.payments.find((item) => item.id === selected.id) : undefined;
+  const [edits, setEdits] = useState<FixtureEdits>({});
+  const forecast = buildForecast(scenario, dismissed, edits);
+  const payment = selected?.kind === "payment" || selected?.kind === "edit" ? forecast.payments.find((item) => item.id === selected.id) : undefined;
   const account = selected?.kind === "account" ? forecast.accounts.find((item) => item.account.id === selected.id) : undefined;
   const onPayment = (item: ForecastPayment) => setSelected({ kind: "payment", id: item.id });
   const onAccount = (item: AccountForecast) => setSelected({ kind: "account", id: item.account.id });
   const note = VARIANTS.find((item) => item.id === variant)!;
+  const dismissPayment = (item: ForecastPayment) => {
+    setDismissed((current) => new Set(current).add(item.id));
+    setLastDismissed(item.id);
+    setSelected(null);
+  };
 
   useEffect(() => {
     const root = document.documentElement;
@@ -197,28 +227,34 @@ function Preview({ variant, scenario, mode }: { variant: Variant; scenario: Scen
           </div>
           <section aria-labelledby="payments-heading" className="min-w-0 space-y-4">
             <div className="flex items-baseline justify-between gap-3"><h2 id="payments-heading" className="text-base font-bold">{forecast.optionalMoves ? "Planned moves" : "Upcoming payments"}</h2><p className="text-xs text-slate-600 dark:text-slate-400">29–30 Sept · {forecast.payments.length} shown</p></div>
-            {lastDismissed && <div role="status" className="flex items-center justify-between gap-3 rounded-xl bg-indigo-50 px-3 text-sm text-indigo-900 dark:bg-indigo-400/10 dark:text-indigo-100"><p>Move removed from this example.</p><button type="button" onClick={() => { setDismissed((current) => { const next = new Set(current); next.delete(lastDismissed); return next; }); setLastDismissed(null); }} className={`min-h-11 shrink-0 rounded-lg px-2 font-semibold active:opacity-70 ${focus}`}>Undo</button></div>}
-            <DayGroups forecast={forecast} variant={variant} onPayment={onPayment} onAccount={onAccount} />
-            {forecast.payments.length === 0 && <button type="button" onClick={() => { setDismissed(new Set()); setLastDismissed(null); }} className={`min-h-11 rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white active:scale-95 ${focus}`}>Reset example</button>}
+            {lastDismissed && <div role="status" className="flex items-center justify-between gap-3 rounded-xl bg-indigo-50 px-3 text-sm text-indigo-900 dark:bg-indigo-400/10 dark:text-indigo-100"><p>{forecast.optionalMoves ? "Move" : "Payment"} removed from this example.</p><button type="button" onClick={() => { setDismissed((current) => { const next = new Set(current); next.delete(lastDismissed); return next; }); setLastDismissed(null); }} className={`min-h-11 shrink-0 rounded-lg px-2 font-semibold active:opacity-70 ${focus}`}>Undo</button></div>}
+            <DayGroups forecast={forecast} variant={variant} onPayment={onPayment} onAccount={onAccount} onDismiss={dismissPayment} />
+            {forecast.payments.length === 0 && <button type="button" onClick={() => { setDismissed(new Set()); setEdits({}); setLastDismissed(null); }} className={`min-h-11 rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white active:scale-95 ${focus}`}>Reset example</button>}
             <p className="text-xs leading-5 text-slate-600 dark:text-slate-400">Coverage is checked in the account each payment leaves, after earlier payments shown. Tap a row for its calculation.</p>
           </section>
         </div>
         <footer className="mt-10 border-t border-slate-300 pt-5 text-xs leading-5 text-slate-600 dark:border-slate-700 dark:text-slate-400">
           <p><span className="font-semibold">{variant.toUpperCase()} · {note.name}.</span> {note.description}</p>
+          {variant === "c" && <p className="mt-2">Approved direction. These day groups, rows and payment details render the production components. The account overview is an invented fixture summary, not the live runway forecast.</p>}
           <p className="mt-2">G176 design example. Invented accounts and figures; no incoming money, overdraft or unlisted payments. Change the example above to compare mixed, short and covered accounts.</p>
         </footer>
       </main>
       <FixtureBottomNav active="Upcoming" />
     </div>
     {account && <Sheet title={account.account.name} subtitle={`${account.account.detail} · 29–30 Sept`} onClose={() => setSelected(null)}><AccountDetail account={account} optionalMoves={forecast.optionalMoves} onPayment={onPayment} /></Sheet>}
-    {payment && <Sheet title={payment.name} subtitle={`${payment.account.name} · ${dateLabel(payment.date)}`} onClose={() => setSelected(null)}><PaymentDetail payment={payment} onAccount={() => setSelected({ kind: "account", id: payment.accountId })} onClose={() => setSelected(null)} onDismiss={() => { setDismissed((current) => new Set(current).add(payment.id)); setLastDismissed(payment.id); setSelected(null); }} /></Sheet>}
+    {payment && selected?.kind === "payment" && (variant === "c" ? <UpcomingDetailsSheet
+      title={payment.name} subtitle={`${payment.account.name} · ${dateLabel(payment.date)}`} onClose={() => setSelected(null)}
+      onEdit={() => setSelected({ kind: "edit", id: payment.id })} editLabel="Edit example"
+      onSkipOccurrence={canDismissUpcomingOccurrence(payment.model) ? async () => dismissPayment(payment) : undefined}
+    ><UpcomingRowDetails model={payment.model} /></UpcomingDetailsSheet> : <Sheet title={payment.name} subtitle={`${payment.account.name} · ${dateLabel(payment.date)}`} onClose={() => setSelected(null)}><PaymentDetail payment={payment} onAccount={() => setSelected({ kind: "account", id: payment.accountId })} onClose={() => setSelected(null)} onDismiss={() => dismissPayment(payment)} /></Sheet>)}
+    {payment && selected?.kind === "edit" && <Sheet title="Edit example" subtitle="Invented figures, saved only in this preview" onClose={() => setSelected({ kind: "payment", id: payment.id })}><EditExample key={payment.id} payment={payment} onSave={(edit) => { setEdits((current) => ({ ...current, [payment.id]: edit })); setSelected({ kind: "payment", id: payment.id }); }} /></Sheet>}
   </div>;
 }
 
 export default function G176Client() {
   const params = useSearchParams();
   const rawVariant = params.get("variant");
-  const variant: Variant = rawVariant === "a" || rawVariant === "c" ? rawVariant : "b";
+  const variant: Variant = rawVariant === "a" || rawVariant === "b" ? rawVariant : "c";
   const rawState = params.get("state");
   const scenario: Scenario = rawState === "short" || rawState === "covered" || rawState === "moves" ? rawState : rawState === "late" ? "moves" : "mixed";
   const mode: Mode = params.get("mode") === "dark" ? "dark" : "light";

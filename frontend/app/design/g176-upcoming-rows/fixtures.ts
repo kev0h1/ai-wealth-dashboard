@@ -6,6 +6,7 @@ import type { UpcomingRowModel } from "@/components/upcoming/UpcomingRow";
 // consumes this same per-account walk, including after a local dismissal.
 // No income, overdraft, interest or unlisted payments are assumed.
 export type Scenario = "mixed" | "short" | "covered" | "moves";
+export type FixtureEdits = Record<string, { name: string; pence: number }>;
 export type AccountId = "barclays" | "monzo" | "natwest";
 export type FixtureAccount = { id: AccountId; name: string; detail: string; bankKey: string };
 type Payment = {
@@ -83,7 +84,7 @@ export const DAYS = [
 export function money(pence: number, decimals = false) {
   return `${pence < 0 ? "−" : ""}£${(Math.abs(pence) / 100).toLocaleString("en-GB", {
     minimumFractionDigits: decimals ? 2 : 0,
-    maximumFractionDigits: decimals ? 2 : 0,
+    maximumFractionDigits: 2,
   })}`;
 }
 
@@ -92,16 +93,19 @@ export function dateLabel(iso: string) {
     .format(new Date(`${iso}T12:00:00Z`));
 }
 
-export function buildForecast(scenario: Scenario, dismissed: ReadonlySet<string> = new Set()): Forecast {
+export function buildForecast(scenario: Scenario, dismissed: ReadonlySet<string> = new Set(), edits: FixtureEdits = {}): Forecast {
   const balances = { ...OPENING[scenario] };
+  let pooled = Object.values(balances).reduce((sum, amount) => sum + amount, 0);
   const optionalMoves = scenario === "moves";
-  const payments = PAYMENTS.filter((payment) => !dismissed.has(payment.id)).map((payment): ForecastPayment => {
+  const payments = PAYMENTS.filter((payment) => !dismissed.has(payment.id)).map((original): ForecastPayment => {
+    const payment = { ...original, pence: edits[original.id]?.pence ?? original.pence };
     const account = ACCOUNTS.find((candidate) => candidate.id === payment.accountId)!;
     const before = balances[payment.accountId];
     const after = before - payment.pence;
     balances[payment.accountId] = after;
+    pooled -= payment.pence;
     const shortfall = Math.max(0, -after);
-    const name = optionalMoves ? payment.moveName : payment.name;
+    const name = edits[payment.id]?.name ?? (optionalMoves ? payment.moveName : payment.name);
     return {
       ...payment, name, account, before, after, shortfall, optionalMove: optionalMoves,
       model: {
@@ -113,10 +117,10 @@ export function buildForecast(scenario: Scenario, dismissed: ReadonlySet<string>
         flagged: shortfall > 0 && !optionalMoves,
         categoryColour: optionalMoves ? "#64748b" : payment.colour,
         CategoryIcon: optionalMoves ? ArrowRightLeft : payment.Icon,
-        coverage: { shortfall: shortfall / 100, optionalMove: optionalMoves },
-        // The coverage rail replaces After. The sheet names this account
-        // explicitly, so this value is never described as pooled cash.
-        after: { kind: "balance", value: after / 100 },
+        coverage: { shortfall: shortfall / 100, optionalMove: optionalMoves, before: before / 100, after: after / 100 },
+        // The shared details distinguish this pooled forecast from the
+        // named source-account before/after working above.
+        after: { kind: "balance", value: pooled / 100 },
       },
     };
   });
