@@ -3,7 +3,7 @@
 import { useId } from "react";
 import { ArrowDownLeft, ArrowLeftRight, Check, ChevronDown, ChevronRight, ReceiptText } from "lucide-react";
 import type { UpcomingAccountEvent, UpcomingAccountSummary } from "@/lib/upcomingAccounts";
-import { accountPlan, remaining, type Plan } from "@/lib/upcomingPlans";
+import { accountPlan, hasPlanSource, remaining, type Plan } from "@/lib/upcomingPlans";
 import { DetailLedgerLine, detailFocus, detailInk, detailMuted, PlanIcon, dateLabel, money } from "./detailPrimitives";
 
 export interface UpcomingAccountDetailsProps { account: UpcomingAccountSummary; periodLabel: string; plans?: Plan[]; plansStatus?: "loading" | "error" | "ready"; onPlan?: (id: string) => void; }
@@ -19,9 +19,9 @@ function EventLine({ event }: { event: UpcomingAccountEvent }) {
 }
 
 function PlanRow({ plan, onPlan }: { plan: Plan; onPlan?: (id: string) => void }) {
-  const unassigned = plan.evidence !== "chosen" || !plan.sourceId;
-  const suggested = unassigned && plan.evidence === "recent-transfers" && plan.sourceId;
-  const content = <><PlanIcon kind={plan.kind} /><span className="min-w-0"><span className="block break-words text-sm font-semibold">{plan.name}</span><span className={"mt-0.5 block text-xs leading-5 " + detailMuted}>{suggested ? "Suggested · choose paying account" : unassigned ? "Choose paying account" : plan.kind === "goal" ? "Goal · this period" : money(plan.filledPence) + " of " + money(plan.periodPence) + " set aside"}</span></span><span className="text-right"><span className={"block text-sm font-semibold " + detailInk}>{plan.amountUnavailable ? "Unavailable" : money(unassigned ? remaining(plan) : -remaining(plan))}</span><span className={"block text-xs " + detailMuted}>{unassigned ? "unassigned" : "to set aside"}</span></span>{onPlan && <ChevronRight size={14} className={detailMuted} aria-hidden="true" />}</>;
+  const unassigned = !hasPlanSource(plan);
+  const estimated = !unassigned && plan.evidence === "recent-transfers";
+  const content = <><PlanIcon kind={plan.kind} /><span className="min-w-0"><span className="block break-words text-sm font-semibold">{plan.name}</span><span className={"mt-0.5 block text-xs leading-5 " + detailMuted}>{unassigned ? "Choose paying account" : plan.kind === "goal" ? "Goal · this period" : money(plan.filledPence) + " of " + money(plan.periodPence) + " set aside"}</span>{estimated && <span className={"block text-xs leading-5 " + detailMuted}>Paying account based on recent transfers</span>}</span><span className="text-right"><span className={"block text-sm font-semibold " + detailInk}>{plan.amountUnavailable ? "Unavailable" : money(unassigned ? remaining(plan) : -remaining(plan))}</span><span className={"block text-xs " + detailMuted}>{unassigned ? "unassigned" : estimated ? "estimated" : "to set aside"}</span></span>{onPlan && <ChevronRight size={14} className={detailMuted} aria-hidden="true" />}</>;
   return <li>{onPlan ? <button type="button" data-flow-focus={"plan-" + plan.id} onClick={() => onPlan(plan.id)} className={"grid min-h-16 w-full grid-cols-[2.25rem_minmax(0,1fr)_auto_0.75rem] items-center gap-3 rounded-lg py-3 text-left hover:bg-slate-50 dark:hover:bg-slate-800/60 " + detailFocus}>{content}</button> : <div className="grid min-h-16 grid-cols-[2.25rem_minmax(0,1fr)_auto] items-center gap-3 py-3">{content}</div>}</li>;
 }
 
@@ -32,8 +32,9 @@ function Verdict({ account, plans, plansStatus }: Required<Pick<UpcomingAccountD
   if (plansStatus !== "ready") return <p className={"text-sm leading-6 " + detailMuted}>{plansStatus === "loading" ? "Loading goals and allocations. This figure covers payments only." : "Goals and allocations could not be checked. This figure covers payments only."}</p>;
   if (result.uncertain) return <div className="space-y-2"><h3 className="text-base font-semibold">Calculation needs checking</h3><p className={"text-sm leading-6 " + detailMuted}>{result.assigned.some((plan) => plan.overlapReason === "shared-plan") ? "Plans share a receiving pot. We cannot tell whether they describe the same money, so no combined total is shown." : result.assigned.some((plan) => plan.overlapUncertain) ? "A planned move may also fund one of these plans. No combined total is shown until the overlap is clear." : "A plan amount is unavailable, so no combined total is shown."}</p></div>;
   if (account.status === "unfunded") return <p className={"flex items-start gap-2 text-sm leading-6 " + detailMuted}><span className="mt-2 size-1.5 shrink-0 rounded-full bg-amber-500" aria-hidden="true" />A planned move is not fully funded when it leaves. It may stay put, with no fee.</p>;
-  if (result.unassigned.length) return <div className="space-y-2"><p className="flex items-center gap-2 text-sm font-semibold"><span className="size-1.5 shrink-0 rounded-full bg-amber-500" aria-hidden="true" />Paying accounts need linking</p><p className={"text-xs leading-5 " + detailMuted}>Unassigned plans are not deducted from this account. The receiving pot alone cannot tell us where the money will leave.</p></div>;
-  if ((result.planGap ?? 0) > 0) return <div className="space-y-2"><p className="flex items-center gap-2 text-sm font-semibold"><span className="size-1.5 shrink-0 rounded-full bg-amber-500" aria-hidden="true" />{money(result.planGap!)} more needed for plans</p><p className={"text-xs leading-5 " + detailMuted}>Payments are covered. You can adjust your set-asides or add money before completing them.</p></div>;
+  if ((result.planGap ?? 0) > 0) return <div className="space-y-2"><p className="flex items-center gap-2 text-sm font-semibold"><span className="size-1.5 shrink-0 rounded-full bg-amber-500" aria-hidden="true" />{money(result.planGap!)} more needed for plans{result.estimated ? " · estimated" : ""}</p><p className={"text-xs leading-5 " + detailMuted}>Payments are covered. You can adjust your set-asides or add money before completing them.</p></div>;
+  if (result.estimated) return <p className={"text-sm leading-6 " + detailMuted}>Payments and set-asides are estimated to fit.</p>;
+  if (result.unassigned.length) return <p className={"text-xs leading-5 " + detailMuted}>Other set-asides have no known paying account and are not included in this balance.</p>;
   return <p className="flex items-center gap-2 text-sm font-medium"><Check size={16} className={detailMuted} aria-hidden="true" />{result.assigned.length ? "Payments and linked plans fit" : "Payments are covered"}</p>;
 }
 
@@ -44,7 +45,7 @@ export default function UpcomingAccountDetails({ account, periodLabel, plans = [
   const figure = hasPlans ? result.afterPlans : result.afterPayments;
   return <div className="space-y-6 text-slate-950 dark:text-slate-50">
     <section className="space-y-3" aria-label="Account plan result">
-      <div><p className={"text-xs font-medium " + detailMuted}>{hasPlans ? "After payments and plans" : "After payments"}</p><p data-account-plan-figure className={"mt-1 break-words text-4xl font-bold leading-tight tracking-tight " + detailInk}>{figure === null ? "Unavailable" : money(figure)}</p>{hasPlans && <p className={"mt-1 text-xs " + detailMuted}>If you complete the linked plans below</p>}</div>
+      <div><p className={"text-xs font-medium " + detailMuted}>{hasPlans ? "After payments and plans" : "After payments"}{result.estimated && figure !== null ? " · estimated" : ""}</p><p data-account-plan-figure className={"mt-1 break-words text-4xl font-bold leading-tight tracking-tight " + detailInk}>{figure === null ? "Unavailable" : money(figure)}</p>{hasPlans && <p className={"mt-1 text-xs leading-5 " + detailMuted}>{result.estimated ? "Includes set-asides from this account based on recent transfers." : "If you complete the linked plans below"}</p>}</div>
       <Verdict account={account} plans={plans} plansStatus={plansStatus} />
     </section>
     <details className="group border-y border-slate-200 dark:border-slate-700">
@@ -55,9 +56,9 @@ export default function UpcomingAccountDetails({ account, periodLabel, plans = [
         {account.transfersIn > 0 && <DetailLedgerLine label="Transfers in" pence={Math.round(account.transfersIn * 100)} positive />}
         <DetailLedgerLine label="Payments to come" pence={-Math.round(account.outgoing * 100)} />
         <DetailLedgerLine label="After payments" pence={result.afterPayments} total />
-        {result.allocationPence > 0 && <DetailLedgerLine label="Allocations still to set aside" pence={-result.allocationPence} />}
+        {result.allocationPence > 0 && <DetailLedgerLine label={result.estimated ? "Allocations still to set aside · estimated" : "Allocations still to set aside"} pence={-result.allocationPence} />}
         {result.goalPence > 0 && <DetailLedgerLine label="Goal contributions this period" pence={-result.goalPence} />}
-        {hasPlans && <DetailLedgerLine label="After payments and plans" pence={result.afterPlans} total />}
+        {hasPlans && <DetailLedgerLine label={result.estimated ? "After payments and plans · estimated" : "After payments and plans"} pence={result.afterPlans} total />}
       </dl></div>
     </details>
     {plansStatus === "ready" && (result.assigned.length > 0 || result.unassigned.length === 0) && <section aria-labelledby={id + "-plans"}>

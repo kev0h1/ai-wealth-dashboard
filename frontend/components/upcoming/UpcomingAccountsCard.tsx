@@ -3,7 +3,7 @@
 import { useId } from "react";
 import { BANK_META, BankBadge, bankKey, bankLogoSrc } from "@/components/AccountMiniCard";
 import type { UpcomingAccountSummary } from "@/lib/upcomingAccounts";
-import { accountPlan, hasChosenPlanSource, remaining, type Plan } from "@/lib/upcomingPlans";
+import { accountPlan, type Plan } from "@/lib/upcomingPlans";
 
 export interface UpcomingAccountsCardProps {
   accounts: UpcomingAccountSummary[];
@@ -11,7 +11,6 @@ export interface UpcomingAccountsCardProps {
   onOpen: (account: UpcomingAccountSummary) => void;
   plans?: Plan[];
   plansStatus?: "loading" | "error" | "ready";
-  onPlan?: (id: string) => void;
   onRetry?: () => void;
 }
 
@@ -33,11 +32,13 @@ function accountResult(account: UpcomingAccountSummary, plans: Plan[]) {
 
 function AccountResult({ account, plans }: { account: UpcomingAccountSummary; plans: Plan[] }) {
   const result = accountPlan(account, plans);
+  const estimated = account.status === "covered" && !result.uncertain && result.estimated;
   const issue = account.status === "short" ? "bg-rose-500" : account.status === "unfunded" || (result.planGap ?? 0) > 0 ? "bg-amber-500" : null;
   return <span className="flex min-w-0 shrink-0 items-center justify-end gap-1.5 text-right text-xs font-semibold text-slate-700 dark:text-slate-200">
     {issue && <span aria-hidden="true" className={`size-1.5 shrink-0 rounded-full ${issue}`} />}
-    <span className={account.status === "unknown" || result.uncertain ? "max-w-28 text-pretty text-slate-600 dark:text-slate-300" : "font-mono tabular-nums"}>
-      {accountResult(account, plans)}
+    <span className="max-w-36">
+      <span className={account.status === "unknown" || result.uncertain ? "text-pretty text-slate-600 dark:text-slate-300" : "font-mono tabular-nums"}>{accountResult(account, plans)}</span>
+      {estimated && <span className="mt-0.5 block font-sans font-normal text-slate-600 dark:text-slate-400">Estimated</span>}
     </span>
   </span>;
 }
@@ -46,9 +47,8 @@ function AccountResult({ account, plans }: { account: UpcomingAccountSummary; pl
  * Account-level evidence for the Upcoming hero. It receives already-derived
  * values only: this component must never alter the pooled runway calculation.
  */
-export default function UpcomingAccountsCard({ accounts, periodLabel, onOpen, plans = [], plansStatus = "ready", onPlan, onRetry }: UpcomingAccountsCardProps) {
+export default function UpcomingAccountsCard({ accounts, periodLabel, onOpen, plans = [], plansStatus = "ready", onRetry }: UpcomingAccountsCardProps) {
   const headingId = useId();
-  const unassigned = plans.filter((plan) => plan.active && remaining(plan) > 0 && !hasChosenPlanSource(plan));
   const readyPlans = plansStatus === "ready" ? plans : [];
 
   return (
@@ -64,11 +64,13 @@ export default function UpcomingAccountsCard({ accounts, periodLabel, onOpen, pl
           {accounts.map((account) => {
             const meta = BANK_META[bankKey({ provider: account.bank })];
             const result = accountResult(account, readyPlans);
+            const planResult = accountPlan(account, readyPlans);
+            const estimated = account.status === "covered" && planResult.estimated && !planResult.uncertain;
             return <button
               key={account.id}
               type="button"
               onClick={() => onOpen(account)}
-              aria-label={`Open ${account.bank}, ${account.name}: ${result}`}
+              aria-label={`Open ${account.bank}, ${account.name}: ${result}${estimated ? ", estimated" : ""}`}
               className={`grid min-h-11 w-full grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-3 px-4 py-2 text-left hover:bg-slate-50 active:opacity-70 dark:hover:bg-slate-700/50 ${focus}`}
             >
               <span className="shrink-0"><BankBadge logoSrc={bankLogoSrc(meta)} initials={meta?.initials ?? account.bank.slice(0, 2).toUpperCase()} initialsSize={meta?.initialsSize} altText="" brandBg={meta?.bg} size={32} /></span>
@@ -82,7 +84,6 @@ export default function UpcomingAccountsCard({ accounts, periodLabel, onOpen, pl
         </div>
       )}
       {plansStatus !== "ready" && <div className="border-t border-slate-100 px-4 py-3 text-xs leading-5 text-slate-600 dark:border-slate-700 dark:text-slate-300" role="status">{plansStatus === "loading" ? "Loading goals and allocations. Figures show payments only." : "Goals and allocations could not be checked. Figures show payments only."}{plansStatus === "error" && onRetry && <button type="button" className={`ml-1 min-h-11 rounded-lg px-2 font-semibold text-indigo-600 dark:text-indigo-300 ${focus}`} onClick={onRetry}>Try again</button>}</div>}
-      {plansStatus === "ready" && unassigned.length > 0 && <details className="border-t border-slate-100 px-4 dark:border-slate-700"><summary className={`min-h-11 cursor-pointer py-3 text-xs font-medium text-slate-700 dark:text-slate-200 ${focus}`}>{unassigned.length} {unassigned.length === 1 ? "plan needs a paying account" : "plans need paying accounts"}</summary><div className="pb-3">{unassigned.map((plan) => <button key={plan.id} type="button" onClick={() => onPlan?.(plan.id)} className={`min-h-11 w-full rounded-lg text-left text-sm font-medium ${focus}`}>{plan.name}<span className="block text-xs font-normal text-slate-600 dark:text-slate-400">{plan.evidence === "recent-transfers" && plan.sourceId ? "Suggested · choose paying account" : "Choose paying account"}</span></button>)}</div></details>}
       {accounts.length > 0 && <p className="px-4 pb-4 pt-2 text-xs leading-5 text-slate-600 dark:text-slate-400">Tap an account for its working.</p>}
     </section>
   );

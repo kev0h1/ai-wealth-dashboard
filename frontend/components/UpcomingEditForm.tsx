@@ -59,11 +59,11 @@ export function UpcomingEditForm({ item, onCancel, onDismiss, onSaved, services 
           {rulePreview ? <div><p className="text-sm font-semibold">{rulePreview.label}</p><p className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-400">{rulePreview.next_dates.map(dateLabel).join(" · ")}</p><button type="button" onClick={() => void mutate(() => services.applyUpcomingRule({ key: item.name, schedule: rulePreview.schedule }))} className={editorQuiet}>Apply schedule</button></div> : <button type="button" disabled={!ruleText.trim()} onClick={() => void previewRule()} className={editorQuiet}>Preview schedule</button>}
         </>}
       </div></details>
-      <details className="border-t border-slate-200 pt-2 dark:border-slate-700"><summary className="min-h-11 cursor-pointer py-3 text-sm font-medium">More options</summary><div className="flex flex-col items-stretch gap-1">
+      <div className="flex flex-col items-stretch gap-1 border-t border-slate-200 pt-2 dark:border-slate-700" aria-label="Prediction actions">
         {item.edited && <button type="button" onClick={() => void mutate(() => services.clearUpcomingOverride({ key: item.name, date: originalDate }))} className={editorQuiet}>Reset to prediction</button>}
         {item.type !== "income" && <button type="button" onClick={() => void mutate(() => services.skipUpcomingOccurrence(item.name, originalDate))} className={editorQuiet}>Skip this month</button>}
         {!removing ? <button type="button" onClick={() => setRemoving(true)} className={editorQuiet}>{item.type === "income" ? "Not income" : "Not a bill"}</button> : <div><p className="text-sm leading-6 text-slate-600 dark:text-slate-300">Stop predicting this? You can undo this on Upcoming.</p><div className="grid grid-cols-2 gap-3"><button type="button" onClick={onDismiss} className={editorQuiet}>Remove prediction</button><button type="button" onClick={() => setRemoving(false)} className={editorQuiet}>Keep it</button></div></div>}
-      </div></details>
+      </div>
     </fieldset>
     <EditorError message={request.error} />
     <EditorActions formId={formId} busy={request.busy} needsRefresh={request.needsRefresh} onCancel={onCancel} renderActions={renderActions} />
