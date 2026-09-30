@@ -65,7 +65,7 @@ assert.match(suggestedDetails, /Allocations still to set aside · estimated/);
 assert.match(suggestedDetails, /Paying account based on recent transfers/);
 assert.doesNotMatch(suggestedDetails, /Paying accounts need linking/);
 assert.match(suggestedCard, /By account/);
-assert.match(suggestedCard, /£36 after plans, estimated/);
+assert.match(suggestedCard, /£36\.00, left after plans, estimated/);
 assert.match(suggestedCard, />Estimated</);
 assert.doesNotMatch(suggestedCard, /Savings challenge|Summer break|paying account|<details/, "By account contains account rows only, not duplicate plans");
 assert.equal((suggestedCard.match(/<button/g) ?? []).length, 2);

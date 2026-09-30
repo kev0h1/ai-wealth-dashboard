@@ -104,7 +104,7 @@ let paired = assertAgreement([bill(), bill({ account_id: "b", account_balance: 2
 assert.deepEqual(paired.statuses.map((status) => status.label), ["Covered", "short"]);
 const mixedCard = renderToStaticMarkup(React.createElement(UpcomingAccountsCard, { accounts: paired.walk.accounts, periodLabel: "This period", onOpen() {} }));
 const mixedRows = renderToStaticMarkup(React.createElement(UpcomingAttentionDay, { dayKeyIso: "2026-10-02", heading: "Fri 2 Oct", rows: paired.models, onOpen() {}, onDismiss() {} }));
-assert.match(mixedCard, /£60.*short/);
+assert.match(mixedCard, /£60\.00, short for payments/);
 assert.match(mixedRows, /1 covered payment/);
 assert.ok(mixedRows.indexOf('data-bill-key="payment-1"') < mixedRows.indexOf("<details"), "The short account's payment stays visible");
 
@@ -167,8 +167,8 @@ for (const scenario of SCENARIOS) {
   assert.equal(result.reduce((sum, account) => sum + account.shortfall, 0), forecast.shortfall / 100);
   const card = renderToStaticMarkup(React.createElement(UpcomingAccountsCard, { accounts: result, periodLabel: "Payments through Wed 30 Sept", onOpen() {} }));
   assert.match(card, /By account/); assert.match(card, /Open Barclays/); assert.match(card, /Tap an account for its working/);
-  if (scenario.id === "moves") { assert.match(card, /unfunded/); assert.doesNotMatch(card, /bg-rose/); }
-  if (scenario.id === "covered") assert.doesNotMatch(card, /bg-rose|bg-amber/);
+  if (scenario.id === "moves") { assert.match(card, /Short for transfers/); assert.match(card, /data-status-signal="move"/); assert.doesNotMatch(card, /data-status-signal="risk"|text-rose|bg-rose/); }
+  if (scenario.id === "covered") assert.doesNotMatch(card, /data-status-signal="(?:risk|move|plan)"|lucide-triangle-alert|lucide-info/);
 }
 const empty = renderToStaticMarkup(React.createElement(UpcomingAccountsCard, { accounts: [], periodLabel: "This period", onOpen() {} }));
 assert.match(empty, /No account payments/); assert.doesNotMatch(empty, /<button/);

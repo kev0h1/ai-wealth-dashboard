@@ -8,7 +8,7 @@ export type AccountStatus = {
   estimated: boolean;
 };
 
-/** Preview presentation only. Preserve the shipped card's result precedence.
+/** Presentation only. Preserve the account calculation's result precedence.
  * A payment gap is the walk's peak shortfall, not its closing balance. */
 export function statusFor(account: UpcomingAccountSummary, plans: Plan[]): AccountStatus {
   if (account.status === "short" && account.shortfall !== null) {
