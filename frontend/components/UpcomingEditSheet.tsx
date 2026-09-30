@@ -10,6 +10,7 @@ import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { useSheetOpen } from "@/lib/useSheetOpen";
 import { useSheetA11y } from "@/lib/useSheetA11y";
 import SegmentedControl from "@/components/SegmentedControl";
+import { upcomingDisplayName } from "@/lib/upcomingDisplayName";
 
 // Emerald income voice — single definition used throughout this file
 const INCOME_COLOUR = "#4ade80";
@@ -17,6 +18,7 @@ const INCOME_COLOUR = "#4ade80";
 interface UpcomingEditSheetProps {
   item: {
     name: string;
+    display_name?: string | null;
     amount: number;
     expected_date: string;
     original_date?: string | null;
@@ -79,9 +81,10 @@ export default function UpcomingEditSheet({ item, onClose, onDismiss, onSaved }:
   });
   const sign = item.type === "income" ? "+" : "−";
 
+  const displayName = upcomingDisplayName(item);
   const ariaLabel = item.type === "income"
-    ? `Edit income prediction: ${item.name}`
-    : `Edit ${item.name}`;
+    ? `Edit income prediction: ${displayName}`
+    : `Edit ${displayName}`;
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
@@ -237,7 +240,7 @@ export default function UpcomingEditSheet({ item, onClose, onDismiss, onSaved }:
               <Icon size={16} style={{ color: colour }} />
             </span>
             <div className="flex-1 min-w-0">
-              <p className="text-base font-semibold text-slate-900 dark:text-slate-100 truncate">{item.name}</p>
+              <p className="text-base font-semibold text-slate-900 dark:text-slate-100 truncate">{displayName}</p>
               <p className="text-xs text-slate-500 dark:text-slate-400">
                 Predicted {formattedDate} · <span className="font-mono tabular-nums">{sign}£{item.amount.toFixed(2)}</span>
               </p>

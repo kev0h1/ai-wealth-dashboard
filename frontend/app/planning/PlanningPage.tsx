@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, useRef, type ReactNode } from "react";
 import dynamic from "next/dynamic";
-import { EyeOff, X } from "lucide-react";
+import { EyeOff } from "lucide-react";
 import { api, Account, Allocation, CashflowData } from "@/lib/api";
 import { getAccountsCached } from "@/lib/accountsCache";
 import { usePreferences } from "@/components/PreferencesContext";
@@ -26,6 +26,10 @@ import UpcomingDetailsSheet from "@/components/upcoming/UpcomingDetailsSheet";
 import UpcomingRowDetails, { upcomingDate } from "@/components/upcoming/UpcomingRowDetails";
 import { canDismissUpcomingOccurrence, upcomingPaymentKey as atRiskKey } from "@/lib/upcomingAttention";
 import { walkUpcomingAccounts } from "@/lib/upcomingAccountWalk";
+import { buildUpcomingAccountSummaries, upcomingAccountWindow } from "@/lib/upcomingAccounts";
+import UpcomingAccountsCard from "@/components/upcoming/UpcomingAccountsCard";
+import UpcomingAccountDetails from "@/components/upcoming/UpcomingAccountDetails";
+import { upcomingDisplayName } from "@/lib/upcomingDisplayName";
 import SetAsideList, { type SetAsideItem } from "@/components/upcoming/SetAsideList";
 
 // Editing flows are not needed to understand the initial runway. Keeping them
@@ -188,7 +192,6 @@ export default function PlanningPage() {
   const { icons: iconOverrides } = useCategoryIcons();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const sym = "£";
   const [planningNow] = useState(() => Date.now());
   // Penny screen context (B39) — the runway hero's own three headline
   // values (`runway`/`runwayStatus`/`isCalendarMonth`) are computed deep
@@ -239,6 +242,7 @@ export default function PlanningPage() {
   // fetch effect below for why this must never gate the page's main data.
   const [dismissedCount, setDismissedCount] = useState(0);
 
+  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
   const [detailItem, setDetailItem] = useState<{
     model: UpcomingRowModel;
     edit: () => void;
@@ -369,106 +373,13 @@ export default function PlanningPage() {
     (atRiskWalks?.optimistic ?? []).map(b => b.account_id ?? "__null__")
   );
 
-  type AccountShortfall = {
-    accountId: string;
-    bank: string;
-    balance: number;
-    shortfall: number;
-    culprit: { name: string; amount: number; expected_date: string } | undefined;
-    dueDate: string | null;
-    severity: "genuine" | "timing";
-  };
-
-  const accountShortfalls = (() => {
-    if (!cashflow || atRiskBills.length === 0) return [];
-    const accountIds = [...new Set(atRiskBills.map(b => b.account_id ?? "__null__"))];
-    return accountIds
-      .map((accountId): AccountShortfall | null => {
-        const firstBill = atRiskBills.find(b => (b.account_id ?? "__null__") === accountId);
-        if (!firstBill) return null;
-        const balance = firstBill.account_balance ?? 0;
-        const bank = firstBill.account_bank || firstBill.account_name || "Account";
-        const nextPaydayMs = periodEnd.getTime() + 86400000;
-        // last-day lookahead: from the final day of the period, assess the first 5 days of the next one
-        const daysToPay = Math.round((nextPaydayMs - planningNow) / 86400000);
-        // EXCLUSIVE of payday day itself, except during the last-day
-        // lookahead (daysToPay <= 1), where the window still extends
-        // through payday + 5 days INCLUSIVE. Mirrors backend/app/services/
-        // pay_period.py's `in_current_window` helper exactly (2026-08-28
-        // decision, owner verbatim: "we still want to have some visibility
-        // over the next pay period but I don't think it should count in
-        // the existing one"). A bill/inflow scheduled ON payday
-        // (days_away === daysToPay) now belongs to the NEXT pay period's
-        // arithmetic, not this one — it stays visible elsewhere (Home's
-        // payday_split) but must never inflate this shortfall total. See
-        // pay_period.py for the canonical helper this mirrors.
-        const inWindow = (daysAway: number) =>
-          daysToPay <= 1 ? daysAway >= 0 && daysAway <= daysToPay + 5 : daysAway >= 0 && daysAway < daysToPay;
-        // Note: this total intentionally still includes "movement" entries
-        // (transfers, savings, investment STOs) for this account. It's the
-        // real cash that would need to be there to cover everything
-        // scheduled, movements included. Only the RED banner/CTA above it
-        // is gated to genuine at-risk spend (accountIds is built from the
-        // already-movement-filtered atRiskBills), so a shortfall driven
-        // purely by a movement no longer shows this banner at all. The
-        // figure now also nets off internal_inflows landing on this
-        // account inside the same window, the destination side of the
-        // user's own standing orders (e.g. a payday transfer in), so this
-        // arithmetic never contradicts the walk above it, which already
-        // credits that same money before deciding whether the account is
-        // short at all.
-        const scopedBills = cashflow!.upcoming_bills.filter(
-          b => (b.account_id ?? "__null__") === accountId &&
-               inWindow(b.days_away) &&
-               b.account_balance != null &&
-               b.account_balance >= 0 &&
-               !b.is_credit_card
-        );
-        const billsSum = scopedBills.reduce((s, b) => s + b.amount, 0);
-        const inflowsSum = (cashflow!.internal_inflows ?? [])
-          .filter(inf => inf.account_id === accountId && inWindow(inf.days_away))
-          .reduce((s, inf) => s + inf.amount, 0);
-        const shortfall = billsSum - balance - inflowsSum;
-        if (shortfall <= 0) return null;
-        // Earliest genuinely at-risk bill on this account, so the
-        // attribution names whichever movement actually preceded it.
-        const earliest = atRiskBills
-          .filter(b => (b.account_id ?? "__null__") === accountId)
-          .sort((a, b) => a.days_away - b.days_away)[0];
-        // Earliest credit (income or internal inflow) due into this account
-        // inside the window, backs the amber timing-risk copy below
-        // ("Money's due into HSBC on Fri 28 Aug"). Not used for any
-        // arithmetic, display only.
-        const earliestCredit = [
-          ...cashflow!.upcoming_income.filter(inc => inc.account_id === accountId),
-          ...(cashflow!.internal_inflows ?? []).filter(inf => inf.account_id === accountId),
-        ]
-          .filter(c => inWindow(c.days_away))
-          .sort((a, b) => a.days_away - b.days_away)[0];
-        // G163: since the walk itself now credits same-day money before
-        // debiting bills, `genuineAccountIds` is every account atRiskBills
-        // already flagged, so this is always "genuine" in practice — a
-        // "timing" account can no longer occur (the walk that used to
-        // produce one no longer disagrees with itself). Left as a real
-        // branch, not collapsed, only because it is cheap insurance against
-        // a payload built from an older cache (see the atRiskWalks comment
-        // above) still carrying whatever shape produced a "timing" read.
-        const severity: "genuine" | "timing" = genuineAccountIds.has(accountId) ? "genuine" : "timing";
-        return { accountId, bank, balance, shortfall, culprit: earliest?.movementCulprit, dueDate: earliestCredit?.expected_date ?? null, severity };
-      })
-      .filter((x): x is AccountShortfall => x !== null)
-      .sort((a, b) => b.shortfall - a.shortfall);
-  })();
-
-  // The split this page's whole at-risk UI hangs off: RED banner/chip use
-  // genuineShortfalls only (current copy, current colour); AMBER uses
-  // timingShortfalls (new, calmer treatment). See severity's computation
-  // above for what separates the two. G163: timingShortfalls should now
-  // always be empty (the walk that used to produce a "timing" account no
-  // longer disagrees with itself) — the amber rendering code downstream is
-  // left in place only as insurance against a payload from an older cache.
-  const genuineShortfalls = accountShortfalls.filter(a => a.severity === "genuine");
-  const timingShortfalls = accountShortfalls.filter(a => a.severity === "timing");
+  // Account evidence has its own boundary, never an input to the hero.
+  // Before payday excludes payday; the established final-day lookahead
+  // extends through five days after it and labels that wider window.
+  const accountEndMs = upcomingAccountWindow(periodEnd.getTime(), planningNow);
+  const accountPeriodLabel = `Payments through ${new Date(accountEndMs).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" })}`;
+  const accountSummaries = cashflow ? buildUpcomingAccountSummaries(cashflow, accountEndMs) : [];
+  const selectedAccount = accountSummaries.find((account) => account.id === selectedAccountId);
 
   // ── Undo state ──────────────────────────────────────────────────────────────
   const [undoBar, setUndoBar] = useState<{ kind: "recurring"; name: string } | { kind: "planned"; id: string } | null>(null);
@@ -495,6 +406,7 @@ export default function PlanningPage() {
   const [planSheetOpen, setPlanSheetOpen] = useState(false);
   const [editItem, setEditItem] = useState<null | {
     name: string;
+    display_name?: string | null;
     amount: number;
     expected_date: string;
     original_date?: string | null;
@@ -1098,14 +1010,14 @@ export default function PlanningPage() {
             if (isPlanned) {
               setEditPlanned({ id: item.planned_id!, name: item.name, amount: item.amount, date: item.expected_date, account_id: item.account_id ?? null });
             } else {
-              setEditItem({ name: item.name, amount: item.amount, expected_date: item.expected_date, original_date: item.original_date, type: item.type, category: item.category, edited: item.edited, rule_label: item.rule_label });
+              setEditItem({ name: item.name, display_name: upcomingDisplayName(item), amount: item.amount, expected_date: item.expected_date, original_date: item.original_date, type: item.type, category: item.category, edited: item.edited, rule_label: item.rule_label });
             }
           };
           const model: UpcomingRowModel = {
             rowKey,
             identity: item.type === "bill" && item.planned_id ? item.planned_id : `${item.type}-${atRiskKey(item)}`,
             type: item.type,
-            name: item.name,
+            name: upcomingDisplayName(item),
             amount: item.amount,
             expectedDate: item.expected_date,
             originalDate: item.original_date,
@@ -1240,17 +1152,8 @@ export default function PlanningPage() {
 
         return (
           <div className="space-y-4">
-            {/* G131 fold-in of the g124-upcoming-refine design round
-                (variant A, cluster interval rule, Kevin 2026-09-18): the
-                hero is now the shared UpcomingHeroCard component
-                (components/upcoming/UpcomingHeroCard.tsx), imported here AND
-                by that surface's design preview so the two can't drift. See
-                that component's own doctrine comment for the full G124/G127
-                history (bounded panel, the red tint removed, red narrowed to
-                the figure and the "N accounts short" badge only). Content
-                (every string and figure) is unchanged from before this
-                fold-in; only the container, typography and colour rules
-                moved. */}
+            {/* The same production runway and account evidence render in
+                the approved G176 preview. The hero calculation stays here. */}
             {(cashflow.spendable_balance ?? cashflow.available_balance) != null && (
               <UpcomingHeroCard
                 isCalendarMonth={isCalendarMonth}
@@ -1263,21 +1166,10 @@ export default function PlanningPage() {
                 savingsNow={savingsNow}
                 runway={runway}
                 runwayStatus={runwayStatus}
-                genuineShortfalls={genuineShortfalls}
-                timingShortfalls={timingShortfalls}
-                formatDate={formatItemDate}
-                onReview={() => {
-                  // Restricted to bills on a genuinely short account.
-                  // atRiskBills on its own can still include a timing-risk
-                  // account's row, and Review here must only ever jump to
-                  // something the (red) attribution is actually about.
-                  const top = [...atRiskBills]
-                    .filter(b => genuineAccountIds.has(b.account_id ?? "__null__"))
-                    .sort((a, b) => a.days_away !== b.days_away ? a.days_away - b.days_away : b.amount - a.amount)[0];
-                  if (top) setHighlightTarget(`bill-${top.name}-${top.expected_date}`);
-                }}
               />
             )}
+
+            <UpcomingAccountsCard accounts={accountSummaries} periodLabel={accountPeriodLabel} onOpen={(account) => setSelectedAccountId(account.id)} />
 
             <PlansSection
               allocations={allocations}
@@ -1309,7 +1201,7 @@ export default function PlanningPage() {
   /* eslint-enable react-hooks/refs */
 
   return (
-    <div inert={detailItem !== null} aria-hidden={detailItem ? true : undefined} className="mx-auto min-h-dvh max-w-xl pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
+    <div inert={detailItem !== null || !!selectedAccount} aria-hidden={detailItem || selectedAccount ? true : undefined} className="mx-auto min-h-dvh max-w-xl pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       <div className="px-4 pt-6 pb-2">
         {/* G127 ask #2 — header typography matches the codex reference
             exactly (app/design/upcoming-canvas-before-cards/
@@ -1382,6 +1274,10 @@ export default function PlanningPage() {
           </div>
         </div>
       )}
+
+      {selectedAccount && <UpcomingDetailsSheet title={selectedAccount.bank} subtitle={`${selectedAccount.name} · ${accountPeriodLabel}`} onClose={() => setSelectedAccountId(null)}>
+        <UpcomingAccountDetails account={selectedAccount} periodLabel={accountPeriodLabel} />
+      </UpcomingDetailsSheet>}
 
       {detailItem && <UpcomingDetailsSheet
         title={detailItem.model.name}

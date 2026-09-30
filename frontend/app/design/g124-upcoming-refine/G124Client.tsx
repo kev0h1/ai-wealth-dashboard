@@ -94,10 +94,7 @@ import {
 type Mode = "light" | "dark";
 type HeroState = "positive" | "negative";
 
-function formatDate(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
-}
+
 
 // The index page (app/design/page.tsx, PreviewCard) always links here as
 // `?mode=dark&state=<value>` — `state` is a fixed param name the index
@@ -165,13 +162,6 @@ export default function G124Client() {
               savingsNow={scenario.savingsNow}
               runway={runway}
               runwayStatus={runwayStatus}
-              genuineShortfalls={scenario.genuineShortfalls}
-              timingShortfalls={scenario.timingShortfalls}
-              formatDate={formatDate}
-              // No live row to jump to in a static preview — production
-              // wires this to PlanningPage.tsx's own highlight-and-scroll
-              // behaviour (see UpcomingHeroCard's own prop doc).
-              onReview={() => {}}
             />
 
             <section aria-labelledby="set-aside-heading">

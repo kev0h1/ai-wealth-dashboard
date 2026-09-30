@@ -160,8 +160,11 @@ OBSERVATION_LOOKBACK_DAYS = 6   # real bills land up to 5 days before their anch
 # True`) so the companion ask pipeline can name both accounts by display
 # name without re-deriving the hint itself. A cache doc computed before
 # this version has no such field, so a moved salary shows no "usual"
-# account until recomputed.
-PATTERNS_VERSION = 13
+# account until recomputed. v14 adds `display_name` to recurring-income
+# patterns. Unlike `key`, that field is presentation-only and is derived
+# from an original transaction descriptor before payer-key normalisation;
+# older cache docs have no safe way to recover it from a collapsed payer key.
+PATTERNS_VERSION = 14
 
 def _next_working_day(d):  # d: datetime.date -> datetime.date
     while d.weekday() >= 5 or d.isoformat() in UK_BANK_HOLIDAYS_EW:
@@ -173,6 +176,32 @@ from app.services.income import (
     schedule_label as _schedule_label_svc,
     income_merchant_label,
 )
+
+
+def _income_display_name(items: list[dict], fallback: str | None = None) -> str | None:
+    """Return a display label from original bank text, never a payer key.
+
+    Income `key` values are opaque payer identities and must remain that way
+    for overrides, dismissals and confirmed-stream aliases. Pick the newest
+    original merchant/description instead. A confirmed fallback can have no
+    matching in-window transaction; its stored raw stream key is the only
+    original descriptor available in that case, so callers may supply it as
+    `fallback`. Returning None is intentional when neither exists: do not
+    pretend a collapsed payer key can be humanised back into a merchant.
+    """
+    def _source_date(txn: dict) -> datetime:
+        value = txn.get("date")
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, _date):
+            return datetime.combine(value, datetime.min.time())
+        return datetime.min
+
+    for txn in reversed(sorted(items, key=_source_date)):
+        raw = str(txn.get("merchant_name") or txn.get("description") or "").strip()
+        if raw:
+            return income_merchant_label(raw)
+    return income_merchant_label(fallback) if fallback else None
 
 # Friendly display labels for upstream bank provider codes (uppercase keys).
 # Any code not in the map is title-cased by default (e.g. "MONZO" → "Monzo").
@@ -1043,6 +1072,10 @@ def _detect_recurring(txns: list, min_occurrences: int = 2, trusted_categories: 
         attributed_acct = _majority_landing_account(items)
         results.append({
             "key":          key,
+            # `key` is the opaque payer identity. Preserve it for every
+            # action contract, but retain a label from the original bank
+            # descriptor for UI consumers before the identity is serialised.
+            "display_name": _income_display_name(items) if is_income else None,
             "avg_interval": round(avg_interval, 1),
             "avg_amount":   round(avg_amount, 2),
             "last_date":    last_date,
@@ -1390,6 +1423,12 @@ def _confirmed_income_fallback(
         ]
         fallback.append({
             "key":          key,
+            # A legacy confirmed key is original bank text and can be a
+            # last-resort label. A newly-confirmed payer key contains `::`;
+            # never present that collapsed identity as if it were a merchant.
+            "display_name": _income_display_name(
+                matching, fallback=key if "::" not in key else None,
+            ),
             "avg_interval": None,
             "avg_amount":   round(float(avg_amount), 2),
             "last_date":    last_date,
@@ -2888,6 +2927,7 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
             suppressed = card_proj["suppressed"]
         return {
             "key":             r["key"],
+            "display_name":    r.get("display_name"),
             # G174: set only on a DETECTED entry `_confirmed_income_fallback`
             # deferred to instead of synthesising a duplicate (see its
             # dedupe-guard comment) -- the confirmed stream's own key, so
@@ -3962,7 +4002,7 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
     # -- reuse the one guarded builder rather than a second unguarded copy
     # (2026-09-24 review: this site had the same unguarded `s["key"]` bug).
     confirmed_income: dict[str, dict] = {}
-    if uid:
+    if uid or prefs is not None:
         _prefs_doc = prefs if prefs is not None else (await preferences_col.find_one({"user_id": uid}) or {})
         confirmed_income = _build_confirmed_income_map(_prefs_doc.get("income_streams"))
 
@@ -4010,7 +4050,7 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
             return True
         return False
 
-    def _occurrences(r: dict, include_past_due: bool = False) -> list[datetime]:
+    def _occurrences(r: dict, include_past_due: bool = False, is_income: bool = False) -> list[datetime]:
         interval = float(r.get("avg_interval") or 30)
         key = r.get("key", "")
         # G157: `confirmed_income` is still keyed on the OLD raw
@@ -4070,6 +4110,16 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                 else:
                     nd = _advance_month_to_anchor(d.date(), _anchor)
                     d = datetime(nd.year, nd.month, nd.day)
+            elif is_income and 6 <= interval <= 10:
+                # Detection anchored the first inferred income date to a
+                # seven-day cadence. Do not turn an 8/9-day observed mean
+                # into a different cadence for the following row.
+                d = d + timedelta(days=7)
+            elif is_income and 11 <= interval <= 18:
+                # Same contract as `_detect_recurring`'s biweekly branch:
+                # observed posting gaps can average 16 days, but the inferred
+                # cadence is fortnightly, not every rounded mean interval.
+                d = d + timedelta(days=14)
             else:
                 d = d + timedelta(days=max(2, round(interval)))
         return out
@@ -4426,7 +4476,7 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
 
     raw_income = []
     for r in income_patterns:
-        for occ in _occurrences(r):
+        for occ in _occurrences(r, is_income=True):
             occ_date_str = occ.date().isoformat()
             final_date, final_amount, edited, skipped = _apply_overrides_to_occurrence(r["key"], occ_date_str, r["avg_amount"])
             if skipped:
@@ -4439,6 +4489,7 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                 continue
             raw_income.append({
                 "name":          r["key"],
+                "display_name":  r.get("display_name"),
                 # G174: carried from `_serialise_pattern` so `income_credit_ok`
                 # can see it on the built `upcoming_income`/`payday_income`
                 # item, not just the internal `recurring_income` list.

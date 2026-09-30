@@ -1,6 +1,7 @@
 import { ArrowRightLeft, Home, Landmark, ShieldCheck, Smartphone, Wifi, Zap } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { UpcomingRowModel } from "@/components/upcoming/UpcomingRow";
+import { buildUpcomingAccountSummaries } from "@/lib/upcomingAccounts";
 
 // Invented public-preview data only. All arithmetic is in pence. Each view
 // consumes this same per-account walk, including after a local dismissal.
@@ -91,6 +92,22 @@ export function money(pence: number, decimals = false) {
 export function dateLabel(iso: string) {
   return new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" })
     .format(new Date(`${iso}T12:00:00Z`));
+}
+
+/** The approved account preview exercises the production source-account walk. */
+export function accountSummariesForForecast(forecast: Forecast) {
+  return buildUpcomingAccountSummaries({
+    upcoming_income: [],
+    internal_inflows: [],
+    upcoming_bills: forecast.payments.map((payment) => ({
+      name: payment.name, amount: payment.pence / 100, expected_date: payment.date,
+      days_away: payment.date === DAYS[0].date ? 0 : 1,
+      account_id: payment.accountId, account_bank: payment.account.name,
+      account_name: payment.account.detail,
+      account_balance: forecast.accounts.find((account) => account.account.id === payment.accountId)!.opening / 100,
+      kind: payment.optionalMove ? "movement" : "commitment",
+    })),
+  }, Date.parse("2026-09-30"));
 }
 
 export function buildForecast(scenario: Scenario, dismissed: ReadonlySet<string> = new Set(), edits: FixtureEdits = {}): Forecast {
