@@ -89,6 +89,7 @@ from app.core import timeutil
 from app.db.collections import (
     accounts_col,
     allocations_col,
+    commitments_col,
     manual_accounts_col,
     preferences_col,
     transactions_col,
@@ -100,6 +101,14 @@ from app.services.categories import clean_name
 from app.services.categorisation import series_key
 from app.services.description_match import matches_contains, matches_equals
 from app.services.pay_period import get_pay_period_for_date
+from app.services.account_plan_sources import (
+    account_label,
+    chosen_source,
+    eligible_source_account_map,
+    owned_plan_balance,
+    owned_account_map,
+    validate_source_account,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -345,6 +354,7 @@ async def _serialise(doc: dict, start: date, end: date) -> dict:
         "name":                doc.get("name"),
         "amount_per_period":   amount,
         "fill_account_id":     doc.get("fill_account_id"),
+        "source_account_id":   doc.get("source_account_id"),
         "match_type":          doc.get("match_type"),
         "match_value":         doc.get("match_value"),
         "fill_display_name":   doc.get("fill_display_name"),
@@ -439,6 +449,120 @@ async def list_allocations(user: dict = Depends(current_user)):
     return {"items": items}
 
 
+@router.get("/account-plans")
+async def list_account_plans(user: dict = Depends(current_user)):
+    """Compact, read-only account-plan rows for the upcoming-money surface.
+
+    This intentionally avoids commitments.list_commitments and cashflow: both
+    calculate broader feasibility views and would make this simple plan read
+    recursive and unnecessarily expensive.
+    """
+    from app.routers import commitments
+    from app.services.companion import _direct_fill_leg_source
+
+    uid = user["email"]
+    account_map = await owned_account_map(uid)
+    cfg = await _pay_cfg(uid)
+    start, end = get_pay_period_for_date(timeutil.user_today(), cfg)
+    allocation_docs = await allocations_col.find({"user_id": uid}).to_list(None)
+    items: list[dict] = []
+
+    for doc in allocation_docs:
+        serial = await _serialise(doc, start, end)
+        destination_id = str(doc.get("fill_account_id") or "")
+        source_id, basis = chosen_source(doc, account_map, {destination_id})
+        if basis == "legacy":
+            try:
+                fill_start = date.fromisoformat(serial["period_start"])
+                fill_end = date.fromisoformat(serial["period_end"])
+                fill_start = max(fill_start, _as_date(doc.get("effective_from"), fill_start))
+                inferred = await _direct_fill_leg_source(
+                    uid, destination_id, doc.get("match_type"),
+                    doc.get("match_value", ""), fill_start, fill_end,
+                    eligible_source_account_map(account_map, {destination_id}),
+                )
+                if inferred:
+                    try:
+                        source_id = validate_source_account(
+                            inferred, account_map, {destination_id},
+                        )
+                        basis = "recent-transfers" if source_id else "unknown"
+                    except HTTPException:
+                        basis = "unknown"
+            except Exception:
+                # One ambiguous or malformed historical fill must not hide
+                # the rest of the account-plan list.
+                logger.exception("Could not infer allocation plan source %s", doc.get("_id"))
+                basis = "unknown"
+            if basis == "legacy":
+                basis = "unknown"
+        items.append({
+            "id": f"allocation:{doc['_id']}",
+            "record_id": str(doc["_id"]),
+            "kind": "allocation",
+            "name": doc.get("name"),
+            "destination": account_label(account_map.get(destination_id), serial.get("fill_display_name") or ""),
+            "destination_account_ids": [destination_id] if destination_id else [],
+            "source_account_id": source_id,
+            "source_basis": basis,
+            "period_amount": serial["amount_per_period"],
+            "filled_amount": serial["filled_this_period"],
+            "remaining": serial["remaining"],
+            "active": bool(serial["active"]) and not serial["completed"] and not serial["pending"],
+        })
+
+    goal_docs = await commitments_col.find(
+        {
+            "user_id": uid,
+            "$or": [
+                {"status": "active"},
+                {"status": {"$exists": False}},
+            ],
+        }
+    ).to_list(None)
+    # Goal maths failures are deliberately request failures. An invented
+    # amount would be worse than letting the UI say this plan is unavailable.
+    # Supplying every referenced id prevents the ledger from looking up an
+    # old/unowned pot by id. Unknown or unreadable historical pots fail the
+    # read rather than being silently treated as zero.
+    balances = {}
+    for doc in goal_docs:
+        for pot in commitments._doc_pots(doc):
+            aid = str(pot["account_id"])
+            account = account_map.get(aid)
+            if account is None:
+                raise HTTPException(503, "Account plan unavailable")
+            balance = owned_plan_balance(account)
+            if balance is None:
+                raise HTTPException(503, "Account plan unavailable")
+            balances[aid] = balance
+    ledger = await commitments.compute_pot_ledger(uid, docs=goal_docs, balances=balances)
+    today = timeutil.user_today()
+    for doc in goal_docs:
+        pots = commitments._doc_pots(doc)
+        destination_ids = [str(p["account_id"]) for p in pots]
+        source_id, basis = chosen_source(doc, account_map, set(destination_ids))
+        if basis == "legacy":
+            basis = "unknown"  # goals deliberately have no transfer inference
+        slice_info = await commitments._pot_progress_and_slice(doc, cfg, ledger, today)
+        labels = [account_label(account_map.get(aid), "Funding account") for aid in destination_ids]
+        items.append({
+            "id": f"goal:{doc['_id']}",
+            "record_id": str(doc["_id"]),
+            "kind": "goal",
+            "name": doc.get("name"),
+            "destination": ", ".join(labels) if labels else "No funding pot",
+            "destination_account_ids": destination_ids,
+            "source_account_id": source_id,
+            "source_basis": basis,
+            "period_amount": slice_info["per_period_slice"],
+            "filled_amount": None,
+            "remaining": slice_info["per_period_slice"],
+            "active": doc.get("status", "active") == "active",
+        })
+    return {"items": items}
+
+
 @router.get("/allocations/fill-candidates")
 async def fill_candidates(account_id: str = Query(...), user: dict = Depends(current_user)):
     """Recent (90d) CREDIT transaction series on `account_id`, grouped by
@@ -516,8 +640,16 @@ async def create_allocation(body: dict, user: dict = Depends(current_user)):
         "effective_from":     datetime(effective_from.year, effective_from.month, effective_from.day),
         "recurrence":         recurrence,
         "active":             True,
+        # New plans persist null on omission: this is an intentional opt-out
+        # from inferred source suggestions. Only pre-G176 docs lack the key.
+        "source_account_id":   None,
         "created_at":         datetime.now(timezone.utc),
     }
+    if "source_account_id" in body:
+        sources = await owned_account_map(uid)
+        doc["source_account_id"] = validate_source_account(
+            body.get("source_account_id"), sources, {fill_account_id},
+        )
     if recurrence == "once":
         # The fixed boundary — see module docstring. Persisted once, at
         # creation, and never re-derived.
@@ -550,6 +682,15 @@ async def update_allocation(
         if not await _account_owned(uid, fid):
             raise HTTPException(400, "fill account not found")
         updates["fill_account_id"] = fid
+    if "source_account_id" in body:
+        sources = await owned_account_map(uid)
+        destination = str(updates.get("fill_account_id", doc.get("fill_account_id")) or "")
+        updates["source_account_id"] = validate_source_account(
+            body.get("source_account_id"), sources, {destination},
+        )
+    elif "fill_account_id" in updates and doc.get("source_account_id") == updates["fill_account_id"]:
+        # Keep the persisted invariant when a destination is re-linked.
+        updates["source_account_id"] = None
     if "match_type" in body:
         updates["match_type"] = _validate_match_type(body.get("match_type"))
     if "match_value" in body:

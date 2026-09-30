@@ -92,6 +92,7 @@ from app.services.debt_plan import (
     month_label_to_human,
 )
 from app.services.pay_period import get_pay_period_for_date, period_rhythm_label
+from app.services.account_plan_sources import owned_account_map, validate_source_account
 
 logger = logging.getLogger(__name__)
 
@@ -821,6 +822,7 @@ async def _serialise(
         "funding_pots":        pot_items,
         "funding_account_id":  fid,
         "funding_account_name": funding_name,
+        "source_account_id":  doc.get("source_account_id"),
         "source":              doc.get("source", "manual"),
         "status":              doc.get("status", "active"),
         "progress":            progress,
@@ -1112,9 +1114,18 @@ async def create_commitment(
         "contributed":  0.0,
         "source":       source,
         "status":       "active",
+        # New records always distinguish an explicit opt-out from a legacy
+        # record which genuinely predates source-account selection.
+        "source_account_id": None,
         "created_at":   datetime.now(timezone.utc),
         "idempotency_key": idempotency_key,
     }
+    if "source_account_id" in body:
+        sources = await owned_account_map(uid)
+        doc["source_account_id"] = validate_source_account(
+            body.get("source_account_id"), sources,
+            {str(p["account_id"]) for p in pots},
+        )
     result = await commitments_col.insert_one(doc)
     doc["_id"] = result.inserted_id
 
@@ -1383,6 +1394,18 @@ async def update_commitment(
         pots = await _build_pots([{"account_id": fid}] if fid else [])
         updates["funding_pots"] = pots
         updates.update(_pot_mirrors(pots))
+    if "source_account_id" in body:
+        sources = await owned_account_map(uid)
+        effective_pots = updates.get("funding_pots", _doc_pots(doc))
+        updates["source_account_id"] = validate_source_account(
+            body.get("source_account_id"), sources,
+            {str(p["account_id"]) for p in effective_pots},
+        )
+    elif "funding_pots" in updates and doc.get("source_account_id") in {
+        str(p["account_id"]) for p in updates["funding_pots"]
+    }:
+        # A destination change must not leave an invalid self-source behind.
+        updates["source_account_id"] = None
     if "contribute_delta" in body:
         # A86: a contribution only ever makes sense against a commitment that
         # is (and, after this same request, remains) active — reject 409

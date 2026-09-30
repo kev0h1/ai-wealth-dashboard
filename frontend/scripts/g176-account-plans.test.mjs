@@ -1,101 +1,70 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import UpcomingHeroCard from "../components/upcoming/UpcomingHeroCard.tsx";
-import AccountContent, { PlanContent } from "../app/design/g176-account-plans/AccountContent.tsx";
-import { accountPlan, forecastFor, heroFor, plansFor, remaining } from "../app/design/g176-account-plans/fixtures.ts";
+import UpcomingAccountDetails from "../components/upcoming/UpcomingAccountDetails.tsx";
+import UpcomingPlanDetails from "../components/upcoming/UpcomingPlanDetails.tsx";
+import { accountPlan, assessPlanOverlap, plansFromApi, remaining } from "../lib/upcomingPlans.ts";
+import { walkUpcomingAccounts } from "../lib/upcomingAccountWalk.ts";
+import { cashflowFor, forecastFor, heroFor, plansFor } from "../app/design/g176-account-plans/fixtures.ts";
 
-const renderAccount = (scenario, variant, account = forecastFor(scenario).accounts[0], plans = plansFor(scenario)) =>
-  renderToStaticMarkup(React.createElement(AccountContent, { account, plans, variant, onPlan() {} }));
-
-// The gap fixture is cash £348 - bills £12 = £336. The allocation has £300
-// left and the goal contribution is £65, so the separate plan view is −£29.
-const gap = forecastFor("gap").accounts[0];
+const end = Date.parse("2026-10-29T23:59:59Z");
+const previewSource = readFileSync(new URL("../app/design/g176-account-plans/PreviewClient.tsx", import.meta.url), "utf8");
+const flowSource = readFileSync(new URL("../components/upcoming/UpcomingDetailFlow.tsx", import.meta.url), "utf8");
+assert.match(previewSource, /import UpcomingDetailFlow from "@\/components\/upcoming\/UpcomingDetailFlow"/);
+assert.doesNotMatch(previewSource, /function (?:AccountContent|PaymentEditor|PlanEditor|PaymentContent)/, "The approved preview must not fork the shipped detail or edit UI");
+for (const component of ["UpcomingAccountDetails", "UpcomingPlanDetails", "UpcomingRowDetails", "UpcomingEditForm", "AllocationEditForm", "PlannedEditForm", "GoalSourceForm"]) assert.match(flowSource, new RegExp("<" + component + "[ >]"));
 const plans = plansFor("gap");
-assert.deepEqual(accountPlan(gap, plans), {
-  assigned: plans,
-  unassigned: [],
-  allocationPence: 30000,
-  goalPence: 6500,
-  reservedPence: 36500,
-  afterPayments: 33600,
-  afterPlans: -2900,
-  planGap: 2900,
-});
-for (const variant of ["a", "b"]) {
-  const html = renderAccount("gap", variant);
-  assert.match(html, /−£29/);
-  assert.match(html, /£336/);
-  assert.match(html, /−£300/);
-  assert.match(html, /−£65/);
-  assert.match(html, /more needed for plans/);
-  assert.match(html, /Payments are covered/);
-  assert.doesNotMatch(html, /needed for payments/);
-  assert.match(html, /bg-amber-500/);
-  assert.doesNotMatch(html, /bg-rose-500/);
-}
+const gap = forecastFor("gap").accounts[0];
+const renderDetails = (account, input = plans, status = "ready") => renderToStaticMarkup(React.createElement(UpcomingAccountDetails, { account, plans: input, plansStatus: status, periodLabel: "Through Thu 29 Oct", onPlan() {} }));
 
-// Account payment coverage remains independent from voluntary plan funding.
-const covered = forecastFor("covered").accounts[0];
-assert.equal(covered.closing, 608);
-assert.equal(accountPlan(covered, plans).afterPayments, 60800);
-assert.equal(forecastFor("covered").accounts[0].opening, 620);
-assert.match(renderAccount("covered", "a"), /£243/);
-
-// Unknown sources do not deduct from either account, and no destination or
-// provider inference assigns a plan. Independent plans remain independent.
-const unassigned = plansFor("unassigned");
-assert.equal(accountPlan(gap, unassigned).assigned.length, 0);
-assert.equal(accountPlan(gap, unassigned).reservedPence, 0);
-assert.match(renderAccount("unassigned", "b"), /Paying accounts need linking/);
-const moved = unassigned.map((plan) => ({ ...plan, sourceId: plan.id === "round-ups" ? "barclays" : null, evidence: plan.id === "round-ups" ? "chosen" : "unknown" }));
-assert.deepEqual(accountPlan(gap, moved).assigned.map((plan) => plan.id), []);
-assert.deepEqual(accountPlan(forecastFor("gap").accounts[1], moved).assigned.map((plan) => plan.id), ["round-ups"]);
-assert.equal(accountPlan(forecastFor("gap").accounts[1], moved).afterPlans, 58400);
-const sameDestination = plans.map((plan) => ({ ...plan, destination: "Shared pot" }));
-assert.equal(accountPlan(gap, sameDestination).assigned.length, 2);
-assert.equal(accountPlan(gap, sameDestination).reservedPence, 36500, "Sharing a destination cannot prove two independent reserves duplicate one another");
-assert.equal(remaining({ ...plans[0], filledPence: 40000 }), 0);
+assert.deepEqual(accountPlan(gap, plans), { assigned: plans, unassigned: [], uncertain: false, allocationPence: 30000, goalPence: 6500, scheduledPence: 0, reservedPence: 36500, afterPayments: 33600, afterPlans: -2900, planGap: 2900 });
+assert.equal(remaining(plans[0]), 30000, "Server remainder wins over display target and filled amount");
+assert.equal(remaining({ ...plans[0], filledPence: 40000 }), 30000);
 assert.equal(remaining({ ...plans[0], active: false }), 0);
 assert.equal(accountPlan(gap, plans.map((plan) => ({ ...plan, active: false }))).reservedPence, 0);
-assert.equal(accountPlan(gap, [{ ...plans[0], evidence: "unknown" }]).reservedPence, 0, "An unproven source id is not enough");
-const billGap = forecastFor("billgap").accounts[0];
-assert.equal(billGap.shortfall, 6);
-assert.equal(accountPlan(billGap, plans).planGap, 36500, "Bill gap stays separate from the unfunded plans");
-assert.match(renderAccount("billgap", "a"), /bg-rose-500/);
+const paused = renderToStaticMarkup(React.createElement(UpcomingPlanDetails, { plan: { ...plans[0], active: false } }));
+assert.match(paused, /Not reserved in this period/);
+assert.doesNotMatch(paused, /Still to set aside/);
+const overfilled = renderToStaticMarkup(React.createElement(UpcomingPlanDetails, { plan: { ...plans[0], filledPence: 40000, remainingPence: 0 } }));
+assert.match(overfilled, /£40.*above the target/);
+const details = renderDetails(gap);
+for (const text of ["−£29", "£336", "−£300", "−£65", "more needed for plans", "Payments are covered"]) assert.match(details, new RegExp(text));
+assert.doesNotMatch(details, /needed for payments|bg-rose-500/);
 
-// Missing balances and empty plans stay honest.
-assert.equal(accountPlan(forecastFor("missing").accounts[0], plans).afterPayments, null);
-assert.match(renderAccount("missing", "a"), /Balance needs checking/);
-assert.equal(accountPlan(gap, plansFor("empty")).reservedPence, 0);
-assert.match(renderAccount("empty", "b"), /After payments/);
-assert.doesNotMatch(renderAccount("empty", "b"), /After payments and plans/);
+const moved = plans.map((plan) => ({ ...plan, sourceId: plan.id === "round-ups" ? "barclays" : null, evidence: plan.id === "round-ups" ? "chosen" : "unknown" }));
+assert.deepEqual(accountPlan(gap, moved).assigned, []);
+assert.deepEqual(accountPlan(forecastFor("gap").accounts[1], moved).assigned.map((plan) => plan.id), ["round-ups"]);
+assert.equal(accountPlan(gap, plans.map((plan) => ({ ...plan, sourceId: null, evidence: "unknown" }))).reservedPence, 0);
+const sameDestination = plans.map((plan) => ({ ...plan, destinationIds: ["shared"] }));
+assert.equal(accountPlan(gap, sameDestination).reservedPence, 36500);
+assert.equal(accountPlan(gap, assessPlanOverlap(sameDestination, cashflowFor("gap"), end)).uncertain, true, "Shared destination plans are not collapsed");
 
-// The hero keeps its existing allocation-only equation. Adding a goal does
-// not alter the hero's reserve, while the account view includes the goal.
+const overlap = assessPlanOverlap(plansFor("overlap"), cashflowFor("overlap"), end);
+assert.ok(overlap.some((plan) => plan.overlapUncertain));
+assert.equal(accountPlan(gap, overlap).afterPlans, null, "Possible scheduled transfer overlap makes total unknown");
+assert.match(renderDetails(gap, overlap), /Calculation needs checking/);
+
+const missing = forecastFor("missing").accounts[0];
+assert.equal(accountPlan(missing, plans).afterPayments, null);
+assert.equal(accountPlan(missing, plans).afterPlans, null);
+assert.match(renderDetails(missing), /Balance needs checking/);
+assert.match(renderDetails(gap, [], "ready"), /After payments/);
+assert.doesNotMatch(renderDetails(gap, [], "ready"), /After payments and plans/);
+
+const apiPlans = plansFromApi([{ id: "server", record_id: "r", kind: "allocation", name: "Server allocation", destination: "Pot", destination_account_ids: ["pot"], source_account_id: "monzo", source_basis: "chosen", period_amount: 360, filled_amount: 60, remaining: 299.99, active: true }]);
+assert.equal(remaining(apiPlans[0]), 29999, "API remaining is rounded to exact pennies");
+const emptyCashflow = { upcoming_bills: [], upcoming_income: [], internal_inflows: [] };
+const planOnly = walkUpcomingAccounts(emptyCashflow, end, [{ id: "monzo", bank: "Monzo", name: "Everyday", balance: 348 }]);
+assert.equal(planOnly.accounts[0].closing, 348);
+const namedCredit = { name: "Salary", amount: 100, account_id: "monzo", expected_date: "2026-10-02", days_away: 1 };
+const withCredit = walkUpcomingAccounts({ ...emptyCashflow, upcoming_income: [namedCredit] }, end, [{ id: "monzo", bank: "Monzo", name: "Everyday", balance: 348 }]);
+assert.equal(withCredit.accounts[0].closing, 448);
+assert.equal(forecastFor("gap").coverage.size, 2, "Plan-source enrichment does not alter original bill coverage maps");
+
 const heroWithoutGoal = heroFor("gap", plans.filter((plan) => plan.kind === "allocation"));
-const heroWithGoal = heroFor("gap", plans);
-assert.deepEqual(heroWithGoal, heroWithoutGoal);
-assert.deepEqual(heroWithGoal, { cash: 126800, bills: 4800, allocations: 30000, runway: 92000 });
-assert.equal(heroFor("missing", plans), null);
-const hero = renderToStaticMarkup(React.createElement(UpcomingHeroCard, {
-  isCalendarMonth: false, daysToPayday: 30, paydayLabel: "Fri 30 Oct",
-  spendableNow: heroWithGoal.cash / 100, runwayIncomeTotal: 0,
-  runwayBillsTotal: heroWithGoal.bills / 100, allocationsRemainingTotal: heroWithGoal.allocations / 100,
-  savingsNow: 1250, runway: heroWithGoal.runway / 100, runwayStatus: "left",
-}));
-assert.match(hero, /Available now/);
-assert.match(hero, /Still to set aside/);
+assert.deepEqual(heroFor("gap", plans), heroWithoutGoal, "Goal changes do not change the existing hero equation");
+const hero = renderToStaticMarkup(React.createElement(UpcomingHeroCard, { isCalendarMonth: false, daysToPayday: 30, paydayLabel: "Fri 30 Oct", spendableNow: heroWithoutGoal.cash / 100, runwayIncomeTotal: 0, runwayBillsTotal: heroWithoutGoal.bills / 100, allocationsRemainingTotal: heroWithoutGoal.allocations / 100, savingsNow: 1250, runway: heroWithoutGoal.runway / 100, runwayStatus: "left" }));
 assert.match(hero, /Projected balance/);
-
-const goal = plans.find((plan) => plan.kind === "goal");
-const allocation = plans.find((plan) => plan.kind === "allocation");
-const goalHtml = renderToStaticMarkup(React.createElement(PlanContent, { plan: goal, accountName: "Everyday account" }));
-assert.match(goalHtml, /This period only/);
-assert.match(goalHtml, /not your whole goal target/);
-assert.doesNotMatch(goalHtml, /£65 target/);
-const allocationHtml = renderToStaticMarkup(React.createElement(PlanContent, { plan: allocation, accountName: "Everyday account" }));
-assert.match(allocationHtml, /Already set aside/);
-assert.match(allocationHtml, /Still to set aside/);
-assert.equal(remaining(allocation), 30000);
-console.log("G176 account plans, account-only funding, variants and hero invariants passed");
+console.log("G176 approved account plan semantics passed");

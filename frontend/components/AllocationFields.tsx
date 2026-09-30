@@ -113,10 +113,13 @@ export function FillRulePicker({
   accountId,
   value,
   onChange,
+  loadCandidates = api.allocationFillCandidates,
 }: {
   accountId: string;
   value: FillRuleValue;
   onChange: (v: FillRuleValue) => void;
+  /** Injectable for unauthenticated previews; defaults to the live API. */
+  loadCandidates?: (accountId: string) => ReturnType<typeof api.allocationFillCandidates>;
 }) {
   const [candidates, setCandidates] = useState<FillCandidate[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -132,12 +135,12 @@ export function FillRulePicker({
     setCandidates(null);
     setError(false);
     setLoading(true);
-    api.allocationFillCandidates(accountId)
+    loadCandidates(accountId)
       .then((items) => { if (!cancelled) setCandidates(items); })
       .catch(() => { if (!cancelled) setError(true); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [accountId]);
+  }, [accountId, loadCandidates]);
 
   // Once candidates load, a value that cleanly matches one of them reads
   // best in prefill mode (its row shows selected); anything else (hand-

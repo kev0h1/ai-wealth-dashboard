@@ -34,13 +34,14 @@ export function compareUpcomingEvents(
 export function walkUpcomingAccounts(
   cashflow: Pick<CashflowData, "upcoming_bills" | "upcoming_income" | "internal_inflows">,
   endMs: number,
+  planSources: { id: string; bank: string; name: string; balance: number | null }[] = [],
 ): UpcomingAccountWalk {
   const inWindow = (date: string) => Number.isFinite(Date.parse(date)) && Date.parse(date) <= endMs;
   const bills = cashflow.upcoming_bills.filter((bill) => inWindow(bill.expected_date) && !bill.is_credit_card && !bill.observed_pending);
   const income = cashflow.upcoming_income.filter((item) => inWindow(item.expected_date));
   const inflows = (cashflow.internal_inflows ?? []).filter((item) => inWindow(item.expected_date));
   const unknownIncome = income.some((item) => !item.account_id);
-  const ids = [...new Set(bills.map((bill) => bill.account_id || "__unknown__"))];
+  const ids = [...new Set([...bills.map((bill) => bill.account_id || "__unknown__"), ...planSources.map((account) => account.id)])];
   const pennies = (amount: number) => Math.round(amount * 100);
   const atRisk: RiskBill[] = [];
   const coverage = new Map<UpcomingBill, AccountCoverage>();
@@ -49,7 +50,11 @@ export function walkUpcomingAccounts(
   const accounts = ids.map((id): UpcomingAccountSummary => {
     const payments = bills.filter((bill) => (bill.account_id || "__unknown__") === id);
     const first = payments[0];
-    const opening = first.account_balance;
+    // A plan-only source still needs the SAME dated cash walk, including its
+    // income and transfers. Never override contradictory/unknown bill data
+    // with a newer account-list balance, or change bill-row coverage.
+    const planSource = planSources.find((account) => account.id === id);
+    const opening = first ? first.account_balance : planSource?.balance;
     const balanceKnown = id !== "__unknown__" && typeof opening === "number" && Number.isFinite(opening)
       && payments.every((bill) => typeof bill.account_balance === "number" && Number.isFinite(bill.account_balance) && pennies(bill.account_balance) === pennies(opening));
     const credits = income.filter((item) => item.account_id === id);
@@ -99,8 +104,8 @@ export function walkUpcomingAccounts(
     const sum = (values: { amount: number }[]) => values.reduce((total, item) => total + pennies(item.amount), 0) / 100;
     return {
       id,
-      bank: first.account_bank || first.account_name || "Account not identified",
-      name: first.account_name || (id === "__unknown__" ? "Payment account unavailable" : "Payment account"),
+      bank: first?.account_bank || first?.account_name || planSource?.bank || "Account not identified",
+      name: first?.account_name || planSource?.name || (id === "__unknown__" ? "Payment account unavailable" : "Payment account"),
       opening: balanceKnown ? opening! : null,
       income: sum(credits), transfersIn: sum(transfers), outgoing: sum(payments),
       closing: verifiable && running !== null ? running / 100 : null,
