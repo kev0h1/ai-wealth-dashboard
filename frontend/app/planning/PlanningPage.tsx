@@ -27,7 +27,8 @@ import { canDismissUpcomingOccurrence, upcomingPaymentKey as atRiskKey } from "@
 import { compareUpcomingEvents, upcomingAccountAssessment, walkUpcomingAccounts } from "@/lib/upcomingAccountWalk";
 import { upcomingAccountWindow } from "@/lib/upcomingAccounts";
 import UpcomingAccountsCard from "@/components/upcoming/UpcomingAccountsCard";
-import { assessPlanOverlap, isPlanSourceAccount, plansFromApi } from "@/lib/upcomingPlans";
+import UnlinkedGoalPlans from "@/components/upcoming/UnlinkedGoalPlans";
+import { assessPlanOverlap, hasPlanSource, isPlanSourceAccount, plansFromApi } from "@/lib/upcomingPlans";
 import { upcomingDisplayName } from "@/lib/upcomingDisplayName";
 import SetAsideList, { type SetAsideItem } from "@/components/upcoming/SetAsideList";
 
@@ -340,7 +341,7 @@ export default function PlanningPage() {
   // coverage. They are source-account evidence, never inputs to the hero.
   const accountEndMs = upcomingAccountWindow(periodEnd.getTime(), planningNow);
   const plans = cashflow ? assessPlanOverlap(plansFromApi(accountPlans ?? []), cashflow, accountEndMs) : [];
-  const sourceIds = new Set(plans.filter((plan) => plan.active && plan.evidence === "chosen" && plan.sourceId).map((plan) => plan.sourceId));
+  const sourceIds = new Set(plans.filter((plan) => plan.active && hasPlanSource(plan)).map((plan) => plan.sourceId));
   const planSources = accounts.filter((account) => sourceIds.has(account.id) && isPlanSourceAccount(account)).map((account) => ({ id: account.id, bank: account.provider, name: account.name, balance: account.balance }));
   const accountWalk = cashflow ? walkUpcomingAccounts(cashflow, accountEndMs, planSources) : null;
   const accountPeriodLabel = `Payments through ${new Date(accountEndMs).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" })}`;
@@ -642,7 +643,7 @@ export default function PlanningPage() {
               <div className="glass-card rounded-2xl p-8 text-center">
                 <p className="text-slate-500 dark:text-slate-400 text-sm">Nothing more expected this pay period</p>
               </div>
-              <UpcomingAccountsCard accounts={accountSummaries} periodLabel={accountPeriodLabel} plans={plans} plansStatus={plansStatus} onPlan={(id) => setFlowView({ kind: "plan", id })} onOpen={(account) => setFlowView({ kind: "account", id: account.id })} />
+              <UpcomingAccountsCard accounts={accountSummaries} periodLabel={accountPeriodLabel} plans={plans} plansStatus={plansStatus} onOpen={(account) => setFlowView({ kind: "account", id: account.id })} />
               <PlansSection
                 allocations={allocations}
                 allocationsError={allocationsError}
@@ -650,6 +651,7 @@ export default function PlanningPage() {
                 onAdd={() => setSetAsideSheetOpen(true)}
                 onEditAllocation={openAllocation}
               />
+              <UnlinkedGoalPlans plans={plansStatus === "ready" ? plans : []} onPlan={(id) => setFlowView({ kind: "plan", id })} />
               {/* PennyPromptBar removed here too (owner, 2026-08-25: "I
                   think we can remove penny from the planning page") — see
                   the removal comment further below, where the bar used to
@@ -990,7 +992,7 @@ export default function PlanningPage() {
               />
             )}
 
-            <UpcomingAccountsCard accounts={accountSummaries} periodLabel={accountPeriodLabel} plans={plans} plansStatus={plansStatus} onPlan={(id) => setFlowView({ kind: "plan", id })} onRetry={() => { setAccountPlansError(false); api.listAccountPlans().then(setAccountPlans).catch(() => setAccountPlansError(true)); }} onOpen={(account) => setFlowView({ kind: "account", id: account.id })} />
+            <UpcomingAccountsCard accounts={accountSummaries} periodLabel={accountPeriodLabel} plans={plans} plansStatus={plansStatus} onRetry={() => { setAccountPlansError(false); api.listAccountPlans().then(setAccountPlans).catch(() => setAccountPlansError(true)); }} onOpen={(account) => setFlowView({ kind: "account", id: account.id })} />
 
             <PlansSection
               allocations={allocations}
@@ -999,6 +1001,7 @@ export default function PlanningPage() {
               onAdd={() => setSetAsideSheetOpen(true)}
               onEditAllocation={openAllocation}
             />
+            <UnlinkedGoalPlans plans={plansStatus === "ready" ? plans : []} onPlan={(id) => setFlowView({ kind: "plan", id })} />
 
             {currentPeriodItems.length === 0 && groups.length > 0 && (
               <div className="glass-card rounded-2xl p-8 text-center">

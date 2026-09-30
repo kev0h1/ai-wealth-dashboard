@@ -37,9 +37,15 @@ export function remaining(plan: Plan) {
   return plan.active ? Math.max(0, plan.remainingPence ?? (plan.periodPence - plan.filledPence)) : 0;
 }
 
-/** A transfer pattern is a prompt, not account-plan evidence. */
+/** A user choice remains distinct from a read-only historical association. */
 export function hasChosenPlanSource(plan: Plan) {
   return plan.evidence === "chosen" && Boolean(plan.sourceId);
+}
+
+/** The API validates derived allocation sources; every resulting figure must
+ * be labelled estimated. Unknown sources and intentional clears stay out. */
+export function hasPlanSource(plan: Plan) {
+  return hasChosenPlanSource(plan) || Boolean(plan.sourceId && plan.kind === "allocation" && plan.evidence === "recent-transfers");
 }
 
 export function isPlanSourceAccount(account: Account) {
@@ -68,9 +74,9 @@ export function plansFromApi(items: AccountPlanData[]): Plan[] {
  */
 export function assessPlanOverlap(plans: Plan[], cashflow: Pick<CashflowData, "upcoming_bills">, endMs: number): Plan[] {
   return plans.map((plan) => {
-    if (!plan.active || remaining(plan) === 0 || !hasChosenPlanSource(plan)) return plan;
+    if (!plan.active || remaining(plan) === 0 || !hasPlanSource(plan)) return plan;
     const shared = plans.some((other) => other.id !== plan.id && other.active && remaining(other) > 0
-      && other.sourceId === plan.sourceId && hasChosenPlanSource(other)
+      && other.sourceId === plan.sourceId && hasPlanSource(other)
       && other.destinationIds?.some((id) => plan.destinationIds?.includes(id)));
     const move = cashflow.upcoming_bills.some((bill) => bill.kind === "movement"
       && bill.account_id === plan.sourceId && !bill.is_credit_card && !bill.observed_pending
@@ -81,8 +87,9 @@ export function assessPlanOverlap(plans: Plan[], cashflow: Pick<CashflowData, "u
 }
 
 export function accountPlan(account: UpcomingAccountSummary, plans: Plan[]) {
-  const assigned = plans.filter((plan) => plan.active && plan.sourceId === account.id && hasChosenPlanSource(plan));
-  const unassigned = plans.filter((plan) => plan.active && (plan.amountUnavailable || remaining(plan) > 0) && !hasChosenPlanSource(plan));
+  const assigned = plans.filter((plan) => plan.active && plan.sourceId === account.id && hasPlanSource(plan));
+  const unassigned = plans.filter((plan) => plan.active && (plan.amountUnavailable || remaining(plan) > 0) && !hasPlanSource(plan));
+  const estimated = assigned.some((plan) => plan.evidence === "recent-transfers" && (plan.amountUnavailable || remaining(plan) > 0));
   const uncertain = assigned.some((plan) => plan.amountUnavailable || plan.overlapUncertain);
   const allocationPence = assigned.filter((plan) => plan.kind === "allocation" && !plan.amountUnavailable).reduce((sum, plan) => sum + remaining(plan), 0);
   const goalPence = assigned.filter((plan) => plan.kind === "goal" && !plan.amountUnavailable).reduce((sum, plan) => sum + remaining(plan), 0);
@@ -93,5 +100,5 @@ export function accountPlan(account: UpcomingAccountSummary, plans: Plan[]) {
   const afterPayments = account.closing === null ? null : Math.round(account.closing * 100);
   const afterPlans = afterPayments === null || uncertain ? null : afterPayments - reservedPence;
   const planGap = afterPlans === null || afterPayments === null ? null : Math.max(0, -afterPlans) - Math.max(0, -afterPayments);
-  return { assigned, unassigned, uncertain, allocationPence, goalPence, scheduledPence, reservedPence, afterPayments, afterPlans, planGap };
+  return { assigned, unassigned, estimated, uncertain, allocationPence, goalPence, scheduledPence, reservedPence, afterPayments, afterPlans, planGap };
 }

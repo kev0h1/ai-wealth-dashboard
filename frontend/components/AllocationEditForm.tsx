@@ -21,7 +21,9 @@ export function AllocationEditForm({ allocation, accounts, sourceChoices, sugges
   const [amount, setAmount] = useState(() => Number(allocation.amount_per_period).toFixed(2));
   const [recurrence, setRecurrence] = useState<AllocationRhythm>(allocation.recurrence);
   const [destination, setDestination] = useState(allocation.fill_account_id);
-  const [source, setSource] = useState(allocation.source_account_id ?? "");
+  // Show the derived payer without silently persisting it as a user choice.
+  // Only changing this field adds source_account_id to the PATCH below.
+  const [source, setSource] = useState(allocation.source_account_id ?? suggestedSourceId ?? "");
   const [sourceDirty, setSourceDirty] = useState(false);
   const [rule, setRule] = useState<FillRuleValue>({ match_type: allocation.match_type, match_value: allocation.match_value, fill_display_name: allocation.fill_display_name });
   const initialEffective = allocation.effective_from === allocation.period_start ? null : allocation.effective_from;
@@ -59,7 +61,7 @@ export function AllocationEditForm({ allocation, accounts, sourceChoices, sugges
       <label className="block text-sm font-medium">Name<input value={name} onChange={(event) => setName(event.target.value)} maxLength={40} required autoComplete="off" className={editorField} /></label>
       <label className="block text-sm font-medium">Amount each pay period (£)<input type="number" min="0.01" max="1000000" step="0.01" inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} required className={editorField} /></label>
       <div className="border-t border-slate-200 pt-5 dark:border-slate-700">
-        {suggestion && !sourceDirty && !allocation.source_account_id && <p className="mb-3 text-xs leading-5 text-slate-600 dark:text-slate-400">Suggested from recent transfers: {suggestion.provider} · {suggestion.name}. Select it below to confirm, or leave the suggestion unchanged.</p>}
+        {suggestion && !sourceDirty && !allocation.source_account_id && <p className="mb-3 text-xs leading-5 text-slate-600 dark:text-slate-400">Using {suggestion.provider} · {suggestion.name} based on recent transfers. This is included in the account estimate. Change it below if the money will come from elsewhere.</p>}
         <AccountRadioPicker accounts={choices} value={source} onChange={(id) => { setSourceDirty(true); setSource(id); }} label="Pay from" allowUnset unsetLabel="Not linked yet" />
         <p className="mt-2 text-xs leading-5 text-slate-600 dark:text-slate-400">Choosing an account does not move money. Clearing it leaves this allocation out of named-account calculations.</p>
       </div>
