@@ -32,6 +32,24 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "g176-account-plans",
+    name: "g176-account-plans",
+    description:
+      "G176 follow-up, skills: impeccable and emil-design-eng · Account details include remaining allocations and this-period goal contributions, with explicit paying-account evidence and no guessed source from the receiving pot · A Balance first keeps working folded; B Working first shows both balances and the full calculation · Both prototype a single persistent Details/Edit sheet with Back, Cancel, Save, error recovery and account linking · Six invented examples, no live data or API calls · Original production hero and By account card retained as page context; proposed detail layouts and source selection are preview-only · Hero arithmetic and payment-lag caveat unchanged · Future implementation must establish source provenance and prove any forecast-transfer overlap before account deductions · ?variant=a|b&state=gap|covered|unassigned|billgap|missing|empty&mode=light|dark&view=account|payment",
+    states: [
+      { label: "Plans need cash", value: "gap" },
+      { label: "Everything funded", value: "covered" },
+      { label: "Paying account unknown", value: "unassigned" },
+      { label: "A bill is short", value: "billgap" },
+      { label: "Balance unavailable", value: "missing" },
+      { label: "No set-asides", value: "empty" },
+    ],
+    variants: [
+      { label: "A · Balance first", value: "a" },
+      { label: "B · Working first", value: "b" },
+    ],
+  },
+  {
     slug: "g176-upcoming-rows",
     name: "g176-upcoming-rows",
     description:
