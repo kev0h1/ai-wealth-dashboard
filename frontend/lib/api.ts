@@ -119,6 +119,8 @@ export type CashflowWeek = {
 
 export type UpcomingBill = {
   name: string;
+  /** Readable bank description; name remains the stable prediction identity. */
+  display_name?: string | null;
   amount: number;
   expected_date: string;
   days_away: number;

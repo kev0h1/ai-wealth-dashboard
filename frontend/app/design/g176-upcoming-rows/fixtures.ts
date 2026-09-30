@@ -1,6 +1,7 @@
 import { ArrowRightLeft, Home, Landmark, ShieldCheck, Smartphone, Wifi, Zap } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { UpcomingRowModel } from "@/components/upcoming/UpcomingRow";
+import { upcomingAccountAssessment, walkUpcomingAccounts, type UpcomingAccountWalk } from "@/lib/upcomingAccountWalk";
 
 // Invented public-preview data only. All arithmetic is in pence. Each view
 // consumes this same per-account walk, including after a local dismissal.
@@ -37,6 +38,7 @@ export type AccountForecast = {
 };
 export type Forecast = {
   scenario: Scenario;
+  accountWalk: UpcomingAccountWalk;
   accounts: AccountForecast[];
   payments: ForecastPayment[];
   cash: number;
@@ -93,6 +95,11 @@ export function dateLabel(iso: string) {
     .format(new Date(`${iso}T12:00:00Z`));
 }
 
+/** Approved C uses the very same walk result for its card and payment models. */
+export function accountSummariesForForecast(forecast: Forecast) {
+  return forecast.accountWalk.accounts;
+}
+
 export function buildForecast(scenario: Scenario, dismissed: ReadonlySet<string> = new Set(), edits: FixtureEdits = {}): Forecast {
   const balances = { ...OPENING[scenario] };
   let pooled = Object.values(balances).reduce((sum, amount) => sum + amount, 0);
@@ -133,8 +140,22 @@ export function buildForecast(scenario: Scenario, dismissed: ReadonlySet<string>
   });
   const cash = accounts.reduce((sum, account) => sum + account.opening, 0);
   const outgoing = payments.reduce((sum, payment) => sum + payment.pence, 0);
+  const bills = payments.map((payment) => ({
+    name: payment.name, amount: payment.pence / 100, expected_date: payment.date,
+    days_away: payment.date === DAYS[0].date ? 0 : 1,
+    account_id: payment.accountId, account_bank: payment.account.name,
+    account_name: payment.account.detail,
+    account_balance: OPENING[scenario][payment.accountId] / 100,
+    kind: optionalMoves ? "movement" as const : "commitment" as const,
+  }));
+  const accountWalk = walkUpcomingAccounts({ upcoming_bills: bills, upcoming_income: [], internal_inflows: [] }, Date.parse("2026-09-30"));
+  // A/B retain their exploratory forecast; C's production components receive
+  // the production adapter, not handwritten coverage that could drift again.
+  payments.forEach((payment, index) => {
+    payment.model = { ...payment.model, ...upcomingAccountAssessment(bills[index], accountWalk) };
+  });
   return {
-    scenario, accounts, payments, cash, outgoing, closing: cash - outgoing,
+    scenario, accountWalk, accounts, payments, cash, outgoing, closing: cash - outgoing,
     shortfall: accounts.reduce((sum, account) => sum + account.shortfall, 0),
     shortAccounts: accounts.filter((account) => account.shortfall > 0).length,
     optionalMoves,

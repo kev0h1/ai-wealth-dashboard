@@ -11,9 +11,12 @@ import { useSheetA11y } from "@/lib/useSheetA11y";
 import { useSheetOpen } from "@/lib/useSheetOpen";
 import UpcomingDetailsSheet from "@/components/upcoming/UpcomingDetailsSheet";
 import UpcomingRowDetails from "@/components/upcoming/UpcomingRowDetails";
+import UpcomingHeroCard from "@/components/upcoming/UpcomingHeroCard";
+import UpcomingAccountsCard from "@/components/upcoming/UpcomingAccountsCard";
+import UpcomingAccountDetails from "@/components/upcoming/UpcomingAccountDetails";
 import { canDismissUpcomingOccurrence } from "@/lib/upcomingAttention";
 import { AccountOverview, DayGroups } from "./CoverageViews";
-import { buildForecast, dateLabel, money, SCENARIOS, type AccountForecast, type AccountId, type Forecast, type ForecastPayment, type FixtureEdits, type Scenario } from "./fixtures";
+import { accountSummariesForForecast, buildForecast, dateLabel, money, SCENARIOS, type AccountForecast, type AccountId, type Forecast, type ForecastPayment, type FixtureEdits, type Scenario } from "./fixtures";
 
 type Variant = "a" | "b" | "c";
 type Mode = "light" | "dark";
@@ -190,6 +193,8 @@ function Preview({ variant, scenario, mode }: { variant: Variant; scenario: Scen
   const [lastDismissed, setLastDismissed] = useState<string | null>(null);
   const [edits, setEdits] = useState<FixtureEdits>({});
   const forecast = buildForecast(scenario, dismissed, edits);
+  const accountSummaries = accountSummariesForForecast(forecast);
+  const liveAccount = selected?.kind === "account" ? accountSummaries.find((account) => account.id === selected.id) : undefined;
   const payment = selected?.kind === "payment" || selected?.kind === "edit" ? forecast.payments.find((item) => item.id === selected.id) : undefined;
   const account = selected?.kind === "account" ? forecast.accounts.find((item) => item.account.id === selected.id) : undefined;
   const onPayment = (item: ForecastPayment) => setSelected({ kind: "payment", id: item.id });
@@ -222,8 +227,19 @@ function Preview({ variant, scenario, mode }: { variant: Variant; scenario: Scen
         </header>
         <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)] lg:gap-10">
           <div data-account-summary className="space-y-6 lg:sticky lg:top-6">
-            <Verdict forecast={forecast} />
-            <AccountOverview forecast={forecast} visual={variant === "b"} onAccount={onAccount} />
+            {variant === "c" ? <>
+              <UpcomingHeroCard
+                isCalendarMonth={false} daysToPayday={2} paydayLabel="Thu 1 Oct"
+                spendableNow={forecast.cash / 100} runwayIncomeTotal={0}
+                runwayBillsTotal={forecast.outgoing / 100} allocationsRemainingTotal={0}
+                savingsNow={0} runway={forecast.closing / 100}
+                runwayStatus={forecast.closing < 0 ? "short" : forecast.closing === 0 ? "even" : "left"}
+              />
+              <UpcomingAccountsCard accounts={accountSummaries} periodLabel="Payments through Wed 30 Sept" onOpen={(item) => setSelected({ kind: "account", id: item.id as AccountId })} />
+            </> : <>
+              <Verdict forecast={forecast} />
+              <AccountOverview forecast={forecast} visual={variant === "b"} onAccount={onAccount} />
+            </>}
           </div>
           <section aria-labelledby="payments-heading" className="min-w-0 space-y-4">
             <div className="flex items-baseline justify-between gap-3"><h2 id="payments-heading" className="text-base font-bold">{forecast.optionalMoves ? "Planned moves" : "Upcoming payments"}</h2><p className="text-xs text-slate-600 dark:text-slate-400">29–30 Sept · {forecast.payments.length} shown</p></div>
@@ -235,13 +251,14 @@ function Preview({ variant, scenario, mode }: { variant: Variant; scenario: Scen
         </div>
         <footer className="mt-10 border-t border-slate-300 pt-5 text-xs leading-5 text-slate-600 dark:border-slate-700 dark:text-slate-400">
           <p><span className="font-semibold">{variant.toUpperCase()} · {note.name}.</span> {note.description}</p>
-          {variant === "c" && <p className="mt-2">Approved direction. These day groups, rows and payment details render the production components. The account overview is an invented fixture summary, not the live runway forecast.</p>}
+          {variant === "c" && <p className="mt-2">Approved direction. The hero, By account view, account working, day groups and payment details all render the production components with invented figures.</p>}
           <p className="mt-2">G176 design example. Invented accounts and figures; no incoming money, overdraft or unlisted payments. Change the example above to compare mixed, short and covered accounts.</p>
         </footer>
       </main>
       <FixtureBottomNav active="Upcoming" />
     </div>
-    {account && <Sheet title={account.account.name} subtitle={`${account.account.detail} · 29–30 Sept`} onClose={() => setSelected(null)}><AccountDetail account={account} optionalMoves={forecast.optionalMoves} onPayment={onPayment} /></Sheet>}
+    {variant === "c" && liveAccount && <UpcomingDetailsSheet title={liveAccount.bank} subtitle={liveAccount.name} onClose={() => setSelected(null)}><UpcomingAccountDetails account={liveAccount} periodLabel="Payments through Wed 30 Sept" /></UpcomingDetailsSheet>}
+    {variant !== "c" && account && <Sheet title={account.account.name} subtitle={`${account.account.detail} · 29–30 Sept`} onClose={() => setSelected(null)}><AccountDetail account={account} optionalMoves={forecast.optionalMoves} onPayment={onPayment} /></Sheet>}
     {payment && selected?.kind === "payment" && (variant === "c" ? <UpcomingDetailsSheet
       title={payment.name} subtitle={`${payment.account.name} · ${dateLabel(payment.date)}`} onClose={() => setSelected(null)}
       onEdit={() => setSelected({ kind: "edit", id: payment.id })} editLabel="Edit example"

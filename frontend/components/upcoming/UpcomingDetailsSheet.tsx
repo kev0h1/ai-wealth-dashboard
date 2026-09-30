@@ -12,7 +12,7 @@ export interface UpcomingDetailsSheetProps {
   children: ReactNode;
   onClose: () => void;
   /** Parent replaces this detail sheet with its existing prediction editor. */
-  onEdit: () => void;
+  onEdit?: () => void;
   editLabel?: string;
   /** Dismisses this one occurrence only. The sheet stays open on a failed request. */
   onSkipOccurrence?: () => Promise<void>;
@@ -136,8 +136,8 @@ export default function UpcomingDetailsSheet({
               <ChevronLeft size={18} aria-hidden="true" />
               Back to upcoming
             </button>
-            <div className={`grid gap-2 ${onSkipOccurrence ? "sm:grid-cols-2" : "sm:grid-cols-1"}`}>
-              <button
+            {(onEdit || onSkipOccurrence) && <div className={`grid gap-2 ${onEdit && onSkipOccurrence ? "sm:grid-cols-2" : "sm:grid-cols-1"}`}>
+              {onEdit && <button
                 type="button"
                 onClick={onEdit}
                 disabled={isSkipping}
@@ -145,7 +145,7 @@ export default function UpcomingDetailsSheet({
               >
                 <Pencil size={16} aria-hidden="true" />
                 {editLabel}
-              </button>
+              </button>}
               {onSkipOccurrence ? (
                 <button
                   type="button"
@@ -157,7 +157,7 @@ export default function UpcomingDetailsSheet({
                   {isSkipping ? "Dismissing…" : skipLabel}
                 </button>
               ) : null}
-            </div>
+            </div>}
           </footer>
         </section>
       </div>
