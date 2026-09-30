@@ -781,6 +781,21 @@ const ROUTES: PreviewRoute[] = [
     states: [{ label: "Everything", value: "everything" }],
   },
   {
+    slug: "spend-pace-copy",
+    name: "Spend pace explanation · G140",
+    description:
+      "G140, skill: impeccable clarify · A named-category signed ledger, B short explanation with signed reconciliation · Coordinated with G186: one pace verdict, named category differences, a clearly calculated balancing amount and a plain-language definition of usual · Invented fixtures and proposed hand-authored markup, not the production verdict component; current arithmetic preserved with no production or backend changes · ?variant=a|b&state=under|over|level|balanced|unplaced|long|none|baseline&mode=light|dark",
+    variants: [
+      { label: "A · Named ledger", value: "a" },
+      { label: "B · Short explanation", value: "b" },
+    ],
+    states: [
+      { label: "Below usual", value: "under" },
+      { label: "Above usual", value: "over" },
+      { label: "Still learning", value: "baseline" },
+    ],
+  },
+  {
     slug: "spend-charts",
     name: "spend-charts",
     description: "SpendTrends.tsx's two new Charts widgets (pace_curve, debt_burndown), never screenshotted before this build · renders the real PaceCurveWidget/DebtBurndownWidget against fixtures (debt_burndown's /debt-plan/summary fetch swapped for a previewState seam, auth would 401 here) · pace: below usual / above usual (stays neutral, not red) / thin history (no usual line) / partially-null usual / very short (1-2 days) · debt: reaches zero / never clears (clipped to 24 months) / empty (good news) / fetch failed · ?widget=pace|debt&state=<slug>&compact=0|1",
