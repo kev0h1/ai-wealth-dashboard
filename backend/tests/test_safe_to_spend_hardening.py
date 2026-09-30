@@ -6,6 +6,8 @@ and preference-cache invalidation without requiring Mongo.
 import asyncio
 from datetime import date, datetime, timedelta, timezone
 
+import pytest
+
 import app.core.timeutil as timeutil
 import app.routers.analytics as analytics
 import app.routers.preferences as preferences
@@ -169,7 +171,22 @@ def test_safe_to_spend_includes_yapily_records_with_authorized_consent(monkeypat
     ]
 
 
-def test_safe_to_spend_returns_lowest_projected_balance_and_reconciles_cash(monkeypatch):
+@pytest.mark.parametrize("today", [
+    date(2026, 9, 30),  # Month-end: the original unpinned test failed here.
+    date(2026, 10, 1),
+    date(2026, 9, 17),
+    date(2026, 9, 19),  # Weekend.
+], ids=["month-end", "month-start", "mid-month", "weekend"])
+def test_safe_to_spend_returns_lowest_projected_balance_and_reconciles_cash(monkeypatch, today):
+    # H102: this fixture means "tomorrow, before payday", not tomorrow
+    # relative to whichever calendar boundary the host happens to be on.
+    # Keep the financial assertions intact and control both clock and window.
+    monkeypatch.setattr(timeutil, "user_today", lambda: today)
+    monkeypatch.setattr(
+        income_service, "get_confirmed_payday",
+        lambda _prefs, _today: (today + timedelta(days=14), {"schedule": "fixed"}),
+    )
+    due_date = (today + timedelta(days=1)).isoformat()
     monkeypatch.setattr(analytics, "preferences_col", _PrefsCol({
         "user_id": "user@example.com", "safe_to_spend_buffer": 10,
     }))
@@ -191,7 +208,7 @@ def test_safe_to_spend_returns_lowest_projected_balance_and_reconciles_cash(monk
                 {
                     "days_away": 1,
                     "amount": 30.0,
-                    "expected_date": "2026-09-18",
+                    "expected_date": due_date,
                     "kind": analytics.MOVEMENT,
                     "card_dest_account_id": "card1",
                 },
@@ -244,7 +261,7 @@ def test_safe_to_spend_returns_lowest_projected_balance_and_reconciles_cash(monk
     assert result["card_growth_total"] == 3.0
     assert result["card_growth_reserved"] == 0.0
     assert result["card_growth_wording"] == "cleared_monthly"
-    assert result["card_growth_due_date"] == "2026-09-18"
+    assert result["card_growth_due_date"] == due_date
     assert result["bills_total"] == 30.0
     assert result["pooled_transfers_excluded"] == 40.0
     assert result["calculation_status"] == "complete"
