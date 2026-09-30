@@ -19,9 +19,13 @@ import { buildUpcomingRunwayView, type UpcomingRunwayInput } from "@/lib/pennySc
 import { isPooledNoOp, doesNotTouchCash } from "@/lib/cashWalk";
 import { computeClusterMarkers } from "@/lib/upcomingMarkers";
 import UpcomingHeroCard from "@/components/upcoming/UpcomingHeroCard";
-import UpcomingDayCard from "@/components/upcoming/UpcomingDayCard";
+import UpcomingAttentionDay from "@/components/upcoming/UpcomingAttentionDay";
 import UpcomingDivider from "@/components/upcoming/UpcomingDivider";
-import UpcomingRow, { type UpcomingRowModel } from "@/components/upcoming/UpcomingRow";
+import type { UpcomingRowModel } from "@/components/upcoming/UpcomingRow";
+import UpcomingDetailsSheet from "@/components/upcoming/UpcomingDetailsSheet";
+import UpcomingRowDetails, { upcomingDate } from "@/components/upcoming/UpcomingRowDetails";
+import { canDismissUpcomingOccurrence, upcomingPaymentKey as atRiskKey } from "@/lib/upcomingAttention";
+import { walkUpcomingAccounts } from "@/lib/upcomingAccountWalk";
 import SetAsideList, { type SetAsideItem } from "@/components/upcoming/SetAsideList";
 
 // Editing flows are not needed to understand the initial runway. Keeping them
@@ -235,21 +239,11 @@ export default function PlanningPage() {
   // fetch effect below for why this must never gate the page's main data.
   const [dismissedCount, setDismissedCount] = useState(0);
 
-  // Per-row "Why? ›" disclosure (Variant A, "The Ledger", owner pick
-  // 2026-08-28): the culprit sentence used to be stated outright on every
-  // at-risk row; it now collapses behind a user-invoked toggle, keyed by
-  // the same rowKey renderRow already builds (`${type}-${name}-
-  // ${expected_date}`). Collapsed by default (empty set) — this is
-  // disclosure, not a visibility-gating animation, nothing here fires on
-  // page load.
-  const [whyOpen, setWhyOpen] = useState<Set<string>>(new Set());
-  function toggleWhy(key: string) {
-    setWhyOpen(prev => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key); else next.add(key);
-      return next;
-    });
-  }
+  const [detailItem, setDetailItem] = useState<{
+    model: UpcomingRowModel;
+    edit: () => void;
+    skip?: () => Promise<void>;
+  } | null>(null);
 
   // Derived rather than mirrored into state: changing the pay-period setting
   // now produces one render instead of an effect-driven second render.
@@ -347,129 +341,12 @@ export default function PlanningPage() {
   const atRiskWalks = (() => {
     if (!cashflow) return null;
     const nextPaydayMs = periodEnd.getTime() + 86400000;
-    // last-day lookahead: from the final day of the period, assess the first 5 days of the next one
     const daysToPay = Math.round((nextPaydayMs - planningNow) / 86400000);
     const simEndMs = nextPaydayMs + (daysToPay <= 1 ? 5 * 86400000 : 0);
-    const scopedBills = cashflow.upcoming_bills.filter(
-      (b) => new Date(b.expected_date).getTime() <= simEndMs &&
-             b.account_balance != null && b.account_balance >= 0 &&
-             !b.is_credit_card
-    );
-    if (scopedBills.length === 0) return null;
-    const seedRunning: Record<string, number> = {};
-    for (const b of scopedBills) {
-      const key = b.account_id ?? "__null__";
-      if (!(key in seedRunning)) seedRunning[key] = b.account_balance!;
-    }
-    type Event =
-      | { kind: "income"; days_away: number; amount: number; account_id: string | null | undefined }
-      | { kind: "inflow"; days_away: number; amount: number; account_id: string }
-      | { kind: "bill"; days_away: number; amount: number; account_id: string | null | undefined; bill: typeof scopedBills[0] };
-    const events: Event[] = [
-      ...scopedBills.map((b) => ({ kind: "bill" as const, days_away: b.days_away, amount: b.amount, account_id: b.account_id, bill: b })),
-      ...cashflow.upcoming_income
-        .filter((inc) => new Date(inc.expected_date).getTime() <= simEndMs)
-        .map((inc) => ({ kind: "income" as const, days_away: inc.days_away, amount: inc.amount, account_id: inc.account_id as string | null | undefined })),
-      // Internal inflows, the DESTINATION side of a standing order whose
-      // SOURCE side already appears above as an outbound "movement" bill.
-      // Treated exactly like income (credits the account, resets
-      // movementsSince there): the only reason a destination account ever
-      // looked short was that this projection debited the source and never
-      // credited where the money actually goes. Unlike the POOLED walk
-      // further down, this per-account walk uses EVERY inflow regardless
-      // of destination_spendable, a savings pot genuinely receives that
-      // money, so for a per-account risk check the credit is correct even
-      // though the same money would be wrong to credit into the pooled
-      // "everywhere" total (which never counted a savings account in the
-      // first place, see the pooled walk's own comment).
-      ...(cashflow.internal_inflows ?? [])
-        .filter((inf) => new Date(inf.expected_date).getTime() <= simEndMs)
-        .map((inf) => ({ kind: "inflow" as const, days_away: inf.days_away, amount: inf.amount, account_id: inf.account_id })),
-    ];
-
-    // ONE walk (G163): same-day, credits (income/inflow) before debits
-    // (bill), a direct port of backend/app/services/companion.py's
-    // walk_sort_key. No tieBreak parameter any more — there is only one
-    // ordering now, so there is nothing left to flip.
-    function walk() {
-      const running: Record<string, number> = { ...seedRunning };
-      const sorted = [...events].sort((a, b) => {
-        if (a.days_away !== b.days_away) return a.days_away - b.days_away;
-        // credits (income/inflow) rank 0, bills rank 1 — credits sort
-        // first on a shared day (G163: a confirmed income stream expected
-        // into an account on day D covers what leaves that account on day
-        // D).
-        const aRank = a.kind === "bill" ? 1 : 0;
-        const bRank = b.kind === "bill" ? 1 : 0;
-        return aRank - bRank;
-      });
-      // Movements (transfers, savings, investment STOs) processed on each
-      // account since its last income/inflow landing, the causal window
-      // for shortfall attribution below. Reset on income/inflow because
-      // that credit is what would otherwise have covered them; a movement
-      // from before the last top-up no longer explains a later deficit.
-      // This is a best-effort "most-recent, same-account" heuristic, not a
-      // formal causal solver, good enough to name a likely culprit, not a
-      // guarantee of sole cause.
-      const movementsSince: Record<string, { name: string; amount: number; expected_date: string }[]> = {};
-      const atRisk: (typeof scopedBills[0] & {
-        movementCulprit?: { name: string; amount: number; expected_date: string };
-      })[] = [];
-      for (const ev of sorted) {
-        if (ev.kind === "income" || ev.kind === "inflow") {
-          if (ev.account_id) {
-            const key = ev.account_id;
-            // Only credits accounts already seeded above (i.e. accounts
-            // that actually have a scoped bill). An income/inflow must
-            // never seed a brand-new account into the walk.
-            if (key in running) { running[key] += ev.amount; movementsSince[key] = []; }
-          } else {
-            // Income with no named destination (legacy behaviour that
-            // predates internal_inflows, which are always account-scoped).
-            // Credit every account currently tracked, since there's no
-            // way to say which one it actually lands in.
-            for (const key of Object.keys(running)) { running[key] += ev.amount; movementsSince[key] = []; }
-          }
-        } else {
-          const key = ev.account_id ?? "__null__";
-          if (!(key in running)) continue;
-          // Deficit cascades (same semantics as companion.py's shortfall walk):
-          // a bounced bill still debits the running balance, so every later bill
-          // on a short account flags until income/an inflow recovers it, not
-          // just the single bill that first tipped it over. This debit happens
-          // for EVERY kind, movement included: a movement still empties the
-          // account and can still bounce a later bill.
-          const bal = running[key];
-          running[key] = bal - ev.amount;
-          const isMovement = ev.bill.kind === "movement";
-          if (isMovement) {
-            (movementsSince[key] ??= []).push({ name: ev.bill.name, amount: ev.bill.amount, expected_date: ev.bill.expected_date });
-          }
-          if (bal < ev.amount && !isMovement) {
-            // Only genuine spend (commitment/discretionary) is ever flagged
-            // at-risk. A movement that can't be funded isn't a risk, it's a
-            // plan that won't happen, so it's never added here (never painted
-            // red). If a movement on this account is what actually drained
-            // the balance, name it: "the £X move on <date> puts this at
-            // risk" is the useful sentence; "your savings transfer is at
-            // risk" is not.
-            const priorMovements = movementsSince[key] ?? [];
-            const movementCulprit = priorMovements.length > 0
-              ? [...priorMovements].sort((a, b) => b.amount - a.amount)[0]
-              : undefined;
-            atRisk.push(movementCulprit ? { ...ev.bill, movementCulprit } : ev.bill);
-          }
-        }
-      }
-      return atRisk;
-    }
-
-    // `.conservative` and `.optimistic` both point at the SAME single
-    // result — there is only one walk now (see the comment above `walk`),
-    // kept as two keys only so the ~15 readers below (both in this file)
-    // compile unchanged; they can no longer disagree.
-    const singleWalk = walk();
-    return { conservative: singleWalk, optimistic: singleWalk };
+    const walk = walkUpcomingAccounts(cashflow, simEndMs);
+    // Both legacy readers still share the same credits-first result.
+    // G176 exposes that walk's account working, without changing the hero.
+    return { conservative: walk.atRisk, optimistic: walk.atRisk, coverage: walk.coverage };
   })();
 
   // `.conservative` is the one true source for every RED treatment on this
@@ -478,8 +355,6 @@ export default function PlanningPage() {
   // bills-first one.
   const atRiskBills = atRiskWalks?.conservative ?? [];
 
-  const atRiskKey = (b: { account_id?: string | null; expected_date: string; amount: number; name?: string }) =>
-    `${b.account_id ?? "__null__"}|${b.expected_date}|${b.amount}|${b.name ?? ""}`;
   const atRiskKeySet = new Set(atRiskBills.map(atRiskKey));
 
   // G163: `.conservative` and `.optimistic` now point at the SAME walk (see
@@ -740,12 +615,6 @@ export default function PlanningPage() {
     timer: ReturnType<typeof setTimeout>;
   } | null>(null);
 
-  const lastSkipRef = useRef<{
-    name: string;
-    date: string;
-    item: CashflowData["upcoming_bills"][0];
-  } | null>(null);
-
   function flushPlannedDelete() {
     const p = lastPlannedDeleteRef.current;
     if (!p) return;
@@ -814,32 +683,21 @@ export default function PlanningPage() {
 
   function skipOccurrence(item: CashflowData["upcoming_bills"][0]) {
     const dateKey = item.original_date ?? item.expected_date;
-    lastSkipRef.current = { name: item.name, date: dateKey, item };
-    setCashflow(prev => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        upcoming_bills: prev.upcoming_bills.filter(
-          b => !(b.name === item.name && b.expected_date === item.expected_date)
-        ),
-      };
-    });
-    api.skipUpcomingOccurrence(item.name, dateKey)
+    // The detail sheet shows progress and a retryable failure. Remove the
+    // occurrence only after confirmation, so a failed request cannot alter
+    // forecast ordering or roll back a different simultaneous dismissal.
+    return api.skipUpcomingOccurrence(item.name, dateKey)
       .then(() => {
-        api.cashflow().then(setCashflow).catch(() => {});
-      })
-      .catch(() => {
-        // Revert: restore the item
-        const saved = lastSkipRef.current;
-        if (!saved) return;
         setCashflow(prev => {
           if (!prev) return prev;
           return {
             ...prev,
-            upcoming_bills: [...prev.upcoming_bills, saved.item].sort((a, b) => a.days_away - b.days_away),
+            upcoming_bills: prev.upcoming_bills.filter(
+              b => !(b.name === item.name && b.expected_date === item.expected_date)
+            ),
           };
         });
-        lastSkipRef.current = null;
+        api.cashflow().then(setCashflow).catch(() => {});
       });
   }
 
@@ -1187,7 +1045,7 @@ export default function PlanningPage() {
           return d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
         }
 
-        function renderRow(item: typeof displayItems[0]) {
+        function prepareRow(item: typeof displayItems[0]) {
           const isPlanned = item.type === "bill" && item.planned;
           // Risk doesn't care who authored the bill — planned rows flag the
           // same as predicted ones when their account can't cover them.
@@ -1195,7 +1053,7 @@ export default function PlanningPage() {
           // (movement is filtered out at the source), so this can't flag a
           // movement row red.
           const atRiskMatch = item.type === "bill"
-            ? atRiskBills.find(r => r.name === item.name && r.expected_date === item.expected_date)
+            ? atRiskBills.find(r => atRiskKey(r) === atRiskKey(item))
             : undefined;
           // RED only for a genuinely short account, still short even when
           // the money due in is credited first (genuineAccountIds, from the
@@ -1233,6 +1091,9 @@ export default function PlanningPage() {
           const catName = item.type === "income" ? (item.category || "Income") : (item.category || "Other");
           const colour = getCategoryColour(catName, colours);
           const Icon = getCategoryIcon(catName, iconOverrides);
+          const future = item.next_period && !assessNextPeriod;
+          const coverage = !isSettling && !item.is_credit_card && !future
+            ? atRiskWalks?.coverage.get(atRiskKey(item)) : undefined;
           const openItem = () => {
             if (isPlanned) {
               setEditPlanned({ id: item.planned_id!, name: item.name, amount: item.amount, date: item.expected_date, account_id: item.account_id ?? null });
@@ -1242,6 +1103,7 @@ export default function PlanningPage() {
           };
           const model: UpcomingRowModel = {
             rowKey,
+            identity: item.type === "bill" && item.planned_id ? item.planned_id : `${item.type}-${atRiskKey(item)}`,
             type: item.type,
             name: item.name,
             amount: item.amount,
@@ -1267,8 +1129,10 @@ export default function PlanningPage() {
             movementCalm,
             unfundedMovement: !!(item.at_risk_raw || item.account_short_raw),
             highlighted,
+            assessment: future ? "future" : coverage ? undefined : "unverified",
+            coverage: coverage ? { ...coverage, optionalMove: item.isMovement } : undefined,
             why: atRiskMatch?.movementCulprit ? {
-              open: whyOpen.has(rowKey),
+              open: false,
               culprit: {
                 amount: atRiskMatch.movementCulprit.amount,
                 expectedDate: atRiskMatch.movementCulprit.expected_date,
@@ -1285,17 +1149,14 @@ export default function PlanningPage() {
             CategoryIcon: Icon,
           };
 
-          return (
-            <UpcomingRow
-              key={rowKey}
-              model={model}
-              treatment="current"
-              onOpen={openItem}
-              onDismiss={() => isPlanned ? deletePlannedWithUndo(item.planned_id!) : dismissUpcoming(item.name)}
-              onToggleWhy={atRiskMatch?.movementCulprit ? () => toggleWhy(rowKey) : undefined}
-              onSkipOccurrence={item.type === "bill" && item.pending ? () => skipOccurrence(item) : undefined}
-            />
-          );
+          return {
+            model,
+            open: () => setDetailItem({
+              model, edit: openItem,
+              skip: canDismissUpcomingOccurrence(model) ? () => skipOccurrence(item) : undefined,
+            }),
+            dismiss: () => isPlanned ? deletePlannedWithUndo(item.planned_id!) : dismissUpcoming(item.name),
+          };
         }
 
         // G131 (g124-upcoming-refine fold-in, ask #3 + #6): same-day
@@ -1361,16 +1222,16 @@ export default function PlanningPage() {
             // settling row, a rare backend edge case (a pending debit
             // observed against an occurrence several days overdue) can put
             // one in a different day group, and it still reads honestly.
-            const settlingItems = g.items.filter(i => i.type === "bill" && i.observed_pending);
-            const activeItems = g.items.filter(i => !(i.type === "bill" && i.observed_pending));
+            const prepared = g.items.map(prepareRow);
             const heading = g.word ? `${g.word} · ${g.dateLabel}` : g.dateLabel;
             nodes.push(
-              <UpcomingDayCard
+              <UpcomingAttentionDay
                 key={g.dayKeyIso}
                 dayKeyIso={g.dayKeyIso}
                 heading={heading}
-                activeRows={activeItems.map(renderRow)}
-                settlingRows={settlingItems.map(renderRow)}
+                rows={prepared.map((entry) => entry.model)}
+                onOpen={(model) => prepared.find((entry) => entry.model === model)?.open()}
+                onDismiss={(model) => prepared.find((entry) => entry.model === model)?.dismiss()}
               />
             );
           }
@@ -1435,7 +1296,7 @@ export default function PlanningPage() {
               <section className="space-y-3" data-tutorial-id="tutorial-planning-upcoming" aria-labelledby="upcoming-ledger-heading">
                 <div className="flex items-end justify-between gap-3 px-1">
                   <h2 id="upcoming-ledger-heading" className="text-sm font-semibold text-slate-800 dark:text-slate-100">Upcoming</h2>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">“After” is your projected cash</p>
+                  <p className="text-xs text-slate-600 dark:text-slate-400">Covered payments stay folded</p>
                 </div>
                 {renderGroups(groups)}
               </section>
@@ -1448,7 +1309,7 @@ export default function PlanningPage() {
   /* eslint-enable react-hooks/refs */
 
   return (
-    <div className="mx-auto min-h-dvh max-w-xl pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
+    <div inert={detailItem !== null} aria-hidden={detailItem ? true : undefined} className="mx-auto min-h-dvh max-w-xl pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       <div className="px-4 pt-6 pb-2">
         {/* G127 ask #2 — header typography matches the codex reference
             exactly (app/design/upcoming-canvas-before-cards/
@@ -1521,6 +1382,15 @@ export default function PlanningPage() {
           </div>
         </div>
       )}
+
+      {detailItem && <UpcomingDetailsSheet
+        title={detailItem.model.name}
+        subtitle={`${detailItem.model.accountLabel ? `${detailItem.model.accountLabel} · ` : ""}${upcomingDate(detailItem.model.expectedDate)}`}
+        onClose={() => setDetailItem(null)}
+        onEdit={() => { detailItem.edit(); setDetailItem(null); }}
+        editLabel={detailItem.model.isPlanned ? "Edit planned payment" : "Edit prediction"}
+        onSkipOccurrence={detailItem.skip}
+      ><UpcomingRowDetails model={detailItem.model} /></UpcomingDetailsSheet>}
 
       {/* UpcomingEditSheet */}
       {editItem && (
