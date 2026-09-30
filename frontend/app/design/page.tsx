@@ -775,6 +775,22 @@ const ROUTES: PreviewRoute[] = [
     states: [{ label: "Play", value: "everything" }],
   },
   {
+    slug: "spend-hero",
+    name: "Spend hero consistency · G186",
+    description:
+      "G186, skill: impeccable · A pace-led Out hero, B the existing production In/Out/Moved summary in one hero, C the production summary on canvas with aligned typography · Coordinated with G140 evidence copy · Invented fixtures only; A and evidence are proposed markup, B/C render SpendJourneySummary through real props · Sticky journey navigation retained · Production unchanged pending selection · ?variant=a|b|c&state=normal|everything|nothing|nobaseline|early|closed|unplaced|nomoved|empty|loading|error|long&mode=light|dark",
+    variants: [
+      { label: "A · Pace instrument", value: "a" },
+      { label: "B · Existing summary", value: "b" },
+      { label: "C · Canvas control", value: "c" },
+    ],
+    states: [
+      { label: "Below usual", value: "normal" },
+      { label: "Above usual", value: "everything" },
+      { label: "No baseline", value: "nobaseline" },
+    ],
+  },
+  {
     slug: "spend-live",
     name: "spend-live",
     description: "Spend page · fixtures reference (real components)",
