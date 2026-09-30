@@ -613,6 +613,22 @@ const ROUTES: PreviewRoute[] = [
     ],
   },
   {
+    slug: "planning-ladder-timeline",
+    name: "Planning checkpoint timeline · G187",
+    description:
+      "G187, skill: impeccable · A focused canvas checkpoints, B figure-led checkpoints · Completed and later priorities fold in place; only the active priority is a card · Production GrowHero, jump strip and current ladder supplied real fixture props for comparison; proposed timeline markup is preview-only · No period rung, no live data and no production changes · ?variant=a|b&scenario=buffer|debt|goals|done|empty|hidden|long|attention|neutral&mode=light|dark",
+    variants: [
+      { label: "A · Focused checkpoints", value: "a" },
+      { label: "B · Figure-led checkpoints", value: "b" },
+    ],
+    states: [
+      { label: "Active buffer", value: "buffer" },
+      { label: "Active debt", value: "debt" },
+      { label: "Investing stage", value: "goals" },
+      { label: "Hidden balances", value: "hidden" },
+    ],
+  },
+  {
     slug: "planning-ladder",
     name: "planning-ladder",
     description:
