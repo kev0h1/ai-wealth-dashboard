@@ -32,6 +32,29 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "g176-account-status",
+    name: "g176-account-status",
+    description:
+      "G176 formatting follow-up, skill: impeccable polish · A Aligned dots; B Warning & info symbols · Both align two-decimal amounts in a fixed right-hand column, separate regular-font Left after / Short for captions, and keep estimates attached to the affected result · Preview-only proposals using the production account walk and plan calculations; current-card comparison and account/plan working import production components · Invented fixtures only, no API services · Live card, hero and financial logic unchanged · ?variant=a|b&state=mixed|covered|estimated|short|moves|unknown|overlap|large|loading|error|empty&mode=light|dark",
+    states: [
+      { label: "Some accounts short", value: "mixed" },
+      { label: "Everything covered", value: "covered" },
+      { label: "Covered with an estimate", value: "estimated" },
+      { label: "All accounts short", value: "short" },
+      { label: "Optional transfers", value: "moves" },
+      { label: "Balance unavailable", value: "unknown" },
+      { label: "Calculation needs checking", value: "overlap" },
+      { label: "Long names and large amounts", value: "large" },
+      { label: "Plans loading", value: "loading" },
+      { label: "Plans could not load", value: "error" },
+      { label: "No account payments", value: "empty" },
+    ],
+    variants: [
+      { label: "A · Aligned dots", value: "a" },
+      { label: "B · Warning & info", value: "b" },
+    ],
+  },
+  {
     slug: "g176-account-plans",
     name: "g176-account-plans",
     description:

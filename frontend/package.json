@@ -15,6 +15,7 @@
     "check:g176-preview": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g176-preview.test.mjs",
     "check:g176-accounts": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g176-accounts.test.mjs",
     "check:g176-account-plans": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g176-account-plans.test.mjs",
+    "check:g176-account-status": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g176-account-status.test.mjs",
     "check:g176-attention": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g176-attention.test.mjs",
     "check:build-mobile-guard": "bash scripts/build-mobile-guard.test.sh",
     "check:legal-content": "node scripts/legal-content.test.mjs",
