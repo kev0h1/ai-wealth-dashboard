@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { Landmark } from "lucide-react";
 import { buildUpcomingAccountSummaries, upcomingAccountWindow } from "../lib/upcomingAccounts.ts";
+import { compareUpcomingEvents, upcomingAccountAssessment, walkUpcomingAccounts } from "../lib/upcomingAccountWalk.ts";
+import { getUpcomingStatus } from "../lib/upcomingAttention.ts";
 import { upcomingDisplayName } from "../lib/upcomingDisplayName.ts";
+import UpcomingAttentionDay from "../components/upcoming/UpcomingAttentionDay.tsx";
 import UpcomingAccountsCard from "../components/upcoming/UpcomingAccountsCard.tsx";
 import UpcomingAccountDetails from "../components/upcoming/UpcomingAccountDetails.tsx";
 import UpcomingHeroCard from "../components/upcoming/UpcomingHeroCard.tsx";
@@ -49,6 +53,112 @@ const end = Date.parse("2026-10-29");
 assert.equal(upcomingAccountWindow(end, Date.parse("2026-10-28T23:50Z")), Date.parse("2026-10-30") - 1, "Two calendar days away must not start final-day lookahead");
 assert.equal(upcomingAccountWindow(end, Date.parse("2026-10-29T10:00Z")), Date.parse("2026-11-04"));
 assert.equal(summary([bill({ expected_date: "2026-10-30" })], [], [], upcomingAccountWindow(end, Date.parse("2026-10-28"))).length, 0, "Payday is outside the current period");
+
+// Rejection regression: the actual row adapter and card must reconcile on
+// the SAME payload, not separate hand-authored coverage in each component.
+function assertAgreement(bills, income = [], inflows = [], cutoff = Date.parse("2026-10-29")) {
+  const walk = walkUpcomingAccounts({ upcoming_bills: bills, upcoming_income: income, internal_inflows: inflows }, cutoff);
+  const models = bills.map((item, index) => ({
+    rowKey: `payment-${index}`, identity: `payment-${index}`, type: "bill",
+    name: item.name, amount: item.amount, expectedDate: item.expected_date,
+    accountLabel: item.account_name, isMovement: item.kind === "movement",
+    pending: item.pending, daysPastDue: item.days_past_due, category: item.category,
+    // Pooled risk is deliberately contradictory; it cannot replace named
+    // account evidence, or make an unknown balance red/covered by accident.
+    flagged: true, accountShort: true, atRisk: true, unfundedMovement: true,
+    after: { kind: "balance", value: -9999 }, categoryColour: "#64748b", CategoryIcon: Landmark,
+    ...upcomingAccountAssessment(item, walk),
+  }));
+  const statuses = models.map(getUpcomingStatus);
+  for (const account of walk.accounts) {
+    const indices = bills.flatMap((item, index) =>
+      (item.account_id || "__unknown__") === account.id && Date.parse(item.expected_date) <= cutoff && !item.is_credit_card && !item.observed_pending ? [index] : []);
+    const rows = indices.map((index) => models[index]);
+    const risk = rows.filter((row) => !row.isMovement && (row.coverage?.shortfall ?? 0) > 0);
+    if (account.status === "covered") {
+      assert.ok(rows.every((row) => row.coverage?.shortfall === 0), "Covered account has only funded cash payments");
+    } else if (account.status === "short") {
+      assert.equal(Math.max(...risk.map((row) => row.coverage.shortfall)), account.shortfall, "Card bill-risk amount equals peak row deficit");
+      assert.ok(risk.every((row) => getUpcomingStatus(row).tone === "risk"));
+    } else if (account.status === "unfunded") {
+      assert.equal(risk.length, 0, "Optional-move-only gaps are never bill risk");
+      assert.equal(Math.max(...rows.map((row) => row.coverage.shortfall)), account.shortfall);
+    } else {
+      assert.ok(rows.some((row) => row.assessment === "unverified"), "Unknown account has unverified evidence, never invented funding");
+      assert.equal(risk.length, 0);
+    }
+    indices.forEach((index, accountIndex) => {
+      const row = models[index];
+      const event = account.events.find((event) => event.id === `payment-${accountIndex}`);
+      assert.ok(event);
+      if (row.coverage) assert.equal(row.coverage.after, event.after, "Per-occurrence card working and row working are identical");
+    });
+    if (account.closing !== null) {
+      assert.equal(Math.round((account.opening + account.income + account.transfersIn - account.outgoing) * 100), Math.round(account.closing * 100));
+    }
+  }
+  return { walk, models, statuses };
+}
+
+let paired = assertAgreement([bill(), bill({ account_id: "b", account_balance: 20 })]);
+assert.deepEqual(paired.statuses.map((status) => status.label), ["Covered", "short"]);
+const mixedCard = renderToStaticMarkup(React.createElement(UpcomingAccountsCard, { accounts: paired.walk.accounts, periodLabel: "This period", onOpen() {} }));
+const mixedRows = renderToStaticMarkup(React.createElement(UpcomingAttentionDay, { dayKeyIso: "2026-10-02", heading: "Fri 2 Oct", rows: paired.models, onOpen() {}, onDismiss() {} }));
+assert.match(mixedCard, /£60.*short/);
+assert.match(mixedRows, /1 covered payment/);
+assert.ok(mixedRows.indexOf('data-bill-key="payment-1"') < mixedRows.indexOf("<details"), "The short account's payment stays visible");
+
+paired = assertAgreement([bill({ account_balance: -10 })]);
+assert.equal(paired.models[0].isCreditCard, false, "A negative cash balance cannot silently become a credit card");
+assert.equal(paired.statuses[0].shortfall, 90);
+
+paired = assertAgreement([bill(), bill({ name: "Already settling", amount: 1000, observed_pending: true })]);
+assert.equal(paired.walk.accounts[0].closing, 20);
+assert.deepEqual(paired.statuses.map((status) => status.kind), ["covered", "settling"]);
+assertAgreement([bill(), bill({ name: "Card purchase", amount: 1000, is_credit_card: true })]);
+
+paired = assertAgreement([bill(), bill({ account_id: "b", account_balance: 20 })], [credit({ account_id: null, amount: 10000 })]);
+assert.deepEqual(paired.statuses.map((status) => status.label), ["Covered", "Coverage unavailable"]);
+assert.deepEqual(paired.walk.accounts.map((account) => account.income), [0, 0], "Unassigned income is never credited to multiple accounts");
+for (const data of [{ account_balance: null }, { account_balance: NaN }, { amount: NaN }, { account_id: null }]) assertAgreement([bill(data)]);
+assertAgreement([bill(), bill({ name: "Conflicting balance", account_balance: 101 })]);
+
+const normalCutoff = upcomingAccountWindow(end, Date.parse("2026-10-28T23:50Z"));
+paired = assertAgreement([bill({ expected_date: "2026-10-29", amount: 130 }), bill({ name: "Payday bill", expected_date: "2026-10-30" })], [credit({ expected_date: "2026-10-30" })], [], normalCutoff);
+assert.deepEqual(paired.statuses.map((status) => status.label), ["short", "Next period"]);
+assert.equal(paired.walk.accounts[0].shortfall, 30, "Payday income cannot cover the previous period");
+const lookahead = upcomingAccountWindow(end, Date.parse("2026-10-29T10:00Z"));
+paired = assertAgreement([bill({ expected_date: "2026-10-30" }), bill({ name: "Boundary", expected_date: "2026-11-04" }), bill({ name: "Outside", expected_date: "2026-11-05" })], [], [], lookahead);
+assert.deepEqual(paired.statuses.map((status) => status.label), ["Covered", "short", "Next period"]);
+assert.equal(paired.walk.accounts[0].shortfall, 60);
+
+paired = assertAgreement([bill({ amount: 180 })], [credit()]);
+assert.equal(paired.statuses[0].kind, "covered", "Same-day income arrives before cash debits in both views");
+paired = assertAgreement([bill({ amount: 180 })], [credit({ expected_date: "2026-10-03" })]);
+assert.equal(paired.walk.accounts[0].closing, 20);
+assert.equal(paired.statuses[0].shortfall, 80, "A later credit cannot erase an earlier shortfall");
+assertAgreement([bill({ account_balance: 20 })], [credit({ account_id: "b" })]);
+assertAgreement([bill({ amount: 180 })], [], [credit({ source_account_name: "Savings" })]);
+assertAgreement([bill({ amount: 0.31, account_balance: 0.3 })]);
+assertAgreement([bill({ kind: "movement", amount: 180 })]);
+assertAgreement([bill({ kind: "movement", amount: 150 }), bill({ name: "Later obligation", expected_date: "2026-10-03" })]);
+paired = assertAgreement([bill({ pending: true })]);
+assert.equal(paired.walk.accounts[0].status, "covered");
+assert.equal(paired.statuses[0].label, "Not left yet", "Funded does not mean an overdue payment has left");
+
+// Identical presentation fields do not identify an occurrence. Both predicted
+// and planned payments can coexist; each must retain its own working.
+for (const extra of [{}, { planned: true, planned_id: "planned-payment" }]) {
+  const duplicates = [bill({ name: "Gym", amount: 60 }), bill({ name: "Gym", amount: 60, ...extra })];
+  paired = assertAgreement(duplicates);
+  assert.equal(paired.walk.coverage.size, 2);
+  assert.deepEqual(paired.models.map((row) => [row.coverage.before, row.coverage.after]), [[100, 40], [40, -20]]);
+  assert.deepEqual(paired.statuses.map((status) => status.label), ["Covered", "short"]);
+}
+const chronological = [bill({ name: "Later", expected_date: "2026-10-03", days_away: -1 }), bill({ name: "Earlier", expected_date: "2026-10-02", days_away: 100 })];
+assert.deepEqual(chronological.map((item) => ({ ...item, type: "bill" })).sort(compareUpcomingEvents).map((item) => item.name), ["Earlier", "Later"], "Display and account walk share date ordering, not stale days-away offsets");
+paired = assertAgreement(chronological);
+assert.deepEqual(paired.statuses.map((status) => status.label), ["short", "Covered"]);
 
 for (const scenario of SCENARIOS) {
   const forecast = buildForecast(scenario.id);

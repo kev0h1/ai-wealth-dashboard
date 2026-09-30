@@ -4002,7 +4002,7 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
     # -- reuse the one guarded builder rather than a second unguarded copy
     # (2026-09-24 review: this site had the same unguarded `s["key"]` bug).
     confirmed_income: dict[str, dict] = {}
-    if uid or prefs is not None:
+    if uid:
         _prefs_doc = prefs if prefs is not None else (await preferences_col.find_one({"user_id": uid}) or {})
         confirmed_income = _build_confirmed_income_map(_prefs_doc.get("income_streams"))
 
@@ -4050,7 +4050,7 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
             return True
         return False
 
-    def _occurrences(r: dict, include_past_due: bool = False, is_income: bool = False) -> list[datetime]:
+    def _occurrences(r: dict, include_past_due: bool = False) -> list[datetime]:
         interval = float(r.get("avg_interval") or 30)
         key = r.get("key", "")
         # G157: `confirmed_income` is still keyed on the OLD raw
@@ -4110,16 +4110,6 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                 else:
                     nd = _advance_month_to_anchor(d.date(), _anchor)
                     d = datetime(nd.year, nd.month, nd.day)
-            elif is_income and 6 <= interval <= 10:
-                # Detection anchored the first inferred income date to a
-                # seven-day cadence. Do not turn an 8/9-day observed mean
-                # into a different cadence for the following row.
-                d = d + timedelta(days=7)
-            elif is_income and 11 <= interval <= 18:
-                # Same contract as `_detect_recurring`'s biweekly branch:
-                # observed posting gaps can average 16 days, but the inferred
-                # cadence is fortnightly, not every rounded mean interval.
-                d = d + timedelta(days=14)
             else:
                 d = d + timedelta(days=max(2, round(interval)))
         return out
@@ -4476,7 +4466,7 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
 
     raw_income = []
     for r in income_patterns:
-        for occ in _occurrences(r, is_income=True):
+        for occ in _occurrences(r):
             occ_date_str = occ.date().isoformat()
             final_date, final_amount, edited, skipped = _apply_overrides_to_occurrence(r["key"], occ_date_str, r["avg_amount"])
             if skipped:

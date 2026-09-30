@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Landmark } from "lucide-react";
-import { getUpcomingStatus, upcomingMoney, upcomingPaymentKey, canDismissUpcomingOccurrence } from "../lib/upcomingAttention.ts";
+import { getUpcomingStatus, upcomingMoney, canDismissUpcomingOccurrence } from "../lib/upcomingAttention.ts";
 import { walkUpcomingAccounts } from "../lib/upcomingAccountWalk.ts";
 import UpcomingAttentionDay from "../components/upcoming/UpcomingAttentionDay.tsx";
 import UpcomingRowDetails from "../components/upcoming/UpcomingRowDetails.tsx";
@@ -46,44 +46,46 @@ assert.equal(upcomingMoney(-1.25), "−£1.25");
 const bill = (changes = {}) => ({ name: "Bill", amount: 80, account_id: "a", account_balance: 100, expected_date: "2026-09-30", days_away: 0, kind: "commitment", ...changes });
 const cutoff = Date.parse("2026-10-02");
 const walk = (bills, income = [], inflows = []) => walkUpcomingAccounts({ upcoming_bills: bills, upcoming_income: income, internal_inflows: inflows }, cutoff);
-const credit = (changes = {}) => ({ amount: 100, account_id: "a", expected_date: "2026-09-30", days_away: 0, ...changes });
+const credit = (changes = {}) => ({ name: "Income", amount: 100, account_id: "a", expected_date: "2026-09-30", days_away: 0, ...changes });
 const first = bill({ name: "First", amount: 180 });
 const second = bill({ name: "Second", amount: 30 });
 let result = walk([first, second], [credit()]);
-assert.deepEqual(result.coverage.get(upcomingPaymentKey(first)), { before: 200, after: 20, shortfall: 0 }, "Same-day income is credited first");
-assert.deepEqual(result.coverage.get(upcomingPaymentKey(second)), { before: 20, after: -10, shortfall: 10 });
+assert.deepEqual(result.coverage.get(first), { before: 200, after: 20, shortfall: 0 }, "Same-day income is credited first");
+assert.deepEqual(result.coverage.get(second), { before: 20, after: -10, shortfall: 10 });
 assert.deepEqual(result.atRisk.map((item) => item.name), ["Second"]);
 assert.equal(walk([first], [], [credit({ destination_spendable: false })]).atRisk.length, 0, "Source-account coverage includes internal inflow even into savings");
 assert.equal(walk([first], [credit({ account_id: "b" })]).atRisk.length, 1, "Another account's income cannot cover this one");
 result = walk([first], [credit({ account_id: null })]);
-assert.equal(result.atRisk.length, 0, "Legacy unidentified-income risk treatment stays unchanged");
+assert.equal(result.atRisk.length, 0, "Unidentified income leaves a possible deficit unverified, never credited to every account");
 assert.equal(result.coverage.size, 0, "But unidentified income cannot verify a particular account for Covered");
 assert.equal(walk([bill({ account_id: null })]).coverage.size, 0, "Unidentified paying account is not verified");
-for (const excluded of [{ account_balance: -10 }, { account_balance: null }, { is_credit_card: true }, { expected_date: "2026-10-03" }]) {
+const overdrawn = bill({ account_balance: -10 });
+assert.equal(walk([overdrawn]).coverage.get(overdrawn).shortfall, 90, "A negative cash balance is assessed, not omitted");
+for (const excluded of [{ observed_pending: true }, { account_balance: null }, { is_credit_card: true }, { expected_date: "2026-10-03" }]) {
   const excludedWalk = walk([bill(excluded)]);
   assert.equal(excludedWalk.coverage.size, 0);
-  assert.equal(excludedWalk.atRisk.length, 0, "Existing walk scope stays unchanged");
+  assert.equal(excludedWalk.atRisk.length, 0, "Unverified or non-cash payments have no coverage entry");
 }
 assert.equal(walk([first], [credit({ expected_date: "2026-10-03" })]).atRisk.length, 1, "Future credits beyond cutoff do not cover current bills");
 const sameNameOtherAccount = bill({ name: "First", amount: 180, account_id: "b", account_balance: 300 });
 result = walk([first, second, sameNameOtherAccount]);
 assert.deepEqual(result.atRisk.map((item) => item.name), ["First", "Second"], "Deficit cascades on its own account only");
-assert.equal(result.coverage.get(upcomingPaymentKey(sameNameOtherAccount)).after, 120);
-assert.equal(result.coverage.get(upcomingPaymentKey(second)).shortfall, 110);
+assert.equal(result.coverage.get(sameNameOtherAccount).after, 120);
+assert.equal(result.coverage.get(second).shortfall, 110);
 
 const largeMove = bill({ name: "Savings", kind: "movement", amount: 90 });
 const smallMove = bill({ name: "Pot", kind: "movement", amount: 20 });
 result = walk([largeMove, smallMove, second]);
 assert.equal(result.atRisk.length, 1, "Unfunded moves are never in the genuine bill-risk set");
 assert.equal(result.atRisk[0].movementCulprit.name, "Savings", "Largest move since last credit explains the risk");
-assert.equal(result.coverage.get(upcomingPaymentKey(smallMove)).shortfall, 10);
+assert.equal(result.coverage.get(smallMove).shortfall, 10);
 const later = bill({ name: "Later", amount: 200, expected_date: "2026-10-01", days_away: 1 });
 result = walk([largeMove, later], [credit({ expected_date: "2026-10-01", days_away: 1 })]);
 assert.equal(result.atRisk[0].movementCulprit, undefined, "A later credit resets movement attribution");
-assert.deepEqual(result.coverage.get(upcomingPaymentKey(later)), { before: 110, after: -90, shortfall: 90 });
+assert.deepEqual(result.coverage.get(later), { before: 110, after: -90, shortfall: 90 });
 const pennies = bill({ amount: 0.2, account_balance: 0.3 });
 result = walk([pennies]);
-assert.deepEqual(result.coverage.get(upcomingPaymentKey(pennies)), { before: 0.3, after: 0.1, shortfall: 0 });
+assert.deepEqual(result.coverage.get(pennies), { before: 0.3, after: 0.1, shortfall: 0 });
 
 // Actual production rendering, not a parallel preview implementation.
 const rows = [

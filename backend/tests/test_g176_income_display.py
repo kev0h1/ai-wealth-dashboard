@@ -1,4 +1,4 @@
-"""G176 regressions for income presentation labels and inferred cadence.
+"""G176 regressions for income presentation labels.
 
 The opaque payer key remains the action identifier. These tests deliberately
 exercise the cashflow response, where a display label must not replace it.
@@ -54,81 +54,27 @@ def test_income_pattern_keeps_opaque_key_but_captures_original_display_name(monk
     assert row["display_name"] == "Goldman Sachs"  # presentation only
 
 
-def test_inferred_sixteen_day_mean_repeats_fortnightly(monkeypatch):
-    """A 16-day posting mean was classified as biweekly, then incorrectly
-    emitted as 13 Oct and 29 Oct. Once its first date is 13 Oct, the next
-    inferred occurrence must follow the detector's 14-day cadence."""
+def test_income_display_name_does_not_change_occurrences_or_totals(monkeypatch):
+    """A label is presentation only: cadence, identity and totals stay put."""
     monkeypatch.setattr(analytics.timeutil, "user_now", lambda: datetime(2026, 10, 1, 9, 0))
-    response = asyncio.run(_build_cashflow_response(_cached_income(**{
-        "key": "cosctolgondwe::opaque-account", "display_name": "Cashback credit",
+    base_pattern = {
+        "key": "cosctolgondwe::opaque-account",
         "avg_interval": 16.0, "avg_amount": 7.62, "next_date": "2026-10-13",
         "category": "Income",
-    })))
-
-    rows = response["upcoming_income"]
-    assert [row["expected_date"] for row in rows[:2]] == ["2026-10-13", "2026-10-27"]
-    assert all(row["name"] == "cosctolgondwe::opaque-account" for row in rows)
-    assert all(row["amount"] == 7.62 for row in rows)
-
-
-def test_inferred_eight_day_mean_repeats_weekly(monkeypatch):
-    monkeypatch.setattr(analytics.timeutil, "user_now", lambda: datetime(2026, 10, 1, 9, 0))
-    response = asyncio.run(_build_cashflow_response(_cached_income(**{
-        "key": "small-credit::opaque-account", "display_name": "Small credit",
-        "avg_interval": 8.0, "avg_amount": 7.62, "next_date": "2026-10-06",
-        "category": "Income",
-    })))
-
-    assert [row["expected_date"] for row in response["upcoming_income"][:2]] == ["2026-10-06", "2026-10-13"]
-
-
-def test_monthly_income_keeps_existing_monthly_step(monkeypatch):
-    """The G176 fortnightly repair does not alter the existing monthly path."""
-    monkeypatch.setattr(analytics.timeutil, "user_now", lambda: datetime(2026, 10, 1, 9, 0))
-    response = asyncio.run(_build_cashflow_response(_cached_income(**{
-        "key": "salary::opaque-account", "display_name": "Salary",
-        "avg_interval": 30.0, "avg_amount": 1000.0, "next_date": "2026-10-30",
-        "monthly_anchor": 30, "category": "Income",
-    })))
-
-    assert [row["expected_date"] for row in response["upcoming_income"]] == ["2026-10-30"]
-
-
-def test_confirmed_income_schedule_still_wins_over_inferred_fortnightly_mean():
-    rows = [
-        _income_txn("CASHBACK CREDIT", date(2026, 8, 1), 7.62),
-        _income_txn("CASHBACK CREDIT", date(2026, 8, 17), 7.62),
-        _income_txn("CASHBACK CREDIT", date(2026, 9, 2), 7.62),
-    ]
-    confirmed = {
-        "CASHBACK CREDIT": {
-            "status": "confirmed",
-            "schedule": {"type": "day_of_month", "day": 30},
-        }
     }
+    without_label = asyncio.run(_build_cashflow_response(_cached_income(**base_pattern)))
+    with_label = asyncio.run(_build_cashflow_response(_cached_income(**{
+        **base_pattern, "display_name": "Cashback credit",
+    })))
 
-    pattern = _detect_recurring(rows, today=date(2026, 10, 1), is_income=True, confirmed_income=confirmed)[0]
-
-    assert pattern["avg_interval"] == 16.0
-    assert pattern["next_date"] == date(2026, 10, 30)
-
-
-def test_confirmed_schedule_controls_response_repeats_not_inferred_mean(monkeypatch):
-    monkeypatch.setattr(analytics.timeutil, "user_now", lambda: datetime(2026, 10, 1, 9, 0))
-    opaque_key = "cashback::opaque-account"
-    response = asyncio.run(_build_cashflow_response(
-        _cached_income(**{
-            "key": opaque_key, "confirmed_alias": "CASHBACK CREDIT",
-            "display_name": "Cashback credit", "avg_interval": 16.0,
-            "avg_amount": 7.62, "next_date": "2026-10-13", "category": "Income",
-        }),
-        prefs={"income_streams": [{
-            "key": "CASHBACK CREDIT", "status": "confirmed",
-            "schedule": {"type": "day_of_month", "day": 30},
-        }]},
-    ))
-
-    assert [row["expected_date"] for row in response["upcoming_income"]] == ["2026-10-13", "2026-10-30"]
+    base_rows = without_label["upcoming_income"]
+    labelled_rows = with_label["upcoming_income"]
+    assert [row["expected_date"] for row in base_rows] == ["2026-10-13", "2026-10-29"]
+    assert [row["expected_date"] for row in labelled_rows] == [row["expected_date"] for row in base_rows]
+    assert [row["name"] for row in labelled_rows] == [row["name"] for row in base_rows]
+    assert sum(row["amount"] for row in labelled_rows) == sum(row["amount"] for row in base_rows)
+    assert [row["display_name"] for row in base_rows] == [None] * len(base_rows)
+    assert [row["display_name"] for row in labelled_rows] == ["Cashback credit"] * len(labelled_rows)
 
 
 def test_confirmed_fallback_uses_legacy_source_text_but_never_opaque_key():

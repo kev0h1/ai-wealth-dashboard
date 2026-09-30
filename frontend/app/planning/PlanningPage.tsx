@@ -25,8 +25,8 @@ import type { UpcomingRowModel } from "@/components/upcoming/UpcomingRow";
 import UpcomingDetailsSheet from "@/components/upcoming/UpcomingDetailsSheet";
 import UpcomingRowDetails, { upcomingDate } from "@/components/upcoming/UpcomingRowDetails";
 import { canDismissUpcomingOccurrence, upcomingPaymentKey as atRiskKey } from "@/lib/upcomingAttention";
-import { walkUpcomingAccounts } from "@/lib/upcomingAccountWalk";
-import { buildUpcomingAccountSummaries, upcomingAccountWindow } from "@/lib/upcomingAccounts";
+import { compareUpcomingEvents, upcomingAccountAssessment, walkUpcomingAccounts } from "@/lib/upcomingAccountWalk";
+import { upcomingAccountWindow } from "@/lib/upcomingAccounts";
 import UpcomingAccountsCard from "@/components/upcoming/UpcomingAccountsCard";
 import UpcomingAccountDetails from "@/components/upcoming/UpcomingAccountDetails";
 import { upcomingDisplayName } from "@/lib/upcomingDisplayName";
@@ -321,64 +321,12 @@ export default function PlanningPage() {
     }
   }, []);
 
-  // ── At-risk bills ──────────────────────────────────────────────────────────
-  // G163 (2026-09-25, Kevin: "the AI should know money is coming in so
-  // perhaps I shouldn't flag this, it only becomes a problem the day
-  // after"): ONE walk now, a direct port of backend/app/services/
-  // companion.py's `walk_sort_key` — same-day, credits (income/inflows)
-  // before debits (bills). A confirmed income stream expected into an
-  // account on day D covers what leaves that account on day D; it only
-  // lapses, and the deficit becomes real, the day after it was expected
-  // with no matching credit. This replaces the old TWO-walk design (a
-  // conservative bills-before-income walk driving every RED treatment,
-  // plus a second optimistic walk consulted only to tell a genuine
-  // shortfall from a same-day timing artefact): the same-day-income
-  // suppression that used to need a second walk for is now inherent in the
-  // ordering itself, so both walks below use it and necessarily agree.
-  // `atRiskWalks.conservative`/`.optimistic` both still exist and both
-  // point at this SAME result — kept as two keys (rather than refactoring
-  // every reader below) purely so the rest of this file, which reads both,
-  // compiles unchanged; `genuineAccountIds` (built from `.optimistic`) is
-  // therefore now just every account `.conservative` itself flags, and the
-  // `severity: "timing"` branch derived from their difference can no
-  // longer occur (see its own comment further down).
-  const atRiskWalks = (() => {
-    if (!cashflow) return null;
-    const nextPaydayMs = periodEnd.getTime() + 86400000;
-    const daysToPay = Math.round((nextPaydayMs - planningNow) / 86400000);
-    const simEndMs = nextPaydayMs + (daysToPay <= 1 ? 5 * 86400000 : 0);
-    const walk = walkUpcomingAccounts(cashflow, simEndMs);
-    // Both legacy readers still share the same credits-first result.
-    // G176 exposes that walk's account working, without changing the hero.
-    return { conservative: walk.atRisk, optimistic: walk.atRisk, coverage: walk.coverage };
-  })();
-
-  // `.conservative` is the one true source for every RED treatment on this
-  // page (bill rows, the callout, the chip) — still true since G163, just
-  // now built from the single credits-before-debits walk rather than a
-  // bills-first one.
-  const atRiskBills = atRiskWalks?.conservative ?? [];
-
-  const atRiskKeySet = new Set(atRiskBills.map(atRiskKey));
-
-  // G163: `.conservative` and `.optimistic` now point at the SAME walk (see
-  // the comment above `atRiskWalks`), so this is simply every account
-  // `.conservative` already flagged — kept as its own Set because so much
-  // below still reads it, not because it can diverge from atRiskBills any
-  // more. Pre-G163 this distinguished a genuine shortfall (still short even
-  // with same-day money credited first) from a timing risk (only short
-  // because bills were walked before that same-day credit); that
-  // distinction no longer arises, since the walk itself now credits first.
-  const genuineAccountIds = new Set(
-    (atRiskWalks?.optimistic ?? []).map(b => b.account_id ?? "__null__")
-  );
-
-  // Account evidence has its own boundary, never an input to the hero.
-  // Before payday excludes payday; the established final-day lookahead
-  // extends through five days after it and labels that wider window.
+  // One window and one result feed the account card, its working and row
+  // coverage. They are source-account evidence, never inputs to the hero.
   const accountEndMs = upcomingAccountWindow(periodEnd.getTime(), planningNow);
+  const accountWalk = cashflow ? walkUpcomingAccounts(cashflow, accountEndMs) : null;
   const accountPeriodLabel = `Payments through ${new Date(accountEndMs).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" })}`;
-  const accountSummaries = cashflow ? buildUpcomingAccountSummaries(cashflow, accountEndMs) : [];
+  const accountSummaries = accountWalk?.accounts ?? [];
   const selectedAccount = accountSummaries.find((account) => account.id === selectedAccountId);
 
   // ── Undo state ──────────────────────────────────────────────────────────────
@@ -656,7 +604,7 @@ export default function PlanningPage() {
       ) : !cashflow ? (
         <div className="flex items-center justify-center py-16"><Spinner size={32} /></div>
       ) : (() => {
-        const today = new Date();
+        const today = new Date(planningNow);
         const nextPayday = new Date(periodEnd.getTime() + 86400000);
         const isCalendarMonth = payPeriodConfig.type === "calendar_month";
         const todayMidnight = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
@@ -667,30 +615,16 @@ export default function PlanningPage() {
         const NEXT_PERIOD_LOOKAHEAD_MS = 5 * 86400000;
 
         const rawItems = [
-          ...cashflow.upcoming_income.map(b => ({ ...b, type: "income" as const })),
-          ...cashflow.upcoming_bills.map(b => ({ ...b, type: "bill" as const })),
+          ...cashflow.upcoming_income.map((b, sourceIndex) => ({ ...b, source: b, sourceIndex, type: "income" as const })),
+          ...cashflow.upcoming_bills.map((b, sourceIndex) => ({ ...b, source: b, sourceIndex, type: "bill" as const })),
         ].filter(b => new Date(b.expected_date).getTime() <= nextPaydayMidnight.getTime() + NEXT_PERIOD_LOOKAHEAD_MS)
          .map(b => ({
            ...b,
-           // EXCLUSIVE of payday day itself, except during the last-day
-           // lookahead (daysToPayday <= 1), where the window still extends
-           // through payday + 5 days INCLUSIVE. Mirrors backend/app/
-           // services/pay_period.py's in_current_window/is_payday_day pair
-           // exactly (2026-08-28 decision, owner verbatim: "we still want
-           // to have some visibility over the next pay period but I don't
-           // think it should count in the existing one"): an item on or
-           // after payday belongs to the NEXT pay period, visible in the
-           // list below the divider but excluded from this period's
-           // arithmetic — at_risk_raw/inAtRiskKeySet further down both gate
-           // off this same flag, so this one line is the single source of
-           // truth for the boundary across the whole upcoming list.
-           next_period: daysToPayday <= 1 ? b.days_away > daysToPayday + 5 : b.days_away >= daysToPayday,
+           // The card and row adapter use this exact boundary too. Payday
+           // remains outside the hero equation regardless of lookahead.
+           next_period: new Date(b.expected_date).getTime() > accountEndMs,
          }))
-         .sort((a, b) => {
-          if (a.days_away !== b.days_away) return a.days_away - b.days_away;
-          if (a.type !== b.type) return a.type === "income" ? -1 : 1;
-          return b.amount - a.amount;
-        });
+         .sort(compareUpcomingEvents);
 
         const currentPeriodItems = rawItems.filter(i => !i.next_period);
 
@@ -722,9 +656,6 @@ export default function PlanningPage() {
         // caches computed before spendable_balance existed.
         const spendableNow = cashflow.spendable_balance ?? cashflow.available_balance ?? 0;
         const savingsNow = cashflow.savings_balance ?? 0;
-        // Last day of the period (or payday itself): from here, next-period
-        // preview rows join the risk assessment instead of staying calm.
-        const assessNextPeriod = daysToPayday <= 1;
 
         // POOLED transfer rule (Kevin, 2026-08-26, live-data bug: the
         // pooled "left" figure read £8,753 on payday, £3,794 of which was
@@ -761,63 +692,12 @@ export default function PlanningPage() {
         const items = rawItems.map(item => {
           if (item.type === "income") {
             running += item.amount;
-            return { ...item, balance_after: running, at_risk: false, account_short: false, account_timing: false, is_credit_card: false, at_risk_raw: false, account_short_raw: false, isMovement: false };
-          } else {
-            // "movement" (transfer/savings/investment STO) is not spend,
-            // per DESIGN.md, red means genuine financial risk only, and a
-            // missed top-up has no fee, no cut-off, no credit damage
-            // (worst case the money just stays in the account). So a
-            // movement never gets the red account_short/at_risk treatment,
-            // even when the raw simulation says it can't be funded, the
-            // *_raw flags below carry that fact through for the calm,
-            // non-red copy shown elsewhere in this row.
-            const isMovement = item.kind === "movement";
-            // Every kind still debits `running` here EXCEPT a pooled
-            // no-op transfer (see the block comment above) or a charge on a
-            // credit card (G109, see doesNotTouchCash's own doc comment): a
-            // genuine commitment/discretionary/movement is real money
-            // leaving the pool and can still genuinely bounce a later bill,
-            // so it stays in the simulation, but a traced transfer between
-            // two of the user's own spendable accounts never left the pool
-            // in the first place, and a card charge hasn't touched cash yet
-            // either, so skipping its debit here (rather than debiting it
-            // and crediting the destination leg elsewhere) is the only way
-            // the running total stays honest row by row.
-            if (!doesNotTouchCash(item)) {
-              running -= item.amount;
-            }
-            const acctBalance = item.account_balance ?? null;
-            // Prefer the real backend-computed flag; fall back to the old
-            // balance-sign proxy only if a stale payload omits it.
-            const is_credit_card = item.is_credit_card !== undefined
-              ? item.is_credit_card
-              : (acctBalance !== null && acctBalance < 0);
-            // Genuine vs timing split, same story as the callout/chip above
-            // and derived from the same genuineAccountIds set (no third
-            // walk): atRiskKeySet only ever contains bills the CONSERVATIVE
-            // walk flagged, so a row can be in it while its account still
-            // clears under the optimistic (credit-first) ordering. Only a
-            // row whose account is a genuine shortfall (still short even
-            // credited first) earns account_short/RED; a row whose account
-            // only trips the conservative tie-break earns account_timing/
-            // AMBER instead, per the Red Is Risk Rule.
-            const inAtRiskKeySet = atRiskKeySet.has(atRiskKey(item)) && (!item.next_period || assessNextPeriod);
-            const isGenuineAccount = genuineAccountIds.has(item.account_id ?? "__null__");
-            const account_short_raw = !is_credit_card && inAtRiskKeySet && isGenuineAccount;
-            const account_timing_raw = !is_credit_card && inAtRiskKeySet && !isGenuineAccount;
-            const at_risk_raw = running < 0 && (!item.next_period || assessNextPeriod);
-            return {
-              ...item,
-              balance_after: running,
-              at_risk: at_risk_raw && !isMovement,
-              account_short: account_short_raw && !isMovement,
-              account_timing: account_timing_raw && !isMovement,
-              is_credit_card,
-              at_risk_raw,
-              account_short_raw,
-              isMovement,
-            };
+            return { ...item, balance_after: running, is_credit_card: false, isMovement: false };
           }
+          // This is the existing pooled working, not account coverage.
+          // Its cash-transfer/card exclusions and hero arithmetic stay intact.
+          if (!doesNotTouchCash(item)) running -= item.amount;
+          return { ...item, balance_after: running, is_credit_card: Boolean(item.is_credit_card), isMovement: item.kind === "movement" };
         });
 
         const billsBeforePayday = rawItems.filter(item => {
@@ -875,35 +755,19 @@ export default function PlanningPage() {
         // values.
         pennyRunwayRef.current = { runway, runwayStatus, isCalendarMonth };
 
-        const atRiskCount = items.filter(i => i.type === "bill" && i.at_risk).length;
-        void atRiskCount;
-
-        // Bank-side PENDING debits (see backend/app/services/
-        // pending_transactions.py) — DISPLAY ONLY. Deliberately built from
-        // `cashflow.observed_pending_bills`, never `cashflow.upcoming_bills`
-        // (the backend already excludes a matched occurrence from that
-        // list), and appended AFTER the running-balance walk above rather
-        // than folded into `rawItems`/`items`: `running`, `at_risk`,
-        // `account_short`/`account_timing` (and the `atRiskKeySet`/
-        // `genuineAccountIds` sets built earlier from `upcoming_bills`)
-        // must never see these rows, or the whole point — the walk
-        // stopping at what the bank balance already reflects — would be
-        // undone client-side. Hardcoded calm/never-at-risk flags below are
-        // therefore not a shortcut, they're the correct answer: this money
-        // has already left, so there is nothing left to risk.
+        // Bank-side settling debits are display-only: their cash has already
+        // left. Neither the shared account walk nor this pooled walk deducts
+        // observed_pending_bills again.
         const observedPendingItems = (cashflow.observed_pending_bills ?? [])
           .filter(b => new Date(b.expected_date).getTime() <= nextPaydayMidnight.getTime() + NEXT_PERIOD_LOOKAHEAD_MS)
-          .map(b => ({
+          .map((b, sourceIndex) => ({
             ...b,
+            source: b,
+            sourceIndex,
             type: "bill" as const,
-            next_period: daysToPayday <= 1 ? b.days_away > daysToPayday + 5 : b.days_away >= daysToPayday,
+            next_period: new Date(b.expected_date).getTime() > accountEndMs,
             balance_after: spendableNow,
-            at_risk: false,
-            account_short: false,
-            account_timing: false,
-            is_credit_card: b.is_credit_card ?? false,
-            at_risk_raw: false,
-            account_short_raw: false,
+            is_credit_card: Boolean(b.is_credit_card),
             isMovement: b.kind === "movement",
           }));
         const displayItems = [...items, ...observedPendingItems];
@@ -959,53 +823,15 @@ export default function PlanningPage() {
 
         function prepareRow(item: typeof displayItems[0]) {
           const isPlanned = item.type === "bill" && item.planned;
-          // Risk doesn't care who authored the bill — planned rows flag the
-          // same as predicted ones when their account can't cover them.
-          // atRiskBills only ever contains commitment/discretionary items
-          // (movement is filtered out at the source), so this can't flag a
-          // movement row red.
           const atRiskMatch = item.type === "bill"
-            ? atRiskBills.find(r => atRiskKey(r) === atRiskKey(item))
+            ? accountWalk?.riskByBill.get(item.source)
             : undefined;
-          // RED only for a genuinely short account, still short even when
-          // the money due in is credited first (genuineAccountIds, from the
-          // optimistic walk built above). A same-day timing risk, the
-          // account only looks short because the conservative walk puts
-          // this bill before the credit that's arriving the same day, gets
-          // the amber treatment instead of red, matching the callout/chip
-          // above and per the Red Is Risk Rule. Derived from the two walks
-          // already run above, never a third pass, and never recomputed:
-          // the same genuineAccountIds Set backs the callout, the chip, the
-          // pooled-walk account_short/account_timing split below, and this
-          // row.
-          const flagged = !!atRiskMatch && genuineAccountIds.has(item.account_id ?? "__null__");
-          const timingRisk = !!atRiskMatch && !flagged;
-          // A movement whose raw simulation says it can't be funded gets a
-          // calm, non-red note instead of the usual red treatment or the
-          // plain bank-name line.
-          const movementCalm = item.type === "bill" && !!item.isMovement && (item.at_risk_raw || item.account_short_raw);
-          // Bank-side PENDING debit already observed (see the
-          // `item.observed_pending` doctrine comment further down, and
-          // UpcomingBill.observed_pending in lib/api.ts): the money has
-          // already left per the bank, this row is resolved history-in-
-          // transit, never a live risk. Design taste + impeccable pass,
-          // 2026-09-01 (owner: "these pending payments should have an
-          // indicator to say that they are pending"): a settling row must
-          // read as calm and resolved, the OPPOSITE valence to red/amber,
-          // so it gets its own quiet treatment on the icon chip, the
-          // amount, and the right-hand rail below, checked ahead of the
-          // ordinary category-colour chip so a red-hued category (e.g.
-          // Debt, #f87171) can never leak a red-looking chip onto a row
-          // that already resolved.
           const isSettling = item.type === "bill" && !!item.observed_pending;
           const rowKey = `${item.type}-${item.name}-${item.expected_date}`;
           const highlighted = highlightTarget === rowKey;
           const catName = item.type === "income" ? (item.category || "Income") : (item.category || "Other");
           const colour = getCategoryColour(catName, colours);
           const Icon = getCategoryIcon(catName, iconOverrides);
-          const future = item.next_period && !assessNextPeriod;
-          const coverage = !isSettling && !item.is_credit_card && !future
-            ? atRiskWalks?.coverage.get(atRiskKey(item)) : undefined;
           const openItem = () => {
             if (isPlanned) {
               setEditPlanned({ id: item.planned_id!, name: item.name, amount: item.amount, date: item.expected_date, account_id: item.account_id ?? null });
@@ -1015,7 +841,7 @@ export default function PlanningPage() {
           };
           const model: UpcomingRowModel = {
             rowKey,
-            identity: item.type === "bill" && item.planned_id ? item.planned_id : `${item.type}-${atRiskKey(item)}`,
+            identity: item.type === "bill" && item.planned_id ? item.planned_id : `${item.type}-${atRiskKey(item)}-${isSettling ? "settling-" : ""}${item.sourceIndex}`,
             type: item.type,
             name: upcomingDisplayName(item),
             amount: item.amount,
@@ -1028,21 +854,11 @@ export default function PlanningPage() {
             isPlanned,
             createdViaPenny: item.type === "bill" && item.created_via === "penny",
             isMovement: item.isMovement,
-            isCreditCard: item.is_credit_card,
-            isSettling,
             pending: item.pending,
             daysPastDue: item.days_past_due,
             amountBasis: item.type === "bill" ? item.amount_basis : null,
-            flagged,
-            timingRisk,
-            accountShort: item.account_short,
-            accountTiming: item.account_timing,
-            atRisk: item.at_risk,
-            movementCalm,
-            unfundedMovement: !!(item.at_risk_raw || item.account_short_raw),
+            ...upcomingAccountAssessment(item.source, accountWalk!),
             highlighted,
-            assessment: future ? "future" : coverage ? undefined : "unverified",
-            coverage: coverage ? { ...coverage, optionalMove: item.isMovement } : undefined,
             why: atRiskMatch?.movementCulprit ? {
               open: false,
               culprit: {
