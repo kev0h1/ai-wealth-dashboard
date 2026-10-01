@@ -10,6 +10,12 @@ const [timeline, client, fixtures] = await Promise.all([
 assert.match(client, /GrowHero/); assert.match(client, /SectionJumpStrip/); assert.match(client, /CollapsedLadder/);
 assert.match(timeline, /aria-expanded/); assert.match(timeline, /inert=\{!open\}/); assert.match(timeline, /motion-reduce:transition-none/);
 assert.match(timeline, /font-mono/); assert.match(timeline, /data-g187-timeline/);
+assert.match(timeline, /data-g187-expanded-group="individual"/); assert.match(timeline, /data-g187-expanded-card/);
+assert.match(timeline, /data-g187-expanded-group="shared"/); assert.match(timeline, /glass-card rounded-3xl p-5/);
+assert.match(timeline, /data-g187-active-card/); assert.doesNotMatch(timeline, /glass-hero/);
+assert.match(timeline, /col-span-2 text-sm leading-5/, "expanded explanation spans the full card width, not a narrow figure column");
+assert.doesNotMatch(timeline, /space-y-3 px-2 pb-3/, "expanded cards align with the active checkpoint card");
+assert.match(client, /expand=\$\{expand\}/); assert.match(client, /requestedExpand/); assert.match(client, /initialExpand=\{expand\}/);
 assert.match(fixtures, /hidden/); assert.match(fixtures, /long/); assert.match(fixtures, /attention/); assert.match(fixtures, /neutral/);
 assert.doesNotMatch(timeline, /period_gate/);
 for (const scenario of SCENARIOS) {
