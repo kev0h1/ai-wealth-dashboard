@@ -124,7 +124,7 @@ GOOD = "m" + "a1" * 16
 def test_state_validator():
     assert pending_login.is_valid_mobile_state(GOOD)
     for bad in ["", None, "m123", "m" + "a" * 31, "x" + "a" * 32, "m" + "A" * 32,
-                "m" + "a" * 65, GOOD + "_1700000000", "m" + "g" * 32, "../" + GOOD]:
+                "m" + "a" * 65, "m" + "g" * 32, "mabc_123", "mabc_" + "1" * 15, "m" + "a" * 17 + "_1700000000000", "mAbC_1700000000000", "mabc_1700000000000x", "../" + GOOD]:
         assert not pending_login.is_valid_mobile_state(bad), bad
 
 
@@ -144,3 +144,59 @@ def test_callback_does_not_store_under_malformed_state(fake_redis):
     assert fake_redis.store == {} and pending_login._pending == {}
     asyncio.run(google_mobile_callback(error="denied", state=GOOD))
     assert f"auth:pending:{GOOD}" in fake_redis.store
+
+
+LEGACY = "m" + "k3j9x0q2a1z" + "_" + "1790000000000"
+
+
+def test_legacy_state_accepted_and_new_still_valid():
+    assert pending_login.is_valid_mobile_state(LEGACY)
+    assert pending_login.is_legacy_mobile_state(LEGACY)
+    assert not pending_login.is_legacy_mobile_state(GOOD)
+
+
+def test_legacy_state_completes_callback_and_poll(fake_redis):
+    from app.routers.auth import google_mobile_callback, mobile_poll
+    asyncio.run(google_mobile_callback(error="denied", state=LEGACY))
+    assert asyncio.run(mobile_poll(LEGACY)) == {"status": "error", "error": "auth_failed"}
+    asyncio.run(_store_pending(LEGACY, "token:abc"))
+    assert asyncio.run(mobile_poll(LEGACY)) == {"status": "token", "token": "abc"}
+
+
+def test_legacy_token_is_not_replayable_redis(fake_redis):
+    asyncio.run(_store_pending(LEGACY, "token:abc"))
+    assert asyncio.run(_pop_pending(LEGACY)) == "token:abc"
+    assert asyncio.run(_pop_pending(LEGACY)) is None
+    assert not any(k.startswith("auth:pending-replay:") for k in fake_redis.store)
+
+
+def test_legacy_token_is_not_replayable_fallback(monkeypatch):
+    async def _not_ok():
+        return False
+
+    monkeypatch.setattr(pending_login, "redis_ok", _not_ok)
+    asyncio.run(_store_pending(LEGACY, "token:abc"))
+    assert asyncio.run(_pop_pending(LEGACY)) == "token:abc"
+    assert asyncio.run(_pop_pending(LEGACY)) is None
+
+
+def test_new_state_still_replayable(fake_redis):
+    asyncio.run(_store_pending(GOOD, "token:abc"))
+    assert asyncio.run(_pop_pending(GOOD)) == "token:abc"
+    assert asyncio.run(_pop_pending(GOOD)) == "token:abc"
+
+
+def test_fallback_replay_copy_expires(monkeypatch):
+    async def _not_ok():
+        return False
+
+    monkeypatch.setattr(pending_login, "redis_ok", _not_ok)
+    current = [1_000_000.0]
+    monkeypatch.setattr(pending_login.time, "time", lambda: current[0])
+    asyncio.run(_store_pending(GOOD, "token:abc"))
+    assert asyncio.run(_pop_pending(GOOD)) == "token:abc"
+    current[0] += pending_login._REPLAY_TTL - 1
+    assert asyncio.run(_pop_pending(GOOD)) == "token:abc"
+    current[0] += 2  # now beyond _REPLAY_TTL since the first read
+    assert asyncio.run(_pop_pending(GOOD)) is None
+    assert GOOD not in pending_login._replay or pending_login._replay[GOOD][1] < current[0]
