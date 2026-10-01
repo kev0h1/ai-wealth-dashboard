@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { RefreshCw } from "lucide-react";
-import SpendPaceHero from "@/components/SpendPaceHero";
 import SpendPaceEvidence from "@/components/SpendPaceEvidence";
 import SpendJourneyNav, { type SpendJourneyDestination } from "@/components/SpendJourneyNav";
 import type { Transaction } from "@/lib/api";
@@ -12,11 +11,10 @@ import { STATES } from "../spend-hero/fixtures";
 import SpendHeroScale from "./SpendHeroScale";
 import { scaleFixture, scaleIncomeFor, type ScaleState } from "./fixtures";
 
-type Variant = "a" | "b" | "current";
+type Variant = "a" | "b";
 const variants: { id: Variant; label: string }[] = [
   { id: "a", label: "A · Compact heading" },
-  { id: "b", label: "B · Quiet label" },
-  { id: "current", label: "Current" },
+  { id: "b", label: "B · Approved" },
 ];
 const states: { id: ScaleState; label: string }[] = [{ id: "phone", label: "Phone example" }, ...STATES];
 const focus = "active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500";
@@ -30,7 +28,7 @@ function jump(id: string) {
 export default function SpendHeroScaleClient() {
   const params = useSearchParams();
   const raw = params.get("variant");
-  const variant: Variant = raw === "a" || raw === "current" ? raw : "b";
+  const variant: Variant = raw === "a" ? "a" : "b";
   const state: ScaleState = states.some(item => item.id === params.get("state")) ? params.get("state") as ScaleState : "phone";
   const mode = params.get("mode") === "dark" ? "dark" : "light";
   const [retried, setRetried] = useState(false);
@@ -63,7 +61,7 @@ export default function SpendHeroScaleClient() {
     <div className="mx-auto max-w-6xl">
       <header className="mb-6 border-b border-slate-200 pb-4 dark:border-slate-700">
         <h1 className="text-base font-bold">Spend hero · type refinement</h1>
-        <p className="mt-1 max-w-prose text-xs leading-5 text-slate-600 dark:text-slate-300">A and B are proposed refinements, not live changes. Both keep the same figures and working. Current renders the shipped component.</p>
+        <p className="mt-1 max-w-prose text-xs leading-5 text-slate-600 dark:text-slate-300">B is approved and renders the production SpendPaceHero, with Usual on its own quiet line. A remains the unselected comparison. Figures and calculations are unchanged.</p>
         <nav aria-label="Typography variants" className="mt-3 flex flex-wrap gap-2">
           {variants.map(item => <a key={item.id} href={href(item.id)} aria-current={item.id === variant ? "page" : undefined} className={`${focus} inline-flex min-h-11 items-center rounded-xl px-3 text-xs font-semibold ${item.id === variant ? "bg-indigo-600 text-white" : "border border-slate-300 bg-white text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"}`}>{item.label}</a>)}
           <a href={href(variant, state, mode === "dark" ? "light" : "dark")} className={`${focus} inline-flex min-h-11 items-center rounded-xl px-3 text-xs font-semibold`}>{mode === "dark" ? "Light" : "Dark"}</a>
@@ -73,9 +71,9 @@ export default function SpendHeroScaleClient() {
       {!verdict ? <section className="glass-hero rounded-3xl p-5" aria-live="polite">{state === "loading" ? <><h2 className="text-base font-bold">Loading this pay period</h2><div className="mt-4 h-10 rounded-lg bg-slate-200 motion-safe:animate-pulse dark:bg-slate-700" aria-hidden="true" /></> : <><h2 className="text-base font-bold">We could not load your spending summary</h2><button type="button" onClick={() => setRetried(true)} className={`${focus} mt-3 inline-flex min-h-11 items-center gap-2 rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white`}><RefreshCw size={16} aria-hidden="true" />Try again</button></>}</section>
         : <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,0.78fr)_minmax(0,1.22fr)]">
           <div className="min-w-0 lg:sticky lg:top-6">
-            {variant === "current" ? <SpendPaceHero {...props} /> : <SpendHeroScale {...props} variant={variant} />}
+            <SpendHeroScale {...props} variant={variant} />
             {selected && <p role="status" className="mt-3 text-sm text-slate-600 dark:text-slate-300">Fixture transaction selected: {selected.description} <span className="font-mono tabular-nums">{spendHeroMoney(selected.amount)}</span></p>}
-            <p className="mt-3 text-xs leading-5 text-slate-500 dark:text-slate-400">{variant === "current" ? "Current: 20px heading and up to 40px Out figure." : variant === "a" ? "A: 16px heading, 30px Out, 16px supporting totals." : "B: a quiet label, 30px Out, 16px supporting totals."} Fixture data sized to the phone example.</p>
+            <p className="mt-3 text-xs leading-5 text-slate-500 dark:text-slate-400">{variant === "a" ? "A: the unselected heading-led comparison." : "B: the approved production component, with a quieter Usual reference below the verdict."} Fixture data sized to the phone example.</p>
             <div className="mt-4 hidden lg:block"><SpendJourneyNav destinations={destinations} desktop /></div>
           </div>
           <div className="min-w-0 space-y-5">

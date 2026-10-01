@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import SpendHeroScale from "../app/design/spend-hero-scale/SpendHeroScale.tsx";
+import SpendPaceHero from "../components/SpendPaceHero.tsx";
 import { scaleFixture, scaleIncomeFor } from "../app/design/spend-hero-scale/fixtures.ts";
 import { STATES } from "../app/design/spend-hero/fixtures.ts";
 import { spendHeroModel, spendHeroMoney } from "../lib/spendHero.ts";
@@ -38,9 +39,28 @@ const source = readFileSync(new URL("../app/design/spend-hero-scale/SpendHeroSca
 assert.doesNotMatch(source, /break-all|clamp\(/, "Currency stays whole and the product type scale is fixed");
 assert.match(source, /spendHeroModel\(verdict\)/, "Proposals use the unchanged live model");
 const client = readFileSync(new URL("../app/design/spend-hero-scale/SpendHeroScaleClient.tsx", import.meta.url), "utf8");
-assert.match(client, /<SpendPaceHero/);
+assert.match(source, /variant === "b" \? <SpendPaceHero/);
 assert.match(client, /<SpendPaceEvidence/);
 assert.doesNotMatch(client, /api\./);
 assert.match(client, /shell\.style\.overflowX = "clip"/);
 assert.match(client, /prefers-reduced-motion: reduce/);
-console.log("G186 smaller-type proposals preserve the real Spend figures and controls");
+for (const { id } of [{ id: "phone" }, ...STATES]) {
+  const verdict = scaleFixture(id);
+  const live = renderToStaticMarkup(React.createElement(SpendPaceHero, { verdict, incomeTxns: [], onOutTap: noop, onMovedTap: noop, onTransactionClick: noop }));
+  assert.equal(render("b", verdict), live, "Approved B is the actual production component for " + id);
+  if (!verdict) continue;
+  const model = spendHeroModel(verdict);
+  const usual = live.match(/<p data-spend-usual[^>]*>([\s\S]*?)<\/p>/);
+  assert.equal(Boolean(usual), model.usual != null && model.difference != null, "Only reliable comparisons have a separate Usual line: " + id);
+  if (usual) {
+    assert.ok(usual[1].includes(spendHeroMoney(model.usual)));
+    assert.match(live, /<p data-spend-pace[^>]*>[\s\S]*?<\/p><p data-spend-usual[^>]*class="mt-1 text-xs/);
+  }
+}
+const productionSource = readFileSync(new URL("../components/SpendPaceHero.tsx", import.meta.url), "utf8");
+assert.doesNotMatch(productionSource, /break-all|clamp\(/);
+assert.match(productionSource, /data-tutorial-id="tutorial-spend-verdict"/);
+assert.doesNotMatch(render("b", { ...phone, state: "early" }), /data-spend-usual/, "Early numeric history is still withheld");
+assert.doesNotMatch(render("b", { ...phone, state: "nobaseline" }), /data-spend-usual/, "No-history numeric payload cannot invent reliability");
+assert.match(render("b", { ...phone, pills: { ...phone.pills, spent: -12.34 } }), /−£12\.34/, "The production figure retains its sign");
+console.log("G186 approved B preserves figures, controls, preview parity and the separate Usual caption");

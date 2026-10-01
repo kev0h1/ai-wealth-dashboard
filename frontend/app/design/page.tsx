@@ -794,11 +794,10 @@ const ROUTES: PreviewRoute[] = [
     slug: "spend-hero-scale",
     name: "Spend hero type refinement · G186",
     description:
-      "G186 reopened, skill: impeccable · Two quieter typography treatments: A compact heading-led and B quiet label-led · Both use the existing Spend presentation model and keep arithmetic, income and Out working intact · Current renders the shipped SpendPaceHero for comparison; G140 evidence imports the production component · ?variant=a|b|current&state=phone|normal|early|nobaseline|long&mode=light|dark",
+      "G186 typography B approved, skill: impeccable · B renders production SpendPaceHero with its quiet label, 30px Out and separate Usual caption · A is the unselected heading-led comparison · Figures, calculations and controls unchanged; G140 evidence also renders its production component · ?variant=b|a&state=phone|normal|early|nobaseline|long&mode=light|dark",
     variants: [
       { label: "A · Compact heading", value: "a" },
-      { label: "B · Quiet label", value: "b" },
-      { label: "Current", value: "current" },
+      { label: "B · Approved", value: "b" },
     ],
     states: [
       { label: "Phone example", value: "phone" },
@@ -810,7 +809,7 @@ const ROUTES: PreviewRoute[] = [
     slug: "spend-hero",
     name: "Spend hero consistency · G186",
     description:
-      "G186, skill: impeccable · Approved A renders the production SpendPaceHero with invented fixture props, including its working and income disclosures · B and C retain the previous SpendJourneySummary for comparison · Evidence sections here remain illustrative; the approved G140 preview renders the production pace ledger · Sticky journey navigation retained · ?variant=a|b|c&state=normal|everything|nothing|nobaseline|early|closed|unplaced|nomoved|empty|loading|error|long&mode=light|dark",
+      "G186 original hero round, skill: impeccable · A renders the latest production SpendPaceHero, now refined by the approved B typography round at /design/spend-hero-scale · B and C retain the previous SpendJourneySummary for comparison · Evidence sections here remain illustrative; the approved G140 preview renders the production pace ledger · Sticky journey navigation retained · ?variant=a|b|c&state=normal|everything|nothing|nobaseline|early|closed|unplaced|nomoved|empty|loading|error|long&mode=light|dark",
     variants: [
       { label: "A · Pace instrument", value: "a" },
       { label: "B · Existing summary", value: "b" },
