@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import "./g186-hero-scale.test.mjs";
 import { readFileSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";

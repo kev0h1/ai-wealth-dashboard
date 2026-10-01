@@ -791,6 +791,22 @@ const ROUTES: PreviewRoute[] = [
     states: [{ label: "Play", value: "everything" }],
   },
   {
+    slug: "spend-hero-scale",
+    name: "Spend hero type refinement · G186",
+    description:
+      "G186 reopened, skill: impeccable · Two quieter typography treatments: A compact heading-led and B quiet label-led · Both use the existing Spend presentation model and keep arithmetic, income and Out working intact · Current renders the shipped SpendPaceHero for comparison; G140 evidence imports the production component · ?variant=a|b|current&state=phone|normal|early|nobaseline|long&mode=light|dark",
+    variants: [
+      { label: "A · Compact heading", value: "a" },
+      { label: "B · Quiet label", value: "b" },
+      { label: "Current", value: "current" },
+    ],
+    states: [
+      { label: "Phone example", value: "phone" },
+      { label: "Below usual", value: "normal" },
+      { label: "Long figures", value: "long" },
+    ],
+  },
+  {
     slug: "spend-hero",
     name: "Spend hero consistency · G186",
     description:
