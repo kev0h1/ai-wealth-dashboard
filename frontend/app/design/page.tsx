@@ -32,22 +32,6 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
-    slug: "sheet-anatomy",
-    name: "sheet-anatomy",
-    description:
-      "G192 phase 1, skill: impeccable adapt · A Compact and B Focused task share a fixed header, plain close control, independently scrolling body and safe-area action footer · Body portal above the real fixture navigation · Renders the shared production goal editor and filter fields with injected local operations, no live API calls · Includes long lists, empty lists, save failure and working save/clear controls · Existing production sheet layouts are unchanged; broader migration follows approval · ?variant=a|b&state=goal|long|empty|error&mode=light|dark",
-    states: [
-      { label: "Usual content", value: "goal" },
-      { label: "Long account list", value: "long" },
-      { label: "Empty lists", value: "empty" },
-      { label: "Save error", value: "error" },
-    ],
-    variants: [
-      { label: "A · Compact", value: "a" },
-      { label: "B · Focused task", value: "b" },
-    ],
-  },
-  {
     slug: "g176-account-status",
     name: "g176-account-status",
     description:
@@ -102,6 +86,22 @@ const ROUTES: PreviewRoute[] = [
       { label: "A · By account", value: "a" },
       { label: "B · Cash view", value: "b" },
       { label: "C · Needs a look", value: "c" },
+    ],
+  },
+  {
+    slug: "sheet-anatomy",
+    name: "sheet-anatomy",
+    description:
+      "G192 phase 1, skill: impeccable adapt · A Compact and B Focused task share a fixed header, plain close control, independently scrolling body and safe-area action footer · Body portal above the real fixture navigation · Renders the shared production goal editor and filter fields with injected local operations, no live API calls · Includes long lists, empty lists, save failure and working save/clear controls · Existing production sheet layouts are unchanged; broader migration follows approval · ?variant=a|b&state=goal|long|empty|error&mode=light|dark",
+    states: [
+      { label: "Usual content", value: "goal" },
+      { label: "Long account list", value: "long" },
+      { label: "Empty lists", value: "empty" },
+      { label: "Save error", value: "error" },
+    ],
+    variants: [
+      { label: "A · Compact", value: "a" },
+      { label: "B · Focused task", value: "b" },
     ],
   },
   {
