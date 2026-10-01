@@ -247,7 +247,12 @@ export async function linkAppleIdentity(): Promise<"ok" | "conflict" | "cancelle
 // backend/app/routers/auth.py) and /auth/mobile/poll's {status: "error",
 // error: "invite_only"} body.
 export async function nativeGoogleLogin(): Promise<"ok" | "invite_only" | "failed"> {
-  const state = "m" + Math.random().toString(36).slice(2) + "_" + Date.now();
+  // A133: the state is a bearer secret for the poll's replay window, so it
+  // must be unguessable: 128 bits from the CSPRNG (backend accepts only
+  // "m" + 32-64 lowercase hex, see core/pending_login.py).
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  const state = "m" + Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
   await Browser.open({ url: `${API_BASE}/auth/google/mobile?state=${encodeURIComponent(state)}` });
 
   async function pollOnce(): Promise<PollResult> {

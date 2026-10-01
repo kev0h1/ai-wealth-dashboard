@@ -116,3 +116,31 @@ def test_fallback_error_is_single_read(monkeypatch):
     asyncio.run(_store_pending("state-5", "error:auth_failed"))
     assert asyncio.run(_pop_pending("state-5")) == "error:auth_failed"
     assert asyncio.run(_pop_pending("state-5")) is None
+
+
+GOOD = "m" + "a1" * 16
+
+
+def test_state_validator():
+    assert pending_login.is_valid_mobile_state(GOOD)
+    for bad in ["", None, "m123", "m" + "a" * 31, "x" + "a" * 32, "m" + "A" * 32,
+                "m" + "a" * 65, GOOD + "_1700000000", "m" + "g" * 32, "../" + GOOD]:
+        assert not pending_login.is_valid_mobile_state(bad), bad
+
+
+def test_poll_rejects_malformed_state_like_unknown(fake_redis):
+    from app.routers.auth import mobile_poll
+    # A short state that was somehow stored is never served.
+    asyncio.run(_store_pending("short", "token:abc"))
+    assert asyncio.run(mobile_poll("short")) == {"status": "pending"}
+    assert asyncio.run(mobile_poll(GOOD)) == {"status": "pending"}  # unknown
+    asyncio.run(_store_pending(GOOD, "token:abc"))
+    assert asyncio.run(mobile_poll(GOOD)) == {"status": "token", "token": "abc"}
+
+
+def test_callback_does_not_store_under_malformed_state(fake_redis):
+    from app.routers.auth import google_mobile_callback
+    asyncio.run(google_mobile_callback(error="denied", state="short"))
+    assert fake_redis.store == {} and pending_login._pending == {}
+    asyncio.run(google_mobile_callback(error="denied", state=GOOD))
+    assert f"auth:pending:{GOOD}" in fake_redis.store

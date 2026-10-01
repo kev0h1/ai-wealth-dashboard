@@ -12,11 +12,20 @@ replicas (D4 in TODO.md) — the callback and the poll can land on different
 instances. Falls back to an in-process dict with the same TTL semantics
 when Redis is unavailable.
 """
+import re
 import time
 
 from app.core.redis_client import get_redis, redis_ok
 
 _PENDING_TTL = 300
+# A133: the state is a bearer secret (the token is replayable under it for
+# _REPLAY_TTL), so only accept what nativeGoogleLogin generates: "m" + 32 hex
+# chars (128 bits from crypto.getRandomValues), up to 64 to leave headroom.
+_MOBILE_STATE_RE = re.compile(r"^m[0-9a-f]{32,64}$")
+
+
+def is_valid_mobile_state(state: str | None) -> bool:
+    return bool(state) and _MOBILE_STATE_RE.fullmatch(state) is not None
 _KEY_PREFIX = "auth:pending:"
 
 # A133: a successfully-popped *token* is replayable for a short grace window.

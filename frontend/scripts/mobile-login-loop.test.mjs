@@ -106,5 +106,12 @@ await t("source: nativeGoogleLogin uses the loop, a bounded fetch, and setTokenA
   assert.ok(src.includes('App.addListener("appUrlOpen", ({ url }) => h.onUrlOpen(url))'));
 });
 
+await t("source: the login state is 128-bit crypto.getRandomValues, never Math.random", () => {
+  const src = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../lib/nativeAuth.ts"), "utf8");
+  const fn = src.slice(src.indexOf("export async function nativeGoogleLogin"));
+  assert.ok(fn.includes("crypto.getRandomValues(bytes)") && fn.includes("new Uint8Array(16)"));
+  assert.ok(!/const state[^;]*Math\.random/.test(fn) && !fn.slice(0, fn.indexOf("pollOnce")).includes("Math.random"));
+});
+
 if (failures) { console.error(failures + " failed"); process.exit(1); }
 console.log("mobile-login-loop: all passed");

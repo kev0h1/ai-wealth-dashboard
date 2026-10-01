@@ -17,7 +17,7 @@ from app.core.config import (
     mask_email,
 )
 from app.core.identity import resolve_signin_email
-from app.core.pending_login import _pop_pending, _store_pending
+from app.core.pending_login import _pop_pending, _store_pending, is_valid_mobile_state
 from app.core.push import drop_user_push_registrations
 from app.core.session_revocation import is_revoked, revoke_sessions
 from app.db.collections import linked_identities_col
@@ -438,7 +438,8 @@ async def google_auth_mobile(state: str = ""):
 
 @router.get("/auth/mobile/poll")
 async def mobile_poll(state: str):
-    value = await _pop_pending(state)
+    # A133: a malformed state gets exactly the reply an unknown state gets.
+    value = await _pop_pending(state) if is_valid_mobile_state(state) else None
     if value is None:
         return {"status": "pending"}
     kind, _, payload = value.partition(":")
@@ -448,7 +449,7 @@ async def mobile_poll(state: str):
 @router.get("/auth/google/mobile-callback")
 async def google_mobile_callback(code: str = None, error: str = None, state: str = ""):
     async def finish(value: str) -> HTMLResponse:
-        if state:
+        if is_valid_mobile_state(state):
             await _store_pending(state, value)
         ok = value.startswith("token:")
         if ok:
