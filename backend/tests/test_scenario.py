@@ -84,6 +84,14 @@ def make_item(**overrides) -> dict:
 TODAY = date(2026, 8, 21)
 
 
+@pytest.fixture(autouse=True)
+def _frozen_clock(monkeypatch):
+    """H104: `normalise_items` clamps past start months against the real
+    `timeutil.user_today()`, so every test here runs on the frozen TODAY.
+    Keeps the file date-independent across month rollovers."""
+    monkeypatch.setattr(timeutil, "datetime", _frozen_timeutil_datetime(TODAY))
+
+
 # ── normalise_items ───────────────────────────────────────────────────────
 
 def test_valid_item_passes_through():
