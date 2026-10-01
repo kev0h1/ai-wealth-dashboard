@@ -2,12 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { GrowHero, CollapsedLadder } from "@/app/planning/GrowPanel";
+import { GrowHero } from "@/app/planning/GrowPanel";
 import SectionJumpStrip from "@/app/planning/SectionJumpStrip";
 import MoneyText from "@/components/MoneyText";
 import { maskMoney, money } from "@/app/planning/GrowPanel";
 import Timeline, { type TimelineExpand, type TimelineVariant } from "./Timeline";
 import { fixtureFor, SCENARIOS, scenarioLabel, type Scenario, TODAY } from "./fixtures";
+import { planningCheckpointFigures } from "@/lib/planningCheckpointFigures";
 
 const VARIANTS: TimelineVariant[] = ["a", "b"];
 
@@ -24,13 +25,9 @@ function ScenarioPicker({ variant, scenario, mode, expand }: { variant: Timeline
   return <div className="flex flex-wrap gap-1.5" aria-label="Preview scenarios">{SCENARIOS.map((item) => <a key={item} aria-current={item === scenario ? "page" : undefined} href={href(variant, item, mode, expand)} className={`flex min-h-11 items-center rounded-full px-3 text-xs font-semibold active:opacity-70 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${item === scenario ? "bg-indigo-100 text-indigo-800 dark:bg-indigo-500/20 dark:text-indigo-200" : "text-slate-600 dark:text-slate-300"}`}>{scenarioLabel[item]}</a>)}</div>;
 }
 
-function CurrentComparison({ view, hideValues }: ReturnType<typeof fixtureFor>) {
-  return <details className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800"><summary className="min-h-11 cursor-pointer text-sm font-semibold text-slate-900 active:opacity-70 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-white">Current production ladder</summary><div className="mt-3"><CollapsedLadder steps={view.ladder} hideValues={hideValues} /></div></details>;
-}
-
 function Inner() {
   const params = useSearchParams();
-  const variant: TimelineVariant = params.get("variant") === "b" ? "b" : "a";
+  const variant: TimelineVariant = params.get("variant") === "a" ? "a" : "b";
   const requestedScenario = params.get("scenario") ?? params.get("state");
   const scenario: Scenario = SCENARIOS.includes(requestedScenario as Scenario) ? requestedScenario as Scenario : "buffer";
   const mode = params.get("mode") === "dark" ? "dark" : "light";
@@ -38,11 +35,19 @@ function Inner() {
   const expand: TimelineExpand = requestedExpand === "done" || requestedExpand === "later" || requestedExpand === "all" ? requestedExpand : null;
   const fixture = fixtureFor(scenario);
   const [dueOpen, setDueOpen] = useState(false);
-  useEffect(() => { document.documentElement.classList.toggle("dark", mode === "dark"); document.documentElement.style.colorScheme = mode; }, [mode]);
-  return <main className="min-h-dvh bg-[#f0f2f7] pb-12 dark:bg-[#0f172a]"><div className="mx-auto max-w-[740px] space-y-5 px-4 py-6"><header><h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-950 dark:text-white">Planning timeline with contained expanded checkpoints</h1><p className="mt-2 max-w-prose text-sm leading-5 text-slate-600 dark:text-slate-300">The current-period verdict remains in the existing hero. These preview-only variants show whether revealed completed and later checkpoints read best as individual cards or one shared group card.</p></header><Controls variant={variant} scenario={scenario} mode={mode} expand={expand} /><ScenarioPicker variant={variant} scenario={scenario} mode={mode} expand={expand} />
+  useEffect(() => {
+    const wasDark = document.documentElement.classList.contains("dark");
+    const oldScheme = document.documentElement.style.colorScheme;
+    document.documentElement.classList.toggle("dark", mode === "dark");
+    document.documentElement.style.colorScheme = mode;
+    return () => {
+      document.documentElement.classList.toggle("dark", wasDark);
+      document.documentElement.style.colorScheme = oldScheme;
+    };
+  }, [mode]);
+  return <main className="min-h-dvh bg-[#f0f2f7] pb-12 dark:bg-[#0f172a]"><div className="mx-auto max-w-[740px] space-y-5 px-4 py-6"><header><h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-950 dark:text-white">Planning checkpoints</h1><p className="mt-2 max-w-prose text-sm leading-5 text-slate-600 dark:text-slate-300">The approved shared-card timeline below renders the production component. It keeps completed and later checkpoints folded until needed, with deliberate breathing room on both sides of each separator.</p></header><Controls variant={variant} scenario={scenario} mode={mode} expand={expand} /><ScenarioPicker variant={variant} scenario={scenario} mode={mode} expand={expand} />
     <section aria-label="Shared Planning context" className="space-y-3"><GrowHero view={fixture.view} hideValues={fixture.hideValues} onSeeDue={() => setDueOpen(true)} />{dueOpen && fixture.view.period_gate.short && <section id="period-explanation" className="rounded-2xl border border-red-200 bg-white p-4 text-sm leading-5 text-slate-700 shadow-sm dark:border-red-500/30 dark:bg-slate-800 dark:text-slate-200"><h2 className="font-bold text-slate-950 dark:text-white">Before payday</h2><p className="mt-1"><MoneyText text={maskMoney("This fixture has a £180 gap before 25 October. Review the upcoming payments before funding longer-term plans.", fixture.hideValues)} /></p></section>}<SectionJumpStrip view={fixture.view} debt={fixture.debt} goals={fixture.goals} today={TODAY} hideValues={fixture.hideValues} /></section>
-    <section aria-labelledby="proposal-title" className="space-y-3"><div><h2 id="proposal-title" className="text-lg font-bold text-slate-950 dark:text-white">{variant === "a" ? "Individual cards when a summary opens" : "One shared card when a summary opens"}</h2><p className="mt-1 text-sm leading-5 text-slate-600 dark:text-slate-300">{variant === "a" ? "Each revealed checkpoint gets its own full-width card while the rail and folded summaries remain outside." : "Revealed checkpoints sit together in one full-width card, with their figures aligned for comparison."}</p></div><Timeline key={`${variant}-${scenario}-${expand ?? "none"}`} steps={fixture.view.ladder} metadata={fixture.metadata} hideValues={fixture.hideValues} variant={variant} initialExpand={expand} /></section>
-    <CurrentComparison {...fixture} />
+    <section aria-labelledby="proposal-title" className="space-y-3"><div><h2 id="proposal-title" className="text-lg font-bold text-slate-950 dark:text-white">{variant === "a" ? "A · Individual cards, not selected" : "B · Approved shared group card"}</h2><p className="mt-1 text-sm leading-5 text-slate-600 dark:text-slate-300">{variant === "a" ? "The unselected comparison keeps each revealed checkpoint in a separate card." : "One shared card holds each opened completed or later group. The external rail and one active card remain distinct."}</p></div><Timeline key={`${variant}-${scenario}-${expand ?? "none"}`} steps={fixture.view.ladder} metadata={fixture.metadata} hideValues={fixture.hideValues} variant={variant} initialExpand={expand} figures={planningCheckpointFigures(fixture.view)} /></section>
     <section aria-label="Fixture destination context" className="space-y-3">
       <section id="buffer" tabIndex={-1} className="scroll-mt-4 border-t border-slate-200 pt-4 dark:border-slate-700">
         <h2 className="text-sm font-semibold text-slate-900 dark:text-white">Buffer</h2>
