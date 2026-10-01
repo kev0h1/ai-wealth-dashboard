@@ -246,6 +246,8 @@ export async function linkAppleIdentity(): Promise<"ok" | "conflict" | "cancelle
 // google_mobile_callback's finish("error:invite_only") (see
 // backend/app/routers/auth.py) and /auth/mobile/poll's {status: "error",
 // error: "invite_only"} body.
+const BROWSER_OPEN_TIMEOUT_MS = 10_000;
+
 export async function nativeGoogleLogin(): Promise<"ok" | "invite_only" | "failed"> {
   // A133: the state is a bearer secret for the poll's replay window, so it
   // must be unguessable: 128 bits from the CSPRNG (backend accepts only
@@ -253,7 +255,17 @@ export async function nativeGoogleLogin(): Promise<"ok" | "invite_only" | "faile
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
   const state = "m" + Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-  await Browser.open({ url: `${API_BASE}/auth/google/mobile?state=${encodeURIComponent(state)}` });
+  // A133: Browser.open is bounded. A rejection is a failed sign-in; if it is
+  // merely slow (>10s) the poll loop starts anyway rather than waiting on it.
+  const opened = Browser.open({ url: `${API_BASE}/auth/google/mobile?state=${encodeURIComponent(state)}` }).then(
+    () => "opened" as const,
+    () => "rejected" as const,
+  );
+  const openResult = await Promise.race([
+    opened,
+    new Promise<"slow">((r) => setTimeout(() => r("slow"), BROWSER_OPEN_TIMEOUT_MS)),
+  ]);
+  if (openResult === "rejected") return "failed";
 
   async function pollOnce(): Promise<PollResult> {
     // A133: bounded, so one stuck request can never wedge the serialised loop.

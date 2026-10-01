@@ -113,5 +113,13 @@ await t("source: the login state is 128-bit crypto.getRandomValues, never Math.r
   assert.ok(!/const state[^;]*Math\.random/.test(fn) && !fn.slice(0, fn.indexOf("pollOnce")).includes("Math.random"));
 });
 
+await t("source: Browser.open is raced against a timeout; rejection fails, slow proceeds", () => {
+  const src = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../lib/nativeAuth.ts"), "utf8");
+  const fn = src.slice(src.indexOf("export async function nativeGoogleLogin"));
+  assert.ok(!/await Browser\.open/.test(fn), "no bare await Browser.open");
+  assert.ok(fn.includes("BROWSER_OPEN_TIMEOUT_MS") && fn.includes('"slow"'));
+  assert.ok(/openResult === "rejected"\) return "failed"/.test(fn));
+});
+
 if (failures) { console.error(failures + " failed"); process.exit(1); }
 console.log("mobile-login-loop: all passed");
