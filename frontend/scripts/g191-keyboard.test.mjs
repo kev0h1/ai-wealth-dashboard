@@ -1,0 +1,47 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import PennyComposer from "../components/PennyComposer.tsx";
+import { pennyViewport, pennyKeyboardVisible } from "../lib/pennyKeyboardViewport.ts";
+
+const browser = pennyViewport({ width: 390, height: 800 }, { width: 390, height: 480, top: 0, left: 0 });
+const native = pennyViewport({ width: 390, height: 480 }, { width: 390, height: 480, top: 0, left: 0 });
+assert.deepEqual(browser, native, "Already-resized WebViews and visual-only resizing yield one identical visible box");
+assert.equal(browser.top + browser.height, 480);
+const panned = pennyViewport({ width: 390, height: 800 }, { height: 420, top: 60 });
+assert.equal(panned.top + panned.height, 480, "Safari visual viewport panning is included once");
+assert.deepEqual(pennyViewport({ width: 390, height: 480 }), native, "No VisualViewport uses the native layout size");
+assert.equal(pennyKeyboardVisible(800, browser), true);
+assert.equal(pennyKeyboardVisible(800, pennyViewport({ width: 390, height: 750 })), false, "Small toolbar changes are not a keyboard");
+assert.equal(pennyKeyboardVisible(800, { ...browser, scale: 2 }), false, "Pinch zoom is not a keyboard");
+assert.equal(pennyViewport({ width: 320, height: 240 }, { width: 900, height: 1000, top: -10 }).height, 240);
+
+const props = { inputRef: { current: null }, value: "Draft question", onChange() {}, onSend() {}, placeholder: "Ask Penny", loading: false, atCap: false };
+const normal = renderToStaticMarkup(React.createElement(PennyComposer, props));
+assert.match(normal, /General information, not regulated financial advice/);
+assert.match(normal, /aria-label="Ask Penny a spending question"/);
+assert.match(normal, /maxLength="160"/);
+assert.match(normal, /Draft question/);
+assert.match(renderToStaticMarkup(React.createElement(PennyComposer, { ...props, loading: true })), /<input[^>]*disabled=""/, "The live caller retains its existing busy behaviour");
+assert.doesNotMatch(renderToStaticMarkup(React.createElement(PennyComposer, { ...props, loading: true, preserveFocus: true })), /<input[^>]*disabled=""/, "Proposed send does not dismiss the keyboard");
+assert.match(renderToStaticMarkup(React.createElement(PennyComposer, { ...props, loading: true, preserveFocus: true })), /<input[^>]*readOnly=""/);
+assert.match(renderToStaticMarkup(React.createElement(PennyComposer, { ...props, atCap: true, preserveFocus: true })), /<input[^>]*disabled=""/, "Message limits still disable input");
+
+const source = path => readFileSync(new URL(path, import.meta.url), "utf8");
+const live = source("../components/PennySheet.tsx");
+assert.match(live, /<PennySheetPanel isOpen=/);
+assert.doesNotMatch(live, /layout="dock"|layout="focus"/, "The live window does not opt in before approval");
+assert.match(source("../components/PennyConversation.tsx"), /<PennyComposer/);
+assert.doesNotMatch(source("../components/PennyConversation.tsx"), /preserveFocus/);
+const frame = source("../components/PennySheetPanel.tsx");
+assert.match(frame, /layout = "legacy"/);
+assert.doesNotMatch(frame, /keyboardHeight/, "Native keyboard heights are never added to an already-resized viewport");
+const preview = source("../app/design/penny-keyboard/PennyKeyboardClient.tsx");
+assert.match(preview, /PennySheetHeader, PennySheetPanel.*components\/PennySheet/);
+assert.match(preview, /<PennyComposer/);
+assert.doesNotMatch(preview, /\bapi\.|\bfetch\(/);
+assert.match(preview, /FixtureBottomNav/);
+assert.match(source("../components/BottomNav.tsx"), /data-penny-navigation/);
+assert.doesNotMatch(source("../app/layout.tsx").replace(/\/\/[^\n]*/g, ""), /maximumScale|userScalable/, "Pinch zoom remains enabled");
+console.log("G191 viewport, composer, fixture safety and unchanged live defaults passed");
