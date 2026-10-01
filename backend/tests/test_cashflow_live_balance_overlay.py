@@ -40,7 +40,11 @@ def _fixture(monkeypatch):
     monkeypatch.setattr(analytics, "cashflow_cache_col", _Col(cached))
     monkeypatch.setattr(analytics, "preferences_col", _Col({"user_id": UID}))
 
-    bills = [{"days_away": 3, "amount": 1498.31, "kind": "bill"}]
+    # Snapshot account_balance values are stale; acc9 is not in the live pool.
+    bills = [
+        {"days_away": 3, "amount": 1498.31, "kind": "bill", "account_id": "acc1", "account_balance": 1400.0},
+        {"days_away": 4, "amount": 0.0, "kind": "bill", "account_id": "acc9", "account_balance": 55.0},
+    ]
     income = [{"days_away": 5, "amount": 15.24}]
 
     async def build(cached_doc, uid=None, prefs=None):
@@ -54,10 +58,10 @@ def _fixture(monkeypatch):
     # Live: current accounts hold £1,747.51 across two accounts (+ a card in
     # debt that is excluded from the pool), savings £1,420.95.
     live = [
-        {"balance": 1000.00, "type": "bank", "subtype": "CURRENT", "currency": "GBP"},
-        {"balance": 747.51, "type": "bank", "subtype": "CURRENT", "currency": "GBP"},
-        {"balance": 1420.95, "type": "bank", "subtype": "SAVINGS", "currency": "GBP"},
-        {"balance": -200.0, "type": "card", "subtype": "CREDIT_CARD", "currency": "GBP"},
+        {"_id": "acc1", "balance": 1000.00, "type": "bank", "subtype": "CURRENT", "currency": "GBP"},
+        {"_id": "acc2", "balance": 747.51, "type": "bank", "subtype": "CURRENT", "currency": "GBP"},
+        {"_id": "sav", "balance": 1420.95, "type": "bank", "subtype": "SAVINGS", "currency": "GBP"},
+        {"_id": "card", "balance": -200.0, "type": "card", "subtype": "CREDIT_CARD", "currency": "GBP"},
     ]
 
     async def accounts(_uid):
@@ -139,3 +143,26 @@ def test_home_and_upcoming_start_from_the_same_figure_and_reconcile(monkeypatch)
     # On the stale snapshot the runway would have been £401.50 rosier:
     stale_runway = round(2149.01 + income_total - bills_total - allocations_remaining, 2)
     assert round(stale_runway - runway, 2) == 401.50
+
+
+def test_bill_account_balance_becomes_live_and_unknown_accounts_keep_snapshot(monkeypatch):
+    _fixture(monkeypatch)
+    resp = asyncio.run(analytics.get_cashflow({"email": UID}))
+    by_acct = {b["account_id"]: b["account_balance"] for b in resp["upcoming_bills"]}
+    assert by_acct["acc1"] == 1000.00   # live, not the 1400.0 snapshot
+    assert by_acct["acc9"] == 55.0      # not in the live pool: snapshot kept
+
+
+def test_balances_live_flag_true_on_success_false_on_failure(monkeypatch):
+    _fixture(monkeypatch)
+    assert asyncio.run(analytics.get_cashflow({"email": UID}))["balances_live"] is True
+
+    _fixture(monkeypatch)  # fresh bills: the builder stub shares its lists
+
+    async def boom(_uid):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(analytics, "_safe_to_spend_accounts", boom)
+    resp = asyncio.run(analytics.get_cashflow({"email": UID}))
+    assert resp["balances_live"] is False
+    assert resp["upcoming_bills"][0]["account_balance"] == 1400.0

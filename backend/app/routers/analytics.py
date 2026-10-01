@@ -21,7 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.auth import current_user
 from app.core.build import engine_build
-from app.core.config import OPENROUTER_API_KEY
+from app.core.config import OPENROUTER_API_KEY, mask_email
 from app.core.llm import openrouter_chat
 from app.core.models import KPIResponse, Insight
 from app.core import timeutil
@@ -1942,6 +1942,23 @@ def _live_pool_balances(accs: list[dict]) -> dict:
     """
     spendable, savings = _split_balances(accs)
     return {"spendable_balance": spendable, "savings_balance": savings}
+
+
+def _overlay_live_account_balances(resp: dict, accs: list[dict]) -> None:
+    """Replace each item's snapshot `account_balance` with its account's live
+    balance (G188), in one pass over the already-fetched account rows.
+
+    Upcoming's per-account walk seeds from these. An item whose account is
+    not in the live pool (e.g. a Yapily account whose consent was revoked, or
+    an item with no account) keeps its snapshot value: there is no live
+    figure to prefer, and dropping it would change the walk's inputs.
+    """
+    live = {str(a["_id"]): float(a.get("balance") or 0) for a in accs if a.get("_id") is not None}
+    for key in ("upcoming_bills", "upcoming_income", "observed_pending_bills"):
+        for item in resp.get(key) or []:
+            aid = item.get("account_id")
+            if aid is not None and str(aid) in live:
+                item["account_balance"] = live[str(aid)]
 
 
 def _safe_to_spend_lowest_projected_balance(
@@ -4634,9 +4651,16 @@ async def get_cashflow(user: dict = Depends(current_user)):
     # here), so no outer cache can serve a stale overlay. Failure-tolerant:
     # on error the cached snapshot stands, as before.
     try:
-        resp.update(_live_pool_balances(await _safe_to_spend_accounts(uid)))
-    except Exception:
-        logger.exception("live balance overlay failed for %s; serving cached snapshot", uid)
+        _live_accs = await _safe_to_spend_accounts(uid)
+        resp.update(_live_pool_balances(_live_accs))
+        _overlay_live_account_balances(resp, _live_accs)
+        resp["balances_live"] = True
+    except Exception as _e:
+        resp["balances_live"] = False
+        logger.error(
+            "live balance overlay failed for %s (%s); serving cached snapshot",
+            mask_email(uid), type(_e).__name__,
+        )
 
     # Augment with payday info
     from app.services.income import get_confirmed_payday as _gcp, derive_schedule as _ds, schedule_label as _sl, next_occurrence as _no
