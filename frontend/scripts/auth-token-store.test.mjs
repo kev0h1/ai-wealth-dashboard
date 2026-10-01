@@ -309,6 +309,37 @@ await t("(q) A133: default pluginImplemented reads Capacitor.PluginHeaders (abse
   assert.ok(/PluginHeaders/.test(src) && /name === "SecureStorage"/.test(src));
 });
 
+await t("(p4) A133: a plugin proxy that would spin the microtask queue is never invoked when the plugin is absent (hydrate, write, clear)", quiet(async () => {
+  // Models Capacitor 8's registerPlugin wrapper for a plugin with no native
+  // implementation: it re-queues itself via microtasks forever, so no timeout
+  // can ever fire. Here it just records the call and never settles; the real
+  // thing would hang the whole test process.
+  const calls = [];
+  const spin = (name) => (...a) => { calls.push(name); return new Promise(() => {}); };
+  const secure = { get: spin("get"), set: spin("set"), remove: spin("remove") };
+  let loads = 0;
+  const storage = fakeStorage({ [KEY]: "legacy" });
+  auth.__configureTokenStoreForTests({ isNative: () => true, loadSecure: async () => { loads++; return secure; }, pluginImplemented: () => false, storage: () => storage, timeoutMs: 20 });
+  await auth.hydrateToken();
+  assert.equal(auth.getToken(), "legacy");
+  assert.equal(await auth.setTokenAsync("signed-in"), true);
+  assert.equal(auth.getToken(), "signed-in");
+  assert.equal(storage.m.get(KEY), "signed-in");
+  auth.clearToken(); await auth.__tokenWritesSettled();
+  assert.deepEqual(calls, [], "no plugin method invoked");
+  assert.equal(loads, 0, "plugin module not even loaded");
+}));
+
+await t("(p5) A133: when the plugin IS listed but a native call never settles, the timeout (a macrotask) still fires on every path", quiet(async () => {
+  const hang = () => new Promise(() => {});
+  const secure = { get: hang, set: hang, remove: hang };
+  setup({ native: true, secure, storage: fakeStorage(), timeoutMs: 20 });
+  await auth.hydrateToken();
+  assert.equal(await auth.setTokenAsync("t"), false);
+  auth.clearToken(); await auth.__tokenWritesSettled();
+  assert.equal(auth.getToken(), null);
+}));
+
 await t("static guard: the storage key appears only in lib/auth.ts", () => {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
   const skip = new Set(["node_modules", ".next", ".next-prev", "scripts", "out", ".git"]);
