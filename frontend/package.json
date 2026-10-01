@@ -10,6 +10,7 @@
     "start": "next start",
     "lint": "eslint",
     "check:design-index": "node scripts/check-design-index.mjs",
+    "check:g192-sheet-anatomy": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g192-sheet-anatomy.test.mjs",
     "check:bank-logos": "node scripts/check-bank-logos.mjs",
     "check:design-no-live-data": "node scripts/check-design-no-live-data.mjs",
     "check:g176-preview": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g176-preview.test.mjs",

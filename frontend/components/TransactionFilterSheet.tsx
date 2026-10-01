@@ -11,7 +11,7 @@
 // account parameter (it deliberately spans every account), so a control
 // for it would be fake.
 
-import { useState } from "react";
+import { FormEvent, useState } from "react";
 import { X } from "lucide-react";
 import { useCategories } from "@/components/CategoriesContext";
 import type { SearchFilters } from "@/lib/transactionFilters";
@@ -53,18 +53,27 @@ export function draftFromFilters(f: SearchFilters): FilterDraft {
   };
 }
 
-export default function FilterSheet({
+export function TransactionFilterSheetContent({
   initial,
   onApply,
   onClearAll,
-  onClose,
+  categories: categoriesOverride,
+  includeIntroduction = true,
+  showActions = true,
+  formId,
 }: {
   initial: FilterDraft;
   onApply: (draft: FilterDraft) => void;
   onClearAll: () => void;
-  onClose: () => void;
+  /** Lets auth-free design previews provide fixture categories without fetching. */
+  categories?: string[];
+  includeIntroduction?: boolean;
+  /** SheetFrame owns the fixed footer in anatomy previews. */
+  showActions?: boolean;
+  formId?: string;
 }) {
   const { allCategories } = useCategories();
+  const categoriesForSheet = categoriesOverride ?? allCategories;
   const [categories, setCategories] = useState<string[]>(initial.categories);
   const [merchant, setMerchant] = useState(initial.merchant);
   const [from, setFrom] = useState<string | null>(initial.from);
@@ -90,30 +99,12 @@ export default function FilterSheet({
 
   const activePreset = DATE_PRESETS.find((p) => p.from === from && p.to === to) ?? null;
 
-  return (
-    <>
-      <div className="fixed inset-0 bg-black/40 z-[65] fade-in" onClick={onClose} />
-      <div
-        className="fixed left-1/2 -translate-x-1/2 w-full max-w-[500px] glass-sheet z-[70] overflow-y-auto bottom-0 rounded-t-3xl slide-up max-h-[88dvh] lg:bottom-auto lg:top-1/2 lg:-translate-y-1/2 lg:rounded-3xl lg:max-h-[85dvh] lg:shadow-2xl"
-        style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
-      >
-        <div className="flex justify-center pt-3 pb-1 lg:hidden">
-          <div className="w-10 h-1 bg-slate-200 dark:bg-slate-600 rounded-full" />
-        </div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close filters"
-          className="absolute top-3 right-3 w-11 h-11 flex items-center justify-center rounded-full text-slate-400 dark:text-slate-500 active:scale-95 motion-reduce:active:scale-100 transition-transform motion-reduce:transition-none"
-        >
-          <X size={18} />
-        </button>
-
-        <div className="px-5 pb-6 pt-1">
-          <h2 className="text-lg font-bold text-slate-950 dark:text-slate-50">Filter payments</h2>
+  function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); apply(); }
+  return <form id={formId} onSubmit={submit}>
+          {includeIntroduction ? <><h2 className="text-lg font-bold text-slate-950 dark:text-slate-50">Filter payments</h2>
           <p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400">
             Narrow the list. Applies to every group below, not just this page.
-          </p>
+          </p></> : null}
 
           {/* Direction */}
           <p className="mt-5 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">
@@ -163,6 +154,7 @@ export default function FilterSheet({
               <span className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">From</span>
               <input
                 type="date"
+                name="from"
                 value={from ?? ""}
                 onChange={(e) => setFrom(e.target.value || null)}
                 className="w-full h-11 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 px-3 text-[13px] text-slate-900 dark:text-slate-100 outline-none focus:ring-2 focus:ring-indigo-500"
@@ -172,6 +164,7 @@ export default function FilterSheet({
               <span className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">To</span>
               <input
                 type="date"
+                name="to"
                 value={to ?? ""}
                 onChange={(e) => setTo(e.target.value || null)}
                 className="w-full h-11 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 px-3 text-[13px] text-slate-900 dark:text-slate-100 outline-none focus:ring-2 focus:ring-indigo-500"
@@ -184,6 +177,9 @@ export default function FilterSheet({
             Merchant
           </p>
           <input
+            name="merchant"
+            aria-label="Merchant"
+            autoComplete="off"
             value={merchant}
             onChange={(e) => setMerchant(e.target.value)}
             placeholder="e.g. Tesco, Netflix"
@@ -199,7 +195,7 @@ export default function FilterSheet({
             Category
           </p>
           <div className="mt-2 flex flex-wrap gap-2">
-            {allCategories.map((c) => {
+            {categoriesForSheet.map((c) => {
               const active = categories.includes(c);
               return (
                 <button
@@ -218,8 +214,9 @@ export default function FilterSheet({
               );
             })}
           </div>
+          {categoriesForSheet.length === 0 && <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">No categories available. You can still filter by direction, date or merchant.</p>}
 
-          <div className="mt-6 flex items-center gap-3">
+          {showActions ? <div className="mt-6 flex items-center gap-3">
             <button
               type="button"
               onClick={clearAll}
@@ -228,15 +225,27 @@ export default function FilterSheet({
               Clear all
             </button>
             <button
-              type="button"
-              onClick={apply}
+              type="submit"
               className="flex-1 min-h-[44px] rounded-xl bg-indigo-600 text-white text-[14px] font-semibold active:scale-95 motion-reduce:active:scale-100 transition-transform motion-reduce:transition-none"
             >
               Show results
             </button>
-          </div>
-        </div>
-      </div>
-    </>
-  );
+          </div> : null}
+        </form>;
+}
+
+export default function FilterSheet({ initial, onApply, onClearAll, onClose }: {
+  initial: FilterDraft;
+  onApply: (draft: FilterDraft) => void;
+  onClearAll: () => void;
+  onClose: () => void;
+}) {
+  return <>
+    <div className="fixed inset-0 bg-black/40 z-[65] fade-in" onClick={onClose} />
+    <div className="fixed left-1/2 -translate-x-1/2 w-full max-w-[500px] glass-sheet z-[70] overflow-y-auto bottom-0 rounded-t-3xl slide-up max-h-[88dvh] lg:bottom-auto lg:top-1/2 lg:-translate-y-1/2 lg:rounded-3xl lg:max-h-[85dvh] lg:shadow-2xl" style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
+      <div className="flex justify-center pt-3 pb-1 lg:hidden"><div className="w-10 h-1 bg-slate-200 dark:bg-slate-600 rounded-full" /></div>
+      <button type="button" onClick={onClose} aria-label="Close filters" className="absolute top-3 right-3 w-11 h-11 flex items-center justify-center rounded-full text-slate-400 dark:text-slate-500 active:scale-95 motion-reduce:active:scale-100 transition-transform motion-reduce:transition-none"><X size={18} /></button>
+      <div className="px-5 pb-6 pt-1"><TransactionFilterSheetContent initial={initial} onApply={onApply} onClearAll={onClearAll} /></div>
+    </div>
+  </>;
 }
