@@ -227,6 +227,8 @@ This is a shared surface hierarchy, not a universal page template. Spend's chron
 ### Bottom Sheets (signature)
 Mobile-first detail surfaces (transactions, categories, pay-period settings): full-width, `rounded-t-3xl`, slide up in 280ms with `cubic-bezier(0.32, 0.72, 0, 1)` over a fading black/40 backdrop; on ≥sm they become centred `rounded-3xl` modals. Body scroll locks while open.
 
+**Shared anatomy, G192 design round (pending approval).** `/design/sheet-anatomy` compares a content-height sheet with a near-full-height task sheet. Both render `SheetFrame`: a solid surface portalled to `document.body` above navigation, a persistent title and plain 44px close control, an independently scrolling body, and a persistent action footer padded for the device safe area. The backdrop, close control, Escape and Back use one close path, restore focus and unlock the page. There is no decorative drag handle when no drag gesture exists. These previews centre at the app's current `lg` sheet breakpoint. Existing production shells remain unchanged until a direction is approved; the subsequent migration must replace the older breakpoint rule above and audit every sheet, including nested flows. Penny remains the separate G191 floating-window and keyboard workstream.
+
 ### Progress Bars (signature)
 The verdict instrument for budgets, goals, and plans: 4-10px tracks in slate-100/slate-700 with a rounded fill in the semantically correct colour (category colour, emerald when on-pace, amber when above pace, red when over). Pace markers are 2px slate ticks. Every budget, goal, and plan renders one.
 

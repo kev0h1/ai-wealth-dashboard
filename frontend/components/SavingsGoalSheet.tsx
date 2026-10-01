@@ -23,10 +23,18 @@ interface SavingsGoalSheetProps {
   onSaved: () => void;
 }
 
-export default function SavingsGoalSheet({ data, sym, hideValues, onClose, onSaved }: SavingsGoalSheetProps) {
-  useLockBodyScroll();
-  useSheetOpen();
+/** Inject the real API shape so auth-free fixtures exercise the same editor. */
+export type SavingsGoalOperations = Pick<typeof api,
+  "saveSavingsGoal" | "addSavingsManualAccount" | "updateSavingsManualAccount" | "deleteSavingsManualAccount">;
 
+/** The controller and form markup shared by the incumbent sheet and G192. */
+export function useSavingsGoalEditor({
+  data, sym, hideValues, onSaved, operations = api, onError, appearance = "legacy",
+}: Omit<SavingsGoalSheetProps, "onClose"> & {
+  operations?: SavingsGoalOperations;
+  onError?: (message: string) => void;
+  appearance?: "legacy" | "sheet";
+}) {
   const [targetChoice, setTargetChoice] = useState<"3" | "6" | "custom">(
     data?.target_type === "amount" ? "custom" : data?.target_months === 6 ? "6" : "3"
   );
@@ -54,10 +62,10 @@ export default function SavingsGoalSheet({ data, sym, hideValues, onClose, onSav
     setSavingManual(true);
     try {
       if (manualEditId) {
-        await api.updateSavingsManualAccount(manualEditId, { name, balance: bal });
+        await operations.updateSavingsManualAccount(manualEditId, { name, balance: bal });
       } else {
         const before = new Set((data?.accounts ?? []).map(a => a.account_id));
-        const res = await api.addSavingsManualAccount({ name, balance: bal });
+        const res = await operations.addSavingsManualAccount({ name, balance: bal });
         const created = res.accounts.find(a => !before.has(a.account_id));
         if (created) setSelected(s => s.includes(created.account_id) ? s : [...s, created.account_id]);
       }
@@ -66,33 +74,166 @@ export default function SavingsGoalSheet({ data, sym, hideValues, onClose, onSav
       setManualName("");
       setManualBalance("");
       onSaved();
-    } catch {} finally { setSavingManual(false); }
+    } catch { onError?.("We could not save the account. Your changes are still here. Try again."); }
+    finally { setSavingManual(false); }
   }
 
   async function removeManual(id: string) {
     try {
-      await api.deleteSavingsManualAccount(id);
+      await operations.deleteSavingsManualAccount(id);
       setSelected(s => s.filter(x => x !== id));
       onSaved();
-    } catch {}
+    } catch { onError?.("We could not remove the account. Try again."); }
   }
 
-  async function save() {
-    if (selected.length === 0) return;
+  async function save(close: () => void) {
+    if (selected.length === 0 || customInvalid || saving) return;
     setSaving(true);
     try {
       const body: SavingsGoalInput = targetChoice === "custom"
         ? { target_type: "amount", target_amount: Number(customAmount) || 0, account_ids: selected }
         : { target_type: "months", target_months: targetChoice === "6" ? 6 : 3, account_ids: selected };
-      await api.saveSavingsGoal(body);
+      await operations.saveSavingsGoal(body);
       onSaved();
-      onClose();
-    } catch {} finally { setSaving(false); }
+      close();
+    } catch { onError?.("We could not save the target. Your changes are still here. Try again."); }
+    finally { setSaving(false); }
   }
 
   const toggle = (id: string) => setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
   const customInvalid = targetChoice === "custom" && (!Number(customAmount) || Number(customAmount) <= 0);
   const accounts = data?.accounts ?? [];
+  const accent = appearance === "sheet" ? "#4f46e5" : "#059669";
+  const accentText = appearance === "sheet" ? "text-indigo-600 dark:text-indigo-300" : "text-emerald-600";
+
+  return {
+    body: (
+      <>
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-emerald-100 dark:bg-emerald-900/30">
+              <Shield className="w-5 h-5 text-emerald-600" />
+            </div>
+            <div className="flex-1">
+              <p className="text-base font-bold text-slate-900 dark:text-slate-100">Build your safety net</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
+                An emergency fund of 3–6 months&rsquo; spending protects you from surprises. Pick a target and the accounts that hold it.
+              </p>
+            </div>
+          </div>
+
+          <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-4 mb-2">Target size</p>
+          <div className="flex gap-2">
+            {([["3", "3 months"], ["6", "6 months"], ["custom", "Custom"]] as const).map(([v, label]) => (
+              <button type="button" key={v} aria-pressed={targetChoice === v} onClick={() => setTargetChoice(v)}
+                className={`flex-1 py-2 rounded-xl text-sm font-semibold border transition-colors ${
+                  targetChoice === v
+                    ? appearance === "sheet"
+                      ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300"
+                      : "bg-emerald-600 text-white border-emerald-600"
+                    : "border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300"}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+          {targetChoice !== "custom" && (data?.monthly_spending ?? 0) > 0 && (
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1.5">
+              ≈ <span className={appearance === "sheet" ? "font-mono tabular-nums" : undefined}>{hideValues ? "••••" : fmt((targetChoice === "6" ? 6 : 3) * (data?.monthly_spending ?? 0), sym)}</span> based on your spending
+            </p>
+          )}
+          {targetChoice === "custom" && (
+            <div className="mt-2 flex items-center gap-2 rounded-xl border border-slate-200 dark:border-slate-600 px-3 py-2">
+              <span className="text-slate-400 text-sm">{sym.trim() || sym}</span>
+              <input type="number" inputMode="decimal" name="target_amount" aria-label="Custom target amount" value={customAmount}
+                onChange={e => setCustomAmount(e.target.value)} placeholder="Amount"
+                className="flex-1 bg-transparent text-sm outline-none text-slate-900 dark:text-slate-100" />
+            </div>
+          )}
+
+          <button type="button" onClick={() => setAcctsOpen(o => !o)} aria-expanded={acctsOpen} className="w-full flex items-center justify-between mt-4 mb-2">
+            <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+              Accounts holding your savings{selected.length > 0 ? ` · ${selected.length} selected` : ""}
+            </span>
+            <ChevronDown size={16} className={`text-slate-500 dark:text-slate-400 transition-transform ${acctsOpen ? "rotate-180" : ""}`} />
+          </button>
+          {!acctsOpen && selected.length === 0 && (
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-1">Tap to choose where you keep your savings.</p>
+          )}
+          {acctsOpen && (<>
+          <div className="space-y-1.5">
+            {accounts.map(a => {
+              const on = selected.includes(a.account_id);
+              return (
+                <div key={a.account_id} className="flex items-center gap-1">
+                  <button type="button" aria-pressed={on} onClick={() => toggle(a.account_id)}
+                    className="flex-1 min-w-0 flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 text-left transition-colors"
+                    style={on ? { borderColor: accent, background: `${accent}10` } : undefined}>
+                    {on ? <CheckCircle2 className={`w-5 h-5 flex-shrink-0 ${accentText}`} /> : <Circle className="w-5 h-5 text-slate-300 dark:text-slate-600 flex-shrink-0" />}
+                    <span className="flex-1 min-w-0">
+                      <span className="block text-sm font-medium text-slate-700 dark:text-slate-200 truncate">{a.name}</span>
+                      <span className="block text-[11px] text-slate-500 dark:text-slate-400">{a.manual ? "Offline account" : a.provider}</span>
+                    </span>
+                    <span className={`text-sm font-semibold text-slate-600 dark:text-slate-300 ${appearance === "sheet" ? "font-mono tabular-nums" : ""}`}>{hideValues ? "••••" : fmt(a.balance, sym)}</span>
+                  </button>
+                  {a.manual && (
+                    <>
+                      <button type="button" onClick={() => openEditManual(a)} aria-label="Edit account" className="flex-shrink-0 p-2.5 text-slate-400 hover:text-emerald-600 transition-colors"><Pencil size={14} /></button>
+                      <button type="button" onClick={() => removeManual(a.account_id)} aria-label="Remove account" className="flex-shrink-0 p-2.5 text-slate-400 hover:text-red-500 transition-colors"><X size={14} /></button>
+                    </>
+                  )}
+                </div>
+              );
+            })}
+            {accounts.length === 0 && !showManualForm && (
+              <p className="text-sm text-slate-500 dark:text-slate-400">No connected accounts. Add an offline account to track savings you hold elsewhere.</p>
+            )}
+          </div>
+
+          {showManualForm ? (
+            <div className="mt-2 rounded-xl border border-slate-200 dark:border-slate-600 p-3 space-y-2">
+              <input name="account_name" aria-label="Account name" autoComplete="off" value={manualName} onChange={e => setManualName(e.target.value)} placeholder="Account name (e.g. Cash ISA)" maxLength={60}
+                className="w-full bg-transparent text-sm outline-none text-slate-900 dark:text-slate-100 border-b border-slate-200 dark:border-slate-600 pb-1.5" />
+              <div className="flex items-center gap-2 rounded-lg border border-slate-200 dark:border-slate-600 px-3 py-2">
+                <span className="text-slate-400 text-sm">{sym.trim() || sym}</span>
+                <input type="number" inputMode="decimal" name="account_balance" aria-label="Current balance" value={manualBalance} onChange={e => setManualBalance(e.target.value)} placeholder="Current balance"
+                  className="flex-1 bg-transparent text-sm outline-none text-slate-900 dark:text-slate-100" />
+              </div>
+              <div className="flex gap-2 pt-0.5">
+                <button type="button" onClick={() => { setShowManualForm(false); setManualEditId(null); }} className="px-3 py-2 rounded-lg text-sm font-semibold text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-600">Cancel</button>
+                <button type="button" onClick={saveManual} disabled={!manualName.trim() || !manualBalance || isNaN(Number(manualBalance)) || Number(manualBalance) < 0 || savingManual}
+                  className={`flex-1 py-2 rounded-lg text-white text-sm font-semibold disabled:opacity-40 active:scale-[0.98] transition-transform ${appearance === "sheet" ? "bg-indigo-600" : "bg-emerald-600"}`}>
+                  {savingManual ? "Saving…" : manualEditId ? "Save changes" : "Add account"}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button type="button" onClick={openAddManual} className={`mt-2 flex items-center gap-1 text-sm font-medium ${accentText}`}>
+              <Plus size={14} /> Add an offline account
+            </button>
+          )}
+          </>)}
+
+
+      </>
+    ),
+    footer: (close: () => void, pinned = false) => (
+          <div className={`flex gap-2 ${pinned ? "" : "mt-4"}`}>
+            <button type="button" onClick={close} className={`${pinned ? "min-h-11" : ""} px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-600`}>
+              Cancel
+            </button>
+            <button type="button" onClick={() => save(close)} disabled={selected.length === 0 || customInvalid || saving}
+              className={`flex-1 py-2.5 rounded-xl text-white text-sm font-semibold disabled:opacity-40 active:scale-[0.98] transition-transform ${pinned ? "min-h-11 bg-indigo-600" : "bg-emerald-600"}`}>
+              {saving ? "Saving…" : data?.configured ? "Update target" : "Start tracking"}
+            </button>
+          </div>
+    ),
+  };
+}
+
+export default function SavingsGoalSheet(props: SavingsGoalSheetProps) {
+  useLockBodyScroll();
+  useSheetOpen();
+  const { onClose } = props;
+  const editor = useSavingsGoalEditor(props);
 
   return createPortal(
     <>
@@ -117,7 +258,9 @@ export default function SavingsGoalSheet({ data, sym, hideValues, onClose, onSav
             Safety net goal
           </h2>
           <button
+            type="button"
             onClick={onClose}
+            aria-label="Close safety net goal"
             className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors flex-shrink-0"
           >
             <X size={16} color="#64748b" />
@@ -125,114 +268,8 @@ export default function SavingsGoalSheet({ data, sym, hideValues, onClose, onSav
         </div>
 
         <div className="px-5 pb-8 lg:pb-6">
-          <div className="flex items-start gap-3">
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-emerald-100 dark:bg-emerald-900/30">
-              <Shield className="w-5 h-5 text-emerald-600" />
-            </div>
-            <div className="flex-1">
-              <p className="text-base font-bold text-slate-900 dark:text-slate-100">Build your safety net</p>
-              <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
-                An emergency fund of 3–6 months&rsquo; spending protects you from surprises. Pick a target and the accounts that hold it.
-              </p>
-            </div>
-          </div>
-
-          <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-4 mb-2">Target size</p>
-          <div className="flex gap-2">
-            {([["3", "3 months"], ["6", "6 months"], ["custom", "Custom"]] as const).map(([v, label]) => (
-              <button key={v} onClick={() => setTargetChoice(v)}
-                className={`flex-1 py-2 rounded-xl text-sm font-semibold border transition-colors ${
-                  targetChoice === v ? "bg-emerald-600 text-white border-emerald-600" : "border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300"}`}>
-                {label}
-              </button>
-            ))}
-          </div>
-          {targetChoice !== "custom" && (data?.monthly_spending ?? 0) > 0 && (
-            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1.5">
-              ≈ {hideValues ? "••••" : fmt((targetChoice === "6" ? 6 : 3) * (data?.monthly_spending ?? 0), sym)} based on your spending
-            </p>
-          )}
-          {targetChoice === "custom" && (
-            <div className="mt-2 flex items-center gap-2 rounded-xl border border-slate-200 dark:border-slate-600 px-3 py-2">
-              <span className="text-slate-400 text-sm">{sym.trim() || sym}</span>
-              <input type="number" inputMode="decimal" value={customAmount}
-                onChange={e => setCustomAmount(e.target.value)} placeholder="Amount"
-                className="flex-1 bg-transparent text-sm outline-none text-slate-900 dark:text-slate-100" />
-            </div>
-          )}
-
-          <button type="button" onClick={() => setAcctsOpen(o => !o)} aria-expanded={acctsOpen} className="w-full flex items-center justify-between mt-4 mb-2">
-            <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
-              Accounts holding your savings{selected.length > 0 ? ` · ${selected.length} selected` : ""}
-            </span>
-            <ChevronDown size={16} className={`text-slate-500 dark:text-slate-400 transition-transform ${acctsOpen ? "rotate-180" : ""}`} />
-          </button>
-          {!acctsOpen && selected.length === 0 && (
-            <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-1">Tap to choose where you keep your savings.</p>
-          )}
-          {acctsOpen && (<>
-          <div className="space-y-1.5">
-            {accounts.map(a => {
-              const on = selected.includes(a.account_id);
-              return (
-                <div key={a.account_id} className="flex items-center gap-1">
-                  <button onClick={() => toggle(a.account_id)}
-                    className="flex-1 min-w-0 flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 text-left transition-colors"
-                    style={on ? { borderColor: "#059669", background: "#05966910" } : undefined}>
-                    {on ? <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0" /> : <Circle className="w-5 h-5 text-slate-300 dark:text-slate-600 flex-shrink-0" />}
-                    <span className="flex-1 min-w-0">
-                      <span className="block text-sm font-medium text-slate-700 dark:text-slate-200 truncate">{a.name}</span>
-                      <span className="block text-[11px] text-slate-500 dark:text-slate-400">{a.manual ? "Offline account" : a.provider}</span>
-                    </span>
-                    <span className="text-sm font-semibold text-slate-600 dark:text-slate-300">{hideValues ? "••••" : fmt(a.balance, sym)}</span>
-                  </button>
-                  {a.manual && (
-                    <>
-                      <button onClick={() => openEditManual(a)} aria-label="Edit account" className="flex-shrink-0 p-2.5 text-slate-400 hover:text-emerald-600 transition-colors"><Pencil size={14} /></button>
-                      <button onClick={() => removeManual(a.account_id)} aria-label="Remove account" className="flex-shrink-0 p-2.5 text-slate-400 hover:text-red-500 transition-colors"><X size={14} /></button>
-                    </>
-                  )}
-                </div>
-              );
-            })}
-            {accounts.length === 0 && !showManualForm && (
-              <p className="text-sm text-slate-500 dark:text-slate-400">No connected accounts. Add an offline account to track savings you hold elsewhere.</p>
-            )}
-          </div>
-
-          {showManualForm ? (
-            <div className="mt-2 rounded-xl border border-slate-200 dark:border-slate-600 p-3 space-y-2">
-              <input value={manualName} onChange={e => setManualName(e.target.value)} placeholder="Account name (e.g. Cash ISA)" maxLength={60}
-                className="w-full bg-transparent text-sm outline-none text-slate-900 dark:text-slate-100 border-b border-slate-200 dark:border-slate-600 pb-1.5" />
-              <div className="flex items-center gap-2 rounded-lg border border-slate-200 dark:border-slate-600 px-3 py-2">
-                <span className="text-slate-400 text-sm">{sym.trim() || sym}</span>
-                <input type="number" inputMode="decimal" value={manualBalance} onChange={e => setManualBalance(e.target.value)} placeholder="Current balance"
-                  className="flex-1 bg-transparent text-sm outline-none text-slate-900 dark:text-slate-100" />
-              </div>
-              <div className="flex gap-2 pt-0.5">
-                <button onClick={() => { setShowManualForm(false); setManualEditId(null); }} className="px-3 py-2 rounded-lg text-sm font-semibold text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-600">Cancel</button>
-                <button onClick={saveManual} disabled={!manualName.trim() || !manualBalance || isNaN(Number(manualBalance)) || Number(manualBalance) < 0 || savingManual}
-                  className="flex-1 py-2 rounded-lg text-white text-sm font-semibold bg-emerald-600 disabled:opacity-40 active:scale-[0.98] transition-all">
-                  {savingManual ? "Saving…" : manualEditId ? "Save changes" : "Add account"}
-                </button>
-              </div>
-            </div>
-          ) : (
-            <button onClick={openAddManual} className="mt-2 flex items-center gap-1 text-sm font-medium text-emerald-600">
-              <Plus size={14} /> Add an offline account
-            </button>
-          )}
-          </>)}
-
-          <div className="flex gap-2 mt-4">
-            <button onClick={onClose} className="px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-600">
-              Cancel
-            </button>
-            <button onClick={save} disabled={selected.length === 0 || customInvalid || saving}
-              className="flex-1 py-2.5 rounded-xl text-white text-sm font-semibold bg-emerald-600 disabled:opacity-40 active:scale-[0.98] transition-all">
-              {saving ? "Saving…" : data?.configured ? "Update target" : "Start tracking"}
-            </button>
-          </div>
+          {editor.body}
+          {editor.footer(onClose)}
         </div>
       </div>
     </>,
