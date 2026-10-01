@@ -3,18 +3,19 @@
 import { useId, useState } from "react";
 import { ChevronDown, CircleAlert, Info } from "lucide-react";
 import TransactionRow from "@/components/TransactionRow";
-import type { SpendPaceHeroProps } from "@/components/SpendPaceHero";
+import SpendPaceHero, { type SpendPaceHeroProps } from "@/components/SpendPaceHero";
 import { spendHeroModel, spendHeroMoney } from "@/lib/spendHero";
 
-/** Unapproved visual proposals only. Production retains SpendPaceHero.
- * Both proposals use its real presentation model and unchanged operands.
- */
-export default function SpendHeroScale({ variant, verdict, incomeTxns, incomeLoading = false, onIncomeOpen, onTransactionClick, onOutTap, onMovedTap }: SpendPaceHeroProps & { variant: "a" | "b" }) {
+/** B renders the approved production component; A is the unselected proposal. */
+export default function SpendHeroScale({ variant, ...props }: SpendPaceHeroProps & { variant: "a" | "b" }) {
+  return variant === "b" ? <SpendPaceHero {...props} /> : <HeadingLedProposal {...props} />;
+}
+
+function HeadingLedProposal({ verdict, incomeTxns, incomeLoading = false, onIncomeOpen, onTransactionClick, onOutTap, onMovedTap }: SpendPaceHeroProps) {
   const [incomeOpen, setIncomeOpen] = useState(false);
   const incomeId = useId();
   if (!verdict) return null;
   const model = spendHeroModel(verdict);
-  const labelLed = variant === "b";
   const out = spendHeroMoney(verdict.pills.spent);
   const amountSize = out.length > 15 ? "text-xl" : out.length > 13 ? "text-2xl" : "text-[30px]";
   const label = "text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-500 dark:text-slate-400";
@@ -22,16 +23,16 @@ export default function SpendHeroScale({ variant, verdict, incomeTxns, incomeLoa
   const flow = `${action} inline-flex items-center gap-1 text-left font-mono text-base font-semibold tabular-nums text-slate-900 hover:text-indigo-700 dark:text-slate-100 dark:hover:text-indigo-300`;
   const period = verdict.period.closed ? "Completed pay period" : "This pay period";
 
-  return <section data-g186-scale={variant} className="glass-hero min-w-0 rounded-3xl p-5 shadow-sm sm:p-6" aria-label={`${period} spending summary`}>
+  return <section data-g186-scale="a" className="glass-hero min-w-0 rounded-3xl p-5 shadow-sm sm:p-6" aria-label={`${period} spending summary`}>
     <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-      <h2 className={labelLed ? label : "text-base font-bold text-slate-950 dark:text-white"}>{labelLed ? verdict.period.closed ? "Out in completed period" : "Out this pay period" : period}</h2>
+      <h2 className="text-base font-bold text-slate-950 dark:text-white">{period}</h2>
       <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold text-slate-700 dark:text-slate-200 ${model.direction === "above" ? "bg-amber-50 dark:bg-amber-400/10" : "bg-slate-100 dark:bg-slate-700"}`}>
         {model.direction === "above" ? <CircleAlert size={13} className="text-amber-600 dark:text-amber-400" aria-hidden="true" /> : <Info size={13} className="text-slate-500 dark:text-slate-300" aria-hidden="true" />}
         {model.status}
       </span>
     </div>
-    <div className={labelLed ? "mt-3" : "mt-4"}>
-      {!labelLed && <p className={label}>Out</p>}
+    <div className="mt-4">
+      <p className={label}>Out</p>
       <button data-out-amount type="button" onClick={onOutTap} aria-label={`Show spending behind ${out} out`} className={`${action} ${amountSize} whitespace-nowrap text-left font-mono font-bold leading-tight tracking-[-0.025em] tabular-nums text-slate-950 dark:text-white`}>{out}</button>
       <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Day {verdict.period.days_elapsed}{model.totalDays != null ? ` of ${model.totalDays}` : ""}</p>
     </div>

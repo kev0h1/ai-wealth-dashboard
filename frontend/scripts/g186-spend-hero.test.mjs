@@ -39,7 +39,7 @@ assert.doesNotMatch(page, /<SpendJourneySummary/);
 assert.doesNotMatch(client, /function PaceHero\(/, "Approved A cannot retain a copy of the production markup");
 assert.match(client, /import SpendJourneyNav/);
 assert.match(client, /data-production-summary="true"/);
-assert.match(hero, /data-g186-hero="a"/);
+assert.match(hero, /data-g186-hero="b"/);
 assert.match(client, /data-g186-hero="b"/);
 assert.match(client, /data-g186-hero="c"/);
 assert.match(client, /Transfers are shown separately/);
