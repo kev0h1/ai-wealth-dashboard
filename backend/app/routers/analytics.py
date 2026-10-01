@@ -21,7 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.auth import current_user
 from app.core.build import engine_build
-from app.core.config import OPENROUTER_API_KEY
+from app.core.config import OPENROUTER_API_KEY, mask_email
 from app.core.llm import openrouter_chat
 from app.core.models import KPIResponse, Insight
 from app.core import timeutil
@@ -1928,6 +1928,37 @@ def _split_balances(accs: list[dict]) -> tuple[float, float]:
         else:
             spendable += bal
     return round(spendable, 2), round(savings, 2)
+
+
+def _live_pool_balances(accs: list[dict]) -> dict:
+    """The ONE live spendable/savings figure pair (G188).
+
+    Home's Safe-to-Spend seeds its walk from it and `GET /cashflow` overlays
+    it onto the cached response, so Home and Upcoming's runway start from the
+    same live cash. `cashflow_cache_col` holds a balance SNAPSHOT from the
+    last recompute; money that left an account after it would otherwise still
+    count on Upcoming while the bill that took it has already dropped out of
+    the upcoming list, so the runway double-counted.
+    """
+    spendable, savings = _split_balances(accs)
+    return {"spendable_balance": spendable, "savings_balance": savings}
+
+
+def _overlay_live_account_balances(resp: dict, accs: list[dict]) -> None:
+    """Replace each item's snapshot `account_balance` with its account's live
+    balance (G188), in one pass over the already-fetched account rows.
+
+    Upcoming's per-account walk seeds from these. An item whose account is
+    not in the live pool (e.g. a Yapily account whose consent was revoked, or
+    an item with no account) keeps its snapshot value: there is no live
+    figure to prefer, and dropping it would change the walk's inputs.
+    """
+    live = {str(a["_id"]): float(a.get("balance") or 0) for a in accs if a.get("_id") is not None}
+    for key in ("upcoming_bills", "upcoming_income", "observed_pending_bills"):
+        for item in resp.get(key) or []:
+            aid = item.get("account_id")
+            if aid is not None and str(aid) in live:
+                item["account_balance"] = live[str(aid)]
 
 
 def _safe_to_spend_lowest_projected_balance(
@@ -4615,6 +4646,22 @@ async def get_cashflow(user: dict = Depends(current_user)):
         await cashflow_cache_col.update_one({"_id": uid}, {"$set": data}, upsert=True)
         resp = await _build_cashflow_response(data, uid=uid)
 
+    # G188: overlay LIVE pool balances onto the cached snapshot, through the
+    # same helper Safe-to-Spend seeds from. Read per request (never cached
+    # here), so no outer cache can serve a stale overlay. Failure-tolerant:
+    # on error the cached snapshot stands, as before.
+    try:
+        _live_accs = await _safe_to_spend_accounts(uid)
+        resp.update(_live_pool_balances(_live_accs))
+        _overlay_live_account_balances(resp, _live_accs)
+        resp["balances_live"] = True
+    except Exception as _e:
+        resp["balances_live"] = False
+        logger.error(
+            "live balance overlay failed for %s (%s); serving cached snapshot",
+            mask_email(uid), type(_e).__name__,
+        )
+
     # Augment with payday info
     from app.services.income import get_confirmed_payday as _gcp, derive_schedule as _ds, schedule_label as _sl, next_occurrence as _no
     from app.services.pay_period import _next_payday as _calc_np
@@ -4806,7 +4853,7 @@ async def compute_safe_to_spend(uid: str) -> dict:
     # Shared with the Planning runway (_split_balances) so the two surfaces
     # can never diverge; savings_total is unused here — the hero shows a
     # single spendable figure, not a savings breakout.
-    spendable_cash, _ = _split_balances(all_accs_raw)
+    spendable_cash = _live_pool_balances(all_accs_raw)["spendable_balance"]
 
     card_debt_total = 0.0
     for acc in all_accs_raw:
