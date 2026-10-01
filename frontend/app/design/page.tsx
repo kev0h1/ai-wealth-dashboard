@@ -616,7 +616,7 @@ const ROUTES: PreviewRoute[] = [
     slug: "planning-ladder-timeline",
     name: "Planning checkpoint timeline · G187",
     description:
-      "G187 revised, skill: impeccable · A individual cards for expanded checkpoints, B a shared card for each expanded group · Completed and later priorities still fold in place; expanded evidence now shares the active checkpoint's rounded glass treatment · Production GrowHero, jump strip and current ladder supplied fixture props for comparison; timeline remains preview-only · ?variant=a|b&expand=done|later|all&scenario=buffer|debt|goals|done|empty|hidden|long|attention|neutral&mode=light|dark",
+      "G187 approved B, skill: impeccable · Shared production PlanningCheckpointTimeline: one card per expanded completed/later group with 16px either side of its dividers · External rail, live figures, original detail/options and privacy retained · B imports the production component; A is the unselected comparison · ?variant=b|a&expand=done|later|all&scenario=buffer|debt|goals|done|empty|hidden|long|attention|neutral&mode=light|dark",
     variants: [
       { label: "A · Individual cards", value: "a" },
       { label: "B · Grouped cards", value: "b" },
