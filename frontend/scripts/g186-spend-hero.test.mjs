@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { fixture, incomeFor, STATES } from "../app/design/spend-hero/fixtures.ts";
+import SpendPaceHero from "../components/SpendPaceHero.tsx";
+import { spendHeroModel, spendHeroMoney } from "../lib/spendHero.ts";
 
 const normal = fixture("normal");
 assert.ok(normal);
@@ -24,10 +28,17 @@ assert.equal(fixture("error"), null);
 assert.ok(STATES.length >= 12);
 
 const client = readFileSync(new URL("../app/design/spend-hero/SpendHeroClient.tsx", import.meta.url), "utf8");
+const hero = readFileSync(new URL("../components/SpendPaceHero.tsx", import.meta.url), "utf8");
+const page = readFileSync(new URL("../app/components/SpendPage.tsx", import.meta.url), "utf8");
 assert.match(client, /import \{ SpendJourneySummary \} from "@\/components\/SpendHeader"/);
+assert.match(client, /import SpendPaceHero from "@\/components\/SpendPaceHero"/);
+assert.match(page, /import SpendPaceHero from "@\/components\/SpendPaceHero"/);
+assert.match(page, /<SpendPaceHero/);
+assert.doesNotMatch(page, /<SpendJourneySummary/);
+assert.doesNotMatch(client, /function PaceHero\(/, "Approved A cannot retain a copy of the production markup");
 assert.match(client, /import SpendJourneyNav/);
 assert.match(client, /data-production-summary="true"/);
-assert.match(client, /data-g186-hero="a"/);
+assert.match(hero, /data-g186-hero="a"/);
 assert.match(client, /data-g186-hero="b"/);
 assert.match(client, /data-g186-hero="c"/);
 assert.match(client, /Transfers are shown separately/);
@@ -55,5 +66,36 @@ for (const { id } of STATES) {
 assert.match(client, /onMovedTap: \(\) => jump\("g186-moved"\)/);
 assert.match(client, /id="g186-moved"/);
 assert.match(client, /shell\.style\.overflowX = "clip"/);
+assert.match(page, /shell\.style\.overflowX = "clip"/);
+assert.match(page, /shell\.style\.overflowX = previous/);
+assert.match(page, /prefers-reduced-motion: reduce/);
+
+const noOp = () => {};
+const render = (verdict) => renderToStaticMarkup(React.createElement(SpendPaceHero, { verdict, incomeTxns: [], onTransactionClick: noOp, onOutTap: noOp, onMovedTap: noOp }));
+const html = render(normal);
+assert.equal((html.match(/class="glass-hero\b/g) ?? []).length, 1, "Only one hero instrument");
+assert.match(html, /Below usual/);
+assert.match(html, /£501/);
+assert.doesNotMatch(html, /Two categories are running/, "Hero does not repeat the category-specific reading as an overall verdict");
+assert.match(html, /Show income payments/);
+assert.match(html, /Show money moved separately/);
+assert.match(html, /How Out adds up/);
+assert.match(html, /Moved separately is not included in Out/);
+assert.equal(spendHeroModel(normal).other, 2598);
+assert.equal(spendHeroModel(fixture("everything")).direction, "above");
+assert.equal(spendHeroModel(fixture("nothing")).difference, -4010, "A genuine zero-spend baseline is not discarded");
+assert.equal(spendHeroModel({ ...normal, state: "early" }).usual, null, "Early live payloads can have numeric pace points but must not claim reliability");
+assert.equal(spendHeroModel({ ...normal, state: "nobaseline" }).usual, null);
+assert.equal(spendHeroModel({ ...normal, pace_series: [...normal.pace_series, { day: 21, actual: 3509, usual: null }] }).usual, 4010, "Uses the existing latest non-null baseline");
+assert.equal(spendHeroModel({ ...normal, period: { ...normal.period, days_elapsed: 7, days_left: 7 } }).totalDays, 14, "No hard-coded monthly period length");
+assert.equal(spendHeroModel({ ...normal, moved_total: undefined }).moved, 500, "Older payloads use the existing moved rows");
+assert.doesNotMatch(render(fixture("nomoved")), /Show money moved separately/, "No dead moved destination");
+assert.match(render(fixture("closed")), /Completed pay period/);
+assert.doesNotMatch(render(fixture("early")), /above usual pace|below usual pace/);
+assert.equal(render(null), "", "No invented figures while loading");
+assert.equal(spendHeroMoney(-0.001), "£0");
+assert.equal(spendHeroMoney(-12.34), "−£12.34");
+assert.equal(spendHeroMoney(1234567.89), "£1,234,567.89");
+assert.equal(spendHeroModel({ ...normal, pills: { ...normal.pills, spent: 4010 + 1e-10 } }).direction, "level");
 
 console.log("G186 Spend hero fixture and production-boundary checks passed");

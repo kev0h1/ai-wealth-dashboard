@@ -27,7 +27,8 @@ import { isHomeCurrency } from "@/lib/currency";
 import { CategoryData } from "@/components/CategoryRow";
 import Spinner from "@/components/Spinner";
 import SpendVerdictView from "@/components/SpendVerdictView";
-import { SpendJourneySummary, SpendPeriodBar, type RecentPeriodOption, SpendHeroSkeleton } from "@/components/SpendHeader";
+import { SpendPeriodBar, type RecentPeriodOption, SpendHeroSkeleton } from "@/components/SpendHeader";
+import SpendPaceHero from "@/components/SpendPaceHero";
 import SpendJourneyNav, { type SpendJourneyDestination } from "@/components/SpendJourneyNav";
 import PayPeriodSettingsSheet, { formatPeriodLocal } from "@/components/PayPeriodSettingsSheet";
 import { consumeSpendUiState, writeSpendUiState, SpendUiState } from "@/lib/spendUiState";
@@ -229,6 +230,14 @@ function SpendSkeleton() {
 
 export default function SpendPage() {
   const { payPeriodConfig, setPayPeriodConfig, rawPrefs, hideNetWorth, spendWidgets } = usePreferences();
+  // Keep the journey's mobile strip attached to the viewport. This is
+  // scoped to Spend's mounted lifetime, not an app-wide overflow change.
+  useEffect(() => {
+    const shell = document.getElementById("app-shell");
+    const previous = shell?.style.overflowX ?? "";
+    if (shell) shell.style.overflowX = "clip";
+    return () => { if (shell) shell.style.overflowX = previous; };
+  }, []);
   const { colours } = useColours();
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -440,21 +449,27 @@ export default function SpendPage() {
   // effect fires whenever the prop is non-null, so 0 would force-expand on
   // the very first render before any tap.
   const [expandSignal, setExpandSignal] = useState<number | undefined>(undefined);
+  function focusJourneySection(id: string, block: ScrollLogicalPosition = "start") {
+    const section = document.getElementById(id);
+    if (!section) return;
+    section.focus({ preventScroll: true });
+    section.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block });
+  }
   function handleOutTap() {
     setExpandSignal((s) => (s ?? 0) + 1);
-    document.getElementById("spend-majority-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    focusJourneySection("spend-majority-section");
   }
 
   // "Moved" tap's Show Your Working destination — scroll to the "Money you
   // moved" block, which now carries id="spend-money-moved" (SpendVerdictView).
   function handleMovedTap() {
-    document.getElementById("spend-money-moved")?.scrollIntoView({ behavior: "smooth", block: "center" });
+    focusJourneySection("spend-money-moved", "center");
   }
 
   // OUT-pill footnote tap's Show Your Working destination — the ask/whisper
   // block for the unresolved bucket, id="spend-unresolved" (SpendVerdictView).
   function handleUnresolvedTap() {
-    document.getElementById("spend-unresolved")?.scrollIntoView({ behavior: "smooth", block: "center" });
+    focusJourneySection("spend-unresolved", "center");
   }
 
   // ── Spend card resolve-in-place lifecycle (approved spend-bridge spec) ──
@@ -1081,23 +1096,15 @@ export default function SpendPage() {
 
       <div className="mt-7 grid min-w-0 items-start gap-5 lg:grid-cols-[minmax(260px,0.72fr)_minmax(0,1.45fr)] lg:gap-14">
         <section aria-label="Pay period summary" className="min-w-0 lg:sticky lg:top-6">
-          <SpendJourneySummary
+          <SpendPaceHero
+            key={verdict?.period.start ?? "loading"}
             verdict={verdict}
-            periodLabel={formatPeriodLocal(periodStart, periodEnd)}
-            isCurrentPeriod={isCurrentPeriod}
-            canGoPrev={canGoPrev}
-            onPrev={handlePrev}
-            onNext={handleNext}
-            onOpenSettings={() => setSettingsOpen(true)}
-            onOpenRules={() => setRulesOpen(true)}
             incomeTxns={incomeTxns}
+            incomeLoading={txLoading}
             onIncomeOpen={() => setTransactionsRequested(true)}
             onTransactionClick={(tx) => { setAskHandoffTxId(null); setSelectedTx(tx); }}
             onOutTap={handleOutTap}
             onMovedTap={handleMovedTap}
-            onUnresolvedTap={handleUnresolvedTap}
-            recentPeriods={recentPeriods}
-            onSelectOffset={handleSelectOffset}
           />
           {verdict && <div className="mt-5 hidden lg:block"><SpendJourneyNav destinations={journeyDestinations} desktop /></div>}
         </section>
