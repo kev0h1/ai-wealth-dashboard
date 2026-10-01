@@ -616,10 +616,10 @@ const ROUTES: PreviewRoute[] = [
     slug: "planning-ladder-timeline",
     name: "Planning checkpoint timeline · G187",
     description:
-      "G187, skill: impeccable · A focused canvas checkpoints, B figure-led checkpoints · Completed and later priorities fold in place; only the active priority is a card · Production GrowHero, jump strip and current ladder supplied real fixture props for comparison; proposed timeline markup is preview-only · No period rung, no live data and no production changes · ?variant=a|b&scenario=buffer|debt|goals|done|empty|hidden|long|attention|neutral&mode=light|dark",
+      "G187 revised, skill: impeccable · A individual cards for expanded checkpoints, B a shared card for each expanded group · Completed and later priorities still fold in place; expanded evidence now shares the active checkpoint's rounded glass treatment · Production GrowHero, jump strip and current ladder supplied fixture props for comparison; timeline remains preview-only · ?variant=a|b&expand=done|later|all&scenario=buffer|debt|goals|done|empty|hidden|long|attention|neutral&mode=light|dark",
     variants: [
-      { label: "A · Focused checkpoints", value: "a" },
-      { label: "B · Figure-led checkpoints", value: "b" },
+      { label: "A · Individual cards", value: "a" },
+      { label: "B · Grouped cards", value: "b" },
     ],
     states: [
       { label: "Active buffer", value: "buffer" },
