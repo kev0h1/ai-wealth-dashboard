@@ -32,6 +32,9 @@ export interface SecureStore {
 export interface TokenStoreEnv {
   isNative: () => boolean;
   loadSecure: () => Promise<SecureStore>;
+  // A133: true when this binary has the native SecureStorage plugin compiled
+  // in. See pluginMissing() below for why this is checked up front.
+  pluginImplemented: () => boolean;
   storage: () => Pick<Storage, "getItem" | "setItem" | "removeItem"> | null;
   timeoutMs: number;
 }
@@ -47,6 +50,15 @@ const defaultEnv: TokenStoreEnv = {
     // @ts-ignore
     const mod = await import("@aparajita/capacitor-secure-storage");
     return (mod as unknown as { SecureStorage: SecureStore }).SecureStorage;
+  },
+  pluginImplemented: () => {
+    // Capacitor injects PluginHeaders (one entry per natively-registered
+    // plugin) before any page JS runs. If the array is absent we cannot
+    // tell, so assume implemented (the secure path is the safe default).
+    try {
+      const headers = (Capacitor as unknown as { PluginHeaders?: Array<{ name: string }> }).PluginHeaders;
+      return Array.isArray(headers) ? headers.some((h) => h.name === "SecureStorage") : true;
+    } catch { return true; }
   },
   storage: () => {
     try { return typeof window === "undefined" ? null : window.localStorage; } catch { return null; }
@@ -67,6 +79,33 @@ function legacyGet(): string | null {
 }
 function legacyRemove() {
   try { env.storage()?.removeItem(TOKEN_KEY); } catch {}
+}
+
+// A133 (Kevin to confirm, remove once every installed binary has the plugin):
+// the ONE place that decides whether to fall back to the pre-A123
+// localStorage token store. True only when the native SecureStorage plugin is
+// genuinely absent from this binary (or a call surfaced the UNIMPLEMENTED
+// error); a timeout or any other error is NOT a reason to fall back.
+//
+// Checked up front rather than only from the error, because with Capacitor
+// 8 and @aparajita/capacitor-secure-storage 8.0.1 a call to a plugin the
+// native side does not implement never rejects: registerPlugin's wrapper
+// re-invokes itself in an endless microtask loop (the JS impl's methods are
+// the proxy's own wrappers), which freezes the JS thread and starves every
+// setTimeout, so withTimeout could not rescue it either.
+let _pluginWarned = false;
+function pluginMissing(err?: unknown): boolean {
+  let missing = false;
+  try { missing = !env.pluginImplemented(); } catch {}
+  if (!missing && err !== undefined) {
+    const e = err as { code?: unknown; message?: unknown } | null;
+    missing = !!e && (e.code === "UNIMPLEMENTED" || /not implemented/i.test(String(e.message ?? "")));
+  }
+  if (missing && !_pluginWarned) {
+    _pluginWarned = true;
+    console.warn("[auth] A123/A133: native secure-storage plugin not implemented in this binary; using localStorage token store until the app is updated");
+  }
+  return missing;
 }
 
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
@@ -95,7 +134,7 @@ async function doHydrate(): Promise<void> {
   const startEpoch = _epoch;
   const assign = (t: string | null) => { if (_epoch === startEpoch) _memoryToken = t; };
 
-  if (!env.isNative()) {
+  if (!env.isNative() || pluginMissing()) {
     assign(legacyGet());
     return;
   }
@@ -113,6 +152,7 @@ async function doHydrate(): Promise<void> {
       env.timeoutMs,
     );
   } catch (err) {
+    if (pluginMissing(err)) { assign(legacyGet()); return; }
     // Read error or timeout: signed out. Deliberately NO localStorage
     // fallback here, and the legacy value is left alone for a later launch.
     console.warn("[auth] secure token read failed", err);
@@ -160,21 +200,33 @@ export function hydrateToken(): Promise<void> {
   return _hydrating;
 }
 
-// Resolves true once the token is durably stored (or trivially on web).
+// Resolves true once the token is durably stored (or trivially on web), false
+// if the durable write failed or timed out. NEVER rejects and never blocks
+// sign-in: the token is in memory before anything is awaited (A133), so a
+// stuck Keychain write only costs persistence across launches, not the login.
 export function setTokenAsync(token: string): Promise<boolean> {
   _epoch++;
   _memoryToken = token;
-  if (!env.isNative()) {
+  if (!env.isNative() || pluginMissing()) {
     try { env.storage()?.setItem(TOKEN_KEY, token); } catch {}
     return Promise.resolve(true);
   }
   return queueWrite(async () => {
     try {
-      const secure = await env.loadSecure();
-      await secure.set(TOKEN_KEY, token, false, false, KEYCHAIN_WHEN_UNLOCKED_THIS_DEVICE_ONLY);
+      await withTimeout(
+        (async () => {
+          const secure = await env.loadSecure();
+          await secure.set(TOKEN_KEY, token, false, false, KEYCHAIN_WHEN_UNLOCKED_THIS_DEVICE_ONLY);
+        })(),
+        env.timeoutMs,
+      );
       return true;
     } catch (err) {
-      console.warn("[auth] secure token write failed", err);
+      if (pluginMissing(err)) {
+        try { env.storage()?.setItem(TOKEN_KEY, token); } catch {}
+        return true;
+      }
+      console.warn("[auth] secure token write failed or timed out; token kept in memory only", err);
       return false;
     }
   });
@@ -188,11 +240,16 @@ export function clearToken() {
   _epoch++;
   _memoryToken = null;
   legacyRemove();
-  if (env.isNative()) {
+  if (env.isNative() && !pluginMissing()) {
     void queueWrite(async () => {
       try {
-        const secure = await env.loadSecure();
-        await secure.remove(TOKEN_KEY, false);
+        await withTimeout(
+          (async () => {
+            const secure = await env.loadSecure();
+            await secure.remove(TOKEN_KEY, false);
+          })(),
+          env.timeoutMs,
+        );
       } catch (err) {
         console.warn("[auth] secure token remove failed", err);
       }
@@ -207,6 +264,7 @@ export function __configureTokenStoreForTests(next: Partial<TokenStoreEnv> | nul
   _hydrating = null;
   _epoch = 0;
   _writeChain = Promise.resolve();
+  _pluginWarned = false;
 }
 export function __tokenWritesSettled(): Promise<unknown> {
   return _writeChain;
