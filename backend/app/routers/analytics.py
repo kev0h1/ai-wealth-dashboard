@@ -1930,6 +1930,20 @@ def _split_balances(accs: list[dict]) -> tuple[float, float]:
     return round(spendable, 2), round(savings, 2)
 
 
+def _live_pool_balances(accs: list[dict]) -> dict:
+    """The ONE live spendable/savings figure pair (G188).
+
+    Home's Safe-to-Spend seeds its walk from it and `GET /cashflow` overlays
+    it onto the cached response, so Home and Upcoming's runway start from the
+    same live cash. `cashflow_cache_col` holds a balance SNAPSHOT from the
+    last recompute; money that left an account after it would otherwise still
+    count on Upcoming while the bill that took it has already dropped out of
+    the upcoming list, so the runway double-counted.
+    """
+    spendable, savings = _split_balances(accs)
+    return {"spendable_balance": spendable, "savings_balance": savings}
+
+
 def _safe_to_spend_lowest_projected_balance(
     spendable_cash: float, bills: list[dict], income: list[dict],
 ) -> float:
@@ -4615,6 +4629,15 @@ async def get_cashflow(user: dict = Depends(current_user)):
         await cashflow_cache_col.update_one({"_id": uid}, {"$set": data}, upsert=True)
         resp = await _build_cashflow_response(data, uid=uid)
 
+    # G188: overlay LIVE pool balances onto the cached snapshot, through the
+    # same helper Safe-to-Spend seeds from. Read per request (never cached
+    # here), so no outer cache can serve a stale overlay. Failure-tolerant:
+    # on error the cached snapshot stands, as before.
+    try:
+        resp.update(_live_pool_balances(await _safe_to_spend_accounts(uid)))
+    except Exception:
+        logger.exception("live balance overlay failed for %s; serving cached snapshot", uid)
+
     # Augment with payday info
     from app.services.income import get_confirmed_payday as _gcp, derive_schedule as _ds, schedule_label as _sl, next_occurrence as _no
     from app.services.pay_period import _next_payday as _calc_np
@@ -4806,7 +4829,7 @@ async def compute_safe_to_spend(uid: str) -> dict:
     # Shared with the Planning runway (_split_balances) so the two surfaces
     # can never diverge; savings_total is unused here — the hero shows a
     # single spendable figure, not a savings breakout.
-    spendable_cash, _ = _split_balances(all_accs_raw)
+    spendable_cash = _live_pool_balances(all_accs_raw)["spendable_balance"]
 
     card_debt_total = 0.0
     for acc in all_accs_raw:
