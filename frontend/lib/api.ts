@@ -263,6 +263,8 @@ export type CashflowData = {
   available_balance: number;
   /** Spendable cash only (excludes savings) — same pool as the Home Safe-to-Spend hero. Absent on caches computed before this field existed. */
   spendable_balance?: number | null;
+  /** G188: true when spendable/savings (and per-item account_balance) were overlaid with live balances; false when the overlay failed and the cached snapshot is served. */
+  balances_live?: boolean;
   /** Savings-account balances, shown as a separate quiet line — never silently folded into runway. */
   savings_balance?: number;
   next_payday: string | null;
