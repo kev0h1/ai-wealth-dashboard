@@ -794,7 +794,7 @@ const ROUTES: PreviewRoute[] = [
     slug: "spend-hero",
     name: "Spend hero consistency · G186",
     description:
-      "G186, skill: impeccable · A pace-led Out hero, B the existing production In/Out/Moved summary in one hero, C the production summary on canvas with aligned typography · Coordinated with G140 evidence copy · Invented fixtures only; A and evidence are proposed markup, B/C render SpendJourneySummary through real props · Sticky journey navigation retained · Production unchanged pending selection · ?variant=a|b|c&state=normal|everything|nothing|nobaseline|early|closed|unplaced|nomoved|empty|loading|error|long&mode=light|dark",
+      "G186, skill: impeccable · Approved A renders the production SpendPaceHero with invented fixture props, including its working and income disclosures · B and C retain the previous SpendJourneySummary for comparison · Evidence sections here remain illustrative; the approved G140 preview renders the production pace ledger · Sticky journey navigation retained · ?variant=a|b|c&state=normal|everything|nothing|nobaseline|early|closed|unplaced|nomoved|empty|loading|error|long&mode=light|dark",
     variants: [
       { label: "A · Pace instrument", value: "a" },
       { label: "B · Existing summary", value: "b" },
