@@ -1,15 +1,16 @@
 "use client";
 
-// Preview-only G140 copy round. It deliberately models the existing client
-// arithmetic and does not import or alter the production Spend verdict view.
-// G186 owns the placement of the single standalone pace verdict. These two
-// treatments only explore the evidence which can sit beneath it.
+// G140 copy round. G186 owns the placement of the single standalone pace
+// verdict. Approved A imports the production evidence beneath it, while B
+// remains an unselected, preview-only explanation treatment.
 
 import { useEffect } from "react";
 import Link from "next/link";
 import { Info, TriangleAlert } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import MoneyText from "@/components/MoneyText";
+import SpendPaceEvidence from "@/components/SpendPaceEvidence";
+import type { SpendVerdictNotable } from "@/lib/api";
 import { derivePaceCopy, formatMoney } from "./copyModel";
 import { PACE_COPY_FIXTURES, PACE_COPY_STATES, type PaceCopyState } from "./fixtures";
 
@@ -44,37 +45,31 @@ function PaceVerdict({ headline, baselineLine, verdict }: { headline: string; ba
 
 function LedgerTreatment({ state }: { state: PaceCopyState }) {
   const fixture = PACE_COPY_FIXTURES[state];
-  const copy = derivePaceCopy(fixture);
-  const unavailable = copy.verdict === "unavailable";
+  // Variant A is deliberately the production component, supplied with the
+  // same fixture values as the preview copy model. This route therefore
+  // catches any drift from the approved ledger rather than redrawing it.
+  const notables: SpendVerdictNotable[] = fixture.namedCategories.map((category, index) => ({
+    category,
+    spent: 0,
+    multiple: 0,
+    excess: index === 0 ? fixture.namedExcess : 0,
+    payments_count: 0,
+    cause: [],
+    pace: { spent: 0, usual_by_now: 0 },
+  }));
 
   return (
-    <section aria-labelledby="ledger-heading" className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:shadow-none">
-      <PaceVerdict headline={copy.headline} baselineLine={copy.baselineLine} verdict={copy.verdict} />
-      <h2 id="ledger-heading" className="mt-5 text-base font-bold text-slate-950 dark:text-white">How this compares with usual</h2>
-      {!unavailable && (
-        <>
-          <dl className="mt-2 divide-y divide-slate-100 border-y border-slate-100 dark:divide-slate-700 dark:border-slate-700">
-            {copy.namedLabel && copy.namedExcess !== null && (
-              <div className="flex items-start justify-between gap-4 py-3">
-                <dt className="text-[13px] leading-5 text-slate-700 dark:text-slate-300">{copy.namedLabel}</dt>
-                <dd><SignedAmount value={copy.namedExcess} positive /></dd>
-              </div>
-            )}
-            {copy.residual !== null && (
-              <div className="flex items-start justify-between gap-4 py-3">
-                <dt className="text-[13px] leading-5 text-slate-700 dark:text-slate-300">Other differences</dt>
-                <dd><SignedAmount value={copy.residual} positive /></dd>
-              </div>
-            )}
-            <div className="flex items-center justify-between gap-4 py-3">
-              <dt className="text-[13px] font-bold text-slate-950 dark:text-white">{copy.totalLabel}</dt>
-              <dd><SignedAmount value={copy.total ?? 0} positive /></dd>
-            </div>
-          </dl>
-          {copy.residualCaption && <p className="mt-3 text-[12px] leading-5 text-slate-600 dark:text-slate-400"><MoneyText text={copy.residualCaption} /></p>}
-        </>
-      )}
-    </section>
+    <>
+      <p className="text-[13px] leading-5 text-slate-600 dark:text-slate-300">In the journey, G186&apos;s hero gives the one overall pace verdict. This is its evidence below.</p>
+      {fixture.usualByNow === null && <p className="mt-4 text-sm text-slate-600 dark:text-slate-300">No pace comparison is shown without a reliable baseline.</p>}
+      <SpendPaceEvidence
+        daysElapsed={fixture.daysElapsed}
+        spent={fixture.actualOut}
+        paceSeries={fixture.usualByNow === null ? [] : [{ day: fixture.daysElapsed, actual: fixture.actualOut, usual: fixture.usualByNow }]}
+        notables={notables}
+        unresolvedTotal={fixture.unresolvedTotal}
+      />
+    </>
   );
 }
 
@@ -138,7 +133,7 @@ export default function SpendPaceCopyClient() {
       <div className="mx-auto max-w-[430px]">
         <header>
           <h1 className="text-2xl font-bold tracking-[-0.025em]">Spend pace copy</h1>
-          <p className="mt-2 text-[13px] leading-5 text-slate-600 dark:text-slate-300">G140 proposal only. It preserves the current arithmetic while testing clearer evidence language below the G186 verdict.</p>
+          <p className="mt-2 text-[13px] leading-5 text-slate-600 dark:text-slate-300">Approved A renders the production evidence below G186&apos;s single pace verdict. B remains an unselected proposal.</p>
         </header>
 
         <nav aria-label="Copy treatment" className="mt-5 grid grid-cols-2 gap-2">
