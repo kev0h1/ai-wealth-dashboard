@@ -41,11 +41,9 @@ import { fmtWhole as fmtAimWhole, daysLabel } from "@/lib/aimFormat";
 import { formatDate } from "@/lib/payPeriod";
 import MoneyText from "@/components/MoneyText";
 import { openTipsFor, tipSubline } from "@/lib/spendTips";
+import SpendPaceEvidence from "@/components/SpendPaceEvidence";
 
-// − U+2212, never ASCII hyphen-minus, for money (copy rule).
-const MINUS = "−";
 const fmt = (n: number) => `£${Math.round(n).toLocaleString("en-GB")}`;
-const fmtSigned = (n: number) => `${n < 0 ? MINUS : ""}£${Math.abs(Math.round(n)).toLocaleString("en-GB")}`;
 
 const MOVED_ICON: Record<SpendVerdictMoved["kind"], LucideIcon> = {
   pots: PiggyBank,
@@ -1125,11 +1123,6 @@ export default function SpendVerdictView({ verdict, colours, onOpenCategory, cat
   const visibleRows = majorityExpanded ? nonZeroRows : nonZeroRows.slice(0, MAJORITY_COLLAPSE_AT);
   const hiddenCount = nonZeroRows.length - visibleRows.length;
   const headerSum = nonZeroRows.reduce((s, r) => s + r.spent, 0);
-  const latestPace = [...(verdict.pace_series ?? [])].reverse().find((point) => point.usual != null);
-  const usualByNow = latestPace?.usual ?? null;
-  const paceDelta = usualByNow == null ? null : pills.spent - usualByNow;
-  const attentionChange = notables.reduce((sum, item) => sum + Math.max(0, item.excess), 0);
-  const elsewhereChange = paceDelta == null ? null : paceDelta - attentionChange;
 
   const showAskCard = unresolved.ask_worthy && !askDismissed && unresolved.largest != null;
 
@@ -1188,36 +1181,16 @@ export default function SpendVerdictView({ verdict, colours, onOpenCategory, cat
           >
             {journey && (
               <>
-                <span aria-hidden="true" className="absolute -left-8 top-1 size-6 rounded-full border-[6px] border-amber-400 bg-white ring-4 ring-[#f0f2f7] dark:bg-slate-900 dark:ring-[#0f172a] sm:-left-10" />
+                <span aria-hidden="true" className="absolute -left-8 top-1 size-6 rounded-full border-[6px] border-slate-300 bg-white ring-4 ring-[#f0f2f7] dark:border-slate-500 dark:bg-slate-900 dark:ring-[#0f172a] sm:-left-10" />
                 <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-slate-600 dark:text-slate-400">Today · day {daysElapsed}</p>
-                <h2 className="mt-2 text-balance text-2xl font-bold tracking-[-0.025em] text-slate-950 dark:text-white">
-                  {paceDelta != null && paceDelta > 0
-                    ? <>Why you spent <span className="font-mono tabular-nums">{fmtSigned(paceDelta)}</span> more than usual</>
-                    : paceDelta != null && paceDelta < 0
-                      ? <>Why you spent <span className="font-mono tabular-nums">{fmtSigned(Math.abs(paceDelta))}</span> less than usual</>
-                      : "What changed your pace"}
-                </h2>
-                {usualByNow != null && (
-                  <p className="mt-2 text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-300">
-                    You have spent <span className="font-mono tabular-nums">{fmt(pills.spent)}</span> by day {daysElapsed}, against a usual <span className="font-mono tabular-nums">{fmt(usualByNow)}</span>.
-                  </p>
-                )}
-                {paceDelta != null && elsewhereChange != null && (
-                  <dl className="mt-4 divide-y divide-slate-200 rounded-2xl border border-slate-200 bg-white px-4 shadow-sm dark:divide-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:shadow-none">
-                    <div className="flex min-h-12 items-center justify-between gap-4 py-2 text-[12px]">
-                      <dt className="text-slate-600 dark:text-slate-300">More across {notables.length} categor{notables.length === 1 ? "y" : "ies"}</dt>
-                      <dd className="font-mono font-bold tabular-nums text-slate-900 dark:text-white">{fmt(attentionChange)}</dd>
-                    </div>
-                    <div className="flex min-h-12 items-center justify-between gap-4 py-2 text-[12px]">
-                      <dt className="text-slate-600 dark:text-slate-300">{elsewhereChange < 0 ? "Less" : "More"} across everything else</dt>
-                      <dd className="font-mono font-bold tabular-nums text-slate-900 dark:text-white">{fmtSigned(elsewhereChange)}</dd>
-                    </div>
-                    <div className="flex min-h-12 items-center justify-between gap-4 py-2 text-[13px]">
-                      <dt className="font-bold text-slate-900 dark:text-white">{paceDelta < 0 ? "Less than usual overall" : "More than usual overall"}</dt>
-                      <dd className="font-mono font-bold tabular-nums text-slate-900 dark:text-white">{fmtSigned(paceDelta)}</dd>
-                    </div>
-                  </dl>
-                )}
+                <SpendPaceEvidence
+                  daysElapsed={daysElapsed}
+                  spent={pills.spent}
+                  paceSeries={verdict.pace_series}
+                  notables={notables}
+                  unresolvedTotal={unresolved.total}
+                  state={state}
+                />
               </>
             )}
             {!journey && (

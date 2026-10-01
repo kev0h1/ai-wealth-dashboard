@@ -816,7 +816,7 @@ const ROUTES: PreviewRoute[] = [
     slug: "spend-pace-copy",
     name: "Spend pace explanation · G140",
     description:
-      "G140, skill: impeccable clarify · A named-category signed ledger, B short explanation with signed reconciliation · Coordinated with G186: one pace verdict, named category differences, a clearly calculated balancing amount and a plain-language definition of usual · Invented fixtures and proposed hand-authored markup, not the production verdict component; current arithmetic preserved with no production or backend changes · ?variant=a|b&state=under|over|level|balanced|unplaced|long|none|baseline&mode=light|dark",
+      "G140, skill: impeccable clarify · Approved A renders the production SpendPaceEvidence with invented fixtures; B remains an unselected copy proposal · Coordinated with G186: the hero speaks the pace verdict once, the named-category ledger explains the signed difference and calculated remainder · Existing arithmetic and backend unchanged · ?variant=a|b&state=under|over|level|balanced|unplaced|long|none|baseline&mode=light|dark",
     variants: [
       { label: "A · Named ledger", value: "a" },
       { label: "B · Short explanation", value: "b" },
