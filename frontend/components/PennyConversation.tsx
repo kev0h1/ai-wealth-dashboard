@@ -115,10 +115,11 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Send, Loader2, X, ChevronRight } from "lucide-react";
+import { X, ChevronRight } from "lucide-react";
 import { api, CanIOffer, CanISuggestionChip, PennyLimitError, PennyProposal, ScenarioItem } from "@/lib/api";
 import { BRAND_GRADIENT } from "@/lib/brand";
 import PennyMark from "@/components/PennyMark";
+import PennyComposer from "@/components/PennyComposer";
 import CommitmentSheet from "@/components/CommitmentSheet";
 import MoneyText from "@/components/MoneyText";
 import ChatMarkdown from "@/components/ChatMarkdown";
@@ -1944,57 +1945,11 @@ export default function PennyConversation({
   // `chipId` chip's own `sendChip` never touches `loading`/`atCap` disabling
   // — see that function's own comment).
   const restingPlaceholder = `Penny is resting until ${formatPennyResetDate(usage.resetsOn)}`;
-  const composerContent = (
-    <>
-      <div className="flex items-center gap-2">
-        <input
-          ref={inputRef}
-          type="text"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && send(input)}
-          placeholder={atCap ? restingPlaceholder : placeholder}
-          aria-label="Ask Penny a spending question"
-          maxLength={160}
-          disabled={loading || atCap}
-          className="flex-1 min-h-[44px] text-sm bg-slate-50 dark:bg-slate-700 dark:text-slate-100 rounded-full px-4 py-2 outline-none border border-slate-200 dark:border-slate-600 focus:border-violet-300 disabled:opacity-60"
-        />
-        <button
-          onClick={() => send(input)}
-          disabled={!input.trim() || loading || atCap}
-          aria-label="Ask Penny"
-          className="flex-shrink-0 w-11 h-11 rounded-full flex items-center justify-center disabled:opacity-40 text-white active:scale-95 transition-transform"
-          style={{ background: BG }}
-        >
-          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-        </button>
-      </div>
-      {/* Disclaimer + (sheet mode, at-cap only) "Get more messages" link on
-          the SAME row (2026-09-06, matching the approved design preview's
-          own A2 composer) — no new row added just for the cap state. Full
-          width when there's no link, so this is a no-op layout change for
-          every other state. */}
-      <div className="flex items-center justify-between gap-2 mt-1.5">
-        <p className="text-[11px] leading-snug text-slate-500 dark:text-slate-400 min-w-0">
-          General information, not regulated financial advice.
-        </p>
-        {inSheet && atCap && (
-          <button
-            type="button"
-            onClick={openMoreMessagesSheet}
-            className="flex-shrink-0 text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 underline decoration-dotted underline-offset-2 whitespace-nowrap flex items-center justify-center"
-            // 44px tap target via padding + a compensating negative margin
-            // (same idiom as SuggestionChip's own dismiss-X, and the design
-            // preview's identical link), so this doesn't grow the row's
-            // visual height beyond the disclaimer text's own line height.
-            style={{ minHeight: 44, minWidth: 44, padding: "14px 4px", margin: "-14px -4px -14px 0" }}
-          >
-            Get more messages
-          </button>
-        )}
-      </div>
-    </>
-  );
+  const composerContent = <PennyComposer
+    inputRef={inputRef} value={input} onChange={setInput} onSend={() => send(input)}
+    placeholder={atCap ? restingPlaceholder : placeholder} loading={loading} atCap={atCap}
+    onMoreMessages={inSheet ? openMoreMessagesSheet : undefined}
+  />;
   // Full-page mode's own floating surface (see the comment above for why it
   // still needs one) — sheet mode never uses this, it mounts
   // `composerContent` bare instead. See the render below.

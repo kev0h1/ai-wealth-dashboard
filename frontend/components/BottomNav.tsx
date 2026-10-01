@@ -157,6 +157,7 @@ export default function BottomNav() {
           the floating rail/Penny, instead of visibly colliding with them.
           Non-interactive: purely a backdrop fade. */}
       <div
+        data-penny-navigation
         aria-hidden="true"
         className="nav-scrim lg:hidden fixed inset-x-0 bottom-0 z-40 h-[116px] pointer-events-none"
       />
@@ -177,6 +178,7 @@ export default function BottomNav() {
           like it's navigating again: it isn't meant to, check
           PennySheetProvider.tsx first. */}
       <nav
+        data-penny-navigation
         data-tutorial-id="tutorial-bottom-nav"
         aria-label="Primary"
         className="lg:hidden fixed inset-x-0 z-50 flex justify-center"
