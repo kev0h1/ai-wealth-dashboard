@@ -1,16 +1,13 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
-import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { BANK_META, BankBadge, bankKey, bankLogoSrc } from "@/components/AccountMiniCard";
 import { RadioDot } from "@/components/PlanOneOffSheet";
 import { api, BtOffer, CardPromo, CardPromoKind, CardTermsCard, CardTermsLookup } from "@/lib/api";
 import { usePreferences } from "@/components/PreferencesContext";
-import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
-import { useSheetA11y } from "@/lib/useSheetA11y";
-import { useSheetOpen } from "@/lib/useSheetOpen";
 import Spinner from "@/components/Spinner";
 import MoneyText from "@/components/MoneyText";
+import { SheetFrame } from "@/components/SheetFrame";
 
 interface CardTermsSheetProps {
   /** All the user's credit cards, from GET /card-terms */
@@ -128,17 +125,10 @@ function validateBtOffers(rows: BtOfferDraft[], btOffer: boolean | null, setErro
 }
 
 export default function CardTermsSheet({ cards, ready, startAccountId, onClose, onSaved }: CardTermsSheetProps) {
-  useLockBodyScroll();
-  useSheetOpen();
-  const panelRef = useSheetA11y<HTMLDivElement>(onClose);
   const { hideNetWorth } = usePreferences();
 
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
-
-  const reduceMotion =
-    typeof window !== "undefined" &&
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   // Single-card session (pill tap) or the full walk (deep link / ask card).
   const sequence = useMemo(
@@ -778,75 +768,31 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
     </div>
   );
 
-  return createPortal(
-    <>
-      {/* Backdrop — the page behind blurs via #app-shell.sheet-open (useSheetOpen) */}
-      <div
-        className="fixed inset-0 bg-black/40 z-[65] fade-in"
-        onClick={onClose}
-        aria-hidden="true"
-      />
-
-      {/* Sheet */}
-      <div
-        ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Card rates"
-        className="fixed inset-x-0 bottom-0 z-[70]"
-        style={reduceMotion ? undefined : { animation: "slideUpSheet 280ms cubic-bezier(0.32, 0.72, 0, 1) both" }}
-      >
-        <div className="mx-auto w-full max-w-[500px] glass-sheet rounded-t-3xl max-h-[85dvh] flex flex-col">
-          {/* Drag handle */}
-          <div className="flex justify-center pt-3 pb-1 flex-shrink-0">
-            <div className="w-10 h-1 bg-slate-200 dark:bg-slate-600 rounded-full" />
-          </div>
-
-          {/* Header */}
-          <div className="flex items-center gap-3 px-5 pt-2 pb-3 flex-shrink-0">
-            {!finished && current && chip ? (
-              <>
-                <span className="flex-shrink-0">
-                  <BankBadge
-                    logoSrc={chip.logoSrc}
-                    initials={chip.initials}
-                    initialsSize={chip.initialsSize}
-                    altText={chip.label}
-                    brandBg={chip.bg}
-                  />
-                </span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-base font-semibold text-slate-900 dark:text-slate-100 truncate">
-                    {current.name}
-                  </p>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 num">
-                    <MoneyText text={`${balanceStr} on it`} />
-                    {total > 1 && <span> · {index + 1} of {total}</span>}
-                  </p>
-                </div>
-              </>
-            ) : (
-              <div className="flex-1 min-w-0">
-                <p className="text-base font-semibold text-slate-900 dark:text-slate-100">Card rates</p>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  So plans can work with what each card really costs.
-                </p>
-              </div>
-            )}
-            <button
-              onClick={onClose}
-              aria-label="Close"
-              className="w-10 h-10 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 flex-shrink-0 ml-2 active:bg-slate-200 dark:active:bg-slate-600 transition-colors focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2"
-            >
-              <X size={15} />
-            </button>
-          </div>
-
-          {/* Scrollable body */}
-          <div
-            className="overflow-y-auto flex-1 px-5 space-y-4"
-            style={{ paddingBottom: showFooterSave || (!finished && current) ? "1rem" : "calc(1.5rem + env(safe-area-inset-bottom, 0px))" }}
-          >
+  return (
+    <SheetFrame
+      title={!finished && current ? current.name : "Card rates"}
+      description={!finished && current ? <><MoneyText text={`${balanceStr} on it`} />{total > 1 && <span> · {index + 1} of {total}</span>}</> : "So plans can work with what each card really costs."}
+      leading={!finished && current && chip ? <BankBadge logoSrc={chip.logoSrc} initials={chip.initials} initialsSize={chip.initialsSize} altText={chip.label} brandBg={chip.bg} /> : undefined}
+      onClose={onClose}
+      dismissDisabled={saving !== null}
+      footer={({ close }) => {
+        if (finished || (ready && !current)) {
+          return <button type="button" onClick={close} className="w-full rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white active:scale-95">Done</button>;
+        }
+        if (!finished && ready && current && phase !== "loading") {
+          return <div className="flex items-center gap-2">
+            <button type="button" onClick={handleLater} disabled={saving !== null} className="rounded-xl px-4 py-2 text-sm font-semibold text-slate-500 active:scale-95 disabled:opacity-50 dark:text-slate-400">{saving === "later" ? "Noting…" : "Later"}</button>
+            <div className="flex-1" />
+            {phase === "found" && !showRateInput ? (
+              <button type="button" onClick={handleUseLookupRate} disabled={saving !== null} className="rounded-xl bg-indigo-600 px-8 py-2 text-sm font-semibold text-white active:scale-95 disabled:opacity-60">{saving === "save" ? "Saving…" : `Use ${fmtApr(foundApr!)}%`}</button>
+            ) : showFooterSave ? (
+              <button type="button" onClick={handleSave} disabled={saving !== null} className="rounded-xl bg-indigo-600 px-8 py-2 text-sm font-semibold text-white active:scale-95 disabled:opacity-60">{saving === "save" ? "Saving…" : "Save"}</button>
+            ) : null}
+          </div>;
+        }
+        return null;
+      }}
+    >
             {!ready ? (
               <div className="flex items-center justify-center py-12">
                 <Spinner size={28} />
@@ -859,12 +805,6 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
                     {closingLine}
                   </p>
                 </div>
-                <button
-                  onClick={onClose}
-                  className="w-full min-h-[48px] rounded-xl bg-indigo-600 text-white text-sm font-semibold active:scale-95 transition-transform focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-                >
-                  Done
-                </button>
               </div>
             ) : !current ? (
               /* No credit cards at all */
@@ -872,12 +812,6 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
                 <p className="text-sm text-slate-700 dark:text-slate-200 leading-relaxed">
                   No credit cards connected, there&apos;s nothing to add here.
                 </p>
-                <button
-                  onClick={onClose}
-                  className="w-full min-h-[48px] rounded-xl bg-indigo-600 text-white text-sm font-semibold active:scale-95 transition-transform focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-                >
-                  Done
-                </button>
               </div>
             ) : phase === "loading" ? (
               <div className="space-y-2 py-2" aria-live="polite">
@@ -894,14 +828,6 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
                   rate, so yours may differ. Is it close?
                 </p>
                 <div className="space-y-2">
-                  <button
-                    type="button"
-                    onClick={handleUseLookupRate}
-                    disabled={saving !== null}
-                    className="w-full min-h-[48px] rounded-xl bg-indigo-600 text-white text-sm font-semibold active:scale-95 transition-transform disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-                  >
-                    {saving === "save" ? "Saving…" : `Use ${fmtApr(foundApr!)}%`}
-                  </button>
                   {!showRateInput && (
                     <button
                       type="button"
@@ -981,38 +907,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
                 {error}
               </p>
             )}
-          </div>
 
-          {/* Footer — Save advances; Later records the skip and advances */}
-          {!finished && ready && current && phase !== "loading" && (
-            <div
-              className="flex-shrink-0 px-5 pt-3 flex items-center gap-2 border-t border-slate-100 dark:border-slate-700/60"
-              style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom, 0px))" }}
-            >
-              <button
-                type="button"
-                onClick={handleLater}
-                disabled={saving !== null}
-                className="min-h-[48px] px-4 rounded-xl text-sm font-semibold text-slate-500 dark:text-slate-400 active:opacity-70 transition-opacity disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-              >
-                {saving === "later" ? "Noting…" : "Later"}
-              </button>
-              <div className="flex-1" />
-              {showFooterSave && (
-                <button
-                  type="button"
-                  onClick={handleSave}
-                  disabled={saving !== null}
-                  className="min-h-[48px] px-8 rounded-xl bg-indigo-600 text-white text-sm font-semibold active:scale-95 transition-transform disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-                >
-                  {saving === "save" ? "Saving…" : "Save"}
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-    </>,
-    document.body
+    </SheetFrame>
   );
 }

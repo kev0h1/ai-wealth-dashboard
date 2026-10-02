@@ -16,18 +16,15 @@
 // cross-file references were updated where they pointed at that file itself.
 
 import { useState, useCallback, useRef, useId, type ReactNode } from "react";
-import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import {
   Bookmark, BookmarkCheck, ChevronDown, ChevronRight, CheckCircle2, Circle,
-  RotateCcw, ExternalLink, SlidersHorizontal, X, RefreshCw, PartyPopper,
+  RotateCcw, ExternalLink, SlidersHorizontal, RefreshCw, PartyPopper,
 } from "lucide-react";
 import { api, SavingsInsight, WorkflowDef, WorkflowStep } from "@/lib/api";
 import { insightCategoryIcon } from "@/lib/insightIcons";
 import PennyMark from "@/components/PennyMark";
-import { useSheetA11y } from "@/lib/useSheetA11y";
-import { useSheetOpen } from "@/lib/useSheetOpen";
-import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
+import { SheetFrame } from "@/components/SheetFrame";
 import MoneyText from "@/components/MoneyText";
 
 const CATEGORY_LINKS: Record<string, { label: string; url: string }[]> = {
@@ -252,11 +249,7 @@ function WorkflowDrawer({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  useLockBodyScroll();
-  useSheetOpen();
-  const titleId = useId();
   const stepLabelId = useId();
-  const drawerRef = useSheetA11y<HTMLDivElement>(onClose);
   const initial: Record<string, string> = {};
   for (const s of workflow.steps) initial[s.id] = insight.user_context?.[s.id] ?? "";
   // Don't ask what the app already knows: the triggering merchant answers
@@ -278,13 +271,13 @@ function WorkflowDrawer({
     setValues(prev => ({ ...prev, [id]: val }));
   }
 
-  async function save() {
+  async function save(closeThen: (next: () => void) => void) {
     setSaving(true);
     setError(null);
     try {
       await api.saveInsightContext(insight.id, values);
       setDone(true);
-      setTimeout(() => { onClose(); onSaved(); }, 1500);
+      setTimeout(() => closeThen(onSaved), 1500);
     } catch {
       setSaving(false);
       setError("Couldn't save your answers, try again in a moment.");
@@ -332,42 +325,20 @@ function WorkflowDrawer({
     );
   }
 
-  return createPortal(
-    <div className="fixed inset-0 z-[60] flex flex-col justify-end bg-black/40" onClick={onClose}>
-      <div
-        ref={drawerRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        className="glass-sheet rounded-t-3xl max-h-[90dvh] flex flex-col"
-        onClick={e => e.stopPropagation()}
-      >
-        {/* Handle */}
-        <div className="flex justify-center pt-3 pb-1 flex-shrink-0">
-          <div className="w-10 h-1 rounded-full bg-slate-200 dark:bg-slate-600" />
-        </div>
-
-        {/* Scrollable body */}
-        <div className="overflow-y-auto flex-1 px-5 pt-2">
-          {/* Header */}
-          <div className="flex items-center justify-between mb-5">
-            <div>
-              <p className="text-[11px] font-semibold text-indigo-500 flex items-center gap-1.5">
-                {(() => {
-                  const HeaderIcon = insightCategoryIcon(insight.category);
-                  return <HeaderIcon size={13} className="flex-shrink-0" />;
-                })()}
-                {insight.label}
-              </p>
-              <h2 id={titleId} className="text-lg font-bold text-slate-900 dark:text-slate-100 mt-0.5">
-                {done ? "Personalising your insight…" : workflow.cta}
-              </h2>
-            </div>
-            <button onClick={onClose} className="p-2 rounded-xl text-slate-400 hover:text-slate-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">
-              <X size={20} />
-            </button>
-          </div>
-
+  return <SheetFrame title={done ? "Personalising your insight…" : workflow.cta}
+    description={insight.label} onClose={onClose} dismissDisabled={saving}
+    footer={!done ? ({ closeThen }) => <>
+      <div className="flex gap-3">
+        {step > 0 && <button type="button" disabled={saving} onClick={() => setStep(s => s - 1)} className="min-h-11 flex-1 rounded-xl border border-slate-200 px-4 text-sm font-medium text-slate-600 active:scale-95 dark:border-slate-600 dark:text-slate-300">Back</button>}
+        {step < totalSteps - 1
+          ? <button type="button" disabled={saving} onClick={() => setStep(s => s + 1)} className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white active:scale-95">Next <ChevronRight size={16} /></button>
+          : <button type="button" onClick={() => save(closeThen)} disabled={saving} className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white active:scale-95 disabled:opacity-50">
+            {saving ? <RefreshCw size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}{saving ? "Saving…" : "Save & Personalise"}
+          </button>}
+      </div>
+      {error && <p role="alert" className="mt-3 text-xs text-slate-600 dark:text-slate-300">{error}</p>}
+      {totalSteps > 1 && step < totalSteps - 1 && <button type="button" onClick={() => save(closeThen)} disabled={saving} className="mt-3 min-h-11 w-full text-center text-xs text-slate-600 active:opacity-70 disabled:opacity-40 dark:text-slate-300">Save with answers so far</button>}
+    </> : undefined}>
           {done ? (
             <div className="flex flex-col items-center gap-3 py-8">
               <CheckCircle2 size={48} className="text-emerald-500" />
@@ -408,62 +379,7 @@ function WorkflowDrawer({
               </div>
             </>
           )}
-        </div>
-
-        {/* Navigation — fixed outside scroll area so always visible */}
-        {!done && (
-          <div
-            className="flex-shrink-0 px-5 pt-3 pb-6 border-t border-slate-100 dark:border-slate-700/50"
-            style={{ paddingBottom: "max(24px, env(safe-area-inset-bottom, 24px))" }}
-          >
-            <div className="flex gap-3">
-              {step > 0 && (
-                <button
-                  onClick={() => setStep(s => s - 1)}
-                  className="flex-1 py-3 rounded-xl border border-slate-200 dark:border-slate-600 text-[14px] font-medium text-slate-600 dark:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-                >
-                  Back
-                </button>
-              )}
-              {step < totalSteps - 1 ? (
-                <button
-                  onClick={() => setStep(s => s + 1)}
-                  className="flex-1 py-3 rounded-xl bg-indigo-600 text-white text-[14px] font-semibold flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-                >
-                  Next <ChevronRight size={16} />
-                </button>
-              ) : (
-                <button
-                  onClick={save}
-                  disabled={saving}
-                  className="flex-1 py-3 rounded-xl bg-indigo-600 text-white text-[14px] font-semibold disabled:opacity-50 flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-                >
-                  {saving ? <RefreshCw size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
-                  {saving ? "Saving…" : "Save & Personalise"}
-                </button>
-              )}
-            </div>
-            {error && (
-              <p className="flex items-start gap-1.5 text-[11px] text-slate-500 dark:text-slate-400 mt-3">
-                <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 mt-[3px] bg-amber-500" aria-hidden="true" />
-                <span>{error}</span>
-              </p>
-            )}
-            {totalSteps > 1 && step < totalSteps - 1 && (
-              <button
-                onClick={save}
-                disabled={saving}
-                className="w-full text-center text-[11px] text-slate-400 hover:text-slate-600 transition-colors disabled:opacity-40 mt-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-              >
-                Save with answers so far
-              </button>
-            )}
-          </div>
-        )}
-      </div>
-    </div>,
-    document.body
-  );
+  </SheetFrame>;
 }
 
 // ── Insight Card ──────────────────────────────────────────────────────────────
