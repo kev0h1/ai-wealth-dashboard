@@ -574,7 +574,7 @@ export default function PennySheet() {
           see the z-index note further up this file for why the tier itself
           didn't need to move. */}
       <div
-        className={`fixed inset-0 z-[56] bg-transparent ${isOpen ? "" : "hidden"}`}
+        className={`fixed inset-0 z-[56] touch-none bg-transparent ${isOpen ? "" : "hidden"}`}
         onClick={close}
         aria-hidden="true"
       />

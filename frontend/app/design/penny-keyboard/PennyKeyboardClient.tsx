@@ -62,7 +62,7 @@ function PreviewWindow({ open, onClose, scenario }: {
 
   if (!mounted) return null;
   return createPortal(<>
-    {open && <div aria-hidden="true" className="fixed inset-0 z-[56]" onClick={close} />}
+    {open && <div aria-hidden="true" className="fixed inset-0 z-[56] touch-none" onClick={close} />}
     <PennySheetPanel isOpen={open} panelRef={open ? ref : undefined}>
       <div className="shrink-0" onClickCapture={event => {
         // Let the shared header close through the sheet's history entry,
@@ -114,7 +114,7 @@ export default function PennyKeyboardClient() {
     <div className="mx-auto max-w-xl">
       <a href="/design" className={`${button} -ml-3 text-indigo-700 dark:text-indigo-300`}><ArrowLeft size={16} aria-hidden="true" />Design previews</a>
       <h1 className="mt-3 text-xl font-bold">Typing with Penny</h1>
-      <p id="preview-info" className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">Open Penny, then tap the input on your phone. The window does not expand or move when you tap. Once the keyboard is up, only the input and its note sit directly on it, the navigation and Penny button step aside, and the question shortcuts stay visible. A hardware keyboard changes nothing. These are local example conversations, not live Penny messages.</p>
+      <p id="preview-info" className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">Open Penny, then tap the input on your phone. Nothing moves when you tap. Once the keyboard is up, the window fills the visible height above it, once: header, links, question shortcuts, conversation, the input and its note all stay visible, the navigation and Penny button step aside and the page behind cannot scroll. Nothing changes afterwards. A hardware keyboard changes nothing. These are local example conversations, not live Penny messages.</p>
       <nav aria-label="Theme" className="mt-4 flex flex-wrap gap-2">
         <a className={button} href={href(scenario, mode === "dark" ? "light" : "dark")}>{mode === "dark" ? "Light" : "Dark"} theme</a>
       </nav>
@@ -122,7 +122,7 @@ export default function PennyKeyboardClient() {
       <nav aria-label="Conversation examples" className="mt-6 flex flex-wrap gap-2">
         {([['short','Short thread'],['long','Long thread'],['empty','Empty'],['error','Reply error']] as const).map(([value,label]) => <a key={value} href={href(value)} aria-current={scenario === value ? "page" : undefined} className={`${button} ${scenario === value ? "bg-white dark:bg-slate-800" : "text-slate-600 dark:text-slate-300"}`}>{label}</a>)}
       </nav>
-      <section className="mt-6 border-t border-slate-300 pt-4 text-xs leading-5 text-slate-600 dark:border-slate-700 dark:text-slate-300"><h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Try on both phones</h2><p className="mt-1">Type, send a message, dismiss the keyboard, reopen it, then close Penny. Try a long thread and rotate the phone. The window should not move when you tap, the input should sit directly on the keyboard and your draft should remain. Browser emulation cannot verify a real software keyboard.</p></section>
+      <section className="mt-6 border-t border-slate-300 pt-4 text-xs leading-5 text-slate-600 dark:border-slate-700 dark:text-slate-300"><h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Try on both phones</h2><p className="mt-1">Type, send a message, dismiss the keyboard, reopen it, then close Penny. Try a long thread and rotate the phone. The window should not move when you tap, then fill the space above the keyboard once, with the input and its note fully visible on the keyboard edge, no scrolling of the page behind, and your draft kept. Browser emulation cannot verify a real software keyboard.</p></section>
     </div>
     <div data-penny-navigation><FixtureBottomNav active="Home" onPennyClick={() => setOpen(value => !value)} pennyExpanded={open} /></div>
     <PreviewWindow open={open} onClose={() => setOpen(false)} scenario={scenario} />

@@ -27,16 +27,25 @@ export const PENNY_PANEL_CSS = `
 @media (min-width: 1024px) {
   .penny-keyboard-frame { left: auto; right: 24px; bottom: 24px; width: 420px; padding: 0; }
 }
+/* Short landscape phones collapse the secondary row. Gated on the DEVICE
+   orientation (data-penny-device, set from screen.orientation in
+   PennySheetPanel), never on the layout viewport's aspect ratio, because under
+   interactive-widget=resizes-content a portrait phone with its keyboard up
+   also measures short and wide. */
 @media (max-height: 480px) and (max-width: 1023px) {
-  .penny-keyboard-frame:not(.penny-keyboard-typing) { bottom: 8px; }
-  .penny-keyboard-panel { min-height: 0; height: calc(100dvh - 16px); max-height: calc(100dvh - 16px); }
-  .penny-keyboard-frame [data-penny-secondary] { display: none; }
+  .penny-keyboard-frame[data-penny-device="landscape"]:not(.penny-keyboard-typing) { bottom: 8px; }
+  .penny-keyboard-frame[data-penny-device="landscape"] .penny-keyboard-panel { min-height: 0; height: calc(100dvh - 16px); max-height: calc(100dvh - 16px); }
+  .penny-keyboard-frame[data-penny-device="landscape"] [data-penny-secondary] { display: none; }
 }
 
-/* Typing (G196): the window keeps its resting left, right and top edges. Only
-   its bottom edge follows the keyboard, so the composer sits directly on it,
-   and the conversation area (flex-1, min-h-0) is what shrinks. No transition,
-   so nothing animates or jumps as the keyboard opens or closes. */
+/* Typing (G196, fill-once): the window spans the visible area, from 8px inside
+   the top (safe-area aware) down to the keyboard top, and the conversation area
+   (flex-1, min-h-0) takes the slack. Left and right edges are unchanged. The
+   composer wrap keeps its disclaimer line; only its bottom padding is trimmed.
+   No transition, so nothing animates or jumps as the keyboard opens or closes
+   (reduced-motion safe by construction). A portrait phone keeps its links row
+   and chips with the keyboard up; only a genuinely landscape device (see the
+   rule above) collapses them. */
 .penny-keyboard-typing {
   top: max(var(--penny-typing-top), calc(env(safe-area-inset-top, 0px) + 8px));
   bottom: var(--penny-typing-bottom, 0px);

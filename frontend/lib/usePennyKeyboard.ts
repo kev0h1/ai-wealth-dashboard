@@ -1,16 +1,17 @@
 "use client";
 
 import { useLayoutEffect, useRef, useState } from "react";
-import { pennyBottomInset, pennyKeyboardVisible, pennyViewport } from "@/lib/pennyKeyboardViewport";
+import { pennyBottomInset, pennyDockNext, pennyKeyboardVisible, pennyLayoutShrank, pennyViewport, type PennyDock } from "@/lib/pennyKeyboardViewport";
+
+/** How long after the keyboard appears the dock may still settle. */
+const SETTLE_MS = 500;
 
 export type PennyKeyboardState = {
   /** A software keyboard is measured as visible (not toolbar, not pinch zoom). */
   keyboardVisible: boolean;
   /** `fixed; bottom` offset that lands an element on the keyboard. 0 when hidden. */
   inset: number;
-  /** Visible viewport bottom in layout-viewport coordinates. */
-  visualBottom: number;
-  /** Visual viewport offsetTop: how far Chrome or iOS has panned it. */
+  /** Visual viewport offsetTop captured with the dock (fill-once). */
   top: number;
   width: number;
 };
@@ -20,12 +21,13 @@ export type PennyKeyboardState = {
  * window resize (WebView shells) and on Capacitor keyboard events, each
  * coalesced to one rAF. The baseline is the largest visible height seen at
  * this width, reset when the width changes (rotation). */
-export function usePennyKeyboard(enabled: boolean, onMeasure?: (keyboardVisible: boolean) => void): PennyKeyboardState | null {
+export function usePennyKeyboard(enabled: boolean): PennyKeyboardState | null {
   const [state, setState] = useState<PennyKeyboardState | null>(null);
   const baseline = useRef(0);
   const baselineWidth = useRef(0);
-  const measure = useRef(onMeasure);
-  measure.current = onMeasure;
+  const layoutBaseline = useRef(0);
+  const dock = useRef<PennyDock | null>(null);
+  const shownAt = useRef(0);
 
   useLayoutEffect(() => {
     if (!enabled) return;
@@ -37,18 +39,24 @@ export function usePennyKeyboard(enabled: boolean, onMeasure?: (keyboardVisible:
       const next = pennyViewport(layout, visual);
       if (Math.abs(baselineWidth.current - next.width) > 80) baseline.current = next.height;
       else baseline.current = Math.max(baseline.current, next.height);
-      baselineWidth.current = next.width;
+      if (Math.abs(baselineWidth.current - next.width) > 80 || layoutBaseline.current === 0) layoutBaseline.current = layout.height;
+      else layoutBaseline.current = Math.max(layoutBaseline.current, layout.height);
       const keyboardVisible = pennyKeyboardVisible(baseline.current, next);
-      measure.current?.(keyboardVisible);
-      const inset = keyboardVisible ? pennyBottomInset(layout.height, visual) : 0;
-      const visualBottom = layout.height - inset;
-      setState(previous => previous && previous.keyboardVisible === keyboardVisible && previous.inset === inset
-        && previous.visualBottom === visualBottom && previous.width === next.width && previous.top === next.top
-        ? previous : { keyboardVisible, inset, visualBottom, top: next.top, width: next.width });
+      const inset = keyboardVisible ? pennyBottomInset(layout.height, visual, pennyLayoutShrank(layoutBaseline.current, layout.height)) : 0;
+      const now = performance.now();
+      if (keyboardVisible && !dock.current) shownAt.current = now;
+      dock.current = pennyDockNext(dock.current, { keyboardVisible, height: next.height, inset, top: next.top }, now - shownAt.current < SETTLE_MS);
+      const held = dock.current;
+      baselineWidth.current = next.width;
+      setState(previous => previous && previous.keyboardVisible === keyboardVisible && previous.inset === (held?.inset ?? 0)
+        && previous.width === next.width && previous.top === (held?.top ?? 0)
+        ? previous : { keyboardVisible, inset: held?.inset ?? 0, top: held?.top ?? 0, width: next.width });
     };
     const update = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(read); };
     baseline.current = 0;
     baselineWidth.current = 0;
+    layoutBaseline.current = 0;
+    dock.current = null;
     read();
     vv?.addEventListener("resize", update);
     vv?.addEventListener("scroll", update);

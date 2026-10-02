@@ -149,6 +149,60 @@ export function openSheetHistoryCount(): number {
 let scrollLockCount = 0;
 let releaseScrollLock: (() => void) | null = null;
 
+/** Reference-counted `position: fixed` body lock, shared by every sheet and
+ * by Penny's window (G196 fill-once): overflow:hidden alone does not stop
+ * Android Chrome scrolling the page behind a focused input. Returns release. */
+export function acquireScrollLock(): () => void {
+  scrollLockCount += 1;
+  const unlock = () => {
+    scrollLockCount -= 1;
+    if (scrollLockCount === 0) { releaseScrollLock?.(); releaseScrollLock = null; }
+  };
+  if (scrollLockCount > 1) return unlock;
+  const body = document.body.style;
+  const alreadyLocked = body.position === "fixed";
+  // If a lock is already active (a nested sheet), recover the TRUE
+  // offset from its `top` rather than reading `window.scrollY` fresh —
+  // see the file header comment: it reads 0 the moment body is fixed.
+  const scrollY = alreadyLocked ? -(parseFloat(body.top || "0") || 0) : window.scrollY;
+  // Measured HERE, before `body.position` is set to "fixed" below:
+  // fixing it removes the document scrollbar, so `clientWidth` no
+  // longer reflects the un-fixed layout once that happens. The
+  // `paddingRight` this gap drives is itself applied AFTER `position:
+  // fixed` further down (plain code-flow ordering, grouped with the
+  // other fixed-position styles it offsets — style properties on the
+  // same object don't care what order they're set in, so that part has
+  // no functional effect either way).
+  const scrollbarGap = alreadyLocked ? 0 : window.innerWidth - document.documentElement.clientWidth;
+  const prev = {
+    position: body.position,
+    top: body.top,
+    left: body.left,
+    right: body.right,
+    width: body.width,
+    paddingRight: body.paddingRight,
+  };
+  body.position = "fixed";
+  body.top = `-${scrollY}px`;
+  body.left = "0";
+  body.right = "0";
+  body.width = "100%";
+  if (scrollbarGap > 0) {
+    const existingPadRight = parseFloat(getComputedStyle(document.body).paddingRight) || 0;
+    body.paddingRight = `${existingPadRight + scrollbarGap}px`;
+  }
+  releaseScrollLock = () => {
+    body.position = prev.position;
+    body.top = prev.top;
+    body.left = prev.left;
+    body.right = prev.right;
+    body.width = prev.width;
+    body.paddingRight = prev.paddingRight;
+    window.scrollTo(0, scrollY);
+  };
+  return unlock;
+}
+
 export function useSheetA11y<T extends HTMLElement>(onClose: () => void): (node: T | null) => void;
 export function useSheetA11y<T extends HTMLElement>(onClose: () => void, options: SheetA11yOptions): SheetA11yHandle<T>;
 export function useSheetA11y<T extends HTMLElement>(
@@ -237,54 +291,7 @@ export function useSheetA11y<T extends HTMLElement>(
   // always mounted but return null internally until `open` flips.
   useEffect(() => {
     if (!el || !lockScroll) return;
-    scrollLockCount += 1;
-    const unlock = () => {
-      scrollLockCount -= 1;
-      if (scrollLockCount === 0) { releaseScrollLock?.(); releaseScrollLock = null; }
-    };
-    if (scrollLockCount > 1) return unlock;
-    const body = document.body.style;
-    const alreadyLocked = body.position === "fixed";
-    // If a lock is already active (a nested sheet), recover the TRUE
-    // offset from its `top` rather than reading `window.scrollY` fresh —
-    // see the file header comment: it reads 0 the moment body is fixed.
-    const scrollY = alreadyLocked ? -(parseFloat(body.top || "0") || 0) : window.scrollY;
-    // Measured HERE, before `body.position` is set to "fixed" below:
-    // fixing it removes the document scrollbar, so `clientWidth` no
-    // longer reflects the un-fixed layout once that happens. The
-    // `paddingRight` this gap drives is itself applied AFTER `position:
-    // fixed` further down (plain code-flow ordering, grouped with the
-    // other fixed-position styles it offsets — style properties on the
-    // same object don't care what order they're set in, so that part has
-    // no functional effect either way).
-    const scrollbarGap = alreadyLocked ? 0 : window.innerWidth - document.documentElement.clientWidth;
-    const prev = {
-      position: body.position,
-      top: body.top,
-      left: body.left,
-      right: body.right,
-      width: body.width,
-      paddingRight: body.paddingRight,
-    };
-    body.position = "fixed";
-    body.top = `-${scrollY}px`;
-    body.left = "0";
-    body.right = "0";
-    body.width = "100%";
-    if (scrollbarGap > 0) {
-      const existingPadRight = parseFloat(getComputedStyle(document.body).paddingRight) || 0;
-      body.paddingRight = `${existingPadRight + scrollbarGap}px`;
-    }
-    releaseScrollLock = () => {
-      body.position = prev.position;
-      body.top = prev.top;
-      body.left = prev.left;
-      body.right = prev.right;
-      body.width = prev.width;
-      body.paddingRight = prev.paddingRight;
-      window.scrollTo(0, scrollY);
-    };
-    return unlock;
+    return acquireScrollLock();
   }, [el, lockScroll]);
 
   // Back-to-close (opt-in). See the file header comment above for the

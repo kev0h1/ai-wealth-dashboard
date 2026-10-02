@@ -1,16 +1,18 @@
 "use client";
 
 import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type Ref } from "react";
-import { pennyTypingTop } from "@/lib/pennyKeyboardViewport";
+import { pennyDeviceLandscape, pennyFillTop } from "@/lib/pennyKeyboardViewport";
 import { usePennyKeyboard } from "@/lib/usePennyKeyboard";
 import { applyPennyTypingAttribute, pennyNextEngaged, pennyTypingActive } from "@/lib/pennyTyping";
 import { PENNY_PANEL_CSS } from "./PennySheetPanel.styles";
 
-/** The production Penny window (G196). It never resizes or relocates because
- * the user taps the input: it keeps its resting position, and only once a
- * software keyboard is measured does its bottom edge follow the keyboard so the
- * composer sits directly on it (the top edge moves only if the space would
- * otherwise squeeze the composer out). Parent owns the body portal, backdrop,
+/** The production Penny window (G196, fill-once). It never resizes or
+ * relocates because the user taps the input. Once a software keyboard is
+ * measured it moves exactly once to span the visible area, from just inside
+ * the top down to the keyboard top, keeping header, links, chips, thread and
+ * composer. It then holds still (no reaction to viewport pan or page scroll)
+ * until the keyboard height genuinely changes or the keyboard goes, when it
+ * returns to its resting geometry. Parent owns the body portal, backdrop,
  * focus trap and thread lifetime. */
 export default function PennySheetPanel({ children, isOpen, panelRef }: {
   children: ReactNode;
@@ -19,9 +21,6 @@ export default function PennySheetPanel({ children, isOpen, panelRef }: {
 }) {
   const [composerEngaged, setComposerEngaged] = useState(false);
   const frameRef = useRef<HTMLDivElement>(null);
-  // Resting top edge, recorded only while no keyboard is up, so the docked
-  // window can keep that edge exactly where it was.
-  const restTop = useRef<number | null>(null);
   const [wasOpen, setWasOpen] = useState(isOpen);
 
   // The conversation is deliberately kept mounted between closes, so clear
@@ -35,14 +34,15 @@ export default function PennySheetPanel({ children, isOpen, panelRef }: {
     }
   }
 
-  const measureRest = (keyboardVisible: boolean) => {
-    const frame = frameRef.current;
-    // Never record the resting edge while a keyboard is up, engaged or not,
-    // and never measure the typing geometry as if it were the resting one.
-    if (keyboardVisible || !frame || frame.dataset.pennyTyping === "true" || !frame.getClientRects().length) return;
-    restTop.current = frame.getBoundingClientRect().top;
-  };
-  const viewport = usePennyKeyboard(isOpen, measureRest);
+  const viewport = usePennyKeyboard(isOpen);
+  const [landscape, setLandscape] = useState(false);
+  useLayoutEffect(() => {
+    const read = () => setLandscape(pennyDeviceLandscape({ width: window.screen.width, height: window.screen.height, orientationType: window.screen.orientation?.type }));
+    read();
+    window.addEventListener("orientationchange", read);
+    window.screen.orientation?.addEventListener("change", read);
+    return () => { window.removeEventListener("orientationchange", read); window.screen.orientation?.removeEventListener("change", read); };
+  }, []);
 
   const mobile = viewport != null && viewport.width < 1024;
   // Focus alone can mean a hardware keyboard. More importantly, resizing on
@@ -56,17 +56,15 @@ export default function PennySheetPanel({ children, isOpen, panelRef }: {
     return applyPennyTypingAttribute(document.documentElement);
   }, [typing]);
 
-  // After a dismissal the window is back at rest; remember where, for next time.
-  useLayoutEffect(() => { if (isOpen && !typing) measureRest(Boolean(viewport?.keyboardVisible)); });
-
   const frameStyle = typing && viewport ? {
-    "--penny-typing-top": `${pennyTypingTop(restTop.current, viewport.visualBottom, viewport.top)}px`,
+    "--penny-typing-top": `${pennyFillTop(viewport.top)}px`,
     "--penny-typing-bottom": `${viewport.inset}px`,
   } as CSSProperties : undefined;
   return <><style>{PENNY_PANEL_CSS}</style><div
     ref={frameRef}
     data-penny-typing={typing}
     data-penny-window
+    data-penny-device={landscape ? "landscape" : "portrait"}
     className={`penny-keyboard-frame ${typing ? "penny-keyboard-typing" : ""} ${isOpen ? "" : "hidden"}`}
     style={frameStyle}
   >
