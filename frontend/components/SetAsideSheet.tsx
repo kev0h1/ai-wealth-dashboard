@@ -1,11 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
-import { createPortal } from "react-dom";
-import { ChevronLeft, Target, Wallet, Receipt, X } from "lucide-react";
+import { Target, Wallet, Receipt } from "lucide-react";
 import { api, Account, Allocation } from "@/lib/api";
-import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
-import { useSheetA11y } from "@/lib/useSheetA11y";
-import { useSheetOpen } from "@/lib/useSheetOpen";
+import { SheetFrame } from "@/components/SheetFrame";
 import {
   AccountRadioPicker,
   EffectiveDateField,
@@ -67,16 +64,8 @@ export default function SetAsideSheet({
   onSavedAllocation,
   scope = "all",
 }: SetAsideSheetProps) {
-  useLockBodyScroll();
-  useSheetOpen();
-  const panelRef = useSheetA11y<HTMLDivElement>(onClose);
-
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
-
-  const reduceMotion =
-    typeof window !== "undefined" &&
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   const [step, setStep] = useState<"kind" | "envelope">("kind");
 
@@ -92,9 +81,9 @@ export default function SetAsideSheet({
 
   const periodStartLabel = periodStart.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 
-  function pickKind(kind: Kind) {
-    if (kind === "date") { onSelectByDate?.(); onClose(); return; }
-    if (kind === "single") { onSelectSingle(); onClose(); return; }
+  function pickKind(kind: Kind, closeThen: (next: () => void) => void) {
+    if (kind === "date") { closeThen(() => onSelectByDate?.()); return; }
+    if (kind === "single") { closeThen(onSelectSingle); return; }
     setStep("envelope");
   }
 
@@ -115,7 +104,7 @@ export default function SetAsideSheet({
     accountId !== "" &&
     rule.match_value.trim().length > 0;
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent, close: () => void) {
     e.preventDefault();
     if (!canSave) return;
     setSaving(true);
@@ -132,7 +121,7 @@ export default function SetAsideSheet({
         ...(effectiveFrom ? { effective_from: effectiveFrom } : {}),
       });
       onSavedAllocation(item);
-      onClose();
+      close();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't save, please try again");
     } finally {
@@ -145,63 +134,22 @@ export default function SetAsideSheet({
   const title = step === "kind" ? "Set money aside" : "An envelope";
   const subtitle = step === "kind" ? "What shape is this?" : "Set aside an amount";
 
-  return createPortal(
-    <>
-      {/* Backdrop */}
-      <div
-        className="fixed inset-0 bg-black/40 z-[65] fade-in"
-        onClick={onClose}
-        aria-hidden="true"
-      />
-
-      {/* Sheet */}
-      <div
-        ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        className="fixed inset-x-0 bottom-0 z-[70]"
-        style={reduceMotion ? undefined : { animation: "slideUpSheet 280ms cubic-bezier(0.32, 0.72, 0, 1) both" }}
-      >
-        <div
-          className="mx-auto w-full max-w-[500px] glass-sheet rounded-t-3xl flex flex-col"
-          style={{ maxHeight: "85dvh" }}
-        >
-          {/* Drag handle */}
-          <div className="flex justify-center pt-3 pb-1 flex-shrink-0">
-            <div className="w-10 h-1 bg-slate-200 dark:bg-slate-600 rounded-full" />
-          </div>
-
-          {/* Header */}
-          <div className="flex items-center gap-3 px-5 pt-2 pb-3 flex-shrink-0">
-            {step === "envelope" && (
-              <button
-                type="button"
-                onClick={() => setStep("kind")}
-                aria-label="Back"
-                className="w-9 h-9 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 flex-shrink-0 active:scale-95 transition-transform focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2"
-              >
-                <ChevronLeft size={16} />
-              </button>
-            )}
-            <div className="flex-1 min-w-0">
-              <p className="text-base font-semibold text-slate-900 dark:text-slate-100">{title}</p>
-              <p className="text-xs text-slate-500 dark:text-slate-400">{subtitle}</p>
-            </div>
-            <button
-              onClick={onClose}
-              aria-label="Close"
-              className="w-10 h-10 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 flex-shrink-0 ml-2 active:bg-slate-200 dark:active:bg-slate-600 transition-colors focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2"
-            >
-              <X size={15} />
-            </button>
-          </div>
-
-          {/* Scrollable content */}
-          <div
-            className="overflow-y-auto flex-1 px-5 space-y-3"
-            style={{ paddingBottom: "calc(1.5rem + env(safe-area-inset-bottom, 0px))" }}
-          >
+  return (
+    <SheetFrame
+      title={title}
+      description={subtitle}
+      onClose={onClose}
+      dismissDisabled={saving}
+      onBack={step === "envelope" ? () => setStep("kind") : undefined}
+      footer={step === "envelope" ? ({ close }) => (
+        <div className="grid grid-cols-2 gap-2">
+          <button type="button" onClick={close} disabled={saving} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 active:scale-95 dark:border-slate-600 dark:text-slate-200">Cancel</button>
+          <button type="submit" form="set-aside-envelope-form" disabled={!canSave} className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white active:scale-95 disabled:opacity-60">{saving ? "Saving…" : rhythm === "once" ? "Save this period" : "Save envelope"}</button>
+        </div>
+      ) : undefined}
+    >
+      {({ close, closeThen }) => {
+        return <>
             {step === "kind" && (
               <div className="space-y-2 pb-2">
                 {KINDS.filter((kind) => scope === "all" || kind.id !== "date").map((k) => {
@@ -210,7 +158,7 @@ export default function SetAsideSheet({
                     <button
                       key={k.id}
                       type="button"
-                      onClick={() => pickKind(k.id)}
+                      onClick={() => pickKind(k.id, closeThen)}
                       className="w-full min-h-[44px] flex items-center gap-3 px-3.5 py-3 rounded-2xl border border-slate-200/70 dark:border-white/[0.08] bg-slate-50/60 dark:bg-white/[0.03] text-left transition-colors active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
                     >
                       <span className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 bg-slate-100 dark:bg-white/[0.06] text-slate-500 dark:text-slate-400">
@@ -227,7 +175,7 @@ export default function SetAsideSheet({
             )}
 
             {step === "envelope" && (
-              <form onSubmit={handleSubmit} className="space-y-3">
+              <form id="set-aside-envelope-form" onSubmit={(event) => handleSubmit(event, close)} className="space-y-3">
                 {/* Name */}
                 <div>
                   <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">
@@ -282,19 +230,10 @@ export default function SetAsideSheet({
                   <p className="text-sm text-rose-600 dark:text-rose-400">{error}</p>
                 )}
 
-                <button
-                  type="submit"
-                  disabled={!canSave}
-                  className="w-full min-h-[48px] rounded-xl bg-indigo-600 text-white text-sm font-semibold active:scale-95 transition-transform disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-                >
-                  {saving ? "Saving…" : rhythm === "once" ? "Save, this period only" : "Save envelope"}
-                </button>
               </form>
             )}
-          </div>
-        </div>
-      </div>
-    </>,
-    document.body
+        </>;
+      }}
+    </SheetFrame>
   );
 }

@@ -1,9 +1,9 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Upload, X, CheckCircle, FileText, Eye, EyeOff, Loader2, TrendingUp } from "lucide-react";
+import { Upload, CheckCircle, FileText, Eye, EyeOff, Loader2, TrendingUp } from "lucide-react";
 import { api } from "@/lib/api";
-import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
+import { SheetFrame } from "@/components/SheetFrame";
 
 interface InvestmentUploadProps {
   onSuccess: () => void;
@@ -11,7 +11,6 @@ interface InvestmentUploadProps {
 }
 
 export default function InvestmentUpload({ onSuccess, onClose }: InvestmentUploadProps) {
-  useLockBodyScroll();
   const fileRef = useRef<HTMLInputElement>(null);
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -51,27 +50,19 @@ export default function InvestmentUpload({ onSuccess, onClose }: InvestmentUploa
     }
   }
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center">
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div className="relative w-full max-w-lg bg-white dark:bg-slate-800 rounded-t-3xl px-5 pb-28 pt-5 shadow-xl">
-        <div className="mx-auto w-10 h-1 bg-slate-200 dark:bg-slate-600 rounded-full mb-5" />
-
-        <div className="flex items-center justify-between mb-5">
-          <div>
-            <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">Upload Investment Statement</h2>
-            <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
-              Vanguard, Wealthify, Hargreaves Lansdown, Fidelity, AJ Bell and more
-            </p>
-          </div>
-          <button
-            onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-700"
-          >
-            <X size={16} className="text-slate-500" />
-          </button>
-        </div>
-
+  return <SheetFrame
+    title="Upload Investment Statement"
+    description="Vanguard, Wealthify, Hargreaves Lansdown, Fidelity, AJ Bell and more"
+    onClose={onClose}
+    dismissDisabled={uploading}
+    footer={({ close }) => result ? (
+      <button type="button" onClick={close} className="w-full rounded-xl bg-indigo-600 py-3 text-sm font-semibold text-white active:scale-95">Done</button>
+    ) : (
+      <button type="button" onClick={handleSubmit} disabled={!selectedFile || uploading} className="flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 py-3 text-sm font-semibold text-white active:scale-95 disabled:opacity-40">
+        {uploading ? <><Loader2 size={16} className="animate-spin" />Analysing holdings…</> : <><Upload size={16} />Import Statement</>}
+      </button>
+    )}
+  >
         {result ? (
           <div className="flex flex-col items-center gap-3 py-8">
             <CheckCircle size={40} className="text-emerald-500" />
@@ -81,21 +72,16 @@ export default function InvestmentUpload({ onSuccess, onClose }: InvestmentUploa
             <p className="text-xs text-slate-400 dark:text-slate-500">
               {result.holdings_count} holdings · <span className="font-mono tabular-nums">£{result.total_value.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
             </p>
-            <button
-              onClick={onClose}
-              className="mt-2 px-6 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold active:scale-95 transition-transform"
-            >
-              Done
-            </button>
           </div>
         ) : (
           <div className="space-y-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1.5">
+              <label htmlFor="investment-password" className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1.5">
                 Password <span className="font-normal text-slate-400">(if PDF is protected)</span>
               </label>
               <div className="relative">
                 <input
+                  id="investment-password"
                   type={showPassword ? "text" : "password"}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -105,6 +91,7 @@ export default function InvestmentUpload({ onSuccess, onClose }: InvestmentUploa
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
+                  aria-label={showPassword ? "Hide investment statement password" : "Show investment statement password"}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
                 >
                   {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
@@ -119,6 +106,7 @@ export default function InvestmentUpload({ onSuccess, onClose }: InvestmentUploa
               <button
                 type="button"
                 onClick={() => fileRef.current?.click()}
+                aria-label="Choose an investment statement file"
                 className="w-full border-2 border-dashed border-slate-200 dark:border-slate-600 rounded-2xl p-5 flex items-center gap-3 hover:border-indigo-300 hover:bg-indigo-50/50 dark:hover:bg-indigo-900/10 transition-colors"
               >
                 <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-900/20 flex items-center justify-center flex-shrink-0">
@@ -140,36 +128,16 @@ export default function InvestmentUpload({ onSuccess, onClose }: InvestmentUploa
                   )}
                 </div>
               </button>
-              <input ref={fileRef} type="file" accept=".pdf" className="sr-only" onChange={handleFileChange} />
+              <input ref={fileRef} type="file" accept=".pdf" aria-label="Investment statement file" className="sr-only" onChange={handleFileChange} />
             </div>
 
             {error && (
-              <div className="bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800 rounded-xl px-4 py-3">
+              <div role="alert" className="bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800 rounded-xl px-4 py-3">
                 <p className="text-xs font-semibold text-red-600 dark:text-red-400 mb-0.5">Upload failed</p>
                 <p className="text-xs text-red-500 dark:text-red-400">{error}</p>
               </div>
             )}
-
-            <button
-              onClick={handleSubmit}
-              disabled={!selectedFile || uploading}
-              className="w-full py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white text-sm font-semibold flex items-center justify-center gap-2 active:scale-95 transition-all"
-            >
-              {uploading ? (
-                <>
-                  <Loader2 size={16} className="animate-spin" />
-                  Analysing holdings…
-                </>
-              ) : (
-                <>
-                  <Upload size={16} />
-                  Import Statement
-                </>
-              )}
-            </button>
           </div>
         )}
-      </div>
-    </div>
-  );
+  </SheetFrame>;
 }

@@ -35,6 +35,8 @@ import { useTutorialAction, useTutorialReady } from "@/components/TutorialContex
 import { LEGACY_BANK_AVAILABLE, LEGACY_BANK_MENU_LABEL, isLegacyBankSource } from "@/lib/legacyBankProvider";
 import { useOpenBankingAccess } from "@/lib/openBankingAccess";
 import { stampAccountDetailState, hasAccountDetailEntry } from "@/lib/accountSheetHistory";
+import { useAccountDetailHistory } from "@/lib/useAccountDetailHistory";
+import { SheetFrame } from "@/components/SheetFrame";
 
 /** One row inside the condensed "+ Add" menu (header Variant B). Mirrors the
  *  MenuItem pattern already used by SpendTrends' widget overflow menu. */
@@ -298,6 +300,7 @@ export default function AccountsPage() {
   const [segment, setSegment] = useState<"Transactions" | "Categories">("Transactions");
   const [page, setPage] = useState(1);
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
+  const clearSelectedTransaction = useCallback(() => setSelectedTx(null), []);
   const [loadingTxns, setLoadingTxns] = useState<string | null>(null);
   const [tab, setTab] = useState<"Banks" | "Investments">(
     searchParams.get("tab") === "Investments" ? "Investments" : "Banks"
@@ -836,14 +839,7 @@ export default function AccountsPage() {
     }
   }, [selectedAccountId]);
 
-  useEffect(() => {
-    const onPop = () => {
-      setSelectedAccountId(null);
-      setSelectedTx(null);
-    };
-    window.addEventListener("popstate", onPop);
-    return () => window.removeEventListener("popstate", onPop);
-  }, []);
+  useAccountDetailHistory(setSelectedAccountId, clearSelectedTransaction);
 
   async function handleSelectAccount(acc: Account) {
     listScrollY.current = window.scrollY;
@@ -1039,7 +1035,7 @@ export default function AccountsPage() {
     setManualModalOpen(true);
   }
 
-  async function saveManual() {
+  async function saveManual(close?: () => void) {
     const name = manualName.trim();
     if (!name) { setManualError("Give the account a name"); return; }
     const balance = parseFloat(manualBalance);
@@ -1054,7 +1050,8 @@ export default function AccountsPage() {
         const created = await api.createManualAccount({ name, balance, account_type: manualType });
         setManualAccounts(prev => [...prev, created]);
       }
-      setManualModalOpen(false);
+      if (close) close();
+      else setManualModalOpen(false);
       invalidateAllAccountData();
       loadAccounts();
     } catch {
@@ -1115,7 +1112,7 @@ export default function AccountsPage() {
     setManualTxModalOpen(true);
   }
 
-  async function saveManualTx() {
+  async function saveManualTx(close?: () => void) {
     if (!selectedAccountId) return;
     const description = manualTxDesc.trim();
     if (!description) { setManualTxError("Add a description"); return; }
@@ -1130,7 +1127,8 @@ export default function AccountsPage() {
       } else {
         await api.addManualTransaction(selectedAccountId, body);
       }
-      setManualTxModalOpen(false);
+      if (close) close();
+      else setManualTxModalOpen(false);
       invalidateAllAccountData();
       await loadAccountTxns(selectedAccountId, true);
       loadAccounts();
@@ -1184,7 +1182,7 @@ export default function AccountsPage() {
     setRuleSearchOpen(false);
   }
 
-  async function saveRule() {
+  async function saveRule(close?: () => void) {
     const name = ruleName.trim();
     const matchValue = ruleMatchValue.trim();
     if (!name) { setRuleError("Give the rule a name"); return; }
@@ -1208,7 +1206,8 @@ export default function AccountsPage() {
           match_field: matchField, backfill: ruleBackfill,
         });
       }
-      setRuleModalOpen(false);
+      if (close) close();
+      else setRuleModalOpen(false);
       setRuleSearchOpen(false);
       setRuleSearchResults([]);
       setRuleCounts(null);
@@ -1588,21 +1587,16 @@ export default function AccountsPage() {
           onClose={() => setShowStatementUpload(false)}
         />
       )}
-      {manualModalOpen && modalsMounted && createPortal(
-        <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center bg-black/40" onClick={() => !manualSaving && setManualModalOpen(false)}>
-          <div className="glass-sheet w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl max-h-[85dvh] flex flex-col" onClick={e => e.stopPropagation()}>
-            {/* Drag handle */}
-            <div className="flex justify-center pt-3 pb-1 flex-shrink-0 sm:hidden">
-              <div className="w-10 h-1 bg-slate-200 dark:bg-slate-600 rounded-full" />
-            </div>
-            {/* Header */}
-            <div className="px-5 pt-4 pb-2 flex-shrink-0">
-              <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">
-                {manualEditId ? "Edit offline account" : "Add offline account"}
-              </h2>
-            </div>
-            {/* Scrollable body */}
-            <div className="overflow-y-auto flex-1 px-5 pb-5" style={{ paddingBottom: "calc(1.25rem + env(safe-area-inset-bottom, 0px))" }}>
+      {manualModalOpen && modalsMounted && <SheetFrame
+        title={manualEditId ? "Edit offline account" : "Add offline account"}
+        onClose={() => setManualModalOpen(false)}
+        dismissDisabled={manualSaving}
+        footer={({ close }) => <div className="flex gap-2">
+          <button type="button" onClick={close} disabled={manualSaving} className="flex-1 rounded-xl border border-slate-200 py-2.5 text-sm font-semibold text-slate-600 disabled:opacity-50 dark:border-slate-600 dark:text-slate-300">Cancel</button>
+          <button type="button" onClick={() => saveManual(close)} disabled={manualSaving} className="flex-1 rounded-xl bg-indigo-600 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50">{manualSaving ? "Saving…" : manualEditId ? "Save" : "Add account"}</button>
+        </div>}
+      >
+            <>
               <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1 mt-3">Name</label>
               <input
                 value={manualName}
@@ -1641,45 +1635,21 @@ export default function AccountsPage() {
                 className="w-full mb-2 px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
 
-              {manualError && <p className="text-xs text-rose-500 mb-2">{manualError}</p>}
+              {manualError && <p role="alert" className="text-xs text-rose-500 mb-2">{manualError}</p>}
+            </>
+      </SheetFrame>}
 
-              <div className="flex gap-2 mt-3">
-                <button
-                  onClick={() => setManualModalOpen(false)}
-                  disabled={manualSaving}
-                  className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 text-sm font-semibold text-slate-600 dark:text-slate-300 disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={saveManual}
-                  disabled={manualSaving}
-                  className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-sm font-semibold text-white disabled:opacity-50"
-                >
-                  {manualSaving ? "Saving…" : manualEditId ? "Save" : "Add account"}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
-
-      {manualTxModalOpen && modalsMounted && createPortal(
-        <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center bg-black/40" onClick={() => !manualTxSaving && setManualTxModalOpen(false)}>
-          <div className="glass-sheet w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl max-h-[85dvh] flex flex-col" onClick={e => e.stopPropagation()}>
-            {/* Drag handle */}
-            <div className="flex justify-center pt-3 pb-1 flex-shrink-0 sm:hidden">
-              <div className="w-10 h-1 bg-slate-200 dark:bg-slate-600 rounded-full" />
-            </div>
-            {/* Header */}
-            <div className="px-5 pt-4 pb-2 flex-shrink-0">
-              <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">
-                {manualTxEditId ? "Edit transaction" : "Add transaction"}
-              </h2>
-            </div>
-            {/* Scrollable body */}
-            <div className="overflow-y-auto flex-1 px-5" style={{ paddingBottom: "calc(1.25rem + env(safe-area-inset-bottom, 0px))" }}>
+      {manualTxModalOpen && modalsMounted && <SheetFrame
+        title={manualTxEditId ? "Edit transaction" : "Add transaction"}
+        onClose={() => setManualTxModalOpen(false)}
+        dismissDisabled={manualTxSaving}
+        footer={({ close, closeThen }) => <div className="flex gap-2">
+          {manualTxEditId && <button type="button" onClick={() => { const id = manualTxEditId; closeThen(() => removeManualTx(id)); }} disabled={manualTxSaving} className="rounded-xl border border-rose-200 px-4 py-2.5 text-sm font-semibold text-rose-500 disabled:opacity-50 dark:border-rose-800">Delete</button>}
+          <button type="button" onClick={close} disabled={manualTxSaving} className="flex-1 rounded-xl border border-slate-200 py-2.5 text-sm font-semibold text-slate-600 disabled:opacity-50 dark:border-slate-600 dark:text-slate-300">Cancel</button>
+          <button type="button" onClick={() => saveManualTx(close)} disabled={manualTxSaving} className="flex-1 rounded-xl bg-indigo-600 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50">{manualTxSaving ? "Saving…" : manualTxEditId ? "Save" : "Add"}</button>
+        </div>}
+      >
+            <>
               <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1 mt-3">Description</label>
               <input
                 value={manualTxDesc}
@@ -1731,54 +1701,20 @@ export default function AccountsPage() {
                 </div>
               </div>
 
-              {manualTxError && <p className="text-xs text-rose-500 mb-2">{manualTxError}</p>}
+              {manualTxError && <p role="alert" className="text-xs text-rose-500 mb-2">{manualTxError}</p>}
+            </>
+      </SheetFrame>}
 
-              <div className="flex gap-2 mt-3">
-                {manualTxEditId && (
-                  <button
-                    onClick={() => { const id = manualTxEditId; setManualTxModalOpen(false); removeManualTx(id); }}
-                    disabled={manualTxSaving}
-                    className="px-4 py-2.5 rounded-xl border border-rose-200 dark:border-rose-800 text-sm font-semibold text-rose-500 disabled:opacity-50"
-                  >
-                    Delete
-                  </button>
-                )}
-                <button
-                  onClick={() => setManualTxModalOpen(false)}
-                  disabled={manualTxSaving}
-                  className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 text-sm font-semibold text-slate-600 dark:text-slate-300 disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={saveManualTx}
-                  disabled={manualTxSaving}
-                  className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-sm font-semibold text-white disabled:opacity-50"
-                >
-                  {manualTxSaving ? "Saving…" : manualTxEditId ? "Save" : "Add"}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
-
-      {ruleModalOpen && modalsMounted && createPortal(
-        <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center bg-black/40" onClick={() => { if (!ruleSaving) { setRuleModalOpen(false); setRuleSearchOpen(false); setRuleSearchResults([]); setRuleCounts(null); } }}>
-          <div className="glass-sheet w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl max-h-[85dvh] flex flex-col" onClick={e => e.stopPropagation()}>
-            {/* Drag handle */}
-            <div className="flex justify-center pt-3 pb-1 flex-shrink-0 sm:hidden">
-              <div className="w-10 h-1 bg-slate-200 dark:bg-slate-600 rounded-full" />
-            </div>
-            {/* Header */}
-            <div className="px-5 pt-4 pb-2 flex-shrink-0">
-              <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">
-                {ruleEditId ? "Edit rule" : "Add rule"}
-              </h2>
-            </div>
-            {/* Scrollable body */}
-            <div className="overflow-y-auto flex-1 px-5" style={{ paddingBottom: "calc(1.25rem + env(safe-area-inset-bottom, 0px))" }}>
+      {ruleModalOpen && modalsMounted && <SheetFrame
+        title={ruleEditId ? "Edit rule" : "Add rule"}
+        onClose={() => { setRuleModalOpen(false); setRuleSearchOpen(false); setRuleSearchResults([]); setRuleCounts(null); }}
+        dismissDisabled={ruleSaving}
+        footer={({ close }) => <div className="flex gap-2">
+          <button type="button" onClick={close} disabled={ruleSaving} className="flex-1 rounded-xl border border-slate-200 py-2.5 text-sm font-semibold text-slate-600 disabled:opacity-50 dark:border-slate-600 dark:text-slate-300">Cancel</button>
+          <button type="button" onClick={() => saveRule(close)} disabled={ruleSaving} className="flex-1 rounded-xl bg-indigo-600 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50">{ruleSaving ? "Saving…" : ruleEditId ? "Save" : "Add rule"}</button>
+        </div>}
+      >
+            <>
               <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1 mt-3">Name</label>
               <input
                 value={ruleName}
@@ -2042,29 +1978,9 @@ export default function AccountsPage() {
                 ))}
               </div>
 
-              {ruleError && <p className="text-xs text-rose-500 mt-2">{ruleError}</p>}
-
-              <div className="flex gap-2 mt-4">
-                <button
-                  onClick={() => { setRuleModalOpen(false); setRuleSearchOpen(false); setRuleSearchResults([]); setRuleCounts(null); }}
-                  disabled={ruleSaving}
-                  className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 text-sm font-semibold text-slate-600 dark:text-slate-300 disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={saveRule}
-                  disabled={ruleSaving}
-                  className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-sm font-semibold text-white disabled:opacity-50"
-                >
-                  {ruleSaving ? "Saving…" : ruleEditId ? "Save" : "Add rule"}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
+              {ruleError && <p role="alert" className="text-xs text-rose-500 mt-2">{ruleError}</p>}
+            </>
+      </SheetFrame>}
     </>
   );
 

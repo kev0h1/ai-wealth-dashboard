@@ -99,16 +99,17 @@ const ROUTES: PreviewRoute[] = [
     slug: "sheet-anatomy",
     name: "sheet-anatomy",
     description:
-      "G192 phase 1, skill: impeccable adapt · A Compact and B Focused task share a fixed header, plain close control, independently scrolling body and safe-area action footer · Body portal above the real fixture navigation · Renders the shared production goal editor and filter fields with injected local operations, no live API calls · Includes long lists, empty lists, save failure and working save/clear controls · Existing production sheet layouts are unchanged; broader migration follows approval · ?variant=a|b&state=goal|long|empty|error&mode=light|dark",
+      "G192 approved B, skill: impeccable adapt · Near-full-height task sheets share a fixed header, plain close control, independently scrolling body and safe-area action footer · Imports the real production goal and filter sheets with local fixture operations, no live API calls · Includes long lists, empty lists, save failure, save/clear controls and nested-flow checks · Customer sheets now share this frame; Penny and centred confirmation dialogs remain separate · A is retained for comparison · ?variant=a|b&state=goal|long|empty|error|contract&mode=light|dark",
     states: [
       { label: "Usual content", value: "goal" },
       { label: "Long account list", value: "long" },
       { label: "Empty lists", value: "empty" },
       { label: "Save error", value: "error" },
+      { label: "Navigation checks", value: "contract" },
     ],
     variants: [
+      { label: "B · Approved focused task", value: "b" },
       { label: "A · Compact", value: "a" },
-      { label: "B · Focused task", value: "b" },
     ],
   },
   {

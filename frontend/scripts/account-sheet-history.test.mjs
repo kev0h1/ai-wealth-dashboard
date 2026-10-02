@@ -22,7 +22,9 @@
 // or:
 //   npm run -s check:account-sheet-history
 
-import { stampAccountDetailState, hasAccountDetailEntry } from "../lib/accountSheetHistory.ts";
+import { decideAccountPop, accountDetailIdFromState, stampAccountDetailState, hasAccountDetailEntry } from "../lib/accountSheetHistory.ts";
+import { attachAccountPopListener } from "../lib/accountSheetHistory.ts";
+import { beginTeardownPop, openSheetCount, pendingTeardownPopCount, resetTeardownPops } from "../lib/sheetTeardownPops.ts";
 import { classifyNavigation } from "../lib/scrollNavDetect.ts";
 
 let failures = 0;
@@ -213,11 +215,148 @@ function testForwardDoesNotDoubleStampOrLeaveStaleEntry() {
   );
 }
 
+// --- 5. A child-sheet Back stays inside the account ----------------------
+//
+// SheetFrame pushes `{ __sheetA11yId }` above this entry. Its close/back
+// traverses to the account marker, not the list. The parent must therefore
+// reconcile the target marker, rather than clear account detail for every
+// popstate. This is the exact sequence ManualTxSheet/TeachingSheet exercise.
+function testChildSheetClosePreservesAccount() {
+  const accountEntry = stampAccountDetailState({ __wdNavSeq: 4 }, "acc-1");
+  const childEntry = { ...accountEntry, __sheetA11yId: "sheet-child" };
+  check(
+    "closing a child sheet lands on and retains the owning account",
+    accountDetailIdFromState(accountEntry) === "acc-1"
+  );
+  check(
+    "the child entry still identifies the same owning account",
+    accountDetailIdFromState(childEntry) === "acc-1"
+  );
+  check(
+    "back from account detail to the list clears the account marker",
+    accountDetailIdFromState({ __wdNavSeq: 4 }) === null
+  );
+  check(
+    "malformed markers never select an account",
+    accountDetailIdFromState({ accountDetail: 42 }) === null
+  );
+}
+
+// --- 6. Every sheet close route over account detail keeps the account -----
+//
+// Cancel, Save, X, backdrop, Escape, Delete and hardware Back all end in
+// history.back() from SheetFrame; each lands on the account marker (or, for a
+// deep-linked account that never stamped one, on the bare list entry) with a
+// sheet still registered when the pop begins.
+function testSheetCloseRoutesKeepAccount() {
+  const accountEntry = stampAccountDetailState({ __wdNavSeq: 4 }, "acc-1");
+  const sheetEntry = { ...accountEntry, __sheetA11yId: "sheet-1" };
+  let d = decideAccountPop(accountEntry, 1);
+  check("sheet over stamped account: account kept, nothing cleared", d.accountId === "acc-1" && !d.clearTransaction);
+  d = decideAccountPop({ __wdNavSeq: 4 }, 1);
+  check("sheet over deep-linked account (no marker): account left untouched", d.accountId === undefined && !d.clearTransaction);
+  d = decideAccountPop(sheetEntry, 1);
+  check("nested sheet closing onto its parent sheet entry leaves everything", d.accountId === undefined && !d.clearTransaction);
+  d = decideAccountPop({ __wdNavSeq: 4 }, 0);
+  check("Back from account detail with no sheet open returns to the list", d.accountId === null && d.clearTransaction);
+  d = decideAccountPop(accountEntry, 0);
+  check("Forward onto the account marker restores the account", d.accountId === "acc-1" && d.clearTransaction);
+}
+
+// --- 7. Behavioural: parent unmounts a sheet without close() --------------
+//
+// A fake window (EventTarget) stands in for the browser. The "sheet stack" is
+// a plain counter so the test controls exactly what useSheetA11y's cleanup does
+// (remove itself from the stack, then beginTeardownPop + history.back()). The
+// pop is delivered asynchronously, after the stack no longer holds the sheet.
+function popEvent(state) {
+  const e = new Event("popstate");
+  e.state = state;
+  return e;
+}
+
+function harness() {
+  resetTeardownPops();
+  const win = new EventTarget();
+  const sheets = { open: 0 };
+  const view = { id: "acc-1", tx: "open" };
+  const detach = attachAccountPopListener(
+    win,
+    () => ({ setSelectedAccountId: id => { view.id = id; }, clearSelectedTransaction: () => { view.tx = null; } }),
+    () => openSheetCount(sheets.open),
+  );
+  return { win, sheets, view, detach };
+}
+
+function teardownOverDetail(label, landingState) {
+  const { win, sheets, view, detach } = harness();
+  sheets.open = 1;            // sheet open over the detail
+  sheets.open = 0;            // parent unmounts it: cleanup removes it from the stack...
+  beginTeardownPop(win);      // ...and queues history.back()
+  win.dispatchEvent(popEvent(landingState)); // popstate arrives with the stack empty
+  check(`${label}: teardown pop keeps account detail`, view.id === "acc-1" && view.tx === "open");
+  check(`${label}: token retired by the delivered pop`, pendingTeardownPopCount() === 0);
+  win.dispatchEvent(popEvent({ __wdNavSeq: 4 }));
+  check(`${label}: a subsequent real Back still closes detail`, view.id === null && view.tx === null);
+  detach();
+}
+
+function testTeardownPops() {
+  teardownOverDetail("deep-linked detail (no marker)", { __wdNavSeq: 4 });
+  teardownOverDetail("in-page detail", stampAccountDetailState({ __wdNavSeq: 4 }, "acc-1"));
+
+  // Leak safety: back() that never produces a popstate must not wedge the count.
+  const { win, view, detach } = harness();
+  beginTeardownPop(win);
+  check("pending token counts while the pop is undelivered", pendingTeardownPopCount() === 1);
+  resetTeardownPops();
+  check("reset clears tokens", pendingTeardownPopCount() === 0);
+  for (let i = 0; i < 50; i++) beginTeardownPop(win);
+  check("pending tokens are bounded", pendingTeardownPopCount() <= 8);
+  // Coalesced: each pop retires exactly one token.
+  resetTeardownPops();
+  beginTeardownPop(win); beginTeardownPop(win);
+  win.dispatchEvent(popEvent({ __wdNavSeq: 4 }));
+  check("two teardowns: first pop retires one token", pendingTeardownPopCount() === 1);
+  win.dispatchEvent(popEvent({ __wdNavSeq: 4 }));
+  check("two teardowns: second pop retires the other", pendingTeardownPopCount() === 0);
+  void view; detach(); resetTeardownPops();
+}
+
+// A listener that re-registers during dispatch is skipped for that event; the
+// once-registered listener must still see a pop delivered while another
+// listener (Next's render flush) churns registrations in the same dispatch.
+function testListenerSurvivesRenderFlush() {
+  const win = new EventTarget();
+  const view = { id: "acc-1" };
+  const detach = attachAccountPopListener(
+    win,
+    () => ({ setSelectedAccountId: id => { view.id = id; }, clearSelectedTransaction: () => {} }),
+    () => 0,
+  );
+  let churned = 0;
+  const churn = () => {
+    // what a re-registering effect does when a render flushes synchronously
+    const fn = () => {};
+    win.addEventListener("popstate", fn, true);
+    win.removeEventListener("popstate", fn, true);
+    churned++;
+  };
+  win.addEventListener("popstate", churn, true);
+  win.dispatchEvent(popEvent({ __wdNavSeq: 4 }));
+  check("listener sees a pop delivered during a render flush", churned === 1 && view.id === null);
+  detach();
+}
+
 function main() {
+  testTeardownPops();
+  testListenerSurvivesRenderFlush();
+  testSheetCloseRoutesKeepAccount();
   testStampShape();
   testBackRestoresRecordedPosition();
   testDeepLinkDoesNotThrow();
   testForwardDoesNotDoubleStampOrLeaveStaleEntry();
+  testChildSheetClosePreservesAccount();
 
   if (failures > 0) {
     console.error(`\n${failures} failure(s).`);

@@ -11,8 +11,8 @@
 // account parameter (it deliberately spans every account), so a control
 // for it would be fake.
 
-import { FormEvent, useState } from "react";
-import { X } from "lucide-react";
+import { FormEvent, useId, useState } from "react";
+import { SheetFrame, type SheetFrameVariant } from "@/components/SheetFrame";
 import { useCategories } from "@/components/CategoriesContext";
 import type { SearchFilters } from "@/lib/transactionFilters";
 
@@ -100,7 +100,7 @@ export function TransactionFilterSheetContent({
   const activePreset = DATE_PRESETS.find((p) => p.from === from && p.to === to) ?? null;
 
   function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); apply(); }
-  return <form id={formId} onSubmit={submit}>
+  return <form id={formId} onSubmit={submit} onReset={clearAll}>
           {includeIntroduction ? <><h2 className="text-lg font-bold text-slate-950 dark:text-slate-50">Filter payments</h2>
           <p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400">
             Narrow the list. Applies to every group below, not just this page.
@@ -117,10 +117,10 @@ export function TransactionFilterSheetContent({
                 type="button"
                 onClick={() => setTxnType(d.value)}
                 aria-pressed={txnType === d.value}
-                className={`min-h-[44px] rounded-xl border text-[13px] font-semibold transition-colors motion-reduce:transition-none ${
+                className={`min-h-[44px] flex items-center justify-center rounded-full text-[13px] font-semibold active:scale-95 motion-reduce:active:scale-100 transition-transform motion-reduce:transition-none ${
                   txnType === d.value
-                    ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300"
-                    : "border-slate-200 dark:border-slate-600 text-slate-500 dark:text-slate-400"
+                    ? "bg-indigo-600 text-white"
+                    : "bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200"
                 }`}
               >
                 {d.label}
@@ -234,18 +234,22 @@ export function TransactionFilterSheetContent({
         </form>;
 }
 
-export default function FilterSheet({ initial, onApply, onClearAll, onClose }: {
+export default function FilterSheet({ initial, onApply, onClearAll, onClose, categories, variant }: {
   initial: FilterDraft;
   onApply: (draft: FilterDraft) => void;
   onClearAll: () => void;
   onClose: () => void;
+  categories?: string[];
+  variant?: SheetFrameVariant;
 }) {
-  return <>
-    <div className="fixed inset-0 bg-black/40 z-[65] fade-in" onClick={onClose} />
-    <div className="fixed left-1/2 -translate-x-1/2 w-full max-w-[500px] glass-sheet z-[70] overflow-y-auto bottom-0 rounded-t-3xl slide-up max-h-[88dvh] lg:bottom-auto lg:top-1/2 lg:-translate-y-1/2 lg:rounded-3xl lg:max-h-[85dvh] lg:shadow-2xl" style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
-      <div className="flex justify-center pt-3 pb-1 lg:hidden"><div className="w-10 h-1 bg-slate-200 dark:bg-slate-600 rounded-full" /></div>
-      <button type="button" onClick={onClose} aria-label="Close filters" className="absolute top-3 right-3 w-11 h-11 flex items-center justify-center rounded-full text-slate-400 dark:text-slate-500 active:scale-95 motion-reduce:active:scale-100 transition-transform motion-reduce:transition-none"><X size={18} /></button>
-      <div className="px-5 pb-6 pt-1"><TransactionFilterSheetContent initial={initial} onApply={onApply} onClearAll={onClearAll} /></div>
-    </div>
-  </>;
+  const formId = useId();
+  return <SheetFrame variant={variant} title="Filter payments" description="Applies to every group in the list." onClose={onClose}
+    footer={<div className="flex gap-3">
+      <button type="reset" form={formId} className="min-h-11 rounded-xl px-3 text-sm font-semibold text-slate-600 active:opacity-70 dark:text-slate-300">Clear all</button>
+      <button type="submit" form={formId} className="min-h-11 flex-1 rounded-xl bg-indigo-600 px-3 text-sm font-semibold text-white active:scale-95">Show results</button>
+    </div>}>
+    {({ closeThen }) => <TransactionFilterSheetContent formId={formId} initial={initial}
+      categories={categories} includeIntroduction={false} showActions={false}
+      onApply={draft => closeThen(() => onApply(draft))} onClearAll={() => closeThen(onClearAll)} />}
+  </SheetFrame>;
 }

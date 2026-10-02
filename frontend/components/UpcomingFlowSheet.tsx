@@ -2,9 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { ChevronLeft, X } from "lucide-react";
-import { useSheetA11y } from "@/lib/useSheetA11y";
-import { useSheetOpen } from "@/lib/useSheetOpen";
+import { SheetFrame } from "@/components/SheetFrame";
 
 export interface UpcomingFlowNavigation<View> {
   goTo(view: View): void;
@@ -26,15 +24,18 @@ export interface UpcomingFlowSheetProps<View> {
 
 type Entry<View> = { view: View; scrollTop: number; focusSelector: string | null };
 const subscribe = () => () => {};
-const focusRing = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-950";
-const UpcomingFlowFooterContext = createContext<HTMLElement | null>(null);
+const UpcomingFlowFooterContext = createContext<{ target: HTMLElement | null; retain(): () => void }>({
+  target: null,
+  retain: () => () => {},
+});
 const UpcomingFlowSubmissionContext = createContext<(busy: boolean) => void>(() => {});
 export function useFlowSubmission() { return useContext(UpcomingFlowSubmissionContext); }
 
 /** Projects a form's stable actions into the persistent flow footer. It is a
  * portal within the existing dialog, never a nested dialog or sheet. */
 export function UpcomingFlowFooter({ children }: { children: ReactNode }) {
-  const target = useContext(UpcomingFlowFooterContext);
+  const { target, retain } = useContext(UpcomingFlowFooterContext);
+  useEffect(retain, [retain]);
   return target ? createPortal(children, target) : null;
 }
 
@@ -58,7 +59,6 @@ function focusSelector() {
 
 /** One physical sheet for a details/edit flow. Child bodies must not portal or lock scroll. */
 export default function UpcomingFlowSheet<View>({ initialView, onClose, renderView }: UpcomingFlowSheetProps<View>) {
-  useSheetOpen();
   const id = useId();
   const mounted = useSyncExternalStore(subscribe, () => true, () => false);
   const [view, setView] = useState(initialView);
@@ -68,10 +68,19 @@ export default function UpcomingFlowSheet<View>({ initialView, onClose, renderVi
   const savingRef = useRef(false);
   const setSubmission = useCallback((busy: boolean) => { savingRef.current = busy; setSaving(busy); }, []);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const panelNodeRef = useRef<HTMLDivElement>(null);
+  const panelNodeRef = useRef<HTMLElement>(null);
+  const panelRef = useCallback((node: HTMLElement | null) => { panelNodeRef.current = node; }, []);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const [footerTarget, setFooterTarget] = useState<HTMLElement | null>(null);
+  const [portalFooters, setPortalFooters] = useState(0);
   const footerRef = useCallback((node: HTMLDivElement | null) => setFooterTarget(node), []);
+  const fallbackFooterRef = useCallback((node: HTMLDivElement | null) => {
+    if (node) setFooterTarget(node);
+  }, []);
+  const retainFooter = useCallback(() => {
+    setPortalFooters(count => count + 1);
+    return () => setPortalFooters(count => Math.max(0, count - 1));
+  }, []);
   const entriesRef = useRef<Entry<View>[]>([{ view: initialView, scrollTop: 0, focusSelector: null }]);
   const depthRef = useRef(0);
   const closingRef = useRef(false);
@@ -104,9 +113,6 @@ export default function UpcomingFlowSheet<View>({ initialView, onClose, renderVi
     history.back();
     timerRef.current = window.setTimeout(() => { pendingRef.current = false; }, 500);
   }, [close]);
-
-  const { ref: a11yRef } = useSheetA11y<HTMLDivElement>(back, { lockScroll: true });
-  const panelRef = useCallback((node: HTMLDivElement | null) => { panelNodeRef.current = node; a11yRef(node); }, [a11yRef]);
 
   const goTo = useCallback((next: View) => {
     if (closingRef.current || pendingRef.current || savingRef.current) return;
@@ -202,30 +208,24 @@ export default function UpcomingFlowSheet<View>({ initialView, onClose, renderVi
   // These event callbacks read refs only when invoked by the user, not here.
   // eslint-disable-next-line react-hooks/refs
   const rendered = renderView(view, navigation);
-  return createPortal(<UpcomingFlowSubmissionContext.Provider value={setSubmission}><UpcomingFlowFooterContext.Provider value={footerTarget}><>
-    <button type="button" tabIndex={-1} aria-hidden="true" aria-label="Close details" onClick={close} className="fixed inset-0 z-[65] cursor-default bg-black/45" />
-    <div className="pointer-events-none fixed inset-0 z-[70] flex items-end justify-center lg:items-center lg:p-6">
-      <section ref={panelRef} role="dialog" aria-modal="true" aria-labelledby={`${id}-title`} aria-describedby={rendered.subtitle ? `${id}-subtitle` : undefined} onClickCapture={(event) => {
+  const hasFooter = rendered.footer != null || portalFooters > 0;
+  return <UpcomingFlowSubmissionContext.Provider value={setSubmission}><UpcomingFlowFooterContext.Provider value={{ target: footerTarget, retain: retainFooter }}>
+    <SheetFrame title={rendered.title} description={rendered.subtitle} leading={rendered.leading}
+      onClose={close} onEscape={back} onBack={depth > 0 ? back : undefined} backLabel="Back to details"
+      dismissDisabled={saving} manageHistory={false} labelledBy={`${id}-title`}
+      panelRef={panelRef} headingRef={headingRef} bodyRef={scrollRef}
+      onClickCapture={(event) => {
         // The second tap of a double-click must not activate a different
         // footer control that appeared under the pointer after the first.
         if (event.detail > 1) { event.preventDefault(); event.stopPropagation(); }
-      }} className="glass-sheet pointer-events-auto flex h-[min(780px,90dvh)] w-full max-w-lg flex-col rounded-t-3xl border-t border-slate-200 dark:border-slate-700 lg:rounded-3xl lg:border lg:shadow-xl">
-        <div className="flex shrink-0 justify-center pb-1 pt-3 lg:hidden" aria-hidden="true"><span className="h-1 w-10 rounded-full bg-slate-200 dark:bg-slate-600" /></div>
-        <header className="flex shrink-0 items-start gap-3 px-5 pb-4 pt-2 lg:pt-5">
-          {depth > 0 && <button type="button" onClick={back} disabled={saving} aria-label="Back to details" className={`flex size-11 shrink-0 items-center justify-center rounded-full text-slate-600 hover:bg-slate-100 active:scale-95 disabled:opacity-50 dark:text-slate-300 dark:hover:bg-slate-800 ${focusRing}`}><ChevronLeft size={20} aria-hidden="true" /></button>}
-          {rendered.leading && <div className="shrink-0 pt-1">{rendered.leading}</div>}
-          <div className="min-w-0 flex-1 pt-1"><h2 ref={headingRef} id={`${id}-title`} tabIndex={-1} className="break-words text-lg font-bold leading-6 text-slate-950 outline-none dark:text-white">{rendered.title}</h2>{rendered.subtitle && <p id={`${id}-subtitle`} className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-300">{rendered.subtitle}</p>}</div>
-          <button type="button" onClick={close} disabled={saving} aria-label="Close details" className={`flex size-11 shrink-0 items-center justify-center rounded-full text-slate-600 hover:bg-slate-100 active:scale-95 disabled:opacity-50 dark:text-slate-300 dark:hover:bg-slate-800 ${focusRing}`}><X size={18} aria-hidden="true" /></button>
-        </header>
-        <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-5"><div key={motionKey} className={motionKey ? "upcoming-flow-change" : undefined}>{rendered.body}</div></div>
-        <footer className={`min-h-20 shrink-0 border-t border-slate-200 px-5 pb-[calc(1rem+env(safe-area-inset-bottom,0px))] pt-4 dark:border-slate-700 ${rendered.footer || footerTarget ? "" : "hidden"}`}>
+      }} footer={hasFooter ? <>
           <div>{rendered.footer}</div>
           {/* Keep the portal target separate from React-owned detail actions,
               so replacing one cannot clear the editor's newly mounted footer. */}
           <div ref={footerRef} />
-        </footer>
-      </section>
-    </div>
+      </> : undefined}>
+      <div key={motionKey} className={motionKey ? "upcoming-flow-change" : undefined}>{rendered.body}{!hasFooter && <div ref={fallbackFooterRef} />}</div>
+    </SheetFrame>
     <style jsx>{`.upcoming-flow-change{animation:upcoming-flow-change 150ms cubic-bezier(.23,1,.32,1) both}@keyframes upcoming-flow-change{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}@media (prefers-reduced-motion:reduce){.upcoming-flow-change{animation:none}}`}</style>
-  </></UpcomingFlowFooterContext.Provider></UpcomingFlowSubmissionContext.Provider>, document.body);
+  </UpcomingFlowFooterContext.Provider></UpcomingFlowSubmissionContext.Provider>;
 }

@@ -133,6 +133,16 @@ body {
   animation: slideUp 0.28s cubic-bezier(0.32, 0.72, 0, 1);
 }
 
+/* G192: the shared SheetFrame keeps the bottom-sheet entrance every hand-rolled
+   sheet had (CardTerms, Commitment and the rest). Phones only: from lg the frame
+   is a centred dialog, which fades in with its backdrop. Reduced motion is
+   handled by the global rule below. */
+@media (max-width: 1023.98px) {
+  [data-sheet-frame] {
+    animation: slideUp 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+}
+
 /* Backdrop fade */
 @keyframes fadeIn {
   from { opacity: 0; }

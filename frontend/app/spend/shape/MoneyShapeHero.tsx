@@ -31,10 +31,9 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ChevronRight, ChevronLeft, ChevronDown, Check, X } from "lucide-react";
+import { ChevronRight, ChevronLeft, ChevronDown, Check } from "lucide-react";
 import MoneyText from "@/components/MoneyText";
-import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
-import { useSheetA11y } from "@/lib/useSheetA11y";
+import { SheetFrame } from "@/components/SheetFrame";
 import type { MoneyShape, MoneyShapeJob } from "@/lib/api";
 
 export const JOB_COLOR: Record<MoneyShapeJob["id"], { bg: string; text: string }> = {
@@ -233,31 +232,11 @@ function PeriodPickerSheet({
   onSelectAverage: (months: AverageEntry["months"]) => void;
   onClose: () => void;
 }) {
-  useLockBodyScroll();
-  const panelRef = useSheetA11y<HTMLDivElement>(onClose);
   const visiblePeriods = periods.slice(0, 12);
 
   return (
-    <>
-      <div className="fixed inset-0 bg-black/40 z-[65]" onClick={onClose} aria-hidden="true" />
-      <div
-        ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Pay periods and averages"
-        className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] glass-sheet rounded-t-3xl z-[70] overflow-y-auto max-h-[80dvh]"
-        style={{ paddingBottom: "max(16px, env(safe-area-inset-bottom, 0px))" }}
-      >
-        <div className="flex items-center justify-between px-4 pt-4 pb-2">
-          <p className="text-sm font-bold text-slate-900 dark:text-slate-100">Your money shape</p>
-          <button
-            onClick={onClose}
-            aria-label="Close"
-            className="w-11 h-11 -mr-2 flex items-center justify-center rounded-full active:bg-slate-100 dark:active:bg-slate-700/60 transition-colors"
-          >
-            <X size={18} className="text-slate-500 dark:text-slate-400" />
-          </button>
-        </div>
+    <SheetFrame title="Your money shape" onClose={onClose} bodyClassName="px-2 py-2">
+      {({ closeThen }) => <>
 
         {visiblePeriods.length > 0 && (
           <div className="px-2 pb-2">
@@ -271,7 +250,7 @@ function PeriodPickerSheet({
                 <button
                   key={`${p.start}-${p.end}`}
                   type="button"
-                  onClick={() => onSelectPeriod(idx)}
+                  onClick={() => closeThen(() => onSelectPeriod(idx))}
                   className="w-full min-h-[44px] flex items-center justify-between gap-2 px-3 rounded-xl active:opacity-70 transition-opacity text-left"
                 >
                   <span className="min-w-0">
@@ -300,7 +279,7 @@ function PeriodPickerSheet({
                 <button
                   key={a.months}
                   type="button"
-                  onClick={() => onSelectAverage(a.months)}
+                  onClick={() => closeThen(() => onSelectAverage(a.months))}
                   className="w-full min-h-[44px] flex items-center justify-between gap-2 px-3 rounded-xl active:opacity-70 transition-opacity text-left"
                 >
                   <span className="text-sm font-medium text-slate-800 dark:text-slate-100">
@@ -312,8 +291,8 @@ function PeriodPickerSheet({
             })}
           </div>
         )}
-      </div>
-    </>
+      </>}
+    </SheetFrame>
   );
 }
 

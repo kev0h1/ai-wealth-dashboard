@@ -1,13 +1,11 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { createPortal } from "react-dom";
 import { X, Search, ChevronRight, Loader2 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
-import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
-import { useSheetOpen } from "@/lib/useSheetOpen";
 import { AGENT_DISCLOSURE } from "@/lib/regulatoryCopy";
 import { LEGACY_BANK_SUBTITLE } from "@/lib/legacyBankProvider";
+import { SheetFrame } from "@/components/SheetFrame";
 
 interface Bank {
   id: string;
@@ -28,14 +26,11 @@ interface BankPickerSheetProps {
 }
 
 export default function BankPickerSheet({ onClose, onConnecting, provider = "finexer" }: BankPickerSheetProps) {
-  useLockBodyScroll();
-  useSheetOpen();
   const [banks, setBanks] = useState<Bank[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [connecting, setConnecting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
   const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -46,25 +41,11 @@ export default function BankPickerSheet({ onClose, onConnecting, provider = "fin
       .finally(() => setLoading(false));
   }, [provider]);
 
-  // Push the sheet above the on-screen keyboard in mobile WebViews.
-  // visualViewport.height shrinks when the keyboard appears; window.innerHeight does not.
-  useEffect(() => {
-    const vv = window.visualViewport;
-    if (!vv) return;
-    const update = () => setKeyboardHeight(Math.max(0, window.innerHeight - vv.height - vv.offsetTop));
-    vv.addEventListener("resize", update);
-    vv.addEventListener("scroll", update);
-    return () => {
-      vv.removeEventListener("resize", update);
-      vv.removeEventListener("scroll", update);
-    };
-  }, []);
-
   const filtered = query.trim()
     ? banks.filter(b => b.name.toLowerCase().includes(query.toLowerCase()))
     : banks;
 
-  async function handleSelect(bank: Bank) {
+  async function handleSelect(bank: Bank, close: () => void) {
     setConnecting(bank.id);
     setError(null);
     try {
@@ -77,7 +58,7 @@ export default function BankPickerSheet({ onClose, onConnecting, provider = "fin
       const rn = (window as unknown as { ReactNativeWebView?: { postMessage(s: string): void } }).ReactNativeWebView;
       if (rn) {
         rn.postMessage(JSON.stringify({ type: "open_external", url: auth_url }));
-        onClose();
+        close();
       } else {
         window.location.href = auth_url;
       }
@@ -90,34 +71,15 @@ export default function BankPickerSheet({ onClose, onConnecting, provider = "fin
     }
   }
 
-  return createPortal(
-    <div className="fixed inset-0 z-[70] flex items-end justify-center">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div
-        className="relative w-full max-w-lg bg-white dark:bg-slate-800 rounded-t-3xl shadow-2xl flex flex-col transition-[margin] duration-100"
-        style={{ maxHeight: "88dvh", marginBottom: keyboardHeight }}
-      >
-        {/* Handle */}
-        <div className="mx-auto w-10 h-1 bg-slate-200 dark:bg-slate-600 rounded-full mt-3 mb-1 flex-shrink-0" />
-
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 pt-3 pb-4 flex-shrink-0">
-          <div>
-            <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">Add a Bank</h2>
-            <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
-              {provider === "legacy" ? LEGACY_BANK_SUBTITLE : "Secure open banking · Powered by Finexer"}
-            </p>
-          </div>
-          <button
-            onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-700 active:scale-90 transition-transform"
-          >
-            <X size={15} className="text-slate-500 dark:text-slate-400" />
-          </button>
-        </div>
-
-        {/* Search */}
-        <div className="px-5 pb-3 flex-shrink-0">
+  return <SheetFrame
+    title="Add a Bank"
+    description={provider === "legacy" ? LEGACY_BANK_SUBTITLE : "Secure open banking · Powered by Finexer"}
+    onClose={onClose}
+    bodyClassName="px-0 py-0"
+    footer={<p className="text-center text-xs leading-relaxed text-slate-400 dark:text-slate-500">{AGENT_DISCLOSURE}</p>}
+  >
+    {({ close }) => <>
+      <div className="px-5 pb-3 pt-4">
           <div className="flex items-center gap-2.5 bg-slate-100 dark:bg-slate-700 rounded-2xl px-3.5 py-2.5">
             <Search size={15} className="text-slate-400 flex-shrink-0" />
             <input
@@ -134,19 +96,19 @@ export default function BankPickerSheet({ onClose, onConnecting, provider = "fin
               className="flex-1 bg-transparent text-sm text-slate-800 dark:text-slate-100 outline-none placeholder:text-slate-400 [&::-webkit-search-cancel-button]:hidden"
             />
             {query && (
-              <button onClick={() => setQuery("")} className="text-slate-400 active:text-slate-600">
+              <button type="button" onClick={() => setQuery("")} className="text-slate-400 active:text-slate-600">
                 <X size={13} />
               </button>
             )}
           </div>
-        </div>
+      </div>
 
         {error && (
-          <p className="px-5 pb-2 text-xs text-red-500 flex-shrink-0">{error}</p>
+          <p className="px-5 pb-2 text-xs text-red-500">{error}</p>
         )}
 
         {/* Bank list */}
-        <div className="flex-1 overflow-y-auto px-3 pb-10 min-h-0">
+        <div className="px-3 pb-5">
           {loading ? (
             <div className="flex items-center justify-center py-16">
               <Loader2 size={28} className="animate-spin text-indigo-400" />
@@ -160,7 +122,7 @@ export default function BankPickerSheet({ onClose, onConnecting, provider = "fin
               {filtered.map(bank => (
                 <button
                   key={bank.id}
-                  onClick={() => handleSelect(bank)}
+                  onClick={() => handleSelect(bank, close)}
                   disabled={connecting !== null}
                   className="w-full flex items-center gap-3 px-3 py-3 rounded-2xl hover:bg-slate-50 dark:hover:bg-slate-700/60 active:bg-slate-100 dark:active:bg-slate-700 transition-colors disabled:opacity-50 text-left"
                 >
@@ -195,14 +157,7 @@ export default function BankPickerSheet({ onClose, onConnecting, provider = "fin
               ))}
             </div>
           )}
-        </div>
-
-        {/* Regulatory disclosure (Q6/A9) — single source of truth in lib/regulatoryCopy.ts */}
-        <p className="px-5 py-3 text-xs leading-relaxed text-slate-400 dark:text-slate-500 text-center flex-shrink-0">
-          {AGENT_DISCLOSURE}
-        </p>
       </div>
-    </div>,
-    document.body
-  );
+    </>}
+  </SheetFrame>;
 }
