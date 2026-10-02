@@ -71,3 +71,11 @@ export function pennyDockNext(
 export function pennyFillTop(visualTop = 0): number {
   return Math.round(Math.max(0, visualTop) + 8);
 }
+
+/** Whether the DEVICE is held landscape. Derived from the screen, never from
+ * the layout viewport: under resizes-content a portrait phone with a keyboard
+ * up has a short, wide layout viewport that would read as landscape. */
+export function pennyDeviceLandscape(screenInfo: { width: number; height: number; orientationType?: string | null }): boolean {
+  if (screenInfo.orientationType) return screenInfo.orientationType.startsWith("landscape");
+  return screenInfo.width > screenInfo.height;
+}

@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import PennyComposer from "../components/PennyComposer.tsx";
-import { pennyViewport, pennyKeyboardVisible, pennyBottomInset, pennyLayoutShrank, pennyDockNext, pennyFillTop } from "../lib/pennyKeyboardViewport.ts";
+import { pennyViewport, pennyKeyboardVisible, pennyBottomInset, pennyLayoutShrank, pennyDockNext, pennyFillTop, pennyDeviceLandscape } from "../lib/pennyKeyboardViewport.ts";
 import { pennyTypingActive, pennyNextEngaged, applyPennyTypingAttribute } from "../lib/pennyTyping.ts";
 
 const browser = pennyViewport({ width: 390, height: 800 }, { width: 390, height: 480, top: 0, left: 0 });
@@ -97,7 +97,18 @@ assert.match(source("../lib/useSheetA11y.ts"), /body\.position = "fixed"/, "Body
 assert.match(source("../lib/useSheetA11y.ts"), /window\.scrollTo\(0, scrollY\)/);
 assert.match(source("../components/PennySheet.tsx"), /touch-none bg-transparent/, "The backdrop swallows touch scrolling");
 assert.match(source("../components/PennySheet.tsx"), /\{isOpen && <SheetEffectsGate \/>\}/, "Lock holds while the window is open, including while typing");
-assert.match(styles, /orientation: landscape/, "Chips are not hidden by a portrait keyboard shrinking the layout viewport");
+// Portrait phone, keyboard up: the layout viewport is a short 360x315, but the device is portrait.
+assert.equal(pennyDeviceLandscape({ width: 360, height: 640, orientationType: "portrait-primary" }), false, "360x640 portrait with a keyboard (visible 360x315) is not landscape");
+assert.equal(pennyDeviceLandscape({ width: 360, height: 640 }), false, "No orientation API: screen dimensions say portrait");
+assert.equal(pennyDeviceLandscape({ width: 640, height: 360, orientationType: "landscape-primary" }), true, "A true landscape phone still collapses");
+assert.equal(pennyDeviceLandscape({ width: 640, height: 360 }), true);
+const chipRule = styles.split("@media (max-height: 480px)")[1].split("}\n}")[0];
+assert.match(chipRule, /\[data-penny-device="landscape"\] \[data-penny-secondary\] \{ display: none/, "The chip-hiding rule is gated on device orientation");
+assert.doesNotMatch(chipRule, /\.penny-keyboard-frame \[data-penny-secondary\]/, "No ungated rule can hide chips for a short portrait viewport");
+assert.doesNotMatch(styles, /\(orientation: landscape\)/, "Layout-viewport aspect ratio is not the signal");
+assert.match(frame, /data-penny-device=/);
+// Chips stay mounted while typing (only CSS could hide them, and only on a landscape device).
+assert.doesNotMatch(styles, /penny-keyboard-typing[^{]*\[data-penny-secondary\]/);
 assert.match(source("../app/globals.css"), /html:has\(textarea:focus/, "Bottom nav steps aside for any focused text field under resizes-content");
 assert.match(source("../app/design/page.tsx"), /fills the visible height above it in one move/);
 assert.doesNotMatch(frame, /keyboardHeight/, "Native keyboard heights are never added to an already-resized viewport");

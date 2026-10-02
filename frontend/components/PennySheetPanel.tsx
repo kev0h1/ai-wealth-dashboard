@@ -1,7 +1,7 @@
 "use client";
 
 import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type Ref } from "react";
-import { pennyFillTop } from "@/lib/pennyKeyboardViewport";
+import { pennyDeviceLandscape, pennyFillTop } from "@/lib/pennyKeyboardViewport";
 import { usePennyKeyboard } from "@/lib/usePennyKeyboard";
 import { applyPennyTypingAttribute, pennyNextEngaged, pennyTypingActive } from "@/lib/pennyTyping";
 import { PENNY_PANEL_CSS } from "./PennySheetPanel.styles";
@@ -35,6 +35,14 @@ export default function PennySheetPanel({ children, isOpen, panelRef }: {
   }
 
   const viewport = usePennyKeyboard(isOpen);
+  const [landscape, setLandscape] = useState(false);
+  useLayoutEffect(() => {
+    const read = () => setLandscape(pennyDeviceLandscape({ width: window.screen.width, height: window.screen.height, orientationType: window.screen.orientation?.type }));
+    read();
+    window.addEventListener("orientationchange", read);
+    window.screen.orientation?.addEventListener("change", read);
+    return () => { window.removeEventListener("orientationchange", read); window.screen.orientation?.removeEventListener("change", read); };
+  }, []);
 
   const mobile = viewport != null && viewport.width < 1024;
   // Focus alone can mean a hardware keyboard. More importantly, resizing on
@@ -56,6 +64,7 @@ export default function PennySheetPanel({ children, isOpen, panelRef }: {
     ref={frameRef}
     data-penny-typing={typing}
     data-penny-window
+    data-penny-device={landscape ? "landscape" : "portrait"}
     className={`penny-keyboard-frame ${typing ? "penny-keyboard-typing" : ""} ${isOpen ? "" : "hidden"}`}
     style={frameStyle}
   >
