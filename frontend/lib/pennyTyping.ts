@@ -30,3 +30,14 @@ export function pennyNextEngaged(engaged: boolean, event: PennyEngageEvent): boo
   if (event.type === "close") return false;
   return event.toOutsideDialog ? false : engaged;
 }
+
+/** Marks the root as typing (hides the mobile nav) and returns a cleanup that
+ * restores whatever value was there before, or removes the attribute. */
+export function applyPennyTypingAttribute(root: { getAttribute(n: string): string | null; setAttribute(n: string, v: string): void; removeAttribute(n: string): void }): () => void {
+  const previous = root.getAttribute("data-penny-typing");
+  root.setAttribute("data-penny-typing", "true");
+  return () => {
+    if (previous == null) root.removeAttribute("data-penny-typing");
+    else root.setAttribute("data-penny-typing", previous);
+  };
+}

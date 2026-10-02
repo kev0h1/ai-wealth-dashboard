@@ -2,7 +2,7 @@
 
 import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type Ref } from "react";
 import { pennyKeyboardVisible, pennyViewport, type PennyViewport } from "@/lib/pennyKeyboardViewport";
-import { pennyNextEngaged, pennyTypingActive } from "@/lib/pennyTyping";
+import { applyPennyTypingAttribute, pennyNextEngaged, pennyTypingActive } from "@/lib/pennyTyping";
 import { PENNY_PANEL_CSS } from "./PennySheetPanel.styles";
 
 export type PennyKeyboardLayout = "legacy" | "dock" | "focus";
@@ -83,13 +83,7 @@ export default function PennySheetPanel({
   useLayoutEffect(() => {
     onTypingChange?.(typing);
     if (!typing) return;
-    const root = document.documentElement;
-    const previous = root.getAttribute("data-penny-typing");
-    root.setAttribute("data-penny-typing", "true");
-    return () => {
-      if (previous == null) root.removeAttribute("data-penny-typing");
-      else root.setAttribute("data-penny-typing", previous);
-    };
+    return applyPennyTypingAttribute(document.documentElement);
   }, [typing, onTypingChange]);
 
   const frameStyle: CSSProperties | undefined = typing && viewport ? {

@@ -4,7 +4,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import PennyComposer from "../components/PennyComposer.tsx";
 import { pennyViewport, pennyKeyboardVisible } from "../lib/pennyKeyboardViewport.ts";
-import { pennyTypingActive, pennyNextEngaged } from "../lib/pennyTyping.ts";
+import { pennyTypingActive, pennyNextEngaged, applyPennyTypingAttribute } from "../lib/pennyTyping.ts";
 
 const browser = pennyViewport({ width: 390, height: 800 }, { width: 390, height: 480, top: 0, left: 0 });
 const native = pennyViewport({ width: 390, height: 480 }, { width: 390, height: 480, top: 0, left: 0 });
@@ -100,6 +100,16 @@ measure(withKeyboard);
 assert.equal(typingNow(), false, "A stale viewport change after close cannot resurrect typing");
 // The draft is component state in PennyConversation, never owned by the frame.
 assert.doesNotMatch(frame, /setValue|setDraft|onChange/, "The panel never touches the draft");
+
+// Root attribute: cleanup restores the previous value, or removes it.
+const fakeRoot = (initial) => { const a = new Map(initial == null ? [] : [["data-penny-typing", initial]]);
+  return { a, getAttribute: n => a.get(n) ?? null, setAttribute: (n, v) => a.set(n, v), removeAttribute: n => a.delete(n) }; };
+const rootA = fakeRoot(null); const undoA = applyPennyTypingAttribute(rootA);
+assert.equal(rootA.a.get("data-penny-typing"), "true"); undoA();
+assert.equal(rootA.a.has("data-penny-typing"), false, "Cleanup removes the attribute when there was none");
+const rootB = fakeRoot("false"); const undoB = applyPennyTypingAttribute(rootB); undoB();
+assert.equal(rootB.a.get("data-penny-typing"), "false", "Cleanup restores the previous attribute value");
+assert.match(frame, /return applyPennyTypingAttribute\(document\.documentElement\)/, "The panel uses the tested apply/restore helper");
 
 // IME: Enter while composing must not send (Safari reports keyCode 229 after compositionend).
 let sent = 0;
