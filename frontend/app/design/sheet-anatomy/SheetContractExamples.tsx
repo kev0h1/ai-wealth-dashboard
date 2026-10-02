@@ -51,7 +51,7 @@ function AccountHistoryContract({ onResult }: { onResult: (message: string) => v
 
 const FIXTURE_ACCOUNT: Account = {
   id: "fixture-saver", provider: "Example Bank", name: "Fixture saver", balance: 300,
-  account_type: "SAVINGS", subtype: "SAVINGS", manual: false,
+  type: "SAVINGS", subtype: "SAVINGS", currency: "GBP", status: "active", manual: false,
 };
 const CONSENT_PREVIEW: CommitmentPreview = {
   per_period_slice: 50, periods_left: 6, feasibility: "stretch",
@@ -81,8 +81,8 @@ function ConsentContract({ onResult }: { onResult: (message: string) => void }) 
       if (attempts.current === 1) throw new Error("Fixture first-save failure");
       const saved: Commitment = {
         id: "fixture-commitment", name: body.name, amount: body.amount, target_date: body.target_date,
-        funding_pots: body.funding_pots, funding_account_id: null, funding_account_name: null,
-        source: body.source, status: "active", progress: 0, remaining: body.amount,
+        funding_pots: (body.funding_pots ?? []).map(pot => ({ ...pot, name: FIXTURE_ACCOUNT.name, kind: "connected" as const, contributing_balance: 0 })), funding_account_id: null, funding_account_name: null,
+        source: body.source ?? "manual", status: "active", progress: 0, remaining: body.amount,
         periods_left: 6, per_period_slice: 50, on_track: false, shared_pot_goals: [],
       };
       return saved;
