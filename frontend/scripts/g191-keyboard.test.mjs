@@ -42,6 +42,11 @@ assert.match(source("../components/PennyConversation.tsx"), /data-penny-composer
 const frame = source("../components/PennySheetPanel.tsx");
 assert.match(frame, /layout = "legacy"/);
 assert.doesNotMatch(frame, /keyboardHeight/, "Native keyboard heights are never added to an already-resized viewport");
+const touchHandler = frame.split("onPointerDownCapture=")[1].split("onFocusCapture=")[0];
+assert.doesNotMatch(touchHandler, /setFocused|setDidFocus|setNativeKeyboard|setComposerEngaged/, "Touch-down must not resize the panel before the input receives its tap");
+assert.match(frame, /composerEngaged && Boolean\(viewport\?\.keyboardVisible\)/, "Only an engaged composer with a measured keyboard enters the typing layout");
+assert.match(frame, /!event.currentTarget.contains\(next\)/, "Tab within the dialog cannot collapse the typing layout under an open keyboard");
+assert.doesNotMatch(frame, /setNativeKeyboard/, "Native show events cannot expand the panel before the viewport resizes");
 const preview = source("../app/design/penny-keyboard/PennyKeyboardClient.tsx");
 assert.match(preview, /PennySheetHeader, PennySheetPanel.*components\/PennySheet/);
 assert.match(preview, /<PennyComposer/);
