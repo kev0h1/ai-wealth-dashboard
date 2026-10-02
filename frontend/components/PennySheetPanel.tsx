@@ -1,15 +1,21 @@
 "use client";
 
 import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type Ref } from "react";
-import { pennyKeyboardVisible, pennyViewport, type PennyViewport } from "@/lib/pennyKeyboardViewport";
+import { pennyTypingTop } from "@/lib/pennyKeyboardViewport";
+import { usePennyKeyboard } from "@/lib/usePennyKeyboard";
 import { applyPennyTypingAttribute, pennyNextEngaged, pennyTypingActive } from "@/lib/pennyTyping";
 import { PENNY_PANEL_CSS } from "./PennySheetPanel.styles";
 
-export type PennyKeyboardLayout = "legacy" | "dock" | "focus";
+export type PennyKeyboardLayout = "legacy" | "docked";
 
-/** The actual production window, shared with the G191 previews. `legacy`
- * remains available for any caller that needs the former floating geometry.
- * Parent owns the body portal, backdrop, focus trap and thread lifetime. */
+/** The actual production window, shared with the previews. `legacy` remains
+ * available for any caller that needs the former floating geometry.
+ * `docked` (G196) never resizes or relocates the window because the user
+ * taps the input: it keeps its resting position, and only once a software
+ * keyboard is measured does its bottom edge follow the keyboard so the composer
+ * sits directly on it (the top edge moves only if the space would otherwise
+ * squeeze the composer out). Parent owns the body portal, backdrop, focus trap
+ * and thread lifetime. */
 export default function PennySheetPanel({
   children, isOpen, panelRef, keyboardInset = 0, layout = "legacy", onTypingChange,
 }: {
@@ -20,10 +26,11 @@ export default function PennySheetPanel({
   layout?: PennyKeyboardLayout;
   onTypingChange?: (typing: boolean) => void;
 }) {
-  const [viewport, setViewport] = useState<(PennyViewport & { keyboardVisible: boolean }) | null>(null);
   const [composerEngaged, setComposerEngaged] = useState(false);
-  const baseline = useRef(0);
-  const baselineWidth = useRef(0);
+  const frameRef = useRef<HTMLDivElement>(null);
+  // Resting top edge, recorded only while no keyboard is up, so the docked
+  // window can keep that edge exactly where it was.
+  const restTop = useRef<number | null>(null);
   const [wasOpen, setWasOpen] = useState(isOpen);
   const proposed = layout !== "legacy";
 
@@ -38,40 +45,13 @@ export default function PennySheetPanel({
     }
   }
 
-  useLayoutEffect(() => {
-    if (!isOpen || !proposed) return;
-    const vv = window.visualViewport;
-    let frame = 0;
-    const read = () => {
-      const next = pennyViewport({ width: window.innerWidth, height: window.innerHeight }, vv ? {
-        top: vv.offsetTop, left: vv.offsetLeft, width: vv.width, height: vv.height, scale: vv.scale,
-      } : null);
-      if (Math.abs(baselineWidth.current - next.width) > 80) baseline.current = next.height;
-      else baseline.current = Math.max(baseline.current, next.height);
-      baselineWidth.current = next.width;
-      const keyboardVisible = pennyKeyboardVisible(baseline.current, next);
-      setViewport({ ...next, keyboardVisible });
-    };
-    const update = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(read); };
-    baseline.current = 0;
-    baselineWidth.current = 0;
-    read();
-    vv?.addEventListener("resize", update);
-    vv?.addEventListener("scroll", update);
-    window.addEventListener("resize", update);
-    // Native events request a fresh measurement, not an early takeover.
-    // The WebView may not have resized when keyboardWillShow is delivered.
-    // Geometry still comes from one viewport, never a second native inset.
-    const keyboardEvents = ["keyboardWillShow", "keyboardDidShow", "keyboardWillHide", "keyboardDidHide"];
-    keyboardEvents.forEach(name => window.addEventListener(name, update));
-    return () => {
-      cancelAnimationFrame(frame);
-      vv?.removeEventListener("resize", update);
-      vv?.removeEventListener("scroll", update);
-      window.removeEventListener("resize", update);
-      keyboardEvents.forEach(name => window.removeEventListener(name, update));
-    };
-  }, [isOpen, proposed]);
+  const measureRest = () => {
+    const frame = frameRef.current;
+    // Never measure the typing geometry as if it were the resting one.
+    if (!frame || frame.dataset.pennyTyping === "true" || !frame.getClientRects().length) return;
+    restTop.current = frame.getBoundingClientRect().top;
+  };
+  const viewport = usePennyKeyboard(isOpen && proposed, (keyboardVisible) => { if (!keyboardVisible) measureRest(); });
 
   const mobile = viewport != null && viewport.width < 1024;
   // Focus alone can mean a hardware keyboard. More importantly, resizing on
@@ -86,15 +66,20 @@ export default function PennySheetPanel({
     return applyPennyTypingAttribute(document.documentElement);
   }, [typing, onTypingChange]);
 
-  const frameStyle: CSSProperties | undefined = typing && viewport ? {
-    top: viewport.top, left: viewport.left, width: viewport.width, height: viewport.height,
-  } : undefined;
+  // After a dismissal the window is back at rest; remember where, for next time.
+  useLayoutEffect(() => { if (isOpen && proposed && !typing) measureRest(); });
+
+  const frameStyle = typing && viewport ? {
+    "--penny-typing-top": `${pennyTypingTop(restTop.current, viewport.visualBottom)}px`,
+    "--penny-typing-bottom": `${viewport.inset}px`,
+  } as CSSProperties : undefined;
   const panelStyle: CSSProperties = proposed ? {} : {
     maxHeight: "65dvh", minHeight: "min(26rem, 65dvh)", marginBottom: keyboardInset,
     ...(isOpen ? { animation: "pennyPopIn 200ms var(--ease-out, cubic-bezier(0.23, 1, 0.32, 1)) backwards" } : {}),
   };
 
   return <>{proposed && <style>{PENNY_PANEL_CSS}</style>}<div
+    ref={frameRef}
     data-penny-layout={layout}
     data-penny-typing={typing}
     data-penny-window

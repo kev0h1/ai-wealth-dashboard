@@ -1,4 +1,4 @@
-// Scoped to the opt-in G191 presentation; imported as text so the shared
+// Scoped to the opt-in docked presentation; imported as text so the shared
 // production component also remains renderable by the repo's SSR tests.
 export const PENNY_PANEL_CSS = `
 .penny-keyboard-frame {
@@ -24,34 +24,6 @@ export const PENNY_PANEL_CSS = `
   overflow: hidden;
 }
 
-/* Follow the OS viewport directly. No height/margin transition trails its
-   animation, no 110px nav clearance and no second keyboard offset. */
-.penny-keyboard-typing {
-  bottom: auto;
-  display: flex;
-  align-items: flex-end;
-  padding: max(8px, env(safe-area-inset-top, 0px)) 0 0;
-}
-
-.penny-keyboard-typing .penny-keyboard-panel {
-  height: min(26rem, 100%);
-  min-height: 0;
-  max-height: 100%;
-  max-width: 100%;
-  border-radius: 24px 24px 0 0;
-  border-bottom: 0;
-  box-shadow: none;
-}
-
-.penny-keyboard-typing[data-penny-layout="focus"] .penny-keyboard-panel { height: 100%; }
-.penny-keyboard-typing[data-penny-layout="focus"] [data-penny-secondary] { display: none; }
-.penny-keyboard-typing [data-penny-composer-wrap] { padding-bottom: 8px; }
-
-html[data-penny-typing="true"] [data-penny-navigation] {
-  visibility: hidden;
-  pointer-events: none;
-}
-
 @media (min-width: 1024px) {
   .penny-keyboard-frame { left: auto; right: 24px; bottom: 24px; width: 420px; padding: 0; }
 }
@@ -61,4 +33,22 @@ html[data-penny-typing="true"] [data-penny-navigation] {
   .penny-keyboard-frame [data-penny-secondary] { display: none; }
 }
 
+/* Typing (G196): the window keeps its resting left, right and top edges. Only
+   its bottom edge follows the keyboard, so the composer sits directly on it,
+   and the conversation area (flex-1, min-h-0) is what shrinks. No transition,
+   so nothing animates or jumps as the keyboard opens or closes. */
+.penny-keyboard-typing {
+  top: max(var(--penny-typing-top), calc(env(safe-area-inset-top, 0px) + 8px));
+  bottom: var(--penny-typing-bottom, 0px);
+  display: flex;
+}
+.penny-keyboard-typing .penny-keyboard-panel {
+  height: 100%;
+  min-height: 0;
+  max-height: none;
+  border-radius: 24px 24px 0 0;
+  border-bottom: 0;
+  box-shadow: none;
+}
+.penny-keyboard-typing [data-penny-composer-wrap] { padding-bottom: 8px; }
 `;

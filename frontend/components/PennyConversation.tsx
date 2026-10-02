@@ -122,6 +122,8 @@ import PennyMark from "@/components/PennyMark";
 import PennyComposer from "@/components/PennyComposer";
 import { usePennyThreadAnchor } from "@/lib/usePennyThreadAnchor";
 import CommitmentSheet from "@/components/CommitmentSheet";
+import { usePennyKeyboard } from "@/lib/usePennyKeyboard";
+import { applyPennyTypingAttribute, pennyNextEngaged } from "@/lib/pennyTyping";
 import MoneyText from "@/components/MoneyText";
 import ChatMarkdown from "@/components/ChatMarkdown";
 import type { PennyAskContext } from "@/components/PennySheetProvider";
@@ -1141,6 +1143,18 @@ export default function PennyConversation({
   // when the reader was already at the latest turn, so opening a keyboard
   // never drags someone reading older advice back to the bottom.
   const { anchorToLatest, onScroll: onThreadScroll } = usePennyThreadAnchor(scrollContainerRef, Boolean(inSheet));
+  // Full-page /penny shares the composer and the same docking problem as the
+  // sheet: on Android Chrome the layout viewport keeps its height under the
+  // keyboard, so a fixed-bottom composer sits beneath it. Dock it from the
+  // visual viewport and hide the navigation, only once a software keyboard is
+  // measured (G196). The sheet has its own docking in PennySheetPanel.
+  const pageKeyboard = usePennyKeyboard(!inSheet);
+  const [pageEngaged, setPageEngaged] = useState(false);
+  const pageTyping = !inSheet && pageEngaged && pageKeyboard != null && pageKeyboard.width < 1024 && pageKeyboard.keyboardVisible;
+  useLayoutEffect(() => {
+    if (!pageTyping) return;
+    return applyPennyTypingAttribute(document.documentElement);
+  }, [pageTyping]);
   const initialFiredRef = useRef(false);
   // Last `askSeq` this component has already submitted an `askContext.ask`
   // for — NOT a plain "have I ever fired" boolean. This component mounts
@@ -2327,7 +2341,12 @@ export default function PennyConversation({
       ) : (
         <div
           className="fixed inset-x-0 z-40 px-4 lg:px-0"
-          style={{ bottom: "calc(88px + env(safe-area-inset-bottom, 0px))" }}
+          style={{ bottom: pageTyping && pageKeyboard ? `${pageKeyboard.inset + 8}px` : "calc(88px + env(safe-area-inset-bottom, 0px))" }}
+          onFocusCapture={(event) => { if ((event.target as HTMLElement).matches("[data-penny-input]")) setPageEngaged(engaged => pennyNextEngaged(engaged, { type: "composer-focus" })); }}
+          onBlurCapture={(event) => {
+            const next = event.relatedTarget as HTMLElement | null;
+            setPageEngaged(engaged => pennyNextEngaged(engaged, { type: "blur", toOutsideDialog: Boolean(next && !event.currentTarget.contains(next)) }));
+          }}
         >
           <div className="lg:max-w-2xl lg:mx-auto">{composerCard}</div>
         </div>

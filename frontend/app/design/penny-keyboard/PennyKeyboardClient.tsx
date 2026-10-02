@@ -24,8 +24,8 @@ const subscribeToMount = () => () => {};
 const clientMounted = () => true;
 const serverMounted = () => false;
 
-function PreviewWindow({ open, onClose, variant, scenario, onTypingChange }: {
-  open: boolean; onClose: () => void; variant: "a" | "b"; scenario: string; onTypingChange: (typing: boolean) => void;
+function PreviewWindow({ open, onClose, scenario }: {
+  open: boolean; onClose: () => void; scenario: string;
 }) {
   const mounted = useSyncExternalStore(subscribeToMount, clientMounted, serverMounted);
   const [input, setInput] = useState("");
@@ -63,7 +63,7 @@ function PreviewWindow({ open, onClose, variant, scenario, onTypingChange }: {
   if (!mounted) return null;
   return createPortal(<>
     {open && <div aria-hidden="true" className="fixed inset-0 z-[56]" onClick={close} />}
-    <PennySheetPanel isOpen={open} panelRef={open ? ref : undefined} layout={variant === "a" ? "dock" : "focus"} onTypingChange={onTypingChange}>
+    <PennySheetPanel isOpen={open} panelRef={open ? ref : undefined} layout="docked">
       <div className="shrink-0" onClickCapture={event => {
         // Let the shared header close through the sheet's history entry,
         // without adding a competing fragment navigation in this fixture.
@@ -98,11 +98,9 @@ function PreviewWindow({ open, onClose, variant, scenario, onTypingChange }: {
 
 export default function PennyKeyboardClient() {
   const params = useSearchParams();
-  const variant = params.get("variant") === "a" ? "a" : "b";
   const scenario = ["short", "long", "empty", "error"].includes(params.get("state") ?? "") ? params.get("state")! : "short";
   const mode = params.get("mode") === "dark" ? "dark" : "light";
   const [open, setOpen] = useState(false);
-  const [typing, setTyping] = useState(false);
   useEffect(() => {
     const wasDark = document.documentElement.classList.contains("dark");
     const previousScheme = document.documentElement.style.colorScheme;
@@ -110,26 +108,23 @@ export default function PennyKeyboardClient() {
     document.documentElement.style.colorScheme = mode;
     return () => { document.documentElement.classList.toggle("dark", wasDark); document.documentElement.style.colorScheme = previousScheme; };
   }, [mode]);
-  const href = (v = variant, s = scenario, m = mode) => `?variant=${v}&state=${s}&mode=${m}`;
+  const href = (s = scenario, m = mode) => `?state=${s}&mode=${m}`;
 
   return <main className="min-h-dvh bg-[#f0f2f7] px-4 pb-36 pt-6 text-slate-900 dark:bg-[#0f172a] dark:text-slate-100 sm:px-6">
     <div className="mx-auto max-w-xl">
       <a href="/design" className={`${button} -ml-3 text-indigo-700 dark:text-indigo-300`}><ArrowLeft size={16} aria-hidden="true" />Design previews</a>
       <h1 className="mt-3 text-xl font-bold">Typing with Penny</h1>
-      <p id="preview-info" className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">Open Penny, then tap the input on your phone. The window stays still while you tap. Both options dock above the keyboard and hide the navigation once the keyboard opens. These are local example conversations, not live Penny messages.</p>
-      <nav aria-label="Keyboard variants" className="mt-4 flex flex-wrap gap-2">
-        {([['a', 'A · Keep shortcuts'], ['b', 'B · Conversation first']] as const).map(([value,label]) => <a key={value} href={href(value)} aria-current={variant === value ? "page" : undefined}
-          className={`${button} ${variant === value ? "bg-indigo-600 text-white" : "border border-slate-300 dark:border-slate-600"}`}>{label}</a>)}
-        <a className={button} href={href(variant, scenario, mode === "dark" ? "light" : "dark")}>{mode === "dark" ? "Light" : "Dark"} theme</a>
+      <p id="preview-info" className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">Open Penny, then tap the input on your phone. The window does not expand or move when you tap. Once the keyboard is up, only the input and its note sit directly on it, the navigation and Penny button step aside, and the question shortcuts stay visible. A hardware keyboard changes nothing. These are local example conversations, not live Penny messages.</p>
+      <nav aria-label="Theme" className="mt-4 flex flex-wrap gap-2">
+        <a className={button} href={href(scenario, mode === "dark" ? "light" : "dark")}>{mode === "dark" ? "Light" : "Dark"} theme</a>
       </nav>
-      <p className="mt-4 text-sm leading-6 text-slate-600 dark:text-slate-300">{variant === "a" ? "A keeps the header links and question shortcuts visible. The window stays compact where there is room." : "B is the approved production layout. It gives the available space to the conversation. Header links and question shortcuts return when you dismiss the keyboard."}</p>
       <button type="button" onClick={() => setOpen(true)} className={`${button} mt-5 bg-indigo-600 px-5 text-white`}>Open Penny</button>
       <nav aria-label="Conversation examples" className="mt-6 flex flex-wrap gap-2">
-        {([['short','Short thread'],['long','Long thread'],['empty','Empty'],['error','Reply error']] as const).map(([value,label]) => <a key={value} href={href(variant,value)} aria-current={scenario === value ? "page" : undefined} className={`${button} ${scenario === value ? "bg-white dark:bg-slate-800" : "text-slate-600 dark:text-slate-300"}`}>{label}</a>)}
+        {([['short','Short thread'],['long','Long thread'],['empty','Empty'],['error','Reply error']] as const).map(([value,label]) => <a key={value} href={href(value)} aria-current={scenario === value ? "page" : undefined} className={`${button} ${scenario === value ? "bg-white dark:bg-slate-800" : "text-slate-600 dark:text-slate-300"}`}>{label}</a>)}
       </nav>
-      <section className="mt-6 border-t border-slate-300 pt-4 text-xs leading-5 text-slate-600 dark:border-slate-700 dark:text-slate-300"><h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Try on both phones</h2><p className="mt-1">Type, send a message, dismiss the keyboard, reopen it, then close Penny. Try a long thread and rotate the phone. The input should stay above the keyboard and your draft should remain. Browser emulation cannot verify a real software keyboard.</p></section>
+      <section className="mt-6 border-t border-slate-300 pt-4 text-xs leading-5 text-slate-600 dark:border-slate-700 dark:text-slate-300"><h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Try on both phones</h2><p className="mt-1">Type, send a message, dismiss the keyboard, reopen it, then close Penny. Try a long thread and rotate the phone. The window should not move when you tap, the input should sit directly on the keyboard and your draft should remain. Browser emulation cannot verify a real software keyboard.</p></section>
     </div>
-    <div data-penny-navigation hidden={typing}><FixtureBottomNav active="Home" onPennyClick={() => setOpen(value => !value)} pennyExpanded={open} /></div>
-    <PreviewWindow open={open} onClose={() => setOpen(false)} variant={variant} scenario={scenario} onTypingChange={setTyping} />
+    <div data-penny-navigation><FixtureBottomNav active="Home" onPennyClick={() => setOpen(value => !value)} pennyExpanded={open} /></div>
+    <PreviewWindow open={open} onClose={() => setOpen(false)} scenario={scenario} />
   </main>;
 }
