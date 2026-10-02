@@ -1,8 +1,8 @@
-/** When the Penny window takes over the visible viewport (G191, approved B).
- * Pure, so the touch and keyboard-dismissal sequences are testable without a
- * device. The takeover needs two facts together: the composer is engaged
+/** When Penny's composer docks on the keyboard (G196, superseding the G191
+ * takeover). Pure, so the touch and keyboard-dismissal sequences are testable
+ * without a device. Docking needs two facts together: the composer is engaged
  * (it holds focus) and a software keyboard is actually measured as visible.
- * Focus alone never resizes anything: resizing on touch-down moves the input
+ * Focus alone never moves anything: moving on touch-down shifts the input
  * before touch-up, and a hardware keyboard shows no software keyboard. */
 export type PennyTypingInput = {
   isOpen: boolean;

@@ -892,3 +892,11 @@ html.legal-page #app-shell {
   margin-left: 0;
   margin-right: 0;
 }
+
+/* G196: while a software keyboard is up and Penny's composer is focused, the
+   mobile navigation and the raised Penny button step aside. Visibility only,
+   so no layout moves. Set by PennySheetPanel and the full-page PennyConversation. */
+html[data-penny-typing="true"] [data-penny-navigation] {
+  visibility: hidden;
+  pointer-events: none;
+}

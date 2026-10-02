@@ -82,8 +82,8 @@
 //    tree. If you're reading this because a reviewer flagged that
 //    transform: it's already accounted for, the portal is what makes it
 //    safe.
-// 5. PennySheetPanel owns keyboard geometry while open. G191 B follows one
-//    visible viewport, with no additive inset or keyboard margin here.
+// 5. PennySheetPanel owns keyboard geometry while open. G196 docks the composer from one
+//    visual viewport; the window itself never resizes on tap.
 //
 // z-index: click-catcher z-[56], panel z-[58] — same tier numbers as the
 // old scrim/panel, only the click-catcher's job changed: it used to BE the
@@ -578,7 +578,7 @@ export default function PennySheet() {
         onClick={close}
         aria-hidden="true"
       />
-      <PennySheetPanel isOpen={isOpen} panelRef={isOpen ? panelRef : undefined} layout="focus">
+      <PennySheetPanel isOpen={isOpen} panelRef={isOpen ? panelRef : undefined}>
           {/* Header — shrink-0, stays put while the thread (rendered by
               PennyConversation below) scrolls independently. No drag-handle
               bar: that signalled "sheet", and this isn't one anymore.
