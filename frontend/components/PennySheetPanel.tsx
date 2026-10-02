@@ -6,14 +6,15 @@ import { usePennyKeyboard } from "@/lib/usePennyKeyboard";
 import { applyPennyTypingAttribute, pennyNextEngaged, pennyTypingActive } from "@/lib/pennyTyping";
 import { PENNY_PANEL_CSS } from "./PennySheetPanel.styles";
 
-/** The production Penny window (G196, fill-once). It never resizes or
- * relocates because the user taps the input. Once a software keyboard is
- * measured it moves exactly once to span the visible area, from just inside
- * the top down to the keyboard top, keeping header, links, chips, thread and
- * composer. It then holds still (no reaction to viewport pan or page scroll)
- * until the keyboard height genuinely changes or the keyboard goes, when it
- * returns to its resting geometry. Parent owns the body portal, backdrop,
- * focus trap and thread lifetime. */
+/** The production Penny window (G197). It never resizes or relocates because
+ * the user taps the input. Once a software keyboard is measured it takes over
+ * the visible area once, Codex's approved variant B (G191, 02c22ef4): full
+ * width, from just inside the top down to the keyboard top, with the header
+ * links and chips hidden so the conversation fills the space and the composer
+ * sits on the keyboard. The G196 mechanics hold it there: no reaction to
+ * viewport pan or page scroll until the keyboard height genuinely changes, and
+ * it returns to its resting geometry, chips back, when the keyboard goes.
+ * Parent owns the body portal, backdrop, focus trap and thread lifetime. */
 export default function PennySheetPanel({ children, isOpen, panelRef }: {
   children: ReactNode;
   isOpen: boolean;

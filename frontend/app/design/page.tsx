@@ -33,8 +33,8 @@ type PreviewRoute = {
 const ROUTES: PreviewRoute[] = [
   {
     slug: "penny-keyboard",
-    name: "Penny keyboard · G196",
-    description: "G196, reopened on Kevin's Android Chrome test 2026-10-02 (fill once): tapping the input changes nothing. Once a software keyboard is up the Penny window fills the visible height above it in one move, from just inside the top to the keyboard edge, with header, links, question chips, conversation, composer and its note all visible; nothing moves afterwards, the page behind cannot scroll, and the navigation and Penny button hide. Uses the production Penny panel, header, composer and thread anchor with local-only replies. Physical iOS Safari, Android Chrome and Capacitor keyboard checks remain required. ?state=short|long|empty|error&mode=light|dark",
+    name: "Penny keyboard · G197",
+    description: "G197, approved B restored (Kevin 2026-10-02): Codex's conversation-first layout from G191 (02c22ef4) over the G196 keyboard mechanics. Tapping the input changes nothing. Once a software keyboard is up the Penny window takes over the visible height in one move, with a compact header (a clear gap between its line and the close button), the links and question chips hidden, the conversation filling the space and the composer and its note on the keyboard edge. Nothing moves afterwards, the page behind cannot scroll, and the navigation and Penny button hide. Uses the production Penny panel, header, composer and thread anchor with local-only replies. Physical iOS Safari, Android Chrome and Capacitor keyboard checks remain required. ?state=short|long|empty|error&mode=light|dark",
     states: [{ label: "Short thread", value: "short" }, { label: "Long thread", value: "long" }, { label: "Empty", value: "empty" }, { label: "Reply error", value: "error" }],
   },
   {
