@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import PennyComposer from "../components/PennyComposer.tsx";
-import { pennyViewport, pennyKeyboardVisible } from "../lib/pennyKeyboardViewport.ts";
+import { pennyViewport, pennyKeyboardVisible, pennyBottomInset, pennyTypingTop, PENNY_TYPING_MIN_PANEL } from "../lib/pennyKeyboardViewport.ts";
 import { pennyTypingActive, pennyNextEngaged, applyPennyTypingAttribute } from "../lib/pennyTyping.ts";
 
 const browser = pennyViewport({ width: 390, height: 800 }, { width: 390, height: 480, top: 0, left: 0 });
@@ -32,7 +32,8 @@ assert.match(renderToStaticMarkup(React.createElement(PennyComposer, { ...props,
 const source = path => readFileSync(new URL(path, import.meta.url), "utf8");
 const live = source("../components/PennySheet.tsx");
 assert.match(live, /<PennySheetPanel isOpen=/);
-assert.match(live, /layout="focus"/, "Approved B gives the live conversation the available viewport");
+assert.match(live, /layout="docked"/, "G196: the live window docks the composer and never takes over");
+assert.doesNotMatch(live, /layout="focus"/);
 assert.match(source("../components/PennyConversation.tsx"), /<PennyComposer/);
 assert.match(source("../components/PennyConversation.tsx"), /preserveFocus=\{Boolean\(inSheet\)\}/);
 assert.match(source("../components/PennyConversation.tsx"), /usePennyThreadAnchor/);
@@ -42,6 +43,36 @@ assert.match(source("../components/PennyConversation.tsx"), /data-penny-secondar
 assert.match(source("../components/PennyConversation.tsx"), /data-penny-composer-wrap/);
 const frame = source("../components/PennySheetPanel.tsx");
 assert.match(frame, /layout = "legacy"/);
+// G196 docking: geometry comes from the visual viewport, never a takeover.
+const styles = source("../components/PennySheetPanel.styles.ts");
+assert.doesNotMatch(styles, /data-penny-layout="focus"|align-items: flex-end|height: min\(26rem, 100%\)/, "Takeover styles are gone");
+assert.doesNotMatch(styles, /penny-keyboard-typing[^{]*data-penny-secondary/, "Chips are not hidden while typing");
+assert.match(styles, /bottom: var\(--penny-typing-bottom/, "Typing docks the bottom edge on the keyboard");
+assert.doesNotMatch(frame, /width: viewport\.width|height: viewport\.height/, "The frame is never sized to the whole viewport");
+assert.match(frame, /usePennyKeyboard/);
+const hook = source("../lib/usePennyKeyboard.ts");
+assert.match(hook, /vv\?\.addEventListener\("resize"/);
+assert.match(hook, /vv\?\.addEventListener\("scroll"/, "Chrome pans and iOS scrolls the visual viewport; both re-measure");
+assert.match(hook, /requestAnimationFrame/);
+assert.match(hook, /vv\?\.removeEventListener\("scroll"/, "Listeners are cleaned up");
+assert.match(source("../components/PennyConversation.tsx"), /usePennyKeyboard\(!inSheet\)/, "Full-page /penny docks its composer the same way");
+assert.match(source("../app/globals.css"), /html\[data-penny-typing="true"\] \[data-penny-navigation\]/, "Nav hides on any page that sets the attribute");
+const capacitor = source("../../capacitor-spike/capacitor.config.json");
+assert.doesNotMatch(capacitor, /Keyboard/, "Shells keep default WebView behaviour, which the single-source measurement handles");
+// Chrome-style: layout viewport stays 800 tall, only the visual viewport shrinks.
+assert.equal(pennyBottomInset(800, { height: 480, top: 0, scale: 1 }), 320, "Composer offset equals the keyboard gap on Chrome resize");
+// Chrome pans the visual viewport to reveal the field: offsetTop moves the bottom.
+assert.equal(pennyBottomInset(800, { height: 480, top: 40, scale: 1 }), 280, "Chrome pan is part of the same sum");
+// iOS Safari: layout viewport scrolls; counted once, never added twice.
+assert.equal(pennyBottomInset(800, { height: 420, top: 60, scale: 1 }), 320, "iOS offsetTop is not double counted");
+// Capacitor-style resized WebView: layout equals visual, nothing to add.
+assert.equal(pennyBottomInset(480, { height: 480, top: 0, scale: 1 }), 0, "Already-resized WebViews get no extra offset");
+assert.equal(pennyBottomInset(800, { height: 480, top: 0, scale: 2 }), 0, "Pinch zoom never docks");
+assert.equal(pennyBottomInset(800, null), 0);
+// Typing never moves the resting top edge when the space allows.
+assert.equal(pennyTypingTop(100, 600), 100, "Top edge stays exactly where it was");
+assert.equal(pennyTypingTop(400, 520), 520 - PENNY_TYPING_MIN_PANEL, "Only the shortfall moves the top, so the composer stays reachable");
+assert.equal(pennyTypingTop(null, 520), 520 - PENNY_TYPING_MIN_PANEL, "No recorded resting edge falls back to the minimum panel");
 assert.doesNotMatch(frame, /keyboardHeight/, "Native keyboard heights are never added to an already-resized viewport");
 const touchHandler = frame.split("onPointerDownCapture=")[1].split("onFocusCapture=")[0];
 assert.doesNotMatch(touchHandler, /setFocused|setDidFocus|setNativeKeyboard|setComposerEngaged/, "Touch-down must not resize the panel before the input receives its tap");
@@ -49,6 +80,8 @@ assert.match(frame, /pennyTypingActive\(\{[^}]*engaged: composerEngaged, keyboar
 assert.match(frame, /!event.currentTarget.contains\(next\)/, "Tab within the dialog cannot collapse the typing layout under an open keyboard");
 assert.doesNotMatch(frame, /setNativeKeyboard/, "Native show events cannot expand the panel before the viewport resizes");
 const preview = source("../app/design/penny-keyboard/PennyKeyboardClient.tsx");
+assert.doesNotMatch(preview, /variant/, "The A/B switch no longer means anything");
+assert.match(preview, /layout="docked"/);
 assert.match(preview, /PennySheetHeader, PennySheetPanel.*components\/PennySheet/);
 assert.match(preview, /<PennyComposer/);
 assert.match(preview, /usePennyThreadAnchor/);
@@ -73,7 +106,7 @@ assert.equal(typingNow(), false, "Focus without a viewport change keeps the geom
 measure(resting);
 assert.equal(typingNow(), false, "keyboardWillShow before the WebView resizes does not expand");
 measure(withKeyboard);
-assert.equal(typingNow(), true, "Switches once the software keyboard is measured");
+assert.equal(typingNow(), true, "Docks once the software keyboard is measured");
 // Toolbar-sized change and pinch zoom while engaged never enter typing.
 const toolbar = { ...device, keyboardVisible: pennyKeyboardVisible(800, pennyViewport({ width: 390, height: 740 })) };
 assert.equal(pennyTypingActive(toolbar), false);
@@ -122,4 +155,4 @@ assert.equal(sent, 0, "Enter during IME composition does not send");
 press({ isComposing: false });
 assert.equal(sent, 1, "A plain Enter still sends");
 
-console.log("G191 viewport, composer, fixture safety and approved live focus layout passed");
+console.log("G196 docking, G191 viewport, composer and fixture safety passed");
