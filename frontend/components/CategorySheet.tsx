@@ -291,7 +291,7 @@ export default function CategorySheet({ name, title, total, count, transactions,
             );
           })()}
           <div className="flex-1 min-w-0">
-            <h2 className="text-base font-bold text-slate-900 dark:text-slate-100"><MoneyText text={title ?? name} /></h2>
+            <p className="text-base font-bold text-slate-900 dark:text-slate-100"><MoneyText text={title ?? name} /></p>
             {/* Scope/comparison basis stated up front (Show Your Working) —
                 this sheet is always scoped to the period it was opened from. */}
             <p className="text-xs text-slate-500 dark:text-slate-400">

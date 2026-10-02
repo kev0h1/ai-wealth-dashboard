@@ -22,7 +22,7 @@
 // or:
 //   npm run -s check:account-sheet-history
 
-import { stampAccountDetailState, hasAccountDetailEntry } from "../lib/accountSheetHistory.ts";
+import { accountDetailIdFromState, stampAccountDetailState, hasAccountDetailEntry } from "../lib/accountSheetHistory.ts";
 import { classifyNavigation } from "../lib/scrollNavDetect.ts";
 
 let failures = 0;
@@ -213,11 +213,39 @@ function testForwardDoesNotDoubleStampOrLeaveStaleEntry() {
   );
 }
 
+// --- 5. A child-sheet Back stays inside the account ----------------------
+//
+// SheetFrame pushes `{ __sheetA11yId }` above this entry. Its close/back
+// traverses to the account marker, not the list. The parent must therefore
+// reconcile the target marker, rather than clear account detail for every
+// popstate. This is the exact sequence ManualTxSheet/TeachingSheet exercise.
+function testChildSheetClosePreservesAccount() {
+  const accountEntry = stampAccountDetailState({ __wdNavSeq: 4 }, "acc-1");
+  const childEntry = { ...accountEntry, __sheetA11yId: "sheet-child" };
+  check(
+    "closing a child sheet lands on and retains the owning account",
+    accountDetailIdFromState(accountEntry) === "acc-1"
+  );
+  check(
+    "the child entry still identifies the same owning account",
+    accountDetailIdFromState(childEntry) === "acc-1"
+  );
+  check(
+    "back from account detail to the list clears the account marker",
+    accountDetailIdFromState({ __wdNavSeq: 4 }) === null
+  );
+  check(
+    "malformed markers never select an account",
+    accountDetailIdFromState({ accountDetail: 42 }) === null
+  );
+}
+
 function main() {
   testStampShape();
   testBackRestoresRecordedPosition();
   testDeepLinkDoesNotThrow();
   testForwardDoesNotDoubleStampOrLeaveStaleEntry();
+  testChildSheetClosePreservesAccount();
 
   if (failures > 0) {
     console.error(`\n${failures} failure(s).`);

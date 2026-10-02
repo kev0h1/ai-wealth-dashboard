@@ -35,6 +35,7 @@ import { useTutorialAction, useTutorialReady } from "@/components/TutorialContex
 import { LEGACY_BANK_AVAILABLE, LEGACY_BANK_MENU_LABEL, isLegacyBankSource } from "@/lib/legacyBankProvider";
 import { useOpenBankingAccess } from "@/lib/openBankingAccess";
 import { stampAccountDetailState, hasAccountDetailEntry } from "@/lib/accountSheetHistory";
+import { useAccountDetailHistory } from "@/lib/useAccountDetailHistory";
 import { SheetFrame } from "@/components/SheetFrame";
 
 /** One row inside the condensed "+ Add" menu (header Variant B). Mirrors the
@@ -299,6 +300,7 @@ export default function AccountsPage() {
   const [segment, setSegment] = useState<"Transactions" | "Categories">("Transactions");
   const [page, setPage] = useState(1);
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
+  const clearSelectedTransaction = useCallback(() => setSelectedTx(null), []);
   const [loadingTxns, setLoadingTxns] = useState<string | null>(null);
   const [tab, setTab] = useState<"Banks" | "Investments">(
     searchParams.get("tab") === "Investments" ? "Investments" : "Banks"
@@ -837,14 +839,7 @@ export default function AccountsPage() {
     }
   }, [selectedAccountId]);
 
-  useEffect(() => {
-    const onPop = () => {
-      setSelectedAccountId(null);
-      setSelectedTx(null);
-    };
-    window.addEventListener("popstate", onPop);
-    return () => window.removeEventListener("popstate", onPop);
-  }, []);
+  useAccountDetailHistory(setSelectedAccountId, clearSelectedTransaction);
 
   async function handleSelectAccount(acc: Account) {
     listScrollY.current = window.scrollY;

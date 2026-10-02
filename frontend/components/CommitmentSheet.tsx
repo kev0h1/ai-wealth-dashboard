@@ -62,7 +62,14 @@ interface CommitmentSheetProps {
   onClose: () => void;
   onSaved?: (item: Commitment) => void;
   onCancelled?: () => void;
+  /** Injectable only for deterministic auth-free component fixtures. */
+  operations?: CommitmentSheetOperations;
 }
+
+/** The existing Commitment API surface, kept injectable for real component
+ * fixtures without changing production behaviour. */
+export type CommitmentSheetOperations = Pick<typeof api,
+  "accounts" | "previewCommitment" | "createCommitment" | "updateCommitment" | "cancelCommitment">;
 
 /** "YYYY-MM" for next calendar month — the earliest pickable target. */
 function nextMonthYm(): string {
@@ -106,6 +113,7 @@ export default function CommitmentSheet({
   onClose,
   onSaved,
   onCancelled,
+  operations = api,
 }: CommitmentSheetProps) {
   const { payPeriodConfig } = usePreferences();
   const router = useRouter();
@@ -135,17 +143,19 @@ export default function CommitmentSheet({
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(false);
   const [confirmingCancel, setConfirmingCancel] = useState(false);
+  const [sheetHistoryGeneration, setSheetHistoryGeneration] = useState(0);
+  const allowConsentCloseRef = useRef(false);
 
   // Accounts — use the parent's list when given, otherwise self-fetch
   const [fetchedAccounts, setFetchedAccounts] = useState<Account[] | null>(null);
   useEffect(() => {
     if (accounts && accounts.length > 0) return;
     let cancelled = false;
-    api.accounts()
+    operations.accounts()
       .then((a) => { if (!cancelled) setFetchedAccounts(a); })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [accounts]);
+  }, [accounts, operations]);
   const accountList = accounts && accounts.length > 0 ? accounts : (fetchedAccounts ?? []);
 
   // Pot options — connected savings pots (live balances, payday-plan legs)
@@ -193,12 +203,12 @@ export default function CommitmentSheet({
     }
     let stale = false;
     const timer = setTimeout(() => {
-      api.previewCommitment(parsedAmount, `${month}-01`, pots, commitment?.id)
+      operations.previewCommitment(parsedAmount, `${month}-01`, pots, commitment?.id)
         .then((p) => { if (!stale) setPreview(p); })
         .catch(() => { if (!stale) setPreview(null); });
     }, 400);
     return () => { stale = true; clearTimeout(timer); };
-  }, [amountValid, monthValid, parsedAmount, month, pots, commitment?.id]);
+  }, [amountValid, monthValid, parsedAmount, month, pots, commitment?.id, operations]);
 
   // Live pot-ledger conflicts, keyed by account — an older goal may already
   // be drawing from a pot this draft also selects (see pots_detail).
@@ -264,7 +274,7 @@ export default function CommitmentSheet({
     try {
       let item: Commitment;
       if (commitment) {
-        const body: Parameters<typeof api.updateCommitment>[1] = {
+        const body: Parameters<CommitmentSheetOperations["updateCommitment"]>[1] = {
           name: name.trim(),
           amount: parsedAmount,
         };
@@ -279,9 +289,9 @@ export default function CommitmentSheet({
         if (potsChanged) {
           body.funding_pots = pots;
         }
-        item = await api.updateCommitment(commitment.id, body);
+        item = await operations.updateCommitment(commitment.id, body);
       } else {
-        item = await api.createCommitment({
+        item = await operations.createCommitment({
           name: name.trim(),
           amount: parsedAmount,
           target_date,
@@ -297,6 +307,10 @@ export default function CommitmentSheet({
       onSaved?.(item);
       close();
     } catch {
+      // A failed consent save must restore the ordinary consent dismissal
+      // contract. Otherwise the next X/Back would be mistaken for the
+      // successful programmatic close this attempt had prepared.
+      allowConsentCloseRef.current = false;
       setSaveError(true);
     } finally {
       setSaving(false);
@@ -324,7 +338,7 @@ export default function CommitmentSheet({
     setSaving(true);
     setSaveError(false);
     try {
-      await api.cancelCommitment(commitment.id);
+      await operations.cancelCommitment(commitment.id);
       invalidateVerdictCache();
       onCancelled?.();
       close();
@@ -338,24 +352,55 @@ export default function CommitmentSheet({
   if (!mounted) return null;
 
   const canSave = !saving && name.trim().length > 0 && amountValid && monthValid;
+  const returnToDraft = () => {
+    setShowConsent(false);
+    setTimeout(() => monthInputRef.current?.focus(), 0);
+  };
+  const returnToDraftAfterHistory = () => {
+    returnToDraft();
+    // X and browser Back consume SheetFrame's entry before calling onClose.
+    // Remount its history hook with the preserved draft, so the next close
+    // still owns an entry rather than navigating out of the parent sheet.
+    setSheetHistoryGeneration(generation => generation + 1);
+  };
+  const handleSheetClose = () => {
+    if (showConsent && !allowConsentCloseRef.current) {
+      returnToDraftAfterHistory();
+      return;
+    }
+    allowConsentCloseRef.current = false;
+    onClose();
+  };
+  const closeConsentThen = (closeThen: (next: () => void) => void, next: () => void) => {
+    allowConsentCloseRef.current = true;
+    closeThen(next);
+  };
+  const saveFromConsent = (close: () => void) => {
+    allowConsentCloseRef.current = true;
+    void doSave(close);
+  };
 
   return (
     <SheetFrame
+      key={sheetHistoryGeneration}
       title={commitment ? "Edit plan" : "Plan a big expense"}
       description="A goal you set money aside for, separate from single bills."
-      onClose={onClose}
+      onClose={handleSheetClose}
       dismissDisabled={saving}
+      onEscape={showConsent ? returnToDraft : undefined}
+      onBack={showConsent ? returnToDraft : undefined}
+      backLabel="Back to plan"
       footer={({ close, closeThen }) => {
         if (showConsent && consentSnapshot) {
           return (
             <div className="space-y-2">
-              <button type="button" disabled={saving} onClick={() => void doSave(close)} className="w-full rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white active:scale-95 disabled:opacity-60">
+              <button type="button" disabled={saving} onClick={() => saveFromConsent(close)} className="w-full rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white active:scale-95 disabled:opacity-60">
                 {saving ? "Saving…" : consentSnapshot.actions.anyway}
               </button>
-              <button type="button" disabled={saving} onClick={() => { setShowConsent(false); setTimeout(() => monthInputRef.current?.focus(), 0); }} className="w-full rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 active:scale-95 disabled:opacity-50 dark:border-slate-600 dark:text-slate-200">
+              <button type="button" disabled={saving} onClick={returnToDraft} className="w-full rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 active:scale-95 disabled:opacity-50 dark:border-slate-600 dark:text-slate-200">
                 {consentSnapshot.actions.later_date}
               </button>
-              <button type="button" disabled={saving} onClick={() => closeThen(() => router.push("/cards"))} className="w-full rounded-xl px-4 py-2 text-sm font-semibold text-indigo-600 active:scale-95 disabled:opacity-50 dark:text-indigo-400">
+              <button type="button" disabled={saving} onClick={() => closeConsentThen(closeThen, () => router.push("/cards"))} className="w-full rounded-xl px-4 py-2 text-sm font-semibold text-indigo-600 active:scale-95 disabled:opacity-50 dark:text-indigo-400">
                 {consentSnapshot.actions.debt_first}
               </button>
             </div>

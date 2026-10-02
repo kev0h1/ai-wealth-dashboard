@@ -46,9 +46,21 @@ export function stampAccountDetailState(
  *  clears local state instead of calling `history.back()` on an entry it
  *  doesn't own. */
 export function hasAccountDetailEntry(currentState: unknown): boolean {
+  return accountDetailIdFromState(currentState) !== null;
+}
+
+/** The account detail this history entry represents, or null for the list
+ * entry. Child sheets push their own entry on top of this one. When one of
+ * those sheets closes, the browser lands back here, so AccountsPage must
+ * retain (or restore on Forward) this account instead of treating every
+ * popstate as an instruction to leave detail. */
+export function accountDetailIdFromState(currentState: unknown): string | null {
+  const detail = currentState != null && typeof currentState === "object"
+    ? (currentState as Record<string, unknown>).accountDetail
+    : null;
   return (
-    currentState != null &&
-    typeof currentState === "object" &&
-    Boolean((currentState as Record<string, unknown>).accountDetail)
+    typeof detail === "string" && detail.length > 0
+      ? detail
+      : null
   );
 }

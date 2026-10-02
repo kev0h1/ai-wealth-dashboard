@@ -82,7 +82,7 @@ export default function SetAsideSheet({
   const periodStartLabel = periodStart.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 
   function pickKind(kind: Kind, closeThen: (next: () => void) => void) {
-    if (kind === "date") { if (onSelectByDate) closeThen(onSelectByDate); return; }
+    if (kind === "date") { closeThen(() => onSelectByDate?.()); return; }
     if (kind === "single") { closeThen(onSelectSingle); return; }
     setStep("envelope");
   }

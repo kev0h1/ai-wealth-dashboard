@@ -24,14 +24,18 @@ export interface UpcomingFlowSheetProps<View> {
 
 type Entry<View> = { view: View; scrollTop: number; focusSelector: string | null };
 const subscribe = () => () => {};
-const UpcomingFlowFooterContext = createContext<HTMLElement | null>(null);
+const UpcomingFlowFooterContext = createContext<{ target: HTMLElement | null; retain(): () => void }>({
+  target: null,
+  retain: () => () => {},
+});
 const UpcomingFlowSubmissionContext = createContext<(busy: boolean) => void>(() => {});
 export function useFlowSubmission() { return useContext(UpcomingFlowSubmissionContext); }
 
 /** Projects a form's stable actions into the persistent flow footer. It is a
  * portal within the existing dialog, never a nested dialog or sheet. */
 export function UpcomingFlowFooter({ children }: { children: ReactNode }) {
-  const target = useContext(UpcomingFlowFooterContext);
+  const { target, retain } = useContext(UpcomingFlowFooterContext);
+  useEffect(retain, [retain]);
   return target ? createPortal(children, target) : null;
 }
 
@@ -68,7 +72,15 @@ export default function UpcomingFlowSheet<View>({ initialView, onClose, renderVi
   const panelRef = useCallback((node: HTMLElement | null) => { panelNodeRef.current = node; }, []);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const [footerTarget, setFooterTarget] = useState<HTMLElement | null>(null);
+  const [portalFooters, setPortalFooters] = useState(0);
   const footerRef = useCallback((node: HTMLDivElement | null) => setFooterTarget(node), []);
+  const fallbackFooterRef = useCallback((node: HTMLDivElement | null) => {
+    if (node) setFooterTarget(node);
+  }, []);
+  const retainFooter = useCallback(() => {
+    setPortalFooters(count => count + 1);
+    return () => setPortalFooters(count => Math.max(0, count - 1));
+  }, []);
   const entriesRef = useRef<Entry<View>[]>([{ view: initialView, scrollTop: 0, focusSelector: null }]);
   const depthRef = useRef(0);
   const closingRef = useRef(false);
@@ -196,7 +208,8 @@ export default function UpcomingFlowSheet<View>({ initialView, onClose, renderVi
   // These event callbacks read refs only when invoked by the user, not here.
   // eslint-disable-next-line react-hooks/refs
   const rendered = renderView(view, navigation);
-  return <UpcomingFlowSubmissionContext.Provider value={setSubmission}><UpcomingFlowFooterContext.Provider value={footerTarget}>
+  const hasFooter = rendered.footer != null || portalFooters > 0;
+  return <UpcomingFlowSubmissionContext.Provider value={setSubmission}><UpcomingFlowFooterContext.Provider value={{ target: footerTarget, retain: retainFooter }}>
     <SheetFrame title={rendered.title} description={rendered.subtitle} leading={rendered.leading}
       onClose={close} onEscape={back} onBack={depth > 0 ? back : undefined} backLabel="Back to details"
       dismissDisabled={saving} manageHistory={false} labelledBy={`${id}-title`}
@@ -205,13 +218,13 @@ export default function UpcomingFlowSheet<View>({ initialView, onClose, renderVi
         // The second tap of a double-click must not activate a different
         // footer control that appeared under the pointer after the first.
         if (event.detail > 1) { event.preventDefault(); event.stopPropagation(); }
-      }} footer={<>
+      }} footer={hasFooter ? <>
           <div>{rendered.footer}</div>
           {/* Keep the portal target separate from React-owned detail actions,
               so replacing one cannot clear the editor's newly mounted footer. */}
           <div ref={footerRef} />
-      </>}>
-      <div key={motionKey} className={motionKey ? "upcoming-flow-change" : undefined}>{rendered.body}</div>
+      </> : undefined}>
+      <div key={motionKey} className={motionKey ? "upcoming-flow-change" : undefined}>{rendered.body}{!hasFooter && <div ref={fallbackFooterRef} />}</div>
     </SheetFrame>
     <style jsx>{`.upcoming-flow-change{animation:upcoming-flow-change 150ms cubic-bezier(.23,1,.32,1) both}@keyframes upcoming-flow-change{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}@media (prefers-reduced-motion:reduce){.upcoming-flow-change{animation:none}}`}</style>
   </UpcomingFlowFooterContext.Provider></UpcomingFlowSubmissionContext.Provider>;

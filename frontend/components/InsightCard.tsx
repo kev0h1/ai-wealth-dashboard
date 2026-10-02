@@ -277,6 +277,9 @@ function WorkflowDrawer({
     try {
       await api.saveInsightContext(insight.id, values);
       setDone(true);
+      // The write has completed. Keep dismissal disabled only while the
+      // request is in flight, so the confirmation phase remains escapable.
+      setSaving(false);
       setTimeout(() => closeThen(onSaved), 1500);
     } catch {
       setSaving(false);
