@@ -116,7 +116,7 @@ export default function PennyKeyboardClient() {
     <div className="mx-auto max-w-xl">
       <a href="/design" className={`${button} -ml-3 text-indigo-700 dark:text-indigo-300`}><ArrowLeft size={16} aria-hidden="true" />Design previews</a>
       <h1 className="mt-3 text-xl font-bold">Typing with Penny</h1>
-      <p id="preview-info" className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">Open Penny, then tap the input on your phone. Both options dock above the keyboard and hide the navigation while typing. These are local example conversations, not live Penny messages.</p>
+      <p id="preview-info" className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">Open Penny, then tap the input on your phone. The window stays still while you tap. Both options dock above the keyboard and hide the navigation once the keyboard opens. These are local example conversations, not live Penny messages.</p>
       <nav aria-label="Keyboard variants" className="mt-4 flex flex-wrap gap-2">
         {([['a', 'A · Keep shortcuts'], ['b', 'B · Conversation first']] as const).map(([value,label]) => <a key={value} href={href(value)} aria-current={variant === value ? "page" : undefined}
           className={`${button} ${variant === value ? "bg-indigo-600 text-white" : "border border-slate-300 dark:border-slate-600"}`}>{label}</a>)}
