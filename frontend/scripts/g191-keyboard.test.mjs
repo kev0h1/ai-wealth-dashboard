@@ -44,8 +44,14 @@ const frame = source("../components/PennySheetPanel.tsx");
 assert.doesNotMatch(frame, /legacy|keyboardInset|onTypingChange/, "Dead layout and prop paths are gone");
 // G196 docking: geometry comes from the visual viewport, never a takeover.
 const styles = source("../components/PennySheetPanel.styles.ts");
-assert.doesNotMatch(styles, /data-penny-layout="focus"|align-items: flex-end|height: min\(26rem, 100%\)/, "Takeover styles are gone");
-assert.doesNotMatch(styles, /penny-keyboard-typing[^{]*data-penny-secondary/, "Chips are not hidden while typing");
+assert.doesNotMatch(styles, /data-penny-layout="focus"|align-items: flex-end|height: min\(26rem, 100%\)/, "G191's viewport-sized frame hack stays gone: the takeover is positioned from the measured dock");
+assert.match(styles, /\.penny-keyboard-typing \[data-penny-secondary\] \{ display: none; \}/, "G197: header links and chips are hidden while typing (approved B)");
+assert.match(styles, /\.penny-keyboard-typing \{[^}]*padding-inline: 0;/, "G197: the takeover is full width");
+assert.match(styles, /\.penny-keyboard-typing \.penny-keyboard-panel \{[^}]*max-width: 100%;/, "G197: the panel is not capped to 420px while typing");
+const ruleGap = styles.match(/\.penny-keyboard-typing \[data-penny-header-rule\] \{ margin-top: (\d+)px; \}/);
+assert.ok(ruleGap && Number(ruleGap[1]) >= 12, "G197: the header rule keeps a gap below the 44px close button so it never touches the X");
+assert.match(source("../components/PennySheet.tsx"), /data-penny-header-rule className="border-b/, "The header rule is addressable by the typing gap");
+assert.match(source("../components/PennySheet.tsx"), /<div data-penny-secondary className="mt-2 flex/, "The header links row is the hidden secondary row");
 assert.match(styles, /bottom: var\(--penny-typing-bottom/, "Typing docks the bottom edge on the keyboard");
 assert.doesNotMatch(frame, /width: viewport\.width|height: viewport\.height/, "The frame is never sized to the whole viewport");
 assert.match(frame, /usePennyKeyboard/);
@@ -107,10 +113,11 @@ assert.match(chipRule, /\[data-penny-device="landscape"\] \[data-penny-secondary
 assert.doesNotMatch(chipRule, /\.penny-keyboard-frame \[data-penny-secondary\]/, "No ungated rule can hide chips for a short portrait viewport");
 assert.doesNotMatch(styles, /\(orientation: landscape\)/, "Layout-viewport aspect ratio is not the signal");
 assert.match(frame, /data-penny-device=/);
-// Chips stay mounted while typing (only CSS could hide them, and only on a landscape device).
-assert.doesNotMatch(styles, /penny-keyboard-typing[^{]*\[data-penny-secondary\]/);
+// Chips are hidden by CSS only (they stay mounted, so the thread and draft are untouched) and only while typing or on a landscape device.
+assert.doesNotMatch(styles, /^\.penny-keyboard-frame \[data-penny-secondary\]/m, "No ungated rule hides the chips at rest");
+assert.doesNotMatch(styles, /chips stay|keeps its links row/i, "fill-once wording is gone");
 assert.match(source("../app/globals.css"), /html:has\(textarea:focus/, "Bottom nav steps aside for any focused text field under resizes-content");
-assert.match(source("../app/design/page.tsx"), /fills the visible height above it in one move/);
+assert.match(source("../app/design/page.tsx"), /takes over the visible height in one move/);
 assert.doesNotMatch(frame, /keyboardHeight/, "Native keyboard heights are never added to an already-resized viewport");
 const touchHandler = frame.split("onPointerDownCapture=")[1].split("onFocusCapture=")[0];
 assert.doesNotMatch(touchHandler, /setFocused|setDidFocus|setNativeKeyboard|setComposerEngaged/, "Touch-down must not resize the panel before the input receives its tap");
@@ -192,4 +199,4 @@ assert.equal(sent, 0, "Enter during IME composition does not send");
 press({ isComposing: false });
 assert.equal(sent, 1, "A plain Enter still sends");
 
-console.log("G196 docking, G191 viewport, composer and fixture safety passed");
+console.log("G197 restored B takeover, G196 docking, G191 viewport, composer and fixture safety passed");
