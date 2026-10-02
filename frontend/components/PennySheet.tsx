@@ -82,8 +82,9 @@
 //    tree. If you're reading this because a reviewer flagged that
 //    transform: it's already accounted for, the portal is what makes it
 //    safe.
-// 5. PennySheetPanel owns keyboard geometry while open. G196 docks the composer from one
-//    visual viewport; the window itself never resizes on tap.
+// 5. PennySheetPanel owns keyboard geometry while open. G197 restores Codex's approved
+//    variant B: once a keyboard is measured the window takes over the visible
+//    height (header links and chips yield); it never resizes on tap alone.
 //
 // z-index: click-catcher z-[56], panel z-[58] — same tier numbers as the
 // old scrim/panel, only the click-catcher's job changed: it used to BE the
@@ -401,7 +402,7 @@ export function PennySheetHeader({ pennyUsed, pennyLimit, usageRevealed, handleA
                 header was the one row still on the old `px-4`, which is
                 what put its content 4px out of line with everything below
                 it as well as shortening its own divider. */}
-            <div className="border-b border-slate-200/70 dark:border-slate-700 mt-1" />
+            <div data-penny-header-rule className="border-b border-slate-200/70 dark:border-slate-700 mt-1" />
           </div>
   );
 }
