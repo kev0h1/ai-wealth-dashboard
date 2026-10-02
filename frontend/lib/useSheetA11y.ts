@@ -1,4 +1,5 @@
 "use client";
+import { beginTeardownPop, pendingTeardownPopCount } from "@/lib/sheetTeardownPops";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 // Modal contract for bottom sheets: Escape closes, focus moves in on open,
@@ -143,7 +144,7 @@ const focusStack: HTMLElement[] = [];
  * any sheet handler has popped itself off the stack) to tell "a sheet is
  * consuming this traversal" from "the user is leaving the page's own view". */
 export function openSheetHistoryCount(): number {
-  return sheetHistoryStack.length;
+  return sheetHistoryStack.length + pendingTeardownPopCount();
 }
 let scrollLockCount = 0;
 let releaseScrollLock: (() => void) | null = null;
@@ -370,7 +371,10 @@ export function useSheetA11y<T extends HTMLElement>(
           if (closingRef.current) return;
           // A route navigation already superseded the overlay. Never send
           // the user back from their newly opened page during teardown.
-          if (history.state?.__sheetA11yId === id && window.location.href === entryUrl) history.back();
+          if (history.state?.__sheetA11yId === id && window.location.href === entryUrl) {
+            beginTeardownPop();
+            history.back();
+          }
         });
       }
     };

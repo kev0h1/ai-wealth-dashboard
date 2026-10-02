@@ -99,3 +99,28 @@ export function decideAccountPop(landingState: unknown, openSheets: number): Acc
   }
   return { accountId: accountDetailIdFromState(landingState), clearTransaction: true };
 }
+
+export interface AccountPopHandlers {
+  setSelectedAccountId: (accountId: string | null) => void;
+  clearSelectedTransaction: () => void;
+}
+
+/** Registers the Accounts popstate listener ONCE, in the capture phase, and
+ *  returns the detach function. `getHandlers` is read per event so the caller
+ *  can keep its callbacks in a ref: a listener that is re-registered when a
+ *  render flushes inside the dispatch (Next does this) is skipped by the
+ *  browser for that very event. */
+export function attachAccountPopListener(
+  target: EventTarget,
+  getHandlers: () => AccountPopHandlers,
+  getOpenSheets: () => number,
+): () => void {
+  const onPop = (event: Event) => {
+    const decision = decideAccountPop((event as PopStateEvent).state, getOpenSheets());
+    const handlers = getHandlers();
+    if (decision.accountId !== undefined) handlers.setSelectedAccountId(decision.accountId);
+    if (decision.clearTransaction) handlers.clearSelectedTransaction();
+  };
+  target.addEventListener("popstate", onPop, true);
+  return () => target.removeEventListener("popstate", onPop, true);
+}

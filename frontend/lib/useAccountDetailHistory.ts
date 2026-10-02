@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef } from "react";
-import { decideAccountPop } from "@/lib/accountSheetHistory";
+import { attachAccountPopListener } from "@/lib/accountSheetHistory";
 import { openSheetHistoryCount } from "@/lib/useSheetA11y";
 
 /**
@@ -25,13 +25,8 @@ export function useAccountDetailHistory(
   useLayoutEffect(() => {
     handlers.current = { setSelectedAccountId, clearSelectedTransaction };
   });
-  useEffect(() => {
-    const onPop = (event: PopStateEvent) => {
-      const decision = decideAccountPop(event.state, openSheetHistoryCount());
-      if (decision.accountId !== undefined) handlers.current.setSelectedAccountId(decision.accountId);
-      if (decision.clearTransaction) handlers.current.clearSelectedTransaction();
-    };
-    window.addEventListener("popstate", onPop, true);
-    return () => window.removeEventListener("popstate", onPop, true);
-  }, []);
+  useEffect(
+    () => attachAccountPopListener(window, () => handlers.current, openSheetHistoryCount),
+    [],
+  );
 }
