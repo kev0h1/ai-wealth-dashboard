@@ -132,7 +132,7 @@ export function SheetFrame({
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={description ? `${titleId}-description` : undefined}
-        className={`glass-sheet relative z-10 flex w-full max-w-[500px] flex-col overflow-hidden rounded-t-3xl border-t border-slate-200 shadow-xl outline-none dark:border-slate-700 dark:shadow-none lg:max-h-[85%] lg:rounded-3xl lg:border [&_button]:min-h-11 [&_button:focus-visible]:outline-2 [&_button:focus-visible]:outline-indigo-500 [&_input:focus-visible]:outline-2 [&_input:focus-visible]:outline-indigo-500 ${mobileHeight}`}
+        className={`glass-sheet relative z-10 flex w-full max-w-[500px] flex-col overflow-hidden rounded-t-3xl border-t border-slate-200 shadow-xl outline-none dark:border-slate-700 dark:shadow-none lg:max-h-[85%] lg:rounded-3xl lg:border [&_button:not([data-compact])]:min-h-11 [&_button:focus-visible]:outline-2 [&_button:focus-visible]:outline-indigo-500 [&_input:focus-visible]:outline-2 [&_input:focus-visible]:outline-indigo-500 ${mobileHeight}`}
       >
         <header className="flex shrink-0 items-start gap-3 border-b border-slate-100 px-5 py-4 dark:border-slate-700">
           {onBack && <button type="button" onClick={onBack} disabled={dismissDisabled} aria-label={backLabel} className="-ml-2 -mt-1 flex size-11 shrink-0 items-center justify-center rounded-full text-slate-600 active:scale-95 disabled:opacity-50 dark:text-slate-300"><ChevronLeft size={20} aria-hidden="true" /></button>}

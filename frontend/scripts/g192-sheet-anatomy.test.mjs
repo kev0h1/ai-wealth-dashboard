@@ -140,4 +140,6 @@ assert.match(commitment, /operations\.cancelCommitment/);
 assert.match(contractExamples, /<CommitmentSheet accounts=\{\[FIXTURE_ACCOUNT\]\}/, "The auth-free consent fixture renders the real CommitmentSheet");
 assert.match(contractExamples, /if \(attempts\.current === 1\) throw new Error\("Fixture first-save failure"\);/, "Consent fixture fails exactly once before a successful save");
 assert.match(contractExamples, /anyway: "Save despite card plan"/);
+assert.match(frame, /\[&_button:not\(\[data-compact\]\)\]:min-h-11/, "Sheet buttons get 44px targets unless a control opts out with data-compact");
+assert.match(source("../app/globals.css"), /\[data-sheet-frame\] \{\s+animation: slideUp/, "SheetFrame keeps the phone slide-up entrance");
 console.log("G192 SSR, real forms, approved production parity and complete sheet inventory passed");
