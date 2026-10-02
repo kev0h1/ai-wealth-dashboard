@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { decideAccountPop } from "@/lib/accountSheetHistory";
 import { openSheetHistoryCount } from "@/lib/useSheetA11y";
 
@@ -17,13 +17,21 @@ export function useAccountDetailHistory(
   setSelectedAccountId: (accountId: string | null) => void,
   clearSelectedTransaction: () => void,
 ) {
+  // Callbacks live in a ref and the listener is registered exactly once. Next's
+  // own popstate handler can flush a React render synchronously inside the same
+  // event dispatch; a listener that re-registers on every render is removed and
+  // re-added mid-dispatch and the browser then skips it for that very event.
+  const handlers = useRef({ setSelectedAccountId, clearSelectedTransaction });
+  useLayoutEffect(() => {
+    handlers.current = { setSelectedAccountId, clearSelectedTransaction };
+  });
   useEffect(() => {
     const onPop = (event: PopStateEvent) => {
       const decision = decideAccountPop(event.state, openSheetHistoryCount());
-      if (decision.accountId !== undefined) setSelectedAccountId(decision.accountId);
-      if (decision.clearTransaction) clearSelectedTransaction();
+      if (decision.accountId !== undefined) handlers.current.setSelectedAccountId(decision.accountId);
+      if (decision.clearTransaction) handlers.current.clearSelectedTransaction();
     };
     window.addEventListener("popstate", onPop, true);
     return () => window.removeEventListener("popstate", onPop, true);
-  }, [clearSelectedTransaction, setSelectedAccountId]);
+  }, []);
 }
