@@ -1408,14 +1408,6 @@ export default function PennyConversation({
       }
     } finally {
       setLoading(false);
-      // Refocusing the composer here used to happen synchronously right
-      // after this setLoading(false) call, but that only SCHEDULES the
-      // re-render that clears the input's `disabled={loading}` binding
-      // (see the composer below) — the DOM node was still disabled at the
-      // moment `.focus()` ran, and browsers no-op focus() on a disabled
-      // element, so the "ask another one immediately" flow frequently
-      // failed. Moved to the loading-transition effect below, which runs
-      // after React has actually committed the enabled input to the DOM.
     }
   }
 
@@ -1965,7 +1957,7 @@ export default function PennyConversation({
   const composerContent = <PennyComposer
     inputRef={inputRef} value={input} onChange={setInput} onSend={() => send(input)}
     placeholder={atCap ? restingPlaceholder : placeholder} loading={loading} atCap={atCap}
-    onMoreMessages={inSheet ? openMoreMessagesSheet : undefined} preserveFocus={Boolean(inSheet)}
+    onMoreMessages={inSheet ? openMoreMessagesSheet : undefined}
   />;
   // Full-page mode's own floating surface (see the comment above for why it
   // still needs one) — sheet mode never uses this, it mounts

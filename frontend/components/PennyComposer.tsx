@@ -4,9 +4,12 @@ import type { RefObject } from "react";
 import { Loader2, Send } from "lucide-react";
 import { BRAND_GRADIENT } from "@/lib/brand";
 
-/** Shared production input, send control and caveat. Sheet callers retain
- * focus while sending; non-sheet callers retain the previous default. */
-export default function PennyComposer({ inputRef, value, onChange, onSend, placeholder, loading, atCap, onMoreMessages, preserveFocus = false }: {
+/** Shared production input, send control and caveat. G198: the input is never
+ * disabled or readOnly while a reply is pending (Android Chrome closes the
+ * keyboard when a focused input turns readOnly or disabled), and the send
+ * button never takes focus, so sending keeps the keyboard up like any chat
+ * app. Duplicate sends are blocked in the handlers, not on the input. */
+export default function PennyComposer({ inputRef, value, onChange, onSend, placeholder, loading, atCap, onMoreMessages }: {
   inputRef: RefObject<HTMLInputElement | null>;
   value: string;
   onChange: (value: string) => void;
@@ -15,7 +18,6 @@ export default function PennyComposer({ inputRef, value, onChange, onSend, place
   loading: boolean;
   atCap: boolean;
   onMoreMessages?: () => void;
-  preserveFocus?: boolean;
 }) {
   return <>
     <div className="flex items-center gap-2">
@@ -26,13 +28,13 @@ export default function PennyComposer({ inputRef, value, onChange, onSend, place
           if (event.key === "Enter" && !event.nativeEvent.isComposing && event.keyCode !== 229 && !loading && !atCap) onSend();
         }}
         placeholder={placeholder} aria-label="Ask Penny a spending question" maxLength={160}
-        disabled={atCap || (loading && !preserveFocus)} readOnly={loading && preserveFocus}
+        disabled={atCap}
         className="flex-1 min-w-0 min-h-[44px] text-sm bg-slate-50 dark:bg-slate-700 dark:text-slate-100 rounded-full px-4 py-2 outline-none border border-slate-200 dark:border-slate-600 focus:border-violet-300 disabled:opacity-60"
       />
       <button type="button" onClick={onSend} disabled={!value.trim() || loading || atCap} aria-label="Ask Penny"
-        onPointerDown={preserveFocus ? (event) => {
-          if (document.activeElement === inputRef.current) event.preventDefault();
-        } : undefined}
+        tabIndex={-1}
+        onPointerDown={(event) => event.preventDefault()}
+        onMouseDown={(event) => event.preventDefault()}
         className="flex-shrink-0 w-11 h-11 rounded-full flex items-center justify-center disabled:opacity-40 text-white active:scale-95 transition-transform"
         style={{ background: BRAND_GRADIENT }}
       >{loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}</button>
