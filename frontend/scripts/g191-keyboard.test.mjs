@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import PennyComposer from "../components/PennyComposer.tsx";
-import { pennyViewport, pennyKeyboardVisible, pennyBottomInset, pennyTypingTop, PENNY_TYPING_MIN_PANEL } from "../lib/pennyKeyboardViewport.ts";
+import { pennyViewport, pennyKeyboardVisible, pennyBottomInset, pennyLayoutShrank, pennyDockNext, pennyFillTop } from "../lib/pennyKeyboardViewport.ts";
 import { pennyTypingActive, pennyNextEngaged, applyPennyTypingAttribute } from "../lib/pennyTyping.ts";
 
 const browser = pennyViewport({ width: 390, height: 800 }, { width: 390, height: 480, top: 0, left: 0 });
@@ -68,14 +68,38 @@ assert.equal(pennyBottomInset(800, { height: 420, top: 60, scale: 1 }), 320, "iO
 assert.equal(pennyBottomInset(480, { height: 480, top: 0, scale: 1 }), 0, "Already-resized WebViews get no extra offset");
 assert.equal(pennyBottomInset(800, { height: 480, top: 0, scale: 2 }), 0, "Pinch zoom never docks");
 assert.equal(pennyBottomInset(800, null), 0);
-// Typing never moves the resting top edge when the space allows.
-assert.equal(pennyTypingTop(100, 600), 100, "Top edge stays exactly where it was");
-assert.equal(pennyTypingTop(400, 520), 520 - PENNY_TYPING_MIN_PANEL, "Only the shortfall moves the top, so the composer stays reachable");
-assert.ok(pennyTypingTop(100, 600, 120) >= 128, "A panned visual viewport (offsetTop 120) never puts the header above the visible area");
-assert.equal(pennyTypingTop(null, 300, 120), 128, "Short visible area clamps to the pan");
-assert.match(frame, /pennyTypingTop\(restTop\.current, viewport\.visualBottom, viewport\.top\)/);
-assert.match(frame, /if \(keyboardVisible \|\|/, "The resting edge is never recorded while a keyboard is up");
-assert.equal(pennyTypingTop(null, 520), 520 - PENNY_TYPING_MIN_PANEL, "No recorded resting edge falls back to the minimum panel");
+// Self-detecting inset (fill-once): a shrunk layout viewport means the fixed bottom edge IS the keyboard top.
+assert.equal(pennyLayoutShrank(844, 524), true, "resizes-content: innerHeight shrank with the keyboard");
+assert.equal(pennyLayoutShrank(844, 790), false, "A URL-bar change is not a keyboard");
+assert.equal(pennyBottomInset(524, { height: 524, top: 0, scale: 1 }, true), 0, "Shrunk layout: inset is 0");
+assert.equal(pennyBottomInset(844, { height: 524, top: 0, scale: 1 }, true), 0, "Shrunk flag wins: never double counted");
+assert.equal(pennyBottomInset(844, { height: 524, top: 0, scale: 1 }, false), 320, "iOS-style: visual sum when layout kept its height");
+assert.equal(pennyBottomInset(844, { height: 470, top: 50, scale: 1 }, false), 324, "iOS-style: offsetTop counted once");
+// Fill once geometry: top = visual top + 8 (CSS adds safe-area), bottom = keyboard top.
+assert.equal(pennyFillTop(0), 8);
+assert.equal(pennyFillTop(120), 128, "A panned visual viewport never puts the header above the visible area");
+assert.equal(pennyFillTop(-5), 8);
+// Held dock: pan, scroll and URL-bar jitter after settling change nothing; a genuine keyboard change re-fits; dismissal releases.
+const first = pennyDockNext(null, { keyboardVisible: true, height: 524, inset: 320, top: 0 }, true);
+assert.deepEqual(first, { key: 524, inset: 320, top: 0 });
+assert.equal(pennyDockNext(first, { keyboardVisible: true, height: 524, inset: 290, top: 40 }, false), first, "vv scroll or pan after settling changes nothing");
+assert.equal(pennyDockNext(first, { keyboardVisible: true, height: 510, inset: 334, top: 0 }, false), first, "Sub-threshold height jitter changes nothing");
+assert.deepEqual(pennyDockNext(first, { keyboardVisible: true, height: 440, inset: 404, top: 0 }, false), { key: 440, inset: 404, top: 0 }, "A genuine keyboard height change re-fits");
+assert.deepEqual(pennyDockNext(first, { keyboardVisible: true, height: 524, inset: 270, top: 50 }, true), { key: 524, inset: 270, top: 50 }, "While settling (iOS pan, late Chrome resize) it still converges");
+assert.equal(pennyDockNext(first, { keyboardVisible: false, height: 844, inset: 0, top: 0 }, false), null, "Dismissal releases the dock");
+assert.match(frame, /pennyFillTop\(viewport\.top\)/);
+assert.doesNotMatch(frame, /restTop|measureRest|pennyTypingTop/, "The 320px shortfall clamp and resting-edge recording are gone");
+assert.match(hook, /pennyDockNext/, "The hook holds the dock");
+assert.match(hook, /pennyLayoutShrank/);
+assert.match(source("../app/layout.tsx"), /interactiveWidget: "resizes-content"/, "Viewport meta asks Chrome to resize the layout viewport");
+assert.match(source("../lib/useLockBodyScroll.ts"), /acquireScrollLock/, "The Penny window uses the fixed-body lock");
+assert.match(source("../lib/useSheetA11y.ts"), /body\.position = "fixed"/, "Body lock is position:fixed with scroll restore");
+assert.match(source("../lib/useSheetA11y.ts"), /window\.scrollTo\(0, scrollY\)/);
+assert.match(source("../components/PennySheet.tsx"), /touch-none bg-transparent/, "The backdrop swallows touch scrolling");
+assert.match(source("../components/PennySheet.tsx"), /\{isOpen && <SheetEffectsGate \/>\}/, "Lock holds while the window is open, including while typing");
+assert.match(styles, /orientation: landscape/, "Chips are not hidden by a portrait keyboard shrinking the layout viewport");
+assert.match(source("../app/globals.css"), /html:has\(textarea:focus/, "Bottom nav steps aside for any focused text field under resizes-content");
+assert.match(source("../app/design/page.tsx"), /fills the visible height above it in one move/);
 assert.doesNotMatch(frame, /keyboardHeight/, "Native keyboard heights are never added to an already-resized viewport");
 const touchHandler = frame.split("onPointerDownCapture=")[1].split("onFocusCapture=")[0];
 assert.doesNotMatch(touchHandler, /setFocused|setDidFocus|setNativeKeyboard|setComposerEngaged/, "Touch-down must not resize the panel before the input receives its tap");
