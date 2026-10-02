@@ -44,6 +44,11 @@ export const viewport: Viewport = {
   // and this viewport export applies to every screen in the app. Do not
   // reinstate them.
   viewportFit: "cover",
+  // G196 fill-once: Chrome on Android shrinks the layout viewport to the area
+  // above the keyboard (so a fixed bottom edge IS the keyboard top, as in the
+  // Capacitor shells) instead of only the visual viewport. iOS Safari ignores
+  // it and keeps the visualViewport measurement in lib/pennyKeyboardViewport.
+  interactiveWidget: "resizes-content",
 };
 
 const figtree = Figtree({ subsets: ["latin"], variable: "--font-figtree" });

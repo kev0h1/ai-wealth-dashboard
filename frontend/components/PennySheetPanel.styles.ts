@@ -27,16 +27,20 @@ export const PENNY_PANEL_CSS = `
 @media (min-width: 1024px) {
   .penny-keyboard-frame { left: auto; right: 24px; bottom: 24px; width: 420px; padding: 0; }
 }
-@media (max-height: 480px) and (max-width: 1023px) {
+@media (max-height: 480px) and (max-width: 1023px) and (orientation: landscape) {
   .penny-keyboard-frame:not(.penny-keyboard-typing) { bottom: 8px; }
   .penny-keyboard-panel { min-height: 0; height: calc(100dvh - 16px); max-height: calc(100dvh - 16px); }
   .penny-keyboard-frame [data-penny-secondary] { display: none; }
 }
 
-/* Typing (G196): the window keeps its resting left, right and top edges. Only
-   its bottom edge follows the keyboard, so the composer sits directly on it,
-   and the conversation area (flex-1, min-h-0) is what shrinks. No transition,
-   so nothing animates or jumps as the keyboard opens or closes. */
+/* Typing (G196, fill-once): the window spans the visible area, from 8px inside
+   the top (safe-area aware) down to the keyboard top, and the conversation area
+   (flex-1, min-h-0) takes the slack. Left and right edges are unchanged. The
+   composer wrap keeps its disclaimer line; only its bottom padding is trimmed.
+   No transition, so nothing animates or jumps as the keyboard opens or closes
+   (reduced-motion safe by construction). The orientation guard above keeps the
+   short-landscape rule from hiding the chips when a portrait keyboard shrinks
+   the layout viewport under resizes-content. */
 .penny-keyboard-typing {
   top: max(var(--penny-typing-top), calc(env(safe-area-inset-top, 0px) + 8px));
   bottom: var(--penny-typing-bottom, 0px);

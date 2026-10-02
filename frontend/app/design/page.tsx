@@ -34,7 +34,7 @@ const ROUTES: PreviewRoute[] = [
   {
     slug: "penny-keyboard",
     name: "Penny keyboard · G196",
-    description: "G196, Kevin's decision 2026-10-02 (supersedes the G191 takeover): the Penny window does not expand or move when you tap the input. Once a software keyboard is up, only the composer docks directly on it, the navigation and Penny button hide, and the header and question chips stay visible. Uses the production Penny panel, header, composer and thread anchor with local-only replies. Physical iOS Safari, Android Chrome and Capacitor keyboard checks remain required. ?state=short|long|empty|error&mode=light|dark",
+    description: "G196, reopened on Kevin's Android Chrome test 2026-10-02 (fill once): tapping the input changes nothing. Once a software keyboard is up the Penny window fills the visible height above it in one move, from just inside the top to the keyboard edge, with header, links, question chips, conversation, composer and its note all visible; nothing moves afterwards, the page behind cannot scroll, and the navigation and Penny button hide. Uses the production Penny panel, header, composer and thread anchor with local-only replies. Physical iOS Safari, Android Chrome and Capacitor keyboard checks remain required. ?state=short|long|empty|error&mode=light|dark",
     states: [{ label: "Short thread", value: "short" }, { label: "Long thread", value: "long" }, { label: "Empty", value: "empty" }, { label: "Reply error", value: "error" }],
   },
   {
