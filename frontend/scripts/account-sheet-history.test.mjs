@@ -22,7 +22,7 @@
 // or:
 //   npm run -s check:account-sheet-history
 
-import { accountDetailIdFromState, stampAccountDetailState, hasAccountDetailEntry } from "../lib/accountSheetHistory.ts";
+import { decideAccountPop, accountDetailIdFromState, stampAccountDetailState, hasAccountDetailEntry } from "../lib/accountSheetHistory.ts";
 import { classifyNavigation } from "../lib/scrollNavDetect.ts";
 
 let failures = 0;
@@ -240,7 +240,29 @@ function testChildSheetClosePreservesAccount() {
   );
 }
 
+// --- 6. Every sheet close route over account detail keeps the account -----
+//
+// Cancel, Save, X, backdrop, Escape, Delete and hardware Back all end in
+// history.back() from SheetFrame; each lands on the account marker (or, for a
+// deep-linked account that never stamped one, on the bare list entry) with a
+// sheet still registered when the pop begins.
+function testSheetCloseRoutesKeepAccount() {
+  const accountEntry = stampAccountDetailState({ __wdNavSeq: 4 }, "acc-1");
+  const sheetEntry = { ...accountEntry, __sheetA11yId: "sheet-1" };
+  let d = decideAccountPop(accountEntry, 1);
+  check("sheet over stamped account: account kept, nothing cleared", d.accountId === "acc-1" && !d.clearTransaction);
+  d = decideAccountPop({ __wdNavSeq: 4 }, 1);
+  check("sheet over deep-linked account (no marker): account left untouched", d.accountId === undefined && !d.clearTransaction);
+  d = decideAccountPop(sheetEntry, 1);
+  check("nested sheet closing onto its parent sheet entry leaves everything", d.accountId === undefined && !d.clearTransaction);
+  d = decideAccountPop({ __wdNavSeq: 4 }, 0);
+  check("Back from account detail with no sheet open returns to the list", d.accountId === null && d.clearTransaction);
+  d = decideAccountPop(accountEntry, 0);
+  check("Forward onto the account marker restores the account", d.accountId === "acc-1" && d.clearTransaction);
+}
+
 function main() {
+  testSheetCloseRoutesKeepAccount();
   testStampShape();
   testBackRestoresRecordedPosition();
   testDeepLinkDoesNotThrow();

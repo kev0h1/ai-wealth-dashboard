@@ -64,3 +64,38 @@ export function accountDetailIdFromState(currentState: unknown): string | null {
       : null
   );
 }
+
+/** True when the entry is one SheetFrame/useSheetA11y pushed above its owner. */
+export function isSheetHistoryEntry(currentState: unknown): boolean {
+  return (
+    currentState != null &&
+    typeof currentState === "object" &&
+    typeof (currentState as Record<string, unknown>).__sheetA11yId === "string"
+  );
+}
+
+export interface AccountPopDecision {
+  /** Account to select, or undefined to leave the selection untouched. */
+  accountId?: string | null;
+  /** Whether the open transaction sheet (if any) must be cleared. */
+  clearTransaction: boolean;
+}
+
+/** What a popstate means for the Accounts page.
+ *
+ *  - Landing on a sheet entry: an outer sheet is still open, never touch the
+ *    account (nested close).
+ *  - A sheet was open when the pop began: that sheet owns the traversal
+ *    (Cancel, Save, X, backdrop, Escape, Back all end in history.back()). The
+ *    account stays open, including a deep-linked one that has no marker of
+ *    its own, and the sheet's own onClose clears its own state.
+ *  - Otherwise it is the page's own Back/Forward: select whatever account the
+ *    landing entry records (null for the list) and clear the transaction. */
+export function decideAccountPop(landingState: unknown, openSheets: number): AccountPopDecision {
+  if (isSheetHistoryEntry(landingState)) return { clearTransaction: false };
+  if (openSheets > 0) {
+    const id = accountDetailIdFromState(landingState);
+    return id ? { accountId: id, clearTransaction: false } : { clearTransaction: false };
+  }
+  return { accountId: accountDetailIdFromState(landingState), clearTransaction: true };
+}

@@ -138,6 +138,13 @@ let sheetHistoryIdSeq = 0;
 // open-sheet reference count.
 const sheetHistoryStack: string[] = [];
 const focusStack: HTMLElement[] = [];
+/** How many history-owning sheets are open right now. A page with its own
+ * popstate listener reads this at the START of a pop (capture phase, before
+ * any sheet handler has popped itself off the stack) to tell "a sheet is
+ * consuming this traversal" from "the user is leaving the page's own view". */
+export function openSheetHistoryCount(): number {
+  return sheetHistoryStack.length;
+}
 let scrollLockCount = 0;
 let releaseScrollLock: (() => void) | null = null;
 

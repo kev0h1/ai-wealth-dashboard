@@ -124,7 +124,9 @@ assert.match(commitment, /allowConsentCloseRef\.current = true/, "A consent save
 assert.match(insight, /setDone\(true\);\s+\/\/ The write has completed[\s\S]*setSaving\(false\);/, "Saved insight confirmation can be dismissed after the request finishes");
 assert.match(setAside, /if \(kind === "date"\) \{ closeThen\(\(\) => onSelectByDate\?\.\(\)\); return; \}/);
 assert.match(accountsPage, /useAccountDetailHistory\(setSelectedAccountId, clearSelectedTransaction\);/);
-assert.match(accountHistoryHook, /const onPop = \(event: PopStateEvent\) => \{[\s\S]*setSelectedAccountId\(accountDetailIdFromState\(event\.state\)\);/);
+assert.match(accountHistoryHook, /decideAccountPop\(event\.state, openSheetHistoryCount\(\)\)/, "Account detail popstate asks whether a sheet owns the traversal");
+assert.match(accountHistoryHook, /addEventListener\("popstate", onPop, true\)/, "Capture phase reads the sheet stack before sheets pop themselves");
+assert.doesNotMatch(accountsPage, /addEventListener\("popstate"/, "No raw popstate listener may clear account detail");
 assert.match(contractExamples, /useAccountDetailHistory\(setAccountId, \(\) => setEditorOpen\(false\)\);/, "The auth-free fixture exercises the real Accounts popstate hook");
 assert.match(contractExamples, /<SheetFrame title="Account editor"/, "The account fixture uses a real nested production sheet");
 assert.match(contractExamples, /title: "Footerless details", body:/);
