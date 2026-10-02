@@ -38,7 +38,7 @@
 // 1. <PennyConversation> must NOT mount at the same time this shell does —
 //    it fires an authenticated suggestions fetch (api.canISuggestions()) on
 //    its own mount, and this shell mounts once at app boot for every
-//    session. Deferred via `hasOpenedRef` (see below): PennyConversation
+//    session. Deferred via `hasOpened` (see below): PennyConversation
 //    only enters the tree on the FIRST real open, and — because that flag
 //    is set synchronously in the render body rather than in an effect — it
 //    mounts in the very same render pass `isOpen` first flips true, not one
@@ -82,14 +82,8 @@
 //    tree. If you're reading this because a reviewer flagged that
 //    transform: it's already accounted for, the portal is what makes it
 //    safe.
-// 5. `useKeyboardInset()` attaches `visualViewport` resize/scroll listeners
-//    — cheap individually, but this shell mounts once at app boot, so an
-//    unconditional call would keep them attached (and re-rendering this
-//    component on every keystroke-adjacent keyboard show/hide ANYWHERE in
-//    the app, not just while this sheet is open) for the entire session.
-//    Deferred the same way PennyConversation itself is: only called once
-//    `hasOpened`, via a tiny wrapper component so the hook still obeys the
-//    Rules of Hooks (no conditional hook calls in this component itself).
+// 5. PennySheetPanel owns keyboard geometry while open. G191 B follows one
+//    visible viewport, with no additive inset or keyboard margin here.
 //
 // z-index: click-catcher z-[56], panel z-[58] — same tier numbers as the
 // old scrim/panel, only the click-catcher's job changed: it used to BE the
@@ -123,7 +117,7 @@
 // (65/70), so when CommitmentSheet opens from inside this sheet, it wins
 // by actual z-index — a real ordering guarantee, not a DOM-order one.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -163,26 +157,6 @@ import MoreMessagesSheet from "@/components/MoreMessagesSheet";
 // in place, rather than relocating it, is the smaller and safer change.
 import { screenForPathname } from "./BottomNav";
 
-/** On-screen keyboard avoidance — same technique as components/BankPickerSheet.tsx
- * (visualViewport shrinks when the keyboard appears; window.innerHeight does
- * not), ported locally same as the design preview did, pushing the whole
- * panel up via margin-bottom rather than resizing it. */
-function useKeyboardInset(): number {
-  const [inset, setInset] = useState(0);
-  useEffect(() => {
-    const vv = window.visualViewport;
-    if (!vv) return;
-    const update = () => setInset(Math.max(0, window.innerHeight - vv.height - vv.offsetTop));
-    vv.addEventListener("resize", update);
-    vv.addEventListener("scroll", update);
-    return () => {
-      vv.removeEventListener("resize", update);
-      vv.removeEventListener("scroll", update);
-    };
-  }, []);
-  return inset;
-}
-
 /** Zero-output component whose only job is to start/stop useLockBodyScroll
  * on the same cadence a real mount/unmount would, by actually
  * mounting/unmounting itself with `isOpen` — see this file's header
@@ -208,23 +182,6 @@ function useKeyboardInset(): number {
  * as every other sheet in the app. */
 function SheetEffectsGate() {
   useLockBodyScroll();
-  return null;
-}
-
-/** Reports the on-screen keyboard inset via `onChange`, only while mounted
- * — see this file's header comment, point 5. Mounted/unmounted on the same
- * `isOpen` cadence as <SheetEffectsGate />; kept as its own component
- * (rather than folded into that one) because it needs to report a value
- * OUT to the panel's own `marginBottom`, not just run a side effect.
- * Resets to 0 on unmount (close) rather than leaving whatever the keyboard
- * inset happened to be the moment the sheet closed — otherwise a REOPEN,
- * before the visualViewport fires its first fresh event, would briefly
- * apply a stale margin left over from the previous time the keyboard was
- * up. */
-function KeyboardInsetGate({ onChange }: { onChange: (inset: number) => void }) {
-  const inset = useKeyboardInset();
-  useEffect(() => { onChange(inset); }, [inset, onChange]);
-  useEffect(() => () => onChange(0), [onChange]);
   return null;
 }
 
@@ -517,34 +474,16 @@ export default function PennySheet() {
   // call, which getPennyScreenConfig treats the same as "other".
   const headerLinks = getPennyScreenConfig(ctx?.screen).headerLinks;
 
-  // SSR guard — createPortal needs `document`, which doesn't exist on the
-  // server. Defaulting `mounted` to true (as the design preview's own
-  // header comment flags it once did) would try to portal during SSR; this
-  // flips true a tick after the client mounts instead, same fix that
-  // preview settled on. This gate only ever runs once, at first client
-  // mount — it does not re-run on open/close, so it can't be the thing
-  // that tears PennyConversation down.
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  // Portals require a client document; this gate does not change on close.
+  const mounted = useSyncExternalStore(() => () => {}, () => true, () => false);
 
   // Deferred mount for PennyConversation — see header comment point 1.
-  // Set synchronously in the render body (a documented React exception,
-  // same pattern useSheetA11y.ts itself uses for `onCloseRef.current =
-  // onClose`), NOT in a useEffect: an effect-based flip would land one
-  // render after `isOpen` first goes true, so the sheet would visibly open
-  // with an empty body for a frame, and a same-open `askContext.ask` would
-  // have to wait a tick to even have a mounted component to fire from.
-  // Idempotent under React 18 Strict Mode's double-render (setting `true`
-  // when already `true` changes nothing), so it's safe here.
-  const hasOpenedRef = useRef(false);
-  if (isOpen) hasOpenedRef.current = true;
-  const hasOpened = hasOpenedRef.current;
+  // Adjust this component's state before committing its first open, then
+  // retain the conversation, drafts and replies for the entire session.
+  const [hasOpened, setHasOpened] = useState(false);
+  if (isOpen && !hasOpened) setHasOpened(true);
 
   const panelRef = useSheetA11y<HTMLDivElement>(close);
-  // Reported by <KeyboardInsetGate />, not called directly here — see this
-  // file's header comment, point 5, for why the hook itself can't just be
-  // called unconditionally in this component's body.
-  const [keyboardInset, setKeyboardInset] = useState(0);
 
   // ── PENNY USAGE RING state (2026-09-06) ───────────────────────────────
   const usage = usePennyUsage();
@@ -639,7 +578,7 @@ export default function PennySheet() {
         onClick={close}
         aria-hidden="true"
       />
-      <PennySheetPanel isOpen={isOpen} panelRef={isOpen ? panelRef : undefined} keyboardInset={keyboardInset}>
+      <PennySheetPanel isOpen={isOpen} panelRef={isOpen ? panelRef : undefined} layout="focus">
           {/* Header — shrink-0, stays put while the thread (rendered by
               PennyConversation below) scrolls independently. No drag-handle
               bar: that signalled "sheet", and this isn't one anymore.
@@ -681,15 +620,10 @@ export default function PennySheet() {
           {moreMessagesOpen && <MoreMessagesSheet onClose={closeMoreMessagesSheet} />}
       </PennySheetPanel>
 
-      {/* See header comment: both start/stop on `isOpen`'s cadence by
+      {/* See header comment: scroll locking starts/stops on `isOpen`'s cadence by
           actually mounting/unmounting, without taking the panel (or
           PennyConversation inside it) down with it. */}
-      {isOpen && (
-        <>
-          <SheetEffectsGate />
-          <KeyboardInsetGate onChange={setKeyboardInset} />
-        </>
-      )}
+      {isOpen && <SheetEffectsGate />}
     </>,
     document.body
   );

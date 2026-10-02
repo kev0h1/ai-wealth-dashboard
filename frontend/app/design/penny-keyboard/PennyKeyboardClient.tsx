@@ -7,6 +7,7 @@ import { ArrowLeft, RefreshCw } from "lucide-react";
 import { PennySheetHeader, PennySheetPanel } from "@/components/PennySheet";
 import PennyComposer from "@/components/PennyComposer";
 import { useSheetA11y } from "@/lib/useSheetA11y";
+import { usePennyThreadAnchor } from "@/lib/usePennyThreadAnchor";
 import FixtureBottomNav from "../_components/FixtureBottomNav";
 
 type Turn = { id: number; role: "user" | "assistant"; text: string };
@@ -34,25 +35,15 @@ function PreviewWindow({ open, onClose, variant, scenario, onTypingChange }: {
   const [usageShown, setUsageShown] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const thread = useRef<HTMLDivElement>(null);
-  const followLatest = useRef(true);
   const timeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { ref, close } = useSheetA11y<HTMLDivElement>(onClose, { lockScroll: true, backToClose: true });
+  const { anchorToLatest, onScroll } = usePennyThreadAnchor(thread, open);
   useEffect(() => () => { if (timeout.current) clearTimeout(timeout.current); }, []);
   useLayoutEffect(() => {
     if (open && thread.current) {
-      followLatest.current = true;
-      thread.current.scrollTop = thread.current.scrollHeight;
+      anchorToLatest();
     }
-  }, [open, messages, loading, error]);
-  useEffect(() => {
-    const element = thread.current;
-    if (!open || !element) return;
-    const observer = new ResizeObserver(() => {
-      if (followLatest.current) element.scrollTop = element.scrollHeight;
-    });
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [open]);
+  }, [open, messages, loading, error, anchorToLatest]);
 
   function reply(retry = false) {
     if (loading || (!retry && !input.trim())) return;
@@ -88,10 +79,7 @@ function PreviewWindow({ open, onClose, variant, scenario, onTypingChange }: {
           onClick={() => setInput(label)}>{label}</button>)}
       </div>
       <div ref={thread} data-penny-thread role="log" aria-label="Preview conversation" aria-live="polite" aria-relevant="additions text"
-        onScroll={event => {
-          const element = event.currentTarget;
-          followLatest.current = element.scrollHeight - element.scrollTop - element.clientHeight < 24;
-        }}
+        onScroll={onScroll}
         className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-5 py-4 text-[13px] leading-5 [scrollbar-width:thin]">
         {!messages.length && <p className="text-slate-600 dark:text-slate-300">Ask a question below. This preview uses local replies, not your accounts.</p>}
         {messages.map(turn => <div key={turn.id} className={turn.role === "user" ? "ml-6 break-words rounded-2xl bg-indigo-50 px-3 py-2 text-slate-900 dark:bg-indigo-950 dark:text-slate-100" : "mr-3 break-words text-slate-700 dark:text-slate-200"}>
@@ -110,7 +98,7 @@ function PreviewWindow({ open, onClose, variant, scenario, onTypingChange }: {
 
 export default function PennyKeyboardClient() {
   const params = useSearchParams();
-  const variant = params.get("variant") === "b" ? "b" : "a";
+  const variant = params.get("variant") === "a" ? "a" : "b";
   const scenario = ["short", "long", "empty", "error"].includes(params.get("state") ?? "") ? params.get("state")! : "short";
   const mode = params.get("mode") === "dark" ? "dark" : "light";
   const [open, setOpen] = useState(false);
@@ -134,7 +122,7 @@ export default function PennyKeyboardClient() {
           className={`${button} ${variant === value ? "bg-indigo-600 text-white" : "border border-slate-300 dark:border-slate-600"}`}>{label}</a>)}
         <a className={button} href={href(variant, scenario, mode === "dark" ? "light" : "dark")}>{mode === "dark" ? "Light" : "Dark"} theme</a>
       </nav>
-      <p className="mt-4 text-sm leading-6 text-slate-600 dark:text-slate-300">{variant === "a" ? "A keeps the header links and question shortcuts visible. The window stays compact where there is room." : "B gives the available space to the conversation. Header links and question shortcuts return when you leave the input and dismiss the keyboard."}</p>
+      <p className="mt-4 text-sm leading-6 text-slate-600 dark:text-slate-300">{variant === "a" ? "A keeps the header links and question shortcuts visible. The window stays compact where there is room." : "B is the approved production layout. It gives the available space to the conversation. Header links and question shortcuts return when you dismiss the keyboard."}</p>
       <button type="button" onClick={() => setOpen(true)} className={`${button} mt-5 bg-indigo-600 px-5 text-white`}>Open Penny</button>
       <nav aria-label="Conversation examples" className="mt-6 flex flex-wrap gap-2">
         {([['short','Short thread'],['long','Long thread'],['empty','Empty'],['error','Reply error']] as const).map(([value,label]) => <a key={value} href={href(variant,value)} aria-current={scenario === value ? "page" : undefined} className={`${button} ${scenario === value ? "bg-white dark:bg-slate-800" : "text-slate-600 dark:text-slate-300"}`}>{label}</a>)}

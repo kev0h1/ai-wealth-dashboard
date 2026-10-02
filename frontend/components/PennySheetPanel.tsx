@@ -7,7 +7,7 @@ import { PENNY_PANEL_CSS } from "./PennySheetPanel.styles";
 export type PennyKeyboardLayout = "legacy" | "dock" | "focus";
 
 /** The actual production window, shared with the G191 previews. `legacy`
- * deliberately preserves the live geometry until a direction is approved.
+ * remains available for any caller that needs the former floating geometry.
  * Parent owns the body portal, backdrop, focus trap and thread lifetime. */
 export default function PennySheetPanel({
   children, isOpen, panelRef, keyboardInset = 0, layout = "legacy", onTypingChange,
@@ -24,8 +24,23 @@ export default function PennySheetPanel({
   const [nativeKeyboard, setNativeKeyboard] = useState(false);
   const baseline = useRef(0);
   const baselineWidth = useRef(0);
+  const sawKeyboard = useRef(false);
   const [didFocus, setDidFocus] = useState(false);
+  const [wasOpen, setWasOpen] = useState(isOpen);
   const proposed = layout !== "legacy";
+
+  // The conversation is deliberately kept mounted between closes, so clear
+  // keyboard-only state here rather than letting a previous open make a new
+  // window look like it is still typing. The input itself keeps its draft in
+  // PennyConversation.
+  if (wasOpen !== isOpen) {
+    setWasOpen(isOpen);
+    if (!isOpen) {
+      setFocused(false);
+      setNativeKeyboard(false);
+      setDidFocus(false);
+    }
+  }
 
   useLayoutEffect(() => {
     if (!isOpen || !proposed) return;
@@ -38,13 +53,22 @@ export default function PennySheetPanel({
       if (Math.abs(baselineWidth.current - next.width) > 80) baseline.current = next.height;
       else baseline.current = Math.max(baseline.current, next.height);
       baselineWidth.current = next.width;
-      setViewport({ ...next, keyboardVisible: pennyKeyboardVisible(baseline.current, next) });
+      const keyboardVisible = pennyKeyboardVisible(baseline.current, next);
+      // Android Back and iOS keyboard dismissal can retain DOM focus. Once
+      // a keyboard has actually been visible, its disappearance ends the
+      // typing layout without blurring or discarding the user's draft.
+      if (Math.abs(next.scale - 1) < 0.02) {
+        if (sawKeyboard.current && !keyboardVisible) setFocused(false);
+        sawKeyboard.current = keyboardVisible;
+      }
+      setViewport({ ...next, keyboardVisible });
     };
     const update = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(read); };
     const show = () => setNativeKeyboard(true);
-    const hide = () => setNativeKeyboard(false);
+    const hide = () => { setNativeKeyboard(false); setFocused(false); };
     baseline.current = 0;
     baselineWidth.current = 0;
+    sawKeyboard.current = false;
     read();
     vv?.addEventListener("resize", update);
     vv?.addEventListener("scroll", update);
@@ -52,6 +76,7 @@ export default function PennySheetPanel({
     // Capacitor events are visibility signals only, never a second inset.
     window.addEventListener("keyboardWillShow", show);
     window.addEventListener("keyboardDidShow", show);
+    window.addEventListener("keyboardWillHide", hide);
     window.addEventListener("keyboardDidHide", hide);
     return () => {
       cancelAnimationFrame(frame);
@@ -60,6 +85,7 @@ export default function PennySheetPanel({
       window.removeEventListener("resize", update);
       window.removeEventListener("keyboardWillShow", show);
       window.removeEventListener("keyboardDidShow", show);
+      window.removeEventListener("keyboardWillHide", hide);
       window.removeEventListener("keyboardDidHide", hide);
     };
   }, [isOpen, proposed]);
@@ -101,6 +127,7 @@ export default function PennySheetPanel({
       className={proposed ? "penny-keyboard-panel glass-sheet" : "relative mx-auto w-full max-w-[420px] glass-sheet rounded-3xl shadow-xl ring-1 ring-black/[0.06] dark:ring-white/[0.12] flex flex-col transition-[margin] duration-100 origin-bottom lg:origin-bottom-right"}
       style={panelStyle}
       onPointerDownCapture={proposed ? (event) => {
+        if ((event.target as HTMLElement).matches("[data-penny-input]")) { setDidFocus(true); setFocused(true); }
         // A control tap must complete before the keyboard can dismiss and
         // move that control. Keyboard navigation retains its usual focus.
         if (event.button === 0 && document.activeElement?.matches("[data-penny-input]")

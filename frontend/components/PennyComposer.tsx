@@ -4,8 +4,8 @@ import type { RefObject } from "react";
 import { Loader2, Send } from "lucide-react";
 import { BRAND_GRADIENT } from "@/lib/brand";
 
-/** Shared production input, send control and caveat. The G191 preview opts
- * into retaining focus while sending; existing callers retain the default. */
+/** Shared production input, send control and caveat. Sheet callers retain
+ * focus while sending; non-sheet callers retain the previous default. */
 export default function PennyComposer({ inputRef, value, onChange, onSend, placeholder, loading, atCap, onMoreMessages, preserveFocus = false }: {
   inputRef: RefObject<HTMLInputElement | null>;
   value: string;

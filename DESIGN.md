@@ -187,6 +187,8 @@ Four glass tiers, implemented in `frontend/app/globals.css`: `.glass-hero` (scre
 
 **The Glass Sheet.** When a sheet or modal opens, the page behind it blurs (8px + slight dim) — the world becomes atmosphere. The sheet itself is a SOLID surface (white / #0f172a) with a top hairline: paper floating over blurred glass. Sheets never use backdrop-filter; readability is absolute. Native OS pickers never appear; selection lists render as in-sheet rows. The Penny popover (components/PennySheet.tsx) is a deliberate exception: a floating window anchored to its trigger rather than a takeover sheet, it never blurs or dims the page behind it.
 
+**Penny typing, G191 variant B, approved 2026-10-02.** On a phone, focusing the composer opens the conversation-first layout against the visible viewport. The composer meets the keyboard, the mobile navigation and raised Penny button hide, and secondary header links and prompt chips yield space to the conversation. There is no additive keyboard margin or animated geometry trailing the operating system. Sending retains composer focus. Keyboard changes retain the draft, while viewport resizing follows the latest turn only when the reader was already there. Dismissing the keyboard restores the resting window and navigation even if the input retains focus. Desktop keeps the floating window. The approved preview shares the live frame, header, composer and thread-anchoring hook; its replies are local fixtures, not live advice.
+
 ## 5. Components
 
 Soft, tactile, confident: generous radii, thumb-sized targets, immediate press feedback.
