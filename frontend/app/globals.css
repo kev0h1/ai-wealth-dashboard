@@ -904,9 +904,11 @@ html[data-penny-typing="true"] [data-penny-navigation] {
 /* interactive-widget=resizes-content (app/layout.tsx) makes Chrome on Android
    shrink the layout viewport, so a fixed bottom edge is the keyboard top and
    the bottom navigation would ride up above the keyboard on every text field.
-   Step it aside while any text-entry control holds focus on a touch device. */
+   G198: step it aside only while a software keyboard is MEASURED up
+   (useSoftKeyboardAttribute), never on focus alone: focus can outlive a
+   dismissed keyboard and a hardware keyboard shows none. */
 @media (max-width: 1023px) and (pointer: coarse) {
-  html:has(textarea:focus, input:focus:not([type="checkbox"], [type="radio"], [type="button"], [type="submit"], [type="range"], [type="file"], [type="color"])) [data-penny-navigation] {
+  html[data-soft-keyboard="true"] [data-penny-navigation] {
     visibility: hidden;
     pointer-events: none;
   }

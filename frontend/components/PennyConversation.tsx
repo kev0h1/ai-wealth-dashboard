@@ -1965,7 +1965,7 @@ export default function PennyConversation({
   const composerContent = <PennyComposer
     inputRef={inputRef} value={input} onChange={setInput} onSend={() => send(input)}
     placeholder={atCap ? restingPlaceholder : placeholder} loading={loading} atCap={atCap}
-    onMoreMessages={inSheet ? openMoreMessagesSheet : undefined} preserveFocus={Boolean(inSheet)}
+    onMoreMessages={inSheet ? openMoreMessagesSheet : undefined}
   />;
   // Full-page mode's own floating surface (see the comment above for why it
   // still needs one) — sheet mode never uses this, it mounts

@@ -90,7 +90,7 @@ function PreviewWindow({ open, onClose, scenario }: {
       </div>
       <div data-penny-composer-wrap className="shrink-0 px-5 pb-6 pt-2">
         <PennyComposer inputRef={inputRef} value={input} onChange={setInput} onSend={() => reply()}
-          placeholder="Ask Penny a question…" loading={loading} atCap={false} preserveFocus />
+          placeholder="Ask Penny a question…" loading={loading} atCap={false} />
       </div>
     </PennySheetPanel>
   </>, document.body);

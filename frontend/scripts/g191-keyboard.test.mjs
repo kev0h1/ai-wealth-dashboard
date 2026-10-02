@@ -4,6 +4,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import PennyComposer from "../components/PennyComposer.tsx";
 import { pennyViewport, pennyKeyboardVisible, pennyBottomInset, pennyLayoutShrank, pennyDockNext, pennyFillTop, pennyDeviceLandscape } from "../lib/pennyKeyboardViewport.ts";
+import { setSoftKeyboardAttribute } from "../lib/useSoftKeyboardAttribute.ts";
 import { pennyTypingActive, pennyNextEngaged, applyPennyTypingAttribute } from "../lib/pennyTyping.ts";
 
 const browser = pennyViewport({ width: 390, height: 800 }, { width: 390, height: 480, top: 0, left: 0 });
@@ -24,17 +25,31 @@ assert.match(normal, /General information, not regulated financial advice/);
 assert.match(normal, /aria-label="Ask Penny a spending question"/);
 assert.match(normal, /maxLength="160"/);
 assert.match(normal, /Draft question/);
-assert.match(renderToStaticMarkup(React.createElement(PennyComposer, { ...props, loading: true })), /<input[^>]*disabled=""/, "Non-sheet callers retain their existing busy behaviour");
-assert.doesNotMatch(renderToStaticMarkup(React.createElement(PennyComposer, { ...props, loading: true, preserveFocus: true })), /<input[^>]*disabled=""/, "Proposed send does not dismiss the keyboard");
-assert.match(renderToStaticMarkup(React.createElement(PennyComposer, { ...props, loading: true, preserveFocus: true })), /<input[^>]*readOnly=""/);
-assert.match(renderToStaticMarkup(React.createElement(PennyComposer, { ...props, atCap: true, preserveFocus: true })), /<input[^>]*disabled=""/, "Message limits still disable input");
+// G198: a pending reply never disables or locks the input (Android closes the keyboard on a focused input turning readOnly/disabled).
+for (const loading of [true, false]) {
+  const markup = renderToStaticMarkup(React.createElement(PennyComposer, { ...props, loading }));
+  assert.doesNotMatch(markup, /<input[^>]*disabled=""/, "Pending reply: input not disabled");
+  assert.doesNotMatch(markup, /<input[^>]*readOnly=""/, "Pending reply: input not readOnly");
+}
+assert.match(renderToStaticMarkup(React.createElement(PennyComposer, { ...props, atCap: true })), /<input[^>]*disabled=""/, "Message limits still disable input");
 
 const source = path => readFileSync(new URL(path, import.meta.url), "utf8");
 const live = source("../components/PennySheet.tsx");
 assert.match(live, /<PennySheetPanel isOpen=/);
 assert.doesNotMatch(live, /layout=/, "G196: one docked window, no layout variants");
 assert.match(source("../components/PennyConversation.tsx"), /<PennyComposer/);
-assert.match(source("../components/PennyConversation.tsx"), /preserveFocus=\{Boolean\(inSheet\)\}/);
+const composerSrc = source("../components/PennyComposer.tsx");
+assert.doesNotMatch(composerSrc, /preserveFocus|readOnly=|\.blur\(/, "G198: no readOnly toggle, no blur in the send path");
+const inputTag = composerSrc.match(/<input[\s\S]*?\/>/)[0];
+assert.doesNotMatch(inputTag, /disabled=\{[^}]*loading|\bkey=/, "G198: input disabled never tied to pending state, no remount key");
+const buttonTag = composerSrc.match(/<button type="button" onClick=\{onSend\}[\s\S]*?style=/)[0];
+assert.match(buttonTag, /onPointerDown=\{\(event\) => event\.preventDefault\(\)\}/, "G198: send does not steal focus on pointer-down");
+assert.match(buttonTag, /onMouseDown=\{\(event\) => event\.preventDefault\(\)\}/, "G198: nor on the compat mouse-down");
+assert.match(buttonTag, /tabIndex=\{-1\}/, "G198: send is out of the tab order");
+const convoSrc = source("../components/PennyConversation.tsx");
+const sendFn = convoSrc.split("function send(text: string)")[1].split("function sendChip")[0];
+assert.doesNotMatch(sendFn, /\.blur\(|activeElement/, "G198: the send path never blurs");
+assert.match(sendFn, /if \(!trimmed \|\| loading\) return;/, "Duplicate sends are blocked in the handler");
 assert.match(source("../components/PennyConversation.tsx"), /usePennyThreadAnchor/);
 assert.match(source("../lib/usePennyThreadAnchor.ts"), /ResizeObserver/);
 assert.match(source("../lib/usePennyThreadAnchor.ts"), /followLatestRef/);
@@ -116,7 +131,22 @@ assert.match(frame, /data-penny-device=/);
 // Chips are hidden by CSS only (they stay mounted, so the thread and draft are untouched) and only while typing or on a landscape device.
 assert.doesNotMatch(styles, /^\.penny-keyboard-frame \[data-penny-secondary\]/m, "No ungated rule hides the chips at rest");
 assert.doesNotMatch(styles, /chips stay|keeps its links row/i, "fill-once wording is gone");
-assert.match(source("../app/globals.css"), /html:has\(textarea:focus/, "Bottom nav steps aside for any focused text field under resizes-content");
+const css = source("../app/globals.css");
+assert.match(css, /html\[data-soft-keyboard="true"\] \[data-penny-navigation\]/, "G198: app-wide nav hide keys on the measured soft keyboard");
+assert.doesNotMatch(css, /html:has\([^)]*:focus/, "G198: the nav hide no longer keys on input focus");
+const softHook = source("../lib/useSoftKeyboardAttribute.ts");
+assert.match(softHook, /usePennyKeyboard\(true\)/, "G198: the global attribute reuses the Penny keyboard measurement");
+assert.match(source("../app/Providers.tsx"), /useSoftKeyboardAttribute\(\)/, "G198: mounted once in Providers");
+{
+  const attrs = new Map();
+  const root = { setAttribute: (n, v) => attrs.set(n, v), removeAttribute: n => attrs.delete(n) };
+  setSoftKeyboardAttribute(root, pennyKeyboardVisible(844, pennyViewport({ width: 390, height: 844 }, { width: 390, height: 524 })));
+  assert.equal(attrs.get("data-soft-keyboard"), "true", "Shrink sets the attribute");
+  setSoftKeyboardAttribute(root, pennyKeyboardVisible(844, pennyViewport({ width: 390, height: 844 }, { width: 390, height: 844 })));
+  assert.equal(attrs.has("data-soft-keyboard"), false, "Restore clears it even if focus is retained");
+  setSoftKeyboardAttribute(root, pennyKeyboardVisible(844, { ...pennyViewport({ width: 390, height: 844 }, { width: 390, height: 524 }), scale: 2 }));
+  assert.equal(attrs.has("data-soft-keyboard"), false, "Pinch zoom never sets it");
+}
 assert.match(source("../app/design/page.tsx"), /takes over the visible height in one move/);
 assert.doesNotMatch(frame, /keyboardHeight/, "Native keyboard heights are never added to an already-resized viewport");
 const touchHandler = frame.split("onPointerDownCapture=")[1].split("onFocusCapture=")[0];
