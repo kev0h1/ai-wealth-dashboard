@@ -1,17 +1,14 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
-import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { X, Check, CircleDashed } from "lucide-react";
+import { Check, CircleDashed } from "lucide-react";
 import { accountBrand, BankBadge } from "@/components/AccountMiniCard";
 import { api, Account, Commitment, CommitmentPreview } from "@/lib/api";
 import { usePreferences } from "@/components/PreferencesContext";
 import { getPayPeriodWithConfig, nextPeriodWithConfig, periodRhythmLabel, PayPeriodConfig } from "@/lib/payPeriod";
-import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
-import { useSheetA11y } from "@/lib/useSheetA11y";
-import { useSheetOpen } from "@/lib/useSheetOpen";
 import MoneyText from "@/components/MoneyText";
 import { invalidateVerdictCache } from "@/lib/verdictCache";
+import { SheetFrame } from "@/components/SheetFrame";
 
 // Create/edit sheet for a commitment — a named future big expense (holiday,
 // car, fees) the app reserves a per-period slice for. Mirrors the
@@ -110,9 +107,6 @@ export default function CommitmentSheet({
   onSaved,
   onCancelled,
 }: CommitmentSheetProps) {
-  useLockBodyScroll();
-  useSheetOpen();
-  const panelRef = useSheetA11y<HTMLDivElement>(onClose);
   const { payPeriodConfig } = usePreferences();
   const router = useRouter();
   const monthInputRef = useRef<HTMLInputElement>(null);
@@ -121,10 +115,6 @@ export default function CommitmentSheet({
 
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
-
-  const reduceMotion =
-    typeof window !== "undefined" &&
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   // Edit mode: a plan whose target month has arrived must stay editable —
   // floor at its stored month rather than next month.
@@ -267,7 +257,7 @@ export default function CommitmentSheet({
     commitment && !potsChanged ? commitment.feasibility_tone : preview?.feasibility_tone;
   const feasibilityCaution = feasibilityTone ? feasibilityTone === "caution" : feasibility === "stretch";
 
-  async function doSave() {
+  async function doSave(close: () => void) {
     setSaving(true);
     setSaveError(false);
     const target_date = `${month}-01`;
@@ -305,7 +295,7 @@ export default function CommitmentSheet({
       // — the backend already response_cache.invalidate()s on this write.
       invalidateVerdictCache();
       onSaved?.(item);
-      onClose();
+      close();
     } catch {
       setSaveError(true);
     } finally {
@@ -313,7 +303,7 @@ export default function CommitmentSheet({
     }
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  function handleSubmit(e: React.FormEvent, close: () => void) {
     e.preventDefault();
     if (!name.trim() || !amountValid || !monthValid || saving) return;
     // Consent gate applies only on CREATE, never when editing an existing
@@ -326,10 +316,10 @@ export default function CommitmentSheet({
       setShowConsent(true);
       return;
     }
-    doSave();
+    void doSave(close);
   }
 
-  async function handleCancelCommitment() {
+  async function handleCancelCommitment(close: () => void) {
     if (!commitment || saving) return;
     setSaving(true);
     setSaveError(false);
@@ -337,7 +327,7 @@ export default function CommitmentSheet({
       await api.cancelCommitment(commitment.id);
       invalidateVerdictCache();
       onCancelled?.();
-      onClose();
+      close();
     } catch {
       setSaveError(true);
     } finally {
@@ -349,57 +339,37 @@ export default function CommitmentSheet({
 
   const canSave = !saving && name.trim().length > 0 && amountValid && monthValid;
 
-  return createPortal(
-    <>
-      {/* Backdrop */}
-      <div
-        className="fixed inset-0 bg-black/40 z-[65] fade-in"
-        onClick={onClose}
-        aria-hidden="true"
-      />
-
-      {/* Sheet */}
-      <div
-        ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label={commitment ? "Edit plan" : "Plan a big expense"}
-        className="fixed inset-x-0 bottom-0 z-[70]"
-        style={reduceMotion ? undefined : { animation: "slideUpSheet 280ms cubic-bezier(0.32, 0.72, 0, 1) both" }}
-      >
-        <div
-          className="mx-auto w-full max-w-[500px] glass-sheet rounded-t-3xl flex flex-col"
-          style={{ maxHeight: "85dvh" }}
-        >
-          {/* Drag handle */}
-          <div className="flex justify-center pt-3 pb-1 flex-shrink-0">
-            <div className="w-10 h-1 bg-slate-200 dark:bg-slate-600 rounded-full" />
-          </div>
-
-          {/* Header */}
-          <div className="flex items-center gap-3 px-5 pt-2 pb-3 flex-shrink-0">
-            <div className="flex-1 min-w-0">
-              <p className="text-base font-semibold text-slate-900 dark:text-slate-100">
-                {commitment ? "Edit plan" : "Plan a big expense"}
-              </p>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                A goal you set money aside for, separate from single bills.
-              </p>
+  return (
+    <SheetFrame
+      title={commitment ? "Edit plan" : "Plan a big expense"}
+      description="A goal you set money aside for, separate from single bills."
+      onClose={onClose}
+      dismissDisabled={saving}
+      footer={({ close, closeThen }) => {
+        if (showConsent && consentSnapshot) {
+          return (
+            <div className="space-y-2">
+              <button type="button" disabled={saving} onClick={() => void doSave(close)} className="w-full rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white active:scale-95 disabled:opacity-60">
+                {saving ? "Saving…" : consentSnapshot.actions.anyway}
+              </button>
+              <button type="button" disabled={saving} onClick={() => { setShowConsent(false); setTimeout(() => monthInputRef.current?.focus(), 0); }} className="w-full rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 active:scale-95 disabled:opacity-50 dark:border-slate-600 dark:text-slate-200">
+                {consentSnapshot.actions.later_date}
+              </button>
+              <button type="button" disabled={saving} onClick={() => closeThen(() => router.push("/cards"))} className="w-full rounded-xl px-4 py-2 text-sm font-semibold text-indigo-600 active:scale-95 disabled:opacity-50 dark:text-indigo-400">
+                {consentSnapshot.actions.debt_first}
+              </button>
             </div>
-            <button
-              onClick={() => (showConsent ? setShowConsent(false) : onClose())}
-              aria-label="Close"
-              className="w-10 h-10 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 flex-shrink-0 ml-2 active:bg-slate-200 dark:active:bg-slate-600 transition-colors focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2"
-            >
-              <X size={15} />
-            </button>
+          );
+        }
+        return (
+          <div className="grid grid-cols-2 gap-2">
+            <button type="button" disabled={saving} onClick={close} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 active:scale-95 disabled:opacity-50 dark:border-slate-600 dark:text-slate-200">Cancel</button>
+            <button type="submit" form="commitment-form" disabled={!canSave} className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white active:scale-95 disabled:opacity-60">{saving ? "Saving…" : commitment ? "Save changes" : "Save plan"}</button>
           </div>
-
-          {/* Scrollable content */}
-          <div
-            className="overflow-y-auto flex-1 px-5 space-y-3"
-            style={{ paddingBottom: "calc(1.5rem + env(safe-area-inset-bottom, 0px))" }}
-          >
+        );
+      }}
+    >
+      {({ close }) => <>
             {showConsent && consentSnapshot ? (
               <div className="space-y-4">
                 <p className="text-base font-bold text-slate-900 dark:text-slate-100 leading-snug">
@@ -417,41 +387,9 @@ export default function CommitmentSheet({
                     That didn&apos;t save. Try again.
                   </p>
                 )}
-                <div className="space-y-2 pt-1">
-                  <button
-                    type="button"
-                    disabled={saving}
-                    onClick={doSave}
-                    className="w-full min-h-[44px] rounded-xl bg-indigo-600 text-white text-sm font-semibold active:scale-95 transition-transform disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-                  >
-                    {saving ? "Saving…" : consentSnapshot.actions.anyway}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={saving}
-                    onClick={() => {
-                      setShowConsent(false);
-                      setTimeout(() => monthInputRef.current?.focus(), 0);
-                    }}
-                    className="w-full min-h-[44px] rounded-xl border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-200 text-sm font-semibold active:scale-95 transition-transform disabled:opacity-50"
-                  >
-                    {consentSnapshot.actions.later_date}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={saving}
-                    onClick={() => {
-                      onClose();
-                      router.push("/cards");
-                    }}
-                    className="w-full min-h-[44px] text-sm font-semibold text-indigo-600 dark:text-indigo-400 rounded-xl hover:opacity-80 active:opacity-70 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-                  >
-                    {consentSnapshot.actions.debt_first}
-                  </button>
-                </div>
               </div>
             ) : (
-            <form onSubmit={handleSubmit} className="space-y-3">
+            <form id="commitment-form" onSubmit={(event) => handleSubmit(event, close)} className="space-y-3">
               {/* Name */}
               <div>
                 <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">
@@ -649,23 +587,6 @@ export default function CommitmentSheet({
                 </p>
               )}
 
-              {/* Save / Cancel */}
-              <button
-                type="submit"
-                disabled={!canSave}
-                className="w-full min-h-[48px] rounded-xl bg-indigo-600 text-white text-sm font-semibold active:scale-95 transition-transform disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-              >
-                {saving ? "Saving…" : commitment ? "Save changes" : "Save plan"}
-              </button>
-              <button
-                type="button"
-                disabled={saving}
-                onClick={onClose}
-                className="w-full min-h-[44px] text-sm font-semibold text-slate-500 dark:text-slate-400 rounded-xl hover:opacity-80 active:opacity-70 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-              >
-                Cancel
-              </button>
-
               {/* Cancel-commitment — edit mode only, quiet two-step confirm */}
               {commitment && !confirmingCancel && (
                 <button
@@ -686,7 +607,7 @@ export default function CommitmentSheet({
                     <button
                       type="button"
                       disabled={saving}
-                      onClick={handleCancelCommitment}
+                      onClick={() => void handleCancelCommitment(close)}
                       className="flex-1 min-h-[44px] rounded-xl text-sm font-semibold text-slate-700 dark:text-slate-200 bg-slate-200/70 dark:bg-slate-600 active:scale-95 transition-transform disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
                     >
                       {saving ? "Cancelling…" : "Yes, cancel it"}
@@ -704,10 +625,7 @@ export default function CommitmentSheet({
               )}
             </form>
             )}
-          </div>
-        </div>
-      </div>
-    </>,
-    document.body
+      </>}
+    </SheetFrame>
   );
 }

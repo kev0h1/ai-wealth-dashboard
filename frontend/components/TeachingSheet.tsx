@@ -25,13 +25,10 @@
 // "Always file X as Y?" -> POST /rules; either choice ends on an undo toast
 // that reverts the categorisation (and the rule, if one was saved).
 
-import { useState, useEffect, useRef } from "react";
-import { createPortal } from "react-dom";
-import { X, Check, Undo2, ChevronRight, ChevronLeft } from "lucide-react";
+import { useState, useEffect, useRef, type MutableRefObject } from "react";
+import { Check, Undo2, ChevronRight, ChevronLeft } from "lucide-react";
 import { Transaction, Commitment, Account, api } from "@/lib/api";
-import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
-import { useSheetOpen } from "@/lib/useSheetOpen";
-import { useSheetA11y } from "@/lib/useSheetA11y";
+import { SheetFrame } from "@/components/SheetFrame";
 import { getCategoryColour, inferCategoryKind, type CategoryKind } from "@/lib/categories";
 import { useColours } from "@/components/ColourProvider";
 import { useCategories } from "@/components/CategoriesContext";
@@ -43,6 +40,16 @@ import { accountBrand, BankBadge } from "@/components/AccountMiniCard";
 import { invalidateAfterTransactionCorrection } from "@/lib/cacheInvalidation";
 
 const MINUS = "−"; // U+2212, never ASCII hyphen-minus, for money (copy rule)
+
+/** Registers SheetFrame's history-safe close only while the frame is mounted.
+ * Delayed completion must never call a stale parent callback after unmount. */
+function SheetCloseBinding({ closeRef, close }: { closeRef: MutableRefObject<(() => void) | null>; close: () => void }) {
+  useEffect(() => {
+    closeRef.current = close;
+    return () => { closeRef.current = null; };
+  }, [close, closeRef]);
+  return null;
+}
 
 // Owner review defect 2 — surface the backend's own detail string when
 // present (toJson<T> in lib/api.ts already threads FastAPI's `detail` field
@@ -81,11 +88,6 @@ interface TeachingSheetProps {
 }
 
 export default function TeachingSheet({ transaction, onClose, onUpdated, account, forceMovementRoot }: TeachingSheetProps) {
-  useLockBodyScroll();
-  useSheetOpen();
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
-  const panelRef = useSheetA11y<HTMLDivElement>(onClose);
 
   const { colours } = useColours();
   const { icons: iconOverrides } = useCategoryIcons();
@@ -137,13 +139,14 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
   const [proposal, setProposal] = useState<{ category: string; matchesPast: number; pattern: string } | null>(null);
   const [toast, setToast] = useState<{ message: string; undo: () => void | Promise<void> } | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sheetCloseRef = useRef<(() => void) | null>(null);
   useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current); }, []);
 
   function finish(message: string, undo: () => void | Promise<void>) {
     setStep("done");
     setToast({ message, undo });
     if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(onClose, 5000);
+    toastTimer.current = setTimeout(() => sheetCloseRef.current?.(), 5000);
   }
 
   // G83 fix-round (2026-09-18 review): every successful write below
@@ -350,8 +353,6 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
     finish("Filed.", () => undoToSpend(proposal.category));
   }
 
-  if (!mounted) return null;
-
   const colour = getCategoryColour(originalCategory, colours);
   const CategoryIcon = getCategoryIcon(originalCategory, iconOverrides);
   const brand = account ? accountBrand(account) : null;
@@ -370,32 +371,11 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
     ...spendPickable.filter((c) => !customCategories.includes(c)),
   ];
 
-  return createPortal(
-    <>
-      <div className="fixed inset-0 bg-black/40 z-[65] fade-in" onClick={onClose} />
-      <div
-        ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Tell me what this was"
-        className="fixed left-1/2 -translate-x-1/2 w-full max-w-[500px] glass-sheet z-[70] overflow-y-auto
-                    bottom-0 rounded-t-3xl slide-up max-h-[88dvh]
-                    lg:bottom-auto lg:top-1/2 lg:-translate-y-1/2 lg:rounded-3xl lg:max-h-[85dvh] lg:shadow-2xl"
-        style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
-      >
-        <div className="flex justify-center pt-3 pb-1 lg:hidden">
-          <div className="w-10 h-1 bg-slate-200 dark:bg-slate-600 rounded-full" />
-        </div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close"
-          className="absolute top-3 right-3 w-11 h-11 flex items-center justify-center rounded-full text-slate-400 dark:text-slate-500 active:scale-95 transition-transform"
-        >
-          <X size={18} />
-        </button>
-
-        <div className="px-5 pb-6 pt-1">
+  return (
+    <SheetFrame title="Tell me what this was" onClose={onClose}>
+      {({ close }) => <>
+        <SheetCloseBinding closeRef={sheetCloseRef} close={close} />
+        <div className="pb-2">
           {/* 1. Transaction header — shared shape across every step */}
           <div className="flex items-center gap-3">
             <span
@@ -845,7 +825,7 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
                 onClick={async () => {
                   if (toastTimer.current) clearTimeout(toastTimer.current);
                   await toast.undo();
-                  onClose();
+                  close();
                 }}
                 className="flex-shrink-0 flex items-center gap-1 text-[12px] font-semibold text-indigo-600 dark:text-indigo-400 active:opacity-70 transition-opacity"
               >
@@ -866,8 +846,7 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
             </p>
           )}
         </div>
-      </div>
-    </>,
-    document.body,
+      </>}
+    </SheetFrame>
   );
 }

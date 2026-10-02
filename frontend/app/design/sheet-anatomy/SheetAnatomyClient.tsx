@@ -3,12 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
-import { SheetFrame, type SheetFrameVariant } from "@/components/SheetFrame";
-import { useSavingsGoalEditor, type SavingsGoalOperations } from "@/components/SavingsGoalSheet";
-import { TransactionFilterSheetContent, type FilterDraft } from "@/components/TransactionFilterSheet";
+import { type SheetFrameVariant } from "@/components/SheetFrame";
+import SavingsGoalSheet, { type SavingsGoalOperations } from "@/components/SavingsGoalSheet";
+import TransactionFilterSheet, { type FilterDraft } from "@/components/TransactionFilterSheet";
 import type { SavingsInsights } from "@/lib/api";
 import { fmt } from "@/lib/format";
 import FixtureBottomNav from "../_components/FixtureBottomNav";
+import SheetContractExamples from "./SheetContractExamples";
 
 const BASE_GOAL: SavingsInsights = {
   configured: false, target_type: "months", target_months: 3, target_amount: 5550,
@@ -41,11 +42,9 @@ function GoalPreview({ variant, data, onChange, onClose, onResult, failFirstSave
 }) {
   const sequence = useRef(0);
   const hasFailed = useRef(false);
-  const [error, setError] = useState("");
-  const update = (next: SavingsInsights) => { setError(""); onChange(next); return next; };
+  const update = (next: SavingsInsights) => { onChange(next); return next; };
   const operations: SavingsGoalOperations = {
     saveSavingsGoal: async input => {
-      setError("");
       await new Promise(resolve => setTimeout(resolve, 450));
       if (failFirstSave && !hasFailed.current) {
         hasFailed.current = true;
@@ -68,36 +67,21 @@ function GoalPreview({ variant, data, onChange, onClose, onResult, failFirstSave
       accounts: data.accounts.map(account => account.account_id === id ? { ...account, ...input } : account) }),
     deleteSavingsManualAccount: async id => update({ ...data, accounts: data.accounts.filter(account => account.account_id !== id) }),
   };
-  const editor = useSavingsGoalEditor({ data, sym: "£", hideValues: false, operations, onSaved: () => {}, onError: setError, appearance: "sheet" });
-  return <SheetFrame variant={variant} title="Safety net goal" onClose={onClose}
-    footer={({ close }) => editor.footer(close, true)}>
-    {error && <p role="alert" className="mb-4 rounded-xl bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">{error}</p>}
-    {editor.body}
-  </SheetFrame>;
+  return <SavingsGoalSheet variant={variant} data={data} sym="£" hideValues={false}
+    operations={operations} onSaved={() => {}} onClose={onClose} />;
 }
 
 function FilterPreview({ variant, initial, onApply, onClear, onClose, empty }: {
   variant: SheetFrameVariant; initial: FilterDraft; onApply: (draft: FilterDraft) => void;
   onClear: () => void; onClose: () => void; empty: boolean;
 }) {
-  const [resetKey, setResetKey] = useState(0);
-  const [draft, setDraft] = useState(initial);
-  return <SheetFrame variant={variant} title="Filter payments" description="Applies to every group in the list." onClose={onClose}
-    footer={<div className="flex gap-3">
-      <button type="button" className={`${button} text-slate-600 dark:text-slate-300`} onClick={() => {
-        setDraft(EMPTY_FILTER); setResetKey(value => value + 1); onClear();
-      }}>Clear all</button>
-      <button type="submit" form="g192-filter" className={`${button} flex-1 bg-indigo-600 text-white`}>Show results</button>
-    </div>}>
-    {({ close }) => <TransactionFilterSheetContent key={resetKey} formId="g192-filter" initial={draft}
-      categories={empty ? [] : CATEGORIES} includeIntroduction={false} showActions={false}
-      onApply={value => { onApply(value); close(); }} onClearAll={onClear} />}
-  </SheetFrame>;
+  return <TransactionFilterSheet variant={variant} initial={initial} categories={empty ? [] : CATEGORIES}
+    onApply={onApply} onClearAll={onClear} onClose={onClose} />;
 }
 
 export default function SheetAnatomyClient() {
   const search = useSearchParams();
-  const variant = search.get("variant") === "b" ? "b" : "a";
+  const variant = search.get("variant") === "a" ? "a" : "b";
   const frameVariant = variant === "b" ? "focused" : "compact";
   const state = search.get("state") ?? "goal";
   const mode = search.get("mode") === "dark" ? "dark" : "light";
@@ -137,7 +121,8 @@ export default function SheetAnatomyClient() {
           className={`${button} ${state === value ? "bg-white dark:bg-slate-800" : "text-slate-600 dark:text-slate-300"}`}>{label}</a>)}
       </nav>
       <p role="status" className="mt-5 text-sm leading-6 text-slate-600 dark:text-slate-300">{result}</p>
-      <p className="mt-6 border-t border-slate-300 pt-4 text-xs leading-5 text-slate-600 dark:border-slate-700 dark:text-slate-300">The real goal editor and filter fields run on invented local data. Save, add, edit, remove and clear only change this preview. The live sheets keep their current layout until a direction is approved.</p>
+      {state === "contract" && <SheetContractExamples />}
+      <p className="mt-6 border-t border-slate-300 pt-4 text-xs leading-5 text-slate-600 dark:border-slate-700 dark:text-slate-300">B is the approved production layout. These are the real goal and filter sheets running on invented local data. Save, add, edit, remove and clear only change this preview.</p>
     </div>
     <FixtureBottomNav active="Planning" onPennyClick={() => setResult("Penny stays behind the sheet. Its keyboard layout is covered by G191.")} />
     {sheet === "goal" && <GoalPreview variant={frameVariant} data={goal} onChange={setGoal} onClose={() => setSheet(null)}

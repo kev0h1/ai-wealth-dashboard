@@ -20,13 +20,15 @@ assert.equal(renderToStaticMarkup(React.createElement(SheetFrame, {
 assert.match(frame, /role="dialog"/);
 assert.match(frame, /aria-modal="true"/);
 assert.match(frame, /useId\(/);
-assert.match(frame, /lockScroll: true, backToClose: true/);
-assert.match(frame, /data-sheet-body className="min-h-0 flex-1 overflow-y-auto/);
+assert.match(frame, /lockScroll: true, backToClose: manageHistory/);
+assert.match(frame, /data-sheet-body className=\{`min-h-0 flex-1 overflow-y-auto/);
 assert.match(frame, /<header className="flex shrink-0/);
-assert.match(frame, /<footer className="shrink-0/);
+assert.match(frame, /<footer data-sheet-footer className="shrink-0/);
 assert.match(frame, /safe-area-inset-bottom/);
-assert.match(frame, /h-\[calc\(100dvh-1rem\)\]/);
-assert.match(frame, /max-h-\[88dvh\]/);
+assert.match(frame, /variant = "focused"/);
+assert.match(frame, /safe-area-inset-top/);
+assert.match(frame, /visualViewport/);
+assert.match(frame, /max-h-\[88%\]/);
 assert.match(frame, /document.body/);
 assert.match(frame, /z-\[70\]/);
 
@@ -50,7 +52,7 @@ assert.match(invalid, /aria-label="Custom target amount"/);
 assert.match(invalid, /disabled=""/);
 const pinned = renderToStaticMarkup(React.createElement(GoalHarness, { data: goal, pinned: true }));
 assert.match(pinned, /min-h-11 bg-indigo-600/);
-assert.match(normal, /bg-emerald-600 text-white border-emerald-600/, "Live selected styling is unchanged");
+assert.match(normal, /bg-emerald-600 text-white border-emerald-600/, "Legacy editor appearance remains available for old fixtures");
 const proposed = renderToStaticMarkup(React.createElement(GoalHarness, { data: goal, pinned: true, appearance: "sheet" }));
 assert.match(proposed, /border-indigo-500 bg-indigo-50/);
 assert.match(proposed, /font-mono tabular-nums/);
@@ -60,10 +62,10 @@ assert.match(goals, /const before = new Set/);
 assert.match(goals, /res.accounts.find\(a => !before.has\(a.account_id\)\)/);
 assert.match(goals, /const accounts = data\?\.accounts \?\? \[\]/, "Account refreshes remain prop-driven");
 assert.match(goals, /await operations.saveSavingsGoal\(body\);\s+onSaved\(\);\s+close\(\);/);
-assert.match(goals, /editor.footer\(onClose\)/, "Incumbent goal Save still refreshes then closes");
+assert.match(goals, /editor.footer\(close, true\)/, "Production Save uses the pinned, history-safe footer");
 assert.match(goals, /savingManual/);
 assert.match(goals, /maxLength=\{60\}/);
-assert.doesNotMatch(goals, /SheetFrame/, "Live goal shell does not opt in before approval");
+assert.match(goals, /<SheetFrame/, "Approved goal sheet renders the production frame");
 
 const initial = { categories: ["Bills"], merchant: "Example shop", from: "2026-09-01", to: "2026-09-30", txnType: "debit" };
 const filterHtml = renderToStaticMarkup(React.createElement(TransactionFilterSheetContent, {
@@ -78,11 +80,27 @@ assert.match(filterHtml, /aria-pressed="true"[^>]*>Money out/);
 assert.match(filterHtml, /aria-pressed="true"[^>]*>Bills/);
 assert.doesNotMatch(filterHtml, /Show results/);
 assert.match(filters, /onSubmit=\{submit\}/, "The pinned external form button submits the actual draft");
-assert.doesNotMatch(filters, /<SheetFrame/, "Live filter shell is retained until approval");
-assert.match(preview, /useSavingsGoalEditor/);
-assert.match(preview, /TransactionFilterSheetContent/);
+assert.match(filters, /<SheetFrame/, "Approved filter sheet renders the production frame");
+assert.match(filters, /onApply=\{draft => closeThen\(\(\) => onApply\(draft\)\)\}/);
+assert.match(preview, /<SavingsGoalSheet/);
+assert.match(preview, /<TransactionFilterSheet/);
 assert.doesNotMatch(preview, /\bapi\.|\bfetch\(/);
-assert.match(preview, /editor.footer\(close, true\)/);
-assert.match(preview, /form="g192-filter"/);
+assert.doesNotMatch(preview, /useSavingsGoalEditor|TransactionFilterSheetContent/, "Preview cannot rebuild the production sheet wrappers");
 assert.match(preview, /FixtureBottomNav/);
-console.log("G192 SSR, real form state, shared editor and unchanged live shell contracts passed");
+// Every customer bottom sheet found in the migration inventory uses the
+// same shell. Penny, private ops dialogs and centred confirmations are separate.
+for (const file of ["AimSheet", "BankPickerSheet", "CardTermsSheet", "CategorisationRulesSheet", "CategorySheet", "CommitmentSheet", "InsightCard", "IntentConsentSheet", "InvestmentUpload", "MiscategorisedReviewSheet", "MoreMessagesSheet", "PayPeriodSettingsSheet", "PlanOneOffSheet", "SetAsideSheet", "SpendHeader", "SpendTrends", "StatementUpload", "TeachingSheet", "TransactionSheet", "UpcomingFlowSheet", "YourPlanCard", "upcoming/UpcomingDetailsSheet"]) {
+  const component = source(`../components/${file}.tsx`);
+  assert.match(component, /<SheetFrame/, `${file} uses the shared anatomy`);
+  assert.doesNotMatch(component, /className=[^\n]*glass-sheet/, `${file} cannot retain a competing legacy shell`);
+}
+for (const file of ["../app/components/AccountsPage.tsx", "../app/spend/shape/MoneyShapeHero.tsx"]) {
+  assert.match(source(file), /<SheetFrame/);
+  assert.doesNotMatch(source(file), /className=[^\n]*glass-sheet/);
+}
+const a11y = source("../lib/useSheetA11y.ts");
+assert.match(a11y, /focusStack.at\(-1\) !== el/);
+assert.match(a11y, /event.state\?\.__sheetA11yId === id/);
+assert.match(a11y, /scrollLockCount/);
+assert.match(a11y, /if \(!liveElement.current\) return/);
+console.log("G192 SSR, real forms, approved production parity and complete sheet inventory passed");

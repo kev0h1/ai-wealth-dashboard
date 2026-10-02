@@ -1,13 +1,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { createPortal } from "react-dom";
-import { X } from "lucide-react";
 import { api, Checkpoint } from "@/lib/api";
-import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
-import { useSheetOpen } from "@/lib/useSheetOpen";
-import { useSheetA11y } from "@/lib/useSheetA11y";
 import PennyMark from "@/components/PennyMark";
+import { SheetFrame } from "@/components/SheetFrame";
 
 interface AimSheetProps {
   category: string;
@@ -31,9 +27,6 @@ function roundTo5(n: number): number {
 // ~93% of usual rounded to £5), and saves via POST /checkpoints. Cancelling
 // keeps the recorded choice — no checkpoint is created.
 export default function AimSheet({ category, onClose, onSaved }: AimSheetProps) {
-  useLockBodyScroll();
-  useSheetOpen();
-  const panelRef = useSheetA11y<HTMLDivElement>(onClose);
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
@@ -89,53 +82,25 @@ export default function AimSheet({ category, onClose, onSaved }: AimSheetProps) 
 
   if (!mounted) return null;
 
-  return createPortal(
-    <>
-      {/* Backdrop */}
-      <div className="fixed inset-0 bg-black/40 z-[65] fade-in" onClick={onClose} />
-
-      {/* Sheet — bottom sheet on mobile, centered modal on desktop */}
-      <div
-        ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label={`Set an aim for ${category}`}
-        className="fixed left-1/2 -translate-x-1/2 w-full max-w-[500px] glass-sheet z-[70] overflow-y-auto
-                    bottom-0 rounded-t-3xl slide-up max-h-[88dvh]
-                    lg:bottom-auto lg:top-1/2 lg:-translate-y-1/2 lg:rounded-3xl lg:max-h-[85dvh] lg:shadow-2xl"
-        style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
-      >
-        {/* Handle — mobile only */}
-        <div className="flex justify-center pt-3 pb-1 lg:hidden">
-          <div className="w-10 h-1 bg-slate-200 dark:bg-slate-600 rounded-full" />
-        </div>
-
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 pt-2 pb-4 lg:pt-5">
-          <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100 truncate flex-1 mr-4">
-            Set an aim for {category}
-          </h2>
-          <button
-            onClick={onClose}
-            aria-label="Close"
-            className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors flex-shrink-0"
-          >
-            <X size={16} color="#64748b" />
-          </button>
-        </div>
-
-        <div className="px-5 pb-8 lg:pb-6">
+  return (
+    <SheetFrame
+      title={`Set an aim for ${category}`}
+      onClose={onClose}
+      footer={({ close }) => saved ? (
+        <button onClick={close} className="w-full rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition-[transform,background-color] hover:bg-indigo-700 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">
+          Done
+        </button>
+      ) : (
+        <button disabled={saving} onClick={close} className="w-full rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 active:scale-95 disabled:opacity-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800">
+          Cancel
+        </button>
+      )}
+    >
           {saved ? (
             <div className="glass-card rounded-2xl p-4">
               <p className="text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed">
                 Aim set, Penny will track it with you.
               </p>
-              <button
-                onClick={onClose}
-                className="mt-3 inline-flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-[transform,background-color] text-white text-sm font-semibold px-4 py-2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 min-h-[44px]"
-              >
-                Done
-              </button>
             </div>
           ) : (
             <div className="glass-card rounded-2xl p-4">
@@ -182,13 +147,6 @@ export default function AimSheet({ category, onClose, onSaved }: AimSheetProps) 
                     >
                       {saving ? "Saving…" : "Save aim"}
                     </button>
-                    <button
-                      disabled={saving}
-                      onClick={onClose}
-                      className="text-sm font-semibold text-slate-500 dark:text-slate-400 rounded-xl px-4 py-2 min-h-[44px] hover:opacity-80 active:opacity-70 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-                    >
-                      Cancel
-                    </button>
                   </div>
 
                   {saveError && (
@@ -200,9 +158,6 @@ export default function AimSheet({ category, onClose, onSaved }: AimSheetProps) 
               )}
             </div>
           )}
-        </div>
-      </div>
-    </>,
-    document.body
+    </SheetFrame>
   );
 }

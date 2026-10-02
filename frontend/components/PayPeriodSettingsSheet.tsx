@@ -1,9 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { X } from "lucide-react";
-import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
-import { useSheetA11y } from "@/lib/useSheetA11y";
+import { SheetFrame } from "@/components/SheetFrame";
 import CustomSelect from "@/components/CustomSelect";
 import { PayPeriodConfig } from "@/lib/payPeriod";
 
@@ -31,8 +29,6 @@ export default function PayPeriodSettingsSheet({
   onClose: () => void;
   onSave: (c: PayPeriodConfig) => void;
 }) {
-  useLockBodyScroll();
-  const panelRef = useSheetA11y<HTMLDivElement>(onClose);
   const [mode, setMode] = useState<PayPeriodConfig["type"]>(current.type === "custom" || current.type === "weekly" ? "calendar_month" : current.type);
   const [payDay, setPayDay] = useState(
     current.type === "monthly_pay_date" ? current.day : 25
@@ -63,25 +59,11 @@ export default function PayPeriodSettingsSheet({
   ];
 
   return (
-    <>
-      <div className="fixed inset-0 bg-black/40 z-[65]" onClick={onClose} />
-      <div
-        ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Pay period settings"
-        className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] glass-sheet rounded-t-3xl z-[70] overflow-y-auto max-h-[88dvh]"
-        style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
-      >
-        <div className="flex justify-center pt-3 pb-1">
-          <div className="w-10 h-1 bg-slate-200 dark:bg-slate-600 rounded-full" />
-        </div>
-        <div className="flex items-center justify-between px-5 pt-2 pb-4">
-          <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">Pay Period</h2>
-          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-700">
-            <X size={16} color="#64748b" />
-          </button>
-        </div>
+    <SheetFrame title="Pay period" onClose={onClose} bodyClassName="px-0 py-5" footer={(
+      <button onClick={() => onSave(buildConfig())} className="w-full rounded-xl bg-indigo-600 py-3 text-sm font-semibold text-white transition-colors active:scale-[0.98]">
+        Save Pay Period
+      </button>
+    )}>
 
         <div className="px-5 pb-4 space-y-2">
           {MODES.map(m => (
@@ -153,15 +135,6 @@ export default function PayPeriodSettingsSheet({
           </div>
         )}
 
-        <div className="px-5 pb-8">
-          <button
-            onClick={() => onSave(buildConfig())}
-            className="w-full py-4 rounded-2xl font-semibold text-white text-base bg-indigo-600 hover:bg-indigo-700 transition-colors active:scale-[0.98]"
-          >
-            Save Pay Period
-          </button>
-        </div>
-      </div>
-    </>
+    </SheetFrame>
   );
 }

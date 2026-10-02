@@ -8,11 +8,9 @@
 // by CategorisationRulesSheet.
 
 import { useState } from "react";
-import { createPortal } from "react-dom";
 import { X, CheckCircle2, Circle, Shield, Pencil, Plus, ChevronDown } from "lucide-react";
 import { api, SavingsInsights, SavingsGoalInput, SavingsAccountOption } from "@/lib/api";
-import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
-import { useSheetOpen } from "@/lib/useSheetOpen";
+import { SheetFrame, type SheetFrameVariant } from "@/components/SheetFrame";
 import { fmt } from "@/lib/format";
 
 interface SavingsGoalSheetProps {
@@ -21,6 +19,8 @@ interface SavingsGoalSheetProps {
   hideValues: boolean;
   onClose: () => void;
   onSaved: () => void;
+  operations?: SavingsGoalOperations;
+  variant?: SheetFrameVariant;
 }
 
 /** Inject the real API shape so auth-free fixtures exercise the same editor. */
@@ -60,6 +60,7 @@ export function useSavingsGoalEditor({
     const bal = Number(manualBalance);
     if (!name || isNaN(bal) || bal < 0) return;
     setSavingManual(true);
+    onError?.("");
     try {
       if (manualEditId) {
         await operations.updateSavingsManualAccount(manualEditId, { name, balance: bal });
@@ -89,6 +90,7 @@ export function useSavingsGoalEditor({
   async function save(close: () => void) {
     if (selected.length === 0 || customInvalid || saving) return;
     setSaving(true);
+    onError?.("");
     try {
       const body: SavingsGoalInput = targetChoice === "custom"
         ? { target_type: "amount", target_amount: Number(customAmount) || 0, account_ids: selected }
@@ -107,6 +109,7 @@ export function useSavingsGoalEditor({
   const accentText = appearance === "sheet" ? "text-indigo-600 dark:text-indigo-300" : "text-emerald-600";
 
   return {
+    saving: saving || savingManual,
     body: (
       <>
           <div className="flex items-start gap-3">
@@ -217,10 +220,10 @@ export function useSavingsGoalEditor({
     ),
     footer: (close: () => void, pinned = false) => (
           <div className={`flex gap-2 ${pinned ? "" : "mt-4"}`}>
-            <button type="button" onClick={close} className={`${pinned ? "min-h-11" : ""} px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-600`}>
+            <button type="button" onClick={close} disabled={saving || savingManual} className={`${pinned ? "min-h-11" : ""} px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-600 disabled:opacity-40`}>
               Cancel
             </button>
-            <button type="button" onClick={() => save(close)} disabled={selected.length === 0 || customInvalid || saving}
+            <button type="button" onClick={() => save(close)} disabled={selected.length === 0 || customInvalid || saving || savingManual}
               className={`flex-1 py-2.5 rounded-xl text-white text-sm font-semibold disabled:opacity-40 active:scale-[0.98] transition-transform ${pinned ? "min-h-11 bg-indigo-600" : "bg-emerald-600"}`}>
               {saving ? "Saving…" : data?.configured ? "Update target" : "Start tracking"}
             </button>
@@ -230,49 +233,11 @@ export function useSavingsGoalEditor({
 }
 
 export default function SavingsGoalSheet(props: SavingsGoalSheetProps) {
-  useLockBodyScroll();
-  useSheetOpen();
-  const { onClose } = props;
-  const editor = useSavingsGoalEditor(props);
-
-  return createPortal(
-    <>
-      {/* Backdrop */}
-      <div className="fixed inset-0 bg-black/40 z-[65] fade-in" onClick={onClose} />
-
-      {/* Sheet — bottom sheet on mobile, centered modal on desktop */}
-      <div
-        className="fixed left-1/2 -translate-x-1/2 w-full max-w-[500px] glass-sheet z-[70] overflow-y-auto
-                    bottom-0 rounded-t-3xl slide-up max-h-[88dvh]
-                    lg:bottom-auto lg:top-1/2 lg:-translate-y-1/2 lg:rounded-3xl lg:max-h-[85dvh] lg:shadow-2xl"
-        style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
-      >
-        {/* Handle — mobile only */}
-        <div className="flex justify-center pt-3 pb-1 lg:hidden">
-          <div className="w-10 h-1 bg-slate-200 dark:bg-slate-600 rounded-full" />
-        </div>
-
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 pt-2 pb-1 lg:pt-5">
-          <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100 truncate flex-1 mr-4">
-            Safety net goal
-          </h2>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close safety net goal"
-            className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors flex-shrink-0"
-          >
-            <X size={16} color="#64748b" />
-          </button>
-        </div>
-
-        <div className="px-5 pb-8 lg:pb-6">
-          {editor.body}
-          {editor.footer(onClose)}
-        </div>
-      </div>
-    </>,
-    document.body
-  );
+  const [error, setError] = useState("");
+  const editor = useSavingsGoalEditor({ ...props, onError: setError, appearance: "sheet" });
+  return <SheetFrame variant={props.variant} title="Safety net goal" onClose={props.onClose}
+    dismissDisabled={editor.saving} footer={({ close }) => editor.footer(close, true)}>
+    {error && <p role="alert" className="mb-4 text-sm leading-5 text-slate-700 dark:text-slate-200">{error}</p>}
+    {editor.body}
+  </SheetFrame>;
 }
