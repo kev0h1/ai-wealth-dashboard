@@ -120,6 +120,7 @@ import { api, CanIOffer, CanISuggestionChip, PennyLimitError, PennyProposal, Sce
 import { BRAND_GRADIENT } from "@/lib/brand";
 import PennyMark from "@/components/PennyMark";
 import PennyComposer from "@/components/PennyComposer";
+import { usePennyThreadAnchor } from "@/lib/usePennyThreadAnchor";
 import CommitmentSheet from "@/components/CommitmentSheet";
 import MoneyText from "@/components/MoneyText";
 import ChatMarkdown from "@/components/ChatMarkdown";
@@ -1136,6 +1137,10 @@ export default function PennyConversation({
   // two-prop contract (`inSheet`/`askContext`) has no ref slot; see this
   // file's header comment on why the scrollable pane lives in here.
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  // Resizing the available viewport is not a new message. Follow it only
+  // when the reader was already at the latest turn, so opening a keyboard
+  // never drags someone reading older advice back to the bottom.
+  const { anchorToLatest, onScroll: onThreadScroll } = usePennyThreadAnchor(scrollContainerRef, Boolean(inSheet));
   const initialFiredRef = useRef(false);
   // Last `askSeq` this component has already submitted an `askContext.ask`
   // for — NOT a plain "have I ever fired" boolean. This component mounts
@@ -1703,7 +1708,6 @@ export default function PennyConversation({
     if (idleFor > PENNY_THREAD_TTL_MS && bucket.messages.length > 0) {
       setBucket(currentScreen, () => newBucket());
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [askSeq, currentScreen]);
 
   // askContext.ask — sheet-mode equivalent of the `initialQuestion` effect
@@ -1785,9 +1789,8 @@ export default function PennyConversation({
   // isn't this component's to manage).
   useLayoutEffect(() => {
     if (!inSheet || askSeq == null) return;
-    const el = scrollContainerRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [askSeq, inSheet]);
+    anchorToLatest();
+  }, [askSeq, inSheet, anchorToLatest]);
 
   // Scroll the newest turn into view as it lands — covers both the
   // ?ask= deep link ("scroll to answer") and any regular chip/composer ask.
@@ -1948,7 +1951,7 @@ export default function PennyConversation({
   const composerContent = <PennyComposer
     inputRef={inputRef} value={input} onChange={setInput} onSend={() => send(input)}
     placeholder={atCap ? restingPlaceholder : placeholder} loading={loading} atCap={atCap}
-    onMoreMessages={inSheet ? openMoreMessagesSheet : undefined}
+    onMoreMessages={inSheet ? openMoreMessagesSheet : undefined} preserveFocus={Boolean(inSheet)}
   />;
   // Full-page mode's own floating surface (see the comment above for why it
   // still needs one) — sheet mode never uses this, it mounts
@@ -2062,7 +2065,7 @@ export default function PennyConversation({
         // below onto this outer wrapper, same 4px of breathing room, now
         // followed by a hairline rather than falling straight into the
         // thread — see this block's own header comment above.
-        <div className="shrink-0 relative px-5 pt-0.5 pb-1 border-b border-slate-200/70 dark:border-slate-700">
+        <div data-penny-secondary className="shrink-0 relative px-5 pt-0.5 pb-1 border-b border-slate-200/70 dark:border-slate-700">
           <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide">
             {allChips.map((c) => {
               if (c.source === "personalised") {
@@ -2134,6 +2137,7 @@ export default function PennyConversation({
         ref={inSheet ? scrollContainerRef : undefined}
         aria-live="polite"
         role="log"
+        onScroll={inSheet ? onThreadScroll : undefined}
         className={inSheet ? "flex-1 min-h-0 overflow-y-auto space-y-3 px-5" : "space-y-3"}
       >
         {/* A deterministic "Payday is close..." lead bubble used to render
@@ -2319,7 +2323,7 @@ export default function PennyConversation({
           the chip row and every bubble above it instead of sitting deeper
           from the panel edge than they do. */}
       {inSheet ? (
-        <div className="shrink-0 px-5 pt-2 pb-6">{composerContent}</div>
+        <div data-penny-composer-wrap className="shrink-0 px-5 pt-2 pb-6">{composerContent}</div>
       ) : (
         <div
           className="fixed inset-x-0 z-40 px-4 lg:px-0"

@@ -34,8 +34,8 @@ const ROUTES: PreviewRoute[] = [
   {
     slug: "penny-keyboard",
     name: "Penny keyboard · G191",
-    description: "G191 design round, skills: Impeccable adapt and emil-design-eng. A keeps shortcuts while typing; B gives more room to the conversation. Both render the production Penny panel, header and composer with local-only messages. Tap Open Penny, then type on a real phone. Navigation hides while typing and one visual-viewport measurement positions the panel. Live defaults remain unchanged pending approval. Real iOS Safari, Android Chrome and Capacitor keyboard checks are still required. ?variant=a|b&state=short|long|empty|error&mode=light|dark",
-    variants: [{ label: "A · Keep shortcuts", value: "a" }, { label: "B · Conversation first", value: "b" }],
+    description: "G191 approved B, skills: Impeccable adapt and emil-design-eng. Conversation-first typing uses the production Penny panel, header, composer and thread anchor with local-only replies. The composer follows one visible viewport, navigation and shortcuts hide while typing, and keyboard dismissal restores the resting window. Physical iOS Safari, Android Chrome and Capacitor keyboard checks remain required. A is retained for comparison. ?variant=a|b&state=short|long|empty|error&mode=light|dark",
+    variants: [{ label: "B · Approved conversation first", value: "b" }, { label: "A · Keep shortcuts", value: "a" }],
     states: [{ label: "Short thread", value: "short" }, { label: "Long thread", value: "long" }, { label: "Empty", value: "empty" }, { label: "Reply error", value: "error" }],
   },
   {
