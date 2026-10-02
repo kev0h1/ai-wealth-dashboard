@@ -63,7 +63,7 @@ function PreviewWindow({ open, onClose, scenario }: {
   if (!mounted) return null;
   return createPortal(<>
     {open && <div aria-hidden="true" className="fixed inset-0 z-[56]" onClick={close} />}
-    <PennySheetPanel isOpen={open} panelRef={open ? ref : undefined} layout="docked">
+    <PennySheetPanel isOpen={open} panelRef={open ? ref : undefined}>
       <div className="shrink-0" onClickCapture={event => {
         // Let the shared header close through the sheet's history entry,
         // without adding a competing fragment navigation in this fixture.

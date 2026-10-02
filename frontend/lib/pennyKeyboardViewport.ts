@@ -36,7 +36,9 @@ export const PENNY_TYPING_MIN_PANEL = 320;
 
 /** Where the panel's top edge sits while the keyboard is open. It stays at its
  * resting position whenever the space above the keyboard allows; it only moves
- * up by the shortfall when it would otherwise squeeze the composer out. */
-export function pennyTypingTop(restTop: number | null, visualBottom: number, minHeight = PENNY_TYPING_MIN_PANEL): number {
-  return Math.round(Math.min(restTop ?? Infinity, visualBottom - minHeight));
+ * up by the shortfall when it would otherwise squeeze the composer out. Never
+ * above the visible area: if the visual viewport has been panned (offsetTop),
+ * the header and close control stay at least 8px inside it. */
+export function pennyTypingTop(restTop: number | null, visualBottom: number, visualTop = 0, minHeight = PENNY_TYPING_MIN_PANEL): number {
+  return Math.round(Math.max(Math.min(restTop ?? Infinity, visualBottom - minHeight), visualTop + 8));
 }

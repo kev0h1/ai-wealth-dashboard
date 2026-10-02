@@ -2321,13 +2321,10 @@ export default function PennyConversation({
           safe-area-inset-bottom,0px))]` wrapper), so `pb-6` alone is
           genuine interior padding, not safe-area duplicated on top of an
           already-safe position.
-          Composes cleanly with the on-screen-keyboard inset: that inset is
-          a `marginBottom` on the PANEL itself (PennySheet.tsx's
-          `keyboardInset`), pushing the whole floating window up as a unit
-          when the keyboard opens, not a property of this composer wrapper
-          — so this `pb-6` (interior space, panel-relative) and that
-          `marginBottom` (whole-panel position, viewport-relative) sit on
-          different elements and never fight each other.
+          Composes cleanly with keyboard docking: PennySheetPanel moves the
+          whole window's bottom edge onto the keyboard while typing (G196), so
+          this `pb-6` (interior space, panel-relative) never fights it. The
+          panel trims it to 8px while typing.
 
           Sheet mode mounts `composerContent` here, NOT `composerCard` — no
           glass fill, no rounded shell, no shadow, no inner `px-3`. See the

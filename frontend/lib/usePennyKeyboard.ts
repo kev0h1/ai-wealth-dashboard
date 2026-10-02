@@ -10,6 +10,8 @@ export type PennyKeyboardState = {
   inset: number;
   /** Visible viewport bottom in layout-viewport coordinates. */
   visualBottom: number;
+  /** Visual viewport offsetTop: how far Chrome or iOS has panned it. */
+  top: number;
   width: number;
 };
 
@@ -41,8 +43,8 @@ export function usePennyKeyboard(enabled: boolean, onMeasure?: (keyboardVisible:
       const inset = keyboardVisible ? pennyBottomInset(layout.height, visual) : 0;
       const visualBottom = layout.height - inset;
       setState(previous => previous && previous.keyboardVisible === keyboardVisible && previous.inset === inset
-        && previous.visualBottom === visualBottom && previous.width === next.width
-        ? previous : { keyboardVisible, inset, visualBottom, width: next.width });
+        && previous.visualBottom === visualBottom && previous.width === next.width && previous.top === next.top
+        ? previous : { keyboardVisible, inset, visualBottom, top: next.top, width: next.width });
     };
     const update = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(read); };
     baseline.current = 0;

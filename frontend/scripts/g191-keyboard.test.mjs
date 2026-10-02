@@ -32,8 +32,7 @@ assert.match(renderToStaticMarkup(React.createElement(PennyComposer, { ...props,
 const source = path => readFileSync(new URL(path, import.meta.url), "utf8");
 const live = source("../components/PennySheet.tsx");
 assert.match(live, /<PennySheetPanel isOpen=/);
-assert.match(live, /layout="docked"/, "G196: the live window docks the composer and never takes over");
-assert.doesNotMatch(live, /layout="focus"/);
+assert.doesNotMatch(live, /layout=/, "G196: one docked window, no layout variants");
 assert.match(source("../components/PennyConversation.tsx"), /<PennyComposer/);
 assert.match(source("../components/PennyConversation.tsx"), /preserveFocus=\{Boolean\(inSheet\)\}/);
 assert.match(source("../components/PennyConversation.tsx"), /usePennyThreadAnchor/);
@@ -42,7 +41,7 @@ assert.match(source("../lib/usePennyThreadAnchor.ts"), /followLatestRef/);
 assert.match(source("../components/PennyConversation.tsx"), /data-penny-secondary/);
 assert.match(source("../components/PennyConversation.tsx"), /data-penny-composer-wrap/);
 const frame = source("../components/PennySheetPanel.tsx");
-assert.match(frame, /layout = "legacy"/);
+assert.doesNotMatch(frame, /legacy|keyboardInset|onTypingChange/, "Dead layout and prop paths are gone");
 // G196 docking: geometry comes from the visual viewport, never a takeover.
 const styles = source("../components/PennySheetPanel.styles.ts");
 assert.doesNotMatch(styles, /data-penny-layout="focus"|align-items: flex-end|height: min\(26rem, 100%\)/, "Takeover styles are gone");
@@ -72,6 +71,10 @@ assert.equal(pennyBottomInset(800, null), 0);
 // Typing never moves the resting top edge when the space allows.
 assert.equal(pennyTypingTop(100, 600), 100, "Top edge stays exactly where it was");
 assert.equal(pennyTypingTop(400, 520), 520 - PENNY_TYPING_MIN_PANEL, "Only the shortfall moves the top, so the composer stays reachable");
+assert.ok(pennyTypingTop(100, 600, 120) >= 128, "A panned visual viewport (offsetTop 120) never puts the header above the visible area");
+assert.equal(pennyTypingTop(null, 300, 120), 128, "Short visible area clamps to the pan");
+assert.match(frame, /pennyTypingTop\(restTop\.current, viewport\.visualBottom, viewport\.top\)/);
+assert.match(frame, /if \(keyboardVisible \|\|/, "The resting edge is never recorded while a keyboard is up");
 assert.equal(pennyTypingTop(null, 520), 520 - PENNY_TYPING_MIN_PANEL, "No recorded resting edge falls back to the minimum panel");
 assert.doesNotMatch(frame, /keyboardHeight/, "Native keyboard heights are never added to an already-resized viewport");
 const touchHandler = frame.split("onPointerDownCapture=")[1].split("onFocusCapture=")[0];
@@ -81,7 +84,6 @@ assert.match(frame, /!event.currentTarget.contains\(next\)/, "Tab within the dia
 assert.doesNotMatch(frame, /setNativeKeyboard/, "Native show events cannot expand the panel before the viewport resizes");
 const preview = source("../app/design/penny-keyboard/PennyKeyboardClient.tsx");
 assert.doesNotMatch(preview, /variant/, "The A/B switch no longer means anything");
-assert.match(preview, /layout="docked"/);
 assert.match(preview, /PennySheetHeader, PennySheetPanel.*components\/PennySheet/);
 assert.match(preview, /<PennyComposer/);
 assert.match(preview, /usePennyThreadAnchor/);
