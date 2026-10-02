@@ -64,6 +64,6 @@ export const PENNY_PANEL_CSS = `
   box-shadow: none;
 }
 .penny-keyboard-typing [data-penny-secondary] { display: none; }
-.penny-keyboard-typing [data-penny-header-rule] { margin-top: 12px; }
+.penny-keyboard-typing [data-penny-header-rule] { margin-top: 16px; }
 .penny-keyboard-typing [data-penny-composer-wrap] { padding-bottom: 8px; }
 `;

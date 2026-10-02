@@ -49,7 +49,7 @@ assert.match(styles, /\.penny-keyboard-typing \[data-penny-secondary\] \{ displa
 assert.match(styles, /\.penny-keyboard-typing \{[^}]*padding-inline: 0;/, "G197: the takeover is full width");
 assert.match(styles, /\.penny-keyboard-typing \.penny-keyboard-panel \{[^}]*max-width: 100%;/, "G197: the panel is not capped to 420px while typing");
 const ruleGap = styles.match(/\.penny-keyboard-typing \[data-penny-header-rule\] \{ margin-top: (\d+)px; \}/);
-assert.ok(ruleGap && Number(ruleGap[1]) >= 12, "G197: the header rule keeps a gap below the 44px close button so it never touches the X");
+assert.ok(ruleGap && Number(ruleGap[1]) >= 16, "G197: the header rule keeps a gap below the 44px close button so it never touches the X");
 assert.match(source("../components/PennySheet.tsx"), /data-penny-header-rule className="border-b/, "The header rule is addressable by the typing gap");
 assert.match(source("../components/PennySheet.tsx"), /<div data-penny-secondary className="mt-2 flex/, "The header links row is the hidden secondary row");
 assert.match(styles, /bottom: var\(--penny-typing-bottom/, "Typing docks the bottom edge on the keyboard");
