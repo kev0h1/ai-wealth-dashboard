@@ -117,10 +117,10 @@ export function TransactionFilterSheetContent({
                 type="button"
                 onClick={() => setTxnType(d.value)}
                 aria-pressed={txnType === d.value}
-                className={`min-h-[44px] rounded-xl border text-[13px] font-semibold transition-colors motion-reduce:transition-none ${
+                className={`min-h-[44px] flex items-center justify-center rounded-full text-[13px] font-semibold active:scale-95 motion-reduce:active:scale-100 transition-transform motion-reduce:transition-none ${
                   txnType === d.value
-                    ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300"
-                    : "border-slate-200 dark:border-slate-600 text-slate-500 dark:text-slate-400"
+                    ? "bg-indigo-600 text-white"
+                    : "bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200"
                 }`}
               >
                 {d.label}
