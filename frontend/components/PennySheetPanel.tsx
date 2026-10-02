@@ -2,6 +2,7 @@
 
 import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type Ref } from "react";
 import { pennyKeyboardVisible, pennyViewport, type PennyViewport } from "@/lib/pennyKeyboardViewport";
+import { pennyNextEngaged, pennyTypingActive } from "@/lib/pennyTyping";
 import { PENNY_PANEL_CSS } from "./PennySheetPanel.styles";
 
 export type PennyKeyboardLayout = "legacy" | "dock" | "focus";
@@ -33,7 +34,7 @@ export default function PennySheetPanel({
   if (wasOpen !== isOpen) {
     setWasOpen(isOpen);
     if (!isOpen) {
-      setComposerEngaged(false);
+      setComposerEngaged(engaged => pennyNextEngaged(engaged, { type: "close" }));
     }
   }
 
@@ -78,7 +79,7 @@ export default function PennySheetPanel({
   // Keep it still until the software keyboard actually reduces the viewport.
   // Retained DOM focus after keyboard dismissal also allows a second tap to
   // reopen typing without needing another focus event.
-  const typing = isOpen && proposed && mobile && composerEngaged && Boolean(viewport?.keyboardVisible);
+  const typing = pennyTypingActive({ isOpen, proposed, mobile, engaged: composerEngaged, keyboardVisible: Boolean(viewport?.keyboardVisible) });
   useLayoutEffect(() => {
     onTypingChange?.(typing);
     if (!typing) return;
@@ -120,14 +121,15 @@ export default function PennySheetPanel({
           && (event.target as HTMLElement).closest("button, a")) event.preventDefault();
       } : undefined}
       onFocusCapture={proposed ? (event) => {
-        if ((event.target as HTMLElement).matches("[data-penny-input]")) setComposerEngaged(true);
+        if ((event.target as HTMLElement).matches("[data-penny-input]")) setComposerEngaged(engaged => pennyNextEngaged(engaged, { type: "composer-focus" }));
       } : undefined}
       onBlurCapture={proposed ? (event) => {
         const next = event.relatedTarget as HTMLElement | null;
         // Tab to Send or another dialog control must not move that control
         // underneath an open keyboard. A null blur can be keyboard dismissal;
         // let the measured viewport, rather than blur timing, restore the dock.
-        if (next && !event.currentTarget.contains(next)) setComposerEngaged(false);
+        const toOutsideDialog = Boolean(next && !event.currentTarget.contains(next));
+        setComposerEngaged(engaged => pennyNextEngaged(engaged, { type: "blur", toOutsideDialog }));
       } : undefined}
     >{children}</div>
   </div></>;
