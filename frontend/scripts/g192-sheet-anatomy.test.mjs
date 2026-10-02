@@ -126,6 +126,7 @@ assert.match(setAside, /if \(kind === "date"\) \{ closeThen\(\(\) => onSelectByD
 assert.match(accountsPage, /useAccountDetailHistory\(setSelectedAccountId, clearSelectedTransaction\);/);
 assert.match(accountHistoryHook, /attachAccountPopListener\(window, \(\) => handlers\.current, openSheetHistoryCount\)/, "Account detail popstate asks whether a sheet owns the traversal");
 assert.match(source("../lib/accountSheetHistory.ts"), /addEventListener\("popstate", onPop, true\)/, "Capture phase reads the sheet stack before sheets pop themselves");
+assert.match(a11y, /export function openSheetHistoryCount\(\): number \{\s*return openSheetCount\(sheetHistoryStack\.length\);/, "Production open-sheet count includes pending teardown pops");
 assert.match(a11y, /beginTeardownPop\(\);\s*history\.back\(\)/, "Parent-unmount teardown pops are counted as an open sheet until delivered");
 assert.match(accountHistoryHook, /\[\],\s*\);\s*\}\s*$/, "Listener registers once; re-registering mid-dispatch makes the browser skip it");
 assert.doesNotMatch(accountsPage, /addEventListener\("popstate"/, "No raw popstate listener may clear account detail");

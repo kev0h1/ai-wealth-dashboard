@@ -1,5 +1,5 @@
 "use client";
-import { beginTeardownPop, pendingTeardownPopCount } from "@/lib/sheetTeardownPops";
+import { beginTeardownPop, openSheetCount } from "@/lib/sheetTeardownPops";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 // Modal contract for bottom sheets: Escape closes, focus moves in on open,
@@ -144,7 +144,7 @@ const focusStack: HTMLElement[] = [];
  * any sheet handler has popped itself off the stack) to tell "a sheet is
  * consuming this traversal" from "the user is leaving the page's own view". */
 export function openSheetHistoryCount(): number {
-  return sheetHistoryStack.length + pendingTeardownPopCount();
+  return openSheetCount(sheetHistoryStack.length);
 }
 let scrollLockCount = 0;
 let releaseScrollLock: (() => void) | null = null;

@@ -24,7 +24,7 @@
 
 import { decideAccountPop, accountDetailIdFromState, stampAccountDetailState, hasAccountDetailEntry } from "../lib/accountSheetHistory.ts";
 import { attachAccountPopListener } from "../lib/accountSheetHistory.ts";
-import { beginTeardownPop, pendingTeardownPopCount, resetTeardownPops } from "../lib/sheetTeardownPops.ts";
+import { beginTeardownPop, openSheetCount, pendingTeardownPopCount, resetTeardownPops } from "../lib/sheetTeardownPops.ts";
 import { classifyNavigation } from "../lib/scrollNavDetect.ts";
 
 let failures = 0;
@@ -283,7 +283,7 @@ function harness() {
   const detach = attachAccountPopListener(
     win,
     () => ({ setSelectedAccountId: id => { view.id = id; }, clearSelectedTransaction: () => { view.tx = null; } }),
-    () => sheets.open + pendingTeardownPopCount(),
+    () => openSheetCount(sheets.open),
   );
   return { win, sheets, view, detach };
 }

@@ -28,6 +28,13 @@ export function pendingTeardownPopCount(): number {
   return pending.length;
 }
 
+/** The production open-sheet count: sheets still on the history stack plus
+ * teardown pops not yet delivered. useSheetA11y's openSheetHistoryCount is
+ * exactly this, and the behavioural tests call it too. */
+export function openSheetCount(stackLength: number): number {
+  return stackLength + pending.length;
+}
+
 /** Call immediately BEFORE history.back() in a teardown. */
 export function beginTeardownPop(target: EventTarget = window): void {
   if (installedOn !== target) {
