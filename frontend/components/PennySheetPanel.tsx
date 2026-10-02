@@ -2,6 +2,7 @@
 
 import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type Ref } from "react";
 import { pennyKeyboardVisible, pennyViewport, type PennyViewport } from "@/lib/pennyKeyboardViewport";
+import { applyPennyTypingAttribute, pennyNextEngaged, pennyTypingActive } from "@/lib/pennyTyping";
 import { PENNY_PANEL_CSS } from "./PennySheetPanel.styles";
 
 export type PennyKeyboardLayout = "legacy" | "dock" | "focus";
@@ -20,12 +21,9 @@ export default function PennySheetPanel({
   onTypingChange?: (typing: boolean) => void;
 }) {
   const [viewport, setViewport] = useState<(PennyViewport & { keyboardVisible: boolean }) | null>(null);
-  const [focused, setFocused] = useState(false);
-  const [nativeKeyboard, setNativeKeyboard] = useState(false);
+  const [composerEngaged, setComposerEngaged] = useState(false);
   const baseline = useRef(0);
   const baselineWidth = useRef(0);
-  const sawKeyboard = useRef(false);
-  const [didFocus, setDidFocus] = useState(false);
   const [wasOpen, setWasOpen] = useState(isOpen);
   const proposed = layout !== "legacy";
 
@@ -36,9 +34,7 @@ export default function PennySheetPanel({
   if (wasOpen !== isOpen) {
     setWasOpen(isOpen);
     if (!isOpen) {
-      setFocused(false);
-      setNativeKeyboard(false);
-      setDidFocus(false);
+      setComposerEngaged(engaged => pennyNextEngaged(engaged, { type: "close" }));
     }
   }
 
@@ -54,54 +50,40 @@ export default function PennySheetPanel({
       else baseline.current = Math.max(baseline.current, next.height);
       baselineWidth.current = next.width;
       const keyboardVisible = pennyKeyboardVisible(baseline.current, next);
-      // Android Back and iOS keyboard dismissal can retain DOM focus. Once
-      // a keyboard has actually been visible, its disappearance ends the
-      // typing layout without blurring or discarding the user's draft.
-      if (Math.abs(next.scale - 1) < 0.02) {
-        if (sawKeyboard.current && !keyboardVisible) setFocused(false);
-        sawKeyboard.current = keyboardVisible;
-      }
       setViewport({ ...next, keyboardVisible });
     };
     const update = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(read); };
-    const show = () => setNativeKeyboard(true);
-    const hide = () => { setNativeKeyboard(false); setFocused(false); };
     baseline.current = 0;
     baselineWidth.current = 0;
-    sawKeyboard.current = false;
     read();
     vv?.addEventListener("resize", update);
     vv?.addEventListener("scroll", update);
     window.addEventListener("resize", update);
-    // Capacitor events are visibility signals only, never a second inset.
-    window.addEventListener("keyboardWillShow", show);
-    window.addEventListener("keyboardDidShow", show);
-    window.addEventListener("keyboardWillHide", hide);
-    window.addEventListener("keyboardDidHide", hide);
+    // Native events request a fresh measurement, not an early takeover.
+    // The WebView may not have resized when keyboardWillShow is delivered.
+    // Geometry still comes from one viewport, never a second native inset.
+    const keyboardEvents = ["keyboardWillShow", "keyboardDidShow", "keyboardWillHide", "keyboardDidHide"];
+    keyboardEvents.forEach(name => window.addEventListener(name, update));
     return () => {
       cancelAnimationFrame(frame);
       vv?.removeEventListener("resize", update);
       vv?.removeEventListener("scroll", update);
       window.removeEventListener("resize", update);
-      window.removeEventListener("keyboardWillShow", show);
-      window.removeEventListener("keyboardDidShow", show);
-      window.removeEventListener("keyboardWillHide", hide);
-      window.removeEventListener("keyboardDidHide", hide);
+      keyboardEvents.forEach(name => window.removeEventListener(name, update));
     };
   }, [isOpen, proposed]);
 
   const mobile = viewport != null && viewport.width < 1024;
-  const typing = isOpen && proposed && mobile && (focused || nativeKeyboard || (didFocus && Boolean(viewport?.keyboardVisible)));
+  // Focus alone can mean a hardware keyboard. More importantly, resizing on
+  // touch-down moves the input before touch-up and can prevent iOS focusing it.
+  // Keep it still until the software keyboard actually reduces the viewport.
+  // Retained DOM focus after keyboard dismissal also allows a second tap to
+  // reopen typing without needing another focus event.
+  const typing = pennyTypingActive({ isOpen, proposed, mobile, engaged: composerEngaged, keyboardVisible: Boolean(viewport?.keyboardVisible) });
   useLayoutEffect(() => {
     onTypingChange?.(typing);
     if (!typing) return;
-    const root = document.documentElement;
-    const previous = root.getAttribute("data-penny-typing");
-    root.setAttribute("data-penny-typing", "true");
-    return () => {
-      if (previous == null) root.removeAttribute("data-penny-typing");
-      else root.setAttribute("data-penny-typing", previous);
-    };
+    return applyPennyTypingAttribute(document.documentElement);
   }, [typing, onTypingChange]);
 
   const frameStyle: CSSProperties | undefined = typing && viewport ? {
@@ -127,18 +109,21 @@ export default function PennySheetPanel({
       className={proposed ? "penny-keyboard-panel glass-sheet" : "relative mx-auto w-full max-w-[420px] glass-sheet rounded-3xl shadow-xl ring-1 ring-black/[0.06] dark:ring-white/[0.12] flex flex-col transition-[margin] duration-100 origin-bottom lg:origin-bottom-right"}
       style={panelStyle}
       onPointerDownCapture={proposed ? (event) => {
-        if ((event.target as HTMLElement).matches("[data-penny-input]")) { setDidFocus(true); setFocused(true); }
         // A control tap must complete before the keyboard can dismiss and
         // move that control. Keyboard navigation retains its usual focus.
         if (event.button === 0 && document.activeElement?.matches("[data-penny-input]")
           && (event.target as HTMLElement).closest("button, a")) event.preventDefault();
       } : undefined}
       onFocusCapture={proposed ? (event) => {
-        if ((event.target as HTMLElement).matches("[data-penny-input]")) { setDidFocus(true); setFocused(true); }
+        if ((event.target as HTMLElement).matches("[data-penny-input]")) setComposerEngaged(engaged => pennyNextEngaged(engaged, { type: "composer-focus" }));
       } : undefined}
       onBlurCapture={proposed ? (event) => {
         const next = event.relatedTarget as HTMLElement | null;
-        setFocused(Boolean(next?.matches("[data-penny-input]")));
+        // Tab to Send or another dialog control must not move that control
+        // underneath an open keyboard. A null blur can be keyboard dismissal;
+        // let the measured viewport, rather than blur timing, restore the dock.
+        const toOutsideDialog = Boolean(next && !event.currentTarget.contains(next));
+        setComposerEngaged(engaged => pennyNextEngaged(engaged, { type: "blur", toOutsideDialog }));
       } : undefined}
     >{children}</div>
   </div></>;

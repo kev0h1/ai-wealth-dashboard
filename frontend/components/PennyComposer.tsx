@@ -23,7 +23,7 @@ export default function PennyComposer({ inputRef, value, onChange, onSend, place
         ref={inputRef} data-penny-input type="text" value={value}
         onChange={(event) => onChange(event.target.value)}
         onKeyDown={(event) => {
-          if (event.key === "Enter" && !event.nativeEvent.isComposing && !loading && !atCap) onSend();
+          if (event.key === "Enter" && !event.nativeEvent.isComposing && event.keyCode !== 229 && !loading && !atCap) onSend();
         }}
         placeholder={placeholder} aria-label="Ask Penny a spending question" maxLength={160}
         disabled={atCap || (loading && !preserveFocus)} readOnly={loading && preserveFocus}
