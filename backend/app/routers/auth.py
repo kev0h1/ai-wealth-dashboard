@@ -18,7 +18,7 @@ from app.core.config import (
 )
 from app.core.identity import resolve_signin_email
 from app.core.pending_login import _pop_pending, _store_pending
-from app.core.signin_handoff import signin_handoff_html
+from app.core.signin_handoff import signin_handoff_csp, signin_handoff_html
 from app.core.push import drop_user_push_registrations
 from app.core.session_revocation import is_revoked, revoke_sessions
 from app.db.collections import linked_identities_col
@@ -451,7 +451,9 @@ async def google_mobile_callback(code: str = None, error: str = None, state: str
     async def finish(value: str) -> HTMLResponse:
         if state:
             await _store_pending(state, value)
-        return HTMLResponse(signin_handoff_html(value.startswith("token:")))
+        ok = value.startswith("token:")
+        page = signin_handoff_html(ok, auto_return=ok)
+        return HTMLResponse(page, headers={"Content-Security-Policy": signin_handoff_csp(page)})
 
     if error or not code:
         return await finish("error:auth_failed")

@@ -117,11 +117,12 @@ html[data-variant="c"] .action{margin-top:24px}
     </dl>
   </div>
   <div class="action">
-    <button id="return" type="button" onclick="returnToApp()">Return to Sorted</button>
+    <button id="return" type="button">Return to Sorted</button>
   </div>
 </main>
 <script>
   function returnToApp(){window.location.href='wealthdash://auth-done';}
+  document.getElementById('return').addEventListener('click', returnToApp);
   if({{auto_return}}){setTimeout(returnToApp, 600);}
   // On iPhone a wealthdash:// navigation from the in-app browser the app itself
   // opened is swallowed, so the button can be dead. The app closes this sheet

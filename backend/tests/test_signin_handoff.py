@@ -31,6 +31,7 @@ def test_success_page_has_behaviour_and_markers(variant):
     assert "{{" not in page
     assert "wealthdash://auth-done" in page
     assert "setTimeout(returnToApp, 600)" in page
+    assert "onclick" not in page and "addEventListener('click', returnToApp)" in page
     assert "Return to Sorted" in page and 'id="return"' in page
     assert "Signed in. You can close this window and return to Sorted." in page
     assert "if(true)" in page  # the 3s hint is armed on success
@@ -39,11 +40,12 @@ def test_success_page_has_behaviour_and_markers(variant):
 
 
 def test_error_page_is_the_same_template_without_the_hint():
-    page = signin_handoff_html(False)
+    page = signin_handoff_html(False, auto_return=False)
     assert 'data-state="error"' in page
     assert "Sign-in didn’t complete" in page
     assert "Close this window and try again in Sorted." in page
     assert "if(false)" in page
+    assert "if(false){setTimeout(returnToApp, 600);}" in page  # error page does not auto-return
     assert "wealthdash://auth-done" in page and "Return to Sorted" in page
 
 
@@ -70,3 +72,53 @@ def test_mobile_callback_serves_the_template(monkeypatch):
     assert stored == {"s1": "error:auth_failed"}
     assert 'data-state="error"' in body and "wealthdash://auth-done" in body
     assert re.search(r"data-variant=\"[abc]\"", body)
+
+
+def _hash(text):
+    import base64
+    return "'sha256-" + base64.b64encode(hashlib.sha256(text.encode()).digest()).decode() + "'"
+
+
+@pytest.mark.parametrize("ok", [True, False])
+def test_csp_hashes_match_emitted_content(ok):
+    page = signin_handoff_html(ok, auto_return=ok)
+    style = re.findall(r"<style>(.*?)</style>", page, re.S)
+    script = re.findall(r"<script>(.*?)</script>", page, re.S)
+    assert len(style) == 1 and len(script) == 1
+    csp = signin_handoff.signin_handoff_csp(page)
+    assert f"style-src {_hash(style[0])};" in csp
+    assert f"script-src {_hash(script[0])};" in csp
+    assert csp.startswith("default-src 'none'; ")
+    assert "unsafe-inline" not in csp
+    assert csp.endswith("frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
+    assert not re.search(r"\sstyle=|\sonclick=", page)
+
+
+def test_route_policy_kept_and_global_policy_untouched_elsewhere(monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from app.core.security_headers import security_headers_middleware, _CSP
+
+    async def fake_store(state, value):
+        pass
+
+    monkeypatch.setattr(auth, "_store_pending", fake_store)
+    app = FastAPI()
+    app.middleware("http")(security_headers_middleware)
+    app.include_router(auth.router)
+
+    @app.get("/other")
+    async def other():
+        return {"ok": True}
+
+    c = TestClient(app)
+    r = c.get("/auth/google/mobile-callback", params={"error": "access_denied", "state": "s"})
+    csp = r.headers["content-security-policy"]
+    style = re.findall(r"<style>(.*?)</style>", r.text, re.S)[0]
+    script = re.findall(r"<script>(.*?)</script>", r.text, re.S)[0]
+    assert csp == (
+        f"default-src 'none'; style-src {_hash(style)}; script-src {_hash(script)}; "
+        "frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+    )
+    assert r.headers["x-frame-options"] == "DENY"
+    assert c.get("/other").headers["content-security-policy"] == _CSP
