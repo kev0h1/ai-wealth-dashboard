@@ -1,0 +1,47 @@
+#!/usr/bin/env node
+// G199 drift gate: the sign-in hand-off page has ONE source,
+// shared/signin-handoff/template.html. The backend (generated Python copy) and
+// the /design/signin-handoff preview (generated TS copy) must both carry exactly
+// that template, and the preview must render it through @wealth/shared rather
+// than hand-writing markup. Plain Node, no deps.
+//
+// Usage: node scripts/check-signin-handoff.mjs   (from frontend/)
+
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const root = path.resolve(here, "..", "..");
+const read = (...p) => readFileSync(path.join(root, ...p), "utf8");
+
+const failures = [];
+const src = read("shared", "signin-handoff", "template.html");
+const sha = createHash("sha256").update(src, "utf8").digest("hex");
+
+const ts = read("shared", "src", "signinHandoffTemplate.ts");
+const tsSha = /SIGNIN_HANDOFF_TEMPLATE_SHA256 = "([0-9a-f]{64})"/.exec(ts)?.[1];
+const tsBody = /SIGNIN_HANDOFF_TEMPLATE: string = (".*");\s*$/s.exec(ts)?.[1];
+if (tsSha !== sha) failures.push("shared/src/signinHandoffTemplate.ts hash differs from template.html (run scripts/gen_signin_handoff.py)");
+if (!tsBody || JSON.parse(tsBody) !== src) failures.push("shared/src/signinHandoffTemplate.ts body differs from template.html");
+
+const py = read("backend", "app", "core", "signin_handoff_template.py");
+if (!py.includes(`TEMPLATE_SHA256 = "${sha}"`)) failures.push("backend signin_handoff_template.py hash differs from template.html (run scripts/gen_signin_handoff.py)");
+
+for (const marker of ["wealthdash://auth-done", "{{variant}}", "{{state}}", "id=\"return\"", "id=\"msg\"", "prefers-color-scheme"]) {
+  if (!src.includes(marker)) failures.push(`template.html lost marker ${marker}`);
+}
+if (/gradient/i.test(src)) failures.push("template.html contains a gradient (Penny's alone, DESIGN.md)");
+if (/—/.test(src)) failures.push("template.html contains an em dash");
+
+const page = read("frontend", "app", "design", "signin-handoff", "page.tsx");
+if (!/from\s+"@wealth\/shared"/.test(page) || !page.includes("signinHandoffHtml(")) failures.push("preview must render via signinHandoffHtml from @wealth/shared");
+if (/<style|<html|wealthdash:\/\//.test(page)) failures.push("preview page hand-writes markup that belongs in the shared template");
+
+if (failures.length) {
+  console.error("check:signin-handoff FAILED");
+  for (const f of failures) console.error(" - " + f);
+  process.exit(1);
+}
+console.log("check:signin-handoff ok (template sha256 " + sha.slice(0, 12) + ")");
