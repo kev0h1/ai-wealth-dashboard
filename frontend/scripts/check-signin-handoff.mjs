@@ -42,8 +42,14 @@ for (const marker of ["wealthdash://auth-done", "{{state}}", "id=\"return\"", "i
 if (/gradient/i.test(src)) failures.push("template.html contains a gradient (Penny's alone, DESIGN.md)");
 if (/—/.test(src)) failures.push("template.html contains an em dash");
 
-const page = read("frontend", "app", "design", "signin-handoff", "page.tsx");
-if (!/from\s+"@wealth\/shared"/.test(page) || !page.includes("signinHandoffHtml(")) failures.push("preview must render via signinHandoffHtml from @wealth/shared");
+// The preview is split (H107): page.tsx is a Suspense wrapper that must import the
+// client component, and SigninHandoffClient.tsx renders the real template.
+// Both files are held to the no-hand-written-markup / no-variant rules below.
+const pageOnly = read("frontend", "app", "design", "signin-handoff", "page.tsx");
+const client = read("frontend", "app", "design", "signin-handoff", "SigninHandoffClient.tsx");
+const page = pageOnly + "\n" + client;
+if (!/from\s+"\.\/SigninHandoffClient"/.test(pageOnly)) failures.push("preview page.tsx must import SigninHandoffClient");
+if (!/from\s+"@wealth\/shared"/.test(client) || !client.includes("signinHandoffHtml(")) failures.push("preview must render via signinHandoffHtml from @wealth/shared");
 if (/data-variant|\{\{variant\}\}|ledger/.test(src)) failures.push("template.html still carries a variant slot or the retired ledger markup (B is the only design)");
 if (/variant/i.test(page)) failures.push("preview still references variants (B is the only design)");
 if (/<style|<html|wealthdash:\/\//.test(page)) failures.push("preview page hand-writes markup that belongs in the shared template");
