@@ -80,7 +80,30 @@ fi
 PROJECT_DIR="$(pwd -P)"
 require_project_dir "$PROJECT_DIR" || exit 2
 
-SCRATCH="$PROJECT_DIR/.mobile-build"
+# G199 added the shared/ workspace package, which frontend/tsconfig.json
+# (`../shared/src/index.ts`) and package.json (`file:../shared`) reach by a
+# relative path from the project directory. So the mirror cannot sit directly
+# at .mobile-build: its `../shared` would be frontend/shared, which does not
+# exist. Instead SCRATCH_ROOT holds a `frontend/` mirror next to a `shared/`
+# copy, the same sibling layout the real repo has (and that
+# scripts/frontend_build.py's staging mirror gets from living next to
+# frontend/). Everything stays inside frontend/.mobile-build, so next.config.ts's
+# Turbopack root logic (nearest ancestor of the mirror and the node_modules
+# symlink target) still covers both.
+SCRATCH_ROOT="$PROJECT_DIR/.mobile-build"
+SCRATCH="$SCRATCH_ROOT/frontend"
+SHARED_SRC="$(cd "$PROJECT_DIR/.." && pwd -P)/shared"
+case "$SCRATCH_ROOT" in
+  "$PROJECT_DIR"/*) ;;
+  *)
+    echo "error: SCRATCH_ROOT ($SCRATCH_ROOT) resolved outside PROJECT_DIR ($PROJECT_DIR); refusing to run" >&2
+    exit 2
+    ;;
+esac
+if [ ! -d "$SHARED_SRC/src" ]; then
+  echo "error: $SHARED_SRC/src not found; the @wealth/shared workspace package is required" >&2
+  exit 2
+fi
 case "$SCRATCH" in
   "$PROJECT_DIR"/*) ;;
   *)
@@ -110,18 +133,22 @@ if [ -z "${NEXT_PUBLIC_BUILD_TAG:-}" ]; then
   export NEXT_PUBLIC_BUILD_TAG="$(compute_build_tag "$BUILD_DATE" "$BUILD_SHA" "${BUILD_NUMBER:-}" "${BUILD_TAG_ENV:-}")"
 fi
 
-rm -rf "$SCRATCH"
-mkdir -p "$SCRATCH"
-# Only ever remove SCRATCH itself, and only if it is still under
+rm -rf "$SCRATCH_ROOT"
+mkdir -p "$SCRATCH" "$SCRATCH_ROOT/shared"
+# Only ever remove SCRATCH_ROOT itself, and only if it is still under
 # PROJECT_DIR — belt and braces alongside the case guard above, in case a
-# future edit changes how SCRATCH is computed and forgets to re-check it.
+# future edit changes how SCRATCH_ROOT is computed and forgets to re-check it.
 trap '
-  if [ -n "${SCRATCH:-}" ]; then
-    case "$SCRATCH" in
-      "$PROJECT_DIR"/*) rm -rf "$SCRATCH" ;;
+  if [ -n "${SCRATCH_ROOT:-}" ]; then
+    case "$SCRATCH_ROOT" in
+      "$PROJECT_DIR"/*) rm -rf "$SCRATCH_ROOT" ;;
     esac
   fi
 ' EXIT
+
+# The @wealth/shared workspace package, copied (not symlinked: Turbopack
+# refuses links that point outside its root) to sit beside the mirror.
+rsync -a --delete --exclude='node_modules' "$SHARED_SRC/" "$SCRATCH_ROOT/shared/"
 
 rsync -a --delete \
   --exclude='.next/' \
