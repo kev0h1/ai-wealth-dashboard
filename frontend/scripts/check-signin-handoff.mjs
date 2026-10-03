@@ -36,7 +36,7 @@ const pyBody = spawnSync("python3", ["-c",
 if (pyBody.status !== 0 || JSON.parse(pyBody.stdout) !== src) failures.push("backend signin_handoff_template.py body differs from template.html (run scripts/gen_signin_handoff.py)");
 if (/onclick=|<[^>]+\sstyle=/i.test(src)) failures.push("template.html uses an inline handler or style attribute; the route CSP only allows hashed <style>/<script> blocks");
 
-for (const marker of ["wealthdash://auth-done", "{{variant}}", "{{state}}", "id=\"return\"", "id=\"msg\"", "prefers-color-scheme"]) {
+for (const marker of ["wealthdash://auth-done", "{{state}}", "id=\"return\"", "id=\"msg\"", "prefers-color-scheme"]) {
   if (!src.includes(marker)) failures.push(`template.html lost marker ${marker}`);
 }
 if (/gradient/i.test(src)) failures.push("template.html contains a gradient (Penny's alone, DESIGN.md)");
@@ -44,6 +44,8 @@ if (/—/.test(src)) failures.push("template.html contains an em dash");
 
 const page = read("frontend", "app", "design", "signin-handoff", "page.tsx");
 if (!/from\s+"@wealth\/shared"/.test(page) || !page.includes("signinHandoffHtml(")) failures.push("preview must render via signinHandoffHtml from @wealth/shared");
+if (/data-variant|\{\{variant\}\}|ledger/.test(src)) failures.push("template.html still carries a variant slot or the retired ledger markup (B is the only design)");
+if (/variant/i.test(page)) failures.push("preview still references variants (B is the only design)");
 if (/<style|<html|wealthdash:\/\//.test(page)) failures.push("preview page hand-writes markup that belongs in the shared template");
 
 if (failures.length) {

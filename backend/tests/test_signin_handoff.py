@@ -24,10 +24,9 @@ def test_generated_copy_matches_shared_source():
     assert hashlib.sha256(src.encode()).hexdigest() == TEMPLATE_SHA256
 
 
-@pytest.mark.parametrize("variant", ["a", "b", "c"])
-def test_success_page_has_behaviour_and_markers(variant):
-    page = signin_handoff_html(True, variant)
-    assert 'data-state="ok"' in page and f'data-variant="{variant}"' in page
+def test_success_page_has_behaviour_and_markers():
+    page = signin_handoff_html(True)
+    assert 'data-state="ok"' in page and "data-variant" not in page
     assert "{{" not in page
     assert "wealthdash://auth-done" in page
     assert "setTimeout(returnToApp, 600)" in page
@@ -49,8 +48,7 @@ def test_error_page_is_the_same_template_without_the_hint():
     assert "wealthdash://auth-done" in page and "Return to Sorted" in page
 
 
-def test_unknown_variant_falls_back_and_missing_slot_raises():
-    assert f'data-variant="{signin_handoff.DEFAULT_VARIANT}"' in signin_handoff_html(True, "zzz")
+def test_missing_slot_raises():
     with pytest.raises(KeyError):
         signin_handoff.render_template("{{nope}}", {})
 
@@ -71,7 +69,6 @@ def test_mobile_callback_serves_the_template(monkeypatch):
     body = resp.body.decode()
     assert stored == {"mabc_1700000000000": "error:auth_failed"}
     assert 'data-state="error"' in body and "wealthdash://auth-done" in body
-    assert re.search(r"data-variant=\"[abc]\"", body)
 
 
 def _hash(text):
@@ -79,10 +76,9 @@ def _hash(text):
     return "'sha256-" + base64.b64encode(hashlib.sha256(text.encode()).digest()).decode() + "'"
 
 
-@pytest.mark.parametrize("variant", ["a", "b", "c"])
 @pytest.mark.parametrize("ok", [True, False])
-def test_csp_hashes_match_emitted_content(ok, variant):
-    page = signin_handoff_html(ok, variant, auto_return=ok)
+def test_csp_hashes_match_emitted_content(ok):
+    page = signin_handoff_html(ok, auto_return=ok)
     style = re.findall(r"<style>(.*?)</style>", page, re.S)
     script = re.findall(r"<script>(.*?)</script>", page, re.S)
     assert len(style) == 1 and len(script) == 1

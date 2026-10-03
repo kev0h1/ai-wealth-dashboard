@@ -4,7 +4,6 @@
 // with that Python module; scripts/check-signin-handoff.mjs guards the template.
 import { SIGNIN_HANDOFF_TEMPLATE } from "./signinHandoffTemplate";
 
-export type SigninHandoffVariant = "a" | "b" | "c";
 export type SigninHandoffScheme = "auto" | "light" | "dark";
 
 export const SIGNIN_HANDOFF_SUCCESS_HINT =
@@ -28,7 +27,6 @@ export function renderSigninHandoffTemplate(template: string, slots: Record<stri
 
 export function signinHandoffHtml(
   ok: boolean,
-  variant: SigninHandoffVariant,
   opts: { scheme?: SigninHandoffScheme; autoReturn?: boolean; message?: string } = {},
 ): string {
   const defaultMessage = ok
@@ -36,12 +34,10 @@ export function signinHandoffHtml(
     : "Close this window and try again in Sorted.";
   return renderSigninHandoffTemplate(SIGNIN_HANDOFF_TEMPLATE, {
     state: ok ? "ok" : "error",
-    variant,
     scheme: opts.scheme ?? "auto",
     heading: ok ? "Signed in" : "Sign-in didn’t complete",
     message: opts.message ?? defaultMessage,
     success_hint: SIGNIN_HANDOFF_SUCCESS_HINT,
-    ledger_status: ok ? "Signed in" : "Not signed in",
     ok_flag: ok ? "true" : "false",
     auto_return: opts.autoReturn === false ? "false" : "true",
   });
