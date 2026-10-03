@@ -3,7 +3,12 @@
 // @wealth/shared, the same markup backend/app/core/signin_handoff.py serves, in
 // a sandboxed iframe so the page's own document CSS applies untouched.
 // Auto-return is off here and scripts never run (sandbox="" ), so the 3 second
-// hint is shown as its own state. Fixture copy only, no API calls.
+// hint is shown as its own state.
+// CSP: a srcdoc document has no URL to fetch, so the frontend's production
+// frame-src 'none' (next.config.ts) does not govern it; it inherits the parent's
+// script-src/style-src ('unsafe-inline'), which the template's inline style needs.
+// Verified in headless Chrome against a page sent with the exact production CSP:
+// the srcdoc frame renders fully styled (only its script is blocked, by sandbox). Fixture copy only, no API calls.
 import type { Metadata } from "next";
 import Link from "next/link";
 import {

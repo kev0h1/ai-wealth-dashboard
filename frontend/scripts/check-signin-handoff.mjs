@@ -9,6 +9,7 @@
 
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -28,6 +29,12 @@ if (!tsBody || JSON.parse(tsBody) !== src) failures.push("shared/src/signinHando
 
 const py = read("backend", "app", "core", "signin_handoff_template.py");
 if (!py.includes(`TEMPLATE_SHA256 = "${sha}"`)) failures.push("backend signin_handoff_template.py hash differs from template.html (run scripts/gen_signin_handoff.py)");
+// Compare the Python copy's BODY too (a hash line alone can be left stale by a hand edit).
+const pyBody = spawnSync("python3", ["-c",
+  "import json,sys;ns={};exec(open(sys.argv[1]).read(),ns);sys.stdout.write(json.dumps(ns['TEMPLATE']))",
+  path.join(root, "backend", "app", "core", "signin_handoff_template.py")], { encoding: "utf8" });
+if (pyBody.status !== 0 || JSON.parse(pyBody.stdout) !== src) failures.push("backend signin_handoff_template.py body differs from template.html (run scripts/gen_signin_handoff.py)");
+if (/onclick=|<[^>]+\sstyle=/i.test(src)) failures.push("template.html uses an inline handler or style attribute; the route CSP only allows hashed <style>/<script> blocks");
 
 for (const marker of ["wealthdash://auth-done", "{{variant}}", "{{state}}", "id=\"return\"", "id=\"msg\"", "prefers-color-scheme"]) {
   if (!src.includes(marker)) failures.push(`template.html lost marker ${marker}`);
