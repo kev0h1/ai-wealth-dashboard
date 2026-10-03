@@ -174,12 +174,14 @@ export function CoverRoute(props: CoverSafeguardsProps) {
                   <div className="min-w-0">
                     <h3 className="text-[14px] font-semibold text-slate-900 dark:text-slate-100">{stage.title}</h3>
                     <p className={`mt-1 text-[13px] leading-snug ${SECONDARY}`}>{stage.copy}</p>
+                    <div className="mt-2">
                     <Disclosure
                       title={`${on.length} of ${group.length} allowed`}
                       detail={cannot > 0 ? `${cannot} cannot spare anything today` : "Review these accounts"}
                     >
                       <AccountRows accounts={group} props={props} showBalance={false} />
                     </Disclosure>
+                    </div>
                   </div>
                 </li>
               );
