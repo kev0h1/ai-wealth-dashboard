@@ -155,7 +155,7 @@ rsync -a --delete \
   --exclude='.next-mobile/' \
   --exclude='.mobile-build/' \
   --exclude='out/' \
-  --exclude='node_modules/' \
+  --exclude='node_modules' \
   --exclude='.git/' \
   --exclude='.env.local' \
   --exclude='.env*.local' \
