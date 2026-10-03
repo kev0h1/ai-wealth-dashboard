@@ -54,6 +54,11 @@ let failures = [];
 // must leave that cache alone.
 const ALLOWED_UNREACHABLE = [
   [
+    "lib/pendingLogin.ts",
+    "clearPendingLogin",
+    "pre-auth sign-in hand-off (A133), not account-derived; cleared by the login flow itself on every terminal path. An account mutation clearing it would strand a sign-in in progress.",
+  ],
+  [
     "lib/auth.ts",
     "clearToken",
     "clears the session token itself — calling this from an account mutation would sign the user out, not refresh their account data.",

@@ -28,11 +28,12 @@ function fakeSecure(init = {}, opts = {}) {
     async remove(k) { calls.push(["remove", k]); const had = m.delete(k); return had; },
   };
 }
-function setup({ native, secure, storage, timeoutMs = 50 }) {
+function setup({ native, secure, storage, timeoutMs = 50, pluginImplemented = true }) {
   let loads = 0;
   auth.__configureTokenStoreForTests({
     isNative: () => native,
     loadSecure: async () => { loads++; return secure; },
+    pluginImplemented: () => pluginImplemented,
     storage: () => storage,
     timeoutMs,
   });
@@ -226,6 +227,118 @@ await t("(m) a hung loadSecure is bounded by the timeout", async () => {
   await auth.hydrateToken();
   assert.equal(auth.getToken(), null);
 });
+
+// ---- A133 ----
+const origWarn = console.warn;
+function quiet(fn) { return async () => { const w = []; console.warn = (...a) => w.push(a.join(" ")); try { await fn(w); } finally { console.warn = origWarn; } }; }
+
+await t("(o) A133: a native write that never settles still resolves false and the token is in memory at once", quiet(async () => {
+  const secure = fakeSecure(); secure.set = () => new Promise(() => {});
+  setup({ native: true, secure, storage: fakeStorage(), timeoutMs: 20 });
+  const p = auth.setTokenAsync("tok");
+  assert.equal(auth.getToken(), "tok", "in memory before any await");
+  assert.equal(await p, false);
+  assert.equal(auth.getToken(), "tok");
+}));
+
+await t("(o2) A133: a hung loadSecure on write is bounded too, and a later write is not stuck behind it", quiet(async () => {
+  const storage = fakeStorage();
+  auth.__configureTokenStoreForTests({ isNative: () => true, loadSecure: () => new Promise(() => {}), pluginImplemented: () => true, storage: () => storage, timeoutMs: 20 });
+  assert.equal(await auth.setTokenAsync("a"), false);
+  assert.equal(await auth.setTokenAsync("b"), false);
+  assert.equal(auth.getToken(), "b");
+  assert.equal(storage.m.has(KEY), false, "timeout does not fall back to localStorage");
+}));
+
+await t("(o3) A133: a throwing write resolves false, never rejects, no localStorage", quiet(async () => {
+  const secure = fakeSecure({}, { setThrows: true }); const storage = fakeStorage();
+  setup({ native: true, secure, storage });
+  assert.equal(await auth.setTokenAsync("t"), false);
+  assert.equal(auth.getToken(), "t");
+  assert.equal(storage.m.has(KEY), false);
+}));
+
+await t("(o4) A133: a hung remove cannot block a later write", quiet(async () => {
+  const secure = fakeSecure(); secure.remove = () => new Promise(() => {});
+  setup({ native: true, secure, storage: fakeStorage(), timeoutMs: 20 });
+  auth.clearToken();
+  assert.equal(await auth.setTokenAsync("after"), true);
+  assert.equal(secure.m.get(KEY), "after");
+}));
+
+await t("(p) A133: plugin absent from the binary -> localStorage for hydrate, write and clear, with a warning", quiet(async (w) => {
+  const secure = fakeSecure(); const storage = fakeStorage({ [KEY]: "legacy" });
+  setup({ native: true, secure, storage, pluginImplemented: false });
+  await auth.hydrateToken();
+  assert.equal(auth.getToken(), "legacy");
+  assert.equal(await auth.setTokenAsync("n"), true);
+  assert.equal(storage.m.get(KEY), "n");
+  auth.clearToken(); await auth.__tokenWritesSettled();
+  assert.equal(storage.m.has(KEY), false);
+  assert.equal(secure.calls.length, 0, "secure storage never called (it would hang)");
+  assert.ok(w.some((m) => m.includes("A123") && m.includes("A133")), "warns naming A123/A133");
+}));
+
+await t("(p2) A133: UNIMPLEMENTED error from the plugin falls back for read and write", quiet(async () => {
+  const unimpl = Object.assign(new Error('"SecureStorage" plugin is not implemented on ios'), { code: "UNIMPLEMENTED" });
+  const secure = fakeSecure(); secure.get = async () => { throw unimpl; }; secure.set = async () => { throw unimpl; };
+  const storage = fakeStorage({ [KEY]: "legacy" });
+  setup({ native: true, secure, storage });
+  await auth.hydrateToken();
+  assert.equal(auth.getToken(), "legacy");
+  assert.equal(await auth.setTokenAsync("n"), true);
+  assert.equal(storage.m.get(KEY), "n");
+}));
+
+await t("(p3) A133: timeouts and other errors do NOT fall back to localStorage", quiet(async () => {
+  const storage = fakeStorage({ [KEY]: "legacy" });
+  setup({ native: true, secure: fakeSecure({}, { getHangs: true }), storage, timeoutMs: 20 });
+  await auth.hydrateToken();
+  assert.equal(auth.getToken(), null);
+  setup({ native: true, secure: fakeSecure({}, { getThrows: true }), storage });
+  await auth.hydrateToken();
+  assert.equal(auth.getToken(), null);
+  const s3 = fakeStorage();
+  setup({ native: true, secure: Object.assign(fakeSecure(), { set: () => new Promise(() => {}) }), storage: s3, timeoutMs: 20 });
+  await auth.setTokenAsync("x");
+  assert.equal(s3.m.has(KEY), false);
+}));
+
+await t("(q) A133: default pluginImplemented reads Capacitor.PluginHeaders (absent array assumes implemented)", () => {
+  const src = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../lib/auth.ts"), "utf8");
+  assert.ok(/PluginHeaders/.test(src) && /name === "SecureStorage"/.test(src));
+});
+
+await t("(p4) A133: a plugin proxy that would spin the microtask queue is never invoked when the plugin is absent (hydrate, write, clear)", quiet(async () => {
+  // Models Capacitor 8's registerPlugin wrapper for a plugin with no native
+  // implementation: it re-queues itself via microtasks forever, so no timeout
+  // can ever fire. Here it just records the call and never settles; the real
+  // thing would hang the whole test process.
+  const calls = [];
+  const spin = (name) => (...a) => { calls.push(name); return new Promise(() => {}); };
+  const secure = { get: spin("get"), set: spin("set"), remove: spin("remove") };
+  let loads = 0;
+  const storage = fakeStorage({ [KEY]: "legacy" });
+  auth.__configureTokenStoreForTests({ isNative: () => true, loadSecure: async () => { loads++; return secure; }, pluginImplemented: () => false, storage: () => storage, timeoutMs: 20 });
+  await auth.hydrateToken();
+  assert.equal(auth.getToken(), "legacy");
+  assert.equal(await auth.setTokenAsync("signed-in"), true);
+  assert.equal(auth.getToken(), "signed-in");
+  assert.equal(storage.m.get(KEY), "signed-in");
+  auth.clearToken(); await auth.__tokenWritesSettled();
+  assert.deepEqual(calls, [], "no plugin method invoked");
+  assert.equal(loads, 0, "plugin module not even loaded");
+}));
+
+await t("(p5) A133: when the plugin IS listed but a native call never settles, the timeout (a macrotask) still fires on every path", quiet(async () => {
+  const hang = () => new Promise(() => {});
+  const secure = { get: hang, set: hang, remove: hang };
+  setup({ native: true, secure, storage: fakeStorage(), timeoutMs: 20 });
+  await auth.hydrateToken();
+  assert.equal(await auth.setTokenAsync("t"), false);
+  auth.clearToken(); await auth.__tokenWritesSettled();
+  assert.equal(auth.getToken(), null);
+}));
 
 await t("static guard: the storage key appears only in lib/auth.ts", () => {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
