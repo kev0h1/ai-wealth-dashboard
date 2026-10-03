@@ -310,3 +310,15 @@ def test_fallback_replay_copy_expires(monkeypatch):
     assert asyncio.run(redeem_pending(GOOD, SECRET)) == "token:abc"
     current[0] += pending_login._REPLAY_TTL + 1
     assert asyncio.run(redeem_pending(GOOD, SECRET)) is None
+
+
+def test_start_endpoint_stores_challenge_and_keeps_it_out_of_the_google_redirect(backend, monkeypatch):
+    from app.routers import auth as auth_router
+    monkeypatch.setattr(auth_router, "GOOGLE_CLIENT_ID", "cid")
+    resp = asyncio.run(auth_router.google_auth_mobile(state=GOOD, challenge=CHALLENGE))
+    assert asyncio.run(pending_login.has_challenge(GOOD)) is True
+    # only the (non-secret) state goes to Google; never the challenge or secret
+    assert CHALLENGE not in resp.headers["location"] and SECRET not in resp.headers["location"]
+    # a malformed challenge is ignored, legacy needs none
+    asyncio.run(auth_router.google_auth_mobile(state="m" + "b2" * 16, challenge="nothex"))
+    assert asyncio.run(pending_login.has_challenge("m" + "b2" * 16)) is False
