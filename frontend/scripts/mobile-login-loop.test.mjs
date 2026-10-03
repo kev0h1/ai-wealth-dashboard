@@ -284,5 +284,16 @@ await t("source (A135): native sign-in transitions in place, no page reload, via
   assert.ok(!ap.includes("resumePendingLogin(() => window.location.reload())"), "late resume also in place");
 });
 
+await t("source (A135 review): establishSession clears the token only on 401/403 or a missing email, never on a thrown error or 5xx", () => {
+  const ap = read("components/AuthProvider.tsx");
+  const e = ap.slice(ap.indexOf("async function establishSession"), ap.indexOf("useEffect(() => {\n    async function init"));
+  assert.equal((e.match(/clearToken\(\)/g) || []).length, 2, "exactly two clear sites");
+  assert.ok(/res\.status === 401 \|\| res\.status === 403\) \{\s*clearToken\(\)/.test(e));
+  assert.ok(/if \(!data\.email\) \{\s*clearToken\(\)/.test(e));
+  assert.ok(/if \(!res\.ok\) return false;/.test(e));
+  const c = e.slice(e.lastIndexOf("} catch {"));
+  assert.ok(!/clearToken/.test(c), "the catch must not clear the token");
+});
+
 if (failures) { console.error(failures + " failed"); process.exit(1); }
 console.log("mobile-login-loop: all passed");

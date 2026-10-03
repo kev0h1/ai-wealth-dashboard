@@ -82,10 +82,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!res.ok) {
-        clearToken();
+      if (res.status === 401 || res.status === 403) {
+        clearToken(); // a definite rejection of this token
         return false;
       }
+      // Any other non-ok (5xx, 429) is transient: keep the freshly minted token.
+      if (!res.ok) return false;
       const data = await res.json();
       if (!data.email) {
         clearToken();
@@ -98,7 +100,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (profile && !profile.onboarding_complete) setNeedsOnboarding(true);
       return true;
     } catch {
-      clearToken();
+      // A network failure or timeout says nothing about the token: keep it
+      // (in memory and in the Keystore) rather than wipe a freshly minted
+      // session; the normal revalidate path retries.
       return false;
     }
   }
