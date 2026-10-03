@@ -23,8 +23,7 @@ function initialsOf(name: string) {
  * No hero card, the status that the old hero carried survives as two links. */
 function Header({ securityPage, planPage, profilePage }: { securityPage: string; planPage: string; profilePage: string }) {
   const { model, href } = usePreview();
-  const providers = model.providers.map((p) => `${p.label}${p.primary ? " · Primary" : " · Linked"}`).join("   ");
-  return (
+    return (
     <header>
       <h1 className={`text-xl font-bold ${INK}`}>Account</h1>
       <div className="mt-4 flex items-center gap-3">
@@ -42,7 +41,7 @@ function Header({ securityPage, planPage, profilePage }: { securityPage: string;
           <p className={`truncate text-xs ${SOFT}`}>{model.email}</p>
         </div>
       </div>
-      <p className={`mt-3 text-[13px] ${SOFT}`}>{providers}</p>
+      <p className={`mt-3 flex flex-wrap gap-x-4 text-[13px] ${SOFT}`}>{model.providers.map((p) => <span key={p.id}>{p.label} · {p.primary ? "Primary" : "Linked"}</span>)}</p>
       <div className="-ml-2 mt-1 flex flex-wrap items-center">
         <Link href={href(planPage)} className={LINK}>
           Standard plan
