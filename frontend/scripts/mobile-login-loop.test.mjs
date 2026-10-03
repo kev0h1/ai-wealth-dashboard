@@ -290,9 +290,25 @@ await t("source (A135 review): establishSession clears the token only on 401/403
   assert.equal((e.match(/clearToken\(\)/g) || []).length, 2, "exactly two clear sites");
   assert.ok(/res\.status === 401 \|\| res\.status === 403\) \{\s*clearToken\(\)/.test(e));
   assert.ok(/if \(!data\.email\) \{\s*clearToken\(\)/.test(e));
-  assert.ok(/if \(!res\.ok\) return false;/.test(e));
+  assert.ok(/if \(!res\.ok\) return "unreachable";/.test(e));
   const c = e.slice(e.lastIndexOf("} catch {"));
   assert.ok(!/clearToken/.test(c), "the catch must not clear the token");
+});
+
+await t("source (A135 review 2): establishSession retries a transient failure once, keeps the token, and LoginScreen offers tap-to-retry", () => {
+  const ap = read("components/AuthProvider.tsx");
+  const e = ap.slice(ap.indexOf("async function establishSession"), ap.indexOf("useEffect(() => {\n    async function init"));
+  const top = e.slice(0, e.indexOf("async function validateOnce"));
+  assert.equal((top.match(/validateOnce\(\)/g) || []).length, 2, "exactly one retry, no loop");
+  assert.ok(/if \(outcome === "unreachable"\) \{[\s\S]*SESSION_RETRY_DELAY_MS[\s\S]*outcome = await validateOnce\(\);/.test(top));
+  assert.ok(!/while|for \(/.test(top), "no loop");
+  assert.ok(!/clearToken/.test(top), "the retry path does not clear the token");
+  assert.ok(/SESSION_RETRY_DELAY_MS = 1500/.test(ap));
+  const ls = read("components/LoginScreen.tsx");
+  assert.ok(ls.includes("Signed in, but we could not reach Sorted. Tap to try again."));
+  assert.ok(/outcome === "unreachable"\) setUnreachable\(true\)/.test(ls));
+  assert.ok(/onClick=\{\(\) => \{ void finishNativeSignIn\(\); \}\}/.test(ls), "tap re-runs establishSession");
+  assert.ok(!/signOut|clearToken/.test(ls));
 });
 
 if (failures) { console.error(failures + " failed"); process.exit(1); }

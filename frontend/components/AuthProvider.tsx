@@ -49,6 +49,9 @@ function nativePlatform(): boolean {
   }
 }
 
+export type SessionOutcome = "ok" | "rejected" | "unreachable";
+const SESSION_RETRY_DELAY_MS = 1500;
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -70,13 +73,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // is reopened, and onboarding is re-derived. The route is left as it was
   // (the reload kept it too), and everything under `children` (tutorial,
   // preferences, push resync) mounts fresh now that `user` is set, exactly as
-  // after a reload. Resolves false if the session could not be established.
-  async function establishSession(): Promise<boolean> {
+  // after a reload. Resolves "ok", "rejected" (token refused) or "unreachable"
+  // (transient failure, token kept).
+  async function establishSession(): Promise<SessionOutcome> {
+    if (!getToken()) return "rejected";
+    invalidateAllAccountData();
+    const profileP = api.getProfile().catch(() => null);
+    let outcome = await validateOnce();
+    if (outcome === "unreachable") {
+      // One bounded retry (no loop) for a transient failure; the token is kept
+      // either way so LoginScreen can offer "tap to try again".
+      await new Promise((r) => setTimeout(r, SESSION_RETRY_DELAY_MS));
+      outcome = await validateOnce();
+    }
+    if (outcome !== "ok") return outcome;
+    const profile = await profileP;
+    if (profile && !profile.onboarding_complete) setNeedsOnboarding(true);
+    return "ok";
+  }
+
+  // One POST /auth/session/validate for establishSession. Clears the token
+  // only on a definite 401/403 or a missing email. A network error, timeout or
+  // 5xx/429 says nothing about the token, so it is kept ("unreachable").
+  async function validateOnce(): Promise<SessionOutcome> {
     const token = getToken();
-    if (!token) return false;
+    if (!token) return "rejected";
     try {
-      invalidateAllAccountData();
-      const profileP = api.getProfile().catch(() => null);
       lastValidateAtRef.current = Date.now();
       const res = await gatedFetch(`${API_BASE}/auth/session/validate`, {
         method: "POST",
@@ -84,26 +106,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
       if (res.status === 401 || res.status === 403) {
         clearToken(); // a definite rejection of this token
-        return false;
+        return "rejected";
       }
-      // Any other non-ok (5xx, 429) is transient: keep the freshly minted token.
-      if (!res.ok) return false;
+      if (!res.ok) return "unreachable";
       const data = await res.json();
       if (!data.email) {
         clearToken();
-        return false;
+        return "rejected";
       }
       setAuthError(null);
       setUser({ email: data.email, name: data.name || "", owner: !!data.owner });
       resetUnauthorizedGate();
-      const profile = await profileP;
-      if (profile && !profile.onboarding_complete) setNeedsOnboarding(true);
-      return true;
+      return "ok";
     } catch {
-      // A network failure or timeout says nothing about the token: keep it
-      // (in memory and in the Keystore) rather than wipe a freshly minted
-      // session; the normal revalidate path retries.
-      return false;
+      return "unreachable";
     }
   }
 
