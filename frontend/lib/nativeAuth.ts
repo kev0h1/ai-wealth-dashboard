@@ -3,8 +3,19 @@ import { Capacitor } from "@capacitor/core";
 import { Browser } from "@capacitor/browser";
 import { App } from "@capacitor/app";
 import { API_BASE, api, gatedFetch } from "./api";
-import { setTokenAsync } from "./auth";
-import { runMobileLoginLoop, type PollResult } from "./mobileLoginLoop";
+import { getToken, setTokenAsync } from "./auth";
+import { runMobileLoginLoop } from "./mobileLoginLoop";
+import {
+  PENDING_LOGIN_TTL_MS,
+  clearPendingLogin,
+  createSharedPoller,
+  loadPendingLogin,
+  newPendingLogin,
+  savePendingLogin,
+  sha256Hex,
+  type PendingLogin,
+  type PollReply,
+} from "./pendingLogin";
 
 export function isNativePlatform(): boolean {
   try {
@@ -248,55 +259,40 @@ export async function linkAppleIdentity(): Promise<"ok" | "conflict" | "cancelle
 // error: "invite_only"} body.
 const BROWSER_OPEN_TIMEOUT_MS = 10_000;
 
-export async function nativeGoogleLogin(): Promise<"ok" | "invite_only" | "failed"> {
-  // A133: the state is a bearer secret for the poll's replay window, so it
-  // must be unguessable: 128 bits from the CSPRNG (backend accepts only
-  // "m" + 32-64 lowercase hex, see core/pending_login.py).
-  const bytes = new Uint8Array(16);
-  crypto.getRandomValues(bytes);
-  const state = "m" + Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-  // A133: Browser.open is bounded. A rejection is a failed sign-in; if it is
-  // merely slow (>10s) the poll loop starts anyway rather than waiting on it.
-  const opened = Browser.open({ url: `${API_BASE}/auth/google/mobile?state=${encodeURIComponent(state)}` }).then(
-    () => "opened" as const,
-    () => "rejected" as const,
-  );
-  const openResult = await Promise.race([
-    opened,
-    new Promise<"slow">((r) => setTimeout(() => r("slow"), BROWSER_OPEN_TIMEOUT_MS)),
-  ]);
-  if (openResult === "rejected") return "failed";
-
-  async function pollOnce(): Promise<PollResult> {
-    // A133: bounded, so one stuck request can never wedge the serialised loop.
-    const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
-    const abortTimer = ctrl ? setTimeout(() => ctrl.abort(), 10_000) : undefined;
-    try {
-      const res = await gatedFetch(`${API_BASE}/auth/mobile/poll?state=${encodeURIComponent(state)}`, ctrl ? { signal: ctrl.signal } : undefined);
-      if (!res.ok) return "pending";
-      const d = await res.json();
-      if (d.status === "token" && d.token) {
-        // A133: setTokenAsync puts the token in memory before it awaits
-        // anything and never rejects or hangs (bounded write), so by here
-        // the server-popped token cannot be lost to a storage failure.
-        await setTokenAsync(d.token);
-        return "ok";
-      }
-      if (d.status === "error") {
-        return d.error === "invite_only" ? "invite_only" : "err";
-      }
-    } catch {
-      /* keep polling */
-    } finally {
-      if (abortTimer !== undefined) clearTimeout(abortTimer);
-    }
-    return "pending";
+// A133: POST /auth/mobile/poll. The poll_secret is only ever in the JSON body.
+async function postPoll(p: PendingLogin): Promise<PollReply | null> {
+  // Bounded, so one stuck request can never wedge the serialised loop.
+  const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const abortTimer = ctrl ? setTimeout(() => ctrl.abort(), 10_000) : undefined;
+  try {
+    const res = await gatedFetch(`${API_BASE}/auth/mobile/poll`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ state: p.state, poll_secret: p.pollSecret }),
+      ...(ctrl ? { signal: ctrl.signal } : {}),
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as PollReply;
+  } catch {
+    return null;
+  } finally {
+    if (abortTimer !== undefined) clearTimeout(abortTimer);
   }
+}
 
-  return runMobileLoginLoop({
-    pollOnce,
+// One poller per process: the live login loop and a resumed one share a single
+// in-flight request and a token is applied at most once per state. A133:
+// setTokenAsync puts the token in memory before it awaits anything and never
+// rejects or hangs (bounded write), so the server-released token cannot be
+// lost to a storage failure.
+const pollShared = createSharedPoller({ post: postPoll, applyToken: setTokenAsync });
+
+function loopDeps(p: PendingLogin, timeoutMs?: number) {
+  return {
+    pollOnce: () => pollShared(p),
     closeBrowser: () => Browser.close(),
-    addListeners: (h) =>
+    timeoutMs,
+    addListeners: (h: { onActive: () => void; onUrlOpen: (url?: string) => void; onBrowserFinished: () => void }) =>
       Promise.all([
         App.addListener("appStateChange", ({ isActive }) => {
           if (isActive) h.onActive();
@@ -304,5 +300,66 @@ export async function nativeGoogleLogin(): Promise<"ok" | "invite_only" | "faile
         App.addListener("appUrlOpen", ({ url }) => h.onUrlOpen(url)),
         Browser.addListener("browserFinished", () => h.onBrowserFinished()),
       ]),
+  };
+}
+
+export async function nativeGoogleLogin(): Promise<"ok" | "invite_only" | "failed"> {
+  // A133: state is 128 bits from the CSPRNG ("m" + 32 hex). It is NOT a
+  // secret (it is in logged URLs); redemption needs the separate pollSecret,
+  // whose sha256 is sent as `challenge`. The secret itself is never in a URL.
+  const pending = newPendingLogin();
+  const challenge = sha256Hex(pending.pollSecret);
+  // Persisted BEFORE the browser opens so a WebView reload or process kill
+  // while the sheet is up can still redeem the login (resumePendingLogin).
+  savePendingLogin(pending);
+  const url = `${API_BASE}/auth/google/mobile?state=${encodeURIComponent(pending.state)}&challenge=${challenge}`;
+  // A133: Browser.open is bounded. A rejection is a failed sign-in; if it is
+  // merely slow (>10s) the poll loop starts anyway rather than waiting on it.
+  const opened = Browser.open({ url }).then(
+    () => "opened" as const,
+    () => "rejected" as const,
+  );
+  const openResult = await Promise.race([
+    opened,
+    new Promise<"slow">((r) => setTimeout(() => r("slow"), BROWSER_OPEN_TIMEOUT_MS)),
+  ]);
+  if (openResult === "rejected") {
+    clearPendingLogin();
+    return "failed";
+  }
+  const result = await runMobileLoginLoop(loopDeps(pending));
+  clearPendingLogin(); // success, failure and expiry all end here
+  return result;
+}
+
+// A133 / A135: called once at app start (AuthProvider) when signed out. If a
+// login was started and the app was reloaded or killed before the token was
+// collected, redeem it now. Returns "ok" when a token was applied (the caller
+// proceeds as signed in), "pending" when the login has not completed yet (a
+// background loop keeps polling until the record expires, then calls
+// onLateSuccess), "none" otherwise.
+export async function resumePendingLogin(onLateSuccess?: () => void): Promise<"ok" | "pending" | "none"> {
+  if (!isNativePlatform()) return "none";
+  const pending = loadPendingLogin();
+  if (!pending) return "none";
+  if (getToken()) {
+    clearPendingLogin();
+    return "none";
+  }
+  const first = await pollShared(pending);
+  if (first === "ok") {
+    clearPendingLogin();
+    return "ok";
+  }
+  if (first === "invite_only" || first === "err") {
+    clearPendingLogin();
+    return "none";
+  }
+  const remaining = Math.max(1000, PENDING_LOGIN_TTL_MS - (Date.now() - pending.startedAt));
+  void runMobileLoginLoop(loopDeps(pending, remaining)).then((r) => {
+    // Only clear our own record: a newer login may have replaced it.
+    if (loadPendingLogin()?.state === pending.state) clearPendingLogin();
+    if (r === "ok") onLateSuccess?.();
   });
+  return "pending";
 }

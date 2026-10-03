@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { Capacitor } from "@capacitor/core";
 import { App } from "@capacitor/app";
 import { getToken, setTokenAsync, clearToken, hydrateToken } from "@/lib/auth";
+import { resumePendingLogin } from "@/lib/nativeAuth";
 import { api, API_BASE, gatedFetch, setUnauthorizedHandler, resetUnauthorizedGate } from "@/lib/api";
 import { WEB_PRODUCT_OFF } from "@/lib/webProduct";
 import LoginScreen from "@/components/LoginScreen";
@@ -66,6 +67,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // ?token= write below, which hydration would otherwise overwrite).
       // `checking` stays true until this resolves, so no authed fetch fires.
       if (nativePlatform()) await hydrateToken();
+
+      // A133/A135: a Google sign-in that was started but whose token was never
+      // collected (the WebView reloaded or the OS killed the app while the
+      // browser sheet was up) is redeemed here, before we conclude "signed
+      // out". No-op when there is no pending login record.
+      if (nativePlatform() && !getToken()) {
+        try {
+          await resumePendingLogin(() => window.location.reload());
+        } catch {
+          /* never block start-up on this */
+        }
+      }
 
       // Pick up token from Google OAuth redirect
       const params = new URLSearchParams(window.location.search);

@@ -12,15 +12,19 @@ replicas (D4 in TODO.md) — the callback and the poll can land on different
 instances. Falls back to an in-process dict with the same TTL semantics
 when Redis is unavailable.
 """
+import hashlib
+import hmac
 import re
 import time
 
 from app.core.redis_client import get_redis, redis_ok
 
 _PENDING_TTL = 300
-# A133: the state is a bearer secret (the token is replayable under it for
-# _REPLAY_TTL), so new builds send "m" + 32 hex chars (128 bits from
-# crypto.getRandomValues), up to 64 to leave headroom.
+# A133: new builds send "m" + 32 hex chars (128 bits from
+# crypto.getRandomValues), up to 64 to leave headroom. The state is NOT a
+# secret (it travels in logged URLs); redemption of a new-format state is
+# bound to a separate poll_secret that never appears in a URL, see
+# redeem_pending() below.
 _MOBILE_STATE_RE = re.compile(r"^m[0-9a-f]{32,64}$")
 # TODO(A133): remove legacy acceptance once pre-A133 app builds have aged out.
 # Every binary released before A133 sends "m" + Math.random().toString(36)
@@ -40,22 +44,30 @@ def is_valid_mobile_state(state: str | None) -> bool:
 
 _KEY_PREFIX = "auth:pending:"
 
-# A133: a successfully-popped *token* is replayable for a short grace window.
-# The poll is pop-on-read, so if the client never receives or never finishes
-# handling the first response (response lost while the app is suspended,
-# client-side storage failure), the token would be gone and the sign-in
-# stuck. The replay copy lives under its own key and is NOT deleted by a
-# read: it simply expires. Trade-off: for REPLAY_TTL seconds after the first
-# read, anyone who knows the (unguessable, per-login) state can fetch the same
-# token again. Error outcomes are never replayed. The state is only ever in
-# the app and the OAuth redirect, and the window is far shorter than the 300s
-# the unread token was already retrievable for.
+# A133: a successfully-popped *token* is replayable for a short grace window,
+# but ONLY to a caller that proves knowledge of the poll_secret (see
+# redeem_pending). The poll is pop-on-read, so if the client never receives
+# or never finishes handling the first response (response lost while the app
+# is suspended, client-side storage failure, WebView reload), the token would
+# be gone and the sign-in stuck. The replay copy lives under its own key and
+# is NOT deleted by a read: it simply expires. Because the secret check comes
+# first, a log reader who only has the state can neither read nor burn the
+# token. Error outcomes are never replayed.
 _REPLAY_TTL = 30
 _REPLAY_PREFIX = "auth:pending-replay:"
+
+# A133: sha256(poll_secret) hex, stored by /auth/google/mobile next to the
+# pending entry. The secret itself is held only by the app (and, until the
+# login finishes, in the app's short-lived pending-login record) and is sent
+# only in a POST body.
+_CHALLENGE_PREFIX = "auth:challenge:"
+_CHALLENGE_RE = re.compile(r"^[0-9a-f]{64}$")
+_POLL_SECRET_RE = re.compile(r"^[0-9a-f]{32,64}$")
 
 # In-process fallback: state -> (value, expires_at_epoch_seconds)
 _pending: dict[str, tuple[str, float]] = {}
 _replay: dict[str, tuple[str, float]] = {}
+_challenges: dict[str, tuple[str, float]] = {}
 
 
 def _local_store(state: str, value: str) -> None:
@@ -65,6 +77,8 @@ def _local_store(state: str, value: str) -> None:
         _pending.pop(k, None)
     for k in [k for k, (_, exp) in _replay.items() if exp < now]:
         _replay.pop(k, None)
+    for k in [k for k, (_, exp) in _challenges.items() if exp < now]:
+        _challenges.pop(k, None)
 
 
 def _local_pop(state: str) -> str | None:
@@ -119,3 +133,72 @@ async def _pop_pending(state: str) -> str | None:
         except Exception:
             pass
     return _local_pop(state) or (None if is_legacy_mobile_state(state) else _local_replay(state))
+
+
+def is_valid_challenge(challenge: str | None) -> bool:
+    return bool(challenge) and _CHALLENGE_RE.fullmatch(challenge) is not None
+
+
+async def store_challenge(state: str, challenge: str) -> bool:
+    """Record sha256(poll_secret) for a new-format state. Returns False (and
+    stores nothing) when either value is malformed or the state is legacy."""
+    if not is_valid_mobile_state(state) or is_legacy_mobile_state(state) or not is_valid_challenge(challenge):
+        return False
+    if await redis_ok():
+        client = get_redis()
+        try:
+            await client.set(f"{_CHALLENGE_PREFIX}{state}", challenge, ex=_PENDING_TTL)
+            return True
+        except Exception:
+            pass
+    now = time.time()
+    _challenges[state] = (challenge, now + _PENDING_TTL)
+    return True
+
+
+async def _get_challenge(state: str) -> str | None:
+    if await redis_ok():
+        client = get_redis()
+        try:
+            value = await client.get(f"{_CHALLENGE_PREFIX}{state}")
+            if value is not None:
+                return value
+        except Exception:
+            pass
+    entry = _challenges.get(state)
+    if not entry:
+        return None
+    value, expires_at = entry
+    if expires_at < time.time():
+        _challenges.pop(state, None)
+        return None
+    return value
+
+
+async def has_challenge(state: str) -> bool:
+    return await _get_challenge(state) is not None
+
+
+def _secret_matches(secret: str | None, challenge: str | None) -> bool:
+    # Always runs one constant-time digest compare so a missing secret or
+    # challenge costs the same as a wrong one.
+    ok = bool(secret) and _POLL_SECRET_RE.fullmatch(secret) is not None and challenge is not None
+    digest = hashlib.sha256((secret if ok else "").encode()).hexdigest()
+    return hmac.compare_digest(digest, challenge if ok else "0" * 64) and ok
+
+
+async def redeem_pending(state: str, poll_secret: str | None = None) -> str | None:
+    """The one entry point the poll endpoints use.
+
+    Legacy states (installed pre-A133 builds, no challenge): single-read, no
+    secret needed, no replay. New-format states: the value is released only if
+    sha256(poll_secret) equals the challenge stored at login start; otherwise
+    None, indistinguishable from "unknown state" (no oracle) and nothing is
+    consumed, so a wrong guess cannot burn a pending token either."""
+    if not is_valid_mobile_state(state):
+        return None
+    if is_legacy_mobile_state(state):
+        return await _pop_pending(state)
+    if not _secret_matches(poll_secret, await _get_challenge(state)):
+        return None
+    return await _pop_pending(state)

@@ -8,7 +8,9 @@ import time
 import pytest
 
 from app.core import pending_login
-from app.core.pending_login import _pop_pending, _store_pending
+import hashlib
+
+from app.core.pending_login import _pop_pending, _store_pending, redeem_pending, store_challenge
 
 
 class _FakeRedis:
@@ -41,11 +43,11 @@ class _FakeRedis:
 
 @pytest.fixture(autouse=True)
 def _clear_local():
-    pending_login._pending.clear()
-    pending_login._replay.clear()
+    for d in (pending_login._pending, pending_login._replay, pending_login._challenges):
+        d.clear()
     yield
-    pending_login._pending.clear()
-    pending_login._replay.clear()
+    for d in (pending_login._pending, pending_login._replay, pending_login._challenges):
+        d.clear()
 
 
 @pytest.fixture
@@ -128,22 +130,37 @@ def test_state_validator():
         assert not pending_login.is_valid_mobile_state(bad), bad
 
 
+SECRET = "5e" * 16
+CHALLENGE = hashlib.sha256(SECRET.encode()).hexdigest()
+
+
 def test_poll_rejects_malformed_state_like_unknown(fake_redis):
-    from app.routers.auth import mobile_poll
+    from app.routers.auth import MobilePollBody, mobile_poll, mobile_poll_secret
     # A short state that was somehow stored is never served.
     asyncio.run(_store_pending("short", "token:abc"))
     assert asyncio.run(mobile_poll("short")) == {"status": "pending"}
-    assert asyncio.run(mobile_poll(GOOD)) == {"status": "pending"}  # unknown
-    asyncio.run(_store_pending(GOOD, "token:abc"))
-    assert asyncio.run(mobile_poll(GOOD)) == {"status": "token", "token": "abc"}
+    assert asyncio.run(mobile_poll_secret(MobilePollBody(state="short", poll_secret=SECRET))) == {"status": "pending"}
+    assert asyncio.run(mobile_poll_secret(MobilePollBody(state=GOOD, poll_secret=SECRET))) == {"status": "pending"}  # unknown
 
 
 def test_callback_does_not_store_under_malformed_state(fake_redis):
     from app.routers.auth import google_mobile_callback
     asyncio.run(google_mobile_callback(error="denied", state="short"))
     assert fake_redis.store == {} and pending_login._pending == {}
+    # A new-format state with no registered challenge is not stored either.
+    asyncio.run(google_mobile_callback(error="denied", state=GOOD))
+    assert fake_redis.store == {} and pending_login._pending == {}
+    asyncio.run(store_challenge(GOOD, CHALLENGE))
     asyncio.run(google_mobile_callback(error="denied", state=GOOD))
     assert f"auth:pending:{GOOD}" in fake_redis.store
+
+
+def test_callback_page_tells_iphone_users_to_close_the_window(fake_redis):
+    from app.routers.auth import google_mobile_callback
+    html = asyncio.run(google_mobile_callback(error="denied", state=GOOD)).body.decode()
+    assert "wealthdash://auth-done" in html and "Return to Sorted" in html
+    assert "You can close this window and return to Sorted." in html
+    assert "\u2014" not in html
 
 
 LEGACY = "m" + "k3j9x0q2a1z" + "_" + "1790000000000"
@@ -180,10 +197,105 @@ def test_legacy_token_is_not_replayable_fallback(monkeypatch):
     assert asyncio.run(_pop_pending(LEGACY)) is None
 
 
-def test_new_state_still_replayable(fake_redis):
+@pytest.fixture(params=["redis", "fallback"])
+def backend(request, monkeypatch):
+    if request.param == "redis":
+        client = _FakeRedis()
+
+        async def _ok():
+            return True
+
+        monkeypatch.setattr(pending_login, "redis_ok", _ok)
+        monkeypatch.setattr(pending_login, "get_redis", lambda: client)
+        return client
+
+    async def _not_ok():
+        return False
+
+    monkeypatch.setattr(pending_login, "redis_ok", _not_ok)
+    return None
+
+
+def test_challenge_is_stored_in_both_backends(backend):
+    assert asyncio.run(store_challenge(GOOD, CHALLENGE)) is True
+    if backend is not None:
+        assert backend.store[f"auth:challenge:{GOOD}"][0] == CHALLENGE
+    else:
+        assert pending_login._challenges[GOOD][0] == CHALLENGE
+
+
+def test_challenge_rejected_for_bad_shapes(backend):
+    assert asyncio.run(store_challenge(GOOD, "short")) is False
+    assert asyncio.run(store_challenge(GOOD, "A" * 64)) is False
+    assert asyncio.run(store_challenge("short", CHALLENGE)) is False
+    assert asyncio.run(store_challenge(LEGACY, CHALLENGE)) is False
+
+
+def test_correct_secret_releases_and_replays_within_window(backend, monkeypatch):
+    current = [1_000_000.0]
+    monkeypatch.setattr(pending_login.time, "time", lambda: current[0])
+    asyncio.run(store_challenge(GOOD, CHALLENGE))
     asyncio.run(_store_pending(GOOD, "token:abc"))
-    assert asyncio.run(_pop_pending(GOOD)) == "token:abc"
-    assert asyncio.run(_pop_pending(GOOD)) == "token:abc"
+    assert asyncio.run(redeem_pending(GOOD, SECRET)) == "token:abc"
+    current[0] += pending_login._REPLAY_TTL - 1
+    assert asyncio.run(redeem_pending(GOOD, SECRET)) == "token:abc"
+    current[0] += 2
+    assert asyncio.run(redeem_pending(GOOD, SECRET)) is None
+
+
+def test_wrong_or_missing_secret_gets_nothing_and_burns_nothing(backend):
+    asyncio.run(store_challenge(GOOD, CHALLENGE))
+    asyncio.run(_store_pending(GOOD, "token:abc"))
+    assert asyncio.run(redeem_pending(GOOD, None)) is None
+    assert asyncio.run(redeem_pending(GOOD, "")) is None
+    assert asyncio.run(redeem_pending(GOOD, "00" * 16)) is None
+    assert asyncio.run(redeem_pending(GOOD, "not-hex")) is None
+    assert asyncio.run(redeem_pending(GOOD, CHALLENGE)) is None  # the hash is not the secret
+    # none of that consumed the token or created a replay copy
+    assert asyncio.run(redeem_pending(GOOD, SECRET)) == "token:abc"
+
+
+def test_wrong_secret_after_release_gets_no_replay(backend):
+    asyncio.run(store_challenge(GOOD, CHALLENGE))
+    asyncio.run(_store_pending(GOOD, "token:abc"))
+    assert asyncio.run(redeem_pending(GOOD, SECRET)) == "token:abc"
+    assert asyncio.run(redeem_pending(GOOD, "00" * 16)) is None
+    assert asyncio.run(redeem_pending(GOOD, None)) is None
+
+
+def test_new_state_without_challenge_is_never_released(backend):
+    asyncio.run(_store_pending(GOOD, "token:abc"))
+    assert asyncio.run(redeem_pending(GOOD, SECRET)) is None
+
+
+def test_legacy_state_is_single_read_no_secret_no_replay(backend):
+    asyncio.run(_store_pending(LEGACY, "token:abc"))
+    assert asyncio.run(redeem_pending(LEGACY, None)) == "token:abc"
+    assert asyncio.run(redeem_pending(LEGACY, None)) is None
+
+
+def test_malformed_state_rejected_by_redeem(backend):
+    asyncio.run(_store_pending("short", "token:abc"))
+    assert asyncio.run(redeem_pending("short", SECRET)) is None
+
+
+def test_endpoints_use_secret_in_body_and_legacy_get_cannot_read_new_state(backend):
+    from app.routers.auth import MobilePollBody, mobile_poll, mobile_poll_secret
+    asyncio.run(store_challenge(GOOD, CHALLENGE))
+    asyncio.run(_store_pending(GOOD, "token:abc"))
+    assert asyncio.run(mobile_poll(GOOD)) == {"status": "pending"}  # GET has no secret
+    assert asyncio.run(mobile_poll_secret(MobilePollBody(state=GOOD))) == {"status": "pending"}
+    assert asyncio.run(mobile_poll_secret(MobilePollBody(state=GOOD, poll_secret=SECRET))) == {"status": "token", "token": "abc"}
+
+
+def test_secret_compare_is_constant_time():
+    import inspect
+    src = inspect.getsource(pending_login._secret_matches)
+    assert "hmac.compare_digest" in src
+    assert pending_login._secret_matches(SECRET, CHALLENGE) is True
+    assert pending_login._secret_matches("00" * 16, CHALLENGE) is False
+    assert pending_login._secret_matches(None, CHALLENGE) is False
+    assert pending_login._secret_matches(SECRET, None) is False
 
 
 def test_fallback_replay_copy_expires(monkeypatch):
@@ -193,10 +305,8 @@ def test_fallback_replay_copy_expires(monkeypatch):
     monkeypatch.setattr(pending_login, "redis_ok", _not_ok)
     current = [1_000_000.0]
     monkeypatch.setattr(pending_login.time, "time", lambda: current[0])
+    asyncio.run(store_challenge(GOOD, CHALLENGE))
     asyncio.run(_store_pending(GOOD, "token:abc"))
-    assert asyncio.run(_pop_pending(GOOD)) == "token:abc"
-    current[0] += pending_login._REPLAY_TTL - 1
-    assert asyncio.run(_pop_pending(GOOD)) == "token:abc"
-    current[0] += 2  # now beyond _REPLAY_TTL since the first read
-    assert asyncio.run(_pop_pending(GOOD)) is None
-    assert GOOD not in pending_login._replay or pending_login._replay[GOOD][1] < current[0]
+    assert asyncio.run(redeem_pending(GOOD, SECRET)) == "token:abc"
+    current[0] += pending_login._REPLAY_TTL + 1
+    assert asyncio.run(redeem_pending(GOOD, SECRET)) is None
