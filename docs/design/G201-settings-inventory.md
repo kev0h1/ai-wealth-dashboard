@@ -30,11 +30,11 @@ Route shape: `/settings` (`app/settings/page.tsx`, 10 lines) renders `SettingsPa
 
 ## Counts
 
-- 15 rendered blocks, 3 confirm dialogs, 2 sheets owned by child components (plan picker, none else).
+- 15 rendered blocks, 3 confirm dialogs, 1 sheet owned by a child component (the plan picker inside `YourPlanCard`).
 - Toggles: 11 (dark mode, 1 web push master, 7 notification prefs, child benefit, biometrics; cover plan adds one per account).
 - Text inputs: 4 (income, pension, name, postcode).
 - Rows that navigate away: 9 (tax, set aside, terms, privacy, 5 tours go through `startFlow`).
-- Always-on blocks 10 of 15 (1, 2, 3, 4, 5, 9, 11, 12, 13, 14, 15 are unconditional, 7 is unconditional, so 12); conditional: 6 (build flag), 8 (accounts), 10 (native). Context: a typical web user sees 13 cards in one scroll before scrolling to the bottom.
+- Unconditional blocks: 12 (1, 2, 3, 4, 5, 7, 9, 11, 12, 13, 14, 15; the hero's two tiles are conditional inside it). Conditional blocks: 3 (6 build flag, 8 needs an eligible account, 10 native shell). A typical web user therefore scrolls 13 or 14 stacked cards.
 - Sign out sits inside the Account card (block 12), 3 blocks above Delete, with Help and tours between.
 
 ## Things that are not where the brief assumed
