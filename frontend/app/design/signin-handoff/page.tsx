@@ -1,4 +1,4 @@
-// G199 design round: the mobile sign-in hand-off page. Every frame below is the
+// G199, approved B folded in: the mobile sign-in hand-off page. Every frame below is the
 // real shared template (shared/signin-handoff/template.html) rendered by
 // @wealth/shared, the same markup backend/app/core/signin_handoff.py serves, in
 // a sandboxed iframe so the page's own document CSS applies untouched.
