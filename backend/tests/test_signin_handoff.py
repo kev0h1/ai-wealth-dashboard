@@ -79,9 +79,10 @@ def _hash(text):
     return "'sha256-" + base64.b64encode(hashlib.sha256(text.encode()).digest()).decode() + "'"
 
 
+@pytest.mark.parametrize("variant", ["a", "b", "c"])
 @pytest.mark.parametrize("ok", [True, False])
-def test_csp_hashes_match_emitted_content(ok):
-    page = signin_handoff_html(ok, auto_return=ok)
+def test_csp_hashes_match_emitted_content(ok, variant):
+    page = signin_handoff_html(ok, variant, auto_return=ok)
     style = re.findall(r"<style>(.*?)</style>", page, re.S)
     script = re.findall(r"<script>(.*?)</script>", page, re.S)
     assert len(style) == 1 and len(script) == 1
@@ -92,6 +93,15 @@ def test_csp_hashes_match_emitted_content(ok):
     assert "unsafe-inline" not in csp
     assert csp.endswith("frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
     assert not re.search(r"\sstyle=|\sonclick=", page)
+
+
+@pytest.mark.parametrize("tag", ["style", "script"])
+def test_csp_refuses_a_page_with_two_blocks(tag):
+    page = signin_handoff_html(True)
+    doubled = page.replace(f"</{tag}>", f"</{tag}><{tag}>x</{tag}>", 1)
+    assert doubled != page
+    with pytest.raises(ValueError):
+        signin_handoff.signin_handoff_csp(doubled)
 
 
 def test_route_policy_kept_and_global_policy_untouched_elsewhere(monkeypatch):
