@@ -10,7 +10,7 @@ Route shape: `/settings` (`app/settings/page.tsx`, 10 lines) renders `SettingsPa
 | # | Block (current heading) | Lines | Controls inside | Opens / navigates | Reads / writes | Gating |
 |---|---|---|---|---|---|---|
 | 1 | Identity hero (no heading, `glass-hero`) | 1077-1128 | avatar, full name, email; "Accounts N connected" tile; "Security Face ID on/off" tile | both tiles `jumpTo` an anchor on the same page (`settings-accounts`, `settings-security`) | `profileLoaded.name`, `user`, `coverAccounts.length`, `bioState` | Accounts tile once accounts load; Security tile native shell only |
-| 2 | Sign-in methods | 1130-1205 | Google row (always shown, "Primary" chip), Apple row with 5 states (checking, error, linked + Unlink, iOS native + Link Apple ID, "Link from the iPhone app"), link/unlink message | Unlink opens ConfirmDialog (dialog 2) | `GET /auth/identities` (`api.getIdentities`), `linkAppleIdentity`, `api.unlinkAppleIdentity` | Link Apple iOS native only. D6/D10 will change this block |
+| 2 | Sign-in methods | 1130-1205 | Google row (always shown, "Primary" chip), Apple row with 5 states (checking, error, linked + Unlink, iOS native + Link Apple ID, "Link from the iPhone app"), link/unlink message | Unlink opens ConfirmDialog (dialog 2, `destructive`, SettingsPage.tsx:1812) | `GET /auth/identities` (`api.getIdentities`), `linkAppleIdentity`, `api.unlinkAppleIdentity` | Link Apple iOS native only. D6/D10 will change this block |
 | 3 | Display | 1207-1243 | Dark mode toggle, save-error line | none | `PreferencesContext.darkMode` / `setDarkMode` (`PATCH /preferences dark_mode`) | always |
 | 4 | Your plan | 1245-1253 | `YourPlanCard`: plan subtitle, Penny usage row, "See plans" | opens the plan picker sheet inside the card | `GET /subscription` via `usePennyUsage` | always (component, B5) |
 | 5 | Penny | 1255-1327 | consent state row (on or off copy), "Turn off" | Turn off opens ConfirmDialog (dialog 3) | `rawPrefs.penny_agent_consent`, `api.revokePennyAgentConsent`, `refreshPreferences` | always |
@@ -40,7 +40,7 @@ Route shape: `/settings` (`app/settings/page.tsx`, 10 lines) renders `SettingsPa
 ## Things that are not where the brief assumed
 
 - **Pay period is not on Settings today.** `PayPeriodSettingsSheet` opens from the Spend header and the Upcoming page only (`SpendPage.tsx` ~1320, `PlanningPage.tsx` ~1139). It is a pure props component (`current`, `onClose`, `onSave`) so a Settings row could open it without a refactor. It saves through `PreferencesContext.setPayPeriodConfig`. The variants add a Pay period row because it is a settings-shaped job, and say so.
-- **No tips switch yet.** G189 adds `show_tips`. The existing "Tips & insights" push switch (`notification_prefs.insights`) gates a push fed by `analytics.compute_insights`, a different system. G189's planner note says relabel it. The variants show both: an on-screen "Tips" switch under display, and the push switch relabelled "Saving ideas" (placeholder copy, Kevin to confirm).
+- **No tips switch yet.** G189 adds `show_tips`. The existing "Tips & insights" push switch (`notification_prefs.insights`) gates a push fed by `analytics.compute_insights`, a different system. G189's planner note says relabel it. The variants show both: an on-screen "Tips" switch under display, and the push switch relabelled "Tip alerts" (placeholder copy, with the in-app switch named "Saving tips"; both pending G189, Kevin to confirm).
 - **Identity and linking are Apple only.** D6 says the Google row is hardcoded and wrong for a Hide My Email account; D10 adds link-Google. The variants design the sign-in methods as a drill-in list that can hold one, two or zero known providers, with exactly one Primary.
 - **Profile header** falls back to the email local part today for relay accounts (D6). The variants show the "no name yet" state with an Add your name prompt.
 
@@ -68,7 +68,7 @@ G94 should be cancelled as superseded once Kevin picks (his call; not done here)
 
 | Item | What it adds to Settings | Where the variants put it |
 |---|---|---|
-| G189 | `show_tips` switch (Spend and Transactions tips, Home spotlight); relabel push "Tips & insights" | Tips switch in the Display drill-in or hub row; push switch relabelled "Saving ideas" |
+| G189 | `show_tips` switch (Spend and Transactions tips, Home spotlight); relabel push "Tips & insights" | Tips switch in the Display drill-in or hub row; push switch relabelled "Tip alerts" |
 | D6, D10 | Sign-in methods listing only real providers, one Primary; link Google as well as Apple; claim-from-account decision at link time | Sign-in methods drill-in with a provider list and a Link action per missing provider |
 | C17 | Privacy and Terms links that work in the native shells (they will need an in-app browser or a hard navigation, not `router.push`) | Legal rows at the foot of Help, marked as external-style links |
 | G200 | Cover plan safeguards card redesign | Own drill-in, placeholder here that links to G200's preview |

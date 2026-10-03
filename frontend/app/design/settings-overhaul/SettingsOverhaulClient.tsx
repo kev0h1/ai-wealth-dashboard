@@ -130,7 +130,7 @@ export default function SettingsOverhaulClient() {
                 <p className={`mt-2 text-sm leading-6 ${SOFT}`}>{note.inline}</p>
                 <p className={`mt-2 text-sm leading-6 ${SOFT}`}>{note.exits}</p>
                 <p className={`mt-4 text-xs leading-5 ${SOFT}`}>
-                  Rendered from production: switches, confirm dialogs, sheet frame, the Pay period sheet, the plan card, today&apos;s cover plan card and the real tour list. Hand-authored stand-ins: hub rows, groups and page frames, and the notification, sign-in, profile, financial, biometric, data and delete blocks, which are inline in SettingsPage.tsx today. Fixtures only, nothing saves. The dark mode switch here is inert, use the Dark control above. Directions drafted with Astra (openai/gpt-6-astra) and rewritten to DESIGN.md.
+                  Rendered from production: switches, confirm dialogs, sheet frame, the Pay period sheet, the plan card, today&apos;s cover plan card and the real tour list. Hand-authored stand-ins: hub rows, groups and page frames, and the notification, sign-in, profile, financial, biometric, data and delete blocks, which are inline in SettingsPage.tsx today. Fixtures only, nothing saves. The dark mode switch here is inert, use the Dark control above. Placeholder copy pending G189, Kevin to confirm: the in-app switch "Saving tips" and the relabelled push topic "Tip alerts". Connected assistants is flag-gated (MCP_CONNECTOR, off in production) and shown here in every state except New, web. Directions drafted with Astra (openai/gpt-6-astra) and rewritten to DESIGN.md.
                 </p>
               </div>
             </aside>

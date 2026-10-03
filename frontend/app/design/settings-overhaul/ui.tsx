@@ -27,6 +27,7 @@ export type Model = {
   native: boolean;
   hasIncome: boolean;
   notifBlocked: boolean;
+  assistants: boolean;
 };
 
 export function buildModel(state: PState): Model {
@@ -47,6 +48,7 @@ export function buildModel(state: PState): Model {
     native: !empty,
     hasIncome: !empty,
     notifBlocked: state === "attention",
+    assistants: !empty,
   };
 }
 
@@ -152,7 +154,8 @@ export function PageFrame({ title, intro, back = "Account", children }: { title:
         <ChevronLeft size={18} aria-hidden="true" />
         {back}
       </Link>
-      <h1 className={`mt-2 text-xl font-bold ${INK}`}>{title}</h1>
+      <h1 className={`mt-2 text-xl font-bold lg:hidden ${INK}`}>{title}</h1>
+      <h2 className={`mt-2 hidden text-xl font-bold lg:block ${INK}`}>{title}</h2>
       {intro && <p className={`mt-1 text-[13px] leading-5 ${SOFT}`}>{intro}</p>}
       {children}
     </div>

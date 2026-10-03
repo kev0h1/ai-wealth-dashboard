@@ -233,6 +233,7 @@ export function SignInBlock() {
         title="Unlink Apple ID?"
         message="You will not be able to sign in with Apple until you link it again."
         confirmLabel="Unlink"
+        destructive
         onConfirm={() => setUnlink(false)}
         onCancel={() => setUnlink(false)}
       />
@@ -364,6 +365,22 @@ export function PlanBlock() {
   return <YourPlanCard info={PLAN} />;
 }
 
+/* ── Connected assistants: flag-gated (MCP_CONNECTOR), off in production ── */
+export function AssistantsBlock() {
+  return (
+    <>
+      <List>
+        <div className={`px-4 py-3.5 ${SEP}`}>
+          <p className={`text-sm font-semibold ${INK}`}>No assistants connected</p>
+          <p className={`mt-0.5 text-xs leading-snug ${SOFT}`}>Assistants you allow to read your Sorted data appear here, with their monthly allowance.</p>
+        </div>
+        <ExternalRow to="/mcp-activity" label="Assistant activity" helper="See what connected assistants have looked at" />
+      </List>
+      <p className={`mt-2 text-xs ${SOFT}`}>Shown only when the MCP connector flag is on. It is off in production today, so this row is absent for most users.</p>
+    </>
+  );
+}
+
 /* ── Tours and help ── */
 export function ToursBlock() {
   return (
@@ -421,9 +438,15 @@ export function CoverPlanBlock() {
         <p className={`mt-1 text-xs leading-5 ${SOFT}`}>
           This page is reserved for the safeguards card that G200 is redesigning. The hub row, back control and page frame are what this round decides. See G200&apos;s own preview for the card itself.
         </p>
-        <Link href="/design/cover-plan-safeguards" className="mt-2 inline-flex min-h-11 items-center text-sm font-semibold text-indigo-700 underline underline-offset-2 dark:text-indigo-300">
-          Open the G200 preview
-        </Link>
+        <p className={`mt-2 flex flex-wrap items-center gap-x-2 text-sm ${INK}`}>
+          <Link href="/design/cover-plan-safeguards" className="inline-flex min-h-11 items-center font-semibold text-indigo-700 underline underline-offset-2 dark:text-indigo-300">
+            Open the G200 preview
+          </Link>
+          <span className={`text-xs ${SOFT}`}>(available once G200&apos;s round is on UAT)</span>
+          <Link href="/design/cover-plan-sources" className="inline-flex min-h-11 items-center text-xs font-semibold text-indigo-700 underline underline-offset-2 dark:text-indigo-300">
+            or the earlier cover plan preview
+          </Link>
+        </p>
       </div>
       <p className={`mt-6 text-xs font-semibold uppercase tracking-wide ${SOFT}`}>For reference: the card as it ships today</p>
       <div className="mt-2">
@@ -469,7 +492,7 @@ export function DeleteScreen() {
       </Group>
       <Group title="Confirm" intro="Type DELETE to confirm.">
         <label htmlFor="so-delete" className="sr-only">Type DELETE to confirm</label>
-        <input id="so-delete" className={`${FIELD} border-red-200 focus:ring-red-500 dark:border-red-800`} value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="DELETE" autoCapitalize="characters" />
+        <input id="so-delete" className={FIELD} value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="DELETE" autoCapitalize="characters" />
         <button
           type="button"
           disabled={typed !== "DELETE"}

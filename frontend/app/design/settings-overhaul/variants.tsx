@@ -10,7 +10,7 @@ import { ChevronRight, UserRound } from "lucide-react";
 import { Group, INK, List, NavRow, PageFrame, SheetRow, SOFT, usePreview, type VariantId } from "./ui";
 import {
   CoverPlanBlock, DataBlock, DeleteScreen, DisplayBlock, Exits, FinancialBlock, LegalBlock, NotificationsBlock,
-  PennyBlock, PlanBlock, ProfileBlock, QuickControls, SecurityBlock, SignInBlock, ToursBlock,
+  AssistantsBlock, PennyBlock, PlanBlock, ProfileBlock, QuickControls, SecurityBlock, SignInBlock, ToursBlock,
 } from "./sections";
 
 const LINK = "inline-flex min-h-11 items-center gap-0.5 rounded-xl px-2 text-sm font-semibold text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-300";
@@ -34,14 +34,14 @@ function Header({ securityPage, planPage, profilePage }: { securityPage: string;
           {model.name ? (
             <p className={`truncate text-base font-bold ${INK}`}>{model.name}</p>
           ) : (
-            <Link href={href(profilePage)} className="text-base font-bold text-indigo-700 underline underline-offset-2 dark:text-indigo-300">
+            <Link href={href(profilePage)} className="inline-flex min-h-11 items-center rounded-xl text-base font-bold text-indigo-700 underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-300">
               Add your name
             </Link>
           )}
           <p className={`truncate text-xs ${SOFT}`}>{model.email}</p>
         </div>
       </div>
-      <p className={`mt-3 flex flex-wrap gap-x-4 text-[13px] ${SOFT}`}>{model.providers.map((p) => <span key={p.id}>{p.label} · {p.primary ? "Primary" : "Linked"}</span>)}</p>
+      <ul aria-label="Sign-in methods" className="mt-3 flex flex-wrap gap-2">{model.providers.map((p) => <li key={p.id} className="rounded-full border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 dark:border-slate-600 dark:text-slate-300">{p.label}: {p.primary ? "primary" : "linked"}</li>)}</ul>
       <div className="-ml-2 mt-1 flex flex-wrap items-center">
         <Link href={href(planPage)} className={LINK}>
           Standard plan
@@ -84,6 +84,7 @@ function HubA() {
           <NavRow page="display" label="Display" value="Dark mode off · Tips on" />
           <NavRow page="penny" label="Penny" value="Setting things up on" />
           <NavRow page="notifications" label="Notifications" value={model.notifBlocked ? "Blocked" : "On · 5 topics"} dot={model.notifBlocked} />
+          {model.assistants && <NavRow page="assistants" label="Connected assistants" value="None connected" />}
         </List>
       </Group>
       <Group title="Your account" intro="Manage your details, access and data.">
@@ -116,6 +117,7 @@ const PAGES_A: Record<string, Page> = {
   signin: { title: "Sign-in methods", intro: "Choose how you sign in to Sorted.", body: <div className="mt-4"><SignInBlock /></div> },
   security: { title: "Security", intro: "Control access to Sorted on this phone.", body: <div className="mt-4"><SecurityBlock /></div> },
   data: { title: "Data", intro: "Manage your transaction history.", body: <div className="mt-4"><DataBlock /></div> },
+  assistants: { title: "Connected assistants", intro: "Choose which assistants can read your Sorted data.", body: <div className="mt-4"><AssistantsBlock /></div> },
   tours: { title: "How Sorted works", intro: "Replay a tour of any screen.", body: <div className="mt-4"><ToursBlock /></div> },
   help: { title: "Terms and privacy", intro: "Read the small print.", body: <div className="mt-4"><LegalBlock /></div> },
   delete: { title: "Delete account and all data", body: <DeleteScreen /> },
@@ -146,7 +148,7 @@ function HubB() {
       </Group>
       <Group title="Your service" intro="Manage your plan and stored data.">
         <List>
-          <NavRow page="service" label="Plan and data" helper="Penny usage, history and Set aside." value="Standard" />
+          <NavRow page="service" label="Plan and data" helper={model.assistants ? "Penny usage, history, Set aside and connected assistants." : "Penny usage, history and Set aside."} value="Standard" />
         </List>
       </Group>
       <Group title="Help" intro="Learn the basics and read the small print.">
@@ -195,6 +197,7 @@ const PAGES_B: Record<string, Page> = {
       <>
         <Group title="Your plan"><PlanBlock /></Group>
         <Group title="Data" intro="Manage your transaction history."><DataBlock /></Group>
+        <ConnectedAssistants />
       </>
     ),
   },
@@ -221,6 +224,12 @@ function PayAndFinancial() {
       <Group title="Financial profile" intro="Used for your tax breakdown."><FinancialBlock /></Group>
     </>
   );
+}
+
+function ConnectedAssistants() {
+  const { model } = usePreview();
+  if (!model.assistants) return null;
+  return <Group title="Connected assistants" intro="Assistants you allow to read your Sorted data."><AssistantsBlock /></Group>;
 }
 
 function AccessSecurity() {
@@ -274,6 +283,7 @@ const PAGES_C: Record<string, Page> = {
         <Group title="Profile" intro="Used to recognise your own transfers and show local fuel prices."><ProfileBlock /></Group>
         <Group title="Sign-in methods" intro="Choose how you sign in to Sorted."><SignInBlock /></Group>
         <AccessSecurity />
+        <ConnectedAssistants />
       </>
     ),
   },
