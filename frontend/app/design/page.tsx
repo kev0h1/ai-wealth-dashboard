@@ -32,6 +32,14 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "settings-overhaul",
+    name: "Settings overhaul · G201",
+    description:
+      "G201 settings overhaul design round (skills: impeccable, directions drafted with openai/gpt-6-astra and rewritten to DESIGN.md): the Account hub at /settings regrouped by the job the user is doing, with deep configuration on drill-ins and sign out and delete isolated at the end · A Clear directory: four groups, 13 status rows, one page each / B Five jobs: five destinations, the shortest hub, related controls together in workspaces / C Quick adjustments first: three switches on the hub, bounded edits in sheets · every variant has the hub plus drill-in pages (cover plan safeguards placeholder linking to G200, pay period via the real sheet, notifications, sign-in methods, delete on its own screen) · renders production Toggle, ConfirmDialog, SheetFrame, PayPeriodSettingsSheet, YourPlanCard and CoverPlanSourcesCard, hub rows and several blocks are hand-authored stand-ins · static fixtures, nothing saves · ?variant=a|b|c&page=hub|notifications|cover-plan|signin|delete|money|experience|account&state=ready|attention|relay|empty&mode=light|dark&sheet=pay-period|financial",
+    states: [{ label: "Ready", value: "ready" }, { label: "Notifications blocked", value: "attention" }, { label: "Apple relay account", value: "relay" }, { label: "New account, web", value: "empty" }],
+    variants: [{ label: "A · Clear directory", value: "a" }, { label: "B · Five jobs", value: "b" }, { label: "C · Quick adjustments first", value: "c" }],
+  },
+  {
     slug: "signin-handoff",
     name: "Sign-in hand-off page · G199 · approved B, folded in",
     description:
