@@ -33,11 +33,10 @@ type PreviewRoute = {
 const ROUTES: PreviewRoute[] = [
   {
     slug: "signin-handoff",
-    name: "Sign-in hand-off page · G199",
+    name: "Sign-in hand-off page · G199 · approved B, folded in",
     description:
-      "G199, skill: impeccable, variants drafted by openai/gpt-6-astra via OpenRouter and fitted to DESIGN.md · the page shown in the Android Chrome Custom Tab / iOS in-app browser after Google sign-in (Signed in, Taking you back to Sorted, Return to Sorted) and its error variant · A Soft landing (rounded card, indigo-tint mark), B Open cockpit (type-led, action anchored low), C Quiet receipt (ruled panel with a status ledger) · every frame renders the shared template the backend serves, in light and dark · no gradient, no green, no red · ?variant=a|b|c&state=ok|hint|error&mode=light|dark",
+      "G199 · approved B, folded in (Kevin 2026-10-03): the page shown in the Android Chrome Custom Tab / iOS in-app browser after Google sign-in (Signed in, Taking you back to Sorted, Return to Sorted) and its error state · Open cockpit, type-led heading with the mark beside it, action anchored low under a hairline, no card · every frame renders the shared template the backend serves, in light and dark · no gradient, no green, no red · ?state=ok|hint|error&mode=light|dark",
     states: [{ label: "Signed in", value: "ok" }, { label: "After 3 seconds", value: "hint" }, { label: "Did not complete", value: "error" }],
-    variants: [{ label: "A · Soft landing", value: "a" }, { label: "B · Open cockpit", value: "b" }, { label: "C · Quiet receipt", value: "c" }],
   },
   {
     slug: "penny-keyboard",
