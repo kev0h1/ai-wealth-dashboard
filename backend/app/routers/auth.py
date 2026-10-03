@@ -26,6 +26,7 @@ from app.core.pending_login import (
     redeem_pending,
     store_challenge,
 )
+from app.core.signin_handoff import signin_handoff_csp, signin_handoff_html
 from app.core.push import drop_user_push_registrations
 from app.core.session_revocation import is_revoked, revoke_sessions
 from app.db.collections import linked_identities_col
@@ -489,45 +490,8 @@ async def google_mobile_callback(code: str = None, error: str = None, state: str
                 # at login start, otherwise nobody could ever redeem it.
                 await _store_pending(state, value)
         ok = value.startswith("token:")
-        if ok:
-            heading = "Signed in"
-            message = "Taking you back to Sorted."
-            icon = "&#10003;"
-            heading_color = "#34d399"
-        else:
-            heading = "Sign-in didn&#39;t complete"
-            message = "Close this window and try again in Sorted."
-            icon = "&#10007;"
-            heading_color = "#f87171"
-        return HTMLResponse(f"""<!DOCTYPE html>
-<html><head><meta name="viewport" content="width=device-width,initial-scale=1">
-<style>
-  body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-       text-align:center;padding:60px 24px;background:#0f172a;color:#e2e8f0;margin:0}}
-  .icon{{font-size:56px;margin-bottom:16px}}
-  h1{{color:{heading_color};font-size:24px;margin:0 0 12px}}
-  p{{color:#94a3b8;font-size:15px;line-height:1.6;margin:0 0 32px}}
-  .btn{{display:inline-block;background:#4f46e5;color:#fff;text-decoration:none;
-       padding:14px 32px;border-radius:14px;font-size:16px;font-weight:600;
-       cursor:pointer;border:none;-webkit-tap-highlight-color:transparent}}
-</style></head>
-<body>
-  <div class="icon">{icon}</div>
-  <h1>{heading}</h1>
-  <p id="msg">{message}</p>
-  <button class="btn" onclick="returnToApp()">Return to Sorted</button>
-  <script>
-    function returnToApp(){{window.location.href='wealthdash://auth-done';}}
-    setTimeout(returnToApp, 600);
-    // A133: on iPhone a wealthdash:// navigation from the in-app browser the
-    // app itself opened is swallowed, so the button can be dead. The app
-    // closes this sheet itself once it has the sign-in; say so.
-    setTimeout(function(){{
-      if({'true' if ok else 'false'}){{document.getElementById('msg').textContent='Signed in. You can close this window and return to Sorted.';}}
-    }}, 3000);
-  </script>
-</body></html>
-""")
+        page = signin_handoff_html(ok, auto_return=ok)
+        return HTMLResponse(page, headers={"Content-Security-Policy": signin_handoff_csp(page)})
 
     if error or not code:
         return await finish("error:auth_failed")

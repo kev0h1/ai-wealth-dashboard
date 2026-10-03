@@ -32,6 +32,14 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "signin-handoff",
+    name: "Sign-in hand-off page · G199",
+    description:
+      "G199, skill: impeccable, variants drafted by openai/gpt-6-astra via OpenRouter and fitted to DESIGN.md · the page shown in the Android Chrome Custom Tab / iOS in-app browser after Google sign-in (Signed in, Taking you back to Sorted, Return to Sorted) and its error variant · A Soft landing (rounded card, indigo-tint mark), B Open cockpit (type-led, action anchored low), C Quiet receipt (ruled panel with a status ledger) · every frame renders the shared template the backend serves, in light and dark · no gradient, no green, no red · ?variant=a|b|c&state=ok|hint|error&mode=light|dark",
+    states: [{ label: "Signed in", value: "ok" }, { label: "After 3 seconds", value: "hint" }, { label: "Did not complete", value: "error" }],
+    variants: [{ label: "A · Soft landing", value: "a" }, { label: "B · Open cockpit", value: "b" }, { label: "C · Quiet receipt", value: "c" }],
+  },
+  {
     slug: "penny-keyboard",
     name: "Penny keyboard · G197",
     description: "G197, approved B restored (Kevin 2026-10-02): Codex's conversation-first layout from G191 (02c22ef4) over the G196 keyboard mechanics. Tapping the input changes nothing. Once a software keyboard is up the Penny window takes over the visible height in one move, with a compact header (a clear gap between its line and the close button), the links and question chips hidden, the conversation filling the space and the composer and its note on the keyboard edge. Nothing moves afterwards, the page behind cannot scroll, and the navigation and Penny button hide. Uses the production Penny panel, header, composer and thread anchor with local-only replies. Physical iOS Safari, Android Chrome and Capacitor keyboard checks remain required. ?state=short|long|empty|error&mode=light|dark",

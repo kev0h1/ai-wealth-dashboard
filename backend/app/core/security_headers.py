@@ -38,6 +38,8 @@ async def security_headers_middleware(request: Request, call_next):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = _PERMISSIONS_POLICY
-    if request.url.path not in _CSP_EXEMPT_PATHS:
+    # A route that sets its own Content-Security-Policy (G199: the mobile
+    # sign-in hand-off page, which needs hashed inline style/script) keeps it.
+    if request.url.path not in _CSP_EXEMPT_PATHS and "content-security-policy" not in response.headers:
         response.headers["Content-Security-Policy"] = _CSP
     return response

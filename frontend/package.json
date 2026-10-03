@@ -10,6 +10,7 @@
     "start": "next start",
     "lint": "eslint",
     "check:design-index": "node scripts/check-design-index.mjs",
+    "check:signin-handoff": "node scripts/check-signin-handoff.mjs",
     "check:g191-keyboard": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g191-keyboard.test.mjs",
     "check:bank-logos": "node scripts/check-bank-logos.mjs",
     "check:design-no-live-data": "node scripts/check-design-no-live-data.mjs",
