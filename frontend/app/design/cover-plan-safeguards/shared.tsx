@@ -3,7 +3,9 @@
 // G200 cover plan safeguards round: shared pieces for the three variants.
 //
 // Every variant takes the SAME props as the production CoverPlanSourcesCard
-// (accounts, excludedIds, shortAccountIds, hideAmounts, onToggle), so the
+// (accounts, excludedIds, shortAccountIds, hideAmounts, onToggle, plus an
+// optional liveRoute that the variants accept and deliberately ignore, since
+// none shows the live move), so the
 // picked one can be moved into components/ and swapped into SettingsPage with
 // no change at the call site. Nothing here fetches anything: the preview is
 // fixtures only.
@@ -27,6 +29,8 @@ export type CoverSafeguardsProps = {
   shortAccountIds: Set<string>;
   hideAmounts: boolean;
   onToggle: (id: string) => void;
+  /** Accepted so SettingsPage's call site is unchanged; ignored on purpose. */
+  liveRoute?: unknown;
 };
 
 export type Usability = "short" | "empty" | null;
@@ -114,7 +118,7 @@ export function Frame({
   return (
     <section aria-labelledby={headingId}>
       <header className="px-1 pb-3">
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">
+        <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-600 dark:text-slate-300">
           Cover plan safeguards
         </p>
         <h2 id={headingId} className="mt-1 text-[17px] font-bold text-slate-950 dark:text-white">

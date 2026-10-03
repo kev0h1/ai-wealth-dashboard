@@ -183,7 +183,7 @@ export default function CoverPlanSafeguardsClient() {
       return next;
     });
 
-  const props = { accounts: ACCOUNTS, excludedIds: excluded, shortAccountIds: shortIds, hideAmounts: false, onToggle: toggle };
+  const props = { liveRoute: LIVE_ROUTE, accounts: ACCOUNTS, excludedIds: excluded, shortAccountIds: shortIds, hideAmounts: false, onToggle: toggle };
 
   return (
     <div className={mode === "dark" ? "dark" : ""}>
@@ -201,6 +201,10 @@ export default function CoverPlanSafeguardsClient() {
               {frame === "page" ? "Cover plan" : "Settings"}
             </h1>
           </header>
+          <p className="rounded-xl border border-slate-200 bg-white/60 px-3 py-2 text-[12px] leading-snug text-slate-600 dark:border-slate-700 dark:bg-white/[0.04] dark:text-slate-300">
+            Preview note: A, B and C are hand-authored explorations. &ldquo;Shipped today&rdquo; renders the
+            production CoverPlanSourcesCard through its real props.
+          </p>
           {frame === "inline" && <SettingsNeighbour />}
           {variant === "a" && <PermissionSlip {...props} />}
           {variant === "b" && <CoverRoute {...props} />}
