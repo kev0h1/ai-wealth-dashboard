@@ -375,3 +375,21 @@ def test_wrong_secret_poll_does_not_consume_the_token_via_endpoint(backend):
     assert asyncio.run(mobile_poll_secret(MobilePollBody(state=GOOD, poll_secret=OTHER_SECRET))) == {"status": "pending"}
     assert asyncio.run(mobile_poll_secret(MobilePollBody(state=GOOD))) == {"status": "pending"}
     assert asyncio.run(mobile_poll_secret(MobilePollBody(state=GOOD, poll_secret=SECRET))) == {"status": "token", "token": "abc"}
+
+
+def test_wrong_secret_poll_leaves_pending_untouched_even_past_the_replay_window(backend, monkeypatch):
+    # Popping before the compare would move the token into the 30s replay copy,
+    # which then expires: the legitimate client would lose it. So a wrong
+    # secret must leave the pending entry in place and create no replay copy.
+    current = [1_000_000.0]
+    monkeypatch.setattr(pending_login.time, "time", lambda: current[0])
+    asyncio.run(store_challenge(GOOD, CHALLENGE))
+    asyncio.run(_store_pending(GOOD, "token:abc"))
+    assert asyncio.run(redeem_pending(GOOD, OTHER_SECRET)) is None
+    if backend is not None:
+        assert f"auth:pending:{GOOD}" in backend.store
+        assert not any(k.startswith("auth:pending-replay:") for k in backend.store)
+    else:
+        assert GOOD in pending_login._pending and GOOD not in pending_login._replay
+    current[0] += pending_login._REPLAY_TTL + 5  # beyond any replay window
+    assert asyncio.run(redeem_pending(GOOD, SECRET)) == "token:abc"
