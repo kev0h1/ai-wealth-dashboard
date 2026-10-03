@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 import httpx
 import jwt
+from pydantic import BaseModel
 from jwt.algorithms import RSAAlgorithm
 
 from app.core.auth import current_user
@@ -17,7 +18,14 @@ from app.core.config import (
     mask_email,
 )
 from app.core.identity import resolve_signin_email
-from app.core.pending_login import _pop_pending, _store_pending
+from app.core.pending_login import (
+    _store_pending,
+    has_challenge,
+    is_legacy_mobile_state,
+    is_valid_mobile_state,
+    redeem_pending,
+    store_challenge,
+)
 from app.core.signin_handoff import signin_handoff_csp, signin_handoff_html
 from app.core.push import drop_user_push_registrations
 from app.core.session_revocation import is_revoked, revoke_sessions
@@ -421,9 +429,14 @@ async def google_auth():
 
 
 @router.get("/auth/google/mobile")
-async def google_auth_mobile(state: str = ""):
+async def google_auth_mobile(state: str = "", challenge: str = ""):
     if not GOOGLE_CLIENT_ID:
         raise HTTPException(500, "Google OAuth not configured")
+    # A133: `challenge` is sha256(poll_secret), hex. The secret itself never
+    # leaves the app and is never in a URL. Without a valid challenge a
+    # new-format state is simply never redeemable (legacy states need none).
+    if challenge:
+        await store_challenge(state, challenge)
     redirect_uri = f"{APP_URL}/api/auth/google/mobile-callback"
     params = urllib.parse.urlencode({
         "client_id":     GOOGLE_CLIENT_ID,
@@ -437,20 +450,45 @@ async def google_auth_mobile(state: str = ""):
     return RedirectResponse(f"https://accounts.google.com/o/oauth2/v2/auth?{params}")
 
 
-@router.get("/auth/mobile/poll")
-async def mobile_poll(state: str):
-    value = await _pop_pending(state)
+def _poll_reply(value: str | None) -> dict:
     if value is None:
         return {"status": "pending"}
     kind, _, payload = value.partition(":")
     return {"status": kind, **({"token": payload} if kind == "token" else {"error": payload})}
 
 
+class MobilePollBody(BaseModel):
+    state: str = ""
+    poll_secret: str | None = None
+
+
+@router.post("/auth/mobile/poll")
+async def mobile_poll_secret(body: MobilePollBody):
+    # A133: new builds. The poll_secret rides in the body, never a URL. A
+    # malformed state, an unknown state and a wrong or missing secret all get
+    # exactly {"status": "pending"}.
+    return _poll_reply(await redeem_pending(body.state, body.poll_secret))
+
+
+@router.get("/auth/mobile/poll")
+async def mobile_poll(state: str):
+    # Legacy (pre-A133 installed builds): single-read, legacy states only.
+    # A new-format state has no secret here, so it always gets "pending".
+    return _poll_reply(await redeem_pending(state, None))
+
+
 @router.get("/auth/google/mobile-callback")
 async def google_mobile_callback(code: str = None, error: str = None, state: str = ""):
     async def finish(value: str) -> HTMLResponse:
-        if state:
-            await _store_pending(state, value)
+        if is_valid_mobile_state(state):
+            if is_legacy_mobile_state(state):
+                # TODO(A133): drop with the legacy state format. Never logs the state.
+                logging.getLogger(__name__).info("mobile login: legacy state format used (pre-A133 app build), single-read")
+                await _store_pending(state, value)
+            elif await has_challenge(state):
+                # New format: only stored when the app registered a challenge
+                # at login start, otherwise nobody could ever redeem it.
+                await _store_pending(state, value)
         ok = value.startswith("token:")
         page = signin_handoff_html(ok, auto_return=ok)
         return HTMLResponse(page, headers={"Content-Security-Policy": signin_handoff_csp(page)})

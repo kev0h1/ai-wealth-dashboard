@@ -67,9 +67,9 @@ def test_mobile_callback_serves_the_template(monkeypatch):
         stored[state] = value
 
     monkeypatch.setattr(auth, "_store_pending", fake_store)
-    resp = asyncio.run(auth.google_mobile_callback(code=None, error="access_denied", state="s1"))
+    resp = asyncio.run(auth.google_mobile_callback(code=None, error="access_denied", state="mabc_1700000000000"))
     body = resp.body.decode()
-    assert stored == {"s1": "error:auth_failed"}
+    assert stored == {"mabc_1700000000000": "error:auth_failed"}
     assert 'data-state="error"' in body and "wealthdash://auth-done" in body
     assert re.search(r"data-variant=\"[abc]\"", body)
 

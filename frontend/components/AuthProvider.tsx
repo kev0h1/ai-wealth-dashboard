@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { Capacitor } from "@capacitor/core";
 import { App } from "@capacitor/app";
 import { getToken, setTokenAsync, clearToken, hydrateToken } from "@/lib/auth";
+import { resumePendingLogin } from "@/lib/nativeAuth";
 import { api, API_BASE, gatedFetch, setUnauthorizedHandler, resetUnauthorizedGate } from "@/lib/api";
 import { WEB_PRODUCT_OFF } from "@/lib/webProduct";
 import LoginScreen from "@/components/LoginScreen";
@@ -48,6 +49,9 @@ function nativePlatform(): boolean {
   }
 }
 
+export type SessionOutcome = "ok" | "rejected" | "unreachable";
+const SESSION_RETRY_DELAY_MS = 1500;
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -59,6 +63,66 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // each independently allowing a call within the same second.
   const lastValidateAtRef = useRef(0);
 
+  // A135: in-place sign-in for the native flows. LoginScreen used to
+  // window.location.reload() after "ok", which threw away a token that only
+  // lived in memory (Keystore/Keychain write failed or timed out) and made
+  // hydrateToken() read back nothing. This validates the in-memory token and
+  // sets `user` with no page reload. What the reload used to give for free is
+  // replicated explicitly: stale per-user caches are dropped
+  // (invalidateAllAccountData, as clearLocalSession does), the A124 401 gate
+  // is reopened, and onboarding is re-derived. The route is left as it was
+  // (the reload kept it too), and everything under `children` (tutorial,
+  // preferences, push resync) mounts fresh now that `user` is set, exactly as
+  // after a reload. Resolves "ok", "rejected" (token refused) or "unreachable"
+  // (transient failure, token kept).
+  async function establishSession(): Promise<SessionOutcome> {
+    if (!getToken()) return "rejected";
+    invalidateAllAccountData();
+    const profileP = api.getProfile().catch(() => null);
+    let outcome = await validateOnce();
+    if (outcome === "unreachable") {
+      // One bounded retry (no loop) for a transient failure; the token is kept
+      // either way so LoginScreen can offer "tap to try again".
+      await new Promise((r) => setTimeout(r, SESSION_RETRY_DELAY_MS));
+      outcome = await validateOnce();
+    }
+    if (outcome !== "ok") return outcome;
+    const profile = await profileP;
+    if (profile && !profile.onboarding_complete) setNeedsOnboarding(true);
+    return "ok";
+  }
+
+  // One POST /auth/session/validate for establishSession. Clears the token
+  // only on a definite 401/403 or a missing email. A network error, timeout or
+  // 5xx/429 says nothing about the token, so it is kept ("unreachable").
+  async function validateOnce(): Promise<SessionOutcome> {
+    const token = getToken();
+    if (!token) return "rejected";
+    try {
+      lastValidateAtRef.current = Date.now();
+      const res = await gatedFetch(`${API_BASE}/auth/session/validate`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.status === 401 || res.status === 403) {
+        clearToken(); // a definite rejection of this token
+        return "rejected";
+      }
+      if (!res.ok) return "unreachable";
+      const data = await res.json();
+      if (!data.email) {
+        clearToken();
+        return "rejected";
+      }
+      setAuthError(null);
+      setUser({ email: data.email, name: data.name || "", owner: !!data.owner });
+      resetUnauthorizedGate();
+      return "ok";
+    } catch {
+      return "unreachable";
+    }
+  }
+
   useEffect(() => {
     async function init() {
       // A123: on native the token lives in Keychain/Keystore. Hydrate the
@@ -66,6 +130,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // ?token= write below, which hydration would otherwise overwrite).
       // `checking` stays true until this resolves, so no authed fetch fires.
       if (nativePlatform()) await hydrateToken();
+
+      // A133/A135: a Google sign-in that was started but whose token was never
+      // collected (the WebView reloaded or the OS killed the app while the
+      // browser sheet was up) is redeemed here, before we conclude "signed
+      // out". No-op when there is no pending login record.
+      if (nativePlatform() && !getToken()) {
+        try {
+          await resumePendingLogin(() => { void establishSession(); });
+        } catch {
+          /* never block start-up on this */
+        }
+      }
 
       // Pick up token from Google OAuth redirect
       const params = new URLSearchParams(window.location.search);
@@ -334,7 +410,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   if (!user) {
-    return <LoginScreen error={authError} />;
+    return <LoginScreen error={authError} onSignedIn={establishSession} />;
   }
 
   if (needsOnboarding) {

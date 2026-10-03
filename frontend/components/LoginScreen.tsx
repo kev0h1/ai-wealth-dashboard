@@ -8,9 +8,14 @@ import { AGENT_DISCLOSURE } from "@/lib/regulatoryCopy";
 
 interface LoginScreenProps {
   error?: string | null;
+  // A135: AuthProvider's in-place session establishment. When given, a native
+  // sign-in transitions without a page reload (a reload discards a token that
+  // only lives in memory). Hosts without it (oauth consent, app-only shell)
+  // keep the reload.
+  onSignedIn?: () => Promise<"ok" | "rejected" | "unreachable">;
 }
 
-export default function LoginScreen({ error }: LoginScreenProps) {
+export default function LoginScreen({ error, onSignedIn }: LoginScreenProps) {
   // Starts false on both server and client so hydration matches (Capacitor
   // doesn't exist during the export build), then flips true post-mount if
   // we're actually running inside the iOS native shell.
@@ -29,12 +34,27 @@ export default function LoginScreen({ error }: LoginScreenProps) {
   // clearing whichever of the two sources (prop or local) set it.
   const [inviteOnlyDismissed, setInviteOnlyDismissed] = useState(false);
 
+  // A135: signed in, but the session check could not reach the server. The
+  // token is kept in memory, so "Tap to try again" just re-runs the check.
+  const [unreachable, setUnreachable] = useState(false);
+
+  async function finishNativeSignIn() {
+    if (!onSignedIn) {
+      window.location.reload();
+      return;
+    }
+    setUnreachable(false);
+    const outcome = await onSignedIn();
+    if (outcome === "unreachable") setUnreachable(true); // token kept; tap retries
+    else if (outcome === "rejected") alert("Sign-in failed. Please try again.");
+  }
+
   async function handleGoogleClick(e: React.MouseEvent<HTMLAnchorElement>) {
     if (!isNativePlatform()) return; // web: let the href redirect happen as before
     e.preventDefault();
     const result = await nativeGoogleLogin();
     if (result === "ok") {
-      window.location.reload();
+      await finishNativeSignIn();
     } else if (result === "invite_only") {
       setNativeInviteOnly(true);
     } else {
@@ -45,7 +65,7 @@ export default function LoginScreen({ error }: LoginScreenProps) {
   async function handleAppleClick() {
     const result = await nativeAppleLogin();
     if (result === "ok") {
-      window.location.reload();
+      await finishNativeSignIn();
     } else if (result === "invite_only") {
       setNativeInviteOnly(true);
     } else {
@@ -110,6 +130,16 @@ export default function LoginScreen({ error }: LoginScreenProps) {
           <p className="text-sm text-slate-600 dark:text-slate-300 text-center mb-6 leading-relaxed">
             Sign in with your Google account to access your dashboard.
           </p>
+
+          {unreachable && (
+            <button
+              type="button"
+              onClick={() => { void finishNativeSignIn(); }}
+              className="mb-5 w-full px-4 py-3 rounded-xl bg-slate-100 dark:bg-slate-700 text-sm text-slate-700 dark:text-slate-100 text-center active:scale-95 transition"
+            >
+              Signed in, but we could not reach Sorted. Tap to try again.
+            </button>
+          )}
 
           {error && error !== "invite_only" && (
             <div className="mb-5 px-4 py-3 rounded-xl bg-red-50 border border-red-100">
