@@ -4,6 +4,7 @@ import { Browser } from "@capacitor/browser";
 import { App } from "@capacitor/app";
 import { API_BASE, api, gatedFetch } from "./api";
 import { setTokenAsync } from "./auth";
+import { runMobileLoginLoop, type PollResult } from "./mobileLoginLoop";
 
 export function isNativePlatform(): boolean {
   try {
@@ -245,16 +246,39 @@ export async function linkAppleIdentity(): Promise<"ok" | "conflict" | "cancelle
 // google_mobile_callback's finish("error:invite_only") (see
 // backend/app/routers/auth.py) and /auth/mobile/poll's {status: "error",
 // error: "invite_only"} body.
-export async function nativeGoogleLogin(): Promise<"ok" | "invite_only" | "failed"> {
-  const state = "m" + Math.random().toString(36).slice(2) + "_" + Date.now();
-  await Browser.open({ url: `${API_BASE}/auth/google/mobile?state=${encodeURIComponent(state)}` });
+const BROWSER_OPEN_TIMEOUT_MS = 10_000;
 
-  async function pollOnce(): Promise<"ok" | "invite_only" | "err" | "pending"> {
+export async function nativeGoogleLogin(): Promise<"ok" | "invite_only" | "failed"> {
+  // A133: the state is a bearer secret for the poll's replay window, so it
+  // must be unguessable: 128 bits from the CSPRNG (backend accepts only
+  // "m" + 32-64 lowercase hex, see core/pending_login.py).
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  const state = "m" + Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  // A133: Browser.open is bounded. A rejection is a failed sign-in; if it is
+  // merely slow (>10s) the poll loop starts anyway rather than waiting on it.
+  const opened = Browser.open({ url: `${API_BASE}/auth/google/mobile?state=${encodeURIComponent(state)}` }).then(
+    () => "opened" as const,
+    () => "rejected" as const,
+  );
+  const openResult = await Promise.race([
+    opened,
+    new Promise<"slow">((r) => setTimeout(() => r("slow"), BROWSER_OPEN_TIMEOUT_MS)),
+  ]);
+  if (openResult === "rejected") return "failed";
+
+  async function pollOnce(): Promise<PollResult> {
+    // A133: bounded, so one stuck request can never wedge the serialised loop.
+    const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+    const abortTimer = ctrl ? setTimeout(() => ctrl.abort(), 10_000) : undefined;
     try {
-      const res = await gatedFetch(`${API_BASE}/auth/mobile/poll?state=${encodeURIComponent(state)}`);
+      const res = await gatedFetch(`${API_BASE}/auth/mobile/poll?state=${encodeURIComponent(state)}`, ctrl ? { signal: ctrl.signal } : undefined);
       if (!res.ok) return "pending";
       const d = await res.json();
       if (d.status === "token" && d.token) {
+        // A133: setTokenAsync puts the token in memory before it awaits
+        // anything and never rejects or hangs (bounded write), so by here
+        // the server-popped token cannot be lost to a storage failure.
         await setTokenAsync(d.token);
         return "ok";
       }
@@ -263,73 +287,22 @@ export async function nativeGoogleLogin(): Promise<"ok" | "invite_only" | "faile
       }
     } catch {
       /* keep polling */
+    } finally {
+      if (abortTimer !== undefined) clearTimeout(abortTimer);
     }
     return "pending";
   }
 
-  return new Promise<"ok" | "invite_only" | "failed">((resolve) => {
-    let settled = false;
-    const listenerHandles: Array<{ remove: () => void }> = [];
-    let intervalId: ReturnType<typeof setInterval> | undefined;
-    let timeoutId: ReturnType<typeof setTimeout> | undefined;
-
-    async function finish(result: "ok" | "invite_only" | "failed") {
-      if (settled) return;
-      settled = true;
-      if (intervalId !== undefined) clearInterval(intervalId);
-      if (timeoutId !== undefined) clearTimeout(timeoutId);
-      for (const handle of listenerHandles) {
-        try {
-          handle.remove();
-        } catch {
-          /* ignore */
-        }
-      }
-      await Browser.close().catch(() => {});
-      resolve(result);
-    }
-
-    async function triggerPoll() {
-      if (settled) return;
-      const result = await pollOnce();
-      if (result === "ok") await finish("ok");
-      else if (result === "invite_only") await finish("invite_only");
-      else if (result === "err") await finish("failed");
-    }
-
-    intervalId = setInterval(() => {
-      void triggerPoll();
-    }, 2000);
-
-    timeoutId = setTimeout(() => {
-      void finish("failed");
-    }, 5 * 60 * 1000);
-
-    Promise.all([
-      App.addListener("appStateChange", ({ isActive }) => {
-        if (isActive) void triggerPoll();
-      }),
-      App.addListener("appUrlOpen", () => {
-        void triggerPoll();
-      }),
-      Browser.addListener("browserFinished", () => {
-        void triggerPoll();
-      }),
-    ]).then((handles) => {
-      if (settled) {
-        for (const handle of handles) {
-          try {
-            handle.remove();
-          } catch {
-            /* ignore */
-          }
-        }
-        return;
-      }
-      listenerHandles.push(...handles);
-    });
-
-    // Also do an immediate poll in case the token is already there.
-    void triggerPoll();
+  return runMobileLoginLoop({
+    pollOnce,
+    closeBrowser: () => Browser.close(),
+    addListeners: (h) =>
+      Promise.all([
+        App.addListener("appStateChange", ({ isActive }) => {
+          if (isActive) h.onActive();
+        }),
+        App.addListener("appUrlOpen", ({ url }) => h.onUrlOpen(url)),
+        Browser.addListener("browserFinished", () => h.onBrowserFinished()),
+      ]),
   });
 }
