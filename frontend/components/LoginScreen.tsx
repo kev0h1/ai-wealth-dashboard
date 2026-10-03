@@ -8,9 +8,14 @@ import { AGENT_DISCLOSURE } from "@/lib/regulatoryCopy";
 
 interface LoginScreenProps {
   error?: string | null;
+  // A135: AuthProvider's in-place session establishment. When given, a native
+  // sign-in transitions without a page reload (a reload discards a token that
+  // only lives in memory). Hosts without it (oauth consent, app-only shell)
+  // keep the reload.
+  onSignedIn?: () => Promise<boolean>;
 }
 
-export default function LoginScreen({ error }: LoginScreenProps) {
+export default function LoginScreen({ error, onSignedIn }: LoginScreenProps) {
   // Starts false on both server and client so hydration matches (Capacitor
   // doesn't exist during the export build), then flips true post-mount if
   // we're actually running inside the iOS native shell.
@@ -29,12 +34,20 @@ export default function LoginScreen({ error }: LoginScreenProps) {
   // clearing whichever of the two sources (prop or local) set it.
   const [inviteOnlyDismissed, setInviteOnlyDismissed] = useState(false);
 
+  async function finishNativeSignIn() {
+    if (!onSignedIn) {
+      window.location.reload();
+      return;
+    }
+    if (!(await onSignedIn())) alert("Sign-in failed. Please try again.");
+  }
+
   async function handleGoogleClick(e: React.MouseEvent<HTMLAnchorElement>) {
     if (!isNativePlatform()) return; // web: let the href redirect happen as before
     e.preventDefault();
     const result = await nativeGoogleLogin();
     if (result === "ok") {
-      window.location.reload();
+      await finishNativeSignIn();
     } else if (result === "invite_only") {
       setNativeInviteOnly(true);
     } else {
@@ -45,7 +58,7 @@ export default function LoginScreen({ error }: LoginScreenProps) {
   async function handleAppleClick() {
     const result = await nativeAppleLogin();
     if (result === "ok") {
-      window.location.reload();
+      await finishNativeSignIn();
     } else if (result === "invite_only") {
       setNativeInviteOnly(true);
     } else {

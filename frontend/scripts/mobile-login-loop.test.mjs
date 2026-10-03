@@ -267,5 +267,22 @@ await t("loop + shared poller: browser closes on auth-done mid-poll and the toke
   assert.deepEqual(log.applied, ["T"]);
 });
 
+await t("source (A135): native sign-in transitions in place, no page reload, via AuthProvider.establishSession", () => {
+  const ls = read("lib/../components/LoginScreen.tsx");
+  const g = ls.slice(ls.indexOf("async function handleGoogleClick"), ls.indexOf("const isInviteOnly"));
+  assert.ok(!/location\.reload/.test(g), "handlers must not reload after native login");
+  assert.equal((g.match(/await finishNativeSignIn\(\)/g) || []).length, 2, "google and apple both use it");
+  const f = ls.slice(ls.indexOf("async function finishNativeSignIn"), ls.indexOf("async function handleGoogleClick"));
+  assert.ok(f.includes("await onSignedIn()"));
+  // the only remaining reload is the explicit fallback for hosts without the callback
+  assert.ok(/if \(!onSignedIn\) \{\s*window\.location\.reload\(\);/.test(f));
+  const ap = read("components/AuthProvider.tsx");
+  assert.ok(ap.includes("<LoginScreen error={authError} onSignedIn={establishSession} />"));
+  const e = ap.slice(ap.indexOf("async function establishSession"), ap.indexOf("useEffect(() => {\n    async function init"));
+  assert.ok(e.includes("getToken()") && e.includes("/auth/session/validate") && e.includes("setUser(") && e.includes("resetUnauthorizedGate()") && e.includes("invalidateAllAccountData()"));
+  assert.ok(!/location\.reload/.test(e));
+  assert.ok(!ap.includes("resumePendingLogin(() => window.location.reload())"), "late resume also in place");
+});
+
 if (failures) { console.error(failures + " failed"); process.exit(1); }
 console.log("mobile-login-loop: all passed");

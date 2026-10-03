@@ -60,6 +60,49 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // each independently allowing a call within the same second.
   const lastValidateAtRef = useRef(0);
 
+  // A135: in-place sign-in for the native flows. LoginScreen used to
+  // window.location.reload() after "ok", which threw away a token that only
+  // lived in memory (Keystore/Keychain write failed or timed out) and made
+  // hydrateToken() read back nothing. This validates the in-memory token and
+  // sets `user` with no page reload. What the reload used to give for free is
+  // replicated explicitly: stale per-user caches are dropped
+  // (invalidateAllAccountData, as clearLocalSession does), the A124 401 gate
+  // is reopened, and onboarding is re-derived. The route is left as it was
+  // (the reload kept it too), and everything under `children` (tutorial,
+  // preferences, push resync) mounts fresh now that `user` is set, exactly as
+  // after a reload. Resolves false if the session could not be established.
+  async function establishSession(): Promise<boolean> {
+    const token = getToken();
+    if (!token) return false;
+    try {
+      invalidateAllAccountData();
+      const profileP = api.getProfile().catch(() => null);
+      lastValidateAtRef.current = Date.now();
+      const res = await gatedFetch(`${API_BASE}/auth/session/validate`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        clearToken();
+        return false;
+      }
+      const data = await res.json();
+      if (!data.email) {
+        clearToken();
+        return false;
+      }
+      setAuthError(null);
+      setUser({ email: data.email, name: data.name || "", owner: !!data.owner });
+      resetUnauthorizedGate();
+      const profile = await profileP;
+      if (profile && !profile.onboarding_complete) setNeedsOnboarding(true);
+      return true;
+    } catch {
+      clearToken();
+      return false;
+    }
+  }
+
   useEffect(() => {
     async function init() {
       // A123: on native the token lives in Keychain/Keystore. Hydrate the
@@ -74,7 +117,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // out". No-op when there is no pending login record.
       if (nativePlatform() && !getToken()) {
         try {
-          await resumePendingLogin(() => window.location.reload());
+          await resumePendingLogin(() => { void establishSession(); });
         } catch {
           /* never block start-up on this */
         }
@@ -347,7 +390,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   if (!user) {
-    return <LoginScreen error={authError} />;
+    return <LoginScreen error={authError} onSignedIn={establishSession} />;
   }
 
   if (needsOnboarding) {
