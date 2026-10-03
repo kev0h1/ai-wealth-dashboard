@@ -432,6 +432,24 @@ const ROUTES: PreviewRoute[] = [
     ],
   },
   {
+    slug: "cover-plan-safeguards",
+    name: "cover-plan-safeguards",
+    description:
+      "G200 cover plan safeguards redesign (Kevin 2026-10-03, Android Settings screenshots): the shipped card mixes a live move, an opaque 0/0 to 2/3 strip, search, a Turned off group and a long skipped list with red dots into one wall of state · separates the user's choice (which accounts may fund cover) from the engine's current answer, with plain-English not-usable copy and no red outside the one genuine no-source case · A permission slip (verdict and exceptions lead, accounts behind one door, no live move, links to Upcoming) / B cover route (the engine's fixed order as two steps plus protections, one hedged sentence about today) / C permission ledger (search and Turned off/Allowed/All views, balances, built to stand alone as a drill-in page) · design drafted with openai/gpt-6-astra, rewritten to DESIGN.md · variants share the production card's props; 'now' renders the shipped CoverPlanSourcesCard with a live move for comparison · fixture data only · ?variant=a|b|c|now&state=default|all|none|stuck&estate=std|long&frame=inline|page&mode=light|dark",
+    variants: [
+      { label: "A Permission slip", value: "a" },
+      { label: "B Cover route", value: "b" },
+      { label: "C Permission ledger", value: "c" },
+      { label: "Shipped today", value: "now" },
+    ],
+    states: [
+      { label: "Two turned off", value: "default" },
+      { label: "Nothing turned off", value: "all" },
+      { label: "Everything off", value: "none" },
+      { label: "Only cannot-spare left", value: "stuck" },
+    ],
+  },
+  {
     slug: "cover-plan-sources-scale",
     name: "cover-plan-sources-scale",
     description:
