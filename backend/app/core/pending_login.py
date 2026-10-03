@@ -61,6 +61,9 @@ _REPLAY_PREFIX = "auth:pending-replay:"
 # login finishes, in the app's short-lived pending-login record) and is sent
 # only in a POST body.
 _CHALLENGE_PREFIX = "auth:challenge:"
+# Longer than _PENDING_TTL: it starts at login start, the pending entry only at
+# the callback, so a slow Google sign-in must not orphan the poll.
+_CHALLENGE_TTL = 600
 _CHALLENGE_RE = re.compile(r"^[0-9a-f]{64}$")
 _POLL_SECRET_RE = re.compile(r"^[0-9a-f]{32,64}$")
 
@@ -140,19 +143,28 @@ def is_valid_challenge(challenge: str | None) -> bool:
 
 
 async def store_challenge(state: str, challenge: str) -> bool:
-    """Record sha256(poll_secret) for a new-format state. Returns False (and
-    stores nothing) when either value is malformed or the state is legacy."""
+    """Record sha256(poll_secret) for a new-format state, WRITE-ONCE.
+
+    The first challenge registered for a state wins until it expires; a later
+    registration (e.g. a log reader replaying /auth/google/mobile?state=<victim>
+    with their own challenge) is a silent no-op, so it cannot redirect the
+    victim's token to the attacker's secret. Returns True only when this call
+    wrote the challenge; the endpoint ignores the result so a repeat start is
+    indistinguishable from a fresh one. False (stores nothing) for malformed
+    values or a legacy state."""
     if not is_valid_mobile_state(state) or is_legacy_mobile_state(state) or not is_valid_challenge(challenge):
         return False
     if await redis_ok():
         client = get_redis()
         try:
-            await client.set(f"{_CHALLENGE_PREFIX}{state}", challenge, ex=_PENDING_TTL)
-            return True
+            return bool(await client.set(f"{_CHALLENGE_PREFIX}{state}", challenge, ex=_CHALLENGE_TTL, nx=True))
         except Exception:
             pass
     now = time.time()
-    _challenges[state] = (challenge, now + _PENDING_TTL)
+    existing = _challenges.get(state)
+    if existing and existing[1] >= now:
+        return False
+    _challenges[state] = (challenge, now + _CHALLENGE_TTL)
     return True
 
 

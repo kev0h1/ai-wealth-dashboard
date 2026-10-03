@@ -17,7 +17,11 @@ class _FakeRedis:
     def __init__(self):
         self.store: dict[str, tuple[str, float]] = {}
 
-    async def set(self, key, value, ex=None):
+    async def set(self, key, value, ex=None, nx=False):
+        if nx:
+            entry = self.store.get(key)
+            if entry and (entry[1] is None or entry[1] >= time.time()):
+                return None  # redis-py returns None when NX loses
         expires_at = time.time() + ex if ex else None
         self.store[key] = (value, expires_at)
         return True
@@ -322,3 +326,52 @@ def test_start_endpoint_stores_challenge_and_keeps_it_out_of_the_google_redirect
     # a malformed challenge is ignored, legacy needs none
     asyncio.run(auth_router.google_auth_mobile(state="m" + "b2" * 16, challenge="nothex"))
     assert asyncio.run(pending_login.has_challenge("m" + "b2" * 16)) is False
+
+
+OTHER_SECRET = "9c" * 16
+OTHER_CHALLENGE = hashlib.sha256(OTHER_SECRET.encode()).hexdigest()
+
+
+def test_challenge_is_write_once_first_secret_wins(backend):
+    assert asyncio.run(store_challenge(GOOD, CHALLENGE)) is True
+    # a log reader replays the start URL with their own challenge
+    assert asyncio.run(store_challenge(GOOD, OTHER_CHALLENGE)) is False
+    asyncio.run(_store_pending(GOOD, "token:abc"))
+    assert asyncio.run(redeem_pending(GOOD, OTHER_SECRET)) is None
+    assert asyncio.run(redeem_pending(GOOD, SECRET)) == "token:abc"
+
+
+def test_second_start_through_the_endpoint_does_not_overwrite(backend, monkeypatch):
+    from app.routers import auth as auth_router
+    monkeypatch.setattr(auth_router, "GOOGLE_CLIENT_ID", "cid")
+    first = asyncio.run(auth_router.google_auth_mobile(state=GOOD, challenge=CHALLENGE))
+    second = asyncio.run(auth_router.google_auth_mobile(state=GOOD, challenge=OTHER_CHALLENGE))
+    assert first.headers["location"] == second.headers["location"]  # no oracle
+    asyncio.run(_store_pending(GOOD, "token:abc"))
+    assert asyncio.run(redeem_pending(GOOD, OTHER_SECRET)) is None
+    assert asyncio.run(redeem_pending(GOOD, SECRET)) == "token:abc"
+
+
+def test_expired_challenge_can_be_registered_again(monkeypatch):
+    async def _not_ok():
+        return False
+
+    monkeypatch.setattr(pending_login, "redis_ok", _not_ok)
+    current = [1_000_000.0]
+    monkeypatch.setattr(pending_login.time, "time", lambda: current[0])
+    assert asyncio.run(store_challenge(GOOD, CHALLENGE)) is True
+    current[0] += pending_login._CHALLENGE_TTL + 1
+    assert asyncio.run(store_challenge(GOOD, OTHER_CHALLENGE)) is True
+
+
+def test_challenge_outlives_the_pending_ttl(backend):
+    assert pending_login._CHALLENGE_TTL > pending_login._PENDING_TTL
+
+
+def test_wrong_secret_poll_does_not_consume_the_token_via_endpoint(backend):
+    from app.routers.auth import MobilePollBody, mobile_poll_secret
+    asyncio.run(store_challenge(GOOD, CHALLENGE))
+    asyncio.run(_store_pending(GOOD, "token:abc"))
+    assert asyncio.run(mobile_poll_secret(MobilePollBody(state=GOOD, poll_secret=OTHER_SECRET))) == {"status": "pending"}
+    assert asyncio.run(mobile_poll_secret(MobilePollBody(state=GOOD))) == {"status": "pending"}
+    assert asyncio.run(mobile_poll_secret(MobilePollBody(state=GOOD, poll_secret=SECRET))) == {"status": "token", "token": "abc"}
