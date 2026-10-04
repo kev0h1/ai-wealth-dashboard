@@ -90,7 +90,7 @@ function WaitingDot() {
 
 function Status({ text, className = "" }: { text: string; className?: string }) {
   return (
-    <div role="status" aria-live="polite" aria-atomic="true" className={`min-h-10 text-sm leading-5 text-slate-600 dark:text-slate-400 ${className}`}>
+    <div role="status" aria-live="polite" aria-atomic="true" className={`min-h-10 text-balance text-sm leading-5 text-slate-600 dark:text-slate-400 ${className}`}>
       {text}
     </div>
   );
