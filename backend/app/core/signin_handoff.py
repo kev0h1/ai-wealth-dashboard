@@ -8,8 +8,10 @@ through the generated signin_handoff_template.py, so the backend and the
 import base64
 import hashlib
 import html
+import json
 import re
 
+from app.core.deep_links import DEEP_LINK_SCHEME, bank_return_url, signin_return_url
 from app.core.signin_handoff_template import TEMPLATE
 
 SUCCESS_HINT = "Signed in. You can close this window and return to Sorted."
@@ -17,11 +19,29 @@ SUCCESS_HINT = "Signed in. You can close this window and return to Sorted."
 _SLOT = re.compile(r"\{\{(\w+)\}\}")
 
 
+def _raw_json_slot(name: str, value: str) -> str:
+    """Slots ending in _json carry a pre-serialised JSON string literal that is
+    inserted without HTML escaping (it sits inside the hashed <script>, where
+    &amp; would corrupt a URL). Validate it is a wealthdash:// URL string and
+    neutralise any </ sequence so it can never close the script block."""
+    try:
+        decoded = json.loads(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"slot {name} is not valid JSON") from exc
+    if not isinstance(decoded, str) or not decoded.startswith(f"{DEEP_LINK_SCHEME}://"):
+        raise ValueError(f"slot {name} must be a JSON string starting with {DEEP_LINK_SCHEME}://")
+    return value.replace("</", "<\\/")
+
+
 def render_template(template: str, slots: dict[str, str]) -> str:
-    """Substitute {{slot}} placeholders. Values are HTML-escaped; an unknown
-    or missing slot raises rather than shipping a literal placeholder."""
+    """Substitute {{slot}} placeholders. Values are HTML-escaped, except slots
+    named *_json (see _raw_json_slot). An unknown or missing slot raises rather
+    than shipping a literal placeholder."""
     def sub(m: re.Match) -> str:
-        return html.escape(str(slots[m.group(1)]), quote=True)
+        name = m.group(1)
+        if name.endswith("_json"):
+            return _raw_json_slot(name, slots[name])
+        return html.escape(str(slots[name]), quote=True)
 
     return _SLOT.sub(sub, template)
 
@@ -34,11 +54,40 @@ def signin_handoff_html(ok: bool, *, scheme: str = "auto",
         heading = "Sign-in didn’t complete"
         default_message = "Close this window and try again in Sorted."
     return render_template(TEMPLATE, {
+        "title": "Sorted | Sign-in",
+        "return_url_json": json.dumps(signin_return_url()),
         "state": "ok" if ok else "error",
         "scheme": scheme,
         "heading": heading,
         "message": message if message is not None else default_message,
         "success_hint": SUCCESS_HINT,
+        "ok_flag": "true" if ok else "false",
+        "auto_return": "true" if auto_return else "false",
+    })
+
+
+BANK_SUCCESS_HINT = "Bank connected. You can close this window and return to Sorted."
+
+
+def bank_handoff_html(ok: bool, *, provider: str, connection_id: str,
+                      auto_return: bool = True, scheme: str = "auto",
+                      message: str | None = None) -> str:
+    """The same hand-off page for a bank-connect callback (A68)."""
+    if ok:
+        heading = "Bank connected"
+        default_message = "Taking you back to Sorted. Your transactions are on their way."
+    else:
+        heading = "Connection didn’t complete"
+        default_message = "No accounts were linked. Close this window and try again in Sorted."
+    url = bank_return_url(provider, connection_id, "ok" if ok else "error")
+    return render_template(TEMPLATE, {
+        "title": "Sorted | Bank connection",
+        "return_url_json": json.dumps(url),
+        "state": "ok" if ok else "error",
+        "scheme": scheme,
+        "heading": heading,
+        "message": message if message is not None else default_message,
+        "success_hint": BANK_SUCCESS_HINT,
         "ok_flag": "true" if ok else "false",
         "auto_return": "true" if auto_return else "false",
     })

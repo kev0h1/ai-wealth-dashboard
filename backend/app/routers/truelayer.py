@@ -4,7 +4,7 @@ import os
 import secrets
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from typing import Optional
 import httpx
 
@@ -14,11 +14,17 @@ from app.core.config import (
     TRUELAYER_AUTH_URL, TRUELAYER_API_URL, TRUELAYER_REDIRECT_URI,
     TRUELAYER_WEBHOOK_SECRET, APP_URL,
 )
+from app.core.signin_handoff import bank_handoff_html, signin_handoff_csp
 from app.core.subscription import check_connection_limit, check_open_banking_allowed
 from app.db.collections import connections_col
 from app.services.truelayer_sync import save_connection, sync_connection
 
 router = APIRouter(tags=["truelayer"])
+
+
+def _bank_page(ok: bool, provider: str, connection_id: str, *, auto_return: bool) -> HTMLResponse:
+    page = bank_handoff_html(ok, provider=provider, connection_id=connection_id, auto_return=auto_return)
+    return HTMLResponse(page, headers={"Content-Security-Policy": signin_handoff_csp(page)})
 
 
 @router.get("/auth/truelayer/providers")
@@ -35,7 +41,7 @@ async def truelayer_providers(user: dict = Depends(current_user)):
 
 
 @router.get("/auth/truelayer/link")
-async def truelayer_link(provider: str = "", user: dict = Depends(current_user)):
+async def truelayer_link(provider: str = "", native: bool = False, user: dict = Depends(current_user)):
     if not TRUELAYER_CLIENT_ID:
         raise HTTPException(500, "TrueLayer not configured")
     await check_open_banking_allowed(user["email"])
@@ -43,7 +49,7 @@ async def truelayer_link(provider: str = "", user: dict = Depends(current_user))
     connection_id = secrets.token_hex(8)
     await connections_col.update_one(
         {"_id": connection_id},
-        {"$set": {"user_id": user["email"], "pending": True, "created_at": datetime.now()}},
+        {"$set": {"user_id": user["email"], "pending": True, "native": bool(native), "created_at": datetime.now()}},  # naive-ok: persisted audit timestamp, unchanged from before A68
         upsert=True,
     )
     providers_param = f"uk-ob-all%20uk-cs-mock" if not provider else provider
@@ -67,6 +73,8 @@ async def truelayer_callback(code: str, state: Optional[str] = None):
     if not TRUELAYER_CLIENT_ID or not TRUELAYER_CLIENT_SECRET:
         raise HTTPException(500, "TrueLayer not configured")
     connection_id = state or secrets.token_hex(8)
+    pre_doc = await connections_col.find_one({"_id": connection_id}, {"native": 1})
+    native = bool((pre_doc or {}).get("native"))
     async with httpx.AsyncClient() as client:
         r = await client.post(
             f"{TRUELAYER_AUTH_URL}/connect/token",
@@ -86,37 +94,10 @@ async def truelayer_callback(code: str, state: Optional[str] = None):
     user_id  = (conn_doc or {}).get("user_id", "unknown")
     asyncio.create_task(sync_connection(connection_id, user_id))
 
-    return HTMLResponse("""<!DOCTYPE html>
-<html><head><meta name="viewport" content="width=device-width,initial-scale=1">
-<style>
-  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-       text-align:center;padding:60px 24px;background:#0f172a;color:#e2e8f0;margin:0}
-  .icon{font-size:56px;margin-bottom:16px}
-  h1{color:#34d399;font-size:24px;margin:0 0 12px}
-  p{color:#94a3b8;font-size:15px;line-height:1.6;margin:0 0 32px}
-  .btn{display:inline-block;background:#4f46e5;color:#fff;text-decoration:none;
-       padding:14px 32px;border-radius:14px;font-size:16px;font-weight:600;
-       cursor:pointer;border:none;-webkit-tap-highlight-color:transparent}
-</style></head>
-<body>
-  <div class="icon">&#10003;</div>
-  <h1>Bank connected!</h1>
-  <p>Your account has been linked.<br>Transactions are syncing in the background.</p>
-  <button class="btn" onclick="returnToApp()">Return to app</button>
-  <script>
-    function returnToApp(){window.location.href='wealthdash://auth-complete';}
-    // Auto-attempt deep link after short delay; fall back to accounts page
-    // if the browser can't handle the scheme (desktop/web users).
-    setTimeout(function(){
-      var t=Date.now();
-      window.location.href='wealthdash://auth-complete';
-      setTimeout(function(){
-        if(Date.now()-t<1800){window.location.href='/accounts';}
-      },1500);
-    },800);
-  </script>
-</body></html>
-""")
+    if native:
+        return _bank_page(True, "truelayer", connection_id, auto_return=True)
+    return RedirectResponse(f"{APP_URL}/accounts?syncing=1&connection={connection_id}", status_code=303)
+
 
 
 if os.getenv("ENABLE_API_DOCS"):
