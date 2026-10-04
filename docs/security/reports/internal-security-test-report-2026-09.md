@@ -24,8 +24,14 @@ assessment is complete, and that statement final, only once a separate
 reviewer has signed the coverage matrix and findings. That review is
 pending (section 10), which is why this document is a v1.0 candidate.
 
-**Headline.** No Critical findings. Five High findings were raised, and fixes for all
-five are now in production.
+**Headline.** No Critical findings. Six High findings in total (four API
+and MCP, one iOS lock bypass, one pre-documented Android backup gap), all
+fixed in production. Retest status differs by finding and is stated below:
+the four API and MCP fixes were retested on 2026-09-27 (three of the
+live-deletion halves by source read only), the iOS lock bypass was retested
+on both phones on 2026-10-04, and the Android backup fix was verified on
+2026-10-04 by package-flag inspection only (the `adb backup` extraction was
+not re-run).
 
 - **A82, A83, A84, A91** (API and MCP) were fixed on `main` by 2026-09-22,
   shipped to production on 2026-09-27 (`release-20260927-0947`) and
@@ -41,6 +47,12 @@ five are now in production.
   2026-09-27, fixed and integrated on 2026-09-29, shipped in
   `release-20261001-2038`, and retested on both phones on 2026-10-04
   (`docs/security/pentest-runs/A60-2026-10-04/`): Pass.
+- **A129** (Android backup gap, the pre-documented `AND-01` / `AND-02`
+  storage-and-backup finding, High) was confirmed live in device testing on
+  2026-09-27 (`adb backup` of the debug build captured the session token) and
+  fixed under board item A129 (integrate commit `cbb05f3c`, first shipped in
+  `release-20261004-1833`). It was verified on 2026-10-04 by package-flag
+  inspection (`A60-2026-10-04`); the `adb backup` extraction was not re-run.
 
 The eleven first-round Medium and Low fixes (A74, A76, A80, A85, A86, A88,
 A89, A90, A92, A93, A95) in production from
@@ -59,9 +71,10 @@ revocation in production, but the device re-check of on-disk residue has
 not been run. A119 (Medium, the debug build's WebView is remotely
 inspectable) is closed: debug build only, with the signed release APK
 verified on 2026-09-28 as not inspectable. Follow-ups A123 (token moved to
-platform secure storage, in production, device retest pending), A129
-(Android `allowBackup`, open) and A138 (push re-registration after
-sign-in, intermittent, open) are remediation follow-ups, not new findings.
+platform secure storage, in production, device retest pending) and A138
+(push re-registration after sign-in, intermittent, open) are remediation
+follow-ups, not new findings. A129 is the fix for the Android backup High
+described above.
 Still open from the first round: A73, A77, A79, A81, A94 and the residual
 A106. Every finding is tracked individually in section 5.
 
@@ -299,7 +312,8 @@ fixes. Results:
 
 These are retest records, not new catalogue cases, so they are not counted
 in the matrix totals above. Not retested in this run: `AND-02` token-at-rest
-and `adb backup` (needs a debug build; the backup half also waits on A129),
+(needs a debug build to inspect the on-disk storage; the `adb backup` half was
+verified only by package-flag inspection, see the A129 record in section 5),
 A123 staying signed in across restarts (result pending from Kevin), and
 `AND-09` (A119 was closed by static verification of the signed release APK
 on 2026-09-28). See section 6.
@@ -351,6 +365,7 @@ carries the more conservative Low, and the board's rating governs.
 | A83 | `GET /connections` does not list live Finexer connections, hiding the connection A82's disconnect-first step needs | Connections listing route | Fixed on main | `c35ac008` | Deployed 2026-09-27 (`release-20260927-0947`, confirmed still present in `release-20260927-1844`) | Listing half confirmed Fixed live 2026-09-27 (A112); disconnect-before-delete half source-confirmed Fixed only, live retest Blocked (same as A82) |
 | A84 | A deleted account's session token is not invalidated and remains usable for up to 7 days, including for writes that can reattach if the account is recreated with the same email | Session/auth lifecycle | Fixed on main | `40fed391` | Deployed 2026-09-27 (`release-20260927-0947`, confirmed still present in `release-20260927-1844`) | Source-confirmed Fixed 2026-09-27 (A112); live retest Blocked, same as A82 |
 | A91 | MCP output masking is structural only and never sanitises kept field content; an instruction-shaped merchant/category/insight string reaches the connecting assistant unmodified (prompt-injection surface) | MCP connector output masking | Fixed on main | `9c5b7ef9` | Deployed 2026-09-27 (`release-20260927-0947`, confirmed still present in `release-20260927-1844`); connector itself is off in production (A17), so not exploitable there today | Confirmed Fixed live 2026-09-27 (A112), tested on UAT since the connector is not registered on production |
+| A129 | Android backup gap, the pre-documented `AND-01` / `AND-02` storage-and-backup finding: with `android:allowBackup="true"`, a passwordless `adb backup` of the debug build captured the session token (`A54` static review of the manifest; `A55` live, 2026-09-27). Rated High (P2) per `PENTEST-METHODOLOGY.md` section 8.4 ("the Android auto-backup extraction, if it genuinely recovers a live session token") | Android app shell, manifest backup flags | Remediated: fix integrated 2026-10-04 (board item A129) | `cbb05f3c` (integrate commit) | In production (first shipped in `release-20261004-1833`) | Verified 2026-10-04 (`A60-2026-10-04`) by package-flag inspection: Kevin's `adb shell dumpsys package co.uk.auriqltd.sorted` on the installed production APK shows `flags=[ HAS_CODE ALLOW_CLEAR_USER_DATA ]`, so no `ALLOW_BACKUP` and no `DEBUGGABLE`. An `adb backup` extraction was not re-run |
 | A121 | The iOS biometric privacy lock was bypassable: with the lock engaged (cold start or via a notification tap), the nav bar and Penny suggestion chips were tappable behind the visual overlay, and a chip tap rendered live safe-to-spend and upcoming-bills figures with no authentication. Android's equivalent overlay held | iOS lock overlay / `BiometricLock`, nav bar, Penny chips | Remediated: fix integrated 2026-09-29 | `eae3207e` (integrate commit) | In production (first shipped in `release-20261001-2038`) | Retested on device 2026-10-04 (`A60-2026-10-04`): Pass on both phones, app open and cold start from a notification tap |
 
 **A82.** WP3's live account-deletion case (`API-15`, run
@@ -439,6 +454,28 @@ reached (Pass); with the app fully closed and a push notification tapped,
 the app opens to the lock screen and the lock cannot be bypassed (Pass).
 Status: remediated and retested. The 2026-10-04 evidence is Kevin's own
 on-device observation, recorded without screenshots.
+
+**A129.** `AND-01` (static, `A54-2026-09-20`) found `android:allowBackup="true"`
+with no `fullBackupContent` or data-extraction rules, and `AND-02` (live,
+`A55-2026-09-27`) confirmed that a passwordless `adb backup` of the debug
+build captured the WebView storage with the session token byte-identical to
+the live value. It was a pre-documented gap (acknowledge clock 2026-09-18)
+rated High (P2) per the methodology. The fix, board item A129 (integrate
+commit `cbb05f3c`, first shipped in `release-20261004-1833`), sets
+`android:allowBackup="false"` and points `fullBackupContent` and
+`dataExtractionRules` at exclude-everything rules for cloud backup and
+device transfer (`capacitor-spike/scripts/setup-android-backup.sh`,
+`capacitor-spike/android-backup/`). Verification on 2026-10-04 was by
+package-flag inspection: Kevin's `adb shell dumpsys package
+co.uk.auriqltd.sorted` on the installed production APK (installed
+2026-10-04 18:31:18 phone local time, versionCode 1, versionName 1.0) shows
+`flags=[ HAS_CODE ALLOW_CLEAR_USER_DATA ]`, so neither `ALLOW_BACKUP` nor
+`DEBUGGABLE` is set. An `adb backup` extraction was not re-run. Defence in
+depth since the finding: A123 moved the native token into
+Keystore/Keychain-backed secure storage, whose keys are not backed up, and
+A118 revokes sessions server-side on logout. The `AND-02` token-at-rest
+re-check on a debug build (A118) remains pending and is separate from this
+backup half. Status: remediated, verified by package-flag inspection.
 
 **A118.** WP7b's `AND-02` case found that after an in-app logout the
 Android session token value was still recoverable from the WebView's
@@ -544,7 +581,6 @@ lifecycle as A82, A83 and A84 and is still open.
 | Id | Title | State |
 |---|---|---|
 | A123 | Move the native session token out of WebView `localStorage` into platform secure storage (Keychain on iOS, Keystore-backed storage on Android); the root cause behind A118 | In production (integrated 2026-09-29, `9c11702c`, first shipped in `release-20261001-2038`); device retest pending |
-| A129 | The Android manifest sets `android:allowBackup=true`, so app data can be captured by adb or cloud backup | Open |
 | A138 | Native push does not always re-register after sign-in (seen once on the Android APK on 2026-10-04; a later sign-in worked without a restart) | Open, intermittent |
 
 These came out of the remediation work for A118 and A120 and from the
@@ -564,7 +600,8 @@ counted among this round's findings.
 | `OPEN_SIGNUP` window on production (2026-09-19) | A roughly 36-minute window during which production's normal Google/Apple-identity allow-list gate was relaxed to create PT-A and PT-B, then closed (board item A63). The post-window check for unexpected registrations during that window was deliberately not run: this session's own permission boundary declined the read, and Kevin judged it unnecessary at the time given the gate admitted only a verified Google or Apple identity throughout, never anonymous registration | Not retrospectively checked; available to Kevin if he wants the count run later |
 | Device testing, iOS sub-steps not tested in this round | `IOS-01`, `IOS-06`, the Keychain and file-protection halves of `IOS-02`, and the instrumented halves of `IOS-04` and `IOS-05` need a Mac, a built IPA or a second signed app, none of which was available | Not tested in this round; carried as Blocked, never as passed |
 | Device testing, Android sub-steps not tested in this round | The sub-steps listed in the "Deferred" table at the end of `docs/security/pentest-runs/A55-2026-09-27/records.md` need a rooted device, Frida or a scripted instrumentation harness, none of which was available | Not tested in this round; carried as Blocked, never as passed |
-| `AND-02` token-at-rest and `adb backup` re-check (A118, A123) | Not retested on 2026-10-04: it needs a debug build to run `adb run-as` and a backup extraction, and the backup half also waits on open item A129 (Android `allowBackup`) | Not tested since the fixes shipped; owner Kevin |
+| `AND-02` token-at-rest re-check (A118, A123) | Not retested on 2026-10-04: it needs a debug build to run `adb run-as` and inspect the on-disk storage. This stays pending, separate from the backup half below | Not tested since the fixes shipped; owner Kevin |
+| `AND-01` / `AND-02` backup half (A129), `adb backup` extraction | Verified on 2026-10-04 by package-flag inspection only (`dumpsys package` shows no `ALLOW_BACKUP`). An `adb backup` extraction was not re-run, so the fix is not confirmed by the same extraction that originally failed | Package-flag Pass; extraction not re-run; owner Kevin |
 | A123 session persistence across app restarts | Whether a signed-in user stays signed in across restarts on the new builds: result pending from Kevin (`A60-2026-10-04/records.md`, "Pending result") | Pending |
 | `WEB-03` (token-in-URL redirect timing) | Blocked in `A48-2026-09-20`: all 8 live attempts on production were intercepted by Vercel's bot-verification challenge before the app mounted, so no clean observation of the fast-strip behaviour was obtained. Source review supports a synchronous strip before the validate call, but that is not what the case asks for | Blocked; owner Kevin; decision: retest recommended once production browser access is stable, or with a real non-headless browser session; not credited as Pass |
 | `WEB-05` (cache-clearing across account switch) | Blocked in `A48-2026-09-20`: the case exists to catch a live rendering gap that code review cannot see, and no live render was possible for the same reason. `AuthProvider.tsx` `logout()` was source-reviewed only | Blocked; owner Kevin; decision: retest recommended on the same terms as `WEB-03`; not credited as Pass |
@@ -623,11 +660,16 @@ acknowledgement. That target is about a fix existing and merged; it is not
 itself satisfied by deployment or retest, which this report tracks
 separately (see section 5).
 
-**A121**, the fifth High finding, was found and acknowledged on
+**A121**, a High finding, was found and acknowledged on
 2026-09-27 and its fix was integrated on `main` on 2026-09-29, inside its
 own 14-day target, which runs from that date and not from 2026-09-20/21.
 The fix first shipped in `release-20261001-2038` and was retested on device
 on 2026-10-04 (`A60-2026-10-04`).
+
+**A129** (the Android backup gap) was pre-documented, so its acknowledge
+clock is backdated to 2026-09-18. The fix was integrated on 2026-10-04
+(`cbb05f3c`), about two days outside the 14-day remediate target counted
+from that date, and first shipped in `release-20261004-1833` the same day.
 
 **Timeline, in order:**
 
@@ -650,7 +692,7 @@ on 2026-10-04 (`A60-2026-10-04`).
    ran on 2026-10-04 (`A60-2026-10-04`), against production releases
    `decd7938` and `c34332b6`.
 5. **Still open:** A73, A77, A79, A81, A94 and A106 (none is High or
-   Critical, so none blocks anything above), and the follow-ups A129 and
+   Critical, so none blocks anything above), and the follow-up
    A138. Their current state is on the board and is not restated here.
 
 ---
@@ -691,4 +733,4 @@ section 4 (Kevin decision, 2026-10-04).
 | v0.1 (DRAFT) | 2026-09-23 | First draft, produced for Finexer ahead of production release, retest and WP12; covers the 10 of 12 work packages executed 2026-09-20 to 2026-09-21 |
 | v0.1 (DRAFT, updated) | 2026-09-27 | A117: this Markdown updated in place to record WP7b (A55) and WP8 (A56) dynamic device testing, executed live 2026-09-27; coverage corrected from 10 of 12 to 12 of 12 work packages (to the extent possible without a Mac or a rooted device); five findings folded into section 5 (A118, A119, A120, A121, A122); headline corrected to five High findings, since A121 (iOS biometric-lock bypass) was not yet remediated |
 | v0.1 (DRAFT, updated) | 2026-09-28 | A117 correction: the earlier text stated that none of the four original High findings (A82, A83, A84, A91) had reached production and that no production retest had run; both were false by 2026-09-27 evening. All four shipped to production 2026-09-27 and were retested the same day (board item A112, `docs/security/pentest-runs/A112-2026-09-27/`). Section 5 corrected to record A112's actual outcome per finding. Also corrected a stale claim that A92's release gate, board item A110, was still in progress |
-| v1.0 candidate | 2026-10-04 | A60: final consolidated report. Records the 2026-10-04 on-device retest (`docs/security/pentest-runs/A60-2026-10-04/`): A120, A121 and A122 remediated and retested on both phones; A118 server-side revocation in production with the on-device residue re-check not yet run; A119 closed (debug build only). Section 5's Medium and Low tables updated with A112's 2026-09-27 retest outcomes. Follow-ups A123, A129 and A138 recorded. Section 9 rewritten as a plain testing-approach statement. WP12 recorded as a Claude-only review, the Codex half dropped (Kevin decision, 2026-10-04). "WP12 review: pending" until the reviewer's audit is recorded. PDF and HTML regenerated |
+| v1.0 candidate | 2026-10-04 | A60: final consolidated report. Records the 2026-10-04 on-device retest (`docs/security/pentest-runs/A60-2026-10-04/`): A120, A121 and A122 remediated and retested on both phones; A118 server-side revocation in production with the on-device residue re-check not yet run; A119 closed (debug build only). Section 5's Medium and Low tables updated with A112's 2026-09-27 retest outcomes. Follow-ups A123 and A138 recorded, and the pre-documented Android backup High (`AND-01` / `AND-02`, fixed under A129) added to the High table. Section 9 rewritten as a plain testing-approach statement. WP12 recorded as a Claude-only review, the Codex half dropped (Kevin decision, 2026-10-04). "WP12 review: pending" until the reviewer's audit is recorded. PDF and HTML regenerated |

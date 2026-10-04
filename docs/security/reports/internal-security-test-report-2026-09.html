@@ -192,8 +192,14 @@ severity, and retest status.</p>
 assessment is complete, and that statement final, only once a separate
 reviewer has signed the coverage matrix and findings. That review is
 pending (section 10), which is why this document is a v1.0 candidate.</p>
-<p><strong>Headline.</strong> No Critical findings. Five High findings were raised, and fixes for all
-five are now in production.</p>
+<p><strong>Headline.</strong> No Critical findings. Six High findings in total (four API
+and MCP, one iOS lock bypass, one pre-documented Android backup gap), all
+fixed in production. Retest status differs by finding and is stated below:
+the four API and MCP fixes were retested on 2026-09-27 (three of the
+live-deletion halves by source read only), the iOS lock bypass was retested
+on both phones on 2026-10-04, and the Android backup fix was verified on
+2026-10-04 by package-flag inspection only (the <code>adb backup</code> extraction was
+not re-run).</p>
 <ul>
 <li><strong>A82, A83, A84, A91</strong> (API and MCP) were fixed on <code>main</code> by 2026-09-22,
   shipped to production on 2026-09-27 (<code>release-20260927-0947</code>) and
@@ -209,6 +215,12 @@ five are now in production.</p>
   2026-09-27, fixed and integrated on 2026-09-29, shipped in
   <code>release-20261001-2038</code>, and retested on both phones on 2026-10-04
   (<code>docs/security/pentest-runs/A60-2026-10-04/</code>): Pass.</li>
+<li><strong>A129</strong> (Android backup gap, the pre-documented <code>AND-01</code> / <code>AND-02</code>
+  storage-and-backup finding, High) was confirmed live in device testing on
+  2026-09-27 (<code>adb backup</code> of the debug build captured the session token) and
+  fixed under board item A129 (integrate commit <code>cbb05f3c</code>, first shipped in
+  <code>release-20261004-1833</code>). It was verified on 2026-10-04 by package-flag
+  inspection (<code>A60-2026-10-04</code>); the <code>adb backup</code> extraction was not re-run.</li>
 </ul>
 <p>The eleven first-round Medium and Low fixes (A74, A76, A80, A85, A86, A88,
 A89, A90, A92, A93, A95) in production from
@@ -226,9 +238,10 @@ revocation in production, but the device re-check of on-disk residue has
 not been run. A119 (Medium, the debug build's WebView is remotely
 inspectable) is closed: debug build only, with the signed release APK
 verified on 2026-09-28 as not inspectable. Follow-ups A123 (token moved to
-platform secure storage, in production, device retest pending), A129
-(Android <code>allowBackup</code>, open) and A138 (push re-registration after
-sign-in, intermittent, open) are remediation follow-ups, not new findings.
+platform secure storage, in production, device retest pending) and A138
+(push re-registration after sign-in, intermittent, open) are remediation
+follow-ups, not new findings. A129 is the fix for the Android backup High
+described above.
 Still open from the first round: A73, A77, A79, A81, A94 and the residual
 A106. Every finding is tracked individually in section 5.</p>
 <p>The MCP connector is disabled in production today (<code>MCP_CONNECTOR_ENABLED</code>
@@ -682,7 +695,8 @@ fixes. Results:</p>
 </table>
 <p>These are retest records, not new catalogue cases, so they are not counted
 in the matrix totals above. Not retested in this run: <code>AND-02</code> token-at-rest
-and <code>adb backup</code> (needs a debug build; the backup half also waits on A129),
+(needs a debug build to inspect the on-disk storage; the <code>adb backup</code> half was
+verified only by package-flag inspection, see the A129 record in section 5),
 A123 staying signed in across restarts (result pending from Kevin), and
 <code>AND-09</code> (A119 was closed by static verification of the signed release APK
 on 2026-09-28). See section 6.</p>
@@ -768,6 +782,15 @@ carries the more conservative Low, and the board's rating governs.</p>
 <td><code>9c5b7ef9</code></td>
 <td>Deployed 2026-09-27 (<code>release-20260927-0947</code>, confirmed still present in <code>release-20260927-1844</code>); connector itself is off in production (A17), so not exploitable there today</td>
 <td>Confirmed Fixed live 2026-09-27 (A112), tested on UAT since the connector is not registered on production</td>
+</tr>
+<tr>
+<td>A129</td>
+<td>Android backup gap, the pre-documented <code>AND-01</code> / <code>AND-02</code> storage-and-backup finding: with <code>android:allowBackup="true"</code>, a passwordless <code>adb backup</code> of the debug build captured the session token (<code>A54</code> static review of the manifest; <code>A55</code> live, 2026-09-27). Rated High (P2) per <code>PENTEST-METHODOLOGY.md</code> section 8.4 ("the Android auto-backup extraction, if it genuinely recovers a live session token")</td>
+<td>Android app shell, manifest backup flags</td>
+<td>Remediated: fix integrated 2026-10-04 (board item A129)</td>
+<td><code>cbb05f3c</code> (integrate commit)</td>
+<td>In production (first shipped in <code>release-20261004-1833</code>)</td>
+<td>Verified 2026-10-04 (<code>A60-2026-10-04</code>) by package-flag inspection: Kevin's <code>adb shell dumpsys package co.uk.auriqltd.sorted</code> on the installed production APK shows <code>flags=[ HAS_CODE ALLOW_CLEAR_USER_DATA ]</code>, so no <code>ALLOW_BACKUP</code> and no <code>DEBUGGABLE</code>. An <code>adb backup</code> extraction was not re-run</td>
 </tr>
 <tr>
 <td>A121</td>
@@ -862,6 +885,27 @@ reached (Pass); with the app fully closed and a push notification tapped,
 the app opens to the lock screen and the lock cannot be bypassed (Pass).
 Status: remediated and retested. The 2026-10-04 evidence is Kevin's own
 on-device observation, recorded without screenshots.</p>
+<p><strong>A129.</strong> <code>AND-01</code> (static, <code>A54-2026-09-20</code>) found <code>android:allowBackup="true"</code>
+with no <code>fullBackupContent</code> or data-extraction rules, and <code>AND-02</code> (live,
+<code>A55-2026-09-27</code>) confirmed that a passwordless <code>adb backup</code> of the debug
+build captured the WebView storage with the session token byte-identical to
+the live value. It was a pre-documented gap (acknowledge clock 2026-09-18)
+rated High (P2) per the methodology. The fix, board item A129 (integrate
+commit <code>cbb05f3c</code>, first shipped in <code>release-20261004-1833</code>), sets
+<code>android:allowBackup="false"</code> and points <code>fullBackupContent</code> and
+<code>dataExtractionRules</code> at exclude-everything rules for cloud backup and
+device transfer (<code>capacitor-spike/scripts/setup-android-backup.sh</code>,
+<code>capacitor-spike/android-backup/</code>). Verification on 2026-10-04 was by
+package-flag inspection: Kevin's <code>adb shell dumpsys package
+co.uk.auriqltd.sorted</code> on the installed production APK (installed
+2026-10-04 18:31:18 phone local time, versionCode 1, versionName 1.0) shows
+<code>flags=[ HAS_CODE ALLOW_CLEAR_USER_DATA ]</code>, so neither <code>ALLOW_BACKUP</code> nor
+<code>DEBUGGABLE</code> is set. An <code>adb backup</code> extraction was not re-run. Defence in
+depth since the finding: A123 moved the native token into
+Keystore/Keychain-backed secure storage, whose keys are not backed up, and
+A118 revokes sessions server-side on logout. The <code>AND-02</code> token-at-rest
+re-check on a debug build (A118) remains pending and is separate from this
+backup half. Status: remediated, verified by package-flag inspection.</p>
 <p><strong>A118.</strong> WP7b's <code>AND-02</code> case found that after an in-app logout the
 Android session token value was still recoverable from the WebView's
 append-only Local Storage log on disk (on a debug build, via <code>adb run-as</code>),
@@ -1166,11 +1210,6 @@ lifecycle as A82, A83 and A84 and is still open.</p>
 <td>In production (integrated 2026-09-29, <code>9c11702c</code>, first shipped in <code>release-20261001-2038</code>); device retest pending</td>
 </tr>
 <tr>
-<td>A129</td>
-<td>The Android manifest sets <code>android:allowBackup=true</code>, so app data can be captured by adb or cloud backup</td>
-<td>Open</td>
-</tr>
-<tr>
 <td>A138</td>
 <td>Native push does not always re-register after sign-in (seen once on the Android APK on 2026-10-04; a later sign-in worked without a restart)</td>
 <td>Open, intermittent</td>
@@ -1222,9 +1261,14 @@ counted among this round's findings.</p>
 <td>Not tested in this round; carried as Blocked, never as passed</td>
 </tr>
 <tr>
-<td><code>AND-02</code> token-at-rest and <code>adb backup</code> re-check (A118, A123)</td>
-<td>Not retested on 2026-10-04: it needs a debug build to run <code>adb run-as</code> and a backup extraction, and the backup half also waits on open item A129 (Android <code>allowBackup</code>)</td>
+<td><code>AND-02</code> token-at-rest re-check (A118, A123)</td>
+<td>Not retested on 2026-10-04: it needs a debug build to run <code>adb run-as</code> and inspect the on-disk storage. This stays pending, separate from the backup half below</td>
 <td>Not tested since the fixes shipped; owner Kevin</td>
+</tr>
+<tr>
+<td><code>AND-01</code> / <code>AND-02</code> backup half (A129), <code>adb backup</code> extraction</td>
+<td>Verified on 2026-10-04 by package-flag inspection only (<code>dumpsys package</code> shows no <code>ALLOW_BACKUP</code>). An <code>adb backup</code> extraction was not re-run, so the fix is not confirmed by the same extraction that originally failed</td>
+<td>Package-flag Pass; extraction not re-run; owner Kevin</td>
 </tr>
 <tr>
 <td>A123 session persistence across app restarts</td>
@@ -1329,11 +1373,15 @@ same day they were found (2026-09-20/21) and fixed on <code>main</code> by
 acknowledgement. That target is about a fix existing and merged; it is not
 itself satisfied by deployment or retest, which this report tracks
 separately (see section 5).</p>
-<p><strong>A121</strong>, the fifth High finding, was found and acknowledged on
+<p><strong>A121</strong>, a High finding, was found and acknowledged on
 2026-09-27 and its fix was integrated on <code>main</code> on 2026-09-29, inside its
 own 14-day target, which runs from that date and not from 2026-09-20/21.
 The fix first shipped in <code>release-20261001-2038</code> and was retested on device
 on 2026-10-04 (<code>A60-2026-10-04</code>).</p>
+<p><strong>A129</strong> (the Android backup gap) was pre-documented, so its acknowledge
+clock is backdated to 2026-09-18. The fix was integrated on 2026-10-04
+(<code>cbb05f3c</code>), about two days outside the 14-day remediate target counted
+from that date, and first shipped in <code>release-20261004-1833</code> the same day.</p>
 <p><strong>Timeline, in order:</strong></p>
 <ol>
 <li><strong>A110</strong> (trusted-proxy hop handling) was done on 2026-09-24; it
@@ -1355,7 +1403,7 @@ on 2026-10-04 (<code>A60-2026-10-04</code>).</p>
    ran on 2026-10-04 (<code>A60-2026-10-04</code>), against production releases
    <code>decd7938</code> and <code>c34332b6</code>.</li>
 <li><strong>Still open:</strong> A73, A77, A79, A81, A94 and A106 (none is High or
-   Critical, so none blocks anything above), and the follow-ups A129 and
+   Critical, so none blocks anything above), and the follow-up
    A138. Their current state is on the board and is not restated here.</li>
 </ol>
 <hr />
@@ -1410,7 +1458,7 @@ section 4 (Kevin decision, 2026-10-04).</p>
 <tr>
 <td>v1.0 candidate</td>
 <td>2026-10-04</td>
-<td>A60: final consolidated report. Records the 2026-10-04 on-device retest (<code>docs/security/pentest-runs/A60-2026-10-04/</code>): A120, A121 and A122 remediated and retested on both phones; A118 server-side revocation in production with the on-device residue re-check not yet run; A119 closed (debug build only). Section 5's Medium and Low tables updated with A112's 2026-09-27 retest outcomes. Follow-ups A123, A129 and A138 recorded. Section 9 rewritten as a plain testing-approach statement. WP12 recorded as a Claude-only review, the Codex half dropped (Kevin decision, 2026-10-04). "WP12 review: pending" until the reviewer's audit is recorded. PDF and HTML regenerated</td>
+<td>A60: final consolidated report. Records the 2026-10-04 on-device retest (<code>docs/security/pentest-runs/A60-2026-10-04/</code>): A120, A121 and A122 remediated and retested on both phones; A118 server-side revocation in production with the on-device residue re-check not yet run; A119 closed (debug build only). Section 5's Medium and Low tables updated with A112's 2026-09-27 retest outcomes. Follow-ups A123 and A138 recorded, and the pre-documented Android backup High (<code>AND-01</code> / <code>AND-02</code>, fixed under A129) added to the High table. Section 9 rewritten as a plain testing-approach statement. WP12 recorded as a Claude-only review, the Codex half dropped (Kevin decision, 2026-10-04). "WP12 review: pending" until the reviewer's audit is recorded. PDF and HTML regenerated</td>
 </tr>
 </tbody>
 </table>
