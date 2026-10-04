@@ -312,7 +312,7 @@ await t("source (A135 review 2): establishSession retries a transient failure on
 });
 
 // ------------------------------------------------------------------ G202
-import { SLOW_AFTER_MS, derivePhase, failedCopy, signingCopy } from "../lib/signInPhase.ts";
+import { createRunGuard, SLOW_AFTER_MS, derivePhase, failedCopy, signingCopy } from "../lib/signInPhase.ts";
 import { boundedSignal } from "../lib/abortBound.ts";
 
 const lsSrc = read("components/LoginScreen.tsx");
@@ -349,7 +349,8 @@ await t("G202: failure notice is role=alert and takes focus (and replaces the al
   assert.ok(/tabIndex=\{-1\}/.test(fn) && /ref\.current\?\.focus\(\)/.test(fn));
   assert.ok(/<FailedNotice key=\{noticeSeq\} reason=\{phase\.reason\} \/>/.test(lsSrc), "rendered from the phase, remounted per failure");
   assert.equal(failedCopy("failed").title, "We could not sign you in");
-  assert.equal(failedCopy("timeout").title, "Sign-in timed out");
+  assert.equal(failedCopy("timeout").title, "Sign-in took too long");
+  assert.ok(!/minute|five|\d/.test(failedCopy("timeout").line + failedCopy("timeout").title), "no duration in the timeout copy");
   assert.notEqual(failedCopy("failed").line, failedCopy("timeout").line);
 });
 
@@ -372,7 +373,7 @@ await t("G202 cancel: aborting the loop stops polling, closes the sheet, removes
 await t("G202 cancel: clears the pending login and a token that raced in; a poll in flight cannot store one", () => {
   const c = between(naSrc, "export function cancelNativeLogin", "// D5: distinguishes");
   assert.ok(/loginAbort\?\.abort\(\)/.test(c) && /clearPendingLogin\(\)/.test(c) && /clearToken\(\)/.test(c) && /applySuppressed = true/.test(c));
-  assert.ok(/applySuppressed \? Promise\.resolve\(\) : setTokenAsync\(t\)/.test(naSrc));
+  assert.ok(/if \(applySuppressed\) return Promise\.resolve\(\);/.test(naSrc));
   const g = between(naSrc, "async function googleLoginInner", "// A133 / A135");
   assert.ok(/runMobileLoginLoop\(loopDeps\(pending\), signal\)/.test(g), "the live loop gets the abort signal");
   assert.ok(/signal\.aborted\) \{[\s\S]*clearPendingLogin\(\);[\s\S]*return "cancelled"/.test(g), "cancel during open");
@@ -450,6 +451,55 @@ await t("G202: the preview renders the production LoginScreen, with no copied va
   assert.ok(/import LoginScreen/.test(pv) && /<LoginScreen phase=\{phase\} nowMs=\{nowMs\} \/>/.test(pv));
   assert.ok(!/variants/.test(pv) && !/renderPhase/.test(pv));
   assert.ok(!/renderPhase|hideMarkWhileSigningIn/.test(lsSrc));
+});
+
+await t("G202 review 1: the resume signal is dropped whenever a user is set, and failed is set only when no user resulted", () => {
+  assert.ok(/useEffect\(\(\) => \{\s*if \(user\) setResuming\(null\);\s*\}, \[user\]\);/.test(apSrc), "any user clears resuming (init, late success, establishSession)");
+  assert.ok(/let signedIn = false;/.test(apSrc) && /signedIn = true;/.test(apSrc));
+  assert.ok(/setResuming\(\(r\) => \(signedIn \? null :/.test(apSrc), "init: null when a user resulted, failed only otherwise");
+  assert.ok(/setResuming\(\(r\) => \(o === "ok" \? null :/.test(apSrc), "late success: null on ok, failed only otherwise");
+});
+
+await t("G202 review 1 (behavioural model): after a sign-out a concluded resume leaves no panel", () => {
+  // the exact reducer shape AuthProvider uses, driven through success then sign-out
+  let resuming = { startedAt: 1, stage: "session" };
+  let user = null;
+  const conclude = (signedIn) => { resuming = signedIn ? null : resuming && resuming.stage === "session" && !resuming.ended ? { ...resuming, ended: "failed" } : resuming; };
+  user = { email: "a@b" }; conclude(true);
+  user = null; // later sign-out
+  assert.equal(derivePhase({ kind: "idle" }, resuming).kind, "idle");
+  let r2 = { startedAt: 1, stage: "session" };
+  r2 = false ? null : r2 && r2.stage === "session" && !r2.ended ? { ...r2, ended: "failed" } : r2;
+  assert.equal(derivePhase({ kind: "idle" }, r2).kind, "failed", "no user: failed is still shown");
+});
+
+await t("G202 review 2: Cancel clears only a token this attempt minted", () => {
+  const c = between(naSrc, "export function cancelNativeLogin", "// D5: distinguishes");
+  assert.ok(/if \(attemptMintedToken\) \{[\s\S]*clearToken\(\)/.test(c) && !/\n  clearToken\(\);/.test(c), "clearToken only behind the flag");
+  assert.ok(/attemptMintedToken = false;\s*\n\s*const ctrl = new AbortController/.test(naSrc), "reset at the start of each attempt");
+  assert.ok(/attemptMintedToken = true;\s*\n\s*return setTokenAsync\(t\)/.test(naSrc), "google and resume poll mint");
+  assert.ok(/attemptMintedToken = true;\s*\n\s*await setTokenAsync\(data\.session_token\)/.test(naSrc), "apple mints");
+});
+
+await t("G202 review 3: Cancel during resume shows the idle form at once and the init result is ignored", () => {
+  const c = between(apSrc, "function cancelResume", "useEffect(() => {\n    async function init");
+  assert.ok(/resumeCancelledRef\.current = true;[\s\S]*setResuming\(null\);[\s\S]*setChecking\(false\);/.test(c));
+  assert.ok(/resumeCancelledRef\.current = false; \/\/ each resume starts uncancelled/.test(apSrc));
+  assert.ok(/data\.email && resumeCancelledRef\.current/.test(apSrc), "init validate result ignored when cancelled");
+});
+
+await t("G202 review 4: a stale result from a cancelled attempt must not change the phase (run guard)", () => {
+  const g = createRunGuard();
+  const a = g.next();
+  assert.ok(g.isCurrent(a));
+  g.cancel();
+  assert.ok(!g.isCurrent(a), "cancelled run is stale");
+  const b = g.next();
+  assert.ok(!g.isCurrent(a) && g.isCurrent(b), "superseded run is stale");
+  // LoginScreen applies the guard after every await before touching the phase
+  const run = between(lsSrc, "async function establish(", "function retrySessionCheck");
+  assert.equal((run.match(/if \(!runRef\.current\.isCurrent\(run\)\) return;/g) || []).length, 2, "after the sign-in await and after the session await");
+  assert.ok(/runRef\.current\.cancel\(\)/.test(between(lsSrc, "function cancelSignIn", "function dismissPhase")));
 });
 
 if (failures) { console.error(failures + " failed"); process.exit(1); }
