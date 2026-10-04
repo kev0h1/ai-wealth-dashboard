@@ -38,8 +38,17 @@ export default function FirstSyncClient() {
   const dark = params.get("mode") === "dark";
 
   useEffect(() => {
-    document.documentElement.classList.toggle("dark", dark);
+    // PreferencesProvider's own effect runs after this one and strips the
+    // class (its darkMode is false when signed out), so keep re-applying.
+    const root = document.documentElement;
+    const apply = () => {
+      if (root.classList.contains("dark") !== dark) root.classList.toggle("dark", dark);
+    };
+    apply();
+    const obs = new MutationObserver(apply);
+    obs.observe(root, { attributes: true, attributeFilter: ["class"] });
     document.querySelector('meta[name="color-scheme"]')?.setAttribute("content", dark ? "dark" : "light");
+    return () => obs.disconnect();
   }, [dark]);
 
   const href = (over: Record<string, string>) =>
