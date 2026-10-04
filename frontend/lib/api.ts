@@ -700,7 +700,9 @@ export type SafeToSpend =
       allocations_reserved?: number;
       allocations_count?: number;
       /** Optional calculation health for rolling API deployments. */
-      calculation_status?: "complete" | "degraded";
+      calculation_status?: "complete" | "degraded" | "syncing";
+      /** G210: first-sync state behind a "syncing" status. */
+      sync_state?: "idle" | "syncing" | "stalled" | "failed";
       unavailable_components?: string[];
       /** Non-null only when state === "short" — which kind of shortfall.
        * `cards` is retained only for historical design fixtures. */
@@ -2495,6 +2497,17 @@ export type DismissedSeriesResponse = {
   engine: DismissedEngineRow[];
 };
 
+export type SyncStatus = {
+  state: "idle" | "syncing" | "stalled" | "failed";
+  connections: {
+    provider: "finexer" | "truelayer";
+    connection_id?: string | null;
+    bank?: string | null;
+    started_at?: string | null;
+    error?: string | null;
+  }[];
+};
+
 export const api = {
   health: () => get<{ status: string; truelayer_configured: boolean }>("/health"),
   getProfile: () => get<UserProfile>("/profile"),
@@ -2545,6 +2558,8 @@ export const api = {
   // backend/app/routers/accounts.py:list_connections.
   connections: () => get<Connection[]>("/connections"),
   syncAccounts: () => post<{ message: string; total_accounts: number }>("/accounts/sync"),
+  /** G210: first-sync state for Home (idle / syncing / stalled / failed). */
+  getSyncStatus: () => get<SyncStatus>("/sync/status"),
   transactions: (accountId: string, opts?: {
     page?: number; pageSize?: number; q?: string; category?: string; days?: number;
     txnType?: "debit" | "credit";

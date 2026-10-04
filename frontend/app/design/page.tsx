@@ -32,6 +32,13 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "first-sync",
+    name: "First bank sync state · G210",
+    description:
+      "G210: what Home shows while a first bank sync is running, stuck or failed, instead of the connect hero and a red verdict computed from partial data · a calm ledger (bank connected, fetching transactions, working out your figures) reusing the G202 sign-in ledger, a stalled state after 10 minutes with Try again, a failed state with Try again and Connect a different bank, and Safe to Spend's own syncing branch with no figure and no verdict · no red, no gradient · renders the production FirstSyncCard and SafeToSpendCard with fixture props, nothing syncs · ?state=syncing|stalled|failed|sts-syncing&mode=light|dark",
+    states: [{ label: "Syncing", value: "syncing" }, { label: "Stalled", value: "stalled" }, { label: "Failed", value: "failed" }, { label: "Safe to Spend, syncing", value: "sts-syncing" }],
+  },
+  {
     slug: "app-lock",
     name: "App lock screen · G203 · approved A, folded in",
     description:
