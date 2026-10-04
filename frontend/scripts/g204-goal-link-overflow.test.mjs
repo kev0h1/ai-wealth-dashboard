@@ -30,6 +30,8 @@ for (const file of ["../components/upcoming/GoalSourceForm.tsx", "../components/
 // The shared picker row stays shrinkable and tidies raw names.
 const picker = source("../components/AccountRadioPicker.tsx");
 assert.match(picker, /flex-1 min-w-0/);
-assert.match(picker, /truncate">\{tidyAccountText\(account\.name\)\}/);
 assert.doesNotMatch(picker, /\bw-\[\d+px\]|min-w-\[\d+px\]/);
+assert.equal(tidyAccountText("BARCLAYS BANK PLC"), "Barclays bank PLC");
+assert.match(picker, /account\.manual \? account\.name : tidyAccountText\(account\.name\)/, "typed manual names are never tidied");
+assert.match(picker, /if \(account\.manual\) return account\.provider/);
 console.log("g204-goal-link-overflow OK");

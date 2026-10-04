@@ -1,9 +1,10 @@
 /** G204: provider and account names often arrive as raw upper-case strings
  *  ("PENTESTCANARYBANK"). Rows that show them sentence-case a name only when it
- *  has no lower-case letters at all, so a name the user typed or a bank's own
- *  mixed-case name is never altered. Known acronyms ("HSBC UK") and tokens with
- *  an ampersand or digits ("NS&I", "M&S", "365") keep their capitals. */
-const ACRONYMS = new Set(["HSBC", "TSB", "RBS", "UK", "ISA", "BOS", "AIB", "JLP", "PCA", "GBP"]);
+ *  has no lower-case letters at all, so a bank's own mixed-case name is never
+ *  altered. Callers apply it to provider-sourced accounts only: a name the user
+ *  typed on a manual account (account.manual) is shown exactly as typed.
+ *  Known acronyms ("HSBC UK") and tokens with an ampersand or digits ("NS&I", "M&S", "365") keep their capitals. */
+const ACRONYMS = new Set(["HSBC", "TSB", "RBS", "UK", "ISA", "BOS", "AIB", "JLP", "PCA", "PLC", "GBP"]);
 
 function keepsCapitals(token: string): boolean {
   return token.includes("&") || /\d/.test(token) || ACRONYMS.has(token.replace(/[^A-Z]/g, ""));

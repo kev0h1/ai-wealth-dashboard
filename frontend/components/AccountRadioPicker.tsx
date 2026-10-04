@@ -50,6 +50,7 @@ function rankAccounts(accounts: Account[]): Account[] {
 
 /** Curated brand label when we have one, otherwise the provider tidied from raw upper case. */
 function providerCaption(account: Account): string {
+  if (account.manual) return account.provider;
   const brand = accountBrand(account);
   return brand.label === account.provider ? tidyAccountText(account.provider) : brand.label;
 }
@@ -83,7 +84,7 @@ function AccountRow({
     >
       <BankBadge logoSrc={brand.logoSrc} initials={brand.initials} altText={brand.label} brandBg={brand.background} />
       <span className="flex-1 min-w-0">
-        <span className="block text-sm font-medium text-slate-900 dark:text-slate-100 truncate">{tidyAccountText(account.name)}</span>
+        <span className="block text-sm font-medium text-slate-900 dark:text-slate-100 truncate">{account.manual ? account.name : tidyAccountText(account.name)}</span>
         <span className="block text-xs text-slate-400 dark:text-slate-500 truncate">{balanceCaption(account)}</span>
       </span>
       <RadioDot selected={value === account.id} />
