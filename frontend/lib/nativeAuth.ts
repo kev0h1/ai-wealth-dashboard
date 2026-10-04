@@ -3,8 +3,8 @@ import { Capacitor } from "@capacitor/core";
 import { Browser } from "@capacitor/browser";
 import { App } from "@capacitor/app";
 import { API_BASE, api, gatedFetch } from "./api";
-import { getToken, setTokenAsync } from "./auth";
-import { runMobileLoginLoop } from "./mobileLoginLoop";
+import { getToken, setTokenAsync, clearToken } from "./auth";
+import { runMobileLoginLoop, type LoginResult } from "./mobileLoginLoop";
 import {
   PENDING_LOGIN_TTL_MS,
   clearPendingLogin,
@@ -192,13 +192,50 @@ export async function nativeAppleAuthorize(): Promise<{ identityToken: string; f
   }
 }
 
+// G202: one live native sign-in at a time. Cancel aborts it (stops the poll
+// loop, closes the sheet), drops the persisted pending login, and discards any
+// token that raced in, so a cancelled attempt can never sign the user in later
+// (including after a relaunch).
+export type NativeLoginResult = "ok" | "invite_only" | "failed" | "timeout" | "cancelled";
+let loginAbort: AbortController | null = null;
+let applySuppressed = false;
+
+function beginLogin(): AbortController {
+  loginAbort?.abort();
+  applySuppressed = false;
+  const ctrl = new AbortController();
+  loginAbort = ctrl;
+  return ctrl;
+}
+
+function endLogin(ctrl: AbortController) {
+  if (loginAbort === ctrl) loginAbort = null;
+}
+
+export function cancelNativeLogin(): void {
+  applySuppressed = true;
+  loginAbort?.abort();
+  clearPendingLogin();
+  clearToken();
+}
+
 // D5: distinguishes an allow-list refusal (backend 403 detail
 // {code: "INVITE_ONLY"}) from every other failure, same "ok" | <specific
 // reason> | "failed" shape as linkAppleIdentity below, so LoginScreen can
 // show the calm "Sorted is invite-only right now" screen instead of the
 // generic "Sign-in failed" alert.
-export async function nativeAppleLogin(): Promise<"ok" | "invite_only" | "failed"> {
+export async function nativeAppleLogin(): Promise<NativeLoginResult> {
+  const ctrl = beginLogin();
+  try {
+    return await appleLoginInner(ctrl.signal);
+  } finally {
+    endLogin(ctrl);
+  }
+}
+
+async function appleLoginInner(signal: AbortSignal): Promise<NativeLoginResult> {
   const authResult = await nativeAppleAuthorize();
+  if (signal.aborted) return "cancelled";
   if (!authResult) return "failed";
   const { identityToken, fullName } = authResult;
 
@@ -207,6 +244,7 @@ export async function nativeAppleLogin(): Promise<"ok" | "invite_only" | "failed
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ identityToken, fullName }),
+      signal,
     });
     if (!res.ok) {
       if (res.status === 403) {
@@ -217,12 +255,14 @@ export async function nativeAppleLogin(): Promise<"ok" | "invite_only" | "failed
       return "failed";
     }
     const data = await res.json();
+    if (signal.aborted) return "cancelled"; // Cancel: the token is never kept
     if (data.ok && data.session_token) {
       await setTokenAsync(data.session_token);
       return "ok";
     }
     return "failed";
   } catch (err) {
+    if (signal.aborted) return "cancelled";
     reportAppleSignInDiagnostic("appleSignInExchange", err instanceof Error ? err.message : err);
     return "failed";
   }
@@ -285,7 +325,12 @@ async function postPoll(p: PendingLogin): Promise<PollReply | null> {
 // setTokenAsync puts the token in memory before it awaits anything and never
 // rejects or hangs (bounded write), so the server-released token cannot be
 // lost to a storage failure.
-const pollShared = createSharedPoller({ post: postPoll, applyToken: setTokenAsync });
+const pollShared = createSharedPoller({
+  post: postPoll,
+  // G202: a poll that was already in flight when the user cancelled must not
+  // store the token it gets back.
+  applyToken: (t) => (applySuppressed ? Promise.resolve() : setTokenAsync(t)),
+});
 
 function loopDeps(p: PendingLogin, timeoutMs?: number) {
   return {
@@ -303,7 +348,16 @@ function loopDeps(p: PendingLogin, timeoutMs?: number) {
   };
 }
 
-export async function nativeGoogleLogin(): Promise<"ok" | "invite_only" | "failed"> {
+export async function nativeGoogleLogin(): Promise<NativeLoginResult> {
+  const ctrl = beginLogin();
+  try {
+    return await googleLoginInner(ctrl.signal);
+  } finally {
+    endLogin(ctrl);
+  }
+}
+
+async function googleLoginInner(signal: AbortSignal): Promise<NativeLoginResult> {
   // A133: state is 128 bits from the CSPRNG ("m" + 32 hex). It is NOT a
   // secret (it is in logged URLs); redemption needs the separate pollSecret,
   // whose sha256 is sent as `challenge`. The secret itself is never in a URL.
@@ -327,8 +381,14 @@ export async function nativeGoogleLogin(): Promise<"ok" | "invite_only" | "faile
     clearPendingLogin();
     return "failed";
   }
-  const result = await runMobileLoginLoop(loopDeps(pending));
-  clearPendingLogin(); // success, failure and expiry all end here
+  if (signal.aborted) {
+    // Cancelled while the sheet was still opening: close it, nothing to poll.
+    clearPendingLogin();
+    void Promise.resolve(Browser.close()).catch(() => {});
+    return "cancelled";
+  }
+  const result: LoginResult = await runMobileLoginLoop(loopDeps(pending), signal);
+  clearPendingLogin(); // success, failure, expiry and cancel all end here
   return result;
 }
 
@@ -338,7 +398,12 @@ export async function nativeGoogleLogin(): Promise<"ok" | "invite_only" | "faile
 // proceeds as signed in), "pending" when the login has not completed yet (a
 // background loop keeps polling until the record expires, then calls
 // onLateSuccess), "none" otherwise.
-export async function resumePendingLogin(onLateSuccess?: () => void): Promise<"ok" | "pending" | "none"> {
+export async function resumePendingLogin(
+  onLateSuccess?: () => void,
+  // G202: called with how a background (late) resume ended, success included,
+  // so the screen can stop saying "signing in" or say why it stopped.
+  onLateSettled?: (result: LoginResult) => void,
+): Promise<"ok" | "pending" | "none"> {
   if (!isNativePlatform()) return "none";
   const pending = loadPendingLogin();
   if (!pending) return "none";
@@ -346,20 +411,26 @@ export async function resumePendingLogin(onLateSuccess?: () => void): Promise<"o
     clearPendingLogin();
     return "none";
   }
+  const ctrl = beginLogin();
   const first = await pollShared(pending);
+  if (ctrl.signal.aborted) return "none"; // cancelled during the first poll
   if (first === "ok") {
+    endLogin(ctrl);
     clearPendingLogin();
     return "ok";
   }
   if (first === "invite_only" || first === "err") {
+    endLogin(ctrl);
     clearPendingLogin();
     return "none";
   }
   const remaining = Math.max(1000, PENDING_LOGIN_TTL_MS - (Date.now() - pending.startedAt));
-  void runMobileLoginLoop(loopDeps(pending, remaining)).then((r) => {
+  void runMobileLoginLoop(loopDeps(pending, remaining), ctrl.signal).then((r) => {
+    endLogin(ctrl);
     // Only clear our own record: a newer login may have replaced it.
     if (loadPendingLogin()?.state === pending.state) clearPendingLogin();
     if (r === "ok") onLateSuccess?.();
+    onLateSettled?.(r);
   });
   return "pending";
 }
