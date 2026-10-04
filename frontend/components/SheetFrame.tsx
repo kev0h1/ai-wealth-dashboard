@@ -93,8 +93,8 @@ export function SheetFrame({
   const backdropRef = useRef<HTMLButtonElement>(null);
   const swipe = useSwipeDismiss<HTMLElement>(() => close(), {
     axis: "y", sign: 1, dismissFraction: 0.2, flickVelocity: 0.4,
-    enabled: !dismissDisabled, fade: false, companionRef: backdropRef, restoreAfterMs: 400,
-    canStart: e => sheetSwipeAllowed(e.pointerType, window.innerWidth) && canStartSheetSwipe(
+    fade: false, companionRef: backdropRef, restoreAfterMs: 400,
+    canStart: e => !dismissDisabled && sheetSwipeAllowed(e.pointerType ?? "touch", window.innerWidth) && canStartSheetSwipe(
       e.target as unknown as SwipeNode,
       { handle: handleRef.current as unknown as SwipeNode, header: headerRef.current as unknown as SwipeNode, body: bodyEl.current as unknown as SwipeNode },
     ),

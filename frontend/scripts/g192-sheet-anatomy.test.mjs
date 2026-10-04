@@ -30,7 +30,7 @@ assert.match(frame, /aria-modal="true"/);
 assert.match(frame, /useId\(/);
 assert.match(frame, /lockScroll: true, backToClose: manageHistory/);
 assert.match(frame, /data-sheet-body className=\{`min-h-0 flex-1 overflow-y-auto/);
-assert.match(frame, /<header className="flex shrink-0/);
+assert.match(frame, /<header ref={headerRef} className="flex shrink-0/);
 assert.match(frame, /<footer data-sheet-footer className="shrink-0/);
 assert.match(frame, /safe-area-inset-bottom/);
 assert.match(frame, /variant = "focused"/);
@@ -39,6 +39,17 @@ assert.match(frame, /visualViewport/);
 assert.match(frame, /max-h-\[88%\]/);
 assert.match(frame, /document.body/);
 assert.match(frame, /z-\[70\]/);
+
+
+// G205: swipe-down dismiss on the shared frame.
+assert.match(frame, /useSwipeDismiss<HTMLElement>\(\(\) => close\(\)/, "swipe ends in the same close() the X uses");
+assert.equal((frame.match(/useSheetA11y</g) ?? []).length, 1, "one close path: a single useSheetA11y");
+assert.doesNotMatch(frame, /onClose\(\)[\s\S]{0,40}swipe|swipe[\s\S]{0,60}onCloseRef/, "swipe never calls onClose directly");
+assert.match(frame, /!dismissDisabled && sheetSwipeAllowed/, "dismissDisabled switches the gesture off");
+assert.match(frame, /axis: "y", sign: 1/);
+assert.match(frame, /data-sheet-handle[^>]*lg:hidden|lg:hidden[^>]*data-sheet-handle/, "grab bar is phones only");
+assert.match(frame, /headerRef[\s\S]*touch-none/, "header does not pan the page");
+assert.match(frame, /addEventListener\("touchmove", block, \{ passive: false \}\)/, "native pan cancelled while dragging");
 
 function GoalHarness({ data, pinned = false, appearance = "legacy" }) {
   const editor = useSavingsGoalEditor({ data, sym: "£", hideValues: false, onSaved: noop, operations, appearance });
