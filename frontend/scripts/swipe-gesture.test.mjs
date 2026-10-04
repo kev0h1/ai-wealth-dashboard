@@ -80,6 +80,12 @@ function check(label, cond) {
   h.start(100, 100, 0);
   check("vertical variant ignores horizontal-first", h.move(140, 102).offset === 0 && h.phase === "ignored");
 }
+// Explicit undefined options (as the React hook forwards them) keep defaults.
+{
+  const g = createSwipeGesture({ axis: "x", sign: -1, lockPx: undefined, dismissFraction: undefined, flickVelocity: undefined });
+  g.start(300, 100, 0);
+  check("undefined options keep defaults and still lock", g.move(280, 100).capture === true);
+}
 // Reduced motion.
 {
   const g = createSwipeGesture({ reducedMotion: true });
@@ -97,6 +103,7 @@ check("HomeInsightSpotlight has no raw setPointerCapture or style.transform", !/
 const hook = readFileSync(new URL("../lib/useSwipeDismiss.ts", import.meta.url), "utf8");
 check("hook handles pointercancel", /onPointerCancel/.test(hook));
 check("hook handles lostpointercapture", /onLostPointerCapture/.test(hook));
+check("hook ignores bubbled implicit-capture loss (target !== currentTarget)", /e\.target !== e\.currentTarget/.test(hook));
 check("hook captures only on confirmed lock", /m\.capture/.test(hook) && !/onPointerDown[\s\S]{0,300}setPointerCapture/.test(hook));
 check("hook honours prefers-reduced-motion", /prefers-reduced-motion/.test(hook));
 for (const f of ["SwipeToDelete.tsx", "upcoming/SwipeDismissRow.tsx"]) {

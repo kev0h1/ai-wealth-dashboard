@@ -62,7 +62,10 @@ export const SWIPE_DEFAULTS = {
 };
 
 export function createSwipeGesture(options: SwipeOptions = {}) {
-  const o = { ...SWIPE_DEFAULTS, reducedMotion: false, ...options };
+  // Explicit `undefined` values (a hook forwarding optional props) must not
+  // clobber the defaults, so drop them before merging.
+  const defined = Object.fromEntries(Object.entries(options).filter(([, v]) => v !== undefined)) as SwipeOptions;
+  const o = { ...SWIPE_DEFAULTS, reducedMotion: false, ...defined };
   let phase: SwipePhase = "idle";
   let x0 = 0;
   let y0 = 0;

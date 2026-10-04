@@ -89,7 +89,12 @@ export function useSwipeDismiss<T extends HTMLElement>(onDismiss: () => void, op
     onPointerCancel() {
       if (gesture.cancel() && ref.current) reset(ref.current);
     },
-    onLostPointerCapture() {
+    onLostPointerCapture(e: React.PointerEvent<T>) {
+      // Touch pointers are implicitly captured by the element under the
+      // finger; our own setPointerCapture on the card releases that one,
+      // and its lostpointercapture bubbles up here. Only a loss on the card
+      // itself (or the pointer ending) means the drag is over.
+      if (e.target !== e.currentTarget) return;
       if (gesture.cancel() && ref.current) reset(ref.current);
     },
   };
