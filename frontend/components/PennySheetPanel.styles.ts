@@ -5,8 +5,10 @@ export const PENNY_PANEL_CSS = `
   position: fixed;
   z-index: 58;
   inset-inline: 0;
-  bottom: calc(110px + env(safe-area-inset-bottom, 0px));
-  padding-inline: 12px;
+  --penny-safe-top: max(env(safe-area-inset-top, 0px), var(--penny-safe-top-fallback, 0px));
+  --penny-safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--penny-safe-bottom-fallback, 0px));
+  bottom: calc(110px + var(--penny-safe-bottom));
+  padding-inline: max(12px, env(safe-area-inset-left, 0px)) max(12px, env(safe-area-inset-right, 0px));
 }
 
 .penny-keyboard-panel {
@@ -33,23 +35,26 @@ export const PENNY_PANEL_CSS = `
    interactive-widget=resizes-content a portrait phone with its keyboard up
    also measures short and wide. */
 @media (max-height: 480px) and (max-width: 1023px) {
-  .penny-keyboard-frame[data-penny-device="landscape"]:not(.penny-keyboard-typing) { bottom: 8px; }
-  .penny-keyboard-frame[data-penny-device="landscape"] .penny-keyboard-panel { min-height: 0; height: calc(100dvh - 16px); max-height: calc(100dvh - 16px); }
+  .penny-keyboard-frame[data-penny-device="landscape"]:not(.penny-keyboard-typing) { bottom: calc(8px + var(--penny-safe-bottom)); }
+  .penny-keyboard-frame[data-penny-device="landscape"] .penny-keyboard-panel { min-height: 0; height: calc(100dvh - 16px - var(--penny-safe-top) - var(--penny-safe-bottom)); max-height: calc(100dvh - 16px - var(--penny-safe-top) - var(--penny-safe-bottom)); }
   .penny-keyboard-frame[data-penny-device="landscape"] [data-penny-secondary] { display: none; }
 }
 
 /* Typing (G197, Codex's approved variant B restored over the G196 dock
    mechanics): a full-width conversation-first takeover. The window spans the
-   visible area, from 8px inside the top (safe-area aware) down to the keyboard
+   visible area, from 8px plus the top safe-area inset below the visible top down to the keyboard
    top, with no side inset. The header links row and the question chips yield
    their space (data-penny-secondary), so the thread (flex-1, min-h-0) takes the
    slack and the composer with its general-information note sits on the
    keyboard edge. The header rule gets a clear gap below the 44px close button
    (data-penny-header-rule), which otherwise overhangs the compact header row
    and touches it. No transition, so nothing animates or jumps as the keyboard
-   opens or closes (reduced-motion safe by construction). */
+   opens or closes (reduced-motion safe by construction). G206: the top is the
+   visual-viewport top PLUS the safe-area inset, never max() of the two: the
+   visual top (offsetTop) is measured from the screen edge, under the status
+   bar, so max() let the header sit beneath the clock and battery. */
 .penny-keyboard-typing {
-  top: max(var(--penny-typing-top), calc(env(safe-area-inset-top, 0px) + 8px));
+  top: calc(var(--penny-typing-top, 8px) + var(--penny-safe-top));
   bottom: var(--penny-typing-bottom, 0px);
   display: flex;
   padding-inline: 0;

@@ -93,6 +93,13 @@ const ROUTES: PreviewRoute[] = [
     ],
   },
   {
+    slug: "goal-link-sheet",
+    name: "goal-link-sheet",
+    description:
+      "G204 bug-fix check, not a design round · the production Link goal to an account sheet (real GoalSourceForm and AccountRadioPicker) with raw upper-case providers, very long account and goal names and large balances, to confirm radios stay inside the sheet at 360px and 390px · invented data only · ?mode=light|dark&view=plan|edit-plan",
+    states: [{ label: "Long names", value: "long" }],
+  },
+  {
     slug: "g176-account-plans",
     name: "g176-account-plans",
     description:
