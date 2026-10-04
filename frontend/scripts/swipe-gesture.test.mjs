@@ -168,6 +168,26 @@ function rig(options = {}) {
   r.c.dispose();
 }
 
+{
+  // Mouse pressed on the card, released off it before the lock: no pointerup arrives.
+  const r = rig();
+  const m = (id, x, y, extra = {}) => r.ev(id, x, y, { pointerType: "mouse", ...extra });
+  r.c.onPointerDown(m(1, 300, 100)); r.c.onPointerMove(m(1, 298, 100));
+  r.c.onPointerDown(m(1, 100, 100)); r.c.onPointerMove(m(1, 95, 100));
+  check("controller: re-press with same id restarts, no stale offset", r.el.style.transform === "" );
+  r.c.onPointerMove(m(1, 60, 100));
+  check("controller: drag after restart is measured from the new press", r.el.style.transform === "translateX(-40px)");
+  r.c.onPointerCancel(m(1, 0, 0));
+}
+{
+  const r = rig();
+  r.c.onPointerDown(r.ev(1, 300, 100)); r.c.onPointerMove(r.ev(1, 250, 100));
+  r.c.dispose();
+  check("controller: dispose mid-drag resets the element", r.el.style.transform === "" && r.el.style.opacity === "");
+  r.c.onPointerMove(r.ev(1, 200, 100));
+  check("controller: no drag continues after dispose", r.el.style.transform === "");
+}
+
 // Source assertions.
 const spot = readFileSync(new URL("../components/HomeInsightSpotlight.tsx", import.meta.url), "utf8");
 check("HomeInsightSpotlight sets touch-action pan-y", /touchAction:\s*"pan-y"|touch-pan-y/.test(spot));
