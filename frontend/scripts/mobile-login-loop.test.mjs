@@ -486,8 +486,8 @@ await t("G202 review 2: Cancel clears only a token this attempt minted", () => {
 await t("G202 review 3: Cancel during resume shows the idle form at once and the init result is ignored", () => {
   const c = between(apSrc, "function cancelResume", "useEffect(() => {\n    // A135: a cold start");
   assert.ok(/resumeCancelledRef\.current = true;[\s\S]*setResuming\(null\);[\s\S]*setChecking\(false\);/.test(c));
-  assert.ok(/resumeCancelledRef\.current = false;\s*\n\s*pendingLoginRef\.current = false;/.test(apSrc), "reset before the first await");
-  assert.ok(/outcome === "ok"\) \{\s*if \(resumeCancelledRef\.current\)/.test(apSrc), "init validate result ignored when cancelled");
+  assert.ok(/resumeCancelledRef\.current = false;\s*\n\s*discardRef\.current = false;\s*\n\s*pendingLoginRef\.current = false;/.test(apSrc), "reset before the first await");
+  assert.ok(/outcome === "ok"\) \{\s*setResuming\(null\);[^\n]*\n\s*if \(resumeCancelledRef\.current\)/.test(apSrc), "init validate result ignored when cancelled");
 });
 
 await t("G202 review 4: a stale result from a cancelled attempt must not change the phase (run guard)", () => {
@@ -525,6 +525,12 @@ await t("source (A135): init() never clears the token on a non-401 outcome", () 
     const before = init.slice(Math.max(0, m.index - 160), m.index);
     assert.ok(/pendingLoginRef\.current\)\s*$|resumeCancelledRef\.current\) \{\s*$/.test(before), "clearToken only in a cancel branch: " + before.slice(-80));
   }
+});
+
+await t("source (A135 review): the ledger timer is native-gated, skips a set user, and init's finally clears it", () => {
+  assert.ok(/if \(nativePlatform\(\)\) \{\s*ledgerTimer = setTimeout\(/.test(apSrc), "timer only started on native");
+  assert.ok(/if \(initDone \|\| resumeCancelledRef\.current \|\| userRef\.current\) return;/.test(apSrc), "timer bails when done, cancelled or a user is set");
+  assert.ok(/\} finally \{\s*initDone = true;\s*if \(ledgerTimer\) clearTimeout\(ledgerTimer\);\s*\}/.test(apSrc), "finally clears the ledger timer");
 });
 
 if (failures) { console.error(failures + " failed"); process.exit(1); }

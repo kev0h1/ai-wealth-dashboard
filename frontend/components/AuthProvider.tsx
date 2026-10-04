@@ -71,6 +71,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // A135: true when init is resuming a persisted pending Google login (as
   // opposed to validating an already stored token).
   const pendingLoginRef = useRef(false);
+  // Mirrors `user` for the ledger timer, which must not fire once a user is set.
+  const userRef = useRef<AuthUser | null>(null);
+  userRef.current = user;
+  // Set by cancelResume(discardSession) so a cancel that races a successful check knows whether to drop the token.
+  const discardRef = useRef(false);
   // Aborts the late-success session check (resume) when Cancel is pressed.
   const lateAbortRef = useRef<AbortController | null>(null);
   const [needsOnboarding, setNeedsOnboarding] = useState(false);
@@ -103,6 +108,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (signal?.aborted) return "unreachable";
       outcome = await validateOnce(signal);
     }
+    // A failed Try again after an earlier unreachable must not leave that stale
+    // signal behind (a later cancel would resurface the panel with no token).
+    if (outcome !== "unreachable") setResuming((r) => (r && r.ended === "unreachable" ? null : r));
     if (outcome !== "ok") return outcome;
     const profile = await profileP;
     if (profile && !profile.onboarding_complete) setNeedsOnboarding(true);
@@ -158,10 +166,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // user explicitly chose "Use a different account" (discardSession, from
   // LoginScreen.dismissPhase), or (b) the cancelled thing was a Google
   // sign-in the user started and is now abandoning (pendingLoginRef), whose
-  // freshly minted token must not linger.
+  // freshly minted token must not linger. A cancel that races a successful
+  // check follows the same rule: the token is kept unless one of those holds.
   function cancelResume(discardSession?: boolean) {
     // The idle form shows at once; the init validate's result is ignored.
     resumeCancelledRef.current = true;
+    discardRef.current = discardSession === true;
     lateAbortRef.current?.abort();
     if (discardSession === true || pendingLoginRef.current) clearToken();
     setResuming(null);
@@ -178,7 +188,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     async function init() {
       if (nativePlatform()) {
         ledgerTimer = setTimeout(() => {
-          if (initDone || resumeCancelledRef.current) return;
+          if (initDone || resumeCancelledRef.current || userRef.current) return;
           setResuming((r) => r ?? { startedAt: Date.now(), stage: "session" });
         }, 1500);
       }
@@ -193,6 +203,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // A135: reset before the first await so a Cancel pressed during the
       // Keystore read is not wiped out below.
       resumeCancelledRef.current = false;
+      discardRef.current = false;
       pendingLoginRef.current = false;
       // A123: on native the token lives in Keychain/Keystore. Hydrate the
       // in-memory cache BEFORE anything reads or writes it (including the
@@ -296,9 +307,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (lateAbortRef.current === initCtrl) lateAbortRef.current = null;
 
       if (outcome === "ok") {
+        setResuming(null); // the ledger timer or a slow profile fetch must not leave a stale signal
         if (resumeCancelledRef.current) {
-          clearToken(); // Cancel raced a successful check
+          // Cancel raced a successful check: show the form, and drop the
+          // token only per the cancelResume rule.
+          if (discardRef.current || pendingLoginRef.current) clearToken();
           setUser(null);
+          setResuming(null);
         } else if (urlToken) {
           // F2: the OAuth consent page (/oauth/consent) stashes its own
           // `req` id in sessionStorage before sending the browser off to

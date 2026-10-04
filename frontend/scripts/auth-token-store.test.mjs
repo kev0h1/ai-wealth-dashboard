@@ -374,12 +374,16 @@ await t("(r3) A135 hydrate: all 3 attempts fail -> signed out, no localStorage f
 }));
 
 await t("(r4) A135 hydrate: clearToken between attempts -> later success not assigned", quiet(async () => {
-  const secure = fakeSecure({ [KEY]: "tok" }, { getScript: ["throw"] });
+  const secure = fakeSecure();
+  // Not backed by the map: the retry read returns a real token even after clearToken removed it.
+  let n = 0;
+  secure.get = async () => { secure.calls.push(["get"]); if (n++ === 0) throw new Error("scripted"); return "tok"; };
   setup({ native: true, secure, storage: fakeStorage(), extra: { delays: [30, 30] } });
   const h = auth.hydrateToken();
   await new Promise((r) => setTimeout(r, 5));
   auth.clearToken();
   await h;
+  assert.equal(n, 1, "loop stopped after the epoch moved, no second read");
   assert.equal(auth.getToken(), null);
 }));
 
