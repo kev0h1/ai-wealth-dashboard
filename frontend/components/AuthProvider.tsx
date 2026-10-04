@@ -140,9 +140,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
+  // G202: whenever a user is set (init validate, late success, establishSession)
+  // the resume signal is spent. Without this a later sign-out would show a
+  // stale "Checking your session" or "We could not sign you in" over the form.
+  useEffect(() => {
+    if (user) setResuming(null);
+  }, [user]);
+
   function cancelResume() {
+    // The idle form shows at once; the init validate's result is ignored.
     resumeCancelledRef.current = true;
     setResuming(null);
+    setChecking(false);
   }
 
   useEffect(() => {
@@ -157,6 +166,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // collected (the WebView reloaded or the OS killed the app while the
       // browser sheet was up) is redeemed here, before we conclude "signed
       // out". No-op when there is no pending login record.
+      resumeCancelledRef.current = false; // each resume starts uncancelled
       if (nativePlatform() && !getToken()) {
         // G202: the persisted login's own startedAt keeps the elapsed clock
         // honest across the kill.
@@ -169,7 +179,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               if (resumeCancelledRef.current) return;
               setResuming((r) => (r ? { ...r, stage: "session" } : r));
               void establishSession().then((o) => {
-                if (o !== "ok") setResuming((r) => (r ? { ...r, ended: "failed" } : r));
+                setResuming((r) => (o === "ok" ? null : r ? { ...r, ended: "failed" } : r));
               });
             },
             (result) => {
@@ -230,6 +240,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const profileP = api.getProfile().catch(() => null);
 
       lastValidateAtRef.current = Date.now();
+      let signedIn = false;
       try {
         const res = await gatedFetch(`${API_BASE}/auth/session/validate`, {
           method: "POST",
@@ -241,6 +252,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             clearToken(); // Cancel was pressed while this check was running
           } else if (data.email) {
             setUser({ email: data.email, name: data.name || "", owner: !!data.owner });
+            signedIn = true;
             // A124: a session confirmed good here can be revoked again
             // later, and lib/api.ts's own 401 gate only fires its
             // sign-out hook once per revoke — reopen it now so a LATER
@@ -280,7 +292,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       // G202: a resumed sign-in whose session check did not produce a user
       // must say so, not sit on "Checking your session".
-      setResuming((r) => (r && r.stage === "session" && !r.ended ? { ...r, ended: "failed" } : r));
+      // A user means the resume concluded: drop the signal. "failed" ONLY when
+      // no user resulted.
+      setResuming((r) => (signedIn ? null : r && r.stage === "session" && !r.ended ? { ...r, ended: "failed" } : r));
       setChecking(false);
     }
     init();
