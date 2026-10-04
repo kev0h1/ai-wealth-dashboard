@@ -123,3 +123,76 @@ Suggested criteria for treating Jev as a viable tier-2 replacement:
 None of these are met or failed by this harness -- it only produces the
 numbers in `out/report.md`. The recommendation itself is Kevin's call, same
 as running the full Haiku baseline is.
+
+## Tuning round
+
+Methodology, so a round can be repeated and its numbers trusted:
+
+1. **Frozen stratified split.** `split.py` tags every dataset row once
+   (seed 178, 60% tune) and writes `out/split.json`. Gold rows (user
+   corrections) are split per label so each label appears on both sides
+   where it has two or more rows; single-row labels stay in tune. Silver rows
+   are bucketed `silver` and are supporting evidence only. Do not regenerate
+   the split once a round has started: the file is the freeze.
+2. **Holdout is scored once.** Every tuning decision uses the tune bucket
+   only. The holdout bucket is run at the very end, with the chosen variant,
+   and its number is the one reported.
+3. **Unanswerable rows are excluded from accuracy.** Gold rows with no example
+   lines, or whose gold label is a movement kind that is never offered as an
+   option (Transfer, Savings, Debt, Investment), cannot be answered by either
+   judge. They are tagged `unanswerable`, counted separately in every report
+   and never scored.
+4. **Variants ladder** (`variants.py`, each adds to the last):
+   `v0_baseline` (today's behaviour, byte for byte), `v1_instructions` (Other
+   is a last resort), `v2_richer_state` (a summary header: lines seen, typical
+   amount, repeating amounts, account types, direction mix),
+   `v3_curated_examples` (curated public UK brand names per category from
+   `curated_examples.py`). Haiku receives the same instruction wording and
+   state header via `run_haiku --variant`. Curated names are authored by us and
+   carry no user text, so the firewall rule holds: global options never carry
+   user text, and user-scope options append that user's own examples after the
+   curated ones.
+5. **Calibration is fitted on tune.** `calibrate.py` fits one temperature by
+   grid search on tune-bucket probability vectors (minimum NLL, no scipy) and
+   applies it unchanged to the bucket being reported. Argmax never changes, so
+   accuracy is unaffected; only confidence moves.
+6. **Aggregates only.** Printed tables never show merchant names. The
+   `--errors` flag writes `out/errors.<variant>.<bucket>.md` (gitignored) for
+   the diagnosis step; do not paste it into a prompt or commit it.
+
+Results files are per variant: `out/jev_results.<variant>.jsonl` and
+`out/haiku_results.<variant>.jsonl`. On first use of `v0_baseline`, the legacy
+un-suffixed files are copied across, so the earlier runs are reused and no
+spend is repeated. Both runners stay resumable by `row_id`.
+
+Commands, in order (from `backend/`; the live ones spend credit, so run them
+only with Kevin's go-ahead):
+
+```bash
+# 0. Freeze the split (reads out/dataset.jsonl only)
+.venv/bin/python -m scripts.jev_eval.split
+
+# 1. Score v0 from the existing results, no new spend
+.venv/bin/python -m scripts.jev_eval.report --variant v0_baseline --bucket tune --calibrate-from tune --errors
+.venv/bin/python -m scripts.jev_eval.report --variant v0_baseline --bucket holdout --calibrate-from tune   # context only; do not tune on it
+
+# 2. Dry-run each new variant first (no network)
+.venv/bin/python -m scripts.jev_eval.run_jev --variant v3_curated_examples --bucket tune --dry-run
+
+# 3. Jev ladder on tune
+for v in v1_instructions v2_richer_state v3_curated_examples; do
+  .venv/bin/python -m scripts.jev_eval.run_jev --variant $v --bucket tune
+done
+
+# 4. Haiku with the v2 wording on tune
+.venv/bin/python -m scripts.jev_eval.run_haiku --variant v2_richer_state --bucket tune --limit 100 --confirm-full-run
+
+# 5. Compare on tune, calibration fitted on tune
+.venv/bin/python -m scripts.jev_eval.report --compare v0_baseline,v1_instructions,v2_richer_state,v3_curated_examples --bucket tune
+.venv/bin/python -m scripts.jev_eval.report --variant v3_curated_examples --bucket tune --calibrate-from tune --errors
+
+# 6. Final: the chosen variant on holdout, once (shown for v3)
+.venv/bin/python -m scripts.jev_eval.run_jev --variant v3_curated_examples --bucket holdout
+.venv/bin/python -m scripts.jev_eval.run_haiku --variant v2_richer_state --bucket holdout --limit 100 --confirm-full-run
+.venv/bin/python -m scripts.jev_eval.report --variant v3_curated_examples --bucket holdout --calibrate-from tune
+```
