@@ -1,4 +1,4 @@
-# Sorted (Auriq Wealth): internal security test report, 2026-09
+# Sorted (Auriq Wealth): security test report, 2026-09
 
 **Product:** Sorted, by Auriq (the AI wealth dashboard, "ai-wealth-dashboard")  
 **Company:** AURIQ LTD  
@@ -12,8 +12,8 @@
 
 ## 1. Summary
 
-> AURIQ LTD performed an internal security assessment of the recorded scope
-> and builds, mapped to selected OWASP ASVS 5.0.0, WSTG 4.2, API Security
+> Security assessment carried out 20 September to 4 October 2026 by AURIQ LTD,
+> of the recorded scope and builds, mapped to selected OWASP ASVS 5.0.0, WSTG 4.2, API Security
 > Top 10:2023, MASVS/MASTG 2.0.0, OAuth, MCP, and LLM security guidance.
 > The report records executed tests, limitations, blockers, findings,
 > severity, and retest status.
@@ -21,8 +21,8 @@
 That is the reporting statement for this assessment, adapted from
 `docs/security/PENTEST-METHODOLOGY.md` section 11. Section 11 also says the
 assessment is complete, and that statement final, only once a separate
-reviewer has signed the coverage matrix and findings. That review is
-pending (section 10), which is why this document is a v1.0 candidate.
+reviewer has signed the coverage matrix and findings. That review ran on
+2026-10-04 and passed on its second pass (section 10).
 
 **Headline.** No Critical findings. Six High findings in total (four API
 and MCP, one iOS lock bypass, one pre-documented Android backup gap), all
@@ -92,9 +92,9 @@ without a Mac or a rooted device (WP7b and WP8 ran live on real devices on
 2026-09-27, and the fixes were retested on device on 2026-10-04; see
 section 4). The WP12 cross-model review is a recorded deviation: the Codex
 half was dropped by Kevin's decision of 2026-10-04, and only the audit by a separate Claude
-reviewer agent remains, pending (section 4 and section 10). Every
+reviewer agent was performed, reviewed on 2026-10-04 (section 4 and section 10). Every
 severity in this report is therefore the judgement of the testing sessions
-and Kevin's sign-off, with the audit by a separate Claude reviewer agent still to come.
+and Kevin's sign-off, with the audit by a separate Claude reviewer agent as described in section 10.
 
 ---
 
@@ -102,8 +102,8 @@ and Kevin's sign-off, with the audit by a separate Claude reviewer agent still t
 
 **What was tested.** The web shell (Vercel), the REST API (Railway), the
 OAuth 2.1 authorisation server, the MCP connector, the Android and iOS app
-shells (static analysis and live device testing), and the Finexer,
-TrueLayer, Stripe and OpenRouter integration boundaries. Full surface
+shells (static analysis and live device testing), and the Finexer, Stripe
+and OpenRouter integration boundaries. Full surface
 definitions are in `docs/security/pentest-scope-2026-09.md`.
 
 **Hosts.**
@@ -147,7 +147,7 @@ WP11 were performed by this project's own AI agent sessions (Claude and
 Codex). The device packages (WP7b, WP8) and the 2026-10-04 retest were
 performed by Kevin on his own phones, guided and recorded by a Claude
 session. Each run's own manifest names its tester and records its review
-status; review of the evidence is pending (see section 10).
+status; the evidence review is described in section 10.
 
 **Techniques and caps.** Permitted tools, numeric caps (one manual request
 at a time, one harmless canary per class, one controlled cross-tenant
@@ -172,7 +172,7 @@ against any one of them:
 |---|---|
 | OWASP ASVS 5.0.0 (Level 2 baseline, risk-selected Level 3 in named control families) | Requirements backbone across every surface |
 | OWASP WSTG 4.2 | The browser-delivered web shell and `/design` preview routes |
-| OWASP API Security Top 10:2023 | The REST API and the API-shaped parts of OAuth, MCP, and the Finexer/TrueLayer/Stripe boundaries |
+| OWASP API Security Top 10:2023 | The REST API and the API-shaped parts of OAuth, MCP, and the Finexer/Stripe boundaries |
 | OWASP MASVS/MASTG 2.0.0 | The Android app shell (static analysis and on-device testing) |
 | OAuth 2.0 Security BCP, RFC 9700 | The OAuth 2.1 authorisation server |
 | The MCP specification (version `2025-06-18`, as declared by the server) | The MCP connector |
@@ -290,7 +290,7 @@ Keychain/file-protection halves of `IOS-02`, and the instrumented halves of
 built IPA, or a second signed app that was not available; they are carried
 in section 6 as Blocked, not passed.
 
-**WP12: retest record executed 2026-10-04, review pending.** Kevin
+**WP12: retest record executed 2026-10-04, reviewed the same day.** Kevin
 retested the A120, A121 and A122 fixes on his own Android phone (Pixel 10
 Pro XL, Android 17) and iPhone (iOS 18.7) against production, guided and
 recorded by a Claude session; see
@@ -322,12 +322,12 @@ on 2026-09-28). See section 6.
 a cross-model review: a Codex session auditing every Claude-run work
 package's Fail evidence, and a Claude session auditing every Codex-run
 package. Kevin decided on 2026-10-04 to drop the Codex half. The review
-that remains is a separate Claude reviewer agent's audit of the evidence, which is
-a separate step that has not yet run (section 10, "WP12 review: pending").
+that was performed is a separate Claude reviewer agent's audit of the evidence
+on 2026-10-04 (section 10, "WP12 review").
 Consequence, stated plainly: the work packages run by Claude sessions have
 not been reviewed by a second model, so every severity in this report is
-the judgement of the testing sessions, a separate Claude reviewer agent once that audit
-runs, and Kevin's sign-off.
+the judgement of the testing sessions, a separate Claude reviewer agent's
+audit, and Kevin's sign-off.
 
 **Two further gaps recorded on the coverage side, not visible as a work
 package row above:** `FIN-06` (webhook payload retention confirmation)
@@ -367,6 +367,8 @@ carries the more conservative Low, and the board's rating governs.
 | A91 | MCP output masking is structural only and never sanitises kept field content; an instruction-shaped merchant/category/insight string reaches the connecting assistant unmodified (prompt-injection surface) | MCP connector output masking | Fixed on main | `9c5b7ef9` | Deployed 2026-09-27 (`release-20260927-0947`, confirmed still present in `release-20260927-1844`); connector itself is off in production (A17), so not exploitable there today | Confirmed Fixed live 2026-09-27 (A112), tested on UAT since the connector is not registered on production |
 | A129 | Android backup gap, the pre-documented `AND-01` / `AND-02` storage-and-backup finding: with `android:allowBackup="true"`, a passwordless `adb backup` of the debug build captured the session token (`A54` static review of the manifest; `A55` live, 2026-09-27). Rated High (P2) per `PENTEST-METHODOLOGY.md` section 8.4 ("the Android auto-backup extraction, if it genuinely recovers a live session token") | Android app shell, manifest backup flags | Remediated: fix integrated 2026-10-04 (board item A129) | `cbb05f3c` (integrate commit) | In production (first shipped in `release-20261004-1833`) | Verified 2026-10-04 (`A60-2026-10-04`) by package-flag inspection: Kevin's `adb shell dumpsys package co.uk.auriqltd.sorted` on the production APK installed 2026-10-04 19:41:47 BST (built from `release` after `release-20261004-1833`) shows `flags=[ HAS_CODE ALLOW_CLEAR_USER_DATA ]`, so no `ALLOW_BACKUP` and no `DEBUGGABLE`. An `adb backup` extraction was not re-run |
 | A121 | The iOS biometric privacy lock was bypassable: with the lock engaged (cold start or via a notification tap), the nav bar and Penny suggestion chips were tappable behind the visual overlay, and a chip tap rendered live safe-to-spend and upcoming-bills figures with no authentication. Android's equivalent overlay held | iOS lock overlay / `BiometricLock`, nav bar, Penny chips | Remediated: fix integrated 2026-09-29 | `eae3207e` (integrate commit) | In production (first shipped in `release-20261001-2038`) | Retested on device 2026-10-04 (`A60-2026-10-04`): Pass on both phones, app open and cold start from a notification tap |
+
+*A129 names both the finding row (the pre-documented `AND-01` / `AND-02` backup gap) and its fix item (board item A129).*
 
 **A82.** WP3's live account-deletion case (`API-15`, run
 `A50-2026-09-20`) found that `erase_user` deletes every local trace of an
@@ -608,7 +610,7 @@ counted among this round's findings.
 | `WEB-05` (cache-clearing across account switch) | Blocked in `A48-2026-09-20`: the case exists to catch a live rendering gap that code review cannot see, and no live render was possible for the same reason. `AuthProvider.tsx` `logout()` was source-reviewed only | Blocked; owner Kevin; decision: retest recommended on the same terms as `WEB-03`; not credited as Pass |
 | `WEB-02`, storage-inspection sub-component | Inconclusive in `A48-2026-09-20`: the one completed attempt landed during a Vercel availability event, so the observed clearing is explained by that event and neither confirms nor contradicts the claim. The tamper and rejection half is Pass. `lib/auth.ts` was code-reviewed as supporting, non-live evidence | Inconclusive; owner Kevin; decision: retest with a real browser session; no finding raised |
 | `AND-04`, user-CA trust leg | Inconclusive in `A55-2026-09-27`: Android would not establish the mitmproxy user CA as trusted on the test device, so the live comparison could not run. The fail-closed leg (no CA) is Pass. This leg is settled by static reading only: no `android:networkSecurityConfig` at target SDK 36 means the platform default (user CAs not trusted) applies (`A54-2026-09-20`, `AND-01`) | Inconclusive; owner Kevin; decision: accepted on the static reading, with a live retest only if a device that can establish a user CA is available; no finding raised |
-| Cross-model review (WP12), Codex half | Dropped by Kevin's decision of 2026-10-04 (see section 4); the review that remains is a Claude reviewer's audit, pending (section 10) | Recorded deviation; not a gap that will be closed |
+| Cross-model review (WP12), Codex half | Dropped by Kevin's decision of 2026-10-04 (see section 4); the review that was performed is a separate Claude reviewer agent's audit (section 10) | Recorded deviation; not a gap that will be closed |
 | TrueLayer live cases (`TL-01`, `TL-03`, `TL-05`, and `TL-04`'s live-write half) | Not run: TrueLayer is being removed from production (board item A67), and Kevin's 2026-09-20 board note on A57 scoped these out. They are recorded Not run, not Pass, Fail or N/A | Not run; owner Kevin; decision: not run per that note, to be revisited only if TrueLayer is not removed |
 
 ---
@@ -670,7 +672,7 @@ on 2026-10-04 (`A60-2026-10-04`).
 **A129** (the Android backup gap) was pre-documented, so its acknowledge
 clock is backdated to 2026-09-18. The fix was integrated on 2026-10-04
 (`cbb05f3c`), about two days outside the 14-day remediate target counted
-from that date, and first shipped in `release-20261004-1833` the same day.
+from the 2026-09-18 acknowledge date, and first shipped in `release-20261004-1833` the same day.
 
 **Timeline, in order:**
 
@@ -700,8 +702,8 @@ from that date, and first shipped in `release-20261004-1833` the same day.
 
 ## 9. Testing approach
 
-This is an internal security assessment performed by AURIQ LTD, under the
-rules-of-engagement record signed by Kevin on 2026-09-20
+This is a security assessment carried out by AURIQ LTD between 20 September
+and 4 October 2026, under the rules-of-engagement record signed by Kevin on 2026-09-20
 (`docs/security/pentest-runs/roe-record.md`). The work packages were run by
 this project's own Claude and Codex agent sessions against the scope in
 `docs/security/pentest-scope-2026-09.md`; the device packages (WP7b, WP8)
@@ -715,17 +717,13 @@ are carried as Blocked or Not tested, never as passed.
 
 ## 10. Sign-off and revision history
 
-**Sign-off.** The underlying internal testing programme (`SECURITY.md`
+**Sign-off.** The underlying security testing programme (`SECURITY.md`
 section 3b) was signed off by Kevin, 2026-09-21, given as a written
 attestation in a working session with Claude ("Happy to sign this"), not a
 handwritten or cryptographic signature. This report, as a document, has not
 separately been signed by Kevin as of 2026-10-04.
 
-**WP12 review: pending.** A separate Claude reviewer agent audits the
-evidence behind this report before it is treated as final. That step has
-not yet run; this line is replaced with its outcome and date when it does.
-The Codex half of the WP12 cross-model review was dropped, as recorded in
-section 4 (Kevin decision, 2026-10-04).
+**WP12 review.** On 2026-10-04 a separate Claude reviewer agent audited the evidence behind this report in two passes. It checked every Fail, Partially fixed, Blocked, Inconclusive and Not run result in runs A48 to A59, A55 and A56 (2026-09-27), A112 and A60-2026-10-04, and every finding in section 5 and `SECURITY.md` 3b against git (integrate commits, `release` ancestry and release tags) and the cited retest records. It also checked the report, `SECURITY.md` and the Q11 text for consistency with each other and with the records. The first pass found six defects: one wrong fix commit, the Android backup High missing from the register, missing coverage rows for Blocked and Inconclusive cases, miscounted matrix totals, a release-tag attribution that contradicted git, and one revision-history wording point. All were corrected, and the second pass confirmed each correction. This was a single-model review by the same model family as the testing sessions. The Codex half of the cross-model review in PENTEST-METHODOLOGY section 9 was not performed, by Kevin's decision of 2026-10-04. The review made no changes and ran no live tests. Its two limits are that the A121, A122 and A129 retest results rest on Kevin's relayed on-device observations (no screenshots), and that the A129 fix was verified by package flags only, with the `adb backup` extraction not re-run.
 
 **Revision history.**
 
@@ -734,4 +732,4 @@ section 4 (Kevin decision, 2026-10-04).
 | v0.1 (DRAFT) | 2026-09-23 | First draft, produced for Finexer ahead of production release, retest and WP12; covers the 10 of 12 work packages executed 2026-09-20 to 2026-09-21 |
 | v0.1 (DRAFT, updated) | 2026-09-27 | A117: this Markdown updated in place to record WP7b (A55) and WP8 (A56) dynamic device testing, executed live 2026-09-27; coverage corrected from 10 of 12 to 12 of 12 work packages (to the extent possible without a Mac or a rooted device); five findings folded into section 5 (A118, A119, A120, A121, A122); headline corrected to five High findings, since A121 (iOS biometric-lock bypass) was not yet remediated |
 | v0.1 (DRAFT, updated) | 2026-09-28 | A117 correction: the earlier text stated that none of the four original High findings (A82, A83, A84, A91) had reached production and that no production retest had run; both were false by 2026-09-27 evening. All four shipped to production 2026-09-27 and were retested the same day (board item A112, `docs/security/pentest-runs/A112-2026-09-27/`). Section 5 corrected to record A112's actual outcome per finding. Also corrected a stale claim that A92's release gate, board item A110, was still in progress |
-| v1.0 candidate | 2026-10-04 | A60: final consolidated report. Records the 2026-10-04 on-device retest (`docs/security/pentest-runs/A60-2026-10-04/`): A120, A121 and A122 remediated and retested on both phones; A118 server-side revocation in production with the on-device residue re-check not yet run; A119 closed (debug build only). Section 5's Medium and Low tables updated with A112's 2026-09-27 retest outcomes. Follow-ups A123 and A138 recorded, and the pre-documented Android backup High (`AND-01` / `AND-02`, fixed under A129) added to the High table. Section 9 rewritten as a plain testing-approach statement. WP12 recorded as a Claude-only review, the Codex half dropped (Kevin decision, 2026-10-04). "WP12 review: pending" until the reviewer's audit is recorded. PDF and HTML regenerated |
+| v1.0 candidate | 2026-10-04 | A60: final consolidated report. Records the 2026-10-04 on-device retest (`docs/security/pentest-runs/A60-2026-10-04/`): A120, A121 and A122 remediated and retested on both phones; A118 server-side revocation in production with the on-device residue re-check not yet run; A119 closed (debug build only). Section 5's Medium and Low tables updated with A112's 2026-09-27 retest outcomes. Follow-ups A123 and A138 recorded, and the pre-documented Android backup High (`AND-01` / `AND-02`, fixed under A129) added to the High table. Section 9 rewritten as a plain testing-approach statement. WP12 recorded as a Claude-only review, the Codex half dropped (Kevin decision, 2026-10-04). WP12 review recorded in section 10 (2026-10-04, PASS on second pass). PDF and HTML regenerated |

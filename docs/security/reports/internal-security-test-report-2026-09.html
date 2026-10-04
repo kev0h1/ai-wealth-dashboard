@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>Sorted (Auriq Wealth): internal security test report, 2026-09</title>
+<title>Sorted (Auriq Wealth): security test report, 2026-09</title>
 <style>
 @page {
   size: A4;
@@ -170,7 +170,7 @@ li {
   <span class="draft-flag">v1.0 candidate</span>
 </div>
 <div class="report-body">
-<h1>Sorted (Auriq Wealth): internal security test report, 2026-09</h1>
+<h1>Sorted (Auriq Wealth): security test report, 2026-09</h1>
 <p><strong>Product:</strong> Sorted, by Auriq (the AI wealth dashboard, "ai-wealth-dashboard")<br />
 <strong>Company:</strong> AURIQ LTD<br />
 <strong>Report id:</strong> AURIQ-SEC-RPT-2026-09<br />
@@ -181,8 +181,8 @@ li {
 <hr />
 <h2>1. Summary</h2>
 <blockquote>
-<p>AURIQ LTD performed an internal security assessment of the recorded scope
-and builds, mapped to selected OWASP ASVS 5.0.0, WSTG 4.2, API Security
+<p>Security assessment carried out 20 September to 4 October 2026 by AURIQ LTD,
+of the recorded scope and builds, mapped to selected OWASP ASVS 5.0.0, WSTG 4.2, API Security
 Top 10:2023, MASVS/MASTG 2.0.0, OAuth, MCP, and LLM security guidance.
 The report records executed tests, limitations, blockers, findings,
 severity, and retest status.</p>
@@ -190,8 +190,8 @@ severity, and retest status.</p>
 <p>That is the reporting statement for this assessment, adapted from
 <code>docs/security/PENTEST-METHODOLOGY.md</code> section 11. Section 11 also says the
 assessment is complete, and that statement final, only once a separate
-reviewer has signed the coverage matrix and findings. That review is
-pending (section 10), which is why this document is a v1.0 candidate.</p>
+reviewer has signed the coverage matrix and findings. That review ran on
+2026-10-04 and passed on its second pass (section 10).</p>
 <p><strong>Headline.</strong> No Critical findings. Six High findings in total (four API
 and MCP, one iOS lock bypass, one pre-documented Android backup gap), all
 fixed in production. Retest status differs by finding and is stated below:
@@ -257,15 +257,15 @@ without a Mac or a rooted device (WP7b and WP8 ran live on real devices on
 2026-09-27, and the fixes were retested on device on 2026-10-04; see
 section 4). The WP12 cross-model review is a recorded deviation: the Codex
 half was dropped by Kevin's decision of 2026-10-04, and only the audit by a separate Claude
-reviewer agent remains, pending (section 4 and section 10). Every
+reviewer agent was performed, reviewed on 2026-10-04 (section 4 and section 10). Every
 severity in this report is therefore the judgement of the testing sessions
-and Kevin's sign-off, with the audit by a separate Claude reviewer agent still to come.</p>
+and Kevin's sign-off, with the audit by a separate Claude reviewer agent as described in section 10.</p>
 <hr />
 <h2>2. Scope, environments and rules of engagement</h2>
 <p><strong>What was tested.</strong> The web shell (Vercel), the REST API (Railway), the
 OAuth 2.1 authorisation server, the MCP connector, the Android and iOS app
-shells (static analysis and live device testing), and the Finexer,
-TrueLayer, Stripe and OpenRouter integration boundaries. Full surface
+shells (static analysis and live device testing), and the Finexer, Stripe
+and OpenRouter integration boundaries. Full surface
 definitions are in <code>docs/security/pentest-scope-2026-09.md</code>.</p>
 <p><strong>Hosts.</strong></p>
 <table>
@@ -316,7 +316,7 @@ WP11 were performed by this project's own AI agent sessions (Claude and
 Codex). The device packages (WP7b, WP8) and the 2026-10-04 retest were
 performed by Kevin on his own phones, guided and recorded by a Claude
 session. Each run's own manifest names its tester and records its review
-status; review of the evidence is pending (see section 10).</p>
+status; the evidence review is described in section 10.</p>
 <p><strong>Techniques and caps.</strong> Permitted tools, numeric caps (one manual request
 at a time, one harmless canary per class, one controlled cross-tenant
 object per class), and hard bans (no file reads outside the target
@@ -350,7 +350,7 @@ against any one of them:</p>
 </tr>
 <tr>
 <td>OWASP API Security Top 10:2023</td>
-<td>The REST API and the API-shaped parts of OAuth, MCP, and the Finexer/TrueLayer/Stripe boundaries</td>
+<td>The REST API and the API-shaped parts of OAuth, MCP, and the Finexer/Stripe boundaries</td>
 </tr>
 <tr>
 <td>OWASP MASVS/MASTG 2.0.0</td>
@@ -646,7 +646,7 @@ Keychain/file-protection halves of <code>IOS-02</code>, and the instrumented hal
 <code>IOS-04</code>/<code>IOS-05</code> were not tested in this round, since they need a Mac, a
 built IPA, or a second signed app that was not available; they are carried
 in section 6 as Blocked, not passed.</p>
-<p><strong>WP12: retest record executed 2026-10-04, review pending.</strong> Kevin
+<p><strong>WP12: retest record executed 2026-10-04, reviewed the same day.</strong> Kevin
 retested the A120, A121 and A122 fixes on his own Android phone (Pixel 10
 Pro XL, Android 17) and iPhone (iOS 18.7) against production, guided and
 recorded by a Claude session; see
@@ -704,12 +704,12 @@ on 2026-09-28). See section 6.</p>
 a cross-model review: a Codex session auditing every Claude-run work
 package's Fail evidence, and a Claude session auditing every Codex-run
 package. Kevin decided on 2026-10-04 to drop the Codex half. The review
-that remains is a separate Claude reviewer agent's audit of the evidence, which is
-a separate step that has not yet run (section 10, "WP12 review: pending").
+that was performed is a separate Claude reviewer agent's audit of the evidence
+on 2026-10-04 (section 10, "WP12 review").
 Consequence, stated plainly: the work packages run by Claude sessions have
 not been reviewed by a second model, so every severity in this report is
-the judgement of the testing sessions, a separate Claude reviewer agent once that audit
-runs, and Kevin's sign-off.</p>
+the judgement of the testing sessions, a separate Claude reviewer agent's
+audit, and Kevin's sign-off.</p>
 <p><strong>Two further gaps recorded on the coverage side, not visible as a work
 package row above:</strong> <code>FIN-06</code> (webhook payload retention confirmation)
 and the accepted-delivery live halves of <code>FIN-01</code> and <code>TL-02</code> could not be
@@ -803,6 +803,7 @@ carries the more conservative Low, and the board's rating governs.</p>
 </tr>
 </tbody>
 </table>
+<p><em>A129 names both the finding row (the pre-documented <code>AND-01</code> / <code>AND-02</code> backup gap) and its fix item (board item A129).</em></p>
 <p><strong>A82.</strong> WP3's live account-deletion case (<code>API-15</code>, run
 <code>A50-2026-09-20</code>) found that <code>erase_user</code> deletes every local trace of an
 account but never calls a bank-connection disconnect first; the upstream
@@ -1298,7 +1299,7 @@ counted among this round's findings.</p>
 </tr>
 <tr>
 <td>Cross-model review (WP12), Codex half</td>
-<td>Dropped by Kevin's decision of 2026-10-04 (see section 4); the review that remains is a Claude reviewer's audit, pending (section 10)</td>
+<td>Dropped by Kevin's decision of 2026-10-04 (see section 4); the review that was performed is a separate Claude reviewer agent's audit (section 10)</td>
 <td>Recorded deviation; not a gap that will be closed</td>
 </tr>
 <tr>
@@ -1382,7 +1383,7 @@ on 2026-10-04 (<code>A60-2026-10-04</code>).</p>
 <p><strong>A129</strong> (the Android backup gap) was pre-documented, so its acknowledge
 clock is backdated to 2026-09-18. The fix was integrated on 2026-10-04
 (<code>cbb05f3c</code>), about two days outside the 14-day remediate target counted
-from that date, and first shipped in <code>release-20261004-1833</code> the same day.</p>
+from the 2026-09-18 acknowledge date, and first shipped in <code>release-20261004-1833</code> the same day.</p>
 <p><strong>Timeline, in order:</strong></p>
 <ol>
 <li><strong>A110</strong> (trusted-proxy hop handling) was done on 2026-09-24; it
@@ -1409,8 +1410,8 @@ from that date, and first shipped in <code>release-20261004-1833</code> the same
 </ol>
 <hr />
 <h2>9. Testing approach</h2>
-<p>This is an internal security assessment performed by AURIQ LTD, under the
-rules-of-engagement record signed by Kevin on 2026-09-20
+<p>This is a security assessment carried out by AURIQ LTD between 20 September
+and 4 October 2026, under the rules-of-engagement record signed by Kevin on 2026-09-20
 (<code>docs/security/pentest-runs/roe-record.md</code>). The work packages were run by
 this project's own Claude and Codex agent sessions against the scope in
 <code>docs/security/pentest-scope-2026-09.md</code>; the device packages (WP7b, WP8)
@@ -1421,16 +1422,12 @@ was not tested in this round, and why, is listed in section 6; those items
 are carried as Blocked or Not tested, never as passed.</p>
 <hr />
 <h2>10. Sign-off and revision history</h2>
-<p><strong>Sign-off.</strong> The underlying internal testing programme (<code>SECURITY.md</code>
+<p><strong>Sign-off.</strong> The underlying security testing programme (<code>SECURITY.md</code>
 section 3b) was signed off by Kevin, 2026-09-21, given as a written
 attestation in a working session with Claude ("Happy to sign this"), not a
 handwritten or cryptographic signature. This report, as a document, has not
 separately been signed by Kevin as of 2026-10-04.</p>
-<p><strong>WP12 review: pending.</strong> A separate Claude reviewer agent audits the
-evidence behind this report before it is treated as final. That step has
-not yet run; this line is replaced with its outcome and date when it does.
-The Codex half of the WP12 cross-model review was dropped, as recorded in
-section 4 (Kevin decision, 2026-10-04).</p>
+<p><strong>WP12 review.</strong> On 2026-10-04 a separate Claude reviewer agent audited the evidence behind this report in two passes. It checked every Fail, Partially fixed, Blocked, Inconclusive and Not run result in runs A48 to A59, A55 and A56 (2026-09-27), A112 and A60-2026-10-04, and every finding in section 5 and <code>SECURITY.md</code> 3b against git (integrate commits, <code>release</code> ancestry and release tags) and the cited retest records. It also checked the report, <code>SECURITY.md</code> and the Q11 text for consistency with each other and with the records. The first pass found six defects: one wrong fix commit, the Android backup High missing from the register, missing coverage rows for Blocked and Inconclusive cases, miscounted matrix totals, a release-tag attribution that contradicted git, and one revision-history wording point. All were corrected, and the second pass confirmed each correction. This was a single-model review by the same model family as the testing sessions. The Codex half of the cross-model review in PENTEST-METHODOLOGY section 9 was not performed, by Kevin's decision of 2026-10-04. The review made no changes and ran no live tests. Its two limits are that the A121, A122 and A129 retest results rest on Kevin's relayed on-device observations (no screenshots), and that the A129 fix was verified by package flags only, with the <code>adb backup</code> extraction not re-run.</p>
 <p><strong>Revision history.</strong></p>
 <table>
 <thead>
@@ -1459,7 +1456,7 @@ section 4 (Kevin decision, 2026-10-04).</p>
 <tr>
 <td>v1.0 candidate</td>
 <td>2026-10-04</td>
-<td>A60: final consolidated report. Records the 2026-10-04 on-device retest (<code>docs/security/pentest-runs/A60-2026-10-04/</code>): A120, A121 and A122 remediated and retested on both phones; A118 server-side revocation in production with the on-device residue re-check not yet run; A119 closed (debug build only). Section 5's Medium and Low tables updated with A112's 2026-09-27 retest outcomes. Follow-ups A123 and A138 recorded, and the pre-documented Android backup High (<code>AND-01</code> / <code>AND-02</code>, fixed under A129) added to the High table. Section 9 rewritten as a plain testing-approach statement. WP12 recorded as a Claude-only review, the Codex half dropped (Kevin decision, 2026-10-04). "WP12 review: pending" until the reviewer's audit is recorded. PDF and HTML regenerated</td>
+<td>A60: final consolidated report. Records the 2026-10-04 on-device retest (<code>docs/security/pentest-runs/A60-2026-10-04/</code>): A120, A121 and A122 remediated and retested on both phones; A118 server-side revocation in production with the on-device residue re-check not yet run; A119 closed (debug build only). Section 5's Medium and Low tables updated with A112's 2026-09-27 retest outcomes. Follow-ups A123 and A138 recorded, and the pre-documented Android backup High (<code>AND-01</code> / <code>AND-02</code>, fixed under A129) added to the High table. Section 9 rewritten as a plain testing-approach statement. WP12 recorded as a Claude-only review, the Codex half dropped (Kevin decision, 2026-10-04). WP12 review recorded in section 10 (2026-10-04, PASS on second pass). PDF and HTML regenerated</td>
 </tr>
 </tbody>
 </table>
