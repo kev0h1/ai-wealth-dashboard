@@ -23,12 +23,12 @@ function fakeSecure(init = {}, opts = {}) {
   const calls = [];
   return {
     m, calls,
-    async get(k) { calls.push(["get", k]); if (opts.getThrows) throw new Error("boom"); if (opts.getHangs) return new Promise(() => {}); return m.has(k) ? m.get(k) : null; },
-    async set(k, v, cd, sync, access) { calls.push(["set", k, v, sync, access]); if (opts.setThrows) throw new Error("boom"); if (!opts.setDropped) m.set(k, v); },
+    async get(k) { calls.push(["get", k]); const sc = opts.getScript && opts.getScript.shift(); if (sc === "throw") throw new Error("scripted"); if (sc === "hang") return new Promise(() => {}); if (opts.getThrows) throw new Error("boom"); if (opts.getHangs) return new Promise(() => {}); return m.has(k) ? m.get(k) : null; },
+    async set(k, v, cd, sync, access) { calls.push(["set", k, v, sync, access]); const sc = opts.setScript && opts.setScript.shift(); if (sc === "throw") throw new Error("scripted"); if (sc === "drop") return; if (opts.setThrows) throw new Error("boom"); if (!opts.setDropped) m.set(k, v); },
     async remove(k) { calls.push(["remove", k]); const had = m.delete(k); return had; },
   };
 }
-function setup({ native, secure, storage, timeoutMs = 50, pluginImplemented = true }) {
+function setup({ native, secure, storage, timeoutMs = 50, pluginImplemented = true, extra = {} }) {
   let loads = 0;
   auth.__configureTokenStoreForTests({
     isNative: () => native,
@@ -36,6 +36,10 @@ function setup({ native, secure, storage, timeoutMs = 50, pluginImplemented = tr
     pluginImplemented: () => pluginImplemented,
     storage: () => storage,
     timeoutMs,
+    delays: [0, 0],
+    lateRetryMs: 60_000,
+    report: async () => {},
+    ...extra,
   });
   return { loads: () => loads };
 }
@@ -338,6 +342,94 @@ await t("(p5) A133: when the plugin IS listed but a native call never settles, t
   assert.equal(await auth.setTokenAsync("t"), false);
   auth.clearToken(); await auth.__tokenWritesSettled();
   assert.equal(auth.getToken(), null);
+}));
+
+// ---- A135: bounded retry ----
+const gets = (secure) => secure.calls.filter((c) => c[0] === "get").length;
+const sets = (secure) => secure.calls.filter((c) => c[0] === "set").length;
+
+await t("(r1) A135 hydrate: first get throws, second returns the token", quiet(async () => {
+  const secure = fakeSecure({ [KEY]: "tok" }, { getScript: ["throw"] });
+  setup({ native: true, secure, storage: fakeStorage() });
+  await auth.hydrateToken();
+  assert.equal(auth.getToken(), "tok");
+  assert.equal(gets(secure), 2);
+}));
+
+await t("(r2) A135 hydrate: first get hangs (per-attempt timeout), second returns", quiet(async () => {
+  const secure = fakeSecure({ [KEY]: "tok" }, { getScript: ["hang"] });
+  setup({ native: true, secure, storage: fakeStorage(), timeoutMs: 20 });
+  await auth.hydrateToken();
+  assert.equal(auth.getToken(), "tok");
+  assert.equal(gets(secure), 2);
+}));
+
+await t("(r3) A135 hydrate: all 3 attempts fail -> signed out, no localStorage fallback", quiet(async () => {
+  const secure = fakeSecure({}, { getThrows: true }); const storage = fakeStorage({ [KEY]: "old" });
+  setup({ native: true, secure, storage });
+  await auth.hydrateToken();
+  assert.equal(auth.getToken(), null);
+  assert.equal(gets(secure), 3);
+  assert.equal(storage.m.get(KEY), "old");
+}));
+
+await t("(r4) A135 hydrate: clearToken between attempts -> later success not assigned", quiet(async () => {
+  const secure = fakeSecure();
+  // Not backed by the map: the retry read returns a real token even after clearToken removed it.
+  let n = 0;
+  secure.get = async () => { secure.calls.push(["get"]); if (n++ === 0) throw new Error("scripted"); return "tok"; };
+  setup({ native: true, secure, storage: fakeStorage(), extra: { delays: [30, 30] } });
+  const h = auth.hydrateToken();
+  await new Promise((r) => setTimeout(r, 5));
+  auth.clearToken();
+  await h;
+  assert.equal(n, 1, "loop stopped after the epoch moved, no second read");
+  assert.equal(auth.getToken(), null);
+}));
+
+await t("(r5) A135 write: first set throws, second succeeds with read-back -> true, memory first", quiet(async () => {
+  const secure = fakeSecure({}, { setScript: ["throw"] });
+  setup({ native: true, secure, storage: fakeStorage() });
+  const p = auth.setTokenAsync("tok");
+  assert.equal(auth.getToken(), "tok");
+  assert.equal(await p, true);
+  assert.equal(sets(secure), 2);
+  assert.equal(secure.m.get(KEY), "tok");
+}));
+
+await t("(r6) A135 write: read-back mismatch x3 -> false, memory kept, late retry persists once", quiet(async () => {
+  const secure = fakeSecure({}, { setScript: ["drop", "drop", "drop"] });
+  setup({ native: true, secure, storage: fakeStorage(), extra: { lateRetryMs: 10 } });
+  assert.equal(await auth.setTokenAsync("tok"), false);
+  assert.equal(sets(secure), 3);
+  assert.equal(auth.getToken(), "tok");
+  assert.equal(secure.m.has(KEY), false);
+  await new Promise((r) => setTimeout(r, 40)); await auth.__tokenWritesSettled();
+  assert.equal(sets(secure), 4);
+  assert.equal(secure.m.get(KEY), "tok");
+}));
+
+await t("(r7) A135 write: clearToken during retries abandons the rest", quiet(async () => {
+  const secure = fakeSecure({}, { setScript: ["throw", "throw", "throw"] });
+  setup({ native: true, secure, storage: fakeStorage(), extra: { delays: [30, 30], lateRetryMs: 10 } });
+  const p = auth.setTokenAsync("tok");
+  await new Promise((r) => setTimeout(r, 10));
+  auth.clearToken();
+  assert.equal(await p, false);
+  await new Promise((r) => setTimeout(r, 40)); await auth.__tokenWritesSettled();
+  assert.ok(sets(secure) < 3, "remaining attempts abandoned");
+  assert.equal(secure.m.has(KEY), false);
+  assert.equal(auth.getToken(), null);
+}));
+
+await t("(r8) A135: plugin-missing rejection on the first attempt -> immediate localStorage fallback", quiet(async () => {
+  const unimpl = Object.assign(new Error("not implemented"), { code: "UNIMPLEMENTED" });
+  const secure = fakeSecure(); secure.get = async () => { secure.calls.push(["get"]); throw unimpl; };
+  const storage = fakeStorage({ [KEY]: "legacy" });
+  setup({ native: true, secure, storage });
+  await auth.hydrateToken();
+  assert.equal(auth.getToken(), "legacy");
+  assert.equal(gets(secure), 1, "no second secure call");
 }));
 
 await t("static guard: the storage key appears only in lib/auth.ts", () => {

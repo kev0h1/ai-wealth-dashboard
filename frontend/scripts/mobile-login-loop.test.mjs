@@ -278,7 +278,7 @@ await t("source (A135): native sign-in transitions in place, no page reload, via
   assert.ok(/if \(!onSignedIn\) \{\s*window\.location\.reload\(\);/.test(f));
   const ap = read("components/AuthProvider.tsx");
   assert.ok(ap.includes("<LoginScreen error={authError} onSignedIn={establishSession} resuming={resuming} onCancelResume={cancelResume} />"));
-  const e = ap.slice(ap.indexOf("async function establishSession"), ap.indexOf("useEffect(() => {\n    async function init"));
+  const e = ap.slice(ap.indexOf("async function establishSession"), ap.indexOf("useEffect(() => {\n    // A135: a cold start"));
   assert.ok(e.includes("getToken()") && e.includes("/auth/session/validate") && e.includes("setUser(") && e.includes("resetUnauthorizedGate()") && e.includes("invalidateAllAccountData()"));
   assert.ok(!/location\.reload/.test(e));
   assert.ok(!ap.includes("resumePendingLogin(() => window.location.reload())"), "late resume also in place");
@@ -286,7 +286,7 @@ await t("source (A135): native sign-in transitions in place, no page reload, via
 
 await t("source (A135 review): establishSession clears the token only on 401/403 or a missing email, never on a thrown error or 5xx", () => {
   const ap = read("components/AuthProvider.tsx");
-  const e = ap.slice(ap.indexOf("async function establishSession"), ap.indexOf("useEffect(() => {\n    async function init"));
+  const e = ap.slice(ap.indexOf("async function establishSession"), ap.indexOf("// G202: whenever a user is set"));
   assert.equal((e.match(/clearToken\(\)/g) || []).length, 2, "exactly two clear sites");
   assert.ok(/res\.status === 401 \|\| res\.status === 403\) \{\s*clearToken\(\)/.test(e));
   assert.ok(/if \(!data\.email\) \{\s*clearToken\(\)/.test(e));
@@ -297,7 +297,7 @@ await t("source (A135 review): establishSession clears the token only on 401/403
 
 await t("source (A135 review 2): establishSession retries a transient failure once, keeps the token, and LoginScreen offers tap-to-retry", () => {
   const ap = read("components/AuthProvider.tsx");
-  const e = ap.slice(ap.indexOf("async function establishSession"), ap.indexOf("useEffect(() => {\n    async function init"));
+  const e = ap.slice(ap.indexOf("async function establishSession"), ap.indexOf("useEffect(() => {\n    // A135: a cold start"));
   const top = e.slice(0, e.indexOf("async function validateOnce"));
   assert.equal((top.match(/await validateOnce\(signal\)/g) || []).length, 2, "exactly one retry, no loop");
   assert.ok(/if \(outcome === "unreachable"\) \{[\s\S]*SESSION_RETRY_DELAY_MS[\s\S]*outcome = await validateOnce\(signal\);/.test(top));
@@ -410,6 +410,8 @@ await t("G202 resuming: AuthProvider passes the persisted pending login's starte
   assert.deepEqual(ph, { kind: "signing-in", attempt: "resume", stage: "provider", startedAt: t0 });
   assert.equal(signingCopy(ph, t0 + 25_000).title, "Still signing you in", "the clock survives the kill");
   assert.deepEqual(derivePhase({ kind: "idle" }, { startedAt: t0, stage: "session", ended: "timeout" }), { kind: "failed", reason: "timeout" });
+  assert.deepEqual(derivePhase({ kind: "idle" }, { startedAt: t0, stage: "session", ended: "unreachable" }), { kind: "unreachable" }, "A135: unreachable keeps the token and offers retry");
+  assert.deepEqual(derivePhase({ kind: "idle" }, { startedAt: t0, stage: "session", ended: "failed" }), { kind: "failed", reason: "failed" });
   const local = { kind: "failed", reason: "failed" };
   assert.equal(derivePhase(local, { startedAt: t0, stage: "provider" }), local, "a local phase always wins");
   assert.ok(/if \(resuming\) return <LoginScreen/.test(apSrc), "no blank slate while resuming");
@@ -417,7 +419,7 @@ await t("G202 resuming: AuthProvider passes the persisted pending login's starte
 
 await t("G202 validateOnce is bounded: the signal aborts after the bound, on outer abort, and dispose stops the timer", async () => {
   assert.ok(/VALIDATE_TIMEOUT_MS = 15_000/.test(apSrc));
-  const v = between(apSrc, "async function validateOnce", "useEffect(() => {\n    async function init");
+  const v = between(apSrc, "async function validateOnce", "useEffect(() => {\n    // A135: a cold start");
   assert.ok(/boundedSignal\(VALIDATE_TIMEOUT_MS, signal\)/.test(v) && /signal: bound\.signal/.test(v) && /bound\.dispose\(\)/.test(v));
   assert.ok(/bound\.signal\.aborted\) return "unreachable"/.test(v), "an aborted check never signs in");
   const a = boundedSignal(30);
@@ -455,8 +457,8 @@ await t("G202: the preview renders the production LoginScreen, with no copied va
 
 await t("G202 review 1: the resume signal is dropped whenever a user is set, and failed is set only when no user resulted", () => {
   assert.ok(/useEffect\(\(\) => \{\s*if \(user\) setResuming\(null\);\s*\}, \[user\]\);/.test(apSrc), "any user clears resuming (init, late success, establishSession)");
-  assert.ok(/let signedIn = false;/.test(apSrc) && /signedIn = true;/.test(apSrc));
-  assert.ok(/setResuming\(\(r\) => \(signedIn \? null :/.test(apSrc), "init: null when a user resulted, failed only otherwise");
+  assert.ok(/const outcome = await establishSession\(initCtrl\.signal\);/.test(apSrc), "init uses the shared establishSession (A135)");
+  assert.ok(/ended: "unreachable" \}\)\);/.test(apSrc), "init: unreachable (token kept) rather than failed");
   assert.ok(/setResuming\(\(r\) => \(o === "ok" \? null :/.test(apSrc), "late success: null on ok, failed only otherwise");
 });
 
@@ -482,10 +484,10 @@ await t("G202 review 2: Cancel clears only a token this attempt minted", () => {
 });
 
 await t("G202 review 3: Cancel during resume shows the idle form at once and the init result is ignored", () => {
-  const c = between(apSrc, "function cancelResume", "useEffect(() => {\n    async function init");
+  const c = between(apSrc, "function cancelResume", "useEffect(() => {\n    // A135: a cold start");
   assert.ok(/resumeCancelledRef\.current = true;[\s\S]*setResuming\(null\);[\s\S]*setChecking\(false\);/.test(c));
-  assert.ok(/resumeCancelledRef\.current = false; \/\/ each resume starts uncancelled/.test(apSrc));
-  assert.ok(/data\.email && resumeCancelledRef\.current/.test(apSrc), "init validate result ignored when cancelled");
+  assert.ok(/resumeCancelledRef\.current = false;\s*\n\s*discardRef\.current = false;\s*\n\s*pendingLoginRef\.current = false;/.test(apSrc), "reset before the first await");
+  assert.ok(/outcome === "ok"\) \{\s*setResuming\(null\);[^\n]*\n\s*if \(resumeCancelledRef\.current\)/.test(apSrc), "init validate result ignored when cancelled");
 });
 
 await t("G202 review 4: a stale result from a cancelled attempt must not change the phase (run guard)", () => {
@@ -507,10 +509,28 @@ await t("G202 review 6: the late-success session check is abortable, cancelResum
   assert.ok(/const lateCtrl = new AbortController\(\);\s*\n\s*lateAbortRef\.current = lateCtrl;/.test(late));
   assert.ok(/establishSession\(lateCtrl\.signal\)/.test(late), "late path passes the signal");
   assert.ok(/if \(resumeCancelledRef\.current\) return;[^\n]*\n\s*setResuming/.test(late), "cancelled ref checked before touching state");
-  const c = between(apSrc, "function cancelResume", "useEffect(() => {\n    async function init");
+  const c = between(apSrc, "function cancelResume", "useEffect(() => {\n    // A135: a cold start");
   assert.ok(/lateAbortRef\.current\?\.abort\(\)/.test(c), "cancelResume aborts the late controller");
   const v = between(apSrc, "async function validateOnce", "useEffect(() => {");
   assert.ok(v.indexOf("bound.signal.aborted") > 0 && v.indexOf("bound.signal.aborted") < v.indexOf("setUser("), "abort checked before setUser");
+});
+
+await t("source (A135): init() never clears the token on a non-401 outcome", () => {
+  const init = apSrc.slice(apSrc.indexOf("async function initInner"), apSrc.indexOf("  // A118 review: a deliberate user tap"));
+  assert.ok(init.includes("await establishSession(initCtrl.signal)"), "init validates through establishSession");
+  assert.ok(!/\} else \{\s*clearToken\(\);\s*\}\s*\} catch \{\s*clearToken\(\);/.test(init), "old wipe-on-anything-but-200 shape is gone");
+  assert.ok(!/gatedFetch\(/.test(init), "no raw validate fetch inside init");
+  // every clearToken in init sits in the cancel branches
+  for (const m of init.matchAll(/clearToken\(\)/g)) {
+    const before = init.slice(Math.max(0, m.index - 160), m.index);
+    assert.ok(/pendingLoginRef\.current\)\s*$|resumeCancelledRef\.current\) \{\s*$/.test(before), "clearToken only in a cancel branch: " + before.slice(-80));
+  }
+});
+
+await t("source (A135 review): the ledger timer is native-gated, skips a set user, and init's finally clears it", () => {
+  assert.ok(/if \(nativePlatform\(\)\) \{\s*ledgerTimer = setTimeout\(/.test(apSrc), "timer only started on native");
+  assert.ok(/if \(initDone \|\| resumeCancelledRef\.current \|\| userRef\.current\) return;/.test(apSrc), "timer bails when done, cancelled or a user is set");
+  assert.ok(/\} finally \{\s*initDone = true;\s*if \(ledgerTimer\) clearTimeout\(ledgerTimer\);\s*\}/.test(apSrc), "finally clears the ledger timer");
 });
 
 if (failures) { console.error(failures + " failed"); process.exit(1); }
