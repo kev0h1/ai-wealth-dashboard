@@ -35,6 +35,17 @@ export interface SecureStore {
   remove(key: string, sync?: boolean): Promise<boolean>;
 }
 
+// A139: a Capacitor plugin proxy must never be the resolution value of a
+// promise: its `get` trap turns `then` into a plugin method, so awaiting it
+// never settles. Copy the three methods we use onto a plain object first.
+export function wrapSecureStore(plugin: SecureStore): SecureStore {
+  return {
+    get: (key, convertDate, sync) => plugin.get(key, convertDate, sync),
+    set: (key, data, convertDate, sync, access) => plugin.set(key, data, convertDate, sync, access),
+    remove: (key, sync) => plugin.remove(key, sync),
+  };
+}
+
 export interface TokenStoreEnv {
   isNative: () => boolean;
   loadSecure: () => Promise<SecureStore>;
@@ -61,7 +72,8 @@ const defaultEnv: TokenStoreEnv = {
     // the package is installed and after (real types then apply, we cast).
     // @ts-ignore
     const mod = await import("@aparajita/capacitor-secure-storage");
-    return (mod as unknown as { SecureStorage: SecureStore }).SecureStorage;
+    // A139: never resolve this async function with the plugin proxy itself.
+    return wrapSecureStore((mod as unknown as { SecureStorage: SecureStore }).SecureStorage);
   },
   pluginImplemented: () => {
     // Capacitor injects PluginHeaders (one entry per natively-registered
