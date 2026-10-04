@@ -33,7 +33,7 @@
 // or:
 //   node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/app-lock.test.mjs
 
-import { isAppLocked, setAppLocked, subscribeAppLock, getAppLockSnapshot } from "../lib/appLock";
+import { runWhenUnlocked, isAppLocked, setAppLocked, subscribeAppLock, getAppLockSnapshot } from "../lib/appLock";
 import { api, AppLockedError, gatedFetch } from "../lib/api";
 
 let failures = 0;
@@ -254,6 +254,32 @@ await withStubbedFetch(async (getCallCount) => {
 
   setAppLocked(false);
 });
+
+// ── A140: runWhenUnlocked deferral ─────────────────────────────────────
+
+{
+  setAppLocked(false);
+  let n = 0;
+  runWhenUnlocked(() => { n += 1; });
+  check("runWhenUnlocked: runs immediately when unlocked", n, 1);
+
+  setAppLocked(true);
+  n = 0;
+  runWhenUnlocked(() => { n += 1; });
+  check("runWhenUnlocked: defers while locked", n, 0);
+  setAppLocked(false);
+  check("runWhenUnlocked: runs once after unlock", n, 1);
+  setAppLocked(true);
+  setAppLocked(false);
+  check("runWhenUnlocked: a second lock/unlock cycle does not re-run it", n, 1);
+
+  setAppLocked(true);
+  n = 0;
+  const cancel = runWhenUnlocked(() => { n += 1; });
+  cancel();
+  setAppLocked(false);
+  check("runWhenUnlocked: cancel before unlock means it never runs", n, 0);
+}
 
 if (failures > 0) {
   console.error(`\n${failures} check(s) failed.`);

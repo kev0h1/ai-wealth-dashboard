@@ -1613,6 +1613,10 @@ export class AppLockedError extends Error {
   }
 }
 
+export function isAppLockedError(e: unknown): e is AppLockedError {
+  return e instanceof AppLockedError;
+}
+
 // Every network call this module makes goes through the bare identifier
 // `fetch` — get/post/del just below, plus every hand-rolled call further
 // down in `api`. Verified: every one of those ~65 call sites already builds
