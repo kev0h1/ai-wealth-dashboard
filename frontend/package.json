@@ -62,6 +62,7 @@
     "check:auth-token-store": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/auth-token-store.test.mjs",
     "check:cover-plan-due": "node --no-warnings --experimental-strip-types scripts/cover-plan-due.test.mjs",
     "check:no-raw-fetch": "node scripts/check-no-raw-fetch.mjs",
+    "check:swipe-gesture": "node --no-warnings --experimental-strip-types scripts/swipe-gesture.test.mjs",
     "check:privacy-cover": "node --no-warnings --experimental-strip-types scripts/privacy-cover.test.mjs"
   },
   "dependencies": {
