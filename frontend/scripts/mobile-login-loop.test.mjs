@@ -502,5 +502,16 @@ await t("G202 review 4: a stale result from a cancelled attempt must not change 
   assert.ok(/runRef\.current\.cancel\(\)/.test(between(lsSrc, "function cancelSignIn", "function dismissPhase")));
 });
 
+await t("G202 review 6: the late-success session check is abortable, cancelResume aborts it, and an aborted check never calls setUser", () => {
+  const late = between(apSrc, "// Late success: the token is in", "(result) => {");
+  assert.ok(/const lateCtrl = new AbortController\(\);\s*\n\s*lateAbortRef\.current = lateCtrl;/.test(late));
+  assert.ok(/establishSession\(lateCtrl\.signal\)/.test(late), "late path passes the signal");
+  assert.ok(/if \(resumeCancelledRef\.current\) return;[^\n]*\n\s*setResuming/.test(late), "cancelled ref checked before touching state");
+  const c = between(apSrc, "function cancelResume", "useEffect(() => {\n    async function init");
+  assert.ok(/lateAbortRef\.current\?\.abort\(\)/.test(c), "cancelResume aborts the late controller");
+  const v = between(apSrc, "async function validateOnce", "useEffect(() => {");
+  assert.ok(v.indexOf("bound.signal.aborted") > 0 && v.indexOf("bound.signal.aborted") < v.indexOf("setUser("), "abort checked before setUser");
+});
+
 if (failures) { console.error(failures + " failed"); process.exit(1); }
 console.log("mobile-login-loop: all passed");

@@ -68,6 +68,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // being awaited. Handed to LoginScreen, which owns every phase decision.
   const [resuming, setResuming] = useState<ResumingLogin | null>(null);
   const resumeCancelledRef = useRef(false);
+  // Aborts the late-success session check (resume) when Cancel is pressed.
+  const lateAbortRef = useRef<AbortController | null>(null);
   const [needsOnboarding, setNeedsOnboarding] = useState(false);
   // Stamped by both the mount-time validate below and the periodic
   // revalidate effect, so the two share one rate-limit clock rather than
@@ -150,6 +152,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   function cancelResume() {
     // The idle form shows at once; the init validate's result is ignored.
     resumeCancelledRef.current = true;
+    lateAbortRef.current?.abort();
     setResuming(null);
     setChecking(false);
   }
@@ -178,7 +181,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               // Late success: the token is in, now the session check.
               if (resumeCancelledRef.current) return;
               setResuming((r) => (r ? { ...r, stage: "session" } : r));
-              void establishSession().then((o) => {
+              const lateCtrl = new AbortController();
+              lateAbortRef.current = lateCtrl;
+              void establishSession(lateCtrl.signal).then((o) => {
+                if (lateAbortRef.current === lateCtrl) lateAbortRef.current = null;
+                if (resumeCancelledRef.current) return; // cancelled mid-check: nothing to show
                 setResuming((r) => (o === "ok" ? null : r ? { ...r, ended: "failed" } : r));
               });
             },
