@@ -139,6 +139,22 @@ const LEGACY_BANK_PROVIDER_ON = process.env.NEXT_PUBLIC_TRUELAYER_PICKER === "on
 // The API base is instead baked in directly via NEXT_PUBLIC_API_URL.
 const MOBILE_EXPORT = !!process.env.MOBILE_EXPORT;
 
+// F21: see rewrites() below; asserted by check:mcp-discovery.
+const MCP_DISCOVERY_REWRITES = [
+  {
+    source: "/.well-known/oauth-authorization-server/api",
+    destination: `${BACKEND}/.well-known/oauth-authorization-server`,
+  },
+  {
+    source: "/.well-known/openid-configuration/api",
+    destination: `${BACKEND}/.well-known/openid-configuration`,
+  },
+  {
+    source: "/.well-known/oauth-protected-resource/api/mcp",
+    destination: `${BACKEND}/.well-known/oauth-protected-resource`,
+  },
+];
+
 // A27: security headers. `output: 'export'` (MOBILE_EXPORT) doesn't support
 // headers() at all (same reason rewrites()/redirects() are disabled for it
 // above) — the Capacitor shells get their headers from whatever serves the
@@ -293,6 +309,14 @@ const nextConfig: NextConfig = {
   async rewrites() {
     if (MOBILE_EXPORT) return [];
     return [
+      // F21: RFC 8414 / RFC 9728 path-insertion discovery. The OAuth issuer
+      // is <origin>/api, so a spec-following MCP client asks the ORIGIN for
+      // /.well-known/<doc>/api (and .../api/mcp for the resource), which
+      // would otherwise be a Next.js 404. Each maps onto the backend's
+      // existing document (same JSON, issuer unchanged). With the connector
+      // flag off the backend answers these like any unknown path (401), the
+      // same as /api/.well-known/*, so production stays inert.
+      ...MCP_DISCOVERY_REWRITES,
       {
         source: "/api/:path*",
         destination: `${BACKEND}/:path*`,

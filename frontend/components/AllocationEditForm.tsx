@@ -57,7 +57,7 @@ export function AllocationEditForm({ allocation, accounts, sourceChoices, sugges
     }, onCancel, undefined, () => confirm === "delete" ? onDeleted() : onSaved(saved));
   }
   return <form id={formId} onSubmit={submit} className="space-y-5">
-    <fieldset disabled={request.busy || request.needsRefresh} className="space-y-5 [&_input]:text-base">
+    <fieldset disabled={request.busy || request.needsRefresh} className="min-w-0 space-y-5 [&_input]:text-base">
       <label className="block text-sm font-medium">Name<input value={name} onChange={(event) => setName(event.target.value)} maxLength={40} required autoComplete="off" className={editorField} /></label>
       <label className="block text-sm font-medium">Amount each pay period (£)<input type="number" min="0.01" max="1000000" step="0.01" inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} required className={editorField} /></label>
       <div className="border-t border-slate-200 pt-5 dark:border-slate-700">
