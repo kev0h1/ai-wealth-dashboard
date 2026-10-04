@@ -32,6 +32,24 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "app-lock",
+    name: "App lock screen · G203",
+    description:
+      "G203 app-lock redesign round (Kevin 2026-10-04: replace the generic fingerprint icon with the Penny mark, match Sorted; skills: impeccable, directions drafted with openai/gpt-6-astra and rewritten to DESIGN.md): the full-screen lock shown behind Face ID, Touch ID or fingerprint · Current is the PRODUCTION components/LockScreenView.tsx as shipped (indigo tile, fingerprint icon, gradient backdrop) / A quiet door: centred, flat indigo tile carrying the Penny mark / B open ledger: large ink Penny mark, left-aligned, the action in the thumb zone / C bounded checkpoint: one card on the canvas with a status chip · every candidate is flat canvas with no gradient, one 44px+ Unlock button, status text in an aria-live region, motion off under reduced motion, no red, and copy that names Face ID, Touch ID, fingerprint, face unlock or passcode per device · states: idle, prompting (no buttons, the OS sheet is up), failed, timed out (failed shows Try again and the sign-out escape hatch) · A, B and C are hand-authored (no production component carries them yet), Current renders the real LockScreenView · fixture props only, the real gate is never mounted, unlock and sign out do nothing · ?variant=current|a|b|c&state=idle|prompting|failed|timeout&device=iphone-face|iphone-touch|android-fingerprint|android-face|passcode&mode=light|dark",
+    states: [
+      { label: "Idle", value: "idle" },
+      { label: "Prompting", value: "prompting" },
+      { label: "Failed", value: "failed" },
+      { label: "Timed out", value: "timeout" },
+    ],
+    variants: [
+      { label: "Current (production)", value: "current" },
+      { label: "A · Quiet door", value: "a" },
+      { label: "B · Open ledger", value: "b" },
+      { label: "C · Bounded checkpoint", value: "c" },
+    ],
+  },
+  {
     slug: "signin-loading",
     name: "Signing-in state · G202",
     description:
