@@ -432,6 +432,60 @@ await t("(r8) A135: plugin-missing rejection on the first attempt -> immediate l
   assert.equal(gets(secure), 1, "no second secure call");
 }));
 
+function thenableProxy() {
+  const calls = []; const m = new Map(); const thenReads = [];
+  const proxy = new Proxy({}, {
+    get(_, prop) {
+      if (prop === "get") return async (...a) => { const k = a[0]; calls.push(["get", ...a]); return m.has(k) ? m.get(k) : null; };
+      if (prop === "set") return async (...a) => { calls.push(["set", ...a]); m.set(a[0], a[1]); };
+      if (prop === "remove") return async (...a) => { calls.push(["remove", ...a]); return m.delete(a[0]); };
+      if (prop === "then") thenReads.push(prop);
+      return () => {}; // any other prop (incl. then): never calls its arguments
+    },
+  });
+  return { proxy, calls, m, thenReads };
+}
+const race200 = (p) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("did not settle")), 200))]);
+
+await t("A139 thenable plugin proxy never leaks into a promise", async () => {
+  const { proxy, calls, m, thenReads } = thenableProxy();
+  const wrapped = await race200((async () => auth.wrapSecureStore(proxy))());
+  assert.equal(typeof wrapped.then, "undefined");
+  assert.equal(thenReads.length, 0);
+  m.set(KEY, "tok1");
+  const storage = fakeStorage();
+  setup({ native: true, secure: null, storage, timeoutMs: 1000, extra: { loadSecure: async () => auth.wrapSecureStore(proxy) } });
+  await auth.hydrateToken();
+  assert.equal(auth.getToken(), "tok1");
+  await auth.setTokenAsync("tok2");
+  assert.equal(m.get(KEY), "tok2");
+  assert.equal(storage.m.has(KEY), false);
+  assert.equal(thenReads.length, 0);
+  assert.deepEqual(calls, [["get", KEY, false, false], ["set", KEY, "tok2", false, false, 1], ["get", KEY, false, false]]);
+  // distinct values so a swapped/dropped argument in the wrapper cannot hide
+  calls.length = 0;
+  await wrapped.get("k", true, false); await wrapped.get("k", false, true);
+  await wrapped.set("k", "v", true, false, 7); await wrapped.remove("k", true);
+  assert.deepEqual(calls, [["get", "k", true, false], ["get", "k", false, true], ["set", "k", "v", true, false, 7], ["remove", "k", true]]);
+  calls.length = 0;
+  auth.clearToken(); await auth.__tokenWritesSettled();
+  assert.deepEqual(calls, [["remove", KEY, false]]);
+});
+
+await t("A139 negative proof: returning the raw proxy from loadSecure never settles", quiet(async () => {
+  const { proxy, calls } = thenableProxy();
+  setup({ native: true, secure: null, storage: fakeStorage(), timeoutMs: 30, extra: { loadSecure: async () => proxy } });
+  await auth.hydrateToken();
+  assert.equal(auth.getToken(), null);
+  assert.equal(calls.length, 0);
+}));
+
+await t("A139 source guard: loadSecure returns the wrapper, never the bare plugin", () => {
+  const src = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../lib/auth.ts"), "utf8");
+  assert.match(src, /loadSecure: async \(\) => \{[\s\S]*?return wrapSecureStore\(/);
+  assert.doesNotMatch(src, /return \(?mod\b[^;]*\.SecureStorage;/);
+});
+
 await t("static guard: the storage key appears only in lib/auth.ts", () => {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
   const skip = new Set(["node_modules", ".next", ".next-prev", "scripts", "out", ".git"]);
