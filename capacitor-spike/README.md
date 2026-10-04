@@ -50,6 +50,11 @@ regeneration, same as `setup-android-push.sh` and `apply-icons.sh`.
   `MainActivity`. The web layer then sets `FLAG_SECURE` while the biometric
   lock preference is on, which blanks the recents thumbnail and also blocks
   user screenshots and screen recording during that time.
+- Android backup (A129): `scripts/setup-android-push.sh` also calls
+  `setup-android-backup.sh` (run alone with `bash scripts/setup-android-backup.sh`
+  on an existing `android/` project). It sets `android:allowBackup="false"` and installs
+  `android-backup/*.xml` as `fullBackupContent` and `dataExtractionRules`, so
+  `adb backup` and cloud or device-transfer backups capture nothing.
 - iOS: `codemagic.yaml` step "Patch AppDelegate for app-switcher privacy"
   merges `ios-privacy/AppDelegate.privacy.swift.txt` into `AppDelegate.swift`.
 - Both sit behind a web-layer cover in `frontend/components/BiometricLock.tsx`.

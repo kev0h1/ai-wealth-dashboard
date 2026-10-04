@@ -401,5 +401,9 @@ echo "[7/8] wealthdash:// deep-link intent-filter placement done (see above)."
 bash "${SCRIPT_DIR}/setup-android-privacy.sh"
 echo "[8/8] A122 PrivacyScreen plugin installed."
 
+# --- 9. A129: disable Android backup / device transfer ---
+bash "${SCRIPT_DIR}/setup-android-backup.sh"
+echo "[9/9] A129 backup disabled and exclusion rules installed."
+
 echo
 echo "Android push setup complete."

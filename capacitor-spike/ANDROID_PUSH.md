@@ -66,7 +66,9 @@ npx cap add android
 
 # 2. Patch it for FCM (idempotent — safe to re-run). Its last step also runs
 # scripts/setup-android-privacy.sh (A122: installs and registers the
-# PrivacyScreen FLAG_SECURE plugin in MainActivity, also safe to run alone).
+# PrivacyScreen FLAG_SECURE plugin in MainActivity, also safe to run alone),
+# then scripts/setup-android-backup.sh (A129: allowBackup="false" plus
+# fullBackupContent/dataExtractionRules exclusion rules, also safe to run alone).
 bash scripts/setup-android-push.sh
 
 # 2a. H66 (2026-09-17): add the "board" product flavour (Board, a separate
