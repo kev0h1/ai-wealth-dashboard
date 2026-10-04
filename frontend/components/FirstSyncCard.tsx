@@ -57,7 +57,6 @@ export default function FirstSyncCard({
   onRetry?: () => void;
   onConnect?: () => void;
   retrying?: boolean;
-  nowMs?: number;
 }) {
   const bank = bankLabel(connections.find((c) => c.bank)?.bank ?? null);
   const c = firstSyncCopy(state, bank);

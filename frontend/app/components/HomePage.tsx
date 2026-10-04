@@ -453,7 +453,9 @@ export default function HomePage() {
       const invP = api.getInvestmentAccounts();
       const safeP = api.safeToSpend();
       const todayP = api.getToday();
-      api.getSyncStatus()
+      // Awaited with the rest below so the page never settles (and
+      // isFreshUser is never computed) against a stale "idle".
+      const syncP = api.getSyncStatus()
         .then((v) => { if (requestId === loadRequestRef.current) setSyncStatus(v); })
         .catch(() => {});
       // Over-fetch to 12 rather than 6: the micro-pot-shuffle filter below
@@ -543,7 +545,7 @@ export default function HomePage() {
       // Let the remaining fast calls settle, then clear the page-level
       // skeletons. recentTxP and safeP each clear their own skeleton
       // (txLoading, stsLoading) independently as they settle, above.
-      await Promise.allSettled([invP, safeP, todayP, recentTxP]);
+      await Promise.allSettled([invP, safeP, todayP, recentTxP, syncP]);
       if (requestId !== loadRequestRef.current) return;
       setLoading(false);
     } catch {}
@@ -715,6 +717,7 @@ export default function HomePage() {
   useEffect(() => {
     if (!pollingSync) return;
     let stopped = false;
+    let cancelled = false;
     const id = setInterval(async () => {
       try {
         const next = await api.getSyncStatus();
@@ -723,11 +726,11 @@ export default function HomePage() {
         if (next.state === "idle") {
           stopped = true;
           invalidateAllAccountData();
-          await loadData();
+          if (!cancelled) await loadData();
         }
       } catch {}
     }, 3000);
-    return () => { stopped = true; clearInterval(id); };
+    return () => { stopped = true; cancelled = true; clearInterval(id); };
   }, [pollingSync, loadData]);
 
   async function handleSyncRetry() {
