@@ -4,7 +4,7 @@ import os
 import secrets
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from typing import Optional
 import httpx
 
@@ -41,7 +41,7 @@ async def truelayer_providers(user: dict = Depends(current_user)):
 
 
 @router.get("/auth/truelayer/link")
-async def truelayer_link(provider: str = "", user: dict = Depends(current_user)):
+async def truelayer_link(provider: str = "", native: bool = False, user: dict = Depends(current_user)):
     if not TRUELAYER_CLIENT_ID:
         raise HTTPException(500, "TrueLayer not configured")
     await check_open_banking_allowed(user["email"])
@@ -49,7 +49,7 @@ async def truelayer_link(provider: str = "", user: dict = Depends(current_user))
     connection_id = secrets.token_hex(8)
     await connections_col.update_one(
         {"_id": connection_id},
-        {"$set": {"user_id": user["email"], "pending": True, "created_at": datetime.now()}},
+        {"$set": {"user_id": user["email"], "pending": True, "native": bool(native), "created_at": datetime.now()}},  # naive-ok: persisted audit timestamp, unchanged from before A68
         upsert=True,
     )
     providers_param = f"uk-ob-all%20uk-cs-mock" if not provider else provider
@@ -73,6 +73,8 @@ async def truelayer_callback(code: str, state: Optional[str] = None):
     if not TRUELAYER_CLIENT_ID or not TRUELAYER_CLIENT_SECRET:
         raise HTTPException(500, "TrueLayer not configured")
     connection_id = state or secrets.token_hex(8)
+    pre_doc = await connections_col.find_one({"_id": connection_id}, {"native": 1})
+    native = bool((pre_doc or {}).get("native"))
     async with httpx.AsyncClient() as client:
         r = await client.post(
             f"{TRUELAYER_AUTH_URL}/connect/token",
@@ -92,7 +94,9 @@ async def truelayer_callback(code: str, state: Optional[str] = None):
     user_id  = (conn_doc or {}).get("user_id", "unknown")
     asyncio.create_task(sync_connection(connection_id, user_id))
 
-    return _bank_page(True, "truelayer", connection_id, auto_return=True)
+    if native:
+        return _bank_page(True, "truelayer", connection_id, auto_return=True)
+    return RedirectResponse(f"{APP_URL}/accounts?syncing=1&connection={connection_id}", status_code=303)
 
 
 

@@ -5,11 +5,11 @@ import secrets
 import time
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from typing import Optional
 
 from app.core.auth import current_user
-from app.core.config import FINEXER_API_KEY
+from app.core.config import APP_URL, FINEXER_API_KEY
 from app.core.signin_handoff import bank_handoff_html, signin_handoff_csp
 from app.core.subscription import check_connection_limit, check_open_banking_allowed
 from app.db.collections import finexer_consents_col
@@ -66,9 +66,12 @@ async def finexer_providers(user: dict = Depends(current_user)):
 @router.get("/auth/finexer/link")
 async def finexer_link(
     provider: str = "",
+    native: bool = False,
     user: dict = Depends(current_user),
 ):
-    """Initiate a Finexer consent flow; return the redirect URL."""
+    """Initiate a Finexer consent flow; return the redirect URL. `native` marks a
+    native-app connect so the callback hands back to the app (A68); web and old
+    app binaries omit it and get a plain redirect."""
     if not FINEXER_API_KEY:
         raise HTTPException(500, "Finexer not configured")
     await check_open_banking_allowed(user["email"])
@@ -92,6 +95,7 @@ async def finexer_link(
             "provider":    provider or None,
             "state":       state,
             "status":      "pending",
+            "native":      bool(native),
             "created_at":  datetime.utcnow(),
         }},
         upsert=True,
@@ -135,7 +139,9 @@ async def finexer_callback(
             {"_id": consent_id},
             {"$set": {"status": "canceled", "canceled_at": datetime.utcnow(), "error": error}},
         )
-        return _bank_page(False, "finexer", consent_id, auto_return=False)
+        if doc.get("native"):
+            return _bank_page(False, "finexer", consent_id, auto_return=False)
+        return RedirectResponse(f"{APP_URL}/accounts?connect=cancelled", status_code=303)
 
 
     await finexer_consents_col.update_one(
@@ -146,5 +152,7 @@ async def finexer_callback(
     user_id = doc["user_id"]
     asyncio.create_task(finexer_sync_pipeline(consent_id, user_id))
 
-    return _bank_page(True, "finexer", consent_id, auto_return=True)
+    if doc.get("native"):
+        return _bank_page(True, "finexer", consent_id, auto_return=True)
+    return RedirectResponse(f"{APP_URL}/accounts?syncing=1&connection={consent_id}", status_code=303)
 
