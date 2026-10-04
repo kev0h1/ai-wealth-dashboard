@@ -50,6 +50,14 @@ const ROUTES: PreviewRoute[] = [
     ],
   },
   {
+    slug: "signin-loading",
+    name: "Signing-in state · G202",
+    description:
+      "G202 design round (skills: impeccable, directions drafted with openai/gpt-6-astra and rewritten to DESIGN.md): the calm 'signing you in' state shown from the moment the in-app browser returns until the session is ready or the attempt fails, instead of the login form sitting there looking like a failure · A Two stages (ledger of browser hand-back and session check) / B Held form (real buttons inert and dimmed under a status strip) / C Settled hand-off (mark with a calm ring, form gone) · each has signing in at 0s and 25s (elapsed-aware copy, a way out), checking session, resumed after a process kill, failed, timed out and unreachable-with-retry · renders the production LoginScreen shell and real buttons through new optional props, the phase panels are hand-authored · fixtures only, nothing signs in · ?variant=a|b|c&state=waiting|waiting-slow|checking|checking-slow|resume|failed|timeout|unreachable&mode=light|dark&t=<seconds>&live=1&chrome=0",
+    states: [{ label: "Signing in 0s", value: "waiting" }, { label: "Signing in 25s", value: "waiting-slow" }, { label: "Checking session", value: "checking" }, { label: "Resumed", value: "resume" }, { label: "Failed", value: "failed" }, { label: "Timed out", value: "timeout" }, { label: "Unreachable", value: "unreachable" }],
+    variants: [{ label: "A · Two stages", value: "a" }, { label: "B · Held form", value: "b" }, { label: "C · Settled hand-off", value: "c" }],
+  },
+  {
     slug: "home-tip-gesture",
     name: "Home tip card gesture · G207",
     description: "G207 gesture check, not a design round: the production HomeInsightSpotlight (previewInsight prop, no API calls) among neighbour cards, to exercise vertical scroll starting on the card (must leave no offset) and swipe-left dismiss · static fixture",
