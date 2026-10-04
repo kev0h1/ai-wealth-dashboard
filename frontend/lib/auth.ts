@@ -18,7 +18,13 @@ const TOKEN_KEY = "wealth_session_token";
 // iOS Keychain class 1 = WhenUnlockedThisDeviceOnly (KeychainAccess enum in
 // the plugin). Kevin-approved 2026-09-29; iCloud sync off. Ignored on Android.
 const KEYCHAIN_WHEN_UNLOCKED_THIS_DEVICE_ONLY = 1;
-const HYDRATE_TIMEOUT_MS = 3000;
+// A135: a cold Android process can be slow on first Keystore use, so one
+// read/write error or one slow call must not sign the user out or leave the
+// token memory-only. Bounded retry with backoff on both paths.
+const HYDRATE_TIMEOUT_MS = 4000;
+const SECURE_ATTEMPTS = 3;
+const SECURE_RETRY_DELAYS_MS = [400, 1200];
+const LATE_WRITE_RETRY_MS = 10_000;
 
 // Minimal shape of the plugin we use. Declared locally (no `declare module`)
 // so tsc passes whether or not the package is installed, and the real
@@ -37,6 +43,12 @@ export interface TokenStoreEnv {
   pluginImplemented: () => boolean;
   storage: () => Pick<Storage, "getItem" | "setItem" | "removeItem"> | null;
   timeoutMs: number;
+  // A135: waits between secure-storage attempts (default 400 then 1200 ms).
+  delays?: number[];
+  // A135: one extra background write attempt this long after a failed write.
+  lateRetryMs?: number;
+  // A135: failure sink override (tests pass a no-op so nothing hits the network).
+  report?: (detail: string) => Promise<void>;
 }
 
 const defaultEnv: TokenStoreEnv = {
@@ -73,6 +85,8 @@ let _hydrating: Promise<void> | null = null;
 let _epoch = 0;
 // Serialises secure-storage writes so set-then-clear (or reverse) lands in order.
 let _writeChain: Promise<unknown> = Promise.resolve();
+// A135: the single pending late-write retry (cleared by tests between cases).
+let _lateTimer: ReturnType<typeof setTimeout> | null = null;
 
 function legacyGet(): string | null {
   try { return env.storage()?.getItem(TOKEN_KEY) ?? null; } catch { return null; }
@@ -118,6 +132,15 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   });
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+// Delay before attempt n+1 (n is 1-based, the attempt that just failed).
+function delayFor(n: number): number {
+  const d = env.delays ?? SECURE_RETRY_DELAYS_MS;
+  return d[Math.min(n - 1, d.length - 1)] ?? 0;
+}
+
 function queueWrite<T>(fn: () => Promise<T>): Promise<T> {
   const run = _writeChain.then(fn, fn);
   _writeChain = run.catch(() => {});
@@ -141,21 +164,33 @@ async function doHydrate(): Promise<void> {
 
   let secure: SecureStore | undefined;
   let stored: unknown;
-  try {
-    // loadSecure() (a dynamic import) is inside the timeout too, so a hung
-    // import can never leave AuthProvider's `checking` true forever.
-    stored = await withTimeout(
-      (async () => {
-        secure = await env.loadSecure();
-        return secure.get(TOKEN_KEY, false, false);
-      })(),
-      env.timeoutMs,
-    );
-  } catch (err) {
-    if (pluginMissing(err)) { assign(legacyGet()); return; }
-    // Read error or timeout: signed out. Deliberately NO localStorage
+  let lastErr: unknown;
+  let ok = false;
+  for (let attempt = 1; attempt <= SECURE_ATTEMPTS; attempt++) {
+    if (_epoch !== startEpoch) return; // a later set/clear owns the token
+    try {
+      // loadSecure() (a dynamic import) is inside the timeout too, so a hung
+      // import can never leave AuthProvider's `checking` true forever.
+      stored = await withTimeout(
+        (async () => {
+          secure = await env.loadSecure();
+          return secure.get(TOKEN_KEY, false, false);
+        })(),
+        env.timeoutMs,
+      );
+      ok = true;
+      break;
+    } catch (err) {
+      if (pluginMissing(err)) { assign(legacyGet()); return; }
+      lastErr = err;
+      if (attempt < SECURE_ATTEMPTS) await sleep(delayFor(attempt));
+    }
+  }
+  if (_epoch !== startEpoch) return;
+  if (!ok) {
+    // Every attempt failed: signed out. Deliberately NO localStorage
     // fallback here, and the legacy value is left alone for a later launch.
-    console.warn("[auth] secure token read failed", err);
+    console.warn(`[auth] secure token read failed after ${SECURE_ATTEMPTS} attempts`, lastErr);
     assign(null);
     return;
   }
@@ -211,25 +246,77 @@ export function setTokenAsync(token: string): Promise<boolean> {
     try { env.storage()?.setItem(TOKEN_KEY, token); } catch {}
     return Promise.resolve(true);
   }
+  const myEpoch = _epoch;
   return queueWrite(async () => {
+    const r = await writeVerified(token, myEpoch, SECURE_ATTEMPTS);
+    if (r.ok) return true;
+    if (r.abandoned) return false;
+    console.warn(`[auth] secure token write failed after ${r.attempts} attempts; token kept in memory only`, r.err);
+    void reportWriteFailure(`attempts=${r.attempts} ${describeErr(r.err)}`);
+    // One background retry so a transient Keystore failure right after
+    // sign-in is still persisted before the app can be killed.
+    const lateMs = env.lateRetryMs ?? LATE_WRITE_RETRY_MS;
+    _lateTimer = setTimeout(() => {
+      _lateTimer = null;
+      void queueWrite(async () => {
+        const late = await writeVerified(token, myEpoch, 1);
+        if (!late.ok && !late.abandoned) void reportWriteFailure(`late retry ${describeErr(late.err)}`);
+      });
+    }, lateMs);
+    (_lateTimer as unknown as { unref?: () => void }).unref?.();
+    return false;
+  });
+}
+
+function describeErr(err: unknown): string {
+  const e = err as { message?: unknown } | null;
+  return String(e?.message ?? err ?? "unknown").slice(0, 120);
+}
+
+// Surfaced through the push diagnostic sink. Lazy import: lib/api.ts imports
+// from ./auth, so a top-level import here would be a cycle.
+async function reportWriteFailure(detail: string): Promise<void> {
+  if (env.report) { try { await env.report(detail); } catch {} return; }
+  try {
+    let platform = "native";
+    try { platform = Capacitor.getPlatform(); } catch {}
+    const { api } = await import("./api");
+    await api.reportPushDiagnostic("auth-secure-write-failed", `${platform} ${detail}`.slice(0, 200));
+  } catch {}
+}
+
+// Set then read back, up to `attempts` times with backoff. Abandons the moment
+// a later set/clear bumps the epoch (that call owns the store now).
+async function writeVerified(
+  token: string,
+  myEpoch: number,
+  attempts: number,
+): Promise<{ ok: boolean; abandoned?: boolean; attempts: number; err?: unknown }> {
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    if (_epoch !== myEpoch) return { ok: false, abandoned: true, attempts: attempt - 1 };
     try {
       await withTimeout(
         (async () => {
           const secure = await env.loadSecure();
           await secure.set(TOKEN_KEY, token, false, false, KEYCHAIN_WHEN_UNLOCKED_THIS_DEVICE_ONLY);
+          const back = await secure.get(TOKEN_KEY, false, false);
+          if (back !== token) throw new Error("secure token read-back mismatch");
         })(),
         env.timeoutMs,
       );
-      return true;
+      return { ok: true, attempts: attempt };
     } catch (err) {
       if (pluginMissing(err)) {
-        try { env.storage()?.setItem(TOKEN_KEY, token); } catch {}
-        return true;
+        if (_epoch === myEpoch) { try { env.storage()?.setItem(TOKEN_KEY, token); } catch {} }
+        return { ok: true, attempts: attempt };
       }
-      console.warn("[auth] secure token write failed or timed out; token kept in memory only", err);
-      return false;
+      lastErr = err;
+      if (attempt < attempts) await sleep(delayFor(attempt));
     }
-  });
+  }
+  if (_epoch !== myEpoch) return { ok: false, abandoned: true, attempts };
+  return { ok: false, attempts, err: lastErr };
 }
 
 export function setToken(token: string) {
@@ -265,6 +352,7 @@ export function __configureTokenStoreForTests(next: Partial<TokenStoreEnv> | nul
   _epoch = 0;
   _writeChain = Promise.resolve();
   _pluginWarned = false;
+  if (_lateTimer) { clearTimeout(_lateTimer); _lateTimer = null; }
 }
 export function __tokenWritesSettled(): Promise<unknown> {
   return _writeChain;
