@@ -68,6 +68,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // being awaited. Handed to LoginScreen, which owns every phase decision.
   const [resuming, setResuming] = useState<ResumingLogin | null>(null);
   const resumeCancelledRef = useRef(false);
+  // A135: true when init is resuming a persisted pending Google login (as
+  // opposed to validating an already stored token).
+  const pendingLoginRef = useRef(false);
   // Aborts the late-success session check (resume) when Cancel is pressed.
   const lateAbortRef = useRef<AbortController | null>(null);
   const [needsOnboarding, setNeedsOnboarding] = useState(false);
@@ -149,16 +152,48 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (user) setResuming(null);
   }, [user]);
 
-  function cancelResume() {
+  // A135 rule: cancelling a plain cold-start session check (or its Checking
+  // screen) NEVER deletes a stored token, because the check says nothing
+  // about whether the token is good. The token is cleared only when (a) the
+  // user explicitly chose "Use a different account" (discardSession, from
+  // LoginScreen.dismissPhase), or (b) the cancelled thing was a Google
+  // sign-in the user started and is now abandoning (pendingLoginRef), whose
+  // freshly minted token must not linger.
+  function cancelResume(discardSession?: boolean) {
     // The idle form shows at once; the init validate's result is ignored.
     resumeCancelledRef.current = true;
     lateAbortRef.current?.abort();
+    if (discardSession === true || pendingLoginRef.current) clearToken();
     setResuming(null);
     setChecking(false);
   }
 
   useEffect(() => {
+    // A135: a cold start with a stored token can now take several seconds
+    // (Keystore read retries plus the session check), so after 1.5 s the
+    // "Checking your session." ledger replaces the blank screen. Cleared on
+    // every exit of init(), so a fast check never flashes it.
+    let initDone = false;
+    let ledgerTimer: ReturnType<typeof setTimeout> | null = null;
     async function init() {
+      if (nativePlatform()) {
+        ledgerTimer = setTimeout(() => {
+          if (initDone || resumeCancelledRef.current) return;
+          setResuming((r) => r ?? { startedAt: Date.now(), stage: "session" });
+        }, 1500);
+      }
+      try {
+        await initInner();
+      } finally {
+        initDone = true;
+        if (ledgerTimer) clearTimeout(ledgerTimer);
+      }
+    }
+    async function initInner() {
+      // A135: reset before the first await so a Cancel pressed during the
+      // Keystore read is not wiped out below.
+      resumeCancelledRef.current = false;
+      pendingLoginRef.current = false;
       // A123: on native the token lives in Keychain/Keystore. Hydrate the
       // in-memory cache BEFORE anything reads or writes it (including the
       // ?token= write below, which hydration would otherwise overwrite).
@@ -169,12 +204,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // collected (the WebView reloaded or the OS killed the app while the
       // browser sheet was up) is redeemed here, before we conclude "signed
       // out". No-op when there is no pending login record.
-      resumeCancelledRef.current = false; // each resume starts uncancelled
       if (nativePlatform() && !getToken()) {
         // G202: the persisted login's own startedAt keeps the elapsed clock
         // honest across the kill.
         const pendingAtStart = loadPendingLogin();
-        if (pendingAtStart) setResuming({ startedAt: pendingAtStart.startedAt, stage: "provider" });
+        if (pendingAtStart) {
+          pendingLoginRef.current = true;
+          setResuming({ startedAt: pendingAtStart.startedAt, stage: "provider" });
+        }
         try {
           const resumed = await resumePendingLogin(
             () => {
@@ -186,7 +223,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               void establishSession(lateCtrl.signal).then((o) => {
                 if (lateAbortRef.current === lateCtrl) lateAbortRef.current = null;
                 if (resumeCancelledRef.current) return; // cancelled mid-check: nothing to show
-                setResuming((r) => (o === "ok" ? null : r ? { ...r, ended: "failed" } : r));
+                setResuming((r) => (o === "ok" ? null : r ? { ...r, ended: o === "unreachable" ? "unreachable" : "failed" } : r));
               });
             },
             (result) => {
@@ -203,8 +240,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       }
       if (resumeCancelledRef.current) {
-        // Cancelled during resume: whatever raced in is discarded.
-        clearToken();
+        // Cancelled during resume: a pending-login token that raced in is
+        // discarded; a stored token from a plain cold-start check is kept
+        // (see cancelResume).
+        if (pendingLoginRef.current) clearToken();
         setResuming(null);
         setChecking(false);
         return;
@@ -240,68 +279,48 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       const token = getToken();
       if (!token) {
+        // Drop a ledger-only "Checking your session" signal (no outcome yet);
+        // a resume that ended keeps its failed/timeout notice.
+        setResuming((r) => (r && !r.ended ? null : r));
         setChecking(false);
         return;
       }
 
-      const profileP = api.getProfile().catch(() => null);
+      // A135: the same classification as the in-place sign-in. Only a
+      // definite 401/403 (or a missing email) clears the token; a network
+      // error, timeout, 5xx or 429 keeps it and offers Try again, so a cold
+      // WebView or a 503 "Session check unavailable" never signs the user out.
+      const initCtrl = new AbortController();
+      lateAbortRef.current = initCtrl;
+      const outcome = await establishSession(initCtrl.signal);
+      if (lateAbortRef.current === initCtrl) lateAbortRef.current = null;
 
-      lastValidateAtRef.current = Date.now();
-      let signedIn = false;
-      try {
-        const res = await gatedFetch(`${API_BASE}/auth/session/validate`, {
-          method: "POST",
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (res.ok) {
-          const data = await res.json();
-          if (data.email && resumeCancelledRef.current) {
-            clearToken(); // Cancel was pressed while this check was running
-          } else if (data.email) {
-            setUser({ email: data.email, name: data.name || "", owner: !!data.owner });
-            signedIn = true;
-            // A124: a session confirmed good here can be revoked again
-            // later, and lib/api.ts's own 401 gate only fires its
-            // sign-out hook once per revoke — reopen it now so a LATER
-            // revocation of THIS session is not silently swallowed by a
-            // gate an earlier session's sign-out already closed.
-            resetUnauthorizedGate();
-
-            // F2: the OAuth consent page (/oauth/consent) stashes its own
-            // `req` id in sessionStorage before sending the browser off to
-            // Google, because the sign-in round trip always lands back on
-            // this root path (backend's google_callback redirects to
-            // `${APP_URL}/?token=...`, never back to /oauth/consent
-            // itself). Once a session is confirmed here, restore that
-            // detour rather than falling through to the normal app shell.
-            if (urlToken) {
-              try {
-                const pendingOauthReq = sessionStorage.getItem("wd_oauth_consent_req");
-                if (pendingOauthReq) {
-                  sessionStorage.removeItem("wd_oauth_consent_req");
-                  window.location.replace(`/oauth/consent?req=${encodeURIComponent(pendingOauthReq)}`);
-                  return;
-                }
-              } catch {}
+      if (outcome === "ok") {
+        if (resumeCancelledRef.current) {
+          clearToken(); // Cancel raced a successful check
+          setUser(null);
+        } else if (urlToken) {
+          // F2: the OAuth consent page (/oauth/consent) stashes its own
+          // `req` id in sessionStorage before sending the browser off to
+          // Google, because the sign-in round trip always lands back on
+          // this root path. Once a session is confirmed, restore that detour.
+          try {
+            const pendingOauthReq = sessionStorage.getItem("wd_oauth_consent_req");
+            if (pendingOauthReq) {
+              sessionStorage.removeItem("wd_oauth_consent_req");
+              window.location.replace(`/oauth/consent?req=${encodeURIComponent(pendingOauthReq)}`);
+              return;
             }
-
-            const profile = await profileP;
-            if (profile && !profile.onboarding_complete) setNeedsOnboarding(true);
-          } else {
-            // Old PIN-format token — no email, force re-auth via Google
-            clearToken();
-          }
-        } else {
-          clearToken();
+          } catch {}
         }
-      } catch {
-        clearToken();
+      } else if (resumeCancelledRef.current) {
+        // Cancelled mid-check: token left as is (see cancelResume).
+      } else if (outcome === "rejected") {
+        setResuming(null); // token already cleared by validateOnce
+      } else {
+        // Unreachable: token KEPT; LoginScreen shows UnreachablePanel.
+        setResuming((r) => ({ startedAt: r?.startedAt ?? Date.now(), stage: "session", ended: "unreachable" }));
       }
-      // G202: a resumed sign-in whose session check did not produce a user
-      // must say so, not sit on "Checking your session".
-      // A user means the resume concluded: drop the signal. "failed" ONLY when
-      // no user resulted.
-      setResuming((r) => (signedIn ? null : r && r.stage === "session" && !r.ended ? { ...r, ended: "failed" } : r));
       setChecking(false);
     }
     init();

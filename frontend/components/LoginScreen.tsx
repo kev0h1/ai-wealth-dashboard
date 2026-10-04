@@ -22,7 +22,8 @@ interface LoginScreenProps {
   // pending login's, so the elapsed clock is the real one.
   resuming?: ResumingLogin | null;
   // Cancel pressed while `resuming`: AuthProvider drops its resume signal.
-  onCancelResume?: () => void;
+  // `discardSession` is true only for an explicit "Use a different account".
+  onCancelResume?: (discardSession?: boolean) => void;
   // Preview only (/design/signin-loading): drive the phase and a fake clock
   // from outside. Production passes neither, LoginScreen owns the phase.
   phase?: LoginPhase;
@@ -122,7 +123,7 @@ export default function LoginScreen({ error, onSignedIn, resuming, onCancelResum
     // "Use a different account" on the unreachable panel.
     runRef.current.cancel();
     setLocal({ kind: "idle" });
-    onCancelResume?.();
+    onCancelResume?.(true); // A135: the user chose another account, so drop the kept token
   }
 
   async function handleGoogleClick(e: React.MouseEvent<HTMLAnchorElement>) {

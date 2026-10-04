@@ -23,7 +23,9 @@ export type SigningPhase = Extract<LoginPhase, { kind: "signing-in" }>;
 export interface ResumingLogin {
   startedAt: number;
   stage: SignInStage;
-  ended?: "failed" | "timeout";
+  // "unreachable" (A135): the session check could not reach the server; the
+  // token is KEPT and the screen offers Try again.
+  ended?: "failed" | "timeout" | "unreachable";
 }
 
 // From this point the copy owns up to a slow attempt.
@@ -69,6 +71,7 @@ export const UNREACHABLE = {
 export function derivePhase(local: LoginPhase, resuming?: ResumingLogin | null): LoginPhase {
   if (local.kind !== "idle") return local;
   if (!resuming) return local;
+  if (resuming.ended === "unreachable") return { kind: "unreachable" };
   if (resuming.ended) return { kind: "failed", reason: resuming.ended };
   return { kind: "signing-in", attempt: "resume", stage: resuming.stage, startedAt: resuming.startedAt };
 }
