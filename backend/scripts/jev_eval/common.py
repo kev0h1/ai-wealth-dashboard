@@ -42,6 +42,28 @@ REPORT_PATH = OUT_DIR / "report.md"
 EXCLUDED_FROM_CHOICE = frozenset({"Transfer", "Savings", "Debt", "Investment"})
 
 
+def results_path(kind: str, variant: str) -> Path:
+    """Result file for a runner ("jev" or "haiku") and variant. For
+    v0_baseline, if the legacy un-suffixed file exists and the new name
+    does not, copy it first so earlier runs are reused and no spend repeats."""
+    legacy = JEV_RESULTS_PATH if kind == "jev" else HAIKU_RESULTS_PATH
+    path = OUT_DIR / f"{kind}_results.{variant}.jsonl"
+    if variant == "v0_baseline" and legacy.exists() and not path.exists():
+        import shutil
+        shutil.copyfile(legacy, path)
+    return path
+
+
+def flag_value(rest: list[str], name: str, default: str) -> str:
+    """Value following `name` in an argv remainder, else `default`."""
+    if name in rest:
+        i = rest.index(name)
+        if i + 1 >= len(rest):
+            raise SystemExit(f"{name} needs a value")
+        return rest[i + 1]
+    return default
+
+
 def load_real_env() -> None:
     """Load the real backend/.env from the shared tree, read-only.
 

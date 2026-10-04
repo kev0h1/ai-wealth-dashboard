@@ -40,6 +40,9 @@ number the app's own cost dashboards would show).
 
 Usage (from backend/):
     .venv/bin/python -m scripts.jev_eval.run_haiku --dry-run
+    # Tuning round flags: --variant <name> (default v0_baseline),
+    # --bucket tune|holdout|silver|all; results go to
+    # out/haiku_results.<variant>.jsonl.
     .venv/bin/python -m scripts.jev_eval.run_haiku --limit 5   # prove it works, see the cost
     .venv/bin/python -m scripts.jev_eval.run_haiku --limit 258 --confirm-full-run   # Kevin's call, spends real credit
 """
@@ -54,11 +57,14 @@ import time
 import httpx
 
 from scripts.jev_eval.common import (
-    DATASET_PATH, HAIKU_RESULTS_PATH, EXCLUDED_FROM_CHOICE, append_jsonl,
-    ensure_out_dir, existing_row_ids, load_real_env, parse_common_args,
-    print_err, read_jsonl, row_id as make_row_id,
+    DATASET_PATH, EXCLUDED_FROM_CHOICE, append_jsonl,
+    ensure_out_dir, existing_row_ids, flag_value, load_real_env,
+    parse_common_args, print_err, read_jsonl, results_path,
+    row_id as make_row_id,
 )
 from scripts.jev_eval import options
+from scripts.jev_eval.split import filter_rows_by_bucket, load_split
+from scripts.jev_eval.variants import Variant, get_variant
 
 HAIKU_MODEL = "anthropic/claude-haiku-4-5"
 PIPELINE = "jev_eval_haiku_baseline"
@@ -96,7 +102,8 @@ def _name_clause(owner_name: str | None) -> str:
     )
 
 
-def build_prompt(row: dict, allowed_cats: list[str], owner_name: str | None) -> str:
+def build_prompt(row: dict, allowed_cats: list[str], owner_name: str | None, variant: Variant | None = None) -> str:
+    variant = variant or get_variant(None)
     cat_list = ", ".join(allowed_cats)
     prefix = (
         "You are a UK personal finance assistant categorising a bank merchant from its "
@@ -107,8 +114,13 @@ def build_prompt(row: dict, allowed_cats: list[str], owner_name: str | None) -> 
         f"{_RULE_TEXT}"
         f"{_name_clause(owner_name)}"
         "- Other: only if genuinely unclassifiable\n"
-        'Reply ONLY with JSON: {"category": "Category"}\n\nExample transaction lines:\n'
+        f"{variant.haiku_addendum}"
+        'Reply ONLY with JSON: {"category": "Category"}\n\n'
     )
+    header = variant.header_builder(row)
+    if header:
+        prefix += header + "\n\n"
+    prefix += "Example transaction lines:\n"
     lines = []
     for i, ex in enumerate(row["examples"], 1):
         tag = "IN" if ex.get("direction") == "credit" else "OUT"
@@ -160,14 +172,14 @@ async def _allowed_cats_and_owner_for(row: dict, uid_lookup: dict[str, str], cac
     return cache[real_uid]
 
 
-async def _dry_run(rows: list[dict]) -> None:
+async def _dry_run(rows: list[dict], variant: Variant | None = None) -> None:
     from scripts.jev_eval.mongo_helpers import build_uid_hash_lookup
 
     uid_lookup = await build_uid_hash_lookup()
     cache: dict = {}
     for i, row in enumerate(rows[:3], 1):
         allowed_cats, owner_name = await _allowed_cats_and_owner_for(row, uid_lookup, cache)
-        prompt = build_prompt(row, allowed_cats, owner_name)
+        prompt = build_prompt(row, allowed_cats, owner_name, variant)
         body = {
             "model": HAIKU_MODEL, "max_tokens": 200, "temperature": 0,
             "messages": [{"role": "user", "content": prompt}],
@@ -178,12 +190,14 @@ async def _dry_run(rows: list[dict]) -> None:
         print()
 
 
-async def _live_run(rows: list[dict], limit: int | None, confirm_full_run: bool) -> None:
+async def _live_run(rows: list[dict], limit: int | None, confirm_full_run: bool, variant: Variant | None = None) -> None:
     from app.core.llm import openrouter_chat
     from scripts.jev_eval.mongo_helpers import build_uid_hash_lookup
 
     ensure_out_dir()
-    done = existing_row_ids(HAIKU_RESULTS_PATH)
+    variant = variant or get_variant(None)
+    out_path = results_path("haiku", variant.name)
+    done = existing_row_ids(out_path)
     todo = [r for r in rows if make_row_id(r["scope"], r["uid_hash"], r["merchant_key"]) not in done]
 
     if limit is None and not confirm_full_run:
@@ -200,7 +214,7 @@ async def _live_run(rows: list[dict], limit: int | None, confirm_full_run: bool)
         todo = todo[:limit]
 
     if not todo:
-        print("nothing to do -- every row already has a result in out/haiku_results.jsonl")
+        print(f"nothing to do -- every row already has a result in {out_path.name}")
         return
 
     print(f"running {len(todo)} row(s) ({len(done)} already done, skipped)")
@@ -212,7 +226,7 @@ async def _live_run(rows: list[dict], limit: int | None, confirm_full_run: bool)
     async with httpx.AsyncClient(timeout=30) as client:
         for n, row in enumerate(todo, 1):
             allowed_cats, owner_name = await _allowed_cats_and_owner_for(row, uid_lookup, cache)
-            prompt = build_prompt(row, allowed_cats, owner_name)
+            prompt = build_prompt(row, allowed_cats, owner_name, variant)
             body = {
                 "model": HAIKU_MODEL, "max_tokens": 200, "temperature": 0,
                 "messages": [{"role": "user", "content": prompt}],
@@ -238,7 +252,7 @@ async def _live_run(rows: list[dict], limit: int | None, confirm_full_run: bool)
                 )
             except Exception as exc:
                 rec["error"] = f"{type(exc).__name__}: {exc}"
-                append_jsonl(HAIKU_RESULTS_PATH, rec)
+                append_jsonl(out_path, rec)
                 print(f"[{n}/{len(todo)}] {row['merchant_key']!r}: {rec['error']}")
                 continue
             rec["latency_ms"] = int((time.monotonic() - started) * 1000)
@@ -256,7 +270,7 @@ async def _live_run(rows: list[dict], limit: int | None, confirm_full_run: bool)
                     rec["error"] = f"unparseable response: {type(exc).__name__}: {exc}"
             else:
                 rec["error"] = f"http {resp.status_code}: {resp.text[:300]}"
-            append_jsonl(HAIKU_RESULTS_PATH, rec)
+            append_jsonl(out_path, rec)
             print(f"[{n}/{len(todo)}] {row['merchant_key']!r}: choice={rec['choice']} cost_usd={rec['cost_usd']}")
 
     print(f"total recorded cost this run: ${total_cost:.6f} across {len(todo)} row(s)")
@@ -271,8 +285,12 @@ def main() -> None:
         print_err(f"{DATASET_PATH} is empty or missing -- run `python -m scripts.jev_eval.dataset` first.")
         sys.exit(1)
 
+    rest = args["rest"]
+    variant = get_variant(flag_value(rest, "--variant", "v0_baseline"))
+    rows = filter_rows_by_bucket(rows, flag_value(rest, "--bucket", "all"), load_split())
+
     if args["dry_run"]:
-        asyncio.run(_dry_run(rows))
+        asyncio.run(_dry_run(rows, variant))
         return
 
     import os
@@ -280,7 +298,7 @@ def main() -> None:
         print_err("OPENROUTER_API_KEY is not set in backend/.env -- needed for a live Haiku run.")
         sys.exit(2)
 
-    asyncio.run(_live_run(rows, args["limit"], args["confirm_full_run"]))
+    asyncio.run(_live_run(rows, args["limit"], args["confirm_full_run"], variant))
 
 
 if __name__ == "__main__":

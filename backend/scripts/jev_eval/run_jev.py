@@ -11,7 +11,10 @@ run (not needed for `--dry-run`, which builds request bodies and touches no
 network). Exits 2 with a one-line message if the key is absent and a live
 run was requested.
 
-Resumable: rows already present in `out/jev_results.jsonl` (matched by
+Flags: `--variant <name>` (default v0_baseline), `--bucket tune|holdout|silver|all`.
+Results go to `out/jev_results.<variant>.jsonl`.
+
+Resumable: rows already present in that file (matched by
 `row_id`) are skipped, so a killed/interrupted run can just be re-invoked.
 """
 from __future__ import annotations
@@ -25,11 +28,14 @@ import time
 import httpx
 
 from scripts.jev_eval.common import (
-    DATASET_PATH, JEV_RESULTS_PATH, append_jsonl, build_state_text,
-    ensure_out_dir, existing_row_ids, load_real_env, parse_common_args,
-    print_err, read_jsonl, row_id as make_row_id,
+    DATASET_PATH, append_jsonl,
+    ensure_out_dir, existing_row_ids, flag_value, load_real_env,
+    parse_common_args, print_err, read_jsonl, results_path,
+    row_id as make_row_id,
 )
 from scripts.jev_eval import options
+from scripts.jev_eval.split import filter_rows_by_bucket, load_split
+from scripts.jev_eval.variants import Variant, get_variant
 
 JEV_URL = "https://api.typesafe.ai/v1/systemone"
 JEV_MODEL = "jev-latest"  # alias; valid ids: jev-1.13.0, jev-latest, jev-preview
@@ -39,26 +45,24 @@ MAX_BACKOFF_S = 30.0
 RETRY_STATUSES = {429, 529}
 
 
-def _instructions_text() -> str:
-    return (
-        "Assign this UK bank merchant to exactly one spending category, based "
-        "only on the example transaction lines given in the state above. "
-        "A debit (money leaving the account) can never be Income, whatever "
-        "the text says -- only ever choose Income for a credit line. If "
-        "genuinely nothing fits, choose Other."
+def _instructions_text(variant: Variant | None = None) -> str:
+    return (variant or get_variant(None)).instructions_text
+
+
+def build_request_body(row: dict, kind_map: dict, user_examples: dict | None, model: str = JEV_MODEL, variant: Variant | None = None) -> dict:
+    variant = variant or get_variant(None)
+    criteria = options.build_criteria(
+        kind_map, scope=row["scope"], user_examples=user_examples,
+        option_examples_mode=variant.option_examples_mode,
     )
-
-
-def build_request_body(row: dict, kind_map: dict, user_examples: dict | None, model: str = JEV_MODEL) -> dict:
-    criteria = options.build_criteria(kind_map, scope=row["scope"], user_examples=user_examples)
-    state = build_state_text(row["merchant_key"], row["examples"])
+    state = variant.state_builder(row)
     return {
         "state": state,
         "model": model,
         "questions": {
             "category": {
                 "type": "choice",
-                "instructions": _instructions_text(),
+                "instructions": _instructions_text(variant),
                 "criteria": criteria,
             }
         },
@@ -146,7 +150,7 @@ def _record_from_response(row: dict, resp: httpx.Response | None, latency_ms: in
     return rec
 
 
-async def _dry_run(rows: list[dict], model: str = JEV_MODEL) -> None:
+async def _dry_run(rows: list[dict], model: str = JEV_MODEL, variant: Variant | None = None) -> None:
     from app.services.categories import BUILTIN_CATEGORY_KINDS, get_category_kinds
     from scripts.jev_eval.mongo_helpers import build_uid_hash_lookup, fetch_user_examples
 
@@ -154,13 +158,13 @@ async def _dry_run(rows: list[dict], model: str = JEV_MODEL) -> None:
     kind_cache: dict = {}
     for i, row in enumerate(rows[:3], 1):
         kind_map, user_examples = await _kind_map_and_examples_for(row, uid_lookup, kind_cache)
-        body = build_request_body(row, kind_map, user_examples, model)
+        body = build_request_body(row, kind_map, user_examples, model, variant)
         print(f"--- dry-run request body {i}/3 (row_id={make_row_id(row['scope'], row['uid_hash'], row['merchant_key'])}) ---")
         print(json.dumps(body, indent=2, default=str))
         print()
 
 
-async def _live_run(rows: list[dict], limit: int | None, model: str = JEV_MODEL) -> None:
+async def _live_run(rows: list[dict], limit: int | None, model: str = JEV_MODEL, variant: Variant | None = None) -> None:
     import os
     from app.services.categories import get_category_kinds
     from scripts.jev_eval.mongo_helpers import build_uid_hash_lookup
@@ -171,13 +175,15 @@ async def _live_run(rows: list[dict], limit: int | None, model: str = JEV_MODEL)
         sys.exit(2)
 
     ensure_out_dir()
-    done = existing_row_ids(JEV_RESULTS_PATH)
+    variant = variant or get_variant(None)
+    out_path = results_path("jev", variant.name)
+    done = existing_row_ids(out_path)
     todo = [r for r in rows if make_row_id(r["scope"], r["uid_hash"], r["merchant_key"]) not in done]
     if limit is not None:
         todo = todo[:limit]
 
     if not todo:
-        print("nothing to do -- every row already has a result in out/jev_results.jsonl")
+        print(f"nothing to do -- every row already has a result in {out_path.name}")
         return
 
     print(f"running {len(todo)} row(s) ({len(done)} already done, skipped)")
@@ -189,10 +195,10 @@ async def _live_run(rows: list[dict], limit: int | None, model: str = JEV_MODEL)
     async with httpx.AsyncClient(timeout=30) as client:
         for n, row in enumerate(todo, 1):
             kind_map, user_examples = await _kind_map_and_examples_for(row, uid_lookup, kind_cache)
-            body = build_request_body(row, kind_map, user_examples, model)
+            body = build_request_body(row, kind_map, user_examples, model, variant)
             resp, latency_ms, error = await _post_with_retry(client, headers, body)
             rec = _record_from_response(row, resp, latency_ms, error)
-            append_jsonl(JEV_RESULTS_PATH, rec)
+            append_jsonl(out_path, rec)
             status = rec["error"] or f"choice={rec['choice']} conf={rec['confidence']}"
             print(f"[{n}/{len(todo)}] {row['merchant_key']!r}: {status}")
 
@@ -211,11 +217,14 @@ def main() -> None:
     if "--model" in rest:
         model = rest[rest.index("--model") + 1]
 
+    variant = get_variant(flag_value(rest, "--variant", "v0_baseline"))
+    rows = filter_rows_by_bucket(rows, flag_value(rest, "--bucket", "all"), load_split())
+
     if args["dry_run"]:
-        asyncio.run(_dry_run(rows, model))
+        asyncio.run(_dry_run(rows, model, variant))
         return
 
-    asyncio.run(_live_run(rows, args["limit"], model))
+    asyncio.run(_live_run(rows, args["limit"], model, variant))
 
 
 if __name__ == "__main__":
