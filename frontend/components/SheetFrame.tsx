@@ -1,10 +1,12 @@
 "use client";
 
-import { ReactNode, Ref, useCallback, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { ReactNode, Ref, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { ChevronLeft, X } from "lucide-react";
 import { useSheetA11y } from "@/lib/useSheetA11y";
 import { useSheetOpen } from "@/lib/useSheetOpen";
+import { useSwipeDismiss } from "@/lib/useSwipeDismiss";
+import { canStartSheetSwipe, sheetSwipeAllowed, type SwipeNode } from "@/lib/sheetSwipe";
 
 export type SheetFrameVariant = "compact" | "focused";
 export interface SheetFrameControls {
@@ -81,10 +83,43 @@ export function SheetFrame({
     nextRef.current = next;
     requestClose();
   }, [requestClose]);
+  // G205: swipe down to dismiss on phones. The drag ends in `close`, the very
+  // function the X button calls, so history, focus restore, teardown pops
+  // and any confirm-on-close the caller wires into onClose behave the same.
+  // dismissDisabled switches the gesture off like it disables the X.
+  const handleRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLElement>(null);
+  const bodyEl = useRef<HTMLDivElement | null>(null);
+  const backdropRef = useRef<HTMLButtonElement>(null);
+  const swipe = useSwipeDismiss<HTMLElement>(() => close(), {
+    axis: "y", sign: 1, dismissFraction: 0.2, flickVelocity: 0.4,
+    enabled: !dismissDisabled, fade: false, companionRef: backdropRef, restoreAfterMs: 400,
+    canStart: e => sheetSwipeAllowed(e.pointerType, window.innerWidth) && canStartSheetSwipe(
+      e.target as unknown as SwipeNode,
+      { handle: handleRef.current as unknown as SwipeNode, header: headerRef.current as unknown as SwipeNode, body: bodyEl.current as unknown as SwipeNode },
+    ),
+  });
   const setPanel = useCallback((node: HTMLElement | null) => {
     ref(node);
+    swipe.ref.current = node;
     panelRef?.(node);
-  }, [ref, panelRef]);
+  }, [ref, panelRef, swipe.ref]);
+  const setBody = useCallback((node: HTMLDivElement | null) => {
+    bodyEl.current = node;
+    if (typeof bodyRef === "function") bodyRef(node);
+    else if (bodyRef) (bodyRef as { current: HTMLDivElement | null }).current = node;
+  }, [bodyRef]);
+  // A touch that is dragging the sheet must not also pan the page: React's
+  // touch listeners are passive, so cancel the browser pan natively.
+  useEffect(() => {
+    const panel = swipe.ref.current;
+    if (!panel) return;
+    const block = (e: TouchEvent) => {
+      if (e.cancelable && swipe.gestureActive()) e.preventDefault();
+    };
+    panel.addEventListener("touchmove", block, { passive: false });
+    return () => panel.removeEventListener("touchmove", block);
+  }, [swipe, mounted]);
   // One visible viewport, never a second keyboard-height padding. This also
   // covers WebViews whose layout viewport has already resized natively.
   useLayoutEffect(() => {
@@ -122,10 +157,11 @@ export function SheetFrame({
   const renderedFooter = typeof footer === "function" ? footer({ close, closeThen }) : footer;
   return createPortal(
     <div data-sheet-overlay className={`${themeClass ?? ""} fixed inset-0 z-[70] flex items-end justify-center p-0 lg:items-center lg:p-6`} style={viewport ?? undefined}>
-      <button type="button" tabIndex={-1} aria-hidden="true" onClick={() => { if (!dismissDisabled) close(); }} className="absolute inset-0 cursor-default bg-black/40 fade-in" />
+      <button ref={backdropRef} type="button" tabIndex={-1} aria-hidden="true" onClick={() => { if (!dismissDisabled) close(); }} className="absolute inset-0 cursor-default bg-black/40 fade-in" />
       <section
         data-sheet-frame
         ref={setPanel}
+        {...swipe.handlers}
         tabIndex={-1}
         onClickCapture={onClickCapture}
         role="dialog"
@@ -134,7 +170,8 @@ export function SheetFrame({
         aria-describedby={description ? `${titleId}-description` : undefined}
         className={`glass-sheet relative z-10 flex w-full max-w-[500px] flex-col overflow-hidden rounded-t-3xl border-t border-slate-200 shadow-xl outline-none dark:border-slate-700 dark:shadow-none lg:max-h-[85%] lg:rounded-3xl lg:border [&_button:not([data-compact])]:min-h-11 [&_button:focus-visible]:outline-2 [&_button:focus-visible]:outline-indigo-500 [&_input:focus-visible]:outline-2 [&_input:focus-visible]:outline-indigo-500 ${mobileHeight}`}
       >
-        <header className="flex shrink-0 items-start gap-3 border-b border-slate-100 px-5 py-4 dark:border-slate-700">
+        <div ref={handleRef} data-sheet-handle aria-hidden="true" className="flex h-5 shrink-0 touch-none items-center justify-center lg:hidden"><span className="h-1 w-9 rounded-full bg-slate-300 dark:bg-slate-600" /></div>
+        <header ref={headerRef} className="flex shrink-0 touch-none items-start gap-3 border-b border-slate-100 px-5 pb-4 pt-0 dark:border-slate-700 lg:pt-4">
           {onBack && <button type="button" onClick={onBack} disabled={dismissDisabled} aria-label={backLabel} className="-ml-2 -mt-1 flex size-11 shrink-0 items-center justify-center rounded-full text-slate-600 active:scale-95 disabled:opacity-50 dark:text-slate-300"><ChevronLeft size={20} aria-hidden="true" /></button>}
           {leading && <div className="shrink-0">{leading}</div>}
           <div className="min-w-0 flex-1">
@@ -145,7 +182,7 @@ export function SheetFrame({
             <X size={20} aria-hidden="true" />
           </button>
         </header>
-        <div ref={bodyRef} data-sheet-body className={`min-h-0 flex-1 overflow-y-auto overscroll-contain ${bodyClassName}`} style={!footer ? { paddingBottom: "max(20px, env(safe-area-inset-bottom, 0px))" } : undefined}>{renderedBody}</div>
+        <div ref={setBody} data-sheet-body className={`min-h-0 flex-1 overflow-y-auto overscroll-contain ${bodyClassName}`} style={!footer ? { paddingBottom: "max(20px, env(safe-area-inset-bottom, 0px))" } : undefined}>{renderedBody}</div>
         {footer ? <footer data-sheet-footer className="shrink-0 border-t border-slate-100 px-5 pt-3 dark:border-slate-700" style={{ paddingBottom: "max(12px, env(safe-area-inset-bottom, 0px))" }}>{renderedFooter}</footer> : null}
       </section>
     </div>,

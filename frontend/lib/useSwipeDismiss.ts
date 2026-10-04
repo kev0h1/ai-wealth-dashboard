@@ -15,8 +15,25 @@ export function prefersReducedMotion(): boolean {
     : false;
 }
 
-export function useSwipeDismiss<T extends HTMLElement>(onDismiss: () => void, options: SwipeOptions = {}) {
+/** G205 extensions, all optional so G207's tip card is unchanged. */
+export interface SwipeDismissExtras {
+  /** Gate evaluated on pointerdown; false means this touch never starts a gesture. */
+  canStart?: (e: React.PointerEvent<HTMLElement>) => boolean;
+  /** False turns the whole gesture off (e.g. dismissDisabled, desktop). */
+  enabled?: boolean;
+  /** Fade the element itself while dragging. Sheets keep a solid panel (default true). */
+  fade?: boolean;
+  /** An element (the sheet backdrop) whose opacity follows drag progress. */
+  companionRef?: React.RefObject<HTMLElement | null>;
+  /** After onDismiss, if the element is still mounted (a confirm held the
+   *  close), restore it after this many ms. 0 disables. */
+  restoreAfterMs?: number;
+}
+
+export function useSwipeDismiss<T extends HTMLElement>(onDismiss: () => void, options: SwipeOptions & SwipeDismissExtras = {}) {
+  const { canStart, enabled = true, fade = true, companionRef, restoreAfterMs = 0 } = options;
   const ref = useRef<T>(null);
+  const last = useRef({ y: 0, t: 0, v: 0 });
   const onDismissRef = useRef(onDismiss);
   useEffect(() => { onDismissRef.current = onDismiss; });
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -39,12 +56,25 @@ export function useSwipeDismiss<T extends HTMLElement>(onDismiss: () => void, op
     el.style.transition = "";
     el.style.transform = "";
     el.style.opacity = "";
+    if (companionRef?.current) {
+      companionRef.current.style.transition = "";
+      companionRef.current.style.opacity = "";
+    }
+  }
+
+  function companion(offset: number, size: number, transition: string, to?: string) {
+    const c = companionRef?.current;
+    if (!c) return;
+    c.style.transition = transition;
+    c.style.opacity = to ?? String(Math.max(0, 1 - offset / (size * 0.6)));
   }
 
   const handlers = {
     onPointerDown(e: React.PointerEvent<T>) {
       // Mouse users get the visible dismiss button, not a drag.
       if (e.pointerType === "mouse" && e.button !== 0) return;
+      if (!enabled || (canStart && !canStart(e))) return;
+      last.current = { y: e.clientY, t: Date.now(), v: 0 };
       gesture.start(e.clientX, e.clientY, Date.now());
     },
     onPointerMove(e: React.PointerEvent<T>) {
@@ -56,9 +86,12 @@ export function useSwipeDismiss<T extends HTMLElement>(onDismiss: () => void, op
       }
       if (!m.dragging) return;
       const reduced = prefersReducedMotion();
+      const now = Date.now();
+      if (now > last.current.t) last.current = { y: e.clientY, t: now, v: (e.clientY - last.current.y) / (now - last.current.t) };
       el.style.transition = "";
       el.style.transform = translate(m.offset);
-      el.style.opacity = String(swipeOpacity(m.offset, sizeOf(el), reduced));
+      if (fade) el.style.opacity = String(swipeOpacity(m.offset, sizeOf(el), reduced));
+      if (!reduced) companion(m.offset, sizeOf(el), "");
     },
     onPointerUp(e: React.PointerEvent<T>) {
       const el = ref.current;
@@ -69,15 +102,27 @@ export function useSwipeDismiss<T extends HTMLElement>(onDismiss: () => void, op
       if (end.action === "none") return;
       const animate = !reduced;
       if (end.action === "dismiss") {
-        el.style.transition = animate ? "transform 0.2s var(--ease-out), opacity 0.15s ease" : "none";
+        // Continue the finger's velocity: time the remaining travel at the
+        // release speed, clamped so a slow drag still settles briskly.
+        const travel = Math.max(0, size + 20 - Math.abs(gesture.lastOffset));
+        const v = Math.abs(last.current.v);
+        const ms = animate ? Math.round(v > 0.05 ? Math.min(260, Math.max(120, travel / v)) : 200) : 0;
+        el.style.transition = animate ? `transform ${ms}ms var(--ease-out), opacity 0.15s ease` : "none";
         el.style.transform = translate(size + 20);
-        el.style.opacity = "0";
+        if (fade) el.style.opacity = "0";
+        companion(0, size, animate ? `opacity ${ms}ms ease` : "none", "0");
         if (timer.current) clearTimeout(timer.current);
-        timer.current = setTimeout(() => onDismissRef.current(), animate ? 200 : 0);
+        timer.current = setTimeout(() => {
+          onDismissRef.current();
+          if (restoreAfterMs > 0) {
+            timer.current = setTimeout(() => { if (ref.current) reset(ref.current); }, restoreAfterMs);
+          }
+        }, ms);
       } else {
         el.style.transition = animate ? "transform 0.25s var(--ease-out), opacity 0.2s ease" : "none";
         el.style.transform = translate(0);
-        el.style.opacity = "1";
+        if (fade) el.style.opacity = "1";
+        companion(0, size, animate ? "opacity 0.25s ease" : "none", "1");
         if (animate) {
           if (timer.current) clearTimeout(timer.current);
           timer.current = setTimeout(() => { if (ref.current) reset(ref.current); }, 250);
@@ -99,5 +144,8 @@ export function useSwipeDismiss<T extends HTMLElement>(onDismiss: () => void, op
     },
   };
 
-  return { ref, handlers };
+  /** True while a locked drag is in progress (callers cancel the native pan). */
+  const gestureActive = () => gesture.phase === "dragging";
+
+  return { ref, handlers, gestureActive };
 }
