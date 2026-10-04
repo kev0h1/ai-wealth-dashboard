@@ -150,6 +150,7 @@ def build_criteria(
     *,
     scope: str,
     user_examples: dict[str, list[str]] | None = None,
+    option_examples_mode: str = "none",
 ) -> dict[str, dict]:
     """The Choice `criteria` map for one row.
 
@@ -175,6 +176,14 @@ def build_criteria(
     if scope == "user" and user_examples:
         effective_examples = user_examples
 
+    curated: dict[str, list[str]] = {}
+    if option_examples_mode == "curated":
+        # Public brand names authored by us, no user text (see that module).
+        from scripts.jev_eval.curated_examples import CURATED_EXAMPLES
+        curated = CURATED_EXAMPLES
+    elif option_examples_mode != "none":
+        raise ValueError(f"unknown option_examples_mode {option_examples_mode!r}")
+
     criteria: dict[str, dict] = {}
     for name in VALID_CATEGORIES:
         if name in EXCLUDED_FROM_CHOICE:
@@ -183,7 +192,9 @@ def build_criteria(
         criteria[name] = {
             "what": base["what"],
             "not_for": base["not_for"],
-            "examples": list(effective_examples.get(name, []))[:3],
+            # Curated names first (global and user), then at most 3 of this
+            # user's own examples (scope="user" only, per the guard above).
+            "examples": list(curated.get(name, []))[:8] + list(effective_examples.get(name, []))[:3],
         }
 
     if scope == "user":
