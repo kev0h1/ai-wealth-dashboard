@@ -11,10 +11,18 @@ We do NOT use accounts_col.updated_at because:
   2. It is bumped by non-sync events (manual_account_rules.py balance recalculations)
      → it is not a reliable sync signal.
 """
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+from app.core.timeutil import as_utc
 from app.db.collections import connections_col, finexer_consents_col
+
+# A first sync that has been authorised this long with no result and no error
+# is reported as stalled rather than left looking like it is still working.
+FIRST_SYNC_STALL_AFTER = timedelta(minutes=10)
+# Past this age an authorised-but-never-synced connection with no error is an
+# abandoned leftover, not a first sync in progress, and no longer holds Home.
+FIRST_SYNC_ABANDON_AFTER = timedelta(hours=24)
 
 
 async def last_bank_sync(uid: str) -> Optional[datetime]:
@@ -44,3 +52,60 @@ async def last_bank_sync(uid: str) -> Optional[datetime]:
             candidates.append(ts.replace(tzinfo=timezone.utc))
 
     return max(candidates) if candidates else None
+
+
+async def first_sync_state(uid: str, now: Optional[datetime] = None) -> dict:
+    """G210: is `uid`'s first bank sync still running, stuck, or failed?
+
+    A connection counts once it is authorised (Finexer status authorized /
+    connected, TrueLayer tokens saved) but has never stamped `last_synced`.
+    State precedence across connections: failed > stalled > syncing > idle.
+    No connections at all is `idle` (the genuine fresh user).
+    """
+    now = as_utc(now) if now else datetime.now(timezone.utc)  # naive-ok: aware instant, compared to as_utc stamps
+    rows: list[dict] = []
+
+    async def _collect(col, provider: str, query: dict, bank_key: str):
+        async for doc in col.find(query):
+            if doc.get("last_synced"):
+                continue
+            started = as_utc(
+                doc.get("authed_at") or doc.get("created_at") or doc.get("updated_at")
+            )
+            err = doc.get("last_sync_error") or None
+            if provider == "truelayer" and not doc.get("access_token"):
+                continue
+            if err:
+                sub = "failed"
+            elif started is not None and now - started > FIRST_SYNC_ABANDON_AFTER:
+                continue
+            elif started is not None and now - started > FIRST_SYNC_STALL_AFTER:
+                sub = "stalled"
+            else:
+                sub = "syncing"
+            rows.append({
+                "provider": provider,
+                "connection_id": doc.get("_id"),
+                "bank": doc.get(bank_key) or None,
+                "started_at": started.isoformat() if started else None,
+                "error": err,
+                "_sub": sub,
+            })
+
+    await _collect(
+        finexer_consents_col, "finexer",
+        {"user_id": uid, "status": {"$in": ["authorized", "connected"]}}, "provider",
+    )
+    await _collect(
+        connections_col, "truelayer",
+        {"user_id": uid, "pending": {"$ne": True}}, "provider_name",
+    )
+
+    state = "idle"
+    for sub in ("failed", "stalled", "syncing"):
+        if any(r["_sub"] == sub for r in rows):
+            state = sub
+            break
+    for r in rows:
+        r.pop("_sub")
+    return {"state": state, "connections": rows}

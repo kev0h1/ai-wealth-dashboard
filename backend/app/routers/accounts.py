@@ -182,6 +182,13 @@ async def get_accounts(user: dict = Depends(current_user)):
     return await _attach_aprs(uid, result)
 
 
+@router.get("/sync/status")
+async def sync_status(user: dict = Depends(current_user)):
+    """G210: first-sync state (idle / syncing / stalled / failed) for Home."""
+    from app.services.sync_freshness import first_sync_state
+    return await first_sync_state(user["email"])
+
+
 @router.post("/accounts/sync")
 async def sync_all(user: dict = Depends(current_user)):
     uid = user["email"]
