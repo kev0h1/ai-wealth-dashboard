@@ -281,6 +281,23 @@ await withStubbedFetch(async (getCallCount) => {
   check("runWhenUnlocked: cancel before unlock means it never runs", n, 0);
 }
 
+// A140: nested re-lock. An earlier listener re-locks while the unlock notification
+// is still being delivered; the deferred fn must not run until a real unlock.
+{
+  setAppLocked(false);
+  let relock = true;
+  const unsub = subscribeAppLock(() => { if (relock && !isAppLocked()) setAppLocked(true); });
+  setAppLocked(true);
+  let n = 0;
+  runWhenUnlocked(() => { n += 1; });
+  setAppLocked(false);
+  check("runWhenUnlocked: nested re-lock before our listener does not run fn", n, 0);
+  relock = false;
+  unsub();
+  setAppLocked(false);
+  check("runWhenUnlocked: later real unlock runs it exactly once", n, 1);
+}
+
 if (failures > 0) {
   console.error(`\n${failures} check(s) failed.`);
   process.exit(1);

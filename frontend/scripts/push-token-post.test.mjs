@@ -9,7 +9,7 @@
 // Run with: npm run -s check:push-token-post
 
 import { readFileSync } from "node:fs";
-import { setAppLocked } from "../lib/appLock";
+import { isAppLocked, setAppLocked } from "../lib/appLock";
 import { api, AppLockedError } from "../lib/api";
 import { postPushToken } from "../lib/capacitorPush";
 
@@ -57,6 +57,21 @@ await postPushToken("tok-2", "android");
 setAppLocked(false);
 await tick();
 check("non-lock error: no retry scheduled", calls.length, 1);
+
+// Token rotation while locked: only the latest token is uploaded after unlock.
+calls.length = 0;
+mode = "gate";
+api.registerFcmToken = (token, plat) => {
+  if (isAppLocked()) return Promise.reject(new AppLockedError());
+  calls.push([token, plat]);
+  return Promise.resolve({});
+};
+setAppLocked(true);
+await postPushToken("old-tok", "android");
+await postPushToken("new-tok", "android");
+setAppLocked(false);
+await tick();
+check("rotation while locked: one POST, latest token only", calls, [["new-tok", "android"]]);
 
 console.error = origError;
 
