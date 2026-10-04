@@ -1,36 +1,30 @@
 "use client";
 
-// TEMPORARY PREVIEW, G202 "signing you in" design round.
-// Static fixtures. No API requests, nothing signs in, no production edits to
-// the flow (LoginScreen gained three optional props that production never
-// passes).
-// /design/signin-loading?variant=a|b|c&state=waiting|waiting-slow|checking|checking-slow|resume|failed|timeout|unreachable&mode=light|dark[&t=<seconds>][&live=1][&chrome=0]
-//
-// Rendered from production: components/LoginScreen (shell, mark, title, the
-// real Google and Apple buttons, the regulatory line, the invite-only branch
-// untouched). Hand-authored for the round: the phase panels in ./variants.tsx,
-// which are the only thing a pick would promote. Elapsed time is a fixture
-// (or a fake clock with live=1), never a real sign-in.
+// G202 · approved variant A (Two stages), folded into production.
+// This page renders the PRODUCTION components/LoginScreen (and through it
+// components/SignInProgress) with its phase and clock supplied through props.
+// Nothing here is a copy of shipped markup. Static fixtures, no API requests,
+// nothing signs in; elapsed time is a fake clock (optionally ticking, live=1).
+// /design/signin-loading?state=waiting|waiting-slow|checking|resume|failed|timeout|unreachable&mode=light|dark[&t=<seconds>][&live=1][&chrome=0]
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import LoginScreen, { type LoginPhase } from "@/components/LoginScreen";
-import { RENDERERS, VARIANT_META, type VariantId } from "./variants";
 
-const VARIANTS: VariantId[] = ["a", "b", "c"];
+type StateId = "waiting" | "waiting-slow" | "checking" | "resume" | "failed" | "timeout" | "unreachable";
 
-type StateId = "waiting" | "waiting-slow" | "checking" | "checking-slow" | "resume" | "failed" | "timeout" | "unreachable";
+// Fixed fake epoch, so the preview never reads the real clock.
+const T0 = 1_000_000;
 
-const STATES: { id: StateId; label: string; elapsed: number; phase: (elapsedMs: number) => LoginPhase }[] = [
-  { id: "waiting", label: "Signing in, 0s", elapsed: 0, phase: (e) => ({ kind: "signing-in", attempt: "google", stage: "provider", elapsedMs: e }) },
-  { id: "waiting-slow", label: "Signing in, 25s", elapsed: 25, phase: (e) => ({ kind: "signing-in", attempt: "google", stage: "provider", elapsedMs: e }) },
-  { id: "checking", label: "Checking session, 2s", elapsed: 2, phase: (e) => ({ kind: "signing-in", attempt: "google", stage: "session", elapsedMs: e }) },
-  { id: "checking-slow", label: "Checking session, 25s", elapsed: 25, phase: (e) => ({ kind: "signing-in", attempt: "google", stage: "session", elapsedMs: e }) },
-  { id: "resume", label: "Resumed after a kill", elapsed: 3, phase: (e) => ({ kind: "signing-in", attempt: "resume", stage: "provider", elapsedMs: e }) },
-  { id: "failed", label: "Failed", elapsed: 0, phase: () => ({ kind: "failed", reason: "failed" }) },
-  { id: "timeout", label: "Timed out", elapsed: 0, phase: () => ({ kind: "failed", reason: "timeout" }) },
-  { id: "unreachable", label: "Unreachable", elapsed: 0, phase: () => ({ kind: "unreachable" }) },
+const STATES: { id: StateId; label: string; elapsed: number; phase: LoginPhase }[] = [
+  { id: "waiting", label: "Signing in, 0s", elapsed: 0, phase: { kind: "signing-in", attempt: "google", stage: "provider", startedAt: T0 } },
+  { id: "waiting-slow", label: "Signing in, 25s", elapsed: 25, phase: { kind: "signing-in", attempt: "google", stage: "provider", startedAt: T0 } },
+  { id: "checking", label: "Checking session, 2s", elapsed: 2, phase: { kind: "signing-in", attempt: "google", stage: "session", startedAt: T0 } },
+  { id: "resume", label: "Resumed after a kill", elapsed: 3, phase: { kind: "signing-in", attempt: "resume", stage: "provider", startedAt: T0 } },
+  { id: "failed", label: "Failed", elapsed: 0, phase: { kind: "failed", reason: "failed" } },
+  { id: "timeout", label: "Timed out", elapsed: 0, phase: { kind: "failed", reason: "timeout" } },
+  { id: "unreachable", label: "Unreachable", elapsed: 0, phase: { kind: "unreachable" } },
 ];
 
 const pill =
@@ -38,8 +32,6 @@ const pill =
 
 export default function SigninLoadingClient() {
   const params = useSearchParams();
-  const rawV = params.get("variant");
-  const variant: VariantId = VARIANTS.includes(rawV as VariantId) ? (rawV as VariantId) : "a";
   const state = STATES.find((s) => s.id === params.get("state")) ?? STATES[0];
   const dark = params.get("mode") === "dark";
   const showChrome = params.get("chrome") !== "0";
@@ -59,11 +51,11 @@ export default function SigninLoadingClient() {
     const id = setInterval(() => setTicks((n) => n + 1), 1000);
     return () => clearInterval(id);
   }, [live]);
-  const elapsedMs = (baseSeconds + (live ? ticks : 0)) * 1000;
+  const nowMs = T0 + (baseSeconds + (live ? ticks : 0)) * 1000;
 
-  const phase = useMemo(() => state.phase(elapsedMs), [state, elapsedMs]);
+  const phase = state.phase;
   const q = (over: Record<string, string>) => {
-    const next = new URLSearchParams({ variant, state: state.id, mode: dark ? "dark" : "light", ...(showChrome ? {} : { chrome: "0" }), ...over });
+    const next = new URLSearchParams({ state: state.id, mode: dark ? "dark" : "light", ...(showChrome ? {} : { chrome: "0" }), ...over });
     return `?${next.toString()}`;
   };
 
@@ -80,13 +72,6 @@ export default function SigninLoadingClient() {
                 {dark ? "Light" : "Dark"}
               </Link>
             </div>
-            <div className="flex gap-1 rounded-xl bg-slate-900 p-1 dark:border dark:border-slate-700">
-              {VARIANTS.map((v) => (
-                <Link key={v} href={q({ variant: v })} aria-current={v === variant ? "page" : undefined} className={`${pill} flex-1 justify-center ${v === variant ? "bg-indigo-600 text-white" : "text-slate-300"}`}>
-                  {VARIANT_META[v].label}
-                </Link>
-              ))}
-            </div>
             <div className="flex flex-wrap gap-1">
               {STATES.map((s) => (
                 <Link key={s.id} href={q({ state: s.id })} aria-current={s.id === state.id ? "true" : undefined} className={`${pill} border border-slate-300 dark:border-slate-700 ${s.id === state.id ? "bg-slate-200 text-slate-950 dark:bg-slate-700 dark:text-white" : "text-slate-700 dark:text-slate-300"}`}>
@@ -101,14 +86,16 @@ export default function SigninLoadingClient() {
         </div>
       )}
 
-      <LoginScreen phase={phase} renderPhase={RENDERERS[variant]} hideMarkWhileSigningIn={variant === "c"} />
+      <LoginScreen phase={phase} nowMs={nowMs} />
 
       {showChrome && (
         <div className="mx-auto max-w-sm px-6 pb-16 text-xs leading-relaxed text-slate-600 dark:text-slate-300">
-          <p className="font-semibold text-slate-900 dark:text-slate-100">{VARIANT_META[variant].label}</p>
-          <p className="mt-1">{VARIANT_META[variant].note}</p>
+          <p className="font-semibold text-slate-900 dark:text-slate-100">Approved: A · Two stages</p>
+          <p className="mt-1">
+            The card becomes a two-row ledger of the two real stages, the browser hand-back and the session check, with a ring on the live row and a tick on the finished one. From 20s the copy changes to &quot;Still signing you in&quot; and Cancel stays on screen. A failed attempt returns to the form with its reason in a focused role=alert notice, never a browser alert.
+          </p>
           <p className="mt-3">
-            Rendered from production: LoginScreen (shell, mark, title, the real Google and Apple buttons, the regulatory line). Hand-authored for this round: the phase panels, which are the only thing a pick would promote. Elapsed time and every outcome are fixtures, nothing signs in. From 20s the copy changes to &quot;Still signing you in&quot; and the way out stays on screen. A failed attempt returns to the form with its reason, never an alert, and takes focus. No red (The Red Is Risk Rule), no gradient (The Penny Gradient Rule), reduced motion turns the ring and pulses static. Directions drafted with Astra (openai/gpt-6-astra) and rewritten to DESIGN.md. Today none of this reaches production: AuthProvider passes none of the new props.
+            Everything on screen is the production LoginScreen and SignInProgress. Only the phase and the clock are supplied here, as fixtures; nothing signs in. No red (The Red Is Risk Rule), no gradient (The Penny Gradient Rule), reduced motion turns the ring static.
           </p>
         </div>
       )}

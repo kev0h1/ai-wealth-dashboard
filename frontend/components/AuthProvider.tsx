@@ -6,6 +6,9 @@ import { Capacitor } from "@capacitor/core";
 import { App } from "@capacitor/app";
 import { getToken, setTokenAsync, clearToken, hydrateToken } from "@/lib/auth";
 import { resumePendingLogin } from "@/lib/nativeAuth";
+import { loadPendingLogin } from "@/lib/pendingLogin";
+import { boundedSignal } from "@/lib/abortBound";
+import type { ResumingLogin } from "@/lib/signInPhase";
 import { api, API_BASE, gatedFetch, setUnauthorizedHandler, resetUnauthorizedGate } from "@/lib/api";
 import { WEB_PRODUCT_OFF } from "@/lib/webProduct";
 import LoginScreen from "@/components/LoginScreen";
@@ -51,12 +54,22 @@ function nativePlatform(): boolean {
 
 export type SessionOutcome = "ok" | "rejected" | "unreachable";
 const SESSION_RETRY_DELAY_MS = 1500;
+// G202: each session check is bounded, so the "signing in" state cannot
+// outlive the copy we show for it. An abort reads as "unreachable" (token
+// kept), exactly like any other transient failure.
+const VALIDATE_TIMEOUT_MS = 15_000;
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [user, setUser] = useState<AuthUser | null>(null);
   const [checking, setChecking] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
+  // G202: a Google sign-in started before a process kill or reload is still
+  // being awaited. Handed to LoginScreen, which owns every phase decision.
+  const [resuming, setResuming] = useState<ResumingLogin | null>(null);
+  const resumeCancelledRef = useRef(false);
+  // Aborts the late-success session check (resume) when Cancel is pressed.
+  const lateAbortRef = useRef<AbortController | null>(null);
   const [needsOnboarding, setNeedsOnboarding] = useState(false);
   // Stamped by both the mount-time validate below and the periodic
   // revalidate effect, so the two share one rate-limit clock rather than
@@ -75,16 +88,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // preferences, push resync) mounts fresh now that `user` is set, exactly as
   // after a reload. Resolves "ok", "rejected" (token refused) or "unreachable"
   // (transient failure, token kept).
-  async function establishSession(): Promise<SessionOutcome> {
+  async function establishSession(signal?: AbortSignal): Promise<SessionOutcome> {
     if (!getToken()) return "rejected";
     invalidateAllAccountData();
     const profileP = api.getProfile().catch(() => null);
-    let outcome = await validateOnce();
+    let outcome = await validateOnce(signal);
     if (outcome === "unreachable") {
       // One bounded retry (no loop) for a transient failure; the token is kept
       // either way so LoginScreen can offer "tap to try again".
       await new Promise((r) => setTimeout(r, SESSION_RETRY_DELAY_MS));
-      outcome = await validateOnce();
+      if (signal?.aborted) return "unreachable";
+      outcome = await validateOnce(signal);
     }
     if (outcome !== "ok") return outcome;
     const profile = await profileP;
@@ -95,14 +109,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // One POST /auth/session/validate for establishSession. Clears the token
   // only on a definite 401/403 or a missing email. A network error, timeout or
   // 5xx/429 says nothing about the token, so it is kept ("unreachable").
-  async function validateOnce(): Promise<SessionOutcome> {
+  async function validateOnce(signal?: AbortSignal): Promise<SessionOutcome> {
     const token = getToken();
     if (!token) return "rejected";
+    const bound = boundedSignal(VALIDATE_TIMEOUT_MS, signal);
     try {
       lastValidateAtRef.current = Date.now();
       const res = await gatedFetch(`${API_BASE}/auth/session/validate`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
+        signal: bound.signal,
       });
       if (res.status === 401 || res.status === 403) {
         clearToken(); // a definite rejection of this token
@@ -114,13 +130,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         clearToken();
         return "rejected";
       }
+      if (bound.signal.aborted) return "unreachable"; // cancelled or out of time: do not sign in
       setAuthError(null);
       setUser({ email: data.email, name: data.name || "", owner: !!data.owner });
       resetUnauthorizedGate();
       return "ok";
     } catch {
       return "unreachable";
+    } finally {
+      bound.dispose();
     }
+  }
+
+  // G202: whenever a user is set (init validate, late success, establishSession)
+  // the resume signal is spent. Without this a later sign-out would show a
+  // stale "Checking your session" or "We could not sign you in" over the form.
+  useEffect(() => {
+    if (user) setResuming(null);
+  }, [user]);
+
+  function cancelResume() {
+    // The idle form shows at once; the init validate's result is ignored.
+    resumeCancelledRef.current = true;
+    lateAbortRef.current?.abort();
+    setResuming(null);
+    setChecking(false);
   }
 
   useEffect(() => {
@@ -135,12 +169,45 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // collected (the WebView reloaded or the OS killed the app while the
       // browser sheet was up) is redeemed here, before we conclude "signed
       // out". No-op when there is no pending login record.
+      resumeCancelledRef.current = false; // each resume starts uncancelled
       if (nativePlatform() && !getToken()) {
+        // G202: the persisted login's own startedAt keeps the elapsed clock
+        // honest across the kill.
+        const pendingAtStart = loadPendingLogin();
+        if (pendingAtStart) setResuming({ startedAt: pendingAtStart.startedAt, stage: "provider" });
         try {
-          await resumePendingLogin(() => { void establishSession(); });
+          const resumed = await resumePendingLogin(
+            () => {
+              // Late success: the token is in, now the session check.
+              if (resumeCancelledRef.current) return;
+              setResuming((r) => (r ? { ...r, stage: "session" } : r));
+              const lateCtrl = new AbortController();
+              lateAbortRef.current = lateCtrl;
+              void establishSession(lateCtrl.signal).then((o) => {
+                if (lateAbortRef.current === lateCtrl) lateAbortRef.current = null;
+                if (resumeCancelledRef.current) return; // cancelled mid-check: nothing to show
+                setResuming((r) => (o === "ok" ? null : r ? { ...r, ended: "failed" } : r));
+              });
+            },
+            (result) => {
+              if (result === "ok") return; // onLateSuccess owns this branch
+              if (result === "cancelled") setResuming(null);
+              else if (result === "timeout") setResuming((r) => (r ? { ...r, ended: "timeout" } : r));
+              else setResuming((r) => (r ? { ...r, ended: "failed" } : r));
+            },
+          );
+          if (resumed === "ok") setResuming((r) => (r ? { ...r, stage: "session" } : r));
+          else if (resumed === "none") setResuming(null);
         } catch {
-          /* never block start-up on this */
+          setResuming(null); /* never block start-up on this */
         }
+      }
+      if (resumeCancelledRef.current) {
+        // Cancelled during resume: whatever raced in is discarded.
+        clearToken();
+        setResuming(null);
+        setChecking(false);
+        return;
       }
 
       // Pick up token from Google OAuth redirect
@@ -180,6 +247,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const profileP = api.getProfile().catch(() => null);
 
       lastValidateAtRef.current = Date.now();
+      let signedIn = false;
       try {
         const res = await gatedFetch(`${API_BASE}/auth/session/validate`, {
           method: "POST",
@@ -187,8 +255,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         });
         if (res.ok) {
           const data = await res.json();
-          if (data.email) {
+          if (data.email && resumeCancelledRef.current) {
+            clearToken(); // Cancel was pressed while this check was running
+          } else if (data.email) {
             setUser({ email: data.email, name: data.name || "", owner: !!data.owner });
+            signedIn = true;
             // A124: a session confirmed good here can be revoked again
             // later, and lib/api.ts's own 401 gate only fires its
             // sign-out hook once per revoke — reopen it now so a LATER
@@ -226,6 +297,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } catch {
         clearToken();
       }
+      // G202: a resumed sign-in whose session check did not produce a user
+      // must say so, not sit on "Checking your session".
+      // A user means the resume concluded: drop the signal. "failed" ONLY when
+      // no user resulted.
+      setResuming((r) => (signedIn ? null : r && r.stage === "session" && !r.ended ? { ...r, ended: "failed" } : r));
       setChecking(false);
     }
     init();
@@ -392,6 +468,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   if (checking) {
+    // G202: a resumed sign-in shows its progress instead of a blank slate.
+    if (resuming) return <LoginScreen error={authError} onSignedIn={establishSession} resuming={resuming} onCancelResume={cancelResume} />;
     return <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a]" />;
   }
 
@@ -410,7 +488,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   if (!user) {
-    return <LoginScreen error={authError} onSignedIn={establishSession} />;
+    return <LoginScreen error={authError} onSignedIn={establishSession} resuming={resuming} onCancelResume={cancelResume} />;
   }
 
   if (needsOnboarding) {

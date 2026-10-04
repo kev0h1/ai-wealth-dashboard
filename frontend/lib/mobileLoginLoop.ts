@@ -13,7 +13,9 @@
 //     listeners, and resolves even if Browser.close() never settles.
 
 export type PollResult = "ok" | "invite_only" | "err" | "pending";
-export type LoginResult = "ok" | "invite_only" | "failed";
+// G202: "timeout" (the overall bound) and "cancelled" (the caller's abort
+// signal) are told apart from "failed" so the screen can say which.
+export type LoginResult = "ok" | "invite_only" | "failed" | "timeout" | "cancelled";
 
 export interface LoginLoopHandlers {
   onActive: () => void;
@@ -32,7 +34,7 @@ export interface LoginLoopDeps {
 
 const AUTH_RETURN_URL = /auth-(done|complete)/;
 
-export function runMobileLoginLoop(deps: LoginLoopDeps): Promise<LoginResult> {
+export function runMobileLoginLoop(deps: LoginLoopDeps, signal?: AbortSignal): Promise<LoginResult> {
   const intervalMs = deps.intervalMs ?? 2000;
   const timeoutMs = deps.timeoutMs ?? 5 * 60 * 1000;
   const closeTimeoutMs = deps.closeTimeoutMs ?? 1500;
@@ -90,7 +92,13 @@ export function runMobileLoginLoop(deps: LoginLoopDeps): Promise<LoginResult> {
     }
 
     intervalId = setInterval(() => { void triggerPoll(); }, intervalMs);
-    timeoutId = setTimeout(() => { void finish("failed"); }, timeoutMs);
+    timeoutId = setTimeout(() => { void finish("timeout"); }, timeoutMs);
+    // G202: Cancel. Stops the interval and listeners and closes the sheet via
+    // the same finish() path as every other exit.
+    if (signal) {
+      if (signal.aborted) void finish("cancelled");
+      else signal.addEventListener("abort", () => { void finish("cancelled"); }, { once: true });
+    }
 
     deps
       .addListeners({

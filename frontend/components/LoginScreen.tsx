@@ -1,45 +1,35 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import { API_BASE } from "@/lib/api";
-import { isNativePlatform, isIOSNative, nativeGoogleLogin, nativeAppleLogin } from "@/lib/nativeAuth";
+import { isNativePlatform, isIOSNative, nativeGoogleLogin, nativeAppleLogin, cancelNativeLogin } from "@/lib/nativeAuth";
 import { BUILD_TAG } from "@/lib/buildTag";
 import { AGENT_DISCLOSURE } from "@/lib/regulatoryCopy";
+import { createRunGuard, derivePhase, type LoginPhase, type ResumingLogin } from "@/lib/signInPhase";
+import { FailedNotice, SigningInPanel, UnreachablePanel } from "@/components/SignInProgress";
 
-// G202 (design round, preview only): the phases a native sign-in passes
-// through that the screen can speak. Production does not pass any of the
-// three props below yet (AuthProvider and the oauth consent page render
-// LoginScreen exactly as before); /design/signin-loading drives them with
-// fixtures so the candidate "signing you in" states render on this very shell.
-// Wiring a picked variant into the real flow is a follow-up (see
-// docs/design/G202-signin-states.md).
-export type LoginPhase =
-  | { kind: "signing-in"; attempt: "google" | "apple" | "resume"; stage: "provider" | "session"; elapsedMs: number }
-  | { kind: "failed"; reason: "failed" | "timeout" }
-  | { kind: "unreachable" };
-
-export interface LoginPhaseSlots {
-  // The real sign-in buttons, so a variant can hold or dim them in place.
-  form: ReactNode;
-}
+export type { LoginPhase, ResumingLogin } from "@/lib/signInPhase";
 
 interface LoginScreenProps {
   error?: string | null;
-  phase?: LoginPhase;
-  // Renders the phase. "signing-in" and "unreachable" replace the card
-  // contents; "failed" is a notice shown above the real form.
-  renderPhase?: (phase: LoginPhase, slots: LoginPhaseSlots) => ReactNode;
-  // Hides the brand mark above the title while signing in (a variant that
-  // moves the mark into the card).
-  hideMarkWhileSigningIn?: boolean;
   // A135: AuthProvider's in-place session establishment. When given, a native
   // sign-in transitions without a page reload (a reload discards a token that
   // only lives in memory). Hosts without it (oauth consent, app-only shell)
-  // keep the reload.
-  onSignedIn?: () => Promise<"ok" | "rejected" | "unreachable">;
+  // keep the reload. G202: the signal aborts the session check on Cancel.
+  onSignedIn?: (signal?: AbortSignal) => Promise<"ok" | "rejected" | "unreachable">;
+  // G202: AuthProvider's signal that a Google sign-in started before a process
+  // kill or reload is still being awaited. Its startedAt is the persisted
+  // pending login's, so the elapsed clock is the real one.
+  resuming?: ResumingLogin | null;
+  // Cancel pressed while `resuming`: AuthProvider drops its resume signal.
+  onCancelResume?: () => void;
+  // Preview only (/design/signin-loading): drive the phase and a fake clock
+  // from outside. Production passes neither, LoginScreen owns the phase.
+  phase?: LoginPhase;
+  nowMs?: number;
 }
 
-export default function LoginScreen({ error, onSignedIn, phase, renderPhase, hideMarkWhileSigningIn }: LoginScreenProps) {
+export default function LoginScreen({ error, onSignedIn, resuming, onCancelResume, phase: phaseOverride, nowMs }: LoginScreenProps) {
   // Starts false on both server and client so hydration matches (Capacitor
   // doesn't exist during the export build), then flips true post-mount if
   // we're actually running inside the iOS native shell.
@@ -58,43 +48,91 @@ export default function LoginScreen({ error, onSignedIn, phase, renderPhase, hid
   // clearing whichever of the two sources (prop or local) set it.
   const [inviteOnlyDismissed, setInviteOnlyDismissed] = useState(false);
 
-  // A135: signed in, but the session check could not reach the server. The
-  // token is kept in memory, so "Tap to try again" just re-runs the check.
-  const [unreachable, setUnreachable] = useState(false);
+  // G202: the single phase source for a native sign-in. `startedAt` is set on
+  // the Google/Apple tap and the phase returns to "idle" on every exit (ok,
+  // rejected, unreachable, cancel, failure, timeout). Failed and unreachable
+  // are phases too, so the screen never falls back to a bare form with no
+  // explanation (and the retry no longer flashes the form).
+  const [local, setLocal] = useState<LoginPhase>({ kind: "idle" });
+  // Remounts the failed notice so a repeat failure re-announces and refocuses.
+  const [noticeSeq, setNoticeSeq] = useState(0);
+  // Each attempt gets a run id; a result for a cancelled or superseded run is
+  // ignored. The controller aborts an in-flight session check on Cancel.
+  const runRef = useRef(createRunGuard());
+  const sessionAbortRef = useRef<AbortController | null>(null);
+  const lastAttemptRef = useRef<"google" | "apple">("google");
+  const phase = phaseOverride ?? derivePhase(local, resuming);
 
-  async function finishNativeSignIn() {
+  function fail(reason: "failed" | "timeout") {
+    setNoticeSeq((n) => n + 1);
+    setLocal({ kind: "failed", reason });
+  }
+
+  async function establish(run: number, attempt: "google" | "apple", startedAt: number) {
     if (!onSignedIn) {
       window.location.reload();
       return;
     }
-    setUnreachable(false);
-    const outcome = await onSignedIn();
-    if (outcome === "unreachable") setUnreachable(true); // token kept; tap retries
-    else if (outcome === "rejected") alert("Sign-in failed. Please try again.");
+    setLocal({ kind: "signing-in", attempt, stage: "session", startedAt });
+    const ctrl = new AbortController();
+    sessionAbortRef.current = ctrl;
+    let outcome: "ok" | "rejected" | "unreachable";
+    try {
+      outcome = await onSignedIn(ctrl.signal);
+    } finally {
+      if (sessionAbortRef.current === ctrl) sessionAbortRef.current = null;
+    }
+    if (!runRef.current.isCurrent(run)) return; // cancelled while checking
+    if (outcome === "unreachable") setLocal({ kind: "unreachable" }); // token kept; tap retries
+    else if (outcome === "rejected") fail("failed");
+    // "ok": AuthProvider has set the user and replaces this screen.
+  }
+
+  async function runNative(attempt: "google" | "apple") {
+    const run = runRef.current.next();
+    const startedAt = Date.now();
+    lastAttemptRef.current = attempt;
+    setLocal({ kind: "signing-in", attempt, stage: "provider", startedAt });
+    const result = attempt === "google" ? await nativeGoogleLogin() : await nativeAppleLogin();
+    if (!runRef.current.isCurrent(run)) return; // cancelled
+    if (result === "ok") await establish(run, attempt, startedAt);
+    else if (result === "invite_only") {
+      setNativeInviteOnly(true);
+      setLocal({ kind: "idle" });
+    } else if (result === "cancelled") setLocal({ kind: "idle" });
+    else fail(result === "timeout" ? "timeout" : "failed");
+  }
+
+  function retrySessionCheck() {
+    const run = runRef.current.next();
+    void establish(run, lastAttemptRef.current, Date.now());
+  }
+
+  // Cancel: stop the loop (or the Apple exchange), clear the pending login,
+  // abort the session check, and return to the idle form.
+  function cancelSignIn() {
+    runRef.current.cancel();
+    sessionAbortRef.current?.abort();
+    cancelNativeLogin();
+    setLocal({ kind: "idle" });
+    onCancelResume?.();
+  }
+
+  function dismissPhase() {
+    // "Use a different account" on the unreachable panel.
+    runRef.current.cancel();
+    setLocal({ kind: "idle" });
+    onCancelResume?.();
   }
 
   async function handleGoogleClick(e: React.MouseEvent<HTMLAnchorElement>) {
     if (!isNativePlatform()) return; // web: let the href redirect happen as before
     e.preventDefault();
-    const result = await nativeGoogleLogin();
-    if (result === "ok") {
-      await finishNativeSignIn();
-    } else if (result === "invite_only") {
-      setNativeInviteOnly(true);
-    } else {
-      alert("Sign-in failed. Please try again.");
-    }
+    await runNative("google");
   }
 
   async function handleAppleClick() {
-    const result = await nativeAppleLogin();
-    if (result === "ok") {
-      await finishNativeSignIn();
-    } else if (result === "invite_only") {
-      setNativeInviteOnly(true);
-    } else {
-      alert("Sign-in failed. Please try again.");
-    }
+    await runNative("apple");
   }
 
   const isInviteOnly = (error === "invite_only" || nativeInviteOnly) && !inviteOnlyDismissed;
@@ -128,9 +166,7 @@ export default function LoginScreen({ error, onSignedIn, phase, renderPhase, hid
     );
   }
 
-  const replaceCard = phase?.kind === "signing-in" || phase?.kind === "unreachable";
-  const slotted = !!(replaceCard && phase && renderPhase);
-  const hideMark = !!hideMarkWhileSigningIn && phase?.kind === "signing-in" && !!renderPhase;
+  const slotted = phase.kind === "signing-in" || phase.kind === "unreachable";
 
   const signInButtons = (
     <>
@@ -170,7 +206,6 @@ export default function LoginScreen({ error, onSignedIn, phase, renderPhase, hid
           {/* Canonical "settle" mark (dark navy tile, purple stacked bars) —
               generated from capacitor-spike/assets/icon.png and already
               deployed as the web favicon/app-icon set at /icons/icon-192.png. */}
-          {!hideMark && (
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl shadow-lg mb-5 overflow-hidden">
             {/* Plain <img>, not next/image: the mobile Capacitor build is a
                 static export (output: 'export') without images.unoptimized
@@ -180,7 +215,6 @@ export default function LoginScreen({ error, onSignedIn, phase, renderPhase, hid
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/icons/icon-192.png" alt="Sorted" width={64} height={64} className="w-full h-full object-cover" />
           </div>
-          )}
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 tracking-tight">Sorted</h1>
           <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">See where your money stands.</p>
         </div>
@@ -193,25 +227,19 @@ export default function LoginScreen({ error, onSignedIn, phase, renderPhase, hid
             </p>
           )}
 
-          {unreachable && !slotted && (
-            <button
-              type="button"
-              onClick={() => { void finishNativeSignIn(); }}
-              className="mb-5 w-full px-4 py-3 rounded-xl bg-slate-100 dark:bg-slate-700 text-sm text-slate-700 dark:text-slate-100 text-center active:scale-95 transition"
-            >
-              Signed in, but we could not reach Sorted. Tap to try again.
-            </button>
-          )}
-
           {error && error !== "invite_only" && (
             <div className="mb-5 px-4 py-3 rounded-xl bg-red-50 border border-red-100">
               <p className="text-sm text-red-600 text-center">{error}</p>
             </div>
           )}
 
-          {slotted && phase && renderPhase ? renderPhase(phase, { form: signInButtons }) : (
+          {phase.kind === "signing-in" ? (
+            <SigningInPanel phase={phase} nowMs={nowMs} onCancel={cancelSignIn} />
+          ) : phase.kind === "unreachable" ? (
+            <UnreachablePanel onRetry={retrySessionCheck} onOtherAccount={dismissPhase} />
+          ) : (
             <>
-              {phase?.kind === "failed" && renderPhase ? renderPhase(phase, { form: signInButtons }) : null}
+              {phase.kind === "failed" && <FailedNotice key={noticeSeq} reason={phase.reason} />}
               {signInButtons}
             </>
           )}
