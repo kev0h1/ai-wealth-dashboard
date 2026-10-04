@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { DEEP_LINK_EVENT, registerDeepLinkHandler, type DeepLinkDetail } from "@/lib/deepLinks";
-import { handleBankConnectReturn, takePendingReturn } from "@/lib/bankConnectReturn";
+import { bankSheetState, handleBankConnectReturn, takePendingReturn } from "@/lib/bankConnectReturn";
 import { getToken, hydrateToken } from "@/lib/auth";
 
 // Listens for wealthdash:// returns for the whole app lifetime (A68), not just
@@ -19,9 +19,11 @@ export default function DeepLinkHandler() {
     const storage = typeof window !== "undefined" ? window.sessionStorage : null;
     const onLink = (e: Event) => {
       const detail = (e as CustomEvent<DeepLinkDetail>).detail;
+      // Snapshot the picker registry now, synchronously, not after the await.
+      const { sheetOpen, stay } = bankSheetState();
       // Cold start: the native token is in memory only until hydrated.
       void hydrateToken().then(() =>
-        handleBankConnectReturn(detail, router, { storage, hasToken: () => getToken() !== null }),
+        handleBankConnectReturn(detail, router, { storage, sheetOpen, stay, hasToken: () => getToken() !== null }),
       );
     };
     const onSession = () => {

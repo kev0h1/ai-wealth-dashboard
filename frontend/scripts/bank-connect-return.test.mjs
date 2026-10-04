@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   handleBankConnectReturn, resetBankReturnDedupe, registerBankSheet,
-  stashPendingReturn, takePendingReturn, PENDING_BANK_RETURN_KEY,
+  stashPendingReturn, takePendingReturn, PENDING_BANK_RETURN_KEY, PENDING_BANK_RETURN_TTL_MS, bankSheetState,
 } from "../lib/bankConnectReturn.ts";
 import { launchMode, buildLinkQuery } from "../lib/bankConsentLaunch.ts";
 import { findLandedAccount, SYNC_POLL_TIMEOUT_MS } from "../lib/syncLanding.ts";
@@ -64,6 +64,48 @@ assert.deepEqual(run(ok, { stay: true }), [["invalidate"]]);
   stashPendingReturn(null, ok); // no storage: no throw
 }
 
+// D6: a stashed return replays within 10 s WITHOUT resetting the dedupe map.
+{
+  resetBankReturnDedupe();
+  const store = new Map();
+  const storage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v), removeItem: (k) => store.delete(k) };
+  const calls = [];
+  const r = { push: (h) => calls.push(h) };
+  let t = 5000;
+  handleBankConnectReturn(ok, r, { invalidate: () => {}, sheetOpen: false, stay: false, hasToken: () => false, storage, now: () => t });
+  assert.deepEqual(calls, []);
+  t += 5000;
+  const pending = takePendingReturn(storage, t);
+  assert.deepEqual(pending, ok);
+  handleBankConnectReturn(pending, r, { invalidate: () => {}, sheetOpen: false, stay: false, hasToken: () => true, now: () => t });
+  assert.deepEqual(calls, ["/accounts?syncing=1&connection=cst_1"]);
+}
+
+// D7: the stash expires after 15 minutes and is cleared.
+{
+  const store = new Map();
+  const storage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v), removeItem: (k) => store.delete(k) };
+  stashPendingReturn(storage, ok, 1000);
+  assert.deepEqual(takePendingReturn(storage, 1000 + PENDING_BANK_RETURN_TTL_MS), ok);
+  stashPendingReturn(storage, ok, 1000);
+  assert.equal(takePendingReturn(storage, 1000 + PENDING_BANK_RETURN_TTL_MS + 1), null);
+  assert.equal(store.has(PENDING_BANK_RETURN_KEY), false);
+}
+
+// D8: the registry snapshot carries the stay flag synchronously.
+{
+  assert.deepEqual(bankSheetState(), { sheetOpen: false, stay: false });
+  const off = registerBankSheet({ stayOnReturn: true });
+  const snap = bankSheetState();
+  off();
+  assert.deepEqual(snap, { sheetOpen: true, stay: true });
+  resetBankReturnDedupe();
+  const calls = [];
+  // Snapshot says stay even though the sheet has since unregistered.
+  handleBankConnectReturn(ok, { push: (h) => calls.push(h) }, { invalidate: () => calls.push("i"), ...snap });
+  assert.deepEqual(calls, ["i"]);
+}
+
 // Sheet registry accepts the stay flag and unregisters cleanly.
 {
   const off = registerBankSheet({ stayOnReturn: true });
@@ -107,6 +149,7 @@ assert.ok(hrefAt > sheet.indexOf("} else {", sheet.indexOf("Browser.open")), "fu
 const linkAt = sheet.indexOf("await api.finexerConnectLink");
 const browserBranch = sheet.slice(sheet.indexOf('mode === "browser"', linkAt), sheet.indexOf('mode === "rn"', linkAt));
 assert.ok(!browserBranch.includes("onConnecting"), "no onConnecting on the native branch");
+assert.ok(read("components/DeepLinkHandler.tsx").includes("bankSheetState()"));
 assert.ok(read("components/Onboarding.tsx").includes("stayOnReturn"));
 assert.ok(read("components/AuthProvider.tsx").includes("wd:session-established"));
 assert.equal(sheet.split("window.location.href = auth_url").length, 2);

@@ -50,21 +50,37 @@ function isDuplicate(key: string, now: number): boolean {
 
 // D3: a signed-out cold-start return is kept until a session exists.
 export const PENDING_BANK_RETURN_KEY = "wd_pending_bank_return";
-export function stashPendingReturn(storage: ReturnOptions["storage"], detail: DeepLinkDetail): void {
+export const PENDING_BANK_RETURN_TTL_MS = 15 * 60 * 1000;
+export function stashPendingReturn(
+  storage: ReturnOptions["storage"],
+  detail: DeepLinkDetail,
+  now: number = Date.now(),
+): void {
   try {
-    storage?.setItem(PENDING_BANK_RETURN_KEY, JSON.stringify(detail));
+    storage?.setItem(PENDING_BANK_RETURN_KEY, JSON.stringify({ at: now, detail }));
   } catch {}
 }
-export function takePendingReturn(storage: ReturnOptions["storage"]): DeepLinkDetail | null {
+export function takePendingReturn(
+  storage: ReturnOptions["storage"],
+  now: number = Date.now(),
+): DeepLinkDetail | null {
   try {
     const raw = storage?.getItem(PENDING_BANK_RETURN_KEY);
     if (!raw) return null;
     storage?.removeItem(PENDING_BANK_RETURN_KEY);
-    const d = JSON.parse(raw) as DeepLinkDetail;
+    const { at, detail: d } = JSON.parse(raw) as { at: number; detail: DeepLinkDetail };
+    if (typeof at !== "number" || now - at > PENDING_BANK_RETURN_TTL_MS) return null;
     return d && d.kind === "bank_connected" ? d : null;
   } catch {
     return null;
   }
+}
+
+/** Snapshot of the picker registry. DeepLinkHandler reads it synchronously in the
+ * event listener, before any await, so a sheet that unmounts in between (or the
+ * order listeners run in) cannot change the outcome. */
+export function bankSheetState(): { sheetOpen: boolean; stay: boolean } {
+  return { sheetOpen: openSheets > 0, stay: staySheets > 0 };
 }
 
 export function handleBankConnectReturn(
@@ -77,12 +93,14 @@ export function handleBankConnectReturn(
   const sheetOpen = opts.sheetOpen ?? openSheets > 0;
   const stay = opts.stay ?? staySheets > 0;
   const invalidate = opts.invalidate ?? invalidateAccountData;
+  // A signed-out ok return is stashed BEFORE the dedupe key is recorded, so the
+  // replay after sign-in is not dropped as a duplicate of itself.
+  if (detail.status === "ok" && opts.hasToken && !opts.hasToken()) {
+    stashPendingReturn(opts.storage, detail, now);
+    return;
+  }
   if (isDuplicate(`${detail.status}:${detail.connection ?? ""}`, now)) return;
   if (detail.status === "ok") {
-    if (opts.hasToken && !opts.hasToken()) {
-      stashPendingReturn(opts.storage, detail);
-      return;
-    }
     invalidate();
     if (stay) return;
     router.push(
