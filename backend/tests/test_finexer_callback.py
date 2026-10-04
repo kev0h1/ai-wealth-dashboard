@@ -173,4 +173,4 @@ def test_native_error_renders_handoff_page(monkeypatch):
         fx_consent="cst_test_1", state="the-real-state-value", error="access_denied"))
     assert result.status_code == 200
     assert b"wealthdash://auth-complete?provider=finexer&connection=cst_test_1&status=error" in result.body
-    assert "Content-Security-Policy" in result.headers
+    assert result.headers["Content-Security-Policy"].startswith("default-src 'none'")

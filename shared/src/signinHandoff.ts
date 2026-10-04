@@ -95,3 +95,30 @@ export function bankHandoffHtml(
     auto_return: opts.autoReturn === false ? "false" : "true",
   });
 }
+
+function base64Sha256Source(text: string, bytes: Uint8Array): string {
+  let bin = "";
+  for (const b of bytes) bin += String.fromCharCode(b);
+  void text;
+  return `'sha256-${btoa(bin)}'`;
+}
+
+/** Route Content-Security-Policy for a rendered hand-off page, built the same way
+ * as backend signin_handoff_csp: one hashed style block, one hashed script block.
+ * Uses Web Crypto so this module stays browser-safe. */
+export async function bankHandoffCsp(page: string): Promise<string> {
+  const styles = [...page.matchAll(/<style>([\s\S]*?)<\/style>/g)].map((m) => m[1]);
+  const scripts = [...page.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+  if (styles.length !== 1 || scripts.length !== 1) {
+    throw new Error("handoff page must contain exactly one <style> and one <script>");
+  }
+  const enc = new TextEncoder();
+  const hash = async (t: string) =>
+    base64Sha256Source(t, new Uint8Array(await crypto.subtle.digest("SHA-256", enc.encode(t))));
+  return (
+    "default-src 'none'; " +
+    `style-src ${await hash(styles[0])}; ` +
+    `script-src ${await hash(scripts[0])}; ` +
+    "frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+  );
+}

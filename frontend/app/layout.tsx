@@ -8,7 +8,6 @@ import BottomNav from "@/components/BottomNav";
 import ScrollReset from "@/components/ScrollReset";
 import ServiceWorkerRegistrar from "@/components/ServiceWorkerRegistrar";
 import NativePushResync from "@/components/NativePushResync";
-import DeepLinkHandler from "@/components/DeepLinkHandler";
 import NotificationNavigator from "@/components/NotificationNavigator";
 import ThemeColor from "@/components/ThemeColor";
 import BiometricLock from "@/components/BiometricLock";
@@ -110,7 +109,6 @@ export default function RootLayout({
           <TutorialProvider>
             <ServiceWorkerRegistrar />
             <NativePushResync />
-            <DeepLinkHandler />
             <NotificationNavigator />
             <ThemeColor />
             {/* Status-bar safe-area frost — mobile shell only (desktop uses the

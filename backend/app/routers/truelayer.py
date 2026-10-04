@@ -6,6 +6,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from typing import Optional
+from urllib.parse import quote as _urlquote
 import httpx
 
 from app.core.auth import current_user
@@ -96,7 +97,7 @@ async def truelayer_callback(code: str, state: Optional[str] = None):
 
     if native:
         return _bank_page(True, "truelayer", connection_id, auto_return=True)
-    return RedirectResponse(f"{APP_URL}/accounts?syncing=1&connection={connection_id}", status_code=303)
+    return RedirectResponse(f"{APP_URL}/accounts?syncing=1&connection={_urlquote(connection_id, safe='')}", status_code=303)
 
 
 

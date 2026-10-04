@@ -61,8 +61,11 @@ assert.equal(t.events.length, 1);
 assert.equal(closes, 1);
 
 // Source guards.
+const providers = readFileSync(path.join(here, "..", "app", "Providers.tsx"), "utf8");
+assert.match(providers, /<DeepLinkHandler \/>/);
+assert.ok(providers.indexOf("<DeepLinkHandler />") < providers.indexOf("<AuthProvider>"), "handler must sit before (outside) AuthProvider");
 const layout = readFileSync(path.join(here, "..", "app", "layout.tsx"), "utf8");
-assert.match(layout, /<DeepLinkHandler \/>/);
+assert.ok(!layout.includes("DeepLinkHandler"));
 const loop = readFileSync(path.join(here, "..", "lib", "mobileLoginLoop.ts"), "utf8");
 assert.ok(loop.includes("AUTH_RETURN_URL"));
 
