@@ -74,7 +74,14 @@ export function createSwipeController(deps: SwipeControllerDeps) {
 
   return {
     onPointerDown(e: SwipePointerEvent) {
-      if (dismissing || activeId !== null) return; // dismiss under way, or a second finger
+      if (dismissing) return; // dismiss under way
+      // Same id again means the previous gesture never delivered its up
+      // (mouse released off the element): restart cleanly. A different id
+      // while one is active is a second finger: ignore it.
+      if (activeId !== null) {
+        if (e.pointerId !== activeId) return;
+        abort();
+      }
       if (e.pointerType === "mouse" && e.button !== 0) return;
       if (deps.options?.canStart && !deps.options.canStart(e)) return;
       const el = deps.getEl();
@@ -136,6 +143,7 @@ export function createSwipeController(deps: SwipeControllerDeps) {
       abort();
     },
     dispose() {
+      if (activeId !== null) abort();
       clearSpring();
       if (dismissTimer) { clearTimeout(dismissTimer); dismissTimer = null; }
     },
