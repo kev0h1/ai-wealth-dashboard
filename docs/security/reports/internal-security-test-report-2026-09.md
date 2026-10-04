@@ -190,17 +190,34 @@ record carry the full detail.
 | WP1: Web shell and `/design` routes | `A48-2026-09-20` | A48 | 2026-09-20, 15:14-16:02Z | 12 | 7 | 3 | 2 | 0 | 0 |
 | WP2: API inventory, credentials, rate limits, error handling, CORS | `A49-2026-09-21` | A49 | 2026-09-21, 05:47-06:05Z | 7 | 3 | 4 | 0 | 0 | 0 |
 | WP3: API tenant and object authorisation, account deletion | `A50-2026-09-20` | A50 | 2026-09-20, 17:45-20:18Z | 3 | 2 | 1 | 0 | 0 | 0 |
-| WP4: API input handling, uploads, business-logic ordering | `A51-2026-09-20` | A51 | 2026-09-20, 20:40-21:21Z | 7 | 6 | 1 | 0 | 0 | 0 |
+| WP4: API input handling, uploads, business-logic ordering | `A51-2026-09-20` | A51 | 2026-09-20, 20:40-21:21Z | 6 | 5 | 1 | 0 | 0 | 0 |
 | WP5: OAuth 2.1 authorisation server | `A52-2026-09-20` | A52 | 2026-09-20, 12:17-12:30Z | 10 | 8 | 2 | 0 | 0 | 0 |
 | WP6: MCP connector | `A53-2026-09-21` | A53 | 2026-09-21, 05:49-05:55Z | 11 | 8 | 2 | 0 | 1 | 0 |
 | WP7a: Android app shell, static analysis | `A54-2026-09-20` | A54 | 2026-09-20, 17:44-17:58Z | 3 | 0 | 3 | 0 | 0 | 0 |
 | WP7b: Android app shell, dynamic (device) | `A55-2026-09-27` | A55 | 2026-09-27 | 8 | 4 | 4 | 0 | 0 | 0 |
 | WP8: iOS app shell, dynamic (device) | `A56-2026-09-27` | A56 | 2026-09-27 | 5 | 2 | 3 | 0 | 0 | 0 |
-| WP9: Finexer and TrueLayer boundary | `A57-2026-09-20` | A57 | 2026-09-20, 21:38-21:46Z | 10 | 5 | 2 | 2 | 1 | 0 |
+| WP9: Finexer and TrueLayer boundary | `A57-2026-09-20` | A57 | 2026-09-20, 21:38-21:46Z | 12 | 5 | 2 | 2 | 0 | 3 |
 | WP10: Stripe fail-closed boundary | `A58-2026-09-21` | A58 | 2026-09-21, 05:40-05:56Z | 5 | 4 | 0 | 1 | 0 | 0 |
 | WP11: OpenRouter and Penny trust boundary | `A59-2026-09-20` | A59 | 2026-09-20, 18:20-18:45Z | 8 | 6 | 2 | 0 | 0 | 0 |
 | WP12: Retest record and review | `A60-2026-10-04` | A60 | 2026-10-04 | see the retest records below the table | n/a | n/a | n/a | n/a | n/a |
-| **Total (WP1-WP11 plus WP7b/WP8, executed)** | | | | **89** | **55** | **27** | **5** | **2** | **0** |
+| **Total (WP1-WP11 plus WP7b/WP8, executed)** | | | | **90** | **54** | **27** | **5** | **1** | **3** |
+
+**WP4 note.** `A51-2026-09-20` also records a mandatory `IDENTITY-GATE`
+assertion (added after incident A78). It is a pre-run check, not a catalogue
+case, so it is not counted: WP4 is six catalogue cases (`API-06`, `API-07`,
+`API-08`, `API-10`, `API-13`, `API-14`; five Pass, one Fail).
+
+**WP9 note.** WP9 is twelve cases (`FIN-01` to `FIN-06`, `TL-01` to `TL-06`).
+`TL-01`, `TL-03` and `TL-05` were Not run (TrueLayer is being removed from
+production, board item A67; see section 6), so they are in the Not run
+column, not N/A. The one N/A in the total is `MCP-10` in WP6.
+
+**Totals, how derived.** Each row was recomputed from the `Result` field of
+every case record in that run's `records.md`, counting a mixed case once by
+its recorded headline verdict (the rule stated above the table). Cases:
+12 + 7 + 3 + 6 + 10 + 11 + 3 + 8 + 5 + 12 + 5 + 8 = 90. Pass 54, Fail 27,
+Blocked 5, N/A 1, Not run 3 (54 + 27 + 5 + 1 + 3 = 90). The WP12 retest
+records are not catalogue cases and are not counted.
 
 **WP3 note.** The `A50-2026-09-20` run record contains a fourth
 section, `API-15`, attempt 1, marked VOID because it ran against the
@@ -538,7 +555,7 @@ counted among this round's findings.
 | `AND-02` token-at-rest and `adb backup` re-check (A118, A123) | Not retested on 2026-10-04: it needs a debug build to run `adb run-as` and a backup extraction, and the backup half also waits on open item A129 (Android `allowBackup`) | Not tested since the fixes shipped; owner Kevin |
 | A123 session persistence across app restarts | Whether a signed-in user stays signed in across restarts on the new builds: result pending from Kevin (`A60-2026-10-04/records.md`, "Pending result") | Pending |
 | Cross-model review (WP12), Codex half | Dropped by Kevin's decision of 2026-10-04 (see section 4); the review that remains is a Claude reviewer's audit, pending (section 10) | Recorded deviation; not a gap that will be closed |
-| TrueLayer live cases (`TL-01`, `TL-03`, `TL-05`, and `TL-04`'s live-write half) | Deferred, not exercised against production, because TrueLayer is being removed from production (board item A67); their result is recorded as deferred/UAT-only rather than Pass or Fail | Deferred by design, not a gap in this round's execution |
+| TrueLayer live cases (`TL-01`, `TL-03`, `TL-05`, and `TL-04`'s live-write half) | Not run: TrueLayer is being removed from production (board item A67), and Kevin's 2026-09-20 board note on A57 scoped these out. They are recorded Not run, not Pass, Fail or N/A | Not run; owner Kevin; decision: not run per that note, to be revisited only if TrueLayer is not removed |
 
 ---
 
