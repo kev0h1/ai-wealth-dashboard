@@ -199,10 +199,14 @@ export async function nativeAppleAuthorize(): Promise<{ identityToken: string; f
 export type NativeLoginResult = "ok" | "invite_only" | "failed" | "timeout" | "cancelled";
 let loginAbort: AbortController | null = null;
 let applySuppressed = false;
+// Set when THIS attempt stored a token, so Cancel never clears a session that
+// came from anywhere else.
+let attemptMintedToken = false;
 
 function beginLogin(): AbortController {
   loginAbort?.abort();
   applySuppressed = false;
+  attemptMintedToken = false;
   const ctrl = new AbortController();
   loginAbort = ctrl;
   return ctrl;
@@ -216,7 +220,10 @@ export function cancelNativeLogin(): void {
   applySuppressed = true;
   loginAbort?.abort();
   clearPendingLogin();
-  clearToken();
+  if (attemptMintedToken) {
+    attemptMintedToken = false;
+    clearToken();
+  }
 }
 
 // D5: distinguishes an allow-list refusal (backend 403 detail
@@ -257,6 +264,7 @@ async function appleLoginInner(signal: AbortSignal): Promise<NativeLoginResult> 
     const data = await res.json();
     if (signal.aborted) return "cancelled"; // Cancel: the token is never kept
     if (data.ok && data.session_token) {
+      attemptMintedToken = true;
       await setTokenAsync(data.session_token);
       return "ok";
     }
@@ -329,7 +337,11 @@ const pollShared = createSharedPoller({
   post: postPoll,
   // G202: a poll that was already in flight when the user cancelled must not
   // store the token it gets back.
-  applyToken: (t) => (applySuppressed ? Promise.resolve() : setTokenAsync(t)),
+  applyToken: (t) => {
+    if (applySuppressed) return Promise.resolve();
+    attemptMintedToken = true;
+    return setTokenAsync(t);
+  },
 });
 
 function loopDeps(p: PendingLogin, timeoutMs?: number) {
