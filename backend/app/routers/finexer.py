@@ -10,6 +10,7 @@ from typing import Optional
 
 from app.core.auth import current_user
 from app.core.config import FINEXER_API_KEY
+from app.core.signin_handoff import bank_handoff_html, signin_handoff_csp
 from app.core.subscription import check_connection_limit, check_open_banking_allowed
 from app.db.collections import finexer_consents_col
 from app.services.finexer_sync import (
@@ -20,6 +21,11 @@ from app.services.finexer_sync import (
 )
 
 router = APIRouter(tags=["finexer"])
+
+
+def _bank_page(ok: bool, provider: str, connection_id: str, *, auto_return: bool) -> HTMLResponse:
+    page = bank_handoff_html(ok, provider=provider, connection_id=connection_id, auto_return=auto_return)
+    return HTMLResponse(page, headers={"Content-Security-Policy": signin_handoff_csp(page)})
 
 # In-process cache for the provider list — it barely ever changes and the
 # picker can open several times per session, so we don't want to even hit
@@ -129,24 +135,8 @@ async def finexer_callback(
             {"_id": consent_id},
             {"$set": {"status": "canceled", "canceled_at": datetime.utcnow(), "error": error}},
         )
-        return HTMLResponse("""<!DOCTYPE html>
-<html><head><meta name="viewport" content="width=device-width,initial-scale=1">
-<style>
-  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-       text-align:center;padding:60px 24px;background:#0f172a;color:#e2e8f0;margin:0}
-  .icon{font-size:56px;margin-bottom:16px}
-  h1{color:#f87171;font-size:24px;margin:0 0 12px}
-  p{color:#94a3b8;font-size:15px;line-height:1.6;margin:0 0 32px}
-  .btn{display:inline-block;background:#4f46e5;color:#fff;text-decoration:none;
-       padding:14px 32px;border-radius:14px;font-size:16px;font-weight:600;cursor:pointer;border:none}
-</style></head>
-<body>
-  <div class="icon">&#10007;</div>
-  <h1>Connection cancelled</h1>
-  <p>No accounts were linked.</p>
-  <button class="btn" onclick="window.location.href='/accounts'">Back to app</button>
-</body></html>
-""")
+        return _bank_page(False, "finexer", consent_id, auto_return=False)
+
 
     await finexer_consents_col.update_one(
         {"_id": consent_id},
@@ -156,32 +146,5 @@ async def finexer_callback(
     user_id = doc["user_id"]
     asyncio.create_task(finexer_sync_pipeline(consent_id, user_id))
 
-    return HTMLResponse("""<!DOCTYPE html>
-<html><head><meta name="viewport" content="width=device-width,initial-scale=1">
-<style>
-  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-       text-align:center;padding:60px 24px;background:#0f172a;color:#e2e8f0;margin:0}
-  .icon{font-size:56px;margin-bottom:16px}
-  h1{color:#34d399;font-size:24px;margin:0 0 12px}
-  p{color:#94a3b8;font-size:15px;line-height:1.6;margin:0 0 32px}
-  .btn{display:inline-block;background:#4f46e5;color:#fff;text-decoration:none;
-       padding:14px 32px;border-radius:14px;font-size:16px;font-weight:600;
-       cursor:pointer;border:none;-webkit-tap-highlight-color:transparent}
-</style></head>
-<body>
-  <div class="icon">&#10003;</div>
-  <h1>Bank connected!</h1>
-  <p>Your account has been linked.<br>Transactions are syncing in the background.</p>
-  <button class="btn" onclick="returnToApp()">Return to app</button>
-  <script>
-    function returnToApp(){window.location.href='wealthdash://auth-complete';}
-    setTimeout(function(){
-      var t=Date.now();
-      window.location.href='wealthdash://auth-complete';
-      setTimeout(function(){
-        if(Date.now()-t<1800){window.location.href='/accounts';}
-      },1500);
-    },800);
-  </script>
-</body></html>
-""")
+    return _bank_page(True, "finexer", consent_id, auto_return=True)
+

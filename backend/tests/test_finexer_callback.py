@@ -135,7 +135,9 @@ def test_matching_state_still_succeeds(monkeypatch):
     ))
 
     assert result.status_code == 200
-    assert b"Bank connected!" in result.body
+    assert b"Bank connected" in result.body
+    assert b"provider=finexer&connection=cst_test_1" in result.body
+    assert "Content-Security-Policy" in result.headers
     assert fake_consents.docs[0]["status"] == "authorized"
     assert "authed_at" in fake_consents.docs[0]
     assert sync_calls == [("cst_test_1", "kevin@example.com")]

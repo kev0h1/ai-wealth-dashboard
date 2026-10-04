@@ -1,0 +1,5 @@
+{
+  "scheme": "wealthdash",
+  "paths": { "signin": "auth-done", "bank_connected": "auth-complete" },
+  "query": { "provider": "provider", "connection": "connection", "status": "status" }
+}
