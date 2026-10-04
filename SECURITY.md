@@ -178,6 +178,8 @@ in all. As of 2026-10-04:
 - A119 is closed: debug build only, with the signed release APK verified on
   2026-09-28 as not remotely inspectable.
 - Five (A73, A77, A79, A81, A94) remain open.
+- One further pre-documented Low, the `AND-08` scheme-exclusivity Fail, has no
+  board item and is not in the counts above; it is listed in the Low table.
 
 Severities use section 3's bands and are provisional pending the ISM's
 sign-off and the pending Claude reviewer audit above.
@@ -223,6 +225,7 @@ device testing, is unrelated to either.
 | A86 | The commitment state machine allows out-of-order transitions and has no create-time idempotency check | Fixed on main 2026-09-22 (1f8a318d); in production from `release-20260927-0947` (A112 retested the `release-20260927-1844` build); retested 2026-09-27, confirmed Fixed live (A112) |
 | A90 | The MCP connector's `initialize` handler never validates or negotiates the client's requested protocol version | Fixed on main 2026-09-22 (141b057c); in production from `release-20260927-0947` (A112 retested the `release-20260927-1844` build); retested 2026-09-27 on UAT, confirmed Fixed live (A112) |
 | A93 | An unhandled NUL byte in a search query parameter crashes one endpoint with a 500 (no data leaked) | Fixed on main 2026-09-22 (4e0093e0); in production from `release-20260927-0947` (A112 retested the `release-20260927-1844` build); retested 2026-09-27, confirmed Fixed live (A112) |
+| (none) | Android scheme-exclusivity for the bare `wealthdash://` custom scheme: Android has no OS-level exclusivity, so a competing app can be offered alongside Sorted (`AND-08`, static in WP7a, confirmed live in WP7b); the callback carries no code or token, so the practical exploit path is closed off | Open, pre-documented design gap, no board item; severity Low, no remediation short of a verified `https://` App Link |
 | A120 | Push device registration survived logout on both Android (FCM) and iOS (APNs): the unregister call was never made, and no server-side logout route existed to unregister the device token either | Found in device testing 2026-09-27; fixed on `main` 2026-09-29 (`44311669`, integrate commit); in production since `release-20261001-2038`; retested on device 2026-10-04 (`A60-2026-10-04`): after sign out everywhere, test pushes no longer arrive on either phone (Pass); the resume-after-sign-in half passed on re-run, after one earlier Android Fail tracked as follow-up A138 (open, intermittent) |
 | A122 | The app-switcher/recents snapshot showed live financial figures even with the biometric lock enabled, confirmed on both iOS and Android | Found in device testing 2026-09-27; fixed on `main` 2026-09-29 (`bdbda0af`, integrate commit); in production since `release-20261001-2038`; retested on device 2026-10-04 (`A60-2026-10-04`): the app-switcher card is covered on both phones and a screenshot is blocked on Android while the lock is on (Pass) |
 
@@ -296,6 +299,15 @@ that a reader of the findings list above should not have to infer:
   pending).
 - The live half of the account-deletion retest (`API-15`) was Blocked by an
   already-expired test credential and is confirmed by source read only.
+- Four coverage items are not Pass: `WEB-03` and `WEB-05` (Blocked, the live
+  production run was intercepted by Vercel's bot-verification challenge;
+  retest recommended with a real browser session), `WEB-02`'s
+  storage-inspection sub-component (Inconclusive, an availability event
+  contaminated the one attempt) and `AND-04`'s user-CA leg (Inconclusive,
+  Android would not trust the test CA; settled by static reading only).
+  Owner for all four is Kevin. See the report's section 6.
+- `TL-01`, `TL-03`, `TL-05` and `TL-04`'s live-write half were Not run,
+  because TrueLayer is being removed from production (A67).
 - Two Finexer/TrueLayer cases could not be completed: `FIN-06` (webhook
   payload retention) and the accepted-delivery live halves of `FIN-01` and
   `TL-02`, because this testing session has no production database read
