@@ -57,3 +57,8 @@ export function canStartSheetSwipe(
 export function sheetSwipeAllowed(pointerType: string, viewportWidth: number): boolean {
   return pointerType !== "mouse" && viewportWidth < 1024;
 }
+
+/** Cancel the browser pan only while a locked sheet drag is in progress. */
+export function shouldBlockPan(cancelable: boolean, gestureActive: boolean): boolean {
+  return cancelable && gestureActive;
+}

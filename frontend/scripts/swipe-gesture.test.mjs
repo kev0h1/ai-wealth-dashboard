@@ -205,7 +205,7 @@ for (const f of ["SwipeToDelete.tsx", "upcoming/SwipeDismissRow.tsx"]) {
 }
 
 // G205: swipe-down on sheets (axis y, sign 1, canStart gate, companion fade).
-import { canStartSheetSwipe, sheetSwipeAllowed } from "../lib/sheetSwipe.ts";
+import { canStartSheetSwipe, sheetSwipeAllowed, shouldBlockPan } from "../lib/sheetSwipe.ts";
 {
   const node = (name, parent = null, extra = {}) => ({ name, parentElement: parent, ...extra });
   const panel = node("panel");
@@ -250,6 +250,11 @@ import { canStartSheetSwipe, sheetSwipeAllowed } from "../lib/sheetSwipe.ts";
   const up = rig({ axis: "y", sign: 1 });
   up.c.onPointerDown(up.ev(1, 100, 300)); up.c.onPointerMove(up.ev(1, 100, 280)); up.c.onPointerMove(up.ev(1, 100, 200));
   check("sheet: dragging up never moves the panel", up.el.style.transform === "" && up.c.gestureActive() === false);
+  check("sheet: pan blocked only while a drag is locked", shouldBlockPan(true, true) && !shouldBlockPan(true, false) && !shouldBlockPan(false, true));
+  { const f = readFileSync(new URL("../components/SheetFrame.tsx", import.meta.url), "utf8");
+    check("SheetFrame: preventDefault only behind shouldBlockPan(gestureActive)", (f.match(/preventDefault\(\)/g) ?? []).length === 1 && /if \(shouldBlockPan\(e\.cancelable, swipe\.gestureActive\(\)\)\) e\.preventDefault\(\)/.test(f)); }
+  { const h = readFileSync(new URL("../lib/useSwipeDismiss.ts", import.meta.url), "utf8");
+    check("useSwipeDismiss memoises its return", /return useMemo\(\(\) => \(\{ ref, handlers/.test(h)); }
   r.c.dispose(); r2.c.dispose();
 }
 {

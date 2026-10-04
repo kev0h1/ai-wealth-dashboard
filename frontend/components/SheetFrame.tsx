@@ -6,7 +6,7 @@ import { ChevronLeft, X } from "lucide-react";
 import { useSheetA11y } from "@/lib/useSheetA11y";
 import { useSheetOpen } from "@/lib/useSheetOpen";
 import { useSwipeDismiss } from "@/lib/useSwipeDismiss";
-import { canStartSheetSwipe, sheetSwipeAllowed, type SwipeNode } from "@/lib/sheetSwipe";
+import { canStartSheetSwipe, shouldBlockPan, sheetSwipeAllowed, type SwipeNode } from "@/lib/sheetSwipe";
 
 export type SheetFrameVariant = "compact" | "focused";
 export interface SheetFrameControls {
@@ -115,7 +115,7 @@ export function SheetFrame({
     const panel = swipe.ref.current;
     if (!panel) return;
     const block = (e: TouchEvent) => {
-      if (e.cancelable && swipe.gestureActive()) e.preventDefault();
+      if (shouldBlockPan(e.cancelable, swipe.gestureActive())) e.preventDefault();
     };
     panel.addEventListener("touchmove", block, { passive: false });
     return () => panel.removeEventListener("touchmove", block);

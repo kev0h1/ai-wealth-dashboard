@@ -95,6 +95,10 @@ export function createSwipeController(deps: SwipeControllerDeps) {
   return {
     onPointerDown(e: SwipePointerEvent) {
       if (dismissing) return; // dismiss under way
+      if (dismissTimer) { // a held-close restore is pending: do it now
+        clearTimeout(dismissTimer); dismissTimer = null;
+        const cur = deps.getEl(); if (cur) reset(cur);
+      }
       // Same id again means the previous gesture never delivered its up
       // (mouse released off the element): restart cleanly. A different id
       // while one is active is a second finger: ignore it.

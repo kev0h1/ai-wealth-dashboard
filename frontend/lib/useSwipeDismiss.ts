@@ -46,13 +46,13 @@ export function useSwipeDismiss<T extends HTMLElement>(onDismiss: () => void, op
   );
   useEffect(() => () => controller.dispose(), [controller]);
 
-  const handlers = {
+  const handlers = useMemo(() => ({
     onPointerDown: (e: React.PointerEvent<T>) => controller.onPointerDown(e),
     onPointerMove: (e: React.PointerEvent<T>) => controller.onPointerMove(e),
     onPointerUp: (e: React.PointerEvent<T>) => controller.onPointerUp(e),
     onPointerCancel: (e: React.PointerEvent<T>) => controller.onPointerCancel(e),
     onLostPointerCapture: (e: React.PointerEvent<T>) => controller.onLostPointerCapture(e),
-  };
+  }), [controller]);
 
-  return { ref, handlers, gestureActive: () => controller.gestureActive() };
+  return useMemo(() => ({ ref, handlers, gestureActive: () => controller.gestureActive() }), [ref, handlers, controller]);
 }
