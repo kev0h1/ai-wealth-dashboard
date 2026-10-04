@@ -74,7 +74,7 @@ if [[ ! -f "${PROJECT_GRADLE}" ]]; then
 fi
 
 if grep -q "com.google.gms:google-services:" "${PROJECT_GRADLE}"; then
-  echo "[1/8] build.gradle: google-services classpath already present — skipping."
+  echo "[1/9] build.gradle: google-services classpath already present — skipping."
 else
   # Insert the classpath line right after the AGP classpath line inside
   # the buildscript { dependencies { ... } } block.
@@ -94,7 +94,7 @@ content = content[:line_end] + insertion + content[line_end:]
 with open(path, "w") as f:
     f.write(content)
 PYEOF
-  echo "[1/8] build.gradle: added com.google.gms:google-services:${GOOGLE_SERVICES_CLASSPATH_VERSION} classpath."
+  echo "[1/9] build.gradle: added com.google.gms:google-services:${GOOGLE_SERVICES_CLASSPATH_VERSION} classpath."
 fi
 
 # --- 2. AndroidManifest.xml: POST_NOTIFICATIONS runtime permission (Android 13+) ---
@@ -105,7 +105,7 @@ if [[ ! -f "${MANIFEST}" ]]; then
 fi
 
 if grep -q "android.permission.POST_NOTIFICATIONS" "${MANIFEST}"; then
-  echo "[2/8] AndroidManifest.xml: POST_NOTIFICATIONS permission already present — skipping."
+  echo "[2/9] AndroidManifest.xml: POST_NOTIFICATIONS permission already present — skipping."
 else
   # Insert alongside the existing INTERNET permission.
   python3 - "${MANIFEST}" <<'PYEOF'
@@ -122,7 +122,7 @@ content = content.replace(marker, replacement, 1)
 with open(path, "w") as f:
     f.write(content)
 PYEOF
-  echo "[2/8] AndroidManifest.xml: added POST_NOTIFICATIONS permission."
+  echo "[2/9] AndroidManifest.xml: added POST_NOTIFICATIONS permission."
 fi
 
 # --- 3. google-services.json presence check ---
@@ -147,20 +147,20 @@ MODULE_ROOT_GOOGLE_SERVICES_JSON="${ANDROID_DIR}/app/google-services.json"
 if [[ "${GOOGLE_SERVICES_RELATIVE}" != "google-services.json" ]] && [[ -f "${MODULE_ROOT_GOOGLE_SERVICES_JSON}" ]]; then
   if [[ -f "${GOOGLE_SERVICES_JSON}" ]] && cmp -s "${MODULE_ROOT_GOOGLE_SERVICES_JSON}" "${GOOGLE_SERVICES_JSON}"; then
     rm -f "${MODULE_ROOT_GOOGLE_SERVICES_JSON}"
-    echo "[3/8] google-services.json: removed leftover module-root copy (byte-identical to the flavour-scoped copy already at ${GOOGLE_SERVICES_JSON}; may be one this script's own sibling apply-board-flavor.sh left behind or would itself move)."
+    echo "[3/9] google-services.json: removed leftover module-root copy (byte-identical to the flavour-scoped copy already at ${GOOGLE_SERVICES_JSON}; may be one this script's own sibling apply-board-flavor.sh left behind or would itself move)."
   elif [[ -f "${GOOGLE_SERVICES_JSON}" ]]; then
     backup="${MODULE_ROOT_GOOGLE_SERVICES_JSON}.bak"
     mv "${MODULE_ROOT_GOOGLE_SERVICES_JSON}" "${backup}"
-    echo "[3/8] google-services.json: module-root copy DIFFERS from the flavour-scoped copy at ${GOOGLE_SERVICES_JSON} -- moved the module-root copy to ${backup} rather than guessing which is current. It may be a newer Firebase-console download dropped at the conventional location, or a copy this script's sibling apply-board-flavor.sh itself left there; review it and replace ${GOOGLE_SERVICES_JSON} yourself if it's the newer one, then remove ${backup}."
+    echo "[3/9] google-services.json: module-root copy DIFFERS from the flavour-scoped copy at ${GOOGLE_SERVICES_JSON} -- moved the module-root copy to ${backup} rather than guessing which is current. It may be a newer Firebase-console download dropped at the conventional location, or a copy this script's sibling apply-board-flavor.sh itself left there; review it and replace ${GOOGLE_SERVICES_JSON} yourself if it's the newer one, then remove ${backup}."
   else
     mkdir -p "$(dirname "${GOOGLE_SERVICES_JSON}")"
     mv "${MODULE_ROOT_GOOGLE_SERVICES_JSON}" "${GOOGLE_SERVICES_JSON}"
-    echo "[3/8] google-services.json: moved module-root copy -> ${GOOGLE_SERVICES_JSON} (flavour already configured)."
+    echo "[3/9] google-services.json: moved module-root copy -> ${GOOGLE_SERVICES_JSON} (flavour already configured)."
   fi
 fi
 
 if [[ -f "${GOOGLE_SERVICES_JSON}" ]]; then
-  echo "[3/8] google-services.json: found at ${GOOGLE_SERVICES_JSON}."
+  echo "[3/9] google-services.json: found at ${GOOGLE_SERVICES_JSON}."
 elif [[ -f "${CANONICAL_GOOGLE_SERVICES_JSON}" ]]; then
   # android/ is gitignored and wiped by `cap add android`, so the working
   # copy won't survive a regeneration. The canonical copy at
@@ -168,7 +168,7 @@ elif [[ -f "${CANONICAL_GOOGLE_SERVICES_JSON}" ]]; then
   # so restore the working copy from it instead of hard-stopping.
   mkdir -p "$(dirname "${GOOGLE_SERVICES_JSON}")"
   cp "${CANONICAL_GOOGLE_SERVICES_JSON}" "${GOOGLE_SERVICES_JSON}"
-  echo "[3/8] google-services.json: restored from canonical copy at ${CANONICAL_GOOGLE_SERVICES_JSON}."
+  echo "[3/9] google-services.json: restored from canonical copy at ${CANONICAL_GOOGLE_SERVICES_JSON}."
 else
   cat >&2 <<EOF
 
@@ -198,7 +198,7 @@ if [[ ! -f "${APP_GRADLE}" ]]; then
 fi
 
 if grep -q "com.google.gms.google-services" "${APP_GRADLE}"; then
-  echo "[4/8] app/build.gradle: google-services plugin already applied — skipping."
+  echo "[4/9] app/build.gradle: google-services plugin already applied — skipping."
 else
   if grep -qE '^\s*plugins\s*\{' "${APP_GRADLE}"; then
     # File uses a plugins {} block — add the plugin id there. Safe to apply
@@ -217,7 +217,7 @@ content = re.sub(
 with open(path, "w") as f:
     f.write(content)
 PYEOF
-    echo "[4/8] app/build.gradle: added 'com.google.gms.google-services' to plugins {} block."
+    echo "[4/9] app/build.gradle: added 'com.google.gms.google-services' to plugins {} block."
   else
     # Legacy `apply plugin:` style — append at the end of the file. Kept
     # guarded on google-services.json existing (belt-and-braces on top of
@@ -240,7 +240,7 @@ try {
     logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
 }
 GRADLESNIPPET_EOF
-    echo "[4/8] app/build.gradle: appended guarded 'apply plugin: com.google.gms.google-services' block (checking ${GOOGLE_SERVICES_RELATIVE})."
+    echo "[4/9] app/build.gradle: appended guarded 'apply plugin: com.google.gms.google-services' block (checking ${GOOGLE_SERVICES_RELATIVE})."
   fi
 fi
 
@@ -273,14 +273,14 @@ for density in "${NOTIFICATION_ICON_DENSITIES[@]}"; do
 done
 
 if [[ "${icon_all_present}" == true ]]; then
-  echo "[5/8] notification icon: ic_stat_notify.png already present at all five densities, skipping."
+  echo "[5/9] notification icon: ic_stat_notify.png already present at all five densities, skipping."
 else
   for density in "${NOTIFICATION_ICON_DENSITIES[@]}"; do
     mkdir -p "${RES_DIR}/drawable-${density}"
     cp "${CANONICAL_NOTIFICATION_ICON_DIR}/drawable-${density}/ic_stat_notify.png" \
        "${RES_DIR}/drawable-${density}/ic_stat_notify.png"
   done
-  echo "[5/8] notification icon: copied ic_stat_notify.png to all five drawable-*/ densities."
+  echo "[5/9] notification icon: copied ic_stat_notify.png to all five drawable-*/ densities."
 fi
 
 # --- 6. AndroidManifest.xml: default notification icon + channel meta-data ---
@@ -363,9 +363,9 @@ PYEOF
 fi
 
 if [[ "${manifest_changed}" == true ]]; then
-  echo "[6/8] AndroidManifest.xml: added default_notification_icon and/or default_notification_channel_id meta-data."
+  echo "[6/9] AndroidManifest.xml: added default_notification_icon and/or default_notification_channel_id meta-data."
 else
-  echo "[6/8] AndroidManifest.xml: notification meta-data already present, skipping."
+  echo "[6/9] AndroidManifest.xml: notification meta-data already present, skipping."
 fi
 
 # --- 7. AndroidManifest.xml: wealthdash:// deep-link intent-filter ---
@@ -392,14 +392,18 @@ if [[ ! -f "${MANIFEST}" ]]; then
 fi
 
 python3 "${SCRIPT_DIR}/ensure-wealthdash-manifest.py" "${ANDROID_DIR}"
-echo "[7/8] wealthdash:// deep-link intent-filter placement done (see above)."
+echo "[7/9] wealthdash:// deep-link intent-filter placement done (see above)."
 
 # --- 8. A122: app-switcher privacy plugin (FLAG_SECURE) ---
 # Same gitignored, regenerated project, so it rides the same regeneration
 # step every Android build already runs. Idempotent. Until H73 commits
 # android/, this is what keeps the plugin in every hand-built APK.
 bash "${SCRIPT_DIR}/setup-android-privacy.sh"
-echo "[8/8] A122 PrivacyScreen plugin installed."
+echo "[8/9] A122 PrivacyScreen plugin installed."
+
+# --- 9. A129: disable Android backup / device transfer ---
+bash "${SCRIPT_DIR}/setup-android-backup.sh"
+echo "[9/9] A129 backup disabled and exclusion rules installed."
 
 echo
 echo "Android push setup complete."
