@@ -50,6 +50,12 @@ const ROUTES: PreviewRoute[] = [
     ],
   },
   {
+    slug: "home-tip-gesture",
+    name: "Home tip card gesture · G207",
+    description: "G207 gesture check, not a design round: the production HomeInsightSpotlight (previewInsight prop, no API calls) among neighbour cards, to exercise vertical scroll starting on the card (must leave no offset) and swipe-left dismiss · static fixture",
+    states: [{ label: "Everything", value: "everything" }],
+  },
+  {
     slug: "settings-overhaul",
     name: "Settings overhaul · G201",
     description:
@@ -133,6 +139,13 @@ const ROUTES: PreviewRoute[] = [
       { label: "B · Cash view", value: "b" },
       { label: "C · Needs a look", value: "c" },
     ],
+  },
+  {
+    slug: "sheet-swipe",
+    name: "sheet-swipe",
+    description:
+      "G205, skill: emil-design-eng · Swipe a sheet down to close it · Real production SheetFrame and goal sheet with a long scrolling body · Drag from the new grab bar or header at any time, or from the body only when scrolled to the top · Past a fifth of the height or a quick flick closes, otherwise it springs back · Locked sheet ignores swipe like the cross · Phones only, desktop dialogs unchanged · ?mode=light|dark",
+    states: [{ label: "Try it", value: "" }],
   },
   {
     slug: "sheet-anatomy",
