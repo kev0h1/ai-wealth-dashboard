@@ -3,7 +3,7 @@
 **Product:** Sorted, by Auriq (the AI wealth dashboard, "ai-wealth-dashboard")  
 **Company:** AURIQ LTD  
 **Report id:** AURIQ-SEC-RPT-2026-09  
-**Version:** 1.0 candidate  
+**Version:** 1.0  
 **Date:** 2026-10-04  
 **Classification:** Confidential, prepared for Finexer  
 **Author:** AURIQ LTD, Information Security Manager: Kevin Maingi
@@ -27,9 +27,10 @@ reviewer has signed the coverage matrix and findings. That review ran on
 **Headline.** No Critical findings. Six High findings in total (four API
 and MCP, one iOS lock bypass, one pre-documented Android backup gap), all
 fixed in production. Retest status differs by finding and is stated below:
-the four API and MCP fixes were retested on 2026-09-27 (three of the
-live-deletion halves by source read only), the iOS lock bypass was retested
-on both phones on 2026-10-04, and the Android backup fix was verified on
+the four API and MCP fixes were retested on 2026-09-27, and the three
+deletion fixes (A82, A83, A84), which that day could be confirmed by source
+read only, were then retested live on production on 2026-10-04 (`API-15`),
+the iOS lock bypass was retested on both phones on 2026-10-04, and the Android backup fix was verified on
 2026-10-04 by package-flag inspection only (the `adb backup` extraction was
 not re-run).
 
@@ -38,11 +39,14 @@ not re-run).
   retested the same day (board item A112,
   `docs/security/pentest-runs/A112-2026-09-27/`). A83's `GET /connections`
   listing half and A91 were confirmed Fixed live. A82, A83's
-  disconnect-before-delete half and A84 were confirmed Fixed by source read
-  only: the live retest of that step (`API-15`) was Blocked when the
-  supplied disposable test credential returned `401 Session expired` before
-  any request reached the deletion path. That limitation stays open (section
-  6).
+  disconnect-before-delete half and A84 were confirmed by source read only
+  that day, because the live `API-15` retest was Blocked by an expired test
+  credential. That limitation is closed: on 2026-10-04 `API-15` ran live on
+  production with the disposable identity PT-C (`A60-2026-10-04`). Deletion
+  revoked the connection first, and the same session token was rejected
+  immediately afterwards. One limit: the Finexer dashboard was not viewed, so
+  the provider-side revoke is evidenced by the response and the deployed
+  source.
 - **A121** (iOS biometric lock bypass) was found in device testing on
   2026-09-27, fixed and integrated on 2026-09-29, shipped in
   `release-20261001-2038`, and retested on both phones on 2026-10-04
@@ -361,9 +365,9 @@ carries the more conservative Low, and the board's rating governs.
 
 | Id | Title | Affected surface | Status | Fix commit | Production status | Retest status |
 |---|---|---|---|---|---|---|
-| A82 | Account deletion never revokes the Finexer consent first, orphaning it at the provider | `DELETE` account, retention/deletion path | Fixed on main | `2488763e` | Deployed 2026-09-27 (`release-20260927-0947`, confirmed still present in `release-20260927-1844`) | Source-confirmed Fixed 2026-09-27 (A112); live retest Blocked by an already-expired test credential |
-| A83 | `GET /connections` does not list live Finexer connections, hiding the connection A82's disconnect-first step needs | Connections listing route | Fixed on main | `c35ac008` | Deployed 2026-09-27 (`release-20260927-0947`, confirmed still present in `release-20260927-1844`) | Listing half confirmed Fixed live 2026-09-27 (A112); disconnect-before-delete half source-confirmed Fixed only, live retest Blocked (same as A82) |
-| A84 | A deleted account's session token is not invalidated and remains usable for up to 7 days, including for writes that can reattach if the account is recreated with the same email | Session/auth lifecycle | Fixed on main | `40fed391` | Deployed 2026-09-27 (`release-20260927-0947`, confirmed still present in `release-20260927-1844`) | Source-confirmed Fixed 2026-09-27 (A112); live retest Blocked, same as A82 |
+| A82 | Account deletion never revokes the Finexer consent first, orphaning it at the provider | `DELETE` account, retention/deletion path | Fixed on main | `2488763e` | Deployed 2026-09-27 (`release-20260927-0947`, confirmed still present in `release-20260927-1844`) | Source-confirmed 2026-09-27 (A112, live retest Blocked by an expired credential); Fixed, retested live on production 2026-10-04 (`A60-2026-10-04`, `API-15`); the Finexer dashboard was not viewed in that run, so the provider-side revoke is evidenced by the response and the deployed source |
+| A83 | `GET /connections` does not list live Finexer connections, hiding the connection A82's disconnect-first step needs | Connections listing route | Fixed on main | `c35ac008` | Deployed 2026-09-27 (`release-20260927-0947`, confirmed still present in `release-20260927-1844`) | Listing half confirmed Fixed live 2026-09-27 (A112); disconnect-before-delete half source-confirmed 2026-09-27, then Fixed, retested live on production 2026-10-04 (`A60-2026-10-04`, `API-15`) |
+| A84 | A deleted account's session token is not invalidated and remains usable for up to 7 days, including for writes that can reattach if the account is recreated with the same email | Session/auth lifecycle | Fixed on main | `40fed391` | Deployed 2026-09-27 (`release-20260927-0947`, confirmed still present in `release-20260927-1844`) | Source-confirmed 2026-09-27 (A112, live retest Blocked); Fixed, retested live on production 2026-10-04 (`A60-2026-10-04`, `API-15`): the session token was rejected (401) immediately after deletion |
 | A91 | MCP output masking is structural only and never sanitises kept field content; an instruction-shaped merchant/category/insight string reaches the connecting assistant unmodified (prompt-injection surface) | MCP connector output masking | Fixed on main | `9c5b7ef9` | Deployed 2026-09-27 (`release-20260927-0947`, confirmed still present in `release-20260927-1844`); connector itself is off in production (A17), so not exploitable there today | Confirmed Fixed live 2026-09-27 (A112), tested on UAT since the connector is not registered on production |
 | A129 | Android backup gap, the pre-documented `AND-01` / `AND-02` storage-and-backup finding: with `android:allowBackup="true"`, a passwordless `adb backup` of the debug build captured the session token (`A54` static review of the manifest; `A55` live, 2026-09-27). Rated High (P2) per `PENTEST-METHODOLOGY.md` section 8.4 ("the Android auto-backup extraction, if it genuinely recovers a live session token") | Android app shell, manifest backup flags | Remediated: fix integrated 2026-10-04 (board item A129) | `cbb05f3c` (integrate commit) | In production (first shipped in `release-20261004-1833`) | Verified 2026-10-04 (`A60-2026-10-04`) by package-flag inspection: Kevin's `adb shell dumpsys package co.uk.auriqltd.sorted` on the production APK installed 2026-10-04 19:41:47 BST (built from `release` after `release-20261004-1833`) shows `flags=[ HAS_CODE ALLOW_CLEAR_USER_DATA ]`, so no `ALLOW_BACKUP` and no `DEBUGGABLE`. An `adb backup` extraction was not re-run |
 | A121 | The iOS biometric privacy lock was bypassable: with the lock engaged (cold start or via a notification tap), the nav bar and Penny suggestion chips were tappable behind the visual overlay, and a chip tap rendered live safe-to-spend and upcoming-bills figures with no authentication. Android's equivalent overlay held | iOS lock overlay / `BiometricLock`, nav bar, Penny chips | Remediated: fix integrated 2026-09-29 | `eae3207e` (integrate commit) | In production (first shipped in `release-20261001-2038`) | Retested on device 2026-10-04 (`A60-2026-10-04`): Pass on both phones, app open and cold start from a notification tap |
@@ -383,9 +387,14 @@ was Blocked, the supplied PT-C credential was already rejected
 (`401 Session expired`) on every pre-state read before the deletion call
 ran, so the live property could not be exercised. Source read of
 `backend/app/services/retention.py::erase_user`/`disconnect_connection`
-confirmed the disconnect-before-erase ordering is present as released; a
-follow-up live pass with a freshly issued PT-C credential is still owed
-to confirm it live.
+confirmed the disconnect-before-erase ordering is present as released. A
+live pass with a freshly issued PT-C credential then ran on 2026-10-04
+(`API-15`, production, `A60-2026-10-04`): `DELETE /account` returned 200 with
+`connections_revoked` first in the removed keys, and the deployed source
+(`erase_user` calls `disconnect_connection` before the first `delete_many`)
+confirms the ordering. One limit: the Finexer dashboard was not viewed, so
+the provider-side revoke is evidenced by the response and the source.
+Status: Fixed, retested live.
 
 **A83.** The same run found that `GET /connections` only lists TrueLayer
 connections, never Finexer ones, which meant a caller (including the
@@ -395,7 +404,7 @@ to that listing. Verified so far by the regression tests added with the
 fix. The retest ran 2026-09-27 (board item A112, production, PT-A):
 `GET /connections` returned both live Finexer connections correctly,
 confirmed Fixed live. The disconnect-before-delete half is covered by the
-A82 record above (source-confirmed only, live retest Blocked).
+A82 record above (retested live on 2026-10-04, `API-15`).
 
 **A84.** The same run's token-invalidation half found that a deleted
 account's bearer session token kept authenticating reads and writes for
@@ -410,9 +419,13 @@ expired`) before any deletion call was made, so no token survived a live
 deletion to test against. Source read of
 `backend/app/core/session_revocation.py::revoke_sessions`/`is_revoked`
 and `backend/app/routers/profile.py::delete_account` confirmed the
-revoke-before-erase ordering is present as released; a follow-up live
-pass with a freshly issued PT-C credential is still owed to confirm it
-live.
+revoke-before-erase ordering is present as released. The live before/after
+property was then exercised on 2026-10-04 (`API-15`, PT-C, production,
+`A60-2026-10-04`): after the deletion call returned 200, the same session
+token was rejected with 401 on `/auth/session/validate`, `/connections` and
+`/accounts` within about a second. OAuth tokens were not exercised live (the
+connector is off in production). Status: Fixed, retested live for the
+session token.
 
 **A91.** WP6's `MCP-06` case found that `app/services/mcp_mask.py` drops
 fields by shape only and never inspects or sanitises the content of the
@@ -597,7 +610,7 @@ counted among this round's findings.
 
 | Blocker or limitation | Detail | Status |
 |---|---|---|
-| `API-15` destructive half (A82, A83's disconnect-before-delete half, A84) | The live account-deletion retest on production (A112, 2026-09-27) was Blocked: the supplied disposable credential was already rejected (`401 Session expired`) before the deletion call, so nothing was deleted or mutated. The fix is confirmed present by source read only | Blocked live, source-confirmed Fixed only; owner Kevin (a freshly issued, pre-verified credential would close it) |
+| `API-15` provider-side state (A82, A83) | The 2026-10-04 live deletion retest (`A60-2026-10-04`) confirmed the response and the deployed source, but the Finexer dashboard was not viewed, so the provider's own record of the revoke was not checked | Limit accepted; owner Kevin (a dashboard check would close it) |
 | `FIN-06` (webhook payload retention/TTL) | No production database or admin-API read path exists for this testing session to confirm live payload retention behaviour | Blocked, unresolved; owner Kevin (provide a scoped read path, or accept as not tested) |
 | `FIN-01` and `TL-02`, accepted-delivery live halves | No Finexer-approved sandbox or test consent exists, and no TrueLayer-equivalent sandbox/test connection exists, to safely drive a live accepted-delivery webhook | Blocked, unresolved; owner Kevin (obtain a provider sandbox, or accept as not tested) |
 | `OPEN_SIGNUP` window on production (2026-09-19) | A roughly 36-minute window during which production's normal Google/Apple-identity allow-list gate was relaxed to create PT-A and PT-B, then closed (board item A63). The post-window check for unexpected registrations during that window was deliberately not run: this session's own permission boundary declined the read, and Kevin judged it unnecessary at the time given the gate admitted only a verified Google or Apple identity throughout, never anonymous registration | Not retrospectively checked; available to Kevin if he wants the count run later |
@@ -687,8 +700,8 @@ from the 2026-09-18 acknowledge date, and first shipped in `release-20261004-183
 3. **Retest** of those fifteen fixes ran the same day (board item A112,
    `docs/security/pentest-runs/A112-2026-09-27/`). The destructive
    `API-15` step (A82, A83's disconnect-before-delete half, A84) was
-   Blocked by an already-expired test credential and remains
-   source-confirmed only; see section 6.
+   Blocked that day by an already-expired test credential, and was
+   retested live on production on 2026-10-04 (`A60-2026-10-04`).
 4. **Device-round fixes.** A118, A120, A121, A122 and the follow-up A123
    were integrated on `main` on 2026-09-29 and first shipped in
    `release-20261001-2038`. The on-device retest of A120, A121 and A122
@@ -723,7 +736,7 @@ attestation in a working session with Claude ("Happy to sign this"), not a
 handwritten or cryptographic signature. This report, as a document, has not
 separately been signed by Kevin as of 2026-10-04.
 
-**WP12 review.** On 2026-10-04 a separate Claude reviewer agent audited the evidence behind this report in two passes. It checked every Fail, Partially fixed, Blocked, Inconclusive and Not run result in runs A48 to A59, A55 and A56 (2026-09-27), A112 and A60-2026-10-04, and every finding in section 5 and `SECURITY.md` 3b against git (integrate commits, `release` ancestry and release tags) and the cited retest records. It also checked the report, `SECURITY.md` and the Q11 text for consistency with each other and with the records. The first pass found six defects: one wrong fix commit, the Android backup High missing from the register, missing coverage rows for Blocked and Inconclusive cases, miscounted matrix totals, a release-tag attribution that contradicted git, and one revision-history wording point. All were corrected, and the second pass confirmed each correction. This was a single-model review by the same model family as the testing sessions. The Codex half of the cross-model review in PENTEST-METHODOLOGY section 9 was not performed, by Kevin's decision of 2026-10-04. The review made no changes and ran no live tests. Its two limits are that the A121, A122 and A129 retest results rest on Kevin's relayed on-device observations (no screenshots), and that the A129 fix was verified by package flags only, with the `adb backup` extraction not re-run.
+**WP12 review.** On 2026-10-04 a separate Claude reviewer agent audited the evidence behind this report in two passes. It checked every Fail, Partially fixed, Blocked, Inconclusive and Not run result in runs A48 to A59, A55 and A56 (2026-09-27), A112 and A60-2026-10-04, and every finding in section 5 and `SECURITY.md` 3b against git (integrate commits, `release` ancestry and release tags) and the cited retest records. It also checked the report, `SECURITY.md` and the Q11 text for consistency with each other and with the records. The first pass found six defects: one wrong fix commit, the Android backup High missing from the register, missing coverage rows for Blocked and Inconclusive cases, miscounted matrix totals, a release-tag attribution that contradicted git, and one revision-history wording point. All were corrected, and the second pass confirmed each correction. This was a single-model review by the same model family as the testing sessions. The Codex half of the cross-model review in PENTEST-METHODOLOGY section 9 was not performed, by Kevin's decision of 2026-10-04. The review made no changes and ran no live tests. Its two limits are that the A121, A122 and A129 retest results rest on Kevin's relayed on-device observations (no screenshots), and that the A129 fix was verified by package flags only, with the `adb backup` extraction not re-run. The live `API-15` deletion retest on 2026-10-04 was recorded after this review and was not covered by it.
 
 **Revision history.**
 
@@ -732,4 +745,5 @@ separately been signed by Kevin as of 2026-10-04.
 | v0.1 (DRAFT) | 2026-09-23 | First draft, produced for Finexer ahead of production release, retest and WP12; covers the 10 of 12 work packages executed 2026-09-20 to 2026-09-21 |
 | v0.1 (DRAFT, updated) | 2026-09-27 | A117: this Markdown updated in place to record WP7b (A55) and WP8 (A56) dynamic device testing, executed live 2026-09-27; coverage corrected from 10 of 12 to 12 of 12 work packages (to the extent possible without a Mac or a rooted device); five findings folded into section 5 (A118, A119, A120, A121, A122); headline corrected to five High findings, since A121 (iOS biometric-lock bypass) was not yet remediated |
 | v0.1 (DRAFT, updated) | 2026-09-28 | A117 correction: the earlier text stated that none of the four original High findings (A82, A83, A84, A91) had reached production and that no production retest had run; both were false by 2026-09-27 evening. All four shipped to production 2026-09-27 and were retested the same day (board item A112, `docs/security/pentest-runs/A112-2026-09-27/`). Section 5 corrected to record A112's actual outcome per finding. Also corrected a stale claim that A92's release gate, board item A110, was still in progress |
-| v1.0 candidate | 2026-10-04 | A60: final consolidated report. Records the 2026-10-04 on-device retest (`docs/security/pentest-runs/A60-2026-10-04/`): A120, A121 and A122 remediated and retested on both phones; A118 server-side revocation in production with the on-device residue re-check not yet run; A119 closed (debug build only). Section 5's Medium and Low tables updated with A112's 2026-09-27 retest outcomes. Follow-ups A123 and A138 recorded, and the pre-documented Android backup High (`AND-01` / `AND-02`, fixed under A129) added to the High table. Section 9 rewritten as a plain testing-approach statement. WP12 recorded as a Claude-only review, the Codex half dropped (Kevin decision, 2026-10-04). WP12 review recorded in section 10 (2026-10-04, PASS on second pass). PDF and HTML regenerated |
+| v1.0 | 2026-10-04 | A60: final consolidated report. Records the 2026-10-04 on-device retest (`docs/security/pentest-runs/A60-2026-10-04/`): A120, A121 and A122 remediated and retested on both phones; A118 server-side revocation in production with the on-device residue re-check not yet run; A119 closed (debug build only). Section 5's Medium and Low tables updated with A112's 2026-09-27 retest outcomes. Follow-ups A123 and A138 recorded, and the pre-documented Android backup High (`AND-01` / `AND-02`, fixed under A129) added to the High table. Section 9 rewritten as a plain testing-approach statement. WP12 recorded as a Claude-only review, the Codex half dropped (Kevin decision, 2026-10-04). WP12 review recorded in section 10 (2026-10-04, PASS on second pass). PDF and HTML regenerated |
+| v1.0 (final) | 2026-10-04 | A60: live `API-15` account-deletion retest ran on production with the disposable identity PT-C (`A60-2026-10-04`), superseding the Blocked, source-only verdict of A112. A82, A83 (destructive half) and A84 are now Fixed, retested live; the Finexer dashboard was not viewed. Version set to 1.0 |
