@@ -7,7 +7,12 @@ const source = path => readFileSync(new URL(path, import.meta.url), "utf8");
 // Raw upper-case provider strings are sentence-cased; everything else is left alone.
 assert.equal(tidyAccountText("PENTESTCANARYBANK"), "Pentestcanarybank");
 assert.equal(tidyAccountText("CURRENT ACCOUNT"), "Current account");
-assert.equal(tidyAccountText("HSBC UK"), "Hsbc uk");
+assert.equal(tidyAccountText("HSBC UK"), "HSBC UK");
+assert.equal(tidyAccountText("HSBC UK ADVANCE"), "HSBC UK Advance");
+assert.equal(tidyAccountText("NS&I"), "NS&I");
+assert.equal(tidyAccountText("TSB"), "TSB");
+assert.equal(tidyAccountText("TSB CLASSIC PLUS"), "TSB Classic plus");
+assert.equal(tidyAccountText("M&S BANK"), "M&S Bank");
 assert.equal(tidyAccountText("Everyday account"), "Everyday account");
 assert.equal(tidyAccountText("NatWest Rewards"), "NatWest Rewards");
 assert.equal(tidyAccountText("  "), "");
