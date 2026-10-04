@@ -44,12 +44,15 @@ interface HomeInsightSpotlightProps {
    *  cycle below. Lets HomePage's full-page loading hold know this
    *  self-fetching card is done. */
   onReady?: () => void;
+  /** Design previews only (/design/home-tip-gesture): render this fixture
+   *  insight and make no API calls. Dismissing just hides the card. */
+  previewInsight?: SavingsInsight;
 }
 
-export default function HomeInsightSpotlight({ onReady }: HomeInsightSpotlightProps = {}) {
+export default function HomeInsightSpotlight({ onReady, previewInsight }: HomeInsightSpotlightProps = {}) {
   const router = useRouter();
-  const [insight, setInsight] = useState<SavingsInsight | null>(null);
-  const [loaded, setLoaded] = useState(false);
+  const [insight, setInsight] = useState<SavingsInsight | null>(previewInsight ?? null);
+  const [loaded, setLoaded] = useState(Boolean(previewInsight));
 
   // Latest onReady in a ref, and a fired-once guard — `load()` is also
   // re-invoked after a dismiss to surface the next eligible insight, and
@@ -64,6 +67,7 @@ export default function HomeInsightSpotlight({ onReady }: HomeInsightSpotlightPr
   const { ref: cardRef, handlers: swipe } = useSwipeDismiss<HTMLDivElement>(() => dismiss(), { axis: "x", sign: -1 });
 
   const load = useCallback(() => {
+    if (previewInsight) return;
     api
       .getSpotlightInsight()
       .then(setInsight)
@@ -74,7 +78,7 @@ export default function HomeInsightSpotlight({ onReady }: HomeInsightSpotlightPr
         readyFiredRef.current = true;
         onReadyRef.current?.();
       });
-  }, []);
+  }, [previewInsight]);
 
   useEffect(() => {
     load();
@@ -96,6 +100,7 @@ export default function HomeInsightSpotlight({ onReady }: HomeInsightSpotlightPr
   async function dismiss() {
     const id = insight!.id;
     setInsight(null); // hide immediately
+    if (previewInsight) return;
     try {
       await api.dismissSpotlightInsight(id);
     } catch {}

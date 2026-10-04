@@ -32,6 +32,12 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "home-tip-gesture",
+    name: "Home tip card gesture · G207",
+    description: "G207 gesture check, not a design round: the production HomeInsightSpotlight (previewInsight prop, no API calls) among neighbour cards, to exercise vertical scroll starting on the card (must leave no offset) and swipe-left dismiss · static fixture",
+    states: [{ label: "Everything", value: "everything" }],
+  },
+  {
     slug: "settings-overhaul",
     name: "Settings overhaul · G201",
     description:
