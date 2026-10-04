@@ -403,6 +403,51 @@ function firstGuardBeforeFirstMutation(lines, anchorIndex, endIndex) {
     "mounted guard: a mountedRef guard is the first thing inside the catch block, before its own setAwaitingAuth(false)",
     firstGuardBeforeFirstMutation(bioLines, catchIndex, attemptUnlockEnd)
   );
+
+  // G203 presentation setters: the first statement after `await isAvailable()`
+  // is the mounted guard, and setBiometryType( / setFailure( only ever follow
+  // a mounted guard inside their own block.
+  const nextCode = (from) => {
+    for (let i = from + 1; i < attemptUnlockEnd; i++) {
+      const t = bioLines[i].trim();
+      if (t && !t.startsWith("//")) return i;
+    }
+    return -1;
+  };
+  const firstAfterAvail = nextCode(isAvailableIndex);
+  ok(
+    "G203: the first statement after await isAvailable() is `if (!mountedRef.current) return;`",
+    firstAfterAvail > 0 && bioLines[firstAfterAvail].trim() === "if (!mountedRef.current) return;"
+  );
+  const setterLines = [];
+  for (let i = attemptUnlockStart; i < attemptUnlockEnd; i++) {
+    if (/\b(setBiometryType|setFailure)\(/.test(bioLines[i])) setterLines.push(i);
+  }
+  ok("G203: setBiometryType( and setFailure( call sites are found (3)", setterLines.length === 3);
+  for (const i of setterLines) {
+    // Walk back through this block and its enclosing blocks (skipping closed
+    // sibling blocks); a mounted guard must precede the setter on that path.
+    let depth = 0;
+    let guarded = false;
+    for (let j = i - 1; j >= attemptUnlockStart; j--) {
+      const l = bioLines[j];
+      if (depth === 0 && l.trim() === "if (!mountedRef.current) return;") {
+        guarded = true;
+        break;
+      }
+      // A guard from before an await proves nothing about state after it.
+      if (/\bawait\b/.test(l)) break;
+      for (const ch of l.split("").reverse()) {
+        if (ch === "}") depth++;
+        if (ch === "{") depth = Math.max(0, depth - 1); // stepped out into the enclosing block, keep walking
+      }
+      // A line like "} catch {" / "} else {" steps out of its own block and
+      // then, walking back, past the closing brace of a SIBLING block, which
+      // the char loop above already counted (depth 1), so that sibling's
+      // guards are skipped rather than credited.
+    }
+    ok(`G203: ${bioLines[i].trim()} (line ${i + 1}) sits after a mounted guard in its block`, guarded);
+  }
 }
 
 // ── 8. The mounted-guard scan above is not fooled by a decoy that has A
