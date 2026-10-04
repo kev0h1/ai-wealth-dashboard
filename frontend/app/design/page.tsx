@@ -116,6 +116,13 @@ const ROUTES: PreviewRoute[] = [
     ],
   },
   {
+    slug: "sheet-swipe",
+    name: "sheet-swipe",
+    description:
+      "G205, skill: emil-design-eng · Swipe a sheet down to close it · Real production SheetFrame and goal sheet with a long scrolling body · Drag from the new grab bar or header at any time, or from the body only when scrolled to the top · Past a fifth of the height or a quick flick closes, otherwise it springs back · Locked sheet ignores swipe like the cross · Phones only, desktop dialogs unchanged · ?mode=light|dark",
+    states: [{ label: "Try it", value: "" }],
+  },
+  {
     slug: "sheet-anatomy",
     name: "sheet-anatomy",
     description:
