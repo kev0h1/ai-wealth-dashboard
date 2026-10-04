@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useState, useCallback, useRef } from "react
 import { createPortal } from "react-dom";
 import { Capacitor } from "@capacitor/core";
 import { App } from "@capacitor/app";
-import { ShieldCheck, Fingerprint, LogOut } from "lucide-react";
+import LockScreenView, { type LockPlatform } from "@/components/LockScreenView";
 import { isAvailable, authenticate, isLockEnabled, setLockEnabled } from "@/lib/biometrics";
 import { useAuth } from "@/components/AuthProvider";
 import { BUILD_TAG } from "@/lib/buildTag";
@@ -28,6 +28,16 @@ import { syncNativePrivacyScreen } from "@/lib/privacyScreen";
 // resume-triggered fetch consumer to the same event rather than inventing a
 // second signal.
 export const APP_LOCK_UNLOCKED_EVENT = "applock:unlocked";
+
+// G203: presentation hint only, never read by the gate.
+function nativeLockPlatform(): LockPlatform {
+  try {
+    const p = Capacitor.getPlatform();
+    return p === "ios" || p === "android" ? p : "web";
+  } catch {
+    return "web";
+  }
+}
 
 function nativePlatform(): boolean {
   try {
@@ -597,48 +607,15 @@ export default function BiometricLock({ children }: { children: React.ReactNode 
             </div>
           )}
           {locked && (
-            <div className="fixed inset-0 z-[999] flex flex-col items-center justify-center bg-gradient-to-b from-[#f0f2f7] to-[#e4e8f5] dark:from-[#0f172a] dark:to-[#131c33] px-6">
-              <div className="w-20 h-20 rounded-3xl bg-indigo-500 shadow-xl flex items-center justify-center mb-6">
-                <Fingerprint size={36} className="text-white" />
-              </div>
-              <h1 className="text-lg font-bold text-slate-900 dark:text-slate-100 mb-1.5">Sorted is locked</h1>
-              <p className="text-sm text-slate-500 dark:text-slate-400 text-center mb-8 max-w-xs">
-                {errorMessage ?? "Confirm it's you to see your accounts."}
-              </p>
-              {!awaitingAuth && (
-                <div className="flex flex-col items-center gap-3">
-                  <button
-                    onClick={() => void attemptUnlock()}
-                    className="flex items-center gap-2 px-5 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-700 active:scale-[0.97] text-sm font-semibold text-white transition-all shadow-md shadow-indigo-200 dark:shadow-none"
-                  >
-                    <ShieldCheck size={16} />
-                    {errorMessage ? "Try again" : "Unlock"}
-                  </button>
-                  {/* Always available once an attempt has settled without
-                      unlocking — not just on a specific error type. We can't
-                      reliably tell "the user just cancelled" apart from "this
-                      device can never satisfy this prompt" from here, and the
-                      cost of over-showing an escape hatch is nothing; the cost
-                      of under-showing one is a locked-out owner. */}
-                  {errorMessage && (
-                    <button
-                      onClick={signOutInstead}
-                      className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
-                    >
-                      <LogOut size={13} />
-                      Sign out and use Google instead
-                    </button>
-                  )}
-                </div>
-              )}
-              {/* Whisper build tag — lets Kevin confirm from the phone itself
-                  which build is running, so a stuck screen can't be mistaken
-                  for "the fix didn't ship" when it's actually a stale APK
-                  download. See lib/buildTag.ts. */}
-              <p className="absolute bottom-6 text-[10px] text-slate-400/70 dark:text-slate-500/60 tracking-wide">
-                {BUILD_TAG}
-              </p>
-            </div>
+            <LockScreenView
+              platform={nativeLockPlatform()}
+              biometry="none"
+              state={awaitingAuth ? "prompting" : errorMessage ? "failed" : "idle"}
+              errorMessage={errorMessage}
+              buildTag={BUILD_TAG}
+              onUnlock={() => void attemptUnlock()}
+              onSignOut={signOutInstead}
+            />
           )}
         </div>,
         document.body
