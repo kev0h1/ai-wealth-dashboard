@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useState, useCallback, useRef } from "react
 import { createPortal } from "react-dom";
 import { Capacitor } from "@capacitor/core";
 import { App } from "@capacitor/app";
-import LockScreenView, { type LockPlatform } from "@/components/LockScreenView";
+import LockScreenView, { biometryKindFromType, type LockPlatform } from "@/components/LockScreenView";
 import { isAvailable, authenticate, isLockEnabled, setLockEnabled } from "@/lib/biometrics";
 import { useAuth } from "@/components/AuthProvider";
 import { BUILD_TAG } from "@/lib/buildTag";
@@ -123,6 +123,11 @@ export default function BiometricLock({ children }: { children: React.ReactNode 
   // together with `!awaitingAuth`, the escape hatch below — see the button
   // block for why the escape hatch is unconditional once this is non-null.
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  // G203: presentation-only inputs for the lock screen's copy. Never read by
+  // any gate path; set beside the existing isAvailable() / setErrorMessage
+  // calls below.
+  const [biometryType, setBiometryType] = useState<number | undefined>(undefined);
+  const [failure, setFailure] = useState<"unconfirmed" | "timeout">("unconfirmed");
   // Brief, non-blocking notice shown after we've auto-disabled the lock
   // because the device can no longer satisfy it (see the `!supported`
   // branch below). The app is already unlocked by the time this shows.
@@ -212,7 +217,7 @@ export default function BiometricLock({ children }: { children: React.ReactNode 
     setAwaitingAuth(true);
     setErrorMessage(null);
     try {
-      const { supported } = await isAvailable();
+      const { supported, biometryType: availableType } = await isAvailable();
       // A121 review: unmounted while awaiting the hardware check (e.g. a
       // remote sign-out landed mid-check) — nothing left to update, and
       // critically `setLockedState(true)`/`setAppLocked(true)` further down
@@ -220,6 +225,7 @@ export default function BiometricLock({ children }: { children: React.ReactNode 
       // ever clear it again, which is exactly what would strand the NEXT
       // sign-in behind the gate.
       if (!mountedRef.current) return;
+      setBiometryType(availableType);
       if (!supported) {
         // Lock was enabled previously but hardware/enrolment is no longer
         // available on this device — gating on a check that can never
@@ -269,6 +275,7 @@ export default function BiometricLock({ children }: { children: React.ReactNode 
           window.dispatchEvent(new Event(APP_LOCK_UNLOCKED_EVENT));
         }
       } else {
+        setFailure("unconfirmed");
         setErrorMessage("Face/fingerprint wasn't confirmed. Try again.");
       }
     } catch {
@@ -282,6 +289,7 @@ export default function BiometricLock({ children }: { children: React.ReactNode 
       // unmounted component.
       if (!mountedRef.current) return;
       setAwaitingAuth(false);
+      setFailure("timeout");
       setErrorMessage("Face/fingerprint didn't respond. Try again.");
     } finally {
       inFlightRef.current = false;
@@ -609,9 +617,10 @@ export default function BiometricLock({ children }: { children: React.ReactNode 
           {locked && (
             <LockScreenView
               platform={nativeLockPlatform()}
-              biometry="none"
+              biometry={biometryKindFromType(biometryType)}
               state={awaitingAuth ? "prompting" : errorMessage ? "failed" : "idle"}
               errorMessage={errorMessage}
+              failure={failure}
               buildTag={BUILD_TAG}
               onUnlock={() => void attemptUnlock()}
               onSignOut={signOutInstead}
