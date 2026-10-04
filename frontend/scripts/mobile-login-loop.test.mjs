@@ -456,7 +456,7 @@ await t("G202: the preview renders the production LoginScreen, with no copied va
 });
 
 await t("G202 review 1: the resume signal is dropped whenever a user is set, and failed is set only when no user resulted", () => {
-  assert.ok(/useEffect\(\(\) => \{\s*if \(user\) setResuming\(null\);\s*\}, \[user\]\);/.test(apSrc), "any user clears resuming (init, late success, establishSession)");
+  assert.ok(/useEffect\(\(\) => \{\s*if \(user\) \{\s*setResuming\(null\);\s*window\.dispatchEvent\(new Event\("wd:session-established"\)\);[^\n]*\s*\}\s*\}, \[user\]\);/.test(apSrc), "any user clears resuming (init, late success, establishSession)");
   assert.ok(/const outcome = await establishSession\(initCtrl\.signal\);/.test(apSrc), "init uses the shared establishSession (A135)");
   assert.ok(/ended: "unreachable" \}\)\);/.test(apSrc), "init: unreachable (token kept) rather than failed");
   assert.ok(/setResuming\(\(r\) => \(o === "ok" \? null :/.test(apSrc), "late success: null on ok, failed only otherwise");
