@@ -34,7 +34,7 @@ export function PlannedEditForm({ item, accounts, onCancel, onDelete, onSaved, s
     await request.run(() => services.updatePlanned(item.id, patch), onCancel, undefined, onSaved);
   }
   return <form id={formId} onSubmit={submit} className="space-y-5">
-    <fieldset disabled={request.busy || request.needsRefresh} className="space-y-5 [&_input]:text-base">
+    <fieldset disabled={request.busy || request.needsRefresh} className="min-w-0 space-y-5 [&_input]:text-base">
       <label className="block text-sm font-medium">Name<input value={name} onChange={(e) => setName(e.target.value)} required className={editorField} /></label>
       <div className="grid gap-4 min-[380px]:grid-cols-2"><label className="min-w-0 text-sm font-medium">Expected date<input type="date" value={date} onChange={(e) => setDate(e.target.value)} required className={editorField} /></label><label className="min-w-0 text-sm font-medium">Amount (£)<input type="number" min="0.01" max="1000000" step="0.01" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} required className={editorField} /></label></div>
       <AccountRadioPicker accounts={spendable} value={accountId} onChange={setAccountId} label="Which account will it leave from?" allowUnset unsetLabel="Not sure yet" />

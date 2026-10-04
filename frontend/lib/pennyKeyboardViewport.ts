@@ -67,7 +67,7 @@ export function pennyDockNext(
 
 /** Top edge of the filled panel: 8px inside the visible area, never above it
  * if the visual viewport has been panned (offsetTop). CSS adds the safe-area
- * top inset with max(). */
+ * top inset. */
 export function pennyFillTop(visualTop = 0): number {
   return Math.round(Math.max(0, visualTop) + 8);
 }

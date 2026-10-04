@@ -67,6 +67,12 @@ const ruleGap = styles.match(/\.penny-keyboard-typing \[data-penny-header-rule\]
 assert.ok(ruleGap && Number(ruleGap[1]) >= 16, "G197: the header rule keeps a gap below the 44px close button so it never touches the X");
 assert.match(source("../components/PennySheet.tsx"), /data-penny-header-rule className="border-b/, "The header rule is addressable by the typing gap");
 assert.match(source("../components/PennySheet.tsx"), /<div data-penny-secondary className="mt-2 flex/, "The header links row is the hidden secondary row");
+assert.match(styles, /\.penny-keyboard-typing \{[^}]*top: calc\(var\(--penny-typing-top[^;]*\+ var\(--penny-safe-top\)\);/, "G206: the typing top ADDS the safe-area top inset to the visual top (max() left the header under the status bar)");
+assert.doesNotMatch(styles, /top: max\(var\(--penny-typing-top/, "G206: no max() of visual top and safe inset");
+assert.match(styles, /--penny-safe-top: max\(env\(safe-area-inset-top, 0px\)/, "G206: safe top comes from env(safe-area-inset-top)");
+assert.match(styles, /\.penny-keyboard-frame \{[^}]*bottom: calc\(110px \+ var\(--penny-safe-bottom\)\);/, "G206: the resting frame clears the home indicator");
+assert.match(styles, /--penny-safe-bottom: max\(env\(safe-area-inset-bottom, 0px\)/, "G206: safe bottom comes from env(safe-area-inset-bottom)");
+assert.match(styles, /not\(\.penny-keyboard-typing\) \{ bottom: calc\(8px \+ var\(--penny-safe-bottom\)\); \}/, "G206: resting landscape clears the home indicator");
 assert.match(styles, /bottom: var\(--penny-typing-bottom/, "Typing docks the bottom edge on the keyboard");
 assert.doesNotMatch(frame, /width: viewport\.width|height: viewport\.height/, "The frame is never sized to the whole viewport");
 assert.match(frame, /usePennyKeyboard/);

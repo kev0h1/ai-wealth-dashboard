@@ -159,3 +159,32 @@ def test_mcp_post_unauthenticated_carries_discovery_header_when_flag_on(monkeypa
     resp = client.post("/mcp")
     assert resp.status_code == 401
     assert "www-authenticate" in {k.lower() for k in resp.headers.keys()}
+
+
+# ── F21: RFC 9728 path-insertion form of the protected-resource document ──
+
+_PR_BASE = "/.well-known/oauth-protected-resource"
+
+
+def test_protected_resource_path_form_is_public_and_identical_when_flag_on(monkeypatch):
+    client = TestClient(_build(monkeypatch, True))
+    base = client.get(_PR_BASE)
+    assert base.status_code == 200
+    for suffix in ("/api/mcp", "/mcp"):
+        resp = client.get(_PR_BASE + suffix)  # no Authorization header at all
+        assert resp.status_code == 200, suffix
+        assert resp.content == base.content, suffix
+
+
+def test_protected_resource_path_form_404s_other_suffixes_when_flag_on(monkeypatch):
+    client = TestClient(_build(monkeypatch, True))
+    assert client.get(_PR_BASE + "/api/other").status_code == 404
+    assert client.get(_PR_BASE + "/api/other").status_code != 401
+
+
+def test_protected_resource_path_form_matches_base_when_flag_off(monkeypatch):
+    client = TestClient(_build(monkeypatch, False))
+    base = client.get(_PR_BASE)
+    resp = client.get(_PR_BASE + "/api/mcp")
+    assert base.status_code == resp.status_code == 401
+    assert resp.json() == base.json()
