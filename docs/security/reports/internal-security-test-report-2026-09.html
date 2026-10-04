@@ -790,7 +790,7 @@ carries the more conservative Low, and the board's rating governs.</p>
 <td>Remediated: fix integrated 2026-10-04 (board item A129)</td>
 <td><code>cbb05f3c</code> (integrate commit)</td>
 <td>In production (first shipped in <code>release-20261004-1833</code>)</td>
-<td>Verified 2026-10-04 (<code>A60-2026-10-04</code>) by package-flag inspection: Kevin's <code>adb shell dumpsys package co.uk.auriqltd.sorted</code> on the installed production APK shows <code>flags=[ HAS_CODE ALLOW_CLEAR_USER_DATA ]</code>, so no <code>ALLOW_BACKUP</code> and no <code>DEBUGGABLE</code>. An <code>adb backup</code> extraction was not re-run</td>
+<td>Verified 2026-10-04 (<code>A60-2026-10-04</code>) by package-flag inspection: Kevin's <code>adb shell dumpsys package co.uk.auriqltd.sorted</code> on the production APK installed 2026-10-04 19:41:47 BST (built from <code>release</code> after <code>release-20261004-1833</code>) shows <code>flags=[ HAS_CODE ALLOW_CLEAR_USER_DATA ]</code>, so no <code>ALLOW_BACKUP</code> and no <code>DEBUGGABLE</code>. An <code>adb backup</code> extraction was not re-run</td>
 </tr>
 <tr>
 <td>A121</td>
@@ -897,8 +897,9 @@ commit <code>cbb05f3c</code>, first shipped in <code>release-20261004-1833</code
 device transfer (<code>capacitor-spike/scripts/setup-android-backup.sh</code>,
 <code>capacitor-spike/android-backup/</code>). Verification on 2026-10-04 was by
 package-flag inspection: Kevin's <code>adb shell dumpsys package
-co.uk.auriqltd.sorted</code> on the installed production APK (installed
-2026-10-04 18:31:18 phone local time, versionCode 1, versionName 1.0) shows
+co.uk.auriqltd.sorted</code> on the production APK Kevin built from <code>release</code> after
+<code>release-20261004-1833</code> (installed 2026-10-04 19:41:47 phone local time,
+BST; versionCode 1, versionName 1.0) shows
 <code>flags=[ HAS_CODE ALLOW_CLEAR_USER_DATA ]</code>, so neither <code>ALLOW_BACKUP</code> nor
 <code>DEBUGGABLE</code> is set. An <code>adb backup</code> extraction was not re-run. Defence in
 depth since the finding: A123 moved the native token into
