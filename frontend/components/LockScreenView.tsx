@@ -75,7 +75,7 @@ export default function LockScreenView({ platform, biometry, state, failure, bui
                 onClick={onSignOut}
                 className={`min-h-11 w-full rounded-xl px-2 py-3 text-sm font-semibold text-slate-700 underline decoration-slate-300 underline-offset-4 transition-colors hover:bg-slate-200/60 active:opacity-70 dark:text-slate-200 dark:decoration-slate-600 dark:hover:bg-slate-800 ${FOCUS}`}
               >
-                Sign out and use Google instead
+                Sign out and sign in again
               </button>
             )}
           </div>

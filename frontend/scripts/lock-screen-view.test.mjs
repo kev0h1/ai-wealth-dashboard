@@ -50,6 +50,7 @@ const before = view.slice(0, signOutAt);
 const guardAt = before.lastIndexOf('state === "failed" && (');
 const afterGuard = view.slice(guardAt, signOutAt);
 ok('sign-out sits directly inside a state === "failed" guard', guardAt > 0 && !afterGuard.includes("</button>"));
+ok("sign-out copy is provider-neutral", view.includes("Sign out and sign in again") && !/Google/.test(view));
 ok("buttons are never rendered while prompting", /state !== "prompting" && \(/.test(view));
 
 // 3. Copy per biometry kind.
