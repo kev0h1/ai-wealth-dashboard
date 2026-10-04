@@ -28,6 +28,7 @@ import { createPortal } from "react-dom";
 import { getAllTransactionsCached } from "@/lib/useAllTransactions";
 import { getAccountsCached } from "@/lib/accountsCache";
 import { invalidateAllAccountData } from "@/lib/accountMutations";
+import { findLandedAccount, SYNC_POLL_TIMEOUT_MS } from "@/lib/syncLanding";
 import { writeHomePinnedAccounts } from "@/lib/homePinnedAccounts";
 import MoneyText from "@/components/MoneyText";
 import { formatConsentExpiry } from "@/lib/consentExpiry";
@@ -347,6 +348,11 @@ export default function AccountsPage() {
   const [uploadingColdStart, setUploadingColdStart] = useState(false);
   const coldStartFileRef = useRef<HTMLInputElement>(null);
   const isSyncing = searchParams.get("syncing") === "1";
+  // A108: the connection the user just authorised; the poll waits for ITS account.
+  const syncConnection = searchParams.get("connection");
+  const [syncTimedOut, setSyncTimedOut] = useState(false);
+  const [syncPollKey, setSyncPollKey] = useState(0);
+  const [connectNotice, setConnectNotice] = useState(false);
   // A67: does this plan include connecting a bank? Resolved alongside the
   // page rather than gating it — see lib/openBankingAccess.ts.
   const canConnectBank = useOpenBankingAccess();
@@ -756,17 +762,42 @@ export default function AccountsPage() {
   // transaction until a hard refresh).
   useEffect(() => {
     if (!isSyncing) return;
+    setSyncTimedOut(false);
+    const startedAt = Date.now();
     const interval = setInterval(async () => {
+      if (Date.now() - startedAt > SYNC_POLL_TIMEOUT_MS) {
+        clearInterval(interval);
+        setSyncTimedOut(true);
+        return;
+      }
       const accs = await getAccountsCached(true).catch(() => [] as Account[]);
-      if (accs.length > 0) {
+      const landed = findLandedAccount(accs, syncConnection);
+      if (landed) {
         invalidateAllAccountData();
         setAccounts(accs);
         clearInterval(interval);
-        router.replace("/accounts");
+        if (syncConnection) {
+          // A108: land on the account that just synced, like the ?id= deep link.
+          // Mark the ref so the replace-triggered effect run keeps the selection.
+          setSelectedAccountId(landed.id);
+          setSegment("Transactions");
+          setPage(1);
+          setLoadingTxns(landed.id);
+          consumedDeepLink.current = true;
+        }
+        router.replace("/accounts", { scroll: false });
       }
     }, 3000);
     return () => clearInterval(interval);
-  }, [isSyncing, router]);
+  }, [isSyncing, syncConnection, syncPollKey, router]);
+
+  // A108: the consent ended without linking an account (/accounts?connect=cancelled).
+  useEffect(() => {
+    if (searchParams.get("connect") === "cancelled") {
+      setConnectNotice(true);
+      router.replace("/accounts", { scroll: false });
+    }
+  }, [searchParams, router]);
 
   async function loadAccountTxns(accountId: string, force = false) {
     const isManual = accounts.find(a => a.id === accountId)?.manual;
@@ -2738,7 +2769,21 @@ export default function AccountsPage() {
       {/* ── Banks tab ── */}
       {tab === "Banks" && (
         <>
-          {isSyncing && (
+          {connectNotice && (
+            <div className="mx-4 mt-4 flex items-center gap-3 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl px-4 py-3">
+              <p className="flex-1 text-sm text-slate-700 dark:text-slate-300">No accounts were linked.</p>
+              <button onClick={() => setConnectNotice(false)} aria-label="Dismiss" className="min-h-[44px] min-w-[44px] -my-2 -mr-2 flex items-center justify-center text-slate-400 hover:text-slate-600"><X size={16} /></button>
+            </div>
+          )}
+
+          {isSyncing && syncTimedOut && (
+            <div className="mx-4 mt-4 flex items-center gap-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-2xl px-4 py-3">
+              <p className="flex-1 text-sm text-amber-800 dark:text-amber-200">Your bank is still syncing. Pull down or check back in a moment.</p>
+              <button onClick={() => { setSyncTimedOut(false); setSyncPollKey(k => k + 1); }} className="min-h-[44px] px-3 text-sm font-semibold text-amber-800 dark:text-amber-200">Retry</button>
+            </div>
+          )}
+
+          {isSyncing && !syncTimedOut && (
             <div className="mx-4 mt-4 flex items-center gap-3 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800 rounded-2xl px-4 py-3">
               <RefreshCw size={16} className="animate-spin text-indigo-500 flex-shrink-0" />
               <p className="text-sm text-indigo-700 dark:text-indigo-300 font-medium">Syncing your bank accounts…</p>
