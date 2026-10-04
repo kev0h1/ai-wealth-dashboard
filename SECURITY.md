@@ -165,8 +165,8 @@ in all. As of 2026-10-04:
 
 - Fifteen of the twenty were fixed on `main` by 2026-09-22 with regression
   tests, shipped to production on 2026-09-27 (the four High findings A82,
-  A83, A84, A91 in `release-20260927-0947`, the other eleven in
-  `release-20260927-1844`) and retested the same day (board item A112,
+  A83, A84, A91 and the other eleven all in `release-20260927-0947`) and
+  retested the same day on the `release-20260927-1844` build (board item A112,
   `docs/security/pentest-runs/A112-2026-09-27/`): fourteen confirmed Fixed
   (A82 and A84, and the destructive half of A83, by source read only, as
   are A88, A89 and A95; see the tables below) and A80 Partially fixed.
@@ -202,12 +202,12 @@ device testing, is unrelated to either.
 | Item | Finding | Status |
 |---|---|---|
 | A73 | OAuth consent page under-emphasises the true redirect host relative to the connector's self-reported name | Open |
-| A74 | Refresh-token rotation does not cascade-revoke the sibling access token from the same grant (pre-documented gap) | Fixed on main 2026-09-22 (eac94538); released to production 2026-09-27 (`release-20260927-1844`); retested 2026-09-27 on UAT (the OAuth server is not registered on production), confirmed Fixed live (A112) |
+| A74 | Refresh-token rotation does not cascade-revoke the sibling access token from the same grant (pre-documented gap) | Fixed on main 2026-09-22 (eac94538); in production from `release-20260927-0947` (A112 retested the `release-20260927-1844` build); retested 2026-09-27 on UAT (the OAuth server is not registered on production), confirmed Fixed live (A112) |
 | A79 | Bank narrative text is sent to OpenRouter for categorisation and Penny read tools, unredacted (pre-documented design concern) | Open |
-| A88 | Finexer consent callback accepts a missing `state` parameter (defence-in-depth gap only; no cross-account path exists because binding is fixed at session-gated consent creation) | Fixed on main 2026-09-22 (683078c8); released to production 2026-09-27 (`release-20260927-1844`); retested 2026-09-27, confirmed Fixed by source read (A112) |
-| A89 | Webhook path-secret comparison is not constant-time (no practical timing exploit identified; the secret also functions as a long random URL segment) | Fixed on main 2026-09-22 (f4983f8e); released to production 2026-09-27 (`release-20260927-1844`); retested 2026-09-27, confirmed Fixed by source read (A112) |
-| A92 | Production's proxy chain does not strip a caller-supplied `X-Real-IP`/`X-Forwarded-For` header, so any IP-keyed rate limit on production can be bypassed by rotating the header. Triaged to Medium, down from the board's own initially proposed High: there is no password login to brute-force behind this, and per-user (not IP-keyed) limits on data routes are untouched | Fixed on main 2026-09-22 (d5fbdfe1); released to production 2026-09-27 (`release-20260927-1844`) after its A110 gate (trusted-proxy hop handling, done 2026-09-24); retested 2026-09-27, confirmed Fixed live (A112) |
-| A95 | `GET /logo/{domain}` carries no rate limit at all, not even the general IP catch-all, so an unlimited caller can drive cost through the server-side image proxy | Fixed on main 2026-09-22 (aeadb348); released to production 2026-09-27 (`release-20260927-1844`); retested 2026-09-27, confirmed Fixed by source read (A112) |
+| A88 | Finexer consent callback accepts a missing `state` parameter (defence-in-depth gap only; no cross-account path exists because binding is fixed at session-gated consent creation) | Fixed on main 2026-09-22 (683078c8); in production from `release-20260927-0947` (A112 retested the `release-20260927-1844` build); retested 2026-09-27, confirmed Fixed by source read (A112) |
+| A89 | Webhook path-secret comparison is not constant-time (no practical timing exploit identified; the secret also functions as a long random URL segment) | Fixed on main 2026-09-22 (f4983f8e); in production from `release-20260927-0947` (A112 retested the `release-20260927-1844` build); retested 2026-09-27, confirmed Fixed by source read (A112) |
+| A92 | Production's proxy chain does not strip a caller-supplied `X-Real-IP`/`X-Forwarded-For` header, so any IP-keyed rate limit on production can be bypassed by rotating the header. Triaged to Medium, down from the board's own initially proposed High: there is no password login to brute-force behind this, and per-user (not IP-keyed) limits on data routes are untouched | Fixed on main 2026-09-22 (d5fbdfe1); in production from `release-20260927-0947` (A112 retested the `release-20260927-1844` build) after its A110 gate (trusted-proxy hop handling, done 2026-09-24); retested 2026-09-27, confirmed Fixed live (A112) |
+| A95 | `GET /logo/{domain}` carries no rate limit at all, not even the general IP catch-all, so an unlimited caller can drive cost through the server-side image proxy | Fixed on main 2026-09-22 (aeadb348); in production from `release-20260927-0947` (A112 retested the `release-20260927-1844` build); retested 2026-09-27, confirmed Fixed by source read (A112) |
 | A118 | After logout, the Android session token value is still recoverable on disk (LevelDB append-only storage) | Found in device testing 2026-09-27; server-side logout revocation (sign out everywhere) fixed on `main` 2026-09-29 (`24e79129`, integrate commit) and in production since `release-20261001-2038`; the device re-check of on-disk residue has not been run (the storage root cause is follow-up A123) |
 | A119 | On the Android debug build the WebView is remotely inspectable, and the authenticated DOM plus Capacitor bridge are reachable behind the lock overlay; the deciding follow-up is to verify the signed release APK disables WebView content debugging | Closed 2026-09-28: debug build only. The signed release APK was decompiled and verified not remotely inspectable; closed by static verification, not by a device retest |
 
@@ -215,14 +215,14 @@ device testing, is unrelated to either.
 
 | Item | Finding | Status |
 |---|---|---|
-| A76 | `/design/*` preview routes are publicly indexable (no `robots.txt`/`X-Robots-Tag`) | Fixed on main 2026-09-22 (e7621167); released to production 2026-09-27 (`release-20260927-1844`); retested 2026-09-27, confirmed Fixed live (A112) |
+| A76 | `/design/*` preview routes are publicly indexable (no `robots.txt`/`X-Robots-Tag`) | Fixed on main 2026-09-22 (e7621167); in production from `release-20260927-0947` (A112 retested the `release-20260927-1844` build); retested 2026-09-27, confirmed Fixed live (A112) |
 | A77 | The native-purchase `X-Client-Platform` header check can be bypassed by omitting it (billing is not live; pre-documented) | Open |
-| A80 | No global/service-wide OpenRouter spend ceiling exists, only a per-user monthly allowance | Partially fixed. Fixed on main 2026-09-22 (7bea0094); released to production 2026-09-27 (`release-20260927-1844`); retested 2026-09-27 (A112): the ceiling mechanism is in code, but the environment variable that enables it was unset on both production services that day, so no ceiling was enforced (Kevin's operational decision; not re-checked since) |
+| A80 | No global/service-wide OpenRouter spend ceiling exists, only a per-user monthly allowance | Partially fixed. Fixed on main 2026-09-22 (7bea0094); in production from `release-20260927-0947` (A112 retested the `release-20260927-1844` build); retested 2026-09-27 (A112): the ceiling mechanism is in code, but the environment variable that enables it was unset on both production services that day, so no ceiling was enforced (Kevin's operational decision; not re-checked since) |
 | A81 | The per-user LLM allowance check fails open, not closed, on an internal lookup error (documented, deliberate trade-off) | Open |
-| A85 | `PATCH /preferences` has no optimistic-concurrency check and accepts an unadvertised field (mass assignment) | Fixed on main 2026-09-22 (4b866395); released to production 2026-09-27 (`release-20260927-1844`); retested 2026-09-27, confirmed Fixed live (A112) |
-| A86 | The commitment state machine allows out-of-order transitions and has no create-time idempotency check | Fixed on main 2026-09-22 (1f8a318d); released to production 2026-09-27 (`release-20260927-1844`); retested 2026-09-27, confirmed Fixed live (A112) |
-| A90 | The MCP connector's `initialize` handler never validates or negotiates the client's requested protocol version | Fixed on main 2026-09-22 (141b057c); released to production 2026-09-27 (`release-20260927-1844`); retested 2026-09-27 on UAT, confirmed Fixed live (A112) |
-| A93 | An unhandled NUL byte in a search query parameter crashes one endpoint with a 500 (no data leaked) | Fixed on main 2026-09-22 (4e0093e0); released to production 2026-09-27 (`release-20260927-1844`); retested 2026-09-27, confirmed Fixed live (A112) |
+| A85 | `PATCH /preferences` has no optimistic-concurrency check and accepts an unadvertised field (mass assignment) | Fixed on main 2026-09-22 (4b866395); in production from `release-20260927-0947` (A112 retested the `release-20260927-1844` build); retested 2026-09-27, confirmed Fixed live (A112) |
+| A86 | The commitment state machine allows out-of-order transitions and has no create-time idempotency check | Fixed on main 2026-09-22 (1f8a318d); in production from `release-20260927-0947` (A112 retested the `release-20260927-1844` build); retested 2026-09-27, confirmed Fixed live (A112) |
+| A90 | The MCP connector's `initialize` handler never validates or negotiates the client's requested protocol version | Fixed on main 2026-09-22 (141b057c); in production from `release-20260927-0947` (A112 retested the `release-20260927-1844` build); retested 2026-09-27 on UAT, confirmed Fixed live (A112) |
+| A93 | An unhandled NUL byte in a search query parameter crashes one endpoint with a 500 (no data leaked) | Fixed on main 2026-09-22 (4e0093e0); in production from `release-20260927-0947` (A112 retested the `release-20260927-1844` build); retested 2026-09-27, confirmed Fixed live (A112) |
 | A120 | Push device registration survived logout on both Android (FCM) and iOS (APNs): the unregister call was never made, and no server-side logout route existed to unregister the device token either | Found in device testing 2026-09-27; fixed on `main` 2026-09-29 (`44311669`, integrate commit); in production since `release-20261001-2038`; retested on device 2026-10-04 (`A60-2026-10-04`): after sign out everywhere, test pushes no longer arrive on either phone (Pass); the resume-after-sign-in half passed on re-run, after one earlier Android Fail tracked as follow-up A138 (open, intermittent) |
 | A122 | The app-switcher/recents snapshot showed live financial figures even with the biometric lock enabled, confirmed on both iOS and Android | Found in device testing 2026-09-27; fixed on `main` 2026-09-29 (`bdbda0af`, integrate commit); in production since `release-20261001-2038`; retested on device 2026-10-04 (`A60-2026-10-04`): the app-switcher card is covered on both phones and a screenshot is blocked on Android while the lock is on (Pass) |
 
@@ -264,8 +264,8 @@ production with the on-device re-check outstanding; A119 is closed (debug
 build only); and five (A73, A77, A79, A81, A94) remain open.
 
 **Production status as of 2026-10-04.** Every fix listed above is in
-production: the first-round fixes since 2026-09-27 (`release-20260927-0947`
-and `release-20260927-1844`) and the device-round fixes (A118, A120, A121,
+production: the first-round fixes since 2026-09-27 (`release-20260927-0947`;
+A112 retested the `release-20260927-1844` build) and the device-round fixes (A118, A120, A121,
 A122, plus follow-up A123, which moves the native session token into
 platform secure storage) since `release-20261001-2038`. The A112 retest of
 the fifteen first-round fixes and the 2026-10-04 on-device retest of A120,

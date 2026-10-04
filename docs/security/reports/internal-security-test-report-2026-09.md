@@ -43,8 +43,9 @@ five are now in production.
   (`docs/security/pentest-runs/A60-2026-10-04/`): Pass.
 
 The eleven first-round Medium and Low fixes (A74, A76, A80, A85, A86, A88,
-A89, A90, A92, A93, A95) shipped to production on 2026-09-27
-(`release-20260927-1844`) and were retested by A112: ten were confirmed
+A89, A90, A92, A93, A95) in production from
+`release-20260927-0947` (2026-09-27) and were retested by A112 on the
+`release-20260927-1844` build: ten were confirmed
 Fixed (A74 and A90 on UAT, since the connector is not registered on
 production), and A80 was recorded Partially fixed, because the environment
 variable that enables its spend ceiling was unset on both production
@@ -466,12 +467,12 @@ while the lock is on (Pass). Status: remediated and retested.
 | Id | Title | Status | Fix commit | Production status | Retest status |
 |---|---|---|---|---|---|
 | A73 | OAuth consent page under-emphasises the true redirect host relative to the connector's self-reported name | Open | none | N/A | Pending |
-| A74 | Refresh-token rotation does not cascade-revoke the sibling access token from the same grant | Fixed | `eac94538` | Deployed 2026-09-27 (`release-20260927-1844`) | Confirmed Fixed live 2026-09-27 (A112), on UAT since the OAuth server is not registered on production |
+| A74 | Refresh-token rotation does not cascade-revoke the sibling access token from the same grant | Fixed | `eac94538` | In production from `release-20260927-0947` | Confirmed Fixed live 2026-09-27 (A112), on UAT since the OAuth server is not registered on production |
 | A79 | Bank narrative text sent to OpenRouter for categorisation and Penny read tools, unredacted | Open | none | N/A | Pending |
-| A88 | Finexer consent callback accepted a missing `state` parameter | Fixed | `683078c8` | Deployed 2026-09-27 (`release-20260927-1844`) | Confirmed Fixed 2026-09-27 (A112), by source read; the live differential could not be exercised without touching a real consent |
-| A89 | Webhook path-secret comparison was not constant-time | Fixed | `f4983f8e` | Deployed 2026-09-27 (`release-20260927-1844`) | Confirmed Fixed 2026-09-27 (A112), by source read, with live behaviour unchanged as expected |
-| A92 | Production's proxy chain did not strip a caller-supplied `X-Real-IP`/`X-Forwarded-For` header, so IP-keyed rate limits were bypassable | Fixed | `d5fbdfe1` | Deployed 2026-09-27 (`release-20260927-1844`), after its gate A110 cleared | Confirmed Fixed live 2026-09-27 (A112), 3 requests |
-| A95 | `GET /logo/{domain}` carried no rate limit at all | Fixed | `aeadb348` | Deployed 2026-09-27 (`release-20260927-1844`) | Confirmed Fixed 2026-09-27 (A112), by source read; the bounded live burst stayed under the configured limit |
+| A88 | Finexer consent callback accepted a missing `state` parameter | Fixed | `683078c8` | In production from `release-20260927-0947` | Confirmed Fixed 2026-09-27 (A112), by source read; the live differential could not be exercised without touching a real consent |
+| A89 | Webhook path-secret comparison was not constant-time | Fixed | `f4983f8e` | In production from `release-20260927-0947` | Confirmed Fixed 2026-09-27 (A112), by source read, with live behaviour unchanged as expected |
+| A92 | Production's proxy chain did not strip a caller-supplied `X-Real-IP`/`X-Forwarded-For` header, so IP-keyed rate limits were bypassable | Fixed | `d5fbdfe1` | In production from `release-20260927-0947`, after its gate A110 cleared | Confirmed Fixed live 2026-09-27 (A112), 3 requests |
+| A95 | `GET /logo/{domain}` carried no rate limit at all | Fixed | `aeadb348` | In production from `release-20260927-0947` | Confirmed Fixed 2026-09-27 (A112), by source read; the bounded live burst stayed under the configured limit |
 | A118 | After logout, the Android session token value is still recoverable on disk (LevelDB append-only storage), and no server-side logout existed, so a recovered token stayed valid for its full 7-day expiry | Remediated in part: server-side logout revocation (sign out everywhere), integrated 2026-09-29 | `24e79129` (integrate commit) | In production (first shipped in `release-20261001-2038`) | Server-side revocation in production. The device re-check of on-disk residue (`AND-02`) has not been run; the underlying storage root cause is addressed by follow-up A123 |
 | A119 | On the Android debug build the WebView is remotely inspectable, and the authenticated DOM plus Capacitor bridge are reachable behind the lock overlay | Closed 2026-09-28: debug build only | none (no code change) | N/A, debug build only | The signed release APK (SHA-256 `554d083b3de1228a60a1a072a4937dfedf8adc6ffa23701dcbe14dee7107455e`) was decompiled and verified not remotely inspectable; closed by static verification, not by a device retest |
 
@@ -479,14 +480,14 @@ while the lock is on (Pass). Status: remediated and retested.
 
 | Id | Title | Status | Fix commit | Production status | Retest status |
 |---|---|---|---|---|---|
-| A76 | `/design/*` preview routes were publicly indexable, no `robots.txt`/`X-Robots-Tag` | Fixed | `e7621167` | Deployed 2026-09-27 (`release-20260927-1844`) | Confirmed Fixed live 2026-09-27 (A112) |
+| A76 | `/design/*` preview routes were publicly indexable, no `robots.txt`/`X-Robots-Tag` | Fixed | `e7621167` | In production from `release-20260927-0947` | Confirmed Fixed live 2026-09-27 (A112) |
 | A77 | Native-purchase `X-Client-Platform` header check can be bypassed by omitting it (billing not live) | Open | none | N/A | Pending |
-| A80 | No global/service-wide OpenRouter spend ceiling, only a per-user monthly allowance | Partially fixed | `7bea0094` | Deployed 2026-09-27 (`release-20260927-1844`) | Partially fixed (A112, 2026-09-27): the ceiling mechanism is in code, but the environment variable that enables it was unset on both production services that day, so no ceiling was enforced. Enabling it is Kevin's operational decision; its current state was not re-checked for this report |
+| A80 | No global/service-wide OpenRouter spend ceiling, only a per-user monthly allowance | Partially fixed | `7bea0094` | In production from `release-20260927-0947` | Partially fixed (A112, 2026-09-27): the ceiling mechanism is in code, but the environment variable that enables it was unset on both production services that day, so no ceiling was enforced. Enabling it is Kevin's operational decision; its current state was not re-checked for this report |
 | A81 | Per-user LLM allowance check fails open, not closed, on an internal lookup error (documented, deliberate trade-off) | Open | none | N/A | Pending |
-| A85 | `PATCH /preferences` had no optimistic-concurrency check and accepted an unadvertised field (mass assignment) | Fixed | `4b866395` | Deployed 2026-09-27 (`release-20260927-1844`) | Confirmed Fixed live 2026-09-27 (A112) |
-| A86 | Commitment state machine allowed out-of-order transitions, no create-time idempotency check | Fixed | `1f8a318d` | Deployed 2026-09-27 (`release-20260927-1844`) | Confirmed Fixed live 2026-09-27 (A112) |
-| A90 | MCP `initialize` handler never validated or negotiated the client's requested protocol version | Fixed | `141b057c` | Deployed 2026-09-27 (`release-20260927-1844`) | Confirmed Fixed live 2026-09-27 (A112), on UAT |
-| A93 | Unhandled NUL byte in a search query parameter crashed one endpoint with a 500 (no data leaked) | Fixed | `4e0093e0` | Deployed 2026-09-27 (`release-20260927-1844`) | Confirmed Fixed live 2026-09-27 (A112) |
+| A85 | `PATCH /preferences` had no optimistic-concurrency check and accepted an unadvertised field (mass assignment) | Fixed | `4b866395` | In production from `release-20260927-0947` | Confirmed Fixed live 2026-09-27 (A112) |
+| A86 | Commitment state machine allowed out-of-order transitions, no create-time idempotency check | Fixed | `1f8a318d` | In production from `release-20260927-0947` | Confirmed Fixed live 2026-09-27 (A112) |
+| A90 | MCP `initialize` handler never validated or negotiated the client's requested protocol version | Fixed | `141b057c` | In production from `release-20260927-0947` | Confirmed Fixed live 2026-09-27 (A112), on UAT |
+| A93 | Unhandled NUL byte in a search query parameter crashed one endpoint with a 500 (no data leaked) | Fixed | `4e0093e0` | In production from `release-20260927-0947` | Confirmed Fixed live 2026-09-27 (A112) |
 | A120 | Push device registration survived logout on both Android (FCM) and iOS (APNs) | Remediated: sign out everywhere drops every push registration server-side, integrated 2026-09-29 | `44311669` (integrate commit) | In production (first shipped in `release-20261001-2038`) | Retested on device 2026-10-04 (`A60-2026-10-04`): logout half Pass on both phones; resume-after-sign-in half Pass on re-run, after one earlier Android Fail tracked as follow-up A138 |
 | A122 | The app-switcher/recents snapshot showed live financial figures even with the biometric lock enabled, on both iOS and Android | Remediated: privacy cover while backgrounded, integrated 2026-09-29 | `bdbda0af` (integrate commit) | In production (first shipped in `release-20261001-2038`) | Retested on device 2026-10-04 (`A60-2026-10-04`): Pass on both phones; screenshot also blocked on Android while the lock is on |
 
@@ -603,7 +604,8 @@ on 2026-10-04 (`A60-2026-10-04`).
    A92's rate-limit fix safely to production.
 2. **Production release** of the four original High findings
    (`release-20260927-0947`, 2026-09-27) and of the eleven first-round
-   Medium and Low fixes (`release-20260927-1844`, 2026-09-27).
+   Medium and Low fixes, which are ancestors of the same tag (A112 retested
+   the later `release-20260927-1844` build).
 3. **Retest** of those fifteen fixes ran the same day (board item A112,
    `docs/security/pentest-runs/A112-2026-09-27/`). The destructive
    `API-15` step (A82, A83's disconnect-before-delete half, A84) was
