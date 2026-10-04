@@ -95,16 +95,89 @@ function check(label, cond) {
   check("reduced motion: no fade", swipeOpacity(100, 300, true) === 1 && swipeOpacity(100, 300, false) < 1);
 }
 
+// Behavioural: drive the real controller with a stub element.
+import { createSwipeController } from "../lib/swipeController.ts";
+function rig(options = {}) {
+  const el = { style: { transform: "", opacity: "", transition: "" }, offsetWidth: 300, offsetHeight: 200, setPointerCapture() { el.captured = true; } };
+  let t = 0;
+  let dismissed = 0;
+  const c = createSwipeController({ getEl: () => el, onDismiss: () => { dismissed += 1; }, options, now: () => t });
+  const ev = (id, x, y, extra = {}) => ({ pointerId: id, pointerType: "touch", button: 0, buttons: 1, clientX: x, clientY: y, target: el, currentTarget: el, ...extra });
+  return { el, c, ev, tick: (n) => { t += n; }, get dismissed() { return dismissed; } };
+}
+{
+  const r = rig();
+  r.c.onPointerDown(r.ev(1, 300, 100)); r.c.onPointerMove(r.ev(1, 260, 100)); r.c.onPointerMove(r.ev(1, 200, 100));
+  check("controller: drag sets transform", r.el.style.transform === "translateX(-100px)" && r.el.captured === true);
+  r.c.onPointerCancel(r.ev(1, 0, 0));
+  check("controller: cancel mid-drag resets transform and opacity", r.el.style.transform === "" && r.el.style.opacity === "");
+  r.c.onPointerDown(r.ev(1, 300, 100)); r.c.onPointerMove(r.ev(1, 250, 100)); r.c.onLostPointerCapture(r.ev(1, 250, 100));
+  check("controller: lostpointercapture on the card resets", r.el.style.transform === "");
+  r.c.onPointerDown(r.ev(1, 300, 100)); r.c.onPointerMove(r.ev(1, 250, 100));
+  r.c.onLostPointerCapture(r.ev(1, 250, 100, { target: {} }));
+  check("controller: bubbled child lostpointercapture is ignored", r.el.style.transform === "translateX(-50px)");
+  r.c.onPointerCancel(r.ev(1, 0, 0));
+}
+{
+  const r = rig();
+  r.c.onPointerDown(r.ev(1, 300, 100)); r.c.onPointerMove(r.ev(1, 250, 100));
+  r.c.onPointerDown(r.ev(2, 50, 50)); r.c.onPointerMove(r.ev(2, 40, 400)); r.c.onPointerUp(r.ev(2, 40, 400));
+  check("controller: second pointer ignored, drag untouched", r.el.style.transform === "translateX(-50px)");
+  r.c.onPointerMove(r.ev(1, 200, 100));
+  check("controller: first pointer still drags", r.el.style.transform === "translateX(-100px)");
+  r.c.onPointerCancel(r.ev(1, 0, 0));
+}
+{
+  const r = rig();
+  r.el.style.transform = "translateX(-30px)"; // stray residue, gesture never locked
+  r.c.onPointerDown(r.ev(1, 300, 100)); r.c.onPointerUp(r.ev(1, 300, 100));
+  check("controller: pointerup with action none resets a present transform", r.el.style.transform === "");
+}
+{
+  const r = rig({ canStart: () => false });
+  r.c.onPointerDown(r.ev(1, 300, 100)); r.c.onPointerMove(r.ev(1, 200, 100));
+  check("controller: canStart false never starts", r.el.style.transform === "" && !r.el.captured);
+  const g = rig({ canStart: (e) => e.clientY < 150 });
+  g.c.onPointerDown(g.ev(1, 300, 100)); g.c.onPointerMove(g.ev(1, 200, 100));
+  check("controller: canStart true starts", g.el.style.transform === "translateX(-100px)");
+}
+{
+  const r = rig();
+  r.c.onPointerDown(r.ev(1, 300, 100, { pointerType: "mouse" })); r.c.onPointerMove(r.ev(1, 250, 100, { pointerType: "mouse" }));
+  r.c.onPointerMove(r.ev(1, 200, 100, { pointerType: "mouse", buttons: 0 }));
+  check("controller: mouse move with buttons 0 cancels and resets", r.el.style.transform === "");
+}
+{
+  // pointerdown during spring-back snaps to rest and the old timer cannot fire mid-drag.
+  const r = rig();
+  r.c.onPointerDown(r.ev(1, 300, 100)); r.c.onPointerMove(r.ev(1, 270, 100)); r.tick(2000); r.c.onPointerUp(r.ev(1, 270, 100));
+  check("controller: spring-back animates", r.el.style.transform === "translateX(0px)");
+  r.c.onPointerDown(r.ev(1, 300, 100));
+  check("controller: pointerdown during spring-back snaps to rest", r.el.style.transform === "" && r.el.style.transition === "");
+  r.c.onPointerMove(r.ev(1, 250, 100));
+  await new Promise((res) => setTimeout(res, 320));
+  check("controller: stale spring-back timer does not clobber the next drag", r.el.style.transform === "translateX(-50px)");
+  r.c.onPointerCancel(r.ev(1, 0, 0));
+  r.c.dispose();
+}
+{
+  const r = rig();
+  r.c.onPointerDown(r.ev(1, 300, 100)); r.c.onPointerMove(r.ev(1, 250, 100)); r.tick(100); r.c.onPointerMove(r.ev(1, 50, 100)); r.c.onPointerUp(r.ev(1, 50, 100));
+  await new Promise((res) => setTimeout(res, 260));
+  check("controller: dismiss fires onDismiss once", r.dismissed === 1);
+  r.c.dispose();
+}
+
 // Source assertions.
 const spot = readFileSync(new URL("../components/HomeInsightSpotlight.tsx", import.meta.url), "utf8");
 check("HomeInsightSpotlight sets touch-action pan-y", /touchAction:\s*"pan-y"|touch-pan-y/.test(spot));
 check("HomeInsightSpotlight uses shared swipe hook", spot.includes("useSwipeDismiss"));
 check("HomeInsightSpotlight has no raw setPointerCapture or style.transform", !/setPointerCapture|style\.transform/.test(spot));
-const hook = readFileSync(new URL("../lib/useSwipeDismiss.ts", import.meta.url), "utf8");
+const hook = readFileSync(new URL("../lib/swipeController.ts", import.meta.url), "utf8") + readFileSync(new URL("../lib/useSwipeDismiss.ts", import.meta.url), "utf8");
 check("hook handles pointercancel", /onPointerCancel/.test(hook));
 check("hook handles lostpointercapture", /onLostPointerCapture/.test(hook));
 check("hook ignores bubbled implicit-capture loss (target !== currentTarget)", /e\.target !== e\.currentTarget/.test(hook));
-check("hook captures only on confirmed lock", /m\.capture/.test(hook) && !/onPointerDown[\s\S]{0,300}setPointerCapture/.test(hook));
+check("hook captures only on confirmed lock", /m\.capture/.test(hook) && !/onPointerDown\([\s\S]{0,600}?setPointerCapture/.test(hook.split("onPointerMove")[0]));
 check("hook honours prefers-reduced-motion", /prefers-reduced-motion/.test(hook));
 for (const f of ["SwipeToDelete.tsx", "upcoming/SwipeDismissRow.tsx"]) {
   const src = readFileSync(new URL(`../components/${f}`, import.meta.url), "utf8");
