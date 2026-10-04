@@ -14,6 +14,11 @@
 // there). Everything else that imports isAppLocked/subscribeAppLock should
 // treat this as read-only.
 //
+// A140: runWhenUnlocked is a reader plus a deferral, not a writer. Start-up
+// work that the gate would refuse (push token upload, push resync) is held
+// until the lock clears and then run once. It never bypasses the gate: the
+// deferred function issues its requests only after setAppLocked(false).
+//
 // On web, or with the biometric-lock preference off, BiometricLock never
 // calls setAppLocked(true) at all — nativePlatform() && isLockEnabled() gates
 // every call site that sets it true, exactly like it already gates the
@@ -41,4 +46,27 @@ export function subscribeAppLock(fn: () => void): () => void {
 /** useSyncExternalStore-compatible snapshot getter (same value as isAppLocked). */
 export function getAppLockSnapshot(): boolean {
   return locked;
+}
+
+/**
+ * A140: run `fn` now if the app is unlocked, otherwise once, the next time the
+ * lock clears. Returns a cancel function (a no-op if `fn` already ran). Pure,
+ * no DOM: it only reads the lock signal and subscribes to it.
+ */
+export function runWhenUnlocked(fn: () => void): () => void {
+  if (!locked) {
+    fn();
+    return () => {};
+  }
+  let done = false;
+  const unsubscribe = subscribeAppLock(() => {
+    if (done || locked) return;
+    done = true;
+    unsubscribe();
+    fn();
+  });
+  return () => {
+    done = true;
+    unsubscribe();
+  };
 }

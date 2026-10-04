@@ -55,6 +55,7 @@
     "check:purchase-availability-ssr": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/purchase-availability-ssr.test.mjs",
     "check:coming-up-dates": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/coming-up-dates.test.mjs",
     "check:app-lock": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/app-lock.test.mjs",
+    "check:push-token-post": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/push-token-post.test.mjs",
     "check:app-lock-inert": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/app-lock-inert.test.mjs",
     "check:lock-screen-view": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/lock-screen-view.test.mjs",
     "check:app-lock-gate": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/app-lock-gate.test.mjs",
