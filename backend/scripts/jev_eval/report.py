@@ -185,7 +185,11 @@ def build_report(dataset_rows: list[dict], jev_records: list[dict] | None, haiku
         parts.append(f"Dataset: {len(dataset_rows)} rows ({gold_n} gold / {silver_n} silver), {vetoed_n} engine-vetoed-recurring.")
         parts.append("")
 
-    parts.append(render_section("Jev (jev-1.13)", jev_records))
+    used = sorted({r.get("model_used") for r in (jev_records or []) if r.get("model_used")})
+    if used:
+        parts.append("Jev versioned model id(s) reported by the API: " + ", ".join(used))
+        parts.append("")
+    parts.append(render_section("Jev (jev-latest)", jev_records))
     parts.append("")
     parts.append(render_section("Haiku baseline (anthropic/claude-haiku-4-5)", haiku_records))
     parts.append("")

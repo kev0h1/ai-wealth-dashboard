@@ -151,7 +151,8 @@ def test_dry_run_request_body_matches_documented_choice_contract():
     body = build_request_body(row, kind_map, None)
 
     assert isinstance(body["state"], str) and body["state"]
-    assert body["model"] == "jev-1.13"
+    assert body["model"] == "jev-latest"
+    assert build_request_body(row, kind_map, None, model="jev-1.13.0")["model"] == "jev-1.13.0"
     assert set(body["questions"].keys()) == {"category"}
 
     q = body["questions"]["category"]
@@ -267,6 +268,6 @@ def test_haiku_cost_per_1000_from_recorded_cost_usd():
 
 def test_report_works_when_only_one_result_file_exists():
     text = report.build_report(dataset_rows=[], jev_records=[{"label": "A", "choice": "A", "label_source": "user"}], haiku_records=None)
-    assert "Jev (jev-1.13)" in text
+    assert "Jev (jev-latest)" in text
     assert "No results file yet" in text
     assert "Haiku baseline" in text

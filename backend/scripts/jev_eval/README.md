@@ -1,7 +1,7 @@
 # G178: TypeSafe Jev vs Haiku, tier-2 categorisation judge eval
 
 Evaluates TypeSafe Jev's "System One" Choice primitive
-(`POST https://api.typesafe.ai/v1/systemone`, model `jev-1.13`) as a
+(`POST https://api.typesafe.ai/v1/systemone`, model alias `jev-latest`, overridable with `--model`, e.g. `jev-1.13.0`; the versioned id the API reports is recorded per row as `model_used`) as a
 candidate replacement for the existing Haiku-tier categorisation judge
 (ENGINE.md's ladder tier 2 -- `llm_name_check` / `categorise_others_bg` in
 `app.services.categorisation`, `anthropic/claude-haiku-4-5`).

@@ -32,7 +32,7 @@ from scripts.jev_eval.common import (
 from scripts.jev_eval import options
 
 JEV_URL = "https://api.typesafe.ai/v1/systemone"
-JEV_MODEL = "jev-1.13"
+JEV_MODEL = "jev-latest"  # alias; valid ids: jev-1.13.0, jev-latest, jev-preview
 MAX_ATTEMPTS = 5
 INITIAL_BACKOFF_S = 1.0
 MAX_BACKOFF_S = 30.0
@@ -49,12 +49,12 @@ def _instructions_text() -> str:
     )
 
 
-def build_request_body(row: dict, kind_map: dict, user_examples: dict | None) -> dict:
+def build_request_body(row: dict, kind_map: dict, user_examples: dict | None, model: str = JEV_MODEL) -> dict:
     criteria = options.build_criteria(kind_map, scope=row["scope"], user_examples=user_examples)
     state = build_state_text(row["merchant_key"], row["examples"])
     return {
         "state": state,
-        "model": JEV_MODEL,
+        "model": model,
         "questions": {
             "category": {
                 "type": "choice",
@@ -125,6 +125,7 @@ def _record_from_response(row: dict, resp: httpx.Response | None, latency_ms: in
         "confidence": None,
         "probabilities": None,
         "usage": None,
+        "model_used": None,
         "error": error,
     }
     if resp is None:
@@ -139,12 +140,13 @@ def _record_from_response(row: dict, resp: httpx.Response | None, latency_ms: in
         rec["confidence"] = answer.get("confidence")
         rec["probabilities"] = answer.get("probabilities")
         rec["usage"] = data.get("usage")
+        rec["model_used"] = data.get("model") or (data.get("usage") or {}).get("model")
     except Exception as exc:  # malformed 200 body
         rec["error"] = f"unparseable response: {type(exc).__name__}: {exc}"
     return rec
 
 
-async def _dry_run(rows: list[dict]) -> None:
+async def _dry_run(rows: list[dict], model: str = JEV_MODEL) -> None:
     from app.services.categories import BUILTIN_CATEGORY_KINDS, get_category_kinds
     from scripts.jev_eval.mongo_helpers import build_uid_hash_lookup, fetch_user_examples
 
@@ -152,13 +154,13 @@ async def _dry_run(rows: list[dict]) -> None:
     kind_cache: dict = {}
     for i, row in enumerate(rows[:3], 1):
         kind_map, user_examples = await _kind_map_and_examples_for(row, uid_lookup, kind_cache)
-        body = build_request_body(row, kind_map, user_examples)
+        body = build_request_body(row, kind_map, user_examples, model)
         print(f"--- dry-run request body {i}/3 (row_id={make_row_id(row['scope'], row['uid_hash'], row['merchant_key'])}) ---")
         print(json.dumps(body, indent=2, default=str))
         print()
 
 
-async def _live_run(rows: list[dict], limit: int | None) -> None:
+async def _live_run(rows: list[dict], limit: int | None, model: str = JEV_MODEL) -> None:
     import os
     from app.services.categories import get_category_kinds
     from scripts.jev_eval.mongo_helpers import build_uid_hash_lookup
@@ -187,7 +189,7 @@ async def _live_run(rows: list[dict], limit: int | None) -> None:
     async with httpx.AsyncClient(timeout=30) as client:
         for n, row in enumerate(todo, 1):
             kind_map, user_examples = await _kind_map_and_examples_for(row, uid_lookup, kind_cache)
-            body = build_request_body(row, kind_map, user_examples)
+            body = build_request_body(row, kind_map, user_examples, model)
             resp, latency_ms, error = await _post_with_retry(client, headers, body)
             rec = _record_from_response(row, resp, latency_ms, error)
             append_jsonl(JEV_RESULTS_PATH, rec)
@@ -204,11 +206,16 @@ def main() -> None:
         print_err(f"{DATASET_PATH} is empty or missing -- run `python -m scripts.jev_eval.dataset` first.")
         sys.exit(1)
 
+    model = JEV_MODEL
+    rest = args["rest"]
+    if "--model" in rest:
+        model = rest[rest.index("--model") + 1]
+
     if args["dry_run"]:
-        asyncio.run(_dry_run(rows))
+        asyncio.run(_dry_run(rows, model))
         return
 
-    asyncio.run(_live_run(rows, args["limit"]))
+    asyncio.run(_live_run(rows, args["limit"], model))
 
 
 if __name__ == "__main__":
