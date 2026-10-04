@@ -1993,7 +1993,10 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth =
     }
 
     let fallbackText: string;
-    if (!safeToSpend || safeToSpend.status === "insufficient_data") {
+    if (safeToSpend && safeToSpend.status === "ok" && safeToSpend.calculation_status === "syncing") {
+      // G210: no verdict while a first sync runs, so no headroom claim.
+      fallbackText = "Your first sync is still running. I will have a read on your money once it lands.";
+    } else if (!safeToSpend || safeToSpend.status === "insufficient_data") {
       fallbackText = "Your Safe to Spend figure isn't ready yet. I'm still mapping the bills, so check back later.";
     } else if (safeToSpend.state === "tight" && safeToSpend.days_until_payday <= 3) {
       fallbackText = "Nothing needs you today. Your pay period ends in a couple of days. The first week's bills are already mapped, so just cruise.";

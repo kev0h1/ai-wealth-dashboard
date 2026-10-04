@@ -50,4 +50,12 @@ assert.ok(iSync > 0 && iDegraded > 0 && iSync < iDegraded, "syncing branch prece
 const block = sts.slice(iSync, iDegraded);
 assert.doesNotMatch(block, /role="alert"/);
 assert.match(block, /aria-busy="true"/);
+
+const brief = readFileSync(new URL("../components/HomeBrief.tsx", import.meta.url), "utf8");
+const iBriefSync = brief.indexOf('safeToSpend.calculation_status === "syncing"');
+const iHeadroom = brief.indexOf("You've got headroom");
+assert.ok(iBriefSync > 0 && iHeadroom > iBriefSync, "HomeBrief handles syncing before the headroom fallback");
+assert.match(brief.slice(iBriefSync, iBriefSync + 300), /first sync is still running/);
+const views = readFileSync(new URL("../lib/pennyScreenViews.ts", import.meta.url), "utf8");
+assert.match(views, /calculation_status === "syncing"/, "Penny view builder guards syncing");
 console.log("first-sync-card: ok");
