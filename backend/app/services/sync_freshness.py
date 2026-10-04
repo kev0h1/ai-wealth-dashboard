@@ -76,6 +76,11 @@ async def first_sync_state(uid: str, now: Optional[datetime] = None) -> dict:
             if provider == "truelayer" and not doc.get("access_token"):
                 continue
             if err:
+                # The failure retires 24h after the LAST error (the user may
+                # have connected a different bank instead).
+                err_at = as_utc(doc.get("last_sync_error_at")) or started
+                if err_at is not None and now - err_at > FIRST_SYNC_ABANDON_AFTER:
+                    continue
                 sub = "failed"
             elif started is not None and now - started > FIRST_SYNC_ABANDON_AFTER:
                 continue

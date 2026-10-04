@@ -5133,7 +5133,7 @@ async def compute_safe_to_spend(uid: str) -> dict:
     # perf regression. It's attached to the result in get_safe_to_spend
     # below instead, so only the cached GET /safe-to-spend response pays
     # for it, once per 90s per user.
-    return {
+    _out = {
         "status":              "ok",
         "calculation_version": SAFE_TO_SPEND_CALCULATION_VERSION,
         "calculation_status":  (
@@ -5182,6 +5182,15 @@ async def compute_safe_to_spend(uid: str) -> dict:
         "allocations_count":   allocations_count,
         "last_synced":         _sync_ts.isoformat() if _sync_ts else None,
     }
+    if _syncing:
+        # Direct callers (history snapshot, Penny chips, Can I, planned) all
+        # treat a non-"ok" status as "no verdict", so a clamped syncing payload
+        # never reads as a real £0 "short". build_safe_to_spend_response turns
+        # it back into "ok" for the client, which renders the syncing state.
+        _out["status"] = "insufficient_data"
+        _out["state"] = "syncing"
+        _out["short_reason"] = None
+    return _out
 
 
 async def get_cached_safe_to_spend(uid: str) -> dict:
@@ -5229,6 +5238,9 @@ async def build_safe_to_spend_response(uid: str, include_series: bool = False) -
     aputs the result itself, so the two call sites can never drift on what
     this endpoint's shape actually is."""
     result = await compute_safe_to_spend(uid)
+    if result.get("calculation_status") == "syncing":
+        # G210: the client renders this as the syncing card; no pace either.
+        return {**result, "status": "ok"}
     if result.get("status") == "ok":
         try:
             from app.services.pace import compute_pace

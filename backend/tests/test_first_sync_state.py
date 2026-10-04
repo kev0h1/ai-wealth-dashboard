@@ -89,6 +89,19 @@ def test_error_is_failed_and_wins(monkeypatch):
     assert {c["connection_id"]: c["error"] for c in out["connections"]}["c2"] == "boom"
 
 
+def test_errored_connection_retires_after_24h(monkeypatch):
+    _patch(monkeypatch, fin=[{
+        "_id": "c1", "authed_at": _naive_ago(days=3),
+        "last_sync_error": "boom", "last_sync_error_at": _naive_ago(hours=25),
+    }])
+    assert _state()["state"] == "idle"
+    _patch(monkeypatch, fin=[{
+        "_id": "c1", "authed_at": _naive_ago(days=3),
+        "last_sync_error": "boom", "last_sync_error_at": _naive_ago(hours=1),
+    }])
+    assert _state()["state"] == "failed"
+
+
 def test_synced_or_abandoned_is_idle(monkeypatch):
     _patch(monkeypatch, fin=[
         {"_id": "c1", "authed_at": _naive_ago(minutes=30), "last_synced": _naive_ago(minutes=5)},
@@ -212,3 +225,85 @@ def test_safe_to_spend_not_syncing(monkeypatch, state):
     r = asyncio.run(analytics.compute_safe_to_spend(UID))
     assert r["calculation_status"] == "complete"
     assert r["sync_state"] == state
+
+
+def test_syncing_payload_is_not_a_verdict_for_direct_callers(monkeypatch):
+    _stub_sts(monkeypatch, "syncing")
+    r = asyncio.run(analytics.compute_safe_to_spend(UID))
+    assert r["status"] == "insufficient_data"
+    assert r["state"] == "syncing"
+    # The client-facing builder turns it back into an ok syncing payload.
+    c = asyncio.run(analytics.build_safe_to_spend_response(UID))
+    assert c["status"] == "ok" and c["calculation_status"] == "syncing"
+
+
+def test_history_snapshot_skips_syncing_user(monkeypatch):
+    import app.services.safe_to_spend_history as hist
+    _stub_sts(monkeypatch, "syncing")
+    writes = []
+
+    class _Hist:
+        async def update_one(self, *a, **k):
+            writes.append(a)
+
+    monkeypatch.setattr(hist, "cashflow_cache_col", _One({"_id": UID}))
+
+    async def distinct(_f):
+        return [UID]
+
+    monkeypatch.setattr(hist.cashflow_cache_col, "distinct", distinct, raising=False)
+    monkeypatch.setattr(hist, "safe_to_spend_history_col", _Hist())
+    out = asyncio.run(hist.run_safe_to_spend_snapshot())
+    assert writes == [] and out["skipped"] == 1 and out["written"] == 0
+
+
+def test_get_safe_to_spend_never_caches_syncing(monkeypatch):
+    puts = []
+
+    async def aget(*a, **k):
+        return None
+
+    async def snapshot(_u):
+        return 1
+
+    async def aput(*a, **k):
+        puts.append(a)
+
+    async def adrop(*a, **k):
+        puts.append(("drop",) + a)
+
+    async def build(uid, include_series=False):
+        return {"status": "ok", "calculation_status": "syncing"}
+
+    monkeypatch.setattr(analytics.response_cache, "aget", aget)
+    monkeypatch.setattr(analytics.response_cache, "snapshot", snapshot)
+    monkeypatch.setattr(analytics.response_cache, "aput", aput)
+    monkeypatch.setattr(analytics.response_cache, "adrop", adrop)
+    monkeypatch.setattr(analytics, "build_safe_to_spend_response", build)
+    out = asyncio.run(analytics.get_safe_to_spend(include="", user={"email": UID}))
+    assert out["calculation_status"] == "syncing" and puts == []
+
+
+def test_warmup_skips_caching_syncing(monkeypatch):
+    import app.services.warmup as warmup
+    puts = []
+
+    async def aput(name, uid, payload, version=None):
+        puts.append(name)
+
+    async def bump(_u):
+        return 1
+
+    async def syncing(_uid):
+        return {"status": "ok", "calculation_status": "syncing"}
+
+    async def other(_uid):
+        return {"status": "ok"}
+
+    monkeypatch.setattr(warmup.response_cache, "aput", aput)
+    monkeypatch.setattr(warmup.data_version, "bump", bump)
+    monkeypatch.setattr(warmup, "_compute_safe_to_spend", syncing)
+    for n in ("_compute_today", "_compute_spend_verdict", "_compute_miscategorised_count", "_compute_grow", "_compute_commitments"):
+        monkeypatch.setattr(warmup, n, other)
+    asyncio.run(warmup._warm_user_impl(UID))
+    assert "today" in puts and "safe_to_spend" not in puts
