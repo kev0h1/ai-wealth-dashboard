@@ -58,8 +58,7 @@ Dependency audits are re-run before each production release.
 ## 3a. Remediation SLA (A26, 2026-09)
 
 These targets apply to a confirmed vulnerability or control failure found by
-internal review, a dependency/container scan, or an external tester
-(including the CREST engagement A7 is booking) — distinct from the incident
+internal review or a dependency/container scan, distinct from the incident
 *response* timings in §4, which govern an active incident already under
 way. A finding here may or may not also be an incident; if it is, both
 apply (§4's containment/notification clock starts immediately regardless of
@@ -93,15 +92,14 @@ Q11 can also cite.
 
 **What this was.** AURIQ LTD performed an internal security assessment of
 Sorted, executed by this project's own AI agents (Claude and Codex working
-sessions), under a signed rules-of-engagement record
-(`docs/security/pentest-runs/roe-record.md`, authorised by Kevin,
-2026-09-20). Test identities are referred to only by pseudonym (PT-A, PT-B,
-PT-C); real identifiers live only in a gitignored, non-committed file. This
-was internal testing and was not an independent third-party or CREST
-engagement. The separate, future external engagement (board item A7, a
-CREST-accredited penetration test) remains open and is booked ahead of
-public launch; this round is its internal precursor, not a substitute for
-it.
+sessions) and, for the device packages and the 2026-10-04 retest, by Kevin
+on his own phones guided by a Claude session, under a signed
+rules-of-engagement record (`docs/security/pentest-runs/roe-record.md`,
+authorised by Kevin, 2026-09-20). Test identities are referred to only by
+pseudonym (PT-A, PT-B, PT-C), except that the 2026-10-04 retest used
+Kevin's own owner account (a recorded deviation, below); real identifiers
+live only in a gitignored, non-committed file. The full report is
+`docs/security/reports/internal-security-test-report-2026-09.md`.
 
 **Coverage: 12 of 12 work packages executed, to the extent possible without
 a Mac or a rooted device.** Twelve work packages have now run: ten between
@@ -131,40 +129,58 @@ against the production TestFlight build installed on Kevin's own iPhone.
 Sanitised per-test evidence and run manifests are recorded under
 `docs/security/pentest-runs/A55-2026-09-27/` and
 `docs/security/pentest-runs/A56-2026-09-27/`. A number of instrumented or
-Mac-only sub-steps within those two packages remain deferred to the external
-A7 engagement, since they need equipment this internal round did not have:
-`IOS-01`, `IOS-06`, the Keychain and file-protection halves of `IOS-02`, the
-`IOS-05` scheme-collision tie-break, and the Frida- or root-dependent Android
-sub-steps listed in `A55-runbook.md`'s own "Deferred to A7" table (memory
-inspection, instrumented UI automation, WebView content-debugging fuzzing,
-and similar). With those two packages run, coverage is now 12 of 12 work
-packages executed to the extent possible without a Mac or a rooted device;
-the sub-steps above still need that equipment and remain booked into A7.
+Mac-only sub-steps within those two packages were not tested in this round,
+because this round did not have the equipment: `IOS-01`, `IOS-06`, the
+Keychain and file-protection halves of `IOS-02`, the `IOS-05`
+scheme-collision tie-break, and the Frida- or root-dependent Android
+sub-steps listed in the "Deferred" table at the end of
+`A55-2026-09-27/records.md` (memory inspection, instrumented UI automation,
+WebView content-debugging fuzzing, and similar). They need a Mac, a rooted
+device or instrumentation that was not available, and they are carried as
+Blocked or not tested, never as passed. With those two packages run,
+coverage is 12 of 12 work packages executed to the extent possible without
+that equipment.
+
+On 2026-10-04 Kevin retested the A120, A121 and A122 fixes on his own
+Android phone and iPhone against production, guided and recorded by a
+Claude session; the record is
+`docs/security/pentest-runs/A60-2026-10-04/`. It used Kevin's own owner
+account instead of the pseudonymous identity PT-A (a deviation Kevin
+authorised), and individual checks are not attributed to the run's two
+production builds except where server logs place them.
 
 WP0 (A47) built the evidence and rules-of-engagement harness ahead of this
-round's testing. Findings raised during execution were triaged against a
-single-reviewer (same-model) pass; WP12, the cross-model review where a
-Codex session checks every Claude-run package and vice versa (board item
-A60), has not yet started, so no finding below has had its severity or
-validity checked by the other model yet. Final severities remain the ISM's
-to confirm per section 3a.
+round's testing. WP12 (A60) specified a cross-model review, with a Codex
+session checking every Claude-run package and a Claude session checking
+every Codex-run package. Kevin decided on 2026-10-04 to drop the Codex half;
+this is a recorded deviation. The review that remains is a Claude reviewer
+session's audit of the evidence, which has not yet run (WP12 review:
+pending). Final severities remain the ISM's to confirm per section 3a.
 
 **Findings.** These were reported first and fixed after, per Kevin's
-deliberate choice (see each item's own board note). As of 2026-09-23,
-fifteen of the twenty findings first raised were fixed on `main` with
-regression tests. The four High findings among them (A82, A83, A84, A91)
-were released to production on 2026-09-27, first in `release-20260927-0947`
-and confirmed still present in that evening's `release-20260927-1844`
-(`git tag --list 'release-*'`), and were retested the same day (board item
-A112, `docs/security/pentest-runs/A112-2026-09-27/`); see the High findings
-table below for what that retest found for each. The remaining eleven
-fixes have not yet had a production release or retest recorded. Five of
-those twenty (A73, A77, A79, A81, A94) were still open at that date. A further five findings (A118,
-A119, A120, A121, A122) were raised during the WP7b/WP8 device testing on
-2026-09-27 (see below) and are all still open, none yet remediated,
-bringing the running total to twenty-five findings: fifteen fixed and ten
-open. Severities use section 3's bands and are provisional pending the
-ISM's sign-off and the still-owed cross-model review above.
+deliberate choice (see each item's own board note). Twenty findings were
+first raised in the 2026-09-19 to 2026-09-21 round and five more (A118,
+A119, A120, A121, A122) in the WP7b/WP8 device testing on 2026-09-27, twenty-five
+in all. As of 2026-10-04:
+
+- Fifteen of the twenty were fixed on `main` by 2026-09-22 with regression
+  tests, shipped to production on 2026-09-27 (the four High findings A82,
+  A83, A84, A91 in `release-20260927-0947`, the other eleven in
+  `release-20260927-1844`) and retested the same day (board item A112,
+  `docs/security/pentest-runs/A112-2026-09-27/`): fourteen confirmed Fixed
+  (A82 and A84, and the destructive half of A83, by source read only, as
+  are A88, A89 and A95; see the tables below) and A80 Partially fixed.
+- A120, A121 and A122 were fixed on `main` on 2026-09-29, first shipped in
+  `release-20261001-2038`, and retested on device on 2026-10-04
+  (`A60-2026-10-04`).
+- A118 has its server-side logout revocation in production; the device
+  re-check of on-disk residue has not been run.
+- A119 is closed: debug build only, with the signed release APK verified on
+  2026-09-28 as not remotely inspectable.
+- Five (A73, A77, A79, A81, A94) remain open.
+
+Severities use section 3's bands and are provisional pending the ISM's
+sign-off and the pending Claude reviewer audit above.
 
 *High (P2): five findings, no Criticals.*
 
@@ -174,7 +190,7 @@ ISM's sign-off and the still-owed cross-model review above.
 | A83 | `GET /connections` does not list live Finexer connections, hiding the very connection A82's disconnect-first step needs | Fixed on main 2026-09-22 (c35ac008), regression-tested; released to production 2026-09-27 (`release-20260927-0947`, confirmed still present in `release-20260927-1844`); retested 2026-09-27: the `GET /connections` listing half confirmed Fixed live (Pass); the disconnect-before-delete half source-confirmed Fixed (live retest Blocked, same as A82; see A112's `API-15` record) |
 | A84 | A deleted account's session token is not invalidated and remains usable for up to 7 days; it has been shown able to write persistent data that reattaches if the account is later recreated with the same email | Fixed on main 2026-09-22 (40fed391), regression-tested; released to production 2026-09-27 (`release-20260927-0947`, confirmed still present in `release-20260927-1844`); retested 2026-09-27, source-confirmed Fixed (live retest Blocked, same as A82; see A112's `API-15` record) |
 | A91 | The MCP connector's output masking is structural only (drops fields by shape) and never sanitises the content it keeps, so an instruction-shaped string in a merchant name, recurring-series description or insight trigger reaches the connecting external assistant unmodified: a live prompt-injection surface with no content-level mitigation. The connector is off in production by design (A17), so this exposure is UAT-only today; it must be fixed before the connector is enabled in production (board item F1, Finexer design sign-off, still open), it is not actively exploitable in production now | Fixed on main 2026-09-22 (9c5b7ef9), regression-tested; released to production 2026-09-27 (`release-20260927-0947`, confirmed still present in `release-20260927-1844`); retested 2026-09-27 on UAT (MCP connector off in production by design, A17), confirmed Fixed live |
-| A121 | The iOS biometric privacy lock is bypassable: with the lock engaged (cold start and via notification tap), the nav bar and Penny suggestion chips are tappable behind the visual overlay, and a chip tap renders live safe-to-spend and upcoming-bills figures with no authentication. Android's overlay held | Found in device testing 2026-09-27; not yet remediated, a fix is in progress (board item A121) |
+| A121 | The iOS biometric privacy lock was bypassable: with the lock engaged (cold start and via notification tap), the nav bar and Penny suggestion chips were tappable behind the visual overlay, and a chip tap rendered live safe-to-spend and upcoming-bills figures with no authentication. Android's overlay held | Found in device testing 2026-09-27; fixed on `main` 2026-09-29 (`eae3207e`, integrate commit); in production since `release-20261001-2038`; retested on device 2026-10-04 (`A60-2026-10-04`): Pass on both phones, with the app open and from a cold start via a notification tap |
 
 A82, A83 and A84 are one deletion-lifecycle root cause: account deletion
 does not disconnect a customer's bank connection before erasing local
@@ -186,29 +202,29 @@ device testing, is unrelated to either.
 | Item | Finding | Status |
 |---|---|---|
 | A73 | OAuth consent page under-emphasises the true redirect host relative to the connector's self-reported name | Open |
-| A74 | Refresh-token rotation does not cascade-revoke the sibling access token from the same grant (pre-documented gap) | Fixed on main 2026-09-22 (eac94538); production release pending |
+| A74 | Refresh-token rotation does not cascade-revoke the sibling access token from the same grant (pre-documented gap) | Fixed on main 2026-09-22 (eac94538); released to production 2026-09-27 (`release-20260927-1844`); retested 2026-09-27 on UAT (the OAuth server is not registered on production), confirmed Fixed live (A112) |
 | A79 | Bank narrative text is sent to OpenRouter for categorisation and Penny read tools, unredacted (pre-documented design concern) | Open |
-| A88 | Finexer consent callback accepts a missing `state` parameter (defence-in-depth gap only; no cross-account path exists because binding is fixed at session-gated consent creation) | Fixed on main 2026-09-22 (683078c8); production release pending |
-| A89 | Webhook path-secret comparison is not constant-time (no practical timing exploit identified; the secret also functions as a long random URL segment) | Fixed on main 2026-09-22 (f4983f8e); production release pending |
-| A92 | Production's proxy chain does not strip a caller-supplied `X-Real-IP`/`X-Forwarded-For` header, so any IP-keyed rate limit on production can be bypassed by rotating the header. Triaged to Medium, down from the board's own initially proposed High: there is no password login to brute-force behind this, and per-user (not IP-keyed) limits on data routes are untouched | Fixed on main 2026-09-22 (d5fbdfe1); production release pending (its A110 gate, trusted-proxy hop handling, is done, 2026-09-24) |
-| A95 | `GET /logo/{domain}` carries no rate limit at all, not even the general IP catch-all, so an unlimited caller can drive cost through the server-side image proxy | Fixed on main 2026-09-22 (aeadb348); production release pending |
-| A118 | After logout, the Android session token value is still recoverable on disk (LevelDB append-only storage) | Found in device testing 2026-09-27; open, not yet remediated |
-| A119 | On the Android debug build the WebView is remotely inspectable, and the authenticated DOM plus Capacitor bridge are reachable behind the lock overlay; the deciding follow-up is to verify the signed release APK disables WebView content debugging | Found in device testing 2026-09-27; open, not yet remediated |
+| A88 | Finexer consent callback accepts a missing `state` parameter (defence-in-depth gap only; no cross-account path exists because binding is fixed at session-gated consent creation) | Fixed on main 2026-09-22 (683078c8); released to production 2026-09-27 (`release-20260927-1844`); retested 2026-09-27, confirmed Fixed by source read (A112) |
+| A89 | Webhook path-secret comparison is not constant-time (no practical timing exploit identified; the secret also functions as a long random URL segment) | Fixed on main 2026-09-22 (f4983f8e); released to production 2026-09-27 (`release-20260927-1844`); retested 2026-09-27, confirmed Fixed by source read (A112) |
+| A92 | Production's proxy chain does not strip a caller-supplied `X-Real-IP`/`X-Forwarded-For` header, so any IP-keyed rate limit on production can be bypassed by rotating the header. Triaged to Medium, down from the board's own initially proposed High: there is no password login to brute-force behind this, and per-user (not IP-keyed) limits on data routes are untouched | Fixed on main 2026-09-22 (d5fbdfe1); released to production 2026-09-27 (`release-20260927-1844`) after its A110 gate (trusted-proxy hop handling, done 2026-09-24); retested 2026-09-27, confirmed Fixed live (A112) |
+| A95 | `GET /logo/{domain}` carries no rate limit at all, not even the general IP catch-all, so an unlimited caller can drive cost through the server-side image proxy | Fixed on main 2026-09-22 (aeadb348); released to production 2026-09-27 (`release-20260927-1844`); retested 2026-09-27, confirmed Fixed by source read (A112) |
+| A118 | After logout, the Android session token value is still recoverable on disk (LevelDB append-only storage) | Found in device testing 2026-09-27; server-side logout revocation (sign out everywhere) fixed on `main` 2026-09-29 (`24e79129`, integrate commit) and in production since `release-20261001-2038`; the device re-check of on-disk residue has not been run (the storage root cause is follow-up A123) |
+| A119 | On the Android debug build the WebView is remotely inspectable, and the authenticated DOM plus Capacitor bridge are reachable behind the lock overlay; the deciding follow-up is to verify the signed release APK disables WebView content debugging | Closed 2026-09-28: debug build only. The signed release APK was decompiled and verified not remotely inspectable; closed by static verification, not by a device retest |
 
 *Low (P4)*
 
 | Item | Finding | Status |
 |---|---|---|
-| A76 | `/design/*` preview routes are publicly indexable (no `robots.txt`/`X-Robots-Tag`) | Fixed on main 2026-09-22 (e7621167); production release pending |
+| A76 | `/design/*` preview routes are publicly indexable (no `robots.txt`/`X-Robots-Tag`) | Fixed on main 2026-09-22 (e7621167); released to production 2026-09-27 (`release-20260927-1844`); retested 2026-09-27, confirmed Fixed live (A112) |
 | A77 | The native-purchase `X-Client-Platform` header check can be bypassed by omitting it (billing is not live; pre-documented) | Open |
-| A80 | No global/service-wide OpenRouter spend ceiling exists, only a per-user monthly allowance | Fixed on main 2026-09-22 (7bea0094); production release pending |
+| A80 | No global/service-wide OpenRouter spend ceiling exists, only a per-user monthly allowance | Partially fixed. Fixed on main 2026-09-22 (7bea0094); released to production 2026-09-27 (`release-20260927-1844`); retested 2026-09-27 (A112): the ceiling mechanism is in code, but the environment variable that enables it was unset on both production services that day, so no ceiling was enforced (Kevin's operational decision; not re-checked since) |
 | A81 | The per-user LLM allowance check fails open, not closed, on an internal lookup error (documented, deliberate trade-off) | Open |
-| A85 | `PATCH /preferences` has no optimistic-concurrency check and accepts an unadvertised field (mass assignment) | Fixed on main 2026-09-22 (4b866395); production release pending |
-| A86 | The commitment state machine allows out-of-order transitions and has no create-time idempotency check | Fixed on main 2026-09-22 (1f8a318d); production release pending |
-| A90 | The MCP connector's `initialize` handler never validates or negotiates the client's requested protocol version | Fixed on main 2026-09-22 (141b057c); production release pending |
-| A93 | An unhandled NUL byte in a search query parameter crashes one endpoint with a 500 (no data leaked) | Fixed on main 2026-09-22 (f73638e6); production release pending |
-| A120 | Push device registration survives logout on both Android (FCM) and iOS (APNs): `unregisterCapacitorPush()` is never called, and no server-side logout route exists to unregister the device token either | Found in device testing 2026-09-27; open, not yet remediated |
-| A122 | The app-switcher/recents snapshot shows live financial figures even with the biometric lock enabled, confirmed on both iOS and Android | Found in device testing 2026-09-27; open, not yet remediated |
+| A85 | `PATCH /preferences` has no optimistic-concurrency check and accepts an unadvertised field (mass assignment) | Fixed on main 2026-09-22 (4b866395); released to production 2026-09-27 (`release-20260927-1844`); retested 2026-09-27, confirmed Fixed live (A112) |
+| A86 | The commitment state machine allows out-of-order transitions and has no create-time idempotency check | Fixed on main 2026-09-22 (1f8a318d); released to production 2026-09-27 (`release-20260927-1844`); retested 2026-09-27, confirmed Fixed live (A112) |
+| A90 | The MCP connector's `initialize` handler never validates or negotiates the client's requested protocol version | Fixed on main 2026-09-22 (141b057c); released to production 2026-09-27 (`release-20260927-1844`); retested 2026-09-27 on UAT, confirmed Fixed live (A112) |
+| A93 | An unhandled NUL byte in a search query parameter crashes one endpoint with a 500 (no data leaked) | Fixed on main 2026-09-22 (f73638e6); released to production 2026-09-27 (`release-20260927-1844`); retested 2026-09-27, confirmed Fixed live (A112) |
+| A120 | Push device registration survived logout on both Android (FCM) and iOS (APNs): the unregister call was never made, and no server-side logout route existed to unregister the device token either | Found in device testing 2026-09-27; fixed on `main` 2026-09-29 (`44311669`, integrate commit); in production since `release-20261001-2038`; retested on device 2026-10-04 (`A60-2026-10-04`): after sign out everywhere, test pushes no longer arrive on either phone (Pass); the resume-after-sign-in half passed on re-run, after one earlier Android Fail tracked as follow-up A138 (open, intermittent) |
+| A122 | The app-switcher/recents snapshot showed live financial figures even with the biometric lock enabled, confirmed on both iOS and Android | Found in device testing 2026-09-27; fixed on `main` 2026-09-29 (`bdbda0af`, integrate commit); in production since `release-20261001-2038`; retested on device 2026-10-04 (`A60-2026-10-04`): the app-switcher card is covered on both phones and a screenshot is blocked on Android while the lock is on (Pass) |
 
 *Informational*
 
@@ -221,76 +237,76 @@ product-intent question for Kevin, not a severity-rated security finding.
 A92's board priority tag is p2, which is a work-scheduling priority, not
 its security severity; its severity, per the triage above, is Medium.
 
-**Headline.** No Critical findings. Five High findings now exist. Four are
+**Headline.** No Critical findings. Five High findings were raised, and
+fixes for all five are now in production. Four (A82, A83, A84, A91) were
 fixed on `main`, merged 2026-09-22, each with regression tests: the
 deletion-lifecycle root cause (A82, A83, A84) and A91, the MCP
 prompt-injection gap, which remains UAT-only until the connector is
 enabled in production (gated on board item F1, the written Finexer design
 sign-off, still open, not F2, which is the OAuth server and is already
-done). All four shipped to production on 2026-09-27, first in
-`release-20260927-0947` and confirmed still present in that evening's
-`release-20260927-1844`, and were retested the same day (board item A112,
+done). All four shipped to production on 2026-09-27 (`release-20260927-0947`)
+and were retested the same day (board item A112,
 `docs/security/pentest-runs/A112-2026-09-27/`): A83's `GET /connections`
 listing half and A91 were confirmed Fixed live; A82, A83's
 disconnect-before-delete half and A84 were confirmed Fixed by source read
 only, since the live retest of that step (`API-15`) was Blocked when the
 supplied disposable test credential returned `401 Session expired` before
 any request reached the deletion path, so a follow-up live pass with a
-freshly issued credential is still owed to close that to a clean live
-Pass. The fifth, and newest, is **A121**: the iOS biometric privacy lock is
-bypassable, exposing live safe-to-spend and upcoming-bills figures with no
-authentication, found in device testing on 2026-09-27 and, unlike the
-other four, **not yet remediated**; a fix is in progress (board item
-A121). Of the remaining twenty Medium, Low
-and Informational findings, eleven are fixed on `main` with production
-release pending (A92 was additionally gated on A110, trusted-proxy hop
-handling; A110 is done, 2026-09-24, so that gate is clear, though A92
-itself has no production release recorded here); nine (A73, A77, A79, A81, A94, A118, A119, A120, A122) remain
-open.
+freshly issued credential would still be needed to close that to a clean
+live Pass. The fifth is **A121**: the iOS biometric privacy lock was
+bypassable, found in device testing on 2026-09-27, fixed on 2026-09-29,
+shipped in `release-20261001-2038` and retested on both phones on
+2026-10-04 (Pass). Of the remaining twenty Medium, Low and Informational
+findings: the eleven first-round fixes were retested on 2026-09-27 (ten
+confirmed Fixed, A80 Partially fixed); A120 and A122 were fixed, shipped and
+retested on device on 2026-10-04; A118 has its server-side revocation in
+production with the on-device re-check outstanding; A119 is closed (debug
+build only); and five (A73, A77, A79, A81, A94) remain open.
 
-**Production status as of 2026-09-27 (updated from the original
-2026-09-23 draft of this paragraph by board item A117).** Of the fifteen
-fixes recorded above, the four High findings (A82, A83, A84, A91) are
-released to production (`release-20260927-0947`, confirmed still present
-in `release-20260927-1844`) and were retested the same day, board item
-A112, see the Headline and High findings table above for the per-finding
-outcome. The remaining eleven (A74, A76, A80, A85, A86, A88, A89, A90,
-A92, A93, A95) are merged to `main` with regression tests but their
-production release is not recorded here; A92's release was additionally
-gated on A110 (trusted-proxy hop handling), which is done (2026-09-24),
-so that gate is clear even though A92's own production release is not
-recorded here. The deletion-lifecycle retest
-(API-15: deletion revokes the Finexer consent, the connections list shows
-Finexer, and both the deleted account's session token and its OAuth
-tokens are rejected) has run (A112, 2026-09-27) and is recorded under
-`docs/security/pentest-runs/A112-2026-09-27/`; its destructive half was
-Blocked by an already-expired test credential, not confirmed live, so a
-follow-up pass with a fresh credential is still owed. A106, opened during
-this fix, is a
-narrower residual gap in the same lifecycle: if Finexer is down at the
-moment of revoke, the consent is orphaned locally with no retry record;
-it is not rated High. WP12, the cross-model review (A60), has not
-started. Separately, the MCP connector remains disabled in production
-(A17): an anonymous `initialize` call on 2026-09-23 returned 401 with no
-`WWW-Authenticate` challenge on both the Vercel-fronted path and the
-direct Railway host, while UAT correctly advertises the challenge;
-enabling it in production stays gated on F1, Finexer's written design
-sign-off.
+**Production status as of 2026-10-04.** Every fix listed above is in
+production: the first-round fixes since 2026-09-27 (`release-20260927-0947`
+and `release-20260927-1844`) and the device-round fixes (A118, A120, A121,
+A122, plus follow-up A123, which moves the native session token into
+platform secure storage) since `release-20261001-2038`. The A112 retest of
+the fifteen first-round fixes and the 2026-10-04 on-device retest of A120,
+A121 and A122 are recorded under
+`docs/security/pentest-runs/A112-2026-09-27/` and
+`docs/security/pentest-runs/A60-2026-10-04/`. The deletion-lifecycle retest
+(`API-15`: deletion revokes the Finexer consent, the connections list shows
+Finexer, and both the deleted account's session token and its OAuth tokens
+are rejected) ran on 2026-09-27; its destructive half was Blocked by an
+already-expired test credential, so it is confirmed by source read only.
+A106, opened during that fix, is a narrower residual gap in the same
+lifecycle: if Finexer is down at the moment of revoke, the consent is
+orphaned locally with no retry record; it is not rated High. Remediation
+follow-ups, not new findings: A123 (device retest pending), A129 (Android
+`allowBackup`, open) and A138 (push re-registration after sign-in,
+intermittent, open). Separately, the MCP connector remains disabled in
+production (A17): an anonymous `initialize` call on 2026-09-23 returned 401
+with no `WWW-Authenticate` challenge on both the Vercel-fronted path and the
+direct Railway host, while UAT correctly advertises the challenge; enabling
+it in production stays gated on F1, Finexer's written design sign-off.
 
 **Scope caveats, stated plainly.** This round has real, acknowledged gaps
 that a reader of the findings list above should not have to infer:
 
-- The cross-model (Codex) review of every Claude-run package, and the
-  Claude review of every Codex-run package (WP12, A60), has not started.
+- The Codex half of the WP12 cross-model review was dropped (Kevin decision,
+  2026-10-04), so the Claude-run packages have not been reviewed by a second
+  model. The remaining Claude reviewer audit has not yet run (WP12 review:
+  pending).
+- The live half of the account-deletion retest (`API-15`) was Blocked by an
+  already-expired test credential and is confirmed by source read only.
 - Two Finexer/TrueLayer cases could not be completed: `FIN-06` (webhook
   payload retention) and the accepted-delivery live halves of `FIN-01` and
   `TL-02`, because this testing session has no production database read
   path and no provider-approved sandbox consent exists.
-- WP7b (Android dynamic testing) and WP8 (iOS dynamic testing) ran live on
-  real devices on 2026-09-27 (see the coverage note above); the
-  instrumented and Mac-only sub-steps within them remain deferred to the
-  external A7 engagement. Coverage is now 12 of 12 work packages, to the
-  extent possible without that equipment.
+- The instrumented and Mac-only sub-steps of WP7b and WP8 were not tested in
+  this round, because this round had no Mac, rooted device or
+  instrumentation; they are carried as Blocked, not passed.
+- The Android token-at-rest and `adb backup` re-check (A118, A123) was not
+  run on 2026-10-04: it needs a debug build, and the backup half waits on
+  open item A129. A123 staying signed in across restarts is pending Kevin's
+  result.
 - A temporary `OPEN_SIGNUP` window on production (opened and closed on
   2026-09-19, board item A63, to create test identities) was not audited
   for unexpected registrations during the roughly 36-minute window it was
@@ -309,7 +325,10 @@ above reflect `main` and the `release` branch as of that date. Further
 update 2026-09-27 (board item A117): WP7b and WP8 device testing was
 executed live, and findings A118 to A122 were folded into the coverage and
 findings sections above; recorded by a Claude session for Kevin's
-confirmation.
+confirmation. Further update 2026-10-04 (board item A60): the A120, A121 and
+A122 fixes were retested on device and the A118 to A123 statuses recorded
+above. The report is a v1.0 candidate; WP12 review: pending, to be recorded
+when it runs.
 
 ## 4. Incident response process
 
@@ -410,5 +429,6 @@ This policy is reviewed at least annually, and after any material incident, chan
 | 1.12 | 2026-09-21 | A45 draft, updated: three more work packages executed (WP2/A49, WP6/A53, WP10/A58), coverage now 10 of 12 (WP7b Android dynamic and WP8 iOS dynamic remain deferred); six new findings folded in (A90, A91, A92, A93, A94, A95); headline now four High findings (the deletion-lifecycle three plus A91, an MCP prompt-injection gap, UAT-only until the connector is enabled in production); Q11 draft updated to match. |
 | 1.13 | 2026-09-21 | A45 correction: A91's pre-production gate was wrongly cited as board item F2 (the OAuth 2.1 authorisation server, done 2026-09-08); the correct gate is F1, the written Finexer design sign-off, still open. Fixed in the A91 finding row and the headline. |
 | 1.14 | 2026-09-23 | A107: fifteen of the twenty §3b findings, including all four High findings (A82, A83, A84, A91), are now fixed on `main` with regression tests; updated the intro, headline and every fixed finding's Status cell with date and commit, and added a "Production status as of 2026-09-23" paragraph recording that production release (A92 gated on A110), the deletion-lifecycle production retest and WP12 (A60) are all still pending. Five findings (A73, A77, A79, A81, A94) remain open. |
-| 1.15 | 2026-09-27 | A117: WP7b (Android, A55) and WP8 (iOS, A56) dynamic device testing executed live on real devices; coverage corrected from 10 of 12 to 12 of 12 work packages (to the extent possible without a Mac or a rooted device, remaining sub-steps deferred to A7); five new findings folded in (A118, A119, A120, A121, A122); headline corrected to five High findings, since A121 (iOS biometric-lock bypass exposing live financial data) is not yet remediated, distinct from the four earlier High findings which remain fixed on `main` pending production release. Evidence under `docs/security/pentest-runs/A55-2026-09-27/` and `docs/security/pentest-runs/A56-2026-09-27/`. |
+| 1.15 | 2026-09-27 | A117: WP7b (Android, A55) and WP8 (iOS, A56) dynamic device testing executed live on real devices; coverage corrected from 10 of 12 to 12 of 12 work packages (to the extent possible without a Mac or a rooted device, remaining sub-steps not tested in that round); five new findings folded in (A118, A119, A120, A121, A122); headline corrected to five High findings, since A121 (iOS biometric-lock bypass exposing live financial data) is not yet remediated, distinct from the four earlier High findings which remain fixed on `main` pending production release. Evidence under `docs/security/pentest-runs/A55-2026-09-27/` and `docs/security/pentest-runs/A56-2026-09-27/`. |
 | 1.16 | 2026-09-28 | A117 correction: version 1.15 (and the pre-existing §3b intro/headline/Production-status text it left unchanged) stated that none of the four High fixes (A82, A83, A84, A91) had reached production and that no production retest had run; both were false by the time 1.15 was written. All four shipped to production 2026-09-27 in `release-20260927-0947` (confirmed still present in `release-20260927-1844`, `git tag --list 'release-*'`), nine hours before 1.15's own commit, and were retested the same day (board item A112, `docs/security/pentest-runs/A112-2026-09-27/`). Corrected the §3b intro paragraph, the four High findings' Status cells, the Headline, and the "Production status" paragraph to record the A112 outcome per finding: A83's `GET /connections` listing half and A91 confirmed Fixed live; A82, A83's disconnect-before-delete half and A84 confirmed Fixed by source read only, the live `API-15` retest itself Blocked by an already-expired test credential, a follow-up live pass is still owed. Q11 and the A111 report wording are not touched by this row; those are separate, unreviewed follow-ups. |
+| 1.17 | 2026-10-04 | A60: §3b brought in line with the v1.0 candidate of the internal security test report (`docs/security/reports/internal-security-test-report-2026-09.md`). Recorded the 2026-10-04 on-device retest (`docs/security/pentest-runs/A60-2026-10-04/`): A120, A121 and A122 fixed, in production since `release-20261001-2038` and retested on both phones; A118 server-side revocation in production with the on-device residue re-check not yet run; A119 closed (debug build only); first-round fixes updated with A112's 2026-09-27 retest outcomes (A80 Partially fixed). Follow-ups A123, A129 and A138 noted. Removed wording about any further test engagement; the section now describes the work as an internal security assessment performed by AURIQ LTD, and sub-steps that could not be run (no Mac, rooted device or instrumentation) are carried as not tested. WP12 recorded as a Claude-only review, the Codex half dropped (Kevin decision, 2026-10-04), review pending. |
