@@ -238,7 +238,7 @@ function RenderB(phase: LoginPhase, { form }: LoginPhaseSlots) {
 function MarkWithRing() {
   return (
     <div className="relative inline-flex h-16 w-16 items-center justify-center">
-      <span aria-hidden="true" className="absolute -inset-2 rounded-[1.75rem] ring-2 ring-indigo-500/30 animate-pulse motion-reduce:animate-none dark:ring-indigo-400/30" />
+      <span aria-hidden="true" className="absolute -inset-2 rounded-[1.75rem] border-2 border-indigo-600/30 animate-pulse motion-reduce:animate-none dark:border-indigo-400/30" />
       <div className="h-16 w-16 overflow-hidden rounded-2xl shadow-lg">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/icons/icon-192.png" alt="" width={64} height={64} className="h-full w-full object-cover" />
