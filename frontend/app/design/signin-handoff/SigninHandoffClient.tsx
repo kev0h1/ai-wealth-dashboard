@@ -28,7 +28,7 @@ const STATES = [
   { value: "hint", label: "Signed in, after 3 seconds" },
   { value: "error", label: "Did not complete" },
 ] as const;
-// A108: the bank-connect variant of the same page (Finexer consent returning to Sorted).
+// A108: the bank-connect version of the same page (Finexer consent returning to Sorted).
 const BANK_STATES = [
   { value: "bank-ok", label: "Bank connected" },
   { value: "bank-error", label: "Bank did not link" },
