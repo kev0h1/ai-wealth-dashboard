@@ -157,6 +157,23 @@ async def oauth_protected_resource_metadata():
     }
 
 
+# F21: RFC 9728 section 3.1 path-insertion form. A client connecting to
+# https://<host>/api/mcp looks for the resource metadata at
+# /.well-known/oauth-protected-resource/api/mcp (origin form, rewritten to the
+# base document by frontend/next.config.ts) and, behind the /api proxy, at
+# /api/.well-known/oauth-protected-resource/api/mcp, which reaches this
+# backend as the suffixed path below. Same document as the base route, only
+# for the connector's own resource path; any other suffix is a plain 404.
+_PROTECTED_RESOURCE_SUFFIXES = {"mcp", "api/mcp"}
+
+
+@router.get("/.well-known/oauth-protected-resource/{resource_path:path}")
+async def oauth_protected_resource_metadata_for_path(resource_path: str):
+    if resource_path.strip("/") not in _PROTECTED_RESOURCE_SUFFIXES:
+        raise HTTPException(404, "Not found")
+    return await oauth_protected_resource_metadata()
+
+
 # ── Dynamic client registration (RFC 7591) ──────────────────────────────
 
 @router.post("/auth/oauth/register")
