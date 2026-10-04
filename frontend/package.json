@@ -35,6 +35,7 @@
     "check:go-live-cancelled-progress": "node --no-warnings --experimental-strip-types scripts/go-live-cancelled-progress.test.mjs",
     "check:set-aside-display": "node --no-warnings --experimental-strip-types scripts/set-aside-display.test.mjs",
     "check:g187-timeline": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g187-timeline.test.mjs",
+    "check:g204-goal-link-overflow": "node --no-warnings --experimental-strip-types scripts/g204-goal-link-overflow.test.mjs",
     "check:g192-sheet-anatomy": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g192-sheet-anatomy.test.mjs",
     "check:spend-from-account": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/spend-from-account.test.mjs",
     "check:verdict-cache": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/verdict-cache.test.mjs",

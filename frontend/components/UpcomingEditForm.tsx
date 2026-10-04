@@ -45,7 +45,7 @@ export function UpcomingEditForm({ item, onCancel, onDismiss, onSaved, services 
   }
   return <form id={formId} onSubmit={save} className="space-y-6">
     <div><h3 className="text-sm font-semibold">Payment details</h3><p className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-400">Adjust the prediction. This does not change a bank payment.</p></div>
-    <fieldset disabled={request.busy || request.needsRefresh} className="space-y-6">
+    <fieldset disabled={request.busy || request.needsRefresh} className="min-w-0 space-y-6">
       <div className="grid gap-4 min-[380px]:grid-cols-2">
         <label className="min-w-0 text-sm font-medium">Expected date<input type="date" value={date} onChange={(event) => setDate(event.target.value)} required className={editorField} /></label>
         <label className="min-w-0 text-sm font-medium">Amount (£)<input type="number" min="0.01" max="1000000" step="0.01" inputMode="decimal" autoComplete="off" value={amount} onChange={(event) => setAmount(event.target.value)} required className={editorField} /></label>
