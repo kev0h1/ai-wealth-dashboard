@@ -1,11 +1,11 @@
 # Sorted (Auriq Wealth): internal security test report, 2026-09
 
-**Product:** Sorted, by Auriq (the AI wealth dashboard, "ai-wealth-dashboard")
-**Company:** AURIQ LTD
-**Report id:** AURIQ-SEC-RPT-2026-09
-**Version:** 1.0 candidate
-**Date:** 2026-10-04
-**Classification:** Confidential, prepared for Finexer
+**Product:** Sorted, by Auriq (the AI wealth dashboard, "ai-wealth-dashboard")  
+**Company:** AURIQ LTD  
+**Report id:** AURIQ-SEC-RPT-2026-09  
+**Version:** 1.0 candidate  
+**Date:** 2026-10-04  
+**Classification:** Confidential, prepared for Finexer  
 **Author:** AURIQ LTD, Information Security Manager: Kevin Maingi
 
 ---
@@ -18,7 +18,7 @@
 > The report records executed tests, limitations, blockers, findings,
 > severity, and retest status.
 
-That is the reporting statement for this assessment, following
+That is the reporting statement for this assessment, adapted from
 `docs/security/PENTEST-METHODOLOGY.md` section 11. Section 11 also says the
 assessment is complete, and that statement final, only once a separate
 reviewer has signed the coverage matrix and findings. That review is
@@ -78,10 +78,10 @@ Coverage is 12 of 12 planned work packages executed, to the extent possible
 without a Mac or a rooted device (WP7b and WP8 ran live on real devices on
 2026-09-27, and the fixes were retested on device on 2026-10-04; see
 section 4). The WP12 cross-model review is a recorded deviation: the Codex
-half was dropped by Kevin's decision of 2026-10-04, and only a Claude
-reviewer's audit remains, pending (section 4 and section 10). Every
+half was dropped by Kevin's decision of 2026-10-04, and only the audit by a separate Claude
+reviewer agent remains, pending (section 4 and section 10). Every
 severity in this report is therefore the judgement of the testing sessions
-and Kevin's sign-off, with a Claude reviewer's audit still to come.
+and Kevin's sign-off, with the audit by a separate Claude reviewer agent still to come.
 
 ---
 
@@ -308,11 +308,11 @@ on 2026-09-28). See section 6.
 a cross-model review: a Codex session auditing every Claude-run work
 package's Fail evidence, and a Claude session auditing every Codex-run
 package. Kevin decided on 2026-10-04 to drop the Codex half. The review
-that remains is a Claude reviewer session's audit of the evidence, which is
+that remains is a separate Claude reviewer agent's audit of the evidence, which is
 a separate step that has not yet run (section 10, "WP12 review: pending").
 Consequence, stated plainly: the work packages run by Claude sessions have
 not been reviewed by a second model, so every severity in this report is
-the judgement of the testing sessions, a Claude reviewer once that audit
+the judgement of the testing sessions, a separate Claude reviewer agent once that audit
 runs, and Kevin's sign-off.
 
 **Two further gaps recorded on the coverage side, not visible as a work
@@ -333,6 +333,15 @@ rule established in section 1: nothing here is "remediated" or "closed"
 until it is on production and retested; where only part of that is true,
 the row says which part. For A118 to A123 the commit shown is the integrate
 (merge) commit on `main`.
+
+**Severity bands.** Severities use `SECURITY.md` section 3's four bands
+(Critical, High, Medium, Low). The Informational band comes from the testing
+methodology (`PENTEST-METHODOLOGY.md` section 8.3): a verified fact or
+hardening opportunity with no demonstrated adverse outcome and no P1-P4 SLA,
+used here for A94. A76 is listed as Low below, although the `A48-2026-09-20`
+`DSGN-04` record scored the same crawlable-preview exposure Informational (a
+business-confidentiality risk, not a security-boundary breach); the register
+carries the more conservative Low, and the board's rating governs.
 
 ### High
 
@@ -428,7 +437,8 @@ first shipped in `release-20261001-2038`. It was retested on device on
 lock engaged, the nav bar is not visible and nothing behind the lock can be
 reached (Pass); with the app fully closed and a push notification tapped,
 the app opens to the lock screen and the lock cannot be bypassed (Pass).
-Status: remediated and retested.
+Status: remediated and retested. The 2026-10-04 evidence is Kevin's own
+on-device observation, recorded without screenshots.
 
 **A118.** WP7b's `AND-02` case found that after an in-app logout the
 Android session token value was still recoverable from the WebView's
@@ -477,7 +487,8 @@ backgrounded, integrated on `main` on 2026-09-29 and shipped in
 `release-20261001-2038`. Retested on device on 2026-10-04
 (`A60-2026-10-04`): with the lock on, the app-switcher card is covered and
 shows no figures on both phones, and on Android a screenshot is blocked
-while the lock is on (Pass). Status: remediated and retested.
+while the lock is on (Pass). Status: remediated and retested. As for A121, the
+2026-10-04 evidence is Kevin's own on-device observation, without screenshots.
 
 ### Medium
 
@@ -503,7 +514,7 @@ while the lock is on (Pass). Status: remediated and retested.
 | A81 | Per-user LLM allowance check fails open, not closed, on an internal lookup error (documented, deliberate trade-off) | Open | none | N/A | Pending |
 | A85 | `PATCH /preferences` had no optimistic-concurrency check and accepted an unadvertised field (mass assignment) | Fixed | `4b866395` | In production from `release-20260927-0947` | Confirmed Fixed live 2026-09-27 (A112) |
 | A86 | Commitment state machine allowed out-of-order transitions, no create-time idempotency check | Fixed | `1f8a318d` | In production from `release-20260927-0947` | Confirmed Fixed live 2026-09-27 (A112) |
-| A90 | MCP `initialize` handler never validated or negotiated the client's requested protocol version | Fixed | `141b057c` | In production from `release-20260927-0947` | Confirmed Fixed live 2026-09-27 (A112), on UAT |
+| A90 | MCP `initialize` handler never validated or negotiated the client's requested protocol version | Fixed | `141b057c` | In production from `release-20260927-0947` | Confirmed Fixed 2026-09-27 (A112): live on UAT (envelope validation), source review (version negotiation) |
 | A93 | Unhandled NUL byte in a search query parameter crashed one endpoint with a 500 (no data leaked) | Fixed | `4e0093e0` | In production from `release-20260927-0947` | Confirmed Fixed live 2026-09-27 (A112) |
 | none (no board item) | `AND-08` scheme-exclusivity: Android gives no OS-level exclusivity for the bare `wealthdash://` custom scheme, so a competing app can be offered alongside Sorted in a disambiguation dialog (found statically in `A54-2026-09-20`, confirmed live in `A55-2026-09-27`). The callback carries no code, token or account identifier, so the practical exploit path is closed off | Open (pre-documented design gap; acknowledge clock 2026-09-18; no remediation short of a verified `https://` App Link) | none | N/A | Confirmed live 2026-09-27 (Fail, Low); not re-raised as a new item |
 | A120 | Push device registration survived logout on both Android (FCM) and iOS (APNs) | Remediated: sign out everywhere drops every push registration server-side, integrated 2026-09-29 | `44311669` (integrate commit) | In production (first shipped in `release-20261001-2038`) | Retested on device 2026-10-04 (`A60-2026-10-04`): logout half Pass on both phones; resume-after-sign-in half Pass on re-run, after one earlier Android Fail tracked as follow-up A138 |
@@ -667,7 +678,7 @@ attestation in a working session with Claude ("Happy to sign this"), not a
 handwritten or cryptographic signature. This report, as a document, has not
 separately been signed by Kevin as of 2026-10-04.
 
-**WP12 review: pending.** A separate Claude reviewer session audits the
+**WP12 review: pending.** A separate Claude reviewer agent audits the
 evidence behind this report before it is treated as final. That step has
 not yet run; this line is replaced with its outcome and date when it does.
 The Codex half of the WP12 cross-model review was dropped, as recorded in

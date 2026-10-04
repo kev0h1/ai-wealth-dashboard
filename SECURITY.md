@@ -153,8 +153,8 @@ WP0 (A47) built the evidence and rules-of-engagement harness ahead of this
 round's testing. WP12 (A60) specified a cross-model review, with a Codex
 session checking every Claude-run package and a Claude session checking
 every Codex-run package. Kevin decided on 2026-10-04 to drop the Codex half;
-this is a recorded deviation. The review that remains is a Claude reviewer
-session's audit of the evidence, which has not yet run (WP12 review:
+this is a recorded deviation. The review that remains is a separate Claude reviewer
+agent's audit of the evidence, which has not yet run (WP12 review:
 pending). Final severities remain the ISM's to confirm per section 3a.
 
 **Findings.** These were reported first and fixed after, per Kevin's
@@ -182,7 +182,7 @@ in all. As of 2026-10-04:
   board item and is not in the counts above; it is listed in the Low table.
 
 Severities use section 3's bands and are provisional pending the ISM's
-sign-off and the pending Claude reviewer audit above.
+sign-off and the pending audit by a separate Claude reviewer agent above.
 
 *High (P2): five findings, no Criticals.*
 
@@ -223,13 +223,16 @@ device testing, is unrelated to either.
 | A81 | The per-user LLM allowance check fails open, not closed, on an internal lookup error (documented, deliberate trade-off) | Open |
 | A85 | `PATCH /preferences` has no optimistic-concurrency check and accepts an unadvertised field (mass assignment) | Fixed on main 2026-09-22 (4b866395); in production from `release-20260927-0947` (A112 retested the `release-20260927-1844` build); retested 2026-09-27, confirmed Fixed live (A112) |
 | A86 | The commitment state machine allows out-of-order transitions and has no create-time idempotency check | Fixed on main 2026-09-22 (1f8a318d); in production from `release-20260927-0947` (A112 retested the `release-20260927-1844` build); retested 2026-09-27, confirmed Fixed live (A112) |
-| A90 | The MCP connector's `initialize` handler never validates or negotiates the client's requested protocol version | Fixed on main 2026-09-22 (141b057c); in production from `release-20260927-0947` (A112 retested the `release-20260927-1844` build); retested 2026-09-27 on UAT, confirmed Fixed live (A112) |
+| A90 | The MCP connector's `initialize` handler never validates or negotiates the client's requested protocol version | Fixed on main 2026-09-22 (141b057c); in production from `release-20260927-0947` (A112 retested the `release-20260927-1844` build); retested 2026-09-27: live on UAT (envelope validation), source review (version negotiation) (A112) |
 | A93 | An unhandled NUL byte in a search query parameter crashes one endpoint with a 500 (no data leaked) | Fixed on main 2026-09-22 (4e0093e0); in production from `release-20260927-0947` (A112 retested the `release-20260927-1844` build); retested 2026-09-27, confirmed Fixed live (A112) |
 | (none) | Android scheme-exclusivity for the bare `wealthdash://` custom scheme: Android has no OS-level exclusivity, so a competing app can be offered alongside Sorted (`AND-08`, static in WP7a, confirmed live in WP7b); the callback carries no code or token, so the practical exploit path is closed off | Open, pre-documented design gap, no board item; severity Low, no remediation short of a verified `https://` App Link |
 | A120 | Push device registration survived logout on both Android (FCM) and iOS (APNs): the unregister call was never made, and no server-side logout route existed to unregister the device token either | Found in device testing 2026-09-27; fixed on `main` 2026-09-29 (`44311669`, integrate commit); in production since `release-20261001-2038`; retested on device 2026-10-04 (`A60-2026-10-04`): after sign out everywhere, test pushes no longer arrive on either phone (Pass); the resume-after-sign-in half passed on re-run, after one earlier Android Fail tracked as follow-up A138 (open, intermittent) |
 | A122 | The app-switcher/recents snapshot showed live financial figures even with the biometric lock enabled, confirmed on both iOS and Android | Found in device testing 2026-09-27; fixed on `main` 2026-09-29 (`bdbda0af`, integrate commit); in production since `release-20261001-2038`; retested on device 2026-10-04 (`A60-2026-10-04`): the app-switcher card is covered on both phones and a screenshot is blocked on Android while the lock is on (Pass) |
 
 *Informational*
+
+Severity bands: section 3's four bands (Critical, High, Medium, Low) apply to every finding above. The Informational band comes from the testing methodology (`docs/security/PENTEST-METHODOLOGY.md` section 8.3): a verified fact or hardening opportunity with no demonstrated adverse outcome and no P1-P4 SLA, used here for A94. A76 is listed as Low in the table above (the A48 `DSGN-04` record scored the same crawlable-preview exposure Informational, a business-confidentiality risk and not a security-boundary breach); the register's Low is the more conservative rating, and the board's rating governs.
+
 
 | Item | Finding | Status |
 |---|---|---|
@@ -295,7 +298,7 @@ that a reader of the findings list above should not have to infer:
 
 - The Codex half of the WP12 cross-model review was dropped (Kevin decision,
   2026-10-04), so the Claude-run packages have not been reviewed by a second
-  model. The remaining Claude reviewer audit has not yet run (WP12 review:
+  model. The remaining audit by a separate Claude reviewer agent has not yet run (WP12 review:
   pending).
 - The live half of the account-deletion retest (`API-15`) was Blocked by an
   already-expired test credential and is confirmed by source read only.
@@ -443,4 +446,4 @@ This policy is reviewed at least annually, and after any material incident, chan
 | 1.14 | 2026-09-23 | A107: fifteen of the twenty §3b findings, including all four High findings (A82, A83, A84, A91), are now fixed on `main` with regression tests; updated the intro, headline and every fixed finding's Status cell with date and commit, and added a "Production status as of 2026-09-23" paragraph recording that production release (A92 gated on A110), the deletion-lifecycle production retest and WP12 (A60) are all still pending. Five findings (A73, A77, A79, A81, A94) remain open. |
 | 1.15 | 2026-09-27 | A117: WP7b (Android, A55) and WP8 (iOS, A56) dynamic device testing executed live on real devices; coverage corrected from 10 of 12 to 12 of 12 work packages (to the extent possible without a Mac or a rooted device, remaining sub-steps not tested in that round); five new findings folded in (A118, A119, A120, A121, A122); headline corrected to five High findings, since A121 (iOS biometric-lock bypass exposing live financial data) is not yet remediated, distinct from the four earlier High findings which remain fixed on `main` pending production release. Evidence under `docs/security/pentest-runs/A55-2026-09-27/` and `docs/security/pentest-runs/A56-2026-09-27/`. |
 | 1.16 | 2026-09-28 | A117 correction: version 1.15 (and the pre-existing §3b intro/headline/Production-status text it left unchanged) stated that none of the four High fixes (A82, A83, A84, A91) had reached production and that no production retest had run; both were false by the time 1.15 was written. All four shipped to production 2026-09-27 in `release-20260927-0947` (confirmed still present in `release-20260927-1844`, `git tag --list 'release-*'`), nine hours before 1.15's own commit, and were retested the same day (board item A112, `docs/security/pentest-runs/A112-2026-09-27/`). Corrected the §3b intro paragraph, the four High findings' Status cells, the Headline, and the "Production status" paragraph to record the A112 outcome per finding: A83's `GET /connections` listing half and A91 confirmed Fixed live; A82, A83's disconnect-before-delete half and A84 confirmed Fixed by source read only, the live `API-15` retest itself Blocked by an already-expired test credential, a follow-up live pass is still owed. Q11 and the A111 report wording are not touched by this row; those are separate, unreviewed follow-ups. |
-| 1.17 | 2026-10-04 | A60: §3b brought in line with the v1.0 candidate of the internal security test report (`docs/security/reports/internal-security-test-report-2026-09.md`). Recorded the 2026-10-04 on-device retest (`docs/security/pentest-runs/A60-2026-10-04/`): A120, A121 and A122 fixed, in production since `release-20261001-2038` and retested on both phones; A118 server-side revocation in production with the on-device residue re-check not yet run; A119 closed (debug build only); first-round fixes updated with A112's 2026-09-27 retest outcomes (A80 Partially fixed). Follow-ups A123, A129 and A138 noted. Reworded the testing description as an internal security assessment performed by AURIQ LTD; and sub-steps that could not be run (no Mac, rooted device or instrumentation) are carried as not tested. WP12 recorded as a Claude-only review, the Codex half dropped (Kevin decision, 2026-10-04), review pending. |
+| 1.17 | 2026-10-04 | A60: §3b brought in line with the v1.0 candidate of the internal security test report (`docs/security/reports/internal-security-test-report-2026-09.md`). Recorded the 2026-10-04 on-device retest (`docs/security/pentest-runs/A60-2026-10-04/`): A120, A121 and A122 fixed, in production since `release-20261001-2038` and retested on both phones; A118 server-side revocation in production with the on-device residue re-check not yet run; A119 closed (debug build only); first-round fixes updated with A112's 2026-09-27 retest outcomes (A80 Partially fixed). Follow-ups A123, A129 and A138 noted. Reworded the testing description as an internal security assessment performed by AURIQ LTD. Sub-steps that could not be run (no Mac, rooted device or instrumentation) are carried as not tested. WP12 recorded as a Claude-only review, the Codex half dropped (Kevin decision, 2026-10-04), review pending. |
