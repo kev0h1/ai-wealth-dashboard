@@ -54,7 +54,7 @@ export function signingCopy(p: SigningPhase, nowMs: number) {
 
 export function failedCopy(reason: "failed" | "timeout") {
   return reason === "timeout"
-    ? { title: "Sign-in timed out", line: "We waited five minutes without hearing back. Try again below." }
+    ? { title: "Sign-in took too long", line: "We did not hear back in time. Try again below." }
     : { title: "We could not sign you in", line: "The sign-in did not finish. Try again below." };
 }
 
@@ -71,4 +71,15 @@ export function derivePhase(local: LoginPhase, resuming?: ResumingLogin | null):
   if (!resuming) return local;
   if (resuming.ended) return { kind: "failed", reason: resuming.ended };
   return { kind: "signing-in", attempt: "resume", stage: resuming.stage, startedAt: resuming.startedAt };
+}
+
+// G202: run-id guard. Each sign-in attempt takes an id; a result that arrives
+// for a cancelled or superseded attempt must not touch the phase.
+export function createRunGuard() {
+  let current = 0;
+  return {
+    next: () => ++current,
+    cancel: () => { current++; },
+    isCurrent: (id: number) => id === current,
+  };
 }

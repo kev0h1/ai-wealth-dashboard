@@ -5,7 +5,7 @@ import { API_BASE } from "@/lib/api";
 import { isNativePlatform, isIOSNative, nativeGoogleLogin, nativeAppleLogin, cancelNativeLogin } from "@/lib/nativeAuth";
 import { BUILD_TAG } from "@/lib/buildTag";
 import { AGENT_DISCLOSURE } from "@/lib/regulatoryCopy";
-import { derivePhase, type LoginPhase, type ResumingLogin } from "@/lib/signInPhase";
+import { createRunGuard, derivePhase, type LoginPhase, type ResumingLogin } from "@/lib/signInPhase";
 import { FailedNotice, SigningInPanel, UnreachablePanel } from "@/components/SignInProgress";
 
 export type { LoginPhase, ResumingLogin } from "@/lib/signInPhase";
@@ -58,7 +58,7 @@ export default function LoginScreen({ error, onSignedIn, resuming, onCancelResum
   const [noticeSeq, setNoticeSeq] = useState(0);
   // Each attempt gets a run id; a result for a cancelled or superseded run is
   // ignored. The controller aborts an in-flight session check on Cancel.
-  const runRef = useRef(0);
+  const runRef = useRef(createRunGuard());
   const sessionAbortRef = useRef<AbortController | null>(null);
   const lastAttemptRef = useRef<"google" | "apple">("google");
   const phase = phaseOverride ?? derivePhase(local, resuming);
@@ -82,19 +82,19 @@ export default function LoginScreen({ error, onSignedIn, resuming, onCancelResum
     } finally {
       if (sessionAbortRef.current === ctrl) sessionAbortRef.current = null;
     }
-    if (run !== runRef.current) return; // cancelled while checking
+    if (!runRef.current.isCurrent(run)) return; // cancelled while checking
     if (outcome === "unreachable") setLocal({ kind: "unreachable" }); // token kept; tap retries
     else if (outcome === "rejected") fail("failed");
     // "ok": AuthProvider has set the user and replaces this screen.
   }
 
   async function runNative(attempt: "google" | "apple") {
-    const run = ++runRef.current;
+    const run = runRef.current.next();
     const startedAt = Date.now();
     lastAttemptRef.current = attempt;
     setLocal({ kind: "signing-in", attempt, stage: "provider", startedAt });
     const result = attempt === "google" ? await nativeGoogleLogin() : await nativeAppleLogin();
-    if (run !== runRef.current) return; // cancelled
+    if (!runRef.current.isCurrent(run)) return; // cancelled
     if (result === "ok") await establish(run, attempt, startedAt);
     else if (result === "invite_only") {
       setNativeInviteOnly(true);
@@ -104,14 +104,14 @@ export default function LoginScreen({ error, onSignedIn, resuming, onCancelResum
   }
 
   function retrySessionCheck() {
-    const run = ++runRef.current;
+    const run = runRef.current.next();
     void establish(run, lastAttemptRef.current, Date.now());
   }
 
   // Cancel: stop the loop (or the Apple exchange), clear the pending login,
   // abort the session check, and return to the idle form.
   function cancelSignIn() {
-    runRef.current++;
+    runRef.current.cancel();
     sessionAbortRef.current?.abort();
     cancelNativeLogin();
     setLocal({ kind: "idle" });
@@ -120,7 +120,7 @@ export default function LoginScreen({ error, onSignedIn, resuming, onCancelResum
 
   function dismissPhase() {
     // "Use a different account" on the unreachable panel.
-    runRef.current++;
+    runRef.current.cancel();
     setLocal({ kind: "idle" });
     onCancelResume?.();
   }
