@@ -89,9 +89,9 @@ await t("a Browser.close() that never settles does not strand the caller", async
   assert.equal(await runMobileLoginLoop(deps), "ok");
 });
 
-await t("overall timeout resolves failed and clears the interval", async () => {
+await t("overall timeout resolves timeout (G202: told apart from failed) and clears the interval", async () => {
   const { h, deps } = harness(() => "pending", { timeoutMs: 60 });
-  assert.equal(await runMobileLoginLoop(deps), "failed");
+  assert.equal(await runMobileLoginLoop(deps), "timeout");
   const polls = h.polls;
   await sleep(60);
   assert.equal(h.polls, polls);
@@ -111,7 +111,7 @@ await t("source: nativeGoogleLogin uses the loop, a bounded POST fetch, and the 
   const src = read("lib/nativeAuth.ts");
   assert.ok(src.includes("runMobileLoginLoop("));
   assert.ok(src.includes("AbortController"), "poll fetch is bounded");
-  assert.ok(src.includes("createSharedPoller({ post: postPoll, applyToken: setTokenAsync })"));
+  assert.ok(/createSharedPoller\(\{\s*post: postPoll,[\s\S]*?setTokenAsync\(t\)/.test(src));
   assert.ok(src.includes('App.addListener("appUrlOpen", ({ url }) => h.onUrlOpen(url))'));
   assert.ok(/method: "POST"/.test(src) && src.includes("/auth/mobile/poll`"));
 });
@@ -271,13 +271,13 @@ await t("source (A135): native sign-in transitions in place, no page reload, via
   const ls = read("lib/../components/LoginScreen.tsx");
   const g = ls.slice(ls.indexOf("async function handleGoogleClick"), ls.indexOf("const isInviteOnly"));
   assert.ok(!/location\.reload/.test(g), "handlers must not reload after native login");
-  assert.equal((g.match(/await finishNativeSignIn\(\)/g) || []).length, 2, "google and apple both use it");
-  const f = ls.slice(ls.indexOf("async function finishNativeSignIn"), ls.indexOf("async function handleGoogleClick"));
-  assert.ok(f.includes("await onSignedIn()"));
+  assert.equal((g.match(/await runNative\("(google|apple)"\)/g) || []).length, 2, "google and apple both use the one runNative path");
+  const f = ls.slice(ls.indexOf("async function establish("), ls.indexOf("async function runNative"));
+  assert.ok(f.includes("await onSignedIn(ctrl.signal)"));
   // the only remaining reload is the explicit fallback for hosts without the callback
   assert.ok(/if \(!onSignedIn\) \{\s*window\.location\.reload\(\);/.test(f));
   const ap = read("components/AuthProvider.tsx");
-  assert.ok(ap.includes("<LoginScreen error={authError} onSignedIn={establishSession} />"));
+  assert.ok(ap.includes("<LoginScreen error={authError} onSignedIn={establishSession} resuming={resuming} onCancelResume={cancelResume} />"));
   const e = ap.slice(ap.indexOf("async function establishSession"), ap.indexOf("useEffect(() => {\n    async function init"));
   assert.ok(e.includes("getToken()") && e.includes("/auth/session/validate") && e.includes("setUser(") && e.includes("resetUnauthorizedGate()") && e.includes("invalidateAllAccountData()"));
   assert.ok(!/location\.reload/.test(e));
@@ -299,16 +299,157 @@ await t("source (A135 review 2): establishSession retries a transient failure on
   const ap = read("components/AuthProvider.tsx");
   const e = ap.slice(ap.indexOf("async function establishSession"), ap.indexOf("useEffect(() => {\n    async function init"));
   const top = e.slice(0, e.indexOf("async function validateOnce"));
-  assert.equal((top.match(/validateOnce\(\)/g) || []).length, 2, "exactly one retry, no loop");
-  assert.ok(/if \(outcome === "unreachable"\) \{[\s\S]*SESSION_RETRY_DELAY_MS[\s\S]*outcome = await validateOnce\(\);/.test(top));
+  assert.equal((top.match(/await validateOnce\(signal\)/g) || []).length, 2, "exactly one retry, no loop");
+  assert.ok(/if \(outcome === "unreachable"\) \{[\s\S]*SESSION_RETRY_DELAY_MS[\s\S]*outcome = await validateOnce\(signal\);/.test(top));
   assert.ok(!/while|for \(/.test(top), "no loop");
   assert.ok(!/clearToken/.test(top), "the retry path does not clear the token");
   assert.ok(/SESSION_RETRY_DELAY_MS = 1500/.test(ap));
   const ls = read("components/LoginScreen.tsx");
-  assert.ok(ls.includes("Signed in, but we could not reach Sorted. Tap to try again."));
-  assert.ok(/outcome === "unreachable"\) setUnreachable\(true\)/.test(ls));
-  assert.ok(/onClick=\{\(\) => \{ void finishNativeSignIn\(\); \}\}/.test(ls), "tap re-runs establishSession");
-  assert.ok(!/signOut|clearToken/.test(ls));
+  assert.ok(read("lib/signInPhase.ts").includes("we could not reach Sorted. Your sign-in is kept, so you can try again.") && ls.includes("<UnreachablePanel"));
+  assert.ok(/outcome === "unreachable"\) setLocal\(\{ kind: "unreachable" \}\)/.test(ls));
+  assert.ok(/onRetry=\{retrySessionCheck\}/.test(ls) && /void establish\(run, lastAttemptRef\.current/.test(ls), "tap re-runs establishSession");
+  assert.ok(!/signOut|clearToken\(/.test(ls));
+});
+
+// ------------------------------------------------------------------ G202
+import { SLOW_AFTER_MS, derivePhase, failedCopy, signingCopy } from "../lib/signInPhase.ts";
+import { boundedSignal } from "../lib/abortBound.ts";
+
+const lsSrc = read("components/LoginScreen.tsx");
+const apSrc = read("components/AuthProvider.tsx");
+const spSrc = read("components/SignInProgress.tsx");
+const naSrc = read("lib/nativeAuth.ts");
+const between = (src, a, b) => src.slice(src.indexOf(a), src.indexOf(b, src.indexOf(a)));
+
+await t("G202 phase: set on the tap, cleared on every exit (ok, rejected, unreachable, cancel, failure, timeout)", () => {
+  const run = between(lsSrc, "async function runNative", "function retrySessionCheck");
+  assert.ok(/setLocal\(\{ kind: "signing-in", attempt, stage: "provider", startedAt \}\)/.test(run), "set on tap with startedAt");
+  assert.ok(/const startedAt = Date\.now\(\)/.test(run));
+  assert.ok(/result === "invite_only"[\s\S]*setLocal\(\{ kind: "idle" \}\)/.test(run), "invite_only returns to idle");
+  assert.ok(/result === "cancelled"\) setLocal\(\{ kind: "idle" \}\)/.test(run), "cancelled returns to idle");
+  assert.ok(/fail\(result === "timeout" \? "timeout" : "failed"\)/.test(run), "failure and timeout leave signing-in");
+  const est = between(lsSrc, "async function establish(", "async function runNative");
+  assert.ok(/outcome === "unreachable"\) setLocal\(\{ kind: "unreachable" \}\)/.test(est));
+  assert.ok(/outcome === "rejected"\) fail\("failed"\)/.test(est));
+  assert.ok(/function fail\([^)]*\) \{[\s\S]*setLocal\(\{ kind: "failed", reason \}\)/.test(lsSrc));
+  const cancel = between(lsSrc, "function cancelSignIn", "function dismissPhase");
+  assert.ok(/setLocal\(\{ kind: "idle" \}\)/.test(cancel));
+  assert.ok(!/useState\(false\);\s*\n\s*async function finishNativeSignIn/.test(lsSrc));
+  assert.ok(!/const \[unreachable, setUnreachable\]/.test(lsSrc), "no separate unreachable boolean, one phase source");
+});
+
+await t("G202: LoginScreen has no alert( at all", () => {
+  assert.ok(!/\balert\(/.test(lsSrc), "window.alert is gone");
+  assert.ok(!/window\.alert/.test(lsSrc));
+});
+
+await t("G202: failure notice is role=alert and takes focus (and replaces the alert)", () => {
+  const fn = between(spSrc, "export function FailedNotice", "export function UnreachablePanel");
+  assert.ok(/role="alert"/.test(fn));
+  assert.ok(/tabIndex=\{-1\}/.test(fn) && /ref\.current\?\.focus\(\)/.test(fn));
+  assert.ok(/<FailedNotice key=\{noticeSeq\} reason=\{phase\.reason\} \/>/.test(lsSrc), "rendered from the phase, remounted per failure");
+  assert.equal(failedCopy("failed").title, "We could not sign you in");
+  assert.equal(failedCopy("timeout").title, "Sign-in timed out");
+  assert.notEqual(failedCopy("failed").line, failedCopy("timeout").line);
+});
+
+await t("G202 cancel: aborting the loop stops polling, closes the sheet, removes listeners and resolves cancelled", async () => {
+  const { h, deps } = harness(() => "pending");
+  const ctrl = new AbortController();
+  const p = runMobileLoginLoop(deps, ctrl.signal);
+  await sleep(50);
+  ctrl.abort();
+  assert.equal(await p, "cancelled");
+  const polls = h.polls;
+  assert.equal(h.closes, 1);
+  assert.equal(h.removed, 3);
+  await sleep(80);
+  assert.equal(h.polls, polls, "no more polls after cancel");
+  const pre = new AbortController(); pre.abort();
+  assert.equal(await runMobileLoginLoop(harness(() => "pending").deps, pre.signal), "cancelled", "already aborted");
+});
+
+await t("G202 cancel: clears the pending login and a token that raced in; a poll in flight cannot store one", () => {
+  const c = between(naSrc, "export function cancelNativeLogin", "// D5: distinguishes");
+  assert.ok(/loginAbort\?\.abort\(\)/.test(c) && /clearPendingLogin\(\)/.test(c) && /clearToken\(\)/.test(c) && /applySuppressed = true/.test(c));
+  assert.ok(/applySuppressed \? Promise\.resolve\(\) : setTokenAsync\(t\)/.test(naSrc));
+  const g = between(naSrc, "async function googleLoginInner", "// A133 / A135");
+  assert.ok(/runMobileLoginLoop\(loopDeps\(pending\), signal\)/.test(g), "the live loop gets the abort signal");
+  assert.ok(/signal\.aborted\) \{[\s\S]*clearPendingLogin\(\);[\s\S]*return "cancelled"/.test(g), "cancel during open");
+  assert.ok(/cancelNativeLogin\(\)/.test(between(lsSrc, "function cancelSignIn", "function dismissPhase")), "Cancel calls it");
+});
+
+await t("G202 cancel (behavioural): the shared poller never applies a token after cancel, and the record is gone", async () => {
+  const stores = [memStore()];
+  const p = newPendingLogin();
+  savePendingLogin(p, stores);
+  let suppressed = false, applied = 0, release;
+  const poll = createSharedPoller({
+    post: () => new Promise((r) => { release = () => r({ status: "token", token: "T" }); }),
+    applyToken: async () => { if (!suppressed) applied++; },
+    clear: () => clearPendingLogin(stores),
+  });
+  const ctrl = new AbortController();
+  const done = runMobileLoginLoop(harness(() => poll(p)).deps, ctrl.signal);
+  await sleep(30);
+  suppressed = true; ctrl.abort(); clearPendingLogin(stores); // what cancelNativeLogin does
+  assert.equal(await done, "cancelled");
+  release();
+  await sleep(10);
+  assert.equal(applied, 0);
+  assert.equal(loadPendingLogin(Date.now(), stores), null);
+});
+
+await t("G202 resuming: AuthProvider passes the persisted pending login's startedAt, not a fresh clock", () => {
+  assert.ok(/const pendingAtStart = loadPendingLogin\(\)/.test(apSrc));
+  assert.ok(/setResuming\(\{ startedAt: pendingAtStart\.startedAt, stage: "provider" \}\)/.test(apSrc));
+  assert.ok(apSrc.includes("resuming={resuming}"));
+  const t0 = 5_000;
+  const ph = derivePhase({ kind: "idle" }, { startedAt: t0, stage: "provider" });
+  assert.deepEqual(ph, { kind: "signing-in", attempt: "resume", stage: "provider", startedAt: t0 });
+  assert.equal(signingCopy(ph, t0 + 25_000).title, "Still signing you in", "the clock survives the kill");
+  assert.deepEqual(derivePhase({ kind: "idle" }, { startedAt: t0, stage: "session", ended: "timeout" }), { kind: "failed", reason: "timeout" });
+  const local = { kind: "failed", reason: "failed" };
+  assert.equal(derivePhase(local, { startedAt: t0, stage: "provider" }), local, "a local phase always wins");
+  assert.ok(/if \(resuming\) return <LoginScreen/.test(apSrc), "no blank slate while resuming");
+});
+
+await t("G202 validateOnce is bounded: the signal aborts after the bound, on outer abort, and dispose stops the timer", async () => {
+  assert.ok(/VALIDATE_TIMEOUT_MS = 15_000/.test(apSrc));
+  const v = between(apSrc, "async function validateOnce", "useEffect(() => {\n    async function init");
+  assert.ok(/boundedSignal\(VALIDATE_TIMEOUT_MS, signal\)/.test(v) && /signal: bound\.signal/.test(v) && /bound\.dispose\(\)/.test(v));
+  assert.ok(/bound\.signal\.aborted\) return "unreachable"/.test(v), "an aborted check never signs in");
+  const a = boundedSignal(30);
+  assert.equal(a.signal.aborted, false);
+  await sleep(60);
+  assert.equal(a.signal.aborted, true, "aborts after the bound");
+  const outer = new AbortController();
+  const b = boundedSignal(10_000, outer.signal);
+  outer.abort();
+  assert.equal(b.signal.aborted, true, "outer abort propagates");
+  b.dispose();
+  const c = boundedSignal(30);
+  c.dispose();
+  await sleep(60);
+  assert.equal(c.signal.aborted, false, "dispose clears the timer");
+});
+
+await t("G202: 'Still signing you in' appears at 20s and not before, and the panel uses it", () => {
+  assert.equal(SLOW_AFTER_MS, 20_000);
+  const ph = { kind: "signing-in", attempt: "google", stage: "provider", startedAt: 0 };
+  assert.equal(signingCopy(ph, 19_999).title, "Signing you in");
+  const slow = signingCopy(ph, 20_000);
+  assert.equal(slow.title, "Still signing you in");
+  assert.ok(slow.line.includes("taking longer than usual"));
+  assert.equal(signingCopy({ ...ph, stage: "session" }, 0).line, "Checking your session.");
+  assert.ok(/signingCopy\(phase, now\)/.test(spSrc));
+});
+
+await t("G202: the preview renders the production LoginScreen, with no copied variants", () => {
+  const pv = read("app/design/signin-loading/SigninLoadingClient.tsx");
+  assert.ok(/import LoginScreen/.test(pv) && /<LoginScreen phase=\{phase\} nowMs=\{nowMs\} \/>/.test(pv));
+  assert.ok(!/variants/.test(pv) && !/renderPhase/.test(pv));
+  assert.ok(!/renderPhase|hideMarkWhileSigningIn/.test(lsSrc));
 });
 
 if (failures) { console.error(failures + " failed"); process.exit(1); }
