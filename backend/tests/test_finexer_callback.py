@@ -174,3 +174,11 @@ def test_native_error_renders_handoff_page(monkeypatch):
     assert result.status_code == 200
     assert b"wealthdash://auth-complete?provider=finexer&connection=cst_test_1&status=error" in result.body
     assert result.headers["Content-Security-Policy"].startswith("default-src 'none'")
+
+
+def test_non_native_redirect_quotes_consent_id(monkeypatch):
+    doc = _base_doc()
+    doc["_id"] = "cst a&b"
+    _setup(monkeypatch, doc, [])
+    result = asyncio.run(finexer_module.finexer_callback(fx_consent="cst a&b", state="the-real-state-value"))
+    assert result.headers["location"].endswith("connection=cst%20a%26b")

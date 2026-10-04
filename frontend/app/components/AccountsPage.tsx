@@ -2778,7 +2778,7 @@ export default function AccountsPage() {
 
           {isSyncing && syncTimedOut && (
             <div className="mx-4 mt-4 flex items-center gap-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-2xl px-4 py-3">
-              <p className="flex-1 text-sm text-amber-800 dark:text-amber-200">Your bank is still syncing. Pull down or check back in a moment.</p>
+              <p className="flex-1 text-sm text-amber-800 dark:text-amber-200">Your bank is still syncing. Check back in a moment.</p>
               <button onClick={() => { setSyncTimedOut(false); setSyncPollKey(k => k + 1); }} className="min-h-[44px] px-3 text-sm font-semibold text-amber-800 dark:text-amber-200">Retry</button>
             </div>
           )}

@@ -3,6 +3,7 @@ import asyncio
 import hmac
 import secrets
 import time
+from urllib.parse import quote as _urlquote
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -154,5 +155,5 @@ async def finexer_callback(
 
     if doc.get("native"):
         return _bank_page(True, "finexer", consent_id, auto_return=True)
-    return RedirectResponse(f"{APP_URL}/accounts?syncing=1&connection={consent_id}", status_code=303)
+    return RedirectResponse(f"{APP_URL}/accounts?syncing=1&connection={_urlquote(consent_id, safe='')}", status_code=303)
 
