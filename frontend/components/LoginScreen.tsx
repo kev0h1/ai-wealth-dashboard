@@ -1,13 +1,37 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { API_BASE } from "@/lib/api";
 import { isNativePlatform, isIOSNative, nativeGoogleLogin, nativeAppleLogin } from "@/lib/nativeAuth";
 import { BUILD_TAG } from "@/lib/buildTag";
 import { AGENT_DISCLOSURE } from "@/lib/regulatoryCopy";
 
+// G202 (design round, preview only): the phases a native sign-in passes
+// through that the screen can speak. Production does not pass any of the
+// three props below yet (AuthProvider and the oauth consent page render
+// LoginScreen exactly as before); /design/signin-loading drives them with
+// fixtures so the candidate "signing you in" states render on this very shell.
+// Wiring a picked variant into the real flow is a follow-up (see
+// docs/design/G202-signin-states.md).
+export type LoginPhase =
+  | { kind: "signing-in"; attempt: "google" | "apple" | "resume"; stage: "provider" | "session"; elapsedMs: number }
+  | { kind: "failed"; reason: "failed" | "timeout" }
+  | { kind: "unreachable" };
+
+export interface LoginPhaseSlots {
+  // The real sign-in buttons, so a variant can hold or dim them in place.
+  form: ReactNode;
+}
+
 interface LoginScreenProps {
   error?: string | null;
+  phase?: LoginPhase;
+  // Renders the phase. "signing-in" and "unreachable" replace the card
+  // contents; "failed" is a notice shown above the real form.
+  renderPhase?: (phase: LoginPhase, slots: LoginPhaseSlots) => ReactNode;
+  // Hides the brand mark above the title while signing in (a variant that
+  // moves the mark into the card).
+  hideMarkWhileSigningIn?: boolean;
   // A135: AuthProvider's in-place session establishment. When given, a native
   // sign-in transitions without a page reload (a reload discards a token that
   // only lives in memory). Hosts without it (oauth consent, app-only shell)
@@ -15,7 +39,7 @@ interface LoginScreenProps {
   onSignedIn?: () => Promise<"ok" | "rejected" | "unreachable">;
 }
 
-export default function LoginScreen({ error, onSignedIn }: LoginScreenProps) {
+export default function LoginScreen({ error, onSignedIn, phase, renderPhase, hideMarkWhileSigningIn }: LoginScreenProps) {
   // Starts false on both server and client so hydration matches (Capacitor
   // doesn't exist during the export build), then flips true post-mount if
   // we're actually running inside the iOS native shell.
@@ -104,49 +128,12 @@ export default function LoginScreen({ error, onSignedIn }: LoginScreenProps) {
     );
   }
 
-  return (
-    <div className="min-h-dvh flex items-center justify-center px-6">
-      <div className="w-full max-w-sm">
-        {/* Logo / branding */}
-        <div className="text-center mb-10">
-          {/* Canonical "settle" mark (dark navy tile, purple stacked bars) —
-              generated from capacitor-spike/assets/icon.png and already
-              deployed as the web favicon/app-icon set at /icons/icon-192.png. */}
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl shadow-lg mb-5 overflow-hidden">
-            {/* Plain <img>, not next/image: the mobile Capacitor build is a
-                static export (output: 'export') without images.unoptimized
-                set, so next/image would emit a /_next/image?url=... optimizer
-                URL that 404s in the exported bundle. A 192px static icon
-                doesn't need runtime optimization anyway. */}
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/icons/icon-192.png" alt="Sorted" width={64} height={64} className="w-full h-full object-cover" />
-          </div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 tracking-tight">Sorted</h1>
-          <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">See where your money stands.</p>
-        </div>
+  const replaceCard = phase?.kind === "signing-in" || phase?.kind === "unreachable";
+  const slotted = !!(replaceCard && phase && renderPhase);
+  const hideMark = !!hideMarkWhileSigningIn && phase?.kind === "signing-in" && !!renderPhase;
 
-        {/* Card */}
-        <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-sm p-8">
-          <p className="text-sm text-slate-600 dark:text-slate-300 text-center mb-6 leading-relaxed">
-            Sign in with your Google account to access your dashboard.
-          </p>
-
-          {unreachable && (
-            <button
-              type="button"
-              onClick={() => { void finishNativeSignIn(); }}
-              className="mb-5 w-full px-4 py-3 rounded-xl bg-slate-100 dark:bg-slate-700 text-sm text-slate-700 dark:text-slate-100 text-center active:scale-95 transition"
-            >
-              Signed in, but we could not reach Sorted. Tap to try again.
-            </button>
-          )}
-
-          {error && error !== "invite_only" && (
-            <div className="mb-5 px-4 py-3 rounded-xl bg-red-50 border border-red-100">
-              <p className="text-sm text-red-600 text-center">{error}</p>
-            </div>
-          )}
-
+  const signInButtons = (
+    <>
           <a
             href={`${API_BASE}/auth/google`}
             onClick={handleGoogleClick}
@@ -171,6 +158,62 @@ export default function LoginScreen({ error, onSignedIn }: LoginScreenProps) {
               </svg>
               Continue with Apple
             </button>
+          )}
+    </>
+  );
+
+  return (
+    <div className="min-h-dvh flex items-center justify-center px-6">
+      <div className="w-full max-w-sm">
+        {/* Logo / branding */}
+        <div className="text-center mb-10">
+          {/* Canonical "settle" mark (dark navy tile, purple stacked bars) —
+              generated from capacitor-spike/assets/icon.png and already
+              deployed as the web favicon/app-icon set at /icons/icon-192.png. */}
+          {!hideMark && (
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl shadow-lg mb-5 overflow-hidden">
+            {/* Plain <img>, not next/image: the mobile Capacitor build is a
+                static export (output: 'export') without images.unoptimized
+                set, so next/image would emit a /_next/image?url=... optimizer
+                URL that 404s in the exported bundle. A 192px static icon
+                doesn't need runtime optimization anyway. */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/icons/icon-192.png" alt="Sorted" width={64} height={64} className="w-full h-full object-cover" />
+          </div>
+          )}
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 tracking-tight">Sorted</h1>
+          <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">See where your money stands.</p>
+        </div>
+
+        {/* Card */}
+        <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-sm p-8">
+          {!slotted && (
+            <p className="text-sm text-slate-600 dark:text-slate-300 text-center mb-6 leading-relaxed">
+              Sign in with your Google account to access your dashboard.
+            </p>
+          )}
+
+          {unreachable && !slotted && (
+            <button
+              type="button"
+              onClick={() => { void finishNativeSignIn(); }}
+              className="mb-5 w-full px-4 py-3 rounded-xl bg-slate-100 dark:bg-slate-700 text-sm text-slate-700 dark:text-slate-100 text-center active:scale-95 transition"
+            >
+              Signed in, but we could not reach Sorted. Tap to try again.
+            </button>
+          )}
+
+          {error && error !== "invite_only" && (
+            <div className="mb-5 px-4 py-3 rounded-xl bg-red-50 border border-red-100">
+              <p className="text-sm text-red-600 text-center">{error}</p>
+            </div>
+          )}
+
+          {slotted && phase && renderPhase ? renderPhase(phase, { form: signInButtons }) : (
+            <>
+              {phase?.kind === "failed" && renderPhase ? renderPhase(phase, { form: signInButtons }) : null}
+              {signInButtons}
+            </>
           )}
         </div>
 
