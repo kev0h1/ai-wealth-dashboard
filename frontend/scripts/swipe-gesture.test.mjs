@@ -204,5 +204,63 @@ for (const f of ["SwipeToDelete.tsx", "upcoming/SwipeDismissRow.tsx"]) {
   check(`${f} handles touchcancel`, /onTouchCancel=\{onTouchCancel\}/.test(src));
 }
 
+// G205: swipe-down on sheets (axis y, sign 1, canStart gate, companion fade).
+import { canStartSheetSwipe, sheetSwipeAllowed, shouldBlockPan } from "../lib/sheetSwipe.ts";
+{
+  const node = (name, parent = null, extra = {}) => ({ name, parentElement: parent, ...extra });
+  const panel = node("panel");
+  const handle = node("handle", panel);
+  const header = node("header", panel);
+  const title = node("title", header);
+  const body = node("body", panel, { scrollTop: 0, scrollHeight: 900, clientHeight: 400 });
+  const row = node("row", body);
+  const footer = node("footer", panel);
+  const parts = { handle, header, body };
+  const oy = () => "auto";
+  check("sheet gate: handle always starts", canStartSheetSwipe(handle, parts, oy));
+  check("sheet gate: header starts even when body is scrolled", (body.scrollTop = 300, canStartSheetSwipe(title, parts, oy)));
+  check("sheet gate: mid-scrolled body never starts", !canStartSheetSwipe(row, parts, oy));
+  body.scrollTop = 0;
+  check("sheet gate: body at scrollTop 0 starts", canStartSheetSwipe(row, parts, oy));
+  const inner = node("inner", body, { scrollTop: 40, scrollHeight: 500, clientHeight: 100 });
+  check("sheet gate: nested scroller mid-scroll blocks", !canStartSheetSwipe(node("x", inner), parts, oy));
+  check("sheet gate: footer never starts", !canStartSheetSwipe(footer, parts, oy));
+  check("sheet gate: text input never starts", !canStartSheetSwipe(node("input", body, { tagName: "INPUT" }), parts, oy));
+  check("sheet gate: data-no-sheet-swipe opts out", !canStartSheetSwipe(node("k", body, { hasAttribute: n => n === "data-no-sheet-swipe" }), parts, oy));
+  check("sheet gate: desktop and mouse excluded", !sheetSwipeAllowed("touch", 1280) && !sheetSwipeAllowed("mouse", 390) && sheetSwipeAllowed("touch", 390) && sheetSwipeAllowed("pen", 390));
+
+  const r = rig({ axis: "y", sign: 1, dismissFraction: 0.2, flickVelocity: 0.4, fade: false, canStart: e => e.target === r.el });
+  const backdrop = { style: { opacity: "", transition: "" } };
+  const r2 = rig({ axis: "y", sign: 1, dismissFraction: 0.2, flickVelocity: 0.4, fade: false, companion: () => backdrop });
+  r2.c.onPointerDown(r2.ev(1, 100, 100)); r2.c.onPointerMove(r2.ev(1, 100, 110)); r2.c.onPointerMove(r2.ev(1, 100, 160));
+  check("sheet: follows the finger down, panel stays opaque", r2.el.style.transform === "translateY(60px)" && r2.el.style.opacity === "");
+  check("sheet: backdrop fades with progress", Number(backdrop.style.opacity) < 1 && Number(backdrop.style.opacity) > 0);
+  r2.c.onPointerMove(r2.ev(1, 100, 130));
+  r2.tick(300); r2.c.onPointerUp(r2.ev(1, 100, 130));
+  check("sheet: short slow drag springs back", r2.el.style.transform === "translateY(0px)" && backdrop.style.opacity === "1" && r2.dismissed === 0);
+  const r3 = rig({ axis: "y", sign: 1, dismissFraction: 0.2, flickVelocity: 0.4, fade: false });
+  r3.c.onPointerDown(r3.ev(1, 100, 100)); r3.c.onPointerMove(r3.ev(1, 100, 110)); r3.c.onPointerMove(r3.ev(1, 100, 150));
+  check("sheet: gestureActive while locked", r3.c.gestureActive() === true);
+  r3.tick(300); r3.c.onPointerUp(r3.ev(1, 100, 150));
+  check("sheet: past 20 percent of height dismisses (translate off-screen)", r3.el.style.transform === "translateY(220px)");
+  r3.c.dispose();
+  const gate = rig({ axis: "y", sign: 1, canStart: () => false });
+  gate.c.onPointerDown(gate.ev(1, 100, 100)); gate.c.onPointerMove(gate.ev(1, 100, 110)); gate.c.onPointerMove(gate.ev(1, 100, 200));
+  check("sheet: canStart false means no drag at all", gate.el.style.transform === "" && gate.c.gestureActive() === false);
+  const up = rig({ axis: "y", sign: 1 });
+  up.c.onPointerDown(up.ev(1, 100, 300)); up.c.onPointerMove(up.ev(1, 100, 280)); up.c.onPointerMove(up.ev(1, 100, 200));
+  check("sheet: dragging up never moves the panel", up.el.style.transform === "" && up.c.gestureActive() === false);
+  check("sheet: pan blocked only while a drag is locked", shouldBlockPan(true, true) && !shouldBlockPan(true, false) && !shouldBlockPan(false, true));
+  { const f = readFileSync(new URL("../components/SheetFrame.tsx", import.meta.url), "utf8");
+    check("SheetFrame: preventDefault only behind shouldBlockPan(gestureActive)", (f.match(/preventDefault\(\)/g) ?? []).length === 1 && /if \(shouldBlockPan\(e\.cancelable, swipe\.gestureActive\(\)\)\) e\.preventDefault\(\)/.test(f)); }
+  { const h = readFileSync(new URL("../lib/useSwipeDismiss.ts", import.meta.url), "utf8");
+    check("useSwipeDismiss memoises its return", /return useMemo\(\(\) => \(\{ ref, handlers/.test(h)); }
+  r.c.dispose(); r2.c.dispose();
+}
+{
+  const frameSrc = readFileSync(new URL("../components/SheetFrame.tsx", import.meta.url), "utf8");
+  check("SheetFrame: swipe dismiss routes through close()", /useSwipeDismiss<HTMLElement>\(\(\) => close\(\)/.test(frameSrc));
+}
+
 if (failures) { console.error(`${failures} check(s) failed`); process.exit(1); }
 console.log("swipe-gesture: all checks passed");

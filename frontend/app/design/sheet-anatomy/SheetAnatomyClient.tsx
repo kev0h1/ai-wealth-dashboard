@@ -27,7 +27,7 @@ const EMPTY_FILTER: FilterDraft = { categories: [], merchant: "", from: null, to
 const CATEGORIES = ["Groceries", "Bills", "Eating out", "Travel", "Shopping", "Transport", "Health", "Subscriptions", "Other"];
 const button = "inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-3 text-sm font-semibold active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500";
 
-function fixtureGoal(state: string): SavingsInsights {
+export function fixtureGoal(state: string): SavingsInsights {
   if (state === "empty") return { ...BASE_GOAL, accounts: [], current_savings: 0, pct_funded: 0, months_funded: 0 };
   if (state !== "long") return BASE_GOAL;
   return { ...BASE_GOAL, accounts: [...BASE_GOAL.accounts, ...Array.from({ length: 12 }, (_, index) => ({
@@ -36,7 +36,7 @@ function fixtureGoal(state: string): SavingsInsights {
   }))] };
 }
 
-function GoalPreview({ variant, data, onChange, onClose, onResult, failFirstSave }: {
+export function GoalPreview({ variant, data, onChange, onClose, onResult, failFirstSave }: {
   variant: SheetFrameVariant; data: SavingsInsights; onChange: (data: SavingsInsights) => void;
   onClose: () => void; onResult: (text: string) => void; failFirstSave: boolean;
 }) {

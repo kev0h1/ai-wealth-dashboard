@@ -18,12 +18,17 @@ export function prefersReducedMotion(): boolean {
     : false;
 }
 
-export function useSwipeDismiss<T extends HTMLElement>(onDismiss: () => void, options: SwipeDismissOptions = {}) {
+export type SwipeDismissHookOptions = Omit<SwipeDismissOptions, "companion"> & {
+  /** G205: the sheet backdrop, faded with drag progress. */
+  companionRef?: React.RefObject<HTMLElement | null>;
+};
+
+export function useSwipeDismiss<T extends HTMLElement>(onDismiss: () => void, options: SwipeDismissHookOptions = {}) {
   const ref = useRef<T>(null);
   const onDismissRef = useRef(onDismiss);
   const canStartRef = useRef(options.canStart);
   useEffect(() => { onDismissRef.current = onDismiss; canStartRef.current = options.canStart; });
-  const { axis, sign, lockPx, dismissFraction, flickVelocity } = options;
+  const { axis, sign, lockPx, dismissFraction, flickVelocity, fade, restoreAfterMs, companionRef } = options;
 
   const controller = useMemo(
     () =>
@@ -31,22 +36,23 @@ export function useSwipeDismiss<T extends HTMLElement>(onDismiss: () => void, op
         getEl: () => ref.current as unknown as SwipeEl | null,
         onDismiss: () => onDismissRef.current(),
         options: {
-          axis, sign, lockPx, dismissFraction, flickVelocity,
+          axis, sign, lockPx, dismissFraction, flickVelocity, fade, restoreAfterMs,
+          companion: () => companionRef?.current ?? null,
           canStart: (e) => (canStartRef.current ? canStartRef.current(e) : true),
         },
         reducedMotion: prefersReducedMotion,
       }),
-    [axis, sign, lockPx, dismissFraction, flickVelocity],
+    [axis, sign, lockPx, dismissFraction, flickVelocity, fade, restoreAfterMs, companionRef],
   );
   useEffect(() => () => controller.dispose(), [controller]);
 
-  const handlers = {
+  const handlers = useMemo(() => ({
     onPointerDown: (e: React.PointerEvent<T>) => controller.onPointerDown(e),
     onPointerMove: (e: React.PointerEvent<T>) => controller.onPointerMove(e),
     onPointerUp: (e: React.PointerEvent<T>) => controller.onPointerUp(e),
     onPointerCancel: (e: React.PointerEvent<T>) => controller.onPointerCancel(e),
     onLostPointerCapture: (e: React.PointerEvent<T>) => controller.onLostPointerCapture(e),
-  };
+  }), [controller]);
 
-  return { ref, handlers };
+  return useMemo(() => ({ ref, handlers, gestureActive: () => controller.gestureActive() }), [ref, handlers, controller]);
 }

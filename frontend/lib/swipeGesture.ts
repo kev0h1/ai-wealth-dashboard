@@ -71,6 +71,7 @@ export function createSwipeGesture(options: SwipeOptions = {}) {
   let y0 = 0;
   let t0 = 0;
   let offset = 0;
+  let lastOffset = 0;
 
   function toAxes(x: number, y: number) {
     const dx = x - x0;
@@ -86,6 +87,10 @@ export function createSwipeGesture(options: SwipeOptions = {}) {
     },
     get offset() {
       return offset;
+    },
+    /** Offset at the moment end() ran (end() resets `offset` to 0). */
+    get lastOffset() {
+      return lastOffset;
     },
     start(x: number, y: number, t: number) {
       x0 = x;
@@ -123,6 +128,7 @@ export function createSwipeGesture(options: SwipeOptions = {}) {
         return { action: "none", animate };
       }
       const { main } = toAxes(x, y);
+      lastOffset = Math.max(0, main);
       const elapsed = t - t0;
       const velocity = elapsed > 0 ? Math.abs(main) / elapsed : 0;
       phase = "idle";
