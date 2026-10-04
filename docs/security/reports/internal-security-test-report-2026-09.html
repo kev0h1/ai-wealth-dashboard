@@ -171,12 +171,12 @@ li {
 </div>
 <div class="report-body">
 <h1>Sorted (Auriq Wealth): internal security test report, 2026-09</h1>
-<p><strong>Product:</strong> Sorted, by Auriq (the AI wealth dashboard, "ai-wealth-dashboard")
-<strong>Company:</strong> AURIQ LTD
-<strong>Report id:</strong> AURIQ-SEC-RPT-2026-09
-<strong>Version:</strong> 1.0 candidate
-<strong>Date:</strong> 2026-10-04
-<strong>Classification:</strong> Confidential, prepared for Finexer
+<p><strong>Product:</strong> Sorted, by Auriq (the AI wealth dashboard, "ai-wealth-dashboard")<br />
+<strong>Company:</strong> AURIQ LTD<br />
+<strong>Report id:</strong> AURIQ-SEC-RPT-2026-09<br />
+<strong>Version:</strong> 1.0 candidate<br />
+<strong>Date:</strong> 2026-10-04<br />
+<strong>Classification:</strong> Confidential, prepared for Finexer<br />
 <strong>Author:</strong> AURIQ LTD, Information Security Manager: Kevin Maingi</p>
 <hr />
 <h2>1. Summary</h2>
@@ -187,7 +187,7 @@ Top 10:2023, MASVS/MASTG 2.0.0, OAuth, MCP, and LLM security guidance.
 The report records executed tests, limitations, blockers, findings,
 severity, and retest status.</p>
 </blockquote>
-<p>That is the reporting statement for this assessment, following
+<p>That is the reporting statement for this assessment, adapted from
 <code>docs/security/PENTEST-METHODOLOGY.md</code> section 11. Section 11 also says the
 assessment is complete, and that statement final, only once a separate
 reviewer has signed the coverage matrix and findings. That review is
@@ -211,8 +211,9 @@ five are now in production.</p>
   (<code>docs/security/pentest-runs/A60-2026-10-04/</code>): Pass.</li>
 </ul>
 <p>The eleven first-round Medium and Low fixes (A74, A76, A80, A85, A86, A88,
-A89, A90, A92, A93, A95) shipped to production on 2026-09-27
-(<code>release-20260927-1844</code>) and were retested by A112: ten were confirmed
+A89, A90, A92, A93, A95) in production from
+<code>release-20260927-0947</code> (2026-09-27) and were retested by A112 on the
+<code>release-20260927-1844</code> build: ten were confirmed
 Fixed (A74 and A90 on UAT, since the connector is not registered on
 production), and A80 was recorded Partially fixed, because the environment
 variable that enables its spend ceiling was unset on both production
@@ -242,10 +243,10 @@ item F1), which remains open.</p>
 without a Mac or a rooted device (WP7b and WP8 ran live on real devices on
 2026-09-27, and the fixes were retested on device on 2026-10-04; see
 section 4). The WP12 cross-model review is a recorded deviation: the Codex
-half was dropped by Kevin's decision of 2026-10-04, and only a Claude
-reviewer's audit remains, pending (section 4 and section 10). Every
+half was dropped by Kevin's decision of 2026-10-04, and only the audit by a separate Claude
+reviewer agent remains, pending (section 4 and section 10). Every
 severity in this report is therefore the judgement of the testing sessions
-and Kevin's sign-off, with a Claude reviewer's audit still to come.</p>
+and Kevin's sign-off, with the audit by a separate Claude reviewer agent still to come.</p>
 <hr />
 <h2>2. Scope, environments and rules of engagement</h2>
 <p><strong>What was tested.</strong> The web shell (Vercel), the REST API (Railway), the
@@ -435,8 +436,8 @@ record carry the full detail.</p>
 <td><code>A51-2026-09-20</code></td>
 <td>A51</td>
 <td>2026-09-20, 20:40-21:21Z</td>
-<td>7</td>
 <td>6</td>
+<td>5</td>
 <td>1</td>
 <td>0</td>
 <td>0</td>
@@ -507,12 +508,12 @@ record carry the full detail.</p>
 <td><code>A57-2026-09-20</code></td>
 <td>A57</td>
 <td>2026-09-20, 21:38-21:46Z</td>
-<td>10</td>
+<td>12</td>
 <td>5</td>
 <td>2</td>
 <td>2</td>
-<td>1</td>
 <td>0</td>
+<td>3</td>
 </tr>
 <tr>
 <td>WP10: Stripe fail-closed boundary</td>
@@ -555,15 +556,29 @@ record carry the full detail.</p>
 <td></td>
 <td></td>
 <td></td>
-<td><strong>89</strong></td>
-<td><strong>55</strong></td>
+<td><strong>90</strong></td>
+<td><strong>54</strong></td>
 <td><strong>27</strong></td>
 <td><strong>5</strong></td>
-<td><strong>2</strong></td>
-<td><strong>0</strong></td>
+<td><strong>1</strong></td>
+<td><strong>3</strong></td>
 </tr>
 </tbody>
 </table>
+<p><strong>WP4 note.</strong> <code>A51-2026-09-20</code> also records a mandatory <code>IDENTITY-GATE</code>
+assertion (added after incident A78). It is a pre-run check, not a catalogue
+case, so it is not counted: WP4 is six catalogue cases (<code>API-06</code>, <code>API-07</code>,
+<code>API-08</code>, <code>API-10</code>, <code>API-13</code>, <code>API-14</code>; five Pass, one Fail).</p>
+<p><strong>WP9 note.</strong> WP9 is twelve cases (<code>FIN-01</code> to <code>FIN-06</code>, <code>TL-01</code> to <code>TL-06</code>).
+<code>TL-01</code>, <code>TL-03</code> and <code>TL-05</code> were Not run (TrueLayer is being removed from
+production, board item A67; see section 6), so they are in the Not run
+column, not N/A. The one N/A in the total is <code>MCP-10</code> in WP6.</p>
+<p><strong>Totals, how derived.</strong> Each row was recomputed from the <code>Result</code> field of
+every case record in that run's <code>records.md</code>, counting a mixed case once by
+its recorded headline verdict (the rule stated above the table). Cases:
+12 + 7 + 3 + 6 + 10 + 11 + 3 + 8 + 5 + 12 + 5 + 8 = 90. Pass 54, Fail 27,
+Blocked 5, N/A 1, Not run 3 (54 + 27 + 5 + 1 + 3 = 90). The WP12 retest
+records are not catalogue cases and are not counted.</p>
 <p><strong>WP3 note.</strong> The <code>A50-2026-09-20</code> run record contains a fourth
 section, <code>API-15</code>, attempt 1, marked VOID because it ran against the
 wrong identity (incident A78, tracked p1 on the board): it is excluded
@@ -675,11 +690,11 @@ on 2026-09-28). See section 6.</p>
 a cross-model review: a Codex session auditing every Claude-run work
 package's Fail evidence, and a Claude session auditing every Codex-run
 package. Kevin decided on 2026-10-04 to drop the Codex half. The review
-that remains is a Claude reviewer session's audit of the evidence, which is
+that remains is a separate Claude reviewer agent's audit of the evidence, which is
 a separate step that has not yet run (section 10, "WP12 review: pending").
 Consequence, stated plainly: the work packages run by Claude sessions have
 not been reviewed by a second model, so every severity in this report is
-the judgement of the testing sessions, a Claude reviewer once that audit
+the judgement of the testing sessions, a separate Claude reviewer agent once that audit
 runs, and Kevin's sign-off.</p>
 <p><strong>Two further gaps recorded on the coverage side, not visible as a work
 package row above:</strong> <code>FIN-06</code> (webhook payload retention confirmation)
@@ -696,6 +711,14 @@ rule established in section 1: nothing here is "remediated" or "closed"
 until it is on production and retested; where only part of that is true,
 the row says which part. For A118 to A123 the commit shown is the integrate
 (merge) commit on <code>main</code>.</p>
+<p><strong>Severity bands.</strong> Severities use <code>SECURITY.md</code> section 3's four bands
+(Critical, High, Medium, Low). The Informational band comes from the testing
+methodology (<code>PENTEST-METHODOLOGY.md</code> section 8.3): a verified fact or
+hardening opportunity with no demonstrated adverse outcome and no P1-P4 SLA,
+used here for A94. A76 is listed as Low below, although the <code>A48-2026-09-20</code>
+<code>DSGN-04</code> record scored the same crawlable-preview exposure Informational (a
+business-confidentiality risk, not a security-boundary breach); the register
+carries the more conservative Low, and the board's rating governs.</p>
 <h3>High</h3>
 <table>
 <thead>
@@ -837,7 +860,8 @@ first shipped in <code>release-20261001-2038</code>. It was retested on device o
 lock engaged, the nav bar is not visible and nothing behind the lock can be
 reached (Pass); with the app fully closed and a push notification tapped,
 the app opens to the lock screen and the lock cannot be bypassed (Pass).
-Status: remediated and retested.</p>
+Status: remediated and retested. The 2026-10-04 evidence is Kevin's own
+on-device observation, recorded without screenshots.</p>
 <p><strong>A118.</strong> WP7b's <code>AND-02</code> case found that after an in-app logout the
 Android session token value was still recoverable from the WebView's
 append-only Local Storage log on disk (on a debug build, via <code>adb run-as</code>),
@@ -882,7 +906,8 @@ backgrounded, integrated on <code>main</code> on 2026-09-29 and shipped in
 <code>release-20261001-2038</code>. Retested on device on 2026-10-04
 (<code>A60-2026-10-04</code>): with the lock on, the app-switcher card is covered and
 shows no figures on both phones, and on Android a screenshot is blocked
-while the lock is on (Pass). Status: remediated and retested.</p>
+while the lock is on (Pass). Status: remediated and retested. As for A121, the
+2026-10-04 evidence is Kevin's own on-device observation, without screenshots.</p>
 <h3>Medium</h3>
 <table>
 <thead>
@@ -909,7 +934,7 @@ while the lock is on (Pass). Status: remediated and retested.</p>
 <td>Refresh-token rotation does not cascade-revoke the sibling access token from the same grant</td>
 <td>Fixed</td>
 <td><code>eac94538</code></td>
-<td>Deployed 2026-09-27 (<code>release-20260927-1844</code>)</td>
+<td>In production from <code>release-20260927-0947</code></td>
 <td>Confirmed Fixed live 2026-09-27 (A112), on UAT since the OAuth server is not registered on production</td>
 </tr>
 <tr>
@@ -925,7 +950,7 @@ while the lock is on (Pass). Status: remediated and retested.</p>
 <td>Finexer consent callback accepted a missing <code>state</code> parameter</td>
 <td>Fixed</td>
 <td><code>683078c8</code></td>
-<td>Deployed 2026-09-27 (<code>release-20260927-1844</code>)</td>
+<td>In production from <code>release-20260927-0947</code></td>
 <td>Confirmed Fixed 2026-09-27 (A112), by source read; the live differential could not be exercised without touching a real consent</td>
 </tr>
 <tr>
@@ -933,7 +958,7 @@ while the lock is on (Pass). Status: remediated and retested.</p>
 <td>Webhook path-secret comparison was not constant-time</td>
 <td>Fixed</td>
 <td><code>f4983f8e</code></td>
-<td>Deployed 2026-09-27 (<code>release-20260927-1844</code>)</td>
+<td>In production from <code>release-20260927-0947</code></td>
 <td>Confirmed Fixed 2026-09-27 (A112), by source read, with live behaviour unchanged as expected</td>
 </tr>
 <tr>
@@ -941,7 +966,7 @@ while the lock is on (Pass). Status: remediated and retested.</p>
 <td>Production's proxy chain did not strip a caller-supplied <code>X-Real-IP</code>/<code>X-Forwarded-For</code> header, so IP-keyed rate limits were bypassable</td>
 <td>Fixed</td>
 <td><code>d5fbdfe1</code></td>
-<td>Deployed 2026-09-27 (<code>release-20260927-1844</code>), after its gate A110 cleared</td>
+<td>In production from <code>release-20260927-0947</code>, after its gate A110 cleared</td>
 <td>Confirmed Fixed live 2026-09-27 (A112), 3 requests</td>
 </tr>
 <tr>
@@ -949,7 +974,7 @@ while the lock is on (Pass). Status: remediated and retested.</p>
 <td><code>GET /logo/{domain}</code> carried no rate limit at all</td>
 <td>Fixed</td>
 <td><code>aeadb348</code></td>
-<td>Deployed 2026-09-27 (<code>release-20260927-1844</code>)</td>
+<td>In production from <code>release-20260927-0947</code></td>
 <td>Confirmed Fixed 2026-09-27 (A112), by source read; the bounded live burst stayed under the configured limit</td>
 </tr>
 <tr>
@@ -988,7 +1013,7 @@ while the lock is on (Pass). Status: remediated and retested.</p>
 <td><code>/design/*</code> preview routes were publicly indexable, no <code>robots.txt</code>/<code>X-Robots-Tag</code></td>
 <td>Fixed</td>
 <td><code>e7621167</code></td>
-<td>Deployed 2026-09-27 (<code>release-20260927-1844</code>)</td>
+<td>In production from <code>release-20260927-0947</code></td>
 <td>Confirmed Fixed live 2026-09-27 (A112)</td>
 </tr>
 <tr>
@@ -1004,7 +1029,7 @@ while the lock is on (Pass). Status: remediated and retested.</p>
 <td>No global/service-wide OpenRouter spend ceiling, only a per-user monthly allowance</td>
 <td>Partially fixed</td>
 <td><code>7bea0094</code></td>
-<td>Deployed 2026-09-27 (<code>release-20260927-1844</code>)</td>
+<td>In production from <code>release-20260927-0947</code></td>
 <td>Partially fixed (A112, 2026-09-27): the ceiling mechanism is in code, but the environment variable that enables it was unset on both production services that day, so no ceiling was enforced. Enabling it is Kevin's operational decision; its current state was not re-checked for this report</td>
 </tr>
 <tr>
@@ -1020,7 +1045,7 @@ while the lock is on (Pass). Status: remediated and retested.</p>
 <td><code>PATCH /preferences</code> had no optimistic-concurrency check and accepted an unadvertised field (mass assignment)</td>
 <td>Fixed</td>
 <td><code>4b866395</code></td>
-<td>Deployed 2026-09-27 (<code>release-20260927-1844</code>)</td>
+<td>In production from <code>release-20260927-0947</code></td>
 <td>Confirmed Fixed live 2026-09-27 (A112)</td>
 </tr>
 <tr>
@@ -1028,7 +1053,7 @@ while the lock is on (Pass). Status: remediated and retested.</p>
 <td>Commitment state machine allowed out-of-order transitions, no create-time idempotency check</td>
 <td>Fixed</td>
 <td><code>1f8a318d</code></td>
-<td>Deployed 2026-09-27 (<code>release-20260927-1844</code>)</td>
+<td>In production from <code>release-20260927-0947</code></td>
 <td>Confirmed Fixed live 2026-09-27 (A112)</td>
 </tr>
 <tr>
@@ -1036,16 +1061,24 @@ while the lock is on (Pass). Status: remediated and retested.</p>
 <td>MCP <code>initialize</code> handler never validated or negotiated the client's requested protocol version</td>
 <td>Fixed</td>
 <td><code>141b057c</code></td>
-<td>Deployed 2026-09-27 (<code>release-20260927-1844</code>)</td>
-<td>Confirmed Fixed live 2026-09-27 (A112), on UAT</td>
+<td>In production from <code>release-20260927-0947</code></td>
+<td>Confirmed Fixed 2026-09-27 (A112): live on UAT (envelope validation), source review (version negotiation)</td>
 </tr>
 <tr>
 <td>A93</td>
 <td>Unhandled NUL byte in a search query parameter crashed one endpoint with a 500 (no data leaked)</td>
 <td>Fixed</td>
-<td><code>f73638e6</code></td>
-<td>Deployed 2026-09-27 (<code>release-20260927-1844</code>)</td>
+<td><code>4e0093e0</code></td>
+<td>In production from <code>release-20260927-0947</code></td>
 <td>Confirmed Fixed live 2026-09-27 (A112)</td>
+</tr>
+<tr>
+<td>none (no board item)</td>
+<td><code>AND-08</code> scheme-exclusivity: Android gives no OS-level exclusivity for the bare <code>wealthdash://</code> custom scheme, so a competing app can be offered alongside Sorted in a disambiguation dialog (found statically in <code>A54-2026-09-20</code>, confirmed live in <code>A55-2026-09-27</code>). The callback carries no code, token or account identifier, so the practical exploit path is closed off</td>
+<td>Open (pre-documented design gap; acknowledge clock 2026-09-18; no remediation short of a verified <code>https://</code> App Link)</td>
+<td>none</td>
+<td>N/A</td>
+<td>Confirmed live 2026-09-27 (Fail, Low); not re-raised as a new item</td>
 </tr>
 <tr>
 <td>A120</td>
@@ -1199,14 +1232,34 @@ counted among this round's findings.</p>
 <td>Pending</td>
 </tr>
 <tr>
+<td><code>WEB-03</code> (token-in-URL redirect timing)</td>
+<td>Blocked in <code>A48-2026-09-20</code>: all 8 live attempts on production were intercepted by Vercel's bot-verification challenge before the app mounted, so no clean observation of the fast-strip behaviour was obtained. Source review supports a synchronous strip before the validate call, but that is not what the case asks for</td>
+<td>Blocked; owner Kevin; decision: retest recommended once production browser access is stable, or with a real non-headless browser session; not credited as Pass</td>
+</tr>
+<tr>
+<td><code>WEB-05</code> (cache-clearing across account switch)</td>
+<td>Blocked in <code>A48-2026-09-20</code>: the case exists to catch a live rendering gap that code review cannot see, and no live render was possible for the same reason. <code>AuthProvider.tsx</code> <code>logout()</code> was source-reviewed only</td>
+<td>Blocked; owner Kevin; decision: retest recommended on the same terms as <code>WEB-03</code>; not credited as Pass</td>
+</tr>
+<tr>
+<td><code>WEB-02</code>, storage-inspection sub-component</td>
+<td>Inconclusive in <code>A48-2026-09-20</code>: the one completed attempt landed during a Vercel availability event, so the observed clearing is explained by that event and neither confirms nor contradicts the claim. The tamper and rejection half is Pass. <code>lib/auth.ts</code> was code-reviewed as supporting, non-live evidence</td>
+<td>Inconclusive; owner Kevin; decision: retest with a real browser session; no finding raised</td>
+</tr>
+<tr>
+<td><code>AND-04</code>, user-CA trust leg</td>
+<td>Inconclusive in <code>A55-2026-09-27</code>: Android would not establish the mitmproxy user CA as trusted on the test device, so the live comparison could not run. The fail-closed leg (no CA) is Pass. This leg is settled by static reading only: no <code>android:networkSecurityConfig</code> at target SDK 36 means the platform default (user CAs not trusted) applies (<code>A54-2026-09-20</code>, <code>AND-01</code>)</td>
+<td>Inconclusive; owner Kevin; decision: accepted on the static reading, with a live retest only if a device that can establish a user CA is available; no finding raised</td>
+</tr>
+<tr>
 <td>Cross-model review (WP12), Codex half</td>
 <td>Dropped by Kevin's decision of 2026-10-04 (see section 4); the review that remains is a Claude reviewer's audit, pending (section 10)</td>
 <td>Recorded deviation; not a gap that will be closed</td>
 </tr>
 <tr>
 <td>TrueLayer live cases (<code>TL-01</code>, <code>TL-03</code>, <code>TL-05</code>, and <code>TL-04</code>'s live-write half)</td>
-<td>Deferred, not exercised against production, because TrueLayer is being removed from production (board item A67); their result is recorded as deferred/UAT-only rather than Pass or Fail</td>
-<td>Deferred by design, not a gap in this round's execution</td>
+<td>Not run: TrueLayer is being removed from production (board item A67), and Kevin's 2026-09-20 board note on A57 scoped these out. They are recorded Not run, not Pass, Fail or N/A</td>
+<td>Not run; owner Kevin; decision: not run per that note, to be revisited only if TrueLayer is not removed</td>
 </tr>
 </tbody>
 </table>
@@ -1289,7 +1342,8 @@ on 2026-10-04 (<code>A60-2026-10-04</code>).</p>
    A92's rate-limit fix safely to production.</li>
 <li><strong>Production release</strong> of the four original High findings
    (<code>release-20260927-0947</code>, 2026-09-27) and of the eleven first-round
-   Medium and Low fixes (<code>release-20260927-1844</code>, 2026-09-27).</li>
+   Medium and Low fixes, which are ancestors of the same tag (A112 retested
+   the later <code>release-20260927-1844</code> build).</li>
 <li><strong>Retest</strong> of those fifteen fixes ran the same day (board item A112,
    <code>docs/security/pentest-runs/A112-2026-09-27/</code>). The destructive
    <code>API-15</code> step (A82, A83's disconnect-before-delete half, A84) was
@@ -1323,7 +1377,7 @@ section 3b) was signed off by Kevin, 2026-09-21, given as a written
 attestation in a working session with Claude ("Happy to sign this"), not a
 handwritten or cryptographic signature. This report, as a document, has not
 separately been signed by Kevin as of 2026-10-04.</p>
-<p><strong>WP12 review: pending.</strong> A separate Claude reviewer session audits the
+<p><strong>WP12 review: pending.</strong> A separate Claude reviewer agent audits the
 evidence behind this report before it is treated as final. That step has
 not yet run; this line is replaced with its outcome and date when it does.
 The Codex half of the WP12 cross-model review was dropped, as recorded in
