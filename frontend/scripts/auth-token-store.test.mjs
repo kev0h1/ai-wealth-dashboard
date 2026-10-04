@@ -436,9 +436,9 @@ function thenableProxy() {
   const calls = []; const m = new Map(); const thenReads = [];
   const proxy = new Proxy({}, {
     get(_, prop) {
-      if (prop === "get") return async (k) => { calls.push(["get", k]); return m.has(k) ? m.get(k) : null; };
-      if (prop === "set") return async (k, v, cd, sync, access) => { calls.push(["set", k, v, sync, access]); m.set(k, v); };
-      if (prop === "remove") return async (k) => { calls.push(["remove", k]); return m.delete(k); };
+      if (prop === "get") return async (...a) => { const k = a[0]; calls.push(["get", ...a]); return m.has(k) ? m.get(k) : null; };
+      if (prop === "set") return async (...a) => { calls.push(["set", ...a]); m.set(a[0], a[1]); };
+      if (prop === "remove") return async (...a) => { calls.push(["remove", ...a]); return m.delete(a[0]); };
       if (prop === "then") thenReads.push(prop);
       return () => {}; // any other prop (incl. then): never calls its arguments
     },
@@ -461,7 +461,15 @@ await t("A139 thenable plugin proxy never leaks into a promise", async () => {
   assert.equal(m.get(KEY), "tok2");
   assert.equal(storage.m.has(KEY), false);
   assert.equal(thenReads.length, 0);
-  assert.deepEqual(calls.map((c) => c[0] + ":" + c[1]), ["get:" + KEY, "set:" + KEY, "get:" + KEY]);
+  assert.deepEqual(calls, [["get", KEY, false, false], ["set", KEY, "tok2", false, false, 1], ["get", KEY, false, false]]);
+  // distinct values so a swapped/dropped argument in the wrapper cannot hide
+  calls.length = 0;
+  await wrapped.get("k", true, false); await wrapped.get("k", false, true);
+  await wrapped.set("k", "v", true, false, 7); await wrapped.remove("k", true);
+  assert.deepEqual(calls, [["get", "k", true, false], ["get", "k", false, true], ["set", "k", "v", true, false, 7], ["remove", "k", true]]);
+  calls.length = 0;
+  auth.clearToken(); await auth.__tokenWritesSettled();
+  assert.deepEqual(calls, [["remove", KEY, false]]);
 });
 
 await t("A139 negative proof: returning the raw proxy from loadSecure never settles", quiet(async () => {
