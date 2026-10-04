@@ -55,8 +55,8 @@ ok("buttons are never rendered while prompting", /state !== "prompting" && \(/.t
 // 3. Copy per biometry kind.
 const phrase = (platform, kind) => methodPhrase(platform, biometryKindFromType(kind));
 ok("type mapping: undefined -> unknown, 0 -> none", biometryKindFromType(undefined) === "unknown" && biometryKindFromType(0) === "none");
-ok("iOS Face ID", phrase("ios", 2) === "Face ID");
-ok("iOS Touch ID", phrase("ios", 1) === "Touch ID");
+ok("iOS Face ID", phrase("ios", 2) === "Face\u00a0ID");
+ok("iOS Touch ID", phrase("ios", 1) === "Touch\u00a0ID");
 ok("Android fingerprint", phrase("android", 3) === "your fingerprint");
 ok("Android face", phrase("android", 4) === "face unlock");
 ok("iris falls back to your biometrics", phrase("android", 5) === "your biometrics");
@@ -64,7 +64,7 @@ ok("passcode only", phrase("ios", 0) === "your passcode");
 ok("unresolved check names no method", phrase("ios", undefined) === null);
 const c = (state, failure, platform = "ios", kind = 2) =>
   lockCopy({ platform, biometry: biometryKindFromType(kind), state, failure });
-ok("idle names Face ID", c("idle").includes("Face ID"));
+ok("idle names Face ID", c("idle").includes("Face\u00a0ID"));
 ok("prompting names the method", c("prompting", undefined, "android", 3).includes("your fingerprint"));
 ok("unconfirmed is worded as not confirmed", c("failed", "unconfirmed").startsWith("That wasn't confirmed"));
 ok("timeout is worded differently", c("failed", "timeout").startsWith("Nothing came back"));

@@ -46,8 +46,8 @@ export function biometryKindFromType(type: number | undefined): BiometryKind {
 export function methodPhrase(platform: LockPlatform, biometry: BiometryKind): string | null {
   if (biometry === "unknown") return null;
   if (biometry === "none") return "your passcode";
-  if (platform === "ios" && biometry === "faceId") return "Face ID";
-  if (platform === "ios" && biometry === "touchId") return "Touch ID";
+  if (platform === "ios" && biometry === "faceId") return "Face\u00a0ID";
+  if (platform === "ios" && biometry === "touchId") return "Touch\u00a0ID";
   if (platform === "android" && biometry === "fingerprint") return "your fingerprint";
   if (platform === "android" && biometry === "face") return "face unlock";
   return "your biometrics";
