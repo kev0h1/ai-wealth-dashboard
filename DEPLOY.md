@@ -343,13 +343,18 @@ route-table and middleware assertions. The design previews
 of the flag, since they use fixtures, not the gated surfaces.
 
 **Before the connector actually launches on production:** turn both vars on
-in Railway and Vercel, then regenerate `frontend/public/TERMS.pdf` and
-`PRIVACY.pdf` with the flag on (see the Verify step above, plus the PDF
-recipe used for the current, flag-off PDFs: `npx next build --webpack`,
-then `npx next start -p <free-port>`, then `google-chrome --headless=new
---no-sandbox --disable-gpu --print-to-pdf=... --no-pdf-header-footer
-<url>`, then stop the server and delete `.next`/`out`/any stray
-`ai-wealth-dashboard/` dir that `next build --webpack` can leave behind).
+in Railway and Vercel, then regenerate the legal PDFs with the flag on:
+`MCP_CONNECTOR=on bash frontend/scripts/export-legal-pdfs.sh` (run it in a
+worktree, never the shared tree; it builds, prints `/terms` and `/privacy` with
+headless Chrome, rewrites `frontend/public/TERMS.pdf`, `PRIVACY.pdf`, the root
+`TERMS.pdf`/`PRIVACY.pdf`/`SECURITY.pdf` and `frontend/public/legal-pdf-manifest.json`,
+and cleans up `.next`, `out` and any stray `ai-wealth-dashboard/` dir). The
+default run (flag unset) matches today's production. `npm run
+check:legal-pdfs-fresh` fails when a legal markdown source changed after its PDF
+was exported, or a PDF carries the pre-A109 90-day wording (A142). The root
+`TERMS.pdf`/`PRIVACY.pdf`/`SECURITY.pdf` are the unstripped full-text copies
+(connector sections included), while the public ones match production with the
+connector off.
 
 **Mobile builds (F17, 2026-09-10):** `frontend/.env.local` never reaches a
 mobile bundle (Android APK or Codemagic TestFlight build) at all, so until

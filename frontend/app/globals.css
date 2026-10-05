@@ -899,3 +899,9 @@ html[data-penny-typing="true"] [data-penny-navigation] {
     pointer-events: none;
   }
 }
+
+/* A142: print-only. The legal pages use min-h-screen, which can spill a
+   blank trailing page when printed to PDF. No on-screen effect. */
+@media print {
+  main.legal-doc { min-height: 0; padding-top: 0; padding-bottom: 0; }
+}
