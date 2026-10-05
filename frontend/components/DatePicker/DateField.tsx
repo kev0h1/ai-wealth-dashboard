@@ -12,10 +12,10 @@
 // path. `required` is accepted so call sites keep their prop shape; it is
 // announced in the accessible name while the field is still empty.
 
-import { useId, useRef, useState } from "react";
+import { useId, useRef, useState, type Ref } from "react";
 import { CalendarDays, ChevronRight } from "lucide-react";
 import { formatValue, type PickerMode } from "@/lib/calendar";
-import { DatePickerSheet } from "./DatePickerSheet";
+import { DatePickerSheet, type DatePickerView } from "./DatePickerSheet";
 
 export interface DateFieldProps {
   mode: PickerMode;
@@ -40,13 +40,17 @@ export interface DateFieldProps {
   /** ISO day treated as today. Defaults to the local day; previews fix it. */
   today?: string;
   themeClass?: string;
+  /** Receives the trigger button, for hosts that move focus to it on a validation error. */
+  buttonRef?: Ref<HTMLButtonElement>;
   /** Start with the picker open (previews and tests). */
   defaultOpen?: boolean;
+  /** View the picker opens on (previews and tests). */
+  defaultView?: DatePickerView;
 }
 
 export function DateField({
   mode, value, onChange, min, max, label, title, id, required, disabled, appearance = "filled", size = "default",
-  className = "", placeholder, today, themeClass, defaultOpen = false,
+  className = "", placeholder, today, themeClass, buttonRef, defaultOpen = false, defaultView,
 }: DateFieldProps) {
   const [open, setOpen] = useState(defaultOpen);
   const ref = useRef<HTMLButtonElement>(null);
@@ -61,7 +65,11 @@ export function DateField({
   return (
     <>
       <button
-        ref={ref} id={id} type="button" disabled={disabled} onClick={() => setOpen(true)}
+        ref={(node) => {
+          ref.current = node;
+          if (typeof buttonRef === "function") buttonRef(node);
+          else if (buttonRef) (buttonRef as { current: HTMLButtonElement | null }).current = node;
+        }} id={id} type="button" disabled={disabled} onClick={() => setOpen(true)}
         aria-haspopup="dialog" aria-expanded={open}
         aria-label={`${label}, ${text || (required ? `${empty}, required` : empty)}`}
         className={`flex ${height} w-full items-center gap-2.5 rounded-xl border px-3 text-left text-sm transition-transform active:scale-[0.99] motion-reduce:transition-none disabled:opacity-60 disabled:active:scale-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${skin} ${className}`}
@@ -72,7 +80,7 @@ export function DateField({
       </button>
       {open && (
         <DatePickerSheet
-          mode={mode} value={value} min={min} max={max} title={title ?? label} today={today} themeClass={themeClass}
+          mode={mode} value={value} min={min} max={max} title={title ?? label} today={today} themeClass={themeClass} initialView={defaultView}
           onCommit={onChange}
           onClose={() => { setOpen(false); requestAnimationFrame(() => ref.current?.focus({ preventScroll: true })); }}
         />

@@ -1,7 +1,7 @@
 "use client";
 
 // G136 (approved variant A, 2026-10-05): the in-design date and month picker
-// layer. It replaces every native type="date" / type="month" control, so a
+// layer. It replaces the browser's native date and month controls, so a
 // date is never drawn by the operating system in its own colours.
 //
 // LAYER MECHANISM (decided once, here): a NESTED SheetFrame, portalled to
@@ -31,7 +31,8 @@ import {
   type PickerMode, type Ymd,
 } from "@/lib/calendar";
 
-type View = "days" | "months" | "years";
+export type DatePickerView = "days" | "months" | "years";
+type View = DatePickerView;
 
 const FOCUS = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1 dark:focus-visible:ring-offset-slate-900";
 const CHIP = `inline-flex min-h-11 items-center justify-center rounded-full border border-slate-200 bg-white px-4 text-[13px] font-semibold text-slate-700 transition-transform active:scale-95 disabled:opacity-40 disabled:active:scale-100 motion-reduce:transition-none dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 ${FOCUS}`;
@@ -62,9 +63,11 @@ export interface DatePickerSheetProps {
   /** ISO day treated as today. Defaults to the local day; previews fix it. */
   today?: string;
   themeClass?: string;
+  /** Which view to open on (previews and tests). Defaults to the day grid, or the month grid in month mode. */
+  initialView?: DatePickerView;
 }
 
-export function DatePickerSheet({ mode, value, onCommit, onClose, min, max, title, today, themeClass }: DatePickerSheetProps) {
+export function DatePickerSheet({ mode, value, onCommit, onClose, min, max, title, today, themeClass, initialView }: DatePickerSheetProps) {
   const uid = useId().replace(/:/g, "");
   const closeRef = useRef<(() => void) | null>(null);
   const todayYmd = useMemo(() => parseIso(today ?? todayIso(), "day") ?? parseIso(todayIso(), "day")!, [today]);
@@ -77,7 +80,7 @@ export function DatePickerSheet({ mode, value, onCommit, onClose, min, max, titl
   );
 
   const [draft, setDraft] = useState<Ymd | null>(initial);
-  const [view, setView] = useState<View>(mode === "day" ? "days" : "months");
+  const [view, setView] = useState<View>(initialView ?? (mode === "day" ? "days" : "months"));
   const [cursor, setCursor] = useState({ y: seed.y, m: seed.m });
   const [focus, setFocus] = useState<Ymd>(seed);
   const [yearStart, setYearStart] = useState(() => yearPageStart(seed.y, minYmd?.y ?? null, maxYmd?.y ?? null));

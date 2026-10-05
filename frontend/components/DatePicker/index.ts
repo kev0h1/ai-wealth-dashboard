@@ -1,2 +1,2 @@
 export { DateField, type DateFieldProps } from "./DateField";
-export { DatePickerSheet, type DatePickerSheetProps } from "./DatePickerSheet";
+export { DatePickerSheet, type DatePickerSheetProps, type DatePickerView } from "./DatePickerSheet";
