@@ -145,4 +145,20 @@ const heroWithoutGoal = heroFor("gap", plans.filter((plan) => plan.kind === "all
 assert.deepEqual(heroFor("gap", plans), heroWithoutGoal, "Goal changes do not change the existing hero equation");
 const hero = renderToStaticMarkup(React.createElement(UpcomingHeroCard, { isCalendarMonth: false, daysToPayday: 30, paydayLabel: "Fri 30 Oct", spendableNow: heroWithoutGoal.cash / 100, runwayIncomeTotal: 0, runwayBillsTotal: heroWithoutGoal.bills / 100, allocationsRemainingTotal: heroWithoutGoal.allocations / 100, savingsNow: 1250, runway: heroWithoutGoal.runway / 100, runwayStatus: "left" }));
 assert.match(hero, /Projected balance/);
+
+// G216: payment and income rows in the account sheet open the payment detail.
+{
+  const editable = renderToStaticMarkup(React.createElement(UpcomingAccountDetails, { account: gap, plans: [], plansStatus: "ready", periodLabel: "Through Thu 29 Oct", onEvent() {}, editableEventIds: new Set([gap.events[0].id]) }));
+  const buttons = editable.match(/<button[^>]*data-flow-focus="event-[^"]*"[^>]*>/g) ?? [];
+  assert.equal(buttons.length, 1, "Only editable events become buttons");
+  assert.match(buttons[0], new RegExp('data-flow-focus="event-' + gap.events[0].id + '"'));
+  assert.match(buttons[0], /min-h-11/, "44px target");
+  assert.match(editable, /lucide-chevron-right/, "Chevron on the editable row");
+  const staticOnly = renderToStaticMarkup(React.createElement(UpcomingAccountDetails, { account: gap, plans: [], plansStatus: "ready", periodLabel: "Through Thu 29 Oct" }));
+  assert.doesNotMatch(staticOnly, /data-flow-focus="event-/, "No onEvent keeps events static");
+  const everyEvent = renderToStaticMarkup(React.createElement(UpcomingAccountDetails, { account: gap, plans: [], plansStatus: "ready", periodLabel: "Through Thu 29 Oct", onEvent() {} }));
+  assert.equal((everyEvent.match(/data-flow-focus="event-/g) ?? []).length, gap.events.length, "Without an allow-list every event is a button");
+  assert.match(flowSource, /goTo\(\{ kind: "payment", id \}\)/, "Account view pushes a payment view onto the Back stack");
+  assert.match(flowSource, /item\.source === event\.source/, "Events map to payments by their source cashflow item");
+}
 console.log("G176 approved account plan semantics passed");
