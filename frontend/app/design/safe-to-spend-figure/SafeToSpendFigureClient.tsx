@@ -15,6 +15,7 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import SafeToSpendCard, { type FigureTone } from "@/components/SafeToSpendCard";
+import { FIXTURES as SPEND_FROM_FIXTURES } from "../g115-spend-from-accounts/fixtures";
 import { FIGURE_DATA, FIGURE_STATES, type FigureState } from "./fixtures";
 
 type Variant = "a" | "b" | "c" | "today";
@@ -38,7 +39,7 @@ function Card({ variant, state }: { variant: Variant; state: FigureState }) {
       error={state === "error"}
       loading={false}
       onRetry={noop}
-      spendFrom={null}
+      spendFrom={SPEND_FROM_FIXTURES.clear.spendFrom}
       figureTone={TONE[variant]}
       previewBalancesVisible
     />

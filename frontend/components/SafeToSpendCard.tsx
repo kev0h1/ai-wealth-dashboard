@@ -82,6 +82,15 @@ export function isPlansOnlyShort(data: SafeToSpendOk): boolean {
   return setAside > 0 && data.lowest_projected_balance - data.buffer >= 0;
 }
 
+/** Tones that give a plans-only shortfall its own (non-red) treatment.
+ *  `tinted` and `tinted-vivid` keep today's red for every cash-led short. */
+export const FIGURE_TONES_USING_PLANS_ONLY: Record<FigureTone, boolean> = {
+  tinted: false,
+  "tinted-vivid": false,
+  ink: true,
+  "ink-accent": true,
+};
+
 export type FigureToneClasses = { figure: string; chip: string; accent: string | null };
 
 const INK_FIGURE = "text-slate-900 dark:text-slate-100";
@@ -646,7 +655,7 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
     ? `${value < 0 ? "−" : "+"}£••••`
     : `${value < 0 ? "−" : "+"}${fmt2(value)}`;
 
-  const plansOnly = figureTone !== "tinted" && figureTone !== "tinted-vivid" && isPlansOnlyShort(data);
+  const plansOnly = FIGURE_TONES_USING_PLANS_ONLY[figureTone] && isPlansOnlyShort(data);
   const StateIcon = state === "comfortable" ? ShieldCheck : state === "tight" || isCardsUnconfirmedShort || plansOnly ? AlertCircle : AlertTriangle;
   const { figure: figureClass, chip: stateChipClass, accent: figureAccent } = figureToneClasses(figureTone, { state, isCardsUnconfirmedShort, plansOnly });
 

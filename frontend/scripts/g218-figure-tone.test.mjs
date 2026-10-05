@@ -8,7 +8,7 @@
 
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { figureToneClasses, isPlansOnlyShort } from "../components/SafeToSpendCard.tsx";
+import { figureToneClasses, isPlansOnlyShort, FIGURE_TONES_USING_PLANS_ONLY } from "../components/SafeToSpendCard.tsx";
 
 const CASES = {
   onTrack: { state: "comfortable", isCardsUnconfirmedShort: false, plansOnly: false },
@@ -62,6 +62,9 @@ assert.equal(isPlansOnlyShort({ ...ok, commitments_reserved: 0, allocations_rese
 assert.equal(isPlansOnlyShort({ ...ok, lowest_projected_balance: undefined }), false, "unknown is not plans-only");
 assert.equal(isPlansOnlyShort({ ...ok, short_reason: "cards_unconfirmed" }), false);
 assert.equal(isPlansOnlyShort({ ...ok, state: "tight", safe_to_spend_cash: 20 }), false);
+
+assert.equal(isPlansOnlyShort({ ...ok, buffer: 40, lowest_projected_balance: 40 }), true, "headroom exactly equal to a non-zero buffer");
+assert.deepEqual(FIGURE_TONES_USING_PLANS_ONLY, { tinted: false, "tinted-vivid": false, ink: true, "ink-accent": true });
 
 // 6. Source guard: the defaults a production render relies on.
 const src = readFileSync(new URL("../components/SafeToSpendCard.tsx", import.meta.url), "utf8");
