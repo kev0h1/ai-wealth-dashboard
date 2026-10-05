@@ -22,7 +22,7 @@ page otherwise).
 | app/components/AccountsPage.tsx:1318 | investment refresh fails | native alert | `noticeSheet` | follow-up (G213/H108) |
 | app/components/AccountsPage.tsx:1332 | remove investment account fails | native alert | `noticeSheet` | follow-up (G213/H108) |
 | app/components/AccountsPage.tsx:1366 | delete note fails | native alert | `noticeSheet` | follow-up (G213/H108) |
-| app/design/spend-live/SpendLiveClient.tsx:321 | tap in a design preview | native alert "Would open ..." | inert no-op with an `aria-live` hint is not worth it; replaced by `noticeSheet` | done |
+| app/design/spend-live/SpendLiveClient.tsx:321 | tap in a design preview | native alert "Would open ..." | `noticeSheet` ("Preview only") | done |
 
 The guard `check:no-native-dialogs` allowlists the AccountsPage lines (by file) until the follow-up
 lands, so new native dialogs anywhere else fail the build.
@@ -52,7 +52,7 @@ lands, so new native dialogs anywhere else fail the build.
 | app/not-found.tsx | missing, Next default black-and-white 404 | designed page | done |
 | app/error.tsx | missing, Next default | designed page with retry | done |
 | app/global-error.tsx | missing | self-contained designed page (inline tokens) | done |
-| app/design/error-states | missing | preview rendering all three | done |
+| app/design/error-states | missing | preview rendering not-found, error and the notice sheet (global-error replaces the whole document, so it is checked as static HTML) | done |
 | Suspense `fallback={null}` / blank canvas | blank canvas while loading | token canvas, acceptable | no change |
 | ErrorBoundary / componentDidCatch | none exist in app, components or lib | n/a (covered by app/error.tsx) | no change |
 
@@ -67,7 +67,7 @@ DESIGN.md: an error is ink; Risk Red 12 px message only for field errors. Financ
 | components/StatementUpload.tsx:161-163 | red error box | slate panel, ink text | done |
 | app/oauth/consent/OAuthConsentCard.tsx:66-67 | red error box | slate panel, ink text | done |
 | components/BankPickerSheet.tsx:168 | `text-red-500` text-xs | 12 px field-style message, red-600/400 | done |
-| components/ConnectedAssistantsCard.tsx:443 | `text-red-500` 11 px | ink secondary | done |
+| components/ConnectedAssistantsCard.tsx:443 | `text-red-500` 11 px | slate secondary | done |
 | app/settings/SettingsPage.tsx:1200, 1560, 1661, 1722 | `text-red-500` failure messages | ink | done |
 | app/ops/go-live/AllowlistSection.tsx:134,137 | red 12 px messages | field-error style, left | no change |
 | components/LoginScreen.tsx:232-233 | red error box | slate panel | follow-up (D13/D12 owns the file) |
@@ -81,3 +81,6 @@ DESIGN.md: an error is ink; Risk Red 12 px message only for field errors. Financ
   hand-off page or a redirect).
 - `ConfirmDialog.tsx` (centred dialog, used by Settings and Accounts) is a designed primitive but
   not a SheetFrame; left as is. It has no `confirm()` semantics to replace.
+
+## Counts
+Native dialogs 11 (2 fixed, 9 follow-up in AccountsPage); backend navigation error paths 10 fixed, 4 groups confirmed fine; Next surfaces 3 created; non-financial red 8 sites fixed, 2 follow-up, rest intentionally unchanged.
