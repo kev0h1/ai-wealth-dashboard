@@ -71,7 +71,7 @@ export function installPennyIosPanGuard(win: PanGuardWindow, doc: PanGuardDocume
     html.overflow = "hidden";
   };
   // An iOS visual-viewport pan reads as vv.offsetTop/offsetLeft != 0 with
-  // scrollY still 0. With the body fixed, scrollTo(0, 0) resets that pan
+  // the page offset still 0. With the body fixed, scrollTo(0, 0) resets that pan
   // (documented WebKit behaviour; unverified on a device here). Idempotent:
   // nothing is called when both offsets are 0.
   const snap = () => {
