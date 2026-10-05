@@ -490,6 +490,42 @@ def test_checkout_rejects_repeat_trial_after_expired_stripe_subscription(monkeyp
         ))
 
 
+def _trial_checkout(monkeypatch, doc):
+    _patch_billing_enabled(monkeypatch, True, price_ids=_FULL_PRICE_IDS)
+    _patch_collections(monkeypatch, billing_customers_col=_FakeCol(), subscriptions_col=_FakeCol([doc]))
+    return billing_module._validate_subscription_checkout(UID, True)
+
+
+def test_b47_reset_marker_makes_canceled_stripe_doc_trial_eligible(monkeypatch):
+    from datetime import datetime, timezone
+    doc = {"user_id": UID, "status": "expired", "source": "stripe",
+           "stripe_subscription_id": "sub_old", "trial_reset_at": datetime.now(timezone.utc)}
+    _run(_trial_checkout(monkeypatch, doc))  # no raise
+
+
+def test_b47_no_marker_canceled_stripe_doc_still_ineligible(monkeypatch):
+    doc = {"user_id": UID, "status": "expired", "source": "stripe", "stripe_subscription_id": "sub_old"}
+    with pytest.raises(billing_module.BillingError, match="already been used"):
+        _run(_trial_checkout(monkeypatch, doc))
+
+
+def test_b47_live_stripe_doc_ineligible_even_with_marker(monkeypatch):
+    from datetime import datetime, timezone
+    doc = {"user_id": UID, "status": "active", "source": "stripe", "stripe_subscription_id": "sub_l",
+           "trial_reset_at": datetime.now(timezone.utc)}
+    with pytest.raises(billing_module.BillingError, match="existing subscription"):
+        _run(_trial_checkout(monkeypatch, doc))
+
+
+def test_b47_trial_used_after_reset_is_ineligible_again(monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    now = datetime.now(timezone.utc)
+    doc = {"user_id": UID, "status": "expired", "source": "stripe", "stripe_subscription_id": "sub_n",
+           "trial_reset_at": now - timedelta(days=1), "trial_used_at": now}
+    with pytest.raises(billing_module.BillingError, match="already been used"):
+        _run(_trial_checkout(monkeypatch, doc))
+
+
 def test_subscription_checkout_reservation_reuses_same_session_and_blocks_different_choice(monkeypatch):
     fake_stripe = _make_fake_stripe()
     monkeypatch.setattr(billing_module, "stripe", fake_stripe)

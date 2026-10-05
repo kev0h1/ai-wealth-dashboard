@@ -40,6 +40,8 @@ class FakeCol:
         for d in self.docs:
             if d["_id"] == filt["_id"]:
                 changed = False
+                for k, v in upd.get("$set", {}).items():
+                    d[k] = v
                 for k in upd["$unset"]:
                     if k in d:
                         del d[k]
@@ -112,8 +114,10 @@ def test_single_user_reset_touches_trial_fields_only(env):
     assert out["modified"] == 1  # doc 4 is the live Stripe one, skipped; doc 1 reset
     assert out["skipped_live_stripe"] == 1
     for _, upd in env.updates:
-        assert set(upd) == {"$unset"}
+        assert set(upd) == {"$unset", "$set"}
         assert set(upd["$unset"]) == {"trial_used_at", "trial_ends_at"}
+        assert set(upd["$set"]) == {"trial_reset_at"}
+        assert upd["$set"]["trial_reset_at"].tzinfo is not None
     d1 = env.docs[0]
     assert "trial_used_at" not in d1 and "trial_ends_at" not in d1
     assert d1["tier"] == "plus" and d1["status"] == "active"
@@ -148,3 +152,9 @@ def test_committed_allowlist_shape():
     assert data["count"] == len(data["user_id_hashes"]) > 0
     assert data["captured_at"]
     assert all(len(h) == 64 for h in data["user_id_hashes"])
+
+
+def test_production_app_has_no_code_path_writing_marker():
+    # The only writer of trial_reset_at is this route; absent in production.
+    app = main_module.build_app(False, uat_admin_enabled=config._is_non_production(PROD))
+    assert PATH not in _paths(app)

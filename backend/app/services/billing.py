@@ -222,7 +222,33 @@ async def _validate_subscription_checkout(uid: str, trial: bool) -> None:
     if stripe_backed and doc.get("status") in {"active", "trialing", "past_due"}:
         raise BillingError("Manage your existing subscription in billing")
     if trial and (stripe_backed or doc.get("trial_used_at") or doc.get("trial_ends_at")):
-        raise BillingError("The introductory trial has already been used")
+        if not _trial_reset_applies(doc):
+            raise BillingError("The introductory trial has already been used")
+
+
+def _trial_reset_applies(doc: dict) -> bool:
+    """B47: True when a UAT trial reset has made this (non-live) document
+    eligible for a trial again.
+
+    `trial_reset_at` is written ONLY by the UAT-only endpoint
+    (app.routers.uat_trial_reset, which is not mounted in production and
+    refuses at call time there), so a production document can never carry
+    it and this branch is inert in production. Live Stripe subscriptions
+    never reach here (rejected above). A trial used AFTER the reset (the
+    webhook re-stamps trial_used_at / trial_ends_at) makes it ineligible
+    again. Stripe fields are never touched by the reset, so the end of the
+    old subscription is not needed: reset-present plus not-live suffices.
+    """
+    from app.core import timeutil
+
+    reset_at = timeutil.as_utc(doc.get("trial_reset_at"))
+    if reset_at is None:
+        return False
+    for f in ("trial_used_at", "trial_ends_at"):
+        used = timeutil.as_utc(doc.get(f))
+        if used is not None and used > reset_at:
+            return False
+    return True
 
 
 def _subscription_price_key(target: str, billing_period: str) -> str:

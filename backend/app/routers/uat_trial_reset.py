@@ -11,7 +11,7 @@ Guards, all independent:
   4. A frozen allow-list of SHA-256 hashes of the UAT user ids captured on
      2026-10-05 (app/data/uat_trial_reset_allowlist.json). Any id not on it
      is refused with 403, so users created later can never be reset.
-  5. The write `$unset`s TRIAL_FIELDS only, never tier, status, Stripe ids
+  5. The write `$unset`s TRIAL_FIELDS and `$set`s trial_reset_at, nothing else, never tier, status, Stripe ids
      or anything else, and leaves Stripe-backed active/trialing/past_due
      subscriptions untouched.
 """
@@ -21,6 +21,8 @@ import logging
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
+
+from datetime import datetime, timezone
 
 from app.core import config
 from app.core.auth import current_user
@@ -36,6 +38,10 @@ ALLOWLIST_PATH = Path(__file__).resolve().parent.parent / "data" / "uat_trial_re
 # `stripe_subscription_id` and `status` are also read there, and are never
 # touched.
 TRIAL_FIELDS = ("trial_used_at", "trial_ends_at")
+# Also `$set` in the same update: lets billing._trial_reset_applies treat a
+# past (non-live) Stripe subscription as not having used the trial. Only
+# this UAT-only endpoint ever writes it.
+RESET_MARKER = "trial_reset_at"
 _LIVE_STRIPE_STATUSES = {"active", "trialing", "past_due"}
 
 
@@ -89,7 +95,11 @@ async def uat_trial_reset(body: dict, user: dict = Depends(current_user)):
             skipped_live_stripe += 1
             continue
         res = await collections.subscriptions_col.update_one(
-            {"_id": doc["_id"]}, {"$unset": {f: "" for f in TRIAL_FIELDS}},
+            {"_id": doc["_id"]},
+            {
+                "$unset": {f: "" for f in TRIAL_FIELDS},
+                "$set": {RESET_MARKER: datetime.now(timezone.utc)},  # naive-ok: aware persisted audit timestamp,
+            },
         )
         if res.modified_count:
             modified += 1

@@ -429,9 +429,14 @@ rotation.
 `POST /subscription/admin/uat-trial-reset` exists only on UAT (the route is
 mounted when `APP_URL` is a non-production host, the same derivation as
 TrueLayer, and it also refuses at call time otherwise), so production can
-never be reset. Owner session only (no bot scope). It `$unset`s
-`trial_used_at` and `trial_ends_at` on the subscription document and nothing
-else; live Stripe-backed subscriptions are skipped. Only the 22 users on the
+never be reset. Owner session only (no bot scope). In one update it `$unset`s
+`trial_used_at` and `trial_ends_at` and `$set`s `trial_reset_at` (aware now) on
+the subscription document, nothing else; Stripe fields are never touched, and
+live Stripe-backed subscriptions (active/trialing/past_due) are skipped.
+`billing._validate_subscription_checkout` treats a non-live Stripe-backed doc
+carrying `trial_reset_at` as trial-eligible again (unless a trial was used
+after the reset). Only this UAT-only endpoint writes `trial_reset_at`, so it
+is inert in production. Only the 22 users on the
 frozen snapshot `backend/app/data/uat_trial_reset_allowlist.json` (SHA-256 of
 lower-cased email, captured 2026-10-05) can be reset; anyone else gets 403.
 
