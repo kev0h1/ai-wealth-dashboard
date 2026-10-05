@@ -19,6 +19,12 @@
 const FRONTEND_ROOT = new URL("../", import.meta.url);
 
 export async function resolve(specifier, context, nextResolve) {
+  // A68: mirror tsconfig's "@wealth/shared" path (../shared/src) so tests load the
+  // checkout's own shared package, not whatever node_modules symlinks to (in a
+  // worktree that is the shared tree's copy, which can be stale).
+  if (specifier === "@wealth/shared") {
+    return nextResolve(new URL("../shared/src/index.ts", FRONTEND_ROOT).href, context);
+  }
   if (specifier.startsWith("@/")) {
     const aliased = new URL(specifier.slice(2), FRONTEND_ROOT).href;
     try {

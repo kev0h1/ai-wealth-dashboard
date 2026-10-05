@@ -128,3 +128,38 @@ def test_route_policy_kept_and_global_policy_untouched_elsewhere(monkeypatch):
     )
     assert r.headers["x-frame-options"] == "DENY"
     assert c.get("/other").headers["content-security-policy"] == _CSP
+
+
+def test_raw_json_slot_escapes_script_close_and_validates():
+    import json as _json
+    from app.core.signin_handoff import render_template
+
+    out = render_template("{{return_url_json}}", {"return_url_json": _json.dumps("wealthdash://auth-done?x=</script>&a=1")})
+    assert "</script>" not in out and "<\\/script>" in out and "&amp;" not in out
+    with pytest.raises(ValueError):
+        render_template("{{return_url_json}}", {"return_url_json": _json.dumps("https://evil.example")})
+    with pytest.raises(ValueError):
+        render_template("{{return_url_json}}", {"return_url_json": "not json"})
+    with pytest.raises(ValueError):
+        render_template("{{return_url_json}}", {"return_url_json": "42"})
+
+
+def test_bank_page_success_and_error():
+    from app.core.signin_handoff import bank_handoff_html, signin_handoff_csp
+
+    ok = bank_handoff_html(True, provider="finexer", connection_id="cst_1")
+    assert "<title>Sorted | Bank connection</title>" in ok
+    assert 'data-state="ok"' in ok and "Bank connected" in ok
+    assert "wealthdash://auth-complete?provider=finexer&connection=cst_1&status=ok" in ok
+    assert "Taking you back to Sorted. Your transactions are on their way." in ok
+    assert "Bank connected. You can close this window and return to Sorted." in ok
+    assert "if(true)" in ok and "{{" not in ok
+    assert signin_handoff_csp(ok).startswith("default-src 'none'")
+
+    err = bank_handoff_html(False, provider="finexer", connection_id="cst_1", auto_return=False)
+    assert 'data-state="error"' in err and "Connection didn’t complete" in err
+    assert "status=error" in err and "if(false)" in err
+    assert "No accounts were linked. Close this window and try again in Sorted." in err
+    for page in (ok, err):
+        assert "—" not in page and "!" not in re.sub(r"<!DOCTYPE", "", page).split("<body>")[1].split("<script>")[0]
+        signin_handoff_csp(page)

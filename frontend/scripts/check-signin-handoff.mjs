@@ -36,7 +36,7 @@ const pyBody = spawnSync("python3", ["-c",
 if (pyBody.status !== 0 || JSON.parse(pyBody.stdout) !== src) failures.push("backend signin_handoff_template.py body differs from template.html (run scripts/gen_signin_handoff.py)");
 if (/onclick=|<[^>]+\sstyle=/i.test(src)) failures.push("template.html uses an inline handler or style attribute; the route CSP only allows hashed <style>/<script> blocks");
 
-for (const marker of ["wealthdash://auth-done", "{{state}}", "id=\"return\"", "id=\"msg\"", "prefers-color-scheme"]) {
+for (const marker of ["{{return_url_json}}", "{{title}}", "{{state}}", "id=\"return\"", "id=\"msg\"", "prefers-color-scheme"]) {
   if (!src.includes(marker)) failures.push(`template.html lost marker ${marker}`);
 }
 if (/gradient/i.test(src)) failures.push("template.html contains a gradient (Penny's alone, DESIGN.md)");

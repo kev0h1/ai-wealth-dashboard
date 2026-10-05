@@ -40,8 +40,11 @@ const SKIP_DIRS = new Set(["node_modules", ".next", ".next-prev", "scripts", "co
 const EXTS = /\.(ts|tsx|js|jsx|mjs|cjs)$/;
 
 // file (posix, relative to frontend/) + snippet on the offending line + why.
+// A68: the finexer and truelayer callback routes no longer call fetch themselves; they go
+// through lib/callbackRelay.ts (a doFetch indirection the scan does not flag), so their
+// ALLOW entries were removed rather than left stale.
 const ALLOW = [
-  ...["nordigen", "yapily", "truelayer", "finexer"].map((p) => ({
+  ...["nordigen", "yapily"].map((p) => ({
     file: `app/auth/${p}/callback/route.ts`,
     snippet: "fetch(`${BACKEND}/auth/" + p + "/callback",
     reason:
