@@ -46,7 +46,13 @@ def _serialize(doc: dict | None) -> dict:
     return {
         "full_name": doc.get("full_name", ""),
         "name_tokens": doc.get("name_tokens", []),
-        "onboarding_complete": bool(doc.get("onboarding_complete")),
+        # D12: a document that lacks the field is a legacy profile (written before
+        # onboarding_complete existed, 2026-07-04) whose owner onboarded long ago,
+        # so absent means complete. Every profile created since sets the field
+        # explicitly (see update_profile), so only a real `False` means "show
+        # onboarding". Never default a missing field to incomplete: that sent an
+        # existing user back through onboarding.
+        "onboarding_complete": True if doc.get("onboarding_complete") is None else bool(doc.get("onboarding_complete")),
         "postcode": doc.get("postcode"),
         "lat": doc.get("lat"),
         "lng": doc.get("lng"),
@@ -110,8 +116,11 @@ async def update_profile(body: dict, user: dict = Depends(current_user)):
         else:
             updates.update({"postcode": None, "lat": None, "lng": None})
 
-    await user_profiles_col.update_one(
-        {"_id": user["email"]}, {"$set": updates}, upsert=True,
-    )
+    update: dict = {"$set": updates}
+    if "onboarding_complete" not in updates:
+        # Mid-flow save (complete=false) that creates the profile: record the
+        # flag explicitly so a missing field can only mean a legacy document.
+        update["$setOnInsert"] = {"onboarding_complete": False}
+    await user_profiles_col.update_one({"_id": user["email"]}, update, upsert=True)
     doc = await user_profiles_col.find_one({"_id": user["email"]})
     return _serialize(doc)

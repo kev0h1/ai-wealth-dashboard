@@ -37,12 +37,12 @@ const STEP_DOTS: Step[] = ["profile", "payday", "plan", "income", "bank", "secur
 
 // Defined outside Onboarding so its identity is stable across renders —
 // an inner component would remount on every state change and steal focus.
-function Shell({ dotIndex, children }: { dotIndex: number; children: React.ReactNode }) {
+function Shell({ dotIndex, dotCount = STEP_DOTS.length, children }: { dotIndex: number; dotCount?: number; children: React.ReactNode }) {
   return (
     <div className="min-h-dvh flex flex-col items-center justify-center px-6 py-10">
       {dotIndex >= 0 && (
         <div className="flex gap-2 mb-8">
-          {STEP_DOTS.map((_, i) => (
+          {Array.from({ length: dotCount }, (_, i) => (
             <div
               key={i}
               className={`h-1.5 rounded-full transition-[width] duration-200 ${
@@ -119,11 +119,11 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
   // below are one request between them, not two. PlanPicker invalidates that
   // cache when a plan is selected, so the bank step sees the new plan.
   useEffect(() => {
-    if (step !== "plan" || planInfo !== undefined) return;
+    if (planInfo !== undefined) return;
     getSubscriptionCached()
       .then(setPlanInfo)
       .catch(() => setPlanInfo(null));
-  }, [planInfo, step]);
+  }, [planInfo]);
 
   // D12: while billing is not live nobody is on a purchasable plan, and every
   // user sits on the server's default tier. The plan step used to preselect
@@ -175,7 +175,10 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
     else finish();
   }
 
-  const dotIndex = STEP_DOTS.indexOf(step);
+  // Billing off skips the plan step, so its dot goes too (known from mount: the
+  // subscription is fetched up front, through the shared cache).
+  const dots = billingOff ? STEP_DOTS.filter((d) => d !== "plan") : STEP_DOTS;
+  const dotIndex = dots.indexOf(step);
 
   async function finish() {
     // Mark onboarding complete only here — at the very end — so refreshing
@@ -329,7 +332,7 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
   // ── welcome ────────────────────────────────────────────────────────────────
   if (step === "welcome") {
     return (
-      <Shell dotIndex={dotIndex}>
+      <Shell dotIndex={dotIndex} dotCount={dots.length}>
         <div className="text-center mb-10">
           <div className="inline-flex items-center justify-center w-20 h-20 rounded-3xl shadow-xl mb-6 overflow-hidden">
             {/* Plain <img>, not next/image: the mobile Capacitor build is a
@@ -375,7 +378,7 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
   // ── profile ────────────────────────────────────────────────────────────────
   if (step === "profile") {
     return (
-      <Shell dotIndex={dotIndex}>
+      <Shell dotIndex={dotIndex} dotCount={dots.length}>
         <div className="mb-6">
           <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">What&apos;s your name?</h2>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
@@ -442,7 +445,7 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
   // ── payday ─────────────────────────────────────────────────────────────────
   if (step === "payday") {
     return (
-      <Shell dotIndex={dotIndex}>
+      <Shell dotIndex={dotIndex} dotCount={dots.length}>
         <div className="mb-6">
           <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">When do you get paid?</h2>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
@@ -506,7 +509,7 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
   // ── plan ───────────────────────────────────────────────────────────────────
   if (step === "plan") {
     return (
-      <Shell dotIndex={dotIndex}>
+      <Shell dotIndex={dotIndex} dotCount={dots.length}>
         <div className="mb-6">
           <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">Choose your plan</h2>
           <p className="mt-1 text-sm leading-relaxed text-slate-500 dark:text-slate-400">
@@ -534,7 +537,7 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
   // ── income ─────────────────────────────────────────────────────────────────
   if (step === "income") {
     return (
-      <Shell dotIndex={dotIndex}>
+      <Shell dotIndex={dotIndex} dotCount={dots.length}>
         <div className="mb-6">
           <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">What do you earn?</h2>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
@@ -589,7 +592,7 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
   // ── secure (app shell with biometrics only) ─────────────────────────────────
   if (step === "secure") {
     return (
-      <Shell dotIndex={dotIndex}>
+      <Shell dotIndex={dotIndex} dotCount={dots.length}>
         <div className="text-center mb-6">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-4 bg-indigo-50 dark:bg-indigo-900/30">
             <ShieldCheck size={28} className="text-indigo-500" />
@@ -630,7 +633,7 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
   // bank-grade encryption and revoke-anytime are all claims about a consent
   // this user is not being asked for.
   return (
-    <Shell dotIndex={dotIndex}>
+    <Shell dotIndex={dotIndex} dotCount={dots.length}>
       <div className="text-center mb-6">
         <div className={`inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-4 ${bankAdded ? "bg-emerald-50 dark:bg-emerald-900/30" : "bg-blue-50 dark:bg-blue-900/30"}`}>
           {bankAdded
