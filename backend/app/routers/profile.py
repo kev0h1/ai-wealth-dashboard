@@ -39,6 +39,22 @@ def geocode_postcode(postcode: str) -> dict | None:
         return None
 
 
+def _onboarding_complete(doc: dict) -> bool:
+    """D12. An explicit flag always wins (False = onboarding needed). A document
+    that lacks the flag is ambiguous: stamp_activity's upsert (run on the first
+    authenticated request, before GET /profile) used to create bare
+    `{_id, last_active_at}` documents for brand-new users, while profiles that
+    predate the field (2026-07-04) belong to users who onboarded long ago and
+    carry a saved name. So absent flag + a saved full_name = legacy, complete;
+    absent flag and no name = onboarding needed. New documents now always set
+    the flag explicitly (stamp_activity, update_profile), so absent only occurs
+    for those legacy documents."""
+    flag = doc.get("onboarding_complete")
+    if flag is not None:
+        return bool(flag)
+    return bool((doc.get("full_name") or "").strip())
+
+
 def _serialize(doc: dict | None) -> dict:
     if not doc:
         return {"full_name": "", "name_tokens": [], "onboarding_complete": False,
@@ -46,13 +62,7 @@ def _serialize(doc: dict | None) -> dict:
     return {
         "full_name": doc.get("full_name", ""),
         "name_tokens": doc.get("name_tokens", []),
-        # D12: a document that lacks the field is a legacy profile (written before
-        # onboarding_complete existed, 2026-07-04) whose owner onboarded long ago,
-        # so absent means complete. Every profile created since sets the field
-        # explicitly (see update_profile), so only a real `False` means "show
-        # onboarding". Never default a missing field to incomplete: that sent an
-        # existing user back through onboarding.
-        "onboarding_complete": True if doc.get("onboarding_complete") is None else bool(doc.get("onboarding_complete")),
+        "onboarding_complete": _onboarding_complete(doc),
         "postcode": doc.get("postcode"),
         "lat": doc.get("lat"),
         "lng": doc.get("lng"),

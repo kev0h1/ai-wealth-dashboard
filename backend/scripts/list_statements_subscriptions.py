@@ -8,7 +8,9 @@ document written while billing was off is a probable accidental downgrade;
 this lists them for Kevin to decide. It never writes: only find() is used.
 
 Usage (from backend/, with the .env the service uses):
-    .venv/bin/python scripts/list_statements_subscriptions.py [--counts-only]
+    .venv/bin/python scripts/list_statements_subscriptions.py [--list]
+
+Counts only by default; --list adds one hashed line per user.
 
 User ids are shown as a short SHA-256 prefix, never the email.
 """
@@ -26,7 +28,7 @@ from app.core.config import BILLING_ENABLED, MONGO_DB, MONGO_URI  # noqa: E402
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--counts-only", action="store_true")
+    ap.add_argument("--list", action="store_true", help="also print one hashed line per user")
     args = ap.parse_args()
 
     db = MongoClient(MONGO_URI, serverSelectionTimeoutMS=8000)[MONGO_DB]
@@ -35,7 +37,7 @@ def main() -> int:
     total = db["subscriptions"].count_documents({})
     print(f"db={MONGO_DB} billing_enabled={BILLING_ENABLED} subscriptions={total} "
           f"self_managed_statements={len(docs)}")
-    if not args.counts_only:
+    if args.list:
         for d in sorted(docs, key=lambda x: str(x.get("started_at"))):
             uid = hashlib.sha256(str(d.get("user_id", "")).encode()).hexdigest()[:12]
             print(f"{uid}  started_at={d.get('started_at')}  updated_at={d.get('updated_at')}")

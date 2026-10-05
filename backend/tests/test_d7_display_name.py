@@ -246,3 +246,27 @@ def test_fresh_profile_is_incomplete_and_create_path_sets_the_field(monkeypatch)
     assert _run(profile_module.get_profile({"email": email}))["onboarding_complete"] is True
     _run(profile_module.update_profile({"full_name": "New Person", "complete": False}, {"email": email}))
     assert profiles.docs[email]["onboarding_complete"] is True
+
+
+def test_stamp_only_document_is_incomplete_and_named_legacy_is_complete(monkeypatch):
+    # D12: stamp_activity creates `{_id, last_active_at}` before GET /profile.
+    email = "x@example.com"
+    monkeypatch.setattr(profile_module, "user_profiles_col", FakeProfilesCol([
+        {"_id": email, "last_active_at": 1},
+        {"_id": "kevin@example.com", "full_name": "Kevin"},
+    ]))
+    assert _run(profile_module.get_profile({"email": email}))["onboarding_complete"] is False
+    assert _run(profile_module.get_profile({"email": "kevin@example.com"}))["onboarding_complete"] is True
+
+
+def test_new_user_first_request_stamp_then_profile_needs_onboarding(monkeypatch):
+    import app.services.retention as retention_module
+    profiles = FakeProfilesCol()
+    monkeypatch.setattr(profile_module, "user_profiles_col", profiles)
+    monkeypatch.setattr(retention_module, "user_profiles_col", profiles)
+    monkeypatch.setattr(retention_module, "_last_stamped", {})
+    email = "brandnew@example.com"
+    _run(retention_module.stamp_activity(email))
+    assert profiles.docs[email]["onboarding_complete"] is False
+    assert "last_active_at" in profiles.docs[email]
+    assert _run(profile_module.get_profile({"email": email}))["onboarding_complete"] is False
