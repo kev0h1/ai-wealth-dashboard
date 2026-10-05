@@ -43,7 +43,13 @@ Event-to-effect table (see `_dispatch_event` below):
     falling back to the subscription-level current_period_end for
     older shapes — see B36), updated_at, source: "stripe"}.
   - customer.subscription.deleted -> subscriptions_col status "expired".
-  - invoice.payment_failed -> subscriptions_col status "past_due".
+  - invoice.paid -> status "active", expires_at = end of the period paid
+    for, grace cleared (B45; zero-amount invoices ignored).
+  - customer.subscription.trial_will_end -> conversion reminder push (B45).
+  - A Stripe "unpaid" status is now "expired" (B45), landing on Statements.
+  - invoice.payment_failed -> subscriptions_col status "past_due", plus
+    past_due_since / grace_until (BILLING_PAST_DUE_GRACE_DAYS, B45) and a
+    once-per-episode push.
     app.core.subscription.get_subscription only ever falls back to the
     default tier when status is literally "expired" or expires_at has
     passed — a "past_due" subscription keeps its tier and limits until
@@ -222,7 +228,45 @@ async def _validate_subscription_checkout(uid: str, trial: bool) -> None:
     if stripe_backed and doc.get("status") in {"active", "trialing", "past_due"}:
         raise BillingError("Manage your existing subscription in billing")
     if trial and (stripe_backed or doc.get("trial_used_at") or doc.get("trial_ends_at")):
-        raise BillingError("The introductory trial has already been used")
+        if not _trial_reset_applies(doc):
+            raise BillingError("The introductory trial has already been used")
+
+
+def _trial_reset_applies(doc: dict) -> bool:
+    """B47: True when a UAT trial reset has made this (non-live) document
+    eligible for a trial again.
+
+    `trial_reset_at` is written ONLY by the UAT-only endpoint
+    (app.routers.uat_trial_reset, which is not mounted in production and
+    refuses at call time there), so a production document can never carry
+    it and this branch is inert in production. Live Stripe subscriptions
+    never reach here (rejected above). A trial used AFTER the reset (the
+    webhook re-stamps trial_used_at / trial_ends_at) makes it ineligible
+    again. Stripe fields are never touched by the reset, so the end of the
+    old subscription is not needed: reset-present plus not-live suffices.
+    """
+    from app.core import timeutil
+
+    reset_at = timeutil.as_utc(doc.get("trial_reset_at"))
+    if reset_at is None:
+        return False
+    for f in ("trial_used_at", "trial_ends_at"):
+        used = timeutil.as_utc(doc.get(f))
+        if used is not None and used > reset_at:
+            return False
+    return True
+
+
+async def trial_eligible(uid: str) -> bool:
+    """B45: would a trial Checkout be accepted for `uid` right now? Runs the
+    exact check Checkout itself runs (_validate_subscription_checkout, so
+    one trial per person and any UAT reset marker apply identically), so
+    the plan picker can never offer a trial the server will then refuse."""
+    try:
+        await _validate_subscription_checkout(uid, True)
+    except BillingError:
+        return False
+    return True
 
 
 def _subscription_price_key(target: str, billing_period: str) -> str:
@@ -343,6 +387,13 @@ async def create_checkout_session(
             if trial:
                 subscription_data["trial_period_days"] = SUBSCRIPTION_TRIAL_DAYS
                 checkout_args["payment_method_collection"] = "always"
+                # B45: card is required up front (collection "always"), so
+                # this branch is unreachable by design; it is set anyway so
+                # that if collection is ever loosened a trial without a card
+                # cancels rather than silently converting to a failed charge.
+                subscription_data["trial_settings"] = {
+                    "end_behavior": {"missing_payment_method": "cancel"},
+                }
             checkout_args["subscription_data"] = subscription_data
 
         if checkout_token:
@@ -442,6 +493,11 @@ def _subscription_for_price_id(price_id: str) -> tuple[str, str] | None:
     return None
 
 
+def _no_uid() -> dict:
+    logger.warning("billing: webhook object resolved no uid (no metadata.uid and unknown customer)")
+    return {"handled": False, "reason": "no uid resolvable"}
+
+
 async def _resolve_uid(obj: dict) -> str | None:
     """`metadata.uid` first (set on the Checkout Session and carried onto
     the Subscription/Invoice it creates), falling back to a
@@ -486,7 +542,7 @@ async def _handle_subscription_upsert(sub_obj: dict) -> dict:
 
     uid = await _resolve_uid(sub_obj)
     if not uid:
-        return {"handled": False, "reason": "no uid resolvable"}
+        return _no_uid()
 
     items = (sub_obj.get("items") or {}).get("data") or []
     price = (items[0] or {}).get("price") if items else None
@@ -512,7 +568,7 @@ async def _handle_subscription_upsert(sub_obj: dict) -> dict:
         "active":             "active",
         "trialing":           "trialing",
         "past_due":           "past_due",
-        "unpaid":             "past_due",
+        "unpaid":             "expired",
         "canceled":           "expired",
         "incomplete":         "expired",
         "incomplete_expired": "expired",
@@ -552,24 +608,133 @@ async def _handle_subscription_upsert(sub_obj: dict) -> dict:
         "billing_period":        billing_period,
         "expires_at":            expires_at,
         "trial_ends_at":         trial_ends_at,
-        "cancel_at_period_end":  bool(sub_obj.get("cancel_at_period_end")),
+        # Stripe's flexible-billing portal can schedule an end with
+        # `cancel_at` rather than the boolean; either means "ends, not renews".
+        "cancel_at_period_end":  bool(sub_obj.get("cancel_at_period_end") or sub_obj.get("cancel_at")),
         "updated_at":            now,
         "source":                "stripe",
     }
     if trial_started_at:
         subscription_fields["trial_used_at"] = trial_started_at
-    await subscriptions_col.update_one(
-        {"user_id": uid},
-        {
-            "$set": subscription_fields,
-            "$setOnInsert": {"started_at": now},
-        },
-        upsert=True,
-    )
+
+    existing = dict(await subscriptions_col.find_one({"user_id": uid}) or {})
+    stale = _stale_subscription_event(existing, sub_obj, status)
+    if stale:
+        return {"handled": False, "reason": stale}
+    if sub_obj.get("created"):
+        subscription_fields["stripe_created"] = sub_obj["created"]
+    if sub_obj.get("status") == "canceled":
+        subscription_fields["ended_at"] = now
+        subscription_fields["ended_subscription_ids"] = _with_ended(existing, sub_obj.get("id"))
+    update: dict = {"$set": subscription_fields, "$setOnInsert": {"started_at": now}}
+    newly_past_due = False
+    if status == "past_due":
+        newly_past_due = _stamp_past_due(subscription_fields, existing, now)
+    elif status in ("active", "trialing"):
+        update["$unset"] = {"past_due_since": "", "grace_until": "", "ended_at": ""}
+    # A document already "expired" that Stripe now reports active or
+    # trialing (the user resubscribed through a new Checkout) is simply
+    # overwritten, which is what re-enables sync: nothing else is stored.
+    await subscriptions_col.update_one({"user_id": uid}, update, upsert=True)
+
+    landed = status == "expired" and existing.get("status") != "expired"
+    effects = await _after_transition(uid, newly_past_due=newly_past_due, landed_on_statements=landed)
     return {
         "handled": True, "action": "subscription_upsert", "uid": uid,
         "tier": tier, "status": status, "billing_period": billing_period,
+        **effects,
     }
+
+
+def _stale_subscription_event(existing: dict, sub_obj: dict, status: str) -> str | None:
+    """Reason to ignore a subscription event that would overwrite newer
+    state, or None. Stripe does not order events, so (a) an update for a
+    subscription that is not the stored one is applied only if it is newer
+    (Stripe `created`), which is how a genuine resubscribe gets in while a
+    late event for the old subscription does not, and (b) an update for the
+    stored subscription cannot reactivate it once it has been cancelled."""
+    cur_id = existing.get("stripe_subscription_id")
+    new_id = sub_obj.get("id")
+    if not existing or not new_id:
+        return None
+    ended = _ended_subscription_event(existing, sub_obj, status)
+    if ended:
+        return ended
+    if not cur_id:
+        return None
+    if cur_id != new_id:
+        created, stored = sub_obj.get("created"), existing.get("stripe_created")
+        live = existing.get("status") in ("active", "trialing", "past_due")
+        if stored and created and created < stored:
+            return "event is for an older subscription"
+        if live and not (stored and created and created > stored):
+            return "event is for a different subscription than the live one"
+        return None
+    return None
+
+
+def _ended_subscription_event(existing: dict, sub_obj: dict, status: str) -> str | None:
+    """`ended_subscription_id` ties "this ended" to the subscription id that
+    ended, so a late live-looking event for THAT id is ignored whether or not
+    a newer subscription has since replaced it, while a resubscribe (a
+    different id, even arriving first as `incomplete`) is never blocked."""
+    if sub_obj.get("id") in _ended_ids(existing) and status in ("active", "trialing", "past_due"):
+        return "subscription already ended"
+    return None
+
+
+_ENDED_IDS_CAP = 20
+
+
+def _ended_ids(doc: dict) -> list:
+    """Every subscription id known to have ended for this user:
+    `ended_subscription_ids` (a list, capped) plus the legacy single
+    `ended_subscription_id` written by the previous revision."""
+    ids = list(doc.get("ended_subscription_ids") or [])
+    legacy = doc.get("ended_subscription_id")
+    if legacy and legacy not in ids:
+        ids.append(legacy)
+    return ids
+
+
+def _with_ended(doc: dict, sub_id: str | None) -> list:
+    ids = _ended_ids(doc)
+    if sub_id and sub_id not in ids:
+        ids.append(sub_id)
+    return ids[-_ENDED_IDS_CAP:]
+
+
+def _stamp_past_due(fields: dict, existing: dict, now: datetime) -> bool:
+    """Record when a subscription first went past_due and the access
+    deadline that follows it (BILLING_PAST_DUE_GRACE_DAYS). Mutates
+    `fields`; returns True only the first time, so a failed-payment notice
+    is sent once per episode rather than once per Stripe retry."""
+    from app.core.config import BILLING_PAST_DUE_GRACE_DAYS
+    from app.core.timeutil import as_utc
+
+    since = as_utc(existing.get("past_due_since")) if existing.get("status") == "past_due" else None
+    first = since is None
+    since = since or now
+    fields["past_due_since"] = since
+    fields["grace_until"] = since + timedelta(days=BILLING_PAST_DUE_GRACE_DAYS)
+    return first
+
+
+async def _after_transition(uid: str, *, newly_past_due: bool = False, landed_on_statements: bool = False) -> dict:
+    """Side effects of a status change, run after the subscription document
+    is written: the failed-payment push (once per episode) and, when a
+    subscription has just ended, the optional consent revoke."""
+    from app.services import billing_lifecycle
+
+    out: dict = {}
+    if newly_past_due:
+        await billing_lifecycle.notify(
+            uid, billing_lifecycle.PAYMENT_FAILED_TITLE, billing_lifecycle.payment_failed_body(),
+        )
+        out["notified"] = "payment_failed"
+    if landed_on_statements:
+        out["landed_on_statements"] = await billing_lifecycle.on_landed_on_statements(uid)
+    return out
 
 
 async def _handle_subscription_deleted(sub_obj: dict) -> dict:
@@ -577,13 +742,29 @@ async def _handle_subscription_deleted(sub_obj: dict) -> dict:
 
     uid = await _resolve_uid(sub_obj)
     if not uid:
-        return {"handled": False, "reason": "no uid resolvable"}
+        return _no_uid()
 
-    await subscriptions_col.update_one(
-        {"user_id": uid},
-        {"$set": {"status": "expired", "updated_at": datetime.now(timezone.utc), "source": "stripe"}},
-    )
-    return {"handled": True, "action": "subscription_deleted", "uid": uid}
+    existing = dict(await subscriptions_col.find_one({"user_id": uid}) or {})
+    deleted_id = sub_obj.get("id")
+    if existing and deleted_id:
+        # Record the ended id whatever is stored: a `deleted` for a NEW
+        # subscription can arrive before its own created/active event, and
+        # that later event must then be ignored.
+        await subscriptions_col.update_one(
+            {"user_id": uid}, {"$set": {"ended_subscription_ids": _with_ended(existing, deleted_id)}},
+        )
+    if deleted_id and existing.get("stripe_subscription_id") and existing["stripe_subscription_id"] != deleted_id:
+        # A superseded subscription ending (the user has since resubscribed)
+        # must not expire the live one.
+        return {"handled": False, "reason": "deleted subscription is not the current one"}
+    update = {
+        "$set": {"status": "expired", "updated_at": datetime.now(timezone.utc), "source": "stripe",  # naive-ok: persisted audit instant
+                 "ended_at": datetime.now(timezone.utc)},  # naive-ok: persisted audit instant
+        "$unset": {"past_due_since": "", "grace_until": ""},
+    }
+    await subscriptions_col.update_one({"user_id": uid}, update)
+    effects = await _after_transition(uid, landed_on_statements=existing.get("status") != "expired")
+    return {"handled": True, "action": "subscription_deleted", "uid": uid, **effects}
 
 
 async def _handle_payment_failed(invoice_obj: dict) -> dict:
@@ -591,13 +772,108 @@ async def _handle_payment_failed(invoice_obj: dict) -> dict:
 
     uid = await _resolve_uid(invoice_obj)
     if not uid:
-        return {"handled": False, "reason": "no uid resolvable"}
+        return _no_uid()
 
+    existing = await subscriptions_col.find_one({"user_id": uid})
+    if not existing:
+        return {"handled": False, "reason": "no subscription on file"}
+    # Stripe does not order events: a late failure for an ended subscription,
+    # a superseded one, or a one-off invoice must never revive a paid tier.
+    if existing.get("status") not in ("active", "trialing", "past_due"):
+        return {"handled": False, "reason": f"subscription is {existing.get('status')!r}, not live"}
+    invoice_sub = _invoice_subscription_id(invoice_obj)
+    if not invoice_sub or invoice_sub != existing.get("stripe_subscription_id"):
+        return {"handled": False, "reason": "invoice is not for the current subscription"}
+    now = datetime.now(timezone.utc)  # naive-ok: persisted audit instant
+    fields = {"status": "past_due", "updated_at": now, "source": "stripe"}
+    newly = _stamp_past_due(fields, existing, now)
+    await subscriptions_col.update_one({"user_id": uid}, {"$set": fields})
+    effects = await _after_transition(uid, newly_past_due=newly)
+    return {"handled": True, "action": "payment_failed", "uid": uid, **effects}
+
+
+def _invoice_subscription_id(invoice_obj: dict) -> str | None:
+    """The subscription an invoice belongs to: top-level `subscription` on
+    older API versions, `parent.subscription_details.subscription` on the
+    current one."""
+    sub = invoice_obj.get("subscription")
+    if not sub:
+        sub = (((invoice_obj.get("parent") or {}).get("subscription_details")) or {}).get("subscription")
+    return sub.get("id") if isinstance(sub, dict) else sub
+
+
+def _invoice_period_end(invoice_obj: dict) -> int | None:
+    lines = (invoice_obj.get("lines") or {}).get("data") or []
+    ends = [((ln or {}).get("period") or {}).get("end") for ln in lines]
+    ends = [e for e in ends if e]
+    return max(ends) if ends else None
+
+
+async def _handle_invoice_paid(invoice_obj: dict) -> dict:
+    """Conversion (first charge after the trial) and every renewal: the
+    subscription is active, access runs to the end of the period just paid
+    for, and any past_due grace is cleared. A zero-amount invoice (the
+    trial's opening invoice) changes nothing: it must not turn a trialing
+    subscription active."""
+    from app.db.collections import subscriptions_col
+
+    uid = await _resolve_uid(invoice_obj)
+    if not uid:
+        return _no_uid()
+    if not (invoice_obj.get("amount_paid") or 0) > 0:
+        return {"handled": False, "reason": "zero-amount invoice, nothing to convert"}
+
+    existing = await subscriptions_col.find_one({"user_id": uid})
+    if not existing:
+        return {"handled": False, "reason": "no subscription on file"}
+    invoice_sub = _invoice_subscription_id(invoice_obj)
+    if invoice_sub and existing.get("stripe_subscription_id") and invoice_sub != existing["stripe_subscription_id"]:
+        return {"handled": False, "reason": "invoice belongs to a different subscription"}
+
+    if invoice_sub and invoice_sub in _ended_ids(existing):
+        return {"handled": False, "reason": "invoice belongs to an ended subscription"}
+    now = datetime.now(timezone.utc)  # naive-ok: persisted audit instant
+    fields = {"status": "active", "updated_at": now, "source": "stripe"}
+    period_end = _invoice_period_end(invoice_obj)
+    if period_end:
+        fields["expires_at"] = datetime.fromtimestamp(period_end, tz=timezone.utc)
+    fields["last_paid_at"] = now
     await subscriptions_col.update_one(
         {"user_id": uid},
-        {"$set": {"status": "past_due", "updated_at": datetime.now(timezone.utc), "source": "stripe"}},
+        {"$set": fields, "$unset": {"past_due_since": "", "grace_until": "", "ended_at": ""}},
     )
-    return {"handled": True, "action": "payment_failed", "uid": uid}
+    return {"handled": True, "action": "invoice_paid", "uid": uid, "status": "active"}
+
+
+async def _handle_trial_will_end(sub_obj: dict) -> dict:
+    """Stripe fires this three days before a trial ends. Sends the
+    conversion reminder (the same copy and the same trial_reminder_sent_at
+    dedup as the daily task_trial_reminder, so a user is never reminded
+    twice) and nothing else."""
+    from app.db.collections import subscriptions_col
+    from app.services import billing_lifecycle
+
+    uid = await _resolve_uid(sub_obj)
+    if not uid:
+        return _no_uid()
+    doc = await subscriptions_col.find_one({"user_id": uid})
+    if not doc or doc.get("status") != "trialing":
+        return {"handled": False, "reason": "not trialing"}
+    if doc.get("cancel_at_period_end"):
+        # Already cancelled: nothing will be charged, so a "will be charged"
+        # reminder would be wrong.
+        return {"handled": True, "action": "trial_will_end", "uid": uid, "notified": False, "reason": "cancelled"}
+    if doc.get("trial_reminder_sent_at"):
+        return {"handled": True, "action": "trial_will_end", "uid": uid, "notified": False, "reason": "already reminded"}
+    copy = billing_lifecycle.trial_reminder_copy(doc)
+    if not copy:
+        return {"handled": False, "reason": "no price or trial end to remind about"}
+    sent = await billing_lifecycle.notify(uid, copy[0], copy[1])
+    if sent:
+        await subscriptions_col.update_one(
+            {"user_id": uid}, {"$set": {"trial_reminder_sent_at": datetime.now(timezone.utc)}},  # naive-ok: persisted audit instant
+        )
+    return {"handled": True, "action": "trial_will_end", "uid": uid, "notified": sent}
 
 
 async def _dispatch_event(event_type: str, event: dict) -> dict:
@@ -611,6 +887,10 @@ async def _dispatch_event(event_type: str, event: dict) -> dict:
         return await _handle_subscription_deleted(data_object)
     if event_type == "invoice.payment_failed":
         return await _handle_payment_failed(data_object)
+    if event_type == "invoice.paid":
+        return await _handle_invoice_paid(data_object)
+    if event_type == "customer.subscription.trial_will_end":
+        return await _handle_trial_will_end(data_object)
     return {"handled": False, "reason": f"unrecognised event type {event_type!r}"}
 
 

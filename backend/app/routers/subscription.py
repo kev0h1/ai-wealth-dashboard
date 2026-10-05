@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.core import timeutil
 from app.core.auth import current_user
-from app.core.config import BILLING_ENABLED, PRIMARY_EMAIL
+from app.core.config import BILLING_ENABLED, BILLING_PAST_DUE_GRACE_DAYS, PRIMARY_EMAIL
 from app.core.subscription import (
     MCP_CALL_PACKS, PENNY_TOPUP, PENNY_TOPUP_LIFETIME_DAYS, PENNY_TOPUP_PACKS,
     SUBSCRIPTION_PERIODS_ENABLED, SUBSCRIPTION_TRIAL_DAYS, SUBSCRIPTION_TRIAL_PERIODS,
@@ -100,7 +100,17 @@ async def get_subscription_info(user: dict = Depends(current_user)):
         for tier_name in TIER_BY_NAME
     }
 
+    # B45: lets the plan picker lead with the trial only when Checkout would
+    # actually grant it. None (field omitted by older clients' fallback)
+    # when the check itself could not run.
+    try:
+        from app.services.billing import trial_eligible as _trial_eligible
+        trial_eligible = await _trial_eligible(email)
+    except Exception:
+        trial_eligible = None
+
     return {
+        "trial_eligible": trial_eligible,
         "tier":         sub.tier_name,
         "status":       sub.status,
         "prices_gbp":   TIER_PRICES_GBP,
@@ -120,6 +130,12 @@ async def get_subscription_info(user: dict = Depends(current_user)):
         "renews_at": sub.renews_at.isoformat() if getattr(sub, "renews_at", None) else None,
         "cancel_at_period_end": bool(getattr(sub, "cancel_at_period_end", False)),
         "has_paid_subscription": bool(getattr(sub, "has_paid_subscription", False)),
+        # B45: failed-payment grace (access runs to this instant) and the
+        # plan-has-no-open-banking flag the accounts screen reads as "paused".
+        "past_due": sub.status == "past_due",
+        "grace_days": BILLING_PAST_DUE_GRACE_DAYS,
+        "grace_until": sub.grace_until.isoformat() if getattr(sub, "grace_until", None) else None,
+        "open_banking_paused": (getattr(sub, "limits", None) or {}).get("open_banking") is False,
         "billing_live": BILLING_ENABLED,
         # Legacy single-pack shape, kept for one release (see PENNY_TOPUP's
         # own comment in core/subscription.py) alongside the real pack list.

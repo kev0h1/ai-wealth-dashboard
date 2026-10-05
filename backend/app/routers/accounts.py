@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.auth import current_user
 from app.core.models import Account
+from app.core.subscription import open_banking_paused
 from app.db.collections import (
     connections_col, accounts_col, transactions_col,
     statement_accounts_col, statement_transactions_col,
@@ -120,12 +121,17 @@ async def _manual_accounts(uid: str, currency: str) -> List[Account]:
 @router.get("/accounts", response_model=List[Account])
 async def get_accounts(user: dict = Depends(current_user)):
     uid = user["email"]
+    # B45: on a plan without open banking (Statements, after a cancelled or
+    # lapsed subscription) bank-synced accounts stay readable but are flagged
+    # paused so the UI can say so and offer Resubscribe.
+    paused = await open_banking_paused(uid)
 
     docs = await accounts_col.find({"user_id": uid}).to_list(None)
     result = [
         Account(
             id=d["_id"],
-            **{k: v for k, v in d.items() if k not in {"_id", "cover_source_eligible"}},
+            **{k: v for k, v in d.items() if k not in {"_id", "cover_source_eligible", "paused"}},
+            paused=paused,
             # G55: `_engine_source_eligible` is companion.py's OWN
             # source_capacity predicate (credit-card exclusion AND the
             # current/savings inclusion gate), reused here rather than
@@ -168,6 +174,7 @@ async def get_accounts(user: dict = Depends(current_user)):
                 balance=a.get("balance", 0), currency=a.get("currency", "GBP"),
                 provider=a.get("institution_id", "YAPILY"), status=a.get("status", "connected"),
                 connection_id=a.get("consent", ""),
+                paused=paused,
                 # G55: was unconditionally True regardless of card type.
                 # Yapily's own sync (`services/yapily_sync.py`) stores the
                 # provider's real account type lowercased straight into
@@ -192,6 +199,11 @@ async def sync_status(user: dict = Depends(current_user)):
 @router.post("/accounts/sync")
 async def sync_all(user: dict = Depends(current_user)):
     uid = user["email"]
+
+    # B45: no bank sync, scheduled or manual, on a plan without open banking.
+    if await open_banking_paused(uid):
+        return {"message": "Bank sync is paused on your plan", "paused": True,
+                "connections": 0, "total_accounts": 0}
 
     # G210: a retry clears a first sync's recorded error so Home reads as
     # syncing again; a fresh failure re-stamps it.
@@ -262,6 +274,10 @@ async def sync_all(user: dict = Depends(current_user)):
 @router.post("/accounts/sync-history")
 async def sync_history(user: dict = Depends(current_user)):
     uid = user["email"]
+    # B45: same pause as POST /accounts/sync.
+    if await open_banking_paused(uid):
+        return {"message": "Bank sync is paused on your plan", "paused": True,
+                "connections": 0, "total_accounts": 0}
 
     conns   = await connections_col.find({"user_id": uid}).to_list(None)
     from_dt = (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")

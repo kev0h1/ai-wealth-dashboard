@@ -25,7 +25,7 @@ from app.services.finexer_sync import finexer_sync_pipeline
 from app.services.categorisation import apply_rules_bulk, categorise_others_bg
 from app.services.manual_account_rules import apply_rules as apply_mirror_rules
 from app.services.notifications import notif_pref
-from app.core.subscription import TIER_BILLING_PRICES_GBP, get_subscription
+from app.core.subscription import TIER_BILLING_PRICES_GBP, get_subscription, open_banking_paused
 from app.db.collections import investment_accounts_col, subscriptions_col
 from app.services.investment_prices import refresh_account_prices
 from app.workers.ai_worker import task_refresh_savings_insights
@@ -96,6 +96,10 @@ async def _warm_after_sync(user_id: str) -> None:
 
 
 async def task_sync_truelayer(ctx, connection_id: str, user_id: str):
+    # B45: webhook-driven and retried jobs reach here without passing the
+    # reconcile cron's tier check, so the pause is enforced at the task too.
+    if await open_banking_paused(user_id, fail_closed=True):
+        return {"skipped": "open_banking_paused"}
     ids, new_count = await sync_connection(connection_id, user_id)
     await apply_rules_bulk(user_id, structural=True)
     await categorise_others_bg(user_id)
@@ -113,6 +117,10 @@ async def task_sync_truelayer(ctx, connection_id: str, user_id: str):
 
 
 async def task_sync_yapily(ctx, consent_token: str, user_id: str):
+    # B45: webhook-driven and retried jobs reach here without passing the
+    # reconcile cron's tier check, so the pause is enforced at the task too.
+    if await open_banking_paused(user_id, fail_closed=True):
+        return {"skipped": "open_banking_paused"}
     await sync_yapily_consent(consent_token, user_id)
     await apply_rules_bulk(user_id, structural=True)
     await categorise_others_bg(user_id)
@@ -122,6 +130,10 @@ async def task_sync_yapily(ctx, consent_token: str, user_id: str):
 
 
 async def task_sync_finexer(ctx, consent_id: str, user_id: str):
+    # B45: webhook-driven and retried jobs reach here without passing the
+    # reconcile cron's tier check, so the pause is enforced at the task too.
+    if await open_banking_paused(user_id, fail_closed=True):
+        return {"skipped": "open_banking_paused"}
     result = await finexer_sync_pipeline(consent_id, user_id)
     await _enqueue_weekly_insight_refresh(ctx, user_id)
     await _warm_after_sync(user_id)
@@ -669,31 +681,17 @@ async def task_trial_reminder(ctx):
         trial_ends_at = doc.get("trial_ends_at")
         if not uid or not isinstance(trial_ends_at, datetime):
             continue
-        if doc.get("trial_reminder_sent_at"):
-            continue
+        if doc.get("trial_reminder_sent_at") or doc.get("cancel_at_period_end"):
+            continue  # already reminded, or cancelled (nothing will be charged)
         if not (now <= trial_ends_at <= warn_cutoff):
             continue
 
-        tier = doc.get("tier")
-        billing_period = doc.get("billing_period")
-        total = TIER_BILLING_PRICES_GBP.get(tier, {}).get(billing_period)
-        if total is None:
-            logger.warning(
-                "trial reminder: no price for tier=%s billing_period=%s (uid=%s)",
-                tier, billing_period, uid,
-            )
+        from app.services.billing_lifecycle import trial_reminder_copy
+        copy = trial_reminder_copy(doc)
+        if not copy:
+            logger.warning("trial reminder: no price or trial end to remind about (uid=%s)", uid)
             continue
-
-        amount = f"£{total:.2f}"
-        # G161 follow-up: displayed as trial_ends_at's Europe/London
-        # calendar date -- the eligibility gate above stays a raw instant
-        # comparison (now <= trial_ends_at <= warn_cutoff), correct as-is.
-        charge_date = timeutil.to_user_date(trial_ends_at).strftime("%-d %B %Y")
-        title = "Your free trial ends soon"
-        body = (
-            f"Your free trial ends on {charge_date}. {amount} will be charged "
-            f"then unless you cancel from Settings, Your plan."
-        )
+        title, body = copy
         try:
             await send_push_to_user(uid, title, body, url="/settings")
         except Exception:

@@ -24,6 +24,9 @@ export interface Account {
   bg_colors?: string[];
   apr?: number | null;
   source?: "truelayer" | "finexer" | string;
+  /** B45: bank-synced account on a plan without open banking. Readable
+   *  history, no longer syncing; resubscribing resumes it. */
+  paused?: boolean;
 }
 
 /** One live bank connection/consent, from GET /connections
@@ -729,6 +732,16 @@ export interface SubscriptionInfo {
   renews_at?: string | null;
   cancel_at_period_end?: boolean;
   has_paid_subscription?: boolean;
+  /** B45: whether Checkout would grant a trial right now (one per person).
+   *  null/absent: unknown, fall back to `!has_paid_subscription`. */
+  trial_eligible?: boolean | null;
+  /** B45: failed payment, access kept until `grace_until`. */
+  past_due?: boolean;
+  grace_until?: string | null;
+  /** B45: length of the failed-payment grace window in days. */
+  grace_days?: number;
+  /** B45: this plan has no open banking (Statements), so bank sync is paused. */
+  open_banking_paused?: boolean;
   /** @deprecated see SubscriptionTopup's own note — use `topups`. */
   topup: SubscriptionTopup;
   topups: SubscriptionTopupPack[];

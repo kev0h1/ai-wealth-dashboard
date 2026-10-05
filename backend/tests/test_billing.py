@@ -490,6 +490,42 @@ def test_checkout_rejects_repeat_trial_after_expired_stripe_subscription(monkeyp
         ))
 
 
+def _trial_checkout(monkeypatch, doc):
+    _patch_billing_enabled(monkeypatch, True, price_ids=_FULL_PRICE_IDS)
+    _patch_collections(monkeypatch, billing_customers_col=_FakeCol(), subscriptions_col=_FakeCol([doc]))
+    return billing_module._validate_subscription_checkout(UID, True)
+
+
+def test_b47_reset_marker_makes_canceled_stripe_doc_trial_eligible(monkeypatch):
+    from datetime import datetime, timezone
+    doc = {"user_id": UID, "status": "expired", "source": "stripe",
+           "stripe_subscription_id": "sub_old", "trial_reset_at": datetime.now(timezone.utc)}
+    _run(_trial_checkout(monkeypatch, doc))  # no raise
+
+
+def test_b47_no_marker_canceled_stripe_doc_still_ineligible(monkeypatch):
+    doc = {"user_id": UID, "status": "expired", "source": "stripe", "stripe_subscription_id": "sub_old"}
+    with pytest.raises(billing_module.BillingError, match="already been used"):
+        _run(_trial_checkout(monkeypatch, doc))
+
+
+def test_b47_live_stripe_doc_ineligible_even_with_marker(monkeypatch):
+    from datetime import datetime, timezone
+    doc = {"user_id": UID, "status": "active", "source": "stripe", "stripe_subscription_id": "sub_l",
+           "trial_reset_at": datetime.now(timezone.utc)}
+    with pytest.raises(billing_module.BillingError, match="existing subscription"):
+        _run(_trial_checkout(monkeypatch, doc))
+
+
+def test_b47_trial_used_after_reset_is_ineligible_again(monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    now = datetime.now(timezone.utc)
+    doc = {"user_id": UID, "status": "expired", "source": "stripe", "stripe_subscription_id": "sub_n",
+           "trial_reset_at": now - timedelta(days=1), "trial_used_at": now}
+    with pytest.raises(billing_module.BillingError, match="already been used"):
+        _run(_trial_checkout(monkeypatch, doc))
+
+
 def test_subscription_checkout_reservation_reuses_same_session_and_blocks_different_choice(monkeypatch):
     fake_stripe = _make_fake_stripe()
     monkeypatch.setattr(billing_module, "stripe", fake_stripe)
@@ -1169,12 +1205,12 @@ def test_subscription_deleted_marks_expired(monkeypatch):
 
 
 def test_invoice_payment_failed_marks_past_due(monkeypatch):
-    fake_subs = _FakeCol([{"user_id": UID, "tier": "standard", "status": "active"}])
+    fake_subs = _FakeCol([{"user_id": UID, "tier": "standard", "status": "active", "stripe_subscription_id": "sub_1"}])
     _patch_collections(monkeypatch, billing_events_col=_FakeCol(), subscriptions_col=fake_subs)
 
     event = {
         "id": "evt_invoice_failed", "type": "invoice.payment_failed",
-        "data": {"object": {"customer": "cus_1", "metadata": {"uid": UID}}},
+        "data": {"object": {"customer": "cus_1", "metadata": {"uid": UID}, "subscription": "sub_1"}},
     }
     result = _run(billing_module.handle_event(event))
     assert result["result"]["handled"] is True
@@ -1245,7 +1281,9 @@ def test_subscription_incomplete_status_does_not_grant_entitlement(monkeypatch):
 
     sub = _run(subscription_module.get_subscription(UID))
     assert sub.status == "expired"
-    assert sub.tier == subscription_module.Tier.LITE
+    # B45: a Stripe-backed subscription that never took payment lands on
+    # Statements whatever DEFAULT_TIER says.
+    assert sub.tier == subscription_module.Tier.STATEMENTS
     assert sub.tier != subscription_module.Tier.STANDARD
 
 
@@ -1279,7 +1317,7 @@ def test_subscription_unknown_status_does_not_grant_entitlement(monkeypatch):
 
     sub = _run(subscription_module.get_subscription(UID))
     assert sub.status == "expired"
-    assert sub.tier == subscription_module.Tier.LITE
+    assert sub.tier == subscription_module.Tier.STATEMENTS
     assert sub.tier != subscription_module.Tier.MAX
 
 
@@ -1379,10 +1417,11 @@ def test_past_due_subscriber_keeps_tier_until_expires_at_then_loses_it(monkeypat
     # value being overwritten here was already verified above to be the
     # one the code itself computed from the item.
     fake_subs.docs[0]["expires_at"] = datetime.now(timezone.utc) - timedelta(seconds=1)
+    fake_subs.docs[0]["grace_until"] = datetime.now(timezone.utc) - timedelta(seconds=1)
 
     after_grace = _run(subscription_module.get_subscription(UID))
     assert after_grace.status == "expired"
-    assert after_grace.tier == subscription_module.Tier.LITE
+    assert after_grace.tier == subscription_module.Tier.STATEMENTS
     assert after_grace.tier != subscription_module.Tier.STANDARD
 
 

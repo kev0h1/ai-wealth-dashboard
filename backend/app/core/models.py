@@ -22,6 +22,10 @@ class Account(BaseModel):
     logo_url: Optional[str] = None
     bg_colors: Optional[list] = None
     apr: Optional[float] = None
+    # B45: true when the user's plan has no open banking (Statements) so this
+    # bank-synced account is read-only history, not live. Never set on manual
+    # or statement accounts, which stay current.
+    paused: bool = False
 
 
 class Transaction(BaseModel):

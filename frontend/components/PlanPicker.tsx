@@ -4,6 +4,7 @@ import { useMemo, useState, type KeyboardEvent } from "react";
 import { Check, ChevronDown, Crown, FileText, Globe, Landmark, Link2, Zap } from "lucide-react";
 import { api } from "@/lib/api";
 import { invalidateOpenBankingAccess } from "@/lib/openBankingAccess";
+import { trialCancelLine, trialDisclosureLine, trialHeadline, trialTermsLine } from "@/lib/billingCopy";
 import { usePurchaseAvailability, PURCHASE_UNAVAILABLE_SENTENCE } from "@/lib/nativeAuth";
 import type {
   SubscriptionBillingPeriod,
@@ -179,7 +180,6 @@ export default function PlanPicker({
   const current = info.tier;
   const [selected, setSelected] = useState<SubscriptionTier>(() => context === "onboarding" ? "statements" : (info?.tier ?? "statements"));
   const [period, setPeriod] = useState<SubscriptionBillingPeriod>(info?.billing_period ?? "monthly");
-  const [trial, setTrial] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -202,7 +202,13 @@ export default function PlanPicker({
   const hasPaidSubscription = info.has_paid_subscription === true;
   const managedPaidSubscription = hasPaidSubscription && ["active", "trialing", "past_due"].includes(info.status);
   const billingChangeInPortal = context === "settings" && managedPaidSubscription;
-  const trialActive = trial && isTrialPeriod && !hasPaidSubscription;
+  // B45: every paid plan starts with the trial, so it is no longer an
+  // opt-in switch. It simply applies whenever the period carries one and
+  // Checkout would grant it (one per person, `trial_eligible` from the
+  // server; absent or null when the check could not run, in which case no trial
+  // statement is promised and Checkout still decides).
+  const trialEligible = info.trial_eligible ?? false;
+  const trialActive = isTrialPeriod && trialEligible && !hasPaidSubscription;
   // B26: Apple's guideline 3.1.1 (and, for now, Android not being enrolled
   // in Play's billing-choice programme) means a native build can never
   // start Stripe Checkout or open the Stripe customer portal, regardless
@@ -223,8 +229,8 @@ export default function PlanPicker({
   // where to cancel. Kept as two named strings (not one) so both can be
   // rendered right under the trial switch as well as echoed in the
   // confirm-button panel below.
-  const trialDisclosureLine = `${trialDays} days free, then ${money(total)} ${trialChargeTiming}, then ${money(total)} ${renewalWords} unless you cancel.`;
-  const trialCancelLine = `Cancel any time ${cancelByText} from Settings, Your plan, and you will not be charged.`;
+  const trialDisclosureText = trialDisclosureLine(trialDays, total, trialChargeTiming, renewalWords);
+  const trialCancelText = trialCancelLine(cancelByText);
 
   const disclosure = useMemo(() => {
     if (billingChangeInPortal) {
@@ -246,9 +252,9 @@ export default function PlanPicker({
     }
     if (selected === "statements") return "Free. No card and no automatic renewal.";
     if (!purchasingAllowed) return PURCHASE_UNAVAILABLE_SENTENCE;
-    if (trialActive) return `${trialDisclosureLine} ${trialCancelLine}`;
+    if (trialActive) return `${trialDisclosureText} ${trialCancelText}`;
     return `${money(total)} today, then ${money(total)} ${renewalWords} unless you cancel. Cancel any time from Settings, Your plan.`;
-  }, [billingChangeInPortal, info.cancel_at_period_end, info.status, purchasingAllowed, renewalWords, selected, total, trialActive, trialCancelLine, trialDisclosureLine]);
+  }, [billingChangeInPortal, info.cancel_at_period_end, info.status, purchasingAllowed, renewalWords, selected, total, trialActive, trialCancelText, trialDisclosureText]);
 
   async function openPortal() {
     const { url } = await api.openBillingPortal();
@@ -414,8 +420,8 @@ export default function PlanPicker({
                 role="radio"
                 aria-checked={period === item.id}
                 tabIndex={period === item.id ? 0 : -1}
-                onClick={() => { setPeriod(item.id); if (!trialPeriods.includes(item.id)) setTrial(false); }}
-                onKeyDown={(event) => moveRadio(event, index, periods.length, (next) => { const nextPeriod = periods[next].id; setPeriod(nextPeriod); if (!trialPeriods.includes(nextPeriod)) setTrial(false); })}
+                onClick={() => setPeriod(item.id)}
+                onKeyDown={(event) => moveRadio(event, index, periods.length, (next) => setPeriod(periods[next].id))}
                 className={`min-h-11 rounded-xl px-3 text-xs font-semibold outline-none transition active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-indigo-500 ${period === item.id ? "bg-indigo-600 text-white" : "bg-slate-50 text-slate-600 ring-1 ring-slate-200 dark:bg-slate-700/70 dark:text-slate-200 dark:ring-slate-600"}`}
               >
                 <span className="block">{SHORT_LABELS[item.id] ?? item.label}</span>
@@ -431,28 +437,13 @@ export default function PlanPicker({
             <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400"><MoneyCopy text={`${money(chosenPeriod.per_month_gbp)} a month, billed yearly.`} /></p>
           )}
 
-          {isTrialPeriod && !hasPaidSubscription && (
-            <>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={trial}
-                onClick={() => setTrial((value) => !value)}
-                className={`mt-3 flex min-h-14 w-full items-center gap-3 rounded-xl px-3 text-left outline-none transition active:scale-[0.99] focus-visible:ring-2 focus-visible:ring-indigo-500 ${trial ? "bg-indigo-50 ring-1 ring-indigo-200 dark:bg-indigo-400/[0.08] dark:ring-indigo-400/20" : "bg-slate-50 ring-1 ring-slate-200 dark:bg-slate-700/60 dark:ring-slate-600"}`}
-              >
-                <span className={`grid h-5 w-5 shrink-0 place-items-center rounded-md border ${trial ? "border-indigo-600 bg-indigo-600 text-white" : "border-slate-300 dark:border-slate-500"}`}>{trial && <Check size={12} strokeWidth={3} />}</span>
-                <span>
-                  <span className="block text-xs font-semibold text-slate-900 dark:text-slate-100">Start with {trialDays} days free</span>
-                  <span className="mt-0.5 block text-[11px] leading-snug text-slate-600 dark:text-slate-300"><MoneyCopy text={`Then ${money(total)} ${renewalWords}. Card required, cancel before the trial ends to pay nothing.`} /></span>
-                </span>
-              </button>
-              {trialActive && (
-                <div className="mt-2 rounded-xl bg-indigo-50/60 px-3 py-2 dark:bg-indigo-400/[0.06]">
-                  <p className="text-[11px] leading-relaxed text-slate-700 dark:text-slate-300"><MoneyCopy text={trialDisclosureLine} /></p>
-                  <p className="mt-1 text-[11px] leading-relaxed text-slate-600 dark:text-slate-400">{trialCancelLine}</p>
-                </div>
-              )}
-            </>
+          {trialActive && (
+            <div className="mt-3 rounded-xl bg-indigo-50 px-3 py-2.5 ring-1 ring-indigo-200 dark:bg-indigo-400/[0.08] dark:ring-indigo-400/20">
+              <p className="text-xs font-semibold text-slate-900 dark:text-slate-100">{trialHeadline(trialDays)}</p>
+              <p className="mt-0.5 text-[11px] leading-snug text-slate-600 dark:text-slate-300"><MoneyCopy text={trialTermsLine(total, renewalWords)} /></p>
+              <p className="mt-2 text-[11px] leading-relaxed text-slate-700 dark:text-slate-300"><MoneyCopy text={trialDisclosureText} /></p>
+              <p className="mt-1 text-[11px] leading-relaxed text-slate-600 dark:text-slate-400">{trialCancelText}</p>
+            </div>
           )}
         </div>
       )}
