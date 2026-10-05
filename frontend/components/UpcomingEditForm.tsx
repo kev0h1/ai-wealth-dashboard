@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { api } from "@/lib/api";
+import { DateField } from "./DatePicker";
 import { dateLabel } from "@/lib/upcomingPlans";
 import { EditorActions, EditorError, editorField, editorQuiet, useEditorRequest, validDate } from "./upcoming/editorSupport";
 
@@ -47,7 +48,7 @@ export function UpcomingEditForm({ item, onCancel, onDismiss, onSaved, services 
     <div><h3 className="text-sm font-semibold">Payment details</h3><p className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-400">Adjust the prediction. This does not change a bank payment.</p></div>
     <fieldset disabled={request.busy || request.needsRefresh} className="min-w-0 space-y-6">
       <div className="grid gap-4 min-[380px]:grid-cols-2">
-        <label className="min-w-0 text-sm font-medium">Expected date<input type="date" value={date} onChange={(event) => setDate(event.target.value)} required className={editorField} /></label>
+        <label className="min-w-0 text-sm font-medium">Expected date<DateField mode="day" label="Expected date" value={date} onChange={setDate} required className="mt-1" /></label>
         <label className="min-w-0 text-sm font-medium">Amount (£)<input type="number" min="0.01" max="1000000" step="0.01" inputMode="decimal" autoComplete="off" value={amount} onChange={(event) => setAmount(event.target.value)} required className={editorField} /></label>
       </div>
       <fieldset className="border-t border-slate-200 pt-4 dark:border-slate-700"><legend className="pr-3 text-sm font-semibold">Apply changes to</legend><div className="mt-1 space-y-1">

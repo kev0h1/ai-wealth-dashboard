@@ -9,6 +9,7 @@ import { getPayPeriodWithConfig, nextPeriodWithConfig, periodRhythmLabel, PayPer
 import MoneyText from "@/components/MoneyText";
 import { invalidateVerdictCache } from "@/lib/verdictCache";
 import { SheetFrame } from "@/components/SheetFrame";
+import { DateField } from "@/components/DatePicker";
 
 // Create/edit sheet for a commitment — a named future big expense (holiday,
 // car, fees) the app reserves a per-period slice for. Mirrors the
@@ -117,7 +118,7 @@ export default function CommitmentSheet({
 }: CommitmentSheetProps) {
   const { payPeriodConfig } = usePreferences();
   const router = useRouter();
-  const monthInputRef = useRef<HTMLInputElement>(null);
+  const monthInputRef = useRef<HTMLButtonElement>(null);
   const [showConsent, setShowConsent] = useState(false);
   const [consentSnapshot, setConsentSnapshot] = useState<CommitmentPreview["consent"]>(null);
 
@@ -475,14 +476,10 @@ export default function CommitmentSheet({
                 <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">
                   By when
                 </label>
-                <input
-                  ref={monthInputRef}
-                  type="month"
-                  value={month}
-                  min={minMonth}
-                  onChange={(e) => { setMonth(e.target.value); setSaveError(false); }}
+                <DateField
+                  mode="month" label="By when" title="Target month" value={month} min={minMonth} buttonRef={monthInputRef}
+                  onChange={(v) => { setMonth(v); setSaveError(false); }}
                   required
-                  className="w-full min-h-[48px] px-3 rounded-xl bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-slate-100 border border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 text-sm appearance-none text-left [&::-webkit-date-and-time-value]:text-left"
                 />
               </div>
 
