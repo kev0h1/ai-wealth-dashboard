@@ -23,7 +23,7 @@
 // with previous/next page chevrons. Previous/next chevrons stay too.
 
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type MutableRefObject } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { SheetFrame, type SheetFrameControls } from "@/components/SheetFrame";
 import {
   MONTH_NAMES, MONTH_SHORT, WEEKDAY_HEADS, YEAR_PAGE, addDays, addMonths, chunk, clampYmd, dayKey, daysIn, formatDay, formatIso,
@@ -37,7 +37,7 @@ type View = DatePickerView;
 const FOCUS = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1 dark:focus-visible:ring-offset-slate-900";
 const CHIP = `inline-flex min-h-11 items-center justify-center rounded-full border border-slate-200 bg-white px-4 text-[13px] font-semibold text-slate-700 transition-transform active:scale-95 disabled:opacity-40 disabled:active:scale-100 motion-reduce:transition-none dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 ${FOCUS}`;
 const ICON_BTN = `grid size-11 shrink-0 place-items-center rounded-full text-slate-600 transition-transform active:scale-95 disabled:opacity-40 disabled:active:scale-100 motion-reduce:transition-none dark:text-slate-300 ${FOCUS}`;
-const SELECTOR_BTN = `inline-flex min-h-11 items-center justify-center rounded-xl px-3 text-[16px] font-bold text-slate-950 transition-transform hover:bg-slate-100 active:scale-95 motion-reduce:transition-none dark:text-slate-50 dark:hover:bg-slate-700 ${FOCUS}`;
+const SELECTOR_BTN = `inline-flex min-h-11 items-center justify-center gap-1 rounded-xl px-2.5 text-[16px] font-bold text-slate-950 transition-transform hover:bg-slate-100 active:scale-95 motion-reduce:transition-none dark:text-slate-50 dark:hover:bg-slate-700 ${FOCUS}`;
 const BTN_PRIMARY = `inline-flex min-h-11 flex-1 items-center justify-center rounded-xl bg-indigo-600 px-4 text-[14px] font-semibold text-white transition-transform active:scale-95 disabled:bg-slate-200 disabled:text-slate-500 disabled:active:scale-100 motion-reduce:transition-none dark:disabled:bg-slate-700 dark:disabled:text-slate-400 ${FOCUS}`;
 const BTN_SECONDARY = `inline-flex min-h-11 flex-1 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-[14px] font-semibold text-slate-700 transition-transform active:scale-95 motion-reduce:transition-none dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 ${FOCUS}`;
 
@@ -70,6 +70,12 @@ export interface DatePickerSheetProps {
 export function DatePickerSheet({ mode, value, onCommit, onClose, min, max, title, today, themeClass, initialView }: DatePickerSheetProps) {
   const uid = useId().replace(/:/g, "");
   const closeRef = useRef<(() => void) | null>(null);
+  // Portals append to <body> in commit order, children first. When the field
+  // mounts together with its host (a restored or default-open state) the
+  // picker would land BELOW the host at the same z-index. Mounting the frame
+  // one commit later always appends it after the host's own portal.
+  const [layered, setLayered] = useState(false);
+  useEffect(() => { setLayered(true); }, []);
   const todayYmd = useMemo(() => parseIso(today ?? todayIso(), "day") ?? parseIso(todayIso(), "day")!, [today]);
   const minYmd = useMemo(() => parseIso(min, mode), [min, mode]);
   const maxYmd = useMemo(() => parseIso(max, mode), [max, mode]);
@@ -221,6 +227,7 @@ export function DatePickerSheet({ mode, value, onCommit, onClose, min, max, titl
     );
   };
 
+  if (!layered) return null;
   return (
     <SheetFrame
       variant="compact" title={title ?? (dayMode ? "Choose a date" : "Choose a month")} themeClass={themeClass} onClose={onClose}
@@ -250,8 +257,8 @@ export function DatePickerSheet({ mode, value, onCommit, onClose, min, max, titl
               <>
                 <button type="button" aria-label="Previous month" disabled={atMinMonth} onClick={() => stepMonth(-1)} className={ICON_BTN}><ChevronLeft size={20} aria-hidden="true" /></button>
                 <div className="flex items-center">
-                  <button type="button" onClick={() => goView("months")} aria-label={`${MONTH_NAMES[cursor.m]}, choose a month`} className={SELECTOR_BTN}>{MONTH_NAMES[cursor.m]}</button>
-                  <button type="button" onClick={() => { setYearStart(yearPageStart(cursor.y, minYear, maxYear)); goView("years"); }} aria-label={`${cursor.y}, choose a year`} className={`${SELECTOR_BTN} tabular-nums`}>{cursor.y}</button>
+                  <button type="button" onClick={() => goView("months")} aria-label={`${MONTH_NAMES[cursor.m]}, choose a month`} className={SELECTOR_BTN}>{MONTH_NAMES[cursor.m]}<ChevronDown size={14} aria-hidden="true" className="text-slate-500 dark:text-slate-400" /></button>
+                  <button type="button" onClick={() => { setYearStart(yearPageStart(cursor.y, minYear, maxYear)); goView("years"); }} aria-label={`${cursor.y}, choose a year`} className={`${SELECTOR_BTN} tabular-nums`}>{cursor.y}<ChevronDown size={14} aria-hidden="true" className="text-slate-500 dark:text-slate-400" /></button>
                 </div>
                 <button type="button" aria-label="Next month" disabled={atMaxMonth} onClick={() => stepMonth(1)} className={ICON_BTN}><ChevronRight size={20} aria-hidden="true" /></button>
               </>
@@ -259,7 +266,7 @@ export function DatePickerSheet({ mode, value, onCommit, onClose, min, max, titl
             {view === "months" && (
               <>
                 <button type="button" aria-label="Previous year" disabled={!yearBounds.hasPrev} onClick={() => stepYear(-1)} className={ICON_BTN}><ChevronLeft size={20} aria-hidden="true" /></button>
-                <button type="button" onClick={() => { setYearStart(yearPageStart(cursor.y, minYear, maxYear)); goView("years"); }} aria-label={`${cursor.y}, choose a year`} className={`${SELECTOR_BTN} tabular-nums`}>{cursor.y}</button>
+                <button type="button" onClick={() => { setYearStart(yearPageStart(cursor.y, minYear, maxYear)); goView("years"); }} aria-label={`${cursor.y}, choose a year`} className={`${SELECTOR_BTN} tabular-nums`}>{cursor.y}<ChevronDown size={14} aria-hidden="true" className="text-slate-500 dark:text-slate-400" /></button>
                 <button type="button" aria-label="Next year" disabled={!yearBounds.hasNext} onClick={() => stepYear(1)} className={ICON_BTN}><ChevronRight size={20} aria-hidden="true" /></button>
               </>
             )}
