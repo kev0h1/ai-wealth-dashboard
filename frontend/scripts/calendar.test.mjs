@@ -68,3 +68,18 @@ assert.equal(commitValue("day", 2026, 9, 16), "2026-10-16");
 assert.equal(commitValue("month", 2027, 2, 19), "2027-03");
 for (const v of [commitValue("day", 2026, 0, 1), commitValue("month", 2026, 11, 31)]) assert.match(v, /^\d{4}-\d{2}(-\d{2})?$/);
 console.log("calendar: ok");
+
+// G213: the local calendar day, never UTC. 00:30 on a BST day is still the 15th
+// locally (the previous day in UTC), so toISOString-derived dates would be wrong.
+assert.equal(todayIso(new Date(2026, 6, 15, 0, 30)), "2026-07-15");
+assert.equal(todayIso(new Date(2026, 6, 15, 23, 59)), "2026-07-15");
+
+// G213 source guard: the manual-transaction and pay-period date defaults must not
+// derive a calendar date from toISOString.
+import { readFileSync } from "node:fs";
+for (const f of ["../app/components/AccountsPage.tsx", "../components/PayPeriodSettingsSheet.tsx", "../components/PreferencesContext.tsx", "../components/TransactionFilterSheet.tsx"]) {
+  const src = readFileSync(new URL(f, import.meta.url), "utf8");
+  assert.ok(!/toISOString\(\)\s*\.\s*slice/.test(src), `${f} derives a date from toISOString`);
+  assert.ok(/todayIso/.test(src), `${f} uses todayIso`);
+}
+console.log("calendar G213 ok");
