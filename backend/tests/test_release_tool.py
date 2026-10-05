@@ -989,3 +989,186 @@ def test_tag_only_refuses_existing_tag(monkeypatch):
     monkeypatch.setattr(release, "run_smoke_checks", lambda *a, **k: pytest.fail("network"))
     assert release.cmd_tag_only(_tag_args()) == 1
     assert not any(c[:2] == ["git", "tag"] for c in cmds)
+
+
+# ── H108 round 2: strict promote match, early stop, readiness, bounds, tag-only, deploy-level ──
+
+
+def _v7_http(items, v13=None):
+    calls = []
+
+    def http(method, url, token, timeout):
+        calls.append((method, url))
+        if "/v7/deployments" in url:
+            return {"deployments": items}
+        if "/v13/deployments/" in url:
+            uid = url.split("/v13/deployments/")[1].split("?")[0]
+            return (v13 or {}).get(uid, {"meta": {}})
+        raise AssertionError(url)
+
+    http.calls = calls
+    return http
+
+
+def test_promote_candidate_resolves_missing_sha_via_v13():
+    http = _v7_http([{"uid": "d1"}], {"d1": {"meta": {"githubCommitSha": "aaaa1111bbbb"}}})
+    assert release.find_promote_candidate(http, "t", "p", "team_1", "aaaa1111", 5) == "d1"
+    assert any("/v13/deployments/d1" in u for _, u in http.calls)
+
+
+def test_promote_candidate_no_sha_anywhere_never_promotes(tmp_path):
+    http = _v7_http([{"uid": "d1"}], {"d1": {"meta": {}}})
+    assert release.find_promote_candidate(http, "t", "p", "team_1", "aaaa1111", 5) is None
+    state = {"live": "d_other"}
+    base = _fake_vercel(state)
+
+    def h(method, url, token, timeout):
+        if "/v7/deployments" in url:
+            return {"deployments": [{"uid": "d1"}]}
+        if "/v13/deployments/d1" in url:
+            return {"meta": {}}
+        return base(method, url, token, timeout)
+
+    ok, msg = release.verify_vercel_rollback(
+        _link(tmp_path), "aaaa1111", 5, http=h, token="t", sleep=lambda n: None,
+    )
+    assert not ok and not any(m == "POST" for m, _ in state["calls"])
+
+
+def test_promote_candidate_mismatched_sha_ignored():
+    http = _v7_http([{"uid": "d1", "meta": {"githubCommitSha": "ffff0000"}}])
+    assert release.find_promote_candidate(http, "t", "p", None, "aaaa1111", 5) is None
+
+
+def test_promote_candidate_same_sha_picks_newest_and_different_full_sha_fails_closed():
+    same = _v7_http([
+        {"uid": "old", "createdAt": 1, "meta": {"githubCommitSha": "aaaa1111bbbb"}},
+        {"uid": "new", "createdAt": 9, "meta": {"githubCommitSha": "aaaa1111bbbb"}},
+    ])
+    assert release.find_promote_candidate(same, "t", "p", None, "aaaa1111", 5) == "new"
+    differ = _v7_http([
+        {"uid": "x", "meta": {"githubCommitSha": "aaaa1111bbbb"}},
+        {"uid": "y", "meta": {"githubCommitSha": "aaaa1111cccc"}},
+    ])
+    with pytest.raises(release.RemoteError):
+        release.find_promote_candidate(differ, "t", "p", None, "aaaa1111", 5)
+
+
+def test_poll_railway_stops_early_on_failed_service():
+    clock = {"t": 0.0}
+    reads = {"n": 0}
+
+    def fetch(service):
+        reads["n"] += 1
+        return _dep("FAILED") if service == "worker" else _dep("SUCCESS")
+
+    failed = set()
+    done, _ = release.poll_railway_services(
+        "abc12345", False, 1800, 15, fetch, sleep=lambda n: clock.__setitem__("t", clock["t"] + n),
+        clock=lambda: clock["t"], failed_out=failed,
+    )
+    assert failed == {"worker"} and done["worker"] is False and clock["t"] == 0.0 and reads["n"] == 2
+
+
+def test_vercel_ready_requires_sha_and_newer_than_push():
+    dep = {"readyState": "READY", "createdAt": 2_000_000, "meta": {"githubCommitSha": "aaaa1111bbbb"}}
+    assert release.vercel_ready_for_push(dep, "aaaa1111", 2000.0)
+    assert not release.vercel_ready_for_push(dep, "ffff0000", 2000.0)
+    assert not release.vercel_ready_for_push(dep, "aaaa1111", 5000.0)
+    assert not release.vercel_ready_for_push({**dep, "readyState": "BUILDING"}, "aaaa1111", 2000.0)
+
+
+def test_timeout_minutes_bounds():
+    parser = release.build_parser()
+    for bad in ("0", "-5", "nan", "inf", "181", "1.5", "x"):
+        with pytest.raises(SystemExit):
+            parser.parse_args(["deploy", "--timeout-minutes", bad])
+    assert parser.parse_args(["deploy", "--timeout-minutes", "180"]).timeout_minutes == 180
+
+
+def _tag_stubs(monkeypatch, *, points_at="", live_sha="cd663f1fdeadbeef", live_err=None):
+    cmds = []
+    monkeypatch.setattr(release, "_run", lambda cmd, **k: cmds.append(cmd) or "")
+
+    def run_ok(cmd, **k):
+        if cmd[:3] == ["git", "tag", "--points-at"]:
+            return True, points_at
+        return True, "cd663f1fdeadbeef\n"
+
+    monkeypatch.setattr(release, "_run_ok", run_ok)
+    monkeypatch.setattr(release, "is_ancestor", lambda *a, **k: True)
+    monkeypatch.setattr(release, "is_tag_from_this_tool", lambda *a, **k: False)
+
+    def live(timeout, http=None):
+        if live_err:
+            raise release.RemoteError(live_err)
+        return "d_live", {"meta": {"githubCommitSha": live_sha}}
+
+    monkeypatch.setattr(release, "live_vercel_deployment", live)
+    monkeypatch.setattr(release, "run_smoke_checks", lambda *a, **k: [])
+    return cmds
+
+
+def test_tag_only_refuses_sha_with_existing_release_tag(monkeypatch):
+    cmds = _tag_stubs(monkeypatch, points_at="release-20260101-1200\n")
+    assert release.cmd_tag_only(_tag_args()) == 1
+    assert not any(c[:2] == ["git", "tag"] and "-a" in c for c in cmds)
+
+
+def test_tag_only_live_check_fail_closed_mismatch_and_skip(monkeypatch):
+    cmds = _tag_stubs(monkeypatch, live_err="no token")
+    assert release.cmd_tag_only(_tag_args()) == 1
+    cmds = _tag_stubs(monkeypatch, live_sha="ffff0000")
+    assert release.cmd_tag_only(_tag_args()) == 1
+    assert not any("-a" in c for c in cmds)
+    cmds = _tag_stubs(monkeypatch, live_err="no token")
+    assert release.cmd_tag_only(_tag_args(skip_live_check=True)) == 0
+    assert any(c[:3] == ["git", "tag", "-a"] for c in cmds)
+    cmds = _tag_stubs(monkeypatch)
+    assert release.cmd_tag_only(_tag_args()) == 0
+    assert any(c[:3] == ["git", "tag", "-a"] for c in cmds)
+
+
+def _deploy_env(monkeypatch, fetch):
+    import argparse
+    cmds = []
+    clock = {"t": 0.0}
+    monkeypatch.chdir(release.REPO_ROOT)
+    monkeypatch.setattr(release, "run_check", lambda *a, **k: [])
+    monkeypatch.setattr(release, "has_red", lambda items: False)
+    monkeypatch.setattr(release, "print_check_table", lambda items: None)
+    monkeypatch.setattr(release, "git_rev_parse", lambda root, ref, timeout: "abc12345" if "main" in ref else "prev0000")
+    monkeypatch.setattr(release, "is_ancestor", lambda *a, **k: True)
+    monkeypatch.setattr(release, "_run", lambda cmd, **k: cmds.append(cmd) or "")
+    monkeypatch.setattr(release, "fetch_railway_latest_deployment", lambda svc, timeout: fetch(svc))
+    monkeypatch.setattr(release, "poll_vercel_ready", lambda *a, **k: (True, [{"url": "u", "age": "1m", "status": "Ready"}]))
+    orig = release.poll_railway_services
+    monkeypatch.setattr(
+        release, "poll_railway_services",
+        lambda *a, **k: orig(*a, sleep=lambda n: clock.__setitem__("t", clock["t"] + n), clock=lambda: clock["t"], **k),
+    )
+    monkeypatch.setattr(release, "run_smoke_checks", lambda *a, **k: [])
+    monkeypatch.setattr(release, "trigger_codemagic_prod_build", lambda *a, **k: (True, "stub"))
+    args = argparse.Namespace(dry_run=False, allow_worktree=False, timeout=5, timeout_minutes=1, railway_branch_confirmed=False)
+    return args, cmds
+
+
+def test_deploy_late_success_reaches_smoke_and_tag(monkeypatch):
+    reads = {}
+
+    def fetch(svc):
+        reads[svc] = reads.get(svc, 0) + 1
+        if svc == "worker" or reads[svc] >= 6:  # SUCCESS only on the final re-check
+            return _dep("SUCCESS")
+        return _dep("BUILDING")
+
+    args, cmds = _deploy_env(monkeypatch, fetch)
+    assert release.cmd_deploy(args) == 0
+    assert any(c[:2] == ["git", "tag"] for c in cmds)
+    assert any(c[:3] == ["git", "push", "origin"] and c[3].startswith("release-") for c in cmds)
+
+
+def test_deploy_failed_service_produces_no_tag(monkeypatch):
+    args, cmds = _deploy_env(monkeypatch, lambda svc: _dep("FAILED") if svc == "worker" else _dep("SUCCESS"))
+    assert release.cmd_deploy(args) == 1
+    assert not any(c[:2] == ["git", "tag"] for c in cmds)
