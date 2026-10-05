@@ -120,6 +120,11 @@ async def get_subscription_info(user: dict = Depends(current_user)):
         "renews_at": sub.renews_at.isoformat() if getattr(sub, "renews_at", None) else None,
         "cancel_at_period_end": bool(getattr(sub, "cancel_at_period_end", False)),
         "has_paid_subscription": bool(getattr(sub, "has_paid_subscription", False)),
+        # B45: failed-payment grace (access runs to this instant) and the
+        # plan-has-no-open-banking flag the accounts screen reads as "paused".
+        "past_due": sub.status == "past_due",
+        "grace_until": sub.grace_until.isoformat() if getattr(sub, "grace_until", None) else None,
+        "open_banking_paused": sub.limit("open_banking") is False,
         "billing_live": BILLING_ENABLED,
         # Legacy single-pack shape, kept for one release (see PENNY_TOPUP's
         # own comment in core/subscription.py) alongside the real pack list.

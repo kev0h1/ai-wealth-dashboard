@@ -567,6 +567,23 @@ BILLING_ENABLED: bool = bool(STRIPE_SECRET_KEY) and all(
     key in STRIPE_PRICE_IDS for key in _STRIPE_REQUIRED_PRICE_KEYS
 )
 
+# ── Trial lifecycle (B45) ────────────────────────────────────────────────────
+# REVOKE_CONSENT_ON_DOWNGRADE: when a subscription ends (cancelled, expired,
+# unpaid, or a trial that never converted) the user lands on the free
+# Statements plan and open-banking sync stops. By default that is ALL that
+# happens: the Finexer consent is kept, so resubscribing resumes sync with no
+# fresh bank consent. Setting this true also revokes the user's authorised
+# Finexer consents at downgrade (Finexer bills per connected account per
+# month, so revoking stops that cost, at the price of making the user
+# reconnect). Kevin has not decided; default off. See
+# app/services/billing_lifecycle.py.
+REVOKE_CONSENT_ON_DOWNGRADE: bool = os.getenv("REVOKE_CONSENT_ON_DOWNGRADE", "false").strip().lower() in ("1", "true", "on", "yes")
+
+# How long a past_due (failed payment) subscription keeps its paid tier,
+# counted from the first failed payment. Stripe's own retry schedule decides
+# when it finally cancels; this bounds our side so access cannot outlive it.
+BILLING_PAST_DUE_GRACE_DAYS: int = int(os.getenv("BILLING_PAST_DUE_GRACE_DAYS", "7") or 7)
+
 # ── Reconcile spread (E2) ────────────────────────────────────────────────────
 # task_reconcile_truelayer (app/workers/sync_worker.py) used to enqueue every
 # stale connection's sync job in one burst every 4 hours. That's fine at

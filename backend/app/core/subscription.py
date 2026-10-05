@@ -234,7 +234,9 @@ class Subscription:
         renews_at: datetime | None = None,
         cancel_at_period_end: bool = False,
         has_paid_subscription: bool = False,
+        grace_until: datetime | None = None,
     ):
+        self.grace_until = grace_until
         self.tier = tier
         self.status = status
         self.limits = TIER_LIMITS[tier]
@@ -266,12 +268,26 @@ async def get_subscription(email: str) -> Subscription:
         return Subscription(default_tier)
 
     stripe_backed = bool(doc.get("source") == "stripe" and doc.get("stripe_subscription_id"))
+    # B45: a user whose real (Stripe-backed) subscription has ended lands on
+    # the free Statements plan whatever DEFAULT_TIER is. DEFAULT_TIER only
+    # covers people who never had a paid subscription (the pre-launch "nobody
+    # is restricted" default); someone who cancelled, lapsed, failed to pay
+    # or let a trial end has no claim on it.
+    landing_tier = Tier.STATEMENTS if stripe_backed else default_tier
     if doc.get("status") == "expired":
-        return Subscription(default_tier, "expired", has_paid_subscription=stripe_backed)
+        return Subscription(landing_tier, "expired", has_paid_subscription=stripe_backed)
 
+    now = datetime.now(timezone.utc)
     expires_at = as_utc(doc.get("expires_at"))
-    if expires_at and expires_at < datetime.now(timezone.utc):
-        return Subscription(default_tier, "expired", has_paid_subscription=stripe_backed)
+    grace_until = as_utc(doc.get("grace_until")) if doc.get("status") == "past_due" else None
+    if grace_until is not None:
+        # Failed payment: Stripe leaves current_period_end at the period that
+        # just ended, so the usual expires_at check would cut access the
+        # moment a renewal fails. Access runs to the grace deadline instead.
+        if grace_until <= now:
+            return Subscription(landing_tier, "expired", has_paid_subscription=stripe_backed)
+    elif expires_at and expires_at < now:
+        return Subscription(landing_tier, "expired", has_paid_subscription=stripe_backed)
 
     stored_name = (doc.get("tier") or "").strip().lower()
     if stored_name in TIER_BY_NAME:
@@ -293,7 +309,22 @@ async def get_subscription(email: str) -> Subscription:
         renews_at=expires_at,
         cancel_at_period_end=bool(doc.get("cancel_at_period_end")),
         has_paid_subscription=stripe_backed,
+        grace_until=grace_until,
     )
+
+
+async def open_banking_paused(email: str) -> bool:
+    """B45: True when this user's effective plan has no open banking, so
+    every bank sync (scheduled, webhook-driven or manual) must be skipped
+    and their connected accounts shown as paused. Fails OPEN on any lookup
+    error (a transient Mongo failure must not silently stop a paying user's
+    sync, matching the reconcile cron's own cadence fallback)."""
+    try:
+        sub = await get_subscription(email)
+    except Exception:
+        logger.exception("open_banking_paused: subscription lookup failed, treating as not paused")
+        return False
+    return sub.limit("open_banking") is False
 
 
 def _ym_tuple(ym: str) -> tuple[int, int]:
