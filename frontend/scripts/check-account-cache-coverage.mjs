@@ -54,6 +54,11 @@ let failures = [];
 // must leave that cache alone.
 const ALLOWED_UNREACHABLE = [
   [
+    "lib/onboardingGate.ts",
+    "clearOnboarded",
+    "per-user 'has completed onboarding' marker (D12), not account- or transaction-derived data; it is cleared only on account deletion, because an ordinary account mutation clearing it would send an existing user back through onboarding.",
+  ],
+  [
     "lib/pendingLogin.ts",
     "clearPendingLogin",
     "pre-auth sign-in hand-off (A133), not account-derived; cleared by the login flow itself on every terminal path. An account mutation clearing it would strand a sign-in in progress.",

@@ -440,7 +440,7 @@ export default function ConnectedAssistantsCard({
             ))}
           </div>
           {packError && (
-            <p className="text-[11px] leading-snug text-red-500 dark:text-red-400">{packError}</p>
+            <p className="text-[11px] leading-snug text-slate-600 dark:text-slate-300">{packError}</p>
           )}
           {/* B26: "while billing is being built" is a promise that this
               app will eventually sell Max in-app, which is true on web

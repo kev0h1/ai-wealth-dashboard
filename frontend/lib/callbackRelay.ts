@@ -53,9 +53,13 @@ export async function relayBackendCallback(opts: {
   }
 
   const csp = res.headers.get("content-security-policy");
-  if (res.status === 200 && csp && (res.headers.get("content-type") ?? "").startsWith("text/html")) {
+  // G215: the backend renders the same hand-off template for its own error branches
+  // (state mismatch, consent not found, token exchange failed, ...) with a 4xx/5xx
+  // status and the route CSP, so relay a hashed-CSP HTML page at whatever status it
+  // chose. Anything else (JSON, a bare proxy error) gets the local error page below.
+  if (csp && res.status !== 303 && (res.headers.get("content-type") ?? "").startsWith("text/html")) {
     return new Response(await res.text(), {
-      status: 200,
+      status: res.status,
       headers: { "content-type": "text/html; charset=utf-8", "content-security-policy": csp },
     });
   }

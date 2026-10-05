@@ -34,6 +34,15 @@ assert.equal(r.headers.get("content-security-policy"), CSP);
 assert.equal(r.headers.get("x-secret"), null);
 assert.equal(r.headers.get("content-type"), "text/html; charset=utf-8");
 
+// G215: the backend's own error page (4xx/5xx HTML + CSP) is relayed at its status;
+// backend JSON errors are replaced by the local error page.
+r = await run(async () => new Response("<html>err</html>", { status: 404, headers: { "content-type": "text/html; charset=utf-8", "content-security-policy": CSP } }));
+assert.equal(r.status, 404);
+assert.equal(await r.text(), "<html>err</html>");
+r = await run(async () => new Response('{"detail":"State mismatch"}', { status: 400, headers: { "content-type": "application/json" } }));
+assert.equal(r.status, 502);
+assert.doesNotMatch(await r.text(), /State mismatch/);
+
 // 500 and thrown fetch -> 502 error page with a two-hash CSP.
 for (const impl of [async () => new Response("boom", { status: 500 }), async () => { throw new Error("down"); }]) {
   r = await run(impl);

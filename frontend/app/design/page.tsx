@@ -40,6 +40,13 @@ const ROUTES: PreviewRoute[] = [
     states: [{ label: "Estimated account", value: "estimated" }, { label: "Known account", value: "known" }, { label: "No source", value: "no-source" }],
   },
   {
+    slug: "error-states",
+    name: "Error states · G215",
+    description:
+      "G215: the designed replacements for Next's default 404 and error pages and for the browser's native pop-ups · not-found (That page isn't here), route error (Something went wrong, Back to Home, Try again) and the one-button notice sheet used instead of the browser pop-up · same anatomy as the sign-in hand-off page (brand line, verdict heading, one sentence, action low), no red, no gradient · renders the production ErrorState and ConfirmSheetView with fixture props · ?state=not-found|error|notice&mode=light|dark",
+    states: [{ label: "Not found", value: "not-found" }, { label: "Error", value: "error" }, { label: "Notice sheet", value: "notice" }],
+  },
+  {
     slug: "first-sync",
     name: "First bank sync state · G210",
     description:

@@ -1404,9 +1404,42 @@ def test_get_subscription_billing_live_reflects_flag(monkeypatch):
     assert result["billing_live"] is True
 
 
-def test_select_free_tier_is_available_without_billing(monkeypatch):
+def test_select_free_tier_is_refused_while_billing_is_off(monkeypatch):
+    # D12: a stale client (or onboarding) must not write a Statements
+    # document over the DEFAULT_TIER fallback while billing is not live.
     fake_subs = _FakeCol()
     monkeypatch.setattr(subscription_router_module, "subscriptions_col", fake_subs)
+    _patch_billing_enabled(monkeypatch, False)
+
+    with pytest.raises(HTTPException) as exc:
+        _run(subscription_router_module.select_free_tier(user={"email": UID}))
+    assert exc.value.status_code == 409
+    assert fake_subs.docs == []
+
+
+def test_default_tier_stays_max_after_onboarding_with_billing_off(monkeypatch):
+    # D12: onboarding writes the profile only; with no subscription document
+    # the effective tier is the DEFAULT_TIER fallback (max), which includes
+    # open banking.
+    fake_subs = _FakeCol()
+    monkeypatch.setattr(db_collections_module, "subscriptions_col", fake_subs)
+    monkeypatch.setattr(subscription_router_module, "subscriptions_col", fake_subs)
+    _patch_billing_enabled(monkeypatch, False)
+    monkeypatch.setattr(subscription_module, "_default_tier", lambda: subscription_module.TIER_BY_NAME["max"])
+
+    sub = _run(subscription_module.get_subscription(UID))
+    assert sub.tier_name == "max"
+    with pytest.raises(HTTPException):
+        _run(subscription_router_module.select_free_tier(user={"email": UID}))
+    sub = _run(subscription_module.get_subscription(UID))
+    assert sub.tier_name == "max"
+    assert fake_subs.docs == []
+
+
+def test_select_free_tier_is_available_with_billing_live(monkeypatch):
+    fake_subs = _FakeCol()
+    monkeypatch.setattr(subscription_router_module, "subscriptions_col", fake_subs)
+    _patch_billing_enabled(monkeypatch, True)
 
     result = _run(subscription_router_module.select_free_tier(user={"email": UID}))
     assert result == {"ok": True, "tier": "statements"}
@@ -1415,6 +1448,7 @@ def test_select_free_tier_is_available_without_billing(monkeypatch):
 
 
 def test_select_free_tier_does_not_hide_an_active_stripe_renewal(monkeypatch):
+    _patch_billing_enabled(monkeypatch, True)
     fake_subs = _FakeCol([{
         "user_id": UID, "tier": "standard", "status": "active",
         "source": "stripe", "stripe_subscription_id": "sub_123",
