@@ -837,50 +837,155 @@ def test_tag_only_cli_rejects_missing_date_and_subcommand_mix(monkeypatch):
         release.main([])
 
 
-def test_vercel_live_match_and_promote_target_selection():
-    proj = {"targets": {"production": {"meta": {"githubCommitSha": "aaaa1111bbbb"}}}}
-    assert release.vercel_live_matches(proj, "aaaa1111")
-    assert not release.vercel_live_matches(proj, "ffff0000")
-    assert not release.vercel_live_matches({}, "aaaa1111")
-    deps = [
-        {"uid": "d_new", "readyState": "READY", "meta": {"githubCommitSha": "cccc"}},
-        {"uid": "d_err", "readyState": "ERROR", "meta": {"githubCommitSha": "aaaa1111bbbb"}},
-        {"uid": "d_old", "readyState": "READY", "meta": {"githubCommitSha": "aaaa1111bbbb"}},
-    ]
-    assert release.find_vercel_deployment_for_sha(deps, "aaaa1111") == "d_old"
-    assert release.find_vercel_deployment_for_sha(deps, "zzzz") is None
-
-
-def test_verify_vercel_rollback_promotes_when_live_is_wrong(tmp_path):
+def _link(tmp_path):
     (tmp_path / ".vercel").mkdir()
     (tmp_path / ".vercel" / "project.json").write_text('{"projectId": "prj_1", "orgId": "team_1"}')
-    state = {"promoted": False}
-    calls = []
+    return tmp_path
+
+
+def _fake_vercel(state):
+    """Stub of the documented endpoints only; records every call."""
+    calls = state.setdefault("calls", [])
 
     def http(method, url, token, timeout):
         calls.append((method, url))
         if method == "POST":
-            state["promoted"] = True
+            if state.get("promote_fails"):
+                raise release.RemoteError("promote refused")
+            state["live"] = "d_target"
             return {}
-        if "/v9/projects/" in url:
-            sha = "aaaa1111bbbb" if state["promoted"] else "cccc"
-            return {"targets": {"production": {"meta": {"githubCommitSha": sha}}}}
-        return {"deployments": [{"uid": "d_old", "readyState": "READY", "meta": {"githubCommitSha": "aaaa1111bbbb"}}]}
+        if "/v4/aliases" in url:
+            return {"aliases": [
+                {"alias": "other.example.com", "deploymentId": "d_other"},
+                {"alias": release.PROD_DOMAIN, "deploymentId": state["live"]},
+            ]}
+        if "/v13/deployments/" in url:
+            dep_id = url.split("/v13/deployments/")[1].split("?")[0]
+            sha = "aaaa1111bbbb" if dep_id == "d_target" else "cccc2222"
+            if state.get("git_source_only"):
+                return {"gitSource": {"sha": sha}}
+            if state.get("no_sha"):
+                return {"meta": {}}
+            return {"meta": {"githubCommitSha": sha}}
+        if "/v7/deployments" in url:
+            assert "state=READY" in url and "target=production" in url and "sha=aaaa1111" in url
+            return {"deployments": [{"uid": "d_target", "meta": {"githubCommitSha": "aaaa1111bbbb"}}]}
+        raise AssertionError(url)
 
+    return http
+
+
+def test_vercel_deployment_sha_fallbacks():
+    assert release.vercel_deployment_sha({"meta": {"githubCommitSha": "a"}, "gitSource": {"sha": "b"}}) == "a"
+    assert release.vercel_deployment_sha({"gitSource": {"sha": "b"}}) == "b"
+    assert release.vercel_deployment_sha({"meta": {}}) is None
+
+
+def test_verify_vercel_rollback_promotes_when_live_is_wrong(tmp_path):
+    state = {"live": "d_other"}
     ok, msg = release.verify_vercel_rollback(
-        tmp_path, "aaaa1111", 5, http=http, token="t", sleep=lambda n: None, settle_checks=2,
+        _link(tmp_path), "aaaa1111", 5, http=_fake_vercel(state), token="t", sleep=lambda n: None, settle_checks=2,
     )
     assert ok and "promoted" in msg
-    assert any(m == "POST" and "/promote/d_old" in u for m, u in calls)
+    assert any(m == "POST" and "/promote/d_target" in u for m, u in state["calls"])
+    assert not any("/v6/" in u for _, u in state["calls"])
 
 
 def test_verify_vercel_rollback_no_promote_when_already_live(tmp_path):
-    (tmp_path / ".vercel").mkdir()
-    (tmp_path / ".vercel" / "project.json").write_text('{"projectId": "prj_1", "orgId": "team_1"}')
+    state = {"live": "d_target"}
+    ok, _ = release.verify_vercel_rollback(
+        _link(tmp_path), "aaaa1111", 5, http=_fake_vercel(state), token="t", sleep=lambda n: None,
+    )
+    assert ok and not any(m == "POST" for m, _ in state["calls"])
 
-    def http(method, url, token, timeout):
-        assert method == "GET"
-        return {"targets": {"production": {"meta": {"githubCommitSha": "aaaa1111bbbb"}}}}
 
-    ok, _ = release.verify_vercel_rollback(tmp_path, "aaaa1111", 5, http=http, token="t", sleep=lambda n: None)
-    assert ok
+def test_verify_vercel_rollback_fails_closed_without_sha_field(tmp_path):
+    state = {"live": "d_other", "no_sha": True}
+    ok, msg = release.verify_vercel_rollback(
+        _link(tmp_path), "aaaa1111", 5, http=_fake_vercel(state), token="t", sleep=lambda n: None,
+    )
+    assert not ok and "meta.githubCommitSha" in msg and "gitSource.sha" in msg
+    assert not any(m == "POST" for m, _ in state["calls"])
+
+
+def test_resolve_live_uses_git_source_fallback():
+    state = {"live": "d_target", "git_source_only": True}
+    dep_id, sha = release.resolve_live_vercel_deployment(_fake_vercel(state), "t", "prj_1", "team_1", 5)
+    assert (dep_id, sha) == ("d_target", "aaaa1111bbbb")
+
+
+def test_vercel_check_mode_is_read_only_and_prints(monkeypatch, tmp_path, capsys):
+    state = {"live": "d_other"}
+    fake = _fake_vercel(state)
+    monkeypatch.setattr(release, "vercel_cli_token", lambda *a, **k: "t")
+    monkeypatch.setattr(release, "link_vercel", lambda timeout=30: _link(tmp_path))
+    monkeypatch.setattr(release, "vercel_rest", fake)
+    assert release.main(["--vercel-check", "--sha", "aaaa1111"]) == 0
+    out = capsys.readouterr().out
+    assert "d_other" in out and "cccc2222" in out and "promote candidate for aaaa1111: d_target" in out
+    assert all(m == "GET" for m, _ in state["calls"])
+    with pytest.raises(SystemExit):
+        release.main(["--vercel-check", "check"])
+
+
+def test_vercel_rest_non_json_body_raises_remote_error(monkeypatch):
+    class Resp:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self): return b"<html>gateway</html>"
+
+    monkeypatch.setattr(release.urllib.request, "urlopen", lambda *a, **k: Resp())
+    with pytest.raises(release.RemoteError):
+        release.vercel_rest("GET", "https://api.vercel.com/x", "t", 5)
+
+
+def _rollback_args(**kw):
+    import argparse
+    ns = argparse.Namespace(target="aaaa1111", allow_worktree=True, timeout=5, timeout_minutes=1)
+    ns.__dict__.update(kw)
+    return ns
+
+
+def test_rollback_exits_1_when_promote_fails(monkeypatch, tmp_path):
+    state = {"live": "d_other", "promote_fails": True}
+    fake = _fake_vercel(state)
+    monkeypatch.setattr(release, "_run_ok", lambda *a, **k: (True, "aaaa1111bbbb\n"))
+    monkeypatch.setattr(release, "_run", lambda *a, **k: "")
+    monkeypatch.setattr(release, "is_ancestor", lambda *a, **k: True)
+    monkeypatch.setattr(release, "poll_vercel_ready", lambda *a, **k: (True, []))
+    monkeypatch.setattr(release, "poll_railway_services", lambda *a, **k: ({s: True for s in release.RAILWAY_SERVICES}, {}))
+    monkeypatch.setattr(release, "link_vercel", lambda timeout=30: _link(tmp_path))
+    monkeypatch.setattr(release, "vercel_cli_token", lambda *a, **k: "t")
+    monkeypatch.setattr(release, "vercel_rest", fake)
+    monkeypatch.setattr(release.time, "sleep", lambda n: None)
+    monkeypatch.setattr(release, "run_smoke_checks", lambda *a, **k: [])
+    assert release.cmd_rollback(_rollback_args()) == 1
+
+
+def _tag_args(**kw):
+    import argparse
+    ns = argparse.Namespace(tag_only="cd663f1f", date="2026-10-05", time="0000", allow_worktree=True, timeout=5)
+    ns.__dict__.update(kw)
+    return ns
+
+
+def test_tag_only_refuses_sha_not_in_origin_release(monkeypatch):
+    cmds = []
+    monkeypatch.setattr(release, "_run", lambda cmd, **k: cmds.append(cmd) or "")
+    monkeypatch.setattr(release, "_run_ok", lambda *a, **k: (True, "cd663f1fdeadbeef\n"))
+    monkeypatch.setattr(release, "is_ancestor", lambda *a, **k: False)
+    monkeypatch.setattr(release, "run_smoke_checks", lambda *a, **k: pytest.fail("network"))
+    assert release.cmd_tag_only(_tag_args()) == 1
+    assert cmds[0][:4] == ["git", "fetch", "origin", "release"] and "--tags" in cmds[0]
+    assert not any(c[:2] == ["git", "tag"] for c in cmds)
+
+
+def test_tag_only_refuses_existing_tag(monkeypatch):
+    cmds = []
+    monkeypatch.setattr(release, "_run", lambda cmd, **k: cmds.append(cmd) or "")
+    monkeypatch.setattr(release, "_run_ok", lambda *a, **k: (True, "cd663f1fdeadbeef\n"))
+    monkeypatch.setattr(release, "is_ancestor", lambda *a, **k: True)
+    monkeypatch.setattr(release, "is_tag_from_this_tool", lambda *a, **k: True)
+    monkeypatch.setattr(release, "run_smoke_checks", lambda *a, **k: pytest.fail("network"))
+    assert release.cmd_tag_only(_tag_args()) == 1
+    assert not any(c[:2] == ["git", "tag"] for c in cmds)

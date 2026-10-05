@@ -223,14 +223,30 @@ refused. Force-with-lease pushes `release` back to that sha
 then runs the same Vercel/Railway poll (same `--timeout-minutes` window and
 final re-check) and smoke checks as `deploy`. It then verifies Vercel actually
 switched (H108: a rollback push once did not trigger a Vercel redeploy): it
-reads the project's live production deployment through the Vercel REST API
-(authenticated with the token the logged-in Vercel CLI already holds, never
-printed) and, if that deployment is not built from the rollback sha, promotes
-the previous READY deployment for that sha (the REST equivalent of `vercel
+resolves the live production deployment through the documented Vercel REST
+API (`GET /v4/aliases?projectId=` for the `wealth.auriqltd.co.uk` alias, which is
+the host of `PROD_WEB_URL`, then `GET /v13/deployments/{id}`, reading
+`meta.githubCommitSha`, falling back to `gitSource.sha`, and failing closed if
+neither exists; authenticated with the token the logged-in Vercel CLI already
+holds, never printed) and, if that deployment is not built from the rollback
+sha, promotes
+the READY deployment for that sha (`GET /v7/deployments?...&state=READY&sha=`) (the REST equivalent of `vercel
 promote`) and checks again. A rollback only reports success once Vercel serves
 the target. Not
 run as part of a normal release; use it when a `deploy` has gone out and
 needs undoing.
+
+### Validate the Vercel lookup read-only
+
+```bash
+backend/.venv/bin/python scripts/release.py --vercel-check [--sha <rollback-sha>]
+```
+
+Performs only the GETs above and prints the live production deployment id and
+its sha, plus the promote candidate for `--sha`. Run it against production
+before relying on a real rollback.
+
+`--tag-only` first runs `git fetch origin release --tags`.
 
 ## e) The prompt
 

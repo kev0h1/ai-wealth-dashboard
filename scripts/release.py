@@ -875,24 +875,73 @@ def vercel_rest(method: str, url: str, token: str, timeout: int) -> dict:
             body = resp.read().decode() or "{}"
     except (urllib.error.URLError, OSError) as exc:
         raise RemoteError(f"Vercel API {method} {url.split('?')[0]} failed: {exc}") from exc
-    return json.loads(body)
+    try:
+        return json.loads(body)
+    except ValueError as exc:
+        raise RemoteError(f"Vercel API {method} {url.split('?')[0]} returned a non-JSON body") from exc
 
 
-def vercel_commit(dep: Optional[dict]) -> Optional[str]:
-    return ((dep or {}).get("meta") or {}).get("githubCommitSha")
+# Production domain the live alias is looked up by: the host of PROD_WEB_URL.
+PROD_DOMAIN = PROD_WEB_URL.split("://", 1)[1]
 
 
-def vercel_live_matches(project: dict, sha: str) -> bool:
-    """True when the project's live production deployment was built from `sha`."""
-    commit = vercel_commit(((project or {}).get("targets") or {}).get("production"))
-    return bool(commit) and (commit.startswith(sha) or sha.startswith(commit))
+def vercel_deployment_sha(dep: Optional[dict]) -> Optional[str]:
+    """Git sha a Vercel deployment object was built from: meta.githubCommitSha,
+    else gitSource.sha, else None (unknown, callers fail closed)."""
+    dep = dep or {}
+    return (dep.get("meta") or {}).get("githubCommitSha") or (dep.get("gitSource") or {}).get("sha") or None
 
 
-def find_vercel_deployment_for_sha(deployments: list[dict], sha: str) -> Optional[str]:
-    """Newest READY production deployment built from `sha`, or None."""
-    for dep in deployments:
-        commit = vercel_commit(dep)
-        if commit and (commit.startswith(sha) or sha.startswith(commit)) and dep.get("readyState", dep.get("state")) == "READY":
+def sha_matches(a: Optional[str], b: Optional[str]) -> bool:
+    return bool(a) and bool(b) and (a.startswith(b) or b.startswith(a))
+
+
+def _vercel_link_ids(workdir: Path) -> tuple[str, Optional[str]]:
+    try:
+        link = json.loads((workdir / ".vercel" / "project.json").read_text())
+        return link["projectId"], link.get("orgId")
+    except (OSError, ValueError, KeyError) as exc:
+        raise RemoteError("scratch Vercel link has no usable .vercel/project.json") from exc
+
+
+def _team_q(org_id: Optional[str], first: bool = True) -> str:
+    if not (org_id and org_id.startswith("team_")):
+        return ""
+    return f"{'?' if first else '&'}teamId={org_id}"
+
+
+def resolve_live_vercel_deployment(
+    http: VercelHttp, token: str, project_id: str, org_id: Optional[str], timeout: int,
+) -> tuple[str, str]:
+    """(deployment id, git sha) of the deployment the production domain alias
+    points at. Documented calls only: GET /v4/aliases, then GET /v13/deployments/{id}.
+    Raises RemoteError (fail closed) naming whatever is missing."""
+    aliases = http("GET", f"{VERCEL_API}/v4/aliases?projectId={project_id}{_team_q(org_id, first=False)}", token, timeout)
+    entry = next((a for a in aliases.get("aliases", []) if a.get("alias") == PROD_DOMAIN), None)
+    if not entry:
+        raise RemoteError(f"no alias entry for {PROD_DOMAIN} in GET /v4/aliases for project {project_id}")
+    dep_id = entry.get("deploymentId")
+    if not dep_id:
+        raise RemoteError(f"alias {PROD_DOMAIN} has no deploymentId field")
+    dep = http("GET", f"{VERCEL_API}/v13/deployments/{dep_id}{_team_q(org_id)}", token, timeout)
+    sha = vercel_deployment_sha(dep)
+    if not sha:
+        raise RemoteError(f"deployment {dep_id} carries neither meta.githubCommitSha nor gitSource.sha, cannot tell what is live")
+    return dep_id, sha
+
+
+def find_promote_candidate(
+    http: VercelHttp, token: str, project_id: str, org_id: Optional[str], sha: str, timeout: int,
+) -> Optional[str]:
+    """Newest READY production deployment built from `sha` via GET /v7/deployments."""
+    out = http(
+        "GET",
+        f"{VERCEL_API}/v7/deployments?projectId={project_id}&target=production&state=READY&sha={sha}&limit=5"
+        f"{_team_q(org_id, first=False)}",
+        token, timeout,
+    )
+    for dep in out.get("deployments", []):
+        if (not vercel_deployment_sha(dep) or sha_matches(vercel_deployment_sha(dep), sha)) and (dep.get("uid") or dep.get("id")):
             return dep.get("uid") or dep.get("id")
     return None
 
@@ -903,39 +952,50 @@ def verify_vercel_rollback(
     sleep: Callable[[float], None] = time.sleep, settle_checks: int = 12, settle_interval_s: float = 15,
 ) -> tuple[bool, str]:
     """After a rollback push, confirm Vercel's live production deployment is the
-    rollback target; if not, promote the previous deployment built from `sha`
-    (the REST equivalent of `vercel promote`) and verify again."""
+    rollback target; if not, promote the READY deployment built from `sha` (the
+    REST equivalent of `vercel promote`) and verify again. Fails closed."""
     token = token or vercel_cli_token()
     if not token:
         return False, "no Vercel CLI token found, cannot verify the live deployment"
     try:
-        link = json.loads((workdir / ".vercel" / "project.json").read_text())
-        project_id, org_id = link["projectId"], link.get("orgId")
-    except (OSError, ValueError, KeyError):
-        return False, "scratch Vercel link has no project.json"
-    team = f"&teamId={org_id}" if org_id and org_id.startswith("team_") else ""
-    team_q = f"?teamId={org_id}" if team else ""
-
-    def live_ok() -> bool:
-        return vercel_live_matches(http("GET", f"{VERCEL_API}/v9/projects/{project_id}{team_q}", token, timeout), sha)
-
-    try:
+        project_id, org_id = _vercel_link_ids(workdir)
         for _ in range(3):
-            if live_ok():
+            _, live = resolve_live_vercel_deployment(http, token, project_id, org_id, timeout)
+            if sha_matches(live, sha):
                 return True, "Vercel production already serves the rollback target"
             sleep(settle_interval_s)
-        deps = http("GET", f"{VERCEL_API}/v6/deployments?projectId={project_id}&target=production&limit=20{team}", token, timeout)
-        uid = find_vercel_deployment_for_sha(deps.get("deployments", []), sha)
+        uid = find_promote_candidate(http, token, project_id, org_id, sha, timeout)
         if not uid:
-            return False, f"Vercel is not serving {sha[:8]} and no READY production deployment exists for it to promote"
-        http("POST", f"{VERCEL_API}/v10/projects/{project_id}/promote/{uid}{team_q}", token, timeout)
+            return False, f"Vercel is serving {live[:8]}, not {sha[:8]}, and no READY production deployment for {sha[:8]} was found to promote"
+        http("POST", f"{VERCEL_API}/v10/projects/{project_id}/promote/{uid}{_team_q(org_id)}", token, timeout)
         for _ in range(settle_checks):
-            if live_ok():
+            _, live = resolve_live_vercel_deployment(http, token, project_id, org_id, timeout)
+            if sha_matches(live, sha):
                 return True, f"promoted Vercel deployment {uid} and verified it is live"
             sleep(settle_interval_s)
     except RemoteError as exc:
         return False, str(exc)
-    return False, f"promoted Vercel deployment {uid} but production still does not serve {sha[:8]}"
+    return False, f"promoted Vercel deployment {uid} but production still serves {live[:8]}, not {sha[:8]}"
+
+
+def cmd_vercel_check(args: argparse.Namespace) -> int:
+    """Read-only: only the GETs the rollback verify relies on."""
+    token = vercel_cli_token()
+    if not token:
+        print("no Vercel CLI token found", file=sys.stderr)
+        return 1
+    try:
+        project_id, org_id = _vercel_link_ids(link_vercel(args.timeout))
+        dep_id, live = resolve_live_vercel_deployment(vercel_rest, token, project_id, org_id, args.timeout)
+        print(f"live production deployment ({PROD_DOMAIN}): {dep_id}")
+        print(f"live sha: {live}")
+        if args.sha:
+            cand = find_promote_candidate(vercel_rest, token, project_id, org_id, args.sha, args.timeout)
+            print(f"promote candidate for {args.sha}: {cand or 'none found'}")
+    except RemoteError as exc:
+        print(f"vercel-check failed: {exc}", file=sys.stderr)
+        return 1
+    return 0
 
 
 # ── Codemagic release trigger ─────────────────────────────────────────────
@@ -1119,7 +1179,7 @@ def cmd_deploy(args: argparse.Namespace) -> int:
 
     push_time = time.time()
     _run(["git", "push", "origin", "main:release"], timeout=args.timeout, cwd=REPO_ROOT)
-    print("\nPushed main -> release. Polling Vercel and Railway (up to 15 minutes)...")
+    print(f"\nPushed main -> release. Polling Vercel and Railway (up to {timeout_seconds(args.timeout_minutes) // 60} minutes)...")
 
     window_s = timeout_seconds(args.timeout_minutes)
     vercel_ready, rows = poll_vercel_ready(window_s, args.timeout)
@@ -1260,6 +1320,11 @@ def cmd_tag_only(args: argparse.Namespace) -> int:
     if not args.allow_worktree and Path.cwd() != REPO_ROOT:
         print(f"--tag-only must run from {REPO_ROOT} (the shared tree), refusing", file=sys.stderr)
         return 1
+    try:
+        _run(["git", "fetch", "origin", "release", "--tags"], timeout=args.timeout, cwd=REPO_ROOT)
+    except RemoteError as exc:
+        print(f"git fetch origin release --tags failed: {exc}", file=sys.stderr)
+        return 1
     ok, out = _run_ok(["git", "rev-parse", "--verify", f"{args.tag_only}^{{commit}}"], timeout=args.timeout, cwd=REPO_ROOT)
     if not ok:
         print(f"{args.tag_only!r} does not resolve to a commit: {out}", file=sys.stderr)
@@ -1294,6 +1359,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--timeout-minutes", type=positive_minutes, default=DEPLOY_POLL_TIMEOUT_MINUTES,
                         help="Deploy/rollback poll window per service in minutes (default 30).")
     parser.add_argument("--tag-only", metavar="SHA", help="Tag an already-deployed commit (needs --date); no deploy.")
+    parser.add_argument("--vercel-check", action="store_true",
+                        help="Read-only: resolve the live Vercel production deployment and its sha (optionally the promote candidate for --sha).")
+    parser.add_argument("--sha", help="With --vercel-check: a rollback sha to find a promote candidate for.")
     parser.add_argument("--date", help="With --tag-only: the day it was deployed, YYYY-MM-DD.")
     parser.add_argument("--time", default="0000", help="With --tag-only: HHMM for the tag name (default 0000).")
     parser.add_argument("--allow-worktree", dest="allow_worktree", action="store_true", default=False,
@@ -1352,6 +1420,10 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Optional[list[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.vercel_check:
+        if getattr(args, "func", None) or args.tag_only is not None:
+            parser.error("--vercel-check cannot be combined with a subcommand or --tag-only")
+        return cmd_vercel_check(args)
     if args.tag_only is not None:
         if getattr(args, "func", None):
             parser.error("--tag-only cannot be combined with a subcommand")
