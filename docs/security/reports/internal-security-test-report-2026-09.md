@@ -6,7 +6,7 @@
 **Version:** 1.0.1  
 **Date:** 2026-10-04 (revised 2026-10-05)  
 **Classification:** Confidential, prepared for Finexer  
-**Author:** AURIQ LTD, Information Security Manager: Kevin Maingi
+**Author:** AURIQ LTD, Information Security Manager
 
 ---
 
@@ -65,7 +65,7 @@ A89, A90, A92, A93, A95) in production from
 Fixed (A74 and A90 on UAT, since the connector is not registered on
 production), and A80 was recorded Partially fixed, because the environment
 variable that enables its spend ceiling was unset on both production
-services that day. Enabling it is the operational decision of the Information Security Manager (Kevin Maingi).
+services that day. Enabling it is the operational decision of the Information Security Manager.
 
 The device round raised four further findings. A120 (Low, push registration
 survives logout) and A122 (Low, app-switcher snapshot shows figures) are
@@ -142,7 +142,7 @@ authority named on the rules-of-engagement record
 there verbatim: "I agree with the details in the pentest, and you can take
 this attestation as my signature."
 
-**Tester and reviewer roles.** The work packages WP1 to WP7a and WP9 to WP11 were carried out by AURIQ LTD using its own testing sessions and tooling, under the rules-of-engagement record signed 2026-09-20. The device packages (WP7b, WP8) and the 2026-10-04 retest were carried out by the Information Security Manager (Kevin Maingi) on his own phones, with the steps guided and recorded by the testing tooling. Each run's own manifest names its tester and records its review
+**Tester and reviewer roles.** The work packages WP1 to WP7a and WP9 to WP11 were carried out by AURIQ LTD using its own testing sessions and tooling, under the rules-of-engagement record signed 2026-09-20. The device packages (WP7b, WP8) and the 2026-10-04 retest were carried out by the Information Security Manager on their own phones, with the steps guided and recorded by the testing tooling. Each run's own manifest names its tester and records its review
 status; the evidence review is described in section 10.
 
 **Techniques and caps.** Permitted tools, numeric caps (one manual request
@@ -282,7 +282,7 @@ Keychain/file-protection halves of `IOS-02`, and the instrumented halves of
 built IPA, or a second signed app that was not available; they are carried
 in section 6 as Blocked, not passed.
 
-**WP12: retest record executed 2026-10-04, reviewed the same day.** The Information Security Manager retested the A120, A121 and A122 fixes on his own Android phone (Pixel 10
+**WP12: retest record executed 2026-10-04, reviewed the same day.** The Information Security Manager retested the A120, A121 and A122 fixes on their own Android phone (Pixel 10
 Pro XL, Android 17) and iPhone (iOS 18.7) against production, with the steps guided and recorded by the testing tooling; see
 `docs/security/pentest-runs/A60-2026-10-04/` for the run manifest and
 per-test records. The run used the Information Security Manager's own production account rather than the
@@ -700,7 +700,7 @@ and 4 October 2026, under the rules-of-engagement record signed by the Informati
 (`docs/security/pentest-runs/roe-record.md`). The work packages were run by
 AURIQ LTD's own testing sessions against the scope in
 `docs/security/pentest-scope-2026-09.md`; the device packages (WP7b, WP8)
-and the 2026-10-04 retest were performed by the Information Security Manager on his own phones,
+and the 2026-10-04 retest were performed by the Information Security Manager on their own phones,
 with the steps guided and recorded by the testing tooling. Scope, numeric caps and stop
 conditions are in section 2 and in the rules-of-engagement record. What
 was not tested in this round, and why, is listed in section 6; those items
@@ -711,7 +711,7 @@ are carried as Blocked or Not tested, never as passed.
 ## 10. Sign-off and revision history
 
 **Sign-off.** The underlying security testing programme (`SECURITY.md`
-section 3b) was signed off by the Information Security Manager (Kevin Maingi), 2026-09-21, given as a written
+section 3b) was signed off by the Information Security Manager, 2026-09-21, given as a written
 attestation ("Happy to sign this"), not a
 handwritten or cryptographic signature. This report, as a document, has not
 separately been signed by the Information Security Manager as of 2026-10-04.
@@ -727,4 +727,4 @@ separately been signed by the Information Security Manager as of 2026-10-04.
 | v0.1 (DRAFT, updated) | 2026-09-28 | A117 correction: the earlier text stated that none of the four original High findings (A82, A83, A84, A91) had reached production and that no production retest had run; both were false by 2026-09-27 evening. All four shipped to production 2026-09-27 and were retested the same day (board item A112, `docs/security/pentest-runs/A112-2026-09-27/`). Section 5 corrected to record A112's actual outcome per finding. Also corrected a stale claim that A92's release gate, board item A110, was still in progress |
 | v1.0 | 2026-10-04 | A60: final consolidated report. Records the 2026-10-04 on-device retest (`docs/security/pentest-runs/A60-2026-10-04/`): A120, A121 and A122 remediated and retested on both phones; A118 server-side revocation in production with the on-device residue re-check not yet run; A119 closed (debug build only). Section 5's Medium and Low tables updated with A112's 2026-09-27 retest outcomes. Follow-ups A123 and A138 recorded, and the pre-documented Android backup High (`AND-01` / `AND-02`, fixed under A129) added to the High table. Section 9 rewritten as a plain testing-approach statement. WP12 recorded as a review with the same tooling as the testing, the planned second pass with different tooling not performed (Information Security Manager decision, 2026-10-04). WP12 review recorded in section 10 (2026-10-04, PASS on second pass). PDF and HTML regenerated |
 | v1.0 (final) | 2026-10-04 | A60: live `API-15` account-deletion retest ran on production with the disposable identity PT-C (`A60-2026-10-04`), superseding the Blocked, source-only verdict of A112. A82, A83 (destructive half) and A84 are now Fixed, retested live; the Finexer dashboard was not viewed. Version set to 1.0 |
-| v1.0.1 | 2026-10-05 | A60: Wording of roles revised; Information Security Manager named; no change to findings, statuses or evidence |
+| v1.0.1 | 2026-10-05 | A60: Wording of roles revised; no personal names; no change to findings, statuses or evidence |

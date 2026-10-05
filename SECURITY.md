@@ -1,6 +1,6 @@
 # Security & Incident Response Policy — AURIQ LTD (Auriq Wealth)
 
-**Owner:** Founder / Information Security Manager (Kevin Maingi)
+**Owner:** Founder / Information Security Manager
 **Applies to:** the Auriq Wealth product (web app, iOS/Android apps) and all supporting infrastructure operated by AURIQ LTD.
 **Status:** Version 1.19, last reviewed 2026-10-05. Reviewed at least annually and after any material incident or architecture change.
 
@@ -91,7 +91,7 @@ Q11 can also cite.
 ## 3b. Security assessment, 20 September to 4 October 2026 (A45)
 
 **What this was.** Security assessment carried out 20 September to 4 October
-2026 by AURIQ LTD, of Sorted, carried out using AURIQ LTD's own testing sessions and tooling and, for the device packages and the 2026-10-04 retest, by the Information Security Manager (Kevin Maingi) on his own phones with the steps guided and recorded by the testing tooling, under a signed
+2026 by AURIQ LTD, of Sorted, carried out using AURIQ LTD's own testing sessions and tooling and, for the device packages and the 2026-10-04 retest, by the Information Security Manager on their own phones with the steps guided and recorded by the testing tooling, under a signed
 rules-of-engagement record (`docs/security/pentest-runs/roe-record.md`,
 authorised by the Information Security Manager, 2026-09-20). Test identities are referred to only by
 pseudonym (PT-A, PT-B, PT-C), except that the 2026-10-04 retest used
@@ -139,7 +139,7 @@ Blocked or not tested, never as passed. With those two packages run,
 coverage is 12 of 12 work packages executed to the extent possible without
 that equipment.
 
-On 2026-10-04 the Information Security Manager retested the A120, A121 and A122 fixes on his own Android phone and iPhone against production, with the steps guided and recorded by the testing tooling; the record is
+On 2026-10-04 the Information Security Manager retested the A120, A121 and A122 fixes on their own Android phone and iPhone against production, with the steps guided and recorded by the testing tooling; the record is
 `docs/security/pentest-runs/A60-2026-10-04/`. It used the Information Security Manager's own production
 account instead of the pseudonymous identity PT-A (a deviation the Information Security Manager authorised), and individual checks are not attributed to the run's two
 production builds except where server logs place them.
@@ -340,7 +340,7 @@ testing") cites for the security testing programme; see
 `docs/compliance/finexer-agent-controls-2026-09.md` for the questionnaire
 answer and `docs/security/pentest-runs/` for the sanitised per-run records.
 
-**Sign-off.** Signed off by the Information Security Manager (Kevin Maingi), 2026-09-21, given as a written
+**Sign-off.** Signed off by the Information Security Manager, 2026-09-21, given as a written
 attestation ('Happy to sign this'), not a
 handwritten or cryptographic signature. Status update 2026-09-23 recorded by AURIQ LTD's testing tooling for the Information Security Manager's confirmation; the per-finding statuses
 above reflect `main` and the `release` branch as of that date. Further
@@ -453,4 +453,4 @@ This policy is reviewed at least annually, and after any material incident, chan
 | 1.16 | 2026-09-28 | A117 correction: version 1.15 (and the pre-existing §3b intro/headline/Production-status text it left unchanged) stated that none of the four High fixes (A82, A83, A84, A91) had reached production and that no production retest had run; both were false by the time 1.15 was written. All four shipped to production 2026-09-27 in `release-20260927-0947` (confirmed still present in `release-20260927-1844`, `git tag --list 'release-*'`), nine hours before 1.15's own commit, and were retested the same day (board item A112, `docs/security/pentest-runs/A112-2026-09-27/`). Corrected the §3b intro paragraph, the four High findings' Status cells, the Headline, and the "Production status" paragraph to record the A112 outcome per finding: A83's `GET /connections` listing half and A91 confirmed Fixed live; A82, A83's disconnect-before-delete half and A84 confirmed Fixed by source read only, the live `API-15` retest itself Blocked by an already-expired test credential, a follow-up live pass is still owed. Q11 and the A111 report wording are not touched by this row; those are separate, unreviewed follow-ups. |
 | 1.17 | 2026-10-04 | A60: §3b brought in line with version 1.0 of the security test report (`docs/security/reports/internal-security-test-report-2026-09.md`). Recorded the 2026-10-04 on-device retest (`docs/security/pentest-runs/A60-2026-10-04/`): A120, A121 and A122 fixed, in production since `release-20261001-2038` and retested on both phones; A118 server-side revocation in production with the on-device residue re-check not yet run; A119 closed (debug build only); first-round fixes updated with A112's 2026-09-27 retest outcomes (A80 Partially fixed). Follow-ups A123 and A138 noted. Added the pre-documented Android backup High (`AND-01` / `AND-02`, fixed under A129, verified by package-flag inspection). Reworded the testing description as a security assessment carried out by AURIQ LTD, 20 September to 4 October 2026. Sub-steps that could not be run (no Mac, rooted device or instrumentation) are carried as not tested. WP12 recorded as a review with the same tooling as the testing, the planned second pass with different tooling not performed (Information Security Manager decision, 2026-10-04); reviewed 2026-10-04, PASS on second pass. |
 | 1.18 | 2026-10-04 | A60: live `API-15` account-deletion retest ran on production with the disposable identity PT-C (`docs/security/pentest-runs/A60-2026-10-04/`), superseding A112's Blocked, source-only verdict. A82, A83 (destructive half) and A84 updated to Fixed, retested live; the Finexer dashboard was not viewed. Report finalised as version 1.0. |
-| 1.19 | 2026-10-05 | A60: Wording of roles revised; Information Security Manager named; no change to findings, statuses or evidence. |
+| 1.19 | 2026-10-05 | A60: Wording of roles revised; no personal names; no change to findings, statuses or evidence. |
