@@ -75,6 +75,10 @@ export function buildSafeToSpendView(
   data: Extract<SafeToSpend, { status: "ok" }>,
   opts: { hidden: boolean },
 ): PennyScreenView {
+  // G210: a first sync still running means there is no verdict to quote.
+  if (data.calculation_status === "syncing") {
+    return { route: "/", scope: "Safe to Spend", figures: [], asOf: new Date().toISOString() };
+  }
   const headline = deriveSafeToSpendHeadline(data);
   return {
     route: "/",

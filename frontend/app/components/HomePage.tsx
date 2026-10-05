@@ -3,9 +3,10 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import dynamic from "next/dynamic";
 import { ChevronRight } from "lucide-react";
-import { api, ApiError, Account, AccountEligibility, Transaction, InvestmentAccount, SafeToSpend, CompanionItem } from "@/lib/api";
+import { api, ApiError, Account, AccountEligibility, Transaction, InvestmentAccount, SafeToSpend, CompanionItem, type SyncStatus } from "@/lib/api";
 import { bestSpendAccount, type TodayRequestStatus } from "@/lib/spendFromAccount";
 import SafeToSpendCard from "@/components/SafeToSpendCard";
+import FirstSyncCard from "@/components/FirstSyncCard";
 import AccountLedgerRow from "@/components/AccountLedgerRow";
 import { bankToRow, investmentToRow } from "@/lib/accountsEstate";
 import TransactionRow from "@/components/TransactionRow";
@@ -304,6 +305,11 @@ export default function HomePage() {
   const [txLoading, setTxLoading] = useState(!homeCache);
   const [loadError, setLoadError] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  // G210: the server's first-sync state (idle / syncing / stalled / failed).
+  // null until the first answer; a failed read is treated as idle so a
+  // broken status call can never hide Home.
+  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  const [syncRetrying, setSyncRetrying] = useState(false);
   const [syncError, setSyncError] = useState(false);
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
   // Shared store (lib/homePinnedAccounts.ts) — replaces this page's own
@@ -447,6 +453,11 @@ export default function HomePage() {
       const invP = api.getInvestmentAccounts();
       const safeP = api.safeToSpend();
       const todayP = api.getToday();
+      // Awaited with the rest below so the page never settles (and
+      // isFreshUser is never computed) against a stale "idle".
+      const syncP = api.getSyncStatus()
+        .then((v) => { if (requestId === loadRequestRef.current) setSyncStatus(v); })
+        .catch(() => {});
       // Over-fetch to 12 rather than 6: the micro-pot-shuffle filter below
       // (round-ups, penny transfers) can drop rows, and asking the server
       // for exactly 6 could leave fewer than 6 on screen after filtering.
@@ -534,7 +545,7 @@ export default function HomePage() {
       // Let the remaining fast calls settle, then clear the page-level
       // skeletons. recentTxP and safeP each clear their own skeleton
       // (txLoading, stsLoading) independently as they settle, above.
-      await Promise.allSettled([invP, safeP, todayP, recentTxP]);
+      await Promise.allSettled([invP, safeP, todayP, recentTxP, syncP]);
       if (requestId !== loadRequestRef.current) return;
       setLoading(false);
     } catch {}
@@ -697,6 +708,53 @@ export default function HomePage() {
   useEffect(() => {
     return () => { if (syncErrorTimerRef.current) clearTimeout(syncErrorTimerRef.current); };
   }, []);
+
+  // G210: while a first sync is running or stuck, ask the server every 3s.
+  // When it turns idle the data has landed: drop every account-derived cache
+  // and reload Home once. Failed does not poll (nothing is running); the
+  // Try again button restarts it.
+  const pollingSync = syncStatus?.state === "syncing" || syncStatus?.state === "stalled";
+  const pollStalled = syncStatus?.state === "stalled";
+  useEffect(() => {
+    if (!pollingSync) return;
+    let cancelled = false;
+    let inFlight = false;
+    // 3s while syncing, 15s once stalled; paused while the tab is hidden and
+    // never overlapping a request still in flight.
+    const id = setInterval(async () => {
+      if (cancelled || inFlight || document.visibilityState !== "visible") return;
+      inFlight = true;
+      try {
+        const next = await api.getSyncStatus();
+        if (cancelled) return;
+        setSyncStatus(next);
+        if (next.state === "idle") {
+          cancelled = true;
+          invalidateAllAccountData();
+          await loadData();
+        }
+      } catch {} finally {
+        inFlight = false;
+      }
+    }, pollStalled ? 15000 : 3000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [pollingSync, pollStalled, loadData]);
+
+  async function handleSyncRetry() {
+    setSyncRetrying(true);
+    try {
+      await api.syncAccounts();
+    } catch {}
+    try {
+      const next = await api.getSyncStatus();
+      setSyncStatus(next);
+      if (next.state === "idle") {
+        invalidateAllAccountData();
+        await loadData();
+      }
+    } catch {}
+    setSyncRetrying(false);
+  }
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -879,7 +937,18 @@ export default function HomePage() {
   // account/Safe-to-Spend shells. Without the !loadError guard, a real
   // user whose /accounts fetch simply failed would see the "Connect your
   // first bank" hero and a blanked brief instead of the load-error retry UI.
-  const isFreshUser = !loading && !loadError && accounts.length === 0 && investmentAccounts.length === 0;
+  const hasNoAccounts = !loading && !loadError && accounts.length === 0 && investmentAccounts.length === 0;
+  // G210: a first bank sync that is running, stuck or failed. While it is,
+  // "no accounts yet" is not a fresh user, it is a user whose data is on its
+  // way, so Home shows the sync ledger instead of the connect hero.
+  const syncState = syncStatus?.state ?? "idle";
+  const firstSyncActive = syncState === "syncing" || syncState === "stalled" || syncState === "failed";
+  // Only a genuine first sync (nothing has ever synced) replaces the verdict.
+  // An established user adding a second bank sees the ledger ABOVE a normal
+  // verdict, never instead of it.
+  const verdictWithheld =
+    syncStatus?.first_sync === true && (syncState === "syncing" || syncState === "stalled");
+  const isFreshUser = hasNoAccounts && !firstSyncActive;
   // A67: does this plan include connecting a bank at all? Resolved off to
   // the side, never blocking the page — see lib/openBankingAccess.ts for why
   // the pending state shows Upload Statement rather than Connect.
@@ -960,7 +1029,7 @@ export default function HomePage() {
           {/* ── THE BRIEF ── */}
           <div className="px-4 pt-6 lg:px-0 lg:pt-0" ref={greetingRef}>
             <HomeBrief
-              items={isFreshUser ? [] : companionItems}
+              items={hasNoAccounts ? [] : companionItems}
               firstName={firstName}
               displayName={displayName}
               safeToSpend={safeToSpend}
@@ -998,6 +1067,21 @@ export default function HomePage() {
             </div>
           )}
 
+          {/* G210: first sync running / stuck / failed. With no accounts yet it
+              replaces the connect hero; with accounts, a syncing or stalled sync
+              takes the verdict slot (below), and a failed one sits above it. */}
+          {!loadError && !loading && firstSyncActive && (
+            <div className="px-4 lg:px-0 mt-6" data-tutorial-id={hasNoAccounts ? "tutorial-home-fresh" : undefined}>
+              <FirstSyncCard
+                state={syncState as "syncing" | "stalled" | "failed"}
+                connections={syncStatus?.connections ?? []}
+                retrying={syncRetrying}
+                onRetry={handleSyncRetry}
+                onConnect={() => setShowBankPicker(true)}
+              />
+            </div>
+          )}
+
           {/* Load error fallback */}
           {loadError && (
             <div className="px-4 lg:px-0 mt-4">
@@ -1018,10 +1102,10 @@ export default function HomePage() {
           {/* ── WHERE YOU STAND ── suppressed for a fresh user: no accounts
               means no real Safe-to-Spend data, and it must never render a
               "£0" shell — the onboarding hero above is the whole story. */}
-          {!loadError && !isFreshUser && (
+          {!loadError && !hasNoAccounts && (
             <div data-tutorial-id="tutorial-safe-to-spend" className="rise-in px-4 lg:px-0 mt-8" style={{ "--rise-index": 1 } as React.CSSProperties}>
               {/* Verdict card */}
-              {(stsLoading || safeToSpend != null || stsError) && (
+              {!verdictWithheld && (stsLoading || safeToSpend != null || stsError) && (
                 <SafeToSpendCard
                   data={safeToSpend}
                   loading={stsLoading}
@@ -1052,7 +1136,7 @@ export default function HomePage() {
 
           {/* ── YOUR MONEY ── suppressed for a fresh user (bills/spend
               strips have nothing to show without connected accounts). */}
-          {!loadError && !isFreshUser && (
+          {!loadError && !hasNoAccounts && (
             <div className="rise-in mt-8" style={{ "--rise-index": 2 } as React.CSSProperties}>
               <div className="px-4 lg:px-0 mb-3">
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
@@ -1073,7 +1157,7 @@ export default function HomePage() {
           {/* ── Below zones: demoted supporting content ── */}
 
           {/* User-pinned insight cards (fuel prices, grocery baskets, chart widget) */}
-          {!isFreshUser && !loading && (pinnedCards.includes("fuel") || pinnedCards.includes("groceries") || (homePinnedWidget && homeTxns.length > 0)) && (
+          {!hasNoAccounts && !loading && (pinnedCards.includes("fuel") || pinnedCards.includes("groceries") || (homePinnedWidget && homeTxns.length > 0)) && (
             <div className="mt-8 space-y-3 px-4 lg:px-0">
               {pinnedCards.includes("fuel") && <FuelSavingsCard />}
               {pinnedCards.includes("groceries") && <GroceryBasketCard />}
@@ -1100,7 +1184,7 @@ export default function HomePage() {
               the page owns that job, so this section (which would otherwise
               render its own copy of the same empty state) is skipped rather
               than duplicated. */}
-          {!isFreshUser && (
+          {!hasNoAccounts && (
             <div className="rise-in px-4 lg:px-0 mt-8" style={{ "--rise-index": 3 } as React.CSSProperties}>
               <div className="flex items-center justify-between mb-3">
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Your estate</p>

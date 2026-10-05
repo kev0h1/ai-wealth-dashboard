@@ -5,6 +5,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 import httpx
 
+from app.services.sync_freshness import sync_error_code
+
 logger = logging.getLogger(__name__)
 
 from app.core.config import (
@@ -185,7 +187,29 @@ async def cull_orphaned_connections(grace_hours: int = 24) -> int:
 
 
 async def sync_connection(connection_id: str, user_id: Optional[str] = None, from_date: Optional[str] = None) -> list:
-    """Fetch accounts + cards + transactions for one TrueLayer connection."""
+    """Fetch accounts + cards + transactions for one TrueLayer connection.
+
+    G210: a raised error is stamped on the connection (`last_sync_error`) so
+    a first sync that dies is reported as failed rather than syncing forever;
+    the exception still propagates exactly as before.
+    """
+    try:
+        return await _sync_connection(connection_id, user_id, from_date)
+    except Exception as exc:
+        try:
+            await connections_col.update_one(
+                {"_id": connection_id},
+                {"$set": {
+                    "last_sync_error": sync_error_code(exc),
+                    "last_sync_error_at": datetime.utcnow(),  # naive-ok: matches last_synced convention
+                }},
+            )
+        except Exception:
+            logger.exception("could not stamp last_sync_error for connection %s", connection_id)
+        raise
+
+
+async def _sync_connection(connection_id: str, user_id: Optional[str] = None, from_date: Optional[str] = None) -> list:
     token = await get_valid_token(connection_id)
     if not token:
         # Dead consent: flag every account on this connection so the
@@ -421,7 +445,9 @@ async def sync_connection(connection_id: str, user_id: Optional[str] = None, fro
         fetched = [r for r in results if isinstance(r, str)]
 
         await connections_col.update_one(
-            {"_id": connection_id}, {"$set": {"last_synced": datetime.utcnow()}}, upsert=True
+            {"_id": connection_id},
+            {"$set": {"last_synced": datetime.utcnow()}, "$unset": {"last_sync_error": "", "last_sync_error_at": ""}},  # naive-ok: matches last_synced convention
+            upsert=True,
         )
 
         if fetched:

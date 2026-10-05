@@ -83,6 +83,14 @@ class FakeCol:
     async def distinct(self, field, filt=None):
         return sorted({d.get(field) for d in self.docs.values() if _matches(d, filt) and d.get(field)})
 
+    async def update_many(self, filt, update):
+        self.update_many_calls = getattr(self, "update_many_calls", []) + [(filt, update)]
+        for d in self.docs.values():
+            if _matches(d, filt):
+                d.update(update.get("$set") or {})
+                for k in (update.get("$unset") or {}):
+                    d.pop(k, None)
+
     async def update_one(self, filt, update, upsert=False):
         target = None
         for d in self.docs.values():

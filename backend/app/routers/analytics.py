@@ -36,7 +36,7 @@ from app.db.collections import (
 )
 from app.services.pay_period import get_pay_period_for_date, prev_pay_period
 from app.services import response_cache
-from app.services.sync_freshness import last_bank_sync
+from app.services.sync_freshness import first_sync_state, last_bank_sync
 from app.services.categorisation import (
     series_key, has_date_fragment, own_transfer_evidence, user_identity,
     canonical_merchant_key, refine_transfer_target, _byte_desc_key,
@@ -5107,6 +5107,28 @@ async def compute_safe_to_spend(uid: str) -> dict:
 
     _sync_ts = await last_bank_sync(uid)
 
+    # G210: a first bank sync that is still running (or stuck) means every
+    # figure above is computed from partial data. Report "syncing" with the
+    # figures clamped to 0 so no verdict, least of all a red "short", reaches
+    # the client; a FAILED first sync deliberately falls through to the
+    # normal computation over whatever data exists.
+    try:
+        _first_sync = await first_sync_state(uid)
+    except Exception:
+        logger.exception("first_sync_state failed for %s", uid)
+        _first_sync = {"state": "idle", "first_sync": False, "connections": []}
+    # Only a GENUINE first sync (no connection has ever synced) withholds the
+    # verdict. An established user adding a second bank keeps a normal
+    # verdict, and a degraded calculation wins over syncing.
+    _syncing = (
+        bool(_first_sync.get("first_sync"))
+        and _first_sync["state"] in ("syncing", "stalled")
+        and not unavailable_components
+    )
+    if _syncing:
+        safe_to_spend = 0
+        safe_to_spend_cash = 0
+
     # `net_position` (period_net's income/outflow/card-growth flow frame) is
     # deliberately NOT computed here. compute_safe_to_spend is called
     # directly — bypassing the 90s response cache below — from several hot
@@ -5118,10 +5140,14 @@ async def compute_safe_to_spend(uid: str) -> dict:
     # perf regression. It's attached to the result in get_safe_to_spend
     # below instead, so only the cached GET /safe-to-spend response pays
     # for it, once per 90s per user.
-    return {
+    _out = {
         "status":              "ok",
         "calculation_version": SAFE_TO_SPEND_CALCULATION_VERSION,
-        "calculation_status":  "degraded" if unavailable_components else "complete",
+        "calculation_status":  (
+            "syncing" if _syncing
+            else "degraded" if unavailable_components else "complete"
+        ),
+        "sync_state":          _first_sync["state"],
         "unavailable_components": unavailable_components,
         "safe_to_spend":       safe_to_spend,
         "safe_to_spend_cash":  safe_to_spend_cash,
@@ -5163,6 +5189,15 @@ async def compute_safe_to_spend(uid: str) -> dict:
         "allocations_count":   allocations_count,
         "last_synced":         _sync_ts.isoformat() if _sync_ts else None,
     }
+    if _syncing:
+        # Direct callers (history snapshot, Penny chips, Can I, planned) all
+        # treat a non-"ok" status as "no verdict", so a clamped syncing payload
+        # never reads as a real £0 "short". build_safe_to_spend_response turns
+        # it back into "ok" for the client, which renders the syncing state.
+        _out["status"] = "insufficient_data"
+        _out["state"] = "syncing"
+        _out["short_reason"] = None
+    return _out
 
 
 async def get_cached_safe_to_spend(uid: str) -> dict:
@@ -5210,6 +5245,9 @@ async def build_safe_to_spend_response(uid: str, include_series: bool = False) -
     aputs the result itself, so the two call sites can never drift on what
     this endpoint's shape actually is."""
     result = await compute_safe_to_spend(uid)
+    if result.get("calculation_status") == "syncing":
+        # G210: the client renders this as the syncing card; no pace either.
+        return {**result, "status": "ok"}
     if result.get("status") == "ok":
         try:
             from app.services.pace import compute_pace
@@ -5234,7 +5272,9 @@ async def get_safe_to_spend(include: str = "", user: dict = Depends(current_user
 
     v = await response_cache.snapshot(uid)
     result = await build_safe_to_spend_response(uid, include_series=want_series)
-    if result.get("status") == "ok":
+    # G210: never persist a "syncing" payload, so the verdict returns the
+    # moment the sync lands instead of waiting out the cache.
+    if result.get("status") == "ok" and result.get("calculation_status") != "syncing":
         await response_cache.aput(cache_name, uid, result, version=v)
         # grow.py's cached "/grow" payload embeds a period gate derived from
         # THIS endpoint's figure (via get_cached_safe_to_spend below); retire
