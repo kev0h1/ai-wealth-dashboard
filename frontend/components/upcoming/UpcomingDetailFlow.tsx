@@ -46,7 +46,10 @@ const leavePayment = (navigation: UpcomingFlowNavigation<UpcomingDetailView>, fa
 /** A dismissed payment unmounts its own detail before any "after" callback can run, so the absent state itself steps back to the account sheet it came from. */
 function ReturnToAccount({ navigation }: { navigation: UpcomingFlowNavigation<UpcomingDetailView> }) {
   const { returnTo } = navigation;
+  const leaving = navigation.canReturnTo(isAccountView);
   useEffect(() => { returnTo(isAccountView); }, [returnTo]);
+  // An account is beneath: the popstate is about to land, so show nothing rather than flash the copy.
+  if (leaving) return <div aria-busy="true" className="min-h-24" />;
   return <p className="text-sm leading-6 text-slate-600 dark:text-slate-300">This item is no longer expected in this period.</p>;
 }
 const actionsInFooter = (actions: ReactNode) => <UpcomingFlowFooter>{actions}</UpcomingFlowFooter>;

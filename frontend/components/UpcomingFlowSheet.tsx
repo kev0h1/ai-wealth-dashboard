@@ -1,5 +1,6 @@
 "use client";
 
+import { planReturn } from "@/lib/upcomingFlowStack";
 import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { SheetFrame } from "@/components/SheetFrame";
@@ -10,6 +11,8 @@ export interface UpcomingFlowNavigation<View> {
   close(): void;
   /** Pops straight to the nearest earlier step matching `match`. Returns false (and does nothing) when no such step is beneath this one. */
   returnTo(match: (view: View) => boolean): boolean;
+  /** True when returnTo(match) would navigate, so a transient state can render empty instead of flashing copy. */
+  canReturnTo(match: (view: View) => boolean): boolean;
 }
 
 export interface UpcomingFlowSheetProps<View> {
@@ -122,13 +125,12 @@ export default function UpcomingFlowSheet<View>({ initialView, onClose, renderVi
 
   const returnTo = useCallback((match: (view: View) => boolean) => {
     const from = depthRef.current;
-    let target = -1;
-    for (let index = from - 1; index >= 0; index -= 1) { if (match(entriesRef.current[index].view)) { target = index; break; } }
-    if (target < 0) return false;
+    const plan = planReturn(entriesRef.current.map((entry) => entry.view), from, match);
+    if (plan.kind === "none") return false;
     if (closingRef.current || pendingRef.current || savingRef.current) return true;
-    if (target === from - 1) { back(); return true; }
+    if (plan.kind === "back") { back(); return true; }
     pendingRef.current = true;
-    history.go(target - from);
+    history.go(plan.delta);
     timerRef.current = window.setTimeout(() => { pendingRef.current = false; }, 500);
     return true;
   }, [back]);
@@ -223,7 +225,7 @@ export default function UpcomingFlowSheet<View>({ initialView, onClose, renderVi
   }, [view]);
 
   if (!mounted) return null;
-  const navigation: UpcomingFlowNavigation<View> = { goTo, back, close, returnTo };
+  const navigation: UpcomingFlowNavigation<View> = { goTo, back, close, returnTo, canReturnTo: (match) => planReturn(entriesRef.current.map((entry) => entry.view), depthRef.current, match).kind !== "none" };
   // These event callbacks read refs only when invoked by the user, not here.
   // eslint-disable-next-line react-hooks/refs
   const rendered = renderView(view, navigation);
