@@ -2143,6 +2143,7 @@ export default function PennyConversation({
         ref={inSheet ? scrollContainerRef : undefined}
         aria-live="polite"
         role="log"
+        data-penny-scroll={inSheet ? "" : undefined}
         onScroll={inSheet ? onThreadScroll : undefined}
         className={inSheet ? "flex-1 min-h-0 overflow-y-auto space-y-3 px-5" : "space-y-3"}
       >

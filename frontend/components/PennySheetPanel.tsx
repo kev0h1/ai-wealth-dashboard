@@ -3,6 +3,8 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type Ref } from "react";
 import { pennyDeviceLandscape, pennyFillTop } from "@/lib/pennyKeyboardViewport";
 import { usePennyKeyboard } from "@/lib/usePennyKeyboard";
+import { usePennyIosPanGuard } from "@/lib/usePennyIosPanGuard";
+import { shouldGuard } from "@/lib/pennyIosPanGuard";
 import { applyPennyTypingAttribute, pennyNextEngaged, pennyTypingActive } from "@/lib/pennyTyping";
 import { PENNY_PANEL_CSS } from "./PennySheetPanel.styles";
 
@@ -57,12 +59,18 @@ export default function PennySheetPanel({ children, isOpen, panelRef }: {
     return applyPennyTypingAttribute(document.documentElement);
   }, [typing]);
 
+  // G211: iOS strategy only (layout viewport kept its height). Android and the
+  // app shells (layoutShrank) get none of this.
+  const iosGuard = typing && Boolean(viewport?.iosStable) && shouldGuard(Boolean(viewport?.keyboardVisible), Boolean(viewport?.layoutShrank));
+  usePennyIosPanGuard(iosGuard);
+
   const frameStyle = typing && viewport ? {
     "--penny-typing-top": `${pennyFillTop(viewport.top)}px`,
     "--penny-typing-bottom": `${viewport.inset}px`,
   } as CSSProperties : undefined;
-  return <><style>{PENNY_PANEL_CSS}</style><div
+  return <><style>{PENNY_PANEL_CSS}</style>{iosGuard && <div className="penny-typing-underlay" data-penny-ios-guard aria-hidden="true" />}<div
     ref={frameRef}
+    data-penny-ios-guard={iosGuard ? "" : undefined}
     data-penny-typing={typing}
     data-penny-window
     data-penny-device={landscape ? "landscape" : "portrait"}
