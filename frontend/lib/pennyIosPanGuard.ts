@@ -10,6 +10,14 @@ export function shouldGuard(keyboardVisible: boolean, layoutShrank: boolean): bo
   return keyboardVisible && !layoutShrank;
 }
 
+/** The iOS strategy must be seen on two consecutive reads before the guard
+ * starts. Chrome on Android can deliver the visual viewport resize a frame
+ * before innerHeight updates, so a single read may show keyboard visible with
+ * the layout not yet shrunk; the next read corrects it. */
+export function stableAcross(prevRead: boolean, read: boolean): boolean {
+  return prevRead && read;
+}
+
 /** Whether a touch move may proceed. `deltaY` is the scroll intent: positive
  * scrolls the conversation towards its end (finger moving up), negative
  * towards its start. Only a touch that starts inside the conversation scroller
