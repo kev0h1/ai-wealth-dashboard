@@ -126,7 +126,7 @@ ALLOWLIST: set[tuple[str, int]] = {
     # letter of "reaches an HTTP response body", allowlisted rather than
     # silently skipped; tighten this if the webhook response is ever
     # surfaced anywhere a person reads it.
-    ("app/services/billing.py", 480),
+    ("app/services/billing.py", 506),
 }
 
 
