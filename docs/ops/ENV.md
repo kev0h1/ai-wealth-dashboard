@@ -446,5 +446,4 @@ curl -sS -X POST https://uat.wealth.auriqltd.co.uk/api/subscription/admin/uat-tr
   -d '{"all": true}'
 ```
 
-Response: `{"ok": true, "modified": N, "skipped_live_stripe": M}`. Check the
-`/api` prefix against how the UAT API is fronted before first use.
+Response: `{"ok": true, "modified": N, "skipped_live_stripe": M}`.
