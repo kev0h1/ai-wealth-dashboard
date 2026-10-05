@@ -93,8 +93,10 @@ const filterHtml = renderToStaticMarkup(React.createElement(TransactionFilterShe
 }));
 assert.match(filterHtml, /<form id="test-filter"/);
 assert.match(filterHtml, /value="Example shop"/);
-assert.match(filterHtml, /value="2026-09-01"/);
-assert.match(filterHtml, /value="2026-09-30"/);
+// G136: the dates render through DateField (no native input), formatted British.
+assert.match(filterHtml, /aria-label="From, 1 Sep 2026"/);
+assert.match(filterHtml, /aria-label="To, 30 Sep 2026"/);
+assert.doesNotMatch(filterHtml, /type="date"/);
 assert.match(filterHtml, /aria-pressed="true"[^>]*>Money out/);
 assert.match(filterHtml, /aria-pressed="true"[^>]*>Bills/);
 assert.doesNotMatch(filterHtml, /Show results/);
