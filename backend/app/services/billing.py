@@ -625,7 +625,7 @@ async def _handle_subscription_upsert(sub_obj: dict) -> dict:
         subscription_fields["stripe_created"] = sub_obj["created"]
     if sub_obj.get("status") == "canceled":
         subscription_fields["ended_at"] = now
-        subscription_fields["ended_subscription_id"] = sub_obj.get("id")
+        subscription_fields["ended_subscription_ids"] = _with_ended(existing, sub_obj.get("id"))
     update: dict = {"$set": subscription_fields, "$setOnInsert": {"started_at": now}}
     newly_past_due = False
     if status == "past_due":
@@ -678,10 +678,30 @@ def _ended_subscription_event(existing: dict, sub_obj: dict, status: str) -> str
     ended, so a late live-looking event for THAT id is ignored whether or not
     a newer subscription has since replaced it, while a resubscribe (a
     different id, even arriving first as `incomplete`) is never blocked."""
-    if (sub_obj.get("id") and sub_obj.get("id") == existing.get("ended_subscription_id")
-            and status in ("active", "trialing", "past_due")):
+    if sub_obj.get("id") in _ended_ids(existing) and status in ("active", "trialing", "past_due"):
         return "subscription already ended"
     return None
+
+
+_ENDED_IDS_CAP = 20
+
+
+def _ended_ids(doc: dict) -> list:
+    """Every subscription id known to have ended for this user:
+    `ended_subscription_ids` (a list, capped) plus the legacy single
+    `ended_subscription_id` written by the previous revision."""
+    ids = list(doc.get("ended_subscription_ids") or [])
+    legacy = doc.get("ended_subscription_id")
+    if legacy and legacy not in ids:
+        ids.append(legacy)
+    return ids
+
+
+def _with_ended(doc: dict, sub_id: str | None) -> list:
+    ids = _ended_ids(doc)
+    if sub_id and sub_id not in ids:
+        ids.append(sub_id)
+    return ids[-_ENDED_IDS_CAP:]
 
 
 def _stamp_past_due(fields: dict, existing: dict, now: datetime) -> bool:
@@ -726,14 +746,20 @@ async def _handle_subscription_deleted(sub_obj: dict) -> dict:
 
     existing = dict(await subscriptions_col.find_one({"user_id": uid}) or {})
     deleted_id = sub_obj.get("id")
+    if existing and deleted_id:
+        # Record the ended id whatever is stored: a `deleted` for a NEW
+        # subscription can arrive before its own created/active event, and
+        # that later event must then be ignored.
+        await subscriptions_col.update_one(
+            {"user_id": uid}, {"$set": {"ended_subscription_ids": _with_ended(existing, deleted_id)}},
+        )
     if deleted_id and existing.get("stripe_subscription_id") and existing["stripe_subscription_id"] != deleted_id:
         # A superseded subscription ending (the user has since resubscribed)
         # must not expire the live one.
         return {"handled": False, "reason": "deleted subscription is not the current one"}
     update = {
         "$set": {"status": "expired", "updated_at": datetime.now(timezone.utc), "source": "stripe",  # naive-ok: persisted audit instant
-                 "ended_at": datetime.now(timezone.utc),  # naive-ok: persisted audit instant
-                 "ended_subscription_id": deleted_id or existing.get("stripe_subscription_id")},
+                 "ended_at": datetime.now(timezone.utc)},  # naive-ok: persisted audit instant
         "$unset": {"past_due_since": "", "grace_until": ""},
     }
     await subscriptions_col.update_one({"user_id": uid}, update)
@@ -804,6 +830,8 @@ async def _handle_invoice_paid(invoice_obj: dict) -> dict:
     if invoice_sub and existing.get("stripe_subscription_id") and invoice_sub != existing["stripe_subscription_id"]:
         return {"handled": False, "reason": "invoice belongs to a different subscription"}
 
+    if invoice_sub and invoice_sub in _ended_ids(existing):
+        return {"handled": False, "reason": "invoice belongs to an ended subscription"}
     now = datetime.now(timezone.utc)  # naive-ok: persisted audit instant
     fields = {"status": "active", "updated_at": now, "source": "stripe"}
     period_end = _invoice_period_end(invoice_obj)

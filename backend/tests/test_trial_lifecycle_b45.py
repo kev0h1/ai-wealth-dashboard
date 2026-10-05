@@ -618,3 +618,33 @@ def test_invoice_paid_activates_incomplete_new_subscription_after_old_ended(env)
     assert res["handled"] is True and subs.docs[0]["status"] == "active"
     assert "ended_at" not in subs.docs[0]
     assert _run(sub_module.open_banking_paused(UID)) is False
+
+
+# ── final check: ended-id list ────────────────────────────────────────────
+
+def test_late_invoice_paid_for_ended_subscription_stays_expired(env):
+    subs, _ = env
+    _feed(_sub_event("e1", "active", sub_id="sub_old", created=1000))
+    _feed(_deleted("e2", "sub_old"))
+    res = _feed(_invoice_event("e3", "invoice.paid", amount_paid=999, sub_id="sub_old", days_to_end=30))
+    assert res["handled"] is False and subs.docs[0]["status"] == "expired"
+    assert _run(sub_module.open_banking_paused(UID)) is True
+
+
+def test_deleted_new_before_created_new_then_active_new_stays_expired(env):
+    subs, _ = env
+    _feed(_sub_event("e1", "active", sub_id="sub_old", created=1000))
+    _feed(_deleted("e2", "sub_old"))
+    # the NEW subscription's deleted arrives first, while the stored doc is still the old id
+    assert _feed(_deleted("e3", "sub_new"))["handled"] is False
+    assert "sub_new" in subs.docs[0]["ended_subscription_ids"]
+    _feed(_sub_event("e4", "active", sub_id="sub_new", created=2000))
+    assert subs.docs[0]["status"] == "expired"
+    assert _run(sub_module.open_banking_paused(UID)) is True
+
+
+def test_ended_ids_list_is_capped_and_keeps_legacy_single_field():
+    from app.services.billing import _ended_ids, _with_ended
+    ids = _with_ended({"ended_subscription_ids": [f"s{i}" for i in range(20)]}, "s_new")
+    assert len(ids) == 20 and ids[-1] == "s_new" and "s0" not in ids
+    assert _ended_ids({"ended_subscription_id": "legacy"}) == ["legacy"]
