@@ -9,6 +9,8 @@ export type UpcomingAccountEvent = {
   /** Signed pounds: incoming positive, outgoing negative. */
   amount: number;
   after: number | null;
+  /** The originating cashflow item (same reference as the list row), so a row can be matched to its editor. Never serialised. */
+  source?: object;
 };
 
 export type UpcomingAccountSummary = {

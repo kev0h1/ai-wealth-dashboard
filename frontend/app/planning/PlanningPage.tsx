@@ -882,7 +882,7 @@ export default function PlanningPage() {
 
           const detailId = isPlanned ? `planned:${item.planned_id}` : `${item.type}:${item.name}:${item.original_date ?? item.expected_date}:${item.sourceIndex}:${isSettling ? "settling" : "expected"}`;
           paymentDetails.push({
-            id: detailId, model,
+            id: detailId, model, source: item.source,
             editor: { name: item.name, amount: item.amount, expected_date: item.expected_date, original_date: item.original_date, type: item.type, edited: item.edited, rule_label: item.rule_label },
             planned: isPlanned ? { id: item.planned_id!, name: item.name, amount: item.amount, date: item.expected_date, account_id: item.account_id ?? null } : undefined,
             skip: canDismissUpcomingOccurrence(model) ? () => skipOccurrence(item) : undefined,

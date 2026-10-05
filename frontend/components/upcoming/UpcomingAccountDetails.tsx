@@ -6,16 +6,22 @@ import type { UpcomingAccountEvent, UpcomingAccountSummary } from "@/lib/upcomin
 import { accountPlan, hasPlanSource, remaining, type Plan } from "@/lib/upcomingPlans";
 import { DetailLedgerLine, detailFocus, detailInk, detailMuted, PlanIcon, dateLabel, money } from "./detailPrimitives";
 
-export interface UpcomingAccountDetailsProps { account: UpcomingAccountSummary; periodLabel: string; plans?: Plan[]; plansStatus?: "loading" | "error" | "ready"; onPlan?: (id: string) => void; }
+export interface UpcomingAccountDetailsProps { account: UpcomingAccountSummary; periodLabel: string; plans?: Plan[]; plansStatus?: "loading" | "error" | "ready"; onPlan?: (id: string) => void;
+  /** Opens the payment detail for an event. Only events in `editableEventIds` (when given) get a button; the rest stay static. */
+  onEvent?: (eventId: string) => void; editableEventIds?: ReadonlySet<string>; }
 
-function EventLine({ event }: { event: UpcomingAccountEvent }) {
+function EventLine({ event, onEvent }: { event: UpcomingAccountEvent; onEvent?: (eventId: string) => void }) {
   const incoming = event.kind === "income" || event.kind === "inflow";
   const Icon = incoming ? ArrowDownLeft : event.kind === "movement" ? ArrowLeftRight : ReceiptText;
-  return <li className="grid grid-cols-[2.25rem_minmax(0,1fr)_auto] items-center gap-3 py-3">
+  const content = <>
     <span className={"flex size-9 items-center justify-center rounded-xl " + (incoming ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-400/10 dark:text-emerald-300" : "bg-cyan-50 text-cyan-700 dark:bg-cyan-400/10 dark:text-cyan-300")}><Icon size={18} aria-hidden="true" /></span>
     <span className="min-w-0"><span className="block break-words text-sm font-medium">{event.name}</span><span className={"mt-0.5 block text-xs " + detailMuted}>{dateLabel(event.date)}</span></span>
     <span className={"shrink-0 text-right text-sm " + detailInk}>{money(Math.round(event.amount * 100), incoming)}</span>
-  </li>;
+    {onEvent && <ChevronRight size={14} className={detailMuted} aria-hidden="true" />}
+  </>;
+  return <li>{onEvent
+    ? <button type="button" data-flow-focus={"event-" + event.id} aria-label={event.name + ", " + dateLabel(event.date) + ", " + money(Math.round(event.amount * 100), incoming) + ". Open details"} onClick={() => onEvent(event.id)} className={"grid min-h-11 w-full grid-cols-[2.25rem_minmax(0,1fr)_auto_0.75rem] items-center gap-3 rounded-lg py-3 text-left hover:bg-slate-50 dark:hover:bg-slate-800/60 " + detailFocus}>{content}</button>
+    : <div className="grid grid-cols-[2.25rem_minmax(0,1fr)_auto] items-center gap-3 py-3">{content}</div>}</li>;
 }
 
 function PlanRow({ plan, onPlan }: { plan: Plan; onPlan?: (id: string) => void }) {
@@ -38,7 +44,7 @@ function Verdict({ account, plans, plansStatus }: Required<Pick<UpcomingAccountD
   return <p className="flex items-center gap-2 text-sm font-medium"><Check size={16} className={detailMuted} aria-hidden="true" />{result.assigned.length ? "Payments and linked plans fit" : "Payments are covered"}</p>;
 }
 
-export default function UpcomingAccountDetails({ account, periodLabel, plans = [], plansStatus = "ready", onPlan }: UpcomingAccountDetailsProps) {
+export default function UpcomingAccountDetails({ account, periodLabel, plans = [], plansStatus = "ready", onPlan, onEvent, editableEventIds }: UpcomingAccountDetailsProps) {
   const id = useId();
   const result = accountPlan(account, plansStatus === "ready" ? plans : []);
   const hasPlans = result.reservedPence > 0 || result.uncertain;
@@ -68,7 +74,7 @@ export default function UpcomingAccountDetails({ account, periodLabel, plans = [
     {plansStatus === "ready" && result.unassigned.length > 0 && <section aria-labelledby={id + "-unassigned"} className="border-t border-slate-200 pt-4 dark:border-slate-700"><h3 id={id + "-unassigned"} className="text-sm font-semibold">Not assigned to an account</h3><ul className="mt-1 divide-y divide-slate-200 dark:divide-slate-700">{result.unassigned.map((plan) => <PlanRow key={plan.id} plan={plan} onPlan={onPlan} />)}</ul></section>}
     {account.hasUnassignedIncome && <p className={"text-xs leading-5 " + detailMuted}>Income without a confirmed destination is not included in this account’s working.</p>}
     <section aria-labelledby={id + "-events"}><div className="flex items-baseline justify-between gap-4"><h3 id={id + "-events"} className="text-sm font-semibold">Payments &amp; income</h3><span className={"text-xs " + detailMuted}>{account.events.length} expected</span></div>
-      {account.events.length ? <ul className="mt-1 divide-y divide-slate-200 dark:divide-slate-700">{account.events.map((event) => <EventLine key={event.id} event={event} />)}</ul> : <p className={"py-3 text-sm " + detailMuted}>No payments or income expected. {periodLabel}.</p>}
+      {account.events.length ? <ul className="mt-1 divide-y divide-slate-200 dark:divide-slate-700">{account.events.map((event) => <EventLine key={event.id} event={event} onEvent={onEvent && (!editableEventIds || editableEventIds.has(event.id)) ? onEvent : undefined} />)}</ul> : <p className={"py-3 text-sm " + detailMuted}>No payments or income expected. {periodLabel}.</p>}
     </section>
     <p className={"text-xs leading-5 " + detailMuted}>Only the amount still to set aside is included. Goal contributions are plans, not scheduled bank payments. This account view does not change the payday forecast.</p>
   </div>;
