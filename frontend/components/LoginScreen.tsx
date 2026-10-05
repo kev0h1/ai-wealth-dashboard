@@ -16,7 +16,7 @@ interface LoginScreenProps {
   // sign-in transitions without a page reload (a reload discards a token that
   // only lives in memory). Hosts without it (oauth consent, app-only shell)
   // keep the reload. G202: the signal aborts the session check on Cancel.
-  onSignedIn?: (signal?: AbortSignal) => Promise<"ok" | "rejected" | "unreachable">;
+  onSignedIn?: (signal?: AbortSignal, fresh?: boolean) => Promise<"ok" | "rejected" | "unreachable">;
   // G202: AuthProvider's signal that a Google sign-in started before a process
   // kill or reload is still being awaited. Its startedAt is the persisted
   // pending login's, so the elapsed clock is the real one.
@@ -62,6 +62,10 @@ export default function LoginScreen({ error, onSignedIn, resuming, onCancelResum
   const runRef = useRef(createRunGuard());
   const sessionAbortRef = useRef<AbortController | null>(null);
   const lastAttemptRef = useRef<"google" | "apple">("google");
+  // D13: true once the user themselves started a Google/Apple attempt. A retry of
+  // AuthProvider's cold-start session check (stored token, `resuming`) is not a
+  // fresh sign-in and must not move the user to Home.
+  const userAttemptRef = useRef(false);
   const phase = phaseOverride ?? derivePhase(local, resuming);
 
   function fail(reason: "failed" | "timeout") {
@@ -79,7 +83,7 @@ export default function LoginScreen({ error, onSignedIn, resuming, onCancelResum
     sessionAbortRef.current = ctrl;
     let outcome: "ok" | "rejected" | "unreachable";
     try {
-      outcome = await onSignedIn(ctrl.signal);
+      outcome = await onSignedIn(ctrl.signal, userAttemptRef.current);
     } finally {
       if (sessionAbortRef.current === ctrl) sessionAbortRef.current = null;
     }
@@ -93,6 +97,7 @@ export default function LoginScreen({ error, onSignedIn, resuming, onCancelResum
     const run = runRef.current.next();
     const startedAt = Date.now();
     lastAttemptRef.current = attempt;
+    userAttemptRef.current = true;
     setLocal({ kind: "signing-in", attempt, stage: "provider", startedAt });
     const result = attempt === "google" ? await nativeGoogleLogin() : await nativeAppleLogin();
     if (!runRef.current.isCurrent(run)) return; // cancelled
@@ -115,12 +120,14 @@ export default function LoginScreen({ error, onSignedIn, resuming, onCancelResum
     runRef.current.cancel();
     sessionAbortRef.current?.abort();
     cancelNativeLogin();
+    userAttemptRef.current = false;
     setLocal({ kind: "idle" });
     onCancelResume?.();
   }
 
   function dismissPhase() {
     // "Use a different account" on the unreachable panel.
+    userAttemptRef.current = false;
     runRef.current.cancel();
     setLocal({ kind: "idle" });
     onCancelResume?.(true); // A135: the user chose another account, so drop the kept token
