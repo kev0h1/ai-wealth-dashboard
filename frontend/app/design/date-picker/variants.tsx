@@ -57,8 +57,7 @@ export function CalendarGridVariant({ kind, themeClass, initialValue, initialOpe
         </div>
       }
     >
-      <div className="mb-3 flex items-center justify-between">
-        <p className="text-[13px] text-slate-600 dark:text-slate-300">{draft ? `Chosen: ${fmtValue(kind, draft)}` : "Nothing chosen yet"}</p>
+      <div className="mb-3 flex items-center justify-end">
         <button type="button" onClick={pickToday} className={CHIP}>{todayLabel}</button>
       </div>
       {/* key forces the grid to re-seed its view when Today is tapped */}
@@ -77,7 +76,8 @@ function buildRows(kind: Kind): RowItem[] {
   if (kind === "day") {
     return Array.from({ length: 14 }, (_, i) => {
       const v = addDays(TODAY, i);
-      return { v, left: fmtDay(v), right: i === 0 ? "Today" : i === 1 ? "Tomorrow" : weekdayOf(v) };
+      const prev = i > 0 ? addDays(TODAY, i - 1) : null;
+      return { v, left: `${v.d} ${monthShort(v.m)}`, right: i === 0 ? "Today" : i === 1 ? "Tomorrow" : weekdayOf(v), yearLabel: !prev || prev.y !== v.y ? String(v.y) : undefined };
     });
   }
   const start = toMonth(TODAY);
@@ -100,8 +100,8 @@ function RowList({ kind, selected, onPick, autoFocus }: { kind: Kind; selected: 
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const go = (i: number) => { const n = Math.max(0, Math.min(rows.length - 1, i)); setActive(n); refs.current[n]?.focus(); };
   const onKey = (e: KeyboardEvent) => {
-    if (e.key === "ArrowDown") { e.preventDefault(); go(active + 1); }
-    else if (e.key === "ArrowUp") { e.preventDefault(); go(active - 1); }
+    if (e.key === "ArrowDown" || e.key === "ArrowRight") { e.preventDefault(); go(active + 1); }
+    else if (e.key === "ArrowUp" || e.key === "ArrowLeft") { e.preventDefault(); go(active - 1); }
     else if (e.key === "Home") { e.preventDefault(); go(0); }
     else if (e.key === "End") { e.preventDefault(); go(rows.length - 1); }
   };
@@ -150,19 +150,21 @@ export function InSheetRowsVariant({ kind, themeClass, initialValue, initialOpen
   }
   const title = grid ? (kind === "day" ? "Pick another date" : "Pick another month") : kind === "day" ? "Expected date" : "Target month";
   return (
-    <HostFrame kind={kind} themeClass={themeClass} title={title} onClose={onClose} onBack={back} onEscape={back}>
+    <HostFrame
+      kind={kind} themeClass={themeClass} title={title} onClose={onClose} onBack={back} onEscape={back}
+      footer={grid ? undefined : (
+        <button
+          type="button" onClick={() => setGrid(true)}
+          className={`flex min-h-11 w-full items-center justify-center rounded-xl border border-slate-200 text-[14px] font-semibold text-indigo-700 transition-transform active:scale-95 dark:border-slate-600 dark:text-indigo-300 ${FOCUS}`}
+        >{kind === "day" ? "Pick another date" : "Pick a later month"}</button>
+      )}
+    >
       {grid ? (
         kind === "day"
           ? <CalendarGrid idPrefix={`b-${id}`} selected={value} onPick={pick} autoFocus />
           : <MonthGrid idPrefix={`b-${id}`} selected={value} onPick={pick} autoFocus />
       ) : (
-        <>
-          <RowList kind={kind} selected={value} onPick={pick} autoFocus />
-          <button
-            type="button" onClick={() => setGrid(true)}
-            className={`mt-3 flex min-h-11 w-full items-center justify-center rounded-xl border border-slate-200 text-[14px] font-semibold text-indigo-700 transition-transform active:scale-95 dark:border-slate-600 dark:text-indigo-300 ${FOCUS}`}
-          >{kind === "day" ? "Pick another date" : "Pick a later month"}</button>
-        </>
+        <RowList kind={kind} selected={value} onPick={pick} autoFocus />
       )}
     </HostFrame>
   );
@@ -170,8 +172,8 @@ export function InSheetRowsVariant({ kind, themeClass, initialValue, initialOpen
 
 // ---------------------------------------------------------------- C: stepper field
 
-function Stepper({ label, text, valueNow, onMinus, onPlus, minusDisabled, plusDisabled, wide }: {
-  label: string; text: string; valueNow: number; onMinus: () => void; onPlus: () => void;
+function Stepper({ label, text, valueNow, valueMin, valueMax, onMinus, onPlus, minusDisabled, plusDisabled, wide }: {
+  label: string; text: string; valueNow: number; valueMin: number; valueMax: number; onMinus: () => void; onPlus: () => void;
   minusDisabled?: boolean; plusDisabled?: boolean; wide?: boolean;
 }) {
   const onKey = (e: KeyboardEvent) => {
@@ -181,12 +183,12 @@ function Stepper({ label, text, valueNow, onMinus, onPlus, minusDisabled, plusDi
   return (
     <div className={`flex min-w-0 flex-col items-center ${wide ? "flex-[1.2]" : "flex-1"}`}>
       <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{label}</span>
-      <button type="button" aria-label={`Next ${label.toLowerCase()}`} disabled={plusDisabled} onClick={onPlus} className={ICON_BTN}><Plus size={18} aria-hidden="true" /></button>
+      <button type="button" aria-label={`${label} forward`} disabled={plusDisabled} onClick={onPlus} tabIndex={-1} className={`${ICON_BTN} bg-slate-100 dark:bg-slate-700`}><Plus size={18} aria-hidden="true" /></button>
       <span
-        role="spinbutton" tabIndex={0} aria-label={label} aria-valuenow={valueNow} aria-valuetext={text} onKeyDown={onKey}
+        role="spinbutton" tabIndex={0} aria-label={label} aria-valuemin={valueMin} aria-valuemax={valueMax} aria-valuenow={valueNow} aria-valuetext={text} onKeyDown={onKey}
         className={`flex min-h-11 min-w-11 items-center justify-center rounded-lg px-2 text-center text-[20px] font-bold tabular-nums text-slate-950 dark:text-white ${FOCUS}`}
       >{text}</span>
-      <button type="button" aria-label={`Previous ${label.toLowerCase()}`} disabled={minusDisabled} onClick={onMinus} className={ICON_BTN}><Minus size={18} aria-hidden="true" /></button>
+      <button type="button" aria-label={`${label} back`} disabled={minusDisabled} onClick={onMinus} tabIndex={-1} className={`${ICON_BTN} bg-slate-100 dark:bg-slate-700`}><Minus size={18} aria-hidden="true" /></button>
     </div>
   );
 }
@@ -199,7 +201,9 @@ export function StepperVariant({ kind, themeClass, initialValue, initialOpen, on
   const fieldRef = useRef<HTMLButtonElement>(null);
   const panelId = useId().replace(/:/g, "");
 
-  const commit = () => { setValue(draft); onCommit?.(draft); setExpanded(false); };
+  const [lastChip, setLastChip] = useState<string | null>(null);
+  const stepTo = (v: Ymd) => { setLastChip(null); setDraft(v); };
+  const commit = () => { setValue(draft); onCommit?.(draft); setExpanded(false); requestAnimationFrame(() => fieldRef.current?.focus({ preventScroll: true })); };
   const cancel = () => { setExpanded(false); requestAnimationFrame(() => fieldRef.current?.focus({ preventScroll: true })); };
   const toggle = () => { if (expanded) commit(); else { setDraft(value ?? min); setExpanded(true); } };
 
@@ -212,6 +216,8 @@ export function StepperVariant({ kind, themeClass, initialValue, initialOpen, on
   const yearOk = (delta: number) => !isBeforeMin(kind, { y: draft.y + delta, m: draft.m, d: 1 }) || (delta > 0);
   const payday: Ymd = kind === "day" ? PAYDAY : toMonth(PAYDAY);
 
+  const summary = kind === "day" ? `${weekdayOf(draft)} ${fmtDay(draft)}` : fmtMonth(draft);
+  const MAX_YEAR = TODAY.y + 10;
   const chips = kind === "day"
     ? [{ l: "Today", v: TODAY }, { l: "End of month", v: endOfMonth(TODAY) }, { l: `Payday, ${fmtDay(PAYDAY).replace(/ 2026$/, "")}`, v: payday }]
     : [{ l: "This month", v: toMonth(TODAY) }, { l: "Next month", v: toMonth(addMonths(TODAY, 1)) }, { l: "Payday", v: payday }];
@@ -220,22 +226,22 @@ export function StepperVariant({ kind, themeClass, initialValue, initialOpen, on
     <div id={panelId} role="group" aria-label={kind === "day" ? "Choose a date" : "Choose a month"} className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-600 dark:bg-slate-800/60">
       <div className="flex items-start gap-2">
         {kind === "day" && (
-          <Stepper label="Day" text={String(draft.d)} valueNow={draft.d} minusDisabled={!dayOk(-1)} plusDisabled={!dayOk(1)}
-            onMinus={() => setDraft(set(draft.y, draft.m, draft.d - 1))} onPlus={() => setDraft(set(draft.y, draft.m, draft.d + 1))} />
+          <Stepper label="Day" text={String(draft.d)} valueNow={draft.d} valueMin={kind === "day" && monthKey(draft) === monthKey(min) ? min.d : 1} valueMax={daysIn(draft.y, draft.m)} minusDisabled={!dayOk(-1)} plusDisabled={!dayOk(1)}
+            onMinus={() => stepTo(set(draft.y, draft.m, draft.d - 1))} onPlus={() => stepTo(set(draft.y, draft.m, draft.d + 1))} />
         )}
-        <Stepper label="Month" text={monthShort(draft.m)} valueNow={draft.m + 1} wide minusDisabled={!monthOk(-1)}
-          onMinus={() => { const n = addMonths(draft, -1); setDraft(set(n.y, n.m, draft.d)); }}
-          onPlus={() => { const n = addMonths(draft, 1); setDraft(set(n.y, n.m, draft.d)); }} />
-        <Stepper label="Year" text={String(draft.y)} valueNow={draft.y} wide minusDisabled={!yearOk(-1)}
-          onMinus={() => setDraft(set(draft.y - 1, draft.m, draft.d))} onPlus={() => setDraft(set(draft.y + 1, draft.m, draft.d))} />
+        <Stepper label="Month" text={monthShort(draft.m)} valueNow={draft.m + 1} valueMin={draft.y === min.y ? min.m + 1 : 1} valueMax={12} wide minusDisabled={!monthOk(-1)}
+          onMinus={() => { const n = addMonths(draft, -1); stepTo(set(n.y, n.m, draft.d)); }}
+          onPlus={() => { const n = addMonths(draft, 1); stepTo(set(n.y, n.m, draft.d)); }} />
+        <Stepper label="Year" text={String(draft.y)} valueNow={draft.y} valueMin={min.y} valueMax={MAX_YEAR} wide minusDisabled={!yearOk(-1)} plusDisabled={draft.y >= MAX_YEAR}
+          onMinus={() => stepTo(set(draft.y - 1, draft.m, draft.d))} onPlus={() => stepTo(set(draft.y + 1, draft.m, draft.d))} />
       </div>
-      <p aria-live="polite" className="mt-2 text-center text-[13px] font-medium text-slate-700 dark:text-slate-200">
-        {kind === "day" ? `${weekdayOf(draft)} ${fmtDay(draft)}` : fmtMonth(draft)}
-      </p>
+      {summary !== (value ? fmtValue(kind, value) : null) ? (
+        <p aria-live="polite" className="mt-2 text-center text-[13px] font-medium text-slate-700 dark:text-slate-200">{summary}</p>
+      ) : <span aria-live="polite" className="sr-only">{summary}</span>}
       <div className="mt-2 flex flex-wrap gap-2">
         {chips.map((c) => (
-          <button key={c.l} type="button" onClick={() => setDraft(c.v)} aria-pressed={same(c.v, draft)}
-            className={`${CHIP} !px-3 ${same(c.v, draft) ? "!border-indigo-600 !bg-indigo-50 !text-indigo-800 dark:!bg-indigo-500/15 dark:!text-indigo-200" : ""}`}>{c.l}</button>
+          <button key={c.l} type="button" onClick={() => { setDraft(c.v); setLastChip(c.l); }} aria-pressed={lastChip === c.l && same(c.v, draft)}
+            className={`${CHIP} !px-3 ${lastChip === c.l && same(c.v, draft) ? "!border-indigo-600 !bg-indigo-50 !text-indigo-800 dark:!bg-indigo-500/15 dark:!text-indigo-200" : ""}`}>{c.l}</button>
         ))}
       </div>
       <button type="button" onClick={commit} className={`${BTN_SECONDARY} mt-3 w-full`}>Done</button>
