@@ -68,8 +68,8 @@ const ROUTES: PreviewRoute[] = [
     slug: "signin-handoff",
     name: "Sign-in hand-off page · G199 · approved B, folded in",
     description:
-      "G199 · approved B, folded in (Kevin 2026-10-03): the page shown in the Android Chrome Custom Tab / iOS in-app browser after Google sign-in (Signed in, Taking you back to Sorted, Return to Sorted) and its error state · Open cockpit, type-led heading with the mark beside it, action anchored low under a hairline, no card · every frame renders the shared template the backend serves, in light and dark · no gradient, no green, no red · ?state=ok|hint|error&mode=light|dark",
-    states: [{ label: "Signed in", value: "ok" }, { label: "After 3 seconds", value: "hint" }, { label: "Did not complete", value: "error" }],
+      "G199 · approved B, folded in (Kevin 2026-10-03): the page shown in the Android Chrome Custom Tab / iOS in-app browser after Google sign-in (Signed in, Taking you back to Sorted, Return to Sorted) and its error state · Open cockpit, type-led heading with the mark beside it, action anchored low under a hairline, no card · every frame renders the shared template the backend serves, in light and dark · no gradient, no green, no red · A108 adds the bank-connect frames (Bank connected, Bank did not link) from the same template · ?state=ok|hint|error|bank-ok|bank-error&mode=light|dark",
+    states: [{ label: "Signed in", value: "ok" }, { label: "After 3 seconds", value: "hint" }, { label: "Did not complete", value: "error" }, { label: "Bank connected", value: "bank-ok" }, { label: "Bank did not link", value: "bank-error" }],
   },
   {
     slug: "penny-keyboard",

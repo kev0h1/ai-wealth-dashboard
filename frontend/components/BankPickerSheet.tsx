@@ -6,6 +6,12 @@ import { api, ApiError } from "@/lib/api";
 import { AGENT_DISCLOSURE } from "@/lib/regulatoryCopy";
 import { LEGACY_BANK_SUBTITLE } from "@/lib/legacyBankProvider";
 import { SheetFrame } from "@/components/SheetFrame";
+import { isNativePlatform } from "@/lib/nativeAuth";
+import { DEEP_LINK_EVENT, type DeepLinkDetail } from "@/lib/deepLinks";
+import { registerBankSheet } from "@/lib/bankConnectReturn";
+import { launchMode, buildLinkQuery } from "@/lib/bankConsentLaunch";
+
+const BANK_FAILED = "The bank connection didn’t complete. Try again.";
 
 interface Bank {
   id: string;
@@ -23,15 +29,59 @@ interface BankPickerSheetProps {
    *  production build, so a caller may only pass it behind
    *  LEGACY_BANK_AVAILABLE. */
   provider?: "finexer" | "legacy";
+  /** Mid-flow callers (Onboarding): an ok return from the in-app browser must not
+   *  navigate to Accounts; the caller carries on its own flow. */
+  stayOnReturn?: boolean;
 }
 
-export default function BankPickerSheet({ onClose, onConnecting, provider = "finexer" }: BankPickerSheetProps) {
+export default function BankPickerSheet({ onClose, onConnecting, provider = "finexer", stayOnReturn = false }: BankPickerSheetProps) {
   const [banks, setBanks] = useState<Bank[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [connecting, setConnecting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const closeRef = useRef<(() => void) | null>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  const onConnectingRef = useRef(onConnecting);
+  onConnectingRef.current = onConnecting;
+
+  // A108: while the in-app browser is open the sheet waits for the hand-off
+  // deep link. A return closes the sheet, a failure keeps it open with a
+  // message, and dismissing the browser without a return just clears the spinner.
+  useEffect(() => {
+    const unregister = registerBankSheet({ stayOnReturn });
+    const onLink = (e: Event) => {
+      const d = (e as CustomEvent<DeepLinkDetail>).detail;
+      if (d?.kind !== "bank_connected") return;
+      if (d.status === "error") {
+        setConnecting(null);
+        setError(BANK_FAILED);
+        return;
+      }
+      onConnectingRef.current?.();
+      (closeRef.current ?? onCloseRef.current)();
+    };
+    window.addEventListener(DEEP_LINK_EVENT, onLink);
+    let removeBrowser: (() => void) | null = null;
+    let disposed = false;
+    if (isNativePlatform()) {
+      // A139: destructure and call inline, never return the plugin proxy from an async function.
+      void import("@capacitor/browser").then(({ Browser }) =>
+        Browser.addListener("browserFinished", () => setConnecting(null)),
+      ).then((h) => {
+        if (disposed) void h.remove();
+        else removeBrowser = () => void h.remove();
+      }).catch(() => {});
+    }
+    return () => {
+      disposed = true;
+      unregister();
+      window.removeEventListener(DEEP_LINK_EVENT, onLink);
+      removeBrowser?.();
+    };
+  }, []);
 
   useEffect(() => {
     const fetchProviders = provider === "legacy" ? api.legacyBankProviders() : api.finexerProviders();
@@ -48,18 +98,29 @@ export default function BankPickerSheet({ onClose, onConnecting, provider = "fin
   async function handleSelect(bank: Bank, close: () => void) {
     setConnecting(bank.id);
     setError(null);
+    closeRef.current = close;
+    const rn = (window as unknown as { ReactNativeWebView?: { postMessage(s: string): void } }).ReactNativeWebView;
+    const mode = launchMode(isNativePlatform(), !!rn);
+    const { native } = buildLinkQuery(mode === "browser");
     try {
       const { auth_url } = provider === "legacy"
-        ? await api.legacyBankConnectLink(bank.id)
-        : await api.finexerConnectLink(bank.id);
-      // In the React Native WebView, open OAuth in the native browser so banks
-      // that redirect to their own app (e.g. Starling) work correctly.
-      onConnecting?.();
-      const rn = (window as unknown as { ReactNativeWebView?: { postMessage(s: string): void } }).ReactNativeWebView;
-      if (rn) {
-        rn.postMessage(JSON.stringify({ type: "open_external", url: auth_url }));
+        ? await api.legacyBankConnectLink(bank.id, native)
+        : await api.finexerConnectLink(bank.id, native);
+      if (mode === "browser") {
+        // A108: the in-app browser (Custom Tab / SFSafariViewController), not
+        // full Chrome and not a WebView; the hand-off page returns by deep link.
+        // The sheet stays mounted so its deep-link and browserFinished listeners
+        // live; the connecting callback fires only from the ok return handler above.
+        // A139: destructure and call inline, never return the plugin proxy.
+        const { Browser } = await import("@capacitor/browser");
+        await Browser.open({ url: auth_url });
+      } else if (mode === "rn") {
+        // React Native WebView: external browser so bank apps (e.g. Starling) work.
+        onConnecting?.();
+        rn!.postMessage(JSON.stringify({ type: "open_external", url: auth_url }));
         close();
       } else {
+        onConnecting?.();
         window.location.href = auth_url;
       }
     } catch (err) {
