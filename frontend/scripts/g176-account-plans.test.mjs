@@ -160,5 +160,12 @@ assert.match(hero, /Projected balance/);
   assert.equal((everyEvent.match(/data-flow-focus="event-/g) ?? []).length, gap.events.length, "Without an allow-list every event is a button");
   assert.match(flowSource, /goTo\(\{ kind: "payment", id \}\)/, "Account view pushes a payment view onto the Back stack");
   assert.match(flowSource, /item\.source === event\.source/, "Events map to payments by their source cashflow item");
+  assert.match(flowSource, /navigation\.returnTo\(isAccountView\)/, "A change from an account-opened payment returns straight to the account");
+  assert.match(flowSource, /onDone=\{leavePayment\(navigation, navigation\.back\)\}/, "List-opened edits keep the one-step pop as the fallback");
+  assert.match(flowSource, /request\.run\(payment\.skip, leavePayment\(navigation, navigation\.close\)/, "Skip returns to the account, or closes when opened from the list");
+  assert.match(flowSource, /<ReturnToAccount navigation=\{navigation\} \/>/, "A dismissed payment's absent state steps back to the account");
+  const sheetSource = readFileSync(new URL("../components/UpcomingFlowSheet.tsx", import.meta.url), "utf8");
+  assert.match(sheetSource, /returnTo\(match: \(view: View\) => boolean\): boolean/);
+  assert.match(readFileSync(new URL("../components/UpcomingEditForm.tsx", import.meta.url), "utf8"), /request\.run\(operation, onDone \?\? onCancel/, "UpcomingEditForm defaults to onCancel, so the list path is unchanged");
 }
 console.log("G176 approved account plan semantics passed");

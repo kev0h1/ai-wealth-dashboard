@@ -8,6 +8,8 @@ export interface UpcomingFlowNavigation<View> {
   goTo(view: View): void;
   back(): void;
   close(): void;
+  /** Pops straight to the nearest earlier step matching `match`. Returns false (and does nothing) when no such step is beneath this one. */
+  returnTo(match: (view: View) => boolean): boolean;
 }
 
 export interface UpcomingFlowSheetProps<View> {
@@ -118,6 +120,19 @@ export default function UpcomingFlowSheet<View>({ initialView, onClose, renderVi
     timerRef.current = window.setTimeout(() => { pendingRef.current = false; }, 500);
   }, [close]);
 
+  const returnTo = useCallback((match: (view: View) => boolean) => {
+    const from = depthRef.current;
+    let target = -1;
+    for (let index = from - 1; index >= 0; index -= 1) { if (match(entriesRef.current[index].view)) { target = index; break; } }
+    if (target < 0) return false;
+    if (closingRef.current || pendingRef.current || savingRef.current) return true;
+    if (target === from - 1) { back(); return true; }
+    pendingRef.current = true;
+    history.go(target - from);
+    timerRef.current = window.setTimeout(() => { pendingRef.current = false; }, 500);
+    return true;
+  }, [back]);
+
   const goTo = useCallback((next: View) => {
     if (closingRef.current || pendingRef.current || savingRef.current) return;
     pendingRef.current = true;
@@ -208,7 +223,7 @@ export default function UpcomingFlowSheet<View>({ initialView, onClose, renderVi
   }, [view]);
 
   if (!mounted) return null;
-  const navigation: UpcomingFlowNavigation<View> = { goTo, back, close };
+  const navigation: UpcomingFlowNavigation<View> = { goTo, back, close, returnTo };
   // These event callbacks read refs only when invoked by the user, not here.
   // eslint-disable-next-line react-hooks/refs
   const rendered = renderView(view, navigation);

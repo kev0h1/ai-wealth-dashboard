@@ -10,11 +10,13 @@ export type UpcomingEditItem = { name: string; amount: number; expected_date: st
 export type UpcomingEditServices = Pick<typeof api, "editUpcoming" | "clearUpcomingOverride" | "skipUpcomingOccurrence" | "previewUpcomingRule" | "applyUpcomingRule" | "clearUpcomingRule">;
 export interface UpcomingEditFormProps {
   item: UpcomingEditItem; onCancel(): void; onDismiss(): void;
+  /** Where to go after a successful change; defaults to onCancel (one step back). */
+  onDone?: () => void;
   onSaved(): void | Promise<void>; services?: UpcomingEditServices;
   renderActions?: (actions: ReactNode) => ReactNode;
 }
 
-export function UpcomingEditForm({ item, onCancel, onDismiss, onSaved, services = api, renderActions }: UpcomingEditFormProps) {
+export function UpcomingEditForm({ item, onCancel, onDone, onDismiss, onSaved, services = api, renderActions }: UpcomingEditFormProps) {
   const formId = useId();
   const [date, setDate] = useState(item.expected_date);
   const [amount, setAmount] = useState(item.amount.toFixed(2));
@@ -26,7 +28,7 @@ export function UpcomingEditForm({ item, onCancel, onDismiss, onSaved, services 
   const previewGeneration = useRef(0);
   useEffect(() => () => { previewGeneration.current += 1; }, []);
   const originalDate = item.original_date ?? item.expected_date;
-  async function mutate(operation: () => Promise<unknown>) { await request.run(operation, onCancel, undefined, onSaved); }
+  async function mutate(operation: () => Promise<unknown>) { await request.run(operation, onDone ?? onCancel, undefined, onSaved); }
   function save(event: FormEvent) {
     event.preventDefault();
     if (request.needsRefresh) { void request.retryRefresh(); return; }
