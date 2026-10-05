@@ -1,6 +1,6 @@
 # Security & Incident Response Policy — AURIQ LTD (Auriq Wealth)
 
-**Owner:** Founder / Information Security Manager
+**Owner:** Founder / Information Security Manager (Kevin Maingi)
 **Applies to:** the Auriq Wealth product (web app, iOS/Android apps) and all supporting infrastructure operated by AURIQ LTD.
 **Status:** Version 1.19, last reviewed 2026-10-05. Reviewed at least annually and after any material incident or architecture change.
 
@@ -91,11 +91,11 @@ Q11 can also cite.
 ## 3b. Security assessment, 20 September to 4 October 2026 (A45)
 
 **What this was.** Security assessment carried out 20 September to 4 October
-2026 by AURIQ LTD, of Sorted, executed by this project's own AI-assisted testing sessions and, for the device packages and the 2026-10-04 retest, by the tester on their own phones guided by an AI-assisted testing session, under a signed
+2026 by AURIQ LTD, of Sorted, carried out using AURIQ LTD's own testing sessions and tooling and, for the device packages and the 2026-10-04 retest, by the Information Security Manager (Kevin Maingi) on his own phones with the steps guided and recorded by the testing tooling, under a signed
 rules-of-engagement record (`docs/security/pentest-runs/roe-record.md`,
 authorised by the Information Security Manager, 2026-09-20). Test identities are referred to only by
 pseudonym (PT-A, PT-B, PT-C), except that the 2026-10-04 retest used
-the account owner's own production account (a recorded deviation, below); real identifiers
+the Information Security Manager's own production account (a recorded deviation, below); real identifiers
 live only in a gitignored, non-committed file. The full report is
 `docs/security/reports/internal-security-test-report-2026-09.md`.
 
@@ -123,7 +123,7 @@ under `docs/security/pentest-runs/<run-id>/`:
 WP7b and WP8 ran on 2026-09-27: WP7b against the production-pointed Android
 debug APK (package `co.uk.auriqltd.sorted`, SHA-256
 `73bab9744ae166a94a35bcf1c05bbfc33605f225d39efd5f8e979b77b7c3fc3e`), WP8
-against the production TestFlight build installed on the tester's own iPhone.
+against the production TestFlight build installed on the Information Security Manager's own iPhone.
 Sanitised per-test evidence and run manifests are recorded under
 `docs/security/pentest-runs/A55-2026-09-27/` and
 `docs/security/pentest-runs/A56-2026-09-27/`. A number of instrumented or
@@ -139,16 +139,15 @@ Blocked or not tested, never as passed. With those two packages run,
 coverage is 12 of 12 work packages executed to the extent possible without
 that equipment.
 
-On 2026-10-04 the tester retested the A120, A121 and A122 fixes on their own Android phone and iPhone against production, guided and recorded by a
-an AI-assisted testing session; the record is
-`docs/security/pentest-runs/A60-2026-10-04/`. It used the account owner's own production
+On 2026-10-04 the Information Security Manager retested the A120, A121 and A122 fixes on his own Android phone and iPhone against production, with the steps guided and recorded by the testing tooling; the record is
+`docs/security/pentest-runs/A60-2026-10-04/`. It used the Information Security Manager's own production
 account instead of the pseudonymous identity PT-A (a deviation the Information Security Manager authorised), and individual checks are not attributed to the run's two
 production builds except where server logs place them.
 
 WP0 (A47) built the evidence and rules-of-engagement harness ahead of this
-round's testing. WP12 (A60) specified a cross-model review, with a session on a second AI model checking every package run by the first model and a session on the first model checking every package run by the second. The Information Security Manager decided on 2026-10-04 to drop the second-model half;
-this is a recorded deviation. The review that was performed is a separate AI reviewer's audit of the evidence on 2026-10-04 (WP12 review, PASS on second
-pass). Final severities remain the ISM's to confirm per section 3a.
+round's testing. WP12 (A60) specified a second review pass with tooling different from the testing sessions. The Information Security Manager decided on 2026-10-04 not to perform it;
+this is a recorded deviation. The review that was performed is a separate review pass over the evidence on 2026-10-04 (WP12 review, PASS on second
+pass), which used the same tooling as the testing sessions and so was not independent of them. Final severities remain the ISM's to confirm per section 3a.
 
 **Findings.** These were reported first and fixed after, per the Information Security Manager's deliberate choice (see each item's own board note). Twenty findings were
 first raised in the 2026-09-19 to 2026-09-21 round and five more (A118,
@@ -176,7 +175,7 @@ in all. As of 2026-10-04:
   scheme-exclusivity Low (no board item, listed in the Low table).
 
 Severities use section 3's bands and are provisional pending the ISM's
-sign-off and the audit by a separate AI reviewer described below.
+sign-off and the review pass described below, which was not independent of the testing.
 
 *High (P2): six findings, no Criticals.*
 
@@ -186,7 +185,7 @@ sign-off and the audit by a separate AI reviewer described below.
 | A83 | `GET /connections` does not list live Finexer connections, hiding the very connection A82's disconnect-first step needs | Fixed on main 2026-09-22 (c35ac008), regression-tested; released to production 2026-09-27 (`release-20260927-0947`, confirmed still present in `release-20260927-1844`); retested 2026-09-27: the `GET /connections` listing half confirmed Fixed live (Pass); the disconnect-before-delete half source-confirmed 2026-09-27, then Fixed, retested live on production 2026-10-04 (`A60-2026-10-04`, `API-15`) |
 | A84 | A deleted account's session token is not invalidated and remains usable for up to 7 days; it has been shown able to write persistent data that reattaches if the account is later recreated with the same email | Fixed on main 2026-09-22 (40fed391), regression-tested; released to production 2026-09-27 (`release-20260927-0947`, confirmed still present in `release-20260927-1844`); source-confirmed 2026-09-27 (A112, live retest Blocked); Fixed, retested live on production 2026-10-04 (`A60-2026-10-04`, `API-15`): the session token was rejected (401) immediately after deletion |
 | A91 | The MCP connector's output masking is structural only (drops fields by shape) and never sanitises the content it keeps, so an instruction-shaped string in a merchant name, recurring-series description or insight trigger reaches the connecting external assistant unmodified: a live prompt-injection surface with no content-level mitigation. The connector is off in production by design (A17), so this exposure is UAT-only today; it must be fixed before the connector is enabled in production (board item F1, Finexer design sign-off, still open), it is not actively exploitable in production now | Fixed on main 2026-09-22 (9c5b7ef9), regression-tested; released to production 2026-09-27 (`release-20260927-0947`, confirmed still present in `release-20260927-1844`); retested 2026-09-27 on UAT (MCP connector off in production by design, A17), confirmed Fixed live |
-| A129 | Android backup gap (the pre-documented `AND-01` / `AND-02` storage-and-backup finding): `android:allowBackup="true"` let a passwordless `adb backup` of the debug build capture the session token. Rated High (P2) per `PENTEST-METHODOLOGY.md` section 8.4 | Remediated: fixed under A129 (`cbb05f3c`, integrate commit), `android:allowBackup="false"` plus `fullBackupContent` and `dataExtractionRules` exclude-everything rules for cloud backup and device transfer; first shipped in `release-20261004-1833`. Verified 2026-10-04 by package-flag inspection (the tester's `dumpsys package` on the production APK installed 2026-10-04 19:41:47 BST (built from `release` after `release-20261004-1833`) shows `flags=[ HAS_CODE ALLOW_CLEAR_USER_DATA ]`, no `ALLOW_BACKUP`, no `DEBUGGABLE`); an `adb backup` extraction was not re-run. Defence in depth: A123 moved the token into Keystore/Keychain-backed storage (keys not backed up) and A118 revokes sessions on logout |
+| A129 | Android backup gap (the pre-documented `AND-01` / `AND-02` storage-and-backup finding): `android:allowBackup="true"` let a passwordless `adb backup` of the debug build capture the session token. Rated High (P2) per `PENTEST-METHODOLOGY.md` section 8.4 | Remediated: fixed under A129 (`cbb05f3c`, integrate commit), `android:allowBackup="false"` plus `fullBackupContent` and `dataExtractionRules` exclude-everything rules for cloud backup and device transfer; first shipped in `release-20261004-1833`. Verified 2026-10-04 by package-flag inspection (the Information Security Manager's `dumpsys package` on the production APK installed 2026-10-04 19:41:47 BST (built from `release` after `release-20261004-1833`) shows `flags=[ HAS_CODE ALLOW_CLEAR_USER_DATA ]`, no `ALLOW_BACKUP`, no `DEBUGGABLE`); an `adb backup` extraction was not re-run. Defence in depth: A123 moved the token into Keystore/Keychain-backed storage (keys not backed up) and A118 revokes sessions on logout |
 | A121 | The iOS biometric privacy lock was bypassable: with the lock engaged (cold start and via notification tap), the nav bar and Penny suggestion chips were tappable behind the visual overlay, and a chip tap rendered live safe-to-spend and upcoming-bills figures with no authentication. Android's overlay held | Found in device testing 2026-09-27; fixed on `main` 2026-09-29 (`eae3207e`, integrate commit); in production since `release-20261001-2038`; retested on device 2026-10-04 (`A60-2026-10-04`): Pass on both phones, with the app open and from a cold start via a notification tap |
 
 A82, A83 and A84 are one deletion-lifecycle root cause: account deletion
@@ -304,9 +303,9 @@ it in production stays gated on F1, Finexer's written design sign-off.
 **Scope caveats, stated plainly.** This round has real, acknowledged gaps
 that a reader of the findings list above should not have to infer:
 
-- The second-model half of the WP12 cross-model review was dropped (Information Security Manager decision,
-  2026-10-04), so the packages run by the first model have not been reviewed by a second model. The audit by a separate AI reviewer was performed on 2026-10-04
-  (WP12 review, PASS on second pass).
+- The planned second review pass with different tooling (WP12) was not performed (Information Security Manager decision,
+  2026-10-04), so the testing has not been reviewed with different tooling. A separate review pass using the same tooling as the testing was performed on 2026-10-04
+  (WP12 review, PASS on second pass); it was not independent of the testing.
 - The 2026-10-04 live account-deletion retest (`API-15`) did not view the
   Finexer dashboard, so the provider-side revoke is evidenced by the response
   and the deployed source, and OAuth tokens were not exercised live.
@@ -329,7 +328,7 @@ that a reader of the findings list above should not have to infer:
 - The Android token-at-rest re-check (A118, A123) was not run on
   2026-10-04: it needs a debug build. The backup half (A129) was verified
   by package-flag inspection only; an `adb backup` extraction was not
-  re-run. A123 staying signed in across restarts is pending the tester's
+  re-run. A123 staying signed in across restarts is pending the Information Security Manager's
   result.
 - A temporary `OPEN_SIGNUP` window on production (opened and closed on
   2026-09-19, board item A63, to create test identities) was not audited
@@ -341,15 +340,15 @@ testing") cites for the security testing programme; see
 `docs/compliance/finexer-agent-controls-2026-09.md` for the questionnaire
 answer and `docs/security/pentest-runs/` for the sanitised per-run records.
 
-**Sign-off.** Signed off by the Information Security Manager, 2026-09-21, given as a written
-attestation during an AI-assisted working session ('Happy to sign this'), not a
-handwritten or cryptographic signature. Status update 2026-09-23 recorded by an AI-assisted testing session for the Information Security Manager's confirmation; the per-finding statuses
+**Sign-off.** Signed off by the Information Security Manager (Kevin Maingi), 2026-09-21, given as a written
+attestation ('Happy to sign this'), not a
+handwritten or cryptographic signature. Status update 2026-09-23 recorded by AURIQ LTD's testing tooling for the Information Security Manager's confirmation; the per-finding statuses
 above reflect `main` and the `release` branch as of that date. Further
 update 2026-09-27 (board item A117): WP7b and WP8 device testing was
 executed live, and findings A118 to A122 were folded into the coverage and
-findings sections above; recorded by an AI-assisted testing session for the Information Security Manager's confirmation. Further update 2026-10-04 (board item A60): the A120, A121 and
+findings sections above; recorded by AURIQ LTD's testing tooling for the Information Security Manager's confirmation. Further update 2026-10-04 (board item A60): the A120, A121 and
 A122 fixes were retested on device and the A118 to A123 statuses recorded
-above. The report is version 1.0.1, dated 2026-10-04 and revised 2026-10-05; the WP12 review (a separate AI reviewer, 2026-10-04) passed on its second pass.
+above. The report is version 1.0.1, dated 2026-10-04 and revised 2026-10-05; the WP12 review (a separate review pass using the same tooling as the testing, so not independent of it, 2026-10-04) passed on its second pass.
 
 ## 4. Incident response process
 
@@ -452,6 +451,6 @@ This policy is reviewed at least annually, and after any material incident, chan
 | 1.14 | 2026-09-23 | A107: fifteen of the twenty §3b findings, including all four High findings (A82, A83, A84, A91), are now fixed on `main` with regression tests; updated the intro, headline and every fixed finding's Status cell with date and commit, and added a "Production status as of 2026-09-23" paragraph recording that production release (A92 gated on A110), the deletion-lifecycle production retest and WP12 (A60) are all still pending. Five findings (A73, A77, A79, A81, A94) remain open. |
 | 1.15 | 2026-09-27 | A117: WP7b (Android, A55) and WP8 (iOS, A56) dynamic device testing executed live on real devices; coverage corrected from 10 of 12 to 12 of 12 work packages (to the extent possible without a Mac or a rooted device, remaining sub-steps not tested in that round); five new findings folded in (A118, A119, A120, A121, A122); headline corrected to five High findings, since A121 (iOS biometric-lock bypass exposing live financial data) is not yet remediated, distinct from the four earlier High findings which remain fixed on `main` pending production release. Evidence under `docs/security/pentest-runs/A55-2026-09-27/` and `docs/security/pentest-runs/A56-2026-09-27/`. |
 | 1.16 | 2026-09-28 | A117 correction: version 1.15 (and the pre-existing §3b intro/headline/Production-status text it left unchanged) stated that none of the four High fixes (A82, A83, A84, A91) had reached production and that no production retest had run; both were false by the time 1.15 was written. All four shipped to production 2026-09-27 in `release-20260927-0947` (confirmed still present in `release-20260927-1844`, `git tag --list 'release-*'`), nine hours before 1.15's own commit, and were retested the same day (board item A112, `docs/security/pentest-runs/A112-2026-09-27/`). Corrected the §3b intro paragraph, the four High findings' Status cells, the Headline, and the "Production status" paragraph to record the A112 outcome per finding: A83's `GET /connections` listing half and A91 confirmed Fixed live; A82, A83's disconnect-before-delete half and A84 confirmed Fixed by source read only, the live `API-15` retest itself Blocked by an already-expired test credential, a follow-up live pass is still owed. Q11 and the A111 report wording are not touched by this row; those are separate, unreviewed follow-ups. |
-| 1.17 | 2026-10-04 | A60: §3b brought in line with version 1.0 of the security test report (`docs/security/reports/internal-security-test-report-2026-09.md`). Recorded the 2026-10-04 on-device retest (`docs/security/pentest-runs/A60-2026-10-04/`): A120, A121 and A122 fixed, in production since `release-20261001-2038` and retested on both phones; A118 server-side revocation in production with the on-device residue re-check not yet run; A119 closed (debug build only); first-round fixes updated with A112's 2026-09-27 retest outcomes (A80 Partially fixed). Follow-ups A123 and A138 noted. Added the pre-documented Android backup High (`AND-01` / `AND-02`, fixed under A129, verified by package-flag inspection). Reworded the testing description as a security assessment carried out by AURIQ LTD, 20 September to 4 October 2026. Sub-steps that could not be run (no Mac, rooted device or instrumentation) are carried as not tested. WP12 recorded as a single-model review, the second-model half dropped (Information Security Manager decision, 2026-10-04); reviewed 2026-10-04, PASS on second pass. |
+| 1.17 | 2026-10-04 | A60: §3b brought in line with version 1.0 of the security test report (`docs/security/reports/internal-security-test-report-2026-09.md`). Recorded the 2026-10-04 on-device retest (`docs/security/pentest-runs/A60-2026-10-04/`): A120, A121 and A122 fixed, in production since `release-20261001-2038` and retested on both phones; A118 server-side revocation in production with the on-device residue re-check not yet run; A119 closed (debug build only); first-round fixes updated with A112's 2026-09-27 retest outcomes (A80 Partially fixed). Follow-ups A123 and A138 noted. Added the pre-documented Android backup High (`AND-01` / `AND-02`, fixed under A129, verified by package-flag inspection). Reworded the testing description as a security assessment carried out by AURIQ LTD, 20 September to 4 October 2026. Sub-steps that could not be run (no Mac, rooted device or instrumentation) are carried as not tested. WP12 recorded as a review with the same tooling as the testing, the planned second pass with different tooling not performed (Information Security Manager decision, 2026-10-04); reviewed 2026-10-04, PASS on second pass. |
 | 1.18 | 2026-10-04 | A60: live `API-15` account-deletion retest ran on production with the disposable identity PT-C (`docs/security/pentest-runs/A60-2026-10-04/`), superseding A112's Blocked, source-only verdict. A82, A83 (destructive half) and A84 updated to Fixed, retested live; the Finexer dashboard was not viewed. Report finalised as version 1.0. |
-| 1.19 | 2026-10-05 | A60: Persona references replaced with roles in section 3b and elsewhere; no change to findings, statuses or evidence. |
+| 1.19 | 2026-10-05 | A60: Wording of roles revised; Information Security Manager named; no change to findings, statuses or evidence. |

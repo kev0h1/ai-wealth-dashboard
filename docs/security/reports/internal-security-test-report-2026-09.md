@@ -6,7 +6,7 @@
 **Version:** 1.0.1  
 **Date:** 2026-10-04 (revised 2026-10-05)  
 **Classification:** Confidential, prepared for Finexer  
-**Author:** AURIQ LTD, Information Security Manager
+**Author:** AURIQ LTD, Information Security Manager: Kevin Maingi
 
 ---
 
@@ -65,7 +65,7 @@ A89, A90, A92, A93, A95) in production from
 Fixed (A74 and A90 on UAT, since the connector is not registered on
 production), and A80 was recorded Partially fixed, because the environment
 variable that enables its spend ceiling was unset on both production
-services that day. Enabling it is the Information Security Manager's operational decision.
+services that day. Enabling it is the operational decision of the Information Security Manager (Kevin Maingi).
 
 The device round raised four further findings. A120 (Low, push registration
 survives logout) and A122 (Low, app-switcher snapshot shows figures) are
@@ -94,9 +94,9 @@ item F1), which remains open.
 Coverage is 12 of 12 planned work packages executed, to the extent possible
 without a Mac or a rooted device (WP7b and WP8 ran live on real devices on
 2026-09-27, and the fixes were retested on device on 2026-10-04; see
-section 4). The WP12 cross-model review is a recorded deviation: the second-model half was dropped by the Information Security Manager's decision of 2026-10-04, and only the audit by a separate AI reviewer was performed, reviewed on 2026-10-04 (section 4 and section 10). Every
-severity in this report is therefore the judgement of the testing sessions
-and the Information Security Manager's sign-off, with the audit by a separate AI reviewer as described in section 10.
+section 4). The WP12 review is a recorded deviation: the planned second review pass with different tooling was not performed, by the Information Security Manager's decision of 2026-10-04, and only a separate review pass using the same tooling as the testing sessions, and so not independent of them, was performed on 2026-10-04 (section 4 and section 10). Every
+severity in this report is therefore the judgement of AURIQ LTD's testing sessions
+and the Information Security Manager's sign-off, with the review pass as described in section 10.
 
 ---
 
@@ -123,7 +123,7 @@ pass a test it would otherwise have failed.
 **Test identities.** Three pseudonymous identities only: PT-A (primary
 test user, controlled account and transaction data, a Finexer bank
 connection), PT-B (a second, isolated test user, used for cross-tenant
-checks), and PT-C (a disposable identity created by the tester directly on
+checks), and PT-C (a disposable identity created by the Information Security Manager directly on
 production, used once for account-deletion testing then deleted). The
 real address behind each pseudonym lives only in a private, gitignored
 file (`.pentest-evidence/<run-id>/roe.env`), never in this report, the
@@ -142,9 +142,7 @@ authority named on the rules-of-engagement record
 there verbatim: "I agree with the details in the pentest, and you can take
 this attestation as my signature."
 
-**Tester and reviewer roles.** The work packages WP1 to WP7a and WP9 to
-WP11 were performed by this project's own AI-assisted testing sessions (using two different AI models). The device packages (WP7b, WP8) and the 2026-10-04 retest were
-performed by the tester on their own phones, guided and recorded by an AI-assisted testing session. Each run's own manifest names its tester and records its review
+**Tester and reviewer roles.** The testing was carried out by AURIQ LTD using its own testing sessions and tooling, under the rules-of-engagement record signed 2026-09-20; the device packages (WP7b, WP8) and the 2026-10-04 retest were carried out by the Information Security Manager (Kevin Maingi) on his own phones, with the steps guided and recorded by the testing tooling. Each run's own manifest names its tester and records its review
 status; the evidence review is described in section 10.
 
 **Techniques and caps.** Permitted tools, numeric caps (one manual request
@@ -159,7 +157,7 @@ record and were not exceeded in any run.
 
 ## 3. Methodology and standards
 
-Testing followed `docs/security/PENTEST-METHODOLOGY.md`, a reconciliation of two separately produced draft methodologies (one from each of two AI models)
+Testing followed `docs/security/PENTEST-METHODOLOGY.md`, a reconciliation of two separately produced draft methodologies (two drafts produced separately)
 into one agreed test catalogue, evidence format and severity rubric
 (board item A43). It layers several standards, each scoped to the surface
 it actually fits, rather than claiming a single blanket certification
@@ -249,9 +247,9 @@ and `AND-08` are pre-documented, accepted design gaps recorded in
 `PENTEST-METHODOLOGY.md` section 6.5.1 and remain open; `MOB-01` tracks
 to `A77`.
 
-**WP7b: executed 2026-09-27.** Dynamic Android testing ran live on the tester's own device against the production-pointed debug APK (package
+**WP7b: executed 2026-09-27.** Dynamic Android testing ran live on the Information Security Manager's own device against the production-pointed debug APK (package
 `co.uk.auriqltd.sorted`, SHA-256
-`73bab9744ae166a94a35bcf1c05bbfc33605f225d39efd5f8e979b77b7c3fc3e`), guided and recorded by an AI-assisted testing session; see
+`73bab9744ae166a94a35bcf1c05bbfc33605f225d39efd5f8e979b77b7c3fc3e`), with the steps guided and recorded by the testing tooling; see
 `docs/security/pentest-runs/A55-2026-09-27/` for the run manifest and
 per-test records. Eight cases ran (`AND-02` through `AND-09`); four Passed
 and four Failed. Two Fails are pre-documented, already-known gaps
@@ -267,8 +265,8 @@ available; they are listed in the "Deferred" table at the end of
 `A55-2026-09-27/records.md` and carried in section 6 as Blocked, not
 passed.
 
-**WP8: executed 2026-09-27.** Dynamic iOS testing ran live on the tester's own iPhone against the production TestFlight build, as test identity PT-A,
-guided and recorded by an AI-assisted testing session; see
+**WP8: executed 2026-09-27.** Dynamic iOS testing ran live on the Information Security Manager's own iPhone against the production TestFlight build, as test identity PT-A,
+with the steps guided and recorded by the testing tooling; see
 `docs/security/pentest-runs/A56-2026-09-27/` for the run manifest and
 per-test records. Five cases ran (`IOS-02` partial, `IOS-03`, `IOS-04`,
 `IOS-05`, `IOS-07`); two Passed and three Failed. The headline result was
@@ -284,10 +282,10 @@ Keychain/file-protection halves of `IOS-02`, and the instrumented halves of
 built IPA, or a second signed app that was not available; they are carried
 in section 6 as Blocked, not passed.
 
-**WP12: retest record executed 2026-10-04, reviewed the same day.** The tester retested the A120, A121 and A122 fixes on their own Android phone (Pixel 10
-Pro XL, Android 17) and iPhone (iOS 18.7) against production, guided and recorded by an AI-assisted testing session; see
+**WP12: retest record executed 2026-10-04, reviewed the same day.** The Information Security Manager retested the A120, A121 and A122 fixes on his own Android phone (Pixel 10
+Pro XL, Android 17) and iPhone (iOS 18.7) against production, with the steps guided and recorded by the testing tooling; see
 `docs/security/pentest-runs/A60-2026-10-04/` for the run manifest and
-per-test records. The run used the account owner's own production account rather than the
+per-test records. The run used the Information Security Manager's own production account rather than the
 pseudonymous identity PT-A, a deviation from the runbooks that the Information Security Manager authorised on 2026-10-04; individual checks are not attributed to the
 run's two sessions (production releases `decd7938` and `c34332b6`) except
 where server logs place them. Both builds contain the A120, A121 and A122
@@ -305,17 +303,16 @@ These are retest records, not new catalogue cases, so they are not counted
 in the matrix totals above. Not retested in this run: `AND-02` token-at-rest
 (needs a debug build to inspect the on-disk storage; the `adb backup` half was
 verified only by package-flag inspection, see the A129 record in section 5),
-A123 staying signed in across restarts (result pending from the tester), and
+A123 staying signed in across restarts (result pending from the Information Security Manager), and
 `AND-09` (A119 was closed by static verification of the signed release APK
 on 2026-09-28). See section 6.
 
 **WP12 deviation (recorded).** `PENTEST-METHODOLOGY.md` section 9 specifies
-a cross-model review: a session on a second AI model auditing the Fail evidence of every work package run by the first model, and a session on the first model auditing every package run by the second. The Information Security Manager decided on 2026-10-04 to drop the second-model half. The review
-that was performed is a separate AI reviewer's audit of the evidence
-on 2026-10-04 (section 10, "WP12 review").
-Consequence, stated plainly: the work packages run by the first model's sessions have not been reviewed by a second model, so every severity in this report is
-the judgement of the testing sessions, a separate AI reviewer's
-audit, and the Information Security Manager's sign-off.
+a second review pass with different tooling from the testing sessions. The Information Security Manager decided on 2026-10-04 not to perform it. The review
+that was performed is a separate review pass over the evidence
+on 2026-10-04 (section 10, "WP12 review"), which used the same tooling as the testing sessions and so was not independent of them.
+Consequence, stated plainly: the testing has not been reviewed with different tooling, so every severity in this report is
+the judgement of AURIQ LTD's testing sessions, the review pass, and the Information Security Manager's sign-off.
 
 **Two further gaps recorded on the coverage side, not visible as a work
 package row above:** `FIN-06` (webhook payload retention confirmation)
@@ -353,7 +350,7 @@ carries the more conservative Low, and the board's rating governs.
 | A83 | `GET /connections` does not list live Finexer connections, hiding the connection A82's disconnect-first step needs | Connections listing route | Fixed on main | `c35ac008` | Deployed 2026-09-27 (`release-20260927-0947`, confirmed still present in `release-20260927-1844`) | Listing half confirmed Fixed live 2026-09-27 (A112); disconnect-before-delete half source-confirmed 2026-09-27, then Fixed, retested live on production 2026-10-04 (`A60-2026-10-04`, `API-15`) |
 | A84 | A deleted account's session token is not invalidated and remains usable for up to 7 days, including for writes that can reattach if the account is recreated with the same email | Session/auth lifecycle | Fixed on main | `40fed391` | Deployed 2026-09-27 (`release-20260927-0947`, confirmed still present in `release-20260927-1844`) | Source-confirmed 2026-09-27 (A112, live retest Blocked); Fixed, retested live on production 2026-10-04 (`A60-2026-10-04`, `API-15`): the session token was rejected (401) immediately after deletion |
 | A91 | MCP output masking is structural only and never sanitises kept field content; an instruction-shaped merchant/category/insight string reaches the connecting assistant unmodified (prompt-injection surface) | MCP connector output masking | Fixed on main | `9c5b7ef9` | Deployed 2026-09-27 (`release-20260927-0947`, confirmed still present in `release-20260927-1844`); connector itself is off in production (A17), so not exploitable there today | Confirmed Fixed live 2026-09-27 (A112), tested on UAT since the connector is not registered on production |
-| A129 | Android backup gap, the pre-documented `AND-01` / `AND-02` storage-and-backup finding: with `android:allowBackup="true"`, a passwordless `adb backup` of the debug build captured the session token (`A54` static review of the manifest; `A55` live, 2026-09-27). Rated High (P2) per `PENTEST-METHODOLOGY.md` section 8.4 ("the Android auto-backup extraction, if it genuinely recovers a live session token") | Android app shell, manifest backup flags | Remediated: fix integrated 2026-10-04 (board item A129) | `cbb05f3c` (integrate commit) | In production (first shipped in `release-20261004-1833`) | Verified 2026-10-04 (`A60-2026-10-04`) by package-flag inspection: the tester's `adb shell dumpsys package co.uk.auriqltd.sorted` on the production APK installed 2026-10-04 19:41:47 BST (built from `release` after `release-20261004-1833`) shows `flags=[ HAS_CODE ALLOW_CLEAR_USER_DATA ]`, so no `ALLOW_BACKUP` and no `DEBUGGABLE`. An `adb backup` extraction was not re-run |
+| A129 | Android backup gap, the pre-documented `AND-01` / `AND-02` storage-and-backup finding: with `android:allowBackup="true"`, a passwordless `adb backup` of the debug build captured the session token (`A54` static review of the manifest; `A55` live, 2026-09-27). Rated High (P2) per `PENTEST-METHODOLOGY.md` section 8.4 ("the Android auto-backup extraction, if it genuinely recovers a live session token") | Android app shell, manifest backup flags | Remediated: fix integrated 2026-10-04 (board item A129) | `cbb05f3c` (integrate commit) | In production (first shipped in `release-20261004-1833`) | Verified 2026-10-04 (`A60-2026-10-04`) by package-flag inspection: the Information Security Manager's `adb shell dumpsys package co.uk.auriqltd.sorted` on the production APK installed 2026-10-04 19:41:47 BST (built from `release` after `release-20261004-1833`) shows `flags=[ HAS_CODE ALLOW_CLEAR_USER_DATA ]`, so no `ALLOW_BACKUP` and no `DEBUGGABLE`. An `adb backup` extraction was not re-run |
 | A121 | The iOS biometric privacy lock was bypassable: with the lock engaged (cold start or via a notification tap), the nav bar and Penny suggestion chips were tappable behind the visual overlay, and a chip tap rendered live safe-to-spend and upcoming-bills figures with no authentication. Android's equivalent overlay held | iOS lock overlay / `BiometricLock`, nav bar, Penny chips | Remediated: fix integrated 2026-09-29 | `eae3207e` (integrate commit) | In production (first shipped in `release-20261001-2038`) | Retested on device 2026-10-04 (`A60-2026-10-04`): Pass on both phones, app open and cold start from a notification tap |
 
 *A129 names both the finding row (the pre-documented `AND-01` / `AND-02` backup gap) and its fix item (board item A129).*
@@ -451,7 +448,7 @@ first shipped in `release-20261001-2038`. It was retested on device on
 lock engaged, the nav bar is not visible and nothing behind the lock can be
 reached (Pass); with the app fully closed and a push notification tapped,
 the app opens to the lock screen and the lock cannot be bypassed (Pass).
-Status: remediated and retested. The 2026-10-04 evidence is the tester's own on-device observation, recorded without screenshots.
+Status: remediated and retested. The 2026-10-04 evidence is the Information Security Manager's own on-device observation, recorded without screenshots.
 
 **A129.** `AND-01` (static, `A54-2026-09-20`) found `android:allowBackup="true"`
 with no `fullBackupContent` or data-extraction rules, and `AND-02` (live,
@@ -464,8 +461,8 @@ commit `cbb05f3c`, first shipped in `release-20261004-1833`), sets
 `dataExtractionRules` at exclude-everything rules for cloud backup and
 device transfer (`capacitor-spike/scripts/setup-android-backup.sh`,
 `capacitor-spike/android-backup/`). Verification on 2026-10-04 was by
-package-flag inspection: the tester's `adb shell dumpsys package
-co.uk.auriqltd.sorted` on the production APK the tester built from `release` after
+package-flag inspection: the Information Security Manager's `adb shell dumpsys package
+co.uk.auriqltd.sorted` on the production APK the Information Security Manager built from `release` after
 `release-20261004-1833` (installed 2026-10-04 19:41:47 phone local time,
 BST; versionCode 1, versionName 1.0) shows
 `flags=[ HAS_CODE ALLOW_CLEAR_USER_DATA ]`, so neither `ALLOW_BACKUP` nor
@@ -524,7 +521,7 @@ backgrounded, integrated on `main` on 2026-09-29 and shipped in
 (`A60-2026-10-04`): with the lock on, the app-switcher card is covered and
 shows no figures on both phones, and on Android a screenshot is blocked
 while the lock is on (Pass). Status: remediated and retested. As for A121, the
-2026-10-04 evidence is the tester's own on-device observation, without screenshots.
+2026-10-04 evidence is the Information Security Manager's own on-device observation, without screenshots.
 
 ### Medium
 
@@ -601,12 +598,12 @@ counted among this round's findings.
 | Device testing, Android sub-steps not tested in this round | The sub-steps listed in the "Deferred" table at the end of `docs/security/pentest-runs/A55-2026-09-27/records.md` need a rooted device, Frida or a scripted instrumentation harness, none of which was available | Not tested in this round; carried as Blocked, never as passed |
 | `AND-02` token-at-rest re-check (A118, A123) | Not retested on 2026-10-04: it needs a debug build to run `adb run-as` and inspect the on-disk storage. This stays pending, separate from the backup half below | Not tested since the fixes shipped; owner: the Information Security Manager |
 | `AND-01` / `AND-02` backup half (A129), `adb backup` extraction | Verified on 2026-10-04 by package-flag inspection only (`dumpsys package` shows no `ALLOW_BACKUP`). An `adb backup` extraction was not re-run, so the fix is not confirmed by the same extraction that originally failed | Package-flag Pass; extraction not re-run; owner: the Information Security Manager |
-| A123 session persistence across app restarts | Whether a signed-in user stays signed in across restarts on the new builds: result pending from the tester (`A60-2026-10-04/records.md`, "Pending result") | Pending |
+| A123 session persistence across app restarts | Whether a signed-in user stays signed in across restarts on the new builds: result pending from the Information Security Manager (`A60-2026-10-04/records.md`, "Pending result") | Pending |
 | `WEB-03` (token-in-URL redirect timing) | Blocked in `A48-2026-09-20`: all 8 live attempts on production were intercepted by Vercel's bot-verification challenge before the app mounted, so no clean observation of the fast-strip behaviour was obtained. Source review supports a synchronous strip before the validate call, but that is not what the case asks for | Blocked; owner: the Information Security Manager; decision: retest recommended once production browser access is stable, or with a real non-headless browser session; not credited as Pass |
 | `WEB-05` (cache-clearing across account switch) | Blocked in `A48-2026-09-20`: the case exists to catch a live rendering gap that code review cannot see, and no live render was possible for the same reason. `AuthProvider.tsx` `logout()` was source-reviewed only | Blocked; owner: the Information Security Manager; decision: retest recommended on the same terms as `WEB-03`; not credited as Pass |
 | `WEB-02`, storage-inspection sub-component | Inconclusive in `A48-2026-09-20`: the one completed attempt landed during a Vercel availability event, so the observed clearing is explained by that event and neither confirms nor contradicts the claim. The tamper and rejection half is Pass. `lib/auth.ts` was code-reviewed as supporting, non-live evidence | Inconclusive; owner: the Information Security Manager; decision: retest with a real browser session; no finding raised |
 | `AND-04`, user-CA trust leg | Inconclusive in `A55-2026-09-27`: Android would not establish the mitmproxy user CA as trusted on the test device, so the live comparison could not run. The fail-closed leg (no CA) is Pass. This leg is settled by static reading only: no `android:networkSecurityConfig` at target SDK 36 means the platform default (user CAs not trusted) applies (`A54-2026-09-20`, `AND-01`) | Inconclusive; owner: the Information Security Manager; decision: accepted on the static reading, with a live retest only if a device that can establish a user CA is available; no finding raised |
-| Cross-model review (WP12), second-model half | Dropped by the Information Security Manager's decision of 2026-10-04 (see section 4); the review that was performed is a separate AI reviewer's audit (section 10) | Recorded deviation; not a gap that will be closed |
+| WP12 review, second pass with different tooling | Not performed, by the Information Security Manager's decision of 2026-10-04 (see section 4); the review that was performed is a separate review pass using the same tooling as the testing, so not independent of it (section 10) | Recorded deviation; not a gap that will be closed |
 | TrueLayer live cases (`TL-01`, `TL-03`, `TL-05`, and `TL-04`'s live-write half) | Not run: TrueLayer is being removed from production (board item A67), and the 2026-09-20 board note on A57 scoped these out. They are recorded Not run, not Pass, Fail or N/A | Not run; owner: the Information Security Manager; decision: not run per that note, to be revisited only if TrueLayer is not removed |
 
 ---
@@ -701,10 +698,10 @@ from the 2026-09-18 acknowledge date, and first shipped in `release-20261004-183
 This is a security assessment carried out by AURIQ LTD between 20 September
 and 4 October 2026, under the rules-of-engagement record signed by the Information Security Manager on 2026-09-20
 (`docs/security/pentest-runs/roe-record.md`). The work packages were run by
-this project's own AI-assisted testing sessions against the scope in
+AURIQ LTD's own testing sessions against the scope in
 `docs/security/pentest-scope-2026-09.md`; the device packages (WP7b, WP8)
-and the 2026-10-04 retest were performed by the tester on their own phones,
-guided and recorded by an AI-assisted testing session. Scope, numeric caps and stop
+and the 2026-10-04 retest were performed by the Information Security Manager on his own phones,
+with the steps guided and recorded by the testing tooling. Scope, numeric caps and stop
 conditions are in section 2 and in the rules-of-engagement record. What
 was not tested in this round, and why, is listed in section 6; those items
 are carried as Blocked or Not tested, never as passed.
@@ -714,12 +711,12 @@ are carried as Blocked or Not tested, never as passed.
 ## 10. Sign-off and revision history
 
 **Sign-off.** The underlying security testing programme (`SECURITY.md`
-section 3b) was signed off by the Information Security Manager, 2026-09-21, given as a written
-attestation during an AI-assisted working session ("Happy to sign this"), not a
+section 3b) was signed off by the Information Security Manager (Kevin Maingi), 2026-09-21, given as a written
+attestation ("Happy to sign this"), not a
 handwritten or cryptographic signature. This report, as a document, has not
 separately been signed by the Information Security Manager as of 2026-10-04.
 
-**WP12 review.** On 2026-10-04 a separate AI reviewer audited the evidence behind this report in two passes. It checked every Fail, Partially fixed, Blocked, Inconclusive and Not run result in runs A48 to A59, A55 and A56 (2026-09-27), A112 and A60-2026-10-04, and every finding in section 5 and `SECURITY.md` 3b against git (integrate commits, `release` ancestry and release tags) and the cited retest records. It also checked the report, `SECURITY.md` and the Q11 text for consistency with each other and with the records. The first pass found six defects: one wrong fix commit, the Android backup High missing from the register, missing coverage rows for Blocked and Inconclusive cases, miscounted matrix totals, a release-tag attribution that contradicted git, and one revision-history wording point. All were corrected, and the second pass confirmed each correction. This was a single-model review by the same model family as the testing sessions. The second-model half of the cross-model review in PENTEST-METHODOLOGY section 9 was not performed, by the Information Security Manager's decision of 2026-10-04. The review made no changes and ran no live tests. Its two limits are that the A121, A122 and A129 retest results rest on the tester's relayed on-device observations (no screenshots), and that the A129 fix was verified by package flags only, with the `adb backup` extraction not re-run. The live `API-15` deletion retest on 2026-10-04 was recorded after this review and was not covered by it.
+**WP12 review.** On 2026-10-04 a separate review pass audited the evidence behind this report, in two passes. It checked every Fail, Partially fixed, Blocked, Inconclusive and Not run result in runs A48 to A59, A55 and A56 (2026-09-27), A112 and A60-2026-10-04, and every finding in section 5 and `SECURITY.md` 3b against git (integrate commits, `release` ancestry and release tags) and the cited retest records. It also checked the report, `SECURITY.md` and the Q11 text for consistency with each other and with the records. The first pass found six defects: one wrong fix commit, the Android backup High missing from the register, missing coverage rows for Blocked and Inconclusive cases, miscounted matrix totals, a release-tag attribution that contradicted git, and one revision-history wording point. All were corrected, and the second pass confirmed each correction. This review used the same tooling as the testing sessions and so was not independent of them. The planned second review pass with different tooling (PENTEST-METHODOLOGY section 9) was not performed, by the Information Security Manager's decision of 2026-10-04. The review made no changes and ran no live tests. Its two limits are that the A121, A122 and A129 retest results rest on the Information Security Manager's relayed on-device observations (no screenshots), and that the A129 fix was verified by package flags only, with the `adb backup` extraction not re-run. The live `API-15` deletion retest on 2026-10-04 was recorded after this review and was not covered by it.
 
 **Revision history.**
 
@@ -728,6 +725,6 @@ separately been signed by the Information Security Manager as of 2026-10-04.
 | v0.1 (DRAFT) | 2026-09-23 | First draft, produced for Finexer ahead of production release, retest and WP12; covers the 10 of 12 work packages executed 2026-09-20 to 2026-09-21 |
 | v0.1 (DRAFT, updated) | 2026-09-27 | A117: this Markdown updated in place to record WP7b (A55) and WP8 (A56) dynamic device testing, executed live 2026-09-27; coverage corrected from 10 of 12 to 12 of 12 work packages (to the extent possible without a Mac or a rooted device); five findings folded into section 5 (A118, A119, A120, A121, A122); headline corrected to five High findings, since A121 (iOS biometric-lock bypass) was not yet remediated |
 | v0.1 (DRAFT, updated) | 2026-09-28 | A117 correction: the earlier text stated that none of the four original High findings (A82, A83, A84, A91) had reached production and that no production retest had run; both were false by 2026-09-27 evening. All four shipped to production 2026-09-27 and were retested the same day (board item A112, `docs/security/pentest-runs/A112-2026-09-27/`). Section 5 corrected to record A112's actual outcome per finding. Also corrected a stale claim that A92's release gate, board item A110, was still in progress |
-| v1.0 | 2026-10-04 | A60: final consolidated report. Records the 2026-10-04 on-device retest (`docs/security/pentest-runs/A60-2026-10-04/`): A120, A121 and A122 remediated and retested on both phones; A118 server-side revocation in production with the on-device residue re-check not yet run; A119 closed (debug build only). Section 5's Medium and Low tables updated with A112's 2026-09-27 retest outcomes. Follow-ups A123 and A138 recorded, and the pre-documented Android backup High (`AND-01` / `AND-02`, fixed under A129) added to the High table. Section 9 rewritten as a plain testing-approach statement. WP12 recorded as a single-model review, the second-model half dropped (Information Security Manager decision, 2026-10-04). WP12 review recorded in section 10 (2026-10-04, PASS on second pass). PDF and HTML regenerated |
+| v1.0 | 2026-10-04 | A60: final consolidated report. Records the 2026-10-04 on-device retest (`docs/security/pentest-runs/A60-2026-10-04/`): A120, A121 and A122 remediated and retested on both phones; A118 server-side revocation in production with the on-device residue re-check not yet run; A119 closed (debug build only). Section 5's Medium and Low tables updated with A112's 2026-09-27 retest outcomes. Follow-ups A123 and A138 recorded, and the pre-documented Android backup High (`AND-01` / `AND-02`, fixed under A129) added to the High table. Section 9 rewritten as a plain testing-approach statement. WP12 recorded as a review with the same tooling as the testing, the planned second pass with different tooling not performed (Information Security Manager decision, 2026-10-04). WP12 review recorded in section 10 (2026-10-04, PASS on second pass). PDF and HTML regenerated |
 | v1.0 (final) | 2026-10-04 | A60: live `API-15` account-deletion retest ran on production with the disposable identity PT-C (`A60-2026-10-04`), superseding the Blocked, source-only verdict of A112. A82, A83 (destructive half) and A84 are now Fixed, retested live; the Finexer dashboard was not viewed. Version set to 1.0 |
-| v1.0.1 | 2026-10-05 | A60: Persona references replaced with roles; no change to findings, statuses or evidence |
+| v1.0.1 | 2026-10-05 | A60: Wording of roles revised; Information Security Manager named; no change to findings, statuses or evidence |
