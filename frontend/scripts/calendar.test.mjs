@@ -1,7 +1,7 @@
 // Run: npm run -s check:calendar
 import assert from "node:assert/strict";
 import {
-  addDays, addMonths, chunk, clampIso, daysIn, formatDay, formatIso, formatMonth, formatValue, monthGridCells,
+  commitValue, addDays, addMonths, chunk, clampIso, daysIn, formatDay, formatIso, formatMonth, formatValue, monthGridCells,
   outOfRange, parseIso, todayIso, weekdayName, yearPage, yearPageStart,
 } from "../lib/calendar.ts";
 
@@ -63,4 +63,8 @@ assert.equal(first.hasPrev, false);
 assert.equal(first.hasNext, true);
 assert.equal(yearPage(2026, 2026, 2037).hasNext, false);
 assert.equal(yearPage(2020, null, null).hasPrev, true);
+// Commit path: always the ISO shape the native inputs produced.
+assert.equal(commitValue("day", 2026, 9, 16), "2026-10-16");
+assert.equal(commitValue("month", 2027, 2, 19), "2027-03");
+for (const v of [commitValue("day", 2026, 0, 1), commitValue("month", 2026, 11, 31)]) assert.match(v, /^\d{4}-\d{2}(-\d{2})?$/);
 console.log("calendar: ok");

@@ -137,3 +137,8 @@ export function yearPage(start: number, minYear?: number | null, maxYear?: numbe
     hasNext: maxYear == null || start + YEAR_PAGE - 1 < maxYear,
   };
 }
+
+/** The one place a picked y/m/d becomes the stored string: ISO, month mode carries no day. */
+export function commitValue(mode: PickerMode, y: number, m: number, d: number): string {
+  return formatIso({ y, m, d: mode === "month" ? 1 : d }, mode);
+}
