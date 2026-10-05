@@ -153,8 +153,13 @@ Runs `check` again and aborts on any red item. Records the pre-release
 then fast-forwards production with `git push origin main:release`
 (refused unless `origin/release` is an ancestor of `origin/main`, this
 tool never force-pushes here, that's what `rollback` is for). Polls, up
-to 15 minutes: Vercel until `vercel ls --prod` shows a Ready production
-deployment newer than the push, Railway until both services' latest
+to `--timeout-minutes` (default 30, H108: Railway builds take ~10 minutes
+each, so 15 was too tight), applied separately to Vercel and to each Railway
+service: Vercel until `vercel ls --prod` shows a Ready production deployment
+and the live production deployment, resolved through the alias lookup
+(`GET /v4/aliases`, then `GET /v13/deployments/{id}`), is READY, carries the
+pushed sha, and was created no earlier than the push time minus a 120 second
+clock-skew allowance; Railway until both services' latest
 deployment is `SUCCESS` at the released sha (if a service still deploys
 from `main`, `deploy` treats the current `SUCCESS` deployment already at
 that sha as done rather than waiting forever). Then runs smoke checks
@@ -187,6 +192,27 @@ therefore be deployed before, or atomically with, the frontend for this
 endpoint. `deploy` already pushes both Vercel and Railway from the same
 `release` commit, so this holds today; keep it true if that ever changes.
 
+**Late SUCCESS (H108).** When the poll window closes, `deploy` takes one last
+status read of Vercel and of every still-pending Railway service before
+deciding. If they are all SUCCESS by then (a build that finished just after the
+window), it carries on to the smoke checks and the tag instead of failing. Only
+a service still not SUCCESS on that final read fails the deploy.
+
+### Tag a release that was deployed but never tagged
+
+```bash
+backend/.venv/bin/python scripts/release.py --tag-only <sha> --date YYYY-MM-DD [--time HHMM]
+# e.g. the 2026-10-05 release of cd663f1f, whose poll timed out although both services reached SUCCESS:
+backend/.venv/bin/python scripts/release.py --tag-only cd663f1f --date 2026-10-05
+```
+
+Creates the annotated tag `release-YYYYMMDD-HHMM` (HHMM defaults to `0000`)
+for a commit that is already deployed. It refuses unless the sha resolves, is
+contained in `origin/release`, and the tag does not already exist; it re-runs
+the production smoke checks first and does not tag if any fail, then pushes the
+tag. It deploys nothing. Run from the shared tree, by Kevin or the coordinator
+(a developer session never releases).
+
 ## d) Rollback
 
 ```bash
@@ -197,9 +223,39 @@ backend/.venv/bin/python scripts/release.py rollback <tag-or-sha>
 created, or a sha that is an ancestor of `main`, anything else is
 refused. Force-with-lease pushes `release` back to that sha
 (`git push --force-with-lease origin <sha>:release`, never a bare force),
-then runs the same Vercel/Railway poll and smoke checks as `deploy`. Not
+then runs the same Vercel/Railway poll (same `--timeout-minutes` window and
+final re-check) and smoke checks as `deploy`. It then verifies Vercel actually
+switched (H108: a rollback push once did not trigger a Vercel redeploy): it
+resolves the live production deployment through the documented Vercel REST
+API (`GET /v4/aliases?projectId=` for the `wealth.auriqltd.co.uk` alias, which is
+the host of `PROD_WEB_URL`, then `GET /v13/deployments/{id}`, reading
+`meta.githubCommitSha`, falling back to `gitSource.sha`, and failing closed if
+neither exists; authenticated with the token the logged-in Vercel CLI already
+holds, never printed) and, if that deployment is not built from the rollback
+sha, promotes
+the READY deployment for that sha (`GET /v7/deployments?...&state=READY&sha=`) (the REST equivalent of `vercel
+promote`) and checks again. A rollback only reports success once Vercel serves
+the target. Not
 run as part of a normal release; use it when a `deploy` has gone out and
 needs undoing.
+
+### Validate the Vercel lookup read-only
+
+```bash
+backend/.venv/bin/python scripts/release.py --vercel-check [--sha <rollback-sha>]
+```
+
+Performs only the GETs above and prints the live production deployment id and
+its sha, plus the promote candidate for `--sha`. Run it against production
+before relying on a real rollback.
+
+`--tag-only` first runs `git fetch origin release --tags`, then refuses a sha that
+already carries a `release-*` tag and confirms the sha is what Vercel serves (the
+same live lookup as `--vercel-check`), failing closed if it cannot; `--skip-live-check`
+bypasses only that last confirmation. Promote selection is strict: only a READY
+deployment whose resolved sha matches is a candidate (a list item missing its sha
+is resolved via `GET /v13/deployments/{id}`), several redeploys of one identical sha
+pick the newest, and zero matches or disagreeing shas refuse to promote.
 
 ## e) The prompt
 
@@ -211,8 +267,8 @@ Deploy Sorted to production. Follow docs/ops/RELEASE.md exactly and use only scr
 
 1. From /root/ai-wealth-dashboard on main, run `backend/.venv/bin/python scripts/release.py check`. If anything is red, stop and report it; do not try to work around a red item. If the only red items are the two Railway branch checks, and the operator has confirmed in the message that both services were switched to release in the Railway dashboard, rerun check and then deploy with `--railway-branch-confirmed`; any other red stops the release.
 2. If the check lists production variables as missing, set them with `backend/.venv/bin/python scripts/release.py sync-vars <names>` from backend/.env. Never print a value. Bot/service credentials are not env vars and are never set this way; mint a production one separately with `backend/scripts_bot_credential.py create --name <name> --scopes <scope>` (see docs/ops/ENV.md's "Bot/service credentials" section).
-3. Run `backend/.venv/bin/python scripts/release.py deploy`. Wait for it to finish; it pushes release, waits for Vercel and Railway, runs the smoke checks and tags the release.
-4. If deploy fails after the push, run `backend/.venv/bin/python scripts/release.py rollback <previous release sha printed by deploy>` and report.
+3. Run `backend/.venv/bin/python scripts/release.py deploy` (poll window per service is `--timeout-minutes N`, a whole number 1 to 180, default 30; Railway builds take ~10 minutes each). Wait for it to finish; it pushes release, waits for Vercel (a Ready production deployment carrying the pushed sha, created after the push) and Railway (stopping early if a service FAILED or CRASHED), takes one last status read, runs the smoke checks and tags the release.
+4. If deploy fails after the push, first re-read the failure: a service that reached SUCCESS just after the window is not a reason to roll back. Otherwise run `backend/.venv/bin/python scripts/release.py rollback <previous release sha printed by deploy>`; it verifies Vercel actually serves that sha and promotes the matching READY deployment if not (strict sha match, fails closed). Before relying on that, `scripts/release.py --vercel-check --sha <sha>` is a read-only dry look. If a release landed but was never tagged, `scripts/release.py --tag-only <sha> --date YYYY-MM-DD` tags it (it refuses a sha already tagged, not in origin/release, or not what Vercel serves; `--skip-live-check` is the documented last resort).
 5. Report: the release tag and sha, the previous release sha, the Vercel and Railway deployment ids, the smoke-check table, and any amber items from the check.
 
 Do not run railway up, vercel deploy, git push to release, or set variables by any other means. Do not restart UAT services. Do not print secrets.
