@@ -63,7 +63,10 @@ class FakeProfilesCol:
 
     async def update_one(self, filt, update, upsert=False):
         doc_id = filt["_id"]
+        created = doc_id not in self.docs
         doc = self.docs.setdefault(doc_id, {"_id": doc_id})
+        if created:
+            doc.update(update.get("$setOnInsert", {}))
         doc.update(update.get("$set", {}))
         return None
 
@@ -202,3 +205,68 @@ def test_apple_claim_with_client_supplied_fullname_is_unaffected(monkeypatch):
     }))
     data = serializer.loads(result["session_token"], max_age=SESSION_MAX_AGE)
     assert data["name"] == "Kevin Maingi"
+
+
+def test_profile_always_returns_onboarding_complete_boolean(monkeypatch):
+    # D12: the frontend gate treats only an explicit `false` as "needs
+    # onboarding", so the endpoint must always send a real boolean, for a
+    # missing profile, a profile without the field, and a completed one.
+    email = "someone@example.com"
+    for docs, expected in (
+        ([], False),
+        ([{"_id": email, "full_name": "A B", "onboarding_complete": False}], False),
+        ([{"_id": email, "full_name": "A B", "onboarding_complete": True}], True),
+    ):
+        monkeypatch.setattr(profile_module, "user_profiles_col", FakeProfilesCol(docs))
+        out = _run(profile_module.get_profile({"email": email}))
+        assert out["onboarding_complete"] is expected
+        assert isinstance(out["onboarding_complete"], bool)
+
+
+def test_legacy_profile_without_the_field_is_complete(monkeypatch):
+    # D12: a document that predates onboarding_complete belongs to a user who
+    # onboarded long ago; a missing field must never send them back through it.
+    email = "legacy@example.com"
+    monkeypatch.setattr(profile_module, "user_profiles_col",
+                        FakeProfilesCol([{"_id": email, "full_name": "Old User"}]))
+    assert _run(profile_module.get_profile({"email": email}))["onboarding_complete"] is True
+
+
+def test_fresh_profile_is_incomplete_and_create_path_sets_the_field(monkeypatch):
+    email = "fresh@example.com"
+    profiles = FakeProfilesCol()
+    monkeypatch.setattr(profile_module, "user_profiles_col", profiles)
+    # Mid-flow save (complete=false) creates the document with an explicit False.
+    out = _run(profile_module.update_profile({"full_name": "New Person", "complete": False}, {"email": email}))
+    assert profiles.docs[email]["onboarding_complete"] is False
+    assert out["onboarding_complete"] is False
+    assert _run(profile_module.get_profile({"email": email}))["onboarding_complete"] is False
+    # Finishing flips it; a later mid-flow style save does not reset it.
+    _run(profile_module.update_profile({"full_name": "New Person"}, {"email": email}))
+    assert _run(profile_module.get_profile({"email": email}))["onboarding_complete"] is True
+    _run(profile_module.update_profile({"full_name": "New Person", "complete": False}, {"email": email}))
+    assert profiles.docs[email]["onboarding_complete"] is True
+
+
+def test_stamp_only_document_is_incomplete_and_named_legacy_is_complete(monkeypatch):
+    # D12: stamp_activity creates `{_id, last_active_at}` before GET /profile.
+    email = "x@example.com"
+    monkeypatch.setattr(profile_module, "user_profiles_col", FakeProfilesCol([
+        {"_id": email, "last_active_at": 1},
+        {"_id": "kevin@example.com", "full_name": "Kevin"},
+    ]))
+    assert _run(profile_module.get_profile({"email": email}))["onboarding_complete"] is False
+    assert _run(profile_module.get_profile({"email": "kevin@example.com"}))["onboarding_complete"] is True
+
+
+def test_new_user_first_request_stamp_then_profile_needs_onboarding(monkeypatch):
+    import app.services.retention as retention_module
+    profiles = FakeProfilesCol()
+    monkeypatch.setattr(profile_module, "user_profiles_col", profiles)
+    monkeypatch.setattr(retention_module, "user_profiles_col", profiles)
+    monkeypatch.setattr(retention_module, "_last_stamped", {})
+    email = "brandnew@example.com"
+    _run(retention_module.stamp_activity(email))
+    assert profiles.docs[email]["onboarding_complete"] is False
+    assert "last_active_at" in profiles.docs[email]
+    assert _run(profile_module.get_profile({"email": email}))["onboarding_complete"] is False

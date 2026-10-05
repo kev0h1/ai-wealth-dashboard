@@ -53,6 +53,7 @@ import { resolveDisplayName, resolveFullName } from "@/lib/displayName";
 // shared chunk, which is a change to another screen's primary action for an
 // unproven gain. Not worth it; recorded here so nobody re-tries it blind.
 import BankPickerSheet from "@/components/BankPickerSheet";
+import { noticeSheet } from "@/components/ConfirmSheet";
 
 // Recharts-backed pinned widget (~448KB) is rare on Home (opt-in pin) — keep
 // it out of the initial route chunk.
@@ -925,7 +926,7 @@ export default function HomePage() {
       // navigation semantics.
       window.location.assign(auth_url);
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Failed to start reconnection. Please try again.");
+      void noticeSheet({ title: "Couldn’t start reconnection", body: err instanceof ApiError ? err.message : "Please try again." });
     }
   }
 

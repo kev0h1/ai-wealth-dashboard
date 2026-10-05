@@ -76,6 +76,22 @@ export function takePendingReturn(
   }
 }
 
+/** D13: non-destructive check, so sign-in routing can tell a stashed bank return is waiting
+ * (DeepLinkHandler replays it) without consuming it. */
+export function hasPendingReturn(
+  storage: ReturnOptions["storage"],
+  now: number = Date.now(),
+): boolean {
+  try {
+    const raw = storage?.getItem(PENDING_BANK_RETURN_KEY);
+    if (!raw) return false;
+    const { at, detail: d } = JSON.parse(raw) as { at: number; detail: DeepLinkDetail };
+    return typeof at === "number" && now - at <= PENDING_BANK_RETURN_TTL_MS && !!d && d.kind === "bank_connected";
+  } catch {
+    return false;
+  }
+}
+
 /** Snapshot of the picker registry. DeepLinkHandler reads it synchronously in the
  * event listener, before any await, so a sheet that unmounts in between (or the
  * order listeners run in) cannot change the outcome. */
