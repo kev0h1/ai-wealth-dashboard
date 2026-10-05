@@ -6,6 +6,7 @@ import DeepLinkHandler from "@/components/DeepLinkHandler";
 import { AuthProvider } from "@/components/AuthProvider";
 import { PreferencesProvider } from "@/components/PreferencesContext";
 import { CategoriesProvider } from "@/components/CategoriesContext";
+import { ConfirmSheetHost } from "@/components/ConfirmSheet";
 import { useSoftKeyboardAttribute } from "@/lib/useSoftKeyboardAttribute";
 
 export function Providers({ children }: { children: React.ReactNode }) {
@@ -15,6 +16,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
       {/* Outside AuthProvider's gate on purpose: a cold-start sign-in return
           arrives while AuthProvider is still checking or showing LoginScreen. */}
       <DeepLinkHandler />
+      <ConfirmSheetHost />
       <AuthProvider>
       <PreferencesProvider>
         <CategoriesProvider>

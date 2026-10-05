@@ -11,7 +11,7 @@ from typing import Optional
 
 from app.core.auth import current_user
 from app.core.config import APP_URL, FINEXER_API_KEY
-from app.core.signin_handoff import bank_handoff_html, signin_handoff_csp
+from app.core.signin_handoff import bank_error_response, bank_handoff_html, signin_handoff_csp
 from app.core.subscription import check_connection_limit, check_open_banking_allowed
 from app.db.collections import finexer_consents_col
 from app.services.finexer_sync import (
@@ -120,11 +120,13 @@ async def finexer_callback(
     # Accept both `consent` and `fx_consent` param names
     consent_id = fx_consent or consent
     if not consent_id:
-        raise HTTPException(400, "Missing consent id")
+        return bank_error_response("finexer", "", status_code=400,
+                                   message="That link is missing its connection details. Close this window and try again in Sorted.")
 
     doc = await finexer_consents_col.find_one({"_id": consent_id})
     if not doc:
-        raise HTTPException(404, "Consent not found")
+        return bank_error_response("finexer", "", status_code=404,
+                                   message="We couldn’t find that bank connection. Close this window and try again in Sorted.")
 
     # State verification is mandatory: a missing `state` (ours or the
     # stored one) is rejected exactly like a mismatched one, not skipped.
@@ -133,7 +135,10 @@ async def finexer_callback(
     # through to authorise the consent and trigger a sync.
     stored_state = doc.get("state")
     if not state or not stored_state or not hmac.compare_digest(state, stored_state):
-        raise HTTPException(400, "State mismatch")
+        # A88 semantics unchanged (missing or mismatched state never authorises);
+        # G215: the user sees the hand-off error page, not JSON.
+        return bank_error_response("finexer", "", status_code=400,
+                                   message="We couldn’t confirm that this connection started in Sorted. Close this window and try again in Sorted.")
 
     if error:
         await finexer_consents_col.update_one(

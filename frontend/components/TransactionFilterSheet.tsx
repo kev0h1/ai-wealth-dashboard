@@ -16,6 +16,7 @@ import { SheetFrame, type SheetFrameVariant } from "@/components/SheetFrame";
 import { useCategories } from "@/components/CategoriesContext";
 import { DateField } from "@/components/DatePicker";
 import type { SearchFilters } from "@/lib/transactionFilters";
+import { todayIso } from "@/lib/calendar";
 
 const MONEY_DIRECTIONS: { value: "debit" | "credit" | null; label: string }[] = [
   { value: null, label: "All" },
@@ -25,8 +26,8 @@ const MONEY_DIRECTIONS: { value: "debit" | "credit" | null; label: string }[] = 
 
 function isoDaysAgo(days: number): string {
   const d = new Date();
-  d.setUTCDate(d.getUTCDate() - days);
-  return d.toISOString().slice(0, 10);
+  d.setDate(d.getDate() - days);
+  return todayIso(d);
 }
 
 const DATE_PRESETS: { label: string; from: string | null; to: string | null }[] = [

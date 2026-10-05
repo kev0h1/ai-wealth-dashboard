@@ -50,7 +50,9 @@ import urllib.parse
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
+
+from app.core.signin_handoff import signin_error_response
 
 from app.core.auth import current_user
 from app.core.config import API_PUBLIC_URL, APP_URL, MCP_PUBLIC_URL
@@ -233,14 +235,14 @@ async def authorize(
     # error page is the only safe response for either failure.
     client = await oauth_clients_col.find_one({"_id": client_id}) if client_id else None
     if not client:
-        return PlainTextResponse(
-            "Unknown client. This assistant has not been registered with Sorted.",
-            status_code=400,
+        return signin_error_response(
+            status_code=400, heading="This link can’t be used",
+            message="This assistant has not been registered with Sorted. Close this window and start again from the assistant.",
         )
     if redirect_uri not in client.get("redirect_uris", []):
-        return PlainTextResponse(
-            "This request's redirect address does not match what was registered for this client.",
-            status_code=400,
+        return signin_error_response(
+            status_code=400, heading="This link can’t be used",
+            message="This request’s redirect address does not match what was registered for this assistant. Close this window and start again from the assistant.",
         )
 
     def _err_redirect(error: str) -> RedirectResponse:

@@ -63,8 +63,8 @@ export default function OAuthConsentCard({
           </p>
 
           {error && (
-            <div className="mb-4 px-4 py-3 rounded-xl bg-red-50 border border-red-100">
-              <p className="text-sm text-red-600 text-center">{error}</p>
+            <div className="mb-4 px-4 py-3 rounded-xl bg-slate-50 dark:bg-slate-700/40 border border-slate-200 dark:border-slate-600">
+              <p className="text-sm text-slate-700 dark:text-slate-200 text-center">{error}</p>
             </div>
           )}
 

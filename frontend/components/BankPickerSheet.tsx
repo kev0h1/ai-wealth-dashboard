@@ -165,7 +165,7 @@ export default function BankPickerSheet({ onClose, onConnecting, provider = "fin
       </div>
 
         {error && (
-          <p className="px-5 pb-2 text-xs text-red-500">{error}</p>
+          <p className="px-5 pb-2 text-[12px] font-semibold text-red-600 dark:text-red-400">{error}</p>
         )}
 
         {/* Bank list */}

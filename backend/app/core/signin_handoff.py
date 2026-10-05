@@ -11,6 +11,8 @@ import html
 import json
 import re
 
+from fastapi.responses import HTMLResponse
+
 from app.core.deep_links import DEEP_LINK_SCHEME, bank_return_url, signin_return_url
 from app.core.signin_handoff_template import TEMPLATE
 
@@ -47,12 +49,14 @@ def render_template(template: str, slots: dict[str, str]) -> str:
 
 
 def signin_handoff_html(ok: bool, *, scheme: str = "auto",
-                        auto_return: bool = True, message: str | None = None) -> str:
+                        auto_return: bool = True, message: str | None = None,
+                        heading: str | None = None) -> str:
     if ok:
-        heading, default_message = "Signed in", "Taking you back to Sorted."
+        default_heading, default_message = "Signed in", "Taking you back to Sorted."
     else:
-        heading = "Sign-in didn’t complete"
+        default_heading = "Sign-in didn’t complete"
         default_message = "Close this window and try again in Sorted."
+    heading = heading if heading is not None else default_heading
     return render_template(TEMPLATE, {
         "title": "Sorted | Sign-in",
         "return_url_json": json.dumps(signin_return_url()),
@@ -71,14 +75,15 @@ BANK_SUCCESS_HINT = "Bank connected. You can close this window and return to Sor
 
 def bank_handoff_html(ok: bool, *, provider: str, connection_id: str,
                       auto_return: bool = True, scheme: str = "auto",
-                      message: str | None = None) -> str:
+                      message: str | None = None, heading: str | None = None) -> str:
     """The same hand-off page for a bank-connect callback (A68)."""
     if ok:
-        heading = "Bank connected"
+        default_heading = "Bank connected"
         default_message = "Taking you back to Sorted. Your transactions are on their way."
     else:
-        heading = "Connection didn’t complete"
+        default_heading = "Connection didn’t complete"
         default_message = "No accounts were linked. Close this window and try again in Sorted."
+    heading = heading if heading is not None else default_heading
     url = bank_return_url(provider, connection_id, "ok" if ok else "error")
     return render_template(TEMPLATE, {
         "title": "Sorted | Bank connection",
@@ -116,3 +121,24 @@ def signin_handoff_csp(page: str) -> str:
         f"script-src {_sha256_source(scripts[0])}; "
         "frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
     )
+
+
+def handoff_response(page: str, status_code: int = 200) -> HTMLResponse:
+    """Wrap a rendered hand-off page with its route CSP."""
+    return HTMLResponse(page, status_code=status_code,
+                        headers={"Content-Security-Policy": signin_handoff_csp(page)})
+
+
+def bank_error_response(provider: str, connection_id: str = "", *, status_code: int = 400,
+                        message: str | None = None, heading: str | None = None) -> HTMLResponse:
+    """G215: every error on a bank-connect callback a browser navigates to renders
+    the hand-off error state, never JSON or raw HTML. Never reflects upstream text."""
+    page = bank_handoff_html(False, provider=provider, connection_id=connection_id,
+                             auto_return=False, message=message, heading=heading)
+    return handoff_response(page, status_code)
+
+
+def signin_error_response(*, status_code: int = 400, message: str | None = None,
+                          heading: str | None = None) -> HTMLResponse:
+    page = signin_handoff_html(False, auto_return=False, message=message, heading=heading)
+    return handoff_response(page, status_code)
