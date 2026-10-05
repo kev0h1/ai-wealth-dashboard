@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { Pencil } from "lucide-react";
 import { api, type Account, type Allocation } from "@/lib/api";
 import type { Plan } from "@/lib/upcomingPlans";
@@ -18,7 +18,9 @@ import GoalSourceForm from "./GoalSourceForm";
 import { CategoryIcon, PlanIcon, detailFocus } from "./detailPrimitives";
 import { useEditorRequest } from "./editorSupport";
 
-export type PaymentDetail = { id: string; model: UpcomingRowModel; editor: UpcomingEditItem; planned?: PlannedEditItem; skip?: () => Promise<void> };
+export type PaymentDetail = { id: string; model: UpcomingRowModel; editor: UpcomingEditItem; planned?: PlannedEditItem; skip?: () => Promise<void>;
+  /** The cashflow item this payment was built from, so an account event (UpcomingAccountEvent.source) can open it. */
+  source?: object };
 export type UpcomingDetailView = { kind: "account"; id: string } | { kind: "plan" | "edit-plan"; id: string } | { kind: "payment" | "edit-payment"; id: string };
 export type UpcomingDetailServices = {
   upcoming?: UpcomingEditServices;
@@ -38,13 +40,25 @@ export type UpcomingDetailFlowProps = {
 };
 export const flowPrimary = `flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-3 text-sm font-semibold text-white hover:bg-indigo-700 ${detailFocus}`;
 export const flowSecondary = `flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-800 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-100 dark:hover:bg-slate-800 ${detailFocus}`;
+/** A payment detail opened from an account sheet returns there after a change; opened from the list it keeps its own exit. */
+const isAccountView = (view: UpcomingDetailView) => view.kind === "account";
+const leavePayment = (navigation: UpcomingFlowNavigation<UpcomingDetailView>, fallback: () => void) => () => { if (!navigation.returnTo(isAccountView)) fallback(); };
+/** A dismissed payment unmounts its own detail before any "after" callback can run, so the absent state itself steps back to the account sheet it came from. */
+function ReturnToAccount({ navigation }: { navigation: UpcomingFlowNavigation<UpcomingDetailView> }) {
+  const { returnTo } = navigation;
+  const leaving = navigation.canReturnTo(isAccountView);
+  useEffect(() => { returnTo(isAccountView); }, [returnTo]);
+  // An account is beneath: the popstate is about to land, so show nothing rather than flash the copy.
+  if (leaving) return <div aria-busy="true" className="min-h-24" />;
+  return <p className="text-sm leading-6 text-slate-600 dark:text-slate-300">This item is no longer expected in this period.</p>;
+}
 const actionsInFooter = (actions: ReactNode) => <UpcomingFlowFooter>{actions}</UpcomingFlowFooter>;
 
 function PaymentActions({ payment, navigation }: { payment: PaymentDetail; navigation: UpcomingFlowNavigation<UpcomingDetailView> }) {
   const request = useEditorRequest();
   const { busy, error } = request;
   async function skip() {
-    if (payment.skip) await request.run(payment.skip, navigation.close, "We could not dismiss this occurrence. Please try again.");
+    if (payment.skip) await request.run(payment.skip, leavePayment(navigation, navigation.close), "We could not dismiss this occurrence. Please try again.");
   }
   return <div>
     {error && <p role="alert" className="mb-3 text-sm">{error}</p>}
@@ -64,15 +78,17 @@ export default function UpcomingDetailFlow(props: UpcomingDetailFlowProps) {
       const account = summaries.find((item) => item.id === view.id);
       if (!account) return absent;
       const meta = BANK_META[bankKey({ provider: account.bank })];
+      const editable = new Map<string, string>();
+      for (const event of account.events) { const match = event.source ? payments.find((item) => item.source === event.source) : undefined; if (match) editable.set(event.id, match.id); }
       return {
         title: account.bank, subtitle: `${account.name} · ${props.periodLabel}`,
         leading: <BankBadge logoSrc={bankLogoSrc(meta)} initials={meta?.initials ?? account.bank.slice(0, 2)} altText="" size={36} />,
-        body: <UpcomingAccountDetails account={account} periodLabel={props.periodLabel} plans={plans} plansStatus={props.plansStatus} onPlan={(id) => navigation.goTo({ kind: "plan", id })} />, footer: done,
+        body: <UpcomingAccountDetails account={account} periodLabel={props.periodLabel} plans={plans} plansStatus={props.plansStatus} onPlan={(id) => navigation.goTo({ kind: "plan", id })} editableEventIds={new Set(editable.keys())} onEvent={(eventId) => { const id = editable.get(eventId); if (id) navigation.goTo({ kind: "payment", id }); }} />, footer: done,
       };
     }
     if (view.kind === "payment" || view.kind === "edit-payment") {
       const payment = payments.find((item) => item.id === view.id);
-      if (!payment) return absent;
+      if (!payment) return { ...absent, body: <ReturnToAccount navigation={navigation} /> };
       if (view.kind === "payment") return {
         title: payment.model.name, subtitle: `${payment.model.accountLabel ?? "Account not confirmed"} · ${payment.model.isCreditCard ? "Card charge" : payment.model.type === "income" ? "Income" : "Payment"}`,
         leading: <CategoryIcon Icon={payment.model.CategoryIcon} colour={payment.model.categoryColour} />,
@@ -81,8 +97,8 @@ export default function UpcomingDetailFlow(props: UpcomingDetailFlowProps) {
       };
       return { title: payment.planned ? "Edit planned payment" : "Edit prediction", subtitle: payment.model.name,
         body: payment.planned
-          ? <PlannedEditForm key={payment.id} item={payment.planned} accounts={accounts} services={services?.planned} onCancel={navigation.back} onSaved={saved} onDelete={() => { props.onDeletePlanned(payment.planned!.id); navigation.close(); }} renderActions={actionsInFooter} />
-          : <UpcomingEditForm key={payment.id} item={payment.editor} services={services?.upcoming} onCancel={navigation.back} onSaved={saved} onDismiss={() => { props.onDismiss(payment); navigation.close(); }} renderActions={actionsInFooter} />,
+          ? <PlannedEditForm key={payment.id} item={payment.planned} accounts={accounts} services={services?.planned} onCancel={navigation.back} onDone={leavePayment(navigation, navigation.back)} onSaved={saved} onDelete={() => { props.onDeletePlanned(payment.planned!.id); leavePayment(navigation, navigation.close)(); }} renderActions={actionsInFooter} />
+          : <UpcomingEditForm key={payment.id} item={payment.editor} services={services?.upcoming} onCancel={navigation.back} onDone={leavePayment(navigation, navigation.back)} onSaved={saved} onDismiss={() => { props.onDismiss(payment); leavePayment(navigation, navigation.close)(); }} renderActions={actionsInFooter} />,
       };
     }
     const plan = plans.find((item) => item.id === view.id);
