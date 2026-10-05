@@ -245,11 +245,11 @@ export function DatePickerSheet({ mode, value, onCommit, onClose, min, max, titl
       variant="compact" title={title ?? (dayMode ? "Choose a date" : "Choose a month")} themeClass={themeClass} onClose={onClose}
       onBack={() => {
         // Back steps up one view; only the base view hands Back to the frame.
-        if (view === "years") goView(dayMode && initialView === "years" ? "days" : "months");
+        if (view === "years") goView("months");
         else if (view === "months" && dayMode) goView("days");
         else closeRef.current?.();
       }}
-      backLabel={view === "years" ? (dayMode && initialView === "years" ? "Back to day grid" : "Back to months") : view === "months" && dayMode ? "Back to day grid" : "Back to form"}
+      backLabel={view === "years" ? "Back to months" : view === "months" && dayMode ? "Back to day grid" : "Back to form"}
       nested={nested}
       description={undefined}
       footer={(controls) => (
@@ -260,7 +260,7 @@ export function DatePickerSheet({ mode, value, onCommit, onClose, min, max, titl
             type="button" disabled={!draft}
             onClick={() => { if (draft) { onCommit(commitValue(mode, draft.y, draft.m, draft.d)); controls.close(); } }}
             className={BTN_PRIMARY}
-          >{draft ? `Done, ${formatValue(formatIso(draft, mode), mode)}` : "Done"}</button>
+          >{draft && !allowClear ? `Done, ${formatValue(formatIso(draft, mode), mode)}` : "Done"}</button>
         </div>
       )}
     >
