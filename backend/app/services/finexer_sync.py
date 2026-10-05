@@ -6,6 +6,8 @@ from typing import Optional
 
 import httpx
 
+from app.services.sync_freshness import sync_error_code
+
 logger = logging.getLogger(__name__)
 
 from app.core.config import (
@@ -744,7 +746,7 @@ async def finexer_sync_pipeline(
             await finexer_consents_col.update_one(
                 {"_id": consent_id},
                 {"$set": {
-                    "last_sync_error": str(exc)[:200] or exc.__class__.__name__,
+                    "last_sync_error": sync_error_code(exc),
                     "last_sync_error_at": datetime.utcnow(),  # naive-ok: matches last_synced convention
                 }},
             )

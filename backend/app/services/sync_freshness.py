@@ -54,8 +54,22 @@ async def last_bank_sync(uid: str) -> Optional[datetime]:
     return max(candidates) if candidates else None
 
 
+SYNC_ERROR_CODES = ("sync_failed", "consent_revoked")
+
+
+def sync_error_code(exc: BaseException) -> str:
+    """Fixed, user-safe code for a failed sync; the raw text stays in logs."""
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    return "consent_revoked" if status in (401, 403) else "sync_failed"
+
+
 async def first_sync_state(uid: str, now: Optional[datetime] = None) -> dict:
     """G210: is `uid`'s first bank sync still running, stuck, or failed?
+
+    `first_sync` is True only when the user has NO connection that has ever
+    synced. A user with one synced bank adding a second still gets per-
+    connection progress in `connections`/`state`, but `first_sync` is False so
+    callers never zero or hide an established verdict.
 
     A connection counts once it is authorised (Finexer status authorized /
     connected, TrueLayer tokens saved) but has never stamped `last_synced`.
@@ -64,6 +78,7 @@ async def first_sync_state(uid: str, now: Optional[datetime] = None) -> dict:
     """
     now = as_utc(now) if now else datetime.now(timezone.utc)  # naive-ok: aware instant, compared to as_utc stamps
     rows: list[dict] = []
+    nonlocal_has: list[bool] = []
 
     async def _collect(col, provider: str, query: dict, bank_key: str):
         async for doc in col.find(query):
@@ -93,7 +108,7 @@ async def first_sync_state(uid: str, now: Optional[datetime] = None) -> dict:
                 "connection_id": doc.get("_id"),
                 "bank": doc.get(bank_key) or None,
                 "started_at": started.isoformat() if started else None,
-                "error": err,
+                "error": (err if err in SYNC_ERROR_CODES else "sync_failed") if err else None,
                 "_sub": sub,
             })
 
@@ -106,6 +121,15 @@ async def first_sync_state(uid: str, now: Optional[datetime] = None) -> dict:
         {"user_id": uid, "pending": {"$ne": True}}, "provider_name",
     )
 
+    # Has the user EVER synced anything (any status, e.g. an expired bank)?
+    for col in (finexer_consents_col, connections_col):
+        async for doc in col.find(
+            {"user_id": uid, "last_synced": {"$exists": True, "$ne": None}},
+            {"last_synced": 1},
+        ):
+            if doc.get("last_synced"):
+                nonlocal_has.append(True)
+
     state = "idle"
     for sub in ("failed", "stalled", "syncing"):
         if any(r["_sub"] == sub for r in rows):
@@ -113,4 +137,4 @@ async def first_sync_state(uid: str, now: Optional[datetime] = None) -> dict:
             break
     for r in rows:
         r.pop("_sub")
-    return {"state": state, "connections": rows}
+    return {"state": state, "first_sync": not nonlocal_has, "connections": rows}

@@ -62,7 +62,7 @@ def _state(**kw):
 
 def test_no_connections_is_idle(monkeypatch):
     _patch(monkeypatch)
-    assert _state() == {"state": "idle", "connections": []}
+    assert _state() == {"state": "idle", "first_sync": True, "connections": []}
 
 
 def test_recent_unsynced_finexer_is_syncing(monkeypatch):
@@ -86,7 +86,7 @@ def test_error_is_failed_and_wins(monkeypatch):
     ])
     out = _state()
     assert out["state"] == "failed"
-    assert {c["connection_id"]: c["error"] for c in out["connections"]}["c2"] == "boom"
+    assert {c["connection_id"]: c["error"] for c in out["connections"]}["c2"] == "sync_failed", "raw text never leaves the server"
 
 
 def test_errored_connection_retires_after_24h(monkeypatch):
@@ -120,6 +120,31 @@ def test_truelayer_needs_tokens(monkeypatch):
     assert [c["connection_id"] for c in out["connections"]] == ["t1"]
 
 
+def test_established_user_adding_second_bank_is_not_first_sync(monkeypatch):
+    _patch(monkeypatch, fin=[
+        {"_id": "old", "user_id": UID, "authed_at": _naive_ago(days=30), "last_synced": _naive_ago(minutes=5)},
+        {"_id": "new", "user_id": UID, "provider": "monzo", "authed_at": _naive_ago(minutes=2)},
+    ])
+    out = _state()
+    assert out["first_sync"] is False
+    assert out["state"] == "syncing"
+    assert [c["connection_id"] for c in out["connections"]] == ["new"]
+
+
+def test_no_synced_bank_is_first_sync(monkeypatch):
+    _patch(monkeypatch, fin=[{"_id": "new", "user_id": UID, "authed_at": _naive_ago(minutes=2)}])
+    assert _state()["first_sync"] is True
+
+
+def test_abandoned_consent_on_established_user_is_idle_and_not_first(monkeypatch):
+    _patch(monkeypatch, fin=[
+        {"_id": "old", "user_id": UID, "authed_at": _naive_ago(days=30), "last_synced": _naive_ago(minutes=5)},
+        {"_id": "ghost", "user_id": UID, "authed_at": _naive_ago(days=3)},
+    ])
+    out = _state()
+    assert out["state"] == "idle" and out["first_sync"] is False
+
+
 def test_pipeline_stamps_and_success_clears_error(monkeypatch):
     col = _Col([{"_id": "c1", "status": "authorized"}])
     monkeypatch.setattr(finexer_sync, "finexer_consents_col", col)
@@ -130,7 +155,7 @@ def test_pipeline_stamps_and_success_clears_error(monkeypatch):
     monkeypatch.setattr(finexer_sync, "sync_finexer_consent", boom)
     res = asyncio.run(finexer_sync.finexer_sync_pipeline("c1", UID))
     assert res == {"ok": False, "error": "sync_failed"}
-    assert len(col.docs[0]["last_sync_error"]) == 200
+    assert col.docs[0]["last_sync_error"] == "sync_failed"
     assert "last_sync_error_at" in col.docs[0]
     # A later successful sync stamps last_synced and unsets the error: the
     # update the success path issues is exercised through the same fake.
@@ -168,7 +193,7 @@ class _One:
         return []
 
 
-def _stub_sts(monkeypatch, state):
+def _stub_sts(monkeypatch, state, first=True):
     today = date(2026, 9, 17)
     monkeypatch.setattr(timeutil, "user_today", lambda: today)
     monkeypatch.setattr(
@@ -198,7 +223,7 @@ def _stub_sts(monkeypatch, state):
         return None
 
     async def fss(_uid):
-        return {"state": state, "connections": []}
+        return {"state": state, "first_sync": first, "connections": []}
 
     monkeypatch.setattr(analytics, "_build_cashflow_response", cashflow_response)
     monkeypatch.setattr(analytics, "_safe_to_spend_accounts", accounts)
@@ -307,3 +332,21 @@ def test_warmup_skips_caching_syncing(monkeypatch):
         monkeypatch.setattr(warmup, n, other)
     asyncio.run(warmup._warm_user_impl(UID))
     assert "today" in puts and "safe_to_spend" not in puts
+
+
+def test_safe_to_spend_established_user_second_bank_not_clamped(monkeypatch):
+    _stub_sts(monkeypatch, "syncing", first=False)
+    r = asyncio.run(analytics.compute_safe_to_spend(UID))
+    assert r["status"] == "ok" and r["calculation_status"] == "complete"
+    assert r["sync_state"] == "syncing" and r["safe_to_spend"] > 0
+
+
+def test_degraded_wins_over_syncing(monkeypatch):
+    _stub_sts(monkeypatch, "syncing", first=True)
+
+    async def boom(_uid):
+        raise RuntimeError("x")
+
+    monkeypatch.setattr(commitments_router, "total_reserved_slices", boom)
+    r = asyncio.run(analytics.compute_safe_to_spend(UID))
+    assert r["calculation_status"] == "degraded"

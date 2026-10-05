@@ -5116,8 +5116,15 @@ async def compute_safe_to_spend(uid: str) -> dict:
         _first_sync = await first_sync_state(uid)
     except Exception:
         logger.exception("first_sync_state failed for %s", uid)
-        _first_sync = {"state": "idle", "connections": []}
-    _syncing = _first_sync["state"] in ("syncing", "stalled")
+        _first_sync = {"state": "idle", "first_sync": False, "connections": []}
+    # Only a GENUINE first sync (no connection has ever synced) withholds the
+    # verdict. An established user adding a second bank keeps a normal
+    # verdict, and a degraded calculation wins over syncing.
+    _syncing = (
+        bool(_first_sync.get("first_sync"))
+        and _first_sync["state"] in ("syncing", "stalled")
+        and not unavailable_components
+    )
     if _syncing:
         safe_to_spend = 0
         safe_to_spend_cash = 0
