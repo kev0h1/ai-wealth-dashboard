@@ -351,7 +351,10 @@ headless Chrome, rewrites `frontend/public/TERMS.pdf`, `PRIVACY.pdf`, the root
 and cleans up `.next`, `out` and any stray `ai-wealth-dashboard/` dir). The
 default run (flag unset) matches today's production. `npm run
 check:legal-pdfs-fresh` fails when a legal markdown source changed after its PDF
-was exported, or a PDF carries the pre-A109 90-day wording (A142).
+was exported, or a PDF carries the pre-A109 90-day wording (A142). The root
+`TERMS.pdf`/`PRIVACY.pdf`/`SECURITY.pdf` are the unstripped full-text copies
+(connector sections included), while the public ones match production with the
+connector off.
 
 **Mobile builds (F17, 2026-09-10):** `frontend/.env.local` never reaches a
 mobile bundle (Android APK or Codemagic TestFlight build) at all, so until

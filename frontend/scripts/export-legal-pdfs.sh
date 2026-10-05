@@ -27,14 +27,14 @@
 # worktree. Never prints environment values.
 set -euo pipefail
 
-FRONTEND="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+FRONTEND="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 ROOT="$(cd "$FRONTEND/.." && pwd)"
 MCP="${MCP_CONNECTOR:-off}"
 TODAY="$(date +%F)"
 cd "$FRONTEND"
 
 case "$FRONTEND" in
-  /root/ai-wealth-dashboard/frontend) echo "refusing to build in the shared tree; use a worktree" >&2; exit 1 ;;
+  "$(cd /root/ai-wealth-dashboard/frontend && pwd -P)") echo "refusing to build in the shared tree; use a worktree" >&2; exit 1 ;;
 esac
 command -v google-chrome >/dev/null || { echo "google-chrome not found" >&2; exit 1; }
 FREE_MB="$(free -m | awk '/^Mem:/{print $7}')"

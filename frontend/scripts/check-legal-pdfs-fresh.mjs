@@ -64,4 +64,14 @@ for (const e of manifest.entries ?? []) {
     else pass(`${e.pdf} carries the A109 consent wording`);
   }
 }
+// Root PDFs must not print the markdown's HTML comments as visible text.
+if (havePdftotext) {
+  for (const e of manifest.entries ?? []) {
+    if (!e.pdf.includes("/") && existsSync(path.join(repoRoot, e.pdf))) {
+      const t = execFileSync("pdftotext", [path.join(repoRoot, e.pdf), "-"], { encoding: "utf-8", maxBuffer: 64 * 1024 * 1024 });
+      if (t.includes("<!--")) fail(`${e.pdf} prints an HTML comment as visible text`);
+      else pass(`${e.pdf} has no visible HTML comment`);
+    }
+  }
+}
 process.exit(failures ? 1 : 0);
