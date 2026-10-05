@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useRef, useState } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Capacitor } from "@capacitor/core";
 import { App } from "@capacitor/app";
 import { getToken, setTokenAsync, clearToken, hydrateToken } from "@/lib/auth";
@@ -14,7 +14,10 @@ import { WEB_PRODUCT_OFF } from "@/lib/webProduct";
 import LoginScreen from "@/components/LoginScreen";
 import AppOnlyPage from "@/components/AppOnlyPage";
 import Onboarding from "@/components/Onboarding";
-import { unregisterCapacitorPush } from "@/lib/capacitorPush";
+import { unregisterCapacitorPush, hasPendingNotificationPaths } from "@/lib/capacitorPush";
+import { hasPendingReturn } from "@/lib/bankConnectReturn";
+import { shouldShowOnboarding, markOnboarded } from "@/lib/onboardingGate";
+import { postSignInDestination } from "@/lib/postSignInRoute";
 import { invalidateAllAccountData } from "@/lib/accountMutations";
 import { clearHomeDismissedAdvice } from "@/lib/homeDismissedAdvice";
 import { resolveFullName } from "@/lib/displayName";
@@ -61,6 +64,7 @@ const VALIDATE_TIMEOUT_MS = 15_000;
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   const [user, setUser] = useState<AuthUser | null>(null);
   const [checking, setChecking] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -79,6 +83,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Aborts the late-success session check (resume) when Cancel is pressed.
   const lateAbortRef = useRef<AbortController | null>(null);
   const [needsOnboarding, setNeedsOnboarding] = useState(false);
+  const sessionEmailRef = useRef<string | null>(null); // D12: keys the per-user onboarded flag
   // Stamped by both the mount-time validate below and the periodic
   // revalidate effect, so the two share one rate-limit clock rather than
   // each independently allowing a call within the same second.
@@ -96,31 +101,50 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // preferences, push resync) mounts fresh now that `user` is set, exactly as
   // after a reload. Resolves "ok", "rejected" (token refused) or "unreachable"
   // (transient failure, token kept).
-  async function establishSession(signal?: AbortSignal): Promise<SessionOutcome> {
+  // D13: `fresh` is true only for a sign-in the user just did (LoginScreen's
+  // onSignedIn and the resumed Google sign-in), never for a cold start with a
+  // stored token. A fresh sign-in lands on Home (see lib/postSignInRoute.ts).
+  async function establishSession(signal?: AbortSignal, fresh = false): Promise<SessionOutcome> {
     if (!getToken()) return "rejected";
     invalidateAllAccountData();
+    // Snapshot BEFORE validate: DeepLinkHandler takes the stashed bank return on
+    // wd:session-established, which fires as soon as the user is set.
+    let signInDest: string | null = null;
+    if (fresh) {
+      let oauthDetour = false;
+      try { oauthDetour = !!sessionStorage.getItem("wd_oauth_consent_req"); } catch {}
+      let bank = false;
+      try { bank = hasPendingReturn(window.sessionStorage); } catch {}
+      signInDest = postSignInDestination({
+        pendingBankReturn: bank,
+        pendingNotificationPath: hasPendingNotificationPaths(),
+        oauthDetour,
+      });
+    }
     const profileP = api.getProfile().catch(() => null);
-    let outcome = await validateOnce(signal);
+    let outcome = await validateOnce(signal, signInDest);
     if (outcome === "unreachable") {
       // One bounded retry (no loop) for a transient failure; the token is kept
       // either way so LoginScreen can offer "tap to try again".
       await new Promise((r) => setTimeout(r, SESSION_RETRY_DELAY_MS));
       if (signal?.aborted) return "unreachable";
-      outcome = await validateOnce(signal);
+      outcome = await validateOnce(signal, signInDest);
     }
     // A failed Try again after an earlier unreachable must not leave that stale
     // signal behind (a later cancel would resurface the panel with no token).
     if (outcome !== "unreachable") setResuming((r) => (r && r.ended === "unreachable" ? null : r));
     if (outcome !== "ok") return outcome;
     const profile = await profileP;
-    if (profile && !profile.onboarding_complete) setNeedsOnboarding(true);
+    // D12: only an explicit `false` from a loaded profile, and never for a user
+    // already marked onboarded on this device (lib/onboardingGate.ts).
+    if (shouldShowOnboarding(profile, localStorage, sessionEmailRef.current)) setNeedsOnboarding(true);
     return "ok";
   }
 
   // One POST /auth/session/validate for establishSession. Clears the token
   // only on a definite 401/403 or a missing email. A network error, timeout or
   // 5xx/429 says nothing about the token, so it is kept ("unreachable").
-  async function validateOnce(signal?: AbortSignal): Promise<SessionOutcome> {
+  async function validateOnce(signal?: AbortSignal, landOn: string | null = null): Promise<SessionOutcome> {
     const token = getToken();
     if (!token) return "rejected";
     const bound = boundedSignal(VALIDATE_TIMEOUT_MS, signal);
@@ -143,6 +167,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       if (bound.signal.aborted) return "unreachable"; // cancelled or out of time: do not sign in
       setAuthError(null);
+      // D13: navigate before the user is set, so a replayed bank return (which
+      // runs after) is never clobbered. No reload: A133/A139 need the in-memory token.
+      if (landOn && window.location.pathname !== landOn) router.replace(landOn);
+      sessionEmailRef.current = data.email;
       setUser({ email: data.email, name: data.name || "", owner: !!data.owner });
       resetUnauthorizedGate();
       return "ok";
@@ -234,7 +262,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               setResuming((r) => (r ? { ...r, stage: "session" } : r));
               const lateCtrl = new AbortController();
               lateAbortRef.current = lateCtrl;
-              void establishSession(lateCtrl.signal).then((o) => {
+              void establishSession(lateCtrl.signal, true).then((o) => {
                 if (lateAbortRef.current === lateCtrl) lateAbortRef.current = null;
                 if (resumeCancelledRef.current) return; // cancelled mid-check: nothing to show
                 setResuming((r) => (o === "ok" ? null : r ? { ...r, ended: o === "unreachable" ? "unreachable" : "failed" } : r));
@@ -408,6 +436,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       localStorage.removeItem("tax_checklist_done"); // per-user tax checklist progress
     } catch {}
     clearHomeDismissedAdvice();
+    // D13: sign-out lives on /settings; without this the login screen renders
+    // over that route and the next sign-in stays there. No reload on native.
+    router.replace("/");
   }
 
   // A124: registers the ONE hook lib/api.ts's get/post/del/toJson call on a
@@ -506,7 +537,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   if (checking) {
     // G202: a resumed sign-in shows its progress instead of a blank slate.
-    if (resuming) return <LoginScreen error={authError} onSignedIn={establishSession} resuming={resuming} onCancelResume={cancelResume} />;
+    if (resuming) return <LoginScreen error={authError} onSignedIn={(sig, fresh) => establishSession(sig, fresh === true)} resuming={resuming} onCancelResume={cancelResume} />;
     return <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a]" />;
   }
 
@@ -525,7 +556,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   if (!user) {
-    return <LoginScreen error={authError} onSignedIn={establishSession} resuming={resuming} onCancelResume={cancelResume} />;
+    return <LoginScreen error={authError} onSignedIn={(sig, fresh) => establishSession(sig, fresh === true)} resuming={resuming} onCancelResume={cancelResume} />;
   }
 
   if (needsOnboarding) {
@@ -537,7 +568,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // rather than pre-filling Onboarding's name field with it — see
     // lib/displayName.ts.
     const prefillName = resolveFullName({ sessionName: user.name, email: user.email }) ?? "";
-    return <Onboarding defaultName={prefillName} onComplete={() => setNeedsOnboarding(false)} />;
+    return <Onboarding defaultName={prefillName} onComplete={() => { markOnboarded(localStorage, user.email); setNeedsOnboarding(false); }} />;
   }
 
   return (

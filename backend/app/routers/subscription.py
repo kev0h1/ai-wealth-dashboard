@@ -138,7 +138,14 @@ async def select_free_tier(user: dict = Depends(current_user)):
 
     An active Stripe subscription must be cancelled in Stripe's portal so
     changing an app document can never leave a paid renewal running unseen.
+
+    D12: refused while billing is not live. With BILLING_ENABLED false every
+    user sits on the DEFAULT_TIER fallback (max); writing a Statements
+    document here would silently override that fallback and remove Add bank,
+    so even a stale client cannot do it.
     """
+    if not BILLING_ENABLED:
+        raise HTTPException(409, "Plans are not available yet, so there is nothing to select")
     email = user["email"]
     existing = await subscriptions_col.find_one({"user_id": email})
     if existing and existing.get("source") == "stripe" and existing.get("status") in {

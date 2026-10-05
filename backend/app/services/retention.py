@@ -457,7 +457,16 @@ async def stamp_activity(uid: str, now: datetime | None = None) -> None:
     _last_stamped[uid] = now
     try:
         await user_profiles_col.update_one(
-            {"_id": uid}, {"$set": {"last_active_at": now}}, upsert=True,
+            {"_id": uid},
+            {
+                "$set": {"last_active_at": now},
+                # D12: this upsert runs on the first authenticated request,
+                # BEFORE GET /profile, so it creates a brand-new user's profile
+                # document. Record onboarding as pending explicitly so the
+                # document is never ambiguous with a legacy one.
+                "$setOnInsert": {"onboarding_complete": False},
+            },
+            upsert=True,
         )
     except Exception:
         logger.warning("stamp_activity: failed to stamp %s", uid, exc_info=True)
