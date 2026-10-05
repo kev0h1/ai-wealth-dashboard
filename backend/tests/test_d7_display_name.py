@@ -202,3 +202,20 @@ def test_apple_claim_with_client_supplied_fullname_is_unaffected(monkeypatch):
     }))
     data = serializer.loads(result["session_token"], max_age=SESSION_MAX_AGE)
     assert data["name"] == "Kevin Maingi"
+
+
+def test_profile_always_returns_onboarding_complete_boolean(monkeypatch):
+    # D12: the frontend gate treats only an explicit `false` as "needs
+    # onboarding", so the endpoint must always send a real boolean, for a
+    # missing profile, a profile without the field, and a completed one.
+    email = "someone@example.com"
+    for docs, expected in (
+        ([], False),
+        ([{"_id": email, "full_name": "A B"}], False),
+        ([{"_id": email, "full_name": "A B", "onboarding_complete": None}], False),
+        ([{"_id": email, "full_name": "A B", "onboarding_complete": True}], True),
+    ):
+        monkeypatch.setattr(profile_module, "user_profiles_col", FakeProfilesCol(docs))
+        out = _run(profile_module.get_profile({"email": email}))
+        assert out["onboarding_complete"] is expected
+        assert isinstance(out["onboarding_complete"], bool)

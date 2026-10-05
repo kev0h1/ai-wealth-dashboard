@@ -125,6 +125,18 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
       .catch(() => setPlanInfo(null));
   }, [planInfo, step]);
 
+  // D12: while billing is not live nobody is on a purchasable plan, and every
+  // user sits on the server's default tier. The plan step used to preselect
+  // Statements and POST /subscription/select-free, which wrote a Statements
+  // document over that default and removed Add bank. Skip the step entirely so
+  // onboarding never writes a subscription while billing is off.
+  const billingOff = !!planInfo && planInfo.billing_live !== true;
+  useEffect(() => {
+    if (step !== "plan" || !billingOff) return;
+    localStorage.removeItem("wealth_onboarding_resume");
+    setStep("income");
+  }, [step, billingOff]);
+
   function setBiometrics(enabled: boolean) {
     if (isNativePlatform()) {
       setBiometricLockEnabled(enabled);
@@ -508,7 +520,10 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
             <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Could not load the plans</p>
             <p className="mt-1 text-xs leading-relaxed text-slate-600 dark:text-slate-300">Check your connection, then try again. No plan has been selected.</p>
             <button type="button" onClick={() => setPlanInfo(undefined)} className="mt-3 min-h-11 rounded-xl border border-slate-200 px-4 text-sm font-semibold text-slate-700 outline-none active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-slate-600 dark:text-slate-200">Try again</button>
+            <button type="button" onClick={() => { localStorage.removeItem("wealth_onboarding_resume"); setStep("income"); }} className="ml-2 mt-3 min-h-11 rounded-xl px-4 text-sm font-semibold text-slate-600 outline-none active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-300">Continue without choosing</button>
           </div>
+        ) : billingOff ? (
+          <div className="rounded-2xl bg-white p-4 text-sm text-slate-500 shadow-sm dark:bg-slate-800 dark:text-slate-400">Checking plan availability…</div>
         ) : (
           <PlanPicker info={planInfo} context="onboarding" onContinue={() => { localStorage.removeItem("wealth_onboarding_resume"); setStep("income"); }} />
         )}

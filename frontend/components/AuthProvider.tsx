@@ -16,6 +16,7 @@ import AppOnlyPage from "@/components/AppOnlyPage";
 import Onboarding from "@/components/Onboarding";
 import { unregisterCapacitorPush, hasPendingNotificationPaths } from "@/lib/capacitorPush";
 import { hasPendingReturn } from "@/lib/bankConnectReturn";
+import { shouldShowOnboarding, markOnboarded } from "@/lib/onboardingGate";
 import { postSignInDestination } from "@/lib/postSignInRoute";
 import { invalidateAllAccountData } from "@/lib/accountMutations";
 import { clearHomeDismissedAdvice } from "@/lib/homeDismissedAdvice";
@@ -82,6 +83,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Aborts the late-success session check (resume) when Cancel is pressed.
   const lateAbortRef = useRef<AbortController | null>(null);
   const [needsOnboarding, setNeedsOnboarding] = useState(false);
+  const sessionEmailRef = useRef<string | null>(null); // D12: keys the per-user onboarded flag
   // Stamped by both the mount-time validate below and the periodic
   // revalidate effect, so the two share one rate-limit clock rather than
   // each independently allowing a call within the same second.
@@ -133,7 +135,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (outcome !== "unreachable") setResuming((r) => (r && r.ended === "unreachable" ? null : r));
     if (outcome !== "ok") return outcome;
     const profile = await profileP;
-    if (profile && !profile.onboarding_complete) setNeedsOnboarding(true);
+    // D12: only an explicit `false` from a loaded profile, and never for a user
+    // already marked onboarded on this device (lib/onboardingGate.ts).
+    if (shouldShowOnboarding(profile, localStorage, sessionEmailRef.current)) setNeedsOnboarding(true);
     return "ok";
   }
 
@@ -166,6 +170,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // D13: navigate before the user is set, so a replayed bank return (which
       // runs after) is never clobbered. No reload: A133/A139 need the in-memory token.
       if (landOn && window.location.pathname !== landOn) router.replace(landOn);
+      sessionEmailRef.current = data.email;
       setUser({ email: data.email, name: data.name || "", owner: !!data.owner });
       resetUnauthorizedGate();
       return "ok";
@@ -563,7 +568,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // rather than pre-filling Onboarding's name field with it — see
     // lib/displayName.ts.
     const prefillName = resolveFullName({ sessionName: user.name, email: user.email }) ?? "";
-    return <Onboarding defaultName={prefillName} onComplete={() => setNeedsOnboarding(false)} />;
+    return <Onboarding defaultName={prefillName} onComplete={() => { markOnboarded(localStorage, user.email); setNeedsOnboarding(false); }} />;
   }
 
   return (
