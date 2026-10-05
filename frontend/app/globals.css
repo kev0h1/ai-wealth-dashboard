@@ -351,7 +351,7 @@ a:focus-visible,
    audit, WCAG anti-pattern) and that must not be reinstated. So this is
    scoped to coarse-pointer (touch) devices only — desktop keeps the
    existing type scale from each field's own text-size class. Written
-   outside any @layer, same as the input[type=date] reset above, so it
+   outside any @layer, so it
    wins over Tailwind's utility-layer font-size classes (text-sm etc.)
    regardless of class order or specificity: un-layered CSS always beats
    `@layer utilities` in the cascade. See DESIGN.md 3. Typography for the

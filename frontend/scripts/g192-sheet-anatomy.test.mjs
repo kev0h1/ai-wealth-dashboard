@@ -41,6 +41,16 @@ assert.match(frame, /document.body/);
 assert.match(frame, /z-\[70\]/);
 
 
+// G136: `nested` removes only the dim; the click-catcher, trap and history are untouched.
+assert.match(frame, /nested\?: boolean/);
+assert.match(frame, /\$\{nested \? "" : "bg-black\/40 fade-in"\}/, "nested drops the dim class and nothing else");
+assert.doesNotMatch(frame.replace(/\$\{nested \? "" : "bg-black\/40 fade-in"\}/, ""), /\bnested \?/, "nested gates nothing besides the dim");
+assert.match(frame, /onClick=\{\(\) => \{ if \(!dismissDisabled\) close\(\); \}\}/, "backdrop still closes the frame when nested");
+// G136: the picker's history entry spreads history.state, so UpcomingFlowSheet's keys survive it.
+assert.match(flow, /__upcomingFlowId: id, __upcomingFlowDepth: depth/);
+assert.match(flow, /exception \(G136\)/, "UpcomingFlowSheet documents the picker exception");
+assert.match(source("../components/DatePicker/DatePickerSheet.tsx"), /manageHistory|<SheetFrame/, "the picker is a SheetFrame, whose history is the spread above");
+
 // G205: swipe-down dismiss on the shared frame.
 assert.match(frame, /useSwipeDismiss<HTMLElement>\(\(\) => close\(\)/, "swipe ends in the same close() the X uses");
 assert.equal((frame.match(/useSheetA11y</g) ?? []).length, 1, "one close path: a single useSheetA11y");
@@ -120,6 +130,7 @@ for (const file of ["../app/components/AccountsPage.tsx", "../app/spend/shape/Mo
   assert.doesNotMatch(source(file), /className=[^\n]*glass-sheet/);
 }
 const a11y = source("../lib/useSheetA11y.ts");
+assert.match(a11y, /history\.pushState\(\{ \.\.\.\(history\.state \?\? \{\}\), __sheetA11yId: id \}, ""\)/, "G136: sheet history entries spread the existing state, so the Upcoming flow keys survive a picker");
 assert.match(a11y, /focusStack.at\(-1\) !== el/);
 assert.match(a11y, /event.state\?\.__sheetA11yId === id/);
 assert.match(a11y, /scrollLockCount/);

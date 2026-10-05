@@ -41,6 +41,7 @@ export function SheetFrame({
   panelRef,
   headingRef,
   onClickCapture,
+  nested = false,
 }: {
   variant?: SheetFrameVariant;
   title: string;
@@ -61,6 +62,8 @@ export function SheetFrame({
   panelRef?: (node: HTMLElement | null) => void;
   headingRef?: Ref<HTMLHeadingElement>;
   onClickCapture?: React.MouseEventHandler<HTMLElement>;
+  /** G136: this frame stacks over another sheet that already dims the page, so it omits its own dim. Everything else (click-catcher, focus trap, history) is unchanged. */
+  nested?: boolean;
 }) {
   const mounted = useSyncExternalStore(() => () => {}, () => true, () => false);
   const reactId = useId();
@@ -157,7 +160,7 @@ export function SheetFrame({
   const renderedFooter = typeof footer === "function" ? footer({ close, closeThen }) : footer;
   return createPortal(
     <div data-sheet-overlay className={`${themeClass ?? ""} fixed inset-0 z-[70] flex items-end justify-center p-0 lg:items-center lg:p-6`} style={viewport ?? undefined}>
-      <button ref={backdropRef} type="button" tabIndex={-1} aria-hidden="true" onClick={() => { if (!dismissDisabled) close(); }} className="absolute inset-0 cursor-default bg-black/40 fade-in" />
+      <button ref={backdropRef} type="button" tabIndex={-1} aria-hidden="true" onClick={() => { if (!dismissDisabled) close(); }} className={`absolute inset-0 cursor-default ${nested ? "" : "bg-black/40 fade-in"}`} />
       <section
         data-sheet-frame
         ref={setPanel}

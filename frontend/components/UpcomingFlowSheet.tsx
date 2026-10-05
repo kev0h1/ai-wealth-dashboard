@@ -57,7 +57,11 @@ function focusSelector() {
   return document.activeElement.id ? `#${CSS.escape(document.activeElement.id)}` : null;
 }
 
-/** One physical sheet for a details/edit flow. Child bodies must not portal or lock scroll. */
+/** One physical sheet for a details/edit flow. Child bodies must not portal or lock scroll, with ONE
+ *  exception (G136): components/DatePicker opens a nested SheetFrame, which does both. That is safe
+ *  because the picker owns its own history entry, and useSheetA11y builds that entry by spreading the
+ *  current history.state, so this flow's __upcomingFlowId and __upcomingFlowDepth keys survive; closing
+ *  the picker pops only its own entry and never touches the flow (check:g192-sheet-anatomy pins the spread). */
 export default function UpcomingFlowSheet<View>({ initialView, onClose, renderView }: UpcomingFlowSheetProps<View>) {
   const id = useId();
   const mounted = useSyncExternalStore(subscribe, () => true, () => false);
