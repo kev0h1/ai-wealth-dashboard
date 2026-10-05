@@ -96,6 +96,7 @@ Final published versions:
 - Terms and Conditions: https://wealth.auriqltd.co.uk/terms
 - Privacy Policy: https://wealth.auriqltd.co.uk/privacy
 PDF copies attached, exported 2026-09-10 from the live pages: https://wealth.auriqltd.co.uk/TERMS.pdf (7 pages, "Last updated: 2026-09-08", version 1.0) and https://wealth.auriqltd.co.uk/PRIVACY.pdf (7 pages, "Last updated: 2026-09-10", version 1.0). Both confirmed live and downloadable, and checked for content: neither PDF mentions the MCP connector or "connected assistant" feature described in Q2, consistent with that feature being planned but not enabled in production.
+Update 2026-10-05 (A142): the PDF copies were regenerated on 2026-10-05 from the A109 sources ("Last updated: 2026-09-23", periodic reconfirmation to Finexer wording) and will match the live pages once released to production.
 
 We confirm they accurately reflect the Sorted service:
 - Finexer's role and the AIS arrangement: Terms sections 2 and 5; Privacy sections 1, 4 and 6 (Finexer listed as the open banking sub-processor).
