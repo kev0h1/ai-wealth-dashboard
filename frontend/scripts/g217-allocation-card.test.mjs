@@ -19,8 +19,14 @@ assert.match(brief, /<Link href=\{item\.action\.route\} className=\{`\$\{PRIMARY
 for (const n of ["BRIEF_CARD", "SECONDARY_ACTION", "BriefIcon", "KindLabel", "DismissChip", "MoveAccountIcon"]) {
   assert.match(brief, new RegExp(`export (const|function) ${n}\\b`), `${n} must stay exported`);
 }
-const variants = readFileSync(new URL("../app/design/allocation-shortfall/Variants.tsx", import.meta.url), "utf8")
+const strip = (f) => readFileSync(new URL(`../app/design/allocation-shortfall/${f}`, import.meta.url), "utf8")
   .split("\n").filter((l) => !l.trim().startsWith("//")).join("\n");
-assert.doesNotMatch(variants, /\b(red|rose|amber)-\d|BRAND_GRADIENT|PennyKindLabel|PennyMark/);
-assert.doesNotMatch(variants, /\u2014/);
+for (const f of ["Variants.tsx", "fixtures.ts", "AllocationShortfallClient.tsx"]) {
+  const src = strip(f);
+  assert.doesNotMatch(src, /(?:text|bg|border|ring|from|to|via|fill|stroke|decoration)-(?:red|rose|amber)\b/, `${f}: no red, rose or amber`);
+  assert.doesNotMatch(src, /\b(?:red|rose|amber)-\d/, `${f}: no red, rose or amber`);
+  assert.doesNotMatch(src, /BRAND_GRADIENT|PennyKindLabel|PennyMark/, `${f}: no Penny gradient`);
+  assert.doesNotMatch(src, /\u2014/, `${f}: no em dash`);
+}
+assert.match(strip("Variants.tsx"), /min-h-11 min-w-11/, "Fix target keeps 44px both ways");
 console.log("g217-allocation-card OK");

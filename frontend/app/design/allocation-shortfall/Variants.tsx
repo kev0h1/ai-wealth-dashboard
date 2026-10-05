@@ -62,7 +62,7 @@ export function VariantA({ s }: { s: AllocationShortfall }) {
   );
 }
 
-const TEXT_ACTION = "inline-flex min-h-11 touch-manipulation items-center justify-center rounded-xl px-3 text-[13px] font-semibold text-slate-700 underline decoration-slate-300 underline-offset-4 [-webkit-tap-highlight-color:transparent] active:scale-95 transition-[transform,background-color] duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 [@media(hover:hover)]:hover:bg-slate-100 dark:text-slate-200 dark:decoration-slate-500 dark:[@media(hover:hover)]:hover:bg-slate-700";
+const TEXT_ACTION = "inline-flex min-h-11 min-w-11 touch-manipulation items-center justify-center rounded-xl px-3 text-[13px] font-semibold text-slate-700 underline decoration-slate-300 underline-offset-4 [-webkit-tap-highlight-color:transparent] active:scale-95 transition-[transform,background-color] duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 [@media(hover:hover)]:hover:bg-slate-100 dark:text-slate-200 dark:decoration-slate-500 dark:[@media(hover:hover)]:hover:bg-slate-700";
 
 // B: plan note. Name leads, figure second, equal text actions, softer surface.
 export function VariantB({ s }: { s: AllocationShortfall }) {
@@ -116,7 +116,7 @@ export function VariantC({ s, sheetOpen: initialOpen = false }: { s: AllocationS
         </div>
       </div>
       {open && (
-        <SheetFrame variant="compact" title={`Adjust this period's ${name} set-aside`} description="Choose either option. Neither changes your future set-asides." onClose={() => setOpen(false)}>
+        <SheetFrame variant="compact" title={`Adjust the ${name} set-aside`} description="For this period only. Choose either option." onClose={() => setOpen(false)}>
           <div className="space-y-2">
             {s.source && (
               <button type="button" onClick={() => setOpen(false)} className={option}>
