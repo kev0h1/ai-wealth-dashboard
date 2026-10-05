@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.core import timeutil
 from app.core.auth import current_user
-from app.core.config import BILLING_ENABLED, PRIMARY_EMAIL
+from app.core.config import BILLING_ENABLED, BILLING_PAST_DUE_GRACE_DAYS, PRIMARY_EMAIL
 from app.core.subscription import (
     MCP_CALL_PACKS, PENNY_TOPUP, PENNY_TOPUP_LIFETIME_DAYS, PENNY_TOPUP_PACKS,
     SUBSCRIPTION_PERIODS_ENABLED, SUBSCRIPTION_TRIAL_DAYS, SUBSCRIPTION_TRIAL_PERIODS,
@@ -133,6 +133,7 @@ async def get_subscription_info(user: dict = Depends(current_user)):
         # B45: failed-payment grace (access runs to this instant) and the
         # plan-has-no-open-banking flag the accounts screen reads as "paused".
         "past_due": sub.status == "past_due",
+        "grace_days": BILLING_PAST_DUE_GRACE_DAYS,
         "grace_until": sub.grace_until.isoformat() if getattr(sub, "grace_until", None) else None,
         "open_banking_paused": (getattr(sub, "limits", None) or {}).get("open_banking") is False,
         "billing_live": BILLING_ENABLED,

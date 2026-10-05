@@ -205,9 +205,9 @@ export default function PlanPicker({
   // B45: every paid plan starts with the trial, so it is no longer an
   // opt-in switch. It simply applies whenever the period carries one and
   // Checkout would grant it (one per person, `trial_eligible` from the
-  // server; absent on an older API payload, where having had a paid
-  // subscription is the only signal).
-  const trialEligible = info.trial_eligible ?? true;
+  // server; absent or null when the check could not run, in which case no trial
+  // statement is promised and Checkout still decides).
+  const trialEligible = info.trial_eligible ?? false;
   const trialActive = isTrialPeriod && trialEligible && !hasPaidSubscription;
   // B26: Apple's guideline 3.1.1 (and, for now, Android not being enrolled
   // in Play's billing-choice programme) means a native build can never

@@ -98,7 +98,7 @@ async def _warm_after_sync(user_id: str) -> None:
 async def task_sync_truelayer(ctx, connection_id: str, user_id: str):
     # B45: webhook-driven and retried jobs reach here without passing the
     # reconcile cron's tier check, so the pause is enforced at the task too.
-    if await open_banking_paused(user_id):
+    if await open_banking_paused(user_id, fail_closed=True):
         return {"skipped": "open_banking_paused"}
     ids, new_count = await sync_connection(connection_id, user_id)
     await apply_rules_bulk(user_id, structural=True)
@@ -119,7 +119,7 @@ async def task_sync_truelayer(ctx, connection_id: str, user_id: str):
 async def task_sync_yapily(ctx, consent_token: str, user_id: str):
     # B45: webhook-driven and retried jobs reach here without passing the
     # reconcile cron's tier check, so the pause is enforced at the task too.
-    if await open_banking_paused(user_id):
+    if await open_banking_paused(user_id, fail_closed=True):
         return {"skipped": "open_banking_paused"}
     await sync_yapily_consent(consent_token, user_id)
     await apply_rules_bulk(user_id, structural=True)
@@ -132,7 +132,7 @@ async def task_sync_yapily(ctx, consent_token: str, user_id: str):
 async def task_sync_finexer(ctx, consent_id: str, user_id: str):
     # B45: webhook-driven and retried jobs reach here without passing the
     # reconcile cron's tier check, so the pause is enforced at the task too.
-    if await open_banking_paused(user_id):
+    if await open_banking_paused(user_id, fail_closed=True):
         return {"skipped": "open_banking_paused"}
     result = await finexer_sync_pipeline(consent_id, user_id)
     await _enqueue_weekly_insight_refresh(ctx, user_id)

@@ -7,7 +7,7 @@ from fastapi.responses import RedirectResponse
 from app.core.auth import current_user
 from app.core.config import YAPILY_APP_UUID, YAPILY_BASE_URL, APP_URL
 from app.core.crypto import encrypt_token, token_fingerprint
-from app.core.subscription import check_connection_limit, check_open_banking_allowed
+from app.core.subscription import check_connection_limit, check_open_banking_allowed, open_banking_paused
 from app.db.collections import yapily_consents_col, yapily_accounts_col, yapily_transactions_col
 from app.services.yapily_sync import sync_yapily_consent, yapily_headers
 import httpx
@@ -106,6 +106,9 @@ async def yapily_callback(consent: str = "", error: str = ""):
 @router.post("/yapily/sync")
 async def yapily_sync_all(user: dict = Depends(current_user)):
     uid      = user["email"]
+    # B45: no bank sync on a plan without open banking.
+    if await open_banking_paused(uid):
+        return {"message": "Bank sync is paused on your plan", "paused": True}
     consents = await yapily_consents_col.find({"user_id": uid, "status": "AUTHORIZED"}).to_list(None)
     for c in consents:
         asyncio.create_task(sync_yapily_consent(c["_id"], uid))

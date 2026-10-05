@@ -101,18 +101,31 @@ def test_trial_still_one_per_person(monkeypatch):
         ))
 
 
-def test_webhook_preserves_b47_reset_marker_and_restamps_trial_used(env):
+def _trial_checkout_allowed(subs_doc):
+    return _run(billing_module.trial_eligible(UID))
+
+
+def test_b47_reset_marker_makes_ended_doc_eligible_and_new_trial_ends_it(env):
+    """Real B47 rule (merged into this branch): a reset marker makes a
+    non-live document eligible again, and a trial used after the reset makes
+    it ineligible again. The webhook preserves the marker and re-stamps
+    trial_used_at."""
     subs, _ = env
     reset_at = NOW - timedelta(hours=1)
     subs.docs.append({"user_id": UID, "tier": "standard", "status": "expired", "source": "stripe",
                       "stripe_subscription_id": "sub_old", "trial_used_at": NOW - timedelta(days=60),
                       "trial_reset_at": reset_at})
+    assert _run(billing_module.trial_eligible(UID)) is True
     _feed(_sub_event("e_new_trial", "trialing", days_to_end=14, trial_start=int(NOW.timestamp()),
-                     trial_end=_ts(14), sub_id="sub_new"))
+                     trial_end=_ts(14), sub_id="sub_new", created=int(NOW.timestamp())))
     doc = subs.docs[0]
-    assert doc["trial_reset_at"] == reset_at          # never cleared by the webhook
-    assert doc["trial_used_at"] > reset_at            # B47's rule then makes a second trial ineligible
+    assert doc["trial_reset_at"] == reset_at
+    assert doc["trial_used_at"] > reset_at
     assert doc["status"] == "trialing" and doc["stripe_subscription_id"] == "sub_new"
+    # the new trial ends; the marker no longer helps
+    _feed({"id": "e_del", "type": "customer.subscription.deleted",
+           "data": {"object": {"id": "sub_new", "customer": "cus_1", "metadata": {"uid": UID}}}})
+    assert _run(billing_module.trial_eligible(UID)) is False
 
 
 # ── b. webhook lifecycle ──────────────────────────────────────────────────
@@ -418,3 +431,138 @@ def test_trial_eligible_true_for_new_user_false_after_trial(env):
     _feed({"id": "e2", "type": "customer.subscription.deleted",
            "data": {"object": {"id": "sub_1", "customer": "cus_1", "metadata": {"uid": UID}}}})
     assert _run(billing_module.trial_eligible(UID)) is False
+
+
+# ── review round: ordering hardening ──────────────────────────────────────
+
+def _failed(eid, sub_id="sub_1"):
+    ev = _invoice_event(eid, "invoice.payment_failed", sub_id=sub_id)
+    return ev
+
+
+def test_late_payment_failed_cannot_revive_an_expired_doc(env):
+    subs, pushes = env
+    _feed(_sub_event("e1", "active"))
+    _feed({"id": "e2", "type": "customer.subscription.deleted",
+           "data": {"object": {"id": "sub_1", "customer": "cus_1", "metadata": {"uid": UID}}}})
+    res = _feed(_failed("e3"))
+    assert res["handled"] is False
+    assert subs.docs[0]["status"] == "expired" and "grace_until" not in subs.docs[0]
+    assert _run(sub_module.get_subscription(UID)).tier == sub_module.Tier.STATEMENTS
+    assert pushes == []
+
+
+def test_payment_failed_for_superseded_subscription_is_ignored(env):
+    subs, _ = env
+    _feed(_sub_event("e1", "active", sub_id="sub_new"))
+    res = _feed(_failed("e2", sub_id="sub_old"))
+    assert res["handled"] is False and subs.docs[0]["status"] == "active"
+
+
+def test_payment_failed_for_one_off_invoice_is_ignored(env):
+    subs, _ = env
+    _feed(_sub_event("e1", "active"))
+    ev = {"id": "e2", "type": "invoice.payment_failed", "data": {"object": {
+        "customer": "cus_1", "metadata": {"uid": UID}, "lines": {"data": []}}}}
+    assert _feed(ev)["handled"] is False and subs.docs[0]["status"] == "active"
+
+
+def test_late_subscription_updated_cannot_reactivate_a_cancelled_doc(env):
+    subs, _ = env
+    _feed(_sub_event("e1", "active"))
+    _feed({"id": "e2", "type": "customer.subscription.deleted",
+           "data": {"object": {"id": "sub_1", "customer": "cus_1", "metadata": {"uid": UID}}}})
+    res = _feed(_sub_event("e3", "active"))
+    assert res["handled"] is False and subs.docs[0]["status"] == "expired"
+
+
+def test_incomplete_then_active_same_subscription_still_activates(env):
+    subs, _ = env
+    _feed(_sub_event("e1", "incomplete"))
+    assert subs.docs[0]["status"] == "expired"
+    _feed(_sub_event("e2", "active"))
+    assert subs.docs[0]["status"] == "active"
+
+
+def test_older_subscription_update_cannot_overwrite_newer_one(env):
+    subs, _ = env
+    _feed(_sub_event("e1", "active", sub_id="sub_new", created=2000))
+    res = _feed(_sub_event("e2", "canceled", sub_id="sub_old", created=1000))
+    assert res["handled"] is False and subs.docs[0]["status"] == "active"
+    assert subs.docs[0]["stripe_subscription_id"] == "sub_new"
+
+
+def test_newer_subscription_replaces_live_one(env):
+    subs, _ = env
+    _feed(_sub_event("e1", "active", sub_id="sub_a", created=1000))
+    _feed(_sub_event("e2", "active", sub_id="sub_b", created=2000))
+    assert subs.docs[0]["stripe_subscription_id"] == "sub_b"
+
+
+def test_unresolvable_uid_logs_a_warning(env, caplog):
+    import logging
+    with caplog.at_level(logging.WARNING, logger="app.services.billing"):
+        res = _feed({"id": "e1", "type": "invoice.paid",
+                     "data": {"object": {"customer": "cus_unknown", "metadata": {}}}})
+    assert res["handled"] is False
+    assert any("resolved no uid" in r.message for r in caplog.records)
+
+
+def test_payment_failed_body_states_grace_days_from_config(monkeypatch):
+    monkeypatch.setattr(config_module, "BILLING_PAST_DUE_GRACE_DAYS", 5)
+    assert "next 5 days" in lifecycle_module.payment_failed_body()
+
+
+# ── review round: more sync guards and fail-closed ────────────────────────
+
+def test_sync_history_and_yapily_sync_are_noops_when_paused(env):
+    import app.routers.accounts as accounts_router
+    import app.routers.yapily as yapily_router
+    subs, _ = env
+    subs.docs.append({"user_id": UID, "tier": "statements", "status": "active"})
+    assert _run(accounts_router.sync_history({"email": UID}))["paused"] is True
+    assert _run(yapily_router.yapily_sync_all({"email": UID}))["paused"] is True
+
+
+def test_fail_closed_flag_both_ways(monkeypatch):
+    async def boom(_):
+        raise RuntimeError("db down")
+    monkeypatch.setattr(sub_module, "get_subscription", boom)
+    assert _run(sub_module.open_banking_paused(UID)) is False
+    assert _run(sub_module.open_banking_paused(UID, fail_closed=True)) is True
+
+
+def test_worker_tasks_fail_closed_on_lookup_error(monkeypatch):
+    async def boom(_):
+        raise RuntimeError("db down")
+    monkeypatch.setattr(sub_module, "get_subscription", boom)
+    called = []
+
+    async def _never(*a, **k):
+        called.append(1)
+        return {}
+
+    monkeypatch.setattr(sync_worker, "finexer_sync_pipeline", _never)
+    assert _run(sync_worker.task_sync_finexer({}, "c1", UID)) == {"skipped": "open_banking_paused"}
+    assert called == []
+
+
+def test_daily_trial_reminder_skips_cancelled_trials(monkeypatch):
+    from tests.test_trial_reminder import FakeCol as ReminderCol
+    naive_now = datetime.utcnow()  # naive-ok: test fixture, Mongo-style naive UTC
+    docs = [
+        {"user_id": "a@x.com", "tier": "standard", "status": "trialing", "billing_period": "monthly",
+         "trial_ends_at": naive_now + timedelta(days=2), "cancel_at_period_end": True},
+        {"user_id": "b@x.com", "tier": "standard", "status": "trialing", "billing_period": "monthly",
+         "trial_ends_at": naive_now + timedelta(days=2)},
+    ]
+    monkeypatch.setattr(sync_worker, "subscriptions_col", ReminderCol(docs))
+    sent = []
+
+    async def _push(uid, title, body, url="/"):
+        sent.append(uid)
+        return {}
+
+    monkeypatch.setattr(sync_worker, "send_push_to_user", _push)
+    assert _run(sync_worker.task_trial_reminder({}))["sent"] == 1
+    assert sent == ["b@x.com"]

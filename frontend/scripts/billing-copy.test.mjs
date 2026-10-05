@@ -8,7 +8,7 @@ const strings = [
   copy.trialDisclosureLine(14, 9.99, "on 19 Oct 2026", "every month"),
   copy.trialCancelLine("before 19 Oct 2026"),
   copy.endsOnLine("2026-10-19", () => "19 Oct 2026"),
-  copy.PAYMENT_FAILED_TITLE, copy.PAYMENT_FAILED_BODY, copy.FIX_PAYMENT_LABEL,
+  copy.PAYMENT_FAILED_TITLE, copy.paymentFailedBody(7), copy.paymentFailedBody(), copy.FIX_PAYMENT_LABEL,
   copy.PAUSED_BANKS_TITLE, copy.pausedBanksBody(1), copy.pausedBanksBody(3), copy.RESUBSCRIBE_LABEL,
 ];
 for (const s of strings) {
@@ -25,6 +25,8 @@ assert.equal(copy.pausedBanksBody(1).startsWith("Your connected account is"), tr
 assert.equal(copy.pausedBanksBody(2).startsWith("Your 2 connected accounts are"), true);
 assert.match(copy.pausedBanksBody(2), /already synced stays here to read/);
 
+assert.match(copy.paymentFailedBody(7), /for the next 7 days/);
+assert.doesNotMatch(copy.paymentFailedBody(), /full access/);
 assert.equal(copy.pausedAccountCount([{ paused: true }, { paused: false }, {}]), 1);
 assert.equal(copy.pausedAccountCount([]), 0);
 console.log("billing-copy: ok");

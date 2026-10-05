@@ -35,13 +35,13 @@ Shown on the plan picker whenever a paid plan and period carry a trial the user 
 ## 3. Notifications
 
 - Trial ending (about three days before): title `Your free trial ends soon`, body `Your free trial ends on 19 October 2026. £9.99 will be charged then unless you cancel from Settings, Your plan.` Not sent if the user has already cancelled.
-- Failed payment (once per episode): title `Payment didn't go through`, body `We couldn't take your latest payment. Update your card in Settings, Your plan, to keep your plan. We'll try again over the next few days.`
+- Failed payment (once per episode): title `Payment didn't go through`, body `We couldn't take your latest payment. Update your card in Settings, Your plan, to keep your plan. You keep access for the next 7 days while we try again.` (the 7 comes from `BILLING_PAST_DUE_GRACE_DAYS`)
 
 ## 4. Settings, Your plan
 
 - Trialing: `Standard trial, free until 19 Oct 2026`
 - Cancelled, still inside the paid or trial period: `Standard plan. Ends on 19 Oct 2026`
-- Past due notice (amber dot, ink text): `Payment didn't go through` / `We couldn't take your latest payment. Update your card to keep your plan. You keep full access while we try again.` Button: `Fix payment` (opens the Stripe customer portal).
+- Past due notice (amber dot, ink text): `Payment didn't go through` / `We couldn't take your latest payment. Update your card to keep your plan. You keep access for the next 7 days while we try again.` Button: `Fix payment` (opens the Stripe customer portal).
 - After a paid plan has ended: `Statements plan, free. Your paid plan has ended`
 
 ## 5. Paused accounts (Accounts screen)
@@ -55,5 +55,5 @@ Neutral strip with a pause glyph, not amber or red, because it is a plan state t
 
 ## 6. Behaviour decisions this copy relies on
 
-- Failed-payment grace is 7 days from the first failed payment (`BILLING_PAST_DUE_GRACE_DAYS`), bounded by Stripe's own retry schedule. The body copy says "a few days", so the number can change without a copy change.
+- Failed-payment grace is 7 days from the first failed payment (`BILLING_PAST_DUE_GRACE_DAYS`), bounded by Stripe's own retry schedule. The copy states the number, derived from that setting in the backend and from `grace_days` on `GET /subscription` in the app, so it cannot drift.
 - Consent revocation default: off (consent kept). The TERMS bracket above must be resolved either way.

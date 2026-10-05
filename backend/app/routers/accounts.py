@@ -274,6 +274,10 @@ async def sync_all(user: dict = Depends(current_user)):
 @router.post("/accounts/sync-history")
 async def sync_history(user: dict = Depends(current_user)):
     uid = user["email"]
+    # B45: same pause as POST /accounts/sync.
+    if await open_banking_paused(uid):
+        return {"message": "Bank sync is paused on your plan", "paused": True,
+                "connections": 0, "total_accounts": 0}
 
     conns   = await connections_col.find({"user_id": uid}).to_list(None)
     from_dt = (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")

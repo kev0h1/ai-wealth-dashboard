@@ -738,6 +738,8 @@ export interface SubscriptionInfo {
   /** B45: failed payment, access kept until `grace_until`. */
   past_due?: boolean;
   grace_until?: string | null;
+  /** B45: length of the failed-payment grace window in days. */
+  grace_days?: number;
   /** B45: this plan has no open banking (Statements), so bank sync is paused. */
   open_banking_paused?: boolean;
   /** @deprecated see SubscriptionTopup's own note — use `topups`. */

@@ -313,17 +313,19 @@ async def get_subscription(email: str) -> Subscription:
     )
 
 
-async def open_banking_paused(email: str) -> bool:
+async def open_banking_paused(email: str, *, fail_closed: bool = False) -> bool:
     """B45: True when this user's effective plan has no open banking, so
     every bank sync (scheduled, webhook-driven or manual) must be skipped
-    and their connected accounts shown as paused. Fails OPEN on any lookup
-    error (a transient Mongo failure must not silently stop a paying user's
-    sync, matching the reconcile cron's own cadence fallback)."""
+    and their connected accounts shown as paused. On a lookup error it fails
+    OPEN by default (display and a user's manual tap must not wrongly stop a
+    paying user); the scheduled worker tasks pass fail_closed=True, because a
+    missed cycle is simply retried while a wrongly-run sync costs money
+    (Finexer bills per connected account)."""
     try:
         sub = await get_subscription(email)
     except Exception:
-        logger.exception("open_banking_paused: subscription lookup failed, treating as not paused")
-        return False
+        logger.exception("open_banking_paused: subscription lookup failed, fail_closed=%s", fail_closed)
+        return fail_closed
     return sub.limit("open_banking") is False
 
 

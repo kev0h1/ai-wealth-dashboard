@@ -493,6 +493,11 @@ def _subscription_for_price_id(price_id: str) -> tuple[str, str] | None:
     return None
 
 
+def _no_uid() -> dict:
+    logger.warning("billing: webhook object resolved no uid (no metadata.uid and unknown customer)")
+    return {"handled": False, "reason": "no uid resolvable"}
+
+
 async def _resolve_uid(obj: dict) -> str | None:
     """`metadata.uid` first (set on the Checkout Session and carried onto
     the Subscription/Invoice it creates), falling back to a
@@ -537,7 +542,7 @@ async def _handle_subscription_upsert(sub_obj: dict) -> dict:
 
     uid = await _resolve_uid(sub_obj)
     if not uid:
-        return {"handled": False, "reason": "no uid resolvable"}
+        return _no_uid()
 
     items = (sub_obj.get("items") or {}).get("data") or []
     price = (items[0] or {}).get("price") if items else None
@@ -613,12 +618,19 @@ async def _handle_subscription_upsert(sub_obj: dict) -> dict:
         subscription_fields["trial_used_at"] = trial_started_at
 
     existing = dict(await subscriptions_col.find_one({"user_id": uid}) or {})
+    stale = _stale_subscription_event(existing, sub_obj, status)
+    if stale:
+        return {"handled": False, "reason": stale}
+    if sub_obj.get("created"):
+        subscription_fields["stripe_created"] = sub_obj["created"]
+    if sub_obj.get("status") == "canceled":
+        subscription_fields["ended_at"] = now
     update: dict = {"$set": subscription_fields, "$setOnInsert": {"started_at": now}}
     newly_past_due = False
     if status == "past_due":
         newly_past_due = _stamp_past_due(subscription_fields, existing, now)
     elif status in ("active", "trialing"):
-        update["$unset"] = {"past_due_since": "", "grace_until": ""}
+        update["$unset"] = {"past_due_since": "", "grace_until": "", "ended_at": ""}
     # A document already "expired" that Stripe now reports active or
     # trialing (the user resubscribed through a new Checkout) is simply
     # overwritten, which is what re-enables sync: nothing else is stored.
@@ -631,6 +643,30 @@ async def _handle_subscription_upsert(sub_obj: dict) -> dict:
         "tier": tier, "status": status, "billing_period": billing_period,
         **effects,
     }
+
+
+def _stale_subscription_event(existing: dict, sub_obj: dict, status: str) -> str | None:
+    """Reason to ignore a subscription event that would overwrite newer
+    state, or None. Stripe does not order events, so (a) an update for a
+    subscription that is not the stored one is applied only if it is newer
+    (Stripe `created`), which is how a genuine resubscribe gets in while a
+    late event for the old subscription does not, and (b) an update for the
+    stored subscription cannot reactivate it once it has been cancelled."""
+    cur_id = existing.get("stripe_subscription_id")
+    new_id = sub_obj.get("id")
+    if not existing or not cur_id or not new_id:
+        return None
+    if cur_id != new_id:
+        created, stored = sub_obj.get("created"), existing.get("stripe_created")
+        live = existing.get("status") in ("active", "trialing", "past_due")
+        if stored and created and created < stored:
+            return "event is for an older subscription"
+        if live and not (stored and created and created > stored):
+            return "event is for a different subscription than the live one"
+        return None
+    if existing.get("ended_at") and status in ("active", "trialing", "past_due"):
+        return "subscription already ended"
+    return None
 
 
 def _stamp_past_due(fields: dict, existing: dict, now: datetime) -> bool:
@@ -658,7 +694,7 @@ async def _after_transition(uid: str, *, newly_past_due: bool = False, landed_on
     out: dict = {}
     if newly_past_due:
         await billing_lifecycle.notify(
-            uid, billing_lifecycle.PAYMENT_FAILED_TITLE, billing_lifecycle.PAYMENT_FAILED_BODY,
+            uid, billing_lifecycle.PAYMENT_FAILED_TITLE, billing_lifecycle.payment_failed_body(),
         )
         out["notified"] = "payment_failed"
     if landed_on_statements:
@@ -671,7 +707,7 @@ async def _handle_subscription_deleted(sub_obj: dict) -> dict:
 
     uid = await _resolve_uid(sub_obj)
     if not uid:
-        return {"handled": False, "reason": "no uid resolvable"}
+        return _no_uid()
 
     existing = dict(await subscriptions_col.find_one({"user_id": uid}) or {})
     deleted_id = sub_obj.get("id")
@@ -680,7 +716,8 @@ async def _handle_subscription_deleted(sub_obj: dict) -> dict:
         # must not expire the live one.
         return {"handled": False, "reason": "deleted subscription is not the current one"}
     update = {
-        "$set": {"status": "expired", "updated_at": datetime.now(timezone.utc), "source": "stripe"},  # naive-ok: persisted audit instant
+        "$set": {"status": "expired", "updated_at": datetime.now(timezone.utc), "source": "stripe",  # naive-ok: persisted audit instant
+                 "ended_at": datetime.now(timezone.utc)},  # naive-ok: persisted audit instant
         "$unset": {"past_due_since": "", "grace_until": ""},
     }
     await subscriptions_col.update_one({"user_id": uid}, update)
@@ -693,11 +730,18 @@ async def _handle_payment_failed(invoice_obj: dict) -> dict:
 
     uid = await _resolve_uid(invoice_obj)
     if not uid:
-        return {"handled": False, "reason": "no uid resolvable"}
+        return _no_uid()
 
     existing = await subscriptions_col.find_one({"user_id": uid})
     if not existing:
         return {"handled": False, "reason": "no subscription on file"}
+    # Stripe does not order events: a late failure for an ended subscription,
+    # a superseded one, or a one-off invoice must never revive a paid tier.
+    if existing.get("status") not in ("active", "trialing", "past_due"):
+        return {"handled": False, "reason": f"subscription is {existing.get('status')!r}, not live"}
+    invoice_sub = _invoice_subscription_id(invoice_obj)
+    if not invoice_sub or invoice_sub != existing.get("stripe_subscription_id"):
+        return {"handled": False, "reason": "invoice is not for the current subscription"}
     now = datetime.now(timezone.utc)  # naive-ok: persisted audit instant
     fields = {"status": "past_due", "updated_at": now, "source": "stripe"}
     newly = _stamp_past_due(fields, existing, now)
@@ -733,7 +777,7 @@ async def _handle_invoice_paid(invoice_obj: dict) -> dict:
 
     uid = await _resolve_uid(invoice_obj)
     if not uid:
-        return {"handled": False, "reason": "no uid resolvable"}
+        return _no_uid()
     if not (invoice_obj.get("amount_paid") or 0) > 0:
         return {"handled": False, "reason": "zero-amount invoice, nothing to convert"}
 
@@ -767,7 +811,7 @@ async def _handle_trial_will_end(sub_obj: dict) -> dict:
 
     uid = await _resolve_uid(sub_obj)
     if not uid:
-        return {"handled": False, "reason": "no uid resolvable"}
+        return _no_uid()
     doc = await subscriptions_col.find_one({"user_id": uid})
     if not doc or doc.get("status") != "trialing":
         return {"handled": False, "reason": "not trialing"}

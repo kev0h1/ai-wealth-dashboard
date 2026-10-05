@@ -28,7 +28,7 @@ import { refreshPennyUsage } from "@/components/PennySheetProvider";
 import { usePurchaseAvailability, PURCHASE_UNAVAILABLE_SENTENCE } from "@/lib/nativeAuth";
 import { SheetFrame } from "@/components/SheetFrame";
 import { api } from "@/lib/api";
-import { endsOnLine, FIX_PAYMENT_LABEL, PAYMENT_FAILED_BODY, PAYMENT_FAILED_TITLE } from "@/lib/billingCopy";
+import { endsOnLine, FIX_PAYMENT_LABEL, paymentFailedBody, PAYMENT_FAILED_TITLE } from "@/lib/billingCopy";
 
 const INDIGO = "#4f46e5";
 
@@ -132,7 +132,7 @@ export default function YourPlanCard({
             <span aria-hidden="true" className="mt-1 h-2 w-2 shrink-0 rounded-full bg-amber-500" />
             {PAYMENT_FAILED_TITLE}
           </p>
-          <p className="mt-1 pl-4 text-[11px] leading-snug text-slate-600 dark:text-slate-300">{PAYMENT_FAILED_BODY}</p>
+          <p className="mt-1 pl-4 text-[11px] leading-snug text-slate-600 dark:text-slate-300">{paymentFailedBody(info.grace_days)}</p>
           {purchaseAvailability === "web" && (
             <button
               type="button"

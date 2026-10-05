@@ -1205,12 +1205,12 @@ def test_subscription_deleted_marks_expired(monkeypatch):
 
 
 def test_invoice_payment_failed_marks_past_due(monkeypatch):
-    fake_subs = _FakeCol([{"user_id": UID, "tier": "standard", "status": "active"}])
+    fake_subs = _FakeCol([{"user_id": UID, "tier": "standard", "status": "active", "stripe_subscription_id": "sub_1"}])
     _patch_collections(monkeypatch, billing_events_col=_FakeCol(), subscriptions_col=fake_subs)
 
     event = {
         "id": "evt_invoice_failed", "type": "invoice.payment_failed",
-        "data": {"object": {"customer": "cus_1", "metadata": {"uid": UID}}},
+        "data": {"object": {"customer": "cus_1", "metadata": {"uid": UID}, "subscription": "sub_1"}},
     }
     result = _run(billing_module.handle_event(event))
     assert result["result"]["handled"] is True

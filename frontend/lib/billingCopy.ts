@@ -32,7 +32,10 @@ export function endsOnLine(isoDate: string, formatDate: (iso: string) => string)
 }
 
 export const PAYMENT_FAILED_TITLE = "Payment didn't go through";
-export const PAYMENT_FAILED_BODY = "We couldn't take your latest payment. Update your card to keep your plan. You keep full access while we try again.";
+export function paymentFailedBody(graceDays?: number): string {
+  const access = graceDays ? `You keep access for the next ${graceDays} days while we try again.` : "You should keep access for a few days while we try again.";
+  return `We couldn't take your latest payment. Update your card to keep your plan. ${access}`;
+}
 export const FIX_PAYMENT_LABEL = "Fix payment";
 
 export const PAUSED_BANKS_TITLE = "Bank sync is paused";

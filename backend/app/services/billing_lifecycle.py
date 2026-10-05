@@ -42,10 +42,17 @@ def trial_reminder_copy(doc: dict) -> tuple[str, str] | None:
 
 
 PAYMENT_FAILED_TITLE = "Payment didn't go through"
-PAYMENT_FAILED_BODY = (
-    "We couldn't take your latest payment. Update your card in Settings, "
-    "Your plan, to keep your plan. We'll try again over the next few days."
-)
+
+
+def payment_failed_body() -> str:
+    """Derived from BILLING_PAST_DUE_GRACE_DAYS so the stated window cannot
+    drift from the real one."""
+    from app.core.config import BILLING_PAST_DUE_GRACE_DAYS
+    return (
+        "We couldn't take your latest payment. Update your card in Settings, "
+        f"Your plan, to keep your plan. You keep access for the next {BILLING_PAST_DUE_GRACE_DAYS} days "
+        "while we try again."
+    )
 
 
 async def notify(uid: str, title: str, body: str, url: str = "/settings") -> bool:
