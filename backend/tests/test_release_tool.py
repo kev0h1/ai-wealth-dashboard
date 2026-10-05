@@ -754,3 +754,133 @@ def test_trigger_codemagic_custom_workflow_and_branch():
     )
     assert ok is True
     assert "ios-capacitor" in msg
+
+
+# ── H108: poll window, late-SUCCESS re-check, tag-only, Vercel rollback verify ──
+
+
+def test_timeout_minutes_flag_parsing():
+    parser = release.build_parser()
+    assert parser.parse_args(["deploy"]).timeout_minutes == 30
+    assert parser.parse_args(["deploy", "--timeout-minutes", "45"]).timeout_minutes == 45
+    assert parser.parse_args(["--timeout-minutes", "20", "rollback", "abc1234"]).timeout_minutes == 20
+    assert parser.parse_args(["rollback", "abc1234", "--timeout-minutes", "12"]).timeout_minutes == 12
+    assert release.timeout_seconds(30) == 1800
+    assert release.timeout_seconds(None) == release.DEPLOY_POLL_TIMEOUT_S == 1800
+    with pytest.raises(SystemExit):
+        parser.parse_args(["deploy", "--timeout-minutes", "0"])
+    with pytest.raises(SystemExit):
+        parser.parse_args(["deploy", "--timeout-minutes", "soon"])
+
+
+def test_final_recheck_decision_is_pure():
+    assert release.final_recheck_decision({"a": True, "b": True}) == "continue"
+    assert release.final_recheck_decision({"a": True, "b": False}) == "fail"
+    assert release.final_recheck_decision({}) == "fail"
+
+
+def _dep(status, sha="abc12345"):
+    return {"status": status, "meta": {"commitHash": sha, "branch": "release"}}
+
+
+def test_poll_railway_late_success_caught_by_final_recheck():
+    # The API service reaches SUCCESS only on the read taken after the window closed.
+    clock = {"t": 0.0}
+    reads = {"ai-wealth-dashboard": 0, "worker": 0}
+
+    def fetch(service):
+        reads[service] += 1
+        if service == "worker" or reads[service] >= 3:
+            return _dep("SUCCESS")
+        return _dep("BUILDING")
+
+    def sleep(n):
+        clock["t"] += n
+
+    done, _ = release.poll_railway_services(
+        "abc12345", False, 30, 15, fetch, sleep=sleep, clock=lambda: clock["t"],
+    )
+    assert reads["ai-wealth-dashboard"] == 3  # two in-window reads + the final re-check
+    assert release.final_recheck_decision(done) == "continue"
+
+
+def test_poll_railway_still_pending_after_final_recheck_fails():
+    clock = {"t": 0.0}
+
+    def sleep(n):
+        clock["t"] += n
+
+    done, _ = release.poll_railway_services(
+        "abc12345", False, 30, 15, lambda s: _dep("BUILDING"), sleep=sleep, clock=lambda: clock["t"],
+    )
+    assert release.final_recheck_decision(done) == "fail"
+
+
+def test_tag_only_argument_validation():
+    assert release.validate_tag_only_args("cd663f1f", "2026-10-05") == ("release-20261005-0000", None)
+    assert release.validate_tag_only_args("cd663f1f", "2026-10-05", "0930")[0] == "release-20261005-0930"
+    assert release.validate_tag_only_args(None, "2026-10-05")[1]
+    assert release.validate_tag_only_args("not-a-sha!", "2026-10-05")[1]
+    assert "--date" in release.validate_tag_only_args("cd663f1f", None)[1]
+    assert release.validate_tag_only_args("cd663f1f", "05/10/2026")[1]
+    assert release.validate_tag_only_args("cd663f1f", "2026-02-30")[1]
+    assert release.validate_tag_only_args("cd663f1f", "2026-10-05", "2575")[1]
+
+
+def test_tag_only_cli_rejects_missing_date_and_subcommand_mix(monkeypatch):
+    # Validation fails before any git or network call.
+    monkeypatch.setattr(release, "run_smoke_checks", lambda *a, **k: pytest.fail("network"))
+    assert release.main(["--tag-only", "cd663f1f"]) == 1
+    with pytest.raises(SystemExit):
+        release.main(["--tag-only", "cd663f1f", "--date", "2026-10-05", "check"])
+    with pytest.raises(SystemExit):
+        release.main([])
+
+
+def test_vercel_live_match_and_promote_target_selection():
+    proj = {"targets": {"production": {"meta": {"githubCommitSha": "aaaa1111bbbb"}}}}
+    assert release.vercel_live_matches(proj, "aaaa1111")
+    assert not release.vercel_live_matches(proj, "ffff0000")
+    assert not release.vercel_live_matches({}, "aaaa1111")
+    deps = [
+        {"uid": "d_new", "readyState": "READY", "meta": {"githubCommitSha": "cccc"}},
+        {"uid": "d_err", "readyState": "ERROR", "meta": {"githubCommitSha": "aaaa1111bbbb"}},
+        {"uid": "d_old", "readyState": "READY", "meta": {"githubCommitSha": "aaaa1111bbbb"}},
+    ]
+    assert release.find_vercel_deployment_for_sha(deps, "aaaa1111") == "d_old"
+    assert release.find_vercel_deployment_for_sha(deps, "zzzz") is None
+
+
+def test_verify_vercel_rollback_promotes_when_live_is_wrong(tmp_path):
+    (tmp_path / ".vercel").mkdir()
+    (tmp_path / ".vercel" / "project.json").write_text('{"projectId": "prj_1", "orgId": "team_1"}')
+    state = {"promoted": False}
+    calls = []
+
+    def http(method, url, token, timeout):
+        calls.append((method, url))
+        if method == "POST":
+            state["promoted"] = True
+            return {}
+        if "/v9/projects/" in url:
+            sha = "aaaa1111bbbb" if state["promoted"] else "cccc"
+            return {"targets": {"production": {"meta": {"githubCommitSha": sha}}}}
+        return {"deployments": [{"uid": "d_old", "readyState": "READY", "meta": {"githubCommitSha": "aaaa1111bbbb"}}]}
+
+    ok, msg = release.verify_vercel_rollback(
+        tmp_path, "aaaa1111", 5, http=http, token="t", sleep=lambda n: None, settle_checks=2,
+    )
+    assert ok and "promoted" in msg
+    assert any(m == "POST" and "/promote/d_old" in u for m, u in calls)
+
+
+def test_verify_vercel_rollback_no_promote_when_already_live(tmp_path):
+    (tmp_path / ".vercel").mkdir()
+    (tmp_path / ".vercel" / "project.json").write_text('{"projectId": "prj_1", "orgId": "team_1"}')
+
+    def http(method, url, token, timeout):
+        assert method == "GET"
+        return {"targets": {"production": {"meta": {"githubCommitSha": "aaaa1111bbbb"}}}}
+
+    ok, _ = release.verify_vercel_rollback(tmp_path, "aaaa1111", 5, http=http, token="t", sleep=lambda n: None)
+    assert ok

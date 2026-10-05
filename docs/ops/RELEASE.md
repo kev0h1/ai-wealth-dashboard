@@ -153,7 +153,9 @@ Runs `check` again and aborts on any red item. Records the pre-release
 then fast-forwards production with `git push origin main:release`
 (refused unless `origin/release` is an ancestor of `origin/main`, this
 tool never force-pushes here, that's what `rollback` is for). Polls, up
-to 15 minutes: Vercel until `vercel ls --prod` shows a Ready production
+to `--timeout-minutes` (default 30, H108: Railway builds take ~10 minutes
+each, so 15 was too tight), applied separately to Vercel and to each Railway
+service: Vercel until `vercel ls --prod` shows a Ready production
 deployment newer than the push, Railway until both services' latest
 deployment is `SUCCESS` at the released sha (if a service still deploys
 from `main`, `deploy` treats the current `SUCCESS` deployment already at
@@ -187,6 +189,27 @@ therefore be deployed before, or atomically with, the frontend for this
 endpoint. `deploy` already pushes both Vercel and Railway from the same
 `release` commit, so this holds today; keep it true if that ever changes.
 
+**Late SUCCESS (H108).** When the poll window closes, `deploy` takes one last
+status read of Vercel and of every still-pending Railway service before
+deciding. If they are all SUCCESS by then (a build that finished just after the
+window), it carries on to the smoke checks and the tag instead of failing. Only
+a service still not SUCCESS on that final read fails the deploy.
+
+### Tag a release that was deployed but never tagged
+
+```bash
+backend/.venv/bin/python scripts/release.py --tag-only <sha> --date YYYY-MM-DD [--time HHMM]
+# e.g. the 2026-10-05 release of cd663f1f, whose poll timed out although both services reached SUCCESS:
+backend/.venv/bin/python scripts/release.py --tag-only cd663f1f --date 2026-10-05
+```
+
+Creates the annotated tag `release-YYYYMMDD-HHMM` (HHMM defaults to `0000`)
+for a commit that is already deployed. It refuses unless the sha resolves, is
+contained in `origin/release`, and the tag does not already exist; it re-runs
+the production smoke checks first and does not tag if any fail, then pushes the
+tag. It deploys nothing. Run from the shared tree, by Kevin or the coordinator
+(a developer session never releases).
+
 ## d) Rollback
 
 ```bash
@@ -197,7 +220,15 @@ backend/.venv/bin/python scripts/release.py rollback <tag-or-sha>
 created, or a sha that is an ancestor of `main`, anything else is
 refused. Force-with-lease pushes `release` back to that sha
 (`git push --force-with-lease origin <sha>:release`, never a bare force),
-then runs the same Vercel/Railway poll and smoke checks as `deploy`. Not
+then runs the same Vercel/Railway poll (same `--timeout-minutes` window and
+final re-check) and smoke checks as `deploy`. It then verifies Vercel actually
+switched (H108: a rollback push once did not trigger a Vercel redeploy): it
+reads the project's live production deployment through the Vercel REST API
+(authenticated with the token the logged-in Vercel CLI already holds, never
+printed) and, if that deployment is not built from the rollback sha, promotes
+the previous READY deployment for that sha (the REST equivalent of `vercel
+promote`) and checks again. A rollback only reports success once Vercel serves
+the target. Not
 run as part of a normal release; use it when a `deploy` has gone out and
 needs undoing.
 
