@@ -342,20 +342,6 @@ a:focus-visible,
   [style*="slideUpSheet"] { animation: none !important; }
 }
 
-/* iOS Safari renders type=date as a UA value chip that ignores width/background.
-   Normalise so it fills its container and inherits the themed field styling. */
-input[type="date"] {
-  -webkit-appearance: none;
-  appearance: none;
-}
-input[type="date"]::-webkit-date-and-time-value {
-  text-align: left;
-  margin: 0;
-}
-input[type="date"]::-webkit-calendar-picker-indicator {
-  opacity: 0.6;
-}
-
 /* iOS Safari auto-zooms the whole page when a focused form field's computed
    font-size is below 16px, and never restores the previous scale on blur
    (Kevin, G81, 2026-09-14 — reported on the Penny composer, but it is a
@@ -365,7 +351,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
    audit, WCAG anti-pattern) and that must not be reinstated. So this is
    scoped to coarse-pointer (touch) devices only — desktop keeps the
    existing type scale from each field's own text-size class. Written
-   outside any @layer, same as the input[type=date] reset above, so it
+   outside any @layer, so it
    wins over Tailwind's utility-layer font-size classes (text-sm etc.)
    regardless of class order or specificity: un-layered CSS always beats
    `@layer utilities` in the cascade. See DESIGN.md 3. Typography for the

@@ -11,6 +11,7 @@ import { buildEstate, filterEstate, type EstateRow, type EstateLens } from "@/li
 import { accountKind, accountKindLabel, type AccountKind } from "@/lib/accountKind";
 import CardTermsSheet from "@/components/CardTermsSheet";
 import { RadioDot } from "@/components/PlanOneOffSheet";
+import { DateField } from "@/components/DatePicker";
 import TransactionRow from "@/components/TransactionRow";
 import TeachingSheet from "@/components/TeachingSheet";
 import { useColours } from "@/components/ColourProvider";
@@ -1723,12 +1724,7 @@ export default function AccountsPage() {
                 </div>
                 <div className="flex-1">
                   <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Date</label>
-                  <input
-                    type="date"
-                    value={manualTxDate}
-                    onChange={e => setManualTxDate(e.target.value)}
-                    className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  />
+                  <DateField mode="day" label="Date" value={manualTxDate} onChange={setManualTxDate} appearance="outlined" placeholder="Today" allowClear emptyDescription="not set, defaults to today" />
                 </div>
               </div>
 

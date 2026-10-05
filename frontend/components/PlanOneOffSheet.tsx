@@ -4,6 +4,7 @@ import { AccountRadioPicker } from "@/components/AccountRadioPicker";
 import { api, Account, PlannedImpact } from "@/lib/api";
 import MoneyText from "@/components/MoneyText";
 import { SheetFrame } from "@/components/SheetFrame";
+import { DateField } from "@/components/DatePicker";
 
 interface PlanOneOffSheetProps {
   accounts: Account[];
@@ -169,14 +170,7 @@ export default function PlanOneOffSheet({ accounts, onClose, onSaved }: PlanOneO
                   <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">
                     Date
                   </label>
-                  <input
-                    type="date"
-                    value={date}
-                    min={today}
-                    onChange={e => setDate(e.target.value)}
-                    required
-                    className="w-full min-h-[48px] px-3 rounded-xl bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-slate-100 border border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 text-sm appearance-none text-left [&::-webkit-date-and-time-value]:text-left"
-                  />
+                  <DateField mode="day" label="Date" value={date} min={today} onChange={setDate} required />
                 </div>
 
                 {/* Account (optional) */}

@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { RadioDot } from "@/components/PlanOneOffSheet";
+import { DateField } from "@/components/DatePicker";
 import { AccountRadioPicker as SharedAccountRadioPicker } from "@/components/AccountRadioPicker";
 import { api, Account, FillCandidate } from "@/lib/api";
 
@@ -323,13 +324,7 @@ export function EffectiveDateField({
         </button>
       </div>
       {value !== null && (
-        <input
-          type="date"
-          value={value}
-          min={todayIso}
-          onChange={(e) => onChange(e.target.value)}
-          className="mt-2 w-full min-h-[48px] px-3 rounded-xl bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-slate-100 border border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 text-sm appearance-none text-left [&::-webkit-date-and-time-value]:text-left"
-        />
+        <DateField mode="day" label="From a date I choose" title="Start date" value={value} min={todayIso} onChange={onChange} className="mt-2" />
       )}
     </div>
   );

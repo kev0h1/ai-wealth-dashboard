@@ -122,6 +122,7 @@ import PennyMark from "@/components/PennyMark";
 import PennyComposer from "@/components/PennyComposer";
 import { usePennyThreadAnchor } from "@/lib/usePennyThreadAnchor";
 import CommitmentSheet from "@/components/CommitmentSheet";
+import { DateField } from "@/components/DatePicker";
 import { usePennyKeyboard } from "@/lib/usePennyKeyboard";
 import { applyPennyTypingAttribute, pennyNextEngaged } from "@/lib/pennyTyping";
 import MoneyText from "@/components/MoneyText";
@@ -445,7 +446,7 @@ const CADENCE_OPTIONS: { value: ScenarioItem["cadence"]; label: string }[] = [
   { value: "one_off", label: "One off" },
 ];
 
-/** "2026-10-01" -> "2026-10", for a native `type="month"` input's value. */
+/** "2026-10-01" -> "2026-10", the value DateField takes in month mode. */
 function toMonthValue(iso: string | null | undefined): string {
   return iso ? iso.slice(0, 7) : "";
 }
@@ -505,6 +506,8 @@ function ScenarioConfirmCard({
   onRun: (items: ScenarioItem[]) => void;
 }) {
   const [drafts, setDrafts] = useState<DraftItem[]>(() => items.map(toDraft));
+  // DateField has no native validation, so a missing start month is caught here.
+  const [dateError, setDateError] = useState(false);
 
   function patch(i: number, next: Partial<DraftItem>) {
     setDrafts((prev) => prev.map((d, idx) => (idx === i ? { ...d, ...next } : d)));
@@ -525,6 +528,7 @@ function ScenarioConfirmCard({
           className="mt-3 flex flex-col gap-3"
           onSubmit={(e) => {
             e.preventDefault();
+            if (drafts.some((d) => !d.starts)) { setDateError(true); return; }
             onRun(drafts.map(fromDraft));
           }}
         >
@@ -597,19 +601,11 @@ function ScenarioConfirmCard({
                   </label>
                 </div>
 
-                {/* Stacked, not a 2-col grid like the fields above — a
-                    native `type="month"` control needs its full row to
-                    display a longer month name (e.g. "September 2026")
-                    without truncating against its own built-in icon. */}
+                {/* Stacked rows, one field per line. The picker is a sheet (G136), so
+                    the old native-control width constraint no longer applies. */}
                 <label className="block mt-2">
                   <span className={FIELD_LABEL_CLASS}>Starts</span>
-                  <input
-                    type="month"
-                    value={toMonthValue(d.starts)}
-                    onChange={(e) => patch(i, { starts: fromMonthValue(e.target.value) })}
-                    required
-                    className={`${FIELD_CLASS} appearance-none text-left [&::-webkit-date-and-time-value]:text-left`}
-                  />
+                  <DateField mode="month" label="Starts" title="Starts" value={toMonthValue(d.starts)} onChange={(v) => { patch(i, { starts: fromMonthValue(v) }); setDateError(false); }} required />
                 </label>
 
                 <label className="block mt-2">
@@ -629,18 +625,14 @@ function ScenarioConfirmCard({
                 {hasEnd && (
                   <label className="block mt-2">
                     <span className={FIELD_LABEL_CLASS}>End month</span>
-                    <input
-                      type="month"
-                      value={toMonthValue(d.ends)}
-                      onChange={(e) => patch(i, { ends: fromMonthValue(e.target.value) })}
-                      required
-                      className={`${FIELD_CLASS} appearance-none text-left [&::-webkit-date-and-time-value]:text-left`}
-                    />
+                    <DateField mode="month" label="End month" title="End month" value={toMonthValue(d.ends)} min={toMonthValue(d.starts) || undefined} onChange={(v) => patch(i, { ends: fromMonthValue(v) })} required />
                   </label>
                 )}
               </fieldset>
             );
           })}
+
+          {dateError && <p role="alert" className="text-[12px] leading-snug text-slate-600 dark:text-slate-300">Choose a start month for each item to run it.</p>}
 
           {rejected.length > 0 && (
             <p className="text-[12px] leading-snug text-slate-500 dark:text-slate-400 text-pretty">{rejected.join(" ")}</p>
