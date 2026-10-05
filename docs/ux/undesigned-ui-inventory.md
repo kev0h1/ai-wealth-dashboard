@@ -82,6 +82,6 @@ DESIGN.md: an error is ink; Risk Red 12 px message only for field errors. Financ
   not a SheetFrame; left as is. It has no `confirm()` semantics to replace.
 
 ## Counts
-Native dialogs 11 (2 fixed, 9 follow-up in AccountsPage); backend navigation error paths 10 fixed, 4 groups confirmed fine; Next surfaces 3 created; non-financial red 8 sites fixed, 2 follow-up, rest intentionally unchanged.
+Native dialogs 11 (all 11 fixed); backend navigation error paths 10 fixed, 4 groups confirmed fine; Next surfaces 3 created; non-financial red all sites fixed, rest intentionally unchanged.
 
 `confirmSheet` has no caller yet: every destructive action found (AccountsPage entry, rule and account removal, Settings delete and unlink) already confirms through ConfirmDialog or AccountsPage's own showConfirm, so nothing needed wiring. It is exported and ready for the next confirm that is needed, in place of a native confirm.
