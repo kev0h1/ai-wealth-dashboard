@@ -714,24 +714,31 @@ export default function HomePage() {
   // and reload Home once. Failed does not poll (nothing is running); the
   // Try again button restarts it.
   const pollingSync = syncStatus?.state === "syncing" || syncStatus?.state === "stalled";
+  const pollStalled = syncStatus?.state === "stalled";
   useEffect(() => {
     if (!pollingSync) return;
-    let stopped = false;
     let cancelled = false;
+    let inFlight = false;
+    // 3s while syncing, 15s once stalled; paused while the tab is hidden and
+    // never overlapping a request still in flight.
     const id = setInterval(async () => {
+      if (cancelled || inFlight || document.visibilityState !== "visible") return;
+      inFlight = true;
       try {
         const next = await api.getSyncStatus();
-        if (stopped) return;
+        if (cancelled) return;
         setSyncStatus(next);
         if (next.state === "idle") {
-          stopped = true;
+          cancelled = true;
           invalidateAllAccountData();
-          if (!cancelled) await loadData();
+          await loadData();
         }
-      } catch {}
-    }, 3000);
-    return () => { stopped = true; cancelled = true; clearInterval(id); };
-  }, [pollingSync, loadData]);
+      } catch {} finally {
+        inFlight = false;
+      }
+    }, pollStalled ? 15000 : 3000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [pollingSync, pollStalled, loadData]);
 
   async function handleSyncRetry() {
     setSyncRetrying(true);
@@ -936,6 +943,11 @@ export default function HomePage() {
   // way, so Home shows the sync ledger instead of the connect hero.
   const syncState = syncStatus?.state ?? "idle";
   const firstSyncActive = syncState === "syncing" || syncState === "stalled" || syncState === "failed";
+  // Only a genuine first sync (nothing has ever synced) replaces the verdict.
+  // An established user adding a second bank sees the ledger ABOVE a normal
+  // verdict, never instead of it.
+  const verdictWithheld =
+    syncStatus?.first_sync === true && (syncState === "syncing" || syncState === "stalled");
   const isFreshUser = hasNoAccounts && !firstSyncActive;
   // A67: does this plan include connecting a bank at all? Resolved off to
   // the side, never blocking the page — see lib/openBankingAccess.ts for why
@@ -1093,7 +1105,7 @@ export default function HomePage() {
           {!loadError && !hasNoAccounts && (
             <div data-tutorial-id="tutorial-safe-to-spend" className="rise-in px-4 lg:px-0 mt-8" style={{ "--rise-index": 1 } as React.CSSProperties}>
               {/* Verdict card */}
-              {syncState !== "syncing" && syncState !== "stalled" && (stsLoading || safeToSpend != null || stsError) && (
+              {!verdictWithheld && (stsLoading || safeToSpend != null || stsError) && (
                 <SafeToSpendCard
                   data={safeToSpend}
                   loading={stsLoading}

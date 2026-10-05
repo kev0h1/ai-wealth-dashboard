@@ -58,4 +58,7 @@ assert.ok(iBriefSync > 0 && iHeadroom > iBriefSync, "HomeBrief handles syncing b
 assert.match(brief.slice(iBriefSync, iBriefSync + 300), /first sync is still running/);
 const views = readFileSync(new URL("../lib/pennyScreenViews.ts", import.meta.url), "utf8");
 assert.match(views, /calculation_status === "syncing"/, "Penny view builder guards syncing");
+assert.match(home, /verdictWithheld\s*=\s*\s*syncStatus\?\.first_sync === true/, "only a genuine first sync withholds the verdict");
+assert.match(home, /document\.visibilityState !== "visible"/, "poll pauses when hidden");
+assert.match(home, /inFlight/, "poll never overlaps");
 console.log("first-sync-card: ok");

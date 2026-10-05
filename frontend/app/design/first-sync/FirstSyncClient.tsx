@@ -3,7 +3,7 @@
 // G210: first bank sync state. Renders the PRODUCTION components/FirstSyncCard
 // and components/SafeToSpendCard with fixture props only, so it cannot drift
 // from the app. No requests, nothing syncs, Try again and Connect do nothing.
-// /design/first-sync?state=syncing|stalled|failed|sts-syncing&mode=light|dark
+// /design/first-sync?state=syncing|stalled|failed|second-bank|sts-syncing&mode=light|dark
 
 import { useEffect } from "react";
 import Link from "next/link";
@@ -11,13 +11,15 @@ import { useSearchParams } from "next/navigation";
 import FirstSyncCard, { type FirstSyncConnection } from "@/components/FirstSyncCard";
 import SafeToSpendCard from "@/components/SafeToSpendCard";
 import type { SafeToSpend } from "@/lib/api";
+import { HERO_FIXTURES } from "../safe-to-spend-hero/fixtures";
 
-type StateId = "syncing" | "stalled" | "failed" | "sts-syncing";
+type StateId = "syncing" | "stalled" | "failed" | "sts-syncing" | "second-bank";
 
 const STATES: { id: StateId; label: string; note: string }[] = [
   { id: "syncing", label: "Syncing", note: "Bank connected a moment ago, transactions on their way." },
   { id: "stalled", label: "Stalled", note: "Authorised more than 10 minutes ago with no result." },
   { id: "failed", label: "Failed", note: "The first sync raised an error. The raw error is never shown." },
+  { id: "second-bank", label: "Second bank", note: "An established user adds another bank: the ledger sits ABOVE a normal verdict, which is never zeroed or hidden." },
   { id: "sts-syncing", label: "Safe to Spend, syncing", note: "The verdict slot while accounts exist but the first sync is still running." },
 ];
 
@@ -72,7 +74,12 @@ export default function FirstSyncClient() {
         </Link>
       </nav>
       <p className="mb-4 text-xs text-slate-600 dark:text-slate-300">{state.note}</p>
-      {state.id === "sts-syncing" ? (
+      {state.id === "second-bank" ? (
+        <div className="space-y-4">
+          <FirstSyncCard state="syncing" connections={[{ provider: "finexer", bank: "ob-monzo" }]} onRetry={noop} onConnect={noop} />
+          <SafeToSpendCard data={HERO_FIXTURES.comfortable} loading={false} error={false} onRetry={noop} />
+        </div>
+      ) : state.id === "sts-syncing" ? (
         <SafeToSpendCard data={SYNCING_DATA} loading={false} error={false} onRetry={noop} />
       ) : (
         <FirstSyncCard state={state.id} connections={CONNECTIONS} onRetry={noop} onConnect={noop} />

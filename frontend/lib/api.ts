@@ -2499,6 +2499,8 @@ export type DismissedSeriesResponse = {
 
 export type SyncStatus = {
   state: "idle" | "syncing" | "stalled" | "failed";
+  /** True only when no connection has ever synced (a genuine first sync). */
+  first_sync?: boolean;
   connections: {
     provider: "finexer" | "truelayer";
     connection_id?: string | null;
