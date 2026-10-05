@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="light dark">
-<title>Sorted | Sign-in</title>
+<title>{{title}}</title>
 <style>
 :root{
   --canvas:#f0f2f7;--border:#e2e8f0;--ink:#0f172a;--secondary:#475569;
@@ -72,7 +72,8 @@ h1{grid-column:1;grid-row:1;font-size:30px;line-height:1.2;letter-spacing:-.025e
   </div>
 </main>
 <script>
-  function returnToApp(){window.location.href='wealthdash://auth-done';}
+  var RETURN_URL={{return_url_json}};
+  function returnToApp(){window.location.href=RETURN_URL;}
   document.getElementById('return').addEventListener('click', returnToApp);
   if({{auto_return}}){setTimeout(returnToApp, 600);}
   // On iPhone a wealthdash:// navigation from the in-app browser the app itself

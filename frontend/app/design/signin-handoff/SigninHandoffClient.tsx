@@ -17,6 +17,7 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
+  bankHandoffHtml,
   signinHandoffHtml,
   SIGNIN_HANDOFF_SUCCESS_HINT,
   type SigninHandoffScheme,
@@ -27,7 +28,12 @@ const STATES = [
   { value: "hint", label: "Signed in, after 3 seconds" },
   { value: "error", label: "Did not complete" },
 ] as const;
-type StateValue = (typeof STATES)[number]["value"];
+// A108: the bank-connect version of the same page (Finexer consent returning to Sorted).
+const BANK_STATES = [
+  { value: "bank-ok", label: "Bank connected" },
+  { value: "bank-error", label: "Bank did not link" },
+] as const;
+type StateValue = (typeof STATES)[number]["value"] | (typeof BANK_STATES)[number]["value"];
 
 function pick<T extends string>(raw: string | string[] | undefined, allowed: readonly T[]): T | undefined {
   const v = Array.isArray(raw) ? raw[0] : raw;
@@ -36,9 +42,10 @@ function pick<T extends string>(raw: string | string[] | undefined, allowed: rea
 
 export default function SigninHandoffClient() {
   const sp = useSearchParams();
-  const state = pick<StateValue>(sp.get("state") ?? undefined, ["ok", "hint", "error"]);
+  const state = pick<StateValue>(sp.get("state") ?? undefined, ["ok", "hint", "error", "bank-ok", "bank-error"]);
   const mode: SigninHandoffScheme = pick(sp.get("mode") ?? undefined, ["light", "dark", "auto"] as const) ?? "auto";
   const states = STATES.filter((s) => !state || s.value === state);
+  const bankStates = BANK_STATES.filter((s) => !state || s.value === state);
   const link = (patch: Record<string, string | undefined>) => {
     const q = new URLSearchParams();
     const next = { state, mode: mode === "auto" ? undefined : mode, ...patch };
@@ -69,10 +76,10 @@ export default function SigninHandoffClient() {
           ))}
         </div>
         <p className="mt-2 text-[12px] text-slate-500 dark:text-slate-400">
-          ?state=ok|hint|error&amp;mode=light|dark
+          ?state=ok|hint|error|bank-ok|bank-error&amp;mode=light|dark
         </p>
 
-        <section className="mt-8">
+        {states.length > 0 && <section className="mt-8">
           <h2 className="text-[16px] font-bold text-slate-900 dark:text-slate-100">Open cockpit</h2>
           <p className="mt-1 max-w-[560px] text-[14px] text-slate-600 dark:text-slate-400">
             No card. A large verdict heading leads, the mark sits quietly beside it, the return action is anchored low
@@ -97,7 +104,35 @@ export default function SigninHandoffClient() {
               </figure>
             ))}
           </div>
-        </section>
+        </section>}
+
+        {bankStates.length > 0 && <section className="mt-8">
+          <h2 className="text-[16px] font-bold text-slate-900 dark:text-slate-100">Bank connection (A108)</h2>
+          <p className="mt-1 max-w-[560px] text-[14px] text-slate-600 dark:text-slate-400">
+            The same page after a bank consent in the in-app browser. It returns to Sorted by deep link, which closes
+            the sheet and opens Accounts on the new account.
+          </p>
+          <div className="mt-3 flex gap-4 overflow-x-auto pb-2">
+            {bankStates.map((s) => (
+              <figure key={s.value} className="m-0 shrink-0">
+                <figcaption className="mb-1 text-[12px] font-semibold text-slate-600 dark:text-slate-400">{s.label}</figcaption>
+                <iframe
+                  title={`Bank connection, ${s.label}`}
+                  sandbox=""
+                  width={360}
+                  height={640}
+                  className="block rounded-2xl border border-slate-200 dark:border-slate-700"
+                  srcDoc={bankHandoffHtml(s.value === "bank-ok", {
+                    provider: "finexer",
+                    connectionId: "cst_preview",
+                    scheme: mode,
+                    autoReturn: false,
+                  })}
+                />
+              </figure>
+            ))}
+          </div>
+        </section>}
       </div>
     </div>
   );

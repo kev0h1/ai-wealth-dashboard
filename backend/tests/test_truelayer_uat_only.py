@@ -188,3 +188,73 @@ def test_truelayer_webhook_rejects_a_wrong_secret_on_uat_rather_than_404():
     client = TestClient(_build(True))
     resp = client.post("/webhooks/truelayer/definitely-not-the-secret", json={})
     assert resp.status_code == 401
+
+
+# ── A68: native marker decides hand-off page vs web redirect ──────────────
+
+def _truelayer_callback_env(monkeypatch, doc):
+    import asyncio
+    import app.routers.truelayer as tl
+
+    class _Col:
+        def __init__(self):
+            self.doc = doc
+
+        async def find_one(self, q, projection=None):
+            return self.doc
+
+        async def update_one(self, *a, **k):
+            return None
+
+    class _Resp:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {}
+
+    class _Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, *a, **k):
+            return _Resp()
+
+    async def _save(cid, tokens):
+        return None
+
+    async def _sync(cid, uid):
+        return None
+
+    monkeypatch.setattr(tl, "TRUELAYER_CLIENT_ID", "id")
+    monkeypatch.setattr(tl, "TRUELAYER_CLIENT_SECRET", "secret")
+    monkeypatch.setattr(tl, "connections_col", _Col())
+    monkeypatch.setattr(tl.httpx, "AsyncClient", lambda *a, **k: _Client())
+    monkeypatch.setattr(tl, "save_connection", _save)
+    monkeypatch.setattr(tl, "sync_connection", _sync)
+    return tl, asyncio
+
+
+def test_truelayer_callback_native_renders_handoff(monkeypatch):
+    tl, asyncio = _truelayer_callback_env(monkeypatch, {"user_id": "u", "native": True})
+    res = asyncio.run(tl.truelayer_callback(code="c", state="conn1"))
+    assert res.status_code == 200
+    assert b"wealthdash://auth-complete?provider=truelayer&connection=conn1&status=ok" in res.body
+    assert "Content-Security-Policy" in res.headers
+    assert res.headers["Content-Security-Policy"].startswith("default-src 'none'")
+
+
+def test_truelayer_callback_state_is_url_encoded_in_redirect(monkeypatch):
+    tl, asyncio = _truelayer_callback_env(monkeypatch, {"user_id": "u"})
+    res = asyncio.run(tl.truelayer_callback(code="c", state="a&x=1#f"))
+    assert res.headers["location"] == f"{tl.APP_URL}/accounts?syncing=1&connection=a%26x%3D1%23f"
+
+
+def test_truelayer_callback_web_redirects(monkeypatch):
+    tl, asyncio = _truelayer_callback_env(monkeypatch, {"user_id": "u"})
+    res = asyncio.run(tl.truelayer_callback(code="c", state="conn1"))
+    assert res.status_code == 303
+    assert res.headers["location"] == f"{tl.APP_URL}/accounts?syncing=1&connection=conn1"

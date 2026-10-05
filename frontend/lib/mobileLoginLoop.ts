@@ -105,6 +105,10 @@ export function runMobileLoginLoop(deps: LoginLoopDeps, signal?: AbortSignal): P
         onActive: () => { void triggerPoll(); },
         onUrlOpen: (url) => {
           // Close the sheet right away; do not wait for (or depend on) a poll.
+          // The global handler (lib/deepLinks.ts, A68) also closes the browser on
+          // every wealthdash:// return; a second Browser.close() is harmless
+          // because closeBrowserNow already tolerates a rejected close. This
+          // listener stays because it owns the login promise.
           if (!settled && url !== undefined && AUTH_RETURN_URL.test(url)) void closeBrowserNow();
           void triggerPoll();
         },
