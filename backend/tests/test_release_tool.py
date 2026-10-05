@@ -1035,9 +1035,19 @@ def test_promote_candidate_no_sha_anywhere_never_promotes(tmp_path):
     assert not ok and not any(m == "POST" for m, _ in state["calls"])
 
 
-def test_promote_candidate_mismatched_sha_ignored():
+def test_promote_candidate_mismatched_sha_ignored(tmp_path):
     http = _v7_http([{"uid": "d1", "meta": {"githubCommitSha": "ffff0000"}}])
     assert release.find_promote_candidate(http, "t", "p", None, "aaaa1111", 5) is None
+    state = {"live": "d_other"}
+    base = _fake_vercel(state)
+
+    def h(method, url, token, timeout):
+        if "/v7/deployments" in url:
+            return {"deployments": [{"uid": "d1", "meta": {"githubCommitSha": "ffff0000"}}]}
+        return base(method, url, token, timeout)
+
+    ok, _ = release.verify_vercel_rollback(_link(tmp_path), "aaaa1111", 5, http=h, token="t", sleep=lambda n: None)
+    assert not ok and not any(m == "POST" for m, _ in state["calls"])
 
 
 def test_promote_candidate_same_sha_picks_newest_and_different_full_sha_fails_closed():
@@ -1172,3 +1182,22 @@ def test_deploy_failed_service_produces_no_tag(monkeypatch):
     args, cmds = _deploy_env(monkeypatch, lambda svc: _dep("FAILED") if svc == "worker" else _dep("SUCCESS"))
     assert release.cmd_deploy(args) == 1
     assert not any(c[:2] == ["git", "tag"] for c in cmds)
+
+
+def test_poll_railway_failed_with_different_commit_does_not_early_stop():
+    clock = {"t": 0.0}
+    reads = {"worker": 0}
+
+    def fetch(service):
+        if service == "worker":
+            reads["worker"] += 1
+            return {"status": "FAILED", "meta": {"commitHash": "9999ffff", "branch": "release"}}
+        return _dep("SUCCESS")
+
+    failed = set()
+    done, _ = release.poll_railway_services(
+        "abc12345", False, 60, 15, fetch, sleep=lambda n: clock.__setitem__("t", clock["t"] + n),
+        clock=lambda: clock["t"], failed_out=failed,
+    )
+    assert failed == set() and done["worker"] is False
+    assert reads["worker"] == 5  # polled through the whole window (4 reads) plus the final re-check

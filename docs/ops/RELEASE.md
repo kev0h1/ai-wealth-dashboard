@@ -155,8 +155,11 @@ then fast-forwards production with `git push origin main:release`
 tool never force-pushes here, that's what `rollback` is for). Polls, up
 to `--timeout-minutes` (default 30, H108: Railway builds take ~10 minutes
 each, so 15 was too tight), applied separately to Vercel and to each Railway
-service: Vercel until `vercel ls --prod` shows a Ready production
-deployment newer than the push, Railway until both services' latest
+service: Vercel until `vercel ls --prod` shows a Ready production deployment
+and the live production deployment, resolved through the alias lookup
+(`GET /v4/aliases`, then `GET /v13/deployments/{id}`), is READY, carries the
+pushed sha, and was created no earlier than the push time minus a 120 second
+clock-skew allowance; Railway until both services' latest
 deployment is `SUCCESS` at the released sha (if a service still deploys
 from `main`, `deploy` treats the current `SUCCESS` deployment already at
 that sha as done rather than waiting forever). Then runs smoke checks
