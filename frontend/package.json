@@ -77,6 +77,7 @@
     "check:mcp-discovery": "node scripts/mcp-discovery.test.mjs",
     "check:no-raw-fetch": "node scripts/check-no-raw-fetch.mjs",
     "check:swipe-gesture": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/swipe-gesture.test.mjs",
+    "check:post-sign-in-route": "node --no-warnings --experimental-strip-types scripts/post-sign-in-route.test.mjs",
     "check:privacy-cover": "node --no-warnings --experimental-strip-types scripts/privacy-cover.test.mjs"
   },
   "dependencies": {

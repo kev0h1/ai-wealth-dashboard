@@ -277,7 +277,7 @@ await t("source (A135): native sign-in transitions in place, no page reload, via
   // the only remaining reload is the explicit fallback for hosts without the callback
   assert.ok(/if \(!onSignedIn\) \{\s*window\.location\.reload\(\);/.test(f));
   const ap = read("components/AuthProvider.tsx");
-  assert.ok(ap.includes("<LoginScreen error={authError} onSignedIn={establishSession} resuming={resuming} onCancelResume={cancelResume} />"));
+  assert.ok(ap.includes("<LoginScreen error={authError} onSignedIn={(sig) => establishSession(sig, true)} resuming={resuming} onCancelResume={cancelResume} />"));
   const e = ap.slice(ap.indexOf("async function establishSession"), ap.indexOf("useEffect(() => {\n    // A135: a cold start"));
   assert.ok(e.includes("getToken()") && e.includes("/auth/session/validate") && e.includes("setUser(") && e.includes("resetUnauthorizedGate()") && e.includes("invalidateAllAccountData()"));
   assert.ok(!/location\.reload/.test(e));
@@ -299,8 +299,8 @@ await t("source (A135 review 2): establishSession retries a transient failure on
   const ap = read("components/AuthProvider.tsx");
   const e = ap.slice(ap.indexOf("async function establishSession"), ap.indexOf("useEffect(() => {\n    // A135: a cold start"));
   const top = e.slice(0, e.indexOf("async function validateOnce"));
-  assert.equal((top.match(/await validateOnce\(signal\)/g) || []).length, 2, "exactly one retry, no loop");
-  assert.ok(/if \(outcome === "unreachable"\) \{[\s\S]*SESSION_RETRY_DELAY_MS[\s\S]*outcome = await validateOnce\(signal\);/.test(top));
+  assert.equal((top.match(/await validateOnce\(signal, signInDest\)/g) || []).length, 2, "exactly one retry, no loop");
+  assert.ok(/if \(outcome === "unreachable"\) \{[\s\S]*SESSION_RETRY_DELAY_MS[\s\S]*outcome = await validateOnce\(signal, signInDest\);/.test(top));
   assert.ok(!/while|for \(/.test(top), "no loop");
   assert.ok(!/clearToken/.test(top), "the retry path does not clear the token");
   assert.ok(/SESSION_RETRY_DELAY_MS = 1500/.test(ap));
@@ -507,7 +507,7 @@ await t("G202 review 4: a stale result from a cancelled attempt must not change 
 await t("G202 review 6: the late-success session check is abortable, cancelResume aborts it, and an aborted check never calls setUser", () => {
   const late = between(apSrc, "// Late success: the token is in", "(result) => {");
   assert.ok(/const lateCtrl = new AbortController\(\);\s*\n\s*lateAbortRef\.current = lateCtrl;/.test(late));
-  assert.ok(/establishSession\(lateCtrl\.signal\)/.test(late), "late path passes the signal");
+  assert.ok(/establishSession\(lateCtrl\.signal, true\)/.test(late), "late path passes the signal");
   assert.ok(/if \(resumeCancelledRef\.current\) return;[^\n]*\n\s*setResuming/.test(late), "cancelled ref checked before touching state");
   const c = between(apSrc, "function cancelResume", "useEffect(() => {\n    // A135: a cold start");
   assert.ok(/lateAbortRef\.current\?\.abort\(\)/.test(c), "cancelResume aborts the late controller");

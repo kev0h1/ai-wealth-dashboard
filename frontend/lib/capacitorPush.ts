@@ -131,6 +131,11 @@ export const NOTIFICATION_TAP_EVENT = "wd:notification-tap";
 // as if each had been handled live one at a time.
 const pendingNotificationPaths: string[] = [];
 
+/** D13: non-destructive check used by sign-in routing. */
+export function hasPendingNotificationPaths(): boolean {
+  return pendingNotificationPaths.length > 0;
+}
+
 /**
  * Reads and clears every notification path queued by
  * `deliverNotificationPath` below, oldest first. Called once, from
