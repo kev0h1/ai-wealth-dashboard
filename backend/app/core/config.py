@@ -378,6 +378,10 @@ def _is_non_production(app_url: str) -> bool:
 
 TRUELAYER_ENABLED = _is_non_production(APP_URL)
 
+# B47: UAT-only admin routes (app.routers.uat_trial_reset), mounted by the
+# same APP_URL-derived rule as TrueLayer, never a separate env switch.
+UAT_ADMIN_ENABLED = _is_non_production(APP_URL)
+
 # ── VAPID / Web Push ──────────────────────────────────────────────────────────
 VAPID_SUBJECT   = os.getenv("VAPID_SUBJECT", "mailto:admin@wealthdashboard.app")
 _vapid_key_file = _BACKEND_DIR / ".vapid_private_key"

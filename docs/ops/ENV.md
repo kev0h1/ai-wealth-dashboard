@@ -423,3 +423,28 @@ documented above as orphaned/vestigial (the stray `TOKEN_KEY` name on
 Railway). `BACKEND_URL` and `NEXT_PUBLIC_API_URL` are
 routing configuration, not credentials, changing them is a redeploy, not a
 rotation.
+
+## UAT-only: reset the introductory trial (B47)
+
+`POST /subscription/admin/uat-trial-reset` exists only on UAT (the route is
+mounted when `APP_URL` is a non-production host, the same derivation as
+TrueLayer, and it also refuses at call time otherwise), so production can
+never be reset. Owner session only (no bot scope). It `$unset`s
+`trial_used_at` and `trial_ends_at` on the subscription document and nothing
+else; live Stripe-backed subscriptions are skipped. Only the 22 users on the
+frozen snapshot `backend/app/data/uat_trial_reset_allowlist.json` (SHA-256 of
+lower-cased email, captured 2026-10-05) can be reset; anyone else gets 403.
+
+```bash
+# one user (TOKEN is Kevin's own session token)
+curl -sS -X POST https://uat.wealth.auriqltd.co.uk/api/subscription/admin/uat-trial-reset \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"user_id": "someone@example.com"}'
+# every allow-listed user
+curl -sS -X POST https://uat.wealth.auriqltd.co.uk/api/subscription/admin/uat-trial-reset \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"all": true}'
+```
+
+Response: `{"ok": true, "modified": N, "skipped_live_stripe": M}`. Check the
+`/api` prefix against how the UAT API is fronted before first use.
