@@ -195,7 +195,7 @@ function moveMoney(value: number, hideNetWorth: boolean) {
   return hideNetWorth ? "£••••" : `£${Math.round(value).toLocaleString("en-GB")}`;
 }
 
-function MoveAccountIcon({ account, size = 28 }: { account: { provider: string; name: string }; size?: number }) {
+export function MoveAccountIcon({ account, size = 28 }: { account: { provider: string; name: string }; size?: number }) {
   const chip = resolveBankChip(account.provider);
   return (
     <BankBadge
@@ -423,7 +423,7 @@ function MovePaymentEvidence({
 // carries each call site's OWN positioning (flex-in-row offset vs absolute
 // top-right), defaulting to the five sites that share the flex layout;
 // PaydayPlanSection's entry-row dismiss passes its own absolute positioning.
-function DismissChip({
+export function DismissChip({
   label,
   onClick,
   className = "flex-shrink-0 -mt-2 -mr-2",
@@ -450,22 +450,23 @@ function DismissChip({
 // reserves a consistent final band for decisions.  Keeping these classes
 // local means the eight existing card behaviours can share the grammar
 // without introducing another production component/API.
-const BRIEF_CARD = "relative overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800";
+// G217: exported (no change to any value) so design previews build on the shipped tokens.
+export const BRIEF_CARD = "relative overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800";
 const ACTION_DOCK = "-mx-4 -mb-4 mt-4 border-t border-slate-100 bg-slate-50/80 px-4 py-3 dark:border-slate-700/70 dark:bg-slate-900/25";
-const ACTION_BASE = "inline-flex min-h-11 flex-1 touch-manipulation items-center justify-center gap-1 rounded-xl px-4 py-2 text-sm font-semibold [-webkit-tap-highlight-color:transparent] active:scale-95 transition-[transform,background-color] duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white disabled:pointer-events-none disabled:opacity-50 dark:focus-visible:ring-offset-slate-800";
+export const ACTION_BASE = "inline-flex min-h-11 flex-1 touch-manipulation items-center justify-center gap-1 rounded-xl px-4 py-2 text-sm font-semibold [-webkit-tap-highlight-color:transparent] active:scale-95 transition-[transform,background-color] duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white disabled:pointer-events-none disabled:opacity-50 dark:focus-visible:ring-offset-slate-800";
 const PRIMARY_ACTION = `${ACTION_BASE} bg-indigo-600 text-white [@media(hover:hover)]:hover:bg-indigo-700`;
-const SECONDARY_ACTION = `${ACTION_BASE} border border-slate-200 bg-white text-slate-700 [@media(hover:hover)]:hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:[@media(hover:hover)]:hover:bg-slate-700`;
-const QUIET_ACTION = `${ACTION_BASE} text-slate-600 [@media(hover:hover)]:hover:bg-slate-100 dark:text-slate-300 dark:[@media(hover:hover)]:hover:bg-slate-700`;
+export const SECONDARY_ACTION = `${ACTION_BASE} border border-slate-200 bg-white text-slate-700 [@media(hover:hover)]:hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:[@media(hover:hover)]:hover:bg-slate-700`;
+export const QUIET_ACTION = `${ACTION_BASE} text-slate-600 [@media(hover:hover)]:hover:bg-slate-100 dark:text-slate-300 dark:[@media(hover:hover)]:hover:bg-slate-700`;
 const EVIDENCE_BLOCK = "divide-y divide-slate-100 border-y border-slate-100 dark:divide-slate-700/70 dark:border-slate-700/70";
 
-function BriefIcon({ children, tone = "neutral" }: { children: React.ReactNode; tone?: "neutral" | "penny" }) {
+export function BriefIcon({ children, tone = "neutral" }: { children: React.ReactNode; tone?: "neutral" | "penny" }) {
   const surface = tone === "penny"
     ? "bg-indigo-50 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300"
     : "bg-slate-100 text-slate-500 dark:bg-slate-700/70 dark:text-slate-300";
   return <span aria-hidden="true" className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${surface}`}>{children}</span>;
 }
 
-function KindLabel({ children, tone = "neutral" }: { children: React.ReactNode; tone?: "neutral" | "watch" | "positive" }) {
+export function KindLabel({ children, tone = "neutral" }: { children: React.ReactNode; tone?: "neutral" | "watch" | "positive" }) {
   const labelClass = "text-[10px] font-semibold uppercase tracking-[0.05em]";
   if (tone === "positive") {
     return <span className={`inline-flex items-center gap-1 ${labelClass} text-slate-600 dark:text-slate-300`}><Check size={14} className="text-emerald-600 dark:text-emerald-400" aria-hidden="true" />{children}</span>;
