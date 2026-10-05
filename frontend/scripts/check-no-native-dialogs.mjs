@@ -21,8 +21,6 @@ const DIRS = ["app", "components", "lib"];
 const SKIP = new Set(["node_modules", ".next", ".next-prev"]);
 const EXTS = /\.(ts|tsx|js|jsx|mjs|cjs)$/;
 const ALLOW = [
-  { file: "components/ConfirmSheet.tsx", reason: "the replacement primitive itself" },
-  { file: "app/components/AccountsPage.tsx", reason: "G215 follow-up: G213/H108 own this file; replace each alert( with noticeSheet" },
 ];
 
 const PATTERNS = [

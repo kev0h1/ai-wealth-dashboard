@@ -229,8 +229,8 @@ export default function LoginScreen({ error, onSignedIn, resuming, onCancelResum
           )}
 
           {error && error !== "invite_only" && (
-            <div className="mb-5 px-4 py-3 rounded-xl bg-red-50 border border-red-100">
-              <p className="text-sm text-red-600 text-center">{error}</p>
+            <div role="alert" className="mb-5 px-4 py-3 rounded-2xl border border-slate-200 bg-slate-50 dark:border-slate-600 dark:bg-slate-900/40">
+              <p className="text-sm text-slate-700 dark:text-slate-200 text-center">{error}</p>
             </div>
           )}
 
