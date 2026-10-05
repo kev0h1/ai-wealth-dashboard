@@ -1231,17 +1231,17 @@ counted among this round's findings.</p>
 <tr>
 <td><code>API-15</code> provider-side state (A82, A83)</td>
 <td>The 2026-10-04 live deletion retest (<code>A60-2026-10-04</code>) confirmed the response and the deployed source, but the Finexer dashboard was not viewed, so the provider's own record of the revoke was not checked</td>
-<td>Limit accepted; owner the Information Security Manager (a dashboard check would close it)</td>
+<td>Limit accepted; owner: the Information Security Manager (a dashboard check would close it)</td>
 </tr>
 <tr>
 <td><code>FIN-06</code> (webhook payload retention/TTL)</td>
 <td>No production database or admin-API read path exists for this testing session to confirm live payload retention behaviour</td>
-<td>Blocked, unresolved; owner the Information Security Manager (provide a scoped read path, or accept as not tested)</td>
+<td>Blocked, unresolved; owner: the Information Security Manager (provide a scoped read path, or accept as not tested)</td>
 </tr>
 <tr>
 <td><code>FIN-01</code> and <code>TL-02</code>, accepted-delivery live halves</td>
 <td>No Finexer-approved sandbox or test consent exists, and no TrueLayer-equivalent sandbox/test connection exists, to safely drive a live accepted-delivery webhook</td>
-<td>Blocked, unresolved; owner the Information Security Manager (obtain a provider sandbox, or accept as not tested)</td>
+<td>Blocked, unresolved; owner: the Information Security Manager (obtain a provider sandbox, or accept as not tested)</td>
 </tr>
 <tr>
 <td><code>OPEN_SIGNUP</code> window on production (2026-09-19)</td>
@@ -1261,12 +1261,12 @@ counted among this round's findings.</p>
 <tr>
 <td><code>AND-02</code> token-at-rest re-check (A118, A123)</td>
 <td>Not retested on 2026-10-04: it needs a debug build to run <code>adb run-as</code> and inspect the on-disk storage. This stays pending, separate from the backup half below</td>
-<td>Not tested since the fixes shipped; owner the Information Security Manager</td>
+<td>Not tested since the fixes shipped; owner: the Information Security Manager</td>
 </tr>
 <tr>
 <td><code>AND-01</code> / <code>AND-02</code> backup half (A129), <code>adb backup</code> extraction</td>
 <td>Verified on 2026-10-04 by package-flag inspection only (<code>dumpsys package</code> shows no <code>ALLOW_BACKUP</code>). An <code>adb backup</code> extraction was not re-run, so the fix is not confirmed by the same extraction that originally failed</td>
-<td>Package-flag Pass; extraction not re-run; owner the Information Security Manager</td>
+<td>Package-flag Pass; extraction not re-run; owner: the Information Security Manager</td>
 </tr>
 <tr>
 <td>A123 session persistence across app restarts</td>
@@ -1276,22 +1276,22 @@ counted among this round's findings.</p>
 <tr>
 <td><code>WEB-03</code> (token-in-URL redirect timing)</td>
 <td>Blocked in <code>A48-2026-09-20</code>: all 8 live attempts on production were intercepted by Vercel's bot-verification challenge before the app mounted, so no clean observation of the fast-strip behaviour was obtained. Source review supports a synchronous strip before the validate call, but that is not what the case asks for</td>
-<td>Blocked; owner the Information Security Manager; decision: retest recommended once production browser access is stable, or with a real non-headless browser session; not credited as Pass</td>
+<td>Blocked; owner: the Information Security Manager; decision: retest recommended once production browser access is stable, or with a real non-headless browser session; not credited as Pass</td>
 </tr>
 <tr>
 <td><code>WEB-05</code> (cache-clearing across account switch)</td>
 <td>Blocked in <code>A48-2026-09-20</code>: the case exists to catch a live rendering gap that code review cannot see, and no live render was possible for the same reason. <code>AuthProvider.tsx</code> <code>logout()</code> was source-reviewed only</td>
-<td>Blocked; owner the Information Security Manager; decision: retest recommended on the same terms as <code>WEB-03</code>; not credited as Pass</td>
+<td>Blocked; owner: the Information Security Manager; decision: retest recommended on the same terms as <code>WEB-03</code>; not credited as Pass</td>
 </tr>
 <tr>
 <td><code>WEB-02</code>, storage-inspection sub-component</td>
 <td>Inconclusive in <code>A48-2026-09-20</code>: the one completed attempt landed during a Vercel availability event, so the observed clearing is explained by that event and neither confirms nor contradicts the claim. The tamper and rejection half is Pass. <code>lib/auth.ts</code> was code-reviewed as supporting, non-live evidence</td>
-<td>Inconclusive; owner the Information Security Manager; decision: retest with a real browser session; no finding raised</td>
+<td>Inconclusive; owner: the Information Security Manager; decision: retest with a real browser session; no finding raised</td>
 </tr>
 <tr>
 <td><code>AND-04</code>, user-CA trust leg</td>
 <td>Inconclusive in <code>A55-2026-09-27</code>: Android would not establish the mitmproxy user CA as trusted on the test device, so the live comparison could not run. The fail-closed leg (no CA) is Pass. This leg is settled by static reading only: no <code>android:networkSecurityConfig</code> at target SDK 36 means the platform default (user CAs not trusted) applies (<code>A54-2026-09-20</code>, <code>AND-01</code>)</td>
-<td>Inconclusive; owner the Information Security Manager; decision: accepted on the static reading, with a live retest only if a device that can establish a user CA is available; no finding raised</td>
+<td>Inconclusive; owner: the Information Security Manager; decision: accepted on the static reading, with a live retest only if a device that can establish a user CA is available; no finding raised</td>
 </tr>
 <tr>
 <td>Cross-model review (WP12), second-model half</td>
@@ -1301,7 +1301,7 @@ counted among this round's findings.</p>
 <tr>
 <td>TrueLayer live cases (<code>TL-01</code>, <code>TL-03</code>, <code>TL-05</code>, and <code>TL-04</code>'s live-write half)</td>
 <td>Not run: TrueLayer is being removed from production (board item A67), and the 2026-09-20 board note on A57 scoped these out. They are recorded Not run, not Pass, Fail or N/A</td>
-<td>Not run; owner the Information Security Manager; decision: not run per that note, to be revisited only if TrueLayer is not removed</td>
+<td>Not run; owner: the Information Security Manager; decision: not run per that note, to be revisited only if TrueLayer is not removed</td>
 </tr>
 </tbody>
 </table>
@@ -1420,7 +1420,7 @@ are carried as Blocked or Not tested, never as passed.</p>
 <h2>10. Sign-off and revision history</h2>
 <p><strong>Sign-off.</strong> The underlying security testing programme (<code>SECURITY.md</code>
 section 3b) was signed off by the Information Security Manager, 2026-09-21, given as a written
-attestation in a working session with an AI-assisted testing session ("Happy to sign this"), not a
+attestation during an AI-assisted working session ("Happy to sign this"), not a
 handwritten or cryptographic signature. This report, as a document, has not
 separately been signed by the Information Security Manager as of 2026-10-04.</p>
 <p><strong>WP12 review.</strong> On 2026-10-04 a separate AI reviewer audited the evidence behind this report in two passes. It checked every Fail, Partially fixed, Blocked, Inconclusive and Not run result in runs A48 to A59, A55 and A56 (2026-09-27), A112 and A60-2026-10-04, and every finding in section 5 and <code>SECURITY.md</code> 3b against git (integrate commits, <code>release</code> ancestry and release tags) and the cited retest records. It also checked the report, <code>SECURITY.md</code> and the Q11 text for consistency with each other and with the records. The first pass found six defects: one wrong fix commit, the Android backup High missing from the register, missing coverage rows for Blocked and Inconclusive cases, miscounted matrix totals, a release-tag attribution that contradicted git, and one revision-history wording point. All were corrected, and the second pass confirmed each correction. This was a single-model review by the same model family as the testing sessions. The second-model half of the cross-model review in PENTEST-METHODOLOGY section 9 was not performed, by the Information Security Manager's decision of 2026-10-04. The review made no changes and ran no live tests. Its two limits are that the A121, A122 and A129 retest results rest on the tester's relayed on-device observations (no screenshots), and that the A129 fix was verified by package flags only, with the <code>adb backup</code> extraction not re-run. The live <code>API-15</code> deletion retest on 2026-10-04 was recorded after this review and was not covered by it.</p>

@@ -2,7 +2,7 @@
 
 **Owner:** Founder / Information Security Manager
 **Applies to:** the Auriq Wealth product (web app, iOS/Android apps) and all supporting infrastructure operated by AURIQ LTD.
-**Status:** Version 1.13, last reviewed 2026-09-21. Reviewed at least annually and after any material incident or architecture change.
+**Status:** Version 1.19, last reviewed 2026-10-05. Reviewed at least annually and after any material incident or architecture change.
 
 This document is the company's primary security policy. It exists to satisfy our obligations as a registered agent of Finexer LTD for Account Information Services (AIS) and under UK GDPR / the Data Protection Act 2018. It covers our security controls, our incident-response process, and our data-breach procedures.
 
@@ -342,7 +342,7 @@ testing") cites for the security testing programme; see
 answer and `docs/security/pentest-runs/` for the sanitised per-run records.
 
 **Sign-off.** Signed off by the Information Security Manager, 2026-09-21, given as a written
-attestation in a working session with an AI-assisted testing session ('Happy to sign this'), not a
+attestation during an AI-assisted working session ('Happy to sign this'), not a
 handwritten or cryptographic signature. Status update 2026-09-23 recorded by an AI-assisted testing session for the Information Security Manager's confirmation; the per-finding statuses
 above reflect `main` and the `release` branch as of that date. Further
 update 2026-09-27 (board item A117): WP7b and WP8 device testing was
