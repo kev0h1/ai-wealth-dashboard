@@ -32,6 +32,22 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "date-picker",
+    name: "Date and month picker · G136 · variants A, B, C",
+    description:
+      "G136 design round (Kevin 2026-09-20; skill: impeccable): thirteen inputs use the browser's native date and month controls, so Android shows a grey 'Set month' wheel with teal CLEAR, CANCEL and SET · one in-design picker with a day mode and a month-only mode on the glass sheet grammar, shown inside the production SheetFrame on a 'Plan a big expense' style form · A Calendar grid: a second layer in the same frame with month heading, 44px prev and next, weekday row, 44px day cells, indigo selected pill, ringed today, Today chip and a Cancel / Done footer; month mode is a year heading over a 3 x 4 month grid / B In-sheet rows: selection as rows (next 14 days or next 12 months with the year where it changes), tap selects and closes, 'Pick another date' reveals the grid / C Stepper field: inline, the field expands into day / month / year steppers with 44px minus and plus, quick chips (Today, End of month, Payday) and confirm on Done · all three are working components: keyboard (arrows, Enter, Escape, Tab), grid / radio semantics, aria-live heading, Figtree dates, no gradient, no red, past dates muted · fixtures only, today fixed at 5 Oct 2026, nothing is adopted at the thirteen sites yet · ?variant=a|b|c&mode=day|month&state=closed|open|selected&theme=light|dark",
+    variants: [
+      { label: "A Calendar grid", value: "a" },
+      { label: "B In-sheet rows", value: "b" },
+      { label: "C Stepper field", value: "c" },
+    ],
+    states: [
+      { label: "Closed, empty field", value: "closed" },
+      { label: "Open, editing a value", value: "open" },
+      { label: "Value chosen", value: "selected" },
+    ],
+  },
+  {
     slug: "app-lock",
     name: "App lock screen · G203 · approved A, folded in",
     description:
