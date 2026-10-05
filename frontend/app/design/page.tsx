@@ -148,6 +148,13 @@ const ROUTES: PreviewRoute[] = [
     ],
   },
   {
+    slug: "upcoming-account-edit",
+    name: "upcoming-account-edit",
+    description:
+      "G216 · skills: impeccable · Production UpcomingDetailFlow with invented data: open Monzo, tap EE LIMITED or the salary row to open the payment detail, edit or dismiss it, and Back returns to the account with live figures · Transfers in stay read-only · ?mode=light|dark&view=account",
+    states: [{ label: "Account open", value: "account" }],
+  },
+  {
     slug: "g176-upcoming-rows",
     name: "g176-upcoming-rows",
     description:
