@@ -177,8 +177,12 @@ export default function AccountLedgerRow({
             : `Updating from ${syncBankName}`
     : null;
   const syncWord = syncPhaseNow === "failed" ? "Not updated" : syncPhaseNow === "stalled" ? "Delayed" : "Updating";
+  // A bank that has never synced has no balance to keep: say so, never £0.
+  const balancePending = sync?.info.kind === "new-bank";
   const amountToneClass = sync
-    ? sync.treatment === "stale"
+    ? balancePending
+      ? "!text-[13px] font-medium text-slate-600 dark:text-slate-300"
+      : sync.treatment === "stale"
       ? "text-slate-700 dark:text-slate-200"
       : "text-slate-900 dark:text-slate-100"
     : null;
@@ -194,7 +198,7 @@ export default function AccountLedgerRow({
           onClick?.(row);
         }
       }}
-      aria-label={`${row.name}, ${moneyStr(row.balance)}${stateCaption ? ` ${stateCaption}` : ""}${row.attention ? ", connection needs attention" : ""}${sync ? `, ${syncRowLine}${syncAsOf ? `, balance as of ${syncAsOf}` : ""}` : ""}`}
+      aria-label={`${row.name}, ${balancePending ? "balance not available yet" : moneyStr(row.balance)}${stateCaption ? ` ${stateCaption}` : ""}${row.attention ? ", connection needs attention" : ""}${sync ? `, ${syncRowLine}${syncAsOf ? `, balance as of ${syncAsOf}` : ""}` : ""}`}
       className="w-full min-h-[60px] flex items-center gap-3 px-4 py-2.5 active:bg-slate-50 dark:active:bg-white/5 transition-colors motion-reduce:transition-none text-left cursor-pointer"
     >
       <BankBadge logoSrc={brand.logoSrc} initials={brand.initials} altText={brand.label} brandBg={brand.background} />
@@ -221,7 +225,7 @@ export default function AccountLedgerRow({
         {sync && sync.treatment !== "stale" ? (
           <div data-sync-phase={syncPhaseNow} className="mt-1 flex items-center gap-1.5 text-[12px] text-slate-600 dark:text-slate-300">
             <SyncGlyph phase={syncPhaseNow!} />
-            <span className="truncate">{syncRowLine}</span>
+            <span className="min-w-0">{syncRowLine}</span>
           </div>
         ) : null}
 
@@ -246,9 +250,9 @@ export default function AccountLedgerRow({
           }`}
         >
           {sync && sync.treatment === "stale" ? <SyncGlyph phase={syncPhaseNow!} /> : null}
-          {amountText}
+          {balancePending ? "Pending" : amountText}
         </p>
-        {sync ? (
+        {sync && (sync.treatment === "stale" || syncAsOf) && !balancePending ? (
           <p className="text-[10px] text-slate-600 dark:text-slate-300">
             {sync.treatment === "stale" ? `${syncAsOf ? `As of ${syncAsOf} · ` : ""}${syncWord}` : syncAsOf ? `As of ${syncAsOf}` : null}
           </p>

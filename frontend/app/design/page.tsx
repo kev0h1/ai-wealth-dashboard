@@ -32,6 +32,14 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "sync-loading",
+    name: "Sync loading state · G214 · variants A, B, C",
+    description:
+      "G214: what the Home hero and the Accounts page say while a bank sync runs that is not a first sync (manual refresh, a new bank for an established user, a background sync) · the last known figure stays in neutral ink, never blanked and never a stale red or green verdict · a stall or failure ends in plain words with Try again · reuses the G202 progress ledger, no red, no gradient, only the ring moves · variants drafted by Astra (openai/gpt-6-astra), rewritten to DESIGN.md under the impeccable skill: A quiet ledger line, B stale-marked figure, C ledger drawer · renders the production SafeToSpendCard and AccountLedgerRow with fixture props, nothing syncs · ?variant=a|b|c&surface=hero|accounts&state=refresh|new-bank|background|stalled|failed&mode=light|dark",
+    variants: [{ label: "A · Quiet ledger line", value: "a" }, { label: "B · Stale-marked figure", value: "b" }, { label: "C · Ledger drawer", value: "c" }],
+    states: [{ label: "Refresh", value: "refresh" }, { label: "New bank", value: "new-bank" }, { label: "Background", value: "background" }, { label: "Stalled", value: "stalled" }, { label: "Failed", value: "failed" }],
+  },
+  {
     slug: "first-sync",
     name: "First bank sync state · G210",
     description:

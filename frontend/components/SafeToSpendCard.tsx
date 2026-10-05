@@ -736,7 +736,7 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
 
             {sync && sync.treatment === "drawer" ? (
               <ol aria-label="Bank sync" className={`mt-2 ${syncLedgerClass}`}>
-                <SyncLedgerRow info={sync.info} />
+                <SyncLedgerRow info={sync.info} compact={sync.phase !== "syncing"} />
               </ol>
             ) : null}
 

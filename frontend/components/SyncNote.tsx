@@ -98,13 +98,13 @@ export function SyncLine({ info, onRetry, className = "mt-3" }: { info: SyncingI
 }
 
 /** One ledger row per connection, in the G202 grammar (icon, label, whisper value). */
-export function SyncLedgerRow({ info, onRetry }: { info: SyncingInfo; onRetry?: () => void }) {
+export function SyncLedgerRow({ info, onRetry, compact = false }: { info: SyncingInfo; onRetry?: () => void; compact?: boolean }) {
   const phase = syncPhase(info);
   const bank = syncBank(info);
   const label = phase === "failed" ? `Could not update ${bank}` : phase === "stalled" ? `Still fetching from ${bank}` : `Fetching from ${bank}`;
   const value = phase === "failed" ? "Not updated" : phase === "stalled" ? "Delayed" : "In progress";
   const saved = info.kind === "new-bank" ? "No figures received yet." : "Showing saved figures.";
-  const detail = phase === "stalled" ? `This is taking longer than usual. ${saved}` : phase === "failed" ? saved : info.kind === "new-bank" ? "Not in your figure yet." : null;
+  const detail = compact ? null : phase === "stalled" ? `This is taking longer than usual. ${saved}` : phase === "failed" ? saved : info.kind === "new-bank" ? "Not in your figure yet." : null;
   return (
     <li className="py-3.5">
       <div className="flex items-center gap-3">
