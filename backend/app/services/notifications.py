@@ -27,6 +27,7 @@ from app.db.collections import (
 )
 from app.services.categories import get_category_kinds, is_non_spend
 from app.services.pay_period import get_pay_period_for_date
+from app.services.sync_freshness import first_sync_state
 
 log = logging.getLogger(__name__)
 
@@ -293,6 +294,16 @@ async def _maybe_bill_shortfall(user_id: str, covered_dest_accts: set[str] | Non
     `_maybe_money_movement`."""
     if not await notif_pref(user_id, "bill_alerts"):
         return []
+
+    # G210: during a genuine first sync every balance and bill is partial, so
+    # a shortfall push would be a verdict from incomplete data. Fail open: a
+    # broken status read must not silence real alerts.
+    try:
+        _fs = await first_sync_state(user_id)
+        if _fs.get("first_sync") and _fs.get("state") in ("syncing", "stalled"):
+            return []
+    except Exception:
+        log.warning("first_sync_state failed in bill shortfall for %s", user_id)
 
     from app.db.collections import cashflow_cache_col
     from app.routers.analytics import _build_cashflow_response

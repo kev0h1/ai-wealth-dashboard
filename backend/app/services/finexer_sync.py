@@ -6,6 +6,8 @@ from typing import Optional
 
 import httpx
 
+from app.services.sync_freshness import sync_error_code
+
 logger = logging.getLogger(__name__)
 
 from app.core.config import (
@@ -707,7 +709,7 @@ async def sync_finexer_consent(consent_id: str, user_id: str) -> tuple[list, int
             "last_synced": datetime.utcnow(),
             "last_sync_requests": counter["requests"],
             "last_sync_429s": counter["429s"],
-        }},
+        }, "$unset": {"last_sync_error": "", "last_sync_error_at": ""}},
     )
 
     return fetched_account_ids, len(all_new_txns)
@@ -738,8 +740,18 @@ async def finexer_sync_pipeline(
 
     try:
         fetched_ids, new_count = await sync_finexer_consent(consent_id, user_id)
-    except Exception:
+    except Exception as exc:
         logger.exception("finexer_sync_pipeline failed for consent %s user %s", consent_id, user_id)
+        try:
+            await finexer_consents_col.update_one(
+                {"_id": consent_id},
+                {"$set": {
+                    "last_sync_error": sync_error_code(exc),
+                    "last_sync_error_at": datetime.utcnow(),  # naive-ok: matches last_synced convention
+                }},
+            )
+        except Exception:
+            logger.exception("could not stamp last_sync_error for consent %s", consent_id)
         return {"ok": False, "error": "sync_failed"}
 
     await apply_rules_bulk(user_id, structural=True)

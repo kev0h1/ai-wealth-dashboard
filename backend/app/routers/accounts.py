@@ -182,9 +182,23 @@ async def get_accounts(user: dict = Depends(current_user)):
     return await _attach_aprs(uid, result)
 
 
+@router.get("/sync/status")
+async def sync_status(user: dict = Depends(current_user)):
+    """G210: first-sync state (idle / syncing / stalled / failed) for Home."""
+    from app.services.sync_freshness import first_sync_state
+    return await first_sync_state(user["email"])
+
+
 @router.post("/accounts/sync")
 async def sync_all(user: dict = Depends(current_user)):
     uid = user["email"]
+
+    # G210: a retry clears a first sync's recorded error so Home reads as
+    # syncing again; a fresh failure re-stamps it.
+    _never_synced = {"user_id": uid, "last_synced": {"$exists": False}}
+    _clear_err = {"$unset": {"last_sync_error": "", "last_sync_error_at": ""}}
+    await connections_col.update_many(_never_synced, _clear_err)
+    await _finexer_consents_col.update_many(_never_synced, _clear_err)
 
     conns = await connections_col.find({"user_id": uid}).to_list(None)
     total = 0

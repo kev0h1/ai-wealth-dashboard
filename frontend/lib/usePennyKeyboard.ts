@@ -1,6 +1,7 @@
 "use client";
 
 import { useLayoutEffect, useRef, useState } from "react";
+import { stableAcross } from "@/lib/pennyIosPanGuard";
 import { pennyBottomInset, pennyDockNext, pennyKeyboardVisible, pennyLayoutShrank, pennyViewport, type PennyDock } from "@/lib/pennyKeyboardViewport";
 
 /** How long after the keyboard appears the dock may still settle. */
@@ -14,6 +15,10 @@ export type PennyKeyboardState = {
   /** Visual viewport offsetTop captured with the dock (fill-once). */
   top: number;
   width: number;
+  /** The layout viewport shrank with the keyboard (Android strategy). False on iOS. */
+  layoutShrank: boolean;
+  /** The iOS strategy (keyboard visible, layout not shrunk) held on the last two consecutive reads. */
+  iosStable: boolean;
 };
 
 /** Measures the on-screen keyboard from one source, the visual viewport, and
@@ -28,11 +33,13 @@ export function usePennyKeyboard(enabled: boolean): PennyKeyboardState | null {
   const layoutBaseline = useRef(0);
   const dock = useRef<PennyDock | null>(null);
   const shownAt = useRef(0);
+  const prevIosRead = useRef(false);
 
   useLayoutEffect(() => {
     if (!enabled) return;
     const vv = window.visualViewport;
     let frame = 0;
+    let confirmTimer = 0;
     const read = () => {
       const layout = { width: window.innerWidth, height: window.innerHeight };
       const visual = vv ? { top: vv.offsetTop, left: vv.offsetLeft, width: vv.width, height: vv.height, scale: vv.scale } : null;
@@ -42,21 +49,28 @@ export function usePennyKeyboard(enabled: boolean): PennyKeyboardState | null {
       if (Math.abs(baselineWidth.current - next.width) > 80 || layoutBaseline.current === 0) layoutBaseline.current = layout.height;
       else layoutBaseline.current = Math.max(layoutBaseline.current, layout.height);
       const keyboardVisible = pennyKeyboardVisible(baseline.current, next);
-      const inset = keyboardVisible ? pennyBottomInset(layout.height, visual, pennyLayoutShrank(layoutBaseline.current, layout.height)) : 0;
+      const layoutShrank = pennyLayoutShrank(layoutBaseline.current, layout.height);
+      const inset = keyboardVisible ? pennyBottomInset(layout.height, visual, layoutShrank) : 0;
       const now = performance.now();
       if (keyboardVisible && !dock.current) shownAt.current = now;
       dock.current = pennyDockNext(dock.current, { keyboardVisible, height: next.height, inset, top: next.top }, now - shownAt.current < SETTLE_MS);
       const held = dock.current;
+      const iosRead = keyboardVisible && !layoutShrank;
+      const iosStable = stableAcross(prevIosRead.current, iosRead);
+      prevIosRead.current = iosRead;
+      // Guarantee a prompt confirming read so the iOS guard starts within ~2 frames.
+      if (iosRead && !iosStable) { window.clearTimeout(confirmTimer); confirmTimer = window.setTimeout(update, 50); }
       baselineWidth.current = next.width;
       setState(previous => previous && previous.keyboardVisible === keyboardVisible && previous.inset === (held?.inset ?? 0)
-        && previous.width === next.width && previous.top === (held?.top ?? 0)
-        ? previous : { keyboardVisible, inset: held?.inset ?? 0, top: held?.top ?? 0, width: next.width });
+        && previous.width === next.width && previous.layoutShrank === layoutShrank && previous.iosStable === iosStable && previous.top === (held?.top ?? 0)
+        ? previous : { keyboardVisible, inset: held?.inset ?? 0, top: held?.top ?? 0, width: next.width, layoutShrank, iosStable });
     };
     const update = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(read); };
     baseline.current = 0;
     baselineWidth.current = 0;
     layoutBaseline.current = 0;
     dock.current = null;
+    prevIosRead.current = false;
     read();
     vv?.addEventListener("resize", update);
     vv?.addEventListener("scroll", update);
@@ -67,6 +81,7 @@ export function usePennyKeyboard(enabled: boolean): PennyKeyboardState | null {
     keyboardEvents.forEach(name => window.addEventListener(name, update));
     return () => {
       cancelAnimationFrame(frame);
+      window.clearTimeout(confirmTimer);
       vv?.removeEventListener("resize", update);
       vv?.removeEventListener("scroll", update);
       window.removeEventListener("resize", update);

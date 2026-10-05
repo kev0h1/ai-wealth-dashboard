@@ -484,6 +484,11 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
       setPennyScreenView("home", null);
       return;
     }
+    if (data.status === "ok" && data.calculation_status === "syncing") {
+      // G210: no verdict yet, so nothing for Penny to quote.
+      setPennyScreenView("home", null);
+      return;
+    }
     if (data.status !== "ok" || data.calculation_status === "degraded") {
       setPennyScreenView("home", { route: "/", scope: "Safe to Spend", figures: [], asOf: new Date().toISOString() });
       return;
@@ -519,6 +524,18 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
         <h2 id="safe-to-spend-history" className="text-base font-bold text-slate-900 dark:text-slate-100">Your figure isn’t ready yet</h2>
         <p className="mt-1 text-sm text-slate-600 dark:text-slate-300 text-pretty">We need a little more account history to map bills and work out what is safe until payday.</p>
         {onRetry && <button type="button" onClick={onRetry} className="mt-3 min-h-11 rounded-xl px-3 text-sm font-semibold text-indigo-600 hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400 dark:hover:bg-indigo-500/10">Check again</button>}
+      </section>
+    );
+  }
+
+  if (data.calculation_status === "syncing") {
+    // G210: a first bank sync is still running, so any verdict would come from
+    // partial data. Not an error (so no alert role), never red, no amount.
+    return (
+      <section className="rounded-3xl p-5 glass-hero" aria-busy="true" aria-labelledby="safe-to-spend-syncing">
+        <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Safe to Spend</p>
+        <h2 id="safe-to-spend-syncing" className="text-base font-bold text-slate-900 dark:text-slate-100">Your figure is on its way</h2>
+        <p className="mt-1 text-sm text-slate-600 dark:text-slate-300 text-pretty">We are still fetching your transactions, so there is no verdict yet.</p>
       </section>
     );
   }
