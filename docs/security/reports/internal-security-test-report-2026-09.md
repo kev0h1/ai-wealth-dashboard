@@ -142,7 +142,7 @@ authority named on the rules-of-engagement record
 there verbatim: "I agree with the details in the pentest, and you can take
 this attestation as my signature."
 
-**Tester and reviewer roles.** The testing was carried out by AURIQ LTD using its own testing sessions and tooling, under the rules-of-engagement record signed 2026-09-20; the device packages (WP7b, WP8) and the 2026-10-04 retest were carried out by the Information Security Manager (Kevin Maingi) on his own phones, with the steps guided and recorded by the testing tooling. Each run's own manifest names its tester and records its review
+**Tester and reviewer roles.** The work packages WP1 to WP7a and WP9 to WP11 were carried out by AURIQ LTD using its own testing sessions and tooling, under the rules-of-engagement record signed 2026-09-20. The device packages (WP7b, WP8) and the 2026-10-04 retest were carried out by the Information Security Manager (Kevin Maingi) on his own phones, with the steps guided and recorded by the testing tooling. Each run's own manifest names its tester and records its review
 status; the evidence review is described in section 10.
 
 **Techniques and caps.** Permitted tools, numeric caps (one manual request
@@ -157,7 +157,7 @@ record and were not exceeded in any run.
 
 ## 3. Methodology and standards
 
-Testing followed `docs/security/PENTEST-METHODOLOGY.md`, a reconciliation of two separately produced draft methodologies (two drafts produced separately)
+Testing followed `docs/security/PENTEST-METHODOLOGY.md`, a reconciliation of two separately produced draft methodologies
 into one agreed test catalogue, evidence format and severity rubric
 (board item A43). It layers several standards, each scoped to the surface
 it actually fits, rather than claiming a single blanket certification
@@ -716,7 +716,7 @@ attestation ("Happy to sign this"), not a
 handwritten or cryptographic signature. This report, as a document, has not
 separately been signed by the Information Security Manager as of 2026-10-04.
 
-**WP12 review.** On 2026-10-04 a separate review pass audited the evidence behind this report, in two passes. It checked every Fail, Partially fixed, Blocked, Inconclusive and Not run result in runs A48 to A59, A55 and A56 (2026-09-27), A112 and A60-2026-10-04, and every finding in section 5 and `SECURITY.md` 3b against git (integrate commits, `release` ancestry and release tags) and the cited retest records. It also checked the report, `SECURITY.md` and the Q11 text for consistency with each other and with the records. The first pass found six defects: one wrong fix commit, the Android backup High missing from the register, missing coverage rows for Blocked and Inconclusive cases, miscounted matrix totals, a release-tag attribution that contradicted git, and one revision-history wording point. All were corrected, and the second pass confirmed each correction. This review used the same tooling as the testing sessions and so was not independent of them. The planned second review pass with different tooling (PENTEST-METHODOLOGY section 9) was not performed, by the Information Security Manager's decision of 2026-10-04. The review made no changes and ran no live tests. Its two limits are that the A121, A122 and A129 retest results rest on the Information Security Manager's relayed on-device observations (no screenshots), and that the A129 fix was verified by package flags only, with the `adb backup` extraction not re-run. The live `API-15` deletion retest on 2026-10-04 was recorded after this review and was not covered by it.
+**WP12 review.** On 2026-10-04 a separate review audited the evidence behind this report in two passes. It checked every Fail, Partially fixed, Blocked, Inconclusive and Not run result in runs A48 to A59, A55 and A56 (2026-09-27), A112 and A60-2026-10-04, and every finding in section 5 and `SECURITY.md` 3b against git (integrate commits, `release` ancestry and release tags) and the cited retest records. It also checked the report, `SECURITY.md` and the Q11 text for consistency with each other and with the records. The first pass found six defects: one wrong fix commit, the Android backup High missing from the register, missing coverage rows for Blocked and Inconclusive cases, miscounted matrix totals, a release-tag attribution that contradicted git, and one revision-history wording point. All were corrected, and the second pass confirmed each correction. This review used the same tooling as the testing sessions and so was not independent of them. The planned second review pass with different tooling (PENTEST-METHODOLOGY section 9) was not performed, by the Information Security Manager's decision of 2026-10-04. The review made no changes and ran no live tests. Its two limits are that the A121, A122 and A129 retest results rest on the Information Security Manager's relayed on-device observations (no screenshots), and that the A129 fix was verified by package flags only, with the `adb backup` extraction not re-run. The live `API-15` deletion retest on 2026-10-04 was recorded after this review and was not covered by it.
 
 **Revision history.**
 
