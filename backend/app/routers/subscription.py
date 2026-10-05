@@ -124,7 +124,7 @@ async def get_subscription_info(user: dict = Depends(current_user)):
         # plan-has-no-open-banking flag the accounts screen reads as "paused".
         "past_due": sub.status == "past_due",
         "grace_until": sub.grace_until.isoformat() if getattr(sub, "grace_until", None) else None,
-        "open_banking_paused": sub.limit("open_banking") is False,
+        "open_banking_paused": (getattr(sub, "limits", None) or {}).get("open_banking") is False,
         "billing_live": BILLING_ENABLED,
         # Legacy single-pack shape, kept for one release (see PENNY_TOPUP's
         # own comment in core/subscription.py) alongside the real pack list.

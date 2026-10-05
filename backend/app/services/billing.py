@@ -574,7 +574,7 @@ async def _handle_subscription_upsert(sub_obj: dict) -> dict:
     if trial_started_at:
         subscription_fields["trial_used_at"] = trial_started_at
 
-    existing = await subscriptions_col.find_one({"user_id": uid}) or {}
+    existing = dict(await subscriptions_col.find_one({"user_id": uid}) or {})
     update: dict = {"$set": subscription_fields, "$setOnInsert": {"started_at": now}}
     newly_past_due = False
     if status == "past_due":
@@ -635,14 +635,14 @@ async def _handle_subscription_deleted(sub_obj: dict) -> dict:
     if not uid:
         return {"handled": False, "reason": "no uid resolvable"}
 
-    existing = await subscriptions_col.find_one({"user_id": uid}) or {}
+    existing = dict(await subscriptions_col.find_one({"user_id": uid}) or {})
     deleted_id = sub_obj.get("id")
     if deleted_id and existing.get("stripe_subscription_id") and existing["stripe_subscription_id"] != deleted_id:
         # A superseded subscription ending (the user has since resubscribed)
         # must not expire the live one.
         return {"handled": False, "reason": "deleted subscription is not the current one"}
     update = {
-        "$set": {"status": "expired", "updated_at": datetime.now(timezone.utc), "source": "stripe"},
+        "$set": {"status": "expired", "updated_at": datetime.now(timezone.utc), "source": "stripe"},  # naive-ok: persisted audit instant
         "$unset": {"past_due_since": "", "grace_until": ""},
     }
     await subscriptions_col.update_one({"user_id": uid}, update)
@@ -658,9 +658,9 @@ async def _handle_payment_failed(invoice_obj: dict) -> dict:
         return {"handled": False, "reason": "no uid resolvable"}
 
     existing = await subscriptions_col.find_one({"user_id": uid})
-    if not existing or existing.get("source") != "stripe":
-        return {"handled": False, "reason": "no stripe subscription on file"}
-    now = datetime.now(timezone.utc)
+    if not existing:
+        return {"handled": False, "reason": "no subscription on file"}
+    now = datetime.now(timezone.utc)  # naive-ok: persisted audit instant
     fields = {"status": "past_due", "updated_at": now, "source": "stripe"}
     newly = _stamp_past_due(fields, existing, now)
     await subscriptions_col.update_one({"user_id": uid}, {"$set": fields})
@@ -700,13 +700,13 @@ async def _handle_invoice_paid(invoice_obj: dict) -> dict:
         return {"handled": False, "reason": "zero-amount invoice, nothing to convert"}
 
     existing = await subscriptions_col.find_one({"user_id": uid})
-    if not existing or existing.get("source") != "stripe":
-        return {"handled": False, "reason": "no stripe subscription on file"}
+    if not existing:
+        return {"handled": False, "reason": "no subscription on file"}
     invoice_sub = _invoice_subscription_id(invoice_obj)
     if invoice_sub and existing.get("stripe_subscription_id") and invoice_sub != existing["stripe_subscription_id"]:
         return {"handled": False, "reason": "invoice belongs to a different subscription"}
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(timezone.utc)  # naive-ok: persisted audit instant
     fields = {"status": "active", "updated_at": now, "source": "stripe"}
     period_end = _invoice_period_end(invoice_obj)
     if period_end:
@@ -741,7 +741,7 @@ async def _handle_trial_will_end(sub_obj: dict) -> dict:
     sent = await billing_lifecycle.notify(uid, copy[0], copy[1])
     if sent:
         await subscriptions_col.update_one(
-            {"_id": doc["_id"]}, {"$set": {"trial_reminder_sent_at": datetime.now(timezone.utc)}},
+            {"user_id": uid}, {"$set": {"trial_reminder_sent_at": datetime.now(timezone.utc)}},  # naive-ok: persisted audit instant
         )
     return {"handled": True, "action": "trial_will_end", "uid": uid, "notified": sent}
 

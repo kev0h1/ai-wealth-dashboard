@@ -277,7 +277,7 @@ async def get_subscription(email: str) -> Subscription:
     if doc.get("status") == "expired":
         return Subscription(landing_tier, "expired", has_paid_subscription=stripe_backed)
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(timezone.utc)  # naive-ok: aware instant compared with as_utc stamps
     expires_at = as_utc(doc.get("expires_at"))
     grace_until = as_utc(doc.get("grace_until")) if doc.get("status") == "past_due" else None
     if grace_until is not None:

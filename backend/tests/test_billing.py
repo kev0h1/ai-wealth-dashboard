@@ -1245,7 +1245,9 @@ def test_subscription_incomplete_status_does_not_grant_entitlement(monkeypatch):
 
     sub = _run(subscription_module.get_subscription(UID))
     assert sub.status == "expired"
-    assert sub.tier == subscription_module.Tier.LITE
+    # B45: a Stripe-backed subscription that never took payment lands on
+    # Statements whatever DEFAULT_TIER says.
+    assert sub.tier == subscription_module.Tier.STATEMENTS
     assert sub.tier != subscription_module.Tier.STANDARD
 
 
@@ -1279,7 +1281,7 @@ def test_subscription_unknown_status_does_not_grant_entitlement(monkeypatch):
 
     sub = _run(subscription_module.get_subscription(UID))
     assert sub.status == "expired"
-    assert sub.tier == subscription_module.Tier.LITE
+    assert sub.tier == subscription_module.Tier.STATEMENTS
     assert sub.tier != subscription_module.Tier.MAX
 
 
@@ -1379,10 +1381,11 @@ def test_past_due_subscriber_keeps_tier_until_expires_at_then_loses_it(monkeypat
     # value being overwritten here was already verified above to be the
     # one the code itself computed from the item.
     fake_subs.docs[0]["expires_at"] = datetime.now(timezone.utc) - timedelta(seconds=1)
+    fake_subs.docs[0]["grace_until"] = datetime.now(timezone.utc) - timedelta(seconds=1)
 
     after_grace = _run(subscription_module.get_subscription(UID))
     assert after_grace.status == "expired"
-    assert after_grace.tier == subscription_module.Tier.LITE
+    assert after_grace.tier == subscription_module.Tier.STATEMENTS
     assert after_grace.tier != subscription_module.Tier.STANDARD
 
 

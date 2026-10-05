@@ -86,7 +86,7 @@ async def revoke_open_banking_consents(uid: str) -> dict:
             continue
         await finexer_consents_col.update_one(
             {"_id": cid},
-            {"$set": {"status": "revoked", "revoked_at": datetime.now(timezone.utc)}},
+            {"$set": {"status": "revoked", "revoked_at": datetime.now(timezone.utc)}},  # naive-ok: persisted audit instant
         )
         revoked += 1
     return {"revoked": revoked, "failed": failed}
