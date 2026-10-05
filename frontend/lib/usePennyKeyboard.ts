@@ -16,6 +16,8 @@ export type PennyKeyboardState = {
   width: number;
   /** The layout viewport shrank with the keyboard (Android strategy). False on iOS. */
   layoutShrank: boolean;
+  /** SETTLE_MS has passed since the keyboard appeared (a transient first read cannot be trusted). */
+  settled: boolean;
 };
 
 /** Measures the on-screen keyboard from one source, the visual viewport, and
@@ -50,10 +52,11 @@ export function usePennyKeyboard(enabled: boolean): PennyKeyboardState | null {
       if (keyboardVisible && !dock.current) shownAt.current = now;
       dock.current = pennyDockNext(dock.current, { keyboardVisible, height: next.height, inset, top: next.top }, now - shownAt.current < SETTLE_MS);
       const held = dock.current;
+      const settled = keyboardVisible && now - shownAt.current >= SETTLE_MS;
       baselineWidth.current = next.width;
       setState(previous => previous && previous.keyboardVisible === keyboardVisible && previous.inset === (held?.inset ?? 0)
-        && previous.width === next.width && previous.layoutShrank === layoutShrank && previous.top === (held?.top ?? 0)
-        ? previous : { keyboardVisible, inset: held?.inset ?? 0, top: held?.top ?? 0, width: next.width, layoutShrank });
+        && previous.width === next.width && previous.layoutShrank === layoutShrank && previous.settled === settled && previous.top === (held?.top ?? 0)
+        ? previous : { keyboardVisible, inset: held?.inset ?? 0, top: held?.top ?? 0, width: next.width, layoutShrank, settled });
     };
     const update = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(read); };
     baseline.current = 0;
@@ -61,6 +64,7 @@ export function usePennyKeyboard(enabled: boolean): PennyKeyboardState | null {
     layoutBaseline.current = 0;
     dock.current = null;
     read();
+    const settleTimer = window.setInterval(() => { if (dock.current) update(); }, SETTLE_MS / 2);
     vv?.addEventListener("resize", update);
     vv?.addEventListener("scroll", update);
     window.addEventListener("resize", update);
@@ -70,6 +74,7 @@ export function usePennyKeyboard(enabled: boolean): PennyKeyboardState | null {
     keyboardEvents.forEach(name => window.addEventListener(name, update));
     return () => {
       cancelAnimationFrame(frame);
+      window.clearInterval(settleTimer);
       vv?.removeEventListener("resize", update);
       vv?.removeEventListener("scroll", update);
       window.removeEventListener("resize", update);

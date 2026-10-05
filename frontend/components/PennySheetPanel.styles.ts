@@ -74,10 +74,10 @@ export const PENNY_PANEL_CSS = `
 
 /* G211 (iOS only, rendered and attributed only while the pan guard runs): an
    opaque canvas-coloured underlay over the whole layout viewport so no page
-   shows above the window or in a pan gap. Not a scrim: no blur, no dim. The
-   frame, not the underlay, takes touches in its own area; every touch outside
+   shows above the window or in a pan gap. Not a scrim: no blur, no dim. pointer-events: none so taps reach the
+   click-catcher beneath and still close the window; every touch outside
    the conversation scroller is cancelled by usePennyIosPanGuard. */
-.penny-typing-underlay { position: fixed; inset: 0; z-index: 57; background: var(--background); touch-action: none; }
+.penny-typing-underlay { position: fixed; inset: 0; z-index: 57; background: var(--background); pointer-events: none; }
 .penny-keyboard-frame[data-penny-ios-guard] { touch-action: none; }
 .penny-keyboard-frame[data-penny-ios-guard] [data-penny-scroll] { touch-action: pan-y; overscroll-behavior: contain; }
 `;

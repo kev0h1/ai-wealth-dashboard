@@ -61,7 +61,7 @@ export default function PennySheetPanel({ children, isOpen, panelRef }: {
 
   // G211: iOS strategy only (layout viewport kept its height). Android and the
   // app shells (layoutShrank) get none of this.
-  const iosGuard = typing && shouldGuard(Boolean(viewport?.keyboardVisible), Boolean(viewport?.layoutShrank));
+  const iosGuard = typing && shouldGuard(Boolean(viewport?.settled && viewport?.keyboardVisible), Boolean(viewport?.layoutShrank));
   usePennyIosPanGuard(iosGuard);
 
   const frameStyle = typing && viewport ? {
