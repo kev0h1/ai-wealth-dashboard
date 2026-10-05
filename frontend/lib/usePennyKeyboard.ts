@@ -14,6 +14,8 @@ export type PennyKeyboardState = {
   /** Visual viewport offsetTop captured with the dock (fill-once). */
   top: number;
   width: number;
+  /** The layout viewport shrank with the keyboard (Android strategy). False on iOS. */
+  layoutShrank: boolean;
 };
 
 /** Measures the on-screen keyboard from one source, the visual viewport, and
@@ -42,15 +44,16 @@ export function usePennyKeyboard(enabled: boolean): PennyKeyboardState | null {
       if (Math.abs(baselineWidth.current - next.width) > 80 || layoutBaseline.current === 0) layoutBaseline.current = layout.height;
       else layoutBaseline.current = Math.max(layoutBaseline.current, layout.height);
       const keyboardVisible = pennyKeyboardVisible(baseline.current, next);
-      const inset = keyboardVisible ? pennyBottomInset(layout.height, visual, pennyLayoutShrank(layoutBaseline.current, layout.height)) : 0;
+      const layoutShrank = pennyLayoutShrank(layoutBaseline.current, layout.height);
+      const inset = keyboardVisible ? pennyBottomInset(layout.height, visual, layoutShrank) : 0;
       const now = performance.now();
       if (keyboardVisible && !dock.current) shownAt.current = now;
       dock.current = pennyDockNext(dock.current, { keyboardVisible, height: next.height, inset, top: next.top }, now - shownAt.current < SETTLE_MS);
       const held = dock.current;
       baselineWidth.current = next.width;
       setState(previous => previous && previous.keyboardVisible === keyboardVisible && previous.inset === (held?.inset ?? 0)
-        && previous.width === next.width && previous.top === (held?.top ?? 0)
-        ? previous : { keyboardVisible, inset: held?.inset ?? 0, top: held?.top ?? 0, width: next.width });
+        && previous.width === next.width && previous.layoutShrank === layoutShrank && previous.top === (held?.top ?? 0)
+        ? previous : { keyboardVisible, inset: held?.inset ?? 0, top: held?.top ?? 0, width: next.width, layoutShrank });
     };
     const update = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(read); };
     baseline.current = 0;
