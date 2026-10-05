@@ -36,6 +36,7 @@ assert.match(auth, /^\s+oauthDetour,$/m);
 // Retrying the cold-start check is not a fresh sign-in; only a user-started attempt is.
 const login = read("components/LoginScreen.tsx");
 assert.match(login, /onSignedIn\(ctrl\.signal, userAttemptRef\.current\)/);
+assert.match(login, /userAttemptRef = useRef\(false\)/, "starts false: a cold-start retry is not fresh");
 assert.match(login, /userAttemptRef\.current = true;/);
 assert.ok((login.match(/userAttemptRef\.current = false;/g) || []).length >= 2, "cancel and dismiss reset it");
 console.log("ok  post-sign-in-route");
