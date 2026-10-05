@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { SheetFrame } from "@/components/SheetFrame";
 import CustomSelect from "@/components/CustomSelect";
+import { DateField } from "@/components/DatePicker";
 import { PayPeriodConfig } from "@/lib/payPeriod";
 
 const MONTH_SHORT = [
@@ -125,12 +126,7 @@ export default function PayPeriodSettingsSheet({
             </div>
             <div>
               <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-2">A known payday date</p>
-              <input
-                type="date"
-                value={biweeklyRef}
-                onChange={e => setBiweeklyRef(e.target.value)}
-                className="w-full text-sm bg-slate-50 dark:bg-slate-700 dark:text-slate-100 border border-slate-200 dark:border-slate-600 rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-indigo-500"
-              />
+              <DateField mode="day" label="A known payday date" value={biweeklyRef} onChange={setBiweeklyRef} appearance="outlined" />
             </div>
           </div>
         )}

@@ -14,6 +14,7 @@
 import { FormEvent, useId, useState } from "react";
 import { SheetFrame, type SheetFrameVariant } from "@/components/SheetFrame";
 import { useCategories } from "@/components/CategoriesContext";
+import { DateField } from "@/components/DatePicker";
 import type { SearchFilters } from "@/lib/transactionFilters";
 
 const MONEY_DIRECTIONS: { value: "debit" | "credit" | null; label: string }[] = [
@@ -152,23 +153,11 @@ export function TransactionFilterSheetContent({
           <div className="mt-3 flex items-center gap-2">
             <label className="flex-1">
               <span className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">From</span>
-              <input
-                type="date"
-                name="from"
-                value={from ?? ""}
-                onChange={(e) => setFrom(e.target.value || null)}
-                className="w-full h-11 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 px-3 text-[13px] text-slate-900 dark:text-slate-100 outline-none focus:ring-2 focus:ring-indigo-500"
-              />
+              <DateField mode="day" label="From" appearance="outlined" size="compact" value={from ?? ""} onChange={(v) => setFrom(v || null)} className="text-[13px]" />
             </label>
             <label className="flex-1">
               <span className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">To</span>
-              <input
-                type="date"
-                name="to"
-                value={to ?? ""}
-                onChange={(e) => setTo(e.target.value || null)}
-                className="w-full h-11 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 px-3 text-[13px] text-slate-900 dark:text-slate-100 outline-none focus:ring-2 focus:ring-indigo-500"
-              />
+              <DateField mode="day" label="To" appearance="outlined" size="compact" value={to ?? ""} onChange={(v) => setTo(v || null)} className="text-[13px]" />
             </label>
           </div>
 
