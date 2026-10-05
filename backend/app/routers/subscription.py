@@ -100,7 +100,17 @@ async def get_subscription_info(user: dict = Depends(current_user)):
         for tier_name in TIER_BY_NAME
     }
 
+    # B45: lets the plan picker lead with the trial only when Checkout would
+    # actually grant it. None (field omitted by older clients' fallback)
+    # when the check itself could not run.
+    try:
+        from app.services.billing import trial_eligible as _trial_eligible
+        trial_eligible = await _trial_eligible(email)
+    except Exception:
+        trial_eligible = None
+
     return {
+        "trial_eligible": trial_eligible,
         "tier":         sub.tier_name,
         "status":       sub.status,
         "prices_gbp":   TIER_PRICES_GBP,

@@ -409,3 +409,12 @@ def test_trial_will_end_skips_reminder_when_already_cancelled(env):
     res = _feed({"id": "e2", "type": "customer.subscription.trial_will_end",
                  "data": {"object": {"id": "sub_1", "customer": "cus_1", "metadata": {"uid": UID}}}})
     assert res["notified"] is False and pushes == []
+
+
+def test_trial_eligible_true_for_new_user_false_after_trial(env):
+    subs, _ = env
+    assert _run(billing_module.trial_eligible(UID)) is True
+    _feed(_sub_event("e1", "trialing", days_to_end=14, trial_end=_ts(14), trial_start=int(NOW.timestamp())))
+    _feed({"id": "e2", "type": "customer.subscription.deleted",
+           "data": {"object": {"id": "sub_1", "customer": "cus_1", "metadata": {"uid": UID}}}})
+    assert _run(billing_module.trial_eligible(UID)) is False

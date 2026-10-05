@@ -231,6 +231,18 @@ async def _validate_subscription_checkout(uid: str, trial: bool) -> None:
         raise BillingError("The introductory trial has already been used")
 
 
+async def trial_eligible(uid: str) -> bool:
+    """B45: would a trial Checkout be accepted for `uid` right now? Runs the
+    exact check Checkout itself runs (_validate_subscription_checkout, so
+    one trial per person and any UAT reset marker apply identically), so
+    the plan picker can never offer a trial the server will then refuse."""
+    try:
+        await _validate_subscription_checkout(uid, True)
+    except BillingError:
+        return False
+    return True
+
+
 def _subscription_price_key(target: str, billing_period: str) -> str:
     return target if billing_period == "monthly" else f"{target}_{billing_period}"
 
