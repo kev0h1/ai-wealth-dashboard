@@ -39,7 +39,7 @@ import { useOpenBankingAccess } from "@/lib/openBankingAccess";
 import { stampAccountDetailState, hasAccountDetailEntry } from "@/lib/accountSheetHistory";
 import { useAccountDetailHistory } from "@/lib/useAccountDetailHistory";
 import { SheetFrame } from "@/components/SheetFrame";
-import { todayIso } from "@/lib/calendar";
+import { todayIso, dayIsoFromStored } from "@/lib/calendar";
 
 /** One row inside the condensed "+ Add" menu (header Variant B). Mirrors the
  *  MenuItem pattern already used by SpendTrends' widget overflow menu. */
@@ -1140,7 +1140,7 @@ export default function AccountsPage() {
     setManualTxDesc(tx.description);
     setManualTxAmount(String(tx.amount));
     setManualTxType(tx.transaction_type === "credit" ? "credit" : "debit");
-    setManualTxDate(/^\d{4}-\d{2}-\d{2}/.test(tx.date) ? tx.date.slice(0, 10) : todayIso(new Date(tx.date)));
+    setManualTxDate(dayIsoFromStored(tx.date));
     setManualTxError(null);
     setManualTxModalOpen(true);
   }
