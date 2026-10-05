@@ -7,6 +7,8 @@ import { api, ApiError, Account, Connection, Transaction, InvestmentAccount, Inv
 import { accountBrand, BankBadge, TermsPill } from "@/components/AccountMiniCard";
 import AccountLedgerRow from "@/components/AccountLedgerRow";
 import ReconnectStrip, { type ReconnectProvider } from "@/components/ReconnectStrip";
+import PausedBanksStrip from "@/components/PausedBanksStrip";
+import { pausedAccountCount } from "@/lib/billingCopy";
 import { buildEstate, filterEstate, type EstateRow, type EstateLens } from "@/lib/accountsEstate";
 import { accountKind, accountKindLabel, type AccountKind } from "@/lib/accountKind";
 import CardTermsSheet from "@/components/CardTermsSheet";
@@ -1411,6 +1413,9 @@ export default function AccountsPage() {
     const grouped = new Map<string, ReconnectProvider>();
     for (const account of bankAccounts) {
       if (account.status !== "expired") continue;
+      // B45: a paused account cannot be reconnected on this plan (the
+      // connect endpoints refuse it), so it is covered by the paused strip.
+      if (account.paused) continue;
       const source = (account as Account & { source?: string }).source;
       const key = `${source ?? "bank"}:${account.provider_id ?? account.provider}`;
       const existing = grouped.get(key);
@@ -2854,6 +2859,8 @@ export default function AccountsPage() {
                     {pinMsg}
                   </div>
                 )}
+
+                <PausedBanksStrip count={pausedAccountCount(bankAccounts)} />
 
                 {reconnectProviders.length > 0 && (
                   <ReconnectStrip providers={reconnectProviders} onReconnect={handleEstateReconnect} />

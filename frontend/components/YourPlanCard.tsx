@@ -19,7 +19,7 @@
 //
 // Copy: no em dashes (repo-wide rule).
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CreditCard } from "lucide-react";
 import type { SubscriptionInfo } from "@/lib/api";
 import PennyUsageRow from "@/components/PennyUsageRow";
@@ -27,6 +27,8 @@ import PlanPicker from "@/components/PlanPicker";
 import { refreshPennyUsage } from "@/components/PennySheetProvider";
 import { usePurchaseAvailability, PURCHASE_UNAVAILABLE_SENTENCE } from "@/lib/nativeAuth";
 import { SheetFrame } from "@/components/SheetFrame";
+import { api } from "@/lib/api";
+import { endsOnLine, FIX_PAYMENT_LABEL, PAYMENT_FAILED_BODY, PAYMENT_FAILED_TITLE } from "@/lib/billingCopy";
 
 const INDIGO = "#4f46e5";
 
@@ -45,12 +47,19 @@ function MoneyCopy({ text }: { text: string }) {
 function formatSubtitle(info: SubscriptionInfo | null, error: boolean): string {
   if (!info) return error ? "Could not load your plan" : "Checking…";
   const tierName = capitalize(info.tier);
+  // B45: cancelled (in a trial or not) reads "Ends on <date>" and wins over
+  // the trial and renewal lines, because that is what the user will see
+  // happen. Access carries on until then.
+  if (info.cancel_at_period_end) {
+    const endIso = info.status === "trialing" && info.trial_ends_at ? info.trial_ends_at : info.renews_at;
+    if (endIso) return `${tierName} plan. ${endsOnLine(endIso, shortDate)}`;
+  }
   if (info.status === "trialing" && info.trial_ends_at) {
     return `${tierName} trial, free until ${shortDate(info.trial_ends_at)}`;
   }
   if (info.status === "past_due") return `${tierName} plan, payment needs attention`;
-  if (info.cancel_at_period_end && info.renews_at) {
-    return `${tierName} plan, ends ${shortDate(info.renews_at)}`;
+  if (info.status === "expired" && info.has_paid_subscription) {
+    return `${tierName} plan, free. Your paid plan has ended`;
   }
   const price = info.prices_gbp?.[info.tier];
   if (typeof price !== "number") return `${tierName} plan`;
@@ -72,6 +81,27 @@ export default function YourPlanCard({
   error?: boolean;
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [fixBusy, setFixBusy] = useState(false);
+  const [fixError, setFixError] = useState<string | null>(null);
+  // B45: the Accounts screen's Resubscribe link lands here as ?plans=1 with
+  // the plan picker already open. Read once from the URL after mount (no
+  // useSearchParams, which would force a Suspense boundary on Settings).
+  useEffect(() => {
+    if (info && new URLSearchParams(window.location.search).get("plans") === "1") setPickerOpen(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [Boolean(info)]);
+  async function fixPayment() {
+    if (fixBusy) return;
+    setFixBusy(true);
+    setFixError(null);
+    try {
+      const { url } = await api.openBillingPortal();
+      window.location.assign(url);
+    } catch {
+      setFixError("Could not open billing. Try again in a moment.");
+      setFixBusy(false);
+    }
+  }
   const subtitle = formatSubtitle(info, error);
   const purchaseAvailability = usePurchaseAvailability();
 
@@ -91,6 +121,31 @@ export default function YourPlanCard({
           <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5"><MoneyCopy text={subtitle} /></p>
         </div>
       </div>
+
+      {/* B45: a failed payment is a payment risk, so amber attention (a
+          dot, ink text), never red. Access carries on through the grace
+          period; the fix opens Stripe's customer portal. Web only, native
+          has no route to Stripe (see usePurchaseAvailability). */}
+      {info?.status === "past_due" && (
+        <div role="status" className="px-4 py-3 border-b border-slate-100 dark:border-slate-700">
+          <p className="flex items-start gap-2 text-xs font-semibold text-slate-800 dark:text-slate-100">
+            <span aria-hidden="true" className="mt-1 h-2 w-2 shrink-0 rounded-full bg-amber-500" />
+            {PAYMENT_FAILED_TITLE}
+          </p>
+          <p className="mt-1 pl-4 text-[11px] leading-snug text-slate-600 dark:text-slate-300">{PAYMENT_FAILED_BODY}</p>
+          {purchaseAvailability === "web" && (
+            <button
+              type="button"
+              onClick={fixPayment}
+              disabled={fixBusy}
+              className="ml-4 mt-2 min-h-11 rounded-xl px-3 text-sm font-medium text-indigo-600 outline-none transition-colors hover:bg-indigo-50 active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:cursor-not-allowed disabled:text-slate-500 dark:text-indigo-400 dark:hover:bg-indigo-900/10"
+            >
+              {fixBusy ? "Opening…" : FIX_PAYMENT_LABEL}
+            </button>
+          )}
+          {fixError && <p role="alert" className="mt-1 pl-4 text-xs text-slate-600 dark:text-slate-300">{fixError}</p>}
+        </div>
+      )}
 
       <PennyUsageRow info={info} error={error} className="border-b border-slate-100 dark:border-slate-700" />
 
