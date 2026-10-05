@@ -273,11 +273,11 @@ await t("source (A135): native sign-in transitions in place, no page reload, via
   assert.ok(!/location\.reload/.test(g), "handlers must not reload after native login");
   assert.equal((g.match(/await runNative\("(google|apple)"\)/g) || []).length, 2, "google and apple both use the one runNative path");
   const f = ls.slice(ls.indexOf("async function establish("), ls.indexOf("async function runNative"));
-  assert.ok(f.includes("await onSignedIn(ctrl.signal)"));
+  assert.ok(f.includes("await onSignedIn(ctrl.signal, userAttemptRef.current)"));
   // the only remaining reload is the explicit fallback for hosts without the callback
   assert.ok(/if \(!onSignedIn\) \{\s*window\.location\.reload\(\);/.test(f));
   const ap = read("components/AuthProvider.tsx");
-  assert.ok(ap.includes("<LoginScreen error={authError} onSignedIn={(sig) => establishSession(sig, true)} resuming={resuming} onCancelResume={cancelResume} />"));
+  assert.ok(ap.includes("<LoginScreen error={authError} onSignedIn={(sig, fresh) => establishSession(sig, fresh === true)} resuming={resuming} onCancelResume={cancelResume} />"));
   const e = ap.slice(ap.indexOf("async function establishSession"), ap.indexOf("useEffect(() => {\n    // A135: a cold start"));
   assert.ok(e.includes("getToken()") && e.includes("/auth/session/validate") && e.includes("setUser(") && e.includes("resetUnauthorizedGate()") && e.includes("invalidateAllAccountData()"));
   assert.ok(!/location\.reload/.test(e));

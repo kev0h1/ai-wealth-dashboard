@@ -537,7 +537,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   if (checking) {
     // G202: a resumed sign-in shows its progress instead of a blank slate.
-    if (resuming) return <LoginScreen error={authError} onSignedIn={(sig) => establishSession(sig, true)} resuming={resuming} onCancelResume={cancelResume} />;
+    if (resuming) return <LoginScreen error={authError} onSignedIn={(sig, fresh) => establishSession(sig, fresh === true)} resuming={resuming} onCancelResume={cancelResume} />;
     return <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a]" />;
   }
 
@@ -556,7 +556,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   if (!user) {
-    return <LoginScreen error={authError} onSignedIn={(sig) => establishSession(sig, true)} resuming={resuming} onCancelResume={cancelResume} />;
+    return <LoginScreen error={authError} onSignedIn={(sig, fresh) => establishSession(sig, fresh === true)} resuming={resuming} onCancelResume={cancelResume} />;
   }
 
   if (needsOnboarding) {
