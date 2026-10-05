@@ -15,7 +15,7 @@ from app.core.config import (
     TRUELAYER_AUTH_URL, TRUELAYER_API_URL, TRUELAYER_REDIRECT_URI,
     TRUELAYER_WEBHOOK_SECRET, APP_URL,
 )
-from app.core.signin_handoff import bank_handoff_html, signin_handoff_csp
+from app.core.signin_handoff import bank_error_response, bank_handoff_html, signin_handoff_csp
 from app.core.subscription import check_connection_limit, check_open_banking_allowed
 from app.db.collections import connections_col
 from app.services.truelayer_sync import save_connection, sync_connection
@@ -70,9 +70,14 @@ async def truelayer_link(provider: str = "", native: bool = False, user: dict = 
 
 
 @router.get("/auth/truelayer/callback")
-async def truelayer_callback(code: str, state: Optional[str] = None):
+async def truelayer_callback(code: str = "", state: Optional[str] = None, error: str = ""):
+    # G215: a browser lands here by navigation, so every failure is the designed
+    # hand-off error page (never JSON, never upstream text).
     if not TRUELAYER_CLIENT_ID or not TRUELAYER_CLIENT_SECRET:
-        raise HTTPException(500, "TrueLayer not configured")
+        return bank_error_response("truelayer", state or "", status_code=503,
+                                   message="Bank connections aren’t available right now. Close this window and try again later.")
+    if error or not code:
+        return bank_error_response("truelayer", state or "", status_code=400)
     connection_id = state or secrets.token_hex(8)
     pre_doc = await connections_col.find_one({"_id": connection_id}, {"native": 1})
     native = bool((pre_doc or {}).get("native"))
@@ -88,7 +93,7 @@ async def truelayer_callback(code: str, state: Optional[str] = None):
             },
         )
         if r.status_code != 200:
-            return HTMLResponse(f"<h2>Token exchange failed</h2><pre>{r.text}</pre>", status_code=400)
+            return bank_error_response("truelayer", connection_id, status_code=502)
         await save_connection(connection_id, r.json())
 
     conn_doc = await connections_col.find_one({"_id": connection_id}, {"user_id": 1})

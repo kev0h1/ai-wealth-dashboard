@@ -18,7 +18,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi import HTTPException
-from fastapi.responses import PlainTextResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 import app.core.auth as auth_mod
 import app.core.subscription as subscription_module
@@ -289,18 +289,19 @@ def test_register_accepts_https_redirect(monkeypatch):
 
 # ── authorize ────────────────────────────────────────────────────────────
 
-def test_authorize_unknown_client_returns_plain_400_never_a_redirect(monkeypatch):
+def test_authorize_unknown_client_returns_designed_400_never_a_redirect(monkeypatch):
     _install_fakes(monkeypatch)
     resp = _run(oauth.authorize(
         response_type="code", client_id="does-not-exist",
         redirect_uri="https://evil.example.com/cb", scope="accounts:read",
         state="s1", code_challenge="chal", code_challenge_method="S256",
     ))
-    assert isinstance(resp, PlainTextResponse)
+    assert isinstance(resp, HTMLResponse)
     assert resp.status_code == 400
+    assert "Content-Security-Policy" in resp.headers
 
 
-def test_authorize_redirect_uri_mismatch_returns_plain_400(monkeypatch):
+def test_authorize_redirect_uri_mismatch_returns_designed_400(monkeypatch):
     _install_fakes(monkeypatch)
     client = _run(_register())
     resp = _run(oauth.authorize(
@@ -308,8 +309,9 @@ def test_authorize_redirect_uri_mismatch_returns_plain_400(monkeypatch):
         redirect_uri="https://not-registered.example.com/cb", scope="accounts:read",
         state="s1", code_challenge="chal", code_challenge_method="S256",
     ))
-    assert isinstance(resp, PlainTextResponse)
+    assert isinstance(resp, HTMLResponse)
     assert resp.status_code == 400
+    assert "Content-Security-Policy" in resp.headers
 
 
 def test_authorize_bad_scope_redirects_with_error_and_state(monkeypatch):

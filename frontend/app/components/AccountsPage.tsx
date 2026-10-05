@@ -39,6 +39,7 @@ import { useOpenBankingAccess } from "@/lib/openBankingAccess";
 import { stampAccountDetailState, hasAccountDetailEntry } from "@/lib/accountSheetHistory";
 import { useAccountDetailHistory } from "@/lib/useAccountDetailHistory";
 import { SheetFrame } from "@/components/SheetFrame";
+import { noticeSheet } from "@/components/ConfirmSheet";
 import { todayIso, dayIsoFromStored } from "@/lib/calendar";
 
 /** One row inside the condensed "+ Add" menu (header Variant B). Mirrors the
@@ -1028,7 +1029,7 @@ export default function AccountsPage() {
       }
       window.location.href = auth_url;
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Failed to start reconnection. Please try again.");
+      void noticeSheet({ title: "Couldn’t start reconnection", body: err instanceof ApiError ? err.message : "Please try again." });
     }
   }
 
@@ -1044,7 +1045,7 @@ export default function AccountsPage() {
       setTxnMap(prev => { const n = { ...prev }; delete n[selectedAccountId]; return n; });
       handleBack();
     } catch {
-      alert("Failed to remove account. Please try again.");
+      void noticeSheet({ title: "Couldn’t remove that account", body: "Please try again." });
     } finally {
       setDeletingAccount(false);
     }
@@ -1102,7 +1103,7 @@ export default function AccountsPage() {
       setManualAccounts(prev => prev.filter(a => a.id !== id));
       loadAccounts();
     } catch {
-      alert("Failed to remove account. Please try again.");
+      void noticeSheet({ title: "Couldn’t remove that account", body: "Please try again." });
     }
   }
 
@@ -1181,7 +1182,7 @@ export default function AccountsPage() {
       await loadAccountTxns(selectedAccountId, true);
       loadAccounts();
     } catch {
-      alert("Failed to delete entry.");
+      void noticeSheet({ title: "Couldn’t delete that entry", body: "Please try again." });
     }
   }
 
@@ -1262,7 +1263,7 @@ export default function AccountsPage() {
       loadAccounts();
       if (selectedAccountId) await loadAccountTxns(selectedAccountId, true);
     } catch {
-      alert("Failed to update rule.");
+      void noticeSheet({ title: "Couldn’t update that rule", body: "Please try again." });
     }
   }
 
@@ -1275,7 +1276,7 @@ export default function AccountsPage() {
       loadAccounts();
       if (selectedAccountId) await loadAccountTxns(selectedAccountId, true);
     } catch {
-      alert("Failed to delete rule.");
+      void noticeSheet({ title: "Couldn’t delete that rule", body: "Please try again." });
     }
   }
 
@@ -1316,7 +1317,7 @@ export default function AccountsPage() {
       const h = await api.getInvestmentHoldings(id);
       setInvestmentHoldings(prev => ({ ...prev, [id]: h }));
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Refresh failed");
+      void noticeSheet({ title: "Refresh didn’t work", body: err instanceof Error ? err.message : "Please try again." });
     } finally {
       setRefreshingInvestment(null);
     }
@@ -1330,7 +1331,7 @@ export default function AccountsPage() {
       setInvestmentAccounts(prev => prev.filter(a => a.id !== id));
       setInvestmentHoldings(prev => { const n = { ...prev }; delete n[id]; return n; });
       if (expandedInvestment === id) setExpandedInvestment(null);
-    } catch { alert("Failed to remove investment account."); }
+    } catch { void noticeSheet({ title: "Couldn’t remove that account", body: "Please try again." }); }
     finally { setDeletingInvestment(null); }
   }
 
@@ -1364,7 +1365,7 @@ export default function AccountsPage() {
       }));
       setConfirmDeleteNote(null);
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Failed to delete note");
+      void noticeSheet({ title: "Couldn’t delete that note", body: err instanceof Error ? err.message : "Please try again." });
     } finally {
       setDeletingNote(null);
     }
@@ -2788,13 +2789,13 @@ export default function AccountsPage() {
           )}
 
           {reconnectWarning && (
-            <div className="mx-4 mt-4 flex items-start gap-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-2xl px-4 py-3">
-              <AlertTriangle size={16} className="text-red-500 flex-shrink-0 mt-0.5" />
+            <div className="mx-4 mt-4 flex items-start gap-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-2xl px-4 py-3">
+              <AlertTriangle size={16} className="text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-red-800 dark:text-red-200">Wrong account connected</p>
-                <p className="text-xs text-red-600 dark:text-red-400 mt-0.5">{reconnectWarning}</p>
+                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Wrong account connected</p>
+                <p className="text-xs text-slate-600 dark:text-slate-300 mt-0.5">{reconnectWarning}</p>
               </div>
-              <button onClick={() => setReconnectWarning(null)} className="text-red-400 hover:text-red-600 text-lg leading-none">×</button>
+              <button onClick={() => setReconnectWarning(null)} aria-label="Dismiss" className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-lg leading-none min-h-11 min-w-11">×</button>
             </div>
           )}
 

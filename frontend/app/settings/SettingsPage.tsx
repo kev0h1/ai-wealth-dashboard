@@ -1199,7 +1199,7 @@ export default function SettingsPage() {
               </>
             )}
             {appleLinkMsg && (
-              <p className={`text-xs mt-2 ${appleLinkMsg.ok ? "text-emerald-600 dark:text-emerald-400" : "text-red-500 dark:text-red-400"}`}>
+              <p className={`text-xs mt-2 ${appleLinkMsg.ok ? "text-emerald-600 dark:text-emerald-400" : "text-slate-700 dark:text-slate-200"}`}>
                 {appleLinkMsg.text}
               </p>
             )}
@@ -1559,7 +1559,7 @@ export default function SettingsPage() {
                   <p
                     role="status"
                     aria-live="polite"
-                    className={`mt-2 text-xs font-medium ${financeMsg.ok ? "text-emerald-500" : "text-red-500"}`}
+                    className={`mt-2 text-xs font-medium ${financeMsg.ok ? "text-emerald-500" : "text-slate-700 dark:text-slate-200"}`}
                   >
                     {financeMsg.text}
                   </p>
@@ -1660,7 +1660,7 @@ export default function SettingsPage() {
               {syncingHistory ? "Syncing…" : "Sync history (90 days)"}
             </button>
             {syncHistoryMsg && (
-              <p className={`mt-2 text-xs font-medium ${syncHistoryMsg.ok ? "text-emerald-500" : "text-red-500"}`}>{syncHistoryMsg.text}</p>
+              <p className={`mt-2 text-xs font-medium ${syncHistoryMsg.ok ? "text-emerald-500" : "text-slate-700 dark:text-slate-200"}`}>{syncHistoryMsg.text}</p>
             )}
           </div>
           <button
@@ -1721,7 +1721,7 @@ export default function SettingsPage() {
                 {profileSaving ? "Saving…" : "Save profile"}
               </button>
             )}
-            {profileMsg && <p className={`text-xs font-medium ${profileMsg.ok ? "text-emerald-500" : "text-red-500"}`}>{profileMsg.text}</p>}
+            {profileMsg && <p className={`text-xs font-medium ${profileMsg.ok ? "text-emerald-500" : "text-slate-700 dark:text-slate-200"}`}>{profileMsg.text}</p>}
           </div>
 
           <button
