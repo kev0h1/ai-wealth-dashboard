@@ -32,6 +32,14 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "allocation-shortfall",
+    name: "Allocation shortfall card · G217 · variants A, B, C",
+    description:
+      "G217 design round (skill: impeccable; directions drafted with openai/gpt-6-astra and rewritten to DESIGN.md): a Home card for a set-aside (allocation) that leaves an account short, calmer than the payment shortfall move card · no red, no amber, no Penny gradient, both remedies offered equally (move from an account that can safely spare it, or reduce the set-aside for this period), ranked below the payment card · A Same anatomy, lighter: ink figure, outlined button pair / B Plan note: set-aside name leads, quieter surface, equal text actions / C Inline ledger line in the account's plan context with one Fix opening a two-option sheet · every frame stacks the PRODUCTION MoveCard (payment shortfall) above the set-aside card; the set-aside card is hand-authored on the shipped HomeBrief tokens because no production component exists yet · the paying account is hedged (\"based on recent transfers\") when estimated · materiality floor question for Kevin: default no card under £5 · fixtures only, nothing is saved · ?variant=a|b|c&state=estimated|known|no-source&mode=light|dark&sheet=open",
+    variants: [{ label: "A Same anatomy, lighter", value: "a" }, { label: "B Plan note", value: "b" }, { label: "C Inline ledger line", value: "c" }],
+    states: [{ label: "Estimated account", value: "estimated" }, { label: "Known account", value: "known" }, { label: "No source", value: "no-source" }],
+  },
+  {
     slug: "first-sync",
     name: "First bank sync state · G210",
     description:
