@@ -625,6 +625,7 @@ async def _handle_subscription_upsert(sub_obj: dict) -> dict:
         subscription_fields["stripe_created"] = sub_obj["created"]
     if sub_obj.get("status") == "canceled":
         subscription_fields["ended_at"] = now
+        subscription_fields["ended_subscription_id"] = sub_obj.get("id")
     update: dict = {"$set": subscription_fields, "$setOnInsert": {"started_at": now}}
     newly_past_due = False
     if status == "past_due":
@@ -654,7 +655,12 @@ def _stale_subscription_event(existing: dict, sub_obj: dict, status: str) -> str
     stored subscription cannot reactivate it once it has been cancelled."""
     cur_id = existing.get("stripe_subscription_id")
     new_id = sub_obj.get("id")
-    if not existing or not cur_id or not new_id:
+    if not existing or not new_id:
+        return None
+    ended = _ended_subscription_event(existing, sub_obj, status)
+    if ended:
+        return ended
+    if not cur_id:
         return None
     if cur_id != new_id:
         created, stored = sub_obj.get("created"), existing.get("stripe_created")
@@ -664,7 +670,16 @@ def _stale_subscription_event(existing: dict, sub_obj: dict, status: str) -> str
         if live and not (stored and created and created > stored):
             return "event is for a different subscription than the live one"
         return None
-    if existing.get("ended_at") and status in ("active", "trialing", "past_due"):
+    return None
+
+
+def _ended_subscription_event(existing: dict, sub_obj: dict, status: str) -> str | None:
+    """`ended_subscription_id` ties "this ended" to the subscription id that
+    ended, so a late live-looking event for THAT id is ignored whether or not
+    a newer subscription has since replaced it, while a resubscribe (a
+    different id, even arriving first as `incomplete`) is never blocked."""
+    if (sub_obj.get("id") and sub_obj.get("id") == existing.get("ended_subscription_id")
+            and status in ("active", "trialing", "past_due")):
         return "subscription already ended"
     return None
 
@@ -717,7 +732,8 @@ async def _handle_subscription_deleted(sub_obj: dict) -> dict:
         return {"handled": False, "reason": "deleted subscription is not the current one"}
     update = {
         "$set": {"status": "expired", "updated_at": datetime.now(timezone.utc), "source": "stripe",  # naive-ok: persisted audit instant
-                 "ended_at": datetime.now(timezone.utc)},  # naive-ok: persisted audit instant
+                 "ended_at": datetime.now(timezone.utc),  # naive-ok: persisted audit instant
+                 "ended_subscription_id": deleted_id or existing.get("stripe_subscription_id")},
         "$unset": {"past_due_since": "", "grace_until": ""},
     }
     await subscriptions_col.update_one({"user_id": uid}, update)
@@ -796,7 +812,7 @@ async def _handle_invoice_paid(invoice_obj: dict) -> dict:
     fields["last_paid_at"] = now
     await subscriptions_col.update_one(
         {"user_id": uid},
-        {"$set": fields, "$unset": {"past_due_since": "", "grace_until": ""}},
+        {"$set": fields, "$unset": {"past_due_since": "", "grace_until": "", "ended_at": ""}},
     )
     return {"handled": True, "action": "invoice_paid", "uid": uid, "status": "active"}
 

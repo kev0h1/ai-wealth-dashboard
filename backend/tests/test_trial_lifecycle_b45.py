@@ -566,3 +566,55 @@ def test_daily_trial_reminder_skips_cancelled_trials(monkeypatch):
     monkeypatch.setattr(sync_worker, "send_push_to_user", _push)
     assert _run(sync_worker.task_trial_reminder({}))["sent"] == 1
     assert sent == ["b@x.com"]
+
+
+# ── re-review: ended_subscription_id ──────────────────────────────────────
+
+def _deleted(eid, sub_id):
+    return {"id": eid, "type": "customer.subscription.deleted",
+            "data": {"object": {"id": sub_id, "customer": "cus_1", "metadata": {"uid": UID}}}}
+
+
+def test_resubscribe_arriving_as_incomplete_then_active_activates(env):
+    subs, _ = env
+    _feed(_sub_event("e1", "active", sub_id="sub_old", created=1000))
+    _feed(_deleted("e2", "sub_old"))
+    _feed(_sub_event("e3", "incomplete", sub_id="sub_new", created=2000))
+    assert subs.docs[0]["stripe_subscription_id"] == "sub_new"
+    _feed(_sub_event("e4", "active", sub_id="sub_new", created=2000))
+    assert subs.docs[0]["status"] == "active"
+    assert "ended_at" not in subs.docs[0]
+    assert _run(sub_module.open_banking_paused(UID)) is False
+
+
+def test_late_active_update_for_old_ended_id_is_ignored_even_after_new_incomplete(env):
+    subs, _ = env
+    _feed(_sub_event("e1", "active", sub_id="sub_old", created=1000))
+    _feed(_deleted("e2", "sub_old"))
+    assert _feed(_sub_event("e3", "active", sub_id="sub_old", created=1000))["handled"] is False
+    _feed(_sub_event("e4", "incomplete", sub_id="sub_new", created=2000))
+    assert _feed(_sub_event("e5", "active", sub_id="sub_old"))["handled"] is False  # no created at all
+    assert subs.docs[0]["stripe_subscription_id"] == "sub_new" and subs.docs[0]["status"] == "expired"
+
+
+def test_late_deleted_for_old_id_does_not_touch_new_incomplete_doc(env):
+    subs, _ = env
+    _feed(_sub_event("e1", "active", sub_id="sub_old", created=1000))
+    _feed(_sub_event("e2", "incomplete", sub_id="sub_new", created=2000))
+    before = dict(subs.docs[0])
+    assert _feed(_deleted("e3", "sub_old"))["handled"] is False
+    assert subs.docs[0]["stripe_subscription_id"] == "sub_new"
+    assert subs.docs[0].get("ended_subscription_id") == before.get("ended_subscription_id")
+    _feed(_sub_event("e4", "active", sub_id="sub_new", created=2000))
+    assert subs.docs[0]["status"] == "active"
+
+
+def test_invoice_paid_activates_incomplete_new_subscription_after_old_ended(env):
+    subs, _ = env
+    _feed(_sub_event("e1", "active", sub_id="sub_old", created=1000))
+    _feed(_deleted("e2", "sub_old"))
+    _feed(_sub_event("e3", "incomplete", sub_id="sub_new", created=2000))
+    res = _feed(_invoice_event("e4", "invoice.paid", amount_paid=999, sub_id="sub_new", days_to_end=30))
+    assert res["handled"] is True and subs.docs[0]["status"] == "active"
+    assert "ended_at" not in subs.docs[0]
+    assert _run(sub_module.open_banking_paused(UID)) is False
