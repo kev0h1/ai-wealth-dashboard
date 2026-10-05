@@ -50,7 +50,7 @@ function Host({ mode, theme, state, view, onClose }: { mode: PickerMode; theme: 
           <DateField
             mode={mode} label={label} title={mode === "month" ? "Target month" : "Expected date"} value={value} onChange={setValue}
             today={TODAY} min={mode === "month" ? TODAY.slice(0, 7) : TODAY} themeClass={theme === "dark" ? "dark" : ""}
-            defaultOpen={state === "open"} defaultView={view}
+            defaultOpen={state === "open"} defaultView={view} allowClear={mode === "day"}
           />
         </div>
         <p className="text-[12px] leading-5 text-slate-500 dark:text-slate-400">

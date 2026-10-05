@@ -153,11 +153,11 @@ export function TransactionFilterSheetContent({
           <div className="mt-3 flex items-center gap-2">
             <label className="flex-1">
               <span className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">From</span>
-              <DateField mode="day" label="From" appearance="outlined" size="compact" value={from ?? ""} onChange={(v) => setFrom(v || null)} className="text-[13px]" />
+              <DateField mode="day" label="From" appearance="outlined" size="compact" allowClear value={from ?? ""} onChange={(v) => setFrom(v || null)} className="text-[13px]" />
             </label>
             <label className="flex-1">
               <span className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">To</span>
-              <DateField mode="day" label="To" appearance="outlined" size="compact" value={to ?? ""} onChange={(v) => setTo(v || null)} className="text-[13px]" />
+              <DateField mode="day" label="To" appearance="outlined" size="compact" allowClear value={to ?? ""} onChange={(v) => setTo(v || null)} className="text-[13px]" />
             </label>
           </div>
 

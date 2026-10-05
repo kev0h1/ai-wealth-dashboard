@@ -1724,7 +1724,7 @@ export default function AccountsPage() {
                 </div>
                 <div className="flex-1">
                   <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Date</label>
-                  <DateField mode="day" label="Date" value={manualTxDate} onChange={setManualTxDate} appearance="outlined" placeholder="Today" />
+                  <DateField mode="day" label="Date" value={manualTxDate} onChange={setManualTxDate} appearance="outlined" placeholder="Today" allowClear emptyDescription="not set, defaults to today" />
                 </div>
               </div>
 

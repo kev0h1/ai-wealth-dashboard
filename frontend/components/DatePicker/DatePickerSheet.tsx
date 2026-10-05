@@ -27,7 +27,7 @@ import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { SheetFrame, type SheetFrameControls } from "@/components/SheetFrame";
 import {
   MONTH_NAMES, MONTH_SHORT, WEEKDAY_HEADS, YEAR_PAGE, addDays, addMonths, chunk, clampYmd, dayKey, daysIn, formatDay, formatIso,
-  formatMonth, formatValue, monthGridCells, monthKey, outOfRange, parseIso, sameDay, todayIso, toMonth, weekdayName, yearPage, yearPageStart,
+  commitValue, formatMonth, formatValue, monthGridCells, monthKey, outOfRange, parseIso, sameDay, todayIso, toMonth, weekdayName, yearPage, yearPageStart,
   type PickerMode, type Ymd,
 } from "@/lib/calendar";
 
@@ -65,17 +65,22 @@ export interface DatePickerSheetProps {
   themeClass?: string;
   /** Which view to open on (previews and tests). Defaults to the day grid, or the month grid in month mode. */
   initialView?: DatePickerView;
+  /** Adds a Clear action that commits "" and closes. */
+  allowClear?: boolean;
 }
 
-export function DatePickerSheet({ mode, value, onCommit, onClose, min, max, title, today, themeClass, initialView }: DatePickerSheetProps) {
+export function DatePickerSheet({ mode, value, onCommit, onClose, min, max, title, today, themeClass, initialView, allowClear }: DatePickerSheetProps) {
   const uid = useId().replace(/:/g, "");
   const closeRef = useRef<(() => void) | null>(null);
   // Portals append to <body> in commit order, children first. When the field
   // mounts together with its host (a restored or default-open state) the
   // picker would land BELOW the host at the same z-index. Mounting the frame
   // one commit later always appends it after the host's own portal.
+  // `nested` is decided in the same step: when a sheet overlay is already open
+  // it dims the page, so this frame must not dim it a second time.
   const [layered, setLayered] = useState(false);
-  useEffect(() => { setLayered(true); }, []);
+  const [nested, setNested] = useState(false);
+  useEffect(() => { setNested(!!document.querySelector("[data-sheet-overlay]")); setLayered(true); }, []);
   const todayYmd = useMemo(() => parseIso(today ?? todayIso(), "day") ?? parseIso(todayIso(), "day")!, [today]);
   const minYmd = useMemo(() => parseIso(min, mode), [min, mode]);
   const maxYmd = useMemo(() => parseIso(max, mode), [max, mode]);
@@ -124,7 +129,14 @@ export function DatePickerSheet({ mode, value, onCommit, onClose, min, max, titl
     setCursor({ y, m: cursor.m });
     setFocus(clampYmd({ y, m: cursor.m, d: Math.min(focus.d, daysIn(y, cursor.m)) }, dayMode ? "day" : "month", minYmd, maxYmd));
   };
-  const stepYearPage = (delta: number) => { wantFocus.current = false; setYearStart((s) => s + delta * YEAR_PAGE); };
+  const stepYearPage = (delta: number) => {
+    // Move the roving focus into the new page (first enabled year) so one cell stays tabbable.
+    wantFocus.current = false;
+    const start = yearStart + delta * YEAR_PAGE;
+    const y = Math.min(Math.max(start, minYear ?? -Infinity), maxYear ?? Infinity);
+    setYearStart(start);
+    setFocus((f) => ({ ...f, y, d: Math.min(f.d, daysIn(y, f.m)) }));
+  };
 
   const pickToday = () => {
     const t = clampYmd(dayMode ? todayYmd : toMonth(todayYmd), mode, minYmd, maxYmd);
@@ -231,14 +243,22 @@ export function DatePickerSheet({ mode, value, onCommit, onClose, min, max, titl
   return (
     <SheetFrame
       variant="compact" title={title ?? (dayMode ? "Choose a date" : "Choose a month")} themeClass={themeClass} onClose={onClose}
-      onBack={() => closeRef.current?.()} backLabel="Back to form"
+      onBack={() => {
+        // Back steps up one view; only the base view hands Back to the frame.
+        if (view === "years") goView(dayMode && initialView === "years" ? "days" : "months");
+        else if (view === "months" && dayMode) goView("days");
+        else closeRef.current?.();
+      }}
+      backLabel={view === "years" ? (dayMode && initialView === "years" ? "Back to day grid" : "Back to months") : view === "months" && dayMode ? "Back to day grid" : "Back to form"}
+      nested={nested}
       description={undefined}
       footer={(controls) => (
         <div className="flex gap-3">
           <button type="button" onClick={controls.close} className={BTN_SECONDARY}>Cancel</button>
+          {allowClear && <button type="button" onClick={() => { onCommit(""); controls.close(); }} className={`${BTN_SECONDARY} !flex-none`}>Clear</button>}
           <button
             type="button" disabled={!draft}
-            onClick={() => { if (draft) { onCommit(formatIso(dayMode ? draft : toMonth(draft), mode)); controls.close(); } }}
+            onClick={() => { if (draft) { onCommit(commitValue(mode, draft.y, draft.m, draft.d)); controls.close(); } }}
             className={BTN_PRIMARY}
           >{draft ? `Done, ${formatValue(formatIso(draft, mode), mode)}` : "Done"}</button>
         </div>
