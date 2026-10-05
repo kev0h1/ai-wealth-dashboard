@@ -16,6 +16,7 @@ import {
 } from "@/lib/spendFromAccount";
 import { BankBadge, BANK_META, accountBrand, bankKey, bankLogoSrc } from "@/components/AccountMiniCard";
 import MoneyText from "@/components/MoneyText";
+import { SyncGlyph, SyncLedgerRow, SyncLine, asOfLabel, syncChipClass, syncChipLabel, syncLedgerClass, syncPhase, type SyncTreatment, type SyncingInfo } from "@/components/SyncNote";
 
 type SpendFromTreatment = {
   heroAside?: ReactNode;
@@ -46,6 +47,98 @@ interface SafeToSpendCardProps {
    * keeping this component as the source of truth for every other detail.
    */
   spendFromPreview?: SpendFromTreatment;
+  /**
+   * G214: a non-first sync is running. The last known figure stays, in
+   * neutral ink, marked as updating. Takes effect only with `syncTreatment`;
+   * absent, the card renders exactly as before.
+   */
+  syncing?: SyncingInfo;
+  syncTreatment?: SyncTreatment;
+  /**
+   * G218 design-round seam. How the Display figure is coloured. Production
+   * passes nothing and gets `"tinted"`, today's behaviour byte for byte
+   * (emerald On track, red Short, ink otherwise). The other tones exist so
+   * /design/safe-to-spend-figure can render the real card in each candidate
+   * treatment; none ships until Kevin picks one (see figureToneClasses).
+   */
+  figureTone?: FigureTone;
+  /**
+   * G218 preview seam. /design pages have no signed-in preferences, so the
+   * default context masks every figure as `£••••`. Passing true shows the
+   * fixture amounts. Production never passes it, so masking is unchanged.
+   */
+  previewBalancesVisible?: boolean;
+}
+
+export type FigureTone = "tinted" | "tinted-vivid" | "ink" | "ink-accent";
+
+type SafeToSpendOk = Extract<SafeToSpend, { status: "ok" }>;
+
+/**
+ * G218: a shortfall that exists only because plans and envelopes were set
+ * aside. Cash after bills and income, less the buffer, is still at or above
+ * zero, so removing the set-asides removes the shortfall. Derived from the
+ * payload alone (`lowest_projected_balance`, `buffer`, `commitments_reserved`,
+ * `allocations_reserved`), no new field. Used only by the non-default tones;
+ * the default tone keeps red for every cash-led short, as today.
+ */
+export function isPlansOnlyShort(data: SafeToSpendOk): boolean {
+  const cash = data.safe_to_spend_cash ?? data.safe_to_spend;
+  if (data.state !== "short" || data.short_reason === "cards_unconfirmed" || cash >= 0) return false;
+  if (data.lowest_projected_balance == null) return false;
+  const setAside = (data.commitments_reserved ?? 0) + (data.allocations_reserved ?? 0);
+  return setAside > 0 && data.lowest_projected_balance - data.buffer >= 0;
+}
+
+/** Tones that give a plans-only shortfall its own (non-red) treatment.
+ *  `tinted` and `tinted-vivid` keep today's red for every cash-led short. */
+export const FIGURE_TONES_USING_PLANS_ONLY: Record<FigureTone, boolean> = {
+  tinted: false,
+  "tinted-vivid": false,
+  ink: true,
+  "ink-accent": true,
+};
+
+export type FigureToneClasses = { figure: string; chip: string; accent: string | null };
+
+const INK_FIGURE = "text-slate-900 dark:text-slate-100";
+const CHIP_GREEN = "bg-emerald-50 text-emerald-700 dark:bg-emerald-400/10 dark:text-emerald-300";
+const CHIP_AMBER = "bg-slate-100 text-amber-800 dark:bg-slate-700/70 dark:text-amber-200";
+const CHIP_RED = "bg-slate-100 text-red-700 dark:bg-slate-700/70 dark:text-red-300";
+
+/**
+ * Pure mapping from verdict to classes, exported so
+ * scripts/g218-figure-tone.test.mjs can pin it. `tinted` is the shipped
+ * look and must not change without a design round.
+ */
+export function figureToneClasses(
+  tone: FigureTone,
+  v: { state: "comfortable" | "tight" | "short"; isCardsUnconfirmedShort: boolean; plansOnly: boolean },
+): FigureToneClasses {
+  const cautionState = v.state === "tight" || v.isCardsUnconfirmedShort;
+  const cashShort = v.state === "short" && !v.isCardsUnconfirmedShort;
+  const plansOnly = cashShort && v.plansOnly;
+  const baseChip = v.state === "comfortable" ? CHIP_GREEN : cautionState ? CHIP_AMBER : CHIP_RED;
+
+  if (tone === "tinted" || tone === "tinted-vivid") {
+    const red = tone === "tinted" ? "text-red-600 dark:text-red-400" : "text-red-600 dark:text-red-500";
+    return {
+      figure: v.state === "comfortable" ? "text-emerald-700 dark:text-emerald-300" : cashShort ? red : INK_FIGURE,
+      chip: baseChip,
+      accent: null,
+    };
+  }
+
+  const chip = plansOnly ? CHIP_AMBER : baseChip;
+  if (tone === "ink") return { figure: INK_FIGURE, chip, accent: null };
+
+  // ink-accent: a short rule under the figure. Amber stays in the chip.
+  const accent = v.state === "comfortable"
+    ? "bg-emerald-600 dark:bg-emerald-400"
+    : cashShort && !plansOnly
+      ? "bg-red-600 dark:bg-red-500"
+      : null;
+  return { figure: INK_FIGURE, chip, accent };
 }
 
 function fmt(value: number): string {
@@ -351,6 +444,7 @@ function CardBalanceFact({
   wording,
   dueDate,
   amount,
+  muted = false,
 }: {
   growth: number;
   newSpend: number;
@@ -359,8 +453,11 @@ function CardBalanceFact({
   wording: "carried" | "cleared_monthly" | null | undefined;
   dueDate: string | null;
   amount: (value: number) => string;
+  /** G214: while a sync runs, no amber signifier. */
+  muted?: boolean;
 }) {
   const hasUnconfirmedReserve = reserve > 0;
+  const amberOn = hasUnconfirmedReserve && !muted;
   const due = dateLabel(dueDate);
   // G24: while a card repayment is unconfirmed, the reserve maths (and the
   // "held back" sentence below) is about real debt owed, so the headline
@@ -373,9 +470,9 @@ function CardBalanceFact({
   const headline = hasUnconfirmedReserve ? growth : newSpend;
 
   return (
-    <aside className={`mt-5 rounded-2xl border px-3.5 py-3.5 ${hasUnconfirmedReserve ? "border-amber-200/80 bg-amber-50/40 dark:border-amber-500/30 dark:bg-amber-400/[0.04]" : "border-slate-200/80 bg-slate-50/80 dark:border-white/[0.08] dark:bg-white/[0.035]"}`} aria-label="Card balance activity">
+    <aside className={`mt-5 rounded-2xl border px-3.5 py-3.5 ${amberOn ? "border-amber-200/80 bg-amber-50/40 dark:border-amber-500/30 dark:bg-amber-400/[0.04]" : "border-slate-200/80 bg-slate-50/80 dark:border-white/[0.08] dark:bg-white/[0.035]"}`} aria-label="Card balance activity">
       <div className="flex items-start gap-3">
-        <span className={`mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-xl ${hasUnconfirmedReserve ? "bg-amber-100 text-amber-700 dark:bg-amber-400/15 dark:text-amber-300" : "bg-white text-slate-500 shadow-sm ring-1 ring-slate-200/70 dark:bg-slate-800 dark:text-slate-300 dark:ring-white/10"}`}>
+        <span className={`mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-xl ${amberOn ? "bg-amber-100 text-amber-700 dark:bg-amber-400/15 dark:text-amber-300" : "bg-white text-slate-500 shadow-sm ring-1 ring-slate-200/70 dark:bg-slate-800 dark:text-slate-300 dark:ring-white/10"}`}>
           <CreditCard size={16} aria-hidden="true" />
         </span>
         <div className="min-w-0 flex-1">
@@ -386,7 +483,7 @@ function CardBalanceFact({
 
           {hasUnconfirmedReserve ? (
             <>
-              <div className="mt-2 inline-flex min-h-7 items-center gap-1.5 rounded-full bg-amber-100 px-2.5 text-[11px] font-semibold text-amber-800 dark:bg-amber-400/12 dark:text-amber-200">
+              <div className={`mt-2 inline-flex min-h-7 items-center gap-1.5 rounded-full ${muted ? "bg-slate-100 text-slate-700 dark:bg-slate-700/70 dark:text-slate-200" : "bg-amber-100 text-amber-800 dark:bg-amber-400/12 dark:text-amber-200"} px-2.5 text-[11px] font-semibold`}>
                 <AlertCircle size={13} aria-hidden="true" />
                 Repayment not confirmed
               </div>
@@ -417,10 +514,10 @@ function CardBalanceFact({
   );
 }
 
-export default function SafeToSpendCard({ data, loading, error, onRetry, spendFrom, coverMoveVisible = false, spendFromPreview }: SafeToSpendCardProps) {
+export default function SafeToSpendCard({ data, loading, error, onRetry, spendFrom, coverMoveVisible = false, spendFromPreview, syncing, syncTreatment, figureTone = "tinted", previewBalancesVisible = false }: SafeToSpendCardProps) {
   const { hideNetWorth, preferencesReady } = usePreferences();
   const router = useRouter();
-  const hidden = hideNetWorth || !preferencesReady;
+  const hidden = !previewBalancesVisible && (hideNetWorth || !preferencesReady);
   const [failedSpendFromLogos, setFailedSpendFromLogos] = useState<Set<string>>(() => new Set());
   const handleSpendFromLogoError = useCallback((logoSrc: string) => {
     setFailedSpendFromLogos((current) => {
@@ -570,19 +667,19 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
     ? `${value < 0 ? "−" : "+"}£••••`
     : `${value < 0 ? "−" : "+"}${fmt2(value)}`;
 
-  const StateIcon = state === "comfortable" ? ShieldCheck : state === "tight" || isCardsUnconfirmedShort ? AlertCircle : AlertTriangle;
-  const stateChipClass = state === "comfortable"
-    ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-400/10 dark:text-emerald-300"
-    : state === "tight" || isCardsUnconfirmedShort
-      ? "bg-slate-100 text-amber-800 dark:bg-slate-700/70 dark:text-amber-200"
-      : "bg-slate-100 text-red-700 dark:bg-slate-700/70 dark:text-red-300";
-  const figureClass = state === "comfortable"
-    ? "text-emerald-700 dark:text-emerald-300"
-    : state === "short" && !isCardsUnconfirmedShort
-      ? "text-red-600 dark:text-red-400"
-      : "text-slate-900 dark:text-slate-100";
+  const plansOnly = FIGURE_TONES_USING_PLANS_ONLY[figureTone] && isPlansOnlyShort(data);
+  const StateIcon = state === "comfortable" ? ShieldCheck : state === "tight" || isCardsUnconfirmedShort || plansOnly ? AlertCircle : AlertTriangle;
+  const { figure: figureClass, chip: stateChipClass, accent: figureAccent } = figureToneClasses(figureTone, { state, isCardsUnconfirmedShort, plansOnly });
 
-  const heroCaption = state === "short" && !isCardsUnconfirmedShort
+  const sync = syncing && syncTreatment ? { info: syncing, treatment: syncTreatment, phase: syncPhase(syncing) } : null;
+  const syncAsOf = sync ? asOfLabel(sync.info.asOf ?? data.last_synced) : null;
+
+
+  const heroCaption = sync
+    ? `last known cash figure until ${paydayLabel}`
+    : plansOnly
+    ? "short after plans and envelopes"
+    : state === "short" && !isCardsUnconfirmedShort
     ? "short before payday"
     : `available in cash until ${paydayLabel}`;
 
@@ -616,7 +713,7 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
 
   const pace = data.pace;
   const showPace = pace != null && ["comfortable", "on_pace", "ahead", "early"].includes(pace.state) && pace.sustainable != null;
-  const freshnessLabel = syncAgeLabel(data.last_synced);
+  const freshnessLabel = sync ? null : syncAgeLabel(data.last_synced);
   const summaryLabel = state === "short" && !isCardsUnconfirmedShort
     ? `How we got ${amount(heroAmount)} short`
     : `How we got ${amount(heroAmount)}`;
@@ -641,12 +738,14 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
   // make the two diverge for a different payload.
   const canShowLedgerBreakdown = data.spendable_now != null && exactLowestProjected != null
     && Math.abs((data.spendable_now - data.bills_total + data.income_before_payday) - exactLowestProjected) < 0.02;
-  const recovery = state === "short"
+  const recovery = sync ? null : state === "short"
     ? isCardsUnconfirmedShort ? { label: "Review card bill", href: "/cards" } : { label: "See what’s due", href: "/upcoming" }
     : state === "tight" && (data.card_debt ?? 0) >= 1000 ? { label: "See your cards", href: "/cards" } : null;
+  const heroFigureClass = sync ? (sync.treatment === "stale" ? "text-slate-700 dark:text-slate-200" : "text-slate-900 dark:text-slate-100") : figureClass;
   const heroHeading = (
     <h2 id="safe-to-spend-heading" className={spendFromTreatment?.heroAside ? "min-w-0 flex-1" : "mt-5"}>
-      <span className={`money block text-[38px] font-bold leading-none tracking-[-0.05em] ${figureClass}`}>{amount(heroAmount)}</span>
+      <span className={`money block text-[38px] font-bold leading-none tracking-[-0.05em] ${heroFigureClass}`}>{amount(heroAmount)}</span>
+      {figureAccent && !sync && <span aria-hidden="true" data-figure-accent className={`mt-2.5 block h-1 w-10 rounded-full ${figureAccent}`} />}
       <span className="mt-2 block text-[15px] font-semibold text-slate-700 dark:text-slate-200">
         {heroCaption}{data.estimated && <span className="font-normal text-slate-500 dark:text-slate-400"> · estimated</span>}
       </span>
@@ -657,11 +756,19 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
     <section className="hero-arrive sts-card relative rounded-3xl p-5 glass-hero" aria-labelledby="safe-to-spend-heading">
       <div className="flex items-center justify-between gap-3">
         <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Safe to Spend</p>
-        <span className={`inline-flex min-h-7 items-center gap-1.5 rounded-full px-2.5 text-[11px] font-semibold ${stateChipClass}`}>
-          <StateIcon size={13} className="shrink-0" aria-hidden="true" />
-          {stateLabel}
-        </span>
+        {sync ? (
+          <span data-sync-chip={sync.phase} className={`inline-flex min-h-7 items-center gap-1.5 rounded-full px-2.5 text-[11px] font-semibold ${syncChipClass}`}>
+            {sync.treatment === "stale" ? <SyncGlyph phase={sync.phase} /> : null}
+            {syncChipLabel(sync.info)}
+          </span>
+        ) : (
+          <span className={`inline-flex min-h-7 items-center gap-1.5 rounded-full px-2.5 text-[11px] font-semibold ${stateChipClass}`}>
+            <StateIcon size={13} className="shrink-0" aria-hidden="true" />
+            {stateLabel}
+          </span>
+        )}
       </div>
+      {sync && sync.treatment === "line" ? <SyncLine info={sync.info} onRetry={onRetry} /> : null}
 
       {error && <div className="mb-3 flex items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-800 dark:bg-amber-950/30" role="status"><p className="text-xs text-slate-700 dark:text-slate-200">Couldn&apos;t refresh. Showing your last figure.</p>{onRetry && <button type="button" onClick={onRetry} className="min-h-9 shrink-0 rounded-lg px-2 text-xs font-semibold text-indigo-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400">Retry</button>}</div>}
 
@@ -671,6 +778,19 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
           <div className="shrink-0">{spendFromTreatment.heroAside}</div>
         </div>
       ) : heroHeading}
+
+      {sync && sync.treatment === "stale" ? (
+        <>
+          <p className="mt-2 text-xs text-slate-600 dark:text-slate-300">{syncAsOf ? `Last known amount · as of ${syncAsOf}` : "Last known amount"}</p>
+          {sync.phase !== "syncing" ? <SyncLine info={sync.info} onRetry={onRetry} className="mt-2" /> : null}
+        </>
+      ) : null}
+      {sync && sync.treatment === "drawer" ? (
+        <>
+          <p className="mt-2 text-xs text-slate-600 dark:text-slate-300">{syncAsOf ? `Last known amount · updated at ${syncAsOf}` : "Last known amount"}</p>
+          {sync.phase !== "syncing" ? <SyncLine info={sync.info} onRetry={onRetry} className="mt-2" /> : null}
+        </>
+      ) : null}
 
       <p className="mt-2 text-[13px] leading-snug text-slate-500 dark:text-slate-400 text-pretty"><MoneyText text={heroContext} /></p>
 
@@ -685,11 +805,12 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
           wording={data.card_growth_wording}
           dueDate={data.card_growth_due_date ?? null}
           amount={amount}
+          muted={!!sync}
         />
       )}
 
       <div className="mt-3 border-t border-slate-100 dark:border-white/10">
-        <details className="group">
+        <details className="group" open={sync?.treatment === "drawer" ? true : undefined}>
           <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 rounded-xl text-sm font-semibold text-indigo-600 hover:text-indigo-700 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300 [&::-webkit-details-marker]:hidden">
             {summaryLabel}
             <ChevronDown size={17} className="shrink-0 transition-transform group-open:rotate-180" aria-hidden="true" />
@@ -701,19 +822,25 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
               <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500">Exact steps</span>
             </div>
 
+            {sync && sync.treatment === "drawer" ? (
+              <ol aria-label="Bank sync" className={`mt-2 ${syncLedgerClass}`}>
+                <SyncLedgerRow info={sync.info} compact={sync.phase !== "syncing"} />
+              </ol>
+            ) : null}
+
             <dl className="mt-1.5">
               {data.spendable_now != null && <CalculationRow operator="+" label="Cash available now" value={exactAmount(data.spendable_now)} spokenValue={`plus ${exactAmount(data.spendable_now)}`} detail="Across included current accounts." />}
               {canShowLedgerBreakdown && data.bills_total > 0 && <CalculationRow operator="−" label="Bills before payday" value={exactAmount(data.bills_total)} spokenValue={`minus ${exactAmount(data.bills_total)}`} />}
               {canShowLedgerBreakdown && data.income_before_payday > 0 && <CalculationRow operator="+" label="Income before payday" value={exactAmount(data.income_before_payday)} spokenValue={`plus ${exactAmount(data.income_before_payday)}`} />}
-              {exactLowestProjected != null && <CalculationRow operator={canShowLedgerBreakdown ? "=" : "→"} label="Lowest cash before payday" value={signedExactAmount(exactLowestProjected)} spokenValue={signedExactAmount(exactLowestProjected)} detail={cashFlowDetail} risk={exactLowestProjected < 0} />}
+              {exactLowestProjected != null && <CalculationRow operator={canShowLedgerBreakdown ? "=" : "→"} label="Lowest cash before payday" value={signedExactAmount(exactLowestProjected)} spokenValue={signedExactAmount(exactLowestProjected)} detail={cashFlowDetail} risk={exactLowestProjected < 0 && !sync} />}
               {data.buffer > 0 && <CalculationRow operator="−" label="Safety buffer" value={exactAmount(data.buffer)} spokenValue={`minus ${exactAmount(data.buffer)}`} />}
               {calculationItems.map((item) => <CalculationRow key={item.label} operator="−" label={item.label} value={exactAmount(item.value)} spokenValue={`minus ${exactAmount(item.value)}`} />)}
-              <CalculationRow operator="=" label={cashTotalLabel} value={signedExactAmount(exactCashRunway)} spokenValue={signedExactAmount(exactCashRunway)} total risk={exactCashRunway < 0} />
+              <CalculationRow operator="=" label={cashTotalLabel} value={signedExactAmount(exactCashRunway)} spokenValue={signedExactAmount(exactCashRunway)} total risk={exactCashRunway < 0 && !sync} />
             </dl>
 
             {cardReserve > 0 && (
               <section className="mt-5" aria-labelledby="card-safety-check">
-                <h3 id="card-safety-check" className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.085em] text-slate-600 dark:text-slate-300"><span className="h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden="true" />Card safety check</h3>
+                <h3 id="card-safety-check" className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.085em] text-slate-600 dark:text-slate-300"><span className={`h-1.5 w-1.5 rounded-full ${sync ? "bg-slate-400" : "bg-amber-500"}`} aria-hidden="true" />Card safety check</h3>
                 <dl className="mt-1.5">
                   <CalculationRow operator="+" label="From cash calculation" value={signedExactAmount(exactCashRunway)} spokenValue={signedExactAmount(exactCashRunway)} />
                   <CalculationRow operator="−" label="Unconfirmed card reserve" value={exactAmount(cardReserve)} spokenValue={`minus ${exactAmount(cardReserve)}`} detail="Held back because no repayment forecast has been learned." />
