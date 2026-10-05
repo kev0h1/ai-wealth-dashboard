@@ -157,7 +157,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // the resume signal is spent. Without this a later sign-out would show a
   // stale "Checking your session" or "We could not sign you in" over the form.
   useEffect(() => {
-    if (user) setResuming(null);
+    if (user) {
+      setResuming(null);
+      window.dispatchEvent(new Event("wd:session-established")); // A108: replays a stashed bank return
+    }
   }, [user]);
 
   // A135 rule: cancelling a plain cold-start session check (or its Checking

@@ -2508,6 +2508,15 @@ export type SyncStatus = {
   }[];
 };
 
+// A108: `native=1` tells the backend the consent will open in the in-app
+// browser, so the callback renders the hand-off page that returns by deep link.
+function linkQuery(provider?: string, native?: boolean): string {
+  const q: string[] = [];
+  if (provider) q.push(`provider=${encodeURIComponent(provider)}`);
+  if (native) q.push("native=1");
+  return q.length ? `?${q.join("&")}` : "";
+}
+
 export const api = {
   health: () => get<{ status: string; truelayer_configured: boolean }>("/health"),
   getProfile: () => get<UserProfile>("/profile"),
@@ -2687,11 +2696,11 @@ export const api = {
   legacyBankProviders: () => LEGACY_BANK_AVAILABLE
     ? get<{ id: string; name: string; logo: string }[]>(`/auth/${LEGACY_BANK_ID}/providers`)
     : Promise.reject(new Error("This bank connection method is not available.")),
-  legacyBankConnectLink: (provider?: string) => LEGACY_BANK_AVAILABLE
-    ? get<{ auth_url: string }>(`/auth/${LEGACY_BANK_ID}/link${provider ? `?provider=${encodeURIComponent(provider)}` : ""}`)
+  legacyBankConnectLink: (provider?: string, native?: boolean) => LEGACY_BANK_AVAILABLE
+    ? get<{ auth_url: string }>(`/auth/${LEGACY_BANK_ID}/link${linkQuery(provider, native)}`)
     : Promise.reject(new Error("This bank connection method is not available.")),
   finexerProviders: () => get<{ id: string; name: string; logo: string; bg_colors?: string[] }[]>("/auth/finexer/providers"),
-  finexerConnectLink: (provider?: string) => get<{ auth_url: string; connection_id: string }>(`/auth/finexer/link${provider ? `?provider=${encodeURIComponent(provider)}` : ""}`),
+  finexerConnectLink: (provider?: string, native?: boolean) => get<{ auth_url: string; connection_id: string }>(`/auth/finexer/link${linkQuery(provider, native)}`),
   mockData: () => get<unknown>("/test/mock-data"),
   validateSession: () =>
     fetch(`${API_BASE}/auth/session/validate`, {

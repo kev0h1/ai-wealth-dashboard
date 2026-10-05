@@ -676,6 +676,7 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
       {showSheet && (
         <BankPickerSheet
           onClose={() => setShowSheet(false)}
+          stayOnReturn
           onConnecting={() => { setShowSheet(false); setBankAdded(true); }}
         />
       )}

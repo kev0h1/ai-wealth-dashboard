@@ -175,3 +175,15 @@ def test_empty_provider_list_is_not_cached(monkeypatch):
     asyncio.run(finexer_module.finexer_providers(user={"email": "kevin@example.com"}))
 
     assert call_count["n"] == 2
+
+
+def test_link_native_flag_is_stored(monkeypatch):
+    fake_consents = _setup(monkeypatch)
+    asyncio.run(finexer_module.finexer_link(provider="amex", native=True, user={"email": "kevin@example.com"}))
+    assert fake_consents.docs[0]["native"] is True
+
+
+def test_link_native_defaults_to_false(monkeypatch):
+    fake_consents = _setup(monkeypatch)
+    asyncio.run(finexer_module.finexer_link(provider="amex", user={"email": "kevin@example.com"}))
+    assert fake_consents.docs[0]["native"] is False
