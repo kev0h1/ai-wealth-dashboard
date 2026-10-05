@@ -681,8 +681,8 @@ async def task_trial_reminder(ctx):
         trial_ends_at = doc.get("trial_ends_at")
         if not uid or not isinstance(trial_ends_at, datetime):
             continue
-        if doc.get("trial_reminder_sent_at"):
-            continue
+        if doc.get("trial_reminder_sent_at") or doc.get("cancel_at_period_end"):
+            continue  # already reminded, or cancelled (nothing will be charged)
         if not (now <= trial_ends_at <= warn_cutoff):
             continue
 

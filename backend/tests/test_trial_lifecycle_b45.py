@@ -400,3 +400,12 @@ def test_trial_reminder_copy_rules():
     title, body = lifecycle_module.trial_reminder_copy(doc)
     assert "£" in body and "!" not in body and "—" not in body
     assert lifecycle_module.trial_reminder_copy({"tier": "standard"}) is None
+
+
+def test_trial_will_end_skips_reminder_when_already_cancelled(env):
+    subs, pushes = env
+    _feed(_sub_event("e1", "trialing", days_to_end=3, billing_period="monthly", trial_end=_ts(3),
+                     cancel_at_period_end=True))
+    res = _feed({"id": "e2", "type": "customer.subscription.trial_will_end",
+                 "data": {"object": {"id": "sub_1", "customer": "cus_1", "metadata": {"uid": UID}}}})
+    assert res["notified"] is False and pushes == []

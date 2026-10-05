@@ -733,6 +733,10 @@ async def _handle_trial_will_end(sub_obj: dict) -> dict:
     doc = await subscriptions_col.find_one({"user_id": uid})
     if not doc or doc.get("status") != "trialing":
         return {"handled": False, "reason": "not trialing"}
+    if doc.get("cancel_at_period_end"):
+        # Already cancelled: nothing will be charged, so a "will be charged"
+        # reminder would be wrong.
+        return {"handled": True, "action": "trial_will_end", "uid": uid, "notified": False, "reason": "cancelled"}
     if doc.get("trial_reminder_sent_at"):
         return {"handled": True, "action": "trial_will_end", "uid": uid, "notified": False, "reason": "already reminded"}
     copy = billing_lifecycle.trial_reminder_copy(doc)
