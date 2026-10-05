@@ -235,7 +235,7 @@ export default function AccountLedgerRow({
       <div className="shrink-0 flex flex-col items-end gap-1">
         {isInvestment && sparkline && sparkline.length > 0 && <MiniSparkline series={sparkline} />}
         <p
-          className={`text-[16px] font-semibold money ${sync && sync.treatment === "stale" ? "flex items-center gap-2 " : ""}${
+          className={`text-[16px] font-semibold ${balancePending ? "" : "money "}${sync && sync.treatment === "stale" ? "flex items-center gap-2 " : ""}${
             amountToneClass ? amountToneClass : isCredit
               ? isCreditAccruing
                 ? "text-rose-600 dark:text-rose-400"
