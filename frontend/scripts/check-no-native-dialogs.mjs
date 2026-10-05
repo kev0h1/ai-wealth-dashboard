@@ -7,8 +7,8 @@
 // Fails on a bare or window./globalThis.-qualified alert(, confirm(, prompt( call
 // and on any @capacitor/dialog import under app/, components/ and lib/.
 // Comments are ignored. Method calls such as foo.alert( are not matched.
-// ALLOW lists files with known follow-up work, each with its reason; the
-// implementation file is exempt because it defines noticeSheet.
+// ALLOW lists files with known follow-up work, each with its reason; it is
+// empty today.
 //
 // Usage: node scripts/check-no-native-dialogs.mjs   (from frontend/)
 

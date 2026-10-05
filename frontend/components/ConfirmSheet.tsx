@@ -19,11 +19,18 @@ type Request = {
 
 let nextId = 1;
 let queue: Request[] = [];
+let hostCount = 0;
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach(l => l());
 
 function enqueue(req: Omit<Request, "id" | "resolve">): Promise<boolean> {
   return new Promise<boolean>(resolve => {
+    if (hostCount === 0) {
+      // No host mounted (a route outside Providers): never hang the caller.
+      console.warn("ConfirmSheetHost is not mounted; dismissing sheet without showing it:", req.title);
+      resolve(false);
+      return;
+    }
     queue = [...queue, { ...req, id: nextId++, resolve }];
     emit();
   });
@@ -49,7 +56,8 @@ export function ConfirmSheetHost() {
   useEffect(() => {
     const l = () => force(n => n + 1);
     listeners.add(l);
-    return () => { listeners.delete(l); };
+    hostCount += 1;
+    return () => { listeners.delete(l); hostCount -= 1; };
   }, []);
   const current = queue[0];
   if (!current) return null;
@@ -69,8 +77,12 @@ export function ConfirmSheetView({ title, body, confirmLabel, cancelLabel, onRes
   onResult: (ok: boolean) => void;
   manageHistory?: boolean;
 }) {
+  // Stacked over an open sheet that already dims the page: dim once (as DatePickerSheet does).
+  // Read at first render, before this frame's own overlay exists.
+  const [nested] = useState(() => typeof document !== "undefined" && !!document.querySelector("[data-sheet-overlay]"));
   return (
     <SheetFrame
+      nested={nested}
       variant="compact"
       title={title}
       description={body}

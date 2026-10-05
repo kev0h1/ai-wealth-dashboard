@@ -198,13 +198,14 @@ beyond "a client_id exists"?
   `test_register_rejects_non_https_non_loopback_redirect`,
   `test_register_accepts_loopback_redirect_any_port`,
   `test_register_accepts_https_redirect`,
-  `test_authorize_redirect_uri_mismatch_returns_plain_400`.
+  `test_authorize_redirect_uri_mismatch_returns_designed_400`.
 - **An unknown `client_id` or a redirect that doesn't match never becomes a
-  redirect at all** — `authorize()` returns a plain 400 response for both
+  redirect at all** — `authorize()` returns a designed 400 page (the shared hand-off
+  error template, with its route CSP) for both
   failures rather than 302-ing anywhere, which is what stops this endpoint
   from being usable as a generic open redirect. Tested:
-  `test_authorize_unknown_client_returns_plain_400_never_a_redirect`,
-  `test_authorize_redirect_uri_mismatch_returns_plain_400`.
+  `test_authorize_unknown_client_returns_designed_400_never_a_redirect`,
+  `test_authorize_redirect_uri_mismatch_returns_designed_400`.
 - **Scopes are capped server-side**: `/authorize` rejects any scope not in
   `V1_SCOPES` (there is no write scope to request even if a client asks).
   Tested: `test_authorize_bad_scope_redirects_with_error_and_state`.
@@ -299,7 +300,7 @@ for cross-contamination between the two:
 | PKCE actually binds the verifier | `test_token_exchange_succeeds_with_correct_verifier`, `test_token_exchange_fails_with_wrong_verifier` |
 | A refresh token cannot be reused after rotation | `test_refresh_rotation_revokes_old_refresh_token`, `test_concurrent_refresh_rotation_only_one_winner` (new, A26) |
 | Revocation is effective immediately | `test_revoke_endpoint_revokes_access_and_its_refresh_sibling`, `test_delete_connection_revokes_every_token_for_that_client`, `test_resolve_mcp_principal_rejects_revoked_token` |
-| Dynamic client registration cannot be used to escalate | `test_register_rejects_non_https_non_loopback_redirect`, `test_register_accepts_loopback_redirect_any_port`, `test_register_accepts_https_redirect`, `test_authorize_unknown_client_returns_plain_400_never_a_redirect`, `test_authorize_redirect_uri_mismatch_returns_plain_400`, `test_authorize_bad_scope_redirects_with_error_and_state` |
+| Dynamic client registration cannot be used to escalate | `test_register_rejects_non_https_non_loopback_redirect`, `test_register_accepts_loopback_redirect_any_port`, `test_register_accepts_https_redirect`, `test_authorize_unknown_client_returns_designed_400_never_a_redirect`, `test_authorize_redirect_uri_mismatch_returns_plain_400`, `test_authorize_bad_scope_redirects_with_error_and_state` |
 
 All in `backend/tests/test_oauth_server.py`. Run with:
 
