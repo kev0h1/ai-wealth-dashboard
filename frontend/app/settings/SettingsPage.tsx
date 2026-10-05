@@ -44,6 +44,7 @@ import ConfirmDialog from "@/components/ConfirmDialog";
 import CoverPlanSourcesCard, { type LiveCoverRoute } from "@/components/CoverPlanSourcesCard";
 import { createSerialQueue } from "@/lib/serialQueue";
 import { useRouter } from "next/navigation";
+import { clearOnboarded } from "@/lib/onboardingGate";
 
 const INDIGO = "#4f46e5";
 const EMERALD = "#10b981";
@@ -642,6 +643,7 @@ export default function SettingsPage() {
       await api.deleteUserAccount();
       // Account deletion already revoked every session server-side, so a
       // second /auth/logout would just 401: clear locally only.
+      clearOnboarded(localStorage, user?.email); // D12: a re-signup must onboard again
       clearLocalSession();
     } catch {
       setDeleting(false);
