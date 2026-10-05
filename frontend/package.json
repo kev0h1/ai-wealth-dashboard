@@ -11,6 +11,7 @@
     "lint": "eslint",
     "check:calendar": "node --no-warnings --experimental-strip-types scripts/calendar.test.mjs",
     "check:date-picker": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/date-picker.test.mjs",
+    "check:no-native-dialogs": "node scripts/check-no-native-dialogs.mjs",
     "check:no-native-date-inputs": "node scripts/check-no-native-date-inputs.mjs",
     "check:design-index": "node scripts/check-design-index.mjs",
     "check:signin-handoff": "node scripts/check-signin-handoff.mjs",
@@ -76,6 +77,8 @@
     "check:mcp-discovery": "node scripts/mcp-discovery.test.mjs",
     "check:no-raw-fetch": "node scripts/check-no-raw-fetch.mjs",
     "check:swipe-gesture": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/swipe-gesture.test.mjs",
+    "check:post-sign-in-route": "node --no-warnings --experimental-strip-types scripts/post-sign-in-route.test.mjs",
+    "check:onboarding-gate": "node --no-warnings --experimental-strip-types scripts/onboarding-gate.test.mjs",
     "check:privacy-cover": "node --no-warnings --experimental-strip-types scripts/privacy-cover.test.mjs"
   },
   "dependencies": {

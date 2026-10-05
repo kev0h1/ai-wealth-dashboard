@@ -50,6 +50,19 @@ export function todayIso(now: Date = new Date()): string {
   return formatIso({ y: now.getFullYear(), m: now.getMonth(), d: now.getDate() }, "day");
 }
 
+/**
+ * ISO calendar day for a stored transaction date. Date-only and naive
+ * "YYYY-MM-DDTHH:MM:SS" values already name the day, so the prefix is used.
+ * A value with an explicit Z or offset is an instant: show its LOCAL day.
+ * Unparseable input falls back to today rather than "NaN-NaN-NaN".
+ */
+export function dayIsoFromStored(value: string | null | undefined, now: Date = new Date()): string {
+  const v = (value ?? "").trim();
+  if (/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?)?$/.test(v) && parseIso(v.slice(0, 10), "day")) return v.slice(0, 10);
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? todayIso(now) : todayIso(d);
+}
+
 export const formatDay = (v: Ymd) => `${v.d} ${MONTH_SHORT[v.m]} ${v.y}`;
 export const formatMonth = (v: Ymd) => `${MONTH_NAMES[v.m]} ${v.y}`;
 

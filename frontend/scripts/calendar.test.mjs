@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import {
   commitValue, addDays, addMonths, chunk, clampIso, daysIn, formatDay, formatIso, formatMonth, formatValue, monthGridCells,
-  outOfRange, parseIso, todayIso, weekdayName, yearPage, yearPageStart,
+  outOfRange, parseIso, todayIso, dayIsoFromStored, weekdayName, yearPage, yearPageStart,
 } from "../lib/calendar.ts";
 
 // ISO parse and format round-trip, both modes.
@@ -68,3 +68,26 @@ assert.equal(commitValue("day", 2026, 9, 16), "2026-10-16");
 assert.equal(commitValue("month", 2027, 2, 19), "2027-03");
 for (const v of [commitValue("day", 2026, 0, 1), commitValue("month", 2026, 11, 31)]) assert.match(v, /^\d{4}-\d{2}(-\d{2})?$/);
 console.log("calendar: ok");
+
+// G213: the local calendar day, never UTC. 00:30 on a BST day is still the 15th
+// locally (the previous day in UTC), so toISOString-derived dates would be wrong.
+assert.equal(todayIso(new Date(2026, 6, 15, 0, 30)), "2026-07-15");
+assert.equal(todayIso(new Date(2026, 6, 15, 23, 59)), "2026-07-15");
+
+// G213 source guard: the manual-transaction and pay-period date defaults must not
+// derive a calendar date from toISOString.
+import { readFileSync } from "node:fs";
+for (const f of ["../app/components/AccountsPage.tsx", "../components/PayPeriodSettingsSheet.tsx", "../components/PreferencesContext.tsx", "../components/TransactionFilterSheet.tsx"]) {
+  const src = readFileSync(new URL(f, import.meta.url), "utf8");
+  assert.ok(!/toISOString\(\)\s*\.\s*(slice|substring|substr)\s*\(/.test(src), `${f} derives a date from toISOString`);
+  assert.ok(!/\.split\(\s*["']T["']\s*\)\s*\[\s*0\s*\]/.test(src), `${f} derives a date with split T`);
+  assert.ok(/todayIso/.test(src), `${f} uses todayIso`);
+}
+// Stored-date helper: prefix for date-only/naive, local day for Z/offset, safe on junk.
+assert.equal(dayIsoFromStored("2026-07-15"), "2026-07-15");
+assert.equal(dayIsoFromStored("2026-07-15T00:30:00"), "2026-07-15");
+assert.equal(dayIsoFromStored("2026-07-15T00:30:00Z", new Date(2026, 0, 1)), todayIso(new Date("2026-07-15T00:30:00Z")));
+assert.equal(dayIsoFromStored("2026-07-15T23:30:00+01:00"), todayIso(new Date("2026-07-15T23:30:00+01:00")));
+assert.equal(dayIsoFromStored("garbage", new Date(2026, 6, 15, 0, 30)), "2026-07-15");
+assert.equal(dayIsoFromStored("", new Date(2026, 6, 15, 0, 30)), "2026-07-15");
+console.log("calendar G213 ok");

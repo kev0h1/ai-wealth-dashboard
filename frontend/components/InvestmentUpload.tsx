@@ -132,9 +132,9 @@ export default function InvestmentUpload({ onSuccess, onClose }: InvestmentUploa
             </div>
 
             {error && (
-              <div role="alert" className="bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800 rounded-xl px-4 py-3">
-                <p className="text-xs font-semibold text-red-600 dark:text-red-400 mb-0.5">Upload failed</p>
-                <p className="text-xs text-red-500 dark:text-red-400">{error}</p>
+              <div role="alert" className="bg-slate-50 dark:bg-slate-700/40 border border-slate-200 dark:border-slate-600 rounded-xl px-4 py-3">
+                <p className="text-xs font-semibold text-slate-900 dark:text-slate-100 mb-0.5">Upload failed</p>
+                <p className="text-xs text-slate-600 dark:text-slate-300">{error}</p>
               </div>
             )}
           </div>

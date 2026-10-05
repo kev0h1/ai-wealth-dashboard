@@ -5,6 +5,7 @@ import { SheetFrame } from "@/components/SheetFrame";
 import CustomSelect from "@/components/CustomSelect";
 import { DateField } from "@/components/DatePicker";
 import { PayPeriodConfig } from "@/lib/payPeriod";
+import { todayIso } from "@/lib/calendar";
 
 const MONTH_SHORT = [
   "Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -38,7 +39,7 @@ export default function PayPeriodSettingsSheet({
     (current.type === "weekly" || current.type === "biweekly" || current.type === "last_weekday_of_month") ? current.weekday : 5
   );
   const [biweeklyRef, setBiweeklyRef] = useState(
-    current.type === "biweekly" ? current.referenceDate : new Date().toISOString().slice(0, 10)
+    current.type === "biweekly" ? current.referenceDate : todayIso()
   );
 
   function buildConfig(): PayPeriodConfig {

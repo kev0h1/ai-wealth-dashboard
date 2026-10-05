@@ -26,7 +26,7 @@ from app.core.pending_login import (
     redeem_pending,
     store_challenge,
 )
-from app.core.signin_handoff import signin_handoff_csp, signin_handoff_html
+from app.core.signin_handoff import signin_error_response, signin_handoff_csp, signin_handoff_html
 from app.core.push import drop_user_push_registrations
 from app.core.session_revocation import is_revoked, revoke_sessions
 from app.db.collections import linked_identities_col
@@ -415,7 +415,8 @@ async def unlink_apple_identity(user: dict = Depends(current_user)):
 @router.get("/auth/google")
 async def google_auth():
     if not GOOGLE_CLIENT_ID:
-        raise HTTPException(500, "Google OAuth not configured")
+        # G215: top-level navigation, so land on the login screen's own error state.
+        return RedirectResponse(f"{APP_URL}/?error=auth_failed")
     redirect_uri = f"{APP_URL}/api/auth/google/callback"
     params = urllib.parse.urlencode({
         "client_id":     GOOGLE_CLIENT_ID,
@@ -431,7 +432,7 @@ async def google_auth():
 @router.get("/auth/google/mobile")
 async def google_auth_mobile(state: str = "", challenge: str = ""):
     if not GOOGLE_CLIENT_ID:
-        raise HTTPException(500, "Google OAuth not configured")
+        return signin_error_response(status_code=503)
     # A133: `challenge` is sha256(poll_secret), hex. The secret itself never
     # leaves the app and is never in a URL. Without a valid challenge a
     # new-format state is simply never redeemable (legacy states need none).

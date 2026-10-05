@@ -44,6 +44,7 @@ import { api } from "@/lib/api";
 import type { SpendVerdictState, Transaction } from "@/lib/api";
 import { DEFAULT_PAY_PERIOD_CONFIG, prevPeriodWithConfig } from "@/lib/payPeriod";
 import { OPEN_TIPS } from "../spend-tips/fixtures";
+import { noticeSheet } from "@/components/ConfirmSheet";
 
 // Fixture transactions for the teaching-sheet demo modes below — one per
 // fork (ENGINE.md Destination Rule: movement gets destinations, spend gets
@@ -318,7 +319,7 @@ export default function SpendLiveClient({ hidePreviewControls = false }: { hideP
                 // construction SpendPage.tsx's real onOpenMoved uses.
                 onOpenMoved={(m) => {
                   if (!m.categories || m.categories.length === 0) return;
-                  window.alert(`Would open /transactions?category=${m.categories.join(",")}&txn_type=debit&label=${encodeURIComponent(m.label)}`);
+                  void noticeSheet({ title: "Preview only", body: `Would open /transactions?category=${m.categories.join(",")}&txn_type=debit&label=${encodeURIComponent(m.label)}` });
                 }}
               />
 
