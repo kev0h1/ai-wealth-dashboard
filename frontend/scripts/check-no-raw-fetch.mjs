@@ -54,6 +54,7 @@ const ALLOW = [
     ["g115-spend-from-accounts/G115SpendFromAccountsClient.tsx"],
     ["g88-home-real/G88HomeRealClient.tsx"],
     ["g134-home-inventory/HomeInventoryClient.tsx"],
+    ["sync-loading/SyncLoadingClient.tsx"],
   ].flatMap(([f]) => [
     {
       file: `app/design/${f}`,

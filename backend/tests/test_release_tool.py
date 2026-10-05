@@ -754,3 +754,450 @@ def test_trigger_codemagic_custom_workflow_and_branch():
     )
     assert ok is True
     assert "ios-capacitor" in msg
+
+
+# ── H108: poll window, late-SUCCESS re-check, tag-only, Vercel rollback verify ──
+
+
+def test_timeout_minutes_flag_parsing():
+    parser = release.build_parser()
+    assert parser.parse_args(["deploy"]).timeout_minutes == 30
+    assert parser.parse_args(["deploy", "--timeout-minutes", "45"]).timeout_minutes == 45
+    assert parser.parse_args(["--timeout-minutes", "20", "rollback", "abc1234"]).timeout_minutes == 20
+    assert parser.parse_args(["rollback", "abc1234", "--timeout-minutes", "12"]).timeout_minutes == 12
+    assert release.timeout_seconds(30) == 1800
+    assert release.timeout_seconds(None) == release.DEPLOY_POLL_TIMEOUT_S == 1800
+    with pytest.raises(SystemExit):
+        parser.parse_args(["deploy", "--timeout-minutes", "0"])
+    with pytest.raises(SystemExit):
+        parser.parse_args(["deploy", "--timeout-minutes", "soon"])
+
+
+def test_final_recheck_decision_is_pure():
+    assert release.final_recheck_decision({"a": True, "b": True}) == "continue"
+    assert release.final_recheck_decision({"a": True, "b": False}) == "fail"
+    assert release.final_recheck_decision({}) == "fail"
+
+
+def _dep(status, sha="abc12345"):
+    return {"status": status, "meta": {"commitHash": sha, "branch": "release"}}
+
+
+def test_poll_railway_late_success_caught_by_final_recheck():
+    # The API service reaches SUCCESS only on the read taken after the window closed.
+    clock = {"t": 0.0}
+    reads = {"ai-wealth-dashboard": 0, "worker": 0}
+
+    def fetch(service):
+        reads[service] += 1
+        if service == "worker" or reads[service] >= 3:
+            return _dep("SUCCESS")
+        return _dep("BUILDING")
+
+    def sleep(n):
+        clock["t"] += n
+
+    done, _ = release.poll_railway_services(
+        "abc12345", False, 30, 15, fetch, sleep=sleep, clock=lambda: clock["t"],
+    )
+    assert reads["ai-wealth-dashboard"] == 3  # two in-window reads + the final re-check
+    assert release.final_recheck_decision(done) == "continue"
+
+
+def test_poll_railway_still_pending_after_final_recheck_fails():
+    clock = {"t": 0.0}
+
+    def sleep(n):
+        clock["t"] += n
+
+    done, _ = release.poll_railway_services(
+        "abc12345", False, 30, 15, lambda s: _dep("BUILDING"), sleep=sleep, clock=lambda: clock["t"],
+    )
+    assert release.final_recheck_decision(done) == "fail"
+
+
+def test_tag_only_argument_validation():
+    assert release.validate_tag_only_args("cd663f1f", "2026-10-05") == ("release-20261005-0000", None)
+    assert release.validate_tag_only_args("cd663f1f", "2026-10-05", "0930")[0] == "release-20261005-0930"
+    assert release.validate_tag_only_args(None, "2026-10-05")[1]
+    assert release.validate_tag_only_args("not-a-sha!", "2026-10-05")[1]
+    assert "--date" in release.validate_tag_only_args("cd663f1f", None)[1]
+    assert release.validate_tag_only_args("cd663f1f", "05/10/2026")[1]
+    assert release.validate_tag_only_args("cd663f1f", "2026-02-30")[1]
+    assert release.validate_tag_only_args("cd663f1f", "2026-10-05", "2575")[1]
+
+
+def test_tag_only_cli_rejects_missing_date_and_subcommand_mix(monkeypatch):
+    # Validation fails before any git or network call.
+    monkeypatch.setattr(release, "run_smoke_checks", lambda *a, **k: pytest.fail("network"))
+    assert release.main(["--tag-only", "cd663f1f"]) == 1
+    with pytest.raises(SystemExit):
+        release.main(["--tag-only", "cd663f1f", "--date", "2026-10-05", "check"])
+    with pytest.raises(SystemExit):
+        release.main([])
+
+
+def _link(tmp_path):
+    (tmp_path / ".vercel").mkdir()
+    (tmp_path / ".vercel" / "project.json").write_text('{"projectId": "prj_1", "orgId": "team_1"}')
+    return tmp_path
+
+
+def _fake_vercel(state):
+    """Stub of the documented endpoints only; records every call."""
+    calls = state.setdefault("calls", [])
+
+    def http(method, url, token, timeout):
+        calls.append((method, url))
+        if method == "POST":
+            if state.get("promote_fails"):
+                raise release.RemoteError("promote refused")
+            state["live"] = "d_target"
+            return {}
+        if "/v4/aliases" in url:
+            return {"aliases": [
+                {"alias": "other.example.com", "deploymentId": "d_other"},
+                {"alias": release.PROD_DOMAIN, "deploymentId": state["live"]},
+            ]}
+        if "/v13/deployments/" in url:
+            dep_id = url.split("/v13/deployments/")[1].split("?")[0]
+            sha = "aaaa1111bbbb" if dep_id == "d_target" else "cccc2222"
+            if state.get("git_source_only"):
+                return {"gitSource": {"sha": sha}}
+            if state.get("no_sha"):
+                return {"meta": {}}
+            return {"meta": {"githubCommitSha": sha}}
+        if "/v7/deployments" in url:
+            assert "state=READY" in url and "target=production" in url and "sha=aaaa1111" in url
+            return {"deployments": [{"uid": "d_target", "meta": {"githubCommitSha": "aaaa1111bbbb"}}]}
+        raise AssertionError(url)
+
+    return http
+
+
+def test_vercel_deployment_sha_fallbacks():
+    assert release.vercel_deployment_sha({"meta": {"githubCommitSha": "a"}, "gitSource": {"sha": "b"}}) == "a"
+    assert release.vercel_deployment_sha({"gitSource": {"sha": "b"}}) == "b"
+    assert release.vercel_deployment_sha({"meta": {}}) is None
+
+
+def test_verify_vercel_rollback_promotes_when_live_is_wrong(tmp_path):
+    state = {"live": "d_other"}
+    ok, msg = release.verify_vercel_rollback(
+        _link(tmp_path), "aaaa1111", 5, http=_fake_vercel(state), token="t", sleep=lambda n: None, settle_checks=2,
+    )
+    assert ok and "promoted" in msg
+    assert any(m == "POST" and "/promote/d_target" in u for m, u in state["calls"])
+    assert not any("/v6/" in u for _, u in state["calls"])
+
+
+def test_verify_vercel_rollback_no_promote_when_already_live(tmp_path):
+    state = {"live": "d_target"}
+    ok, _ = release.verify_vercel_rollback(
+        _link(tmp_path), "aaaa1111", 5, http=_fake_vercel(state), token="t", sleep=lambda n: None,
+    )
+    assert ok and not any(m == "POST" for m, _ in state["calls"])
+
+
+def test_verify_vercel_rollback_fails_closed_without_sha_field(tmp_path):
+    state = {"live": "d_other", "no_sha": True}
+    ok, msg = release.verify_vercel_rollback(
+        _link(tmp_path), "aaaa1111", 5, http=_fake_vercel(state), token="t", sleep=lambda n: None,
+    )
+    assert not ok and "meta.githubCommitSha" in msg and "gitSource.sha" in msg
+    assert not any(m == "POST" for m, _ in state["calls"])
+
+
+def test_resolve_live_uses_git_source_fallback():
+    state = {"live": "d_target", "git_source_only": True}
+    dep_id, sha = release.resolve_live_vercel_deployment(_fake_vercel(state), "t", "prj_1", "team_1", 5)
+    assert (dep_id, sha) == ("d_target", "aaaa1111bbbb")
+
+
+def test_vercel_check_mode_is_read_only_and_prints(monkeypatch, tmp_path, capsys):
+    state = {"live": "d_other"}
+    fake = _fake_vercel(state)
+    monkeypatch.setattr(release, "vercel_cli_token", lambda *a, **k: "t")
+    monkeypatch.setattr(release, "link_vercel", lambda timeout=30: _link(tmp_path))
+    monkeypatch.setattr(release, "vercel_rest", fake)
+    assert release.main(["--vercel-check", "--sha", "aaaa1111"]) == 0
+    out = capsys.readouterr().out
+    assert "d_other" in out and "cccc2222" in out and "promote candidate for aaaa1111: d_target" in out
+    assert all(m == "GET" for m, _ in state["calls"])
+    with pytest.raises(SystemExit):
+        release.main(["--vercel-check", "check"])
+
+
+def test_vercel_rest_non_json_body_raises_remote_error(monkeypatch):
+    class Resp:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self): return b"<html>gateway</html>"
+
+    monkeypatch.setattr(release.urllib.request, "urlopen", lambda *a, **k: Resp())
+    with pytest.raises(release.RemoteError):
+        release.vercel_rest("GET", "https://api.vercel.com/x", "t", 5)
+
+
+def _rollback_args(**kw):
+    import argparse
+    ns = argparse.Namespace(target="aaaa1111", allow_worktree=True, timeout=5, timeout_minutes=1)
+    ns.__dict__.update(kw)
+    return ns
+
+
+def test_rollback_exits_1_when_promote_fails(monkeypatch, tmp_path):
+    state = {"live": "d_other", "promote_fails": True}
+    fake = _fake_vercel(state)
+    monkeypatch.setattr(release, "_run_ok", lambda *a, **k: (True, "aaaa1111bbbb\n"))
+    monkeypatch.setattr(release, "_run", lambda *a, **k: "")
+    monkeypatch.setattr(release, "is_ancestor", lambda *a, **k: True)
+    monkeypatch.setattr(release, "poll_vercel_ready", lambda *a, **k: (True, []))
+    monkeypatch.setattr(release, "poll_railway_services", lambda *a, **k: ({s: True for s in release.RAILWAY_SERVICES}, {}))
+    monkeypatch.setattr(release, "link_vercel", lambda timeout=30: _link(tmp_path))
+    monkeypatch.setattr(release, "vercel_cli_token", lambda *a, **k: "t")
+    monkeypatch.setattr(release, "vercel_rest", fake)
+    monkeypatch.setattr(release.time, "sleep", lambda n: None)
+    monkeypatch.setattr(release, "run_smoke_checks", lambda *a, **k: [])
+    assert release.cmd_rollback(_rollback_args()) == 1
+
+
+def _tag_args(**kw):
+    import argparse
+    ns = argparse.Namespace(tag_only="cd663f1f", date="2026-10-05", time="0000", allow_worktree=True, timeout=5)
+    ns.__dict__.update(kw)
+    return ns
+
+
+def test_tag_only_refuses_sha_not_in_origin_release(monkeypatch):
+    cmds = []
+    monkeypatch.setattr(release, "_run", lambda cmd, **k: cmds.append(cmd) or "")
+    monkeypatch.setattr(release, "_run_ok", lambda *a, **k: (True, "cd663f1fdeadbeef\n"))
+    monkeypatch.setattr(release, "is_ancestor", lambda *a, **k: False)
+    monkeypatch.setattr(release, "run_smoke_checks", lambda *a, **k: pytest.fail("network"))
+    assert release.cmd_tag_only(_tag_args()) == 1
+    assert cmds[0][:4] == ["git", "fetch", "origin", "release"] and "--tags" in cmds[0]
+    assert not any(c[:2] == ["git", "tag"] for c in cmds)
+
+
+def test_tag_only_refuses_existing_tag(monkeypatch):
+    cmds = []
+    monkeypatch.setattr(release, "_run", lambda cmd, **k: cmds.append(cmd) or "")
+    monkeypatch.setattr(release, "_run_ok", lambda *a, **k: (True, "cd663f1fdeadbeef\n"))
+    monkeypatch.setattr(release, "is_ancestor", lambda *a, **k: True)
+    monkeypatch.setattr(release, "is_tag_from_this_tool", lambda *a, **k: True)
+    monkeypatch.setattr(release, "run_smoke_checks", lambda *a, **k: pytest.fail("network"))
+    assert release.cmd_tag_only(_tag_args()) == 1
+    assert not any(c[:2] == ["git", "tag"] for c in cmds)
+
+
+# ── H108 round 2: strict promote match, early stop, readiness, bounds, tag-only, deploy-level ──
+
+
+def _v7_http(items, v13=None):
+    calls = []
+
+    def http(method, url, token, timeout):
+        calls.append((method, url))
+        if "/v7/deployments" in url:
+            return {"deployments": items}
+        if "/v13/deployments/" in url:
+            uid = url.split("/v13/deployments/")[1].split("?")[0]
+            return (v13 or {}).get(uid, {"meta": {}})
+        raise AssertionError(url)
+
+    http.calls = calls
+    return http
+
+
+def test_promote_candidate_resolves_missing_sha_via_v13():
+    http = _v7_http([{"uid": "d1"}], {"d1": {"meta": {"githubCommitSha": "aaaa1111bbbb"}}})
+    assert release.find_promote_candidate(http, "t", "p", "team_1", "aaaa1111", 5) == "d1"
+    assert any("/v13/deployments/d1" in u for _, u in http.calls)
+
+
+def test_promote_candidate_no_sha_anywhere_never_promotes(tmp_path):
+    http = _v7_http([{"uid": "d1"}], {"d1": {"meta": {}}})
+    assert release.find_promote_candidate(http, "t", "p", "team_1", "aaaa1111", 5) is None
+    state = {"live": "d_other"}
+    base = _fake_vercel(state)
+
+    def h(method, url, token, timeout):
+        if "/v7/deployments" in url:
+            return {"deployments": [{"uid": "d1"}]}
+        if "/v13/deployments/d1" in url:
+            return {"meta": {}}
+        return base(method, url, token, timeout)
+
+    ok, msg = release.verify_vercel_rollback(
+        _link(tmp_path), "aaaa1111", 5, http=h, token="t", sleep=lambda n: None,
+    )
+    assert not ok and not any(m == "POST" for m, _ in state["calls"])
+
+
+def test_promote_candidate_mismatched_sha_ignored(tmp_path):
+    http = _v7_http([{"uid": "d1", "meta": {"githubCommitSha": "ffff0000"}}])
+    assert release.find_promote_candidate(http, "t", "p", None, "aaaa1111", 5) is None
+    state = {"live": "d_other"}
+    base = _fake_vercel(state)
+
+    def h(method, url, token, timeout):
+        if "/v7/deployments" in url:
+            return {"deployments": [{"uid": "d1", "meta": {"githubCommitSha": "ffff0000"}}]}
+        return base(method, url, token, timeout)
+
+    ok, _ = release.verify_vercel_rollback(_link(tmp_path), "aaaa1111", 5, http=h, token="t", sleep=lambda n: None)
+    assert not ok and not any(m == "POST" for m, _ in state["calls"])
+
+
+def test_promote_candidate_same_sha_picks_newest_and_different_full_sha_fails_closed():
+    same = _v7_http([
+        {"uid": "old", "createdAt": 1, "meta": {"githubCommitSha": "aaaa1111bbbb"}},
+        {"uid": "new", "createdAt": 9, "meta": {"githubCommitSha": "aaaa1111bbbb"}},
+    ])
+    assert release.find_promote_candidate(same, "t", "p", None, "aaaa1111", 5) == "new"
+    differ = _v7_http([
+        {"uid": "x", "meta": {"githubCommitSha": "aaaa1111bbbb"}},
+        {"uid": "y", "meta": {"githubCommitSha": "aaaa1111cccc"}},
+    ])
+    with pytest.raises(release.RemoteError):
+        release.find_promote_candidate(differ, "t", "p", None, "aaaa1111", 5)
+
+
+def test_poll_railway_stops_early_on_failed_service():
+    clock = {"t": 0.0}
+    reads = {"n": 0}
+
+    def fetch(service):
+        reads["n"] += 1
+        return _dep("FAILED") if service == "worker" else _dep("SUCCESS")
+
+    failed = set()
+    done, _ = release.poll_railway_services(
+        "abc12345", False, 1800, 15, fetch, sleep=lambda n: clock.__setitem__("t", clock["t"] + n),
+        clock=lambda: clock["t"], failed_out=failed,
+    )
+    assert failed == {"worker"} and done["worker"] is False and clock["t"] == 0.0 and reads["n"] == 2
+
+
+def test_vercel_ready_requires_sha_and_newer_than_push():
+    dep = {"readyState": "READY", "createdAt": 2_000_000, "meta": {"githubCommitSha": "aaaa1111bbbb"}}
+    assert release.vercel_ready_for_push(dep, "aaaa1111", 2000.0)
+    assert not release.vercel_ready_for_push(dep, "ffff0000", 2000.0)
+    assert not release.vercel_ready_for_push(dep, "aaaa1111", 5000.0)
+    assert not release.vercel_ready_for_push({**dep, "readyState": "BUILDING"}, "aaaa1111", 2000.0)
+
+
+def test_timeout_minutes_bounds():
+    parser = release.build_parser()
+    for bad in ("0", "-5", "nan", "inf", "181", "1.5", "x"):
+        with pytest.raises(SystemExit):
+            parser.parse_args(["deploy", "--timeout-minutes", bad])
+    assert parser.parse_args(["deploy", "--timeout-minutes", "180"]).timeout_minutes == 180
+
+
+def _tag_stubs(monkeypatch, *, points_at="", live_sha="cd663f1fdeadbeef", live_err=None):
+    cmds = []
+    monkeypatch.setattr(release, "_run", lambda cmd, **k: cmds.append(cmd) or "")
+
+    def run_ok(cmd, **k):
+        if cmd[:3] == ["git", "tag", "--points-at"]:
+            return True, points_at
+        return True, "cd663f1fdeadbeef\n"
+
+    monkeypatch.setattr(release, "_run_ok", run_ok)
+    monkeypatch.setattr(release, "is_ancestor", lambda *a, **k: True)
+    monkeypatch.setattr(release, "is_tag_from_this_tool", lambda *a, **k: False)
+
+    def live(timeout, http=None):
+        if live_err:
+            raise release.RemoteError(live_err)
+        return "d_live", {"meta": {"githubCommitSha": live_sha}}
+
+    monkeypatch.setattr(release, "live_vercel_deployment", live)
+    monkeypatch.setattr(release, "run_smoke_checks", lambda *a, **k: [])
+    return cmds
+
+
+def test_tag_only_refuses_sha_with_existing_release_tag(monkeypatch):
+    cmds = _tag_stubs(monkeypatch, points_at="release-20260101-1200\n")
+    assert release.cmd_tag_only(_tag_args()) == 1
+    assert not any(c[:2] == ["git", "tag"] and "-a" in c for c in cmds)
+
+
+def test_tag_only_live_check_fail_closed_mismatch_and_skip(monkeypatch):
+    cmds = _tag_stubs(monkeypatch, live_err="no token")
+    assert release.cmd_tag_only(_tag_args()) == 1
+    cmds = _tag_stubs(monkeypatch, live_sha="ffff0000")
+    assert release.cmd_tag_only(_tag_args()) == 1
+    assert not any("-a" in c for c in cmds)
+    cmds = _tag_stubs(monkeypatch, live_err="no token")
+    assert release.cmd_tag_only(_tag_args(skip_live_check=True)) == 0
+    assert any(c[:3] == ["git", "tag", "-a"] for c in cmds)
+    cmds = _tag_stubs(monkeypatch)
+    assert release.cmd_tag_only(_tag_args()) == 0
+    assert any(c[:3] == ["git", "tag", "-a"] for c in cmds)
+
+
+def _deploy_env(monkeypatch, fetch):
+    import argparse
+    cmds = []
+    clock = {"t": 0.0}
+    monkeypatch.chdir(release.REPO_ROOT)
+    monkeypatch.setattr(release, "run_check", lambda *a, **k: [])
+    monkeypatch.setattr(release, "has_red", lambda items: False)
+    monkeypatch.setattr(release, "print_check_table", lambda items: None)
+    monkeypatch.setattr(release, "git_rev_parse", lambda root, ref, timeout: "abc12345" if "main" in ref else "prev0000")
+    monkeypatch.setattr(release, "is_ancestor", lambda *a, **k: True)
+    monkeypatch.setattr(release, "_run", lambda cmd, **k: cmds.append(cmd) or "")
+    monkeypatch.setattr(release, "fetch_railway_latest_deployment", lambda svc, timeout: fetch(svc))
+    monkeypatch.setattr(release, "poll_vercel_ready", lambda *a, **k: (True, [{"url": "u", "age": "1m", "status": "Ready"}]))
+    orig = release.poll_railway_services
+    monkeypatch.setattr(
+        release, "poll_railway_services",
+        lambda *a, **k: orig(*a, sleep=lambda n: clock.__setitem__("t", clock["t"] + n), clock=lambda: clock["t"], **k),
+    )
+    monkeypatch.setattr(release, "run_smoke_checks", lambda *a, **k: [])
+    monkeypatch.setattr(release, "trigger_codemagic_prod_build", lambda *a, **k: (True, "stub"))
+    args = argparse.Namespace(dry_run=False, allow_worktree=False, timeout=5, timeout_minutes=1, railway_branch_confirmed=False)
+    return args, cmds
+
+
+def test_deploy_late_success_reaches_smoke_and_tag(monkeypatch):
+    reads = {}
+
+    def fetch(svc):
+        reads[svc] = reads.get(svc, 0) + 1
+        if svc == "worker" or reads[svc] >= 6:  # SUCCESS only on the final re-check
+            return _dep("SUCCESS")
+        return _dep("BUILDING")
+
+    args, cmds = _deploy_env(monkeypatch, fetch)
+    assert release.cmd_deploy(args) == 0
+    assert any(c[:2] == ["git", "tag"] for c in cmds)
+    assert any(c[:3] == ["git", "push", "origin"] and c[3].startswith("release-") for c in cmds)
+
+
+def test_deploy_failed_service_produces_no_tag(monkeypatch):
+    args, cmds = _deploy_env(monkeypatch, lambda svc: _dep("FAILED") if svc == "worker" else _dep("SUCCESS"))
+    assert release.cmd_deploy(args) == 1
+    assert not any(c[:2] == ["git", "tag"] for c in cmds)
+
+
+def test_poll_railway_failed_with_different_commit_does_not_early_stop():
+    clock = {"t": 0.0}
+    reads = {"worker": 0}
+
+    def fetch(service):
+        if service == "worker":
+            reads["worker"] += 1
+            return {"status": "FAILED", "meta": {"commitHash": "9999ffff", "branch": "release"}}
+        return _dep("SUCCESS")
+
+    failed = set()
+    done, _ = release.poll_railway_services(
+        "abc12345", False, 60, 15, fetch, sleep=lambda n: clock.__setitem__("t", clock["t"] + n),
+        clock=lambda: clock["t"], failed_out=failed,
+    )
+    assert failed == set() and done["worker"] is False
+    assert reads["worker"] == 5  # polled through the whole window (4 reads) plus the final re-check

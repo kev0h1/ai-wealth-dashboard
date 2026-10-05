@@ -10,6 +10,7 @@ import UnlinkedGoalPlans from "../components/upcoming/UnlinkedGoalPlans.tsx";
 import { AllocationEditForm } from "../components/AllocationEditForm.tsx";
 import { UpcomingEditForm } from "../components/UpcomingEditForm.tsx";
 import { accountPlan, assessPlanOverlap, hasChosenPlanSource, hasPlanSource, plansFromApi, remaining } from "../lib/upcomingPlans.ts";
+import { planReturn } from "../lib/upcomingFlowStack.ts";
 import { walkUpcomingAccounts } from "../lib/upcomingAccountWalk.ts";
 import { cashflowFor, forecastFor, heroFor, plansFor } from "../app/design/g176-account-plans/fixtures.ts";
 
@@ -145,4 +146,51 @@ const heroWithoutGoal = heroFor("gap", plans.filter((plan) => plan.kind === "all
 assert.deepEqual(heroFor("gap", plans), heroWithoutGoal, "Goal changes do not change the existing hero equation");
 const hero = renderToStaticMarkup(React.createElement(UpcomingHeroCard, { isCalendarMonth: false, daysToPayday: 30, paydayLabel: "Fri 30 Oct", spendableNow: heroWithoutGoal.cash / 100, runwayIncomeTotal: 0, runwayBillsTotal: heroWithoutGoal.bills / 100, allocationsRemainingTotal: heroWithoutGoal.allocations / 100, savingsNow: 1250, runway: heroWithoutGoal.runway / 100, runwayStatus: "left" }));
 assert.match(hero, /Projected balance/);
+
+// G216: payment and income rows in the account sheet open the payment detail.
+{
+  const editable = renderToStaticMarkup(React.createElement(UpcomingAccountDetails, { account: gap, plans: [], plansStatus: "ready", periodLabel: "Through Thu 29 Oct", onEvent() {}, editableEventIds: new Set([gap.events[0].id]) }));
+  const buttons = editable.match(/<button[^>]*data-flow-focus="event-[^"]*"[^>]*>/g) ?? [];
+  assert.equal(buttons.length, 1, "Only editable events become buttons");
+  assert.match(buttons[0], new RegExp('data-flow-focus="event-' + gap.events[0].id + '"'));
+  assert.match(buttons[0], /min-h-11/, "44px target");
+  assert.match(editable, /lucide-chevron-right/, "Chevron on the editable row");
+  const staticOnly = renderToStaticMarkup(React.createElement(UpcomingAccountDetails, { account: gap, plans: [], plansStatus: "ready", periodLabel: "Through Thu 29 Oct" }));
+  assert.doesNotMatch(staticOnly, /data-flow-focus="event-/, "No onEvent keeps events static");
+  const everyEvent = renderToStaticMarkup(React.createElement(UpcomingAccountDetails, { account: gap, plans: [], plansStatus: "ready", periodLabel: "Through Thu 29 Oct", onEvent() {} }));
+  assert.equal((everyEvent.match(/data-flow-focus="event-/g) ?? []).length, gap.events.length, "Without an allow-list every event is a button");
+  assert.match(flowSource, /goTo\(\{ kind: "payment", id \}\)/, "Account view pushes a payment view onto the Back stack");
+  assert.match(flowSource, /item\.source === event\.source/, "Events map to payments by their source cashflow item");
+  assert.match(flowSource, /navigation\.returnTo\(isAccountView\)/, "A change from an account-opened payment returns straight to the account");
+  assert.match(flowSource, /onDone=\{leavePayment\(navigation, navigation\.back\)\}/, "List-opened edits keep the one-step pop as the fallback");
+  assert.match(flowSource, /request\.run\(payment\.skip, leavePayment\(navigation, navigation\.close\)/, "Skip returns to the account, or closes when opened from the list");
+  assert.match(flowSource, /<ReturnToAccount navigation=\{navigation\} \/>/, "A dismissed payment's absent state steps back to the account");
+  const sheetSource = readFileSync(new URL("../components/UpcomingFlowSheet.tsx", import.meta.url), "utf8");
+  assert.match(sheetSource, /returnTo\(match: \(view: View\) => boolean\): boolean/);
+  assert.match(readFileSync(new URL("../components/UpcomingEditForm.tsx", import.meta.url), "utf8"), /request\.run\(operation, onDone \?\? onCancel/, "UpcomingEditForm defaults to onCancel, so the list path is unchanged");
+}
+
+// G216 review minors: returnTo stack planning, the editable allow-list, and the quiet absent state.
+{
+  const account = { kind: "account", id: "monzo" }, payment = { kind: "payment", id: "ee" }, edit = { kind: "edit-payment", id: "ee" };
+  const isAccount = (view) => view.kind === "account";
+  assert.deepEqual(planReturn([account, payment, edit], 2, isAccount), { kind: "go", delta: -2 }, "Save from the edit step pops two entries to the account");
+  assert.deepEqual(planReturn([account, payment], 1, isAccount), { kind: "back" }, "Skip from the payment detail is one step");
+  assert.deepEqual(planReturn([payment, edit], 1, isAccount), { kind: "none" }, "List-opened: no account beneath");
+  assert.deepEqual(planReturn([payment], 0, isAccount), { kind: "none" });
+  assert.deepEqual(planReturn([account, payment, edit], 0, isAccount), { kind: "none" }, "Never matches the current entry");
+  const sheet = readFileSync(new URL("../components/UpcomingFlowSheet.tsx", import.meta.url), "utf8");
+  assert.match(sheet, /planReturn\(entriesRef\.current\.map/);
+  assert.match(sheet, /if \(plan\.kind === "none"\) return false;/);
+  assert.match(sheet, /history\.go\(plan\.delta\)/, "returnTo moves history by the planned delta");
+  assert.match(sheet, /if \(plan\.kind === "back"\) \{ back\(\); return true; \}/);
+  const two = { ...gap, events: [gap.events[0], { ...gap.events[0], id: "payment-other", name: "Other row" }] };
+  const filtered = renderToStaticMarkup(React.createElement(UpcomingAccountDetails, { account: two, plans: [], plansStatus: "ready", periodLabel: "Through Thu 29 Oct", onEvent() {}, editableEventIds: new Set([two.events[0].id]) }));
+  assert.match(filtered, new RegExp('data-flow-focus="event-' + two.events[0].id + '"'));
+  assert.doesNotMatch(filtered, /event-payment-other/, "A non-listed event is not a button");
+  const otherRow = filtered.slice(filtered.indexOf("Other row") - 400, filtered.indexOf("Other row") + 400);
+  assert.doesNotMatch(otherRow.slice(otherRow.lastIndexOf("<li")), /<button|lucide-chevron-right/, "A non-listed event has no button or chevron");
+  assert.match(flowSource, /canReturnTo\(isAccountView\)/);
+  assert.match(flowSource, /aria-busy="true"/, "Account-origin absent state renders an empty busy body, not copy");
+}
 console.log("G176 approved account plan semantics passed");

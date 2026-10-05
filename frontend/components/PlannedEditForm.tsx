@@ -8,10 +8,10 @@ import { EditorActions, EditorError, editorField, editorQuiet, useEditorRequest,
 
 export type PlannedEditItem = { id: string; name: string; amount: number; date: string; account_id: string | null };
 export type PlannedEditServices = Pick<typeof api, "updatePlanned">;
-export interface PlannedEditFormProps { item: PlannedEditItem; accounts: Account[]; onCancel(): void; onDelete(): void; onSaved(): void | Promise<void>; services?: PlannedEditServices; renderActions?: (actions: ReactNode) => ReactNode; }
+export interface PlannedEditFormProps { item: PlannedEditItem; accounts: Account[]; onCancel(): void; onDone?: () => void; onDelete(): void; onSaved(): void | Promise<void>; services?: PlannedEditServices; renderActions?: (actions: ReactNode) => ReactNode; }
 function todayIso() { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
 
-export function PlannedEditForm({ item, accounts, onCancel, onDelete, onSaved, services = api, renderActions }: PlannedEditFormProps) {
+export function PlannedEditForm({ item, accounts, onCancel, onDone, onDelete, onSaved, services = api, renderActions }: PlannedEditFormProps) {
   const formId = useId();
   const [name, setName] = useState(item.name);
   const [amount, setAmount] = useState(item.amount.toFixed(2));
@@ -32,7 +32,7 @@ export function PlannedEditForm({ item, accounts, onCancel, onDelete, onSaved, s
     if (date !== item.date) patch.date = date;
     if ((accountId || null) !== item.account_id) patch.account_id = accountId || null;
     if (!Object.keys(patch).length) { onCancel(); return; }
-    await request.run(() => services.updatePlanned(item.id, patch), onCancel, undefined, onSaved);
+    await request.run(() => services.updatePlanned(item.id, patch), onDone ?? onCancel, undefined, onSaved);
   }
   return <form id={formId} onSubmit={submit} className="space-y-5">
     <fieldset disabled={request.busy || request.needsRefresh} className="min-w-0 space-y-5 [&_input]:text-base">

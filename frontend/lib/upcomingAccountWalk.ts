@@ -60,9 +60,9 @@ export function walkUpcomingAccounts(
     const credits = income.filter((item) => item.account_id === id);
     const transfers = inflows.filter((item) => item.account_id === id);
     const rawEvents = [
-      ...credits.map((item, index) => ({ id: `income-${index}`, name: upcomingDisplayName(item), expected_date: item.expected_date, type: "income" as const, kind: "income" as const, amount: pennies(item.amount), bill: undefined })),
-      ...transfers.map((item, index) => ({ id: `inflow-${index}`, name: item.source_account_name ? `From ${item.source_account_name}` : "Transfer in", expected_date: item.expected_date, type: "inflow" as const, kind: "inflow" as const, amount: pennies(item.amount), bill: undefined })),
-      ...payments.map((item, index) => ({ id: `payment-${index}`, name: upcomingDisplayName(item), expected_date: item.expected_date, type: "bill" as const, kind: item.kind === "movement" ? "movement" as const : "payment" as const, amount: -pennies(item.amount), bill: item })),
+      ...credits.map((item, index) => ({ id: `income-${index}`, name: upcomingDisplayName(item), expected_date: item.expected_date, type: "income" as const, kind: "income" as const, amount: pennies(item.amount), bill: undefined, ref: item as object })),
+      ...transfers.map((item, index) => ({ id: `inflow-${index}`, name: item.source_account_name ? `From ${item.source_account_name}` : "Transfer in", expected_date: item.expected_date, type: "inflow" as const, kind: "inflow" as const, amount: pennies(item.amount), bill: undefined, ref: item as object })),
+      ...payments.map((item, index) => ({ id: `payment-${index}`, name: upcomingDisplayName(item), expected_date: item.expected_date, type: "bill" as const, kind: item.kind === "movement" ? "movement" as const : "payment" as const, amount: -pennies(item.amount), bill: item, ref: item as object })),
     ].sort(compareUpcomingEvents);
     const knownWorking = balanceKnown && rawEvents.every((item) => Number.isFinite(item.amount));
     let running = knownWorking ? pennies(opening!) : null;
@@ -98,7 +98,7 @@ export function walkUpcomingAccounts(
       } else if (!event.bill) {
         movementsSince = [];
       }
-      return { id: event.id, name: event.name, date: event.expected_date, kind: event.kind, amount: event.amount / 100, after: running === null ? null : running / 100 };
+      return { id: event.id, name: event.name, date: event.expected_date, kind: event.kind, amount: event.amount / 100, after: running === null ? null : running / 100, source: event.ref };
     });
     const verifiable = knownWorking && !(unknownIncome && gap > 0);
     const sum = (values: { amount: number }[]) => values.reduce((total, item) => total + pennies(item.amount), 0) / 100;

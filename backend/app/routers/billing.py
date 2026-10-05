@@ -218,6 +218,9 @@ async def billing_status(user: dict = Depends(current_user)):
         "trial_ends_at": sub_doc.get("trial_ends_at").isoformat() if sub_doc and sub_doc.get("trial_ends_at") else None,
         "renews_at": sub_doc.get("expires_at").isoformat() if sub_doc and sub_doc.get("expires_at") else None,
         "cancel_at_period_end": bool(sub_doc and sub_doc.get("cancel_at_period_end")),
+        "past_due": sub.status == "past_due",
+        "grace_until": sub.grace_until.isoformat() if getattr(sub, "grace_until", None) else None,
+        "open_banking_paused": sub.limit("open_banking") is False,
     }
 
 

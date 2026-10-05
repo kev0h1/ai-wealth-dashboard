@@ -40,6 +40,35 @@ const ROUTES: PreviewRoute[] = [
     states: [{ label: "Estimated account", value: "estimated" }, { label: "Known account", value: "known" }, { label: "No source", value: "no-source" }],
   },
   {
+    slug: "sync-loading",
+    name: "Sync loading state · G214 · variants A, B, C",
+    description:
+      "G214: what the Home hero and the Accounts page say while a bank sync runs that is not a first sync (manual refresh, a new bank for an established user, a background sync) · the last known figure stays in neutral ink, never blanked and never a stale red or green verdict · a stall or failure ends in plain words with Try again · reuses the G202 progress ledger, no red, no gradient, only the ring moves · variants drafted by Astra (openai/gpt-6-astra), rewritten to DESIGN.md under the impeccable skill: A quiet ledger line, B stale-marked figure, C ledger drawer · renders the production SafeToSpendCard and AccountLedgerRow with fixture props, nothing syncs · ?variant=a|b|c&surface=hero|accounts&state=refresh|new-bank|background|stalled|failed&mode=light|dark",
+    variants: [{ label: "A · Quiet ledger line", value: "a" }, { label: "B · Stale-marked figure", value: "b" }, { label: "C · Ledger drawer", value: "c" }],
+    states: [{ label: "Refresh", value: "refresh" }, { label: "New bank", value: "new-bank" }, { label: "Background", value: "background" }, { label: "Stalled", value: "stalled" }, { label: "Failed", value: "failed" }],
+  },
+  {
+    slug: "safe-to-spend-figure",
+    name: "Safe to Spend figure colour · G218 · variants A, B, C",
+    description:
+      "G218: should the Safe to Spend Display figure be coloured at all? Skill: impeccable, first drafts by openai/gpt-6-astra, rewritten to DESIGN.md · A: ink figure in every state, the chip and its icon carry the verdict · B: today's tinted figure (emerald On track, red Short) with the salmon dark-mode red fixed · C: ink figure with a short coloured rule beneath it · also settles whether a shortfall caused only by plans and envelopes counts as genuine red (A and C show it amber, B keeps red) · renders the production SafeToSpendCard through props (figureTone) with fixture data, production unchanged until Kevin picks · ?variant=a|b|c|today&state=on-track|tight|card|short-cash|short-plans|error|degraded|syncing&mode=light|dark&view=single|strip|compare",
+    states: [
+      { label: "Short (cash)", value: "short-cash" },
+      { label: "On track", value: "on-track" },
+      { label: "Short (plans only)", value: "short-plans" },
+      { label: "Tight", value: "tight" },
+      { label: "Check card bill", value: "card" },
+      { label: "Error", value: "error" },
+      { label: "Degraded", value: "degraded" },
+      { label: "Syncing", value: "syncing" },
+    ],
+    variants: [
+      { label: "A · Ink", value: "a" },
+      { label: "B · Tinted", value: "b" },
+      { label: "C · Ink + rule", value: "c" },
+    ],
+  },
+  {
     slug: "error-states",
     name: "Error states · G215",
     description:
@@ -161,6 +190,13 @@ const ROUTES: PreviewRoute[] = [
       { label: "A · Balance first", value: "a" },
       { label: "B · Working first", value: "b" },
     ],
+  },
+  {
+    slug: "upcoming-account-edit",
+    name: "upcoming-account-edit",
+    description:
+      "G216 · skills: impeccable · Production UpcomingDetailFlow with invented data: open Monzo, tap EE LIMITED or the salary row to open the payment detail, edit or dismiss it, and Back returns to the account with live figures · Transfers in stay read-only · ?mode=light|dark&view=account",
+    states: [{ label: "Account open", value: "account" }],
   },
   {
     slug: "g176-upcoming-rows",

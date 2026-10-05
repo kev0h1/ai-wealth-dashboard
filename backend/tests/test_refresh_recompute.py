@@ -355,6 +355,11 @@ def _patch_worker_task(monkeypatch, cashflow_col: FakeCol, *, new_count: int) ->
     monkeypatch.setattr(sync_worker, "categorise_others_bg", _noop)
     monkeypatch.setattr(sync_worker, "apply_mirror_rules", _noop)
     monkeypatch.setattr(sync_worker, "_warm_after_sync", _noop)
+
+    async def _not_paused(*_a, **_k):
+        return False
+
+    monkeypatch.setattr(sync_worker, "open_banking_paused", _not_paused)
     spy = _Spy()
     monkeypatch.setattr(analytics, "compute_and_cache_cashflow", spy)
     monkeypatch.setattr(money_shape, "compute_and_cache_money_shape", _noop)
