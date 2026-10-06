@@ -13,6 +13,7 @@ ap.add_argument("prompt")
 ap.add_argument("n", type=int, nargs="?", default=1)
 ap.add_argument("--model", default="google/gemini-3-pro-image")
 ap.add_argument("--prefix", default="still")
+ap.add_argument("--ref", help="reference image path (same person/outfit)")
 ap.add_argument("--est", type=float, default=0.15, help="estimated cost per image")
 a = ap.parse_args()
 
@@ -20,9 +21,13 @@ d = OUT / "stills"
 d.mkdir(parents=True, exist_ok=True)
 for i in range(1, a.n + 1):
     guard(a.est)
+    content = a.prompt
+    if a.ref:
+        content = [{"type": "text", "text": a.prompt},
+                   {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(open(a.ref, "rb").read()).decode()}}]
     body = {
         "model": a.model,
-        "messages": [{"role": "user", "content": a.prompt}],
+        "messages": [{"role": "user", "content": content}],
         "modalities": ["image", "text"],
         "image_config": {"aspect_ratio": "9:16"},
     }
