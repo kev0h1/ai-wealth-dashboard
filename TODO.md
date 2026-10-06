@@ -1640,6 +1640,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
   - note (2026-10-06, claude): Round 1b: preview now fits the phone screen by default (Kevin reported it opened zoomed in); export=1 keeps the exact 1080px artboard for PNG export, byte-identical to before. Reviewer SHIP.
   - note (2026-10-06, claude): Coordinator review PASS 2026-10-06 on 46aa2c1d: one preview file, fit-to-viewport by default, export=1 keeps the exact artboard; no production code.
 - [ ] **G223. Marketing video, first reel: a 15 second vertical (1080x1920) Remotion reel for TikTok, Reels and Stories built from the G222 Safe-to-Spend ad, with demo data, playable on /design and exportable to MP4, as a capabilities proof of concept** [owner: claude]
+  - note (2026-10-06, claude): Kevin 2026-10-06 asked to see video capabilities. Step 2 of G222's plan, a separate item so G222 stays in uat for his static pick. Tooling: Remotion (free licence for companies of up to 3 people), with the motion skill emil-design-eng under PRODUCT.md and DESIGN.md. Final edit (sound, captions, human hook) planned in CapCut.
 
 ## H. Repo hygiene
 
