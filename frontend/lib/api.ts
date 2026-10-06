@@ -857,6 +857,11 @@ export type Allocation = {
   id: string;
   name: string;
   amount_per_period: number;
+  /** G217: what THIS pay period asks for. Equals amount_per_period unless
+   * the user reduced this period only. `remaining` is measured against it. */
+  period_amount?: number;
+  /** G217: the one-period reduction in pounds, or null. Lapses with the period. */
+  period_override?: number | null;
   fill_account_id: string;
   /** "description_equals" (exact, case-insensitive, trimmed) or
    * "description_contains" (substring of description + merchant_name). */
@@ -3028,6 +3033,13 @@ export const api = {
       method: "PATCH",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(body),
+    }).then((r) => toJson<Allocation>(r)),
+  /** G217: reduce what an allocation asks for in the CURRENT pay period only. */
+  setAllocationPeriodOverride: (id: string, amount: number) =>
+    fetch(`${API_BASE}/allocations/${encodeURIComponent(id)}/period-override`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ amount }),
     }).then((r) => toJson<Allocation>(r)),
   deleteAllocation: (id: string) =>
     fetch(`${API_BASE}/allocations/${encodeURIComponent(id)}`, {

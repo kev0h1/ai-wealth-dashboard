@@ -41,7 +41,8 @@ export function paymentItem(): CompanionItem {
 
 const SAVINGS = { account_id: "nationwide-savings", name: "Savings", provider: "Nationwide", balance: 2400 };
 
-const allocationRecord: Allocation = {
+function allocationRecord(state: ShortfallState): Allocation {
+  return {
   id: "alloc-holiday",
   name: "Holiday",
   amount_per_period: 200,
@@ -58,8 +59,12 @@ const allocationRecord: Allocation = {
   remaining: 150,
   period_start: "2026-10-01",
   period_end: "2026-10-31",
-  source_account_id: null,
-};
+  period_amount: 200,
+  period_override: null,
+  // An estimated paying account is inferred, not chosen, so the record carries none.
+  source_account_id: state === "estimated" ? null : PREMIER.account_id,
+  };
+}
 
 export function allocationItem(state: ShortfallState): CompanionItem {
   const hasSource = state !== "no-source";
@@ -79,7 +84,7 @@ export function allocationItem(state: ShortfallState): CompanionItem {
       shortfall: 38.4,
       estimated: state === "estimated",
       paying_account: { account_id: PREMIER.account_id, name: PREMIER.name, provider: PREMIER.provider },
-      allocation: { id: allocationRecord.id, name: "Holiday", period_amount: 200, suggested_amount: 161.6 },
+      allocation: { id: "alloc-holiday", name: "Holiday", period_amount: 200, suggested_amount: 161.6 },
       other_allocation_count: 0,
       moves: hasSource ? [{ amount: 40, move_map: moveMap }] : [],
     },
@@ -92,11 +97,15 @@ const ACCOUNT_FIXTURE: Account[] = [
 ];
 
 /** Fixture services: nothing is fetched or saved. */
-export const previewServices: AllocationShortfallServices = {
-  listAllocations: async () => [allocationRecord],
-  accounts: async () => ACCOUNT_FIXTURE,
-  dismissTodayItem: async () => ({ ok: true }) as never,
-  updateAllocation: async () => allocationRecord,
-  deleteAllocation: async () => ({ ok: true }) as never,
-  allocationFillCandidates: async () => [],
-};
+export function previewServices(state: ShortfallState): AllocationShortfallServices {
+  const record = allocationRecord(state);
+  return {
+    listAllocations: async () => [record],
+    accounts: async () => ACCOUNT_FIXTURE,
+    dismissTodayItem: async () => ({ ok: true }) as never,
+    updateAllocation: async () => record,
+    deleteAllocation: async () => ({ ok: true }) as never,
+    allocationFillCandidates: async () => [],
+    setAllocationPeriodOverride: async () => record,
+  };
+}

@@ -10,15 +10,15 @@ import { EditorActions, EditorError, editorField, editorQuiet, useEditorRequest,
 export type AllocationEditServices = Pick<typeof api, "updateAllocation" | "deleteAllocation" | "allocationFillCandidates">;
 export interface AllocationEditFormProps {
   allocation: Allocation; accounts: Account[]; sourceChoices?: Account[]; suggestedSourceId?: string | null;
-  periodStart: Date; /** G217: prefill the amount (e.g. the per-period figure that clears a shortfall). Nothing is saved until the form is submitted. */ suggestedAmount?: number; onCancel(): void; onSaved(item: Allocation): void | Promise<void>; onDeleted(): void | Promise<void>;
+  periodStart: Date; onCancel(): void; onSaved(item: Allocation): void | Promise<void>; onDeleted(): void | Promise<void>;
   services?: AllocationEditServices; renderActions?: (actions: ReactNode) => ReactNode;
 }
 function todayIso() { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
 
-export function AllocationEditForm({ allocation, accounts, sourceChoices, suggestedSourceId, suggestedAmount, periodStart, onCancel, onSaved, onDeleted, services = api, renderActions }: AllocationEditFormProps) {
+export function AllocationEditForm({ allocation, accounts, sourceChoices, suggestedSourceId, periodStart, onCancel, onSaved, onDeleted, services = api, renderActions }: AllocationEditFormProps) {
   const formId = useId();
   const [name, setName] = useState(allocation.name);
-  const [amount, setAmount] = useState(() => Number(suggestedAmount ?? allocation.amount_per_period).toFixed(2));
+  const [amount, setAmount] = useState(() => Number(allocation.amount_per_period).toFixed(2));
   const [recurrence, setRecurrence] = useState<AllocationRhythm>(allocation.recurrence);
   const [destination, setDestination] = useState(allocation.fill_account_id);
   // Show the derived payer without silently persisting it as a user choice.
@@ -60,7 +60,6 @@ export function AllocationEditForm({ allocation, accounts, sourceChoices, sugges
     <fieldset disabled={request.busy || request.needsRefresh} className="min-w-0 space-y-5 [&_input]:text-base">
       <label className="block text-sm font-medium">Name<input value={name} onChange={(event) => setName(event.target.value)} maxLength={40} required autoComplete="off" className={editorField} /></label>
       <label className="block text-sm font-medium">Amount each pay period (£)<input type="number" min="0.01" max="1000000" step="0.01" inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} required className={editorField} /></label>
-      {suggestedAmount !== undefined && <p className="-mt-3 text-xs leading-5 text-slate-600 dark:text-slate-400">Prefilled to cover this period. Nothing changes until you save.</p>}
       <div className="border-t border-slate-200 pt-5 dark:border-slate-700">
         {suggestion && !sourceDirty && !allocation.source_account_id && <p className="mb-3 text-xs leading-5 text-slate-600 dark:text-slate-400">Using {suggestion.provider} · {suggestion.name} based on recent transfers. This is included in the account estimate. Change it below if the money will come from elsewhere.</p>}
         <AccountRadioPicker accounts={choices} value={source} onChange={(id) => { setSourceDirty(true); setSource(id); }} label="Pay from" allowUnset unsetLabel="Not linked yet" />

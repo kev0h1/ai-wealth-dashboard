@@ -7,6 +7,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { RefreshCw, AlertTriangle, AlertCircle, TrendingDown, TrendingUp, Minus, CircleDashed, X, ChevronRight, ChevronDown, UserRound, CalendarDays, CreditCard, Check, CheckCircle2, Clock3, ArrowRight, ArrowRightLeft, Circle, PiggyBank } from "lucide-react";
 import type { Account, Allocation, CompanionItem, PlanDest, PlanDestBill, SafeToSpend, UnfundedMoveEntry } from "@/lib/api";
 import type { AllocationEditServices } from "@/components/AllocationEditForm";
+import type { AllocationPeriodReduceServices } from "@/components/AllocationPeriodReduceSheet";
 import { api } from "@/lib/api";
 import { invalidateVerdictCache } from "@/lib/verdictCache";
 import { coverPlanProtectsHeader, coverPlanSummary, type DueRange } from "@/lib/coverPlanDue";
@@ -26,6 +27,7 @@ import MoneyText from "@/components/MoneyText";
 import { initialsOf } from "@/lib/displayName";
 
 const AllocationSheet = dynamic(() => import("@/components/AllocationSheet"));
+const AllocationPeriodReduceSheet = dynamic(() => import("@/components/AllocationPeriodReduceSheet").then((m) => m.AllocationPeriodReduceSheet));
 
 // Window-scoped local dismiss for the Payday plan ENTRY ROW (the Home-only
 // teaser, not the live PaydayPlanCard, which already dismisses itself
@@ -1784,9 +1786,10 @@ export function RhythmCard({ item, router, maskAmounts, onRefresh, previewMode =
 // figure in mono, no shadow, an outlined button pair and no Penny pill. No
 // red, no amber, no gradient. Both remedies are equal: Move (the same hand-off
 // as MoveCard's primary, a link to item.action.route) and Reduce (opens the
-// shipped AllocationEditForm prefilled with the amount that clears the gap).
+// sheet that reduces it for THIS pay period only, prefilled with the amount that
+// clears the gap; the recurring amount stays behind "Change every period").
 // With no safe source only Reduce shows, and the card says why.
-export type AllocationShortfallServices = Pick<typeof api, "listAllocations" | "accounts" | "dismissTodayItem"> & AllocationEditServices;
+export type AllocationShortfallServices = Pick<typeof api, "listAllocations" | "accounts" | "dismissTodayItem"> & AllocationEditServices & AllocationPeriodReduceServices;
 
 function setAsideMoney(value: number, hideNetWorth: boolean) {
   if (hideNetWorth) return "£••••";
@@ -1810,7 +1813,7 @@ export function AllocationShortfallCard({ item, hideNetWorth = false, dismissibl
   const [hidden, setHidden] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(false);
-  const [editing, setEditing] = useState<{ allocation: Allocation; accounts: Account[] } | null>(null);
+  const [editing, setEditing] = useState<{ allocation: Allocation; accounts: Account[]; mode: "period" | "every" } | null>(null);
   const data = item.allocation_shortfall;
   if (hidden || !data) return null;
 
@@ -1839,7 +1842,7 @@ export function AllocationShortfallCard({ item, hideNetWorth = false, dismissibl
       const [allocations, accounts] = await Promise.all([services.listAllocations(), services.accounts()]);
       const found = allocations.find(a => a.id === allocation.id);
       if (!found) throw new Error("allocation not found");
-      setEditing({ allocation: found, accounts });
+      setEditing({ allocation: found, accounts, mode: "period" });
     } catch {
       setError(true);
     } finally {
@@ -1883,13 +1886,23 @@ export function AllocationShortfallCard({ item, hideNetWorth = false, dismissibl
         </p>
       )}
       <DismissChip label={`Dismiss ${allocation.name} set-aside note`} onClick={handleDismiss} className="absolute top-2 right-2 z-10" />
-      {editing && (
+      {editing?.mode === "period" && (
+        <AllocationPeriodReduceSheet
+          allocation={editing.allocation}
+          suggestedAmount={allocation.suggested_amount}
+          services={services}
+          onClose={() => setEditing(null)}
+          onSaved={async () => { setEditing(null); setHidden(true); await onRefresh?.(); }}
+          onChangeEvery={() => setEditing({ ...editing, mode: "every" })}
+        />
+      )}
+      {editing?.mode === "every" && (
         <AllocationSheet
           allocation={editing.allocation}
           accounts={editing.accounts}
           periodStart={new Date(`${editing.allocation.period_start}T00:00:00`)}
-          suggestedAmount={allocation.suggested_amount}
           services={services}
+          suggestedSourceId={data.estimated ? paying.account_id : null}
           onClose={() => setEditing(null)}
           onSaved={async () => { setEditing(null); await onRefresh?.(); }}
           onDeleted={async () => { setEditing(null); await onRefresh?.(); }}

@@ -13,8 +13,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { AllocationShortfallCard } from "../components/HomeBrief.tsx";
-import { allocationItem } from "../app/design/allocation-shortfall/fixtures.ts";
+import { AllocationShortfallCard, BriefBody } from "../components/HomeBrief.tsx";
+import { allocationItem, paymentItem } from "../app/design/allocation-shortfall/fixtures.ts";
 import { accountPlan } from "../lib/upcomingPlans.ts";
 
 const brief = readFileSync(new URL("../components/HomeBrief.tsx", import.meta.url), "utf8");
@@ -50,7 +50,7 @@ assert.equal((src.match(/className=\{SET_ASIDE_ACTION\}/g) ?? []).length, 2, "Mo
 assert.match(brief, /const SET_ASIDE_ACTION = `\$\{SECONDARY_ACTION\} text-center leading-tight`/);
 
 // 3. Rendered states.
-const noServices = { listAllocations: async () => [], accounts: async () => [], dismissTodayItem: async () => ({}), updateAllocation: async () => ({}), deleteAllocation: async () => ({}), allocationFillCandidates: async () => [] };
+const noServices = { listAllocations: async () => [], accounts: async () => [], dismissTodayItem: async () => ({}), updateAllocation: async () => ({}), deleteAllocation: async () => ({}), allocationFillCandidates: async () => [], setAllocationPeriodOverride: async () => ({}) };
 const render = (state) => renderToStaticMarkup(createElement(AllocationShortfallCard, { item: allocationItem(state), services: noServices }));
 const buttons = (html) => [...html.matchAll(/<(?:a|button)\b[^>]*class="([^"]*)"[^>]*>([^<]*)</g)];
 
@@ -84,6 +84,27 @@ assert.deepEqual(noActions.map(([, , label]) => label), ["Reduce set-aside"], "n
 assert.match(none, /No other account can safely spare <span class="money">£38\.40<\/span> right now\./);
 assert.match(none, /grid-cols-1/);
 assert.match(none, /aria-label="Dismiss Holiday set-aside note"/);
+
+// 3b. Rank: BriefBody paints the set-aside card AFTER every payment move card,
+// whatever order the feed arrives in.
+const body = renderToStaticMarkup(createElement(BriefBody, {
+  items: [allocationItem("known"), paymentItem()], router: { push() {} }, safeToSpend: null,
+}));
+const moveAt = body.indexOf('data-move-card');
+const setAsideAt = body.indexOf('data-allocation-card="shortfall"');
+assert.ok(moveAt >= 0 && setAsideAt >= 0, "both cards render in the brief");
+assert.ok(moveAt < setAsideAt, "allocation card ranks after the payment move card");
+
+// 3c. Reduce is THIS period only; the recurring edit is a separate, labelled action.
+const sheet = readFileSync(new URL("../components/AllocationPeriodReduceSheet.tsx", import.meta.url), "utf8");
+assert.match(sheet, /This period only\./);
+assert.match(sheet, /every pay period afterwards/);
+assert.match(sheet, /Reduce this period/);
+assert.match(sheet, /Change every period/);
+assert.match(sheet, /setAllocationPeriodOverride/);
+assert.doesNotMatch(sheet, /updateAllocation|amount_per_period:/, "the reduce sheet never rewrites the recurring amount");
+assert.doesNotMatch(sheet, /\u2014/);
+assert.doesNotMatch(sheet, /(?:text|bg|border|ring)-(?:red|rose|amber)\b/);
 
 // 4. The account sheet's own gap survives below the Home floor (£5): the card
 // stays quiet about pennies, the sheet line does not.

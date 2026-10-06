@@ -47,7 +47,7 @@ export default function AllocationShortfallClient() {
           </header>
           <div className="mt-6 space-y-3">
             <MoveCard item={paymentItem()} hideNetWorth={false} maskAmounts={(t) => t} previewMode />
-            <AllocationShortfallCard key={state} item={allocationItem(state)} services={previewServices} />
+            <AllocationShortfallCard key={state} item={allocationItem(state)} services={previewServices(state)} />
           </div>
         </div>
       </main>
