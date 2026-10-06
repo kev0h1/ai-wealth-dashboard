@@ -11,6 +11,9 @@ We do NOT use accounts_col.updated_at because:
   2. It is bumped by non-sync events (manual_account_rules.py balance recalculations)
      → it is not a reliable sync signal.
 """
+import logging
+import uuid
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -23,6 +26,46 @@ FIRST_SYNC_STALL_AFTER = timedelta(minutes=10)
 # Past this age an authorised-but-never-synced connection with no error is an
 # abandoned leftover, not a first sync in progress, and no longer holds Home.
 FIRST_SYNC_ABANDON_AFTER = timedelta(hours=24)
+
+
+# G214: a sync task stamps `sync_in_progress_since` on its connection/consent
+# doc while it runs, so Home and Accounts can show a background or manual
+# re-sync of a bank that has synced before. A stamp older than this with no
+# task alive is a crashed worker's leftover and is ignored.
+SYNC_IN_PROGRESS_STALE_AFTER = timedelta(minutes=30)
+
+_log = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def sync_in_progress(col, doc_id):
+    """Stamp `sync_in_progress_since` for the duration of a sync, clearing it
+    on success or failure. Best-effort: a failed stamp never blocks the sync.
+    The next task start overwrites a leftover stamp. Each run also writes its
+    own `sync_in_progress_run` id and clears only a stamp carrying that id, so
+    two overlapping syncs of one connection (a webhook and the worker) do not
+    clear each other's stamp early; the later start owns the stamp."""
+    run = uuid.uuid4().hex
+    try:
+        await col.update_one(
+            {"_id": doc_id},
+            {"$set": {
+                "sync_in_progress_since": datetime.utcnow(),  # naive-ok: matches last_synced convention
+                "sync_in_progress_run": run,
+            }},
+        )
+    except Exception:
+        _log.exception("could not stamp sync_in_progress_since for %s", doc_id)
+    try:
+        yield
+    finally:
+        try:
+            await col.update_one(
+                {"_id": doc_id, "sync_in_progress_run": run},
+                {"$unset": {"sync_in_progress_since": "", "sync_in_progress_run": ""}},
+            )
+        except Exception:
+            _log.exception("could not clear sync_in_progress_since for %s", doc_id)
 
 
 async def last_bank_sync(uid: str) -> Optional[datetime]:
@@ -83,6 +126,25 @@ async def first_sync_state(uid: str, now: Optional[datetime] = None) -> dict:
     async def _collect(col, provider: str, query: dict, bank_key: str):
         async for doc in col.find(query):
             if doc.get("last_synced"):
+                # G214: a bank that has synced before but is being re-synced
+                # right now. Reported as syncing (stalled past 10 minutes on
+                # the stamp); a stamp past 30 minutes is a crashed worker's.
+                since = as_utc(doc.get("sync_in_progress_since"))
+                if since is None or provider == "truelayer" and not doc.get("access_token"):
+                    continue
+                age = now - since
+                if age > SYNC_IN_PROGRESS_STALE_AFTER:
+                    continue
+                rows.append({
+                    "provider": provider,
+                    "connection_id": doc.get("_id"),
+                    "bank": doc.get(bank_key) or None,
+                    "started_at": since.isoformat(),
+                    "error": None,
+                    "kind": "background",
+                    "last_synced": as_utc(doc.get("last_synced")).isoformat() if as_utc(doc.get("last_synced")) else None,
+                    "_sub": "stalled" if age > FIRST_SYNC_STALL_AFTER else "syncing",
+                })
                 continue
             started = as_utc(
                 doc.get("authed_at") or doc.get("created_at") or doc.get("updated_at")
@@ -109,6 +171,7 @@ async def first_sync_state(uid: str, now: Optional[datetime] = None) -> dict:
                 "bank": doc.get(bank_key) or None,
                 "started_at": started.isoformat() if started else None,
                 "error": (err if err in SYNC_ERROR_CODES else "sync_failed") if err else None,
+                "kind": "new-bank",
                 "_sub": sub,
             })
 
@@ -136,5 +199,7 @@ async def first_sync_state(uid: str, now: Optional[datetime] = None) -> dict:
             state = sub
             break
     for r in rows:
-        r.pop("_sub")
+        # G214: each connection's own phase, so Accounts rows and the hero can
+        # say stalled/failed from the server rather than a client clock.
+        r["state"] = r.pop("_sub")
     return {"state": state, "first_sync": not nonlocal_has, "connections": rows}
