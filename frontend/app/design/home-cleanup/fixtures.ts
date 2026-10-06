@@ -1,7 +1,7 @@
 // G221 fixtures. Synthetic accounts (shouting bank names on purpose), no live
 // data. The hero, brief cards, tip card, transactions and investment are the
 // production fixtures other previews already use.
-import type { Account, InvestmentAccount, SavingsInsight } from "@/lib/api";
+import type { Account, InvestmentAccount, SavingsInsight, Transaction } from "@/lib/api";
 import { LEDGER_INVESTMENT, RECENT_TRANSACTIONS } from "../g134-home-inventory/fixtures";
 import { INSIGHT_FIXTURES } from "../insights-live/fixtures";
 
@@ -100,4 +100,32 @@ export function cashflowFixture() {
     payday_source: null,
     income_suggestion: null,
   };
+}
+
+/**
+ * Debit history for the Period comparison widget, which totals spend across
+ * the last six pay periods from the transactions it is given. Dated back from
+ * today so the current period and five before it all carry spend, with a
+ * different total each time and a few categories.
+ */
+export function pinnedTransactions(): Transaction[] {
+  const cats = ["Groceries", "Eating out", "Transport", "Shopping", "Bills"];
+  const out: Transaction[] = [];
+  const now = new Date();
+  for (let i = 0; i < 190; i += 2) {
+    const d = new Date(now);
+    d.setDate(d.getDate() - i);
+    const wave = 0.7 + 0.5 * Math.abs(Math.sin(i / 23));
+    out.push({
+      id: `g221-pin-${i}`,
+      account_id: "g221-acc-0",
+      date: d.toISOString().slice(0, 10),
+      amount: Math.round((18 + ((i * 7) % 41)) * wave * 100) / 100,
+      currency: "GBP",
+      description: cats[(i / 2) % cats.length],
+      category: cats[(i / 2) % cats.length],
+      transaction_type: "debit",
+    } as Transaction);
+  }
+  return out;
 }

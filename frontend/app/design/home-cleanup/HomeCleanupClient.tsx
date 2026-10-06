@@ -14,7 +14,7 @@
 // header and card chrome is inline in HomePage so it is recreated here around
 // the real TransactionRow.
 
-import { useEffect, useLayoutEffect, type CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useMemo, type CSSProperties } from "react";
 import { useSearchParams } from "next/navigation";
 import { ArrowLeft, ChevronRight } from "lucide-react";
 import SafeToSpendCard from "@/components/SafeToSpendCard";
@@ -31,7 +31,7 @@ import { SPEND_FROM_RAIL } from "../sts-accounts-route/fixtures";
 import { REAL_MOVE_ITEM, REAL_CELEBRATION_ITEM } from "../g88-home-real/realFixtures";
 import { CLEARED_ADVICE } from "../g134-home-inventory/fixtures";
 import FixtureBottomNav from "../_components/FixtureBottomNav";
-import { CASES, TIP, RECENT_TRANSACTIONS, cashflowFixture, estateFor, type AccountsCase } from "./fixtures";
+import { CASES, TIP, RECENT_TRANSACTIONS, cashflowFixture, pinnedTransactions, estateFor, type AccountsCase } from "./fixtures";
 import { EstateRegion, type Variant } from "./EstateVariants";
 
 type Mode = "light" | "dark";
@@ -120,6 +120,7 @@ export default function HomeCleanupClient() {
   const estate = estateFor(cases);
   const fresh = cases === "fresh";
   const { colours } = useColours();
+  const pinnedTxns = useMemo(() => pinnedTransactions(), []);
   const [ps, pe] = getPayPeriodWithConfig(new Date(), DEFAULT_PAY_PERIOD_CONFIG);
 
   useEffect(() => {
@@ -151,7 +152,7 @@ export default function HomeCleanupClient() {
   const pinned = (
     <PinnedWidgetCard
       id={DEFAULT_HOME_PINNED_WIDGET}
-      transactions={RECENT_TRANSACTIONS}
+      transactions={pinnedTxns}
       periodStart={ps}
       periodEnd={pe}
       payPeriodConfig={DEFAULT_PAY_PERIOD_CONFIG}
