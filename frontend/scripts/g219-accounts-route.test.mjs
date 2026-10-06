@@ -34,6 +34,20 @@ const base = render({});
 assert.deepEqual(hrefs(base), [], "absent prop renders no link");
 assert.ok(!base.includes("data-g219"), "absent prop renders no G219 marker");
 assert.equal(render({ accountsRoute: undefined }), base);
+// The loader cannot cache-bust an import, so compare against a render from cloned props.
+assert.equal(render({ data: structuredClone(FIGURE_DATA["on-track"]), spendFrom: structuredClone(SPEND_FROM_RAIL) }), base, "absent-prop render is stable across cloned props");
+// Inertness in recovery states: the bare button keeps its own mt-3, no wrapper.
+for (const key of ["tight", "card", "short-cash", "short-plans"]) {
+  const html = render({ data: FIGURE_DATA[key] });
+  if (!html.includes('<button type="button" class="mt-3 inline-flex')) {
+    assert.equal(key, "tight", `${key}: recovery button renders bare with mt-3`);
+    continue;
+  }
+  assert.ok(!html.includes('class="mt-3 flex'), `${key}: no flex wrapper when the prop is absent`);
+}
+assert.ok(render({ data: FIGURE_DATA["short-cash"] }).includes('<button type="button" class="mt-3 inline-flex'), "short state has the bare mt-3 button");
+assert.ok(!render({ data: FIGURE_DATA["short-cash"], accountsRoute: rows }).includes('class="mt-3 flex'), "rows variant adds no footer wrapper");
+assert.ok(render({ data: FIGURE_DATA["short-cash"], accountsRoute: link }).includes('class="mt-3 flex'), "only B uses the wrapper");
 assert.ok(base.includes("Spend from"), "today's rail still renders");
 
 // 2. A: one link per Spend from row, account id in the href, both layouts.
@@ -63,15 +77,15 @@ assert.equal(count(render({ accountsRoute: link, syncing: { kind: "refresh", ban
 // 4. C: one link to /accounts with the count.
 const c = render({ accountsRoute: strip });
 assert.deepEqual(hrefs(c), ["/accounts"]);
-assert.ok(c.includes(">3 accounts<"), "count is shown");
-assert.equal(render({ accountsRoute: { ...strip, accounts: ALL_ACCOUNTS_METRO } }).includes(">3 accounts<"), true, "count does not depend on logos");
-assert.ok(render({ accountsRoute: { ...strip, accounts: ALL_ACCOUNTS.slice(0, 1) } }).includes(">1 account<"), "singular");
+assert.ok(c.includes(">3 linked accounts<"), "count is shown");
+assert.equal(render({ accountsRoute: { ...strip, accounts: ALL_ACCOUNTS_METRO } }).includes(">3 linked accounts<"), true, "count does not depend on logos");
+assert.ok(render({ accountsRoute: { ...strip, accounts: ALL_ACCOUNTS.slice(0, 1) } }).includes(">1 linked account<"), "singular");
 assert.deepEqual(hrefs(render({ accountsRoute: { ...strip, accounts: [] } })), [], "no accounts, no strip");
 
-// 5. Copy and tone: no em dash, no "!", no red or amber or gradient on the new controls.
-const NEW_COPY = ["Your accounts", "opens this account", "open your accounts", "accounts"];
-for (const text of NEW_COPY) assert.doesNotMatch(text, /—|!/);
+// 5. Copy and tone, on the rendered text: no em dash, no "!", no new colour meaning.
+const text = (html) => html.replace(/<[^>]+>/g, " ");
 for (const html of [a, aNamed, render({ accountsRoute: link }), c]) {
+  assert.doesNotMatch(text(html), /—|!/, "rendered copy has no em dash or exclamation mark");
   const bits = [...html.matchAll(/<a [^>]*data-g219[^>]*class="([^"]+)"/g)].map((m) => m[1]).concat([...html.matchAll(/<a [^>]*class="([^"]+)"[^>]*data-g219/g)].map((m) => m[1]));
   assert.ok(bits.length > 0, "found the G219 anchors");
   for (const cls of bits) assert.doesNotMatch(cls, /red-|amber-|violet-|gradient|bg-indigo-(?!50)/, `no new colour meaning: ${cls}`);

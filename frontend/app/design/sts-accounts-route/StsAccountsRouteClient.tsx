@@ -37,8 +37,8 @@ type Logos = "on" | "missing";
 const VARIANTS: { id: Variant; label: string; blurb: string }[] = [
   { id: "today", label: "Today", blurb: "The shipped hero, for comparison. No route to Accounts." },
   { id: "a", label: "A · Rows", blurb: "Each Spend from row opens that account. Chevron cue, 44px rows." },
-  { id: "b", label: "B · Link", blurb: "One quiet Your accounts link beside the primary action." },
-  { id: "c", label: "C · Strip", blurb: "Bank badges and an account count, one link to Accounts." },
+  { id: "b", label: "B · Link", blurb: "One quiet Your accounts link beside the primary action. It sits below the disclaimer line, and the fold-in would decide whether it moves above it." },
+  { id: "c", label: "C · Strip", blurb: "Bank badges and a linked-account count, one link to Accounts." },
 ];
 
 const noop = () => {};

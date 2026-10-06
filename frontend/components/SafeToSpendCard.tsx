@@ -574,7 +574,7 @@ function AccountsStrip({ route }: { route: Extract<AccountsRoute, { kind: "strip
     .filter((b): b is NonNullable<ReturnType<typeof localBank>> => b !== null)
     .filter((b) => (seen.has(b.label) ? false : (seen.add(b.label), true)))
     .slice(0, 3);
-  const label = `${count} ${count === 1 ? "account" : "accounts"}`;
+  const label = `${count} linked ${count === 1 ? "account" : "accounts"}`;
   return (
     <Link
       href={route.href}
@@ -938,11 +938,13 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
         <p data-sts-disclaimer className="text-[11px] leading-snug text-slate-500 dark:text-slate-400">An estimate from your bank data, not financial advice.</p>
       </div>
 
-      {(recovery || accountsRoute?.kind === "link") && (
+      {accountsRoute?.kind === "link" ? (
         <div className="mt-3 flex flex-wrap items-center gap-x-3">
           {recovery && <button type="button" onClick={() => router.push(recovery.href)} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-indigo-50 px-3 text-sm font-semibold text-indigo-700 transition-[transform,background-color] hover:bg-indigo-100 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:bg-indigo-400/10 dark:text-indigo-300 dark:hover:bg-indigo-400/15">{recovery.label}<ArrowRight size={15} aria-hidden="true" /></button>}
-          {accountsRoute?.kind === "link" && <AccountsLink href={accountsRoute.href} />}
+          <AccountsLink href={accountsRoute.href} />
         </div>
+      ) : (
+        recovery && <button type="button" onClick={() => router.push(recovery.href)} className="mt-3 inline-flex min-h-11 items-center gap-2 rounded-xl bg-indigo-50 px-3 text-sm font-semibold text-indigo-700 transition-[transform,background-color] hover:bg-indigo-100 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:bg-indigo-400/10 dark:text-indigo-300 dark:hover:bg-indigo-400/15">{recovery.label}<ArrowRight size={15} aria-hidden="true" /></button>
       )}
     </section>
   );
