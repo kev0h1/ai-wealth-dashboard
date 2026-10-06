@@ -41,7 +41,7 @@ class _Col:
     async def update_one(self, query, update, upsert=False):
         self.updates.append((query, update))
         for d in self.docs:
-            if d.get("_id") == query.get("_id"):
+            if all(d.get(k) == v for k, v in query.items()):
                 d.update(update.get("$set", {}))
                 for k in update.get("$unset", {}):
                     d.pop(k, None)
@@ -432,3 +432,41 @@ def test_first_sync_rows_are_new_bank_and_unchanged(monkeypatch):
     out = _state()
     assert out["state"] == "syncing" and out["first_sync"] is True
     assert out["connections"][0]["kind"] == "new-bank"
+
+
+def test_overlapping_runs_do_not_clear_each_others_stamp():
+    col = _Col([{"_id": "c1"}])
+
+    async def run():
+        async with sf.sync_in_progress(col, "c1"):          # worker run
+            async with sf.sync_in_progress(col, "c1"):      # webhook run starts later, owns the stamp
+                pass
+            # the inner run finished and cleared its own stamp; the outer run
+            # was overwritten, so nothing is left claiming an in-progress sync
+            assert "sync_in_progress_since" not in col.docs[0]
+
+    asyncio.run(run())
+
+
+def test_earlier_run_finishing_first_leaves_later_runs_stamp():
+    col = _Col([{"_id": "c1"}])
+
+    async def run():
+        outer = sf.sync_in_progress(col, "c1")
+        inner = sf.sync_in_progress(col, "c1")
+        await outer.__aenter__()
+        await inner.__aenter__()          # later start owns the stamp
+        await outer.__aexit__(None, None, None)   # earlier run ends first
+        assert col.docs[0].get("sync_in_progress_since") is not None, "later run still in flight"
+        await inner.__aexit__(None, None, None)
+        assert "sync_in_progress_since" not in col.docs[0]
+
+    asyncio.run(run())
+
+
+def test_background_row_carries_last_synced(monkeypatch):
+    _patch(monkeypatch, fin=[{
+        "_id": "c1", "last_synced": _naive_ago(hours=4),
+        "sync_in_progress_since": _naive_ago(minutes=1),
+    }])
+    assert _state()["connections"][0]["last_synced"]

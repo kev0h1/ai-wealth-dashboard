@@ -12,6 +12,7 @@ We do NOT use accounts_col.updated_at because:
      → it is not a reliable sync signal.
 """
 import logging
+import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -40,11 +41,18 @@ _log = logging.getLogger(__name__)
 async def sync_in_progress(col, doc_id):
     """Stamp `sync_in_progress_since` for the duration of a sync, clearing it
     on success or failure. Best-effort: a failed stamp never blocks the sync.
-    The next task start overwrites a leftover stamp."""
+    The next task start overwrites a leftover stamp. Each run also writes its
+    own `sync_in_progress_run` id and clears only a stamp carrying that id, so
+    two overlapping syncs of one connection (a webhook and the worker) do not
+    clear each other's stamp early; the later start owns the stamp."""
+    run = uuid.uuid4().hex
     try:
         await col.update_one(
             {"_id": doc_id},
-            {"$set": {"sync_in_progress_since": datetime.utcnow()}},  # naive-ok: matches last_synced convention
+            {"$set": {
+                "sync_in_progress_since": datetime.utcnow(),  # naive-ok: matches last_synced convention
+                "sync_in_progress_run": run,
+            }},
         )
     except Exception:
         _log.exception("could not stamp sync_in_progress_since for %s", doc_id)
@@ -52,7 +60,10 @@ async def sync_in_progress(col, doc_id):
         yield
     finally:
         try:
-            await col.update_one({"_id": doc_id}, {"$unset": {"sync_in_progress_since": ""}})
+            await col.update_one(
+                {"_id": doc_id, "sync_in_progress_run": run},
+                {"$unset": {"sync_in_progress_since": "", "sync_in_progress_run": ""}},
+            )
         except Exception:
             _log.exception("could not clear sync_in_progress_since for %s", doc_id)
 
@@ -131,6 +142,7 @@ async def first_sync_state(uid: str, now: Optional[datetime] = None) -> dict:
                     "started_at": since.isoformat(),
                     "error": None,
                     "kind": "background",
+                    "last_synced": as_utc(doc.get("last_synced")).isoformat() if as_utc(doc.get("last_synced")) else None,
                     "_sub": "stalled" if age > FIRST_SYNC_STALL_AFTER else "syncing",
                 })
                 continue
