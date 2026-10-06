@@ -1638,6 +1638,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
   - note (2026-10-06, claude): Pre-launch check before any paid spend: confirm TikTok and Meta financial-services advertiser rules for the UK (Sorted reaches bank data via Finexer as its agent), and whether a regulatory disclosure line is needed. Reviewer passed round 1 SHIP; claims softened (B 'by our estimate', no 'set aside' wording).
   - note (2026-10-06, claude): Coordinator review PASS 2026-10-06 on 728f4899: preview-only (frontend/app/design/ad-safe-to-spend plus the index), no production code; copy hedged as an estimate, no promise of moving money or savings, no em dashes. Design round, lands in uat for Kevin's pick; platform financial-services ad rules still to confirm before any paid spend.
   - note (2026-10-06, claude): Round 1b: preview now fits the phone screen by default (Kevin reported it opened zoomed in); export=1 keeps the exact 1080px artboard for PNG export, byte-identical to before. Reviewer SHIP.
+  - note (2026-10-06, claude): Coordinator review PASS 2026-10-06 on 46aa2c1d: one preview file, fit-to-viewport by default, export=1 keeps the exact artboard; no production code.
 
 ## H. Repo hygiene
 
