@@ -38,7 +38,7 @@ export function deriveSyncKind(o: { firstSync: boolean; hasUnsyncedConnection: b
 function connInfo(c: Conn, status: SyncStatus, asOf?: string | null): SyncingInfo {
   const phase = c.state ?? (c.error ? "failed" : status.state === "stalled" ? "stalled" : "syncing");
   // Trust the server's kind: a never-synced bank is "new-bank" whether or not
-  // it is also the user's first. 
+  // it is also the user's first.
   // An older server only ever listed never-synced connections, so no kind
   // means a new bank.
   const kind: SyncKind = c.kind === "background" ? "background" : "new-bank";
