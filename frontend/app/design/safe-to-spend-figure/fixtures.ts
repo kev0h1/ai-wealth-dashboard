@@ -39,7 +39,7 @@ export const FIGURE_DATA: Record<FigureState, Ok | null> = {
   "short-cash": { ...HERO_FIXTURES["bills-short"], last_synced: base.last_synced, safe_to_spend: -86, safe_to_spend_cash: -86, card_growth_reserved: 0, spendable_now: 240, bills_total: 326, income_before_payday: 0, buffer: 0, lowest_projected_balance: -86, commitments_reserved: 0, allocations_reserved: 0 },
   // Kevin's screenshot: cash £0.00, £50 of plans and £200 of envelopes make
   // a "£250 short". Cash after bills and buffer is not negative.
-  "short-plans": { ...HERO_FIXTURES["bills-short"], last_synced: base.last_synced, safe_to_spend: -250, safe_to_spend_cash: -250, card_growth_reserved: 0, spendable_now: 0, bills_total: 0, income_before_payday: 0, buffer: 0, lowest_projected_balance: 0, commitments_reserved: 50, commitments_count: 1, allocations_reserved: 200, allocations_count: 2 },
+  "short-plans": { ...HERO_FIXTURES["bills-short"], plans_only_short: true, last_synced: base.last_synced, safe_to_spend: -250, safe_to_spend_cash: -250, card_growth_reserved: 0, spendable_now: 0, bills_total: 0, income_before_payday: 0, buffer: 0, lowest_projected_balance: 0, commitments_reserved: 50, commitments_count: 1, allocations_reserved: 200, allocations_count: 2 },
   error: null,
   degraded: { ...base, calculation_status: "degraded", unavailable_components: ["allocations"] },
   syncing: { ...base, calculation_status: "syncing", sync_state: "syncing" },
