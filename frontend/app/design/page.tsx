@@ -32,6 +32,26 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "sts-accounts-route",
+    name: "Safe to Spend route to Accounts · G219 · variants A to C",
+    description:
+      "G219: a secondary route from the Safe to Spend hero to the accounts behind the figure, drafted with Astra and rewritten to DESIGN.md · A: every Spend from row opens that account (Accounts deep-link ?id=) with a quiet chevron and 44px rows · B: one quiet Your accounts link beside the primary action · C: stacked bank badges and an account count, one link to Accounts · all secondary to the one primary action, no new colour, no Penny gradient · complements Home's Your estate Manage link, G135 already resolved by A67 · renders the production SafeToSpendCard through props with fixture data · ?variant=today|a|b|c&state=on-track|tight|card|short-cash|short-plans|syncing&logos=on|missing&mode=light|dark",
+    states: [
+      { label: "On track", value: "on-track" },
+      { label: "Tight", value: "tight" },
+      { label: "Check card bill", value: "card" },
+      { label: "Short (cash)", value: "short-cash" },
+      { label: "Short (plans only)", value: "short-plans" },
+      { label: "Syncing", value: "syncing" },
+    ],
+    variants: [
+      { label: "A · Rows", value: "a" },
+      { label: "B · Link", value: "b" },
+      { label: "C · Strip", value: "c" },
+      { label: "Today", value: "today" },
+    ],
+  },
+  {
     slug: "allocation-shortfall",
     name: "Allocation shortfall card · G217 · approved A, folded in",
     description:
