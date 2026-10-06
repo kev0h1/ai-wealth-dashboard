@@ -33,7 +33,7 @@ import { getAccountsCached } from "@/lib/accountsCache";
 import { invalidateAllAccountData } from "@/lib/accountMutations";
 import { findLandedAccount, SYNC_POLL_TIMEOUT_MS } from "@/lib/syncLanding";
 import { AccountsSyncBanner } from "@/components/SyncNote";
-import { bankLabel } from "@/components/FirstSyncCard";
+import { bankLabel } from "@/lib/bankLabel";
 import { connectionSyncInfos, pendingConnectionInfos, pollDelayMs, shouldPollTick } from "@/lib/syncStatusView";
 import type { SyncStatus } from "@/lib/api";
 import { writeHomePinnedAccounts } from "@/lib/homePinnedAccounts";

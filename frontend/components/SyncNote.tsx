@@ -12,7 +12,7 @@
 // Props-driven so /design/sync-loading renders the production components.
 
 import { Hollow, Ring } from "@/components/ProgressLedger";
-import { bankLabel } from "@/components/FirstSyncCard";
+import { bankLabel } from "@/lib/bankLabel";
 
 export type SyncKind = "refresh" | "new-bank" | "background";
 export type SyncPhase = "syncing" | "stalled" | "failed";
