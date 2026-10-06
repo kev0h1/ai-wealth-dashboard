@@ -1,12 +1,11 @@
 "use client";
 
-// G214: bank-data loading state for every sync that is not a first sync.
-// Renders the PRODUCTION components/SafeToSpendCard and
-// components/AccountLedgerRow (plus components/SyncNote's page-level
-// indicator) with fixture props only. No requests, nothing syncs, Try again
-// does nothing. Drafted by openai/gpt-6-astra, rewritten to DESIGN.md under
-// the impeccable skill.
-// /design/sync-loading?variant=a|b|c&surface=hero|accounts&state=refresh|new-bank|background|stalled|failed&mode=light|dark&verdict=comfortable|bills-short
+// G214 (approved B, stale-marked figure, folded in): the bank-data loading
+// state for every sync, including the first sign-up. Renders the PRODUCTION
+// components/SafeToSpendCard, FirstSyncCard, AccountLedgerRow and
+// components/SyncNote's banner with fixture props only. No requests, nothing
+// syncs, Try again does nothing.
+// /design/sync-loading?surface=hero|accounts&state=refresh|new-bank|background|stalled|failed|first-sync&mode=light|dark&verdict=comfortable|bills-short
 
 import { useEffect, useLayoutEffect } from "react";
 import Link from "next/link";
@@ -14,27 +13,23 @@ import { useSearchParams } from "next/navigation";
 import type { Account } from "@wealth/shared";
 import SafeToSpendCard from "@/components/SafeToSpendCard";
 import AccountLedgerRow from "@/components/AccountLedgerRow";
-import { AccountsSyncBanner, type SyncTreatment, type SyncingInfo } from "@/components/SyncNote";
+import FirstSyncCard from "@/components/FirstSyncCard";
+import { AccountsSyncBanner, type SyncingInfo } from "@/components/SyncNote";
 import { usePreferences } from "@/components/PreferencesContext";
 import { bankToRow } from "@/lib/accountsEstate";
 import { HERO_FIXTURES } from "../safe-to-spend-hero/fixtures";
 import { LEDGER_ACCOUNTS } from "../g134-home-inventory/fixtures";
 
-type VariantId = "a" | "b" | "c";
 type SurfaceId = "hero" | "accounts";
-type StateId = "refresh" | "new-bank" | "background" | "stalled" | "failed";
+type StateId = "refresh" | "new-bank" | "background" | "stalled" | "failed" | "first-sync";
 
-const VARIANTS: { id: VariantId; treatment: SyncTreatment; label: string; note: string }[] = [
-  { id: "a", treatment: "line", label: "A · Quiet ledger line", note: "One line with the ring under the chip, the figure in neutral ink. Accounts: the same line on the syncing bank's rows and a thin page hairline." },
-  { id: "b", treatment: "stale", label: "B · Stale-marked figure", note: "The figure steps down to secondary ink with an \"as of\" caption and a ring in the chip. Accounts: a ring beside each balance." },
-  { id: "c", treatment: "drawer", label: "C · Ledger drawer", note: "The Full calculation ledger opens with one \"Fetching from\" row in the sign-in ledger grammar. Accounts: a collapsible sync ledger at the top." },
-];
 const STATES: { id: StateId; label: string; note: string }[] = [
   { id: "refresh", label: "Refresh", note: "Manual refresh: Barclays is being re-fetched." },
   { id: "new-bank", label: "New bank", note: "An established user added Monzo. Its balance is not in the figure yet, and the row says so rather than showing £0." },
   { id: "background", label: "Background", note: "A scheduled sync started on its own. Same words as refresh." },
   { id: "stalled", label: "Stalled", note: "Past 10 minutes with no result. The ring stops, the saved figure stays, Try again appears." },
   { id: "failed", label: "Failed", note: "The sync raised an error. Plain words in ink, saved figure stays, Try again appears. The raw error is never shown." },
+  { id: "first-sync", label: "First sign-up", note: "No hero card yet: the user has just connected Monzo and nothing has synced. The same chip and ring, a figure slot that says No figure yet, then the sign-in ledger. Accounts shows the banner and one Pending row." },
 ];
 const SURFACES: { id: SurfaceId; label: string }[] = [
   { id: "hero", label: "Home hero" },
@@ -45,20 +40,17 @@ const SURFACES: { id: SurfaceId; label: string }[] = [
 const AS_OF = "2026-10-05T09:41:00";
 
 function infoFor(state: StateId, bank: string): SyncingInfo {
-  const kind = state === "new-bank" ? "new-bank" : state === "background" ? "background" : "refresh";
+  const kind = state === "new-bank" || state === "first-sync" ? "new-bank" : state === "background" ? "background" : "refresh";
   return {
     kind,
     bank,
-    startedAt: Date.now() - 20_000,
     stalled: state === "stalled",
     failed: state === "failed",
     asOf: kind === "new-bank" ? null : AS_OF,
   };
 }
 
-const MONZO: Account[] = [
-  { id: "acc-monzo", name: "Monzo Current", type: "transaction", subtype: "current", balance: 120, currency: "GBP", provider: "Monzo", provider_id: "monzo", status: "connected" },
-];
+const MONZO: Account = { id: "acc-monzo", name: "Monzo", type: "transaction", subtype: "current", balance: 0, currency: "GBP", provider: "Monzo", provider_id: "monzo", status: "connected" };
 
 const noop = () => {};
 const pill =
@@ -67,7 +59,6 @@ const pillOff = "border border-slate-200 text-slate-700 dark:border-slate-600 da
 
 export default function SyncLoadingClient() {
   const params = useSearchParams();
-  const variant = VARIANTS.find((v) => v.id === params.get("variant")) ?? VARIANTS[0];
   const surface = SURFACES.find((s) => s.id === params.get("surface")) ?? SURFACES[0];
   const state = STATES.find((s) => s.id === params.get("state")) ?? STATES[0];
   const verdict = params.get("verdict") === "bills-short" ? "bills-short" : "comfortable";
@@ -106,19 +97,19 @@ export default function SyncLoadingClient() {
   }, [dark]);
 
   const href = (over: Record<string, string>) =>
-    `?${new URLSearchParams({ variant: variant.id, surface: surface.id, state: state.id, mode: dark ? "dark" : "light", verdict, ...over }).toString()}`;
+    `?${new URLSearchParams({ surface: surface.id, state: state.id, mode: dark ? "dark" : "light", verdict, ...over }).toString()}`;
 
-  const bank = state.id === "new-bank" ? "Monzo" : "Barclays";
+  const firstSync = state.id === "first-sync";
+  const bank = state.id === "new-bank" || firstSync ? "Monzo" : "Barclays";
   const info = infoFor(state.id, bank);
-  const barclaysSync = state.id === "new-bank" ? undefined : { info, treatment: variant.treatment };
-  const monzoSync = state.id === "new-bank" ? { info, treatment: variant.treatment } : undefined;
-  const rows = LEDGER_ACCOUNTS.filter((a) => a.status === "connected");
+  const barclaysSync = state.id === "new-bank" || firstSync ? undefined : info;
+  const monzoSync = state.id === "new-bank" || firstSync ? info : undefined;
+  const rows = firstSync ? [] : LEDGER_ACCOUNTS.filter((a) => a.status === "connected");
 
   return (
     <main className="mx-auto min-h-screen max-w-md bg-slate-50 px-4 py-6 dark:bg-slate-900">
       <nav aria-label="Preview controls" className="mb-3 space-y-2">
         {[
-          { label: "Variant", items: VARIANTS.map((v) => ({ id: v.id, text: v.id.toUpperCase(), to: { variant: v.id }, on: v.id === variant.id })) },
           { label: "Surface", items: SURFACES.map((s) => ({ id: s.id, text: s.label, to: { surface: s.id }, on: s.id === surface.id })) },
           { label: "State", items: STATES.map((s) => ({ id: s.id, text: s.label, to: { state: s.id }, on: s.id === state.id })) },
         ].map((group) => (
@@ -141,25 +132,26 @@ export default function SyncLoadingClient() {
           ) : null}
         </div>
       </nav>
-      <p className="text-xs font-semibold text-slate-900 dark:text-slate-100">{variant.label}</p>
-      <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">{variant.note}</p>
+      <p className="text-xs font-semibold text-slate-900 dark:text-slate-100">B · Stale-marked figure (approved)</p>
       <p className="mb-4 mt-1 text-xs text-slate-600 dark:text-slate-300">{state.note}</p>
 
-      {surface.id === "hero" ? (
+      {surface.id === "hero" && firstSync ? (
+        <FirstSyncCard state="syncing" connections={[{ provider: "finexer", bank: "ob-monzo" }]} onRetry={noop} onConnect={noop} />
+      ) : surface.id === "hero" ? (
         <SafeToSpendCard
           data={HERO_FIXTURES[verdict]}
           loading={false}
           error={false}
           onRetry={noop}
+          onSyncRetry={noop}
           syncing={info}
-          syncTreatment={variant.treatment}
         />
       ) : (
         <div className="space-y-3">
           <p className="px-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">Accounts</p>
-          <AccountsSyncBanner treatment={variant.treatment} connections={[info]} onRetry={noop} />
+          <AccountsSyncBanner connections={[info]} onRetry={noop} />
           <div className="glass-card overflow-hidden rounded-2xl">
-            {[...rows, ...(state.id === "new-bank" ? MONZO : [])].map((acc, i) => {
+            {[...rows, ...(state.id === "new-bank" || firstSync ? [MONZO] : [])].map((acc, i) => {
               const syncing = acc.provider === "Barclays" ? barclaysSync : acc.provider === "Monzo" ? monzoSync : undefined;
               return (
                 <div key={acc.id} className={i > 0 ? "border-t border-slate-100 dark:border-white/5" : ""}>
