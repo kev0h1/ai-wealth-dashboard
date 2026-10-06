@@ -426,18 +426,12 @@ const ROUTES: PreviewRoute[] = [
     slug: "home-cleanup",
     name: "home-cleanup",
     description:
-      "G221 Home clean-up after G219 · one spacing rhythm for the whole Home stack (12 between cards in a group, 20 between sections, 8 under a section label; pinned cards join Your money) shown against a Today chip that reproduces the current 8/12/24/32 mix · and the estate block settled three ways: A remove it (the hero's Your accounts link is the one route, Recent transactions moves up), B slim to pinned accounts only (max 4 rows, no Manage, no more-accounts row), C keep it with one footer row All N accounts · every case has its route named in the intro: 1, 4 and 20 accounts, and a fresh user (the connect card's Other ways link) · renders the production SafeToSpendCard, HomeBrief cards, tip and Coming up cards, FirstAccountCard, HomeEstateSection, AccountLedgerRow and TransactionRow through props · account names are tidied from upper case in the variants (Today shows them raw) · synthetic accounts, no live data · ?variant=today|a|b|c&accounts=1|4|20|fresh&mode=light|dark",
+      "G221 Home clean-up, approved C and folded in (Kevin 2026-10-06) · the shipped look: one rhythm down the Home stack (12 between cards in a group, 20 between sections, 8 under a section label; pinned cards inside Your money) and the Your estate block with its rows and one footer row, All N accounts (See your account for one), in place of the Manage link and the +N more row · renders the production SafeToSpendCard, HomeBrief cards, tip and Coming up cards, FirstAccountCard, HomeEstateSection and TransactionRow through props · account names use the brand-aware tidy name · synthetic accounts, no live data · ?accounts=1|4|20|fresh&mode=light|dark",
     states: [
       { label: "1 account", value: "1" },
       { label: "4 accounts", value: "4" },
       { label: "20 accounts", value: "20" },
       { label: "Fresh user", value: "fresh" },
-    ],
-    variants: [
-      { label: "Today", value: "today" },
-      { label: "A · Hero link only", value: "a" },
-      { label: "B · Pinned accounts", value: "b" },
-      { label: "C · One footer row", value: "c" },
     ],
   },
   {

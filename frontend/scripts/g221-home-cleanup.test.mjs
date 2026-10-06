@@ -1,12 +1,13 @@
-// G221 Home clean-up. Pins three things:
-//  1. HomePage's estate block was extracted UNCHANGED into
-//     components/HomeEstateSection: its markup equals the pre-extraction inline
-//     JSX (BASELINE below, copied once from origin/main) for 4 and 20 accounts.
-//  2. Each preview variant leaves the stated number of routes to the full
-//     accounts list (A and B one, the hero link; C two, hero plus footer, said
-//     plainly), and a fresh user's estate region is empty because the connect
-//     card owns the route.
-//  3. No em dash or exclamation mark in rendered text.
+// G221 Home clean-up, approved C and folded in. Pins the shipped behaviour:
+//  1. HomeEstateSection renders exactly one /accounts route (the footer row)
+//     for 1, 4 and 20 accounts, with the right label, no Manage button and no
+//     "+N more" row; skeleton while loading; the empty state when zero.
+//  2. HomePage.tsx's Home stack uses the one rhythm (mt-5 between sections,
+//     mb-2 under labels, pt-5 at the top) with no mt-8 or mb-3 left, pinned
+//     cards inside Your money, and HomeBrief's card stack is space-y-3.
+//  3. lib/accountName.ts keeps brands and acronyms and tidies shouting names.
+//  4. No em dash or exclamation mark in rendered text; the preview mirrors the
+//     production rhythm classes.
 //
 // Run: npm run -s check:g221-home-cleanup
 
@@ -14,178 +15,146 @@ import assert from "node:assert/strict";
 import React from "react";
 import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime.js";
 import { renderToStaticMarkup } from "react-dom/server";
-import { ChevronRight } from "lucide-react";
+import { readFileSync } from "node:fs";
 import HomeEstateSection from "../components/HomeEstateSection.tsx";
 import FirstAccountCard from "../components/FirstAccountCard.tsx";
-import AccountLedgerRow from "../components/AccountLedgerRow.tsx";
 import SafeToSpendCard from "../components/SafeToSpendCard.tsx";
-import { bankToRow, investmentToRow } from "../lib/accountsEstate.ts";
+import { tidyAccountName } from "../lib/accountName.ts";
 import { FIGURE_DATA } from "../app/design/safe-to-spend-figure/fixtures.ts";
 import { SPEND_FROM_RAIL } from "../app/design/sts-accounts-route/fixtures.ts";
 import { estateFor, topPicks } from "../app/design/home-cleanup/fixtures.ts";
-import { EstateRegion } from "../app/design/home-cleanup/EstateVariants.tsx";
-import { tidyAccountName } from "../app/design/home-cleanup/accountName.ts";
-import { readFileSync } from "node:fs";
 
 const h = React.createElement;
 const noop = () => {};
 const router = { back: noop, forward: noop, refresh: noop, push: noop, replace: noop, prefetch: noop };
 const count = (html, needle) => html.split(needle).length - 1;
 const text = (html) => html.replace(/<[^>]+>/g, " ");
+const read = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8");
 
-// ── BASELINE: the inline JSX that lived in HomePage.tsx before G221, copied
-// ONCE from origin/main's inline JSX (HomePage.tsx lines 1235-1298) and transcribed to createElement.
-// Do not edit to follow the component: if the component's markup changes, this
-// failing is the point.
-function baselineEstate({ loading, accounts, topPickAccounts, topPickInvestment, investmentAccounts, hiddenAccountCount, pinnedIds, emptyState }) {
-  const hair = "border-t border-slate-100 dark:border-white/5";
-  return h("div", { className: "rise-in px-4 lg:px-0 mt-8", style: { "--rise-index": 3 } },
-    h("div", { className: "flex items-center justify-between mb-3" },
-      h("p", { className: "text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500" }, "Your estate"),
-      h("div", { className: "flex items-center gap-2" },
-        h("button", {
-          "data-tutorial-id": "tutorial-manage-link",
-          onClick: noop,
-          className: "min-h-[44px] text-xs font-semibold text-indigo-500 dark:text-indigo-400 flex items-center gap-1 hover:opacity-80 active:opacity-70 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded",
-        }, "Manage ", h(ChevronRight, { size: 13, "aria-hidden": "true" })))),
-    loading
-      ? h("div", { className: "glass-card rounded-2xl overflow-hidden divide-y divide-slate-100 dark:divide-white/5" },
-          [1, 2, 3].map((i) =>
-            h("div", { key: i, className: "h-[60px] px-4 py-2.5 flex items-center gap-3" },
-              h("div", { className: "w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-700 animate-pulse flex-shrink-0" }),
-              h("div", { className: "flex-1 space-y-1.5" },
-                h("div", { className: "h-3.5 w-28 bg-slate-100 dark:bg-slate-700 rounded animate-pulse" }),
-                h("div", { className: "h-2.5 w-20 bg-slate-100 dark:bg-slate-700 rounded animate-pulse" })),
-              h("div", { className: "h-3.5 w-14 bg-slate-100 dark:bg-slate-700 rounded animate-pulse" }))))
-      : accounts.length === 0 ? emptyState :
-      h("div", { className: "glass-card rounded-2xl overflow-hidden" },
-        topPickAccounts.map((acc, i) =>
-          h("div", { key: acc.id, className: i > 0 ? hair : "" },
-            h(AccountLedgerRow, { row: bankToRow(acc, pinnedIds), onClick: noop }))),
-        topPickInvestment && h("div", { key: topPickInvestment.id, className: topPickAccounts.length > 0 ? hair : "" },
-          h(AccountLedgerRow, { row: investmentToRow(topPickInvestment, pinnedIds), onClick: noop })),
-        hiddenAccountCount > 0 && h("button", {
-          onClick: noop,
-          className: `w-full min-h-[52px] flex items-center justify-center gap-1 px-4 py-2.5 text-sm font-medium text-slate-400 dark:text-slate-500 active:bg-slate-50 dark:active:bg-white/5 transition-colors ${
-            topPickAccounts.length + Math.min(investmentAccounts.length, 1) > 0 ? hair : ""
-          }`,
-        }, "+", hiddenAccountCount, " more accounts ", h(ChevronRight, { size: 13, "aria-hidden": "true" }))));
-}
-
-// 1. Extraction is markup-identical for 4 and 20 accounts (and 1).
-for (const c of ["1", "4", "20"]) {
+const estate = (c, extra = {}) => {
   const e = estateFor(c);
-  const { top, hidden } = topPicks(e.accounts, e.pinnedIds, e.investment);
-  const investmentAccounts = e.investment ? [e.investment] : [];
-  const baseline = renderToStaticMarkup(baselineEstate({
-    loading: false, accounts: e.accounts, topPickAccounts: top, topPickInvestment: e.investment,
-    investmentAccounts, hiddenAccountCount: hidden, pinnedIds: e.pinnedIds,
+  const { top } = topPicks(e.accounts, e.pinnedIds, e.investment);
+  return renderToStaticMarkup(h(HomeEstateSection, {
+    className: "mt-5", loading: false, accountCount: e.accounts.length, topPickAccounts: top,
+    topPickInvestment: e.investment, totalAccountCount: e.total, pinnedIds: e.pinnedIds,
+    onOpenAccount: noop, onOpenInvestments: noop, onViewAll: noop, emptyState: null, ...extra,
   }));
-  const actual = renderToStaticMarkup(h(HomeEstateSection, {
-    className: "rise-in px-4 lg:px-0 mt-8", style: { "--rise-index": 3 },
-    loading: false, accountCount: e.accounts.length, topPickAccounts: top, topPickInvestment: e.investment,
-    investmentCount: investmentAccounts.length, hiddenAccountCount: hidden, pinnedIds: e.pinnedIds,
-    onManage: noop, onOpenAccount: noop, onOpenInvestments: noop, onViewAll: noop, emptyState: null,
-  }));
-  assert.equal(actual, baseline, `${c} accounts: HomeEstateSection markup equals the pre-extraction inline JSX`);
-}
+};
 
-// Loading skeleton, the zero-accounts empty-state branch, and the border logic
-// with no bank rows but one investment row.
+// 1. One footer route, right label, nothing else routing to /accounts.
+const LABEL = { 1: "See your account", 4: "All 4 accounts", 20: "All 20 accounts" };
+for (const c of ["1", "4", "20"]) {
+  const html = estate(c);
+  assert.equal(count(html, "data-accounts-route"), 1, `${c}: exactly one accounts route`);
+  assert.equal(count(html, "tutorial-manage-link"), 1, `${c}: the tutorial target sits on the footer`);
+  assert.ok(text(html).includes(LABEL[c]), `${c}: footer reads "${LABEL[c]}"`);
+  assert.ok(!html.includes("Manage"), `${c}: no Manage`);
+  assert.ok(!/more accounts/.test(html), `${c}: no +N more row`);
+  assert.equal(count(html, "<button"), 1, `${c}: the footer is the only button in the block`);
+  assert.ok(html.includes("border-t border-slate-100"), `${c}: footer has a top border when rows precede it`);
+  assert.ok(html.includes("min-h-11"), `${c}: footer is a 44px target`);
+  assert.ok(!/text-indigo/.test(html.slice(html.indexOf("data-accounts-route"))), `${c}: footer ink is slate, not indigo`);
+  const t = text(html);
+  assert.ok(!/—/.test(t) && !t.includes("!"), `${c}: no em dash or exclamation mark`);
+}
 {
-  const e4 = estateFor("4");
-  const placeholder = h("p", null, "empty state placeholder");
-  const common = { className: "rise-in px-4 lg:px-0 mt-8", style: { "--rise-index": 3 } };
-  const cases = [
-    { name: "loading", loading: true, accounts: e4.accounts, top: [], inv: undefined, hidden: 0, pins: [] },
-    { name: "zero accounts", loading: false, accounts: [], top: [], inv: undefined, hidden: 0, pins: [] },
-    { name: "investment only", loading: false, accounts: e4.accounts, top: [], inv: e4.investment, hidden: 3, pins: e4.pinnedIds },
-  ];
-  for (const c of cases) {
-    const investmentAccounts = c.inv ? [c.inv] : [];
-    const baseline = renderToStaticMarkup(baselineEstate({
-      loading: c.loading, accounts: c.accounts, topPickAccounts: c.top, topPickInvestment: c.inv,
-      investmentAccounts, hiddenAccountCount: c.hidden, pinnedIds: c.pins, emptyState: placeholder,
-    }));
-    const actual = renderToStaticMarkup(h(HomeEstateSection, {
-      ...common, loading: c.loading, accountCount: c.accounts.length, topPickAccounts: c.top, topPickInvestment: c.inv,
-      investmentCount: investmentAccounts.length, hiddenAccountCount: c.hidden, pinnedIds: c.pins,
-      onManage: noop, onOpenAccount: noop, onOpenInvestments: noop, onViewAll: noop, emptyState: placeholder,
-    }));
-    assert.equal(actual, baseline, `${c.name}: HomeEstateSection markup equals the pre-extraction inline JSX`);
-  }
-  assert.ok(renderToStaticMarkup(baselineEstate({ loading: false, accounts: [], topPickAccounts: [], investmentAccounts: [], hiddenAccountCount: 0, pinnedIds: [], emptyState: placeholder })).includes("empty state placeholder"));
+  // No rows: footer has no top border. (Investment-only, nothing picked.)
+  const e = estateFor("4");
+  const html = renderToStaticMarkup(h(HomeEstateSection, {
+    loading: false, accountCount: 1, topPickAccounts: [], topPickInvestment: undefined, totalAccountCount: 3, pinnedIds: [],
+    onOpenAccount: noop, onOpenInvestments: noop, onViewAll: noop, emptyState: null,
+  }));
+  assert.ok(!html.slice(html.indexOf("data-accounts-route")).includes("border-t"), "no border-top without rows");
+  void e;
 }
+// Loading skeleton and empty state.
+{
+  const loading = estate("4", { loading: true });
+  assert.ok(loading.includes("animate-pulse") && !loading.includes("data-accounts-route"), "loading: skeleton, no footer");
+  const empty = renderToStaticMarkup(h(HomeEstateSection, {
+    loading: false, accountCount: 0, topPickAccounts: [], totalAccountCount: 0, pinnedIds: [],
+    onOpenAccount: noop, onOpenInvestments: noop, onViewAll: noop, emptyState: h("p", null, "empty state placeholder"),
+  }));
+  assert.ok(empty.includes("empty state placeholder") && !empty.includes("data-accounts-route"), "zero accounts: the empty state, no footer");
+}
+// Names are tidied on Home rows.
+assert.ok(estate("20").includes("Premier current"), "Home rows show the tidy name");
 
-// HomePage still renders the estate through the component, and FirstAccountCard too.
-const homeSrc = readFileSync(new URL("../app/components/HomePage.tsx", import.meta.url), "utf8");
-assert.match(homeSrc, /<HomeEstateSection\b/, "HomePage renders HomeEstateSection");
-assert.match(homeSrc, /import HomeEstateSection from "@\/components\/HomeEstateSection"/);
-assert.match(homeSrc, /import FirstAccountCard from "@\/components\/FirstAccountCard"/);
-assert.ok(!homeSrc.includes("+{hiddenAccountCount} more accounts"), "the inline estate markup is gone from HomePage");
-
-// 2. Routes to the full accounts list per variant and case.
+// Hero keeps its one route; the fresh user's route stays on the connect card.
 const hero = renderToStaticMarkup(
   h(AppRouterContext.Provider, { value: router },
     h(SafeToSpendCard, { loading: false, onRetry: noop, previewBalancesVisible: true, data: FIGURE_DATA["on-track"], spendFrom: SPEND_FROM_RAIL })));
-const heroRoutes = count(hero, 'href="/accounts"');
-assert.equal(heroRoutes, 1, "the hero carries exactly one Your accounts route");
-
-const estateRoutes = (variant, c) => {
-  const html = renderToStaticMarkup(h(EstateRegion, { variant, estate: estateFor(c), labelGap: "mb-2" }));
-  // Today is the production component: its routes are the Manage button and the +N more row.
-  const today = variant === "today" ? count(html, "tutorial-manage-link") + count(html, "more accounts") : 0;
-  return { html, routes: count(html, "data-accounts-route") + today };
-};
-const EXPECT = {
-  today: { 1: 1, 4: 1, 20: 2 }, // Manage always, plus +N more once accounts overflow
-  a: { 1: 0, 4: 0, 20: 0 },
-  b: { 1: 0, 4: 0, 20: 0 },
-  c: { 1: 1, 4: 1, 20: 1 },
-};
-for (const [variant, byCase] of Object.entries(EXPECT)) {
-  for (const [c, n] of Object.entries(byCase)) {
-    const { routes } = estateRoutes(variant, c);
-    assert.equal(routes, n, `${variant}/${c}: estate region routes`);
-  }
-}
-// Whole-page totals the intro promises: A and B one door, C two, today two or three.
-for (const c of ["1", "4", "20"]) {
-  assert.equal(heroRoutes + estateRoutes("a", c).routes, 1, `a/${c}: one route in total`);
-  assert.equal(heroRoutes + estateRoutes("b", c).routes, 1, `b/${c}: one route in total`);
-  assert.equal(heroRoutes + estateRoutes("c", c).routes, 2, `c/${c}: two routes in total (hero plus footer)`);
-}
-// B shows rows only for pinned accounts and never more than four.
-for (const c of ["1", "4", "20"]) {
-  const html = estateRoutes("b", c).html;
-  assert.ok(!html.includes("Manage") && !html.includes("more accounts") && !html.includes("All "), `b/${c}: no Manage, more row or footer`);
-}
-// C's footer copy.
-assert.ok(estateRoutes("c", "20").html.includes("All 20 accounts"));
-assert.ok(estateRoutes("c", "4").html.includes("All 4 accounts"));
-assert.ok(estateRoutes("c", "1").html.includes("See your account"));
-
-// Fresh user: every variant's estate region is empty, the connect card owns the route.
-for (const v of ["today", "a", "b", "c"]) {
-  assert.equal(renderToStaticMarkup(h(EstateRegion, { variant: v, estate: estateFor("fresh"), labelGap: "mb-2" })), "", `${v}/fresh: no estate region`);
-}
+assert.equal(count(hero, 'href="/accounts"'), 1, "the hero carries exactly one Your accounts route");
 const fresh = renderToStaticMarkup(h(FirstAccountCard, { canConnect: true, onConnect: noop, onUploadStatement: noop, onOtherWays: noop }));
 assert.equal(count(fresh, "Other ways to add accounts"), 1, "fresh: the connect card carries the one route");
 
-// Account names: shouting names are tidied, mixed case and acronyms are kept.
-assert.equal(tidyAccountName("PREMIER CURRENT"), "Premier current");
-assert.equal(tidyAccountName("HSBC ADVANCE"), "HSBC advance");
-assert.equal(tidyAccountName("Joint Current"), "Joint Current");
-assert.equal(tidyAccountName("ISA 2025"), "ISA 2025");
-
-// 3. Copy: no em dash, no exclamation mark in anything the variants render.
-for (const v of ["a", "b", "c"]) {
-  for (const c of ["1", "4", "20"]) {
-    const t = text(estateRoutes(v, c).html);
-    assert.ok(!/—/.test(t) && !t.includes("!"), `${v}/${c}: no em dash or exclamation mark`);
-  }
+// 2. HomePage rhythm, grep-based and scoped to the stack.
+const home = read("../app/components/HomePage.tsx");
+assert.match(home, /<HomeEstateSection\b/);
+assert.ok(!home.includes("onManage"), "HomePage passes no onManage");
+assert.match(home, /totalAccountCount=\{accounts\.length \+ investmentAccounts\.length\}/);
+const skeletonStart = home.indexOf("function HomeSkeleton");
+const stackEnd = home.indexOf("tutorial-recent-transactions");
+assert.ok(skeletonStart > 0 && stackEnd > skeletonStart, "stack region located");
+// Strip the load-error card (its inner paragraph margin is card content, not stack rhythm).
+const region = home.slice(skeletonStart, stackEnd).replace(/\{\/\* Load error fallback \*\/\}[\s\S]*?\{\/\* ── WHERE YOU STAND/, "");
+assert.ok(!/\bmt-8\b/.test(region), "no mt-8 in the Home stack");
+assert.ok(!/\bmb-3\b/.test(region), "no mb-3 in the Home stack");
+assert.ok(!/\bmt-6\b/.test(region) && !/\bmt-4\b/.test(region), "no mt-6 or mt-4 section boundary");
+assert.ok(count(region, "pt-5") >= 2, "the top padding is pt-5");
+assert.ok(count(region, "mt-5") >= 9, "section boundaries use mt-5");
+assert.ok(count(region, "mb-2") >= 4, "labels use mb-2");
+assert.match(home, /pb-5 lg:px-0 mt-5 lg:mt-0" data-tutorial-id="tutorial-recent-transactions"/, "Recent transactions keeps lg:mt-0");
+for (const id of ["tutorial-safe-to-spend", "tutorial-recent-transactions", "tutorial-home-fresh", "tutorial-home-fresh-cta"]) {
+  assert.ok(home.includes(id), `${id} kept`);
 }
-const previewSrc = ["HomeCleanupClient.tsx", "EstateVariants.tsx"].map((f) => readFileSync(new URL(`../app/design/home-cleanup/${f}`, import.meta.url), "utf8")).join("\n");
+// Pinned cards live inside the Your money group, not a block of their own.
+const moneyAt = home.indexOf("── YOUR MONEY ──");
+const estateAt = home.indexOf("<HomeEstateSection");
+const pinnedAt = home.indexOf("{pinnedCards.includes(\"fuel\") && <FuelSavingsCard />}");
+assert.ok(moneyAt < pinnedAt && pinnedAt < estateAt, "pinned cards sit inside Your money, before the estate");
+assert.ok(home.slice(moneyAt, pinnedAt).includes("<OfferCard />"), "pinned cards follow the Your money cards in the same group");
+// The pinned-cards block is not gated by loadError (it rendered on a load error before G221).
+assert.match(home, /const showPinnedCards =\n\s+!hasNoAccounts && !loading &&/, "showPinnedCards ignores loadError");
+assert.ok(!/showPinnedCards =[^;]*loadError/.test(home), "showPinnedCards has no loadError term");
+assert.match(home, /\{!hasNoAccounts && \(!loadError \|\| showPinnedCards\) && \(/, "the Your money wrapper renders for pinned cards on a load error");
+assert.match(home, /\{showPinnedCards && \(\n\s+<div className="space-y-3 px-4 lg:px-0">/, "pinned cards block gated by showPinnedCards only");
+// HomeBrief's card stack.
+const brief = read("../components/HomeBrief.tsx");
+assert.match(brief, /<div className="space-y-3">\n\s+\{celebrationItems\.map/, "HomeBrief card stack is space-y-3");
+assert.match(brief, /\{\/\* Brief body \*\/\}\n\s+<div className="space-y-3">/, "HomeBrief body is space-y-3");
+
+// The tutorial still has a target and no longer says Manage.
+const tut = read("../components/TutorialContext.tsx");
+assert.ok(tut.includes('target: "tutorial-manage-link"') && !/Manage opens/.test(tut), "tutorial step points at the footer and does not say Manage");
+
+// 3. Account names: shouting names are tidied, brands and acronyms are kept.
+const cases = [
+  ["PREMIER CURRENT", "Premier current"],
+  ["NATWEST ISA", "NatWest ISA"],
+  ["NATWEST EVERYDAY", "NatWest everyday"],
+  ["HSBC ADVANCE", "HSBC advance"],
+  ["TSB CLUB LISA", "TSB club LISA"],
+  ["RBS SELECT", "RBS select"],
+  ["AMEX PLATINUM", "Amex platinum"],
+  ["STOCKS AND SHARES JISA", "Stocks and shares JISA"],
+  ["WORKPLACE SIPP", "Workplace SIPP"],
+  ["WORLD ETF", "World ETF"],
+  ["FTSE TRACKER", "FTSE tracker"],
+  ["GIA", "GIA"],
+  ["PAYE REFUND POT", "PAYE refund pot"],
+  ["SAVE & SPEND", "Save & spend"],
+  ["NS&I PREMIUM BONDS", "NS&I premium bonds"],
+  ["ISA 2025", "ISA 2025"],
+  ["Joint Current", "Joint Current"],
+  ["Monzo Bills", "Monzo Bills"],
+];
+for (const [i, o] of cases) assert.equal(tidyAccountName(i), o, `tidyAccountName(${i})`);
+
+// 4. The preview mirrors production and has no em dash.
+const previewSrc = ["HomeCleanupClient.tsx", "fixtures.ts"].map((f) => read(`../app/design/home-cleanup/${f}`)).join("\n");
 assert.ok(!/—/.test(previewSrc), "no em dash in the preview source");
+assert.ok(!previewSrc.includes("EstateRegion"), "the preview renders only the production estate section");
+assert.match(previewSrc, /top: "pt-5", brief: "space-y-3", section: "mt-5", label: "mb-2", group: "space-y-3", tail: "pb-5"/, "preview rhythm constants mirror production");
 
 console.log("g221-home-cleanup: ok");
