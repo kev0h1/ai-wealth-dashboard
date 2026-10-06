@@ -4498,6 +4498,118 @@ async def compute_today_items(
                 {"$set": {"overflow_note": overflow_note}},
             )
 
+    # ── 6b. ALLOCATION SHORTFALL (G217) ─────────────────────────────────────
+    # An account whose payments clear but which goes short once this period's
+    # set-asides are applied. Distinct from every bill shortfall above: it is
+    # computed AFTER them, from the same end-of-window walk (`running`), never
+    # feeds `events`/`min_running`/`shortfalls`, and consumes `source_capacity`
+    # only here, after every bill card, payday plan and unfunded move has
+    # already been sized, so bill outputs are unchanged. Sources come from the
+    # SAME finder as the bill cards (`_find_legs_for_destination`: its order,
+    # its £10 buffer, its exclusions), never a second ranking. Ranks below all
+    # payment cards (see the merge in section 9).
+    allocation_items: list[dict] = []
+    if not payday_preview:
+        try:
+            _ap_plans = await _load_account_plans(uid)
+            if _ap_plans:
+                from app.services.allocation_shortfall import compute_allocation_gaps, suggested_reduced_amount
+                _ap_closing = {
+                    sid: float(running.get(sid, live_balances.get(sid, float(acc.get("balance") or 0))))
+                    for acc in all_uk_accounts + offline_accounts
+                    for sid in [acc["_str_id"]]
+                }
+                _ap_movement: dict[str, list] = {}
+                for _b in assessable_bills:
+                    if _b.get("kind") == MOVEMENT and not _b.get("is_credit_card") and not _b.get("pending"):
+                        _ap_movement.setdefault(str(_b.get("account_id") or ""), []).append(
+                            _b.get("dest_account_id") or None
+                        )
+                _ap_accts = {a["_str_id"]: a for a in all_uk_accounts + offline_accounts}
+                for _g in compute_allocation_gaps(_ap_plans, _ap_closing, movement_out=_ap_movement):
+                    _pay_id = _g["account_id"]
+                    _pay_acc = _ap_accts.get(_pay_id)
+                    if _pay_acc is None:
+                        continue
+                    _item_id = f"allocation_shortfall:{_pay_id}:{window_end.isoformat()}"
+                    if _item_id in dismissed:
+                        continue
+                    _pay_name = _clean_name(_pay_acc.get("name"), _pay_id)
+                    _gap = _g["gap"]
+                    _alloc = _g["allocations"][0]
+                    _multi = len(_g["allocations"]) > 1
+
+                    def _build_alloc_move_map(src_id, src_name, src_provider, src_balance, src_own_bills, leg_amount, src_reserved=0.0, _n=_alloc["name"], _pn=_pay_name, _pid=_pay_id, _pa=_pay_acc):
+                        return {
+                            "from": {
+                                "account_id": src_id, "name": src_name, "provider": src_provider,
+                                "balance": float(src_balance),
+                                "safe_note": (
+                                    f"Covers its own £{int(round(src_own_bills)):,} of bills with room to spare"
+                                    if src_own_bills > 0 else "Nothing due from this account right now"
+                                ),
+                                "reserved_for_allocations": round(src_reserved, 2),
+                            },
+                            "to": {
+                                "account_id": _pid, "name": _pn, "provider": _provider_of(_pa),
+                                "balance": float(live_balances.get(_pid, float(_pa.get("balance") or 0))),
+                                "incoming": f"{_n} set-aside",
+                            },
+                        }
+
+                    _cap_snapshot = dict(source_capacity)
+                    _legs = _find_legs_for_destination(_pay_id, float(_ceil5(_gap)), _build_alloc_move_map)
+                    if _legs and sum(float(l["amount"]) for l in _legs) + 1e-6 < _gap:
+                        # Partial cover is not a remedy to offer: hand the
+                        # capacity back and show Reduce alone.
+                        source_capacity.clear()
+                        source_capacity.update(_cap_snapshot)
+                        _legs = []
+                    _src_names = [humanise_account_name(l["_src_name"]) for l in _legs]
+                    if not _src_names:
+                        _action = None
+                    else:
+                        _who = (
+                            _src_names[0] if len(_src_names) == 1
+                            else f"{_src_names[0]} and {_src_names[1]}" if len(_src_names) == 2
+                            else f"{len(_src_names)} accounts"
+                        )
+                        _action = {"label": f"Move from {_who}", "route": "/upcoming"}
+                    allocation_items.append({
+                        "id": _item_id,
+                        "type": "allocation_shortfall",
+                        "headline": (
+                            f"Your {_alloc['name']} set-aside is short" if not _multi
+                            else f"Your set-asides at {humanise_account_name(_pay_name)} are short"
+                        ),
+                        "body": f"{_gbp(_gap)} short this period.",
+                        "action": _action,
+                        "estimated": bool(_g["estimated"]),
+                        "amount": _gap,
+                        "allocation_shortfall": {
+                            "shortfall": _gap,
+                            "estimated": bool(_g["estimated"]),
+                            "paying_account": {
+                                "account_id": _pay_id,
+                                "name": _pay_name,
+                                "provider": _provider_of(_pay_acc),
+                            },
+                            "allocation": {
+                                "id": _alloc["id"],
+                                "name": _alloc["name"],
+                                "period_amount": _alloc["period_amount"],
+                                "suggested_amount": suggested_reduced_amount(_alloc, _gap),
+                            },
+                            "other_allocation_count": len(_g["allocations"]) - 1,
+                            "moves": [
+                                {"amount": l["amount"], "move_map": l["move_map"]} for l in _legs
+                            ],
+                        },
+                    })
+        except Exception:
+            log.warning("allocation shortfall failed for %s", uid, exc_info=True)
+            allocation_items = []
+
     # ── 7. Auto-verification + celebration pass ─────────────────────────────
     # Active moves whose destination now clears its window flip to "done" and
     # celebrate. Done moves KEEP celebrating on every run — the reward moment
@@ -5576,11 +5688,15 @@ async def compute_today_items(
     # action, but `items[:_MOVE_CARD_CAP]` is placed first here specifically
     # so a genuine bill-shortfall card is never evicted to make room for it;
     # it only ever claims a slot `items` didn't already need.
+    # G217: the set-aside shortfall (`allocation_items`) sits right after the
+    # unfunded move, so it ranks below EVERY payment card and, being a plan the
+    # user chose rather than a payment at risk, never evicts one.
     # Cliff items slot after celebrations (important standing fact), then trajectory
     # (debt pace — with the cliffs, after celebrations, before asks), then asks.
     result = (
         items[:_MOVE_CARD_CAP]
         + unfunded_move_items[:1]
+        + allocation_items[:1]
         + celebration_items[:_MOVE_CARD_CAP]
         + cliff_items[:2]
         + trajectory_items[:1]
@@ -5591,6 +5707,23 @@ async def compute_today_items(
         + intent_pace_items
     )
     return result[:3]
+
+
+async def _load_account_plans(uid: str) -> list[dict]:
+    """G217 seam: the same plan rows the account sheet reads (`GET /account-plans`).
+
+    Gated on an active allocation existing, so users without set-asides pay
+    nothing. Fail-open: any error means no allocation card, never a 500.
+    """
+    try:
+        from app.db.collections import allocations_col
+        if await allocations_col.find_one({"user_id": uid, "active": True}) is None:
+            return []
+        from app.routers.allocations import list_account_plans
+        return list((await list_account_plans({"email": uid})).get("items") or [])
+    except Exception:
+        log.warning("allocation shortfall: account plans unavailable for %s", uid, exc_info=True)
+        return []
 
 
 async def _get_dismissed(uid: str) -> set[str]:
