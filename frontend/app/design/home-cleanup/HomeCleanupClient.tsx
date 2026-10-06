@@ -47,8 +47,8 @@ const router = { push: noop, back: noop, forward: noop, refresh: noop, replace: 
  * money instead of starting a group of their own.
  */
 const RHYTHM = {
-  today: { top: "pt-6", brief: "space-y-2", hero: "mt-8", money: "mt-8", label: "mb-3", group: "space-y-3", pinnedOwnGroup: true, pinned: "mt-8 space-y-3", estate: "mt-8", recent: "mt-8", recentHead: "mb-3", tail: "mb-4" },
-  proposed: { top: "pt-5", brief: "space-y-3", hero: "mt-5", money: "mt-5", label: "mb-2", group: "space-y-3", pinnedOwnGroup: false, pinned: "space-y-3", estate: "mt-5", recent: "mt-5", recentHead: "mb-2", tail: "pb-5" },
+  today: { top: "pt-6", fresh: "mt-6", brief: "space-y-2", hero: "mt-8", money: "mt-8", label: "mb-3", group: "space-y-3", pinnedOwnGroup: true, pinned: "mt-8 space-y-3", estate: "mt-8", recent: "mt-8", recentHead: "mb-3", tail: "mb-4" },
+  proposed: { top: "pt-5", fresh: "mt-5", brief: "space-y-3", hero: "mt-5", money: "mt-5", label: "mb-2", group: "space-y-3", pinnedOwnGroup: false, pinned: "space-y-3", estate: "mt-5", recent: "mt-5", recentHead: "mb-2", tail: "pb-5" },
 } as const;
 
 const VARIANTS: { id: Variant; label: string; name: string; summary: string }[] = [
@@ -196,7 +196,7 @@ export default function HomeCleanupClient() {
           </div>
 
           {fresh ? (
-            <div className={`px-4 ${R.hero}`}>
+            <div className={`px-4 ${R.fresh}`}>
               <FirstAccountCard canConnect onConnect={noop} onUploadStatement={noop} onOtherWays={noop} />
             </div>
           ) : (

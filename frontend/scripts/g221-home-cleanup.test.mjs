@@ -34,10 +34,10 @@ const count = (html, needle) => html.split(needle).length - 1;
 const text = (html) => html.replace(/<[^>]+>/g, " ");
 
 // ── BASELINE: the inline JSX that lived in HomePage.tsx before G221, copied
-// ONCE from origin/main (lines 1235-1298) and transcribed to createElement.
+// ONCE from origin/main's inline JSX (HomePage.tsx lines 1235-1298) and transcribed to createElement.
 // Do not edit to follow the component: if the component's markup changes, this
 // failing is the point.
-function baselineEstate({ loading, accounts, topPickAccounts, topPickInvestment, investmentAccounts, hiddenAccountCount, pinnedIds }) {
+function baselineEstate({ loading, accounts, topPickAccounts, topPickInvestment, investmentAccounts, hiddenAccountCount, pinnedIds, emptyState }) {
   const hair = "border-t border-slate-100 dark:border-white/5";
   return h("div", { className: "rise-in px-4 lg:px-0 mt-8", style: { "--rise-index": 3 } },
     h("div", { className: "flex items-center justify-between mb-3" },
@@ -48,7 +48,16 @@ function baselineEstate({ loading, accounts, topPickAccounts, topPickInvestment,
           onClick: noop,
           className: "min-h-[44px] text-xs font-semibold text-indigo-500 dark:text-indigo-400 flex items-center gap-1 hover:opacity-80 active:opacity-70 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded",
         }, "Manage ", h(ChevronRight, { size: 13, "aria-hidden": "true" })))),
-    loading ? null : accounts.length === 0 ? null :
+    loading
+      ? h("div", { className: "glass-card rounded-2xl overflow-hidden divide-y divide-slate-100 dark:divide-white/5" },
+          [1, 2, 3].map((i) =>
+            h("div", { key: i, className: "h-[60px] px-4 py-2.5 flex items-center gap-3" },
+              h("div", { className: "w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-700 animate-pulse flex-shrink-0" }),
+              h("div", { className: "flex-1 space-y-1.5" },
+                h("div", { className: "h-3.5 w-28 bg-slate-100 dark:bg-slate-700 rounded animate-pulse" }),
+                h("div", { className: "h-2.5 w-20 bg-slate-100 dark:bg-slate-700 rounded animate-pulse" })),
+              h("div", { className: "h-3.5 w-14 bg-slate-100 dark:bg-slate-700 rounded animate-pulse" }))))
+      : accounts.length === 0 ? emptyState :
       h("div", { className: "glass-card rounded-2xl overflow-hidden" },
         topPickAccounts.map((acc, i) =>
           h("div", { key: acc.id, className: i > 0 ? hair : "" },
@@ -79,6 +88,33 @@ for (const c of ["1", "4", "20"]) {
     onManage: noop, onOpenAccount: noop, onOpenInvestments: noop, onViewAll: noop, emptyState: null,
   }));
   assert.equal(actual, baseline, `${c} accounts: HomeEstateSection markup equals the pre-extraction inline JSX`);
+}
+
+// Loading skeleton, the zero-accounts empty-state branch, and the border logic
+// with no bank rows but one investment row.
+{
+  const e4 = estateFor("4");
+  const placeholder = h("p", null, "empty state placeholder");
+  const common = { className: "rise-in px-4 lg:px-0 mt-8", style: { "--rise-index": 3 } };
+  const cases = [
+    { name: "loading", loading: true, accounts: e4.accounts, top: [], inv: undefined, hidden: 0, pins: [] },
+    { name: "zero accounts", loading: false, accounts: [], top: [], inv: undefined, hidden: 0, pins: [] },
+    { name: "investment only", loading: false, accounts: e4.accounts, top: [], inv: e4.investment, hidden: 3, pins: e4.pinnedIds },
+  ];
+  for (const c of cases) {
+    const investmentAccounts = c.inv ? [c.inv] : [];
+    const baseline = renderToStaticMarkup(baselineEstate({
+      loading: c.loading, accounts: c.accounts, topPickAccounts: c.top, topPickInvestment: c.inv,
+      investmentAccounts, hiddenAccountCount: c.hidden, pinnedIds: c.pins, emptyState: placeholder,
+    }));
+    const actual = renderToStaticMarkup(h(HomeEstateSection, {
+      ...common, loading: c.loading, accountCount: c.accounts.length, topPickAccounts: c.top, topPickInvestment: c.inv,
+      investmentCount: investmentAccounts.length, hiddenAccountCount: c.hidden, pinnedIds: c.pins,
+      onManage: noop, onOpenAccount: noop, onOpenInvestments: noop, onViewAll: noop, emptyState: placeholder,
+    }));
+    assert.equal(actual, baseline, `${c.name}: HomeEstateSection markup equals the pre-extraction inline JSX`);
+  }
+  assert.ok(renderToStaticMarkup(baselineEstate({ loading: false, accounts: [], topPickAccounts: [], investmentAccounts: [], hiddenAccountCount: 0, pinnedIds: [], emptyState: placeholder })).includes("empty state placeholder"));
 }
 
 // HomePage still renders the estate through the component, and FirstAccountCard too.

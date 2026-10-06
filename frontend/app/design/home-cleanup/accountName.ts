@@ -2,6 +2,8 @@
 // resolveDisplayName is a PERSON-name helper (greeting), so it cannot tidy an
 // account row. Bank strings often arrive wholly upper-case ("PREMIER CURRENT");
 // this turns those into sentence case and leaves everything else alone.
+// It is a preview proposal: it also collapses all-caps brands ("NATWEST"
+// becomes "Natwest"), so production would need a brand list first.
 
 const KEEP_UPPER = new Set(["ISA", "LISA", "SIPP", "JISA", "HSBC", "GBP", "USD", "EUR", "UK", "NS&I", "RBS", "TSB", "ATM", "FX", "PEP"]);
 
