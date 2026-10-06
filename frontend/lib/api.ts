@@ -707,6 +707,11 @@ export type SafeToSpend =
       /** Non-null only when state === "short" — which kind of shortfall.
        * `cards` is retained only for historical design fixtures. */
       short_reason?: "bills" | "cards" | "cards_unconfirmed" | null;
+      /** G218: the shortfall exists only because of set-asides (plans and
+       * envelopes); cash after bills and buffer is not negative. Server rule
+       * (net_position.plans_only_short_for); absent on older cached payloads,
+       * where isPlansOnlyShort derives the same answer. */
+      plans_only_short?: boolean;
     };
 
 // ── Commitments — named future big expenses (holiday, car, fees) ─────────────

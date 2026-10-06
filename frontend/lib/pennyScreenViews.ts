@@ -38,7 +38,23 @@ export type SafeToSpendHeadline = {
   isCardsUnconfirmedShort: boolean;
   heroAmount: number;
   paydayLabel: string;
+  /** G218: short only because of plans and envelopes; reads amber, calm. */
+  plansOnly: boolean;
 };
+
+/** G218: a shortfall that exists only because plans and envelopes were set
+ * aside (cash after bills, less the buffer, is still at or above zero).
+ * Reads the server's `plans_only_short` when present (one source of truth,
+ * net_position.plans_only_short_for) and otherwise derives the same rule
+ * from the payload, for responses cached before the field existed. */
+export function isPlansOnlyShort(data: Extract<SafeToSpend, { status: "ok" }>): boolean {
+  if (data.state !== "short" || data.short_reason === "cards_unconfirmed") return false;
+  if (typeof data.plans_only_short === "boolean") return data.plans_only_short;
+  const cash = data.safe_to_spend_cash ?? data.safe_to_spend;
+  if (cash >= 0 || data.lowest_projected_balance == null) return false;
+  const setAside = (data.commitments_reserved ?? 0) + (data.allocations_reserved ?? 0);
+  return setAside > 0 && data.lowest_projected_balance - data.buffer >= 0;
+}
 
 /** Home's Safe-to-Spend hero figure/status word/payday label — the exact
  * maths SafeToSpendCard.tsx's own render uses for its hero figure and
@@ -61,7 +77,7 @@ export function deriveSafeToSpendHeadline(data: Extract<SafeToSpend, { status: "
     ? new Date(data.next_payday).toLocaleDateString("en-GB", { weekday: "long" })
     : new Date(data.next_payday).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
 
-  return { state, stateLabel, isCardsUnconfirmedShort, heroAmount, paydayLabel };
+  return { state, stateLabel, isCardsUnconfirmedShort, heroAmount, paydayLabel, plansOnly: state === "short" && isPlansOnlyShort(data) };
 }
 
 /** Home's published `PennyScreenView` for the Safe-to-Spend card. `hidden`
@@ -86,7 +102,9 @@ export function buildSafeToSpendView(
     verdict: headline.stateLabel,
     figures: opts.hidden ? [] : [{
       key: "safe_to_spend",
-      label: headline.state === "short" && !headline.isCardsUnconfirmedShort ? "Short before payday" : "Safe to spend",
+      label: headline.plansOnly
+        ? "Short after plans and envelopes"
+        : headline.state === "short" && !headline.isCardsUnconfirmedShort ? "Short before payday" : "Safe to spend",
       value: fmtGbp(headline.heroAmount),
     }],
     asOf: data.last_synced ?? new Date().toISOString(),

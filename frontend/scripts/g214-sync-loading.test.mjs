@@ -90,7 +90,6 @@ assert.match(sts, /const sync = syncing \? \{ info: syncing, phase: syncPhase\(s
 assert.match(sts, /const heroFigureClass = sync \? "text-slate-700 dark:text-slate-200" : figureClass;/, "figure steps to secondary ink; default colour path retained");
 assert.match(sts, /\$\{stateChipClass\}/, "default chip classes retained");
 assert.match(sts, /Last known amount · as of/, "stale caption");
-assert.match(sts, /figureAccent && !sync/, "G218 accent bar is suppressed while syncing");
 assert.match(sts, /const freshnessLabel = sync \? null/, "no second timestamp while syncing");
 assert.match(sts, /const recovery = sync \? null/, "no recovery CTA while syncing");
 assert.match(sts, /risk=\{exactCashRunway < 0 && !sync\}/, "ledger figures stay ink while syncing");

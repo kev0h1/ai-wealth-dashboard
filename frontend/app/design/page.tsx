@@ -48,9 +48,9 @@ const ROUTES: PreviewRoute[] = [
   },
   {
     slug: "safe-to-spend-figure",
-    name: "Safe to Spend figure colour · G218 · variants A, B, C",
+    name: "Safe to Spend figure colour · G218 · approved B, folded in",
     description:
-      "G218: should the Safe to Spend Display figure be coloured at all? Skill: impeccable, first drafts by openai/gpt-6-astra, rewritten to DESIGN.md · A: ink figure in every state, the chip and its icon carry the verdict · B: today's tinted figure (emerald On track, red Short) with the salmon dark-mode red fixed · C: ink figure with a short coloured rule beneath it · also settles whether a shortfall caused only by plans and envelopes counts as genuine red (A and C show it amber, B keeps red) · renders the production SafeToSpendCard through props (figureTone) with fixture data, production unchanged until Kevin picks · ?variant=a|b|c|today&state=on-track|tight|card|short-cash|short-plans|error|degraded|syncing&mode=light|dark&view=single|strip|compare",
+      "G218, approved B (Kevin 2026-10-06) and folded in: the Safe to Spend figure is emerald On track, red only for a cash shortfall (red-500 in dark mode), amber when the shortfall exists only because of plans and envelopes, ink for Tight, card checks, error, degraded and syncing · renders the production SafeToSpendCard through props with fixture data, so a drift in the shipped colours shows here · ?state=on-track|tight|card|short-cash|short-plans|error|degraded|syncing&mode=light|dark&view=single|strip|compare",
     states: [
       { label: "Short (cash)", value: "short-cash" },
       { label: "On track", value: "on-track" },
@@ -60,11 +60,6 @@ const ROUTES: PreviewRoute[] = [
       { label: "Error", value: "error" },
       { label: "Degraded", value: "degraded" },
       { label: "Syncing", value: "syncing" },
-    ],
-    variants: [
-      { label: "A · Ink", value: "a" },
-      { label: "B · Tinted", value: "b" },
-      { label: "C · Ink + rule", value: "c" },
     ],
   },
   {

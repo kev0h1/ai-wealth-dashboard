@@ -265,7 +265,16 @@ async def _chip_home_payday_status(uid: str, params: dict | None) -> dict:
     else:
         cash = sts.get("safe_to_spend_cash")
         gap = abs(free_amount if cash is None else float(cash))
-        sentence1 = f"You're about {_fmt_gbp(gap)} short of covering this pay period{when}."
+        if sts.get("plans_only_short"):
+            # G218: the cash forecast itself is not below the buffer, the gap
+            # is only the plans and envelopes the user set aside. Calm, not a
+            # payment at risk; same reading as the amber Home hero.
+            sentence1 = (
+                f"You're about {_fmt_gbp(gap)} short after plans and envelopes{when}. "
+                "Your bills are covered; it's only the money you've set aside."
+            )
+        else:
+            sentence1 = f"You're about {_fmt_gbp(gap)} short of covering this pay period{when}."
 
     lowest = sts.get("lowest_projected_balance")
     sentence2 = ""

@@ -256,6 +256,7 @@ def test_safe_to_spend_returns_lowest_projected_balance_and_reconciles_cash(monk
     # The £30 debit lands before the same-day £50 income, so £70 is the true
     # low point. £70 - £10 buffer - £5 plan - £4 envelope = £51 before cards.
     assert result["lowest_projected_balance"] == 70.0
+    assert result["plans_only_short"] is False  # G218: field always present
     assert result["safe_to_spend_cash"] == 51.0
     assert result["safe_to_spend"] == 51.0
     assert result["card_growth_total"] == 3.0

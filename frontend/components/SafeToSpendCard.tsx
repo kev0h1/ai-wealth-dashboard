@@ -56,14 +56,6 @@ interface SafeToSpendCardProps {
   /** G214: "Try again" on a stalled or failed sync (POST /accounts/sync). */
   onSyncRetry?: () => void;
   /**
-   * G218 design-round seam. How the Display figure is coloured. Production
-   * passes nothing and gets `"tinted"`, today's behaviour byte for byte
-   * (emerald On track, red Short, ink otherwise). The other tones exist so
-   * /design/safe-to-spend-figure can render the real card in each candidate
-   * treatment; none ships until Kevin picks one (see figureToneClasses).
-   */
-  figureTone?: FigureTone;
-  /**
    * G218 preview seam. /design pages have no signed-in preferences, so the
    * default context masks every figure as `£••••`. Passing true shows the
    * fixture amounts. Production never passes it, so masking is unchanged.
@@ -71,36 +63,7 @@ interface SafeToSpendCardProps {
   previewBalancesVisible?: boolean;
 }
 
-export type FigureTone = "tinted" | "tinted-vivid" | "ink" | "ink-accent";
-
-type SafeToSpendOk = Extract<SafeToSpend, { status: "ok" }>;
-
-/**
- * G218: a shortfall that exists only because plans and envelopes were set
- * aside. Cash after bills and income, less the buffer, is still at or above
- * zero, so removing the set-asides removes the shortfall. Derived from the
- * payload alone (`lowest_projected_balance`, `buffer`, `commitments_reserved`,
- * `allocations_reserved`), no new field. Used only by the non-default tones;
- * the default tone keeps red for every cash-led short, as today.
- */
-export function isPlansOnlyShort(data: SafeToSpendOk): boolean {
-  const cash = data.safe_to_spend_cash ?? data.safe_to_spend;
-  if (data.state !== "short" || data.short_reason === "cards_unconfirmed" || cash >= 0) return false;
-  if (data.lowest_projected_balance == null) return false;
-  const setAside = (data.commitments_reserved ?? 0) + (data.allocations_reserved ?? 0);
-  return setAside > 0 && data.lowest_projected_balance - data.buffer >= 0;
-}
-
-/** Tones that give a plans-only shortfall its own (non-red) treatment.
- *  `tinted` and `tinted-vivid` keep today's red for every cash-led short. */
-export const FIGURE_TONES_USING_PLANS_ONLY: Record<FigureTone, boolean> = {
-  tinted: false,
-  "tinted-vivid": false,
-  ink: true,
-  "ink-accent": true,
-};
-
-export type FigureToneClasses = { figure: string; chip: string; accent: string | null };
+export type FigureToneClasses = { figure: string; chip: string };
 
 const INK_FIGURE = "text-slate-900 dark:text-slate-100";
 const CHIP_GREEN = "bg-emerald-50 text-emerald-700 dark:bg-emerald-400/10 dark:text-emerald-300";
@@ -108,38 +71,23 @@ const CHIP_AMBER = "bg-slate-100 text-amber-800 dark:bg-slate-700/70 dark:text-a
 const CHIP_RED = "bg-slate-100 text-red-700 dark:bg-slate-700/70 dark:text-red-300";
 
 /**
- * Pure mapping from verdict to classes, exported so
- * scripts/g218-figure-tone.test.mjs can pin it. `tinted` is the shipped
- * look and must not change without a design round.
+ * G218 (approved B, 2026-10-06): the hero figure and chip colour for each
+ * verdict. Emerald when On track, red (red-500 in dark mode) only for a cash
+ * shortfall, amber for a shortfall that exists only because of set-asides
+ * (plans and envelopes), ink for Tight and card checks (amber lives in their
+ * chip alone). Pure and exported so scripts/g218-figure-tone.test.mjs pins it.
  */
 export function figureToneClasses(
-  tone: FigureTone,
   v: { state: "comfortable" | "tight" | "short"; isCardsUnconfirmedShort: boolean; plansOnly: boolean },
 ): FigureToneClasses {
   const cautionState = v.state === "tight" || v.isCardsUnconfirmedShort;
   const cashShort = v.state === "short" && !v.isCardsUnconfirmedShort;
   const plansOnly = cashShort && v.plansOnly;
-  const baseChip = v.state === "comfortable" ? CHIP_GREEN : cautionState ? CHIP_AMBER : CHIP_RED;
-
-  if (tone === "tinted" || tone === "tinted-vivid") {
-    const red = tone === "tinted" ? "text-red-600 dark:text-red-400" : "text-red-600 dark:text-red-500";
-    return {
-      figure: v.state === "comfortable" ? "text-emerald-700 dark:text-emerald-300" : cashShort ? red : INK_FIGURE,
-      chip: baseChip,
-      accent: null,
-    };
-  }
-
-  const chip = plansOnly ? CHIP_AMBER : baseChip;
-  if (tone === "ink") return { figure: INK_FIGURE, chip, accent: null };
-
-  // ink-accent: a short rule under the figure. Amber stays in the chip.
-  const accent = v.state === "comfortable"
-    ? "bg-emerald-600 dark:bg-emerald-400"
-    : cashShort && !plansOnly
-      ? "bg-red-600 dark:bg-red-500"
-      : null;
-  return { figure: INK_FIGURE, chip, accent };
+  if (plansOnly) return { figure: "text-amber-700 dark:text-amber-300", chip: CHIP_AMBER };
+  return {
+    figure: v.state === "comfortable" ? "text-emerald-700 dark:text-emerald-300" : cashShort ? "text-red-600 dark:text-red-500" : INK_FIGURE,
+    chip: v.state === "comfortable" ? CHIP_GREEN : cautionState ? CHIP_AMBER : CHIP_RED,
+  };
 }
 
 function fmt(value: number): string {
@@ -515,7 +463,7 @@ function CardBalanceFact({
   );
 }
 
-export default function SafeToSpendCard({ data, loading, error, onRetry, spendFrom, coverMoveVisible = false, spendFromPreview, syncing, onSyncRetry, figureTone = "tinted", previewBalancesVisible = false }: SafeToSpendCardProps) {
+export default function SafeToSpendCard({ data, loading, error, onRetry, spendFrom, coverMoveVisible = false, spendFromPreview, syncing, onSyncRetry, previewBalancesVisible = false }: SafeToSpendCardProps) {
   const { hideNetWorth, preferencesReady } = usePreferences();
   const router = useRouter();
   const hidden = !previewBalancesVisible && (hideNetWorth || !preferencesReady);
@@ -660,7 +608,7 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
   // now come from `deriveSafeToSpendHeadline` (this file, above) — the SAME
   // call the Penny screen-context effect above makes, not a second copy of
   // this maths (B39).
-  const { state, stateLabel, isCardsUnconfirmedShort, heroAmount, paydayLabel } = deriveSafeToSpendHeadline(data);
+  const { state, stateLabel, isCardsUnconfirmedShort, heroAmount, paydayLabel, plansOnly } = deriveSafeToSpendHeadline(data);
 
   const amount = (value: number) => hidden ? "£••••" : fmt(value);
   const exactAmount = (value: number) => hidden ? "£••••" : fmt2(value);
@@ -668,9 +616,8 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
     ? `${value < 0 ? "−" : "+"}£••••`
     : `${value < 0 ? "−" : "+"}${fmt2(value)}`;
 
-  const plansOnly = FIGURE_TONES_USING_PLANS_ONLY[figureTone] && isPlansOnlyShort(data);
   const StateIcon = state === "comfortable" ? ShieldCheck : state === "tight" || isCardsUnconfirmedShort || plansOnly ? AlertCircle : AlertTriangle;
-  const { figure: figureClass, chip: stateChipClass, accent: figureAccent } = figureToneClasses(figureTone, { state, isCardsUnconfirmedShort, plansOnly });
+  const { figure: figureClass, chip: stateChipClass } = figureToneClasses({ state, isCardsUnconfirmedShort, plansOnly });
 
   const sync = syncing ? { info: syncing, phase: syncPhase(syncing) } : null;
   const syncAsOf = sync ? asOfLabel(sync.info.asOf ?? data.last_synced) : null;
@@ -746,7 +693,6 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
   const heroHeading = (
     <h2 id="safe-to-spend-heading" className={spendFromTreatment?.heroAside ? "min-w-0 flex-1" : "mt-5"}>
       <span className={`money block text-[38px] font-bold leading-none tracking-[-0.05em] ${heroFigureClass}`}>{amount(heroAmount)}</span>
-      {figureAccent && !sync && <span aria-hidden="true" data-figure-accent className={`mt-2.5 block h-1 w-10 rounded-full ${figureAccent}`} />}
       <span className="mt-2 block text-[15px] font-semibold text-slate-700 dark:text-slate-200">
         {heroCaption}{data.estimated && <span className="font-normal text-slate-500 dark:text-slate-400"> · estimated</span>}
       </span>
