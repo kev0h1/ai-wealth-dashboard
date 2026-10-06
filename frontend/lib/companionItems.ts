@@ -37,6 +37,10 @@ export function hasFundedCoverMove(items: CompanionItem[]): boolean {
  *   unfunded_move   ACTIONABLE    a due-but-unfunded own transfer; each row
  *                                  carries a real "Skip this month" decision
  *                                  (UnfundedMoveCard).
+ *   allocation_shortfall ACTIONABLE a set-aside that leaves an account short
+ *                                  this period; carries the two equal
+ *                                  remedies, move money or reduce the
+ *                                  set-aside (AllocationShortfallCard).
  *   ask             ACTIONABLE    every `ask:*` id is a live question
  *                                  awaiting an answer — the payday
  *                                  confirm/decline pair (AskPaydayCard) or a
@@ -77,6 +81,7 @@ export function isActionableCompanionItem(item: CompanionItem): boolean {
     case "move":
     case "payday_plan":
     case "unfunded_move":
+    case "allocation_shortfall":
     case "ask":
       return true;
     case "rhythm":

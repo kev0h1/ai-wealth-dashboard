@@ -1423,9 +1423,28 @@ export type CompanionBriefLead = {
   companion: string;
 };
 
+/**
+ * G217: payload of an `allocation_shortfall` item (backend/app/services/
+ * companion.py section 6b). An account whose payments clear but which goes
+ * short once this period's set-asides are applied. The shortfall belongs to
+ * the set-aside, never to a bill.
+ */
+export type AllocationShortfallData = {
+  /** Pounds short this period, attributed to the set-aside. */
+  shortfall: number;
+  /** True when the paying account is inferred from recent transfers. */
+  estimated: boolean;
+  paying_account: { account_id: string; name: string; provider: string };
+  /** The allocation Reduce opens, with the per-period amount that clears the gap. */
+  allocation: { id: string; name: string; period_amount: number; suggested_amount: number };
+  other_allocation_count: number;
+  /** Legs from the shared source finder. Empty when no account can safely spare it. */
+  moves: { amount: number; move_map: MoveMap }[];
+};
+
 export type CompanionItem = {
   id: string;
-  type: "move" | "rhythm" | "celebration" | "info" | "needle" | "ask" | "cliff" | "trajectory" | "payday_plan" | "intent_pace" | "unfunded_move";
+  type: "move" | "rhythm" | "celebration" | "info" | "needle" | "ask" | "cliff" | "trajectory" | "payday_plan" | "intent_pace" | "unfunded_move" | "allocation_shortfall";
   headline: string;
   body: string;
   action: CompanionAction | null;
@@ -1448,6 +1467,8 @@ export type CompanionItem = {
    */
   trend?: "rising" | "falling" | "flat" | "unknown";
   move_map?: MoveMap;
+  /** Present when type === "allocation_shortfall". */
+  allocation_shortfall?: AllocationShortfallData;
   // `PlanMove[]` when type === "move" (MoveCard's leg list). When type ===
   // "unfunded_move" the backend reuses this SAME field name for an
   // unrelated shape (see UnfundedMoveEntry above, confirmed against
