@@ -1,10 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { AlertCircle, AlertTriangle, ArrowRight, ChevronDown, ChevronRight, CreditCard, ShieldCheck } from "lucide-react";
+import { AlertCircle, AlertTriangle, ArrowRight, ChevronDown, CreditCard, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { SafeToSpend, type Account } from "@/lib/api";
+import { SafeToSpend } from "@/lib/api";
 import { usePreferences } from "@/components/PreferencesContext";
 import { setPennyScreenView } from "@/components/PennySheetProvider";
 import { zeroSafe, deriveSafeToSpendHeadline, buildSafeToSpendView } from "@/lib/pennyScreenViews";
@@ -18,28 +18,6 @@ import {
 import { BankBadge, BANK_META, accountBrand, bankKey, bankLogoSrc } from "@/components/AccountMiniCard";
 import MoneyText from "@/components/MoneyText";
 import { SyncGlyph, SyncLine, asOfLabel, syncChipClass, syncChipLabel, syncPhase, type SyncingInfo } from "@/components/SyncNote";
-
-/**
- * G219 (design round, not yet shipped): a secondary route from the hero to the
- * accounts behind the figure. Absent, the card renders exactly as before.
- * The hero keeps ONE primary action, so every kind is secondary in weight,
- * 44px high, and carries no colour meaning.
- *
- * - rows:  every Spend from row opens that account (`accountHref(id)`).
- * - link:  one quiet "Your accounts" link beside the primary action.
- * - strip: stacked bank badges and "N accounts", one link to `href`.
- */
-export type AccountsRoute =
-  | { kind: "rows"; accountHref: (accountId: string) => string }
-  | { kind: "link"; href: string }
-  | { kind: "strip"; href: string; accounts: Account[] };
-
-/** Accounts deep-links by `?id=` today (AccountsPage consumes then strips it). */
-export function accountDeepLink(accountId: string): string {
-  return `/accounts?id=${encodeURIComponent(accountId)}`;
-}
-
-const ROUTE_FOCUS = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500";
 
 type SpendFromTreatment = {
   heroAside?: ReactNode;
@@ -84,8 +62,6 @@ interface SafeToSpendCardProps {
    * fixture amounts. Production never passes it, so masking is unchanged.
    */
   previewBalancesVisible?: boolean;
-  /** G219 preview seam: see AccountsRoute. Production does not pass it yet. */
-  accountsRoute?: AccountsRoute;
 }
 
 export type FigureToneClasses = { figure: string; chip: string };
@@ -150,18 +126,11 @@ function SpendFromScope({ coverMoveVisible }: { coverMoveVisible: boolean }) {
   );
 }
 
-function SpendFromBankRail({ entries, amount, onLogoError, accountsRoute }: {
+function SpendFromBankRail({ entries, amount, onLogoError }: {
   entries: SpendFromAccount[];
   amount: (value: number) => string;
   onLogoError: (logoSrc: string) => void;
-  accountsRoute?: AccountsRoute;
 }) {
-  // G219 rows: a third 12px column carries the disclosure cue. The badge
-  // column stays 22px; the 44px hit area is the row's own height, never the
-  // badge, and the row has no horizontal padding so the badge keeps the label's
-  // left edge.
-  const rows = accountsRoute?.kind === "rows" ? accountsRoute : null;
-  const span = rows ? "col-span-3" : "col-span-2";
   return (
     // G171 (re-review: no `display: contents` on real list semantics —
     // WebKit, including the Capacitor WebView, has a repeatedly regressed
@@ -180,15 +149,16 @@ function SpendFromBankRail({ entries, amount, onLogoError, accountsRoute }: {
     // icon size below must stay 22 to match it.
     <div
       data-g115-treatment="bank-rail"
-      className={`grid min-w-[76px] ${rows ? "grid-cols-[22px_1fr_12px]" : "grid-cols-[22px_1fr]"} items-center gap-x-1.5 gap-y-1.5`}
+      className="grid min-w-[76px] grid-cols-[22px_1fr] items-center gap-x-1.5 gap-y-1.5"
     >
-      <p className={`${span} text-left text-[9px] font-bold uppercase tracking-[0.07em] text-slate-400 dark:text-slate-500`}>Spend from</p>
-      <ul aria-label="Accounts with room to spend from" className={`${span} grid grid-cols-subgrid ${rows ? "gap-y-0" : "gap-y-1.5"}`}>
+      <p className="col-span-2 text-left text-[9px] font-bold uppercase tracking-[0.07em] text-slate-400 dark:text-slate-500">Spend from</p>
+      <ul aria-label="Accounts with room to spend from" className="col-span-2 grid grid-cols-subgrid gap-y-1.5">
         {entries.map((entry) => {
           const bank = localBank(entry.account)!;
           const spare = amount(entry.headroom);
-          const badgeAndFigure = (
-            <>
+          return (
+            <li key={entry.accountId} className="col-span-2 grid grid-cols-subgrid items-center">
+              <span className="sr-only">{entry.name} at {bank.label}, {spare} spare</span>
               <BankBadge
                 logoSrc={bank.logoSrc}
                 initials={bank.initials}
@@ -199,27 +169,6 @@ function SpendFromBankRail({ entries, amount, onLogoError, accountsRoute }: {
                 onLogoError={() => onLogoError(bank.logoSrc)}
               />
               <span aria-hidden="true" className="money text-right text-[11px] font-semibold text-slate-700 dark:text-slate-200">{spare}</span>
-            </>
-          );
-          if (rows) {
-            return (
-              <li key={entry.accountId} className="col-span-3 grid grid-cols-subgrid">
-                <Link
-                  href={rows.accountHref(entry.accountId)}
-                  data-g219-account-link={entry.accountId}
-                  className={`group col-span-3 grid min-h-11 grid-cols-subgrid items-center rounded-md [-webkit-tap-highlight-color:transparent] active:opacity-70 motion-reduce:transition-none ${ROUTE_FOCUS}`}
-                >
-                  <span className="sr-only">{entry.name} at {bank.label}, {spare} spare, opens this account</span>
-                  {badgeAndFigure}
-                  <ChevronRight size={12} className="text-slate-400 transition-colors group-hover:text-slate-600 dark:text-slate-500 dark:group-hover:text-slate-300" aria-hidden="true" />
-                </Link>
-              </li>
-            );
-          }
-          return (
-            <li key={entry.accountId} className="col-span-2 grid grid-cols-subgrid items-center">
-              <span className="sr-only">{entry.name} at {bank.label}, {spare} spare</span>
-              {badgeAndFigure}
             </li>
           );
         })}
@@ -228,47 +177,11 @@ function SpendFromBankRail({ entries, amount, onLogoError, accountsRoute }: {
   );
 }
 
-function SpendFromNameRows({ entries, amount, coverMoveVisible, accountsRoute }: {
+function SpendFromNameRows({ entries, amount, coverMoveVisible }: {
   entries: SpendFromAccount[];
   amount: (value: number) => string;
   coverMoveVisible: boolean;
-  accountsRoute?: AccountsRoute;
 }) {
-  if (accountsRoute?.kind === "rows") {
-    // G219 rows: a real list of links (a `dl` cannot hold an anchor around
-    // its dt and dd). Each row is 44px tall; the amount keeps its right edge.
-    return (
-      <div data-g115-treatment="name-fallback" className="mt-2">
-        <ul aria-label="Accounts with room to spend from">
-          {entries.map((entry, index) => {
-            const bank = accountBrand(entry.account);
-            return (
-              <li key={entry.accountId} className={index > 0 ? "border-t border-slate-100 dark:border-white/[0.07]" : ""}>
-                <Link
-                  href={accountsRoute.accountHref(entry.accountId)}
-                  data-g219-account-link={entry.accountId}
-                  className={`group flex min-h-11 items-center justify-between gap-3 rounded-md [-webkit-tap-highlight-color:transparent] active:opacity-70 motion-reduce:transition-none ${ROUTE_FOCUS}`}
-                >
-                  <span className="sr-only">{entry.name} at {bank.label}, {amount(entry.headroom)} spare, opens this account</span>
-                  <span aria-hidden="true" className="min-w-0">
-                    <span className="block truncate text-[12px] font-semibold text-slate-700 dark:text-slate-200">{entry.name}</span>
-                    <span className="block truncate text-[10px] text-slate-500 dark:text-slate-400">{bank.label}</span>
-                  </span>
-                  <span aria-hidden="true" className="flex shrink-0 items-center gap-1.5">
-                    <span className="money text-[12px] font-semibold text-slate-700 dark:text-slate-200">
-                      {amount(entry.headroom)} <span className="font-sans font-normal text-slate-500 dark:text-slate-400">spare</span>
-                    </span>
-                    <ChevronRight size={12} className="text-slate-400 transition-colors group-hover:text-slate-600 dark:text-slate-500 dark:group-hover:text-slate-300" />
-                  </span>
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
-        <SpendFromScope coverMoveVisible={coverMoveVisible} />
-      </div>
-    );
-  }
   return (
     <div data-g115-treatment="name-fallback" className="mt-2">
       <p className="sr-only">Accounts with room to spend from</p>
@@ -354,7 +267,6 @@ export function approvedSpendFromTreatment(
   coverMoveVisible: boolean,
   onLogoError: (logoSrc: string) => void,
   onRetry?: () => void,
-  accountsRoute?: AccountsRoute,
 ): SpendFromTreatment | null {
   switch (plan.kind) {
     // The one branch that still renders nothing. `pending` means the
@@ -393,12 +305,12 @@ export function approvedSpendFromTreatment(
       };
 
     case "name-fallback":
-      return { body: <SpendFromNameRows entries={plan.entries} amount={amount} coverMoveVisible={coverMoveVisible} accountsRoute={accountsRoute} /> };
+      return { body: <SpendFromNameRows entries={plan.entries} amount={amount} coverMoveVisible={coverMoveVisible} /> };
 
     case "bank-rail":
     default:
       return {
-        heroAside: <SpendFromBankRail entries={plan.entries} amount={amount} onLogoError={onLogoError} accountsRoute={accountsRoute} />,
+        heroAside: <SpendFromBankRail entries={plan.entries} amount={amount} onLogoError={onLogoError} />,
         body: <SpendFromScope coverMoveVisible={coverMoveVisible} />,
       };
   }
@@ -552,51 +464,7 @@ function CardBalanceFact({
   );
 }
 
-function AccountsLink({ href }: { href: string }) {
-  return (
-    <Link
-      href={href}
-      data-g219-accounts-link
-      className={`group -mr-3 ml-auto inline-flex min-h-11 items-center gap-1.5 rounded-xl px-3 text-[13px] font-semibold text-slate-600 transition-colors hover:text-slate-900 active:scale-[0.98] motion-reduce:transform-none motion-reduce:transition-none dark:text-slate-300 dark:hover:text-slate-100 [-webkit-tap-highlight-color:transparent] ${ROUTE_FOCUS}`}
-    >
-      Your accounts
-      <ArrowRight size={15} className="text-slate-400 transition-colors group-hover:text-slate-600 dark:text-slate-500 dark:group-hover:text-slate-300" aria-hidden="true" />
-    </Link>
-  );
-}
-
-function AccountsStrip({ route }: { route: Extract<AccountsRoute, { kind: "strip" }> }) {
-  const count = route.accounts.length;
-  if (count === 0) return null;
-  const seen = new Set<string>();
-  const badges = route.accounts
-    .map((a) => localBank(a))
-    .filter((b): b is NonNullable<ReturnType<typeof localBank>> => b !== null)
-    .filter((b) => (seen.has(b.label) ? false : (seen.add(b.label), true)))
-    .slice(0, 3);
-  const label = `${count} linked ${count === 1 ? "account" : "accounts"}`;
-  return (
-    <Link
-      href={route.href}
-      data-g219-accounts-strip
-      className={`group -ml-1 mt-1 inline-flex min-h-11 items-center gap-2 rounded-lg pl-1 pr-2 text-[12px] font-semibold text-slate-600 transition-colors hover:text-slate-900 active:opacity-70 motion-reduce:transition-none dark:text-slate-300 dark:hover:text-slate-100 [-webkit-tap-highlight-color:transparent] ${ROUTE_FOCUS}`}
-    >
-      {badges.length > 0 && (
-        <span className="flex -space-x-1" aria-hidden="true">
-          {badges.map((b) => (
-            <span key={b.label} className="rounded-md ring-2 ring-white dark:ring-slate-800">
-              <BankBadge logoSrc={b.logoSrc} initials={b.initials} initialsSize={b.initialsSize} altText="" brandBg={b.background} size={18} />
-            </span>
-          ))}
-        </span>
-      )}
-      <span>{label}<span className="sr-only">, open your accounts</span></span>
-      <ArrowRight size={13} className="text-slate-400 transition-colors group-hover:text-slate-600 dark:text-slate-500 dark:group-hover:text-slate-300" aria-hidden="true" />
-    </Link>
-  );
-}
-
-export default function SafeToSpendCard({ data, loading, error, onRetry, spendFrom, coverMoveVisible = false, spendFromPreview, syncing, onSyncRetry, previewBalancesVisible = false, accountsRoute }: SafeToSpendCardProps) {
+export default function SafeToSpendCard({ data, loading, error, onRetry, spendFrom, coverMoveVisible = false, spendFromPreview, syncing, onSyncRetry, previewBalancesVisible = false }: SafeToSpendCardProps) {
   const { hideNetWorth, preferencesReady } = usePreferences();
   const router = useRouter();
   const hidden = !previewBalancesVisible && (hideNetWorth || !preferencesReady);
@@ -789,7 +657,6 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
     coverMoveVisible,
     handleSpendFromLogoError,
     onRetry,
-    accountsRoute,
   );
   const spendFromTreatment = spendFromPreview ?? approvedSpendFrom;
 
@@ -869,8 +736,6 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
 
       {spendFromTreatment?.body}
 
-      {accountsRoute?.kind === "strip" && <AccountsStrip route={accountsRoute} />}
-
       {cardGrowth > 0 && (
         <CardBalanceFact
           growth={cardGrowth}
@@ -938,14 +803,17 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
         <p data-sts-disclaimer className="text-[11px] leading-snug text-slate-500 dark:text-slate-400">An estimate from your bank data, not financial advice.</p>
       </div>
 
-      {accountsRoute?.kind === "link" ? (
-        <div className="mt-3 flex flex-wrap items-center gap-x-3">
-          {recovery && <button type="button" onClick={() => router.push(recovery.href)} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-indigo-50 px-3 text-sm font-semibold text-indigo-700 transition-[transform,background-color] hover:bg-indigo-100 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:bg-indigo-400/10 dark:text-indigo-300 dark:hover:bg-indigo-400/15">{recovery.label}<ArrowRight size={15} aria-hidden="true" /></button>}
-          <AccountsLink href={accountsRoute.href} />
-        </div>
-      ) : (
-        recovery && <button type="button" onClick={() => router.push(recovery.href)} className="mt-3 inline-flex min-h-11 items-center gap-2 rounded-xl bg-indigo-50 px-3 text-sm font-semibold text-indigo-700 transition-[transform,background-color] hover:bg-indigo-100 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:bg-indigo-400/10 dark:text-indigo-300 dark:hover:bg-indigo-400/15">{recovery.label}<ArrowRight size={15} aria-hidden="true" /></button>
-      )}
+      <div data-g219-action-row className="mt-3 flex flex-wrap items-center gap-x-3">
+        {recovery && <button type="button" onClick={() => router.push(recovery.href)} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-indigo-50 px-3 text-sm font-semibold text-indigo-700 transition-[transform,background-color] hover:bg-indigo-100 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:bg-indigo-400/10 dark:text-indigo-300 dark:hover:bg-indigo-400/15">{recovery.label}<ArrowRight size={15} aria-hidden="true" /></button>}
+        <Link
+          href="/accounts"
+          data-g219-accounts-link
+          className="group -mr-3 ml-auto inline-flex min-h-11 items-center gap-1.5 rounded-xl px-3 text-[13px] font-semibold text-slate-600 transition-colors hover:text-slate-900 active:scale-[0.98] motion-reduce:transform-none motion-reduce:transition-none dark:text-slate-300 dark:hover:text-slate-100 [-webkit-tap-highlight-color:transparent] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+        >
+          Your accounts
+          <ArrowRight size={15} className="text-slate-400 transition-colors group-hover:text-slate-600 dark:text-slate-500 dark:group-hover:text-slate-300" aria-hidden="true" />
+        </Link>
+      </div>
     </section>
   );
 }

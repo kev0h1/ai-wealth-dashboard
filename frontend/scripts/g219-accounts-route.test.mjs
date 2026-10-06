@@ -1,6 +1,6 @@
-// G219 (design round): the optional `accountsRoute` prop on the production
-// Safe to Spend card. Absent, the card is unchanged. Each variant adds exactly
-// the links it promises, and none of the new copy carries an em dash or "!".
+// G219 (approved B, folded in): the quiet "Your accounts" link ships by default
+// in the Safe to Spend action row. One link to /accounts in every state that
+// renders a figure (including syncing), none on loading, error or degraded.
 //
 // Run: npm run -s check:g219-accounts-route
 
@@ -8,9 +8,9 @@ import assert from "node:assert/strict";
 import React from "react";
 import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime.js";
 import { renderToStaticMarkup } from "react-dom/server";
-import SafeToSpendCard, { accountDeepLink } from "../components/SafeToSpendCard.tsx";
+import SafeToSpendCard from "../components/SafeToSpendCard.tsx";
 import { FIGURE_DATA } from "../app/design/safe-to-spend-figure/fixtures.ts";
-import { ALL_ACCOUNTS, ALL_ACCOUNTS_METRO, SPEND_FROM_NAMED, SPEND_FROM_RAIL } from "../app/design/sts-accounts-route/fixtures.ts";
+import { SPEND_FROM_NAMED, SPEND_FROM_RAIL, SYNCING_INFO } from "../app/design/sts-accounts-route/fixtures.ts";
 
 const noop = () => {};
 const router = { back: noop, forward: noop, refresh: noop, push: noop, replace: noop, prefetch: noop };
@@ -24,71 +24,62 @@ const render = (props) =>
   );
 const hrefs = (html) => [...html.matchAll(/<a [^>]*href="([^"]+)"/g)].map((m) => m[1]);
 const count = (html, needle) => html.split(needle).length - 1;
-
-const rows = { kind: "rows", accountHref: accountDeepLink };
-const link = { kind: "link", href: "/accounts" };
-const strip = { kind: "strip", href: "/accounts", accounts: ALL_ACCOUNTS };
-
-// 1. Absent prop: no anchors, none of the new markers, byte-stable twice over.
-const base = render({});
-assert.deepEqual(hrefs(base), [], "absent prop renders no link");
-assert.ok(!base.includes("data-g219"), "absent prop renders no G219 marker");
-assert.equal(render({ accountsRoute: undefined }), base);
-// The loader cannot cache-bust an import, so compare against a render from cloned props.
-assert.equal(render({ data: structuredClone(FIGURE_DATA["on-track"]), spendFrom: structuredClone(SPEND_FROM_RAIL) }), base, "absent-prop render is stable across cloned props");
-// Inertness in recovery states: the bare button keeps its own mt-3, no wrapper.
-for (const key of ["tight", "card", "short-cash", "short-plans"]) {
-  const html = render({ data: FIGURE_DATA[key] });
-  if (!html.includes('<button type="button" class="mt-3 inline-flex')) {
-    assert.equal(key, "tight", `${key}: recovery button renders bare with mt-3`);
-    continue;
-  }
-  assert.ok(!html.includes('class="mt-3 flex'), `${key}: no flex wrapper when the prop is absent`);
-}
-assert.ok(render({ data: FIGURE_DATA["short-cash"] }).includes('<button type="button" class="mt-3 inline-flex'), "short state has the bare mt-3 button");
-assert.ok(!render({ data: FIGURE_DATA["short-cash"], accountsRoute: rows }).includes('class="mt-3 flex'), "rows variant adds no footer wrapper");
-assert.ok(render({ data: FIGURE_DATA["short-cash"], accountsRoute: link }).includes('class="mt-3 flex'), "only B uses the wrapper");
-assert.ok(base.includes("Spend from"), "today's rail still renders");
-
-// 2. A: one link per Spend from row, account id in the href, both layouts.
-const a = render({ accountsRoute: rows });
-assert.deepEqual(hrefs(a), ["/accounts?id=g219-barclays", "/accounts?id=g219-natwest"]);
-assert.equal(count(a, "data-g219-account-link"), 2);
-assert.ok(a.includes("opens this account"), "sr-only label says it opens the account");
-assert.ok(a.includes("<ul") && a.includes("<li"), "rail keeps list semantics");
-assert.ok(!a.includes("contents"), "no display: contents on the rail (G171)");
-assert.ok(a.includes("min-h-11"), "44px rows");
-const aNamed = render({ accountsRoute: rows, spendFrom: SPEND_FROM_NAMED });
-assert.ok(aNamed.includes('data-g115-treatment="name-fallback"'), "missing logo falls back to named rows");
-assert.deepEqual(hrefs(aNamed), ["/accounts?id=g219-barclays", "/accounts?id=g219-metro"]);
-assert.ok(!aNamed.includes("<dl><div"), "linked name rows are a list, not a dl");
-
-// 3. B: exactly one "Your accounts" link, in every figure state, and beside the primary action.
-for (const key of ["on-track", "tight", "card", "short-cash", "short-plans"]) {
-  const b = render({ data: FIGURE_DATA[key], accountsRoute: link });
-  assert.equal(count(b, "Your accounts<"), 1, `${key}: one Your accounts link`);
-  assert.deepEqual(hrefs(b), ["/accounts"]);
-}
-const bShort = render({ data: FIGURE_DATA["short-cash"], accountsRoute: link });
-assert.ok(bShort.includes("See what’s due") && bShort.includes("Your accounts"), "primary action and link share the row");
-assert.equal(count(bShort, "<button"), count(render({ data: FIGURE_DATA["short-cash"] }), "<button"), "no second primary button");
-assert.equal(count(render({ accountsRoute: link, syncing: { kind: "refresh", bank: "Barclays", asOf: "2026-10-06T09:41:00" } }), "Your accounts<"), 1, "link survives a stale-figure sync");
-
-// 4. C: one link to /accounts with the count.
-const c = render({ accountsRoute: strip });
-assert.deepEqual(hrefs(c), ["/accounts"]);
-assert.ok(c.includes(">3 linked accounts<"), "count is shown");
-assert.equal(render({ accountsRoute: { ...strip, accounts: ALL_ACCOUNTS_METRO } }).includes(">3 linked accounts<"), true, "count does not depend on logos");
-assert.ok(render({ accountsRoute: { ...strip, accounts: ALL_ACCOUNTS.slice(0, 1) } }).includes(">1 linked account<"), "singular");
-assert.deepEqual(hrefs(render({ accountsRoute: { ...strip, accounts: [] } })), [], "no accounts, no strip");
-
-// 5. Copy and tone, on the rendered text: no em dash, no "!", no new colour meaning.
 const text = (html) => html.replace(/<[^>]+>/g, " ");
-for (const html of [a, aNamed, render({ accountsRoute: link }), c]) {
-  assert.doesNotMatch(text(html), /—|!/, "rendered copy has no em dash or exclamation mark");
-  const bits = [...html.matchAll(/<a [^>]*data-g219[^>]*class="([^"]+)"/g)].map((m) => m[1]).concat([...html.matchAll(/<a [^>]*class="([^"]+)"[^>]*data-g219/g)].map((m) => m[1]));
-  assert.ok(bits.length > 0, "found the G219 anchors");
-  for (const cls of bits) assert.doesNotMatch(cls, /red-|amber-|violet-|gradient|bg-indigo-(?!50)/, `no new colour meaning: ${cls}`);
+
+// 1. Exactly one link to /accounts wherever a figure renders, syncing included.
+for (const key of ["on-track", "tight", "card", "short-cash", "short-plans"]) {
+  const html = render({ data: FIGURE_DATA[key] });
+  assert.equal(count(html, "Your accounts<"), 1, `${key}: one Your accounts link`);
+  assert.deepEqual(hrefs(html), ["/accounts"], `${key}: it points at /accounts`);
+  assert.ok(html.includes("data-g219-action-row"), `${key}: link sits in the action row`);
 }
+const syncing = render({ syncing: SYNCING_INFO });
+assert.equal(count(syncing, "Your accounts<"), 1, "syncing: one link");
+assert.deepEqual(hrefs(syncing), ["/accounts"]);
+const stale = render({ syncing: SYNCING_INFO });
+assert.equal(count(stale, "Your accounts<"), 1, "stale figure while syncing: one link");
+
+// 2. None where no figure renders.
+for (const [name, props] of [
+  ["loading", { loading: true, data: null }],
+  ["error", { error: true, data: null }],
+  ["degraded", { data: FIGURE_DATA.degraded }],
+]) {
+  const html = render(props);
+  assert.equal(count(html, "data-g219-accounts-link"), 0, `${name}: no Your accounts link`);
+  assert.deepEqual(hrefs(html), [], `${name}: no anchors to /accounts`);
+}
+
+// 3. The link carries no colour meaning: no indigo fill, red, amber or gradient.
+for (const key of ["on-track", "short-cash"]) {
+  const html = render({ data: FIGURE_DATA[key] });
+  const cls = [...html.matchAll(/<a [^>]*data-g219-accounts-link[^>]*class="([^"]+)"/g)].map((m) => m[1])
+    .concat([...html.matchAll(/<a [^>]*class="([^"]+)"[^>]*data-g219-accounts-link/g)].map((m) => m[1]));
+  assert.equal(cls.length, 1, `${key}: found the link anchor`);
+  assert.doesNotMatch(cls[0], /bg-indigo|red-|amber-|violet-|gradient/, `no new colour meaning: ${cls[0]}`);
+  assert.ok(cls[0].includes("min-h-11"), "44px target");
+  assert.ok(cls[0].includes("text-slate-600"), "secondary slate ink");
+  assert.match(html, /<svg[^>]*aria-hidden="true"[^>]*>(?:(?!<\/a>).)*<\/svg><\/a>/s, "arrow is aria-hidden");
+}
+
+// 4. Copy: no em dash or exclamation mark in rendered text.
+for (const key of ["on-track", "tight", "card", "short-cash", "short-plans"]) {
+  assert.doesNotMatch(text(render({ data: FIGURE_DATA[key] })), /—|!/, `${key}: no em dash or "!"`);
+}
+
+// 5. Bank rail and name-row fallback carry no anchors of their own.
+const rail = render({});
+assert.ok(rail.includes('data-g115-treatment="bank-rail"'), "bank rail renders");
+assert.deepEqual(hrefs(rail), ["/accounts"], "rail rows are not links");
+const named = render({ spendFrom: SPEND_FROM_NAMED });
+assert.ok(named.includes('data-g115-treatment="name-fallback"'), "name fallback renders");
+assert.deepEqual(hrefs(named), ["/accounts"], "name rows are not links");
+
+// 6. The recovery button still renders in its state, with the link beside it in one row.
+const short = render({ data: FIGURE_DATA["short-cash"] });
+const row = short.slice(short.indexOf("data-g219-action-row"));
+assert.ok(row.includes("See what’s due"), "recovery button in the action row");
+assert.ok(row.indexOf("See what’s due") < row.indexOf("Your accounts<"), "primary action precedes the link");
+assert.equal(count(short, "<button"), count(short, "See what’s due"), "one primary button only");
 
 console.log("g219-accounts-route: all assertions passed");
