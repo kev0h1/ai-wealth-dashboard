@@ -111,7 +111,7 @@ function VariantA({ format }: { format: Format }) {
           <br />
           actually spend?
         </Headline>
-        <Body>Sorted shows what&apos;s left once your bills are set aside.</Body>
+        <Body>Sorted works out what&apos;s left after your bills.</Body>
       </div>
       <div className="flex flex-col gap-6">
         <Card zoom={story ? 1.95 : 1.7} />
@@ -128,14 +128,14 @@ function VariantB({ format }: { format: Format }) {
       <div className="flex flex-col gap-6">
         <div
           className="money font-bold leading-[0.95] tracking-[-0.06em] text-emerald-700 dark:text-emerald-300"
-          style={{ fontSize: story ? 280 : 260 }}
+          style={{ fontSize: story ? 210 : 220 }}
         >
           {pound(PERSONA.safe)}
         </div>
-        <Headline size={story ? 80 : 76}>is safe to spend<br />until payday.</Headline>
-        <Body>Your bills and plans are already set aside.</Body>
+        <Headline size={story ? 80 : 76}>is safe to spend<br />until payday,<br />by our estimate.</Headline>
+        <Body>Worked out from your bank, after bills and plans.</Body>
       </div>
-      <Card zoom={story ? 1.6 : 1.45} />
+      <Card zoom={story ? 1.4 : 1.3} />
     </>
   );
 }
