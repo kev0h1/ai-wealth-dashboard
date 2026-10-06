@@ -799,6 +799,7 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
       <div className="space-y-1 border-t border-slate-100 pt-3 dark:border-white/10">
         <p className="text-[12px] text-slate-500 dark:text-slate-400 text-pretty"><MoneyText text={showPace ? `${hidden ? "£••••" : fmt2(pace!.sustainable!)}/day until ${paydayLabel}` : `Pay period ends ${paydayLabel}`} />{(data.payday_income ?? 0) > 0 && <><span aria-hidden="true"> · </span><MoneyText text={`~${hidden ? "£••••" : fmt(data.payday_income!)} expected`} /></>}</p>
         {freshnessLabel && <p className="text-sm text-slate-500 dark:text-slate-400">{freshnessLabel}</p>}
+        <p data-sts-disclaimer className="text-[11px] leading-snug text-slate-500 dark:text-slate-400">An estimate from your bank data, not financial advice.</p>
       </div>
 
       {recovery && <button type="button" onClick={() => router.push(recovery.href)} className="mt-3 inline-flex min-h-11 items-center gap-2 rounded-xl bg-indigo-50 px-3 text-sm font-semibold text-indigo-700 transition-[transform,background-color] hover:bg-indigo-100 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:bg-indigo-400/10 dark:text-indigo-300 dark:hover:bg-indigo-400/15">{recovery.label}<ArrowRight size={15} aria-hidden="true" /></button>}
