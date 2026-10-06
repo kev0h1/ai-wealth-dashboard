@@ -104,3 +104,4 @@ frontend/.screens/
 # backstop that catches it regardless of location or a bypassed .gitignore.
 roe.env
 *.roe.env
+marketing/ai-intro/out/
