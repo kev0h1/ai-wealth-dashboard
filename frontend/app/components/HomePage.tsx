@@ -7,6 +7,7 @@ import { api, ApiError, Account, AccountEligibility, Transaction, InvestmentAcco
 import { bestSpendAccount, type TodayRequestStatus } from "@/lib/spendFromAccount";
 import SafeToSpendCard from "@/components/SafeToSpendCard";
 import FirstSyncCard from "@/components/FirstSyncCard";
+import { heroSyncingInfo, pollDelayMs, shouldPollTick } from "@/lib/syncStatusView";
 import AccountLedgerRow from "@/components/AccountLedgerRow";
 import { bankToRow, investmentToRow } from "@/lib/accountsEstate";
 import TransactionRow from "@/components/TransactionRow";
@@ -312,6 +313,11 @@ export default function HomePage() {
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
   const [syncRetrying, setSyncRetrying] = useState(false);
   const [syncError, setSyncError] = useState(false);
+  // G214: a manual refresh that failed stays marked on the hero (the 6s
+  // `syncError` flag above only drives the brief's own line), and the figure
+  // time we dim to is captured when the refresh starts, before it moves.
+  const [refreshFailed, setRefreshFailed] = useState(false);
+  const [refreshAsOf, setRefreshAsOf] = useState<string | null>(null);
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
   // Shared store (lib/homePinnedAccounts.ts) — replaces this page's own
   // dedicated api.getPreferences() re-fetch (see that file's doc comment
@@ -683,6 +689,8 @@ export default function HomePage() {
   const syncErrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   async function handleSync() {
+    setRefreshAsOf(safeToSpend && safeToSpend.status === "ok" ? safeToSpend.last_synced ?? null : null);
+    setRefreshFailed(false);
     setSyncing(true);
     setSyncError(false);
     if (syncErrorTimerRef.current) clearTimeout(syncErrorTimerRef.current);
@@ -699,6 +707,7 @@ export default function HomePage() {
       invalidateAllAccountData();
       await loadData();
     } catch {
+      setRefreshFailed(true);
       setSyncError(true);
       syncErrorTimerRef.current = setTimeout(() => setSyncError(false), 6000);
     } finally {
@@ -710,21 +719,22 @@ export default function HomePage() {
     return () => { if (syncErrorTimerRef.current) clearTimeout(syncErrorTimerRef.current); };
   }, []);
 
-  // G210: while a first sync is running or stuck, ask the server every 3s.
-  // When it turns idle the data has landed: drop every account-derived cache
-  // and reload Home once. Failed does not poll (nothing is running); the
-  // Try again button restarts it.
-  const pollingSync = syncStatus?.state === "syncing" || syncStatus?.state === "stalled";
-  const pollStalled = syncStatus?.state === "stalled";
+  // G210/G214: one poll for every sync Home can show. While the server says a
+  // sync is running or stalled, ask every 3s (15s once stalled); paused while
+  // the tab is hidden and never overlapping a request still in flight. When
+  // it turns idle the data has landed: drop every account-derived cache and
+  // reload Home once. Failed does not poll (nothing is running); Try again
+  // restarts it.
+  const syncPollDelay = pollDelayMs(syncStatus?.state);
+  const syncInFlightRef = useRef(false);
+  const syncStatusRef = useRef<SyncStatus | null>(null);
+  syncStatusRef.current = syncStatus;
   useEffect(() => {
-    if (!pollingSync) return;
+    if (syncPollDelay == null) return;
     let cancelled = false;
-    let inFlight = false;
-    // 3s while syncing, 15s once stalled; paused while the tab is hidden and
-    // never overlapping a request still in flight.
     const id = setInterval(async () => {
-      if (cancelled || inFlight || document.visibilityState !== "visible") return;
-      inFlight = true;
+      if (!shouldPollTick({ visible: document.visibilityState === "visible", inFlight: syncInFlightRef.current, cancelled })) return;
+      syncInFlightRef.current = true;
       try {
         const next = await api.getSyncStatus();
         if (cancelled) return;
@@ -735,14 +745,38 @@ export default function HomePage() {
           await loadData();
         }
       } catch {} finally {
-        inFlight = false;
+        syncInFlightRef.current = false;
       }
-    }, pollStalled ? 15000 : 3000);
+    }, syncPollDelay);
     return () => { cancelled = true; clearInterval(id); };
-  }, [pollingSync, pollStalled, loadData]);
+  }, [syncPollDelay, loadData]);
+
+  // G214: coming back to the tab re-asks once, so a background sync that
+  // started (or finished) while Home was hidden shows without waiting for the
+  // next interval.
+  useEffect(() => {
+    const onVisible = async () => {
+      if (document.visibilityState !== "visible" || syncInFlightRef.current) return;
+      syncInFlightRef.current = true;
+      try {
+        const next = await api.getSyncStatus();
+        const wasRunning = syncStatusRef.current != null && syncStatusRef.current.state !== "idle";
+        setSyncStatus(next);
+        if (wasRunning && next.state === "idle") {
+          invalidateAllAccountData();
+          await loadData();
+        }
+      } catch {} finally {
+        syncInFlightRef.current = false;
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [loadData]);
 
   async function handleSyncRetry() {
     setSyncRetrying(true);
+    setRefreshFailed(false);
     try {
       await api.syncAccounts();
     } catch {}
@@ -950,6 +984,16 @@ export default function HomePage() {
   const verdictWithheld =
     syncStatus?.first_sync === true && (syncState === "syncing" || syncState === "stalled");
   const isFreshUser = hasNoAccounts && !firstSyncActive;
+  // G214 (approved B): every other sync marks the hero's last known figure.
+  // A genuine first sync has no figure yet and keeps FirstSyncCard instead.
+  const heroSync = heroSyncingInfo({
+    status: syncStatus,
+    refreshing: syncing,
+    refreshFailed,
+    asOf: syncing || refreshFailed
+      ? refreshAsOf
+      : safeToSpend && safeToSpend.status === "ok" ? safeToSpend.last_synced ?? null : null,
+  });
   // A67: does this plan include connecting a bank at all? Resolved off to
   // the side, never blocking the page — see lib/openBankingAccess.ts for why
   // the pending state shows Upload Statement rather than Connect.
@@ -1071,7 +1115,7 @@ export default function HomePage() {
           {/* G210: first sync running / stuck / failed. With no accounts yet it
               replaces the connect hero; with accounts, a syncing or stalled sync
               takes the verdict slot (below), and a failed one sits above it. */}
-          {!loadError && !loading && firstSyncActive && (
+          {!loadError && !loading && firstSyncActive && syncStatus?.first_sync === true && (
             <div className="px-4 lg:px-0 mt-6" data-tutorial-id={hasNoAccounts ? "tutorial-home-fresh" : undefined}>
               <FirstSyncCard
                 state={syncState as "syncing" | "stalled" | "failed"}
@@ -1114,6 +1158,8 @@ export default function HomePage() {
                   onRetry={() => { setStsError(false); setStsLoading(true); loadData(); }}
                   spendFrom={spendFrom}
                   coverMoveVisible={coverMoveVisible}
+                  syncing={heroSync ?? undefined}
+                  onSyncRetry={() => { void (refreshFailed ? handleSync() : handleSyncRetry()); }}
                 />
               )}
 

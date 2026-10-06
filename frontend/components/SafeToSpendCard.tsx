@@ -16,7 +16,7 @@ import {
 } from "@/lib/spendFromAccount";
 import { BankBadge, BANK_META, accountBrand, bankKey, bankLogoSrc } from "@/components/AccountMiniCard";
 import MoneyText from "@/components/MoneyText";
-import { SyncGlyph, SyncLedgerRow, SyncLine, asOfLabel, syncChipClass, syncChipLabel, syncLedgerClass, syncPhase, type SyncTreatment, type SyncingInfo } from "@/components/SyncNote";
+import { SyncGlyph, SyncLine, asOfLabel, syncChipClass, syncChipLabel, syncPhase, type SyncingInfo } from "@/components/SyncNote";
 
 type SpendFromTreatment = {
   heroAside?: ReactNode;
@@ -49,11 +49,12 @@ interface SafeToSpendCardProps {
   spendFromPreview?: SpendFromTreatment;
   /**
    * G214: a non-first sync is running. The last known figure stays, in
-   * neutral ink, marked as updating. Takes effect only with `syncTreatment`;
-   * absent, the card renders exactly as before.
+   * neutral ink, marked "Last known amount · as of HH:MM" (G214, approved
+   * treatment B). Absent, the card renders exactly as before.
    */
   syncing?: SyncingInfo;
-  syncTreatment?: SyncTreatment;
+  /** G214: "Try again" on a stalled or failed sync (POST /accounts/sync). */
+  onSyncRetry?: () => void;
   /**
    * G218 preview seam. /design pages have no signed-in preferences, so the
    * default context masks every figure as `£••••`. Passing true shows the
@@ -462,7 +463,7 @@ function CardBalanceFact({
   );
 }
 
-export default function SafeToSpendCard({ data, loading, error, onRetry, spendFrom, coverMoveVisible = false, spendFromPreview, syncing, syncTreatment, previewBalancesVisible = false }: SafeToSpendCardProps) {
+export default function SafeToSpendCard({ data, loading, error, onRetry, spendFrom, coverMoveVisible = false, spendFromPreview, syncing, onSyncRetry, previewBalancesVisible = false }: SafeToSpendCardProps) {
   const { hideNetWorth, preferencesReady } = usePreferences();
   const router = useRouter();
   const hidden = !previewBalancesVisible && (hideNetWorth || !preferencesReady);
@@ -618,7 +619,7 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
   const StateIcon = state === "comfortable" ? ShieldCheck : state === "tight" || isCardsUnconfirmedShort || plansOnly ? AlertCircle : AlertTriangle;
   const { figure: figureClass, chip: stateChipClass } = figureToneClasses({ state, isCardsUnconfirmedShort, plansOnly });
 
-  const sync = syncing && syncTreatment ? { info: syncing, treatment: syncTreatment, phase: syncPhase(syncing) } : null;
+  const sync = syncing ? { info: syncing, phase: syncPhase(syncing) } : null;
   const syncAsOf = sync ? asOfLabel(sync.info.asOf ?? data.last_synced) : null;
 
 
@@ -688,7 +689,7 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
   const recovery = sync ? null : state === "short"
     ? isCardsUnconfirmedShort ? { label: "Review card bill", href: "/cards" } : { label: "See what’s due", href: "/upcoming" }
     : state === "tight" && (data.card_debt ?? 0) >= 1000 ? { label: "See your cards", href: "/cards" } : null;
-  const heroFigureClass = sync ? (sync.treatment === "stale" ? "text-slate-700 dark:text-slate-200" : "text-slate-900 dark:text-slate-100") : figureClass;
+  const heroFigureClass = sync ? "text-slate-700 dark:text-slate-200" : figureClass;
   const heroHeading = (
     <h2 id="safe-to-spend-heading" className={spendFromTreatment?.heroAside ? "min-w-0 flex-1" : "mt-5"}>
       <span className={`money block text-[38px] font-bold leading-none tracking-[-0.05em] ${heroFigureClass}`}>{amount(heroAmount)}</span>
@@ -704,7 +705,7 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
         <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Safe to Spend</p>
         {sync ? (
           <span data-sync-chip={sync.phase} className={`inline-flex min-h-7 items-center gap-1.5 rounded-full px-2.5 text-[11px] font-semibold ${syncChipClass}`}>
-            {sync.treatment === "stale" ? <SyncGlyph phase={sync.phase} /> : null}
+            <SyncGlyph phase={sync.phase} />
             {syncChipLabel(sync.info)}
           </span>
         ) : (
@@ -714,8 +715,6 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
           </span>
         )}
       </div>
-      {sync && sync.treatment === "line" ? <SyncLine info={sync.info} onRetry={onRetry} /> : null}
-
       {error && <div className="mb-3 flex items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-800 dark:bg-amber-950/30" role="status"><p className="text-xs text-slate-700 dark:text-slate-200">Couldn&apos;t refresh. Showing your last figure.</p>{onRetry && <button type="button" onClick={onRetry} className="min-h-9 shrink-0 rounded-lg px-2 text-xs font-semibold text-indigo-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400">Retry</button>}</div>}
 
       {spendFromTreatment?.heroAside ? (
@@ -725,16 +724,10 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
         </div>
       ) : heroHeading}
 
-      {sync && sync.treatment === "stale" ? (
+      {sync ? (
         <>
-          <p className="mt-2 text-xs text-slate-600 dark:text-slate-300">{syncAsOf ? `Last known amount · as of ${syncAsOf}` : "Last known amount"}</p>
-          {sync.phase !== "syncing" ? <SyncLine info={sync.info} onRetry={onRetry} className="mt-2" /> : null}
-        </>
-      ) : null}
-      {sync && sync.treatment === "drawer" ? (
-        <>
-          <p className="mt-2 text-xs text-slate-600 dark:text-slate-300">{syncAsOf ? `Last known amount · updated at ${syncAsOf}` : "Last known amount"}</p>
-          {sync.phase !== "syncing" ? <SyncLine info={sync.info} onRetry={onRetry} className="mt-2" /> : null}
+          <p data-sync-asof className="mt-2 text-xs text-slate-600 dark:text-slate-300">{syncAsOf ? `Last known amount · as of ${syncAsOf}` : "Last known amount"}</p>
+          {sync.phase !== "syncing" ? <SyncLine info={sync.info} onRetry={onSyncRetry} className="mt-2" /> : null}
         </>
       ) : null}
 
@@ -756,7 +749,7 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
       )}
 
       <div className="mt-3 border-t border-slate-100 dark:border-white/10">
-        <details className="group" open={sync?.treatment === "drawer" ? true : undefined}>
+        <details className="group">
           <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 rounded-xl text-sm font-semibold text-indigo-600 hover:text-indigo-700 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300 [&::-webkit-details-marker]:hidden">
             {summaryLabel}
             <ChevronDown size={17} className="shrink-0 transition-transform group-open:rotate-180" aria-hidden="true" />
@@ -767,12 +760,6 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
               <h3 className="text-[11px] font-bold uppercase tracking-[0.085em] text-slate-500 dark:text-slate-400">Cash calculation</h3>
               <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500">Exact steps</span>
             </div>
-
-            {sync && sync.treatment === "drawer" ? (
-              <ol aria-label="Bank sync" className={`mt-2 ${syncLedgerClass}`}>
-                <SyncLedgerRow info={sync.info} compact={sync.phase !== "syncing"} />
-              </ol>
-            ) : null}
 
             <dl className="mt-1.5">
               {data.spendable_now != null && <CalculationRow operator="+" label="Cash available now" value={exactAmount(data.spendable_now)} spokenValue={`plus ${exactAmount(data.spendable_now)}`} detail="Across included current accounts." />}

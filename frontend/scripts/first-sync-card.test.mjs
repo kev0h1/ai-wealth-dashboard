@@ -16,6 +16,14 @@ assert.match(syncing, /Fetching transactions/);
 assert.match(syncing, /Working out your figures/);
 assert.match(syncing, /This usually takes a minute or two\./);
 assert.doesNotMatch(syncing, /Try again/, "syncing offers no retry");
+// G214 fold-in: the first sign-up speaks B's grammar (chip with ring, no figure).
+assert.match(syncing, /data-sync-chip="syncing"/);
+assert.match(syncing, />Updating</);
+assert.match(syncing, /No figure yet/);
+assert.match(syncing, /We will show your Safe to Spend once Barclays has synced/);
+assert.doesNotMatch(syncing, /£\d|£••/, "no amount, no verdict");
+assert.match(syncing, /text-slate-500 dark:text-slate-400">No figure yet/, "placeholder in secondary ink");
+assert.match(render("syncing", { connections: [] }), /once your bank has synced/);
 
 const stalled = render("stalled");
 assert.match(stalled, /Still fetching from Barclays/);
@@ -38,7 +46,7 @@ assert.match(render("syncing", { connections: [] }), /Your bank connected/);
 
 // Source guards.
 const home = readFileSync(new URL("../app/components/HomePage.tsx", import.meta.url), "utf8");
-assert.match(home, /firstSyncActive && \(/, "HomePage renders FirstSyncCard under the sync condition");
+assert.match(home, /firstSyncActive && syncStatus\?\.first_sync === true && \(/, "HomePage renders FirstSyncCard under the sync condition");
 assert.match(home, /<FirstSyncCard/);
 assert.match(home, /api\.getSyncStatus\(\)/);
 assert.match(home, /invalidateAllAccountData\(\);\s*await loadData\(\)/, "idle transition reloads Home once");

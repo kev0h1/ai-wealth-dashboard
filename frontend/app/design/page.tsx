@@ -40,11 +40,10 @@ const ROUTES: PreviewRoute[] = [
   },
   {
     slug: "sync-loading",
-    name: "Sync loading state · G214 · variants A, B, C",
+    name: "Sync loading state · G214 · approved B, folded in",
     description:
-      "G214: what the Home hero and the Accounts page say while a bank sync runs that is not a first sync (manual refresh, a new bank for an established user, a background sync) · the last known figure stays in neutral ink, never blanked and never a stale red or green verdict · a stall or failure ends in plain words with Try again · reuses the G202 progress ledger, no red, no gradient, only the ring moves · variants drafted by Astra (openai/gpt-6-astra), rewritten to DESIGN.md under the impeccable skill: A quiet ledger line, B stale-marked figure, C ledger drawer · renders the production SafeToSpendCard and AccountLedgerRow with fixture props, nothing syncs · ?variant=a|b|c&surface=hero|accounts&state=refresh|new-bank|background|stalled|failed&mode=light|dark",
-    variants: [{ label: "A · Quiet ledger line", value: "a" }, { label: "B · Stale-marked figure", value: "b" }, { label: "C · Ledger drawer", value: "c" }],
-    states: [{ label: "Refresh", value: "refresh" }, { label: "New bank", value: "new-bank" }, { label: "Background", value: "background" }, { label: "Stalled", value: "stalled" }, { label: "Failed", value: "failed" }],
+      "G214, Kevin's pick B (stale-marked figure), now shipped: while a bank sync runs the Safe to Spend figure steps down to secondary ink with Last known amount and an as-of time, the chip carries the ring, and Accounts shows a ring beside the balance, Pending for a never-synced bank and a banner with Try again once a sync stalls or fails · the first sign-up has no hero yet, so the same grammar shows No figure yet above the sign-in ledger · renders the production SafeToSpendCard, FirstSyncCard, AccountLedgerRow and SyncNote with fixture props, nothing syncs · ?surface=hero|accounts&state=refresh|new-bank|background|stalled|failed|first-sync&mode=light|dark",
+    states: [{ label: "Refresh", value: "refresh" }, { label: "New bank", value: "new-bank" }, { label: "Background", value: "background" }, { label: "Stalled", value: "stalled" }, { label: "Failed", value: "failed" }, { label: "First sign-up", value: "first-sync" }],
   },
   {
     slug: "safe-to-spend-figure",

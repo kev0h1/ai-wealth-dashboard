@@ -32,6 +32,10 @@ import { getAllTransactionsCached } from "@/lib/useAllTransactions";
 import { getAccountsCached } from "@/lib/accountsCache";
 import { invalidateAllAccountData } from "@/lib/accountMutations";
 import { findLandedAccount, SYNC_POLL_TIMEOUT_MS } from "@/lib/syncLanding";
+import { AccountsSyncBanner } from "@/components/SyncNote";
+import { bankLabel } from "@/lib/bankLabel";
+import { connectionSyncInfos, pendingConnectionInfos, pollDelayMs, shouldPollTick } from "@/lib/syncStatusView";
+import type { SyncStatus } from "@/lib/api";
 import { writeHomePinnedAccounts } from "@/lib/homePinnedAccounts";
 import MoneyText from "@/components/MoneyText";
 import { formatConsentExpiry } from "@/lib/consentExpiry";
@@ -796,6 +800,48 @@ export default function AccountsPage() {
     return () => clearInterval(interval);
   }, [isSyncing, syncConnection, syncPollKey, router]);
 
+  // G214: server-side sync state for Accounts (banner, per-row ring, Pending
+  // rows). One poll: 3s while syncing, 15s once stalled, paused while hidden,
+  // never overlapping; re-asked when the tab becomes visible. It coexists
+  // with the ?syncing=1 landing poll above, which waits for the account itself.
+  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  const syncStatusRef = useRef<SyncStatus | null>(null);
+  syncStatusRef.current = syncStatus;
+  const syncInFlightRef = useRef(false);
+  const refreshSyncStatus = useCallback(async () => {
+    if (syncInFlightRef.current) return;
+    syncInFlightRef.current = true;
+    try {
+      const next = await api.getSyncStatus();
+      const wasRunning = syncStatusRef.current != null && syncStatusRef.current.state !== "idle";
+      setSyncStatus(next);
+      if (wasRunning && next.state === "idle") {
+        invalidateAllAccountData();
+        await loadAccounts();
+      }
+    } catch {} finally {
+      syncInFlightRef.current = false;
+    }
+  }, [loadAccounts]);
+  useEffect(() => { void refreshSyncStatus(); }, [refreshSyncStatus]);
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === "visible") void refreshSyncStatus(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [refreshSyncStatus]);
+  const syncPollDelay = pollDelayMs(syncStatus?.state);
+  useEffect(() => {
+    if (syncPollDelay == null) return;
+    const id = setInterval(() => {
+      if (shouldPollTick({ visible: document.visibilityState === "visible", inFlight: syncInFlightRef.current, cancelled: false })) void refreshSyncStatus();
+    }, syncPollDelay);
+    return () => clearInterval(id);
+  }, [syncPollDelay, refreshSyncStatus]);
+  async function handleSyncRetry() {
+    try { await api.syncAccounts(); } catch {}
+    await refreshSyncStatus();
+  }
+
   // A108: the consent ended without linking an account (/accounts?connect=cancelled).
   useEffect(() => {
     if (searchParams.get("connect") === "cancelled") {
@@ -1411,6 +1457,33 @@ export default function AccountsPage() {
     () => buildEstate(bankAccounts, investmentAccounts, pinnedIds),
     [bankAccounts, investmentAccounts, pinnedIds]
   );
+  // G214: per-connection sync info. A paused bank (B45) never shows as
+  // syncing: it is not being fetched at all.
+  const syncInfoByConnection = useMemo(() => connectionSyncInfos(syncStatus, null), [syncStatus]);
+  const pausedConnectionIds = useMemo(
+    () => new Set(bankAccounts.filter((a) => a.paused).map((a) => a.connection_id).filter(Boolean)),
+    [bankAccounts],
+  );
+  const syncFor = (row: EstateRow) => {
+    const acc = row.source === "bank" ? (row.raw as Account) : null;
+    if (!acc || acc.paused || !acc.connection_id) return undefined;
+    return syncInfoByConnection.get(acc.connection_id);
+  };
+  const pendingRows = useMemo(() => {
+    // Only a bank that has never synced gets a Pending row; a re-sync of a
+    // bank with data has accounts already.
+    const entries = pendingConnectionInfos(syncInfoByConnection, bankAccounts).filter(([id, info]) => info.kind === "new-bank" && !pausedConnectionIds.has(id));
+    // Landing from a bank consent before the server lists the connection yet.
+    if (entries.length === 0 && isSyncing && !syncTimedOut && bankAccounts.length === 0) {
+      entries.push(["landing", { kind: "new-bank" as const }]);
+    }
+    return entries.map(([id, info]) => ({ id: `pending-${id}`, info }));
+  }, [syncInfoByConnection, bankAccounts, pausedConnectionIds, isSyncing, syncTimedOut]);
+  const syncBannerInfos = useMemo(() => {
+    const infos = [...syncInfoByConnection.entries()].filter(([id]) => !pausedConnectionIds.has(id)).map(([, v]) => v);
+    if (infos.length === 0 && isSyncing) infos.push({ kind: "new-bank", stalled: syncTimedOut });
+    return infos;
+  }, [syncInfoByConnection, pausedConnectionIds, isSyncing, syncTimedOut]);
   const reconnectProviders = useMemo(() => {
     const grouped = new Map<string, ReconnectProvider>();
     for (const account of bankAccounts) {
@@ -2779,17 +2852,12 @@ export default function AccountsPage() {
             </div>
           )}
 
-          {isSyncing && syncTimedOut && (
-            <div className="mx-4 mt-4 flex items-center gap-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-2xl px-4 py-3">
-              <p className="flex-1 text-sm text-amber-800 dark:text-amber-200">Your bank is still syncing. Check back in a moment.</p>
-              <button onClick={() => { setSyncTimedOut(false); setSyncPollKey(k => k + 1); }} className="min-h-[44px] px-3 text-sm font-semibold text-amber-800 dark:text-amber-200">Retry</button>
-            </div>
-          )}
-
-          {isSyncing && !syncTimedOut && (
-            <div className="mx-4 mt-4 flex items-center gap-3 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800 rounded-2xl px-4 py-3">
-              <RefreshCw size={16} className="animate-spin text-indigo-500 flex-shrink-0" />
-              <p className="text-sm text-indigo-700 dark:text-indigo-300 font-medium">Syncing your bank accounts…</p>
+          {syncBannerInfos.length > 0 && (
+            <div className="mx-4 mt-4">
+              <AccountsSyncBanner
+                connections={syncBannerInfos}
+                onRetry={isSyncing && syncTimedOut ? () => { setSyncTimedOut(false); setSyncPollKey(k => k + 1); } : handleSyncRetry}
+              />
             </div>
           )}
 
@@ -2809,7 +2877,7 @@ export default function AccountsPage() {
               <div className="flex items-center justify-center py-16">
                 <Spinner size={32} />
               </div>
-            ) : bankAccounts.length === 0 && investmentAccounts.length === 0 ? (
+            ) : bankAccounts.length === 0 && investmentAccounts.length === 0 && pendingRows.length === 0 ? (
               <div className="bg-white dark:bg-slate-800 rounded-2xl p-10 text-center shadow-sm">
                 <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-indigo-50 dark:bg-indigo-900/20 mb-4">
                   <Landmark size={26} color="#4f46e5" />
@@ -2863,6 +2931,31 @@ export default function AccountsPage() {
                 )}
 
                 <PausedBanksStrip count={pausedAccountCount(bankAccounts)} />
+
+                {pendingRows.length > 0 && (
+                  <div className="glass-card overflow-hidden rounded-2xl" aria-label="Banks being added">
+                    {pendingRows.map(({ id, info }, i) => (
+                      <div key={id} className={i > 0 ? "border-t border-slate-100 dark:border-white/5" : ""}>
+                        <AccountLedgerRow
+                          row={{
+                            id,
+                            name: info.bank ? bankLabel(info.bank) : "Your bank",
+                            provider: info.bank ? bankLabel(info.bank) : "Bank",
+                            kind: "Current",
+                            balance: 0,
+                            status: "connected",
+                            pinned: false,
+                            dormant: false,
+                            attention: false,
+                            source: "bank",
+                            raw: { id, name: info.bank ? bankLabel(info.bank) : "Your bank", type: "bank", balance: 0, currency: "GBP", provider: info.bank ?? "", status: "connected" } as Account,
+                          }}
+                          sync={info}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
 
                 {reconnectProviders.length > 0 && (
                   <ReconnectStrip providers={reconnectProviders} onReconnect={handleEstateReconnect} />
@@ -2919,6 +3012,7 @@ export default function AccountsPage() {
                             <AccountLedgerRow
                               row={row}
                               onClick={handleEstateRowClick}
+                              sync={syncFor(row)}
                               {...estateTermsProps(row)}
                             />
                           </div>
@@ -2941,7 +3035,7 @@ export default function AccountsPage() {
                         <p className="px-4 pt-3 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Pinned</p>
                         <div className="mt-1 divide-y divide-slate-100 dark:divide-slate-700">
                           {estate.pinned.map((row) => (
-                            <AccountLedgerRow key={row.id} row={row} onClick={handleEstateRowClick} {...estateTermsProps(row)} />
+                            <AccountLedgerRow key={row.id} row={row} onClick={handleEstateRowClick} sync={syncFor(row)} {...estateTermsProps(row)} />
                           ))}
                         </div>
                       </section>
@@ -3053,7 +3147,7 @@ export default function AccountsPage() {
                               >
                                 <div className="divide-y divide-slate-100 border-t border-slate-100 dark:divide-slate-700 dark:border-slate-700">
                                   {group.rows.map((row) => (
-                                    <AccountLedgerRow key={row.id} row={row} onClick={handleEstateRowClick} {...estateTermsProps(row)} />
+                                    <AccountLedgerRow key={row.id} row={row} onClick={handleEstateRowClick} sync={syncFor(row)} {...estateTermsProps(row)} />
                                   ))}
                                 </div>
                               </div>
@@ -3104,7 +3198,7 @@ export default function AccountsPage() {
                           >
                             <div className="divide-y divide-slate-100 border-t border-slate-100 dark:divide-slate-700 dark:border-slate-700">
                               {inactiveRows.map((row) => (
-                                <AccountLedgerRow key={row.id} row={row} onClick={handleEstateRowClick} />
+                                <AccountLedgerRow key={row.id} row={row} onClick={handleEstateRowClick} sync={syncFor(row)} />
                               ))}
                             </div>
                           </div>

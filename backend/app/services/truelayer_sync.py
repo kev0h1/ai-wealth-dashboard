@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 import httpx
 
-from app.services.sync_freshness import sync_error_code
+from app.services.sync_freshness import sync_error_code, sync_in_progress
 
 logger = logging.getLogger(__name__)
 
@@ -194,7 +194,8 @@ async def sync_connection(connection_id: str, user_id: Optional[str] = None, fro
     the exception still propagates exactly as before.
     """
     try:
-        return await _sync_connection(connection_id, user_id, from_date)
+        async with sync_in_progress(connections_col, connection_id):
+            return await _sync_connection(connection_id, user_id, from_date)
     except Exception as exc:
         try:
             await connections_col.update_one(
