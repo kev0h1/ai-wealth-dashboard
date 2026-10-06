@@ -31,9 +31,8 @@ import { SPEND_FROM_RAIL } from "../sts-accounts-route/fixtures";
 import { REAL_MOVE_ITEM, REAL_CELEBRATION_ITEM } from "../g88-home-real/realFixtures";
 import { CLEARED_ADVICE } from "../g134-home-inventory/fixtures";
 import FixtureBottomNav from "../_components/FixtureBottomNav";
-import { CASES, TIP, RECENT_TRANSACTIONS, cashflowFixture, pinnedTransactions, estateFor, type AccountsCase } from "./fixtures";
+import { CASES, TIP, RECENT_TRANSACTIONS, cashflowFixture, pinnedTransactions, estateFor, topPicks, type AccountsCase } from "./fixtures";
 import HomeEstateSection from "@/components/HomeEstateSection";
-import { topPicks } from "./fixtures";
 
 type Mode = "light" | "dark";
 const noop = () => {};
@@ -176,7 +175,6 @@ export default function HomeCleanupClient() {
                   <div className="space-y-3 px-4">{pinned}</div>
                 </div>
               </div>
-
 
               {/* Estate */}
               <HomeEstateSection

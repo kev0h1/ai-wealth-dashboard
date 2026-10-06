@@ -897,6 +897,12 @@ export default function HomePage() {
   const verdictWithheld =
     syncStatus?.first_sync === true && (syncState === "syncing" || syncState === "stalled");
   const isFreshUser = hasNoAccounts && !firstSyncActive;
+
+  // User-pinned insight cards render once accounts exist and loading is done,
+  // load error or not (unchanged from before G221 moved them into Your money).
+  const showPinnedCards =
+    !hasNoAccounts && !loading &&
+    (pinnedCards.includes("fuel") || pinnedCards.includes("groceries") || Boolean(homePinnedWidget && homeTxns.length > 0));
   // G214 (approved B): every other sync marks the hero's last known figure.
   // A genuine first sync has no figure yet and keeps FirstSyncCard instead.
   const heroSync = heroSyncingInfo({
@@ -1096,22 +1102,24 @@ export default function HomePage() {
 
           {/* ── YOUR MONEY ── suppressed for a fresh user (bills/spend
               strips have nothing to show without connected accounts). */}
-          {!loadError && !hasNoAccounts && (
+          {!hasNoAccounts && (!loadError || showPinnedCards) && (
             <div className="rise-in mt-5" style={{ "--rise-index": 2 } as React.CSSProperties}>
-              <div className="px-4 lg:px-0 mb-2">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
-                  Your money
-                </p>
-              </div>
+              {!loadError && (
+                <div className="px-4 lg:px-0 mb-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                    Your money
+                  </p>
+                </div>
+              )}
               <div className="space-y-3">
-                <UpcomingBillsStrip onReady={onBillsReady} />
-                <HomeInsightSpotlight onReady={onSpotlightReady} />
+                {!loadError && <UpcomingBillsStrip onReady={onBillsReady} />}
+                {!loadError && <HomeInsightSpotlight onReady={onSpotlightReady} />}
                 {/* B20: admin-sent offer, if any is unread. Self-fetching,
                     renders nothing when there's nothing to show — same
                     convention as the strips above. */}
-                <OfferCard />
-                {/* User-pinned insight cards (fuel prices, grocery baskets, chart widget) join this group (G221) */}
-                {!hasNoAccounts && !loading && (pinnedCards.includes("fuel") || pinnedCards.includes("groceries") || (homePinnedWidget && homeTxns.length > 0)) && (
+                {!loadError && <OfferCard />}
+                {/* User-pinned insight cards (fuel prices, grocery baskets, chart widget) join this group (G221). Not gated by loadError: they rendered on a load error before the move. */}
+                {showPinnedCards && (
                   <div className="space-y-3 px-4 lg:px-0">
                     {pinnedCards.includes("fuel") && <FuelSavingsCard />}
                     {pinnedCards.includes("groceries") && <GroceryBasketCard />}

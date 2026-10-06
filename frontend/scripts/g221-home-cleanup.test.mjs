@@ -114,6 +114,11 @@ const estateAt = home.indexOf("<HomeEstateSection");
 const pinnedAt = home.indexOf("{pinnedCards.includes(\"fuel\") && <FuelSavingsCard />}");
 assert.ok(moneyAt < pinnedAt && pinnedAt < estateAt, "pinned cards sit inside Your money, before the estate");
 assert.ok(home.slice(moneyAt, pinnedAt).includes("<OfferCard />"), "pinned cards follow the Your money cards in the same group");
+// The pinned-cards block is not gated by loadError (it rendered on a load error before G221).
+assert.match(home, /const showPinnedCards =\n\s+!hasNoAccounts && !loading &&/, "showPinnedCards ignores loadError");
+assert.ok(!/showPinnedCards =[^;]*loadError/.test(home), "showPinnedCards has no loadError term");
+assert.match(home, /\{!hasNoAccounts && \(!loadError \|\| showPinnedCards\) && \(/, "the Your money wrapper renders for pinned cards on a load error");
+assert.match(home, /\{showPinnedCards && \(\n\s+<div className="space-y-3 px-4 lg:px-0">/, "pinned cards block gated by showPinnedCards only");
 // HomeBrief's card stack.
 const brief = read("../components/HomeBrief.tsx");
 assert.match(brief, /<div className="space-y-3">\n\s+\{celebrationItems\.map/, "HomeBrief card stack is space-y-3");
