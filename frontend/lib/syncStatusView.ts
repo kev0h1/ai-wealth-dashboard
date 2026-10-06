@@ -82,3 +82,12 @@ export function heroSyncingInfo(o: {
   if (o.refreshing) return { kind: "refresh", asOf: o.asOf ?? null };
   return null;
 }
+
+/** Connections the server reports as syncing that own no account yet. */
+export function pendingConnectionInfos(
+  infos: Map<string, SyncingInfo>,
+  accounts: readonly { connection_id?: string }[],
+): [string, SyncingInfo][] {
+  const owned = new Set(accounts.map((a) => a.connection_id).filter(Boolean));
+  return [...infos.entries()].filter(([id]) => !owned.has(id));
+}
