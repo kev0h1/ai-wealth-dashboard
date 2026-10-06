@@ -20,12 +20,9 @@ const base = { type: "bank", subtype: "TRANSACTION", currency: "GBP", status: "A
 
 const BARCLAYS = { ...base, id: "g219-barclays", name: "Current account", balance: 265, provider: "Barclays", provider_id: "barclays_personal" } satisfies Account;
 const NATWEST = { ...base, id: "g219-natwest", name: "Everyday", balance: 27, provider: "NatWest", provider_id: "natwest" } satisfies Account;
-const MONZO = { ...base, id: "g219-monzo", name: "Monzo main", balance: 112, provider: "Monzo", provider_id: "monzo" } satisfies Account;
 // No bundled logo for this bank, so the card falls back to named rows.
 const METRO = { ...base, id: "g219-metro", name: "Household account", balance: 27, provider: "Metro Bank" } satisfies Account;
 
-export const ALL_ACCOUNTS: Account[] = [BARCLAYS, NATWEST, MONZO];
-export const ALL_ACCOUNTS_METRO: Account[] = [BARCLAYS, METRO, MONZO];
 
 function result(best: Account, bestHeadroom: number, alt: Account, altHeadroom: number): SpendFromResult {
   return {
