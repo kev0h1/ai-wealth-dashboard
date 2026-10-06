@@ -32,6 +32,21 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "ad-safe-to-spend",
+    name: "First Sorted ad, Safe to Spend · G222 · three static art directions",
+    description:
+      "G222 round 1: one ad message (what can you spend until payday) for TikTok, Instagram and Facebook, aimed at people who worry about money until payday · A The question (headline names the feeling, the card answers it), B The number (the figure leads, the card is evidence), C The relief (late-month maths against one number) · each renders at exact artboard size, feed 1080x1350 for Facebook and Instagram, story 1080x1920 for TikTok, Reels and Stories with the platform safe zones kept clear · the phone imagery is the production SafeToSpendCard through its real props with a fictional persona, no real bank, name or data · art direction by design-taste-frontend under PRODUCT.md and DESIGN.md, emerald figure, indigo CTA, no gradient, no red · add &chrome=1 for the switcher · ?variant=a|b|c&format=feed|story&mode=light|dark",
+    states: [
+      { label: "Feed", value: "feed" },
+      { label: "Story", value: "story" },
+    ],
+    variants: [
+      { label: "A The question", value: "a" },
+      { label: "B The number", value: "b" },
+      { label: "C The relief", value: "c" },
+    ],
+  },
+  {
     slug: "sts-accounts-route",
     name: "Safe to Spend route to Accounts · G219 · approved B, folded in",
     description:
