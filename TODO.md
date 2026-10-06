@@ -1592,6 +1592,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
   - note (2026-10-06, claude): Coordinator 2026-10-06: recorded commit 10e281c2 is a board commit (H106). G218 reached main inside G214's merge 83c095e4; its head bedf9f9b is an ancestor of main. Kevin notify failed (Event loop is closed); link sent manually.
   - note (2026-10-06, claude): approved: B, today's tinted figure with the dark red fixed (Kevin 2026-10-06), and shortfalls that come only from set-asides or plans show amber, not red: fold in and show that design
   - note (2026-10-06, claude): Fold-in built on feature-G218-hero-figure-fold-in (not finished). Shipped B: emerald On track, red-500 dark for cash shortfall; plans-only shortfall amber in figure, chip and caption 'short after plans and envelopes' (server plans_only_short, used by Penny chip, Penny view, Home brief). DESIGN.md amended per Kevin's pick. Contrast: amber-700 5.02 light, amber-300 10.6 dark; red-500 dark 4.08 (large text AA only). Ink variants and figureTone removed. Preview: https://uat.wealth.auriqltd.co.uk/design/safe-to-spend-figure?state=short-plans . feature-G218-hero-figure-fold-in must merge before feature-G214-sync-loading-fold-in.
+  - note (2026-10-06, claude): Fold-in reviewed PASS at d2acf4d5; flagged as a design round so Kevin can confirm the amber plans-only shortfall at /design/safe-to-spend-figure?view=compare before it is ticked done. feature-G214-sync-loading-fold-in must merge after this branch.
 
 ## H. Repo hygiene
 
