@@ -43,8 +43,16 @@ def has_plan_source(plan: dict) -> bool:
 
 
 def _remaining_pence(plan: dict) -> int | None:
+    """Pence still owing, or None when the plan cannot be read.
+
+    Parity with the sheet's `amountUnavailable`: remaining, period_amount and
+    filled_amount (None is fine for a goal) must all be finite and non-negative.
+    """
     if not plan.get("active"):
         return 0
+    filled = plan.get("filled_amount")
+    if _pence(plan.get("period_amount")) is None or (filled is not None and _pence(filled) is None):
+        return None
     return _pence(plan.get("remaining"))
 
 
@@ -124,6 +132,9 @@ def compute_allocation_gaps(
                 for a, p in allocations
             ],
         })
+    # Largest gap first, then account id, so several short accounts always
+    # surface in the same order.
+    out.sort(key=lambda g: (-g["gap_pence"], g["account_id"]))
     return out
 
 

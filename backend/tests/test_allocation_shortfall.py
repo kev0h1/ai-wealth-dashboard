@@ -226,3 +226,63 @@ def test_source_is_the_bill_engines_finder_not_a_second_ranking(monkeypatch):
     card = _alloc(_run(monkeypatch, [], [_plan("a1", "Holiday", "cur", 150.0)], accounts))
     assert card["allocation_shortfall"]["moves"][0]["move_map"]["from"]["account_id"] == "cur2"
     assert card["action"]["label"] == "Move from Everyday"
+
+
+def test_unreadable_period_or_filled_amount_raises_nothing():
+    bad_period = _plan("a1", "A", "cur", 150.0)
+    bad_period["period_amount"] = float("nan")
+    assert compute_allocation_gaps([bad_period], {"cur": 0.0}) == []
+    missing = _plan("a1", "A", "cur", 150.0)
+    missing["period_amount"] = None
+    assert compute_allocation_gaps([missing], {"cur": 0.0}) == []
+    bad_filled = _plan("a1", "A", "cur", 150.0)
+    bad_filled["filled_amount"] = -3.0
+    assert compute_allocation_gaps([bad_filled], {"cur": 0.0}) == []
+    goal_ok = _plan("g1", "G", "cur", 10.0, kind="goal", dest=("g",))
+    goal_ok["filled_amount"] = None  # goals carry no fill figure; that is readable
+    assert compute_allocation_gaps([_plan("a1", "A", "cur", 150.0), goal_ok], {"cur": 0.0})[0]["gap"] == 160.0
+
+
+def test_bill_deficit_is_excluded_from_the_set_aside_gap():
+    plans = [_plan("a1", "Holiday", "cur", 48.40)]
+    # -£20 already short on payments, £48.40 reserved: only the £48.40 is the set-aside's.
+    assert compute_allocation_gaps(plans, {"cur": -20.0})[0]["gap"] == 48.40
+    # +£10 closing: the set-aside is £38.40 short.
+    assert compute_allocation_gaps(plans, {"cur": 10.0})[0]["gap"] == 38.40
+    # Fully covered: nothing.
+    assert compute_allocation_gaps(plans, {"cur": 48.40}) == []
+
+
+def test_largest_gap_first_then_account_id():
+    plans = [
+        _plan("a1", "Small", "bbb", 60.0, dest=("p1",)),
+        _plan("a2", "Big", "ccc", 200.0, dest=("p2",)),
+        _plan("a3", "Tie", "aaa", 60.0, dest=("p3",)),
+    ]
+    closing = {"aaa": 0.0, "bbb": 0.0, "ccc": 0.0}
+    assert [g["account_id"] for g in compute_allocation_gaps(plans, closing)] == ["ccc", "aaa", "bbb"]
+
+
+def test_merged_items_place_the_allocation_card_after_the_unfunded_move(monkeypatch):
+    import pytest
+    from tests import test_unfunded_move as um
+
+    async def _plans(uid):
+        return [_plan("a1", "Holiday", "cur2", 150.0)]
+
+    async def _no_reserve(uid, internal_inflows, account_map):
+        return {}
+
+    mp = pytest.MonkeyPatch()
+    try:
+        mp.setattr(companion, "_load_account_plans", _plans)
+        mp.setattr(companion, "_reserved_for_allocations", _no_reserve)
+        accounts = [um._account("barclays", 20.0), um._account("cur2", 100.0, name="Everyday")]
+        bills = [um._mv_bill("KEVIN MAINGI HSBC FT", 81.67, "barclays", pending=True, days_past_due=9, original_date="2026-08-18")]
+        items, _ = um._run(mp, bills, accounts=accounts)
+    finally:
+        mp.undo()
+    kinds = _types(items)
+    assert "unfunded_move" in kinds and "allocation_shortfall" in kinds
+    assert kinds.index("unfunded_move") < kinds.index("allocation_shortfall")
+    assert all(k != "move" or kinds.index(k) < kinds.index("allocation_shortfall") for k in kinds)

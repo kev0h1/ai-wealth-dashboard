@@ -308,6 +308,19 @@ async def filled_this_period(
     return round(sum(abs(float(t.get("amount", 0) or 0)) for t in fills), 2)
 
 
+def _period_override_pence(doc: dict, period_end: date) -> int | None:
+    """G217: the per-period override for THIS pay period, in pence, or None.
+
+    `period_overrides` is `{period_end_iso: amount_pence}` and is read only for
+    the period being evaluated, so a reduction lapses by itself when the next
+    period starts and `amount_per_period` (the recurring amount) never moves.
+    """
+    raw = (doc.get("period_overrides") or {}).get(period_end.isoformat())
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)) or raw < 0:
+        return None
+    return int(raw)
+
+
 async def _serialise(doc: dict, start: date, end: date) -> dict:
     amount = float(doc.get("amount_per_period") or 0)
     recurrence = doc.get("recurrence", "every_period")
@@ -349,11 +362,17 @@ async def _serialise(doc: dict, start: date, end: date) -> dict:
         doc.get("match_type"), doc.get("match_value", ""),
         window_start, window_end,
     )
-    remaining = 0.0 if (completed or pending) else round(max(0.0, amount - filled), 2)
+    override_pence = _period_override_pence(doc, eff_end)
+    period_amount = amount if override_pence is None else round(override_pence / 100, 2)
+    remaining = 0.0 if (completed or pending) else round(max(0.0, period_amount - filled), 2)
     return {
         "id":                  str(doc["_id"]),
         "name":                doc.get("name"),
         "amount_per_period":   amount,
+        # G217: what THIS pay period asks for. Equals amount_per_period unless
+        # the user reduced this period only (period_override, in pounds).
+        "period_amount":       period_amount,
+        "period_override":     None if override_pence is None else round(override_pence / 100, 2),
         "fill_account_id":     doc.get("fill_account_id"),
         "source_account_id":   doc.get("source_account_id"),
         "match_type":          doc.get("match_type"),
@@ -506,7 +525,7 @@ async def list_account_plans(user: dict = Depends(current_user)):
             "destination_account_ids": [destination_id] if destination_id else [],
             "source_account_id": source_id,
             "source_basis": basis,
-            "period_amount": serial["amount_per_period"],
+            "period_amount": serial.get("period_amount", serial["amount_per_period"]),
             "filled_amount": serial["filled_this_period"],
             "remaining": serial["remaining"],
             "active": bool(serial["active"]) and not serial["completed"] and not serial["pending"],
@@ -753,6 +772,60 @@ async def update_allocation(
     await response_cache.ainvalidate(uid)
     cfg = await _pay_cfg(uid)
     start, end = get_pay_period_for_date(timeutil.user_today(), cfg)
+    return await _serialise(doc, start, end)
+
+
+def _validate_period_amount(raw) -> float:
+    """A one-period amount may be 0 (skip this period) but never above the recurring cap."""
+    try:
+        amount = float(raw)
+    except (TypeError, ValueError):
+        raise HTTPException(400, "amount must be a number")
+    if not (0 <= amount <= _MAX_AMOUNT) or amount != amount:
+        raise HTTPException(400, f"amount must be between 0 and {_MAX_AMOUNT}")
+    return round(amount, 2)
+
+
+@router.put("/allocations/{allocation_id}/period-override")
+async def set_period_override(allocation_id: str, body: dict, user: dict = Depends(current_user)):
+    """G217: change what this allocation asks for in the CURRENT pay period only.
+
+    Stores `period_overrides[period_end] = pence`. Every reader (the reserve in
+    Safe to Spend, `remaining`, the account sheet, the cover plan) already goes
+    through `_serialise`, so they all follow. The recurring `amount_per_period`
+    is untouched and the override lapses when the next period starts.
+    """
+    uid = user["email"]
+    doc = await _get_owned(uid, allocation_id)
+    amount = _validate_period_amount(body.get("amount"))
+    cfg = await _pay_cfg(uid)
+    start, end = get_pay_period_for_date(timeutil.user_today(), cfg)
+    serial = await _serialise(doc, start, end)
+    period_end = date.fromisoformat(serial["period_end"])
+    # Only the live period is kept: earlier keys are dead weight.
+    overrides = {k: v for k, v in (doc.get("period_overrides") or {}).items() if k >= period_end.isoformat()}
+    overrides[period_end.isoformat()] = int(round(amount * 100))
+    result = await allocations_col.update_one(
+        {"_id": doc["_id"], "user_id": uid}, {"$set": {"period_overrides": overrides}},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(409, "Allocation changed while you were editing. Refresh and try again.")
+    doc["period_overrides"] = overrides
+    await response_cache.ainvalidate(uid)
+    return await _serialise(doc, start, end)
+
+
+@router.delete("/allocations/{allocation_id}/period-override")
+async def clear_period_override(allocation_id: str, user: dict = Depends(current_user)):
+    uid = user["email"]
+    doc = await _get_owned(uid, allocation_id)
+    cfg = await _pay_cfg(uid)
+    start, end = get_pay_period_for_date(timeutil.user_today(), cfg)
+    serial = await _serialise(doc, start, end)
+    overrides = {k: v for k, v in (doc.get("period_overrides") or {}).items() if k != serial["period_end"]}
+    await allocations_col.update_one({"_id": doc["_id"], "user_id": uid}, {"$set": {"period_overrides": overrides}})
+    doc["period_overrides"] = overrides
+    await response_cache.ainvalidate(uid)
     return await _serialise(doc, start, end)
 
 
