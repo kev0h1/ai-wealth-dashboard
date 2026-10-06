@@ -41,7 +41,7 @@ def test_override_lapses_when_the_next_period_starts(monkeypatch):
     nxt_start = _FixedDate.today().replace(day=1) + timedelta(days=32)
     nxt_start = nxt_start.replace(day=1)
     nxt_end = (nxt_start + timedelta(days=32)).replace(day=1) - timedelta(days=1)
-    out = asyncio.run(allocations._serialise(doc, nxt_start, nxt_end))
+    out = asyncio.run(allocations.list_allocations(USER))["items"][0]
     assert out["period_override"] is None and out["period_amount"] == 200 and out["remaining"] == 200
 
 
@@ -118,6 +118,14 @@ def test_lowering_recurring_below_the_override_clamps_period_amount(monkeypatch)
     assert reserved == 100
     out = asyncio.run(allocations.clear_period_override(created["id"], USER))
     assert out["period_amount"] == 100
+
+
+def test_period_override_never_reports_above_the_recurring_amount(monkeypatch):
+    created = _made(monkeypatch, amount=200)
+    _set(created["id"], 150)
+    allocations.allocations_col.docs[0]["amount_per_period"] = 100
+    out = asyncio.run(allocations._serialise(allocations.allocations_col.docs[0], _FixedDate.today(), _FixedDate.today() + timedelta(days=20)))
+    assert out["period_override"] == 100 == out["period_amount"]
 
 
 def test_put_writes_only_the_live_key_and_never_clobbers_others(monkeypatch):

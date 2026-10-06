@@ -1784,12 +1784,14 @@ export function RhythmCard({ item, router, maskAmounts, onRefresh, previewMode =
 // ── G217: set-aside (allocation) shortfall card ────────────────────────────
 // Kevin's pick 2026-10-06: variant A, the move card's anatomy but lighter. A
 // set-aside the user chose is not a payment at risk, so: neutral icon, an ink
-// figure in mono, no shadow, an outlined button pair and no Penny pill. No
-// red, no amber, no gradient. Both remedies are equal: Move (the same hand-off
-// as MoveCard's primary, a link to item.action.route) and Reduce (opens the
-// sheet that reduces it for THIS pay period only, prefilled with the amount that
-// clears the gap; the recurring amount stays behind "Change every period").
-// With no safe source only Reduce shows, and the card says why.
+// figure in mono, no shadow and no Penny pill. No red, no amber, no gradient.
+// The app never moves money, so a possible move is a recommendation sentence
+// built from data.moves ("You could move £X from <account>, which looks able
+// to spare it"), never a button, and the item carries no action route. The one
+// action is Adjust set-aside, full width, which opens the sheet that reduces it
+// for THIS pay period only, prefilled with the amount that clears the gap; the
+// recurring amount stays behind "Change every period". With no safe source the
+// card says so instead of making the recommendation.
 export type AllocationShortfallServices = Pick<typeof api, "listAllocations" | "accounts" | "dismissTodayItem"> & AllocationEditServices & AllocationPeriodReduceServices;
 
 function setAsideMoney(value: number, hideNetWorth: boolean) {

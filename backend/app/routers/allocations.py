@@ -374,7 +374,7 @@ async def _serialise(doc: dict, start: date, end: date) -> dict:
         # G217: what THIS pay period asks for. Equals amount_per_period unless
         # the user reduced this period only (period_override, in pounds).
         "period_amount":       period_amount,
-        "period_override":     None if override_pence is None else round(override_pence / 100, 2),
+        "period_override":     None if override_pence is None else period_amount,
         "fill_account_id":     doc.get("fill_account_id"),
         "source_account_id":   doc.get("source_account_id"),
         "match_type":          doc.get("match_type"),
