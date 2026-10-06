@@ -85,7 +85,9 @@
     "check:swipe-gesture": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/swipe-gesture.test.mjs",
     "check:post-sign-in-route": "node --no-warnings --experimental-strip-types scripts/post-sign-in-route.test.mjs",
     "check:onboarding-gate": "node --no-warnings --experimental-strip-types scripts/onboarding-gate.test.mjs",
-    "check:privacy-cover": "node --no-warnings --experimental-strip-types scripts/privacy-cover.test.mjs"
+    "check:privacy-cover": "node --no-warnings --experimental-strip-types scripts/privacy-cover.test.mjs",
+    "reel:render": "remotion render remotion/index.ts SortedReel out/sorted-reel.mp4 --codec=h264 --concurrency=2",
+    "reel:studio": "remotion studio remotion/index.ts"
   },
   "dependencies": {
     "@aparajita/capacitor-biometric-auth": "^10.0.0",
@@ -99,15 +101,21 @@
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
+    "@remotion/google-fonts": "4.0.533",
+    "@remotion/player": "4.0.533",
     "@wealth/shared": "file:../shared",
     "lucide-react": "^1.8.0",
     "next": "16.3.4",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "react-markdown": "^10.1.0",
-    "recharts": "^3.8.1"
+    "recharts": "^3.8.1",
+    "remotion": "4.0.533"
   },
   "devDependencies": {
+    "@remotion/cli": "4.0.533",
+    "@remotion/renderer": "4.0.533",
+    "@remotion/tailwind-v4": "4.0.533",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",

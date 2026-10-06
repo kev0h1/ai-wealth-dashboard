@@ -32,6 +32,15 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "reel-safe-to-spend",
+    name: "First Sorted reel, Safe to Spend · G223 · 15s vertical video (Remotion)",
+    description:
+      "G223: a 15 second, 1080x1920 vertical reel for TikTok, Reels and Stories, built in Remotion from the G222 Safe-to-Spend ad, a capabilities proof of concept · plays here muted and looping with controls, fitted to the screen · HOOK \"It\u2019s the 20th. What can you actually spend?\" · MESS the late-month maths tumbling in to a big ? · ANSWER a phone slides up with the production SafeToSpendCard through its real props and the figure counts up to \u00a3184 · PROOF a highlight over \"estimated\" and \"after bills, plans and your \u00a3100 buffer\" · END CARD icon, wordmark, \"Know what you can spend before payday.\", Get Sorted · burned-in captions, TikTok safe zones kept clear, no audio (music added later in CapCut) · fictional persona, emerald figure, indigo CTA, no gradient, no red · motion by emil-design-eng under PRODUCT.md and DESIGN.md · the MP4 is rendered with npm run reel:render · ?frame=0..449 freezes on one frame",
+    states: [
+      { label: "Play", value: "play" },
+    ],
+  },
+  {
     slug: "ad-safe-to-spend",
     name: "First Sorted ad, Safe to Spend · G222 · three static art directions",
     description:
