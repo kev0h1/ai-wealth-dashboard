@@ -1,19 +1,17 @@
 "use client";
 
-// The Home "Your estate" block, extracted UNCHANGED from
-// app/components/HomePage.tsx (G221) so a /design preview can render the
-// production markup through props. Same classes, same structure: the Manage
-// header link, the loading skeleton, the empty state slot, the AccountLedgerRow
-// rows (bankToRow / investmentToRow, names untouched) and the "+N more accounts"
-// footer row. `scripts/g221-home-cleanup.test.mjs` pins the output against the
-// pre-extraction markup. Do not restyle here: design changes go through
-// frontend/app/design/home-cleanup first.
+// The Home "Your estate" block (G221, approved C, 2026-10-06). The rows are
+// the AccountLedgerRow rows with the brand-aware tidy name (lib/accountName.ts,
+// Home only; the Accounts page keeps its raw names). There is no header link:
+// one footer row, "All N accounts" ("See your account" for one), is the block's
+// only route to /accounts. Pinned by `scripts/g221-home-cleanup.test.mjs`.
 
 import type { CSSProperties, ReactNode } from "react";
 import { ChevronRight } from "lucide-react";
 import type { Account, InvestmentAccount } from "@/lib/api";
 import AccountLedgerRow from "@/components/AccountLedgerRow";
 import { bankToRow, investmentToRow } from "@/lib/accountsEstate";
+import { tidyAccountName } from "@/lib/accountName";
 
 export interface HomeEstateSectionProps {
   /** Wrapper classes and style, supplied by the page (rhythm and rise-in). */
@@ -23,15 +21,18 @@ export interface HomeEstateSectionProps {
   accountCount: number;
   topPickAccounts: Account[];
   topPickInvestment?: InvestmentAccount;
-  investmentCount: number;
-  hiddenAccountCount: number;
+  /** Every account the user has, bank and investment, for the footer label. */
+  totalAccountCount: number;
   pinnedIds: string[];
-  onManage: () => void;
   onOpenAccount: (id: string) => void;
   onOpenInvestments: () => void;
   onViewAll: () => void;
   /** Rendered when the user has no bank accounts (the FirstAccountCard). */
   emptyState: ReactNode;
+}
+
+function tidyRow<T extends { name: string }>(row: T): T {
+  return { ...row, name: tidyAccountName(row.name) };
 }
 
 export default function HomeEstateSection({
@@ -41,10 +42,8 @@ export default function HomeEstateSection({
   accountCount,
   topPickAccounts,
   topPickInvestment,
-  investmentCount,
-  hiddenAccountCount,
+  totalAccountCount,
   pinnedIds,
-  onManage,
   onOpenAccount,
   onOpenInvestments,
   onViewAll,
@@ -52,18 +51,7 @@ export default function HomeEstateSection({
 }: HomeEstateSectionProps) {
   return (
     <div className={className} style={style}>
-      <div className="flex items-center justify-between mb-3">
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Your estate</p>
-        <div className="flex items-center gap-2">
-          <button
-            data-tutorial-id="tutorial-manage-link"
-            onClick={onManage}
-            className="min-h-[44px] text-xs font-semibold text-indigo-500 dark:text-indigo-400 flex items-center gap-1 hover:opacity-80 active:opacity-70 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
-          >
-            Manage <ChevronRight size={13} aria-hidden="true" />
-          </button>
-        </div>
-      </div>
+      <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Your estate</p>
       {loading ? (
         <div className="glass-card rounded-2xl overflow-hidden divide-y divide-slate-100 dark:divide-white/5">
           {[1, 2, 3].map((i) => (
@@ -84,7 +72,7 @@ export default function HomeEstateSection({
           {topPickAccounts.map((acc, i) => (
             <div key={acc.id} className={i > 0 ? "border-t border-slate-100 dark:border-white/5" : ""}>
               <AccountLedgerRow
-                row={bankToRow(acc, pinnedIds)}
+                row={tidyRow(bankToRow(acc, pinnedIds))}
                 onClick={() => onOpenAccount(acc.id)}
               />
             </div>
@@ -92,21 +80,21 @@ export default function HomeEstateSection({
           {topPickInvestment && (
             <div key={topPickInvestment.id} className={topPickAccounts.length > 0 ? "border-t border-slate-100 dark:border-white/5" : ""}>
               <AccountLedgerRow
-                row={investmentToRow(topPickInvestment, pinnedIds)}
+                row={tidyRow(investmentToRow(topPickInvestment, pinnedIds))}
                 onClick={onOpenInvestments}
               />
             </div>
           )}
-          {hiddenAccountCount > 0 && (
-            <button
-              onClick={onViewAll}
-              className={`w-full min-h-[52px] flex items-center justify-center gap-1 px-4 py-2.5 text-sm font-medium text-slate-400 dark:text-slate-500 active:bg-slate-50 dark:active:bg-white/5 transition-colors ${
-                topPickAccounts.length + Math.min(investmentCount, 1) > 0 ? "border-t border-slate-100 dark:border-white/5" : ""
-              }`}
-            >
-              +{hiddenAccountCount} more accounts <ChevronRight size={13} aria-hidden="true" />
-            </button>
-          )}
+          <button
+            data-tutorial-id="tutorial-manage-link"
+            data-accounts-route
+            onClick={onViewAll}
+            className={`w-full min-h-11 flex items-center justify-center gap-1 px-4 py-2.5 text-sm font-medium text-slate-600 dark:text-slate-300 active:bg-slate-50 dark:active:bg-white/5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 ${
+              topPickAccounts.length + (topPickInvestment ? 1 : 0) > 0 ? "border-t border-slate-100 dark:border-white/5" : ""
+            }`}
+          >
+            {totalAccountCount === 1 ? "See your account" : `All ${totalAccountCount} accounts`} <ChevronRight size={13} aria-hidden="true" />
+          </button>
         </div>
       )}
     </div>
