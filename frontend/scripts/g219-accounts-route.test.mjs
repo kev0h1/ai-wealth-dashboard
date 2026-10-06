@@ -36,8 +36,6 @@ for (const key of ["on-track", "tight", "card", "short-cash", "short-plans"]) {
 const syncing = render({ syncing: SYNCING_INFO });
 assert.equal(count(syncing, "Your accounts<"), 1, "syncing: one link");
 assert.deepEqual(hrefs(syncing), ["/accounts"]);
-const stale = render({ syncing: SYNCING_INFO });
-assert.equal(count(stale, "Your accounts<"), 1, "stale figure while syncing: one link");
 
 // 2. None where no figure renders.
 for (const [name, props] of [
