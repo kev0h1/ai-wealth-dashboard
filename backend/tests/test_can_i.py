@@ -490,6 +490,45 @@ def test_can_i_suggestions_negative_safe_to_spend_uses_reassurance_chips(monkeyp
     assert "£83 added to card balances this pay period" in result["context_line"]
 
 
+def test_can_i_suggestions_plans_only_short_says_bills_are_covered(monkeypatch):
+    async def fake_sts(uid):
+        return {
+            "status": "ok", "safe_to_spend": -250.0, "days_until_payday": 12,
+            "next_payday": "2026-10-18", "state": "short", "short_reason": "bills",
+            "plans_only_short": True,
+        }
+
+    monkeypatch.setattr(can_i_module, "get_cached_safe_to_spend", fake_sts)
+    line = asyncio.run(can_i_suggestions({"email": "kevin"}))["context_line"]
+    assert "once your set-asides are counted; your bills are covered" in line
+    assert "bills come first" not in line
+
+
+def test_check_affordability_passes_plans_only_short(monkeypatch):
+    import app.services.affordability as aff
+
+    async def fake_sts(uid):
+        return {
+            "status": "ok", "safe_to_spend": -250.0, "safe_to_spend_cash": -250.0,
+            "days_until_payday": 12, "next_payday": "2026-10-18", "state": "short",
+            "short_reason": "bills", "plans_only_short": True, "bills_total": 0.0,
+        }
+
+    async def fake_cashflow(uid, cutoff):
+        return 0.0, 0.0, 0.0
+
+    monkeypatch.setattr(aff, "compute_safe_to_spend", fake_sts)
+    monkeypatch.setattr(aff, "_cashflow", fake_cashflow)
+    result = asyncio.run(aff.check_affordability("kevin", 20.0))
+    assert result["plans_only_short"] is True
+    assert result["state"] == "short"
+
+
+def test_nothing_spare_line_keeps_bills_first_for_a_cash_shortfall():
+    from app.services.affordability import _nothing_spare_line
+    assert _nothing_spare_line("Sun 18 Oct", "bills", False).endswith("bills come first")
+
+
 def test_can_i_suggestions_keeps_card_growth_separate_from_positive_cash(monkeypatch):
     async def fake_sts(uid):
         return {

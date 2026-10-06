@@ -5102,6 +5102,14 @@ async def compute_safe_to_spend(uid: str) -> dict:
         state, safe_to_spend_cash, card_growth_reserved,
     )
 
+    # G218: a shortfall caused only by set-asides (plans, envelopes) reads
+    # amber, not red, on every surface; derived once, here.
+    from app.services.net_position import plans_only_short_for
+    plans_only_short = (not unavailable_components) and plans_only_short_for(
+        state, short_reason, safe_to_spend_cash, round(min_running, 2), buffer,
+        commitments_reserved, allocations_reserved,
+    )
+
     # ── 8. estimated flag ────────────────────────────────────────────────────
     estimated = _cf.get("n_months", 3) < 2
 
@@ -5167,6 +5175,7 @@ async def compute_safe_to_spend(uid: str) -> dict:
         "buffer":              buffer,
         "state":               state,
         "short_reason":        short_reason,
+        "plans_only_short":    bool(plans_only_short),
         "estimated":           estimated,
         "spendable_now":       round(spendable_cash, 2),
         # The actual floor reached by the date-ordered bill/income walk.
@@ -5197,6 +5206,7 @@ async def compute_safe_to_spend(uid: str) -> dict:
         _out["status"] = "insufficient_data"
         _out["state"] = "syncing"
         _out["short_reason"] = None
+        _out["plans_only_short"] = False
     return _out
 
 
