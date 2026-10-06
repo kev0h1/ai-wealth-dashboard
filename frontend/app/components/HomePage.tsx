@@ -97,18 +97,18 @@ function HomeSkeleton({ firstName }: { firstName?: string }) {
     >
       {/* Left column */}
       <div>
-        <div className="px-4 pt-6 lg:px-0 lg:pt-0">
+        <div className="px-4 pt-5 lg:px-0 lg:pt-0">
           <h1 className="text-[28px] font-bold tracking-tight text-slate-900 dark:text-slate-100 leading-tight">
             {firstName ? `Hi, ${firstName}` : "Welcome back"}
           </h1>
         </div>
 
-        <div className="px-4 lg:px-0 mt-8">
+        <div className="px-4 lg:px-0 mt-5">
           <SafeToSpendCard data={null} loading />
         </div>
 
-        <div className="mt-8">
-          <div className="px-4 lg:px-0 mb-3">
+        <div className="mt-5">
+          <div className="px-4 lg:px-0 mb-2">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
               Your money
             </p>
@@ -126,8 +126,8 @@ function HomeSkeleton({ firstName }: { firstName?: string }) {
           </div>
         </div>
 
-        <div className="px-4 lg:px-0 mt-8">
-          <div className="flex items-center justify-between mb-3">
+        <div className="px-4 lg:px-0 mt-5">
+          <div className="flex items-center justify-between mb-2">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Your estate</p>
           </div>
           <div className="glass-card rounded-2xl overflow-hidden divide-y divide-slate-100 dark:divide-white/5">
@@ -147,8 +147,8 @@ function HomeSkeleton({ firstName }: { firstName?: string }) {
 
       {/* Right column */}
       <div>
-        <div className="px-4 mb-4 lg:px-0 mt-8 lg:mt-0">
-          <div className="flex items-center justify-between mb-3">
+        <div className="px-4 pb-5 lg:px-0 mt-5 lg:mt-0">
+          <div className="flex items-center justify-between mb-2">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 lg:pt-0">Recent Transactions</p>
           </div>
           <div className="glass-card rounded-2xl overflow-hidden">
@@ -794,10 +794,6 @@ export default function HomePage() {
     [investmentAccounts, pinnedIds],
   );
 
-  const hiddenAccountCount =
-    Math.max(0, accounts.length - topPickAccounts.length) +
-    Math.max(0, investmentAccounts.length - 1);
-
   // G110 — surfaced, not computed: joins the per-account headroom snapshot
   // (accountEligibility, off the same GET /today the companion brief
   // already uses) against the account list already fetched above.
@@ -989,7 +985,7 @@ export default function HomePage() {
         <div>
 
           {/* ── THE BRIEF ── */}
-          <div className="px-4 pt-6 lg:px-0 lg:pt-0" ref={greetingRef}>
+          <div className="px-4 pt-5 lg:px-0 lg:pt-0" ref={greetingRef}>
             <HomeBrief
               items={hasNoAccounts ? [] : companionItems}
               firstName={firstName}
@@ -1017,7 +1013,7 @@ export default function HomePage() {
               section below is suppressed entirely in this state so it never
               duplicates. */}
           {isFreshUser && (
-            <div className="px-4 lg:px-0 mt-6">
+            <div className="px-4 lg:px-0 mt-5">
               <FirstAccountCard
                 canConnect={canConnectBank}
                 onConnect={() => setShowBankPicker(true)}
@@ -1033,7 +1029,7 @@ export default function HomePage() {
               replaces the connect hero; with accounts, a syncing or stalled sync
               takes the verdict slot (below), and a failed one sits above it. */}
           {!loadError && !loading && firstSyncActive && syncStatus?.first_sync === true && (
-            <div className="px-4 lg:px-0 mt-6" data-tutorial-id={hasNoAccounts ? "tutorial-home-fresh" : undefined}>
+            <div className="px-4 lg:px-0 mt-5" data-tutorial-id={hasNoAccounts ? "tutorial-home-fresh" : undefined}>
               <FirstSyncCard
                 state={syncState as "syncing" | "stalled" | "failed"}
                 connections={syncStatus?.connections ?? []}
@@ -1046,7 +1042,7 @@ export default function HomePage() {
 
           {/* Load error fallback */}
           {loadError && (
-            <div className="px-4 lg:px-0 mt-4">
+            <div className="px-4 lg:px-0 mt-5">
               <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-5 text-center">
                 <p className="text-sm font-medium text-slate-600 dark:text-slate-300 mb-3">
                   Couldn&apos;t load your data, check your connection.
@@ -1065,7 +1061,7 @@ export default function HomePage() {
               means no real Safe-to-Spend data, and it must never render a
               "£0" shell — the onboarding hero above is the whole story. */}
           {!loadError && !hasNoAccounts && (
-            <div data-tutorial-id="tutorial-safe-to-spend" className="rise-in px-4 lg:px-0 mt-8" style={{ "--rise-index": 1 } as React.CSSProperties}>
+            <div data-tutorial-id="tutorial-safe-to-spend" className="rise-in px-4 lg:px-0 mt-5" style={{ "--rise-index": 1 } as React.CSSProperties}>
               {/* Verdict card */}
               {!verdictWithheld && (stsLoading || safeToSpend != null || stsError) && (
                 <SafeToSpendCard
@@ -1101,8 +1097,8 @@ export default function HomePage() {
           {/* ── YOUR MONEY ── suppressed for a fresh user (bills/spend
               strips have nothing to show without connected accounts). */}
           {!loadError && !hasNoAccounts && (
-            <div className="rise-in mt-8" style={{ "--rise-index": 2 } as React.CSSProperties}>
-              <div className="px-4 lg:px-0 mb-3">
+            <div className="rise-in mt-5" style={{ "--rise-index": 2 } as React.CSSProperties}>
+              <div className="px-4 lg:px-0 mb-2">
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
                   Your money
                 </p>
@@ -1114,33 +1110,32 @@ export default function HomePage() {
                     renders nothing when there's nothing to show — same
                     convention as the strips above. */}
                 <OfferCard />
+                {/* User-pinned insight cards (fuel prices, grocery baskets, chart widget) join this group (G221) */}
+                {!hasNoAccounts && !loading && (pinnedCards.includes("fuel") || pinnedCards.includes("groceries") || (homePinnedWidget && homeTxns.length > 0)) && (
+                  <div className="space-y-3 px-4 lg:px-0">
+                    {pinnedCards.includes("fuel") && <FuelSavingsCard />}
+                    {pinnedCards.includes("groceries") && <GroceryBasketCard />}
+                    {homePinnedWidget && homeTxns.length > 0 && (() => {
+                      const [ps, pe] = getPayPeriodWithConfig(new Date(), payPeriodConfig);
+                      return (
+                        <PinnedWidgetCard
+                          id={homePinnedWidget}
+                          transactions={homeTxns}
+                          periodStart={ps}
+                          periodEnd={pe}
+                          payPeriodConfig={payPeriodConfig}
+                          colours={colours}
+                          onOpen={() => router.push("/spend?view=trends")}
+                        />
+                      );
+                    })()}
+                  </div>
+                )}
               </div>
             </div>
           )}
 
           {/* ── Below zones: demoted supporting content ── */}
-
-          {/* User-pinned insight cards (fuel prices, grocery baskets, chart widget) */}
-          {!hasNoAccounts && !loading && (pinnedCards.includes("fuel") || pinnedCards.includes("groceries") || (homePinnedWidget && homeTxns.length > 0)) && (
-            <div className="mt-8 space-y-3 px-4 lg:px-0">
-              {pinnedCards.includes("fuel") && <FuelSavingsCard />}
-              {pinnedCards.includes("groceries") && <GroceryBasketCard />}
-              {homePinnedWidget && homeTxns.length > 0 && (() => {
-                const [ps, pe] = getPayPeriodWithConfig(new Date(), payPeriodConfig);
-                return (
-                  <PinnedWidgetCard
-                    id={homePinnedWidget}
-                    transactions={homeTxns}
-                    periodStart={ps}
-                    periodEnd={pe}
-                    payPeriodConfig={payPeriodConfig}
-                    colours={colours}
-                    onOpen={() => router.push("/spend?view=trends")}
-                  />
-                );
-              })()}
-            </div>
-          )}
 
           {/* Accounts — pinned/expired top picks in a grid, rest behind
               "+N more". Suppressed entirely for a fresh user: the single
@@ -1150,16 +1145,14 @@ export default function HomePage() {
               than duplicated. */}
           {!hasNoAccounts && (
             <HomeEstateSection
-              className="rise-in px-4 lg:px-0 mt-8"
+              className="rise-in px-4 lg:px-0 mt-5"
               style={{ "--rise-index": 3 } as React.CSSProperties}
               loading={loading}
               accountCount={accounts.length}
               topPickAccounts={topPickAccounts}
               topPickInvestment={topPickInvestment}
-              investmentCount={investmentAccounts.length}
-              hiddenAccountCount={hiddenAccountCount}
+              totalAccountCount={accounts.length + investmentAccounts.length}
               pinnedIds={pinnedIds}
-              onManage={() => router.push("/accounts")}
               onOpenAccount={(id) => router.push(`/accounts?id=${id}`)}
               onOpenInvestments={() => router.push("/accounts?tab=Investments")}
               onViewAll={() => router.push("/accounts")}
@@ -1178,8 +1171,8 @@ export default function HomePage() {
 
         {/* ── Right column: recent transactions ── */}
         <div className="rise-in" style={{ "--rise-index": 4 } as React.CSSProperties}>
-          <div className="px-4 mb-4 lg:px-0 mt-8 lg:mt-0" data-tutorial-id="tutorial-recent-transactions">
-            <div className="flex items-center justify-between mb-3">
+          <div className="px-4 pb-5 lg:px-0 mt-5 lg:mt-0" data-tutorial-id="tutorial-recent-transactions">
+            <div className="flex items-center justify-between mb-2">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 lg:pt-0">Recent Transactions</p>
               <button
                 onClick={() => router.push("/transactions")}
