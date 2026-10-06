@@ -13,7 +13,7 @@ import { BankBadge, accountBrand, type TermsPill } from "./AccountMiniCard";
 import { accountKindLabel } from "@/lib/accountKind";
 import type { EstateRow } from "@/lib/accountsEstate";
 import type { Account } from "@wealth/shared";
-import { SyncGlyph, asOfLabel, syncBank, syncPhase, type SyncTreatment, type SyncingInfo } from "./SyncNote";
+import { SyncGlyph, asOfLabel, syncBank, syncPhase, type SyncingInfo } from "./SyncNote";
 
 function moneyStr(n: number): string {
   return `£${Math.abs(Math.round(n)).toLocaleString("en-GB")}`;
@@ -112,11 +112,12 @@ export interface AccountLedgerRowProps {
   termsPill?: TermsPill | null;
   onTermsClick?: () => void;
   onAddRates?: () => void;
-  /** G214: this row's bank is syncing. The balance stays, in neutral ink,
-   *  marked with when it was last good. Absent (or no treatment), the row
-   *  renders exactly as before. Retry lives on the page-level indicator, so
-   *  the row never grows a second interactive control. */
-  sync?: { info: SyncingInfo; treatment: SyncTreatment };
+  /** G214 (approved B): this row's bank is syncing. The balance stays, in
+   *  neutral ink, with the ring beside it and when it was last good; a bank
+   *  that has never synced reads "Pending", never £0. Absent, the row renders
+   *  exactly as before. Retry lives on the page-level banner, so the row
+   *  never grows a second interactive control. */
+  sync?: SyncingInfo;
 }
 
 export default function AccountLedgerRow({
@@ -162,29 +163,25 @@ export default function AccountLedgerRow({
   // card with no recorded terms at all, stays ink.
   const isCreditAccruing = isCredit && negative && !!termsPill?.accruing;
   // G214: a syncing balance is stale, so it never wears a risk colour.
-  const syncPhaseNow = sync ? syncPhase(sync.info) : null;
-  const syncAsOf = sync ? asOfLabel(sync.info.asOf) : null;
-  const syncBankName = sync ? syncBank(sync.info) : "";
+  const syncPhaseNow = sync ? syncPhase(sync) : null;
+  const syncAsOf = sync ? asOfLabel(sync.asOf) : null;
+  const syncBankName = sync ? syncBank(sync) : "";
   const syncRowLine = sync
     ? syncPhaseNow === "failed"
       ? "Could not update"
       : syncPhaseNow === "stalled"
         ? "Taking longer than usual"
-        : sync.info.kind === "new-bank"
+        : sync.kind === "new-bank"
           ? `Fetching from ${syncBankName}`
-          : sync.treatment === "drawer"
-            ? `Fetching from ${syncBankName}`
-            : `Updating from ${syncBankName}`
+          : `Updating from ${syncBankName}`
     : null;
   const syncWord = syncPhaseNow === "failed" ? "Not updated" : syncPhaseNow === "stalled" ? "Delayed" : "Updating";
   // A bank that has never synced has no balance to keep: say so, never £0.
-  const balancePending = sync?.info.kind === "new-bank";
+  const balancePending = sync?.kind === "new-bank";
   const amountToneClass = sync
     ? balancePending
       ? "!text-[13px] font-medium text-slate-600 dark:text-slate-300"
-      : sync.treatment === "stale"
-      ? "text-slate-700 dark:text-slate-200"
-      : "text-slate-900 dark:text-slate-100"
+      : "text-slate-700 dark:text-slate-200"
     : null;
 
   return (
@@ -222,20 +219,13 @@ export default function AccountLedgerRow({
           </span>
         </div>
 
-        {sync && sync.treatment !== "stale" ? (
-          <div data-sync-phase={syncPhaseNow} className="mt-1 flex items-center gap-1.5 text-[12px] text-slate-600 dark:text-slate-300">
-            <SyncGlyph phase={syncPhaseNow!} />
-            <span className="min-w-0">{syncRowLine}</span>
-          </div>
-        ) : null}
-
         {showUtilisation && utilisation && <UtilisationBar pct={utilisation.pct} limit={utilisation.limit} />}
       </div>
 
       <div className="shrink-0 flex flex-col items-end gap-1">
         {isInvestment && sparkline && sparkline.length > 0 && <MiniSparkline series={sparkline} />}
         <p
-          className={`text-[16px] font-semibold ${balancePending ? "" : "money "}${sync && sync.treatment === "stale" ? "flex items-center gap-2 " : ""}${
+          className={`text-[16px] font-semibold ${balancePending ? "" : "money "}${sync ? "flex items-center gap-2 " : ""}${
             amountToneClass ? amountToneClass : isCredit
               ? isCreditAccruing
                 ? "text-rose-600 dark:text-rose-400"
@@ -249,12 +239,12 @@ export default function AccountLedgerRow({
                   : "text-slate-900 dark:text-slate-100"
           }`}
         >
-          {sync && sync.treatment === "stale" ? <SyncGlyph phase={syncPhaseNow!} /> : null}
+          {sync ? <SyncGlyph phase={syncPhaseNow!} /> : null}
           {balancePending ? "Pending" : amountText}
         </p>
-        {sync && (sync.treatment === "stale" || syncAsOf) && !balancePending ? (
-          <p className="text-[10px] text-slate-600 dark:text-slate-300">
-            {sync.treatment === "stale" ? `${syncAsOf ? `As of ${syncAsOf} · ` : ""}${syncWord}` : syncAsOf ? `As of ${syncAsOf}` : null}
+        {sync && !balancePending ? (
+          <p data-sync-phase={syncPhaseNow} className="text-[10px] text-slate-600 dark:text-slate-300">
+            {`${syncAsOf ? `As of ${syncAsOf} · ` : ""}${syncWord}`}
           </p>
         ) : null}
         {/* Visual "owed"/"in credit" caption is gone on credit rows per

@@ -136,5 +136,7 @@ async def first_sync_state(uid: str, now: Optional[datetime] = None) -> dict:
             state = sub
             break
     for r in rows:
-        r.pop("_sub")
+        # G214: each connection's own phase, so Accounts rows and the hero can
+        # say stalled/failed from the server rather than a client clock.
+        r["state"] = r.pop("_sub")
     return {"state": state, "first_sync": not nonlocal_has, "connections": rows}

@@ -2507,6 +2507,8 @@ export type SyncStatus = {
     bank?: string | null;
     started_at?: string | null;
     error?: string | null;
+    /** G214: this connection's own phase (server-evaluated, never a client clock). */
+    state?: "syncing" | "stalled" | "failed";
   }[];
 };
 

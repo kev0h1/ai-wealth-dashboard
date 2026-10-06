@@ -72,6 +72,7 @@ def test_recent_unsynced_finexer_is_syncing(monkeypatch):
     assert out["connections"][0]["provider"] == "finexer"
     assert out["connections"][0]["bank"] == "barclays"
     assert out["connections"][0]["error"] is None
+    assert out["connections"][0]["state"] == "syncing", "G214: per-connection phase is exposed"
 
 
 def test_old_unsynced_is_stalled(monkeypatch):
@@ -87,6 +88,7 @@ def test_error_is_failed_and_wins(monkeypatch):
     out = _state()
     assert out["state"] == "failed"
     assert {c["connection_id"]: c["error"] for c in out["connections"]}["c2"] == "sync_failed", "raw text never leaves the server"
+    assert {c["connection_id"]: c["state"] for c in out["connections"]} == {"c1": "syncing", "c2": "failed"}
 
 
 def test_errored_connection_retires_after_24h(monkeypatch):
