@@ -1605,6 +1605,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
   - note (2026-10-06, claude): approved: B as shipped, including the amber plans-only shortfall (Kevin 2026-10-06), plus a small disclaimer on the Safe to Spend hero that the figure is not financial advice
   - note (2026-10-06, claude): Disclaimer built on feature-G218-hero-disclaimer (b5001da1), not finished: one 11px line under the hero footer, 'An estimate from your bank data, not financial advice.', shown wherever a figure renders (complete, syncing with stale figure, plans-only, cash-short), not on loading, error, degraded or the first-sync shell. DESIGN.md G218 bullet records it. Preview https://uat.wealth.auriqltd.co.uk/design/safe-to-spend-figure after integrate.
   - note (2026-10-06, claude): Disclaimer reviewed PASS at b5001da1 (scope limited to SafeToSpendCard footer, DESIGN.md sentence and the g218 check; copy and contrast checked). Kevin approved B with the amber plans-only shortfall on 2026-10-06; this branch only adds the disclaimer line, so it finishes plain and can be ticked done on merge.
+  - note (2026-10-06, claude): Coordinator review PASS 2026-10-06 on b5001da1: one static secondary-ink line in the hero footer, only in states that render a figure, Kevin-requested copy, DESIGN.md records it.
 
 ## H. Repo hygiene
 
