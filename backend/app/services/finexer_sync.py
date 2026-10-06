@@ -6,7 +6,7 @@ from typing import Optional
 
 import httpx
 
-from app.services.sync_freshness import sync_error_code
+from app.services.sync_freshness import sync_error_code, sync_in_progress
 
 logger = logging.getLogger(__name__)
 
@@ -739,7 +739,8 @@ async def finexer_sync_pipeline(
     from app.services.manual_account_rules import apply_rules as apply_mirror_rules
 
     try:
-        fetched_ids, new_count = await sync_finexer_consent(consent_id, user_id)
+        async with sync_in_progress(finexer_consents_col, consent_id):
+            fetched_ids, new_count = await sync_finexer_consent(consent_id, user_id)
     except Exception as exc:
         logger.exception("finexer_sync_pipeline failed for consent %s user %s", consent_id, user_id)
         try:

@@ -65,6 +65,15 @@ assert.equal(heroSyncingInfo({ status: st("failed"), refreshing: false, refreshF
 assert.equal(heroSyncingInfo({ status: null, refreshing: true, refreshFailed: false }).kind, "refresh");
 assert.equal(heroSyncingInfo({ status: null, refreshing: false, refreshFailed: true }).failed, true);
 assert.equal(heroSyncingInfo({ status: null, refreshing: false, refreshFailed: false }), null);
+// An already-synced bank re-syncing in the background: stale hero, ring row, never Pending.
+const bg = { state: "syncing", first_sync: false, connections: [{ provider: "finexer", connection_id: "c1", bank: "barclays", state: "syncing", kind: "background" }] };
+const bgHero = heroSyncingInfo({ status: bg, refreshing: false, refreshFailed: false, asOf: "2026-10-05T09:41:00" });
+assert.equal(bgHero.kind, "background");
+assert.equal(heroSyncingInfo({ status: bg, refreshing: true, refreshFailed: false }).kind, "refresh", "the tap wins over background");
+const bgRow = renderToStaticMarkup(React.createElement(AccountLedgerRow, { row, sync: connectionSyncInfos(bg, "2026-10-05T09:41:00").get("c1") }));
+assert.doesNotMatch(bgRow, /Pending/, "a bank with data never reads Pending");
+assert.match(bgRow, /As of 09:41 · Updating/);
+assert.match(bgRow, /£44|44/);
 const infos = connectionSyncInfos(st("stalled"));
 assert.equal(infos.get("c2").stalled, true);
 assert.equal(connectionSyncInfos(st("idle", { connections: [] })).size, 0);

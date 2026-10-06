@@ -352,3 +352,83 @@ def test_degraded_wins_over_syncing(monkeypatch):
     monkeypatch.setattr(commitments_router, "total_reserved_slices", boom)
     r = asyncio.run(analytics.compute_safe_to_spend(UID))
     assert r["calculation_status"] == "degraded"
+
+
+# ── G214: sync_in_progress_since for syncs of an already-synced bank ──────────
+
+def test_stamp_set_during_and_cleared_after_success():
+    col = _Col([{"_id": "c1"}])
+    seen = {}
+
+    async def run():
+        async with sf.sync_in_progress(col, "c1"):
+            seen["during"] = col.docs[0].get("sync_in_progress_since")
+
+    asyncio.run(run())
+    assert seen["during"] is not None
+    assert "sync_in_progress_since" not in col.docs[0]
+
+
+def test_stamp_cleared_on_failure_and_error_propagates():
+    col = _Col([{"_id": "c1"}])
+
+    async def run():
+        async with sf.sync_in_progress(col, "c1"):
+            raise RuntimeError("boom")
+
+    with pytest.raises(RuntimeError):
+        asyncio.run(run())
+    assert "sync_in_progress_since" not in col.docs[0]
+
+
+def test_pipeline_stamps_and_clears_around_the_pull(monkeypatch):
+    col = _Col([{"_id": "c1", "status": "authorized", "last_synced": _naive_ago(hours=5)}])
+    monkeypatch.setattr(finexer_sync, "finexer_consents_col", col)
+    during = {}
+
+    async def pull(cid, uid):
+        during["stamp"] = col.docs[0].get("sync_in_progress_since")
+        raise RuntimeError("x")
+
+    monkeypatch.setattr(finexer_sync, "sync_finexer_consent", pull)
+    asyncio.run(finexer_sync.finexer_sync_pipeline("c1", UID))
+    assert during["stamp"] is not None
+    assert "sync_in_progress_since" not in col.docs[0], "cleared on failure"
+
+
+def test_synced_before_but_in_progress_reports_background_syncing(monkeypatch):
+    _patch(monkeypatch, fin=[{
+        "_id": "c1", "provider": "barclays", "last_synced": _naive_ago(hours=4),
+        "sync_in_progress_since": _naive_ago(minutes=1),
+    }])
+    out = _state()
+    assert out["state"] == "syncing"
+    assert out["first_sync"] is False
+    assert out["connections"][0]["kind"] == "background"
+    assert out["connections"][0]["state"] == "syncing"
+    assert out["connections"][0]["bank"] == "barclays"
+
+
+def test_in_progress_past_ten_minutes_is_stalled(monkeypatch):
+    _patch(monkeypatch, tl=[{
+        "_id": "t1", "provider_name": "monzo", "access_token": "x", "last_synced": _naive_ago(hours=4),
+        "sync_in_progress_since": _naive_ago(minutes=12),
+    }])
+    out = _state()
+    assert out["state"] == "stalled" and out["connections"][0]["kind"] == "background"
+
+
+def test_stale_stamp_past_thirty_minutes_is_ignored(monkeypatch):
+    _patch(monkeypatch, fin=[{
+        "_id": "c1", "last_synced": _naive_ago(hours=4),
+        "sync_in_progress_since": _naive_ago(minutes=45),
+    }])
+    out = _state()
+    assert out["state"] == "idle" and out["connections"] == [] and out["first_sync"] is False
+
+
+def test_first_sync_rows_are_new_bank_and_unchanged(monkeypatch):
+    _patch(monkeypatch, fin=[{"_id": "c1", "authed_at": _naive_ago(minutes=2), "sync_in_progress_since": _naive_ago(minutes=1)}])
+    out = _state()
+    assert out["state"] == "syncing" and out["first_sync"] is True
+    assert out["connections"][0]["kind"] == "new-bank"

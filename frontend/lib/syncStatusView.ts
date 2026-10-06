@@ -38,7 +38,9 @@ export function deriveSyncKind(o: { firstSync: boolean; hasUnsyncedConnection: b
 function connInfo(c: Conn, status: SyncStatus, asOf?: string | null): SyncingInfo {
   const phase = c.state ?? (c.error ? "failed" : status.state === "stalled" ? "stalled" : "syncing");
   return {
-    kind: deriveSyncKind({ firstSync: status.first_sync === true, hasUnsyncedConnection: true, userTriggered: false }),
+    kind: c.kind === "background"
+      ? "background"
+      : deriveSyncKind({ firstSync: status.first_sync === true, hasUnsyncedConnection: true, userTriggered: false }),
     bank: c.bank ?? undefined,
     failed: phase === "failed",
     stalled: phase === "stalled",
@@ -74,6 +76,8 @@ export function heroSyncingInfo(o: {
     const conns = status.connections;
     const worst = conns.find((c) => c.state === "failed") ?? conns.find((c) => c.state === "stalled") ?? conns[0];
     const info = connInfo(worst, status, o.asOf);
+    // A re-sync the user just asked for reads as a refresh, not a background one.
+    if (info.kind === "background" && o.refreshing) info.kind = "refresh";
     if (!info.failed && !info.stalled && status.state === "stalled") info.stalled = true;
     if (!info.failed && !info.stalled && status.state === "failed") info.failed = true;
     return info;
