@@ -81,3 +81,29 @@ def test_account_sheet_plan_row_follows_the_override(monkeypatch):
     rows = asyncio.run(allocations.list_account_plans(USER))["items"]
     row = next(r for r in rows if r["kind"] == "allocation")
     assert row["period_amount"] == 161.6 and row["remaining"] == 161.6
+
+
+def test_override_above_the_recurring_amount_is_refused_with_422(monkeypatch):
+    created = _made(monkeypatch, amount=200)
+    with pytest.raises(HTTPException) as exc:
+        _set(created["id"], 200.01)
+    assert exc.value.status_code == 422
+    assert exc.value.detail == "A one-period amount cannot be more than the recurring amount"
+    assert _set(created["id"], 200)["period_override"] == 200  # equal is allowed
+
+
+def test_clear_with_another_users_id_is_404(monkeypatch):
+    created = _made(monkeypatch)
+    _set(created["id"], 100)
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(allocations.clear_period_override(created["id"], {"email": "someone-else"}))
+    assert exc.value.status_code == 404
+    assert allocations.allocations_col.docs[0]["period_overrides"]  # untouched
+
+
+def test_put_prunes_stale_earlier_period_keys(monkeypatch):
+    created = _made(monkeypatch)
+    allocations.allocations_col.docs[0]["period_overrides"] = {"2020-01-31": 5000, "2020-02-29": 6000}
+    _set(created["id"], 100)
+    keys = sorted(allocations.allocations_col.docs[0]["period_overrides"])
+    assert len(keys) == 1 and keys[0] >= _FixedDate.today().isoformat()

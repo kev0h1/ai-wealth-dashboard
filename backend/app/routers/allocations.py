@@ -775,15 +775,19 @@ async def update_allocation(
     return await _serialise(doc, start, end)
 
 
-def _validate_period_amount(raw) -> float:
-    """A one-period amount may be 0 (skip this period) but never above the recurring cap."""
+def _validate_period_amount(raw, recurring: float) -> float:
+    """A one-period amount may be 0 (skip this period) but never above the
+    allocation's recurring amount: this is a reduction, not a top-up (422)."""
     try:
         amount = float(raw)
     except (TypeError, ValueError):
         raise HTTPException(400, "amount must be a number")
     if not (0 <= amount <= _MAX_AMOUNT) or amount != amount:
         raise HTTPException(400, f"amount must be between 0 and {_MAX_AMOUNT}")
-    return round(amount, 2)
+    amount = round(amount, 2)
+    if amount > round(float(recurring or 0), 2):
+        raise HTTPException(422, "A one-period amount cannot be more than the recurring amount")
+    return amount
 
 
 @router.put("/allocations/{allocation_id}/period-override")
@@ -797,7 +801,7 @@ async def set_period_override(allocation_id: str, body: dict, user: dict = Depen
     """
     uid = user["email"]
     doc = await _get_owned(uid, allocation_id)
-    amount = _validate_period_amount(body.get("amount"))
+    amount = _validate_period_amount(body.get("amount"), doc.get("amount_per_period"))
     cfg = await _pay_cfg(uid)
     start, end = get_pay_period_for_date(timeutil.user_today(), cfg)
     serial = await _serialise(doc, start, end)
