@@ -45,7 +45,7 @@ function pound(n: number): string {
 
 function Card({ zoom }: { zoom: number }) {
   return (
-    <div style={{ width: CARD_W, zoom } as CSSProperties}>
+    <div className="self-center" style={{ width: CARD_W, zoom } as CSSProperties}>
       <SafeToSpendCard
         data={AD_DATA}
         loading={false}
@@ -142,12 +142,12 @@ function VariantB({ format }: { format: Format }) {
 
 // ---------- C. The relief ----------
 function Sum({ figure, label, strong }: { figure: string; label: string; strong?: boolean }) {
-  // Figures in JetBrains Mono (Money Is Mono Rule), words in the brand sans.
+  // Set in Figtree with tabular-nums so U+2212 reads as a true minus (JetBrains Mono draws it like a hyphen).
   // The figure column is fixed and right-aligned so the minus signs and digits
   // line up like the app's own ledger.
   return (
     <div className={`grid grid-cols-[200px_1fr] items-baseline gap-x-6 text-[40px] leading-[1.2] ${strong ? "font-bold text-slate-800 dark:text-slate-100" : "font-medium text-slate-600 dark:text-slate-400"}`}>
-      <span className="money text-right">{figure}</span>
+      <span className="text-right" style={{ fontVariantNumeric: "tabular-nums" }}>{figure}</span>
       <span>{label}</span>
     </div>
   );
@@ -189,8 +189,8 @@ function Artboard({ variant, format, mode }: { variant: Variant; format: Format;
       className={`${mode === "dark" ? "dark bg-slate-900" : "bg-[#f0f2f7]"} font-sans`}
       style={{ position: "fixed", top: 0, left: 0, width: w, height: h, overflow: "hidden", colorScheme: mode, zIndex: 100000 }}
     >
-      <div className="flex h-full flex-col justify-between" style={pad}>
-        <div data-content className={`flex flex-1 flex-col justify-start pb-10 ${story ? "gap-8" : "gap-9"}`}>
+      <div className={`flex h-full flex-col ${story ? "justify-center gap-12" : "justify-between"}`} style={pad}>
+        <div data-content className={story ? "flex flex-col gap-8" : "flex flex-1 flex-col justify-start gap-9 pb-10"}>
           {variant === "a" && <VariantA format={format} />}
           {variant === "b" && <VariantB format={format} />}
           {variant === "c" && <VariantC format={format} />}
