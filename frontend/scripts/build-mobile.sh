@@ -150,6 +150,7 @@ trap '
 # refuses links that point outside its root) to sit beside the mirror.
 rsync -a --delete --exclude='node_modules' "$SHARED_SRC/" "$SCRATCH_ROOT/shared/"
 
+# public/design-media/ is marketing preview media for /design on the web only; keep it out of the app bundles.
 rsync -a --delete \
   --exclude='.next/' \
   --exclude='.next-mobile/' \
@@ -159,6 +160,7 @@ rsync -a --delete \
   --exclude='.git/' \
   --exclude='.env.local' \
   --exclude='.env*.local' \
+  --exclude='public/design-media/' \
   ./ "$SCRATCH/"
 
 # Reuse the already-installed deps instead of reinstalling into the scratch dir.
