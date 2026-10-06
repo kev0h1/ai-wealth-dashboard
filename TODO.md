@@ -1637,6 +1637,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
   - note (2026-10-06, claude): Kevin 2026-10-06: fake demo data only; channels TikTok, Instagram, Facebook; first audience is people who worry about money until payday. Round 1 = three static ad variants on Safe-to-Spend, skill design-taste-frontend (art direction) under PRODUCT.md and DESIGN.md.
   - note (2026-10-06, claude): Pre-launch check before any paid spend: confirm TikTok and Meta financial-services advertiser rules for the UK (Sorted reaches bank data via Finexer as its agent), and whether a regulatory disclosure line is needed. Reviewer passed round 1 SHIP; claims softened (B 'by our estimate', no 'set aside' wording).
   - note (2026-10-06, claude): Coordinator review PASS 2026-10-06 on 728f4899: preview-only (frontend/app/design/ad-safe-to-spend plus the index), no production code; copy hedged as an estimate, no promise of moving money or savings, no em dashes. Design round, lands in uat for Kevin's pick; platform financial-services ad rules still to confirm before any paid spend.
+  - note (2026-10-06, claude): Round 1b: preview now fits the phone screen by default (Kevin reported it opened zoomed in); export=1 keeps the exact 1080px artboard for PNG export, byte-identical to before. Reviewer SHIP.
 
 ## H. Repo hygiene
 
