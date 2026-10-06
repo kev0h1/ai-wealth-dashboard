@@ -2516,6 +2516,8 @@ export type SyncStatus = {
     state?: "syncing" | "stalled" | "failed";
     /** G214: "new-bank" never synced; "background" is a re-sync of a bank that has data. */
     kind?: "new-bank" | "background";
+    /** G214: when this connection last synced (background rows only). */
+    last_synced?: string | null;
   }[];
 };
 

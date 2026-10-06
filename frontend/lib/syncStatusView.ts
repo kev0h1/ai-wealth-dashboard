@@ -37,14 +37,17 @@ export function deriveSyncKind(o: { firstSync: boolean; hasUnsyncedConnection: b
 
 function connInfo(c: Conn, status: SyncStatus, asOf?: string | null): SyncingInfo {
   const phase = c.state ?? (c.error ? "failed" : status.state === "stalled" ? "stalled" : "syncing");
+  // Trust the server's kind: a never-synced bank is "new-bank" whether or not
+  // it is also the user's first. 
+  // An older server only ever listed never-synced connections, so no kind
+  // means a new bank.
+  const kind: SyncKind = c.kind === "background" ? "background" : "new-bank";
   return {
-    kind: c.kind === "background"
-      ? "background"
-      : deriveSyncKind({ firstSync: status.first_sync === true, hasUnsyncedConnection: true, userTriggered: false }),
+    kind,
     bank: c.bank ?? undefined,
     failed: phase === "failed",
     stalled: phase === "stalled",
-    asOf: asOf ?? null,
+    asOf: kind === "new-bank" ? null : asOf ?? c.last_synced ?? null,
   };
 }
 
@@ -76,6 +79,7 @@ export function heroSyncingInfo(o: {
     const conns = status.connections;
     const worst = conns.find((c) => c.state === "failed") ?? conns.find((c) => c.state === "stalled") ?? conns[0];
     const info = connInfo(worst, status, o.asOf);
+    if (info.kind === "new-bank") info.asOf = o.asOf ?? null; // the hero's figure time, not the new bank's
     // A re-sync the user just asked for reads as a refresh, not a background one.
     if (info.kind === "background" && o.refreshing) info.kind = "refresh";
     if (!info.failed && !info.stalled && status.state === "stalled") info.stalled = true;

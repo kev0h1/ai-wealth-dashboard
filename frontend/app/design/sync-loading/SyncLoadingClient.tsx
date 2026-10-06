@@ -14,7 +14,9 @@ import type { Account } from "@wealth/shared";
 import SafeToSpendCard from "@/components/SafeToSpendCard";
 import AccountLedgerRow from "@/components/AccountLedgerRow";
 import FirstSyncCard from "@/components/FirstSyncCard";
-import { AccountsSyncBanner, type SyncingInfo } from "@/components/SyncNote";
+import { AccountsSyncBanner } from "@/components/SyncNote";
+import { connectionSyncInfos, heroSyncingInfo } from "@/lib/syncStatusView";
+import type { SyncStatus } from "@/lib/api";
 import { usePreferences } from "@/components/PreferencesContext";
 import { bankToRow } from "@/lib/accountsEstate";
 import { HERO_FIXTURES } from "../safe-to-spend-hero/fixtures";
@@ -39,14 +41,24 @@ const SURFACES: { id: SurfaceId; label: string }[] = [
 // Fixed so screenshots are stable: the figures on screen were last good at 09:41.
 const AS_OF = "2026-10-05T09:41:00";
 
-function infoFor(state: StateId, bank: string): SyncingInfo {
-  const kind = state === "new-bank" || state === "first-sync" ? "new-bank" : state === "background" ? "background" : "refresh";
+// The previews build the SAME /sync/status payloads the server sends and run
+// them through the production helpers, so a wrong kind or phase cannot hide
+// behind hand-written props.
+function statusFor(state: StateId): SyncStatus {
+  const first = state === "first-sync";
+  const newBank = state === "new-bank" || first;
+  const phase = state === "stalled" ? "stalled" : state === "failed" ? "failed" : "syncing";
   return {
-    kind,
-    bank,
-    stalled: state === "stalled",
-    failed: state === "failed",
-    asOf: kind === "new-bank" ? null : AS_OF,
+    state: phase,
+    first_sync: first,
+    connections: [{
+      provider: "finexer",
+      connection_id: newBank ? "conn-monzo" : "conn-barclays",
+      bank: newBank ? "ob-monzo" : "ob-barclays",
+      state: phase,
+      kind: newBank ? "new-bank" : "background",
+      last_synced: newBank ? null : AS_OF,
+    }],
   };
 }
 
@@ -100,10 +112,14 @@ export default function SyncLoadingClient() {
     `?${new URLSearchParams({ surface: surface.id, state: state.id, mode: dark ? "dark" : "light", verdict, ...over }).toString()}`;
 
   const firstSync = state.id === "first-sync";
-  const bank = state.id === "new-bank" || firstSync ? "Monzo" : "Barclays";
-  const info = infoFor(state.id, bank);
-  const barclaysSync = state.id === "new-bank" || firstSync ? undefined : info;
-  const monzoSync = state.id === "new-bank" || firstSync ? info : undefined;
+  const newBankLike = state.id === "new-bank" || firstSync;
+  const status = statusFor(state.id);
+  // A manual refresh has no server connection state; the hero marks it itself.
+  const heroInfo = heroSyncingInfo({ status: state.id === "refresh" ? null : status, refreshing: state.id === "refresh", refreshFailed: false, asOf: AS_OF });
+  const connInfos = [...connectionSyncInfos(status, null).values()];
+  const info = connInfos[0];
+  const barclaysSync = newBankLike ? undefined : info;
+  const monzoSync = newBankLike ? info : undefined;
   const rows = firstSync ? [] : LEDGER_ACCOUNTS.filter((a) => a.status === "connected");
 
   return (
@@ -144,14 +160,14 @@ export default function SyncLoadingClient() {
           error={false}
           onRetry={noop}
           onSyncRetry={noop}
-          syncing={info}
+          syncing={heroInfo ?? undefined}
         />
       ) : (
         <div className="space-y-3">
           <p className="px-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">Accounts</p>
-          <AccountsSyncBanner connections={[info]} onRetry={noop} />
+          <AccountsSyncBanner connections={connInfos} onRetry={noop} />
           <div className="glass-card overflow-hidden rounded-2xl">
-            {[...rows, ...(state.id === "new-bank" || firstSync ? [MONZO] : [])].map((acc, i) => {
+            {[...rows, ...(newBankLike ? [MONZO] : [])].map((acc, i) => {
               const syncing = acc.provider === "Barclays" ? barclaysSync : acc.provider === "Monzo" ? monzoSync : undefined;
               return (
                 <div key={acc.id} className={i > 0 ? "border-t border-slate-100 dark:border-white/5" : ""}>

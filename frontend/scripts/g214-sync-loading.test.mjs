@@ -51,7 +51,6 @@ assert.equal(deriveSyncKind({ firstSync: false, hasUnsyncedConnection: true, use
 assert.equal(deriveSyncKind({ firstSync: false, hasUnsyncedConnection: true, userTriggered: true }), "new-bank", "server evidence beats the tap");
 assert.equal(deriveSyncKind({ firstSync: false, hasUnsyncedConnection: false, userTriggered: true }), "refresh");
 assert.equal(deriveSyncKind({ firstSync: false, hasUnsyncedConnection: false, userTriggered: false }), "background");
-assert.equal(deriveSyncKind({ firstSync: true, hasUnsyncedConnection: true, userTriggered: false }), "background", "a first sync is FirstSyncCard's, not a kind");
 
 // ── Hero info from server state.
 const st = (state, over = {}) => ({ state, first_sync: false, connections: [{ provider: "finexer", connection_id: "c2", bank: "ob-monzo", state }], ...over });
@@ -74,6 +73,22 @@ const bgRow = renderToStaticMarkup(React.createElement(AccountLedgerRow, { row, 
 assert.doesNotMatch(bgRow, /Pending/, "a bank with data never reads Pending");
 assert.match(bgRow, /As of 09:41 · Updating/);
 assert.match(bgRow, /£44|44/);
+// First sign-up through Accounts: the server says new-bank, so the row reads
+// Pending (never "£0 Updating"), with no as-of time and no row to click.
+const firstSignUp = { state: "syncing", first_sync: true, connections: [{ provider: "finexer", connection_id: "m1", bank: "ob-monzo", state: "syncing", kind: "new-bank" }] };
+const fsInfos = connectionSyncInfos(firstSignUp, "2026-10-05T09:41:00");
+assert.equal(fsInfos.get("m1").kind, "new-bank", "server kind is trusted even when first_sync is true");
+assert.equal(fsInfos.get("m1").asOf, null);
+assert.equal(pendingConnectionInfos(fsInfos, []).length, 1, "one Pending row to render");
+const fsRow = renderToStaticMarkup(React.createElement(AccountLedgerRow, { row, sync: fsInfos.get("m1") }));
+assert.match(fsRow, />Pending</);
+assert.doesNotMatch(fsRow, /£0|Updating|As of/, "no zero balance, no as-of on a never-synced bank");
+assert.equal(connectionSyncInfos({ ...firstSignUp, connections: [{ ...firstSignUp.connections[0], kind: undefined }] }).get("m1").kind, "new-bank", "no kind from an older server means a new bank");
+// A background re-sync gets its as-of time from the connection itself.
+const bgLast = connectionSyncInfos({ ...bg, connections: [{ ...bg.connections[0], last_synced: "2026-10-05T09:41:00" }] }).get("c1");
+assert.equal(bgLast.asOf, "2026-10-05T09:41:00");
+assert.match(renderToStaticMarkup(React.createElement(AccountsSyncBanner, { connections: [{ ...bgLast, stalled: true }], onRetry: () => {} })), /saved figures as of 09:41/);
+assert.equal(pendingConnectionInfos(connectionSyncInfos(bg), []).filter(([, i]) => i.kind === "new-bank").length, 0, "a background re-sync is never a Pending row");
 const infos = connectionSyncInfos(st("stalled"));
 assert.equal(infos.get("c2").stalled, true);
 assert.equal(connectionSyncInfos(st("idle", { connections: [] })).size, 0);
@@ -125,6 +140,7 @@ assert.equal((home.match(/setInterval\(/g) ?? []).length, 1, "one poll, not a se
 const acc = src("../app/components/AccountsPage.tsx");
 assert.match(acc, /<AccountsSyncBanner/);
 assert.match(acc, /sync=\{syncFor\(row\)\}/);
+assert.match(acc, /info\.kind === "new-bank" && !pausedConnectionIds/, "only a never-synced bank gets a Pending row");
 assert.match(acc, /acc\.paused/, "a paused bank never shows as syncing");
 assert.match(acc, /PausedBanksStrip/);
 

@@ -1470,7 +1470,9 @@ export default function AccountsPage() {
     return syncInfoByConnection.get(acc.connection_id);
   };
   const pendingRows = useMemo(() => {
-    const entries = pendingConnectionInfos(syncInfoByConnection, bankAccounts).filter(([id]) => !pausedConnectionIds.has(id));
+    // Only a bank that has never synced gets a Pending row; a re-sync of a
+    // bank with data has accounts already.
+    const entries = pendingConnectionInfos(syncInfoByConnection, bankAccounts).filter(([id, info]) => info.kind === "new-bank" && !pausedConnectionIds.has(id));
     // Landing from a bank consent before the server lists the connection yet.
     if (entries.length === 0 && isSyncing && !syncTimedOut && bankAccounts.length === 0) {
       entries.push(["landing", { kind: "new-bank" as const }]);
