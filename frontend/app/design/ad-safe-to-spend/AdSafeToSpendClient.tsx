@@ -9,7 +9,11 @@
 // artboard is an exact-pixel frame so a headless screenshot at that viewport
 // is the export.
 //
-// /design/ad-safe-to-spend?variant=a|b|c&format=feed|story&mode=light|dark[&chrome=1]
+// /design/ad-safe-to-spend?variant=a|b|c&format=feed|story&mode=light|dark[&chrome=1][&export=1]
+//
+// Default view scales the artboard to fit the viewport (aspect ratio kept) so
+// it opens whole on a phone. export=1 is the exact-pixel frame (fixed at 0,0,
+// scale 1) that the PNG exports are shot from.
 //
 // Colour is information: emerald is the on-track figure, indigo is the one
 // action (CTA). No red, and the indigo to violet gradient is Penny's alone, so
@@ -18,7 +22,7 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import type { CSSProperties, ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import SafeToSpendCard from "@/components/SafeToSpendCard";
 import {
   AD_DATA,
@@ -176,7 +180,7 @@ function VariantC({ format }: { format: Format }) {
 }
 
 // ---------- Artboard ----------
-function Artboard({ variant, format, mode }: { variant: Variant; format: Format; mode: Mode }) {
+function Artboard({ variant, format, mode, fit }: { variant: Variant; format: Format; mode: Mode; fit: boolean }) {
   const { w, h } = SIZES[format];
   const story = format === "story";
   const pad: CSSProperties = story
@@ -187,7 +191,9 @@ function Artboard({ variant, format, mode }: { variant: Variant; format: Format;
     <div
       data-artboard
       className={`${mode === "dark" ? "dark bg-slate-900" : "bg-[#f0f2f7]"} font-sans`}
-      style={{ position: "fixed", top: 0, left: 0, width: w, height: h, overflow: "hidden", colorScheme: mode, zIndex: 100000 }}
+      style={fit
+        ? { position: "absolute", top: 0, left: 0, width: w, height: h, overflow: "hidden", colorScheme: mode, transformOrigin: "top left", transform: "scale(var(--ad-scale))" } as CSSProperties
+        : { position: "fixed", top: 0, left: 0, width: w, height: h, overflow: "hidden", colorScheme: mode, zIndex: 100000 }}
     >
       <div className={`flex h-full flex-col ${story ? "justify-center gap-12" : "justify-between"}`} style={pad}>
         <div data-content className={story ? "flex flex-col gap-8" : "flex flex-1 flex-col justify-start gap-9 pb-10"}>
@@ -215,34 +221,73 @@ export default function AdSafeToSpendClient() {
   const format: Format = rawF === "story" ? "story" : "feed";
   const mode: Mode = params.get("mode") === "light" ? "light" : "dark";
   const chrome = params.get("chrome") === "1";
-  const { w } = SIZES[format];
+  const exact = params.get("export") === "1";
+  const { w, h } = SIZES[format];
+
+  const areaRef = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState<number | null>(null);
+
+  useLayoutEffect(() => {
+    if (exact) return;
+    const el = areaRef.current;
+    if (!el) return;
+    const measure = () => {
+      const r = el.getBoundingClientRect();
+      const s = Math.min(r.width / w, r.height / h);
+      setScale(s > 0 ? s : null);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    window.addEventListener("resize", measure);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [exact, w, h, chrome]);
 
   const href = (n: Partial<{ variant: Variant; format: Format; mode: Mode }>) =>
     `?variant=${n.variant ?? variant}&format=${n.format ?? format}&mode=${n.mode ?? mode}&chrome=1`;
   const pill = "inline-flex min-h-11 items-center rounded-full px-4 text-sm font-semibold";
 
+  if (exact) {
+    return <Artboard variant={variant} format={format} mode={mode} fit={false} />;
+  }
+
   return (
-    <>
-      <Artboard variant={variant} format={format} mode={mode} />
+    <div
+      className={`fixed inset-0 z-[100000] flex flex-col overflow-hidden ${mode === "dark" ? "bg-slate-950" : "bg-slate-200"}`}
+      style={{ colorScheme: mode }}
+    >
       {chrome && (
-        <div className="fixed top-4 z-[100001] flex flex-col gap-3 rounded-2xl bg-white p-4 text-slate-900 shadow-sm" style={{ left: w + 24 }}>
-          <nav aria-label="Variant" className="flex gap-2">
+        <div className="flex flex-col gap-2 bg-white p-3 text-slate-900">
+          <nav aria-label="Variant" className="flex flex-wrap gap-2">
             {VARIANTS.map((v) => (
               <Link key={v.id} href={href({ variant: v.id })} className={`${pill} ${variant === v.id ? "bg-indigo-600 text-white" : "bg-indigo-50 text-indigo-700"}`}>{v.label}</Link>
             ))}
           </nav>
-          <nav aria-label="Format" className="flex gap-2">
+          <nav aria-label="Format" className="flex flex-wrap gap-2">
             {(["feed", "story"] as Format[]).map((f) => (
               <Link key={f} href={href({ format: f })} className={`${pill} ${format === f ? "bg-indigo-600 text-white" : "bg-indigo-50 text-indigo-700"}`}>{f === "feed" ? "Feed 1080x1350" : "Story 1080x1920"}</Link>
             ))}
           </nav>
-          <nav aria-label="Mode" className="flex gap-2">
+          <nav aria-label="Mode" className="flex flex-wrap gap-2">
             {(["light", "dark"] as Mode[]).map((m) => (
               <Link key={m} href={href({ mode: m })} className={`${pill} ${mode === m ? "bg-indigo-600 text-white" : "bg-indigo-50 text-indigo-700"}`}>{m === "light" ? "Light" : "Dark"}</Link>
             ))}
           </nav>
         </div>
       )}
-    </>
+      <div ref={areaRef} className="relative min-h-0 flex-1">
+        {scale !== null && (
+          <div
+            className="absolute left-1/2 top-1/2"
+            style={{ width: w * scale, height: h * scale, transform: "translate(-50%, -50%)", ["--ad-scale" as string]: scale } as CSSProperties}
+          >
+            <Artboard variant={variant} format={format} mode={mode} fit />
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
