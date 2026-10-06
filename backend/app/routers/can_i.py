@@ -715,7 +715,7 @@ async def can_i_suggestions(user: dict = Depends(current_user)):
                 payday_label = date.fromisoformat(str(next_payday)[:10]).strftime("%a %-d %b")
             except ValueError:
                 payday_label = None
-        context_line = _nothing_spare_line(payday_label, sts.get("short_reason"))
+        context_line = _nothing_spare_line(payday_label, sts.get("short_reason"), bool(sts.get("plans_only_short")))
     if card_context:
         context_line += f" · {card_context}"
 

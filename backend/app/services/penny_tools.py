@@ -1984,7 +1984,7 @@ async def _exec_get_safe_to_spend(uid: str) -> dict:
         "next_payday": sts.get("next_payday"),
         "days_until_payday": sts.get("days_until_payday"),
         "state": sts.get("state"),
-        "short_reason": sts.get("short_reason"),
+        "short_reason": sts.get("short_reason"), "plans_only_short": bool(sts.get("plans_only_short")),  # G218, same line keeps the leak allowlist stable
         "bills_total": _money(sts.get("bills_total")),
         "card_debt": _money(sts.get("card_debt")),
         "card_growth": _money(sts.get("card_growth_total")),

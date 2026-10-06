@@ -615,3 +615,71 @@ def test_safe_to_spend_pins_against_a_fixed_transaction_fixture(monkeypatch):
     assert result["state"] == "tight"
     assert result["short_reason"] is None
     assert result["estimated"] is False
+
+
+# ── G218: plans_only_short on the payload ───────────────────────────────
+
+def _sts_with_set_asides(monkeypatch, *, commitments_raise=False, first_sync=None):
+    """Kevin's screenshot: £0 cash, no bills, £50 of plans and £200 of envelopes."""
+    monkeypatch.setattr(analytics, "preferences_col", _PrefsCol({"user_id": "user@example.com"}))
+    monkeypatch.setattr(analytics, "cashflow_cache_col", _CacheDocCol())
+
+    async def cashflow_response(_cached, uid=None):
+        return {"upcoming_bills": [], "upcoming_income": []}
+
+    async def accounts(_uid):
+        return [{"balance": 0.0, "type": "bank", "subtype": "CURRENT", "currency": "GBP"}]
+
+    async def commitments(_uid):
+        if commitments_raise:
+            raise RuntimeError("commitments store unavailable")
+        return 50, 1
+
+    async def allocations(_uid):
+        return 200.0, 2
+
+    async def no_card_growth(_uid, _start, _today, _bills, _excluded=None):
+        return []
+
+    async def monthly_cashflow(_uid, _cutoff):
+        return {"spending": 0.0, "n_months": 3}
+
+    async def no_sync(_uid):
+        return None
+
+    monkeypatch.setattr(analytics, "_build_cashflow_response", cashflow_response)
+    monkeypatch.setattr(analytics, "_safe_to_spend_accounts", accounts)
+    monkeypatch.setattr(commitments_router, "total_reserved_slices", commitments)
+    monkeypatch.setattr(allocations_router, "total_reserved_remaining", allocations)
+    monkeypatch.setattr(net_position, "card_growth_by_card", no_card_growth)
+    monkeypatch.setattr(cashflow_service, "monthly_cashflow_cached", monthly_cashflow)
+    monkeypatch.setattr(analytics, "last_bank_sync", no_sync)
+    if first_sync is not None:
+        async def fake_first_sync(_uid):
+            return first_sync
+        monkeypatch.setattr(analytics, "first_sync_state", fake_first_sync)
+    return asyncio.run(analytics.compute_safe_to_spend("user@example.com"))
+
+
+def test_plans_only_short_true_for_kevins_set_aside_shortfall(monkeypatch):
+    result = _sts_with_set_asides(monkeypatch)
+    assert result["state"] == "short"
+    assert result["safe_to_spend_cash"] == -250.0
+    assert result["lowest_projected_balance"] == 0.0
+    assert result["plans_only_short"] is True
+
+
+def test_plans_only_short_false_when_degraded(monkeypatch):
+    # Without the guard the £200 of envelopes alone would make this True.
+    result = _sts_with_set_asides(monkeypatch, commitments_raise=True)
+    assert result["calculation_status"] == "degraded"
+    assert result["plans_only_short"] is False
+
+
+def test_plans_only_short_false_while_syncing(monkeypatch):
+    result = _sts_with_set_asides(
+        monkeypatch,
+        first_sync={"state": "syncing", "first_sync": True, "connections": []},
+    )
+    assert result["calculation_status"] == "syncing"
+    assert result["plans_only_short"] is False
