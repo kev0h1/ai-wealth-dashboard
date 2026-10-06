@@ -14,12 +14,14 @@ const STORIES = [
     label: "Café",
     src: "/design-media/g224/sorted-ai-intro.mp4",
     poster: "/design-media/g224/sorted-ai-intro-poster.jpg",
+    caption: "AI-generated intro (Veo 3.1 Fast) joined to the G223 reel. The person is AI-generated.",
   },
   {
     id: "night-out",
     label: "Night out",
     src: "/design-media/g224/sorted-night-out.mp4",
     poster: "/design-media/g224/sorted-night-out-poster.jpg",
+    caption: "AI-generated intro and outro (Veo 3.1 Fast) around the G223 reel. The people are AI-generated.",
   },
 ] as const;
 
@@ -65,7 +67,7 @@ export default function AiIntroReelClient() {
         />
       </div>
       <p className="max-w-[22rem] text-center text-xs leading-snug text-slate-300">
-        AI-generated intro and outro (Veo 3.1 Fast) around the G223 reel. The people are AI-generated.
+        {story.caption}
       </p>
     </main>
   );
