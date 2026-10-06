@@ -36,7 +36,7 @@ export const SortedReel = ({ iconSrc }: SortedReelProps) => {
     <Mess />
     <PhoneLayer />
     <Caption text={COPY.answerCaption} from={BEAT.answer.from + 40} to={BEAT.answer.to - 4} />
-    <Caption text={COPY.proofCaption} from={BEAT.proof.from + 4} to={BEAT.proof.to - 4} />
+    <Caption text={COPY.proofCaption} from={BEAT.proof.from + 4} to={396} />
     <End iconSrc={iconSrc} />
   </AbsoluteFill>
   );

@@ -32,7 +32,9 @@ type Box = { left: number; top: number; width: number; height: number };
 
 // Locate text inside the rendered card (card-local, unscaled CSS px) so the
 // highlights follow the real layout instead of hard-coded coordinates.
-function useCardMarks(ref: React.RefObject<HTMLDivElement | null>) {
+// `tick` (the current frame) re-measures every frame, so late font loads or a
+// changing figure width are picked up; setMarks bails out when nothing moved.
+function useCardMarks(ref: React.RefObject<HTMLDivElement | null>, tick: number) {
   const [marks, setMarks] = useState<{ estimated: Box[]; context: Box[]; figure: Box | null }>({ estimated: [], context: [], figure: null });
   useLayoutEffect(() => {
     const root = ref.current;
@@ -57,27 +59,44 @@ function useCardMarks(ref: React.RefObject<HTMLDivElement | null>) {
       return out;
     };
     // The "After upcoming bills, plans and your £100 buffer." line is split
-    // across several text nodes (MoneyText), so take its element's rects.
-    const lineRects = (starts: string) => {
-      const out: Box[] = [];
-      let best: Element | null = null;
-      for (const el of Array.from(root.querySelectorAll("p, span, div"))) {
-        if ((el.textContent ?? "").startsWith(starts) && (!best || best.contains(el))) best = el;
-      }
-      if (best) {
+    // across several text nodes and elements (MoneyText wraps the £100 in a
+    // mono span). Take the outermost element holding the whole sentence, walk
+    // every text node under it, and merge the rects per visual line so the
+    // marker spans the full sentence through "buffer.".
+    const lineRects = (starts: string, ends: string) => {
+      const el = Array.from(root.querySelectorAll("p, span, div")).find((e) => {
+        const t = e.textContent ?? "";
+        return t.startsWith(starts) && t.endsWith(ends);
+      });
+      if (!el) return [];
+      const lines: Box[] = [];
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
         const range = document.createRange();
-        range.selectNodeContents(best);
-        for (const r of Array.from(range.getClientRects())) if (r.width > 1 && r.height > 1) out.push(local(r));
+        range.selectNodeContents(n);
+        for (const r of Array.from(range.getClientRects())) {
+          if (r.width < 1 || r.height < 1) continue;
+          const b = local(r);
+          const line = lines.find((l) => Math.abs(l.top - b.top) < b.height / 2);
+          if (line) {
+            const right = Math.max(line.left + line.width, b.left + b.width);
+            const bottom = Math.max(line.top + line.height, b.top + b.height);
+            line.left = Math.min(line.left, b.left);
+            line.top = Math.min(line.top, b.top);
+            line.width = right - line.left;
+            line.height = bottom - line.top;
+          } else lines.push(b);
+        }
       }
-      return out;
+      return lines;
     };
     const estimated = rangesFor(/estimated/, "estimated");
-    const context = lineRects("After ");
+    const context = lineRects("After ", "buffer.");
     const fig = root.querySelector("#safe-to-spend-heading .money");
     const figure = fig ? local(fig.getBoundingClientRect()) : null;
     const same = (a: Box[], b: Box[]) => a.length === b.length && a.every((x, i) => Math.abs(x.left - b[i].left) + Math.abs(x.top - b[i].top) + Math.abs(x.width - b[i].width) < 1);
     setMarks((m) => (same(m.estimated, estimated) && same(m.context, context) && (m.figure?.width ?? 0) === (figure?.width ?? 0) && (m.figure?.top ?? 0) === (figure?.top ?? 0) ? m : { estimated, context, figure }));
-  });
+  }, [ref, tick]);
   return marks;
 }
 
@@ -113,7 +132,7 @@ const Sweep = ({ boxes, progress, pad = 8 }: { boxes: Box[]; progress: number; p
 export const PhoneLayer = () => {
   const frame = useCurrentFrame();
   const cardRef = useRef<HTMLDivElement>(null);
-  const marks = useCardMarks(cardRef);
+  const marks = useCardMarks(cardRef, frame);
   const a = BEAT.answer.from;
   if (frame < a || frame > 396) return null;
 
@@ -137,7 +156,6 @@ export const PhoneLayer = () => {
 
   const estP = easeIO(frame, 306, 328);
   const ctxP = easeIO(frame, 330, 366);
-  const dim = zoom * (1 - exit);
   const left = SAFE_BOX.left + (SAFE_BOX.width - PHONE_W) / 2;
 
   return (
