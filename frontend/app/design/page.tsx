@@ -32,6 +32,13 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "ai-intro-reel",
+    name: "AI live-action intro + reel · G224 · 23s vertical video (Veo 3.1 Fast)",
+    description:
+      "G224: an AI-generated 8 second live-action intro (a woman walks into a café, the camera pushes into her phone) that crossfades into the untouched G223 reel · plays muted and looping with controls, fitted to the screen · the person is AI-generated and must be labelled as AI on TikTok and Meta",
+    states: [{ label: "Play", value: "play" }],
+  },
+  {
     slug: "reel-safe-to-spend",
     name: "First Sorted reel, Safe to Spend · G223 · 15s vertical video (Remotion)",
     description:
