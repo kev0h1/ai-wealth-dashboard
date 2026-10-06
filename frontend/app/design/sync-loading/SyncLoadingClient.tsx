@@ -155,7 +155,7 @@ export default function SyncLoadingClient() {
               const syncing = acc.provider === "Barclays" ? barclaysSync : acc.provider === "Monzo" ? monzoSync : undefined;
               return (
                 <div key={acc.id} className={i > 0 ? "border-t border-slate-100 dark:border-white/5" : ""}>
-                  <AccountLedgerRow row={bankToRow(acc, [])} onClick={noop} sync={syncing} />
+                  <AccountLedgerRow row={{ ...bankToRow(acc, []), dormant: false }} onClick={noop} sync={syncing} />
                 </div>
               );
             })}
