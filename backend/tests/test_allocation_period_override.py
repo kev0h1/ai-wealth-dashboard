@@ -107,3 +107,35 @@ def test_put_prunes_stale_earlier_period_keys(monkeypatch):
     _set(created["id"], 100)
     keys = sorted(allocations.allocations_col.docs[0]["period_overrides"])
     assert len(keys) == 1 and keys[0] >= _FixedDate.today().isoformat()
+
+
+def test_lowering_recurring_below_the_override_clamps_period_amount(monkeypatch):
+    """recurring 200, override 150, then recurring edited to 100: reserve 100."""
+    created = _made(monkeypatch, amount=200)
+    _set(created["id"], 150)
+    allocations.allocations_col.docs[0]["amount_per_period"] = 100
+    reserved, _ = asyncio.run(allocations.total_reserved_remaining(UID))
+    assert reserved == 100
+    out = asyncio.run(allocations.clear_period_override(created["id"], USER))
+    assert out["period_amount"] == 100
+
+
+def test_put_writes_only_the_live_key_and_never_clobbers_others(monkeypatch):
+    created = _made(monkeypatch)
+    far = (_FixedDate.today() + timedelta(days=400)).isoformat()
+    allocations.allocations_col.docs[0]["period_overrides"] = {"2020-01-31": 5000, far: 7000}
+    _set(created["id"], 100)
+    stored = allocations.allocations_col.docs[0]["period_overrides"]
+    assert "2020-01-31" not in stored  # only the stale key pruned
+    assert stored[far] == 7000          # an unrelated later key survives
+    live = [k for k in stored if k != far]
+    assert len(live) == 1 and stored[live[0]] == 10000
+
+
+def test_delete_unsets_only_the_live_key(monkeypatch):
+    created = _made(monkeypatch)
+    far = (_FixedDate.today() + timedelta(days=400)).isoformat()
+    _set(created["id"], 100)
+    allocations.allocations_col.docs[0]["period_overrides"][far] = 7000
+    asyncio.run(allocations.clear_period_override(created["id"], USER))
+    assert allocations.allocations_col.docs[0]["period_overrides"] == {far: 7000}

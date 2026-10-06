@@ -1448,7 +1448,7 @@ export type AllocationShortfallData = {
   /** The allocation Reduce opens, with the per-period amount that clears the gap. */
   allocation: { id: string; name: string; period_amount: number; suggested_amount: number };
   other_allocation_count: number;
-  /** Legs from the shared source finder. Empty when no account can safely spare it. */
+  /** Legs from the shared source finder, phrased as a recommendation (the app never moves money). Empty when no account can safely spare it. */
   moves: { amount: number; move_map: MoveMap }[];
 };
 

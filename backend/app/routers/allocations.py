@@ -363,7 +363,9 @@ async def _serialise(doc: dict, start: date, end: date) -> dict:
         window_start, window_end,
     )
     override_pence = _period_override_pence(doc, eff_end)
-    period_amount = amount if override_pence is None else round(override_pence / 100, 2)
+    # A reduction only: if the recurring amount was lowered below an older
+    # this-period override, the lower recurring amount wins.
+    period_amount = amount if override_pence is None else min(round(override_pence / 100, 2), amount)
     remaining = 0.0 if (completed or pending) else round(max(0.0, period_amount - filled), 2)
     return {
         "id":                  str(doc["_id"]),
@@ -806,14 +808,19 @@ async def set_period_override(allocation_id: str, body: dict, user: dict = Depen
     start, end = get_pay_period_for_date(timeutil.user_today(), cfg)
     serial = await _serialise(doc, start, end)
     period_end = date.fromisoformat(serial["period_end"])
-    # Only the live period is kept: earlier keys are dead weight.
-    overrides = {k: v for k, v in (doc.get("period_overrides") or {}).items() if k >= period_end.isoformat()}
-    overrides[period_end.isoformat()] = int(round(amount * 100))
-    result = await allocations_col.update_one(
-        {"_id": doc["_id"], "user_id": uid}, {"$set": {"period_overrides": overrides}},
-    )
+    # Write only the live key and prune stale (earlier-period) keys; never
+    # replace the whole map from a possibly stale read.
+    live_key = period_end.isoformat()
+    update: dict = {"$set": {f"period_overrides.{live_key}": int(round(amount * 100))}}
+    stale = {f"period_overrides.{k}": "" for k in (doc.get("period_overrides") or {}) if k < live_key}
+    if stale:
+        update["$unset"] = stale
+    result = await allocations_col.update_one({"_id": doc["_id"], "user_id": uid}, update)
     if result.matched_count == 0:
         raise HTTPException(409, "Allocation changed while you were editing. Refresh and try again.")
+    overrides = dict(doc.get("period_overrides") or {})
+    overrides = {k: v for k, v in overrides.items() if k >= live_key}
+    overrides[live_key] = int(round(amount * 100))
     doc["period_overrides"] = overrides
     await response_cache.ainvalidate(uid)
     return await _serialise(doc, start, end)
@@ -826,9 +833,11 @@ async def clear_period_override(allocation_id: str, user: dict = Depends(current
     cfg = await _pay_cfg(uid)
     start, end = get_pay_period_for_date(timeutil.user_today(), cfg)
     serial = await _serialise(doc, start, end)
-    overrides = {k: v for k, v in (doc.get("period_overrides") or {}).items() if k != serial["period_end"]}
-    await allocations_col.update_one({"_id": doc["_id"], "user_id": uid}, {"$set": {"period_overrides": overrides}})
-    doc["period_overrides"] = overrides
+    live_key = serial["period_end"]
+    await allocations_col.update_one(
+        {"_id": doc["_id"], "user_id": uid}, {"$unset": {f"period_overrides.{live_key}": ""}},
+    )
+    doc["period_overrides"] = {k: v for k, v in (doc.get("period_overrides") or {}).items() if k != live_key}
     await response_cache.ainvalidate(uid)
     return await _serialise(doc, start, end)
 

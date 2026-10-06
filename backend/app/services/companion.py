@@ -4542,7 +4542,7 @@ async def compute_today_items(
                     def _build_alloc_move_map(src_id, src_name, src_provider, src_balance, src_own_bills, leg_amount, src_reserved=0.0, _n=_alloc["name"], _pn=_pay_name, _pid=_pay_id, _pa=_pay_acc):
                         return {
                             "from": {
-                                "account_id": src_id, "name": src_name, "provider": src_provider,
+                                "account_id": src_id, "name": humanise_account_name(src_name), "provider": src_provider,
                                 "balance": float(src_balance),
                                 "safe_note": (
                                     f"Covers its own £{int(round(src_own_bills)):,} of bills with room to spare"
@@ -4565,16 +4565,6 @@ async def compute_today_items(
                         source_capacity.clear()
                         source_capacity.update(_cap_snapshot)
                         _legs = []
-                    _src_names = [humanise_account_name(l["_src_name"]) for l in _legs]
-                    if not _src_names:
-                        _action = None
-                    else:
-                        _who = (
-                            _src_names[0] if len(_src_names) == 1
-                            else f"{_src_names[0]} and {_src_names[1]}" if len(_src_names) == 2
-                            else f"{len(_src_names)} accounts"
-                        )
-                        _action = {"label": f"Move from {_who}", "route": "/upcoming"}
                     allocation_items.append({
                         "id": _item_id,
                         "type": "allocation_shortfall",
@@ -4583,7 +4573,9 @@ async def compute_today_items(
                             else f"Your set-asides at {humanise_account_name(_pay_name)} are short"
                         ),
                         "body": f"{_gbp(_gap)} short this period.",
-                        "action": _action,
+                        # The app never moves money: the card phrases the move
+                        # as a recommendation from `moves`, so no action route.
+                        "action": None,
                         "estimated": bool(_g["estimated"]),
                         "amount": _gap,
                         "allocation_shortfall": {

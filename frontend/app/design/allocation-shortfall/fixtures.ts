@@ -77,7 +77,7 @@ export function allocationItem(state: ShortfallState): CompanionItem {
     type: "allocation_shortfall",
     headline: "Your Holiday set-aside is short",
     body: "£38.40 short this period.",
-    action: hasSource ? { label: "Move from Savings", route: "#" } : null,
+    action: null,
     estimated: state === "estimated",
     amount: 38.4,
     allocation_shortfall: {

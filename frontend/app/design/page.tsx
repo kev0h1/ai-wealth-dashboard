@@ -35,7 +35,7 @@ const ROUTES: PreviewRoute[] = [
     slug: "allocation-shortfall",
     name: "Allocation shortfall card · G217 · approved A, folded in",
     description:
-      "G217 fold-in of Kevin's pick (A, same anatomy lighter with the outlined button pair; materiality floor £5): the PRODUCTION AllocationShortfallCard rendered through props under the production MoveCard, as they stack on Home · ink figure in mono, neutral icon, no red, no amber, no Penny gradient · Move from the source or Reduce set-aside, equal; with no source only Reduce and a line saying why · the paying account is hedged (\"based on recent transfers\") when inferred · Reduce opens the shipped allocation editor prefilled with the amount that clears the gap",
+      "G217 fold-in of Kevin's pick (A, same anatomy lighter; revised 2026-10-06; materiality floor £5): the PRODUCTION AllocationShortfallCard rendered through props under the production MoveCard, as they stack on Home · ink figure in mono, neutral icon, no red, no amber, no Penny gradient · the move is a recommendation sentence (\"You could move £X from Savings, which looks able to spare it\"), never a button, because the app does not move money; one full-width action, Adjust set-aside; with no source a line saying why · the paying account is hedged (\"based on recent transfers\") when inferred · Adjust set-aside opens the this-period sheet, with Change every period leading to the full editor",
     states: [{ label: "Estimated account", value: "estimated" }, { label: "Known account", value: "known" }, { label: "No source", value: "no-source" }],
   },
   {

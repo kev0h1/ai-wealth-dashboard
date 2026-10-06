@@ -46,7 +46,8 @@ assert.doesNotMatch(src, /BRAND_GRADIENT|PennyKindLabel|PennyMark|PRIMARY_ACTION
 assert.doesNotMatch(src, /\u2014/, "no em dash");
 assert.doesNotMatch(src, />[^<{]*[A-Za-z]!/, "no exclamation marks in copy");
 assert.match(src, /SET_ASIDE_ACTION/);
-assert.equal((src.match(/className=\{SET_ASIDE_ACTION\}/g) ?? []).length, 2, "Move and Reduce share one class: equal weight");
+assert.equal((src.match(/className=\{SET_ASIDE_ACTION\}/g) ?? []).length, 1, "one action only: Adjust set-aside");
+assert.doesNotMatch(src, /<Link\b|item\.action/, "no Move link: the app never moves money");
 assert.match(brief, /const SET_ASIDE_ACTION = `\$\{SECONDARY_ACTION\} text-center leading-tight`/);
 
 // 3. Rendered states.
@@ -71,16 +72,21 @@ assert.match(known, /Paid from Premier Current\./);
 assert.doesNotMatch(known, /based on recent transfers/);
 
 for (const [name, html] of [["estimated", estimated], ["known", known]]) {
-  const actions = buttons(html).filter(([, , label]) => /^(Move from|Reduce)/.test(label));
-  assert.deepEqual(actions.map(([, , label]) => label), ["Move from Savings", "Reduce set-aside"], `${name}: both remedies, Move first`);
-  assert.equal(actions[0][1], actions[1][1], `${name}: equal classes`);
+  const actions = buttons(html).filter(([, , label]) => /^(Move|Reduce|Adjust)/.test(label));
+  assert.deepEqual(actions.map(([, , label]) => label), ["Adjust set-aside"], `${name}: one action, no Move button`);
   assert.match(actions[0][1], /min-h-11/);
-  assert.match(html, /grid-cols-2/);
+  assert.doesNotMatch(html, /<a\b/, `${name}: no Move link`);
+  assert.match(html, /You could move <span class="money">£40<\/span> from Savings, which looks able to spare it\./, `${name}: recommendation sentence`);
+  assert.match(html, /grid-cols-1/);
+  assert.doesNotMatch(html, /grid-cols-2/);
   assert.doesNotMatch(html, /No other account can safely spare/);
+  assert.match(html, /data-move-source="available"/);
 }
 
-const noActions = buttons(none).filter(([, , label]) => /^(Move from|Reduce)/.test(label));
-assert.deepEqual(noActions.map(([, , label]) => label), ["Reduce set-aside"], "no source: Reduce only");
+const noActions = buttons(none).filter(([, , label]) => /^(Move|Reduce|Adjust)/.test(label));
+assert.deepEqual(noActions.map(([, , label]) => label), ["Adjust set-aside"], "no source: Adjust only");
+assert.doesNotMatch(none, /You could move/);
+assert.doesNotMatch(none, /<a\b/);
 assert.match(none, /No other account can safely spare <span class="money">£38\.40<\/span> right now\./);
 assert.match(none, /grid-cols-1/);
 assert.match(none, /aria-label="Dismiss Holiday set-aside note"/);

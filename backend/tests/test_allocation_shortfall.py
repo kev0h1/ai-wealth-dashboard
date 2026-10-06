@@ -97,7 +97,7 @@ def test_allocation_only_shortfall_attributes_to_the_allocation(monkeypatch):
     assert data["shortfall"] == 50.0
     assert data["allocation"] == {"id": "a1", "name": "Holiday", "period_amount": 200.0, "suggested_amount": 150.0}
     assert data["paying_account"]["name"] == "Premier Current"
-    assert card["action"] == {"label": "Move from Savings", "route": "/upcoming"}
+    assert card["action"] is None  # the app never moves money; the card recommends
     assert sum(m["amount"] for m in data["moves"]) >= 50
     assert data["moves"][0]["move_map"]["from"]["account_id"] == "sav"
 
@@ -225,7 +225,8 @@ def test_source_is_the_bill_engines_finder_not_a_second_ranking(monkeypatch):
     ]
     card = _alloc(_run(monkeypatch, [], [_plan("a1", "Holiday", "cur", 150.0)], accounts))
     assert card["allocation_shortfall"]["moves"][0]["move_map"]["from"]["account_id"] == "cur2"
-    assert card["action"]["label"] == "Move from Everyday"
+    assert card["action"] is None
+    assert card["allocation_shortfall"]["moves"][0]["move_map"]["from"]["name"] == "Everyday"
 
 
 def test_unreadable_period_or_filled_amount_raises_nothing():

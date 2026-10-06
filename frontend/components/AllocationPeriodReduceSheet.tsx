@@ -10,7 +10,7 @@ export type AllocationPeriodReduceServices = Pick<typeof api, "setAllocationPeri
 const gbp = (v: number) => `£${v.toLocaleString("en-GB", { minimumFractionDigits: Number.isInteger(v) ? 0 : 2, maximumFractionDigits: 2 })}`;
 
 /**
- * G217: "Reduce set-aside" from the Home shortfall card. Saves a one-period
+ * G217: "Adjust set-aside" from the Home shortfall card. Saves a one-period
  * override (PUT /allocations/{id}/period-override): the recurring amount never
  * moves and the reduction lapses when the next pay period starts. Changing the
  * recurring amount stays available as a clearly separate secondary action.

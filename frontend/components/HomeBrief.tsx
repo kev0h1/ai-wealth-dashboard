@@ -1819,7 +1819,10 @@ export function AllocationShortfallCard({ item, hideNetWorth = false, dismissibl
   if (hidden || !data) return null;
 
   const { allocation, paying_account: paying } = data;
-  const hasSource = Boolean(item.action) && data.moves.length > 0;
+  const hasSource = data.moves.length > 0;
+  const moveNames = data.moves.map(m => m.move_map.from.name);
+  const moveTotal = data.moves.reduce((sum, m) => sum + m.amount, 0);
+  const moveWho = moveNames.length <= 1 ? moveNames[0] : moveNames.length === 2 ? `${moveNames[0]} and ${moveNames[1]}` : `${moveNames.length} accounts`;
   const money = (v: number) => setAsideMoney(v, hideNetWorth);
   const payer = data.estimated ? `Paid from ${paying.name}, based on recent transfers.` : `Paid from ${paying.name}.`;
 
@@ -1869,17 +1872,16 @@ export function AllocationShortfallCard({ item, hideNetWorth = false, dismissibl
           {data.other_allocation_count === 0 && <><span className="money">{money(allocation.period_amount)}</span> set aside this period. </>}
           {payer}
         </p>
-        {!hasSource && (
-          <p className="mt-1 text-[12px] leading-5 text-slate-600 dark:text-slate-400">
-            No other account can safely spare <span className="money">{money(data.shortfall)}</span> right now.
-          </p>
-        )}
+        <p className="mt-1 text-[12px] leading-5 text-slate-600 dark:text-slate-400">
+          {hasSource ? (
+            <>You could move <span className="money">{money(moveTotal)}</span> from {moveWho}, which {moveNames.length > 1 ? "look" : "looks"} able to spare it.</>
+          ) : (
+            <>No other account can safely spare <span className="money">{money(data.shortfall)}</span> right now.</>
+          )}
+        </p>
       </div>
-      <div className={`mt-4 grid gap-2 ${hasSource ? "grid-cols-2" : "grid-cols-1"}`}>
-        {hasSource && item.action && (
-          <Link href={item.action.route} className={SET_ASIDE_ACTION}>{item.action.label}</Link>
-        )}
-        <button type="button" onClick={openReduce} disabled={busy} className={SET_ASIDE_ACTION}>Reduce set-aside</button>
+      <div className="mt-4 grid grid-cols-1 gap-2">
+        <button type="button" onClick={openReduce} disabled={busy} className={SET_ASIDE_ACTION}>Adjust set-aside</button>
       </div>
       {error && (
         <p role="alert" className="mt-2 text-[12px] leading-5 text-slate-600 dark:text-slate-300">

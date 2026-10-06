@@ -193,7 +193,19 @@ class FakeCol:
     @staticmethod
     def _apply(d, update):
         for k, v in (update.get("$set") or {}).items():
-            d[k] = v
+            FakeCol._walk(d, k)[0][FakeCol._walk(d, k)[1]] = v
+        for k in (update.get("$unset") or {}):
+            parent, leaf = FakeCol._walk(d, k)
+            parent.pop(leaf, None)
+
+    @staticmethod
+    def _walk(d, dotted):
+        # Minimal dotted-path support ("a.b") so $set/$unset on nested keys
+        # touch only that key, as Mongo does.
+        parts = dotted.split(".")
+        for part in parts[:-1]:
+            d = d.setdefault(part, {})
+        return d, parts[-1]
 
 
 def _txn(account_id, amount, txn_type, days_ago=0, uid=UID, merchant_name=SERIES_A,
