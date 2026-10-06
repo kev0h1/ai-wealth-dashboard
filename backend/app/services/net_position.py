@@ -288,3 +288,28 @@ def short_reason_for(
     if card_growth_reserved > 0:
         return "cards_unconfirmed"
     return None
+
+
+def plans_only_short_for(
+    state: str,
+    short_reason: str | None,
+    safe_to_spend_cash: float,
+    lowest_projected_balance: float | None,
+    buffer: float,
+    commitments_reserved: float,
+    allocations_reserved: float,
+) -> bool:
+    """G218: a shortfall that exists only because plans and envelopes were set
+    aside. State is short, the cause is not an unconfirmed card, cash is below
+    zero after the set-asides, but the lowest projected balance less the buffer
+    is still at or above zero, so removing the set-asides removes the
+    shortfall. One source of truth: the Home hero, Penny's chip and the Home
+    brief all read this; the frontend's `isPlansOnlyShort` is its twin for
+    payloads cached before the field existed.
+    """
+    if state != "short" or short_reason == "cards_unconfirmed" or safe_to_spend_cash >= 0:
+        return False
+    if lowest_projected_balance is None:
+        return False
+    set_aside = (commitments_reserved or 0) + (allocations_reserved or 0)
+    return set_aside > 0 and (lowest_projected_balance - buffer) >= 0

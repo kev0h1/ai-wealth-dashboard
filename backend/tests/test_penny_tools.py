@@ -397,6 +397,20 @@ def test_get_safe_to_spend_returns_cash_and_card_growth_as_separate_facts(monkey
     assert result["card_growth_due_date"] == "2026-09-18"
 
 
+def test_get_safe_to_spend_passes_plans_only_short_to_penny(monkeypatch):
+    async def fake_safe_to_spend(uid):
+        return {
+            "status": "ok", "safe_to_spend": -250.0, "safe_to_spend_cash": -250.0,
+            "next_payday": "2026-10-18", "days_until_payday": 12, "state": "short",
+            "short_reason": "bills", "plans_only_short": True, "bills_total": 0.0,
+        }
+
+    monkeypatch.setattr(penny_tools_module, "compute_safe_to_spend", fake_safe_to_spend)
+    result = asyncio.run(execute_tool("kevin", "get_safe_to_spend", {}))
+    assert result["plans_only_short"] is True
+    assert result["state"] == "short"
+
+
 def test_get_recurring_payments_shapes_series_with_cadence_and_account(monkeypatch):
     async def fake_load_cache(uid):
         return {
