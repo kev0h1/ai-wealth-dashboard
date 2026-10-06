@@ -1649,6 +1649,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
   - note (2026-10-06, claude): Coordinator review PASS 2026-10-06 on b104d98a: OpenRouter key read from env or backend/.env and never printed (payload print truncates base64 frames), balance floor guard before spend, out/ gitignored; production change is only a /design preview page plus a 3.9MB MP4 and poster under public/design-media/g224. Design round, lands in uat. Publishing needs the platform AI-generated label.
   - note (2026-10-06, claude): approved: Keep the café take (Kevin 2026-10-06); round 2 adds a second story: friends invite him out, wait a sec, phone, reel, runs to them smiling
   - note (2026-10-06, claude): Round 2 SHIP 2026-10-06: Night out story (Kevin's script) added beside the café take. Speech verified by transcription ('Come on, you coming out?' / 'Wait a sec'). Reel SSIM 0.993. Round spend about $4.88 (about $7.30 of the $15 cap). build-mobile.sh now excludes public/design-media/ so marketing video never ships in the app bundles. Known: the street bed under the reel is about 20dB quieter than the intro, so add music in CapCut/TikTok before posting. Platform AI-generated label required.
+  - note (2026-10-06, claude): Coordinator review PASS 2026-10-06 on 74d8679a: night-out story preview and media under public/design-media/g224 (web only), build-mobile.sh now excludes public/design-media so app bundles stay lean, video.py gains a poll timeout and download retry; key handling unchanged.
 
 ## H. Repo hygiene
 
