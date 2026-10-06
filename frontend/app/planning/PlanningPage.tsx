@@ -115,7 +115,7 @@ function toSetAsideItem(a: Allocation, accounts: Account[]): SetAsideItem {
     name: a.name,
     feedLabel,
     feedSuffix: a.match_type === "description_contains" ? " · similar payments" : undefined,
-    amountPerPeriod: a.amount_per_period,
+    amountPerPeriod: a.period_amount ?? a.amount_per_period,
     filledThisPeriod: a.filled_this_period,
     remaining: a.remaining,
     recurrence: a.recurrence,

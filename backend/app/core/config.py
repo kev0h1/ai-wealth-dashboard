@@ -615,3 +615,7 @@ RECONCILE_MAX_PER_MINUTE  = int(os.getenv("RECONCILE_MAX_PER_MINUTE", "40"))
 # RECONCILE_MAX_PER_MINUTE is raised very high — a floor still keeps jobs
 # from landing effectively simultaneously).
 RECONCILE_MIN_GAP_SECONDS = int(os.getenv("RECONCILE_MIN_GAP_SECONDS", "2"))
+
+# G217: smallest set-aside shortfall (in pence) that raises a Home card. Below
+# it the account sheet line still shows, but Home stays quiet about pennies.
+ALLOCATION_SHORTFALL_FLOOR_PENCE = int(os.getenv("ALLOCATION_SHORTFALL_FLOOR_PENCE", "500"))

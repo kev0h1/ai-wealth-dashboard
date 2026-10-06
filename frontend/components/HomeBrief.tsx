@@ -2,9 +2,12 @@
 
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { RefreshCw, AlertTriangle, AlertCircle, TrendingDown, TrendingUp, Minus, CircleDashed, X, ChevronRight, ChevronDown, UserRound, CalendarDays, CreditCard, Check, CheckCircle2, Clock3, ArrowRight, ArrowRightLeft, Circle } from "lucide-react";
-import type { CompanionItem, PlanDest, PlanDestBill, SafeToSpend, UnfundedMoveEntry } from "@/lib/api";
+import { RefreshCw, AlertTriangle, AlertCircle, TrendingDown, TrendingUp, Minus, CircleDashed, X, ChevronRight, ChevronDown, UserRound, CalendarDays, CreditCard, Check, CheckCircle2, Clock3, ArrowRight, ArrowRightLeft, Circle, PiggyBank } from "lucide-react";
+import type { Account, Allocation, CompanionItem, PlanDest, PlanDestBill, SafeToSpend, UnfundedMoveEntry } from "@/lib/api";
+import type { AllocationEditServices } from "@/components/AllocationEditForm";
+import type { AllocationPeriodReduceServices } from "@/components/AllocationPeriodReduceSheet";
 import { api } from "@/lib/api";
 import { invalidateVerdictCache } from "@/lib/verdictCache";
 import { coverPlanProtectsHeader, coverPlanSummary, type DueRange } from "@/lib/coverPlanDue";
@@ -23,6 +26,9 @@ import { hasFundedCoverMove, isActionableCompanionItem } from "@/lib/companionIt
 import MoneyText from "@/components/MoneyText";
 import { isPlansOnlyShort } from "@/lib/pennyScreenViews";
 import { initialsOf } from "@/lib/displayName";
+
+const AllocationSheet = dynamic(() => import("@/components/AllocationSheet"));
+const AllocationPeriodReduceSheet = dynamic(() => import("@/components/AllocationPeriodReduceSheet").then((m) => m.AllocationPeriodReduceSheet));
 
 // Window-scoped local dismiss for the Payday plan ENTRY ROW (the Home-only
 // teaser, not the live PaydayPlanCard, which already dismisses itself
@@ -1775,6 +1781,142 @@ export function RhythmCard({ item, router, maskAmounts, onRefresh, previewMode =
   );
 }
 
+// ── G217: set-aside (allocation) shortfall card ────────────────────────────
+// Kevin's pick 2026-10-06: variant A, the move card's anatomy but lighter. A
+// set-aside the user chose is not a payment at risk, so: neutral icon, an ink
+// figure in mono, no shadow and no Penny pill. No red, no amber, no gradient.
+// The app never moves money, so a possible move is a recommendation sentence
+// built from data.moves ("You could move £X from <account>, which looks able
+// to spare it"), never a button, and the item carries no action route. The one
+// action is Adjust set-aside, full width, which opens the sheet that reduces it
+// for THIS pay period only, prefilled with the amount that clears the gap; the
+// recurring amount stays behind "Change every period". With no safe source the
+// card says so instead of making the recommendation.
+export type AllocationShortfallServices = Pick<typeof api, "listAllocations" | "accounts" | "dismissTodayItem"> & AllocationEditServices & AllocationPeriodReduceServices;
+
+function setAsideMoney(value: number, hideNetWorth: boolean) {
+  if (hideNetWorth) return "£••••";
+  const whole = Number.isInteger(value);
+  return `£${value.toLocaleString("en-GB", { minimumFractionDigits: whole ? 0 : 2, maximumFractionDigits: 2 })}`;
+}
+
+export interface AllocationShortfallCardProps {
+  item: CompanionItem;
+  hideNetWorth?: boolean;
+  dismissible?: boolean;
+  onHomeDismiss?: (id: string) => void;
+  onRefresh?: () => void | Promise<void>;
+  /** Injected by design previews; production uses the real api. */
+  services?: AllocationShortfallServices;
+}
+
+const SET_ASIDE_ACTION = `${SECONDARY_ACTION} text-center leading-tight`;
+
+export function AllocationShortfallCard({ item, hideNetWorth = false, dismissible, onHomeDismiss, onRefresh, services = api }: AllocationShortfallCardProps) {
+  const [hidden, setHidden] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(false);
+  const [editing, setEditing] = useState<{ allocation: Allocation; accounts: Account[]; mode: "period" | "every" } | null>(null);
+  const data = item.allocation_shortfall;
+  if (hidden || !data) return null;
+
+  const { allocation, paying_account: paying } = data;
+  const hasSource = data.moves.length > 0;
+  const moveNames = data.moves.map(m => m.move_map.from.name);
+  const moveTotal = data.moves.reduce((sum, m) => sum + m.amount, 0);
+  const moveWho = moveNames.length <= 1 ? moveNames[0] : moveNames.length === 2 ? `${moveNames[0]} and ${moveNames[1]}` : `${moveNames.length} accounts`;
+  const money = (v: number) => setAsideMoney(v, hideNetWorth);
+  const payer = data.estimated ? `Paid from ${paying.name}, based on recent transfers.` : `Paid from ${paying.name}.`;
+
+  function handleDismiss(e: React.MouseEvent) {
+    e.stopPropagation();
+    setHidden(true);
+    if (dismissible && onHomeDismiss) {
+      onHomeDismiss(item.id);
+    } else {
+      services.dismissTodayItem(item.id).catch(() => {
+        /* card already removed locally; the backend will re-surface next run */
+      });
+    }
+  }
+
+  async function openReduce() {
+    if (busy) return;
+    setBusy(true);
+    setError(false);
+    try {
+      const [allocations, accounts] = await Promise.all([services.listAllocations(), services.accounts()]);
+      const found = allocations.find(a => a.id === allocation.id);
+      if (!found) throw new Error("allocation not found");
+      setEditing({ allocation: found, accounts, mode: "period" });
+    } catch {
+      setError(true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div data-allocation-card="shortfall" data-move-source={hasSource ? "available" : "none"} className={`${BRIEF_CARD} !shadow-none p-4`}>
+      <div className="flex items-start gap-3 pr-9">
+        <BriefIcon><PiggyBank size={16} /></BriefIcon>
+        <div className="min-w-0 flex-1">
+          <KindLabel>Set-aside</KindLabel>
+          <p className="mt-1 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-slate-100">{item.headline}</p>
+        </div>
+      </div>
+      <div className="mt-3">
+        <p className="money text-[18px] font-semibold leading-6 text-slate-900 dark:text-white">{money(data.shortfall)}</p>
+        <p className="text-[12px] text-slate-500 dark:text-slate-400">short this period</p>
+      </div>
+      <div className="mt-2">
+        <p className="text-[12px] leading-5 text-slate-600 dark:text-slate-400">
+          {data.other_allocation_count === 0 && <><span className="money">{money(allocation.period_amount)}</span> set aside this period. </>}
+          {payer}
+        </p>
+        <p className="mt-1 text-[12px] leading-5 text-slate-600 dark:text-slate-400">
+          {hasSource ? (
+            <>You could move <span className="money">{money(moveTotal)}</span> from {moveWho}, which {moveNames.length > 1 ? "look" : "looks"} able to spare it.</>
+          ) : (
+            <>No other account can safely spare <span className="money">{money(data.shortfall)}</span> right now.</>
+          )}
+        </p>
+      </div>
+      <div className="mt-4 grid grid-cols-1 gap-2">
+        <button type="button" onClick={openReduce} disabled={busy} className={SET_ASIDE_ACTION}>Adjust set-aside</button>
+      </div>
+      {error && (
+        <p role="alert" className="mt-2 text-[12px] leading-5 text-slate-600 dark:text-slate-300">
+          Couldn&apos;t open that set-aside. Try again.
+        </p>
+      )}
+      <DismissChip label={`Dismiss ${allocation.name} set-aside note`} onClick={handleDismiss} className="absolute top-2 right-2 z-10" />
+      {editing?.mode === "period" && (
+        <AllocationPeriodReduceSheet
+          allocation={editing.allocation}
+          suggestedAmount={allocation.suggested_amount}
+          services={services}
+          onClose={() => setEditing(null)}
+          onSaved={async () => { setEditing(null); setHidden(true); await onRefresh?.(); }}
+          onChangeEvery={() => setEditing({ ...editing, mode: "every" })}
+        />
+      )}
+      {editing?.mode === "every" && (
+        <AllocationSheet
+          allocation={editing.allocation}
+          accounts={editing.accounts}
+          periodStart={new Date(`${editing.allocation.period_start}T00:00:00`)}
+          services={services}
+          suggestedSourceId={data.estimated ? paying.account_id : null}
+          onClose={() => setEditing(null)}
+          onSaved={async () => { setEditing(null); await onRefresh?.(); }}
+          onDeleted={async () => { setEditing(null); await onRefresh?.(); }}
+        />
+      )}
+    </div>
+  );
+}
+
 /**
  * Home-only dismissal — hydrates the localStorage store (lib/homeDismissedAdvice.ts)
  * on mount, prunes stale/expired entries against the live (unfiltered) feed
@@ -2054,7 +2196,9 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth =
   // list/skip affordance never falls into otherItems' bare-paragraph
   // rendering (owner, 2026-08-27).
   const unfundedMoveItems = items.filter(i => i.type === "unfunded_move");
-  const otherItems = items.filter(i => i.type !== "move" && i.type !== "payday_plan" && i.type !== "celebration" && i.type !== "needle" && i.type !== "ask" && i.type !== "cliff" && i.type !== "trajectory" && i.type !== "rhythm" && i.type !== "intent_pace" && i.type !== "unfunded_move");
+  // G217: set-aside shortfalls render AFTER every payment move card (below).
+  const allocationShortfallItems = items.filter(i => i.type === "allocation_shortfall");
+  const otherItems = items.filter(i => i.type !== "allocation_shortfall" && i.type !== "move" && i.type !== "payday_plan" && i.type !== "celebration" && i.type !== "needle" && i.type !== "ask" && i.type !== "cliff" && i.type !== "trajectory" && i.type !== "rhythm" && i.type !== "intent_pace" && i.type !== "unfunded_move");
 
   // Mask £ figures in a string when hideNetWorth is on
   function maskAmounts(text: string): string {
@@ -2151,6 +2295,12 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth =
         {moveItems.map(item => (
           <MoveCard key={item.id} item={item} hideNetWorth={hideNetWorth} maskAmounts={maskAmounts} hideAttribution={hideAttribution} dismissible={dismissible} onHomeDismiss={onHomeDismiss} onRefresh={onRefresh} />
         ))}
+
+        {/* G217: a set-aside that leaves an account short. Ranks below every
+            payment move card and carries less weight (see its docstring). */}
+        {allocationShortfallItems.map(item => (
+          <AllocationShortfallCard key={item.id} item={item} hideNetWorth={hideNetWorth} dismissible={dismissible} onHomeDismiss={onHomeDismiss} onRefresh={onRefresh} />
+        ))}
     </div>
   );
 }
@@ -2190,6 +2340,7 @@ const CLEARED_TYPE_LABEL: Record<string, string> = {
   needle: "last month's review",
   payday_plan: "your payday plan",
   unfunded_move: "a planned move",
+  allocation_shortfall: "a set-aside"
 };
 
 // The "everything's hidden, but not actually done" pointer — see the

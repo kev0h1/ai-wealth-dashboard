@@ -4201,7 +4201,13 @@ async def _resolve_allocation_for_propose(uid: str, allocation_ref: str) -> dict
             return {
                 "ambiguous": True,
                 "matches": [
-                    {"id": a["id"], "name": a["name"], "amount_per_period": _money(a["amount_per_period"])}
+                    {
+                        "id": a["id"], "name": a["name"],
+                        # Recurring amount, and what THIS pay period asks for
+                        # (they differ when the period alone was reduced).
+                        "amount_per_period": _money(a["amount_per_period"]),
+                        "period_amount": _money(a.get("period_amount", a["amount_per_period"])),
+                    }
                     for a in matches
                 ],
             }
@@ -4715,10 +4721,10 @@ async def _exec_propose_update_allocation(
     label = doc["name"]
     amount_fmt = _money(doc["amount_per_period"])["formatted"]
     if paused is True:
-        summary = f"Pause the {label} allocation ({amount_fmt} per period)"
+        summary = f"Pause the {label} allocation ({amount_fmt} per period{_alloc_period_note(doc)})"
         consequence = "Frees up its unfilled remainder in safe to spend until you resume it."
     elif paused is False:
-        summary = f"Resume the {label} allocation ({amount_fmt} per period)"
+        summary = f"Resume the {label} allocation ({amount_fmt} per period{_alloc_period_note(doc)})"
         consequence = "Reserves its unfilled remainder from safe to spend again."
     else:
         bits = []
@@ -4734,6 +4740,17 @@ async def _exec_propose_update_allocation(
     return await _create_proposal(uid, "update_allocation", params, summary, consequence)
 
 
+def _alloc_period_note(doc: dict) -> str:
+    """G217: ", £161.60 this period" when this period's set-aside was reduced,
+    else an empty string. The recurring amount stays the figure quoted as such."""
+    period = doc.get("period_amount")
+    if period is None or round(float(period), 2) == round(float(doc.get("amount_per_period") or 0), 2):
+        return ""
+    value = round(float(period), 2)
+    shown = f"£{value:,.0f}" if value == int(value) else f"£{value:,.2f}"
+    return f", {shown} this period"
+
+
 async def _exec_propose_delete_allocation(uid: str, allocation_ref) -> dict:
     if not allocation_ref or not str(allocation_ref).strip():
         return _tool_error("allocation_ref required")
@@ -4745,7 +4762,7 @@ async def _exec_propose_delete_allocation(uid: str, allocation_ref) -> dict:
     doc = resolved["allocation"]
 
     amount_fmt = _money(doc["amount_per_period"])["formatted"]
-    summary = f"Delete the {doc['name']} envelope ({amount_fmt} per pay period)"
+    summary = f"Delete the {doc['name']} envelope ({amount_fmt} per pay period{_alloc_period_note(doc)})"
     consequence = "Its unfilled remainder stops being reserved from safe to spend."
     params = {"allocation_id": doc["id"]}
     return await _create_proposal(uid, "delete_allocation", params, summary, consequence)
