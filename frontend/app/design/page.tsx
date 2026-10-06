@@ -33,9 +33,9 @@ type PreviewRoute = {
 const ROUTES: PreviewRoute[] = [
   {
     slug: "ai-intro-reel",
-    name: "AI live-action intro + reel · G224 · 23s vertical video (Veo 3.1 Fast)",
+    name: "AI live-action stories around the reel · G224 · Café and Night out (Veo 3.1 Fast)",
     description:
-      "G224: an AI-generated 8 second live-action intro (a woman walks into a café, the camera pushes into her phone) that crossfades into the untouched G223 reel · plays muted and looping with controls, fitted to the screen · the person is AI-generated and must be labelled as AI on TikTok and Meta",
+      "G224: two AI-generated live-action stories around the untouched G223 reel · CAFÉ an 8 second intro, a woman walks into a café and the camera pushes into her phone (no audio) · NIGHT OUT a 20 second intro and outro, friends invite a man out, he says wait a sec, the phone plays the reel, then he runs to them smiling (with audio) · switch between the two at the top · muted autoplay, loops, controls to unmute · the people are AI-generated and must be labelled as AI on TikTok and Meta",
     states: [{ label: "Play", value: "play" }],
   },
   {
