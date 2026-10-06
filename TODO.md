@@ -1641,6 +1641,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
   - note (2026-10-06, claude): Coordinator review PASS 2026-10-06 on 46aa2c1d: one preview file, fit-to-viewport by default, export=1 keeps the exact artboard; no production code.
 - [ ] **G223. Marketing video, first reel: a 15 second vertical (1080x1920) Remotion reel for TikTok, Reels and Stories built from the G222 Safe-to-Spend ad, with demo data, playable on /design and exportable to MP4, as a capabilities proof of concept** [owner: claude] [state: review: feature-G223-reel] [uat-review]
   - note (2026-10-06, claude): Kevin 2026-10-06 asked to see video capabilities. Step 2 of G222's plan, a separate item so G222 stays in uat for his static pick. Tooling: Remotion (free licence for companies of up to 3 people), with the motion skill emil-design-eng under PRODUCT.md and DESIGN.md. Final edit (sound, captions, human hook) planned in CapCut.
+  - note (2026-10-06, claude): Reviewer SHIP 2026-10-06: deps split (player/remotion/google-fonts runtime, cli/renderer/tailwind-v4 dev), only zod 4.3.6 to 4.5.4 moved (eslint-only), no new high/critical advisories (pre-existing ones tracked as H110). Integrate must npm ci in the shared tree before any frontend build (integrate.py does this on package*.json changes). MP4 export: npm run reel:render in frontend, out/ is gitignored.
 
 ## H. Repo hygiene
 
