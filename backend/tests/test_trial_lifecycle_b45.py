@@ -380,7 +380,7 @@ def test_revoke_flag_default_is_off():
 
 
 def test_revoke_flag_off_leaves_consent_authorised(env, monkeypatch):
-    consents = _Consents([{"_id": "fx1", "user_id": UID, "status": "authorized"}])
+    consents = _Consents([{"_id": "fx1-consent", "user_id": UID, "status": "authorized"}])
     _patch_collections(monkeypatch, finexer_consents_col=consents)
     deleted = []
     import app.services.finexer_sync as fx
@@ -393,8 +393,8 @@ def test_revoke_flag_off_leaves_consent_authorised(env, monkeypatch):
 
 
 def test_revoke_flag_on_revokes_consent_at_downgrade(env, monkeypatch):
-    consents = _Consents([{"_id": "fx1", "user_id": UID, "status": "authorized"},
-                          {"_id": "fx2", "user_id": "someone@else", "status": "authorized"}])
+    consents = _Consents([{"_id": "fx1-consent", "user_id": UID, "status": "authorized"},
+                          {"_id": "fx2-consent", "user_id": "someone@else", "status": "authorized"}])
     _patch_collections(monkeypatch, finexer_consents_col=consents)
     deleted = []
     import app.services.finexer_sync as fx
@@ -403,7 +403,7 @@ def test_revoke_flag_on_revokes_consent_at_downgrade(env, monkeypatch):
     _feed(_sub_event("e1", "active"))
     res = _feed({"id": "e2", "type": "customer.subscription.deleted",
                  "data": {"object": {"id": "sub_1", "customer": "cus_1", "metadata": {"uid": UID}}}})
-    assert deleted == ["/consents/fx1"]
+    assert deleted == ["/consents/fx1-consent"]
     assert consents.docs[0]["status"] == "revoked" and consents.docs[1]["status"] == "authorized"
     assert res["landed_on_statements"]["revoked"] == 1
 

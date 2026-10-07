@@ -137,7 +137,7 @@ export default function BankPickerSheet({ onClose, onConnecting, provider = "fin
     description={provider === "legacy" ? LEGACY_BANK_SUBTITLE : "Secure open banking · Powered by Finexer"}
     onClose={onClose}
     bodyClassName="px-0 py-0"
-    footer={<p className="text-center text-xs leading-relaxed text-slate-400 dark:text-slate-500">{AGENT_DISCLOSURE}</p>}
+    footer={<p className="max-h-28 overflow-y-auto overscroll-contain text-center text-xs leading-relaxed text-slate-500 dark:text-slate-400">{AGENT_DISCLOSURE}</p>}
   >
     {({ close }) => <>
       <div className="px-5 pb-3 pt-4">

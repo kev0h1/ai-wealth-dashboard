@@ -47,7 +47,7 @@ We do not use your data for marketing purposes, and we do not use your open bank
 
 To show you your accounts, balances and transactions, we connect to your bank using regulated open banking infrastructure. This works as follows:
 
-- **Our regulated status.** We are a registered agent of Finexer LTD, an FCA-authorised firm, and provide the regulated account information service to you through this agency arrangement. All bank connections are made through Finexer.
+- **Our regulated status.** The regulated account information service is provided by Finexer LTD, which is authorised by the FCA (firm reference number 925695). AURIQ LTD acts as Finexer LTD's registered agent (FCA register reference 1062474) and is not the provider of that regulated service. All bank connections are made through Finexer.
 - **Your consent.** When you connect a bank account, you give explicit consent to access your account and transaction data, in line with the second Payment Services Directive (PSD2). We only access data covered by that consent.
 - **Consent renewal.** Your consent to share account information is time-limited under UK open banking rules. You authenticate with your bank when you first connect an account; you do not need to log in to your bank again to keep it connected. Instead, you will be asked to reconfirm your consent to Finexer periodically. We show when your current consent ends and prompt you before then. If you do not reconfirm, we stop retrieving new data from that account until you reconnect.
 - **Historical data.** On first connection, we retrieve approximately 90 days of transaction history, as permitted by your consent. After that, we retrieve only new transactions incrementally.
