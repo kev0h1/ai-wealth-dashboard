@@ -1715,6 +1715,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
   - note (2026-10-07, claude): Reviewed PASS at 40e026a7, minors closed at 54780842 (fold label says fine for payments while plans are loading; session key shared). Watch tier = unfunded transfer and calculation needs checking, since no per-payment risk flag exists on the account row. Kevin: check on the phone at https://uat.wealth.auriqltd.co.uk/design/upcoming-by-account?fixture=long (chips: long, watch, clear, all; dark).
   - note (2026-10-07, claude): Coordinator review PASS 2026-10-07 on 59ee938c: By account leads with accounts needing attention and folds the rest behind one 44px row, rows unchanged, session-only memory cleared on sign-out; preview renders the production card. Lands in uat for Kevin's check.
   - note (2026-10-07, claude): conflict with main; merge origin/main into the branch (do not rebase, it is already pushed) and re-run session.sh finish
+  - note (2026-10-07, claude): Coordinator 2026-10-07: refreshed with main, design index conflict only (kept G228 and G229 entries), no other change since the 59ee938c review.
 
 ## H. Repo hygiene
 
