@@ -38,7 +38,7 @@ for (const f of ["DeferSheet.tsx", "PlanDeferral.tsx"]) {
 const sheet = read("DeferSheet.tsx");
 const consts = Object.fromEntries([...sheet.matchAll(/const (BTN_\w+) = "([^"]*)"/g)].map((m) => [m[1], m[2]]));
 const tags = [...sheet.matchAll(/<button\b[\s\S]*?className=\{[^}]*\}/g)].map((m) => m[0]);
-assert.ok(tags.length >= 6, "sheet buttons found");
+assert.ok(tags.length >= 5, "sheet buttons found");
 for (const tag of tags) {
   const used = [...tag.matchAll(/\$?\{?(BTN_\w+)\}?/g)].map((m) => consts[m[1]] ?? "").join(" ");
   assert.match(tag + used, /min-h-11/, `button not 44px: ${tag.slice(0, 80)}`);
@@ -81,17 +81,26 @@ assert.match(COPY.audit(50, "date"), /about £83/);
 // 5. Both previews: variants and states exist, and the index entry is registered.
 const client = read("PlanDeferralClient.tsx");
 for (const k of ["eligible", "capped", "deferred", "covered"]) assert.match(client, new RegExp(`"${k}"`), `state ${k}`);
-for (const k of ['"a"', '"b"', '"c"']) assert.ok(client.includes(k), `variant ${k}`);
+for (const k of ['"a"', '"c"']) assert.ok(client.includes(k), `variant ${k}`);
 assert.match(client, /from "@\/components\/HomeBrief"/, "production HomeBrief cards imported");
 assert.match(client, /GoalRow.*LongTermPlanningPage/, "production GoalRow imported");
 assert.match(sheet, /from "@\/components\/SheetFrame"/, "production SheetFrame");
 const index = readFileSync(new URL("../app/design/page.tsx", import.meta.url), "utf8");
 assert.match(index, /slug: "plan-deferral"/, "design index entry");
 
-// Review fixes: B's departure from G217 is stated, the rounding caveat is visible, labels, capped fixture.
-assert.match(COPY.bBreaks, /G217/);
-assert.match(COPY.bBreaks, /one action/);
-assert.match(client, /COPY\.bBreaks/, "B caption states the single-action departure");
+// Round 2 (Kevin 2026-10-07): no undo, no variant B, no set-aside coupling.
+const everything = files.map(read).join("\n") + JSON.stringify(allCopy);
+assert.doesNotMatch(everything, /Undo|undo/, "no undo anywhere");
+assert.doesNotMatch(everything, /reversible/i, "no 'reversible'");
+assert.doesNotMatch(everything, /Cover the|coverGap/, "no cover-the-gap framing");
+assert.doesNotMatch(everything, /RemedyCardB|bBreaks|variant === "b"|"b"/, "no variant B");
+assert.doesNotMatch(everything, /AllocationShortfallCard|allocationItem/, "no set-aside card in the preview");
+assert.doesNotMatch(everything, /until the period|period ends|periodEnd/i, "no until-period-end copy");
+assert.match(COPY.introBody, /never trade cash/, "intro says set-asides and plans never trade cash");
+assert.match(COPY.editPlan, /Edit plan/);
+assert.match(read("PlanDeferral.tsx"), /href="\/planning"/, "deferred state points to Planning");
+assert.equal(COPY.deferredLine, "Japan is £30 this period.");
+assert.match(COPY.deferredDetail, /about £83, should still land Nov 2028/);
 assert.match(COPY.roundingCaveat, /rounds slices up to £5/);
 assert.match(sheet, /COPY\.roundingCaveat/, "caveat shown in the sheet footnote");
 assert.match(sheet, /Take £5 less off/);

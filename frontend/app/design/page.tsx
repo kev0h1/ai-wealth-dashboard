@@ -45,10 +45,10 @@ const ROUTES: PreviewRoute[] = [
   },
   {
     slug: "plan-deferral",
-    name: "Ease a goal plan for one period · G228 · proposals",
+    name: "Ease a goal plan for one period · G228 · round 2",
     description:
-      "G228 design round (impeccable, drafts by gpt-6-astra rewritten to DESIGN.md): when cash is short, reduce a goal plan's contribution for this period only and let later periods catch up, keeping the date (about £83 each period after this) or keeping £80 (lands one period later) · A a card below the set-aside card · B a third remedy row inside the set-aside card · C a control on Planning's goal row, with Home only pointing · production MoveCard, AllocationShortfallCard and GoalRow render through props; the new card, row, control and sheet are hand-authored proposals · open the sheet to see the stepper, the choice and the working",
-    variants: [{ label: "A card", value: "a" }, { label: "B remedy row", value: "b" }, { label: "C Planning control", value: "c" }],
+      "G228 round 2 (impeccable), after Kevin's feedback: when cash is short, reduce a goal plan's contribution for this period only and let later periods catch up, keeping the date (about £83 each period after this) or keeping £80 (lands one period later) · no undo, reverting is editing the plan on Planning · set-asides and plans never trade cash · A its own card below the payment card · C a control on Planning's goal row, with Home only pointing · production MoveCard and GoalRow render through props; the new card, control and sheet are hand-authored proposals · open the sheet to see the stepper, the choice and the working",
+    variants: [{ label: "A card", value: "a" }, { label: "C Planning control", value: "c" }],
     states: [{ label: "Eligible", value: "eligible" }, { label: "Capped", value: "capped" }, { label: "Deferred", value: "deferred" }, { label: "Covered by a move", value: "covered" }],
   },
   {
