@@ -1,4 +1,5 @@
 import ReactMarkdown, { type Components } from "react-markdown";
+import { AGENT_DISCLOSURE } from "@/lib/regulatoryCopy";
 
 // Server component, no "use client" needed: react-markdown's default
 // export (`Markdown`, imported here as `ReactMarkdown`) runs synchronously
@@ -176,6 +177,7 @@ export default function LegalDocument({
         </article>
 
         <div className="mt-10 pt-6 border-t border-slate-200 dark:border-slate-700">
+          <p className="mb-4 text-xs leading-relaxed text-slate-600 dark:text-slate-400">{AGENT_DISCLOSURE}</p>
           <a
             href={otherDocHref}
             className="text-sm font-medium text-indigo-600 dark:text-indigo-400 underline underline-offset-2 hover:text-indigo-700 dark:hover:text-indigo-300"
