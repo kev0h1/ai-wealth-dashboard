@@ -139,7 +139,7 @@ def test_sync_creates_both_with_default_false_from_files(monkeypatch, tmp_path):
     assert "prefers-color-scheme:dark" in ft.build_payload("light")["css"]
     assert "prefers-color-scheme" not in ft.build_payload("dark")["css"]
     assert all(len(ft.build_payload(k)["css"]) <= 2000 for k in ("light", "dark"))
-    assert set(ft._load_state()) == {"light", "dark"}
+    assert set(ft._load_state("app_1")) == {"light", "dark"}
 
 
 def test_sync_updates_in_place_and_never_sends_default(monkeypatch, tmp_path):
@@ -177,3 +177,17 @@ def test_delete_requires_yes(monkeypatch, tmp_path):
     assert calls == []
     assert ft.main(["--app-id", "app_1", "delete", "ID", "--yes"], client=_mock_client([], calls)) == 0
     assert calls[0][0] == "DELETE"
+
+
+def test_state_keyed_by_app_id_and_legacy_flat_file_migrated(monkeypatch, tmp_path):
+    import json
+    sf = tmp_path / "state.json"
+    monkeypatch.setattr(ft, "STATE_FILE", sf)
+    sf.write_text(json.dumps({"light": "OLDLIGHT0001", "dark": "OLDDARK00001"}))
+    assert ft.main(["--app-id", "app_prod", "sync"], client=_mock_client(
+        [{"id": "OLDLIGHT0001", "name": "Sorted light"}, {"id": "OLDDARK00001", "name": "Sorted dark"}], [])) == 0
+    assert ft.main(["--app-id", "app_sandbox", "sync"], client=_mock_client([], [])) == 0
+    state = json.loads(sf.read_text())
+    assert set(state) == {"app_prod", "app_sandbox"}
+    assert state["app_prod"] == {"light": "OLDLIGHT0001", "dark": "OLDDARK00001"}
+    assert state["app_sandbox"]["light"] != state["app_prod"]["light"]
