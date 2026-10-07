@@ -47,7 +47,6 @@ export default function DeferSheet({ covered, eased, onClose, onSaved }: { cover
             </div>
             <input type="range" min={0} max={GOAL.usual} step={GOAL.stepPounds} value={reduce} onChange={(e) => set(Number(e.target.value))} aria-label={COPY.stepLabel} aria-valuetext={`${gbp(reduce)} off, ${gbp(x.thisPeriod)} planned this period`} className="mt-3 min-h-11 w-full accent-indigo-600" />
             <div className="flex flex-wrap gap-2">
-              <button type="button" onClick={() => set(GOAL.gap)} className={BTN_CHIP}>{COPY.coverGap}</button>
               <button type="button" onClick={() => set(GOAL.usual)} className={BTN_CHIP}>{COPY.skip}</button>
             </div>
             <p className="mt-2 text-xs leading-5 text-slate-600 dark:text-slate-400">{COPY.stepHint}</p>

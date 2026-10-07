@@ -4,7 +4,7 @@ import type { Commitment } from "@/lib/api";
 // fields (amount, progress, remaining, periods_left, per_period_slice,
 // target_date). Proposal only: nothing here is wired to the backend.
 
-export type DeferVariant = "a" | "b" | "c";
+export type DeferVariant = "a" | "c";
 export type DeferState = "eligible" | "capped" | "deferred" | "covered";
 
 export const GOAL = {
@@ -15,7 +15,6 @@ export const GOAL = {
   targetLabel: "Nov 2028",
   targetMonth: "2028-11",
   gap: 50, // cash gap this period, in pounds
-  periodEnd: "31 Oct",
   stepPounds: 5,
   /** Proposed limits. */
   maxEasedPer12Months: 2,
