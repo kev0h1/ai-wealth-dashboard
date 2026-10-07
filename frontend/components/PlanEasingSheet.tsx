@@ -27,8 +27,8 @@ type Mode = "keep_date" | "keep_amount";
  * then the user chooses how it is made up: keep the date (later periods rise)
  * or keep the amount (the date moves). Every figure comes from the server's
  * ease-preview (the engine's own rounding, caps included), never recomputed
- * here. Saving writes the one-period easing; there is no undo, because editing
- * the plan on Planning is the way back. Nothing here moves money.
+ * here. Saving writes the one-period easing; editing
+ * the plan on Planning is the way back, so nothing here offers to reverse it. Nothing here moves money.
  */
 export function PlanEasingSheet({ planId, planName, usualSlice, targetDate, easedCount12m, suggestedReduce, services, onClose, onSaved }: {
   planId: string;

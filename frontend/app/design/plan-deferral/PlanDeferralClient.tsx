@@ -1,98 +1,69 @@
 "use client";
 
-// TEMPORARY PREVIEW. G228: two proposals for easing a goal plan for one pay
-// period. Production MoveCard and Planning GoalRow
-// render through real props; the deferral card, Planning control
-// and sheet are hand-authored PROPOSALS (no production component exists yet).
+// TEMPORARY PREVIEW. G228 (Kevin picked A, 2026-10-07): easing a goal plan for
+// one pay period. This page renders the PRODUCTION PlanEasingCard and
+// PlanEasingSheet (and the production MoveCard above them) through real props.
+// Fixtures stand in for the server: a `services` object answers the sheet's
+// ease-preview and ease calls, so nothing is fetched or saved.
 //
-// /design/plan-deferral?variant=a|c&state=eligible|capped|deferred|covered&mode=light|dark[&sheet=open]
+// /design/plan-deferral?state=eligible|capped|deferred&mode=light|dark[&sheet=open]
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { MoveCard } from "@/components/HomeBrief";
-import { GoalRow } from "@/app/planning/LongTermPlanningPage";
+import { MoveCard, PlanEasingCard } from "@/components/HomeBrief";
 import { paymentItem } from "../allocation-shortfall/fixtures";
-import DeferSheet from "./DeferSheet";
-import { COPY } from "./copy";
-import { DeferCardA, DeferredLine, GoalEaseControl, HomePointerC } from "./PlanDeferral";
-import { GOAL, goalCommitment, type DeferState, type DeferVariant } from "./fixtures";
+import { planEasingItem, previewServices, type EaseState } from "./fixtures";
 
 type Mode = "light" | "dark";
-const VARIANTS: { key: DeferVariant; label: string }[] = [{ key: "a", label: "A" }, { key: "c", label: "C" }];
-const STATES: { key: DeferState; label: string }[] = [
-  { key: "eligible", label: "Eligible" }, { key: "capped", label: "Capped" }, { key: "deferred", label: "Deferred" }, { key: "covered", label: "Covered" },
+const STATES: { key: EaseState; label: string }[] = [
+  { key: "eligible", label: "Eligible" }, { key: "capped", label: "Capped" }, { key: "deferred", label: "Deferred" },
 ];
 const chip = (active: boolean) => `flex min-h-11 touch-manipulation items-center justify-center rounded-xl px-3 text-xs font-semibold [-webkit-tap-highlight-color:transparent] transition-[transform,background-color,color] duration-150 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white ${active ? "bg-white text-slate-950" : "text-white/80 hover:bg-white/10"}`;
 
 export default function PlanDeferralClient() {
   const params = useSearchParams();
-  const variant: DeferVariant = params.get("variant") === "c" ? "c" : "a";
   const rawState = params.get("state");
-  const state: DeferState = rawState === "capped" || rawState === "deferred" || rawState === "covered" ? rawState : "eligible";
+  const state: EaseState = rawState === "capped" || rawState === "deferred" ? rawState : "eligible";
   const mode: Mode = params.get("mode") === "dark" ? "dark" : "light";
-  const [local, setLocal] = useState<DeferState | null>(null);
-  const [sheet, setSheet] = useState(params.get("sheet") === "open");
-  const shown = local ?? state;
-  const href = (v: DeferVariant, s: DeferState, m: Mode) => `?variant=${v}&state=${s}&mode=${m}`;
+  const sheetOpen = params.get("sheet") === "open";
+  const [eased, setEased] = useState<{ contribution: number; mode: "keep_date" | "keep_amount" } | null>(null);
+  const href = (s: EaseState, m: Mode) => `?state=${s}&mode=${m}`;
 
-  useEffect(() => { setLocal(null); }, [state, variant]);
+  useEffect(() => { setEased(null); }, [state]);
   useEffect(() => {
     document.documentElement.classList.toggle("dark", mode === "dark");
     document.querySelector('meta[name="color-scheme"]')?.setAttribute("content", mode === "dark" ? "dark" : "only light");
     document.querySelector('meta[name="theme-color"]')?.setAttribute("content", mode === "dark" ? "#0f172a" : "#f0f2f7");
   }, [mode]);
 
-  const open = () => setSheet(true);
-  const capped = shown === "capped";
-  const covered = shown === "covered";
-  const deferred = shown === "deferred";
+  const services = useMemo(() => previewServices(state, setEased), [state]);
+  const item = useMemo(() => (eased ? planEasingItem("deferred", eased) : planEasingItem(state)), [state, eased]);
 
   return (
     <div className={mode === "dark" ? "dark" : ""} style={{ colorScheme: mode }}>
       <main className="min-h-dvh bg-[#f0f2f7] text-slate-900 dark:bg-[#0f172a] dark:text-slate-100">
         <div className="mx-auto w-full max-w-[430px] px-4 pb-40 pt-7">
           <header>
-            <h1 className="text-balance text-xl font-bold tracking-[-0.02em] text-slate-950 dark:text-white">{COPY.introTitle}</h1>
-            <p className="mt-2 text-pretty text-sm leading-6 text-slate-600 dark:text-slate-300">{COPY.introBody}</p>
+            <h1 className="text-balance text-xl font-bold tracking-[-0.02em] text-slate-950 dark:text-white">Easing a goal plan for one period</h1>
+            <p className="mt-2 text-pretty text-sm leading-6 text-slate-600 dark:text-slate-300">
+              The shipped Goal plan card and easing sheet, rendered through real props with fixture figures. Nothing is saved. There is no undo: putting a plan back is an ordinary edit on Planning. Set-asides and plans never trade cash.
+            </p>
             <p className="mt-2 text-xs leading-5 text-slate-500 dark:text-slate-400">
-              Variant {variant.toUpperCase()}: {variant === "a" ? "its own card below the payment card" : "a control on Planning's goal row, Home only points"}. State: {shown}. Preview only, nothing is saved.
+              State: {eased ? "deferred (just saved)" : state}. Figures are worked as the engine works them, on the first day of a pay period, rounding slices up to £5.
             </p>
           </header>
-
-          {variant !== "c" ? (
-            <section aria-label="Home brief" className="mt-6 space-y-3">
-              <MoveCard item={paymentItem()} hideNetWorth={false} maskAmounts={(t) => t} previewMode />
-              {deferred ? <DeferredLine />
-                : covered ? <p data-defer="not-offered" className="px-1 text-xs leading-5 text-slate-500 dark:text-slate-400">{COPY.coveredAnnotation}</p>
-                : <DeferCardA capped={capped} onOpen={open} />}
-            </section>
-          ) : (
-            <>
-              <section aria-label="Home brief" className="mt-6 space-y-3">
-                <MoveCard item={paymentItem()} hideNetWorth={false} maskAmounts={(t) => t} previewMode />
-                {!capped && !covered && !deferred && <HomePointerC onOpen={() => {}} />}
-              </section>
-              <section aria-label="Planning" className="mt-8">
-                <h2 className="flex min-h-11 items-center px-1 text-base font-bold text-slate-800 dark:text-slate-100">Long-term goals</h2>
-                <div className="glass-card overflow-hidden rounded-2xl">
-                  <GoalRow goal={goalCommitment} hideValues={false} onOpen={() => {}} />
-                  {deferred ? <div className="border-t border-slate-200/70 px-3.5 py-2 dark:border-white/10"><DeferredLine /></div> : <GoalEaseControl capped={capped} onOpen={open} />}
-                </div>
-                {covered && <p className="mt-2 px-1 text-xs leading-5 text-slate-500 dark:text-slate-400">{COPY.coveredAnnotation} The control stays on the goal for anyone who wants it.</p>}
-              </section>
-            </>
-          )}
+          <section aria-label="Home brief" className="mt-6 space-y-3">
+            <MoveCard item={paymentItem()} hideNetWorth={false} maskAmounts={(t) => t} previewMode />
+            <PlanEasingCard key={`${state}-${eased ? "saved" : "fresh"}-${sheetOpen}`} item={item} services={services} initialSheetOpen={sheetOpen && !eased} onRefresh={() => undefined} />
+          </section>
         </div>
       </main>
-      {sheet && <DeferSheet covered={covered} eased={capped ? GOAL.easedUsedCapped : GOAL.easedUsed} onClose={() => setSheet(false)} onSaved={() => setLocal("deferred")} />}
       <div className="pointer-events-none fixed inset-x-0 z-[70] flex justify-center px-3" style={{ bottom: "calc(env(safe-area-inset-bottom) + 12px)" }}>
         <nav aria-label="Design preview controls" className="pointer-events-auto max-w-[calc(100vw-24px)] rounded-2xl border border-white/15 bg-slate-950/95 p-1.5 shadow-xl">
           <div className="flex flex-wrap items-center justify-center gap-0.5">
-            {VARIANTS.map((v) => <a key={v.key} href={href(v.key, state, mode)} aria-current={v.key === variant ? "page" : undefined} className={chip(v.key === variant)}>{v.label}</a>)}
+            {STATES.map((s) => <a key={s.key} href={href(s.key, mode)} aria-current={s.key === state ? "page" : undefined} className={chip(s.key === state)}>{s.label}</a>)}
             <span className="mx-0.5 h-6 w-px bg-white/15" aria-hidden="true" />
-            {STATES.map((s) => <a key={s.key} href={href(variant, s.key, mode)} aria-current={s.key === state ? "page" : undefined} className={chip(s.key === state)}>{s.label}</a>)}
-            <span className="mx-0.5 h-6 w-px bg-white/15" aria-hidden="true" />
-            <a href={href(variant, state, mode === "dark" ? "light" : "dark")} className={chip(false)}>{mode === "dark" ? "Light" : "Dark"}</a>
+            <a href={href(state, mode === "dark" ? "light" : "dark")} className={chip(false)}>{mode === "dark" ? "Light" : "Dark"}</a>
           </div>
         </nav>
       </div>
