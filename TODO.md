@@ -454,6 +454,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
   - note (2026-10-07, claude): Permission headings were dimmed by our muted colour; both templates re-synced at 3afb927c with muted at slate-300 dark / slate-600 light and headings in ink. Kevin: re-check both previews in the dashboard, dark and light.
   - note (2026-10-07, claude): Reviewed PASS at 3afb927c (colour-only, ink rule wins by source order, both templates under 2000 chars, ratios verified). Production templates already re-synced; awaiting Kevin's preview re-check. No file overlap with A146.
   - note (2026-10-07, claude): Coordinator review PASS 2026-10-07 on 3afb927c: CSS colour tokens only in the Finexer brand files (muted raised, headings in ink); no app runtime change.
+- [ ] **A148. The Add a Bank picker shows no bank logos on the web (Kevin 2026-10-07): BankPickerSheet (frontend/components/BankPickerSheet.tsx ~192) renders <img src={bank.logo}> with Finexer's remote provider logo_url (services/finexer_sync.py ~187), but the site's Content-Security-Policy (frontend/next.config.ts ~223, img-src 'self' data: blob:, added by 80071442 on 2026-09-14) blocks every cross-origin image, so each row falls back to its first letter; the native app bundles a static export that does not get those headers, which is likely why logos showed in Kevin's 2026-10-04 app screenshot; store the provider logos on our side and serve them same-origin, as Kevin suggested, instead of loosening the CSP** [owner: claude]
 
 ## B. Penny cost, tiers and billing
 
