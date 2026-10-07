@@ -411,14 +411,21 @@ async def delete_account(account_id: str, user: dict = Depends(current_user)):
                             uid,
                             sorted({account_id} | set(fx_consent.get("excluded_accounts") or [])),
                         )
+                        revoke_error: str | None = None
                         try:
                             from app.services.finexer_sync import _client as _fx_client
                             async with _fx_client() as fxc:
                                 rv = await fxc.delete(f"/consents/{connection_id}")
                                 if rv.status_code not in (200, 204, 404):
                                     logger.warning("Finexer revoke %s returned HTTP %s", connection_id, rv.status_code)
-                        except Exception:
+                                    revoke_error = str(rv.status_code)
+                        except Exception as exc:
                             logger.warning("Finexer revoke failed for %s (non-fatal)", connection_id, exc_info=True)
+                            revoke_error = type(exc).__name__
+                        if revoke_error is not None:
+                            # A106: leave a retry marker before the local delete.
+                            from app.services.retention import record_orphaned_revocation
+                            await record_orphaned_revocation(uid, connection_id, revoke_error)
                         await _finexer_consents_col.delete_one({"_id": connection_id})
 
         return {"deleted": account_id}

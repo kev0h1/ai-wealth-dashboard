@@ -542,6 +542,13 @@ ERASURE_MANIFEST = frozenset({
     "oauth_clients_col", "oauth_codes_col", "oauth_tokens_col",
     "safe_to_spend_history_col", "session_tombstones_col",
     "income_payer_attachments_col",
+    # A106: holds only a sha256 user hash and a consent id, keyed `_id ==
+    # consent_id`, so erase_user's `user_id`/`_id == uid` sweep deliberately
+    # never matches it: a marker must SURVIVE the erasure it was written
+    # during, or the Finexer consent it exists to revoke is orphaned. It is
+    # listed so the manifest guard sees the binding was decided on; markers
+    # are removed by the retry sweep on success, not by erasure.
+    "orphaned_revocations_col",
 })
 
 # A99/A101: these five collections lost their `*_col` binding when A98

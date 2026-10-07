@@ -21,6 +21,7 @@ time:
     that can never happen, then overrides the ones a given test cares about.
 """
 import asyncio
+import pytest
 import logging
 from datetime import datetime, timedelta
 
@@ -67,6 +68,14 @@ class _FakeCursor:
     async def _gen(self):
         for d in self._docs:
             yield d
+
+    def sort(self, key, direction=1):
+        self._docs = sorted(self._docs, key=lambda d: d.get(key), reverse=direction < 0)
+        return self
+
+    def limit(self, n):
+        self._docs = self._docs[:n]
+        return self
 
     async def to_list(self, n):
         return list(self._docs)
@@ -184,6 +193,13 @@ def _patch_all_collections(monkeypatch, overrides: dict) -> None:
         name: overrides.get(name, FakeCol()) for name in _real_cols.ERASE_ONLY_COLLECTIONS
     })
     monkeypatch.setattr(_real_cols, "db", fake_db)
+
+
+@pytest.fixture(autouse=True)
+def _fake_local_consents(monkeypatch):
+    """retry_orphaned_revocations also flips a still-authorised local consent
+    doc to revoked; never let that touch a real Mongo client in these tests."""
+    monkeypatch.setattr(retention, "finexer_consents_col", FakeCol())
 
 
 class FakeFxResponse:
@@ -746,10 +762,10 @@ def test_retry_orphaned_revocations_write_failure_on_one_marker_does_not_abort_t
     assert "fx-b" not in markers.docs
 
 
-def test_retry_orphaned_revocations_warns_when_marker_older_than_seven_days(monkeypatch, caplog):
+def test_retry_orphaned_revocations_warns_once_attempts_reach_seven(monkeypatch, caplog):
     markers = FakeCol([{
         "_id": "fx-stale", "consent_id": "fx-stale", "user_hash": "h1",
-        "failed_at": NOW - timedelta(days=8), "attempts": 1,
+        "failed_at": NOW - timedelta(days=8), "attempts": 7,
     }])
     monkeypatch.setattr(retention, "orphaned_revocations_col", markers)
     fake_client = FakeFxClient(status_code=503)
@@ -759,15 +775,15 @@ def test_retry_orphaned_revocations_warns_when_marker_older_than_seven_days(monk
         asyncio.run(retention.retry_orphaned_revocations(now=NOW))
 
     assert any(
-        r.levelno == logging.WARNING and "fx-stale" in r.getMessage() and "pending since" in r.getMessage()
+        r.levelno == logging.WARNING and "fx-stale" in r.getMessage() and "after 7 attempts" in r.getMessage()
         for r in caplog.records
     )
 
 
-def test_retry_orphaned_revocations_no_stale_warning_for_one_day_old_marker(monkeypatch, caplog):
+def test_retry_orphaned_revocations_no_warning_below_seven_attempts(monkeypatch, caplog):
     markers = FakeCol([{
         "_id": "fx-fresh", "consent_id": "fx-fresh", "user_hash": "h1",
-        "failed_at": NOW - timedelta(days=1), "attempts": 1,
+        "failed_at": NOW - timedelta(days=1), "attempts": 6,
     }])
     monkeypatch.setattr(retention, "orphaned_revocations_col", markers)
     fake_client = FakeFxClient(status_code=204)
@@ -776,7 +792,7 @@ def test_retry_orphaned_revocations_no_stale_warning_for_one_day_old_marker(monk
     with caplog.at_level(logging.WARNING, logger="app.services.retention"):
         asyncio.run(retention.retry_orphaned_revocations(now=NOW))
 
-    assert not any("pending since" in r.getMessage() for r in caplog.records)
+    assert not any("attempts" in r.getMessage() for r in caplog.records)
 
 
 def test_erase_user_revoke_exception_is_counted_and_non_fatal(monkeypatch):
