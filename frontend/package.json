@@ -57,6 +57,7 @@
     "check:account-cache-coverage": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/check-account-cache-coverage.mjs",
     "check:home-cache-shape": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/home-cache-shape.test.mjs",
     "check:spend-from-render": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/spend-from-render.test.mjs",
+    "check:g229-by-account": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g229-by-account.test.mjs",
     "check:g219-accounts-route": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g219-accounts-route.test.mjs",
     "check:g221-home-cleanup": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g221-home-cleanup.test.mjs",
     "check:g218-figure-tone": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g218-figure-tone.test.mjs",

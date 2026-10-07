@@ -40,3 +40,6 @@ const gbp = new Intl.NumberFormat("en-GB", { minimumFractionDigits: 2, maximumFr
 export function money(value: number) {
   return `${value < 0 ? "−" : ""}£${gbp.format(Math.abs(value))}`;
 }
+
+/** Session-only memory of the By account fold (G229). Cleared on sign-out. */
+export const FINE_FOLD_KEY = "wd_upcoming_accounts_fine_open";

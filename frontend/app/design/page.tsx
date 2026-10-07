@@ -32,6 +32,18 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "upcoming-by-account",
+    name: "Upcoming By account, attention first · G229",
+    description:
+      "G229, skill: impeccable · Alignment, not a variant round: the By account card on Upcoming now leads with accounts that need attention (short for payments, then short for plans, then ones to watch) and folds the rest behind one quiet row such as 3 accounts are fine, using the same grid-template-rows fold as Planning's rungs · An honest all-clear line when nothing needs attention · Renders the production card with invented accounts · ?fixture=long|watch|clear|all&mode=light|dark",
+    states: [
+      { label: "Long list, 2 need attention", value: "long" },
+      { label: "One to watch, 5 fine", value: "watch" },
+      { label: "All clear", value: "clear" },
+      { label: "Every account short", value: "all" },
+    ],
+  },
+  {
     slug: "plan-deferral",
     name: "Ease a goal plan for one period · G228 · proposals",
     description:
