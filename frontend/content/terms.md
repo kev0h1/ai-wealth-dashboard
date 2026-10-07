@@ -19,9 +19,13 @@ These Terms, together with our Privacy Policy, form the agreement between you an
 
 This section is important and we want to be clear about it.
 
+AURIQ LTD is acting as an agent of Finexer LTD, which is authorised by the Financial Conduct Authority under the Payment Services Regulations 2017, firm reference number 925695, as an Authorised Payment Institution to provide account information services and payment initiation services.
+
 **AURIQ LTD is not authorised by the Financial Conduct Authority (FCA) in its own right.** The regulated activity carried out within Sorted, namely account information services ("**AIS**") which allow us to retrieve and display information from your bank accounts, is provided through **Finexer LTD**, a company authorised and regulated by the FCA to carry out account information services.
 
-**AURIQ LTD acts as a registered agent of Finexer LTD** for the purposes of providing this regulated activity to you. This means that when you connect a bank account to Sorted, the account information service you are using is performed under Finexer LTD's FCA authorisation, and Finexer LTD is the principal responsible for the regulated activity, with AURIQ LTD operating as its agent. You can check Finexer LTD's authorisation on the FCA Financial Services Register.
+**AURIQ LTD acts as a registered agent of Finexer LTD** for the purposes of providing this regulated activity to you. This means that when you connect a bank account to Sorted, the account information service you are using is performed under Finexer LTD's FCA authorisation, and Finexer LTD is the principal responsible for the regulated activity, with AURIQ LTD operating as its agent.
+
+AURIQ LTD is entered on the FCA Financial Services Register under reference 1062474. You can confirm this agency on the [Financial Services Register](https://register.fca.org.uk) at register.fca.org.uk by looking up Finexer LTD (firm reference number 925695) and viewing the firms connected to it.
 
 Everything else about Sorted (the app itself, the way your data is presented, budgeting tools, forecasts, and insights) is provided by AURIQ LTD and is not itself a regulated financial service (see Section 6).
 
@@ -156,9 +160,15 @@ Where reasonably possible, we will give you notice before suspending or terminat
 
 ## 14. Complaints
 
-If you have a complaint, please contact us at **info@auriqltd.co.uk**. We will acknowledge your complaint within **3 business days** and aim to resolve it within **8 weeks**.
+Sorted is a trading name of AURIQ LTD, so any complaint about Sorted is a complaint about AURIQ LTD.
 
-Because the regulated account information service is provided through Finexer LTD as principal (see Section 2), complaints relating to that regulated activity are handled in cooperation with Finexer LTD. If your complaint is not resolved to your satisfaction, you may be entitled to refer it to the **Financial Ombudsman Service**.
+**Step 1: tell us.** Please contact AURIQ LTD first at **info@auriqltd.co.uk**. We will acknowledge your complaint within **3 business days** and aim to resolve it within **8 weeks**.
+
+**Step 2: Finexer LTD.** Because the regulated account information service is provided by Finexer LTD as principal (see Section 2), you can also complain to Finexer LTD about that regulated activity, via [finexer.com](https://finexer.com). We will cooperate with Finexer LTD on any such complaint.
+
+**Step 3: the Financial Ombudsman Service.** If either of us does not resolve your complaint properly, you may be able to refer it to the [Financial Ombudsman Service](https://www.financial-ombudsman.org.uk). You may be able to do this if you have not had a final response within eight weeks, or within six months of receiving our final response. The Financial Ombudsman Service decides whether a complaint falls within its remit.
+
+The Financial Services Compensation Scheme does not cover AURIQ LTD. Sorted never holds your money.
 
 ## 15. Data protection
 
