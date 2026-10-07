@@ -1688,6 +1688,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
   - note (2026-10-07, claude): Coordinator review PASS 2026-10-07 on c32bb1fa: preview-only (mock consent shell under /design/finexer-consent-intro) plus variant files under finexer_brand/intro that nothing at runtime reads; live templates untouched. Design round, lands in uat for Kevin's pick.
   - note (2026-10-07, claude): approved: A, the canvas intro with the Sorted eyebrow and one sentence (Kevin 2026-10-07)
   - note (2026-10-07, claude): Fold-in built on feature-G226-finexer-intro-fold-in (fe778940), not finished: header.html is variant A, old .sorted-intro rule replaced, intro/ removed, budgets light 1891 dark 1668; production templates re-synced (HTTP 200 both: aYiuDETVBXPq, 8pq22L45Lf9L), light stays default as before, dark not default, logo files untouched (fl_SDg9O4iqBFT1uS8WSma8u light, fl_t8vPXKWZ3ZDfobkbwvGyd dark). Preview renders the shipped header and CSS only. Kevin: check the live preview in the dashboard. Sandbox app still needs its key.
+  - note (2026-10-07, claude): Fold-in reviewed PASS at fe778940 (header.html = variant A, old intro rule replaced, budgets 1891 light / 1668 dark). Production templates already carry it; Sorted light is default per Kevin's own dashboard action, so real users see the branded page now. Finishing plain. Open: sandbox app key; dim permission headings (A147's rule did not reach them, needs the page markup).
 
 ## H. Repo hygiene
 
