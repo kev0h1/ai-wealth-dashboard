@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import type { Account } from "@wealth/shared";
 import AccountLedgerRow from "@/components/AccountLedgerRow";
+import CountTowardsSafeToSpendRow from "@/components/CountTowardsSafeToSpendRow";
 import { BankBadge, accountBrand, type TermsPill } from "@/components/AccountMiniCard";
 import ReconnectStrip from "@/components/ReconnectStrip";
 import SegmentedControl from "@/components/SegmentedControl";
@@ -40,6 +41,7 @@ import {
   PREVIEW_STATES,
   PREVIEW_STATE_LABELS,
   estateForState,
+  EXCLUDED_ESTATE_FIXTURE,
   isDetailState,
   type AccountDetailFixture,
   type AccountsPreviewState,
@@ -725,11 +727,34 @@ function DetailPanel({ fixture, notice, onAction }: { fixture: AccountDetailFixt
   );
 }
 
-function DetailPage({ fixture, variant, hidden, onToggleHidden, onBack, notice, onAction, estate }: { fixture: AccountDetailFixture; variant: Variant; hidden: boolean; onToggleHidden: () => void; onBack: () => void; notice: string | null; onAction: (label: string) => void; estate: Estate }) {
+// G231: the production switch row on a connected current or savings account's
+// detail, with fixture state. Turning a counted account off shows the server's
+// refusal reason for an account that pays something this period (?refuse=1).
+function CountRowPreview({ row, refuse }: { row: EstateRow; refuse: boolean }) {
+  const [counted, setCounted] = useState(row.source !== "bank" || (row.raw as Account).include_in_safe_to_spend !== false);
+  const [reason, setReason] = useState<string | null>(null);
+  if (row.source !== "bank" || row.kind === "Credit" || row.kind === "Offline" || row.attention) return null;
+  return (
+    <div className="mt-4">
+      <CountTowardsSafeToSpendRow
+        counted={counted}
+        reason={reason}
+        onChange={(next) => {
+          if (!next && refuse) { setReason("This account pays 2 upcoming items this period, so it has to count"); return; }
+          setReason(null);
+          setCounted(next);
+        }}
+      />
+      <p className="mt-1 px-1 text-[11px] leading-snug text-slate-500 dark:text-slate-400">Preview note: the switch row is the production component; the sheet around it is the existing hand-authored canvas, and the refusal text is a fixture.</p>
+    </div>
+  );
+}
+
+function DetailPage({ fixture, variant, hidden, onToggleHidden, onBack, notice, onAction, estate, refuse }: { refuse: boolean; fixture: AccountDetailFixture; variant: Variant; hidden: boolean; onToggleHidden: () => void; onBack: () => void; notice: string | null; onAction: (label: string) => void; estate: Estate }) {
   if (variant === "c") {
-    return <div className="mx-auto grid w-full max-w-6xl grid-cols-[minmax(0,1fr)] items-start gap-10 px-4 pt-6 sm:px-6 lg:grid-cols-[minmax(290px,0.8fr)_minmax(0,1.55fr)] lg:gap-16 lg:px-8"><div className="min-w-0 lg:sticky lg:top-6"><DetailCanvasHeader fixture={fixture} hidden={hidden} onToggleHidden={onToggleHidden} onBack={onBack} onAction={onAction} variant={variant} /><div className="mt-10 hidden lg:block"><DesignNote variant={variant} estate={estate} hidden={hidden} /></div></div><div className="min-w-0 space-y-8 lg:pt-14"><DetailPanel fixture={fixture} notice={notice} onAction={onAction} /><div className="lg:hidden"><DesignNote variant={variant} estate={estate} hidden={hidden} /></div></div></div>;
+    return <div className="mx-auto grid w-full max-w-6xl grid-cols-[minmax(0,1fr)] items-start gap-10 px-4 pt-6 sm:px-6 lg:grid-cols-[minmax(290px,0.8fr)_minmax(0,1.55fr)] lg:gap-16 lg:px-8"><div className="min-w-0 lg:sticky lg:top-6"><DetailCanvasHeader fixture={fixture} hidden={hidden} onToggleHidden={onToggleHidden} onBack={onBack} onAction={onAction} variant={variant} /><CountRowPreview row={fixture.row} refuse={refuse} /><div className="mt-10 hidden lg:block"><DesignNote variant={variant} estate={estate} hidden={hidden} /></div></div><div className="min-w-0 space-y-8 lg:pt-14"><DetailPanel fixture={fixture} notice={notice} onAction={onAction} /><div className="lg:hidden"><DesignNote variant={variant} estate={estate} hidden={hidden} /></div></div></div>;
   }
-  return <div className={`mx-auto w-full px-4 pt-6 sm:px-6 lg:px-8 ${variant === "a" || variant === "a1" || variant === "a2" ? "max-w-3xl" : "max-w-4xl"}`}><DetailCanvasHeader fixture={fixture} hidden={hidden} onToggleHidden={onToggleHidden} onBack={onBack} onAction={onAction} variant={variant} /><div className="mt-5"><DetailPanel fixture={fixture} notice={notice} onAction={onAction} /></div><div className="mt-12"><DesignNote variant={variant} estate={estate} hidden={hidden} /></div></div>;
+  return <div className={`mx-auto w-full px-4 pt-6 sm:px-6 lg:px-8 ${variant === "a" || variant === "a1" || variant === "a2" ? "max-w-3xl" : "max-w-4xl"}`}><DetailCanvasHeader fixture={fixture} hidden={hidden} onToggleHidden={onToggleHidden} onBack={onBack} onAction={onAction} variant={variant} /><CountRowPreview row={fixture.row} refuse={refuse} /><div className="mt-5"><DetailPanel fixture={fixture} notice={notice} onAction={onAction} /></div><div className="mt-12"><DesignNote variant={variant} estate={estate} hidden={hidden} /></div></div>;
 }
 
 function PreviewControls({ variant, mode, state }: { variant: Variant; mode: Mode; state: AccountsPreviewState }) {
@@ -764,7 +789,7 @@ export default function AccountsCanvasBeforeCardsClient() {
   const state = requestedState && PREVIEW_STATES.includes(requestedState) ? requestedState : "estate";
   const mode: Mode = params.get("mode") === "dark" ? "dark" : "light";
   const hideControls = params.get("controls") === "0";
-  const estate = estateForState(state);
+  const estate = params.get("excluded") === "1" && isDetailState(state) ? EXCLUDED_ESTATE_FIXTURE : estateForState(state);
   const [hidden, setHidden] = useState(false);
   const [query, setQuery] = useState("");
   const [lens, setLens] = useState<EstateLens>("All");
@@ -803,6 +828,8 @@ export default function AccountsCanvasBeforeCardsClient() {
   const hrefForState = (nextState: AccountsPreviewState, accountId?: string) => {
     const next = new URLSearchParams({ variant, mode, state: nextState });
     if (hideControls) next.set("controls", "0");
+    if (params.get("refuse") === "1") next.set("refuse", "1");
+    if (state === "excluded" || params.get("excluded") === "1") next.set("excluded", "1");
     if (accountId) next.set("account", accountId);
     return `?${next.toString()}`;
   };
@@ -847,7 +874,7 @@ export default function AccountsCanvasBeforeCardsClient() {
         terms: { label: "0% until Mar 2027", risk: false },
       };
     }
-    content = <DetailPage fixture={fixture} variant={variant} hidden={hidden} onToggleHidden={() => setHidden((value) => !value)} onBack={() => router.push(hrefForState("estate"))} notice={notice} onAction={chooseAction} estate={estate} />;
+    content = <DetailPage fixture={fixture} variant={variant} hidden={hidden} onToggleHidden={() => setHidden((value) => !value)} onBack={() => router.push(hrefForState("estate"))} notice={notice} onAction={chooseAction} estate={estate} refuse={params.get("refuse") === "1"} />;
   } else {
     const shared: ListSharedProps = {
       estate,

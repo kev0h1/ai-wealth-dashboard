@@ -27,6 +27,9 @@ export interface Account {
   /** B45: bank-synced account on a plan without open banking. Readable
    *  history, no longer syncing; resubscribing resumes it. */
   paused?: boolean;
+  /** G231: false when the user chose not to count this account towards Safe
+   *  to Spend. Absent or true means counted. Balances still show either way. */
+  include_in_safe_to_spend?: boolean;
 }
 
 /** One live bank connection/consent, from GET /connections

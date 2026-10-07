@@ -880,6 +880,7 @@ async def _serialise(
         "funding_account_id":  fid,
         "funding_account_name": funding_name,
         "source_account_id":  doc.get("source_account_id"),
+        "source_unset":        bool(doc.get("source_unset")),
         "source":              doc.get("source", "manual"),
         "status":              doc.get("status", "active"),
         "progress":            progress,
@@ -900,6 +901,52 @@ async def _serialise(
     }
 
 
+async def _attach_sources(uid: str, items: list[dict], docs: list[dict]) -> None:
+    """G230: add source_account_id (explicit or inferred), source_inferred and
+    source_account_name to each serialised plan. Read-only; never persisted.
+    A lookup failure leaves the plan unassigned (pooled-only) rather than
+    failing the list."""
+    from app.services.account_plan_sources import (
+        account_label, owned_account_map, resolve_goal_source,
+    )
+
+    try:
+        account_map = await owned_account_map(uid)
+    except Exception:
+        logger.exception("commitments: plan source lookup failed")
+        account_map = {}
+    from app.services.account_plan_sources import needs_inference
+    from app.services.companion import infer_plan_sources_batch
+
+    # One batched inference for every unassigned active goal (no N+1); a
+    # failure leaves them unassigned.
+    wanted = {
+        str(d["_id"]): sorted({str(p["account_id"]) for p in _doc_pots(d)})
+        for d in docs
+        if d.get("status", "active") == "active"
+        and needs_inference(d, {str(p["account_id"]) for p in _doc_pots(d)})
+    }
+    prefetched: dict[str, str | None] = {}
+    if wanted and account_map:
+        try:
+            prefetched = await infer_plan_sources_batch(uid, wanted, account_map)
+        except Exception:
+            logger.exception("commitments: batched plan source inference failed")
+    for item, doc in zip(items, docs):
+        dest = {str(p["account_id"]) for p in _doc_pots(doc)}
+        source_id, inferred = (None, False)
+        if account_map and doc.get("status", "active") == "active":
+            source_id, inferred = await resolve_goal_source(
+                uid, doc, account_map, dest, prefetched=prefetched,
+            )
+        item["source_account_id"] = source_id
+        item["source_inferred"] = inferred
+        item["source_unset"] = bool(doc.get("source_unset"))
+        item["source_account_name"] = (
+            account_label(account_map.get(source_id)) if source_id else None
+        )
+
+
 async def _serialise_all(
     uid: str, docs: list[dict], cfg: dict, fctx: tuple[float, float] | None,
     today: date | None = None, debt_shortfall: float = 0.0,
@@ -911,6 +958,7 @@ async def _serialise_all(
     today = today or timeutil.user_today()
     ledger = await compute_pot_ledger(uid, docs=docs)
     items = [await _serialise(doc, cfg, ledger, today=today) for doc in docs]
+    await _attach_sources(uid, items, docs)
     _apply_joint_feasibility(items, docs, fctx, period_rhythm_label(cfg), debt_shortfall)
     overlap = _pot_account_overlap(docs)
     id_to_name = {str(d["_id"]): str(d.get("name") or "").strip() for d in docs}
@@ -1172,18 +1220,19 @@ async def create_commitment(
         "contributed":  0.0,
         "source":       source,
         "status":       "active",
-        # New records always distinguish an explicit opt-out from a legacy
-        # record which genuinely predates source-account selection.
-        "source_account_id": None,
         "created_at":   datetime.now(timezone.utc),
         "idempotency_key": idempotency_key,
     }
+    # G230: a plan with no stored source (absent, or the null every plan had
+    # before G230) is inferred from recent transfers on read. Only a plan
+    # saved with `source_unset: true` is a deliberate "Not set".
     if "source_account_id" in body:
         sources = await owned_account_map(uid)
         doc["source_account_id"] = validate_source_account(
             body.get("source_account_id"), sources,
             {str(p["account_id"]) for p in pots},
         )
+        doc["source_unset"] = doc["source_account_id"] is None and body.get("source_unset") is True
     result = await commitments_col.insert_one(doc)
     doc["_id"] = result.inserted_id
 
@@ -1469,6 +1518,7 @@ async def update_commitment(
             body.get("source_account_id"), sources,
             {str(p["account_id"]) for p in effective_pots},
         )
+        updates["source_unset"] = updates["source_account_id"] is None and body.get("source_unset") is True
     elif "funding_pots" in updates and doc.get("source_account_id") in {
         str(p["account_id"]) for p in updates["funding_pots"]
     }:

@@ -51,7 +51,7 @@ export default function UpcomingAccountDetails({ account, periodLabel, plans = [
   const figure = hasPlans ? result.afterPlans : result.afterPayments;
   return <div className="space-y-6 text-slate-950 dark:text-slate-50">
     <section className="space-y-3" aria-label="Account plan result">
-      <div><p className={"text-xs font-medium " + detailMuted}>{hasPlans ? "After payments and plans" : "After payments"}{result.estimated && figure !== null ? " · estimated" : ""}</p><p data-account-plan-figure className={"mt-1 break-words text-4xl font-bold leading-tight tracking-tight " + detailInk}>{figure === null ? "Unavailable" : money(figure)}</p>{hasPlans && <p className={"mt-1 text-xs leading-5 " + detailMuted}>{result.estimated ? "Includes set-asides from this account based on recent transfers." : "If you complete the linked plans below"}</p>}</div>
+      <div><p className={"text-xs font-medium " + detailMuted}>{hasPlans ? "After payments and plans" : "After payments"}{result.estimated && figure !== null ? " · estimated" : ""}</p><p data-account-plan-figure className={"mt-1 break-words text-4xl font-bold leading-tight tracking-tight " + detailInk}>{figure === null ? "Unavailable" : money(figure)}</p>{hasPlans && <p className={"mt-1 text-xs leading-5 " + detailMuted}>{result.estimated ? "Includes set-asides and plans from this account based on recent transfers." : "If you complete the linked plans below"}</p>}</div>
       <Verdict account={account} plans={plans} plansStatus={plansStatus} />
     </section>
     <details className="group border-y border-slate-200 dark:border-slate-700">
@@ -76,6 +76,6 @@ export default function UpcomingAccountDetails({ account, periodLabel, plans = [
     <section aria-labelledby={id + "-events"}><div className="flex items-baseline justify-between gap-4"><h3 id={id + "-events"} className="text-sm font-semibold">Payments &amp; income</h3><span className={"text-xs " + detailMuted}>{account.events.length} expected</span></div>
       {account.events.length ? <ul className="mt-1 divide-y divide-slate-200 dark:divide-slate-700">{account.events.map((event) => <EventLine key={event.id} event={event} align={Boolean(onEvent)} onEvent={onEvent && (!editableEventIds || editableEventIds.has(event.id)) ? onEvent : undefined} />)}</ul> : <p className={"py-3 text-sm " + detailMuted}>No payments or income expected. {periodLabel}.</p>}
     </section>
-    <p className={"text-xs leading-5 " + detailMuted}>Goal contributions are plans, not scheduled bank payments. The payday figure above counts all of them, while this account view shows only the plans linked to this account and does not change that figure.</p>
+    <p className={"text-xs leading-5 " + detailMuted}>Goal contributions count in the payday figure above. This account view includes the plans paid from this account.</p>
   </div>;
 }

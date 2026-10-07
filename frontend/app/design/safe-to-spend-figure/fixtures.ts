@@ -12,7 +12,8 @@ export type FigureState =
   | "short-plans"
   | "error"
   | "degraded"
-  | "syncing";
+  | "syncing"
+  | "excluded";
 
 export const FIGURE_STATES: { id: FigureState; label: string }[] = [
   { id: "on-track", label: "On track" },
@@ -23,6 +24,7 @@ export const FIGURE_STATES: { id: FigureState; label: string }[] = [
   { id: "error", label: "Error" },
   { id: "degraded", label: "Degraded" },
   { id: "syncing", label: "Syncing" },
+  { id: "excluded", label: "Not counting 2 accounts" },
 ];
 
 type Ok = Extract<SafeToSpend, { status: "ok" }>;
@@ -43,4 +45,6 @@ export const FIGURE_DATA: Record<FigureState, Ok | null> = {
   error: null,
   degraded: { ...base, calculation_status: "degraded", unavailable_components: ["allocations"] },
   syncing: { ...base, calculation_status: "syncing", sync_state: "syncing" },
+  // G231: the on-track hero with two accounts the user does not count.
+  excluded: { ...base, safe_to_spend: 105, safe_to_spend_cash: 105, state: "comfortable", short_reason: null, spendable_now: 520, bills_total: 200, income_before_payday: 0, buffer: 100, lowest_projected_balance: 320, commitments_reserved: 70, allocations_reserved: 45, excluded_accounts_count: 2, excluded_accounts: [{ id: "joint-bills", name: "Joint bills" }, { id: "partner", name: "Partner current" }] },
 };

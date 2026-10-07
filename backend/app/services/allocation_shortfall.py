@@ -39,7 +39,12 @@ def has_plan_source(plan: dict) -> bool:
     if not sid:
         return False
     basis = plan.get("source_basis")
-    return basis == "chosen" or (plan.get("kind") == "allocation" and basis == "recent-transfers")
+    # G230: a goal plan's paying account may also be inferred from recent
+    # transfers (flagged `inferred`), so it counts here exactly as an inferred
+    # set-aside source does, and the figure stays estimated.
+    return basis == "chosen" or (
+        plan.get("kind") in ("allocation", "goal") and basis == "recent-transfers"
+    )
 
 
 def _remaining_pence(plan: dict) -> int | None:
@@ -118,15 +123,18 @@ def compute_allocation_gaps(
             ((a, p) for a, p in owing if p.get("kind") == "allocation"),
             key=lambda t: (-t[0], str(t[1].get("name") or "").lower(), str(t[1].get("record_id") or "")),
         )
+        # An easing writes to the plan, so it is only ever offered for a plan
+        # whose paying account the user chose; an inferred goal slice still
+        # counts in `reserved` above so the figure matches the account sheet.
         goals = sorted(
-            ((a, p) for a, p in owing if p.get("kind") == "goal"),
+            ((a, p) for a, p in owing if p.get("kind") == "goal" and p.get("source_basis") == "chosen"),
             key=lambda t: (-t[0], str(t[1].get("name") or "").lower(), str(t[1].get("record_id") or "")),
         )
         if require_allocation and not allocations:
             continue
         if not require_allocation and not goals:
             continue
-        estimated = any(p.get("source_basis") == "recent-transfers" for _, p in allocations)
+        estimated = any(p.get("source_basis") == "recent-transfers" for _, p in owing)
         out.append({
             "account_id": account_id,
             "gap_pence": gap,

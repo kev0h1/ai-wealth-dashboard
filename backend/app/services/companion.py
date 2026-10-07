@@ -722,9 +722,11 @@ async def _direct_fill_leg_source(
     from app.routers.analytics import _has_affinity
 
     fills = await matching_fills_this_period(uid, fill_account_id, match_type, match_value, start, end)
-    if not fills:
-        return None
+    return await _pair_credits_to_source(uid, fill_account_id, fills, start, end, account_map)
 
+
+async def _load_debits(uid: str, start: date, end: date) -> list[dict]:
+    """Every own debit in [start, end], one query per transactions collection."""
     start_dt = datetime(start.year, start.month, start.day)
     end_dt = datetime(end.year, end.month, end.day, 23, 59, 59)
     debit_q = {
@@ -733,12 +735,32 @@ async def _direct_fill_leg_source(
         "date": {"$gte": start_dt, "$lte": end_dt},
     }
     proj = {"account_id": 1, "amount": 1, "date": 1, "description": 1, "merchant_name": 1}
-    candidates: list[dict] = []
+    out: list[dict] = []
     for col in (transactions_col, yapily_transactions_col):
-        for t in await col.find(debit_q, proj).to_list(None):
-            if str(t.get("account_id") or "") == str(fill_account_id):
-                continue  # a source must be a DIFFERENT, own, non-fill account
-            candidates.append(t)
+        out += await col.find(debit_q, proj).to_list(None)
+    return out
+
+
+async def _pair_credits_to_source(
+    uid: str, fill_account_id: str, fills: list[dict], start: date, end: date,
+    account_map: dict[str, dict], debits: list[dict] | None = None,
+) -> str | None:
+    """The pairing half of `_direct_fill_leg_source`, split out (G230) so a
+    plan's sink pot can reuse the exact same same-day, exact-amount,
+    name-affinity, fail-closed rule against ANY set of credits landing on
+    it, not just an allocation's rule-matched fills. See the docstring above
+    for the full doctrine; behaviour for allocations is unchanged."""
+    from app.routers.analytics import _has_affinity
+
+    if not fills:
+        return None
+
+    if debits is None:
+        debits = await _load_debits(uid, start, end)
+    candidates: list[dict] = [
+        t for t in debits
+        if str(t.get("account_id") or "") != str(fill_account_id)  # a source must be a DIFFERENT, own, non-fill account
+    ]
 
     def _day(t):
         d = t.get("date")
@@ -2166,11 +2188,21 @@ async def compute_today_items(
     all_uk_accounts: list[dict] = []
     _acct_proj = {"name": 1, "balance": 1, "current_balance": 1, "available_balance": 1,
                   "subtype": 1, "account_subtype": 1, "type": 1, "provider": 1, "currency": 1,
-                  "nickname": 1, "display_name": 1}
+                  "nickname": 1, "display_name": 1, "include_in_safe_to_spend": 1}
+    # G231: an account the user does not count towards Safe to Spend is
+    # neither a source nor a destination for any suggestion, and its balance
+    # never seeds a walk.
+    _g231_excluded: set[str] = set()
     async for acc in accounts_col.find({"user_id": uid}, _acct_proj):
+        if acc.get("include_in_safe_to_spend") is False:
+            _g231_excluded.add(str(acc["_id"]))
+            continue
         acc["_str_id"] = str(acc["_id"])
         all_uk_accounts.append(acc)
     async for acc in yapily_accounts_col.find({"user_id": uid}, {**_acct_proj, "institution_id": 1}):
+        if acc.get("include_in_safe_to_spend") is False:
+            _g231_excluded.add(str(acc["_id"]))
+            continue
         acc["_str_id"] = str(acc["_id"])
         all_uk_accounts.append(acc)
 
@@ -2209,10 +2241,12 @@ async def compute_today_items(
     # now doubles as the manual-transfer tie-break in `_live_class` below.
     offline_accounts: list[dict] = []
     async for _macc in manual_accounts_col.find(
-        {"user_id": uid}, {"name": 1, "balance": 1, "account_type": 1}
+        {"user_id": uid}, {"name": 1, "balance": 1, "account_type": 1, "include_in_safe_to_spend": 1}
     ):
         _macc_type = _macc.get("account_type") or "savings"
-        if _macc_type == "credit_card":
+        if _macc.get("include_in_safe_to_spend") is False:
+            _g231_excluded.add(str(_macc["_id"]))
+        if _macc_type == "credit_card" or _macc.get("include_in_safe_to_spend") is False:
             continue
         offline_accounts.append({
             "_id": _macc["_id"],
@@ -2225,6 +2259,15 @@ async def compute_today_items(
         })
     for _oacc in offline_accounts:
         live_balances[_oacc["_str_id"]] = _oacc["balance"]
+
+    # G231 fail-closed: if the builder could not verify exclusions, re-apply the
+    # exclusion from the account rows loaded above to the walk's own lists.
+    if resp.get("exclusions_unverified") and _g231_excluded:
+        _w = {"upcoming_bills": window_bills, "upcoming_income": window_income}
+        from app.services.counted_accounts import drop_excluded_items as _g231_drop
+        _g231_drop(_w, _g231_excluded)
+        window_bills, window_income = _w["upcoming_bills"], _w["upcoming_income"]
+        assessable_bills = [b for b in window_bills if is_assessable_bill(b)]
 
     # Envelope funding-source reservation (owner fix, 2026-08-31 — "does it
     # take account of what has been set aside on the envelope"). Computed
@@ -5878,3 +5921,49 @@ async def dismiss_item(uid: str, item_id: str) -> None:
         {"$addToSet": {"ids": item_id}},
         upsert=True,
     )
+
+
+async def infer_plan_sources_batch(
+    uid: str, wanted: dict[str, list[str]], account_map: dict[str, dict], *, days: int = 90,
+) -> dict[str, str | None]:
+    """G230: infer the paying account for many goal plans at once.
+
+    `wanted` maps a plan key to its sink pot ids. One credit query and one
+    debit query per transactions collection serve every plan (no per-plan
+    round trips); pairing then runs per pot in memory with the same rule set-
+    asides use. Read-only: callers must never persist the answers.
+    """
+    from app.core import timeutil
+    from datetime import timedelta
+
+    if not wanted:
+        return {}
+    end = timeutil.user_today()
+    start = end - timedelta(days=days)
+    start_dt = datetime(start.year, start.month, start.day)
+    end_dt = datetime(end.year, end.month, end.day, 23, 59, 59)
+    pot_ids = sorted({aid for ids in wanted.values() for aid in ids})
+    q = {
+        "user_id": uid, "account_id": {"$in": pot_ids}, "transaction_type": "credit",
+        "date": {"$gte": start_dt, "$lte": end_dt},
+    }
+    proj = {"account_id": 1, "amount": 1, "merchant_name": 1, "description": 1, "date": 1}
+    credits_by_pot: dict[str, list[dict]] = {}
+    for col in (transactions_col, yapily_transactions_col):
+        for t in await col.find(q, proj).to_list(None):
+            credits_by_pot.setdefault(str(t.get("account_id") or ""), []).append(t)
+    debits = await _load_debits(uid, start, end) if credits_by_pot else []
+    pot_source: dict[str, str | None] = {}
+    for aid, credits in credits_by_pot.items():
+        pot_source[aid] = await _pair_credits_to_source(
+            uid, aid, credits, start, end, account_map, debits=debits,
+        )
+    out: dict[str, str | None] = {}
+    for key, ids in wanted.items():
+        votes: dict[str, int] = {}
+        for aid in ids:
+            src = pot_source.get(aid)
+            if src:
+                votes[src] = votes.get(src, 0) + 1
+        out[key] = _modal_account(votes)
+    return out

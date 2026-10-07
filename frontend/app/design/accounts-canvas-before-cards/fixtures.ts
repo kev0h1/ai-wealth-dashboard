@@ -10,6 +10,7 @@ export const PREVIEW_STATES = [
   "detail-credit",
   "detail-manual",
   "detail-investment",
+  "excluded",
 ] as const;
 
 export type AccountsPreviewState = (typeof PREVIEW_STATES)[number];
@@ -23,6 +24,7 @@ export const PREVIEW_STATE_LABELS: Record<AccountsPreviewState, string> = {
   "detail-credit": "Credit card detail",
   "detail-manual": "Offline account detail",
   "detail-investment": "Investment detail",
+  excluded: "Not counted row (G231)",
 };
 
 const bankAccounts: Account[] = [
@@ -176,8 +178,15 @@ const pinnedIds = ["marcus-saver", "vanguard-sipp"];
 export const ESTATE_FIXTURE = buildEstate([...bankAccounts, manualAccount], investmentAccounts, pinnedIds);
 export const ATTENTION_ESTATE_FIXTURE = buildEstate([...bankAccounts, expiredAccount, manualAccount], investmentAccounts, pinnedIds);
 export const EMPTY_ESTATE_FIXTURE = buildEstate([], [], []);
+// G231: the same estate with one current account left out of Safe to Spend.
+export const EXCLUDED_ESTATE_FIXTURE = buildEstate(
+  [...bankAccounts, manualAccount].map((a) => (a.id === "barclays-current" ? { ...a, include_in_safe_to_spend: false } : a)),
+  investmentAccounts,
+  pinnedIds,
+);
 export function estateForState(state: AccountsPreviewState): Estate {
   if (state === "empty") return EMPTY_ESTATE_FIXTURE;
+  if (state === "excluded") return EXCLUDED_ESTATE_FIXTURE;
   if (state === "attention" || state === "detail-expired") return ATTENTION_ESTATE_FIXTURE;
   return ESTATE_FIXTURE;
 }

@@ -137,6 +137,9 @@ export default function AccountLedgerRow({
   const isInvestment = row.kind === "Investment";
   const muted = row.dormant;
   const isPinned = pinned ?? row.pinned;
+  // G231: a bank account the user does not count towards Safe to Spend. The
+  // balance still shows; only a quiet slate tag says it is not counted.
+  const notCounted = row.source === "bank" && (row.raw as Account).include_in_safe_to_spend === false;
 
   // Direction of money, not just account kind — an overdrawn current/savings
   // account is genuine risk (Red Is Risk), a credit card in credit is not
@@ -195,7 +198,7 @@ export default function AccountLedgerRow({
           onClick?.(row);
         }
       }}
-      aria-label={`${row.name}, ${balancePending ? "balance not available yet" : moneyStr(row.balance)}${stateCaption ? ` ${stateCaption}` : ""}${row.attention ? ", connection needs attention" : ""}${sync ? `, ${syncRowLine}${syncAsOf ? `, balance as of ${syncAsOf}` : ""}` : ""}`}
+      aria-label={`${row.name}, ${balancePending ? "balance not available yet" : moneyStr(row.balance)}${stateCaption ? ` ${stateCaption}` : ""}${row.attention ? ", connection needs attention" : ""}${notCounted ? ", not counted towards Safe to Spend" : ""}${sync ? `, ${syncRowLine}${syncAsOf ? `, balance as of ${syncAsOf}` : ""}` : ""}`}
       className="w-full min-h-[60px] flex items-center gap-3 px-4 py-2.5 active:bg-slate-50 dark:active:bg-white/5 transition-colors motion-reduce:transition-none text-left cursor-pointer"
     >
       <BankBadge logoSrc={brand.logoSrc} initials={brand.initials} altText={brand.label} brandBg={brand.background} />
@@ -217,6 +220,11 @@ export default function AccountLedgerRow({
           <span className="truncate">
             {row.provider} · {accountKindLabel(row.kind)}
           </span>
+          {notCounted && (
+            <span data-g231-not-counted className="-ml-1 shrink-0 text-[11px] font-medium text-slate-500 dark:text-slate-400">
+              <span aria-hidden="true">· </span>Not counted
+            </span>
+          )}
         </div>
 
         {showUtilisation && utilisation && <UtilisationBar pct={utilisation.pct} limit={utilisation.limit} />}

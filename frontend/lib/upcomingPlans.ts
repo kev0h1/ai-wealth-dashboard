@@ -42,10 +42,13 @@ export function hasChosenPlanSource(plan: Plan) {
   return plan.evidence === "chosen" && Boolean(plan.sourceId);
 }
 
-/** The API validates derived allocation sources; every resulting figure must
+/** The API validates derived sources (set-asides and goal plans); every resulting figure must
  * be labelled estimated. Unknown sources and intentional clears stay out. */
 export function hasPlanSource(plan: Plan) {
-  return hasChosenPlanSource(plan) || Boolean(plan.sourceId && plan.kind === "allocation" && plan.evidence === "recent-transfers");
+  // G230: a goal plan's paying account may also be inferred from recent
+  // transfers into its pot, so it counts here as an estimate, exactly like a
+  // set-aside's inferred source.
+  return hasChosenPlanSource(plan) || Boolean(plan.sourceId && plan.evidence === "recent-transfers");
 }
 
 export function isPlanSourceAccount(account: Account) {

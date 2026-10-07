@@ -32,6 +32,17 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "plan-source-account",
+    name: "Edit plan, Paid from · G230",
+    description:
+      "G230, skill: impeccable · Alignment, not a variant round: the production Edit plan sheet gains a quiet Paid from field (counted current accounts only; cards and accounts left out of Safe to Spend are never offered), prefilled with the account seen in recent transfers and hedged 'Based on recent transfers', with Not set keeping the plan pooled-only · Nothing is saved unless the user picks · Invented accounts, no API calls · ?state=inferred|chosen|unset&mode=light|dark",
+    states: [
+      { label: "Inferred from transfers", value: "inferred" },
+      { label: "Chosen", value: "chosen" },
+      { label: "Not set", value: "unset" },
+    ],
+  },
+  {
     slug: "upcoming-by-account",
     name: "Upcoming By account, attention first · G229",
     description:

@@ -1891,6 +1891,9 @@ def _account_pool_kind(acc: dict) -> str | None:
     concern specific to `_split_balances`'s totals, not a question of which
     pool the account is structurally a member of.
     """
+    if acc.get("include_in_safe_to_spend") is False:
+        # G231: the user chose not to count this account towards Safe to Spend.
+        return None
     if str(acc.get("currency", "GBP")).upper() not in {"GBP", ""}:
         return None
     subtype = (acc.get("subtype") or "").lower()
@@ -2061,7 +2064,8 @@ async def _safe_to_spend_accounts(uid: str) -> list[dict]:
     account belongs in a balance calculation only when its own consent is
     still AUTHORIZED; a different active consent must not revive stale cash.
     """
-    projection = {"balance": 1, "type": 1, "subtype": 1, "currency": 1}
+    projection = {"balance": 1, "type": 1, "subtype": 1, "currency": 1, "name": 1,
+                  "include_in_safe_to_spend": 1}
     native_task = accounts_col.find({"user_id": uid}, projection).to_list(None)
     active_consents_task = yapily_consents_col.find(
         {"user_id": uid, "status": "AUTHORIZED"}, {"_id": 1}
@@ -2673,7 +2677,8 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
     # is_credit_card_account's dual lookup (mirrors companion.py/behaviour.py/
     # needle.py) in case a future writer uses the longer key names.
     acct_proj_map = {"name": 1, "balance": 1, "currency": 1, "provider": 1,
-                      "type": 1, "subtype": 1, "account_type": 1, "account_subtype": 1}
+                      "type": 1, "subtype": 1, "account_type": 1, "account_subtype": 1,
+                      "include_in_safe_to_spend": 1}
     acct_docs = (
         await accounts_col.find({"user_id": uid}, acct_proj_map).to_list(None)
         + await yapily_accounts_col.find({"user_id": uid}, acct_proj_map).to_list(None)
@@ -2915,7 +2920,7 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
     ]
     avg_daily_spend = (sum(abs(float(t.get("amount", 0))) for t in non_recurring_debits) / 90) if non_recurring_debits else 0
 
-    acct_proj = {"balance": 1, "currency": 1, "type": 1, "subtype": 1}
+    acct_proj = {"balance": 1, "currency": 1, "type": 1, "subtype": 1, "include_in_safe_to_spend": 1}
     all_accounts = (
         await accounts_col.find({"user_id": uid}, acct_proj).to_list(None)
         + await yapily_accounts_col.find({"user_id": uid}, acct_proj).to_list(None)
@@ -4544,7 +4549,7 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
             "projected_bills":  round(projected_bills, 2),
         })
 
-    return {
+    _cf_resp = {
         "weekly_projection": weeks,
         "upcoming_bills":    upcoming_bills,
         "upcoming_income":   upcoming_income,
@@ -4583,6 +4588,20 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
         # `[]` default for a cache doc computed before this field existed.
         "late_income":       cached.get("late_income", []),
     }
+    # G231: items on an account the user does not count towards Safe to Spend
+    # leave every cashflow walk and list. One choke point, so Home, Upcoming,
+    # the cover engine and Penny cannot disagree.
+    if uid:
+        from app.services.counted_accounts import excluded_account_ids, drop_excluded_items
+        try:
+            drop_excluded_items(_cf_resp, await excluded_account_ids(uid))
+        except Exception:
+            # Fail closed, loudly: the lookup failed, so say the exclusions are
+            # unverified. Safe to Spend re-applies them from its own account
+            # rows; other callers can see the flag.
+            logger.exception("excluded account lookup failed for %s", mask_email(uid))
+            _cf_resp["exclusions_unverified"] = True
+    return _cf_resp
 
 
 _CACHE_TTL_HOURS = 6
@@ -4872,9 +4891,27 @@ async def compute_safe_to_spend(uid: str) -> dict:
     # can never diverge; savings_total is unused here — the hero shows a
     # single spendable figure, not a savings breakout.
     spendable_cash = _live_pool_balances(all_accs_raw)["spendable_balance"]
+    # G231: accounts the user chose not to count (named on the response so the
+    # hero can say "Not counting N accounts" and link to Accounts).
+    # Read from the pool rows themselves, so no extra query is needed. The same
+    # set is re-applied to the cashflow lists here (idempotent), so a failed
+    # lookup inside the builder can never leave an excluded account's items in
+    # the walk: this path never depends on that second query.
+    _excluded_accounts = [
+        {"id": str(a["_id"]), "name": a.get("name") or "Account"}
+        for a in all_accs_raw
+        if a.get("include_in_safe_to_spend") is False and a.get("_id") is not None
+        and "credit" not in f"{a.get('type') or ''} {a.get('subtype') or ''}".lower()
+    ]
+    from app.services.counted_accounts import drop_excluded_items as _drop_excluded
+    _walk_lists = {"upcoming_bills": upcoming_bills, "upcoming_income": upcoming_income}
+    _drop_excluded(_walk_lists, {a["id"] for a in _excluded_accounts})
+    upcoming_bills, upcoming_income = _walk_lists["upcoming_bills"], _walk_lists["upcoming_income"]
 
     card_debt_total = 0.0
     for acc in all_accs_raw:
+        if acc.get("include_in_safe_to_spend") is False:
+            continue
         # GBP only
         if str(acc.get("currency", "GBP")).upper() not in {"GBP", ""}:
             continue
@@ -5214,6 +5251,8 @@ async def compute_safe_to_spend(uid: str) -> dict:
         ),
         "allocations_reserved": allocations_reserved,
         "allocations_count":   allocations_count,
+        "excluded_accounts_count": len(_excluded_accounts),
+        "excluded_accounts":   _excluded_accounts,
         "last_synced":         _sync_ts.isoformat() if _sync_ts else None,
     }
     if _syncing:

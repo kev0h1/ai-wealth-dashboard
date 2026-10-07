@@ -46,6 +46,7 @@ import { useOpenBankingAccess } from "@/lib/openBankingAccess";
 import { stampAccountDetailState, hasAccountDetailEntry } from "@/lib/accountSheetHistory";
 import { useAccountDetailHistory } from "@/lib/useAccountDetailHistory";
 import { SheetFrame } from "@/components/SheetFrame";
+import CountTowardsSafeToSpendRow from "@/components/CountTowardsSafeToSpendRow";
 import { noticeSheet } from "@/components/ConfirmSheet";
 import { todayIso, dayIsoFromStored } from "@/lib/calendar";
 
@@ -894,6 +895,24 @@ export default function AccountsPage() {
       .catch(() => {})
       .finally(() => setPrefsReady(true));
   }, []);
+  // G231: count (or stop counting) the open account towards Safe to Spend. The
+  // server refuses, with a plain reason, when the account pays something this
+  // pay period; the reason shows inline and the switch stays where it was.
+  const [countBusy, setCountBusy] = useState(false);
+  const [countReason, setCountReason] = useState<string | null>(null);
+  async function setAccountCounted(id: string, include: boolean) {
+    setCountBusy(true);
+    setCountReason(null);
+    try {
+      await api.setAccountCounted(id, include);
+      setAccounts(prev => prev.map(a => (a.id === id ? { ...a, include_in_safe_to_spend: include } : a)));
+      invalidateAllAccountData();
+    } catch (err) {
+      setCountReason(err instanceof Error && err.message ? err.message : "That did not save. Please try again.");
+    } finally {
+      setCountBusy(false);
+    }
+  }
   function togglePin(id: string) {
     if (!pinnedIds.includes(id) && pinnedIds.length >= MAX_PINS) {
       setPinMsg(`Home shows up to ${MAX_PINS} pinned accounts, unpin one first.`);
@@ -2307,6 +2326,19 @@ export default function AccountsPage() {
         {pinMsg && (
           <div className="mx-4 mt-4 px-3 py-2 rounded-xl bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700 text-xs font-medium text-slate-700 dark:text-slate-300">
             {pinMsg}
+          </div>
+        )}
+
+        {/* G231: only a connected bank current or savings account can be left
+            out of Safe to Spend; cards, offline accounts and statements cannot. */}
+        {!isManual && !isStatement && !isCredit && (
+          <div className="px-4 pt-4">
+            <CountTowardsSafeToSpendRow
+              counted={selectedAccount.include_in_safe_to_spend !== false}
+              busy={countBusy}
+              reason={countReason}
+              onChange={(next) => void setAccountCounted(selectedAccount.id, next)}
+            />
           </div>
         )}
 

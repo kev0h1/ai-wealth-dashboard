@@ -92,7 +92,11 @@ const clearedSuggested = confirmedSuggested.map((plan) => plan.id === "round-ups
 assert.equal(accountPlan(gap, clearedSuggested).reservedPence, 0, "Clearing a source remains unknown rather than retaining prior account arithmetic");
 assert.equal(accountPlan(gap, clearedSuggested).estimated, false);
 assert.equal(accountPlan(gap, [{ ...suggested[0], sourceId: null }]).reservedPence, 0);
-assert.equal(accountPlan(gap, [{ ...suggested[0], kind: "goal" }]).reservedPence, 0, "There is no goal-source inference contract");
+// G230: a goal plan's paying account may be inferred from recent transfers into
+// its pot, so it now counts as an estimate exactly like an inferred set-aside.
+assert.equal(accountPlan(gap, [{ ...suggested[0], kind: "goal" }]).reservedPence, 30000, "An inferred goal source is included as an estimate");
+assert.equal(accountPlan(gap, [{ ...suggested[0], kind: "goal" }]).estimated, true);
+assert.equal(accountPlan(gap, [{ ...suggested[0], kind: "goal", sourceId: null }]).reservedPence, 0, "A goal with no source stays pooled-only");
 assert.equal(accountPlan(gap, [{ ...suggested[0], active: false }]).reservedPence, 0);
 assert.equal(accountPlan(gap, [{ ...suggested[0], remainingPence: 0 }]).estimated, false, "A fully filled allocation does not make the account figure estimated");
 const unavailableDerived = accountPlan(gap, [{ ...suggested[0], amountUnavailable: true }]);
