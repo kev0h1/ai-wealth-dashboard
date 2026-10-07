@@ -29,6 +29,7 @@ the Files API); no upload is implemented here.
 import argparse
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -59,6 +60,18 @@ def _read(name: str) -> str:
     return (BRAND_DIR / name).read_text(encoding="utf-8")
 
 
+CSS_LIMIT = 2000  # Finexer: "The length for the CSS content must not exceed 2000 characters"
+
+
+def minify_css(css: str) -> str:
+    """Strip comments and whitespace so the commented source files fit
+    Finexer's 2000-character CSS limit. Variables are kept."""
+    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    css = re.sub(r"\s+", " ", css)
+    css = re.sub(r"\s*([{};:,>])\s*", r"\1", css)
+    return css.strip().replace(";}", "}")
+
+
 def build_payload(kind: str, logo_file_id: str | None = None) -> dict:
     """Form fields for one template, built from the versioned files. Never
     contains `default`; callers add it on create only."""
@@ -66,9 +79,11 @@ def build_payload(kind: str, logo_file_id: str | None = None) -> dict:
     payload = {
         "name": TEMPLATES[kind],
         "app_name": APP_NAME,
-        "css": tokens.rstrip() + "\n\n" + _read("sorted.css"),
+        "css": minify_css(tokens + "\n" + _read("sorted.css")),
         "header_html": _read("header.html"),
     }
+    if len(payload["css"]) > CSS_LIMIT:
+        raise SystemExit(f"{kind} css is {len(payload['css'])} chars, over Finexer's {CSS_LIMIT} limit")
     footer = BRAND_DIR / "footer.html"
     if footer.exists():
         payload["footer_html"] = footer.read_text(encoding="utf-8")

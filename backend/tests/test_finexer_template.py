@@ -136,8 +136,9 @@ def test_sync_creates_both_with_default_false_from_files(monkeypatch, tmp_path):
         assert form["app_name"] == ["Sorted"]
         for k, v in expected.items():
             assert form[k] == [v]
-    assert "prefers-color-scheme: dark" in ft.build_payload("light")["css"]
+    assert "prefers-color-scheme:dark" in ft.build_payload("light")["css"]
     assert "prefers-color-scheme" not in ft.build_payload("dark")["css"]
+    assert all(len(ft.build_payload(k)["css"]) <= 2000 for k in ("light", "dark"))
     assert set(ft._load_state()) == {"light", "dark"}
 
 
