@@ -13,7 +13,7 @@ Top recommendations:
 
 1. Release a reservation when the **outgoing** transfer from the source is matched. The sink rising is a second, confirming check, never the release trigger.
 2. Prefer matched transactions over balance deltas. Balance deltas are a flagged fallback that can only propose, never release.
-3. The safety net becomes a default goal plan per user, created once and never deleted silently. It starts as target-only (reserves £0), so Safe to Spend does not change on day one.
+3. The safety net becomes a default goal plan per user, created once and never deleted silently. It starts as target-only (reserves £0), so Safe to Spend does not change on day one (the contribution becomes user-set in item 6).
 4. Shared sinks use an explicit per-plan share ledger. Withdrawals reduce custom plans first as a visible, provisional proposal. Only unattributed inflow fills the safety net first.
 5. Build as an adapter over today's collections first. Parity with today's Safe to Spend is the gate; behaviour changes (release on fulfilment) ship as their own flagged step.
 
