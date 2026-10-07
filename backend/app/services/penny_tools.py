@@ -3617,18 +3617,14 @@ _NUMBERS_COPY: dict[str, str] = {
         "usually read lower than a simple subtraction."
     ),
     "planning_runway": (
-        "Planning's runway is what's spendable right now, plus income "
-        "expected before payday, minus the bills still due, what you "
-        "still have to set aside, and your goal plans for the period. It "
-        "deliberately excludes "
-        "pooled no-op transfers, money moving between two of your own "
-        "spendable accounts nets to nothing for this total, so it "
-        "doesn't shrink the runway for a transfer that isn't really "
-        "costing you anything. It differs from Safe to Spend's FREE "
-        "figure only in that it ends at payday, so it doesn't use the "
-        "walk's lowest point, and it doesn't subtract your safety "
-        "buffer, which only applies to FREE. If goal plans could not be "
-        "loaded, the runway may read higher than it should."
+        "Planning's runway is what's spendable right now, plus income expected "
+        "before payday, minus bills still due, what you still have to set aside "
+        "and your goal plans for the period. It excludes pooled no-op transfers, "
+        "money moving between two of your own spendable accounts nets to nothing "
+        "for this total. It differs from Safe to Spend's FREE figure only in that "
+        "it ends at payday rather than using the walk's lowest point, and it "
+        "doesn't subtract your safety buffer, which only applies to FREE. If goal "
+        "plans could not be loaded, the runway may read higher than it should."
     ),
     "grow_surplus_monthly": (
         "Grow's monthly surplus is your typical monthly income minus "
