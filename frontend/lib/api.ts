@@ -30,6 +30,17 @@ export const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api";
 
 export const logoUrl = (domain: string) => `${API_BASE}/logo/${encodeURIComponent(domain)}`;
 
+/** A148: bank logos are served same-origin by the API (the site CSP blocks
+ *  Finexer's remote URLs). The provider list returns a relative path such as
+ *  `/logo/provider/aib`; resolve it against the API base (absolute in the
+ *  native app). Absolute URLs pass through untouched; empty stays empty so the
+ *  first-letter fallback renders. */
+export const resolveApiAsset = (path: string): string =>
+  path && path.startsWith("/") && !path.startsWith("//") ? `${API_BASE}${path}` : path;
+
+export const providerLogoUrl = (providerId: string) =>
+  `${API_BASE}/logo/provider/${encodeURIComponent(providerId)}`;
+
 /** What a category *means*. Mirrors backend/app/services/categories.py.
  *  "income" is backend-internal (only ever seen on the built-in Income
  *  category) and is not offerable when creating a custom category. */
@@ -284,6 +295,13 @@ export type CashflowData = {
    * computed before allocations existed; callers must treat a missing value
    * as "no allocations to subtract", never as an error. */
   allocations?: Allocation[];
+  /** G227: this period's goal plan contributions, the same figure Safe-to-Spend
+   * subtracts as `commitments_reserved` (one server source). Optional for older
+   * payloads; missing means 0. `plans_available` false means the reserve could
+   * not be read, so the figure is a floor, not a fact. */
+  plans_reserved?: number;
+  plans_count?: number;
+  plans_available?: boolean;
   /**
    * G163/G167 interim lapse signal (until G157's payer matcher replaces
    * it): confirmed income streams, AND reliable but merely DETECTED

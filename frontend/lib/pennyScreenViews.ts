@@ -145,6 +145,8 @@ export type UpcomingRunwayInput = {
   runway: number;
   runwayStatus: "short" | "left" | "even";
   isCalendarMonth: boolean;
+  /** Goal plans could not be loaded, so the runway may be too high. */
+  plansUnavailable?: boolean;
 };
 
 /** Upcoming's runway hero — mirrors PlanningPage.tsx's own
@@ -154,7 +156,7 @@ export type UpcomingRunwayInput = {
  * simulation itself depends on a lot of page-only state — see that file's
  * own comment on its Penny-view publish ref for why). */
 export function buildUpcomingRunwayView(input: UpcomingRunwayInput): PennyScreenView {
-  const { runway, runwayStatus, isCalendarMonth } = input;
+  const { runway, runwayStatus, isCalendarMonth, plansUnavailable } = input;
   const label = runwayStatus === "short" ? "Short" : runwayStatus === "even" ? "Exactly covered" : "Left over";
   return {
     route: "/upcoming",
@@ -162,7 +164,7 @@ export function buildUpcomingRunwayView(input: UpcomingRunwayInput): PennyScreen
     verdict: label,
     figures: [{
       key: "runway",
-      label: isCalendarMonth ? "Projected at month end" : "Projected at payday",
+      label: (isCalendarMonth ? "Projected at month end" : "Projected at payday") + (plansUnavailable ? " (estimated, goal plans not loaded so it may be too high)" : ""),
       value: `${runwayStatus === "short" ? "−" : ""}${fmtGbp(runway)}`,
     }],
     asOf: new Date().toISOString(),

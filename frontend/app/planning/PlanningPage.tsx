@@ -752,7 +752,12 @@ export default function PlanningPage() {
         const allocationsRemainingTotal = (cashflow.allocations ?? [])
           .filter(a => a.active)
           .reduce((s, a) => s + a.remaining, 0);
-        const runway = spendableNow + runwayIncomeTotal - runwayBillsTotal - allocationsRemainingTotal;
+        // G227: goal plan contributions for this period, one server figure
+        // shared with Home's "Plans reserved" (commitments_reserved), so the
+        // two surfaces agree. The per-account view keeps its own plan lines.
+        const plansReservedTotal = cashflow.plans_reserved ?? 0;
+        const plansUnavailable = cashflow.plans_available === false;
+        const runway = spendableNow + runwayIncomeTotal - runwayBillsTotal - allocationsRemainingTotal - plansReservedTotal;
         const runwayNegative = runway < 0;
         const runwayStatus = runwayNegative ? "short" : runway > 0 ? "left" : "even";
         // Penny screen context (B39) — plain JS assignment, not a hook
@@ -763,7 +768,7 @@ export default function PlanningPage() {
         // fixture inputs, so the figure Penny can quote back can never
         // disagree with the hero below, which renders these same three
         // values.
-        pennyRunwayRef.current = { runway, runwayStatus, isCalendarMonth };
+        pennyRunwayRef.current = { runway, runwayStatus, isCalendarMonth, plansUnavailable };
 
         // Bank-side settling debits are display-only: their cash has already
         // left. Neither the shared account walk nor this pooled walk deducts
@@ -986,6 +991,8 @@ export default function PlanningPage() {
                 runwayIncomeTotal={runwayIncomeTotal}
                 runwayBillsTotal={runwayBillsTotal}
                 allocationsRemainingTotal={allocationsRemainingTotal}
+                plansReservedTotal={plansReservedTotal}
+                plansUnavailable={plansUnavailable}
                 savingsNow={savingsNow}
                 runway={runway}
                 runwayStatus={runwayStatus}

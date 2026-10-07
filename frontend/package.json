@@ -13,6 +13,7 @@
     "check:date-picker": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/date-picker.test.mjs",
     "check:no-native-dialogs": "node scripts/check-no-native-dialogs.mjs",
     "check:no-native-date-inputs": "node scripts/check-no-native-date-inputs.mjs",
+    "check:g228-plan-deferral": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g228-plan-deferral.test.mjs",
     "check:g217-allocation-card": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g217-allocation-card.test.mjs",
     "check:finexer-intro": "node scripts/g226-finexer-intro.test.mjs",
     "check:design-index": "node scripts/check-design-index.mjs",
