@@ -8,6 +8,7 @@ import { usePreferences } from "@/components/PreferencesContext";
 import Spinner from "@/components/Spinner";
 import MoneyText from "@/components/MoneyText";
 import { SheetFrame } from "@/components/SheetFrame";
+import { DateField } from "@/components/DatePicker";
 
 interface CardTermsSheetProps {
   /** All the user's credit cards, from GET /card-terms */
@@ -20,8 +21,6 @@ interface CardTermsSheetProps {
   /** Called after every successful save so the parent can refresh pills */
   onSaved: () => void;
 }
-
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 const PROMO_KINDS: { value: CardPromoKind; label: string }[] = [
   { value: "purchases", label: "Purchases" },
@@ -51,7 +50,7 @@ function resolveBankChip(provider: string) {
   };
 }
 
-// Selection chip — in-sheet row/grid buttons, never a native picker.
+// Selection chip: in-sheet row/grid buttons, never a native picker.
 function Chip({
   selected,
   disabled,
@@ -81,12 +80,32 @@ function Chip({
   );
 }
 
+// One text-input skin for every field in the sheet: a typed value is ink,
+// only the true placeholder is grey (G225).
+const INPUT_CLS =
+  "w-full min-h-[48px] rounded-xl bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-slate-100 placeholder:text-slate-500 dark:placeholder:text-slate-400 border border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 text-sm tabular-nums";
+
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return (
     <p className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1.5">
       {children}
     </p>
   );
+}
+
+function Helper({ children }: { children: React.ReactNode }) {
+  return <p className="text-xs text-slate-500 dark:text-slate-400 mb-2 leading-snug">{children}</p>;
+}
+
+/** Month picker row over the G136 DateField; drafts keep their own month base (0 or 1). */
+function monthValue(year: number | null, month: number | null, base: 0 | 1): string {
+  if (year == null || month == null) return "";
+  return `${year}-${String(month + (base === 0 ? 1 : 0)).padStart(2, "0")}`;
+}
+function parseMonthValue(v: string, base: 0 | 1): { year: number | null; month: number | null } {
+  const m = /^(\d{4})-(\d{2})$/.exec(v);
+  if (!m) return { year: null, month: null };
+  return { year: Number(m[1]), month: Number(m[2]) - (base === 0 ? 1 : 0) };
 }
 
 type Phase = "loading" | "found" | "candidates" | "manual";
@@ -124,11 +143,49 @@ function validateBtOffers(rows: BtOfferDraft[], btOffer: boolean | null, setErro
   return true;
 }
 
+type CardDraft = {
+  phase: Phase;
+  manualPrompt: ManualPrompt;
+  rate: string;
+  promoOn: boolean | null;
+  promoRows: PromoDraft[];
+  btOffer: boolean | null;
+  btOffers: BtOfferDraft[];
+  usage: "clear_monthly" | "carry" | null;
+};
+
+/** Everything the sheet shows for one card before the user touches it. Confirmed terms prefill in full so a re-save simply overwrites. */
+function draftFor(card: CardTermsCard | null): CardDraft {
+  const t = card?.terms;
+  if (t && t.status === "confirmed") {
+    const promos = t.promos ?? [];
+    const existingOffers = t.bt_offers ?? [];
+    return {
+      phase: "manual",
+      manualPrompt: "edit",
+      rate: t.apr_pct != null ? String(t.apr_pct) : "",
+      promoOn: promos.length > 0 ? true : null,
+      promoRows: promos.map((p: CardPromo) => {
+        const d = new Date(`${p.until}T00:00:00`);
+        return { kind: p.kind, month: d.getMonth() + 1, year: d.getFullYear(), rate: p.apr_pct === 0 ? "" : String(p.apr_pct) };
+      }),
+      btOffer: existingOffers.length > 0 ? true : null,
+      btOffers: existingOffers.map((o: BtOffer) => {
+        const fee = o.fee_pct != null ? String(o.fee_pct) : "";
+        if (o.ends) {
+          const d = new Date(`${o.ends}T00:00:00`);
+          return { month: d.getMonth(), year: d.getFullYear(), fee, note: o.note ?? "" };
+        }
+        return { month: null, year: null, fee, note: o.note ?? "" };
+      }),
+      usage: t.usage ?? null,
+    };
+  }
+  return { phase: "loading", manualPrompt: "notfound", rate: "", promoOn: null, promoRows: [], btOffer: null, btOffers: [], usage: null };
+}
+
 export default function CardTermsSheet({ cards, ready, startAccountId, onClose, onSaved }: CardTermsSheetProps) {
   const { hideNetWorth } = usePreferences();
-
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
 
   // Single-card session (pill tap) or the full walk (deep link / ask card).
   const sequence = useMemo(
@@ -143,19 +200,20 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
   const currentId = current?.account_id ?? null;
 
   // ── Per-card state, reset whenever the current card changes ──────────────
-  const [phase, setPhase] = useState<Phase>("loading");
-  const [manualPrompt, setManualPrompt] = useState<ManualPrompt>("notfound");
+  const initial = useMemo(() => draftFor(current), []); // eslint-disable-line react-hooks/exhaustive-deps
+  const [phase, setPhase] = useState<Phase>(initial.phase);
+  const [manualPrompt, setManualPrompt] = useState<ManualPrompt>(initial.manualPrompt);
   const [lookup, setLookup] = useState<CardTermsLookup | null>(null);
   const [showRateInput, setShowRateInput] = useState(false);
   const [candidate, setCandidate] = useState<string | null>(null);
-  const [rate, setRate] = useState("");
-  const [promoOn, setPromoOn] = useState<boolean | null>(null);
-  const [promoRows, setPromoRows] = useState<PromoDraft[]>([]);
-  const [btOffer, setBtOffer] = useState<boolean | null>(null);
-  const [btOffers, setBtOffers] = useState<BtOfferDraft[]>([]);
+  const [rate, setRate] = useState(initial.rate);
+  const [promoOn, setPromoOn] = useState<boolean | null>(initial.promoOn);
+  const [promoRows, setPromoRows] = useState<PromoDraft[]>(initial.promoRows);
+  const [btOffer, setBtOffer] = useState<boolean | null>(initial.btOffer);
+  const [btOffers, setBtOffers] = useState<BtOfferDraft[]>(initial.btOffers);
   const [saving, setSaving] = useState<null | "save" | "later">(null);
   const [error, setError] = useState<string | null>(null);
-  const [usage, setUsage] = useState<"clear_monthly" | "carry" | null>(null);
+  const [usage, setUsage] = useState<"clear_monthly" | "carry" | null>(initial.usage);
 
   useEffect(() => {
     if (!currentId || !current) return;
@@ -164,43 +222,15 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
     setShowRateInput(false);
     setCandidate(null);
     setLookup(null);
-    const t = current.terms;
-    if (t && t.status === "confirmed") {
-      // Already answered — prefill everything so a re-save simply overwrites.
-      setPhase("manual");
-      setManualPrompt("edit");
-      setRate(t.apr_pct != null ? String(t.apr_pct) : "");
-      const promos = t.promos ?? [];
-      setPromoOn(promos.length > 0 ? true : null);
-      setPromoRows(promos.map((p: CardPromo) => {
-        const d = new Date(`${p.until}T00:00:00`);
-        return {
-          kind: p.kind,
-          month: d.getMonth() + 1,
-          year: d.getFullYear(),
-          rate: p.apr_pct === 0 ? "" : String(p.apr_pct),
-        };
-      }));
-      const existingOffers = t.bt_offers ?? [];
-      setBtOffer(existingOffers.length > 0 ? true : null);
-      setBtOffers(existingOffers.map((o: BtOffer) => {
-        if (o.ends) {
-          const d = new Date(`${o.ends}T00:00:00`);
-          return { month: d.getMonth(), year: d.getFullYear(), fee: o.fee_pct != null ? String(o.fee_pct) : "", note: o.note ?? "" };
-        }
-        return { month: null, year: null, fee: o.fee_pct != null ? String(o.fee_pct) : "", note: o.note ?? "" };
-      }));
-      setUsage(t.usage ?? null);
-    } else {
-      setPhase("loading");
-      setManualPrompt("notfound");
-      setRate("");
-      setPromoOn(null);
-      setPromoRows([]);
-      setBtOffer(null);
-      setBtOffers([]);
-      setUsage(null);
-    }
+    const d = draftFor(current);
+    setPhase(d.phase);
+    setManualPrompt(d.manualPrompt);
+    setRate(d.rate);
+    setPromoOn(d.promoOn);
+    setPromoRows(d.promoRows);
+    setBtOffer(d.btOffer);
+    setBtOffers(d.btOffers);
+    setUsage(d.usage);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentId]);
 
@@ -383,13 +413,12 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
 
   const thisYear = new Date().getFullYear();
   const thisMonth = new Date().getMonth();
-  const baseYearOptions = useMemo(() => {
-    return [thisYear, thisYear + 1, thisYear + 2, thisYear + 3];
-  }, [thisYear]);
+  const thisMonthIso = `${thisYear}-${String(thisMonth + 1).padStart(2, "0")}`;
 
-  // Portal guard — must stay BELOW every hook: an early return above useMemo
-  // made render N and N+1 disagree on hook count (React #310).
-  if (!mounted) return null;
+  // No mount guard here: SheetFrame portals and renders nothing until the
+  // document exists, so this component is safe on the server and the markup
+  // can be asserted by check:g225-card-terms. Never add an early return above
+  // a hook (React #310).
 
   const manualQuestion =
     manualPrompt === "notfound"
@@ -415,7 +444,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
   const rateInput = (
     <div>
       <FieldLabel>What&apos;s the rate on it?</FieldLabel>
-      <p className="text-xs text-slate-400 dark:text-slate-500 mb-1.5 leading-snug">The card&apos;s standard rate: what it charges once no deal covers the balance.</p>
+      <Helper>The card&apos;s standard rate: what it charges once no deal covers the balance.</Helper>
       <div className="relative max-w-[160px]">
         <input
           type="text"
@@ -424,7 +453,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
           onChange={e => setRate(e.target.value)}
           placeholder="24.9"
           aria-label="Interest rate, percent APR"
-          className="w-full min-h-[48px] pl-3 pr-9 rounded-xl bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-slate-100 border border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 text-sm tabular-nums"
+          className={`${INPUT_CLS} pl-3 pr-9`}
         />
         <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 dark:text-slate-400 text-sm pointer-events-none select-none">
           %
@@ -433,27 +462,16 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
     </div>
   );
 
-  const zeroDealButton = promoOn !== true ? (
-    <button
-      type="button"
-      onClick={() => {
-        setError(null);
-        setShowRateInput(true);
-        setPromoOn(true);
-        if (promoRows.length === 0) setPromoRows([{ kind: null, month: null, year: null, rate: "" }]);
-      }}
-      className="w-full min-h-[48px] rounded-xl border border-slate-200 dark:border-slate-600 text-sm font-semibold text-slate-700 dark:text-slate-200 active:scale-95 transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-    >
-      It&apos;s on a 0% deal
-    </button>
-  ) : null;
+  // A card with nothing on it has no "any of this" to point at, so ask about the card instead.
+  const noBalance = !current || Math.round(Math.abs(current.balance)) === 0;
+  const promoQuestion = noBalance ? "Is this card on a 0% deal?" : `Is any of this ${balanceStr} on a 0% deal?`;
 
   const promosSection = (
-    <div className="space-y-3">
+    <div className="space-y-4">
       <div>
-        <FieldLabel><MoneyText text={`Is any of this ${balanceStr} on a 0% deal?`} /></FieldLabel>
-        <p className="text-xs text-slate-400 dark:text-slate-500 mb-1.5 leading-snug">Balance transfers you&apos;ve already made count here, add each one and when it ends.</p>
-        <div role="radiogroup" aria-label="Is any of this balance on a 0% deal?" className="grid grid-cols-2 gap-2">
+        <FieldLabel><MoneyText text={promoQuestion} /></FieldLabel>
+        <Helper>Balance transfers you&apos;ve already made count here, add each one and when it ends.</Helper>
+        <div role="radiogroup" aria-label={noBalance ? "Is this card on a 0% deal?" : "Is any of this balance on a 0% deal?"} className="grid grid-cols-2 gap-2">
           <Chip
             selected={promoOn === true}
             onClick={() => {
@@ -477,16 +495,11 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
         </div>
       </div>
       {promoOn === true && (
-        <div className="mt-3 space-y-3">
+        <div className="space-y-4">
           {promoRows.map((row, i) => {
-            const rowYearOptions = (() => {
-              const base = [...baseYearOptions];
-              if (row.year != null && !base.includes(row.year)) base.push(row.year);
-              return base.sort((a, b) => a - b);
-            })();
             return (
-              <div key={i} className={i > 0 ? "pt-3 border-t border-slate-100 dark:border-slate-700/60" : ""}>
-                <div className="flex items-center justify-between mb-3">
+              <div key={i} className={i > 0 ? "pt-4 border-t border-slate-100 dark:border-slate-700/60" : ""}>
+                <div className="flex items-center justify-between mb-1">
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-0">
                     Deal {i + 1}
                   </p>
@@ -497,12 +510,12 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
                       const next = promoRows.filter((_, j) => j !== i);
                       setPromoRows(next.length === 0 ? [{ kind: null, month: null, year: null, rate: "" }] : next);
                     }}
-                    className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full text-slate-400 dark:text-slate-500 active:opacity-70 transition-opacity focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                    className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full text-slate-500 dark:text-slate-400 active:opacity-70 transition-opacity focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
                   >
                     <X size={14} />
                   </button>
                 </div>
-                <div className="space-y-3">
+                <div className="space-y-4">
                   <div>
                     <FieldLabel>On what?</FieldLabel>
                     <div role="radiogroup" aria-label={`What deal ${i + 1} covers`} className="grid grid-cols-3 gap-2">
@@ -524,40 +537,20 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
                   </div>
                   <div>
                     <FieldLabel>Until</FieldLabel>
-                    <div role="radiogroup" aria-label={`Month deal ${i + 1} ends`} className="grid grid-cols-4 gap-2 mb-2">
-                      {MONTHS.map((m, mi) => (
-                        <Chip
-                          key={m}
-                          selected={row.month === mi + 1}
-                          disabled={row.year === thisYear && mi < thisMonth}
-                          onClick={() => {
-                            const next = [...promoRows];
-                            next[i] = { ...next[i], month: mi + 1 };
-                            setPromoRows(next);
-                            setError(null);
-                          }}
-                        >
-                          {m}
-                        </Chip>
-                      ))}
-                    </div>
-                    <div role="radiogroup" aria-label={`Year deal ${i + 1} ends`} className="grid grid-cols-4 gap-2">
-                      {rowYearOptions.map(y => (
-                        <Chip
-                          key={y}
-                          selected={row.year === y}
-                          onClick={() => {
-                            const next = [...promoRows];
-                            const newMonth = (y === thisYear && next[i].month != null && next[i].month! - 1 < thisMonth) ? null : next[i].month;
-                            next[i] = { ...next[i], year: y, month: newMonth };
-                            setPromoRows(next);
-                            setError(null);
-                          }}
-                        >
-                          {y}
-                        </Chip>
-                      ))}
-                    </div>
+                    <DateField
+                      mode="month"
+                      label={`Month deal ${i + 1} ends`}
+                      title="When does this deal end?"
+                      min={thisMonthIso}
+                      value={monthValue(row.year, row.month, 1)}
+                      onChange={v => {
+                        const { year, month } = parseMonthValue(v, 1);
+                        const next = [...promoRows];
+                        next[i] = { ...next[i], year, month };
+                        setPromoRows(next);
+                        setError(null);
+                      }}
+                    />
                   </div>
                   <div>
                     <FieldLabel>Deal rate</FieldLabel>
@@ -573,7 +566,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
                         }}
                         placeholder="0"
                         aria-label={`Rate for deal ${i + 1}, percent`}
-                        className="w-full min-h-[48px] pl-3 pr-9 rounded-xl bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-slate-100 border border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 text-sm tabular-nums"
+                        className={`${INPUT_CLS} pl-3 pr-9`}
                       />
                       <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 dark:text-slate-400 text-sm pointer-events-none select-none">
                         %
@@ -599,10 +592,10 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
   );
 
   const btSection = (
-    <div className="space-y-3">
+    <div className="space-y-4">
       <div>
         <FieldLabel>Any 0% offers you haven&apos;t used yet?</FieldLabel>
-        <p className="text-xs text-slate-400 dark:text-slate-500 mb-1.5 leading-snug">Offers the card is dangling, not ones you&apos;ve already taken.</p>
+        <Helper>Offers your card is advertising that you haven&apos;t used yet, not ones you&apos;ve already taken.</Helper>
         <div role="radiogroup" aria-label="Any 0% offers you haven't used yet?" className="grid grid-cols-2 gap-2">
           <Chip
             selected={btOffer === true}
@@ -627,16 +620,11 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
         </div>
       </div>
       {btOffer === true && (
-        <div className="mt-3 space-y-3">
+        <div className="space-y-4">
           {btOffers.map((row, i) => {
-            const rowYearOptions = (() => {
-              const base = [thisYear, thisYear + 1, thisYear + 2, thisYear + 3];
-              if (row.year != null && !base.includes(row.year)) base.push(row.year);
-              return base.sort((a, b) => a - b);
-            })();
             return (
-              <div key={i} className={i > 0 ? "pt-3 border-t border-slate-100 dark:border-slate-700/60" : ""}>
-                <div className="flex items-center justify-between mb-3">
+              <div key={i} className={i > 0 ? "pt-4 border-t border-slate-100 dark:border-slate-700/60" : ""}>
+                <div className="flex items-center justify-between mb-1">
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-0">
                     Offer {i + 1}
                   </p>
@@ -647,48 +635,28 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
                       const next = btOffers.filter((_, j) => j !== i);
                       setBtOffers(next.length === 0 ? [{ month: null, year: null, fee: "", note: "" }] : next);
                     }}
-                    className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full text-slate-400 dark:text-slate-500 active:opacity-70 transition-opacity focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                    className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full text-slate-500 dark:text-slate-400 active:opacity-70 transition-opacity focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
                   >
                     <X size={14} />
                   </button>
                 </div>
-                <div className="space-y-3">
+                <div className="space-y-4">
                   <div>
                     <FieldLabel>Ends</FieldLabel>
-                    <div role="radiogroup" aria-label={`Month offer ${i + 1} ends`} className="grid grid-cols-4 gap-2 mb-2">
-                      {MONTHS.map((m, mi) => (
-                        <Chip
-                          key={m}
-                          selected={row.month === mi}
-                          disabled={row.year === thisYear && mi < thisMonth}
-                          onClick={() => {
-                            const next = [...btOffers];
-                            next[i] = { ...next[i], month: mi };
-                            setBtOffers(next);
-                            setError(null);
-                          }}
-                        >
-                          {m}
-                        </Chip>
-                      ))}
-                    </div>
-                    <div role="radiogroup" aria-label={`Year offer ${i + 1} ends`} className="grid grid-cols-4 gap-2">
-                      {rowYearOptions.map(y => (
-                        <Chip
-                          key={y}
-                          selected={row.year === y}
-                          onClick={() => {
-                            const next = [...btOffers];
-                            const newMonth = (y === thisYear && next[i].month != null && next[i].month! < thisMonth) ? null : next[i].month;
-                            next[i] = { ...next[i], year: y, month: newMonth };
-                            setBtOffers(next);
-                            setError(null);
-                          }}
-                        >
-                          {y}
-                        </Chip>
-                      ))}
-                    </div>
+                    <DateField
+                      mode="month"
+                      label={`Month offer ${i + 1} ends`}
+                      title="When does this offer end?"
+                      min={thisMonthIso}
+                      value={monthValue(row.year, row.month, 0)}
+                      onChange={v => {
+                        const { year, month } = parseMonthValue(v, 0);
+                        const next = [...btOffers];
+                        next[i] = { ...next[i], year, month };
+                        setBtOffers(next);
+                        setError(null);
+                      }}
+                    />
                   </div>
                   <div>
                     <FieldLabel>Fee</FieldLabel>
@@ -704,7 +672,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
                         }}
                         placeholder="3"
                         aria-label={`Fee for offer ${i + 1}, percent`}
-                        className="w-full min-h-[48px] pl-3 pr-9 rounded-xl bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-slate-100 border border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 text-sm tabular-nums"
+                        className={`${INPUT_CLS} pl-3 pr-9`}
                       />
                       <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 dark:text-slate-400 text-sm pointer-events-none select-none">
                         %
@@ -724,7 +692,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
                       maxLength={120}
                       placeholder="e.g. 0% for 12 months"
                       aria-label={`Note for offer ${i + 1}`}
-                      className="w-full min-h-[48px] px-3 rounded-xl bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-slate-100 border border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 text-sm"
+                      className={`${INPUT_CLS} px-3`}
                     />
                   </div>
                 </div>
@@ -746,10 +714,10 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
   );
 
   const usageSection = (
-    <div className="space-y-3">
+    <div>
       <div>
         <FieldLabel>How do you use this card?</FieldLabel>
-        <p className="text-xs text-slate-400 dark:text-slate-500 mb-1.5 leading-snug">Optional, it helps me read this card&apos;s balance right.</p>
+        <Helper>Optional, it helps me read this card&apos;s balance right.</Helper>
         <div role="radiogroup" aria-label="How do you use this card?" className="grid grid-cols-2 gap-2">
           <Chip
             selected={usage === "clear_monthly"}
@@ -770,6 +738,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
 
   return (
     <SheetFrame
+      variant="compact"
       title={!finished && current ? current.name : "Card rates"}
       description={!finished && current ? <><MoneyText text={`${balanceStr} on it`} />{total > 1 && <span> · {index + 1} of {total}</span>}</> : "So plans can work with what each card really costs."}
       leading={!finished && current && chip ? <BankBadge logoSrc={chip.logoSrc} initials={chip.initials} initialsSize={chip.initialsSize} altText={chip.label} brandBg={chip.bg} /> : undefined}
@@ -793,6 +762,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
         return null;
       }}
     >
+            <div className="space-y-6">
             {!ready ? (
               <div className="flex items-center justify-center py-12">
                 <Spinner size={28} />
@@ -827,7 +797,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
                   {foundName} advertises around {fmtApr(foundApr!)}%. That&apos;s the representative
                   rate, so yours may differ. Is it close?
                 </p>
-                <div className="space-y-2">
+                <div className="space-y-6">
                   {!showRateInput && (
                     <button
                       type="button"
@@ -843,7 +813,6 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
                   )}
                   {showRateInput && rateInput}
                   {showRateInput && promosSection}
-                  {zeroDealButton}
                   {showRateInput && btSection}
                   {usageSection}
                 </div>
@@ -878,10 +847,9 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
                   ))}
                 </div>
                 {candidate != null && (
-                  <div className="space-y-3">
+                  <div className="space-y-6">
                     {rateInput}
                     {promosSection}
-                    {zeroDealButton}
                     {btSection}
                     {usageSection}
                   </div>
@@ -895,19 +863,18 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
                 </p>
                 {rateInput}
                 {promosSection}
-                {zeroDealButton}
                 {btSection}
                 {usageSection}
               </>
             )}
 
-            {/* Error — calm line, field stays quiet */}
+            {/* Error: calm line, field stays quiet */}
             {error && !finished && current && (
               <p className="text-sm text-rose-600 dark:text-rose-400" role="alert">
                 {error}
               </p>
             )}
-
+            </div>
     </SheetFrame>
   );
 }

@@ -56,6 +56,7 @@ const ALLOW = [
     ["g134-home-inventory/HomeInventoryClient.tsx"],
     ["sync-loading/SyncLoadingClient.tsx"],
     ["home-cleanup/HomeCleanupClient.tsx"],
+    ["card-terms-sheet/CardTermsSheetClient.tsx"],
   ].flatMap(([f]) => [
     {
       file: `app/design/${f}`,

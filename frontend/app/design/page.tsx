@@ -261,6 +261,18 @@ const ROUTES: PreviewRoute[] = [
     states: [{ label: "Try it", value: "" }],
   },
   {
+    slug: "card-terms-sheet",
+    name: "card-terms-sheet",
+    description:
+      "G225, skill: impeccable · Alignment of the credit card terms sheet to the G192 sheet anatomy and DESIGN.md form patterns, not a new look · One section rhythm (space between question groups, label then helper then control), a typed rate in ink with only the placeholder grey, the stray full-width 0% button removed so Yes and No are the only answers, the 0% question reworded for a card with nothing on it, clearer offers copy, month pickers on the G136 DateField, and a sheet that hugs its content above the sticky footer · Renders the production CardTermsSheet through its real props with fixture cards; a fetch stand-in answers only the representative-rate lookup · ?state=balance|lookup|zero|promos (card= also works)&mode=light|dark",
+    states: [
+      { label: "Balance, rate confirmed", value: "balance" },
+      { label: "Rate found", value: "lookup" },
+      { label: "£0 balance", value: "zero" },
+      { label: "Existing deals", value: "promos" },
+    ],
+  },
+  {
     slug: "sheet-anatomy",
     name: "sheet-anatomy",
     description:
