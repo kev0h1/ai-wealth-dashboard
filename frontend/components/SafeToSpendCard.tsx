@@ -24,6 +24,11 @@ type SpendFromTreatment = {
   body: ReactNode;
 };
 
+/** G231: "Not counting 2 accounts" (singular "1 account"). */
+export function notCountingLabel(count: number): string {
+  return `Not counting ${count} ${count === 1 ? "account" : "accounts"}`;
+}
+
 interface SafeToSpendCardProps {
   data: SafeToSpend | null;
   loading?: boolean;
@@ -660,6 +665,10 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
   );
   const spendFromTreatment = spendFromPreview ?? approvedSpendFrom;
 
+  // G231: accounts the user chose not to count towards Safe to Spend. A quiet
+  // ink line under the Spend from scope note, linking to Accounts.
+  const excludedCount = data.excluded_accounts_count ?? 0;
+
   const pace = data.pace;
   const showPace = pace != null && ["comfortable", "on_pace", "ahead", "early"].includes(pace.state) && pace.sustainable != null;
   const freshnessLabel = sync ? null : syncAgeLabel(data.last_synced);
@@ -736,6 +745,16 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
 
       {spendFromTreatment?.body}
 
+      {excludedCount > 0 && (
+        <Link
+          href="/accounts"
+          data-g231-not-counting
+          className="-mx-1 mt-1 flex min-h-11 items-center rounded-lg px-1 text-[12px] font-medium text-slate-600 underline decoration-slate-300 underline-offset-4 transition-colors hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-300 dark:decoration-slate-600 dark:hover:text-slate-100 [-webkit-tap-highlight-color:transparent]"
+        >
+          {notCountingLabel(excludedCount)}
+        </Link>
+      )}
+
       {cardGrowth > 0 && (
         <CardBalanceFact
           growth={cardGrowth}
@@ -763,7 +782,7 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
             </div>
 
             <dl className="mt-1.5">
-              {data.spendable_now != null && <CalculationRow operator="+" label="Cash available now" value={exactAmount(data.spendable_now)} spokenValue={`plus ${exactAmount(data.spendable_now)}`} detail="Across included current accounts." />}
+              {data.spendable_now != null && <CalculationRow operator="+" label="Cash available now" value={exactAmount(data.spendable_now)} spokenValue={`plus ${exactAmount(data.spendable_now)}`} detail="Across counted current accounts." />}
               {canShowLedgerBreakdown && data.bills_total > 0 && <CalculationRow operator="−" label="Bills before payday" value={exactAmount(data.bills_total)} spokenValue={`minus ${exactAmount(data.bills_total)}`} />}
               {canShowLedgerBreakdown && data.income_before_payday > 0 && <CalculationRow operator="+" label="Income before payday" value={exactAmount(data.income_before_payday)} spokenValue={`plus ${exactAmount(data.income_before_payday)}`} />}
               {exactLowestProjected != null && <CalculationRow operator={canShowLedgerBreakdown ? "=" : "→"} label="Lowest cash before payday" value={signedExactAmount(exactLowestProjected)} spokenValue={signedExactAmount(exactLowestProjected)} detail={cashFlowDetail} risk={exactLowestProjected < 0 && !sync} />}

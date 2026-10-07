@@ -2485,7 +2485,7 @@ async def _exec_get_accounts(uid: str) -> dict:
             "kind": kind,
             "status": a.status,
             "dormant": _account_is_dormant(a, kind),
-            "pinned": a.id in pinned_ids,
+            "pinned": a.id in pinned_ids, "counts_towards_safe_to_spend": a.include_in_safe_to_spend,  # G231 (one line, keeps the leak allowlist stable)
         })
     result = {"accounts": rows}
     if last_synced:

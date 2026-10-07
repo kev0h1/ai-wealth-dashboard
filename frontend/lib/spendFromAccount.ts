@@ -219,6 +219,9 @@ export function bestSpendAccount(
   const candidates = accounts.filter(
     (a) =>
       a.cover_source_eligible !== false &&
+      // G231: an account the user does not count towards Safe to Spend is
+      // never offered to spend from, whatever its headroom.
+      a.include_in_safe_to_spend !== false &&
       accountEligibility[a.id] != null &&
       sourceClass(a) === "current",
   );

@@ -61,6 +61,7 @@
     "check:g229-by-account": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g229-by-account.test.mjs",
     "check:g219-accounts-route": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g219-accounts-route.test.mjs",
     "check:g221-home-cleanup": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g221-home-cleanup.test.mjs",
+    "check:g231-exclude-account": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g231-exclude-account.test.mjs",
     "check:g218-figure-tone": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g218-figure-tone.test.mjs",
     "check:g186-spend-hero": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g186-spend-hero.test.mjs",
     "check:transaction-filter-chips": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/transaction-filter-chips.test.mjs",

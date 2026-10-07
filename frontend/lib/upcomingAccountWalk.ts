@@ -35,13 +35,17 @@ export function walkUpcomingAccounts(
   cashflow: Pick<CashflowData, "upcoming_bills" | "upcoming_income" | "internal_inflows">,
   endMs: number,
   planSources: { id: string; bank: string; name: string; balance: number | null }[] = [],
+  // G231: accounts the user does not count towards Safe to Spend. The server
+  // already drops their items; this keeps a stale cached payload honest too.
+  excludedAccountIds: ReadonlySet<string> = new Set(),
 ): UpcomingAccountWalk {
   const inWindow = (date: string) => Number.isFinite(Date.parse(date)) && Date.parse(date) <= endMs;
-  const bills = cashflow.upcoming_bills.filter((bill) => inWindow(bill.expected_date) && !bill.is_credit_card && !bill.observed_pending);
-  const income = cashflow.upcoming_income.filter((item) => inWindow(item.expected_date));
-  const inflows = (cashflow.internal_inflows ?? []).filter((item) => inWindow(item.expected_date));
+  const counted = (accountId: string | null | undefined) => !accountId || !excludedAccountIds.has(accountId);
+  const bills = cashflow.upcoming_bills.filter((bill) => inWindow(bill.expected_date) && !bill.is_credit_card && !bill.observed_pending && counted(bill.account_id));
+  const income = cashflow.upcoming_income.filter((item) => inWindow(item.expected_date) && counted(item.account_id));
+  const inflows = (cashflow.internal_inflows ?? []).filter((item) => inWindow(item.expected_date) && counted(item.account_id));
   const unknownIncome = income.some((item) => !item.account_id);
-  const ids = [...new Set([...bills.map((bill) => bill.account_id || "__unknown__"), ...planSources.map((account) => account.id)])];
+  const ids = [...new Set([...bills.map((bill) => bill.account_id || "__unknown__"), ...planSources.filter((account) => counted(account.id)).map((account) => account.id)])];
   const pennies = (amount: number) => Math.round(amount * 100);
   const atRisk: RiskBill[] = [];
   const coverage = new Map<UpcomingBill, AccountCoverage>();

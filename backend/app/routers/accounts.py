@@ -110,6 +110,7 @@ def _manual_to_account(a: dict, currency: str) -> Account:
         balance=a.get("balance", 0), currency=currency,
         provider="Offline", status="connected", manual=True,
         cover_source_eligible=True,
+        include_in_safe_to_spend=a.get("include_in_safe_to_spend") is not False,
     )
 
 
@@ -184,6 +185,7 @@ async def get_accounts(user: dict = Depends(current_user)):
                 # `type="bank"` above, otherwise a Yapily credit card would
                 # read as a current account and wrongly pass.
                 cover_source_eligible=_engine_source_eligible(a),
+                include_in_safe_to_spend=a.get("include_in_safe_to_spend") is not False,
             ))
     result.extend(await _manual_accounts(uid, "GBP"))
     return await _attach_aprs(uid, result)
@@ -419,6 +421,22 @@ async def delete_account(account_id: str, user: dict = Depends(current_user)):
         return {"deleted": account_id}
 
     raise HTTPException(404, "Account not found")
+
+
+@router.patch("/accounts/{account_id}")
+async def update_account(account_id: str, body: dict, user: dict = Depends(current_user)):
+    """G231: set whether an account counts towards Safe to Spend.
+
+    Owner-scoped. Refused with 422 (and a static reason) when the account
+    pays an upcoming item this pay period. Invalidates the response cache
+    like PATCH /preferences so no stale spending permission stays on screen.
+    """
+    from app.services.counted_accounts import FLAG, set_included
+    if not isinstance(body, dict) or not isinstance(body.get(FLAG), bool):
+        raise HTTPException(400, f"{FLAG} must be true or false")
+    result = await set_included(user["email"], account_id, body[FLAG])
+    await response_cache.ainvalidate(user["email"])
+    return result
 
 
 @router.get("/accounts/{account_id}/rate")

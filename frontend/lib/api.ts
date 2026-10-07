@@ -717,6 +717,9 @@ export type SafeToSpend =
       /** Unfilled allocation envelopes reserved from this pay period. */
       allocations_reserved?: number;
       allocations_count?: number;
+      /** G231: accounts the user chose not to count towards Safe to Spend. */
+      excluded_accounts_count?: number;
+      excluded_accounts?: { id: string; name: string }[];
       /** Optional calculation health for rolling API deployments. */
       calculation_status?: "complete" | "degraded" | "syncing";
       /** G210: first-sync state behind a "syncing" status. */
@@ -3323,6 +3326,15 @@ export const api = {
   // budgetPaceProfile) removed 2026-08-30 (owner decision, option C) — the
   // /budget page and its backend router were retired as zombie code.
   syncHistory: () => post<{ message: string; total_accounts: number }>("/accounts/sync-history"),
+  /** G231: count (or stop counting) an account towards Safe to Spend. The
+   *  server refuses with a plain reason when the account pays something this
+   *  pay period; that reason arrives as the thrown Error's message. */
+  setAccountCounted: (accountId: string, include: boolean) =>
+    fetch(`${API_BASE}/accounts/${encodeURIComponent(accountId)}`, {
+      method: "PATCH",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ include_in_safe_to_spend: include }),
+    }).then((r) => toJson<{ id: string; include_in_safe_to_spend: boolean }>(r)),
   deleteAccount: (accountId: string) =>
     fetch(`${API_BASE}/accounts/${encodeURIComponent(accountId)}`, {
       method: "DELETE",
