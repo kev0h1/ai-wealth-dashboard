@@ -3,6 +3,8 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Check, CircleDashed } from "lucide-react";
 import { accountBrand, BankBadge } from "@/components/AccountMiniCard";
+import { AccountRadioPicker } from "@/components/AccountRadioPicker";
+import { isPlanSourceAccount } from "@/lib/upcomingPlans";
 import { api, Account, Commitment, CommitmentPreview } from "@/lib/api";
 import { usePreferences } from "@/components/PreferencesContext";
 import { getPayPeriodWithConfig, nextPeriodWithConfig, periodRhythmLabel, PayPeriodConfig } from "@/lib/payPeriod";
@@ -141,6 +143,10 @@ export default function CommitmentSheet({
     return t ? t.slice(0, 7) : minMonth;
   });
   const [pots, setPots] = useState<PotSelection[]>(() => potsFromCommitment(commitment));
+  // G230 "Paid from": prefilled with the stored or inferred paying account.
+  // Nothing is written unless the user picks (an untouched inference is never saved).
+  const [sourceId, setSourceId] = useState<string>(commitment?.source_account_id ?? "");
+  const [sourceTouched, setSourceTouched] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(false);
   const [confirmingCancel, setConfirmingCancel] = useState(false);
@@ -169,6 +175,17 @@ export default function CommitmentSheet({
     (acc) => acc.manual && (acc.subtype || "").toUpperCase() !== "CREDIT_CARD"
   );
   const potOptions = [...connectedPots, ...offlinePots];
+
+  // G230: counted current accounts only. Cards, savings pots, accounts left
+  // out of Safe to Spend and the plan's own pots are never offered.
+  const sourceOptions = accountList.filter((acc) => {
+    const kind = `${acc.type} ${acc.subtype ?? ""}`.toLowerCase();
+    return isPlanSourceAccount(acc)
+      && acc.include_in_safe_to_spend !== false
+      && !/saving|isa/.test(kind)
+      && !pots.some((p) => p.account_id === acc.id);
+  });
+  const sourceInferred = Boolean(commitment?.source_inferred) && !sourceTouched && sourceId !== "";
 
   function togglePot(accountId: string) {
     setPots((prev) =>
@@ -290,6 +307,7 @@ export default function CommitmentSheet({
         if (potsChanged) {
           body.funding_pots = pots;
         }
+        if (sourceTouched) body.source_account_id = sourceId || null;
         item = await operations.updateCommitment(commitment.id, body);
       } else {
         item = await operations.createCommitment({
@@ -298,6 +316,7 @@ export default function CommitmentSheet({
           target_date,
           funding_pots: pots,
           source,
+          ...(sourceTouched ? { source_account_id: sourceId || null } : {}),
         });
       }
       // G83 fix-round: a commitment create/edit can change the goal-name
@@ -602,6 +621,24 @@ export default function CommitmentSheet({
                   <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">
                     Pick pots and progress tracks their growth from today, offline pots you update yourself.
                   </p>
+                </div>
+              )}
+
+              {/* G230: the current account the contribution leaves each period.
+                  Quiet and optional; "Not set" keeps the plan pooled-only. */}
+              {sourceOptions.length > 0 && (
+                <div data-testid="paid-from-field">
+                  <AccountRadioPicker
+                    accounts={sourceOptions}
+                    value={sourceId}
+                    onChange={(id) => { setSourceId(id); setSourceTouched(true); setSaveError(false); }}
+                    label="Paid from"
+                    allowUnset
+                    unsetLabel="Not set"
+                    helperText={sourceInferred
+                      ? "Based on recent transfers. Pick an account to confirm it, or Not set to keep this plan out of any one account’s figures."
+                      : "The account this contribution leaves each period. Choosing one does not move money."}
+                  />
                 </div>
               )}
 

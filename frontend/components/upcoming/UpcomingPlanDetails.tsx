@@ -36,7 +36,7 @@ export default function UpcomingPlanDetails({ plan, accountName = null }: Upcomi
         <div>
           <dt className={"text-xs " + detailMuted}>Pay from</dt>
           <dd className="mt-1 font-semibold">{accountName ?? "Not linked yet"}</dd>
-          {plan.evidence === "recent-transfers" && accountName && <dd className={"mt-1 text-xs leading-5 " + detailMuted}>Based on recent transfers. The remaining set-aside is included in this account’s estimate. You can change the paying account in Edit allocation.</dd>}
+          {plan.evidence === "recent-transfers" && accountName && <dd className={"mt-1 text-xs leading-5 " + detailMuted}>{plan.kind === "goal" ? "Based on recent transfers. This plan’s contribution is included in this account’s estimate. You can change the paying account in Edit plan." : "Based on recent transfers. The remaining set-aside is included in this account’s estimate. You can change the paying account in Edit allocation."}</dd>}
           {!accountName && <dd className={"mt-1 text-xs leading-5 " + detailMuted}>Choose a paying account to include this amount in its calculation.</dd>}
         </div>
         <div><dt className={"text-xs " + detailMuted}>Set aside in</dt><dd className="mt-1 font-semibold">{plan.destination}</dd></div>

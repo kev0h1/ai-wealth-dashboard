@@ -752,8 +752,12 @@ export type CommitmentPot = {
 };
 
 export type Commitment = {
-  /** Paying account only. Funding pots remain receiving/progress accounts. */
+  /** Paying account only. Funding pots remain receiving/progress accounts.
+   * G230: the user's choice, or an inference from recent transfers into the
+   * pot(s) (then `source_inferred` is true and nothing is stored). */
   source_account_id?: string | null;
+  source_inferred?: boolean;
+  source_account_name?: string | null;
   id: string;
   name: string;
   amount: number;
@@ -825,6 +829,9 @@ export type AccountPlanData = {
   destination_account_ids: string[];
   source_account_id: string | null;
   source_basis: "chosen" | "recent-transfers" | "unknown";
+  /** G230: true when the source is a guess from recent transfers. */
+  inferred?: boolean;
+  source_account_name?: string | null;
   period_amount: number;
   filled_amount: number | null;
   remaining: number;
