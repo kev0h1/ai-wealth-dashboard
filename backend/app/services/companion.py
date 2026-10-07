@@ -2170,13 +2170,16 @@ async def compute_today_items(
     # G231: an account the user does not count towards Safe to Spend is
     # neither a source nor a destination for any suggestion, and its balance
     # never seeds a walk.
+    _g231_excluded: set[str] = set()
     async for acc in accounts_col.find({"user_id": uid}, _acct_proj):
         if acc.get("include_in_safe_to_spend") is False:
+            _g231_excluded.add(str(acc["_id"]))
             continue
         acc["_str_id"] = str(acc["_id"])
         all_uk_accounts.append(acc)
     async for acc in yapily_accounts_col.find({"user_id": uid}, {**_acct_proj, "institution_id": 1}):
         if acc.get("include_in_safe_to_spend") is False:
+            _g231_excluded.add(str(acc["_id"]))
             continue
         acc["_str_id"] = str(acc["_id"])
         all_uk_accounts.append(acc)
@@ -2219,6 +2222,8 @@ async def compute_today_items(
         {"user_id": uid}, {"name": 1, "balance": 1, "account_type": 1, "include_in_safe_to_spend": 1}
     ):
         _macc_type = _macc.get("account_type") or "savings"
+        if _macc.get("include_in_safe_to_spend") is False:
+            _g231_excluded.add(str(_macc["_id"]))
         if _macc_type == "credit_card" or _macc.get("include_in_safe_to_spend") is False:
             continue
         offline_accounts.append({
@@ -2232,6 +2237,15 @@ async def compute_today_items(
         })
     for _oacc in offline_accounts:
         live_balances[_oacc["_str_id"]] = _oacc["balance"]
+
+    # G231 fail-closed: if the builder could not verify exclusions, re-apply the
+    # exclusion from the account rows loaded above to the walk's own lists.
+    if resp.get("exclusions_unverified") and _g231_excluded:
+        _w = {"upcoming_bills": window_bills, "upcoming_income": window_income}
+        from app.services.counted_accounts import drop_excluded_items as _g231_drop
+        _g231_drop(_w, _g231_excluded)
+        window_bills, window_income = _w["upcoming_bills"], _w["upcoming_income"]
+        assessable_bills = [b for b in window_bills if is_assessable_bill(b)]
 
     # Envelope funding-source reservation (owner fix, 2026-08-31 — "does it
     # take account of what has been set aside on the envelope"). Computed

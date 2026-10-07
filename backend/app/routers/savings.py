@@ -27,6 +27,9 @@ async def _cashflow(uid: str, cutoff: datetime) -> tuple[float, float, float]:
 
 
 async def _bank_accounts(uid: str) -> list[dict]:
+    # G231: deliberately NOT filtered by include_in_safe_to_spend. These are
+    # savings sinks (G232: a plan sink may be an account excluded from Safe to
+    # Spend), and their balances still count as savings.
     accs = await accounts_col.find({"user_id": uid}).to_list(None)
     return [a for a in accs if a.get("type") == "bank"]
 

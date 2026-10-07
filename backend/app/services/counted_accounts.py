@@ -49,14 +49,10 @@ async def excluded_account_docs(uid: str) -> list[dict]:
 
 
 async def excluded_account_ids(uid: str) -> set[str]:
-    """Ids of excluded accounts. A failed read means "none excluded" (logged),
-    the same tolerance the cashflow builder's other lookups have: the pooled
-    figures read the flag straight off their own account rows regardless."""
-    try:
-        return {a["id"] for a in await excluded_account_docs(uid)}
-    except Exception:
-        logger.exception("excluded account lookup failed for %s", mask_email(uid))
-        return set()
+    """Ids of excluded accounts. A failed read RAISES: callers decide how to
+    fail closed (the cashflow builder flags `exclusions_unverified`, Safe to
+    Spend re-derives the set from the account rows it already loaded)."""
+    return {a["id"] for a in await excluded_account_docs(uid)}
 
 
 def drop_excluded_items(resp: dict, excluded: set[str]) -> None:
@@ -112,6 +108,9 @@ async def items_paid_from(uid: str, account_id: str) -> int:
 
     count = 0
     cached = await cashflow_cache_col.find_one({"_id": uid})
+    if not cached:
+        # Fail closed: with no forecast we cannot say what this account pays.
+        raise HTTPException(422, "We cannot check this account's payments yet")
     if cached:
         from app.routers.analytics import _build_cashflow_response
         prefs = await preferences_col.find_one({"user_id": uid}) or {}
@@ -121,6 +120,8 @@ async def items_paid_from(uid: str, account_id: str) -> int:
         payday = confirmed[0] if confirmed else _next_payday(today, cfg)
         days_until = (payday - today).days
         resp = await _build_cashflow_response(cached, uid=uid, prefs=prefs)
+        # Counted from the live upcoming list the walks use. A bill with no
+        # account_id belongs to no account here, so it never blocks anyone.
         count += sum(
             1 for b in resp.get("upcoming_bills", [])
             if str(b.get("account_id") or "") == account_id

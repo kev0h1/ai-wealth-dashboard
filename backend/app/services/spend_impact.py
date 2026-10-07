@@ -276,7 +276,9 @@ async def _infer_salary_account(uid: str, kind_map: dict | None = None) -> str |
 async def _live_balances_map(uid: str) -> dict[str, float]:
     out: dict[str, float] = {}
     try:
-        async for a in accounts_col.find({"user_id": uid}, {"balance": 1}):
+        async for a in accounts_col.find({"user_id": uid}, {"balance": 1, "include_in_safe_to_spend": 1}):
+            if a.get("include_in_safe_to_spend") is False:
+                continue  # G231: not counted towards Safe to Spend
             out[str(a["_id"])] = float(a.get("balance") or 0.0)
     except Exception:
         logger.exception("spend_impact: live-balance fetch failed for %s", uid)
@@ -538,6 +540,11 @@ async def _usual_move_total(uid: str, pay_cfg: dict) -> tuple[float, str | None,
     )
 
     dest_ids = set(usual_moves.keys()) | set(commitment_slices.keys())
+    # G231: a usual move into an account the user does not count is not a move
+    # within their spendable money. A failed lookup fails closed to "no
+    # usual move" evidence for nothing (it raises into the caller's handling).
+    from app.services.counted_accounts import excluded_account_ids
+    dest_ids -= await excluded_account_ids(uid)
     dests_total = 0.0
     evidence_paydays = 0
     for dest_id in dest_ids:

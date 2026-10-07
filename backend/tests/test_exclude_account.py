@@ -153,6 +153,15 @@ def test_items_paid_from_counts_bills_set_asides_and_plan_sources(monkeypatch):
     assert asyncio.run(counted.items_paid_from(UID, "acc3")) == 0
 
 
+def test_refuses_with_a_reason_when_there_is_no_forecast_to_check(monkeypatch):
+    import app.db.collections as db_collections
+    monkeypatch.setattr(db_collections, "cashflow_cache_col", FakeCol([]))
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(counted.items_paid_from(UID, "acc1"))
+    assert exc.value.status_code == 422
+    assert exc.value.detail == "We cannot check this account's payments yet"
+
+
 # ── Safe to Spend pool ──────────────────────────────────────────────────────
 
 def _excluding(monkeypatch, account_id="acc2"):
@@ -242,10 +251,52 @@ def test_cashflow_lists_drop_items_on_an_excluded_account():
     assert analytics._is_pooled_spendable_transfer(resp["upcoming_bills"][1]) is False
 
 
-def test_cashflow_builder_applies_the_exclusion_filter_for_every_caller():
-    import inspect
-    src = inspect.getsource(analytics._build_cashflow_response)
-    assert "drop_excluded_items" in src and "excluded_account_ids" in src
+def test_real_cashflow_builder_drops_items_on_an_excluded_account(monkeypatch):
+    """The real builder, not a source grep: one bill per account, one account
+    excluded."""
+    from tests.test_internal_inflows import _pattern, _run_build_response, UID as BUILDER_UID
+
+    monkeypatch.setattr(counted, "accounts_col", FakeCol([
+        {"_id": "joint", "user_id": BUILDER_UID, "include_in_safe_to_spend": False, "name": "Joint"}]))
+    monkeypatch.setattr(counted, "yapily_accounts_col", FakeCol([]))
+    monkeypatch.setattr(counted, "manual_accounts_col", FakeCol([]))
+    monkeypatch.setattr(counted, "_COLLECTIONS", (counted.accounts_col, counted.yapily_accounts_col, counted.manual_accounts_col))
+    counted_bill = _pattern(key="RENT", account_id="main", dest_account_id=None, category="Bills")
+    joint_bill = _pattern(key="JOINT DD", account_id="joint", dest_account_id=None, category="Bills")
+    resp = _run_build_response(monkeypatch, [counted_bill, joint_bill])
+    assert [b["account_id"] for b in resp["upcoming_bills"]] == ["main"]
+    assert "exclusions_unverified" not in resp
+
+
+def test_failed_exclusion_lookup_is_flagged_not_silently_counted(monkeypatch):
+    from tests.test_internal_inflows import _pattern, _run_build_response
+
+    async def boom(_uid):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(counted, "excluded_account_docs", boom)
+    resp = _run_build_response(monkeypatch, [_pattern(key="RENT", account_id="main", dest_account_id=None, category="Bills")])
+    assert resp["exclusions_unverified"] is True
+
+
+def test_safe_to_spend_never_counts_an_excluded_account_when_the_builder_lookup_fails(monkeypatch):
+    """Fail closed: Safe to Spend re-derives the exclusion from the account
+    rows it already loaded, so the builder's failed lookup cannot leak the
+    excluded account's bill or cash into the walk."""
+    bills, income = _excluding(monkeypatch)
+    joint_bill = {"days_away": 2, "amount": 40.0, "kind": "bill", "account_id": "acc2", "account_balance": 700.0}
+
+    async def build(cached_doc, uid=None, prefs=None):
+        # What the builder returns when its own lookup failed: nothing dropped.
+        return {"upcoming_bills": bills + [joint_bill], "upcoming_income": income,
+                "exclusions_unverified": True,
+                "spendable_balance": 0, "savings_balance": 0}
+
+    monkeypatch.setattr(analytics, "_build_cashflow_response", build)
+    sts = asyncio.run(analytics.compute_safe_to_spend(UID))
+    assert sts["spendable_now"] == 1000.00
+    assert sts["bills_total"] == round(sum(b["amount"] for b in bills), 2)  # no £40
+    assert sts["excluded_accounts_count"] == 1
 
 
 # ── Reconciliation: Home and Upcoming agree with one account excluded ───────
@@ -338,3 +389,99 @@ def test_penny_safe_to_spend_reads_the_same_excluded_pool(monkeypatch):
     out = asyncio.run(penny_tools._exec_get_safe_to_spend(UID))
     assert seen["sts"]["spendable_now"] == 1000.00
     assert out["safe_to_spend"] is not None
+
+
+# ── Payday plan, can I, spend impact, needle ────────────────────────────────
+
+def test_payday_plan_never_distributes_to_an_excluded_account(monkeypatch):
+    from datetime import timedelta
+    import app.core.timeutil as timeutil
+    import app.services.companion as companion
+    from tests import test_payday_plan_fixes as pp
+
+    today_d = timeutil.user_today()
+    accounts = [
+        pp._account(pp.SALARY_ACCT, 3000.0),
+        pp._account(pp.DEST_ACCT, 0.0, "Everyday"),
+        {**pp._account("acc-joint", 0.0, "Joint"), "include_in_safe_to_spend": False},
+    ]
+    pay_period, _ = pp._base_patch(
+        monkeypatch, accounts=accounts,
+        bills=[pp._bill("Council Tax", 2, 100.0, account_id=pp.DEST_ACCT, account_balance=0.0)],
+        income=[pp._salary(0, 2000.0)],
+    )
+    monkeypatch.setattr(pay_period, "get_pay_period_for_date", lambda ref, cfg: (today_d, today_d + timedelta(days=29)))
+    monkeypatch.setattr(pay_period, "_next_payday", lambda today, cfg: today_d + timedelta(days=30))
+    items = asyncio.run(companion.compute_today_items(pp.UID, payday_preview=False, persist=False))
+    plan = pp._payday_plan(items)
+    assert plan is not None
+    dest_ids = {d["account_id"] for d in plan["dests"]}
+    assert pp.DEST_ACCT in dest_ids
+    assert "acc-joint" not in dest_ids
+
+
+def test_can_i_affordability_reads_the_excluded_pool(monkeypatch):
+    import app.services.affordability as affordability
+    _excluding(monkeypatch)
+    seen = {}
+    real = analytics.compute_safe_to_spend
+
+    async def spy(uid):
+        seen["sts"] = await real(uid)
+        return seen["sts"]
+
+    monkeypatch.setattr(affordability, "compute_safe_to_spend", spy)
+    out = asyncio.run(affordability.check_affordability(UID, 20.0))
+    assert seen["sts"]["spendable_now"] == 1000.00
+    assert seen["sts"]["excluded_accounts_count"] == 1
+    assert out.get("insufficient_data") is not True
+
+
+def test_spend_impact_ignores_balances_and_usual_moves_for_an_excluded_account(monkeypatch):
+    import app.services.spend_impact as spend_impact
+    monkeypatch.setattr(spend_impact, "accounts_col", FakeCol([
+        {"_id": "main", "user_id": UID, "balance": 100.0},
+        {"_id": "joint", "user_id": UID, "balance": 900.0, "include_in_safe_to_spend": False},
+    ]))
+    assert asyncio.run(spend_impact._live_balances_map(UID)) == {"main": 100.0}
+
+    async def kinds(_uid):
+        return None
+
+    async def salary(_uid, _k):
+        return "salary"
+
+    async def usual(_uid, _s, _c):
+        return {"main": 50, "joint": 200}, {"main": 3, "joint": 3}
+
+    async def slices(_uid, _c, _b):
+        return {}
+
+    async def no_debt(_uid):
+        return {"cards": []}
+
+    async def excluded(_uid):
+        return {"joint"}
+
+    import app.services.companion as companion
+    import app.services.debt_plan as debt_plan
+    import app.services.counted_accounts as ca
+    monkeypatch.setattr(spend_impact, "get_category_kinds", kinds)
+    monkeypatch.setattr(spend_impact, "_infer_salary_account", salary)
+    monkeypatch.setattr(companion, "_usual_payday_moves_with_counts", usual)
+    monkeypatch.setattr(companion, "_active_commitment_slices", slices)
+    monkeypatch.setattr(debt_plan, "get_debt_plan_cached", no_debt)
+    monkeypatch.setattr(ca, "excluded_account_ids", excluded)
+    total, _, _ = asyncio.run(spend_impact._usual_move_total(UID, {"type": "calendar_month"}))
+    assert total == 50.0
+
+
+def test_needle_current_accounts_skip_an_excluded_account(monkeypatch):
+    import app.services.needle as needle
+    cur = {"subtype": "CURRENT", "type": "bank"}
+    monkeypatch.setattr(needle, "accounts_col", FakeCol([
+        {"_id": "a", "user_id": UID, **cur},
+        {"_id": "b", "user_id": UID, "include_in_safe_to_spend": False, **cur},
+    ]))
+    docs = asyncio.run(needle._current_account_ids(UID))
+    assert [d["_id"] for d in docs] == ["a"]

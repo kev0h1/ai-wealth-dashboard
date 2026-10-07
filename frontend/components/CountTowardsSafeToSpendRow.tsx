@@ -31,7 +31,7 @@ export default function CountTowardsSafeToSpendRow({ counted, onChange, busy, re
       </div>
       {reason ? (
         <p data-g231-count-reason role="alert" className="mb-1 mt-1 flex items-start gap-2 text-[13px] leading-snug text-slate-700 dark:text-slate-200 text-pretty">
-          <span aria-hidden="true" className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500 dark:bg-amber-400" />
+          <span aria-hidden="true" className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-slate-400 dark:bg-slate-500" />
           {reason}
         </p>
       ) : null}

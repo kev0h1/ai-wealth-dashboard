@@ -4593,7 +4593,14 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
     # the cover engine and Penny cannot disagree.
     if uid:
         from app.services.counted_accounts import excluded_account_ids, drop_excluded_items
-        drop_excluded_items(_cf_resp, await excluded_account_ids(uid))
+        try:
+            drop_excluded_items(_cf_resp, await excluded_account_ids(uid))
+        except Exception:
+            # Fail closed, loudly: the lookup failed, so say the exclusions are
+            # unverified. Safe to Spend re-applies them from its own account
+            # rows; other callers can see the flag.
+            logger.exception("excluded account lookup failed for %s", mask_email(uid))
+            _cf_resp["exclusions_unverified"] = True
     return _cf_resp
 
 
@@ -4886,13 +4893,20 @@ async def compute_safe_to_spend(uid: str) -> dict:
     spendable_cash = _live_pool_balances(all_accs_raw)["spendable_balance"]
     # G231: accounts the user chose not to count (named on the response so the
     # hero can say "Not counting N accounts" and link to Accounts).
-    # Read from the pool rows themselves, so no extra query is needed.
+    # Read from the pool rows themselves, so no extra query is needed. The same
+    # set is re-applied to the cashflow lists here (idempotent), so a failed
+    # lookup inside the builder can never leave an excluded account's items in
+    # the walk: this path never depends on that second query.
     _excluded_accounts = [
         {"id": str(a["_id"]), "name": a.get("name") or "Account"}
         for a in all_accs_raw
         if a.get("include_in_safe_to_spend") is False and a.get("_id") is not None
         and "credit" not in f"{a.get('type') or ''} {a.get('subtype') or ''}".lower()
     ]
+    from app.services.counted_accounts import drop_excluded_items as _drop_excluded
+    _walk_lists = {"upcoming_bills": upcoming_bills, "upcoming_income": upcoming_income}
+    _drop_excluded(_walk_lists, {a["id"] for a in _excluded_accounts})
+    upcoming_bills, upcoming_income = _walk_lists["upcoming_bills"], _walk_lists["upcoming_income"]
 
     card_debt_total = 0.0
     for acc in all_accs_raw:
