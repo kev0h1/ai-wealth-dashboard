@@ -516,7 +516,7 @@ ERASURE_MANIFEST = frozenset({
     "money_shape_cache_col", "upcoming_overrides_col", "upcoming_rules_col",
     "webhook_events_col", "excluded_accounts_col", "locks_col",
     "worker_runs_col", "finexer_consents_col", "finexer_customers_col",
-    "finexer_providers_col", "pending_transactions_col", "behaviour_portrait_col",
+    "finexer_providers_col", "provider_logos_col", "pending_transactions_col", "behaviour_portrait_col",
     "needle_history_col", "cycle_story_col", "companion_items_col",
     "planned_expenses_col", "checkpoints_col", "category_intent_col",
     "commitments_col", "allocations_col", "teaching_events_col",
