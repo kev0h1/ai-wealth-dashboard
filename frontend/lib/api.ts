@@ -295,6 +295,13 @@ export type CashflowData = {
    * computed before allocations existed; callers must treat a missing value
    * as "no allocations to subtract", never as an error. */
   allocations?: Allocation[];
+  /** G227: this period's goal plan contributions, the same figure Safe-to-Spend
+   * subtracts as `commitments_reserved` (one server source). Optional for older
+   * payloads; missing means 0. `plans_available` false means the reserve could
+   * not be read, so the figure is a floor, not a fact. */
+  plans_reserved?: number;
+  plans_count?: number;
+  plans_available?: boolean;
   /**
    * G163/G167 interim lapse signal (until G157's payer matcher replaces
    * it): confirmed income streams, AND reliable but merely DETECTED

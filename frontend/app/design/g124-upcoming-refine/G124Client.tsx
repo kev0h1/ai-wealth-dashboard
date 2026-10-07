@@ -159,6 +159,7 @@ export default function G124Client() {
               runwayIncomeTotal={scenario.runwayIncomeTotal}
               runwayBillsTotal={scenario.runwayBillsTotal}
               allocationsRemainingTotal={scenario.allocationsRemainingTotal}
+              plansReservedTotal={scenario.plansReservedTotal}
               savingsNow={scenario.savingsNow}
               runway={runway}
               runwayStatus={runwayStatus}

@@ -13,6 +13,10 @@ export interface UpcomingHeroCardProps {
   runwayIncomeTotal: number;
   runwayBillsTotal: number;
   allocationsRemainingTotal: number;
+  /** G227: goal contributions planned for this pay period (same figure as Home's Plans reserved). */
+  plansReservedTotal?: number;
+  /** The plans figure could not be read; say so instead of implying there are none. */
+  plansUnavailable?: boolean;
   savingsNow: number;
   runway: number;
   /** "even" is a genuine third state (runway === 0 exactly), distinct from "left". */
@@ -29,6 +33,8 @@ export default function UpcomingHeroCard({
   runwayIncomeTotal,
   runwayBillsTotal,
   allocationsRemainingTotal,
+  plansReservedTotal = 0,
+  plansUnavailable = false,
   savingsNow,
   runway,
   runwayStatus,
@@ -66,6 +72,9 @@ export default function UpcomingHeroCard({
             >
               {runwayStatus}
             </span>
+            {plansUnavailable && (
+              <span className="text-xs font-medium text-slate-500 dark:text-slate-400">estimated</span>
+            )}
           </div>
           <p className="mt-1 text-xs leading-snug text-slate-500 dark:text-slate-400">
             {isCalendarMonth
@@ -110,6 +119,26 @@ export default function UpcomingHeroCard({
               <dd className="font-mono tabular-nums text-slate-900 dark:text-slate-100">
                 −{sym}
                 {allocationsRemainingTotal.toLocaleString("en-GB", { maximumFractionDigits: 0 })}
+              </dd>
+            </div>
+          )}
+          {(plansReservedTotal > 0 || plansUnavailable) && (
+            <div className="flex items-center justify-between gap-4 py-1.5">
+              <dt className="min-w-0">
+                Plans this period
+                <span className="block text-xs leading-snug text-slate-500 dark:text-slate-400">
+                  {plansUnavailable
+                    ? "Goal contributions could not be loaded, so this figure may be too high."
+                    : "Goal contributions planned this pay period."}
+                </span>
+              </dt>
+              <dd className="shrink-0 whitespace-nowrap font-mono tabular-nums text-slate-900 dark:text-slate-100">
+                {plansUnavailable ? "Unavailable" : (
+                  <>
+                    −{sym}
+                    {plansReservedTotal.toLocaleString("en-GB", { maximumFractionDigits: 0 })}
+                  </>
+                )}
               </dd>
             </div>
           )}
