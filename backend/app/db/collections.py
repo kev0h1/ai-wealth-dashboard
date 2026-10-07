@@ -547,7 +547,10 @@ ERASURE_MANIFEST = frozenset({
     # never matches it: a marker must SURVIVE the erasure it was written
     # during, or the Finexer consent it exists to revoke is orphaned. It is
     # listed so the manifest guard sees the binding was decided on; markers
-    # are removed by the retry sweep on success, not by erasure.
+    # are removed by the retry sweep on success, not by erasure. A marker holds
+    # a sha256 of the email and a Finexer consent id, kept under legitimate
+    # interest to complete the revocation, and is deleted after 90 days from
+    # failed_at at the latest (retention._ORPHAN_MAX_AGE), with an error log.
     "orphaned_revocations_col",
 })
 

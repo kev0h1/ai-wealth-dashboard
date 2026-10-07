@@ -70,7 +70,7 @@ class _FakeCursor:
             yield d
 
     def sort(self, key, direction=1):
-        self._docs = sorted(self._docs, key=lambda d: d.get(key), reverse=direction < 0)
+        self._docs = sorted(self._docs, key=lambda d: (d.get(key) is not None, d.get(key) or 0), reverse=direction < 0)
         return self
 
     def limit(self, n):
@@ -312,10 +312,10 @@ def test_sweep_finexer_canceled_consent_removed_and_revoke_attempted(monkeypatch
     _stub_cascade(monkeypatch, calls)
 
     consents = FakeCol([
-        {"_id": "fx-a", "user_id": "u2", "status": "canceled", "canceled_at": NOW - timedelta(days=31)},
-        {"_id": "fx-b", "user_id": "u2", "status": "canceled", "canceled_at": NOW - timedelta(days=10)},
-        {"_id": "fx-c", "user_id": "u2", "status": "canceled"},  # no timestamp -> kept
-        {"_id": "fx-d", "user_id": "u2", "status": "authorized"},  # never swept regardless
+        {"_id": "fx-a-test", "user_id": "u2", "status": "canceled", "canceled_at": NOW - timedelta(days=31)},
+        {"_id": "fx-b-test", "user_id": "u2", "status": "canceled", "canceled_at": NOW - timedelta(days=10)},
+        {"_id": "fx-c-test", "user_id": "u2", "status": "canceled"},  # no timestamp -> kept
+        {"_id": "fx-d-test", "user_id": "u2", "status": "authorized"},  # never swept regardless
     ])
     monkeypatch.setattr(retention, "connections_col", FakeCol())
     monkeypatch.setattr(retention, "accounts_col", FakeCol())
@@ -328,8 +328,8 @@ def test_sweep_finexer_canceled_consent_removed_and_revoke_attempted(monkeypatch
     result = asyncio.run(retention.sweep_expired_connections(now=NOW))
 
     assert result["connections_removed"] == 1
-    assert set(consents.docs.keys()) == {"fx-b", "fx-c", "fx-d"}
-    assert fake_client.calls == ["/consents/fx-a"]
+    assert set(consents.docs.keys()) == {"fx-b-test", "fx-c-test", "fx-d-test"}
+    assert fake_client.calls == ["/consents/fx-a-test"]
 
 
 def test_sweep_finexer_remote_revoke_failure_is_non_fatal(monkeypatch):
@@ -337,7 +337,7 @@ def test_sweep_finexer_remote_revoke_failure_is_non_fatal(monkeypatch):
     _stub_cascade(monkeypatch, calls)
 
     consents = FakeCol([
-        {"_id": "fx-x", "user_id": "u3", "status": "revoked", "status_changed_at": NOW - timedelta(days=40)},
+        {"_id": "fx-x-test", "user_id": "u3", "status": "revoked", "status_changed_at": NOW - timedelta(days=40)},
     ])
     markers = FakeCol()
     monkeypatch.setattr(retention, "connections_col", FakeCol())
@@ -356,12 +356,12 @@ def test_sweep_finexer_remote_revoke_failure_is_non_fatal(monkeypatch):
     assert result["connections_removed"] == 1
     assert result["connection_errors"] == 0
     assert consents.docs == {}
-    assert fake_client.calls == ["/consents/fx-x"]
+    assert fake_client.calls == ["/consents/fx-x-test"]
     # A106: the failure left a retry marker behind, keyed by the consent id,
     # rather than silently vanishing with the local doc.
-    assert "fx-x" in markers.docs
-    marker = markers.docs["fx-x"]
-    assert marker["consent_id"] == "fx-x"
+    assert "fx-x-test" in markers.docs
+    marker = markers.docs["fx-x-test"]
+    assert marker["consent_id"] == "fx-x-test"
     assert marker["user_hash"] == retention._hash_uid("u3")
     assert marker["last_error"] == "RuntimeError"
     assert marker["attempts"] == 1
@@ -440,7 +440,7 @@ def test_erase_user_revokes_live_finexer_consent_before_erasing(monkeypatch):
     _stub_cascade(monkeypatch, calls)
 
     connections = FakeCol([{"_id": "conn-1", "user_id": uid}])
-    consents = FakeCol([{"_id": "fx-1", "user_id": uid, "status": "authorized"}])
+    consents = FakeCol([{"_id": "fx-1-test", "user_id": uid, "status": "authorized"}])
     accounts = FakeCol()
     transactions = FakeCol([{"_id": "t1", "user_id": uid}])
 
@@ -463,9 +463,9 @@ def test_erase_user_revokes_live_finexer_consent_before_erasing(monkeypatch):
 
     result = asyncio.run(retention.erase_user(uid))
 
-    assert fake_client.calls == ["/consents/fx-1"]
+    assert fake_client.calls == ["/consents/fx-1-test"]
     assert "conn-1" not in connections.docs
-    assert "fx-1" not in consents.docs
+    assert "fx-1-test" not in consents.docs
     assert result["connections_revoked"] == 2
     assert "connection_errors" not in result
     # The rest of the user's data is still erased in the same call.
@@ -488,7 +488,7 @@ def test_erase_user_remote_revoke_failure_is_non_fatal(monkeypatch):
     _stub_cascade(monkeypatch, calls)
 
     connections = FakeCol()
-    consents = FakeCol([{"_id": "fx-2", "user_id": uid, "status": "authorized"}])
+    consents = FakeCol([{"_id": "fx-2-test", "user_id": uid, "status": "authorized"}])
     accounts = FakeCol()
     markers = FakeCol()
 
@@ -508,15 +508,15 @@ def test_erase_user_remote_revoke_failure_is_non_fatal(monkeypatch):
 
     result = asyncio.run(retention.erase_user(uid))
 
-    assert fake_client.calls == ["/consents/fx-2"]
-    assert "fx-2" not in consents.docs
+    assert fake_client.calls == ["/consents/fx-2-test"]
+    assert "fx-2-test" not in consents.docs
     assert result["connections_revoked"] == 1
     assert "connection_errors" not in result
     # Marker written keyed by consent id, with a user_hash rather than a
     # user_id field — see test_orphaned_revocations_marker_survives_erase_user
     # below for why that specific shape matters against THIS SAME call.
-    assert "fx-2" in markers.docs
-    marker = markers.docs["fx-2"]
+    assert "fx-2-test" in markers.docs
+    marker = markers.docs["fx-2-test"]
     assert marker["user_hash"] == retention._hash_uid(uid)
     assert "user_id" not in marker
     assert marker["last_error"] == "RuntimeError"
@@ -534,7 +534,7 @@ def test_disconnect_finexer_writes_marker_on_bad_status_no_exception(monkeypatch
     calls: list = []
     _stub_cascade(monkeypatch, calls)
 
-    consents = FakeCol([{"_id": "fx-9", "user_id": uid, "status": "authorized"}])
+    consents = FakeCol([{"_id": "fx-9-test", "user_id": uid, "status": "authorized"}])
     markers = FakeCol()
     monkeypatch.setattr(retention, "connections_col", FakeCol())
     monkeypatch.setattr(retention, "accounts_col", FakeCol())
@@ -544,14 +544,14 @@ def test_disconnect_finexer_writes_marker_on_bad_status_no_exception(monkeypatch
     fake_client = FakeFxClient(status_code=503)
     monkeypatch.setattr(finexer_sync_module, "_client", lambda: fake_client)
 
-    result = asyncio.run(retention.disconnect_connection(uid, "fx-9"))
+    result = asyncio.run(retention.disconnect_connection(uid, "fx-9-test"))
 
-    assert result == {"deleted": "fx-9", "accounts_removed": 0}
+    assert result == {"deleted": "fx-9-test", "accounts_removed": 0}
     # The local delete still proceeds (best-effort revoke never blocks it).
-    assert "fx-9" not in consents.docs
-    assert "fx-9" in markers.docs
-    marker = markers.docs["fx-9"]
-    assert marker["consent_id"] == "fx-9"
+    assert "fx-9-test" not in consents.docs
+    assert "fx-9-test" in markers.docs
+    marker = markers.docs["fx-9-test"]
+    assert marker["consent_id"] == "fx-9-test"
     assert marker["user_hash"] == retention._hash_uid(uid)
     assert marker["last_error"] == "503"
     assert marker["attempts"] == 1
@@ -566,7 +566,7 @@ def test_orphaned_revocations_marker_survives_erase_user_for_same_uid(monkeypatc
     caught by that same sweep for the very uid it belongs to."""
     uid = "u13@example.com"
     markers = FakeCol([{
-        "_id": "fx-13", "consent_id": "fx-13",
+        "_id": "fx-13-test", "consent_id": "fx-13-test",
         "user_hash": retention._hash_uid(uid),
         "failed_at": NOW, "last_attempt_at": NOW,
         "last_error": "503", "attempts": 1,
@@ -575,7 +575,7 @@ def test_orphaned_revocations_marker_survives_erase_user_for_same_uid(monkeypatc
 
     asyncio.run(retention.erase_user(uid))
 
-    assert "fx-13" in markers.docs
+    assert "fx-13-test" in markers.docs
 
 
 def test_disconnect_finexer_marker_write_failure_does_not_block_local_delete(monkeypatch):
@@ -585,7 +585,7 @@ def test_disconnect_finexer_marker_write_failure_does_not_block_local_delete(mon
     calls: list = []
     _stub_cascade(monkeypatch, calls)
 
-    consents = FakeCol([{"_id": "fx-11", "user_id": uid, "status": "authorized"}])
+    consents = FakeCol([{"_id": "fx-11-test", "user_id": uid, "status": "authorized"}])
 
     class ExplodingMarkerCol:
         async def update_one(self, *a, **kw):
@@ -602,10 +602,10 @@ def test_disconnect_finexer_marker_write_failure_does_not_block_local_delete(mon
     fake_client = FakeFxClient(status_code=503)
     monkeypatch.setattr(finexer_sync_module, "_client", lambda: fake_client)
 
-    result = asyncio.run(retention.disconnect_connection(uid, "fx-11"))
+    result = asyncio.run(retention.disconnect_connection(uid, "fx-11-test"))
 
-    assert result == {"deleted": "fx-11", "accounts_removed": 0}
-    assert "fx-11" not in consents.docs
+    assert result == {"deleted": "fx-11-test", "accounts_removed": 0}
+    assert "fx-11-test" not in consents.docs
 
 
 def test_disconnect_finexer_last_error_never_contains_message_body(monkeypatch):
@@ -615,7 +615,7 @@ def test_disconnect_finexer_last_error_never_contains_message_body(monkeypatch):
     calls: list = []
     _stub_cascade(monkeypatch, calls)
 
-    consents = FakeCol([{"_id": "fx-12", "user_id": uid, "status": "authorized"}])
+    consents = FakeCol([{"_id": "fx-12-test", "user_id": uid, "status": "authorized"}])
     markers = FakeCol()
     monkeypatch.setattr(retention, "connections_col", FakeCol())
     monkeypatch.setattr(retention, "accounts_col", FakeCol())
@@ -627,9 +627,9 @@ def test_disconnect_finexer_last_error_never_contains_message_body(monkeypatch):
     )
     monkeypatch.setattr(finexer_sync_module, "_client", lambda: fake_client)
 
-    asyncio.run(retention.disconnect_connection(uid, "fx-12"))
+    asyncio.run(retention.disconnect_connection(uid, "fx-12-test"))
 
-    marker = markers.docs["fx-12"]
+    marker = markers.docs["fx-12-test"]
     assert marker["last_error"] == "RuntimeError"
     assert "sort code" not in marker["last_error"]
     assert "12-34-56" not in marker["last_error"]
@@ -653,7 +653,7 @@ def test_retry_orphaned_revocations_clears_on_200_204_404(monkeypatch):
 
     assert result == {
         "orphaned_retried": 3, "orphaned_cleared": 3,
-        "orphaned_still_pending": 0, "orphaned_errors": 0,
+        "orphaned_still_pending": 0, "orphaned_errors": 0, "orphaned_expired": 0,
     }
     assert markers.docs == {}
 
@@ -675,7 +675,7 @@ def test_retry_orphaned_revocations_leaves_marker_on_503_and_exception(monkeypat
 
     assert result == {
         "orphaned_retried": 2, "orphaned_cleared": 0,
-        "orphaned_still_pending": 1, "orphaned_errors": 1,
+        "orphaned_still_pending": 1, "orphaned_errors": 1, "orphaned_expired": 0,
     }
     assert "fx-503" in markers.docs
     assert markers.docs["fx-503"]["attempts"] == 2
@@ -740,26 +740,26 @@ class _ExplodesOnFirstWriteCol(FakeCol):
 
 def test_retry_orphaned_revocations_write_failure_on_one_marker_does_not_abort_the_rest(monkeypatch):
     markers = _ExplodesOnFirstWriteCol([
-        {"_id": "fx-a", "consent_id": "fx-a", "user_hash": "h1", "failed_at": NOW, "attempts": 1},
-        {"_id": "fx-b", "consent_id": "fx-b", "user_hash": "h2", "failed_at": NOW, "attempts": 1},
+        {"_id": "fx-a-test", "consent_id": "fx-a-test", "user_hash": "h1", "failed_at": NOW, "attempts": 1},
+        {"_id": "fx-b-test", "consent_id": "fx-b-test", "user_hash": "h2", "failed_at": NOW, "attempts": 1},
     ])
     monkeypatch.setattr(retention, "orphaned_revocations_col", markers)
 
-    # Both consents revoke cleanly (204) remotely; fx-a's own delete_one
+    # Both consents revoke cleanly (204) remotely; fx-a-test's own delete_one
     # write is the first write of the pass, so it's the one that explodes.
-    fake_client = FakeFxMultiClient({"/consents/fx-a": 204, "/consents/fx-b": 204})
+    fake_client = FakeFxMultiClient({"/consents/fx-a-test": 204, "/consents/fx-b-test": 204})
     monkeypatch.setattr(finexer_sync_module, "_client", lambda: fake_client)
 
     result = asyncio.run(retention.retry_orphaned_revocations(now=NOW))
 
     assert result == {
         "orphaned_retried": 2, "orphaned_cleared": 1,
-        "orphaned_still_pending": 0, "orphaned_errors": 1,
+        "orphaned_still_pending": 0, "orphaned_errors": 1, "orphaned_expired": 0,
     }
-    # fx-a's write blew up, so its marker is still there; fx-b's own write
+    # fx-a-test's write blew up, so its marker is still there; fx-b-test's own write
     # (the second write of the pass) went through normally and was cleared.
-    assert "fx-a" in markers.docs
-    assert "fx-b" not in markers.docs
+    assert "fx-a-test" in markers.docs
+    assert "fx-b-test" not in markers.docs
 
 
 def test_retry_orphaned_revocations_warns_once_attempts_reach_seven(monkeypatch, caplog):
@@ -900,7 +900,7 @@ def test_run_retention_sweep_calls_all_four_sweeps(monkeypatch):
         calls.append("orphaned")
         return {
             "orphaned_retried": 0, "orphaned_cleared": 0,
-            "orphaned_still_pending": 0, "orphaned_errors": 0,
+            "orphaned_still_pending": 0, "orphaned_errors": 0, "orphaned_expired": 0,
         }
 
     monkeypatch.setattr(retention, "sweep_expired_connections", fake_conn_sweep)
@@ -915,7 +915,7 @@ def test_run_retention_sweep_calls_all_four_sweeps(monkeypatch):
         "connections_removed": 0, "users_erased": 0,
         "relay_orphans_removed": 0, "relay_orphans_skipped": 0,
         "orphaned_retried": 0, "orphaned_cleared": 0,
-        "orphaned_still_pending": 0, "orphaned_errors": 0,
+        "orphaned_still_pending": 0, "orphaned_errors": 0, "orphaned_expired": 0,
     }
 
 

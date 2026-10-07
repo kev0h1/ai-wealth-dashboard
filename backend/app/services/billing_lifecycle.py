@@ -68,16 +68,6 @@ async def notify(uid: str, title: str, body: str, url: str = "/settings") -> boo
         return False
 
 
-def _revoke_error_code(exc: Exception) -> str:
-    """Short static code for a failed revoke: the HTTP status for a
-    non-success response (raised above as RuntimeError('HTTP nnn')), else the
-    exception class name. Never a message."""
-    text = str(exc)
-    if isinstance(exc, RuntimeError) and text.startswith("HTTP ") and text[5:].isdigit():
-        return text[5:]
-    return type(exc).__name__
-
-
 async def revoke_open_banking_consents(uid: str) -> dict:
     """Revoke the user's authorised Finexer consents at Finexer and mark
     them revoked locally. Only called when REVOKE_CONSENT_ON_DOWNGRADE is
@@ -91,18 +81,8 @@ async def revoke_open_banking_consents(uid: str) -> dict:
     revoked, failed = 0, 0
     for consent in consents:
         cid = consent["_id"]
-        try:
-            from app.services.finexer_sync import _client as fx_client
-            async with fx_client() as client:
-                resp = await client.delete(f"/consents/{cid}")
-            if resp.status_code not in (200, 204, 404):
-                raise RuntimeError(f"HTTP {resp.status_code}")
-        except Exception as exc:
-            logger.warning("billing_lifecycle: Finexer revoke failed for a consent of %s", uid, exc_info=True)
-            # A106: queue it for the nightly retry (marker holds a sha256
-            # user hash and a static code only).
-            from app.services.retention import record_orphaned_revocation
-            await record_orphaned_revocation(uid, cid, _revoke_error_code(exc))
+        from app.services.retention import revoke_finexer_consent
+        if await revoke_finexer_consent(uid, cid) is not None:
             failed += 1
             continue
         await finexer_consents_col.update_one(

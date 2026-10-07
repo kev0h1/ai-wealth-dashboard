@@ -16,6 +16,7 @@ Fail-safe rule: a document with no usable timestamp is NEVER swept. Absence
 of evidence someone actually is dormant/expired is not evidence they are.
 """
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 
 from app.core.config import mask_email
@@ -330,6 +331,42 @@ async def clear_orphaned_revocation(consent_id: str) -> None:
         )
 
 
+_CONSENT_ID_RE = re.compile(r"^[A-Za-z0-9_-]{6,128}$")
+_ORPHAN_MAX_AGE = timedelta(days=90)
+
+
+def valid_consent_id(consent_id) -> bool:
+    """A106: a Finexer consent id is interpolated into a DELETE URL, so it is
+    validated first; anything else is never requested."""
+    return isinstance(consent_id, str) and bool(_CONSENT_ID_RE.match(consent_id))
+
+
+async def revoke_finexer_consent(uid: str, consent_id: str) -> str | None:
+    """Issue DELETE /consents/{id} once. Returns None on success (200, 204,
+    404) or a short static error code (HTTP status, exception class name, or
+    "bad_id" when the id fails validation, in which case NO request is made).
+    On failure a retry marker is recorded via record_orphaned_revocation;
+    success clears nothing (callers decide). Never raises."""
+    if not valid_consent_id(consent_id):
+        logger.warning("Finexer revoke skipped: malformed consent id (not requested)")
+        await record_orphaned_revocation(uid, consent_id, "bad_id")
+        return "bad_id"
+    error: str | None = None
+    try:
+        from app.services.finexer_sync import _client as _fx_client
+        async with _fx_client() as fxc:
+            rv = await fxc.delete(f"/consents/{consent_id}")
+        if rv.status_code not in (200, 204, 404):
+            logger.warning("Finexer revoke %s returned HTTP %s", consent_id, rv.status_code)
+            error = str(rv.status_code)
+    except Exception as exc:
+        logger.warning("Finexer revoke failed for consent %s (non-fatal)", consent_id, exc_info=True)
+        error = type(exc).__name__
+    if error is not None:
+        await record_orphaned_revocation(uid, consent_id, error)
+    return error
+
+
 async def disconnect_connection(uid: str, connection_id: str) -> dict | None:
     """Delete one bank connection/consent (TrueLayer or Finexer) plus every
     account/transaction/derived cache that hung off it.
@@ -378,25 +415,8 @@ async def disconnect_connection(uid: str, connection_id: str) -> dict | None:
         # they more plausibly mean our credential is wrong than that the
         # consent itself is gone, and treating them as success would
         # re-orphan the consent by deleting the local doc anyway.
-        revoked_ok = False
-        error_label: str | None = None
-        try:
-            from app.services.finexer_sync import _client as _fx_client
-            async with _fx_client() as fxc:
-                rv = await fxc.delete(f"/consents/{connection_id}")
-            if rv.status_code in (200, 204, 404):
-                revoked_ok = True
-            else:
-                logger.warning("Finexer revoke %s returned HTTP %s", connection_id, rv.status_code)
-                error_label = str(rv.status_code)
-        except Exception as exc:
-            logger.warning("Finexer revoke failed for consent %s (non-fatal)", connection_id, exc_info=True)
-            error_label = type(exc).__name__
-
-        if revoked_ok:
+        if await revoke_finexer_consent(uid, connection_id) is None:
             await clear_orphaned_revocation(connection_id)
-        else:
-            await record_orphaned_revocation(uid, connection_id, error_label)
 
         await finexer_consents_col.delete_one({"_id": connection_id})
         return {"deleted": connection_id, "accounts_removed": len(account_ids)}
@@ -407,7 +427,14 @@ async def disconnect_connection(uid: str, connection_id: str) -> dict | None:
 def _older_than(value, cutoff: datetime) -> bool:
     """True only for a real datetime older than cutoff. Anything else
     (missing, wrong type) is treated as "no usable timestamp" -> not swept."""
-    return isinstance(value, datetime) and value < cutoff
+    if not isinstance(value, datetime):
+        return False
+    # Mongo returns naive UTC; tolerate aware values on either side.
+    if value.tzinfo is not None:
+        value = value.astimezone(timezone.utc).replace(tzinfo=None)
+    if cutoff.tzinfo is not None:
+        cutoff = cutoff.astimezone(timezone.utc).replace(tzinfo=None)
+    return value < cutoff
 
 
 async def sweep_expired_connections(now: datetime | None = None) -> dict:
@@ -533,9 +560,11 @@ async def retry_orphaned_revocations(now: datetime | None = None) -> dict:
     first attempt) the marker is deleted. On any other status, or a raised
     exception, the marker is updated IN PLACE (`attempts` incremented,
     `last_attempt_at`/`last_error` refreshed) — never re-inserted, since the
-    marker already exists. A marker whose `failed_at` is more than 7 days old
-    gets a WARNING (not INFO) on every retry pass, so a prolonged outage
-    isn't silent between sweep runs.
+    marker already exists. A marker with `attempts` >= 7 gets a WARNING on
+    every retry pass, so a prolonged outage isn't silent. Markers are taken
+    oldest `last_attempt_at` first (never-attempted first), 50 per pass, so
+    persistent failures cannot starve newer ones; a marker unrevoked 90 days
+    after `failed_at` is deleted with an error-level log.
 
     Returns a summary dict: `orphaned_retried` (markers attempted this pass),
     `orphaned_cleared` (revoked successfully and removed), `orphaned_still_pending`
@@ -559,13 +588,38 @@ async def retry_orphaned_revocations(now: datetime | None = None) -> dict:
     cleared = 0
     still_pending = 0
     errors = 0
+    expired = 0
 
     markers = await (
-        orphaned_revocations_col.find({}, {}).sort("failed_at", 1).limit(_ORPHAN_BATCH).to_list(_ORPHAN_BATCH)
+        orphaned_revocations_col.find({}, {}).sort("last_attempt_at", 1).limit(_ORPHAN_BATCH).to_list(_ORPHAN_BATCH)
     )
     for marker in markers:
         consent_id = marker["_id"]
         retried += 1
+
+        if _older_than(marker.get("failed_at"), now - _ORPHAN_MAX_AGE):
+            logger.error(
+                "retry_orphaned_revocations: giving up on consent %s, unrevoked for over 90 days; marker deleted",
+                consent_id,
+            )
+            try:
+                await orphaned_revocations_col.delete_one({"_id": consent_id})
+            except Exception:
+                logger.warning("retry_orphaned_revocations: failed to delete expired marker %s", consent_id, exc_info=True)
+            expired += 1
+            continue
+
+        if not valid_consent_id(consent_id):
+            logger.warning("retry_orphaned_revocations: skipping malformed marker id (never requested)")
+            try:
+                await orphaned_revocations_col.update_one(
+                    {"_id": consent_id},
+                    {"$set": {"last_attempt_at": now, "last_error": "bad_id"}, "$inc": {"attempts": 1}},
+                )
+            except Exception:
+                logger.warning("retry_orphaned_revocations: failed to flag bad_id marker", exc_info=True)
+            errors += 1
+            continue
 
         if (marker.get("attempts") or 0) >= _ORPHAN_WARN_ATTEMPTS:
             logger.warning(
@@ -630,6 +684,7 @@ async def retry_orphaned_revocations(now: datetime | None = None) -> dict:
         "orphaned_cleared": cleared,
         "orphaned_still_pending": still_pending,
         "orphaned_errors": errors,
+        "orphaned_expired": expired,
     }
 
 
