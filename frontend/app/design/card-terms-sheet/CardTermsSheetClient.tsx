@@ -5,7 +5,7 @@
 // (cards, ready, startAccountId, onClose, onSaved) with fixture cards.
 // One stand-in, said plainly: the sheet asks POST /card-terms/<id>/lookup for
 // the representative rate when a card has no confirmed terms, so a fetch
-// stand-in answers only that endpoint and passes everything else through.
+// stand-in answers only that endpoint (plus GET /preferences, so balances show) and passes everything else through.
 
 import { useEffect, useLayoutEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
@@ -34,6 +34,10 @@ export default function CardTermsSheetClient() {
     const native = window.fetch.bind(window);
     window.fetch = (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (/\/preferences(?:[/?]|$)/.test(url)) {
+        // Signed out, the real GET /preferences would 401 and keep balances hidden.
+        return new Response(JSON.stringify({ hide_net_worth: false, version: 1 }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
       const m = /\/card-terms\/([^/]+)\/lookup(?:[?]|$)/.exec(url);
       if (m) {
         return new Response(JSON.stringify(lookupFor(decodeURIComponent(m[1]))), { status: 200, headers: { "Content-Type": "application/json" } });

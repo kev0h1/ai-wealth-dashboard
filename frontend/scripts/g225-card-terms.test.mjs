@@ -52,7 +52,7 @@ for (const id of ["balance", "zero", "promos"]) {
 const zero = render("zero");
 assert.doesNotMatch(text(zero), /£0 on a 0% deal/);
 assert.match(text(zero), /Is this card on a 0% deal\?/);
-// Balances default to hidden until preferences resolve, so the figure is masked here.
+// Balances default to hidden without a provider, so the figure is masked in this server render.
 assert.match(text(render("balance")), /Is any of this £\S+ on a 0% deal\?/);
 
 // promoOn null: exactly two radio options in the 0% pair, and no third answer.
