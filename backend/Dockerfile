@@ -6,7 +6,11 @@
 # vars in production and are excluded from the image via .dockerignore.
 FROM python:3.12-slim AS base
 # poppler-utils: required by the PDF statement parser.
+# H111: apt-get upgrade pulls Debian security fixes (openssl, pcre2) that the
+# floating python:3.12-slim base may not have rolled in yet, so Trivy's
+# HIGH,CRITICAL --ignore-unfixed gate stays green between base refreshes.
 RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
     && apt-get install -y --no-install-recommends poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
