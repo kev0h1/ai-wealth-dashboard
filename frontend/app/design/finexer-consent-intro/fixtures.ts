@@ -1,15 +1,7 @@
 import { BRAND } from "./brand.generated";
 import { REGULATED_FOOTER } from "./footer";
 
-export type IntroVariant = "a" | "b" | "c" | "today";
 export type IntroMode = "light" | "dark";
-
-export const VARIANTS: { id: IntroVariant; label: string; note: string }[] = [
-  { id: "a", label: "A Canvas", note: "No panel. Label-style eyebrow, one sentence, hairline." },
-  { id: "b", label: "B Quiet card", note: "Hairline card, three facts with small indigo dots." },
-  { id: "c", label: "C Hero line", note: "Headline-step line on the canvas, support beneath." },
-  { id: "today", label: "Today", note: "The shipped header.html and its panel rule." },
-];
 
 // Finexer's real class names are not known to us, so the shell uses plain
 // elements. Wording is copied from the production screenshot.
@@ -36,13 +28,12 @@ const SHELL_CSS = `
 .fx footer{margin:32px 16px 0;border-top:1px solid var(--s-ink);padding:12px 0 24px;font-size:12px;line-height:1.6;color:var(--s-muted)}
 `;
 
-export function buildDoc(variant: IntroVariant, mode: IntroMode): string {
+export function buildDoc(mode: IntroMode): string {
   // The light token file carries a prefers-color-scheme block for phones with no
   // saved preference. The mock picks the mode with its chip, so drop it here.
   const tokens = BRAND.tokens[mode].replace(/@media \(prefers-color-scheme: dark\)\s*\{[\s\S]*?\}\s*\}/, "");
-  const isToday = variant === "today";
-  const css = isToday ? BRAND.shared : BRAND.sharedWithoutOldIntro + "\n" + BRAND.variants[variant].css;
-  const html = isToday ? BRAND.today : BRAND.variants[variant].html;
+  const css = BRAND.shared;
+  const html = BRAND.header;
   const perms = PERMISSIONS.map(([h, d]) => `<dt>${h}</dt><dd>${d}</dd>`).join("");
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${tokens}\n${css}\n${SHELL_CSS}</style></head><body class="fx">
 <div data-fx="header">${html}</div>

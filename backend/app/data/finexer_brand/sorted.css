@@ -62,19 +62,11 @@ h1, h2, h3, h4, h5, h6, summary, dt, legend, strong,
   color: var(--s-ink);
 }
 
-/* Our own intro block (header.html) */
-.sorted-intro {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin: 0 0 16px;
-  padding: 16px;
-  background: var(--s-card);
-  border: 1px solid var(--s-border);
-  border-radius: 16px;
-  color: var(--s-ink);
-}
-.sorted-intro p { margin: 0; font-size: 14px; line-height: 1.5; color: var(--s-ink); }
+/* Our own intro block (header.html, variant A) */
+/* A: canvas-first. No panel, a label-style eyebrow and one sentence, hairline below. 16px side gutters because Finexer renders header_html flush to the screen edge. */
+.si-a { margin: 16px 16px 12px; padding: 0 0 12px; border-bottom: 1px solid var(--s-border); }
+.si-a b { display: block; margin: 0 0 4px; font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--s-muted); }
+.si-a p { margin: 0; line-height: 1.5; color: var(--s-ink); }
 
 /* ---- selectors to confirm against the preview ----
    Finexer's class names are not documented to us. Everything above is

@@ -1,39 +1,34 @@
-// check:finexer-intro (G226). Guards the Finexer consent intro variants under
-// backend/app/data/finexer_brand/intro against Finexer's limits and the copy
-// rules. The variants replace the .sorted-intro rules in sorted.css, so the
-// budget is the shared CSS without that old block plus the variant's own CSS.
+// check:finexer-intro (G226). Pins the shipped Finexer consent intro
+// (backend/app/data/finexer_brand/header.html plus sorted*.css) against
+// Finexer's limits and the copy rules.
 import assert from "node:assert/strict";
-import { build, minifyCss, read, sharedWithoutOldIntro } from "./gen-finexer-intro-fixtures.mjs";
+import { build, minifyCss, read } from "./gen-finexer-intro-fixtures.mjs";
 import { readFileSync } from "node:fs";
 import { REGULATED_FOOTER } from "../app/design/finexer-consent-intro/footer.ts";
 
 const LIMIT = 2000;
-const shared = sharedWithoutOldIntro();
-assert.ok(shared.length < read("sorted.css").length, "old .sorted-intro block was not found in sorted.css");
+const shared = read("sorted.css");
+assert.ok(!/\.sorted-intro/.test(shared), "old .sorted-intro rule must be gone from sorted.css");
+assert.ok(/\.si-a\b/.test(shared), "variant A rules (.si-a) missing from sorted.css");
 
 for (const mode of ["light", "dark"]) {
-  const tokens = read(`sorted-${mode}.css`);
-  for (const v of ["a", "b", "c"]) {
-    const total = minifyCss(`${tokens}\n${shared}\n${read("intro", `${v}.css`)}`).length;
-    assert.ok(total < LIMIT, `variant ${v} ${mode} CSS is ${total} chars, limit ${LIMIT}`);
-    console.log(`variant ${v} ${mode}: ${total} / ${LIMIT} (own CSS ${minifyCss(read("intro", `${v}.css`)).length})`);
-  }
+  const total = minifyCss(`${read(`sorted-${mode}.css`)}\n${shared}`).length;
+  assert.ok(total < LIMIT, `${mode} CSS is ${total} chars, limit ${LIMIT}`);
+  console.log(`${mode}: ${total} / ${LIMIT}`);
 }
 
-for (const v of ["a", "b", "c"]) {
-  const html = read("intro", `${v}.html`);
-  assert.ok(!/<img/i.test(html), `${v}: no <img`);
-  assert.ok(!/<script/i.test(html), `${v}: no <script`);
-  assert.ok(!html.includes("—") && !html.includes("–"), `${v}: no em or en dash`);
-  assert.ok(!html.includes("!"), `${v}: no exclamation mark`);
-  assert.ok(!/\son[a-z]+\s*=/i.test(html), `${v}: no inline on* handler`);
-  assert.ok(!/http/i.test(html), `${v}: no http URL`);
-  assert.ok(!/Nothing moves/i.test(html), `${v}: no "Nothing moves" claim`);
-  assert.ok(/read-only|Read only/.test(html), `${v}: read-only is stated`);
-  const css = read("intro", `${v}.css`);
-  assert.ok(!/gradient/i.test(css), `${v}: no gradient (Penny's)`);
-  assert.ok(!/border-left\s*:\s*[2-9]/.test(css), `${v}: no side stripe`);
-}
+const html = read("header.html");
+assert.ok(!/<img/i.test(html), "no <img");
+assert.ok(!/<script/i.test(html), "no <script");
+assert.ok(!html.includes("—") && !html.includes("–"), "no em or en dash");
+assert.ok(!html.includes("!"), "no exclamation mark");
+assert.ok(!/\son[a-z]+\s*=/i.test(html), "no inline on* handler");
+assert.ok(!/http/i.test(html), "no http URL");
+assert.ok(!/Nothing moves/i.test(html), 'no "Nothing moves" claim');
+assert.ok(/<b>Sorted<\/b>/.test(html), "Sorted eyebrow present");
+assert.ok(/read-only/.test(html), "read-only is stated");
+assert.ok(!/gradient/i.test(shared), "no gradient (Penny's)");
+assert.ok(!/border-left\s*:\s*[2-9]/.test(shared), "no side stripe");
 
 assert.equal(
   REGULATED_FOOTER,
