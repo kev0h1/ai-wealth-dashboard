@@ -76,6 +76,6 @@ export default function UpcomingAccountDetails({ account, periodLabel, plans = [
     <section aria-labelledby={id + "-events"}><div className="flex items-baseline justify-between gap-4"><h3 id={id + "-events"} className="text-sm font-semibold">Payments &amp; income</h3><span className={"text-xs " + detailMuted}>{account.events.length} expected</span></div>
       {account.events.length ? <ul className="mt-1 divide-y divide-slate-200 dark:divide-slate-700">{account.events.map((event) => <EventLine key={event.id} event={event} align={Boolean(onEvent)} onEvent={onEvent && (!editableEventIds || editableEventIds.has(event.id)) ? onEvent : undefined} />)}</ul> : <p className={"py-3 text-sm " + detailMuted}>No payments or income expected. {periodLabel}.</p>}
     </section>
-    <p className={"text-xs leading-5 " + detailMuted}>Only the amount still to set aside is included. Goal contributions are plans, not scheduled bank payments. This account view does not change the payday forecast.</p>
+    <p className={"text-xs leading-5 " + detailMuted}>Goal contributions are plans, not scheduled bank payments. The payday figure above counts all of them, while this account view shows only the plans linked to this account and does not change that figure.</p>
   </div>;
 }

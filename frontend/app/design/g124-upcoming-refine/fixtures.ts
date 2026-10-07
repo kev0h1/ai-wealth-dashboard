@@ -118,12 +118,13 @@ export const HERO_POSITIVE = {
   runwayIncomeTotal: 1850,
   runwayBillsTotal: 612,
   allocationsRemainingTotal: 165,
+  plansReservedTotal: 80,
   savingsNow: 3400,
   genuineShortfalls: [] as { accountId: string; bank: string; shortfall: number }[],
   timingShortfalls: [] as { accountId: string; bank: string; dueDate?: string }[],
 };
 export const RUNWAY_POSITIVE =
-  HERO_POSITIVE.spendableNow + HERO_POSITIVE.runwayIncomeTotal - HERO_POSITIVE.runwayBillsTotal - HERO_POSITIVE.allocationsRemainingTotal;
+  HERO_POSITIVE.spendableNow + HERO_POSITIVE.runwayIncomeTotal - HERO_POSITIVE.runwayBillsTotal - HERO_POSITIVE.allocationsRemainingTotal - HERO_POSITIVE.plansReservedTotal;
 
 // ── Negative hero scenario ──────────────────────────────────────────────
 export const HERO_NEGATIVE = {
@@ -134,12 +135,13 @@ export const HERO_NEGATIVE = {
   runwayIncomeTotal: 0,
   runwayBillsTotal: 524,
   allocationsRemainingTotal: 0,
+  plansReservedTotal: 0,
   savingsNow: 220,
   genuineShortfalls: [{ accountId: "acc-monzo", bank: "Monzo", shortfall: 184 }],
   timingShortfalls: [] as { accountId: string; bank: string; dueDate?: string }[],
 };
 export const RUNWAY_NEGATIVE =
-  HERO_NEGATIVE.spendableNow + HERO_NEGATIVE.runwayIncomeTotal - HERO_NEGATIVE.runwayBillsTotal - HERO_NEGATIVE.allocationsRemainingTotal;
+  HERO_NEGATIVE.spendableNow + HERO_NEGATIVE.runwayIncomeTotal - HERO_NEGATIVE.runwayBillsTotal - HERO_NEGATIVE.allocationsRemainingTotal - HERO_NEGATIVE.plansReservedTotal;
 
 // ── Day groups (shared shape for both hero scenarios; only the negative
 // scenario's Today group carries the flagged genuine-shortfall row that the

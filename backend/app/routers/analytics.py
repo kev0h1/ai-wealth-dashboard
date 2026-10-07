@@ -4725,6 +4725,24 @@ async def get_cashflow(user: dict = Depends(current_user)):
         logger.exception("allocations attach failed for %s — omitting", uid)
         resp["allocations"] = []
 
+    # G227: the period's goal plan contributions, from the SAME function
+    # Safe-to-Spend reads for commitments_reserved (total_reserved_slices), so
+    # Home's "Plans reserved" and Upcoming's "Plans this period" are one
+    # number. Read live, never cached. On failure the figure is 0 and
+    # `plans_available` is false so the client can say so rather than imply
+    # there are no plans.
+    try:
+        from app.routers.commitments import total_reserved_slices
+        _plans, _plans_n = await total_reserved_slices(uid)
+        resp["plans_reserved"] = int(_plans)
+        resp["plans_count"] = int(_plans_n)
+        resp["plans_available"] = True
+    except Exception:
+        logger.exception("plans reserve attach failed for %s", uid)
+        resp["plans_reserved"] = 0
+        resp["plans_count"] = 0
+        resp["plans_available"] = False
+
     return resp
 
 
