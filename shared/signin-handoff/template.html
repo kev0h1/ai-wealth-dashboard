@@ -54,6 +54,7 @@ main{display:flex;flex-direction:column;width:100%;max-width:430px;min-height:10
 h1{grid-column:1;grid-row:1;font-size:30px;line-height:1.2;letter-spacing:-.025em}
 #msg{grid-column:1/-1;max-width:280px;margin-top:16px}
 .action{margin-top:auto;padding-top:24px;border-top:1px solid var(--border)}
+.legal{margin:20px 0 0;color:var(--secondary);font-size:12px;line-height:1.5;text-wrap:pretty}
 </style>
 </head>
 <body>
@@ -70,6 +71,7 @@ h1{grid-column:1;grid-row:1;font-size:30px;line-height:1.2;letter-spacing:-.025e
   <div class="action">
     <button id="return" type="button">Return to Sorted</button>
   </div>
+  <p class="legal">AURIQ LTD is acting as an agent of Finexer LTD, which is authorised by the Financial Conduct Authority under the Payment Services Regulations 2017, firm reference number 925695, as an Authorised Payment Institution to provide account information services and payment initiation services.</p>
 </main>
 <script>
   var RETURN_URL={{return_url_json}};

@@ -254,7 +254,7 @@ export default function LoginScreen({ error, onSignedIn, resuming, onCancelResum
         </div>
 
         {/* Regulatory disclosure (Q6/A9) — single source of truth in lib/regulatoryCopy.ts */}
-        <p className="mt-8 px-4 text-center text-xs leading-relaxed text-slate-400 dark:text-slate-500">
+        <p className="mt-8 px-4 text-center text-xs leading-relaxed text-slate-500 dark:text-slate-400">
           {AGENT_DISCLOSURE}
         </p>
 
