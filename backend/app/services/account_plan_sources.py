@@ -168,8 +168,18 @@ def chosen_source(
     return aid, "chosen"
 
 
+def needs_inference(doc: dict, destination_ids: set[str]) -> bool:
+    """True when a plan has no stored account and has not been set to Not set."""
+    return (
+        doc.get("source_unset") is not True
+        and doc.get("source_account_id") is None
+        and bool(destination_ids)
+    )
+
+
 async def resolve_goal_source(
     uid: str, doc: dict, account_map: dict[str, dict], destination_ids: set[str],
+    prefetched: dict[str, str | None] | None = None,
 ) -> tuple[str | None, bool]:
     """G230: (source_account_id, inferred) for one goal plan.
 
@@ -189,14 +199,19 @@ async def resolve_goal_source(
         return None, False  # an explicit account that is no longer usable
     if not destination_ids:
         return None, False
-    from app.services.companion import infer_plan_source_account
+    from app.services.companion import infer_plan_sources_batch
 
     eligible = {
         aid: acct for aid, acct in eligible_source_account_map(account_map, destination_ids).items()
         if acct.get("include_in_safe_to_spend") is not False
     }
     try:
-        inferred = await infer_plan_source_account(uid, sorted(destination_ids), eligible)
+        if prefetched is not None:
+            inferred = prefetched.get(str(doc.get("_id")))
+        else:
+            inferred = (await infer_plan_sources_batch(
+                uid, {str(doc.get("_id")): sorted(destination_ids)}, account_map,
+            )).get(str(doc.get("_id")))
         if not inferred:
             return None, False
         return validate_source_account(inferred, eligible, destination_ids), True

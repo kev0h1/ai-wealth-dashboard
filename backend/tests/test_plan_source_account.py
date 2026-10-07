@@ -25,18 +25,30 @@ UID = "u"
 
 def _goal(**extra):
     return {"_id": ObjectId(), "user_id": UID, "name": "Japan", "status": "active",
-            "amount": 1000, "target_date": "2027-06-01",
+            "amount": 1000, "target_date": (timeutil.user_today() + timedelta(days=400)).isoformat(),
             "funding_pots": [{"account_id": "saving", "baseline": 0, "count_existing": False}],
             **extra}
 
 
 class _Txns:
-    def __init__(self, docs=()): self.docs = docs
+    def __init__(self, docs=()):
+        self.docs = docs
+        self.calls = 0
 
     def find(self, query, *args):
+        self.calls += 1
+
         def ok(d):
-            return all(d.get(k) == v for k, v in query.items()
-                       if k in ("user_id", "account_id", "transaction_type"))
+            for k in ("user_id", "account_id", "transaction_type"):
+                if k not in query:
+                    continue
+                v = query[k]
+                if isinstance(v, dict) and "$in" in v:
+                    if d.get(k) not in v["$in"]:
+                        return False
+                elif d.get(k) != v:
+                    return False
+            return True
         cursor = SimpleNamespace()
 
         async def to_list(_):
@@ -65,13 +77,15 @@ def _rows(monkeypatch, goal, accounts=None, txns=(), slice_=80):
 
     async def amap(_): return accts
     async def cfg(_): return {"type": "calendar_month"}
-    async def ledger(*a, **k): return {"commitments": {}}
+    async def ledger(uid, docs=None, balances=None):
+        return {"commitments": {str(d["_id"]): {"total_claimed": 0.0, "claims": {}} for d in docs or []}}
     async def slc(*_): return {"per_period_slice": slice_}
     monkeypatch.setattr(allocations, "owned_account_map", amap)
     monkeypatch.setattr(sources, "owned_account_map", amap)
     monkeypatch.setattr(allocations, "_pay_cfg", cfg)
     monkeypatch.setattr(commitments, "compute_pot_ledger", ledger)
-    monkeypatch.setattr(commitments, "_pot_progress_and_slice", slc)
+    if slice_ is not None:
+        monkeypatch.setattr(commitments, "_pot_progress_and_slice", slc)
     return asyncio.run(allocations.list_account_plans({"email": UID}))["items"]
 
 
@@ -120,8 +134,33 @@ def test_inference_skips_an_excluded_account(monkeypatch):
 
 
 def test_eased_slice_is_the_amount_the_row_carries(monkeypatch):
-    row = _rows(monkeypatch, _goal(source_account_id="current"), slice_=45)[0]
-    assert row["period_amount"] == 45 and row["remaining"] == 45
+    # The real _pot_progress_and_slice, with a live period_eased entry.
+    _s, end = commitments.get_pay_period_for_date(timeutil.user_today(), {"type": "calendar_month"})
+    doc = _goal(source_account_id="current", period_eased={
+        end.isoformat(): {"contribution_pence": 3000, "usual_pence": 10000, "mode": "keep_date"}})
+    row = _rows(monkeypatch, doc, slice_=None)[0]
+    assert row["period_amount"] == 30 and row["remaining"] == 30
+    plain = _rows(monkeypatch, _goal(source_account_id="current"), slice_=None)[0]
+    assert plain["period_amount"] > 30
+
+
+def test_unassigned_goals_are_inferred_with_one_query_per_collection(monkeypatch):
+    goals = [_goal(name=f"G{i}", funding_pots=[{"account_id": "saving"}]) for i in range(3)]
+    txns = _Txns(_transfer_pair())
+    monkeypatch.setattr(companion, "transactions_col", txns)
+    monkeypatch.setattr(companion, "yapily_transactions_col", _Txns())
+    accts = {k: v for k, v in _accounts().items()}
+
+    async def amap(_): return accts
+    monkeypatch.setattr(sources, "owned_account_map", amap)
+    import app.services.account_plan_sources as aps
+    monkeypatch.setattr(aps, "owned_account_map", amap)
+    items = [{} for _ in goals]
+    asyncio.run(commitments._attach_sources(UID, items, goals))
+    assert [i["source_account_id"] for i in items] == ["current"] * 3
+    assert all(i["source_inferred"] for i in items)
+    # one credit query and one debit query, whatever the number of goals
+    assert txns.calls == 2
 
 
 def test_validation_refuses_a_card_and_an_excluded_account_with_static_422s():

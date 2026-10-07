@@ -563,13 +563,26 @@ async def list_account_plans(user: dict = Depends(current_user)):
             balances[aid] = balance
     ledger = await commitments.compute_pot_ledger(uid, docs=goal_docs, balances=balances)
     today = timeutil.user_today()
+    from app.services.account_plan_sources import needs_inference
+    from app.services.companion import infer_plan_sources_batch
+    wanted = {
+        str(d["_id"]): sorted({str(p["account_id"]) for p in commitments._doc_pots(d)})
+        for d in goal_docs
+        if needs_inference(d, {str(p["account_id"]) for p in commitments._doc_pots(d)})
+    }
+    prefetched: dict = {}
+    if wanted:
+        try:
+            prefetched = await infer_plan_sources_batch(uid, wanted, account_map)
+        except Exception:
+            logger.exception("Could not infer goal plan sources")
     for doc in goal_docs:
         pots = commitments._doc_pots(doc)
         destination_ids = [str(p["account_id"]) for p in pots]
         # G230: goals infer their paying account from recent transfers into
         # the sink pot(s), like set-asides; an explicit "Not set" stays pooled.
         source_id, inferred = await resolve_goal_source(
-            uid, doc, account_map, set(destination_ids),
+            uid, doc, account_map, set(destination_ids), prefetched=prefetched,
         )
         basis = "recent-transfers" if inferred else ("chosen" if source_id else "unknown")
         slice_info = await commitments._pot_progress_and_slice(doc, cfg, ledger, today)

@@ -915,11 +915,30 @@ async def _attach_sources(uid: str, items: list[dict], docs: list[dict]) -> None
     except Exception:
         logger.exception("commitments: plan source lookup failed")
         account_map = {}
+    from app.services.account_plan_sources import needs_inference
+    from app.services.companion import infer_plan_sources_batch
+
+    # One batched inference for every unassigned active goal (no N+1); a
+    # failure leaves them unassigned.
+    wanted = {
+        str(d["_id"]): sorted({str(p["account_id"]) for p in _doc_pots(d)})
+        for d in docs
+        if d.get("status", "active") == "active"
+        and needs_inference(d, {str(p["account_id"]) for p in _doc_pots(d)})
+    }
+    prefetched: dict[str, str | None] = {}
+    if wanted and account_map:
+        try:
+            prefetched = await infer_plan_sources_batch(uid, wanted, account_map)
+        except Exception:
+            logger.exception("commitments: batched plan source inference failed")
     for item, doc in zip(items, docs):
         dest = {str(p["account_id"]) for p in _doc_pots(doc)}
         source_id, inferred = (None, False)
         if account_map and doc.get("status", "active") == "active":
-            source_id, inferred = await resolve_goal_source(uid, doc, account_map, dest)
+            source_id, inferred = await resolve_goal_source(
+                uid, doc, account_map, dest, prefetched=prefetched,
+            )
         item["source_account_id"] = source_id
         item["source_inferred"] = inferred
         item["source_unset"] = bool(doc.get("source_unset"))

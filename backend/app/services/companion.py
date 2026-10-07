@@ -725,9 +725,25 @@ async def _direct_fill_leg_source(
     return await _pair_credits_to_source(uid, fill_account_id, fills, start, end, account_map)
 
 
+async def _load_debits(uid: str, start: date, end: date) -> list[dict]:
+    """Every own debit in [start, end], one query per transactions collection."""
+    start_dt = datetime(start.year, start.month, start.day)
+    end_dt = datetime(end.year, end.month, end.day, 23, 59, 59)
+    debit_q = {
+        "user_id": uid,
+        "transaction_type": "debit",
+        "date": {"$gte": start_dt, "$lte": end_dt},
+    }
+    proj = {"account_id": 1, "amount": 1, "date": 1, "description": 1, "merchant_name": 1}
+    out: list[dict] = []
+    for col in (transactions_col, yapily_transactions_col):
+        out += await col.find(debit_q, proj).to_list(None)
+    return out
+
+
 async def _pair_credits_to_source(
     uid: str, fill_account_id: str, fills: list[dict], start: date, end: date,
-    account_map: dict[str, dict],
+    account_map: dict[str, dict], debits: list[dict] | None = None,
 ) -> str | None:
     """The pairing half of `_direct_fill_leg_source`, split out (G230) so a
     plan's sink pot can reuse the exact same same-day, exact-amount,
@@ -739,20 +755,12 @@ async def _pair_credits_to_source(
     if not fills:
         return None
 
-    start_dt = datetime(start.year, start.month, start.day)
-    end_dt = datetime(end.year, end.month, end.day, 23, 59, 59)
-    debit_q = {
-        "user_id": uid,
-        "transaction_type": "debit",
-        "date": {"$gte": start_dt, "$lte": end_dt},
-    }
-    proj = {"account_id": 1, "amount": 1, "date": 1, "description": 1, "merchant_name": 1}
-    candidates: list[dict] = []
-    for col in (transactions_col, yapily_transactions_col):
-        for t in await col.find(debit_q, proj).to_list(None):
-            if str(t.get("account_id") or "") == str(fill_account_id):
-                continue  # a source must be a DIFFERENT, own, non-fill account
-            candidates.append(t)
+    if debits is None:
+        debits = await _load_debits(uid, start, end)
+    candidates: list[dict] = [
+        t for t in debits
+        if str(t.get("account_id") or "") != str(fill_account_id)  # a source must be a DIFFERENT, own, non-fill account
+    ]
 
     def _day(t):
         d = t.get("date")
@@ -5901,33 +5909,47 @@ async def dismiss_item(uid: str, item_id: str) -> None:
     )
 
 
-async def infer_plan_source_account(
-    uid: str, sink_account_ids: list[str], account_map: dict[str, dict],
-    *, days: int = 90,
-) -> str | None:
-    """G230: the current account a goal plan is most likely paid from,
-    inferred from recent transfers into its sink pot(s) with the same pairing
-    and modal rule set-asides use. Read-only: the caller must never persist
-    the answer. Offline pots have no transactions, so they contribute nothing.
+async def infer_plan_sources_batch(
+    uid: str, wanted: dict[str, list[str]], account_map: dict[str, dict], *, days: int = 90,
+) -> dict[str, str | None]:
+    """G230: infer the paying account for many goal plans at once.
+
+    `wanted` maps a plan key to its sink pot ids. One credit query and one
+    debit query per transactions collection serve every plan (no per-plan
+    round trips); pairing then runs per pot in memory with the same rule set-
+    asides use. Read-only: callers must never persist the answers.
     """
     from app.core import timeutil
     from datetime import timedelta
 
+    if not wanted:
+        return {}
     end = timeutil.user_today()
     start = end - timedelta(days=days)
     start_dt = datetime(start.year, start.month, start.day)
     end_dt = datetime(end.year, end.month, end.day, 23, 59, 59)
-    votes: dict[str, int] = {}
-    for aid in sink_account_ids:
-        q = {
-            "user_id": uid, "account_id": aid, "transaction_type": "credit",
-            "date": {"$gte": start_dt, "$lte": end_dt},
-        }
-        proj = {"amount": 1, "merchant_name": 1, "description": 1, "date": 1}
-        credits: list[dict] = []
-        for col in (transactions_col, yapily_transactions_col):
-            credits += await col.find(q, proj).to_list(None)
-        src = await _pair_credits_to_source(uid, aid, credits, start, end, account_map)
-        if src:
-            votes[src] = votes.get(src, 0) + 1
-    return _modal_account(votes)
+    pot_ids = sorted({aid for ids in wanted.values() for aid in ids})
+    q = {
+        "user_id": uid, "account_id": {"$in": pot_ids}, "transaction_type": "credit",
+        "date": {"$gte": start_dt, "$lte": end_dt},
+    }
+    proj = {"account_id": 1, "amount": 1, "merchant_name": 1, "description": 1, "date": 1}
+    credits_by_pot: dict[str, list[dict]] = {}
+    for col in (transactions_col, yapily_transactions_col):
+        for t in await col.find(q, proj).to_list(None):
+            credits_by_pot.setdefault(str(t.get("account_id") or ""), []).append(t)
+    debits = await _load_debits(uid, start, end) if credits_by_pot else []
+    pot_source: dict[str, str | None] = {}
+    for aid, credits in credits_by_pot.items():
+        pot_source[aid] = await _pair_credits_to_source(
+            uid, aid, credits, start, end, account_map, debits=debits,
+        )
+    out: dict[str, str | None] = {}
+    for key, ids in wanted.items():
+        votes: dict[str, int] = {}
+        for aid in ids:
+            src = pot_source.get(aid)
+            if src:
+                votes[src] = votes.get(src, 0) + 1
+        out[key] = _modal_account(votes)
+    return out
