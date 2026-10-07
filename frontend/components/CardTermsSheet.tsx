@@ -510,7 +510,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
                       const next = promoRows.filter((_, j) => j !== i);
                       setPromoRows(next.length === 0 ? [{ kind: null, month: null, year: null, rate: "" }] : next);
                     }}
-                    className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full text-slate-400 dark:text-slate-500 active:opacity-70 transition-opacity focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                    className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full text-slate-500 dark:text-slate-400 active:opacity-70 transition-opacity focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
                   >
                     <X size={14} />
                   </button>
@@ -635,7 +635,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
                       const next = btOffers.filter((_, j) => j !== i);
                       setBtOffers(next.length === 0 ? [{ month: null, year: null, fee: "", note: "" }] : next);
                     }}
-                    className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full text-slate-400 dark:text-slate-500 active:opacity-70 transition-opacity focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                    className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full text-slate-500 dark:text-slate-400 active:opacity-70 transition-opacity focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
                   >
                     <X size={14} />
                   </button>
@@ -850,7 +850,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
                   <div className="space-y-6">
                     {rateInput}
                     {promosSection}
-                      {btSection}
+                    {btSection}
                     {usageSection}
                   </div>
                 )}
