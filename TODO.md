@@ -1719,7 +1719,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
   - note (2026-10-07, claude): Coordinator 2026-10-07: refreshed with main, design index conflict only (kept G228 and G229 entries), no other change since the 59ee938c review.
   - note (2026-10-07, claude): approved: Confirmed as shipped (Kevin 2026-10-07), nothing to fold in
   - note (2026-10-07, claude): Kevin confirmed the By account fold as shipped on 2026-10-07; no second branch. Already on main in integrate commit 67ae3acd. Coordinator: please tick done with --commit 67ae3acd; the in-progress state is only the shape approve leaves behind.
-- [ ] **G230. A goal plan records where its money is banked (the savings pot it is funded from, in Edit plan) but not which current account the contribution leaves each period (Kevin 2026-10-07, UAT Edit plan sheet): the funding account is what the per-account Upcoming walk and Safe to Spend need, so add a source current account to plans, defaulting from observed transfers the way set-asides do, and use it in the per-account view** [owner: claude]
+- [ ] **G230. A goal plan records where its money is banked (the savings pot it is funded from, in Edit plan) but not which current account the contribution leaves each period (Kevin 2026-10-07, UAT Edit plan sheet): the funding account is what the per-account Upcoming walk and Safe to Spend need, so add a source current account to plans, defaulting from observed transfers the way set-asides do, and use it in the per-account view** [owner: claude] [priority: p2]
 
 ## H. Repo hygiene
 
