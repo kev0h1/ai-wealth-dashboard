@@ -62,6 +62,7 @@ def compute_allocation_gaps(
     *,
     movement_out: dict[str, list[str | None]] | None = None,
     floor_pence: int | None = None,
+    require_allocation: bool = True,
 ) -> list[dict]:
     """One entry per account whose set-asides push it short, material only.
 
@@ -76,7 +77,10 @@ def compute_allocation_gaps(
     unreadable amount, when plans share a source and a receiving pot, or when
     a forecast transfer might double-count. An account with no allocation
     still owing money is skipped too: a goal-only gap has no set-aside to
-    reduce here.
+    reduce here. G228's plan easing passes `require_allocation=False` to reuse
+    this same eligibility for goal plans: the gap, the unreadable-amount,
+    own-transfer and shared-pot skips are identical, and each entry then also
+    carries `goals` (the plans owing, largest first).
     """
     floor = ALLOCATION_SHORTFALL_FLOOR_PENCE if floor_pence is None else floor_pence
     movement_out = movement_out or {}
@@ -114,7 +118,13 @@ def compute_allocation_gaps(
             ((a, p) for a, p in owing if p.get("kind") == "allocation"),
             key=lambda t: (-t[0], str(t[1].get("name") or "").lower(), str(t[1].get("record_id") or "")),
         )
-        if not allocations:
+        goals = sorted(
+            ((a, p) for a, p in owing if p.get("kind") == "goal"),
+            key=lambda t: (-t[0], str(t[1].get("name") or "").lower(), str(t[1].get("record_id") or "")),
+        )
+        if require_allocation and not allocations:
+            continue
+        if not require_allocation and not goals:
             continue
         estimated = any(p.get("source_basis") == "recent-transfers" for _, p in allocations)
         out.append({
@@ -130,6 +140,15 @@ def compute_allocation_gaps(
                     "period_amount": round((_pence(p.get("period_amount")) or 0) / 100, 2),
                 }
                 for a, p in allocations
+            ],
+            "goals": [
+                {
+                    "id": str(p.get("record_id") or ""),
+                    "name": p.get("name") or "Goal plan",
+                    "remaining": round(a / 100, 2),
+                    "period_amount": round((_pence(p.get("period_amount")) or 0) / 100, 2),
+                }
+                for a, p in goals
             ],
         })
     # Largest gap first, then account id, so several short accounts always

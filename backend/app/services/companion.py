@@ -4509,6 +4509,8 @@ async def compute_today_items(
     # its £10 buffer, its exclusions), never a second ranking. Ranks below all
     # payment cards (see the merge in section 9).
     allocation_items: list[dict] = []
+    _ap_plans: list[dict] = []
+    _ap_ctx: tuple | None = None
     if not payday_preview:
         try:
             _ap_plans = await _load_account_plans(uid)
@@ -4526,6 +4528,7 @@ async def compute_today_items(
                             _b.get("dest_account_id") or None
                         )
                 _ap_accts = {a["_str_id"]: a for a in all_uk_accounts + offline_accounts}
+                _ap_ctx = (_ap_closing, _ap_movement, _ap_accts)
                 for _g in compute_allocation_gaps(_ap_plans, _ap_closing, movement_out=_ap_movement):
                     _pay_id = _g["account_id"]
                     _pay_acc = _ap_accts.get(_pay_id)
@@ -4601,6 +4604,30 @@ async def compute_today_items(
         except Exception:
             log.warning("allocation shortfall failed for %s", uid, exc_info=True)
             allocation_items = []
+
+    # ── 6c. PLAN EASING (G228) ──────────────────────────────────────────────
+    # A goal plan whose paying account is short this period, with no safe move
+    # that covers the gap. Reuses G217's eligibility (`compute_allocation_gaps`
+    # with require_allocation=False: same gap, floor and skips) and the SAME
+    # source finder as every other card; it never consumes source capacity and
+    # never moves money. One card at most, the plan with the largest slice
+    # first, ranked after the set-aside card. A plan already eased in this
+    # window shows its deferred one-liner instead (no gap needed: the easing
+    # itself is what closed it).
+    plan_easing_items: list[dict] = []
+    if not payday_preview:
+        try:
+            plan_easing_items = await _build_plan_easing_items(
+                uid, window_end, dismissed,
+                plans=_ap_plans, ctx=_ap_ctx,
+                running=running, live_balances=live_balances,
+                accounts=all_uk_accounts + offline_accounts,
+                assessable_bills=assessable_bills,
+                find_legs=_find_legs_for_destination, source_capacity=source_capacity,
+            )
+        except Exception:
+            log.warning("plan easing failed for %s", uid, exc_info=True)
+            plan_easing_items = []
 
     # ── 7. Auto-verification + celebration pass ─────────────────────────────
     # Active moves whose destination now clears its window flip to "done" and
@@ -5689,6 +5716,7 @@ async def compute_today_items(
         items[:_MOVE_CARD_CAP]
         + unfunded_move_items[:1]
         + allocation_items[:1]
+        + plan_easing_items[:1]
         + celebration_items[:_MOVE_CARD_CAP]
         + cliff_items[:2]
         + trajectory_items[:1]
@@ -5701,15 +5729,131 @@ async def compute_today_items(
     return result[:3]
 
 
-async def _load_account_plans(uid: str) -> list[dict]:
+async def _build_plan_easing_items(
+    uid: str, window_end, dismissed: set[str], *, plans: list[dict], ctx, running: dict,
+    live_balances: dict, accounts: list[dict], assessable_bills: list[dict],
+    find_legs, source_capacity: dict,
+) -> list[dict]:
+    """G228 Home-brief item for easing a goal plan this period (see 6c)."""
+    from app.db.collections import commitments_col
+    from app.routers import commitments as _cm
+    from app.services.allocation_shortfall import compute_allocation_gaps
+
+    if not plans:
+        plans = await _load_account_plans(uid, goals=True)
+    if not any(p.get("kind") == "goal" for p in plans):
+        return []
+    accts = {a["_str_id"]: a for a in accounts}
+    if ctx is None:
+        closing = {
+            sid: float(running.get(sid, live_balances.get(sid, float(acc.get("balance") or 0))))
+            for sid, acc in accts.items()
+        }
+        movement: dict[str, list] = {}
+        for b in assessable_bills:
+            if b.get("kind") == MOVEMENT and not b.get("is_credit_card") and not b.get("pending"):
+                movement.setdefault(str(b.get("account_id") or ""), []).append(b.get("dest_account_id") or None)
+    else:
+        closing, movement, accts = ctx
+
+    cfg = await _cm._pay_cfg(uid)
+    today = timeutil.user_today()
+    docs = await commitments_col.find({"user_id": uid, "status": "active"}).to_list(None)
+    if not docs:
+        return []
+    ledger = await _cm.compute_pot_ledger(uid, docs=docs)
+    by_id = {str(d["_id"]): d for d in docs}
+    infos: dict[str, dict] = {}
+    for cid, d in by_id.items():
+        infos[cid] = await _cm._pot_progress_and_slice(d, cfg, ledger, today)
+
+    def _payload(state: str, cid: str, *, gap: float = 0.0, cap: str | None = None, pay_name: str | None = None) -> dict:
+        d, info = by_id[cid], infos[cid]
+        ef = _cm._ease_fields(d, cfg, info, today)
+        usual = int(info["usual_slice"])
+        return {
+            "state": state,
+            "plan": {"id": cid, "name": str(d.get("name") or "Goal plan")},
+            "gap": gap,
+            "usual_slice": usual,
+            "max_easing": usual,
+            "periods_left": int(info["periods_left"]),
+            "target_date": str(d.get("target_date"))[:10],
+            "later_slice": ef["later_slice"],
+            "eased_this_period": ef["eased_this_period"],
+            "eased_count_12m": ef["eased_count_12m"],
+            "cap_reason": cap,
+            "paying_account_name": pay_name,
+        }
+
+    def _item(cid: str, payload: dict) -> dict:
+        name = payload["plan"]["name"]
+        deferred = payload["state"] == "deferred"
+        return {
+            "id": f"plan_easing:{cid}:{window_end.isoformat()}",
+            "type": "plan_easing",
+            "headline": (f"{name} is eased this period" if deferred else "Cash looks short this period"),
+            "body": "",
+            "action": None,
+            "estimated": False,
+            "amount": payload["gap"],
+            "plan_easing": payload,
+        }
+
+    candidates: list[tuple] = []
+    for g in compute_allocation_gaps(plans, closing, movement_out=movement, require_allocation=False):
+        pay_acc = accts.get(g["account_id"])
+        if pay_acc is None:
+            continue
+        for goal in g["goals"]:
+            cid = goal["id"]
+            if cid not in by_id or infos[cid]["eased_this_period"] is not None:
+                continue
+            candidates.append((goal["remaining"], cid, g, pay_acc))
+    # eligible plans before capped ones, then the largest slice first
+    def _cap_for(cid: str) -> str | None:
+        return _cm._ease_fields(by_id[cid], cfg, infos[cid], today)["ease_blocked_reason"]
+    candidates.sort(key=lambda c: (_cap_for(c[1]) is not None, -c[0], c[1]))
+    for _slice, cid, g, pay_acc in candidates:
+        item_id = f"plan_easing:{cid}:{window_end.isoformat()}"
+        if item_id in dismissed:
+            continue
+        gap = g["gap"]
+        pay_id = g["account_id"]
+        snapshot = dict(source_capacity)
+        legs = find_legs(pay_id, float(_ceil5(gap)), lambda *a, **k: {})
+        covered = bool(legs) and sum(float(l["amount"]) for l in legs) + 1e-6 >= gap
+        source_capacity.clear()
+        source_capacity.update(snapshot)  # an easing never claims a source
+        if covered:
+            continue  # a safe move covers it: the move card speaks, not an easing
+        pay_name = _clean_name(pay_acc.get("name"), pay_id)
+        cap = _cap_for(cid)
+        return [_item(cid, _payload("capped" if cap else "eligible", cid, gap=gap, cap=cap, pay_name=pay_name))]
+
+    # Nothing to offer: show the deferred line for an easing already in force.
+    eased = sorted(
+        (cid for cid in by_id if infos[cid]["eased_this_period"] is not None),
+        key=lambda cid: (-infos[cid]["usual_slice"], cid),
+    )
+    for cid in eased:
+        if f"plan_easing:{cid}:{window_end.isoformat()}" in dismissed:
+            continue
+        return [_item(cid, _payload("deferred", cid))]
+    return []
+
+
+async def _load_account_plans(uid: str, *, goals: bool = False) -> list[dict]:
     """G217 seam: the same plan rows the account sheet reads (`GET /account-plans`).
 
     Gated on an active allocation existing, so users without set-asides pay
     nothing. Fail-open: any error means no allocation card, never a 500.
     """
     try:
-        from app.db.collections import allocations_col
-        if await allocations_col.find_one({"user_id": uid, "active": True}) is None:
+        from app.db.collections import allocations_col, commitments_col
+        if await allocations_col.find_one({"user_id": uid, "active": True}) is None and not (
+            goals and await commitments_col.find_one({"user_id": uid, "status": "active"}) is not None
+        ):
             return []
         from app.routers.allocations import list_account_plans
         return list((await list_account_plans({"email": uid})).get("items") or [])
