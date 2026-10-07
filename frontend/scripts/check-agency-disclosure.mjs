@@ -4,6 +4,7 @@
 // Also bans the words A4.4 forbids (AURIQ is an agent, not an AR or tied agent).
 // Plain Node, no deps.  Usage: node scripts/check-agency-disclosure.mjs (from frontend/)
 import { readFileSync, readdirSync, statSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -46,8 +47,18 @@ for (const d of dirs) {
   for (const f of walk(d)) {
     if (path.basename(f) === "check-agency-disclosure.mjs") continue;
     const txt = readFileSync(f, "utf8");
+    if (/\.tsx?$/.test(f) && f.includes(`${path.sep}components${path.sep}`) || /\.tsx?$/.test(f) && f.includes(`${path.sep}app${path.sep}`)) {
+      if (txt.includes("acting as an agent")) failures.push(`${path.relative(root, f)} hard-codes "acting as an agent" (use AGENT_DISCLOSURE)`);
+    }
     for (const re of banned) if (re.test(txt)) failures.push(`${path.relative(root, f)} contains banned wording ${re}`);
   }
+}
+try {
+  const pdf = execFileSync("pdftotext", [path.join(frontend, "public/TERMS.pdf"), "-"], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  if (!pdf.replace(/\s+/g, " ").includes(SENTENCE)) failures.push("frontend/public/TERMS.pdf does not contain the A4.1 sentence");
+} catch (e) {
+  if (e.code === "ENOENT") console.log("SKIP: pdftotext not installed; PDF sentence check not run");
+  else failures.push("pdftotext failed on public/TERMS.pdf: " + e.message);
 }
 if (failures.length) {
   console.error("check:agency-disclosure FAILED");

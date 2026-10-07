@@ -54,7 +54,7 @@ Sorted is a personal finance dashboard. Once you connect your bank accounts, the
 
 Sorted is available as a web application and as native apps for iOS and Android.
 
-We provide **account information services only**. We do not initiate payments on your behalf, we never hold your money, and we never move money between your accounts or to any third party. Sorted is a read-only view of information from your accounts.
+We provide **account information services only**. We do not initiate payments on your behalf, we never hold your money, and we never move money between your accounts or to any third party. Sorted is a read-only view of information from your accounts. Sorted uses only Finexer LTD's account information service. The authorisation described in Section 2 also covers payment initiation, which Sorted does not use.
 
 ## 5. Connecting your bank accounts and consent
 
