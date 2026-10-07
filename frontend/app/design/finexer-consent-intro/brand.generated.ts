@@ -10,15 +10,15 @@ export const BRAND = {
   "variants": {
     "a": {
       "html": "<div class=\"si-a\"><b>Sorted</b><p>Sorted is asking for <strong>read-only</strong> access to your accounts, so it can show your money in one place.</p></div>",
-      "css": "/* A: canvas-first. No panel, a label-style eyebrow and one sentence, hairline below. 16px side gutters because Finexer renders header_html flush to the screen edge. */\n.si-a { margin: 16px 16px 12px; padding: 0 0 12px; border-bottom: 1px solid var(--s-border); }\n.si-a b { display: block; margin: 0 0 4px; font-size: 11px; letter-spacing: .05em; text-transform: uppercase; color: var(--s-muted); }\n.si-a p { margin: 0; color: var(--s-ink); }\n"
+      "css": "/* A: canvas-first. No panel, a label-style eyebrow and one sentence, hairline below. 16px side gutters because Finexer renders header_html flush to the screen edge. */\n.si-a { margin: 16px 16px 12px; padding: 0 0 12px; border-bottom: 1px solid var(--s-border); }\n.si-a b { display: block; margin: 0 0 4px; font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--s-muted); }\n.si-a p { margin: 0; line-height: 1.5; color: var(--s-ink); }\n"
     },
     "b": {
-      "html": "<div class=\"si-b\"><p>Sorted is asking for <strong>read-only</strong> access to your accounts, so it can show your money in one place.</p><ul><li>Read only</li><li>You approve at your bank</li><li>Disconnect any time in Sorted</li></ul></div>",
-      "css": "/* B: quiet card, 1px hairline, small Adviser Indigo dots on the three facts (no side stripe). */\n.si-b { margin: 16px 16px 12px; padding: 12px; background: var(--s-card); border: 1px solid var(--s-border); border-radius: 16px; }\n.si-b p { margin: 0 0 8px; color: var(--s-ink); }\n.si-b ul { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 0; padding: 0; list-style: none; font-size: 12px; color: var(--s-muted); }\n.si-b li::before { content: \"\"; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: var(--s-primary); }\n"
+      "html": "<div class=\"si-b\"><p>Sorted is asking for <strong>read-only</strong> access to your accounts, so it can show your money in one place.</p><ul><li>Read only</li><li>You approve at your bank</li><li>Remove an account in Sorted any time</li></ul></div>",
+      "css": "/* B: quiet card, 1px hairline, small Adviser Indigo dots on the three facts (no side stripe). */\n.si-b { margin: 16px 16px 12px; padding: 12px; background: var(--s-card); border: 1px solid var(--s-border); border-radius: 16px; }\n.si-b p { margin: 0 0 8px; line-height: 1.5; color: var(--s-ink); }\n.si-b ul { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 0; padding: 0; list-style: none; font-size: 14px; color: var(--s-muted); }\n.si-b li::before { content: \"\"; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: var(--s-primary); }\n"
     },
     "c": {
       "html": "<div class=\"si-c\"><h2>Connect your bank to Sorted</h2><p>This is a <strong>read-only</strong> request. Sorted uses it to show your money in one place.</p></div>",
-      "css": "/* C: two-line hero on the canvas. Headline step (20px/700) so it stays under Finexer's own title. */\n.si-c { margin: 16px 16px 12px; }\n.si-c h2 { margin: 0 0 4px; font-size: 20px; }\n.si-c p { margin: 0; color: var(--s-muted); }\n"
+      "css": "/* C: two-line hero on the canvas. Headline step (20px/700) so it stays under Finexer's own title. */\n.si-c { margin: 16px 16px 12px; }\n.si-c h2 { margin: 0 0 4px; font-size: 20px; }\n.si-c p { margin: 0; line-height: 1.5; color: var(--s-muted); }\n"
     }
   }
 } as const;

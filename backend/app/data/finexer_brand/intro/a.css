@@ -1,4 +1,4 @@
 /* A: canvas-first. No panel, a label-style eyebrow and one sentence, hairline below. 16px side gutters because Finexer renders header_html flush to the screen edge. */
 .si-a { margin: 16px 16px 12px; padding: 0 0 12px; border-bottom: 1px solid var(--s-border); }
-.si-a b { display: block; margin: 0 0 4px; font-size: 11px; letter-spacing: .05em; text-transform: uppercase; color: var(--s-muted); }
-.si-a p { margin: 0; color: var(--s-ink); }
+.si-a b { display: block; margin: 0 0 4px; font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--s-muted); }
+.si-a p { margin: 0; line-height: 1.5; color: var(--s-ink); }

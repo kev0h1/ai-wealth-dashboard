@@ -26,6 +26,9 @@ for (const v of ["a", "b", "c"]) {
   assert.ok(!/<script/i.test(html), `${v}: no <script`);
   assert.ok(!html.includes("—") && !html.includes("–"), `${v}: no em or en dash`);
   assert.ok(!html.includes("!"), `${v}: no exclamation mark`);
+  assert.ok(!/\son[a-z]+\s*=/i.test(html), `${v}: no inline on* handler`);
+  assert.ok(!/http/i.test(html), `${v}: no http URL`);
+  assert.ok(!/Nothing moves/i.test(html), `${v}: no "Nothing moves" claim`);
   assert.ok(/read-only|Read only/.test(html), `${v}: read-only is stated`);
   const css = read("intro", `${v}.css`);
   assert.ok(!/gradient/i.test(css), `${v}: no gradient (Penny's)`);
