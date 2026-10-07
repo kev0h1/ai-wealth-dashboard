@@ -39,7 +39,11 @@ _BACKEND = Path(__file__).resolve().parents[1]
 BRAND_DIR = _BACKEND / "app" / "data" / "finexer_brand"
 STATE_FILE = _BACKEND / ".finexer_templates.json"
 API_URL = "https://api.finexer.com"
-APP_NAME = "Sorted"
+# Finexer substitutes app_name into the page headline ("<app_name> is requesting
+# permission to read:") and the regulated footer ("<app_name> acts as Finexer
+# Ltd's registered agent"). The registered agent is the legal entity, so this is
+# AURIQ LTD (A151); the Sorted identity lives in the logo and header_html.
+APP_NAME = "AURIQ LTD"
 TEMPLATES = {"light": "Sorted light", "dark": "Sorted dark"}
 
 

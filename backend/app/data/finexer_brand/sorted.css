@@ -1,13 +1,14 @@
 /* Sorted consent page, shared rules. Colours come from the token set that
    sync appends before this file (sorted-light.css or sorted-dark.css).
    Never restyle or hide Finexer's permission list or regulated footer:
-   colours and type only, no display, content or size changes there. */
+   colour only there, no display, content, size, opacity or visibility rules
+   (Client Terms 7.4). The root font-size is deliberately not set, so rem
+   sizes in Finexer's own CSS stay as Finexer designed them. */
 
 html, body {
   background: var(--s-canvas);
   color: var(--s-ink);
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  font-size: 14px;
   line-height: 1.5;
 }
 h1, h2, h3, h4 {
@@ -62,19 +63,19 @@ h1, h2, h3, h4, h5, h6, summary, dt, legend, strong,
   color: var(--s-ink);
 }
 
-/* Our own intro block (header.html) */
-.sorted-intro {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin: 0 0 16px;
-  padding: 16px;
-  background: var(--s-card);
-  border: 1px solid var(--s-border);
-  border-radius: 16px;
+/* Regulated footer: colour only, full ink so it clears 7:1 on both themes
+   (A151, Client Terms 7.4). Never size, opacity or visibility. */
+footer, footer *, [class*="footer"] {
   color: var(--s-ink);
 }
-.sorted-intro p { margin: 0; font-size: 14px; line-height: 1.5; color: var(--s-ink); }
+
+/* Our own intro block (header.html). 16px side gutters because Finexer
+   renders header_html flush to the screen edge. The second line names
+   Finexer as the provider in full ink at the Caption step (Client Terms 5.6, 7.6). */
+.si-a { margin: 16px 16px 12px; padding: 0 0 12px; border-bottom: 1px solid var(--s-border); }
+.si-a b { display: block; margin: 0 0 4px; font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--s-muted); }
+.si-a p { margin: 0; font-size: 14px; line-height: 1.5; color: var(--s-ink); }
+.si-a p + p { margin-top: 6px; font-size: 12px; }
 
 /* ---- selectors to confirm against the preview ----
    Finexer's class names are not documented to us. Everything above is
