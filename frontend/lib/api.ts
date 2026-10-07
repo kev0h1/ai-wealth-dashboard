@@ -1521,6 +1521,8 @@ export type PlanEasePreview = {
   usual_slice: number;
   /** Pounds still to save before this period's contribution. */
   remaining: number;
+  /** Pounds still to save once this period's contribution is made. */
+  remaining_after: number;
   later_periods: number;
   blocked_reason: string | null;
   keep_date: PlanEaseOption;

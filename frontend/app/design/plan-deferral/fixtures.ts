@@ -39,6 +39,7 @@ export function enginePreview(contribution: number, eased12m: number): PlanEaseP
     contribution,
     usual_slice: PLAN.usual,
     remaining: PLAN.remaining,
+    remaining_after: PLAN.remaining - contribution,
     later_periods: PLAN.laterPeriods,
     blocked_reason: eased12m >= 2 ? "A plan can only be eased in two periods a year." : null,
     keep_date: {

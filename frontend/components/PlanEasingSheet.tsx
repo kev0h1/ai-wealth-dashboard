@@ -176,7 +176,7 @@ export function PlanEasingSheet({ planId, planName, usualSlice, targetDate, ease
                 <div className="flex justify-between gap-3 py-1"><dt>Usual this period</dt><dd className="money">{gbp(usualSlice)}</dd></div>
                 <div className="flex justify-between gap-3 py-1"><dt>Taken off</dt><dd className="money">−{gbp(reduce)}</dd></div>
                 <div className="flex justify-between gap-3 border-t border-slate-300 py-1.5 font-semibold dark:border-slate-600"><dt>This period</dt><dd className="money">{gbp(thisPeriod)}</dd></div>
-                <div className="flex justify-between gap-3 py-1"><dt>Left to save afterwards</dt><dd className="money">{gbp(Math.max(0, preview.remaining - thisPeriod))}</dd></div>
+                <div className="flex justify-between gap-3 py-1"><dt>Left to save afterwards</dt><dd className="money">{gbp(preview.remaining_after)}</dd></div>
                 {chosen.later_slice != null && (
                   <div className="flex justify-between gap-3 py-1"><dt>Later periods, rounded up to £{STEP}</dt><dd className="money">{gbp(chosen.later_slice)}</dd></div>
                 )}

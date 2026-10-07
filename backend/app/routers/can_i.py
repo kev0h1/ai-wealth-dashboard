@@ -679,7 +679,10 @@ async def _commitment_chip_candidate(uid: str) -> tuple[str, float] | None:
     cfg = await _commitments_pay_cfg(uid)
     ledger = await compute_pot_ledger(uid, docs=[doc])
     info = await _pot_progress_and_slice(doc, cfg, ledger, timeutil.user_today())
-    slice_amount = float(info.get("per_period_slice") or 0)
+    # G228: size the top-up from the usual contribution. An easing is a one-period
+    # concession (it can be £0), not what the plan normally asks, and a top-up
+    # suggestion should not shrink or vanish because this period is eased.
+    slice_amount = float(info.get("usual_slice", info.get("per_period_slice")) or 0)
     if slice_amount <= 0:
         return None
     top_up = max(10, _round5(slice_amount * 0.25))

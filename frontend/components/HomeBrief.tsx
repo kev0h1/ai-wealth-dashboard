@@ -1824,25 +1824,6 @@ export function PlanEasingCard({ item, hideNetWorth = false, dismissible, onHome
   const name = data.plan.name;
   const target = planTargetLabel(data.target_date);
 
-  if (data.state === "deferred") {
-    const eased = data.eased_this_period ?? 0;
-    const later = data.later_slice;
-    const detail = data.eased_mode === "keep_amount"
-      ? `Later periods stay about ${later != null ? money(later) : "as they were"} and it should now land in ${target}.`
-      : `Later periods are about ${later != null ? money(later) : "a little higher"} and it should still land in ${target}.`;
-    return (
-      <div data-plan-easing="deferred" className="px-1">
-        <div className="min-w-0 py-1">
-          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{name} is <span className="money">{money(eased)}</span> this period.</p>
-          <p className="mt-0.5 text-[12px] leading-5 text-slate-600 dark:text-slate-400">{detail}</p>
-        </div>
-        <Link href="/planning" className={`${PLAN_EASING_LINK} -ml-3`}>Edit plan</Link>
-      </div>
-    );
-  }
-
-  const capped = data.state === "capped";
-
   function handleDismiss(e: React.MouseEvent) {
     e.stopPropagation();
     setHidden(true);
@@ -1854,6 +1835,26 @@ export function PlanEasingCard({ item, hideNetWorth = false, dismissible, onHome
       });
     }
   }
+
+  if (data.state === "deferred") {
+    const eased = data.eased_this_period ?? 0;
+    const later = data.later_slice;
+    const detail = data.eased_mode === "keep_amount"
+      ? `Later periods stay about ${later != null ? money(later) : "as they were"} and it should now land in ${target}.`
+      : `Later periods are about ${later != null ? money(later) : "a little higher"} and it should still land in ${target}.`;
+    return (
+      <div data-plan-easing="deferred" className="relative px-1 pr-12">
+        <div className="min-w-0 py-1">
+          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{name} is <span className="money">{money(eased)}</span> this period.</p>
+          <p className="mt-0.5 text-[12px] leading-5 text-slate-600 dark:text-slate-400">{detail}</p>
+        </div>
+        <Link href="/planning" className={`${PLAN_EASING_LINK} -ml-3`}>Edit plan</Link>
+        <DismissChip label={`Dismiss ${name} note`} onClick={handleDismiss} className="absolute top-1 right-0 z-10" />
+      </div>
+    );
+  }
+
+  const capped = data.state === "capped";
 
   return (
     <div data-plan-easing={capped ? "capped" : "eligible"} className={`${BRIEF_CARD} !shadow-none p-4`}>
