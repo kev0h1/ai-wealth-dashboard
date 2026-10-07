@@ -1593,6 +1593,7 @@ async def preview_ease(commitment_id: str, contribution_pence: int, user: dict =
     )
     options["blocked_reason"] = blocked
     options["later_periods"] = ctx["later_periods"]
+    options["remaining"] = info["remaining"]
     return options
 
 

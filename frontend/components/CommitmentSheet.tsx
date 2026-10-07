@@ -436,6 +436,13 @@ export default function CommitmentSheet({
               </div>
             ) : (
             <form id="commitment-form" onSubmit={(event) => handleSubmit(event, close)} className="space-y-3">
+              {/* G228: a quiet statement, no control. Changing the amount or the
+                  date below ends the easing; that is the way back. */}
+              {commitment?.eased_this_period != null && (
+                <p data-plan-eased className="text-xs leading-5 text-slate-600 dark:text-slate-400">
+                  Eased to £{commitment.eased_this_period.toLocaleString("en-GB")} this period. Changing the amount or the date here ends the easing.
+                </p>
+              )}
               {/* Name */}
               <div>
                 <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">

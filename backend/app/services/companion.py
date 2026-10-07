@@ -5781,6 +5781,7 @@ async def _build_plan_easing_items(
             "target_date": str(d.get("target_date"))[:10],
             "later_slice": ef["later_slice"],
             "eased_this_period": ef["eased_this_period"],
+            "eased_mode": ef["eased_mode"],
             "eased_count_12m": ef["eased_count_12m"],
             "cap_reason": cap,
             "paying_account_name": pay_name,

@@ -2810,6 +2810,11 @@ async def _exec_get_goals(uid: str) -> dict:
             "per_period_slice": (
                 _money(g.get("per_period_slice")) if g.get("per_period_slice") is not None else None
             ),
+            # G228: quote the usual contribution beside this period's eased one.
+            "usual_slice": _money(g.get("usual_slice")) if g.get("usual_slice") is not None else None,
+            "eased_this_period": (
+                _money(g.get("eased_this_period")) if g.get("eased_this_period") is not None else None
+            ),
             "periods_left": g.get("periods_left"),
             "on_track": g.get("on_track"),
             "feasibility": g.get("feasibility"),
