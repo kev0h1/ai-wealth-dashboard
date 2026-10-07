@@ -72,6 +72,19 @@ for (const id of ["long", "watch", "clear", "all"]) {
   assert.ok(!html.includes("data-all-clear"));
 }
 
+// Plans unavailable: the fold label must not claim plans were checked.
+for (const plansStatus of ["loading", "error"]) {
+  const fixture = fixtureFor("long");
+  const html = renderToStaticMarkup(React.createElement(UpcomingAccountsCard, { accounts: fixture.accounts, plans: fixture.plans, plansStatus, periodLabel: PERIOD, onOpen() {} }));
+  assert.match(html, /accounts are fine for payments/, `${plansStatus}: fold label scoped to payments`);
+  assert.ok(!/accounts are fine</.test(html), `${plansStatus}: no unqualified fine label`);
+}
+{
+  const fixture = fixtureFor("clear");
+  const html = renderToStaticMarkup(React.createElement(UpcomingAccountsCard, { accounts: fixture.accounts, plans: [], plansStatus: "loading", periodLabel: PERIOD, onOpen() {} }));
+  assert.match(html, /Every paying account covers its payments this period\./);
+}
+
 // Ordering of all tiers on a synthetic mix: payments, plans, watch.
 {
   const base = (id, status, shortfall = null) => ({ id, bank: "Barclays", name: id, opening: 100, income: 0, transfersIn: 0, outgoing: 10, closing: 90, shortfall, status, firstShortDate: null, hasUnassignedIncome: false, events: [] });

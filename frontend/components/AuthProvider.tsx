@@ -21,6 +21,7 @@ import { postSignInDestination } from "@/lib/postSignInRoute";
 import { invalidateAllAccountData } from "@/lib/accountMutations";
 import { clearHomeDismissedAdvice } from "@/lib/homeDismissedAdvice";
 import { resolveFullName } from "@/lib/displayName";
+import { FINE_FOLD_KEY } from "@/lib/upcomingAccountStatus";
 
 interface AuthUser {
   email: string;
@@ -434,7 +435,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       localStorage.removeItem("reconnect_expected"); // holds a provider, an account id, and a masked last-4 only
       localStorage.removeItem("wd_bracket"); // income tax bracket
       localStorage.removeItem("tax_checklist_done"); // per-user tax checklist progress
-      sessionStorage.removeItem("wd_upcoming_accounts_fine_open"); // G229: Upcoming "By account" fold memory
+      sessionStorage.removeItem(FINE_FOLD_KEY); // G229: Upcoming "By account" fold memory
     } catch {}
     clearHomeDismissedAdvice();
     // D13: sign-out lives on /settings; without this the login screen renders

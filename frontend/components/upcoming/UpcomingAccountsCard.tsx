@@ -5,7 +5,7 @@ import { ChevronDown, Info, TriangleAlert } from "lucide-react";
 import { BANK_META, BankBadge, bankKey, bankLogoSrc } from "@/components/AccountMiniCard";
 import type { UpcomingAccountSummary } from "@/lib/upcomingAccounts";
 import type { Plan } from "@/lib/upcomingPlans";
-import { money, statusFor, type AccountStatus } from "@/lib/upcomingAccountStatus";
+import { FINE_FOLD_KEY, money, statusFor, type AccountStatus } from "@/lib/upcomingAccountStatus";
 
 export interface UpcomingAccountsCardProps {
   accounts: UpcomingAccountSummary[];
@@ -52,9 +52,6 @@ function AccountRow({ account, result, onOpen }: { account: UpcomingAccountSumma
  *  that could not be confirmed). Accounts with no signal are fine. */
 const TIER: Record<NonNullable<AccountStatus["signal"]>, number> = { risk: 0, plan: 1, move: 2, unknown: 2 };
 
-/** Session-only memory of the fold. Cleared on sign-out (AuthProvider). */
-export const FINE_FOLD_KEY = "wd_upcoming_accounts_fine_open";
-
 /**
  * Account-level evidence for the Upcoming hero. It receives already-derived
  * values only: this component must never alter the pooled runway calculation.
@@ -83,7 +80,7 @@ export default function UpcomingAccountsCard({ accounts, periodLabel, onOpen, pl
     };
   }, [accounts, readyPlans]);
   const allClear = accounts.length > 0 && attention.length === 0;
-  const foldLabel = allClear ? (fine.length === 1 ? "1 account" : `All ${fine.length} accounts`) : `${fine.length} ${fine.length === 1 ? "account is" : "accounts are"} fine`;
+  const foldLabel = allClear ? (fine.length === 1 ? "1 account" : `All ${fine.length} accounts`) : `${fine.length} ${fine.length === 1 ? "account is" : "accounts are"} fine${plansStatus === "ready" ? "" : " for payments"}`;
 
   return (
     <section aria-labelledby={headingId} data-account-status-card="b" className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
