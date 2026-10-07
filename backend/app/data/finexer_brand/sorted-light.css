@@ -3,6 +3,8 @@
 :root {
   --s-primary: #4f46e5;
   --s-primary-hover: #4338ca;
+  --s-link: #4f46e5;
+  --s-link-hover: #4338ca;
   --s-canvas: #f0f2f7;
   --s-card: #ffffff;
   --s-border: #e2e8f0;
@@ -14,8 +16,12 @@
 /* A user with no saved Sorted preference follows the phone. */
 @media (prefers-color-scheme: dark) {
   :root {
-    --s-primary: #6366f1;
-    --s-primary-hover: #4f46e5;
+    /* White 14px text on #4f46e5 is about 6.3:1 (AA). Links need a lighter
+       indigo on slate: #818cf8 on #0f172a is about 6:1. */
+    --s-primary: #4f46e5;
+    --s-primary-hover: #4338ca;
+    --s-link: #818cf8;
+    --s-link-hover: #a5b4fc;
     --s-canvas: #0f172a;
     --s-card: #1e293b;
     --s-border: #334155;

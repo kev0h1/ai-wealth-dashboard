@@ -20,9 +20,9 @@ _USER = {"email": "kevin@example.com"}
 
 @pytest.fixture(autouse=True)
 def _reset(monkeypatch):
-    fx._template_check.update({"id": None, "ok": False, "at": 0.0})
+    fx._template_check.update({"id": None, "ok": False, "at": 0.0, "warned": False})
     yield
-    fx._template_check.update({"id": None, "ok": False, "at": 0.0})
+    fx._template_check.update({"id": None, "ok": False, "at": 0.0, "warned": False})
 
 
 def _wire(monkeypatch, *, dark, tid=_ID, status=200, url="https://consent.finexer.example/abc", app_id="app_1"):
@@ -58,6 +58,11 @@ def test_existing_query_string_is_kept(monkeypatch):
     assert _link() == f"https://consent.finexer.example/abc?x=1&template={_ID}"
 
 
+def test_encoded_query_is_preserved_untouched(monkeypatch):
+    _wire(monkeypatch, dark=True, url="https://consent.finexer.example/abc?r=a%2Fb%20c&x=")
+    assert _link() == f"https://consent.finexer.example/abc?r=a%2Fb%20c&x=&template={_ID}"
+
+
 def test_light_preference_never_appends(monkeypatch):
     seen = _wire(monkeypatch, dark=False)
     assert _link() == "https://consent.finexer.example/abc"
@@ -88,10 +93,13 @@ def test_missing_or_malformed_id_omits_without_calling_finexer(monkeypatch, capl
     assert "not used" in caplog.text
 
 
-def test_missing_app_id_omits(monkeypatch):
+def test_missing_app_id_omits_and_warns_once(monkeypatch, caplog):
     seen = _wire(monkeypatch, dark=True, app_id="")
-    assert _link() == "https://consent.finexer.example/abc"
+    with caplog.at_level(logging.WARNING):
+        assert _link() == "https://consent.finexer.example/abc"
+        _link()
     assert seen == []
+    assert caplog.text.count("not used") == 1
 
 
 # ── scripts/finexer_template.py ─────────────────────────────────────────
@@ -159,3 +167,12 @@ def test_missing_app_id_exits_with_message(monkeypatch, capsys):
     monkeypatch.setattr(ft, "_env", lambda name, env_file=None: "")
     assert ft.main(["list"]) == 2
     assert "app id" in capsys.readouterr().err
+
+
+def test_delete_requires_yes(monkeypatch, tmp_path):
+    monkeypatch.setattr(ft, "STATE_FILE", tmp_path / "state.json")
+    calls = []
+    assert ft.main(["--app-id", "app_1", "delete", "ID"], client=_mock_client([], calls)) == 2
+    assert calls == []
+    assert ft.main(["--app-id", "app_1", "delete", "ID", "--yes"], client=_mock_client([], calls)) == 0
+    assert calls[0][0] == "DELETE"

@@ -13,7 +13,7 @@ default, metadata (not sent: its form encoding is undocumented to us).
 
 Usage (from backend/):
     .venv/bin/python scripts/finexer_template.py [--app-id ID] list
-    ... show <id> | preview <id> | delete <id>
+    ... show <id> | preview <id> | delete <id> --yes
     ... sync [--logo-file-id FILE_ID]
     ... make-default <id> --yes
 
@@ -47,7 +47,7 @@ def _env(name: str, env_file: Path | None = None) -> str:
         return os.environ[name]
     from dotenv import dotenv_values
 
-    for p in [env_file, _BACKEND / ".env", Path("/root/ai-wealth-dashboard/backend/.env")]:
+    for p in [env_file, Path(__file__).resolve().parents[1] / ".env"]:
         if p and p.exists():
             v = dotenv_values(p).get(name)
             if v:
@@ -142,7 +142,10 @@ def cmd_preview(c, base, tid):
         print(f"{k}: {json.dumps(v) if not isinstance(v, str) else v}")
 
 
-def cmd_delete(c, base, tid):
+def cmd_delete(c, base, tid, yes=False):
+    if not yes:
+        print("refusing: delete is irreversible. Re-run with --yes.", file=sys.stderr)
+        raise SystemExit(2)
     _check(c.delete(f"{base}/{tid}"), "delete")
     state = {k: v for k, v in _load_state().items() if v != tid}
     _save_state(state)
@@ -181,8 +184,11 @@ def main(argv=None, client: httpx.Client | None = None) -> int:
     ap.add_argument("--env-file", type=Path)
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("list")
-    for n in ("show", "preview", "delete"):
+    for n in ("show", "preview"):
         sub.add_parser(n).add_argument("id")
+    d = sub.add_parser("delete")
+    d.add_argument("id")
+    d.add_argument("--yes", action="store_true")
     s = sub.add_parser("sync")
     s.add_argument("--logo-file-id")
     m = sub.add_parser("make-default")
@@ -190,6 +196,9 @@ def main(argv=None, client: httpx.Client | None = None) -> int:
     m.add_argument("--yes", action="store_true")
     a = ap.parse_args(argv)
 
+    if a.cmd == "delete" and not a.yes:
+        print("refusing: delete is irreversible. Re-run with --yes.", file=sys.stderr)
+        return 2
     if a.cmd == "make-default" and not a.yes:
         print("refusing: make-default changes the live consent page at once. Re-run with --yes.", file=sys.stderr)
         return 2
@@ -211,7 +220,7 @@ def main(argv=None, client: httpx.Client | None = None) -> int:
         elif a.cmd == "preview":
             cmd_preview(c, base, a.id)
         elif a.cmd == "delete":
-            cmd_delete(c, base, a.id)
+            cmd_delete(c, base, a.id, a.yes)
         elif a.cmd == "sync":
             cmd_sync(c, base, a.logo_file_id)
         elif a.cmd == "make-default":

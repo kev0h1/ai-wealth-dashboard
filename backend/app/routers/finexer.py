@@ -5,7 +5,7 @@ import secrets
 import logging
 import re
 import time
-from urllib.parse import quote as _urlquote, urlsplit, urlunsplit, parse_qsl, urlencode
+from urllib.parse import quote as _urlquote
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -75,7 +75,7 @@ async def finexer_providers(user: dict = Depends(current_user)):
 # a success is kept, a failure is retried after 10 minutes.
 _TEMPLATE_ID_RE = re.compile(r"^[A-Za-z0-9]{12}$")
 _TEMPLATE_RETRY_AFTER = 600.0  # seconds
-_template_check: dict = {"id": None, "ok": False, "at": 0.0}
+_template_check: dict = {"id": None, "ok": False, "at": 0.0, "warned": False}
 
 
 async def _dark_template_id() -> Optional[str]:
@@ -83,7 +83,9 @@ async def _dark_template_id() -> Optional[str]:
     if not tid:
         return None
     if not (FINEXER_APP_ID and _TEMPLATE_ID_RE.match(tid)):
-        logger.warning("Finexer dark template not used: FINEXER_APP_ID missing or template id malformed")
+        if not _template_check["warned"]:
+            _template_check["warned"] = True
+            logger.warning("Finexer dark template not used: FINEXER_APP_ID missing or template id malformed")
         return None
     cached = _template_check
     if cached["id"] == tid:
@@ -94,7 +96,7 @@ async def _dark_template_id() -> Optional[str]:
     ok = False
     try:
         async with _finexer_client() as client:
-            r = await client.get(f"/apps/{FINEXER_APP_ID}/templates/{tid}")
+            r = await client.get(f"/apps/{FINEXER_APP_ID}/templates/{tid}", timeout=5.0)
         ok = r.status_code == 200
         if not ok:
             logger.warning("Finexer dark template check failed: HTTP %s", r.status_code)
@@ -114,10 +116,9 @@ async def _user_prefers_dark(email: str) -> bool:
 
 
 def _with_template(consent_url: str, template_id: str) -> str:
-    parts = urlsplit(consent_url)
-    query = parse_qsl(parts.query, keep_blank_values=True)
-    query = [(k, v) for k, v in query if k != "template"] + [("template", template_id)]
-    return urlunsplit(parts._replace(query=urlencode(query)))
+    """Append the parameter to the raw string; the existing query is untouched."""
+    sep = "&" if "?" in consent_url else "?"
+    return f"{consent_url}{sep}template={template_id}"
 
 
 @router.get("/auth/finexer/link")
