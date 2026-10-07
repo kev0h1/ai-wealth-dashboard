@@ -453,6 +453,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
 - [ ] **A147. Finexer consent templates: permission headings unreadable in dark (Kevin 2026-10-07 screenshot), raise muted text contrast in both templates and keep headings in ink** [owner: claude] [state: review: feature-A147-finexer-template-contrast]
   - note (2026-10-07, claude): Permission headings were dimmed by our muted colour; both templates re-synced at 3afb927c with muted at slate-300 dark / slate-600 light and headings in ink. Kevin: re-check both previews in the dashboard, dark and light.
   - note (2026-10-07, claude): Reviewed PASS at 3afb927c (colour-only, ink rule wins by source order, both templates under 2000 chars, ratios verified). Production templates already re-synced; awaiting Kevin's preview re-check. No file overlap with A146.
+  - note (2026-10-07, claude): Coordinator review PASS 2026-10-07 on 3afb927c: CSS colour tokens only in the Finexer brand files (muted raised, headings in ink); no app runtime change.
 
 ## B. Penny cost, tiers and billing
 
