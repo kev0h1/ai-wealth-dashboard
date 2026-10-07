@@ -480,6 +480,16 @@ const ROUTES: PreviewRoute[] = [
     ],
   },
   {
+    slug: "offline-account",
+    name: "offline-account",
+    description:
+      "G233 offline account detail alignment · the avatar is a neutral wallet glyph instead of OF initials, the kind line reads Offline account once (never Offline · Offline), and Add transaction sits beside the search field as a compact outlined 44px button with 12px between them and 20px before the list · renders the production AccountDetailIdentity, AccountDetailKindLine, AccountTransactionsToolbar and TransactionRow through props · fixtures only, no live data · ?account=offline|bank&mode=light|dark",
+    states: [
+      { label: "Offline account", value: "offline" },
+      { label: "Bank account", value: "bank" },
+    ],
+  },
+  {
     slug: "home-cleanup",
     name: "home-cleanup",
     description:

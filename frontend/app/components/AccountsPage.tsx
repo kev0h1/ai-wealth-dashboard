@@ -6,6 +6,7 @@ import { ArrowLeft, Plus, Landmark, RefreshCw, Upload, Trash2, AlertTriangle, Tr
 import { api, ApiError, Account, Connection, Transaction, InvestmentAccount, InvestmentHolding, InvestmentNote, ManualAccount, ManualAccountType, ManualAccountRule, RuleMatchType, RuleMatchField, RuleSign, AccountCategorySummary, KPIs, CardTermsCard } from "@/lib/api";
 import { accountBrand, BankBadge, TermsPill } from "@/components/AccountMiniCard";
 import AccountLedgerRow from "@/components/AccountLedgerRow";
+import { AccountDetailIdentity, AccountDetailKindLine, AccountTransactionsToolbar } from "@/components/AccountDetailParts";
 import ReconnectStrip, { type ReconnectProvider } from "@/components/ReconnectStrip";
 import PausedBanksStrip from "@/components/PausedBanksStrip";
 import { pausedAccountCount } from "@/lib/billingCopy";
@@ -2248,15 +2249,13 @@ export default function AccountsPage() {
           )}
 
           {/* Statement block */}
-          <div className="flex items-center gap-3 mb-3">
-            <BankBadge
-              logoSrc={brand.logoSrc}
-              initials={brand.initials}
-              altText={brand.label}
-              brandBg={brand.background}
-            />
-            <h1 className="text-base font-semibold text-slate-900 dark:text-slate-100 min-w-0 truncate">{selectedAccount.name}</h1>
-          </div>
+          <AccountDetailIdentity
+            name={selectedAccount.name}
+            logoSrc={brand.logoSrc}
+            initials={brand.initials}
+            label={brand.label}
+            background={brand.background}
+          />
 
           <p
             className={`text-[30px] leading-none font-bold money ${balance < 0 ? "text-rose-600 dark:text-rose-400" : "text-slate-900 dark:text-slate-100"}`}
@@ -2298,10 +2297,7 @@ export default function AccountsPage() {
             </button>
           ) : null)}
 
-          <p className="mt-2 text-[13px] text-slate-500 dark:text-slate-400">
-            {accountKindLabel(accountKind(selectedAccount))} · {selectedAccount.provider}
-            {consentExpiry ? ` · ${consentExpiry}` : ""}
-          </p>
+          <AccountDetailKindLine kindLabel={accountKindLabel(accountKind(selectedAccount))} provider={selectedAccount.provider} consentExpiry={consentExpiry} />
           {/* The horizontal rule Kevin asked to keep (G87 approval,
               2026-09-16): it closes off the canvas header in place of the
               card boundary that used to do that job. */}
@@ -2334,26 +2330,15 @@ export default function AccountsPage() {
         </div>
 
         <div className="px-4 pt-4 space-y-2">
-          {/* Search bar — only shown when viewing transactions */}
+          {/* Search bar — only shown when viewing transactions. Offline
+              accounts carry Add transaction beside it (G233). */}
           {showTransactions && (
-            <div className="relative mb-1">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 pointer-events-none" />
-              <input
-                type="search"
-                value={searchQuery}
-                onChange={e => { setSearchQuery(e.target.value); setPage(1); }}
-                placeholder="Search transactions…"
-                className="w-full pl-9 pr-9 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm"
-              />
-              {searchQuery && (
-                <button
-                  onClick={() => { setSearchQuery(""); setPage(1); }}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
-                >
-                  <X size={14} />
-                </button>
-              )}
-            </div>
+            <AccountTransactionsToolbar
+              searchQuery={searchQuery}
+              onSearchChange={v => { setSearchQuery(v); setPage(1); }}
+              onClearSearch={() => { setSearchQuery(""); setPage(1); }}
+              onAdd={isManual ? openAddManualTx : undefined}
+            />
           )}
 
           {/* Category filter chip — set from a Categories-tab row tap. Shows
@@ -2383,17 +2368,6 @@ export default function AccountsPage() {
             </div>
           ) : showTransactions ? (
             <>
-              {isManual && (
-                <div className="flex justify-end pb-1">
-                  <button
-                    onClick={openAddManualTx}
-                    className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-all text-white px-3 py-2 rounded-xl text-xs font-semibold"
-                  >
-                    <Plus size={14} />
-                    Add transaction
-                  </button>
-                </div>
-              )}
               <div
                 className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden"
                 onTouchStart={e => {
