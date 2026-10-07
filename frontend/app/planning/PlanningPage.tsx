@@ -768,7 +768,7 @@ export default function PlanningPage() {
         // fixture inputs, so the figure Penny can quote back can never
         // disagree with the hero below, which renders these same three
         // values.
-        pennyRunwayRef.current = { runway, runwayStatus, isCalendarMonth };
+        pennyRunwayRef.current = { runway, runwayStatus, isCalendarMonth, plansUnavailable };
 
         // Bank-side settling debits are display-only: their cash has already
         // left. Neither the shared account walk nor this pooled walk deducts

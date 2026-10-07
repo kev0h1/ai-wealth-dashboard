@@ -3608,7 +3608,7 @@ _NUMBERS_COPY: dict[str, str] = {
         "to spend before payday. It starts from the lowest point your "
         "spendable balance is projected to hit between now and payday "
         "(after bills and expected income), then subtracts your buffer, "
-        "reserved commitment slices, and envelopes. Card balance growth "
+        "your goal plans for the period, and envelopes. Card balance growth "
         "is shown beside FREE rather than normally being subtracted from "
         "cash; only a card whose repayment has not been identified is held "
         "back as a cautious fallback. NOW minus BILLS doesn't equal FREE because "
@@ -3617,14 +3617,18 @@ _NUMBERS_COPY: dict[str, str] = {
         "usually read lower than a simple subtraction."
     ),
     "planning_runway": (
-        "Planning's runway is what's spendable right now minus the bills "
-        "still due before your next payday. It deliberately excludes "
+        "Planning's runway is what's spendable right now, plus income "
+        "expected before payday, minus the bills still due, what you "
+        "still have to set aside, and your goal plans for the period. It "
+        "deliberately excludes "
         "pooled no-op transfers, money moving between two of your own "
         "spendable accounts nets to nothing for this total, so it "
         "doesn't shrink the runway for a transfer that isn't really "
         "costing you anything. It differs from Safe to Spend's FREE "
-        "figure because runway doesn't subtract your buffer or reserved "
-        "commitment slices, those only apply to FREE."
+        "figure only in that it ends at payday, so it doesn't use the "
+        "walk's lowest point, and it doesn't subtract your safety "
+        "buffer, which only applies to FREE. If goal plans could not be "
+        "loaded, the runway may read higher than it should."
     ),
     "grow_surplus_monthly": (
         "Grow's monthly surplus is your typical monthly income minus "

@@ -72,6 +72,9 @@ export default function UpcomingHeroCard({
             >
               {runwayStatus}
             </span>
+            {plansUnavailable && (
+              <span className="text-xs font-medium text-slate-500 dark:text-slate-400">estimated</span>
+            )}
           </div>
           <p className="mt-1 text-xs leading-snug text-slate-500 dark:text-slate-400">
             {isCalendarMonth
@@ -126,7 +129,7 @@ export default function UpcomingHeroCard({
                 <span className="block text-xs leading-snug text-slate-500 dark:text-slate-400">
                   {plansUnavailable
                     ? "Goal contributions could not be loaded, so this figure may be too high."
-                    : "Goal contributions you planned for this pay period."}
+                    : "Goal contributions planned this pay period."}
                 </span>
               </dt>
               <dd className="shrink-0 whitespace-nowrap font-mono tabular-nums text-slate-900 dark:text-slate-100">

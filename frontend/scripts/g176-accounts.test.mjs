@@ -193,7 +193,7 @@ const heroPlans = renderToStaticMarkup(React.createElement(UpcomingHeroCard, {
   savingsNow: 300, runway: 20, runwayStatus: "left",
 }));
 assert.match(heroPlans, /Plans this period/);
-assert.match(heroPlans, /Goal contributions you planned for this pay period\./);
+assert.match(heroPlans, /Goal contributions planned this pay period\./);
 assert.match(heroPlans, /−£80/);
 assert.ok(heroPlans.indexOf("Still to set aside") < heroPlans.indexOf("Plans this period") && heroPlans.indexOf("Plans this period") < heroPlans.indexOf("Projected balance"), "plans row sits between set-aside and total");
 const heroPlansDown = renderToStaticMarkup(React.createElement(UpcomingHeroCard, {
@@ -202,6 +202,8 @@ const heroPlansDown = renderToStaticMarkup(React.createElement(UpcomingHeroCard,
   savingsNow: 300, runway: 100, runwayStatus: "left",
 }));
 assert.match(heroPlansDown, /could not be loaded/);
+assert.match(heroPlansDown, />estimated</, "unavailable plans mark the headline as estimated");
+assert.doesNotMatch(heroPlans, />estimated</);
 assert.match(hero, /Payments can take a day or two to appear, so a very recent one may not be counted yet\./);
 assert.doesNotMatch(hero, /account short|accounts short|Barclays|HSBC|Review/);
 console.log("G176 account summaries, shared views, income labels and hero invariants passed");
