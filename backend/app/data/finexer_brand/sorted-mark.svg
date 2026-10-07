@@ -1,0 +1,56 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!--
+    Settle glyph master — recreated flat (no glow) 2026-08-27.
+    Measured pixel-for-pixel off capacitor-spike/assets/icon.png (the last
+    surviving rendered master) since the original SVG source was lost.
+    Geometry (1024x1024 canvas):
+      top bar    — 475 x 119px, rotate +6.86deg (right edge dips), centre (529.5, 316.5)
+      middle bar — 505 x 119px, rotate -6.84deg (right edge lifts), centre (493.5, 506.5)
+      bottom bar — 559 x 129px, flat (0deg), centre (511.5, 701.5) — the "settled" bar
+    Corner radius ~24% of each bar's own thickness.
+    Slate bars: #475569 (Tailwind slate-600).
+    Bottom bar gradient: 135deg, #6366f1 (indigo-500) -> #7c3aed (violet-600),
+    matching the measured top-left / bottom-right sample colours exactly.
+    Background: solid #0f172a (Midnight Canvas, DESIGN.md canvas-dark).
+    This file is the FLAT glyph only — no glow. Glow variants live as
+    sibling SVGs (settle-glyph-v1-lit-panel.svg etc.) that reference this
+    same geometry.
+  -->
+  <defs>
+    <!-- Brand gradient — Penny's signature, bottom "settled" bar only -->
+    <linearGradient id="brandGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6366f1" />
+      <stop offset="100%" stop-color="#7c3aed" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background — Midnight Canvas -->
+  <rect x="0" y="0" width="1024" height="1024" fill="#0f172a" />
+
+  <!-- Glyph group — the settle mark: two unsettled slate bars above one settled gradient bar -->
+  <g>
+    <!-- Top slate bar — tilts clockwise, "unsettled" -->
+    <rect
+      x="292" y="257"
+      width="475" height="119"
+      rx="28.6"
+      fill="#475569"
+      transform="rotate(6.86 529.5 316.5)"
+    />
+    <!-- Middle slate bar — tilts counter-clockwise, opposing lean -->
+    <rect
+      x="241" y="447"
+      width="505" height="119"
+      rx="28.5"
+      fill="#475569"
+      transform="rotate(-6.84 493.5 506.5)"
+    />
+    <!-- Bottom gradient bar — flat, widest, the "settled" state -->
+    <rect
+      x="232" y="637"
+      width="559" height="129"
+      rx="31.5"
+      fill="url(#brandGradient)"
+    />
+  </g>
+</svg>

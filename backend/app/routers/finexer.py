@@ -2,6 +2,8 @@
 import asyncio
 import hmac
 import secrets
+import logging
+import re
 import time
 from urllib.parse import quote as _urlquote
 from datetime import datetime
@@ -10,16 +12,19 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from typing import Optional
 
 from app.core.auth import current_user
-from app.core.config import APP_URL, FINEXER_API_KEY
+from app.core.config import APP_URL, FINEXER_API_KEY, FINEXER_APP_ID, FINEXER_TEMPLATE_DARK
 from app.core.signin_handoff import bank_error_response, bank_handoff_html, signin_handoff_csp
 from app.core.subscription import check_connection_limit, check_open_banking_allowed
-from app.db.collections import finexer_consents_col
+from app.db.collections import finexer_consents_col, preferences_col
 from app.services.finexer_sync import (
     list_providers,
     get_or_create_customer,
     create_consent,
     finexer_sync_pipeline,
+    _client as _finexer_client,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["finexer"])
 
@@ -64,6 +69,58 @@ async def finexer_providers(user: dict = Depends(current_user)):
     return providers
 
 
+# A143: the "Sorted dark" consent template. Finexer stops the consent page
+# opening on an invalid template id, so the id is only ever appended after a
+# live GET /apps/{app_id}/templates/{id} succeeds. Result cached per process:
+# a success is kept, a failure is retried after 10 minutes.
+_TEMPLATE_ID_RE = re.compile(r"^[A-Za-z0-9]{12}$")
+_TEMPLATE_RETRY_AFTER = 600.0  # seconds
+_template_check: dict = {"id": None, "ok": False, "at": 0.0, "warned": False}
+
+
+async def _dark_template_id() -> Optional[str]:
+    tid = (FINEXER_TEMPLATE_DARK or "").strip()
+    if not tid:
+        return None
+    if not (FINEXER_APP_ID and _TEMPLATE_ID_RE.match(tid)):
+        if not _template_check["warned"]:
+            _template_check["warned"] = True
+            logger.warning("Finexer dark template not used: FINEXER_APP_ID missing or template id malformed")
+        return None
+    cached = _template_check
+    if cached["id"] == tid:
+        if cached["ok"]:
+            return tid
+        if time.monotonic() - cached["at"] < _TEMPLATE_RETRY_AFTER:
+            return None
+    ok = False
+    try:
+        async with _finexer_client() as client:
+            r = await client.get(f"/apps/{FINEXER_APP_ID}/templates/{tid}", timeout=5.0)
+        ok = r.status_code == 200
+        if not ok:
+            logger.warning("Finexer dark template check failed: HTTP %s", r.status_code)
+    except Exception as exc:  # network failure: fall back to the default template
+        logger.warning("Finexer dark template check failed: %s", type(exc).__name__)
+    _template_check.update({"id": tid, "ok": ok, "at": time.monotonic()})
+    return tid if ok else None
+
+
+async def _user_prefers_dark(email: str) -> bool:
+    try:
+        doc = await preferences_col.find_one({"user_id": email}) or {}
+    except Exception as exc:
+        logger.warning("Finexer template: preference lookup failed: %s", type(exc).__name__)
+        return False
+    return bool(doc.get("dark_mode", False))
+
+
+def _with_template(consent_url: str, template_id: str) -> str:
+    """Append the parameter to the raw string; the existing query is untouched."""
+    sep = "&" if "?" in consent_url else "?"
+    return f"{consent_url}{sep}template={template_id}"
+
+
 @router.get("/auth/finexer/link")
 async def finexer_link(
     provider: str = "",
@@ -103,6 +160,10 @@ async def finexer_link(
     )
 
     consent_url = consent["redirect"]["consent_url"]
+    if FINEXER_TEMPLATE_DARK and await _user_prefers_dark(user["email"]):
+        dark_id = await _dark_template_id()
+        if dark_id:
+            consent_url = _with_template(consent_url, dark_id)
     return {"auth_url": consent_url, "connection_id": consent_id}
 
 
