@@ -21,7 +21,7 @@ Top recommendations:
 
 | Field | Meaning | Today |
 |---|---|---|
-| `source_account_id` | one current account the money leaves | Allocations: `source_account_id` with `source_basis` chosen or recent-transfers (`routers/allocations.py` `list_account_plans`, `services/account_plan_sources.py` `chosen_source`). Goals: read the same way, but nothing writes it from Edit plan (G230). |
+| `source_account_id` | one current account the money leaves | Allocations: `source_account_id` with `source_basis` chosen or recent-transfers (`routers/allocations.py` `list_account_plans`, `services/account_plan_sources.py` `chosen_source`). Goals: no UI field writes it; the API already accepts and validates it (`routers/commitments.py` create ~1181, update ~1463), and G230 adds the field. |
 | `amount` + `cadence` | pence per period, `every_period` or `once` | Allocations: `amount_per_period`, `recurrence`. Goals: derived each read as `_ceil5(remaining / periods_left)` (`routers/commitments.py` `_pot_progress_and_slice`), never stored. |
 | `period` | the pay period from `get_pay_period_for_date` | Both. |
 | `sink` (optional) | account or accounts whose balance share is tracked | Goals: `funding_pots`. Allocations: `fill_account_id`, used only as a fulfilment matcher, no progress or target. |
@@ -36,7 +36,7 @@ Top recommendations:
 | fulfilled | fully matched | £0 |
 | released | user marked done, or removed this period (today's `period_overrides` of £0, G217) | £0 |
 | eased | user took part off for this period (**Today**: `period_eased`, `services/plan_easing.py`) | the eased amount |
-| missed | period closed short, user chose "missed" | £0; next period unchanged |
+| missed | period closed short, user chose "missed" | £0; next period unchanged. For a goal the end date and projection are recalculated: the user picks a higher per-period amount or a later date, within G228's limits (125%, at most 2 periods) |
 | rolled over | period closed short, shortfall added to next period | next period gains it, capped (section 3) |
 
 **Set-aside versus plan.** A set-aside has no target and no progress. It still has a fulfilment rule: today an allocation is released by credits that match a description rule landing in its fill account (`matching_fills_this_period`). Proposed additions for a sink-less set-aside: a matched outgoing debit from the source, a manual release, or the period ending. A plan has a sink and a target, so its fulfilment also updates the plan's share of that sink and its progress.
@@ -47,7 +47,7 @@ Top recommendations:
 
 **Debt payment** (sink = one card, several, or all cards). Proposed. The amount is a per-period payment from the source. The split across cards is a suggestion built from `services/debt_plan.py`: cards with an active 0% promo ending soonest first (the engine already sorts active promos earliest-first), the total anchored to demonstrated movement (`_compute_movement`, closed pay periods) rather than an aspiration. Rules: the user decides and the app never applies a split silently; where card terms are not confirmed, the app does not rank cards and offers "all cards, one total" instead (terms are asked, never inferred, per the debt planner decisions); the 51% representative-rate rule keeps any rate wording hedged.
 
-**Safety net** (default goal plan, one per user). Proposed mapping from `SavingsGoalSheet.tsx` and `savings_goals_col`: target of 3 or 6 months or a custom amount becomes the plan target, and "accounts holding your savings" (`account_ids`) become the sinks. Defaults: target-only (contribution £0, so it reserves nothing and Safe to Spend is unchanged); created lazily on first read with a stored `default: true`; editable; never deleted silently. Today `DELETE /savings/goal` removes the doc and deleting an offline account silently `$pull`s it from `account_ids`; the plan version resets to unconfigured and tells the user when a sink disappears. With no goal doc, savings-kind accounts are suggested as sinks but not tracked until the user confirms; with no savings account the sheet prompts to pick one or add an offline account (as it does today). The safety net target stays separate from the Safe to Spend buffer (`safe_to_spend_buffer` preference, `routers/analytics.py`): the buffer is cash held back in the hero, the safety net is a savings target. Planning's Cash and investments card reads the default plan for its buffer readout and keeps opening the same sheet.
+**Safety net** (default goal plan, one per user). Proposed mapping from `SavingsGoalSheet.tsx` and `savings_goals_col`: target of 3 or 6 months or a custom amount becomes the plan target, and "accounts holding your savings" (`account_ids`) become the sinks. Defaults: target-only (contribution £0, so it reserves nothing and Safe to Spend is unchanged; the contribution becomes user-set in build item 6); created lazily on first read with a stored `default: true`; editable; never deleted silently. Today `DELETE /savings/goal` removes the doc and deleting an offline account silently `$pull`s it from `account_ids`; the plan version resets to unconfigured and tells the user when a sink disappears. With no goal doc, savings-kind accounts are suggested as sinks but not tracked until the user confirms; with no savings account the sheet prompts to pick one or add an offline account (as it does today). The safety net target stays separate from the Safe to Spend buffer (`safe_to_spend_buffer` preference, `routers/analytics.py`): the buffer is cash held back in the hero, the safety net is a savings target. Planning's Cash and investments card reads the default plan for its buffer readout and keeps opening the same sheet.
 
 **Investment contributions.** Recommended: yes, as a goal sub-kind with "contributions only" progress, because market moves make balance deltas meaningless. Fulfilment is by matched transfer only. No performance claims and the existing soft-nudge posture stays. Build last.
 
@@ -57,7 +57,7 @@ In order of preference (**Proposed** unless marked):
 
 1. **Matched outgoing transfer from the source.** Releases the reservation. This is the no-double-counting rule: the debit has already lowered the pooled balance, so holding the reservation would count the money twice, and waiting for the sink would understate Safe to Spend through sync lag or an unseen sink. (**Today** allocations release only on the inbound match; goals never release per period.)
 2. **Matched inbound at the sink.** Confirms the release and updates the plan's share. If it never appears, the plan shows "left <source>, not yet seen in <sink>" rather than reserving again.
-3. **Engine-proposed match, user confirms.** Reuses the transfer-pair matching in `services/companion.py` (`_transfer_pair_suggestions`, `_direct_fill_leg_source`: same-user legs, exact amount, a day of tolerance).
+3. **Engine-proposed match, user confirms.** Reuses `_transfer_pair_suggestions` in `routers/analytics.py` (~5800: same-user legs, exact amount, one day of tolerance for statement lag). `_direct_fill_leg_source` in `services/companion.py` is narrower, pairing same-day exact-amount legs only.
 4. **User-picked transaction.**
 5. **Manual mark done.**
 6. **Balance delta, fallback only.** Offered as a proposal needing confirmation, never an automatic release. Caveats shown: interest, market moves, refunds, new card spend, other deposits.
@@ -66,7 +66,7 @@ Unseen sinks (offline accounts, pots not exposed by open banking): detection 1, 
 
 **Partial and over-payment.** Matched amounts sum. Over-payment fulfils the period and the excess counts as progress, not credit against next period.
 
-**Short period.** The user chooses roll over or missed (Kevin's decision). Recommended timing: one quiet prompt at period end. An earlier prompt only once the shortfall is certain: less than the reserved amount seen, no further income expected before payday, and the source cannot cover it after bills. Reason: early prompts invite a decision before a late salary arrives. An unanswered prompt leaves the plan awaiting a choice and reserves only the usual amount, so Safe to Spend never changes by default. Roll-over cap: two consecutive, then the prompt offers only "missed" or "edit the plan". A rolled-over amount shares G228's limits (later periods at most 125% of usual, date moves at most two periods, `plan_easing.py`) so the two mechanisms cannot drift.
+**Short period.** The user chooses roll over or missed (Kevin's decision). Recommended timing: one quiet prompt at period end. An earlier prompt only once the shortfall is certain: less than the reserved amount seen, no further income expected before payday, and the source cannot cover it after bills. Reason: early prompts invite a decision before a late salary arrives. An unanswered prompt leaves the plan awaiting a choice and reserves only the usual amount, so Safe to Spend never changes by default. Roll-over cap: two consecutive, then the prompt offers only "missed" or "edit the plan". A rolled-over amount shares G228's limits (later periods at most 125% of usual, date moves at most two periods, `plan_easing.py`) so the two mechanisms cannot drift. On "missed", the goal's end date and projection are recalculated: the user chooses a higher per-period amount or a later date, and the same limits apply. Easing (G228: never two periods running, at most two in 12 months) and roll-over share **one counter per plan**, recommended so a plan cannot be softened twice as often by using both routes.
 
 ## 4. Flows into other surfaces
 
@@ -84,14 +84,14 @@ Several plans may track one account. The balance is split by an explicit **share
 |---|---|
 | Priority | The safety net is filled first and protected. No other tiers. |
 | Deposit with a matched plan | Counts for that plan. |
-| Unattributed inflow (interest, ad-hoc deposits) | Fills the safety net up to its target, then shows as **unallocated**; it never silently grows a custom plan. |
-| Withdrawal | Reduces custom plans first, applied provisionally with a "proposed" tag. The user confirms or reassigns (emergency spend to the safety net, the Japan trip to Japan). Never a silent rule. |
+| Unattributed inflow (interest, ad-hoc deposits) | Arriving unattributed money fills the safety net to target first, then shows as **unallocated**; it never silently grows a custom plan. |
+| Withdrawal | Reduces custom plans first, and the safety net only drops once the custom plans on that account are at £0. Applied provisionally with a "proposed" tag. The user confirms or reassigns (emergency spend to the safety net, the Japan trip to Japan). Never a silent rule. |
 | Several custom plans | Reduce proportionally to current shares. Alternative: most recent first. Preferred: proportional, because no single plan is wiped by one withdrawal and it is explainable in one line. (Today's oldest-first applies to claims, not withdrawals.) |
 | Safety net across several accounts | A withdrawal reduces the share held in the account it left. Custom plans absorb only within that account. There is no cross-account order. Where Penny must suggest where to draw from, easiest access first. |
 | Moving target | "3 months of spending" (`savings.py` `_target_amount`) is frozen at period start, and changes only when it differs by more than 10% and £100, with a "target moved from £X to £Y because your spending changed" note. A moved target never pulls money from custom plans. |
 | Target edited | A lower target releases the excess to unallocated. A higher one shows "£X to go". Re-splitting existing shares is offered as a proposal only. |
 | Own-account transfers | Never progress. A transfer between two sinks of the same plan is neutral; between plans, shares move only when the user attributes them. |
-| Sink excluded from Safe to Spend (G231) | Allowed, and the natural home for a ring-fenced account. A sink that **counts** towards Safe to Spend is refused with a reason: fulfilment would move money between counted accounts, so the reservation would release and spendable cash would rise wrongly. |
+| Sink excluded from Safe to Spend (G231) | Allowed, and the natural home for a ring-fenced account. A sink that **counts** towards Safe to Spend is refused with a reason: the pool counts both accounts, so releasing on the matched outgoing transfer would raise spendable cash while the money stays in the pool. |
 
 ## 6. Boundary and migration
 
@@ -102,7 +102,7 @@ Several plans may track one account. The balance is split by an explicit **share
 | Amount | Chosen by the user | Chosen, or derived from target and date |
 | Period miss | Resets next period | Roll over or missed |
 
-**Invariant.** For any user without a shared sink or a configured safety net contribution, the core's `reserved_total` equals `total_reserved_slices + total_reserved_remaining`, and `compute_safe_to_spend` output and the `/analytics/cashflow` totals are identical before and after the adapter. **Test**: a golden fixture suite (goals only, allocations only, both, easing and override live, completed once-off, pending allocation, unavailable plan) asserting equality field by field, plus the existing G227 reconcile and `tests/test_safe_to_spend_hardening.py`.
+**Invariant.** For any user without a shared sink or a configured safety net contribution, the core's `reserved_total` equals `total_reserved_slices + total_reserved_remaining`, and `compute_safe_to_spend` output and the `/analytics/cashflow` totals are identical before and after the adapter. **Test**: a golden fixture suite (goals only, allocations only, both, easing and override live, completed once-off, pending allocation, unavailable plan, and a configured safety net contribution) asserting equality field by field, including `plans_reserved`, plus the existing G227 reconcile and `tests/test_safe_to_spend_hardening.py`.
 
 **One deliberate exception.** Reading `_pot_progress_and_slice`, a goal's slice is recomputed from `remaining` and does not drop to £0 once the period's contribution is made, so Safe to Spend appears to keep reserving after the transfer (to be confirmed on a live fixture in build item 2). Release-on-fulfilment will raise Safe to Spend after a contribution. That is the point of the framework, but it changes results, so it ships separately behind a flag, with Kevin's sign-off (question 1).
 
@@ -119,7 +119,7 @@ Several plans may track one account. The balance is split by an explicit **share
 3. **G231** exclude an account from Safe to Spend (prerequisite for the sink rule). Surfaces: account sheet, hero, Upcoming, Penny.
 4. Period records and fulfilment detection, release on matched outgoing, flagged. Surfaces: Upcoming rows, account sheet, Penny.
 5. Roll-over or missed prompt and caps, folding G228 easing and G217 override onto period adjustments. Surfaces: Home brief, Planning, Upcoming.
-6. Safety net default plan, frozen target, suggested sinks. Surfaces: SavingsGoalSheet, Planning Cash and investments card, Penny.
+6. Safety net default plan, frozen target, suggested sinks, user-set contribution. Surfaces: SavingsGoalSheet, Planning Cash and investments card, Penny.
 7. Shared sinks: share ledger, withdrawal and deposit proposals, unallocated. Surfaces: account sheet, Planning, Penny.
 8. Debt payment plans with the split suggestion. Surfaces: Planning debt position, Cards, Edit plan.
 9. Investment contribution plans (optional, last). Surfaces: Planning, Edit plan.
