@@ -745,6 +745,7 @@ function CountRowPreview({ row, refuse }: { row: EstateRow; refuse: boolean }) {
           setCounted(next);
         }}
       />
+      <p className="mt-1 px-1 text-[11px] leading-snug text-slate-500 dark:text-slate-400">Preview note: the switch row is the production component; the sheet around it is the existing hand-authored canvas, and the refusal text is a fixture.</p>
     </div>
   );
 }
