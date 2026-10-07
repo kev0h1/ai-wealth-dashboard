@@ -32,6 +32,22 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "finexer-consent-intro",
+    name: "Finexer consent page intro block · G226 · A canvas, B quiet card, C hero line",
+    description:
+      "G226: three directions for the Sorted intro at the top of the Finexer-hosted consent page, shown in a MOCK of Finexer's page built from Kevin's Android screenshots (not a production component, the shipped artifact is header.html plus CSS synced to Finexer) · A no panel, eyebrow and one sentence · B hairline card with three facts · C headline line with support · Today for comparison · light and dark",
+    states: [
+      { label: "Dark", value: "dark" },
+      { label: "Light", value: "light" },
+    ],
+    variants: [
+      { label: "A", value: "a" },
+      { label: "B", value: "b" },
+      { label: "C", value: "c" },
+      { label: "Today", value: "today" },
+    ],
+  },
+  {
     slug: "ai-intro-reel",
     name: "AI live-action stories around the reel · G224 · Café and Night out (Veo 3.1 Fast)",
     description:
