@@ -102,12 +102,23 @@ def _items(body) -> list:
     return []
 
 
-def _load_state() -> dict:
-    return json.loads(STATE_FILE.read_text()) if STATE_FILE.exists() else {}
+def _load_all_state(legacy_app_id: str = "") -> dict:
+    """State is {app_id: {kind: template_id}}. A legacy flat {kind: id} file is
+    migrated under `legacy_app_id` (the app it was written for)."""
+    raw = json.loads(STATE_FILE.read_text()) if STATE_FILE.exists() else {}
+    if any(not isinstance(v, dict) for v in raw.values()):
+        raw = {legacy_app_id: raw} if legacy_app_id else {}
+    return raw
 
 
-def _save_state(state: dict) -> None:
-    STATE_FILE.write_text(json.dumps(state, indent=2) + "\n")
+def _load_state(app_id: str) -> dict:
+    return dict(_load_all_state(app_id).get(app_id, {}))
+
+
+def _save_state(app_id: str, state: dict) -> None:
+    allstate = _load_all_state(app_id)
+    allstate[app_id] = state
+    STATE_FILE.write_text(json.dumps(allstate, indent=2) + "\n")
 
 
 def _find_previews(obj, found=None):
@@ -157,13 +168,13 @@ def cmd_preview(c, base, tid):
         print(f"{k}: {json.dumps(v) if not isinstance(v, str) else v}")
 
 
-def cmd_delete(c, base, tid, yes=False):
+def cmd_delete(c, base, app_id, tid, yes=False):
     if not yes:
         print("refusing: delete is irreversible. Re-run with --yes.", file=sys.stderr)
         raise SystemExit(2)
     _check(c.delete(f"{base}/{tid}"), "delete")
-    state = {k: v for k, v in _load_state().items() if v != tid}
-    _save_state(state)
+    state = {k: v for k, v in _load_state(app_id).items() if v != tid}
+    _save_state(app_id, state)
 
 
 def cmd_make_default(c, base, tid, yes):
@@ -173,9 +184,9 @@ def cmd_make_default(c, base, tid, yes):
     _check(c.post(f"{base}/{tid}", data={"default": "true"}), "make-default")
 
 
-def cmd_sync(c, base, logo_file_id=None):
+def cmd_sync(c, base, app_id, logo_file_id=None):
     existing = {t.get("name"): t for t in _items(_check(c.get(base), "list"))}
-    state = _load_state()
+    state = _load_state(app_id)
     for kind, name in TEMPLATES.items():
         payload = build_payload(kind, logo_file_id)
         if name in existing:
@@ -189,7 +200,7 @@ def cmd_sync(c, base, logo_file_id=None):
                 raise SystemExit(1)
         state[kind] = tid
         print(f"{name}: {tid}")
-    _save_state(state)
+    _save_state(app_id, state)
     print(f"state saved to {STATE_FILE.name}")
 
 
@@ -235,9 +246,9 @@ def main(argv=None, client: httpx.Client | None = None) -> int:
         elif a.cmd == "preview":
             cmd_preview(c, base, a.id)
         elif a.cmd == "delete":
-            cmd_delete(c, base, a.id, a.yes)
+            cmd_delete(c, base, app_id, a.id, a.yes)
         elif a.cmd == "sync":
-            cmd_sync(c, base, a.logo_file_id)
+            cmd_sync(c, base, app_id, a.logo_file_id)
         elif a.cmd == "make-default":
             cmd_make_default(c, base, a.id, a.yes)
     except SystemExit as e:
