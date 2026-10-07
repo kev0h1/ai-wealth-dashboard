@@ -28,7 +28,7 @@ export default function FinexerConsentIntroClient() {
         <p className="mt-1 text-xs text-slate-300">
           A mock of Finexer&apos;s hosted page, built from Kevin&apos;s Android screenshots, not a production component.
           Approved A, folded in. The shipped artifact is header.html plus CSS synced to Finexer. The permission list, buttons and regulated
-          footer are never touched by the intro. The Light chip shows the light tokens only, while the real light template switches to dark tokens on a phone set to dark. The dim permission headings in Kevin&apos;s screenshots are Finexer&apos;s own styling, pending A147&apos;s effect.
+          footer are never touched by the intro. The dim permission headings in Kevin&apos;s screenshots are Finexer&apos;s own styling, pending A147&apos;s effect.
         </p>
         <div className="mt-3 flex gap-2" role="group" aria-label="Mode">
           {(["dark", "light"] as const).map((m) => (

@@ -35,7 +35,7 @@ const ROUTES: PreviewRoute[] = [
     slug: "finexer-consent-intro",
     name: "Finexer consent page intro block · G226 · shipped look (A canvas)",
     description:
-      "G226: Approved A, folded in. The shipped Sorted intro (eyebrow, one sentence, hairline) at the top of the Finexer-hosted consent page, rendered from the live header.html and sorted*.css inside a MOCK of Finexer's page built from Kevin's Android screenshots (not a production component) · light and dark · Light shows light tokens only; dim headings are Finexer's styling pending A147's effect",
+      "G226: Approved A, folded in. The shipped Sorted intro (eyebrow, one sentence, hairline) at the top of the Finexer-hosted consent page, rendered from the live header.html and sorted*.css inside a MOCK of Finexer's page built from Kevin's Android screenshots (not a production component) · light and dark · dim headings are Finexer's styling pending A147's effect",
     states: [
       { label: "Dark", value: "dark" },
       { label: "Light", value: "light" },

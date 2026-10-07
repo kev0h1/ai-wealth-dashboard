@@ -29,9 +29,7 @@ const SHELL_CSS = `
 `;
 
 export function buildDoc(mode: IntroMode): string {
-  // The light token file carries a prefers-color-scheme block for phones with no
-  // saved preference. The mock picks the mode with its chip, so drop it here.
-  const tokens = BRAND.tokens[mode].replace(/@media \(prefers-color-scheme: dark\)\s*\{[\s\S]*?\}\s*\}/, "");
+  const tokens = BRAND.tokens[mode];
   const css = BRAND.shared;
   const html = BRAND.header;
   const perms = PERMISSIONS.map(([h, d]) => `<dt>${h}</dt><dd>${d}</dd>`).join("");
