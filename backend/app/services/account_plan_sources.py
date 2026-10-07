@@ -173,20 +173,20 @@ async def resolve_goal_source(
 ) -> tuple[str | None, bool]:
     """G230: (source_account_id, inferred) for one goal plan.
 
-    An explicit choice wins while the account is still usable and counted.
-    A document with no `source_account_id` field at all (a plan the user
-    never answered "Paid from" for) falls back to the paying account seen in
-    recent transfers into its sink pots, the same pairing set-asides use. A
-    persisted null is the user's explicit "Not set" and is never inferred.
+    An explicit account wins while it is still usable and counted. A plan
+    with no stored account (the field absent, or the null every plan carried
+    before G230) falls back to the paying account seen in recent transfers
+    into its sink pots, the same pairing set-asides use. Only `source_unset:
+    true`, written when the user picks "Not set", is never inferred.
     The inference is read-only: nothing here writes to the document.
     """
-    source_id, basis = chosen_source(doc, account_map, destination_ids)
-    if basis == "chosen":
-        if account_map[source_id].get("include_in_safe_to_spend") is False:
-            return None, False
-        return source_id, False
-    if basis != "legacy" and "source_account_id" in doc:
-        return None, False
+    if doc.get("source_unset") is True:
+        return None, False  # the user's deliberate "Not set"
+    if doc.get("source_account_id") is not None:
+        source_id, basis = chosen_source(doc, account_map, destination_ids)
+        if basis == "chosen" and account_map[source_id].get("include_in_safe_to_spend") is not False:
+            return source_id, False
+        return None, False  # an explicit account that is no longer usable
     if not destination_ids:
         return None, False
     from app.services.companion import infer_plan_source_account

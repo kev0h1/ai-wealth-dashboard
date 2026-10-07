@@ -38,8 +38,8 @@ assert.match(sheetSrc, /unsetLabel="Not set"/, "Not set keeps the plan pooled-on
 assert.match(sheetSrc, /Based on recent transfers\./, "inferred hedge");
 assert.match(sheetSrc, /include_in_safe_to_spend !== false/, "excluded accounts are omitted");
 assert.match(sheetSrc, /saving\|isa/, "savings accounts are omitted");
-assert.match(sheetSrc, /if \(sourceTouched\) body\.source_account_id = sourceId \|\| null;/, "edit writes only when picked");
-assert.match(sheetSrc, /\.\.\.\(sourceTouched \? \{ source_account_id: sourceId \|\| null \} : \{\}\)/, "create writes only when picked");
+assert.match(sheetSrc, /if \(sourceTouched\) \{ body\.source_account_id = sourceId \|\| null; body\.source_unset = !sourceId; \}/, "edit writes only when picked, Not set sends source_unset");
+assert.match(sheetSrc, /\.\.\.\(sourceTouched \? \{ source_account_id: sourceId \|\| null, source_unset: !sourceId \} : \{\}\)/, "create writes only when picked");
 assert.match(sheetSrc, /source_inferred\) && !sourceTouched/, "hedge drops once the user picks");
 const markup = render(goal({ source_account_id: "monzo", source_inferred: true }));
 for (const text of [sheetSrc]) {

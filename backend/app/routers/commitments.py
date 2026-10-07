@@ -880,6 +880,7 @@ async def _serialise(
         "funding_account_id":  fid,
         "funding_account_name": funding_name,
         "source_account_id":  doc.get("source_account_id"),
+        "source_unset":        bool(doc.get("source_unset")),
         "source":              doc.get("source", "manual"),
         "status":              doc.get("status", "active"),
         "progress":            progress,
@@ -921,6 +922,7 @@ async def _attach_sources(uid: str, items: list[dict], docs: list[dict]) -> None
             source_id, inferred = await resolve_goal_source(uid, doc, account_map, dest)
         item["source_account_id"] = source_id
         item["source_inferred"] = inferred
+        item["source_unset"] = bool(doc.get("source_unset"))
         item["source_account_name"] = (
             account_label(account_map.get(source_id)) if source_id else None
         )
@@ -1202,15 +1204,16 @@ async def create_commitment(
         "created_at":   datetime.now(timezone.utc),
         "idempotency_key": idempotency_key,
     }
-    # G230: an absent field means "the user has not said", so the paying
-    # account may be inferred from recent transfers on read. Only an explicit
-    # null (the "Not set" choice) is a persisted opt-out.
+    # G230: a plan with no stored source (absent, or the null every plan had
+    # before G230) is inferred from recent transfers on read. Only a plan
+    # saved with `source_unset: true` is a deliberate "Not set".
     if "source_account_id" in body:
         sources = await owned_account_map(uid)
         doc["source_account_id"] = validate_source_account(
             body.get("source_account_id"), sources,
             {str(p["account_id"]) for p in pots},
         )
+        doc["source_unset"] = doc["source_account_id"] is None and body.get("source_unset") is True
     result = await commitments_col.insert_one(doc)
     doc["_id"] = result.inserted_id
 
@@ -1496,6 +1499,7 @@ async def update_commitment(
             body.get("source_account_id"), sources,
             {str(p["account_id"]) for p in effective_pots},
         )
+        updates["source_unset"] = updates["source_account_id"] is None and body.get("source_unset") is True
     elif "funding_pots" in updates and doc.get("source_account_id") in {
         str(p["account_id"]) for p in updates["funding_pots"]
     }:

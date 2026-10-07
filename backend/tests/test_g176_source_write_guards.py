@@ -257,7 +257,7 @@ def test_goal_source_only_write_cas_includes_pots_legacy_source_and_status(monke
     assert filt["funding_account_id"] == "saving"
     assert filt["source_account_id"] == "current"
     assert filt["status"] == "active"
-    assert {key: value for key, value in col.docs[0].items() if key != "source_account_id"} == {
+    assert {key: value for key, value in col.docs[0].items() if key not in ("source_account_id", "source_unset")} == {
         key: value for key, value in doc.items() if key != "source_account_id"
     }
     assert calls == [UID]

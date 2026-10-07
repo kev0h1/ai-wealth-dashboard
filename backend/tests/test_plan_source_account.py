@@ -100,8 +100,14 @@ def test_no_source_and_no_transfers_stays_pooled_only(monkeypatch):
     assert row["inferred"] is False
 
 
-def test_explicit_not_set_is_never_inferred(monkeypatch):
+def test_legacy_null_is_inferred(monkeypatch):
     row = _rows(monkeypatch, _goal(source_account_id=None), txns=_transfer_pair())[0]
+    assert row["source_account_id"] == "current"
+    assert row["inferred"] is True
+
+
+def test_deliberate_not_set_is_never_inferred(monkeypatch):
+    row = _rows(monkeypatch, _goal(source_account_id=None, source_unset=True), txns=_transfer_pair())[0]
     assert row["source_account_id"] is None
     assert row["inferred"] is False
 
@@ -132,7 +138,7 @@ def test_validation_refuses_a_card_and_an_excluded_account_with_static_422s():
     assert "Safe to Spend" in excl.value.detail
 
 
-def test_create_without_source_omits_the_field_and_null_is_an_explicit_opt_out(monkeypatch):
+def test_create_writes_the_unset_marker_only_for_not_set(monkeypatch):
     col = _Collection()
     monkeypatch.setattr(commitments, "commitments_col", col)
     async def amap(_): return _accounts()
@@ -142,10 +148,26 @@ def test_create_without_source_omits_the_field_and_null_is_an_explicit_opt_out(m
     monkeypatch.setattr(commitments, "_build_pots", pots)
     monkeypatch.setattr(commitments, "_serialise_one_with_siblings", serial)
     body = {"name": "Trip", "amount": 100, "target_date": "2099-01-01"}
-    asyncio.run(commitments.create_commitment(dict(body), user={"email": UID}))
-    asyncio.run(commitments.create_commitment({**body, "name": "B", "source_account_id": None}, user={"email": UID}))
-    assert "source_account_id" not in col.docs[0]
-    assert col.docs[1]["source_account_id"] is None
+    mk = lambda name, **kw: asyncio.run(commitments.create_commitment({**body, "name": name, **kw}, user={"email": UID}))
+    mk("A")
+    mk("B", source_account_id=None, source_unset=True)
+    mk("C", source_account_id="current")
+    assert "source_account_id" not in col.docs[0] and "source_unset" not in col.docs[0]
+    assert col.docs[1]["source_account_id"] is None and col.docs[1]["source_unset"] is True
+    assert col.docs[2]["source_account_id"] == "current" and col.docs[2]["source_unset"] is False
+
+
+def test_picking_an_account_clears_the_unset_marker(monkeypatch):
+    doc = _goal(source_account_id=None, source_unset=True)
+    col = _Collection([doc])
+    monkeypatch.setattr(commitments, "commitments_col", col)
+    async def amap(_): return _accounts()
+    async def serial(*_): return {"ok": True}
+    monkeypatch.setattr(commitments, "owned_account_map", amap)
+    monkeypatch.setattr(commitments, "_serialise_one_with_siblings", serial)
+    asyncio.run(commitments.update_commitment(str(doc["_id"]), {"source_account_id": "current"}, {"email": UID}))
+    assert col.docs[0]["source_account_id"] == "current"
+    assert col.docs[0]["source_unset"] is False
 
 
 def test_account_plans_goal_slice_counts_for_its_source_only():

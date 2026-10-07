@@ -307,7 +307,7 @@ export default function CommitmentSheet({
         if (potsChanged) {
           body.funding_pots = pots;
         }
-        if (sourceTouched) body.source_account_id = sourceId || null;
+        if (sourceTouched) { body.source_account_id = sourceId || null; body.source_unset = !sourceId; }
         item = await operations.updateCommitment(commitment.id, body);
       } else {
         item = await operations.createCommitment({
@@ -316,7 +316,7 @@ export default function CommitmentSheet({
           target_date,
           funding_pots: pots,
           source,
-          ...(sourceTouched ? { source_account_id: sourceId || null } : {}),
+          ...(sourceTouched ? { source_account_id: sourceId || null, source_unset: !sourceId } : {}),
         });
       }
       // G83 fix-round: a commitment create/edit can change the goal-name

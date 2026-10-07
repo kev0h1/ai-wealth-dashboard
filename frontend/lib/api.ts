@@ -757,6 +757,7 @@ export type Commitment = {
    * pot(s) (then `source_inferred` is true and nothing is stored). */
   source_account_id?: string | null;
   source_inferred?: boolean;
+  source_unset?: boolean;
   source_account_name?: string | null;
   id: string;
   name: string;
@@ -3050,6 +3051,8 @@ export const api = {
     }).then((r) => toJson<Commitment>(r)),
   createCommitment: (body: {
     source_account_id?: string | null;
+    /** G230: true only when the user picks "Not set" (never inferred). */
+    source_unset?: boolean;
     name: string;
     amount: number;
     target_date: string;
@@ -3061,6 +3064,7 @@ export const api = {
   }) => post<Commitment>("/commitments", body),
   updateCommitment: (id: string, body: {
     source_account_id?: string | null;
+    source_unset?: boolean;
     name?: string;
     amount?: number;
     target_date?: string;
