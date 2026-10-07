@@ -12,9 +12,7 @@
 // PennyConversation.tsx), so open/closed has to be shared the same way
 // usePennySheet() itself already is.
 //
-// Rendered by PennySheet.tsx as an absolute overlay on top of the existing
-// floating panel (header + thread + composer), not as its own portal/sheet
-// — see that file's own render for the exact positioning.
+// The shared task sheet opens above Penny, retaining its conversation below.
 //
 // B5: rows are real buttons once `info.billing_live` is true (POST
 // /billing/checkout, api.startCheckout) — tapping a pack or the Move to Max
@@ -47,7 +45,7 @@
 // (Kevin's framing, see the design preview's own header comment for why).
 
 import { useState } from "react";
-import { X } from "lucide-react";
+import { SheetFrame } from "@/components/SheetFrame";
 import { usePennyUsage, formatPennyResetDate } from "@/components/PennySheetProvider";
 import { api } from "@/lib/api";
 import { usePurchaseAvailability, PURCHASE_UNAVAILABLE_LABEL } from "@/lib/nativeAuth";
@@ -215,31 +213,7 @@ export default function MoreMessagesSheet({ onClose }: { onClose: () => void }) 
   ));
 
   return (
-    // Backdrop — tapping outside the card closes it, same convention as
-    // every other sheet in this app (PennySheet.tsx's own click-catcher,
-    // CommitmentSheet.tsx, etc).
-    <div
-      className="absolute inset-0 z-10 flex flex-col justify-end bg-slate-900/40 p-3 rounded-3xl"
-      onClick={onClose}
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="More Penny messages"
-        onClick={(e) => e.stopPropagation()}
-        className="w-full glass-sheet rounded-3xl shadow-xl ring-1 ring-black/[0.06] dark:ring-white/[0.12] px-5 pt-4 pb-5 space-y-4"
-      >
-        <div className="flex items-center justify-between gap-2">
-          <h3 className="text-[16px] font-bold text-slate-900 dark:text-slate-100">More Penny messages</h3>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="w-9 h-9 min-w-[44px] min-h-[44px] -m-2.5 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-700 active:scale-90 transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-          >
-            <X size={15} className="text-slate-500 dark:text-slate-400" />
-          </button>
-        </div>
+    <SheetFrame title="More Penny messages" onClose={onClose} bodyClassName="px-5 py-5 space-y-4">
 
         <p className="text-[13px] leading-relaxed text-slate-600 dark:text-slate-300">
           You have used <span className="money">{used}</span> of <span className="money">{limit}</span> this month.
@@ -261,13 +235,12 @@ export default function MoreMessagesSheet({ onClose }: { onClose: () => void }) 
         </div>
 
         {errorMsg && (
-          <p className="text-[11px] leading-snug text-red-500 dark:text-red-400">{errorMsg}</p>
+          <p role="alert" className="text-[11px] leading-snug text-slate-600 dark:text-slate-300">{errorMsg}</p>
         )}
 
         <p className="text-[11px] leading-snug text-slate-500 dark:text-slate-400">
           Packs last 90 days and are used after your monthly allowance. Quick questions from the chips are always free.
         </p>
-      </div>
-    </div>
+    </SheetFrame>
   );
 }

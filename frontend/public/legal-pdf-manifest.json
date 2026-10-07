@@ -1,0 +1,45 @@
+{
+  "generated_by": "frontend/scripts/export-legal-pdfs.sh",
+  "entries": [
+    {
+      "pdf": "frontend/public/TERMS.pdf",
+      "source": "frontend/content/terms.md",
+      "source_sha256": "7a74ba22a4d8db8e0515831787a7a16a63b067d2eeb74d4d8544331a76a3eaf5",
+      "exported": "2026-10-05",
+      "pages": 7,
+      "mcp_connector": "off"
+    },
+    {
+      "pdf": "frontend/public/PRIVACY.pdf",
+      "source": "frontend/content/privacy.md",
+      "source_sha256": "b8a61e0854176045584119bf0c7b8bdb96ccdf033597dba660d77f4f64c22013",
+      "exported": "2026-10-05",
+      "pages": 7,
+      "mcp_connector": "off"
+    },
+    {
+      "pdf": "TERMS.pdf",
+      "source": "TERMS.md",
+      "source_sha256": "5fd22b88bf2bebb46557acbe158826e582c0aaf0b1ad0b2c4f53105f82c34cf7",
+      "exported": "2026-10-05",
+      "pages": 6,
+      "mcp_connector": "full-text"
+    },
+    {
+      "pdf": "PRIVACY.pdf",
+      "source": "PRIVACY.md",
+      "source_sha256": "3120a7e70cbb709464d7790fecac5298dbb6218aca4fb2ff3a9febcb08ccdb3a",
+      "exported": "2026-10-05",
+      "pages": 6,
+      "mcp_connector": "full-text"
+    },
+    {
+      "pdf": "SECURITY.pdf",
+      "source": "SECURITY.md",
+      "source_sha256": "bc5779d7fa40459d66fe1ce2482a51c9b30e88b71ed85deadb2c1fc4fab4c655",
+      "exported": "2026-10-05",
+      "pages": 16,
+      "mcp_connector": "full-text"
+    }
+  ]
+}

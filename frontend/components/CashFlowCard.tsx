@@ -1,4 +1,5 @@
 "use client";
+import { upcomingDisplayName } from "@/lib/upcomingDisplayName";
 
 import { useEffect, useState } from "react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
@@ -122,7 +123,7 @@ export default function CashFlowCard() {
                   .map((item) => (
                     <div key={`${item.type}-${item.name}`} className="flex items-center gap-2">
                       <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${item.type === "income" ? "bg-emerald-400" : "bg-rose-400"}`} />
-                      <p className="flex-1 text-xs text-slate-700 dark:text-slate-200 truncate">{item.name}</p>
+                      <p className="flex-1 text-xs text-slate-700 dark:text-slate-200 truncate">{upcomingDisplayName(item)}</p>
                       <DaysChip days={item.days_away} />
                       <p className={`text-xs font-semibold flex-shrink-0 font-mono tabular-nums ${item.type === "income" ? "text-emerald-500" : "text-slate-600 dark:text-slate-300"}`}>
                         {item.type === "income" ? "+" : ""}{fmt(item.amount, sym)}

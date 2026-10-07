@@ -13,6 +13,8 @@ from typing import Optional
 
 from fastapi import HTTPException
 
+from app.core.timeutil import as_utc
+
 logger = logging.getLogger(__name__)
 
 
@@ -232,7 +234,9 @@ class Subscription:
         renews_at: datetime | None = None,
         cancel_at_period_end: bool = False,
         has_paid_subscription: bool = False,
+        grace_until: datetime | None = None,
     ):
+        self.grace_until = grace_until
         self.tier = tier
         self.status = status
         self.limits = TIER_LIMITS[tier]
@@ -264,12 +268,26 @@ async def get_subscription(email: str) -> Subscription:
         return Subscription(default_tier)
 
     stripe_backed = bool(doc.get("source") == "stripe" and doc.get("stripe_subscription_id"))
+    # B45: a user whose real (Stripe-backed) subscription has ended lands on
+    # the free Statements plan whatever DEFAULT_TIER is. DEFAULT_TIER only
+    # covers people who never had a paid subscription (the pre-launch "nobody
+    # is restricted" default); someone who cancelled, lapsed, failed to pay
+    # or let a trial end has no claim on it.
+    landing_tier = Tier.STATEMENTS if stripe_backed else default_tier
     if doc.get("status") == "expired":
-        return Subscription(default_tier, "expired", has_paid_subscription=stripe_backed)
+        return Subscription(landing_tier, "expired", has_paid_subscription=stripe_backed)
 
-    expires_at = doc.get("expires_at")
-    if expires_at and expires_at < datetime.now(timezone.utc):
-        return Subscription(default_tier, "expired", has_paid_subscription=stripe_backed)
+    now = datetime.now(timezone.utc)  # naive-ok: aware instant compared with as_utc stamps
+    expires_at = as_utc(doc.get("expires_at"))
+    grace_until = as_utc(doc.get("grace_until")) if doc.get("status") == "past_due" else None
+    if grace_until is not None:
+        # Failed payment: Stripe leaves current_period_end at the period that
+        # just ended, so the usual expires_at check would cut access the
+        # moment a renewal fails. Access runs to the grace deadline instead.
+        if grace_until <= now:
+            return Subscription(landing_tier, "expired", has_paid_subscription=stripe_backed)
+    elif expires_at and expires_at < now:
+        return Subscription(landing_tier, "expired", has_paid_subscription=stripe_backed)
 
     stored_name = (doc.get("tier") or "").strip().lower()
     if stored_name in TIER_BY_NAME:
@@ -288,10 +306,27 @@ async def get_subscription(email: str) -> Subscription:
         tier, doc.get("status", "active"),
         billing_period=doc.get("billing_period"),
         trial_ends_at=doc.get("trial_ends_at"),
-        renews_at=doc.get("expires_at"),
+        renews_at=expires_at,
         cancel_at_period_end=bool(doc.get("cancel_at_period_end")),
         has_paid_subscription=stripe_backed,
+        grace_until=grace_until,
     )
+
+
+async def open_banking_paused(email: str, *, fail_closed: bool = False) -> bool:
+    """B45: True when this user's effective plan has no open banking, so
+    every bank sync (scheduled, webhook-driven or manual) must be skipped
+    and their connected accounts shown as paused. On a lookup error it fails
+    OPEN by default (display and a user's manual tap must not wrongly stop a
+    paying user); the scheduled worker tasks pass fail_closed=True, because a
+    missed cycle is simply retried while a wrongly-run sync costs money
+    (Finexer bills per connected account)."""
+    try:
+        sub = await get_subscription(email)
+    except Exception:
+        logger.exception("open_banking_paused: subscription lookup failed, fail_closed=%s", fail_closed)
+        return fail_closed
+    return sub.limit("open_banking") is False
 
 
 def _ym_tuple(ym: str) -> tuple[int, int]:
@@ -313,7 +348,7 @@ def _pack_covers_month(pack: dict, ym: str) -> bool:
     purchased_ym = pack.get("year_month") or ""
     if purchased_ym > ym:
         return False
-    expires_at = pack.get("expires_at")
+    expires_at = as_utc(pack.get("expires_at"))
     if expires_at is None:
         return True
     return expires_at.strftime("%Y-%m") >= ym
@@ -510,10 +545,10 @@ async def penny_allowance(email: str, *, persist: bool = True) -> dict:
     active_packs = [
         p for p in packs
         if int(p.get("remaining") or 0) > 0
-        and (p.get("expires_at") is None or p["expires_at"] > now)
+        and (p.get("expires_at") is None or as_utc(p["expires_at"]) > now)
     ]
     topup_messages = sum(int(p.get("remaining") or 0) for p in active_packs)
-    expiring_dates = [p["expires_at"] for p in active_packs if p.get("expires_at")]
+    expiring_dates = [as_utc(p["expires_at"]) for p in active_packs if p.get("expires_at")]
     topup_expires_soonest = min(expiring_dates).date().isoformat() if expiring_dates else None
     packs_bought_this_month = sum(1 for p in packs if (p.get("year_month") or "") == ym)
 
@@ -574,10 +609,10 @@ async def mcp_allowance(email: str, *, persist: bool = True) -> dict:
     active_packs = [
         p for p in packs
         if int(p.get("remaining") or 0) > 0
-        and (p.get("expires_at") is None or p["expires_at"] > now)
+        and (p.get("expires_at") is None or as_utc(p["expires_at"]) > now)
     ]
     pack_calls = sum(int(p.get("remaining") or 0) for p in active_packs)
-    expiring_dates = [p["expires_at"] for p in active_packs if p.get("expires_at")]
+    expiring_dates = [as_utc(p["expires_at"]) for p in active_packs if p.get("expires_at")]
     pack_expires_soonest = min(expiring_dates).date().isoformat() if expiring_dates else None
     packs_bought_this_month = sum(1 for p in packs if (p.get("year_month") or "") == ym)
 

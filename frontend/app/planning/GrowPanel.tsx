@@ -43,6 +43,8 @@ import { formatCurrency } from "@/lib/currency";
 import { usePreferences } from "@/components/PreferencesContext";
 import MoneyText from "@/components/MoneyText";
 import SavingsGoalSheet from "@/components/SavingsGoalSheet";
+import PlanningCheckpointTimeline from "@/components/PlanningCheckpointTimeline";
+import { planningCheckpointFigures } from "@/lib/planningCheckpointFigures";
 
 // ── formatting ───────────────────────────────────────────────────────────
 
@@ -818,7 +820,7 @@ export function PlanningComposition({
       <div className="mt-8 space-y-4 border-t border-slate-300/80 pt-8 dark:border-slate-700 lg:mt-0 lg:border-l lg:border-t-0 lg:pl-10 lg:pt-0">
         <section id="priorities" className="scroll-mt-4" aria-labelledby="planning-priorities-heading">
           <h2 id="planning-priorities-heading" className="sr-only">Your priority order</h2>
-          {hasLadder ? <CollapsedLadder steps={view.ladder} hideValues={hideValues} /> : (
+          {hasLadder ? <PlanningCheckpointTimeline steps={view.ladder} hideValues={hideValues} figures={planningCheckpointFigures(view)} /> : (
             /* G135: this told the user to connect an account and then gave
                them nowhere to do it — a plain <p>, no link, on a page that
                (like every page except Home) has no route to /accounts at

@@ -163,6 +163,11 @@ const verdict = {
   check("negative net uses the app's minus sign convention", view.figures[2].value, "−£1,100");
 }
 
+{
+  const view = buildUpcomingRunwayView({ runway: 240, runwayStatus: "left", isCalendarMonth: false, plansUnavailable: true });
+  check("upcoming runway label says it may be too high when plans are unavailable", /estimated.*too high/.test(view.figures[0].label), true);
+}
+
 // ── Upcoming runway view ──────────────────────────────────────────────────
 
 {

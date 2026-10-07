@@ -33,7 +33,9 @@ below, which is the dangerous-failure-mode check the ticket calls for.
 Same fake-Mongo/monkeypatch conventions as test_safe_to_spend_hardening.py
 (no mongomock in this environment).
 """
+import ast
 import asyncio
+import inspect
 from datetime import date, timedelta
 
 import app.routers.analytics as analytics
@@ -150,11 +152,35 @@ def test_touches_pooled_cash_defaults_true_for_a_bill_missing_the_field():
 def test_a_charge_on_a_credit_card_does_not_reduce_the_walk(monkeypatch):
     """The exact Kevin shape: £180 Anthropic charge sitting on the Amex.
     card_growth_by_card is stubbed to [] here so this test isolates the
-    walk itself from the separate reserve mechanism (covered below)."""
+    walk itself from the separate reserve mechanism (covered below).
+
+    H98, 2026-09-29: same date rot as `test_charge_and_its_repayment_
+    together_reduce_cash_only_once` below (see its H94/G180 comment) — this
+    fixture's bare `days_away: 2` under an UNPINNED "today" depends on
+    `days_until_payday` (calendar_month payday = the 1st of next month)
+    staying above 2, which a real calendar month's final couple of days
+    shrinks below 2. When that happens the charge silently drops out of
+    `raw_window_bills` and this test keeps passing for the wrong reason
+    (`bills_total == 0.0` either way, since a card charge is excluded from
+    the walk regardless of the window), which is exactly the "neutered"
+    failure mode G180 warned about: the test stops exercising
+    `_touches_pooled_cash` at all and would not notice if that predicate
+    broke. Pinned the same way, to a payday fixed at "today" + 15 days, so
+    `days_away: 2` stays inside the window (and so genuinely exercised) on
+    every calendar day."""
     _wire_common(monkeypatch)
+
+    today = date.today()
+    next_payday = today + timedelta(days=15)  # days_until_payday == 15, always
+
+    def fake_confirmed_payday(_prefs, _today):
+        return (next_payday, {"schedule": "fixed"})
+
+    monkeypatch.setattr(income_service, "get_confirmed_payday", fake_confirmed_payday)
+
     bills = [{
         "name": "Anthropic", "days_away": 2, "amount": 180.0,
-        "expected_date": "2026-09-18", "kind": "discretionary",
+        "expected_date": (today + timedelta(days=2)).isoformat(), "kind": "discretionary",
         "account_id": "amex", "is_credit_card": True,
     }]
     accounts = [{"balance": 603.0, "type": "bank", "subtype": "CURRENT", "currency": "GBP"}]
@@ -175,11 +201,33 @@ def test_a_charge_on_a_credit_card_does_not_reduce_the_walk(monkeypatch):
 def test_a_repayment_to_that_card_does_reduce_the_walk(monkeypatch):
     """The separate Amex repayment from Barclays — a MOVEMENT bill whose
     OWN account is Barclays (not a card), so is_credit_card is false on the
-    bill itself even though card_dest_account_id names the card."""
+    bill itself even though card_dest_account_id names the card.
+
+    H98, 2026-09-29: THE failure this item was raised for. Reproduced on
+    unmodified main 2026-09-29 ('assert 0 == 180.0' for `bills_total`):
+    same class as H94/G180 and `test_charge_and_its_repayment_together_
+    reduce_cash_only_once` below — this fixture's bare `days_away: 2` under
+    an UNPINNED "today" needs `days_until_payday` (calendar_month payday =
+    the 1st of next month) to stay above 2; on the 29th of a 30-day month
+    `days_until_payday` is 2, so `0 <= 2 < 2` is false and the repayment
+    drops out of `raw_window_bills` entirely (`bills_total` fell to 0
+    instead of 180, unlike the charge test above, this one has no fallback
+    exclusion to hide behind). Pinned the same way, to a payday fixed at
+    "today" + 15 days, so `days_away: 2` stays inside the window on every
+    calendar day."""
     _wire_common(monkeypatch)
+
+    today = date.today()
+    next_payday = today + timedelta(days=15)  # days_until_payday == 15, always
+
+    def fake_confirmed_payday(_prefs, _today):
+        return (next_payday, {"schedule": "fixed"})
+
+    monkeypatch.setattr(income_service, "get_confirmed_payday", fake_confirmed_payday)
+
     bills = [{
         "name": "Amex repayment", "days_away": 2, "amount": 180.0,
-        "expected_date": "2026-09-18", "kind": analytics.MOVEMENT,
+        "expected_date": (today + timedelta(days=2)).isoformat(), "kind": analytics.MOVEMENT,
         "account_id": "barclays", "is_credit_card": False,
         "card_dest_account_id": "amex", "dest_account_spendable": None,
     }]
@@ -202,17 +250,37 @@ def test_charge_and_its_repayment_together_reduce_cash_only_once(monkeypatch):
     """The full reproduction of Kevin's bug report: the £180 charge AND the
     £180 repayment both in the window. Before the fix this walked to
     603 - 180 (charge) - 180 (repayment) = 243. After the fix, only the
-    repayment (the actual cash leaving Barclays) counts: 603 - 180 = 423."""
+    repayment (the actual cash leaving Barclays) counts: 603 - 180 = 423.
+
+    H94, 2026-09-28: same date rot as `test_reserve_still_catches_growth_
+    with_no_predicted_repayment` below (see its G137 comment) — this test's
+    `days_away: 3` repayment sat exactly on `0 <= days_away < days_until_payday`
+    under an UNPINNED "today", and a real calendar month's final few days
+    shrink `days_until_payday` (calendar_month payday = the 1st of next
+    month) to 3 or less, pushing `days_away: 3` outside the window and
+    dropping the repayment out of `raw_window_bills` entirely (bills_total
+    fell to 0 instead of 180). Pinned the same way, to a payday fixed at
+    "today" + 15 days, so both `days_away: 1` and `days_away: 3` stay inside
+    the window on every calendar day."""
     _wire_common(monkeypatch)
+
+    today = date.today()
+    next_payday = today + timedelta(days=15)  # days_until_payday == 15, always
+
+    def fake_confirmed_payday(_prefs, _today):
+        return (next_payday, {"schedule": "fixed"})
+
+    monkeypatch.setattr(income_service, "get_confirmed_payday", fake_confirmed_payday)
+
     bills = [
         {
             "name": "Anthropic", "days_away": 1, "amount": 180.0,
-            "expected_date": "2026-09-17", "kind": "discretionary",
+            "expected_date": (today + timedelta(days=1)).isoformat(), "kind": "discretionary",
             "account_id": "amex", "is_credit_card": True,
         },
         {
             "name": "Amex repayment", "days_away": 3, "amount": 180.0,
-            "expected_date": "2026-09-19", "kind": analytics.MOVEMENT,
+            "expected_date": (today + timedelta(days=3)).isoformat(), "kind": analytics.MOVEMENT,
             "account_id": "barclays", "is_credit_card": False,
             "card_dest_account_id": "amex", "dest_account_spendable": None,
         },
@@ -236,17 +304,35 @@ def test_a_movement_between_two_pooled_accounts_does_not_reduce_cash(monkeypatch
     traced standing order into another of the user's own spendable accounts
     stays a no-op even in the same window as a card charge and a repayment,
     proving the two exclusions (`_is_pooled_spendable_transfer` and
-    `_touches_pooled_cash`) compose correctly rather than fighting."""
+    `_touches_pooled_cash`) compose correctly rather than fighting.
+
+    H98, 2026-09-29: same date rot as `test_a_repayment_to_that_card_does_
+    reduce_the_walk` above — this fixture's bare `days_away: 1` under an
+    UNPINNED "today" needs `days_until_payday` (calendar_month payday = the
+    1st of next month) to stay above 1, which the LAST day of any calendar
+    month (`days_until_payday == 1`) fails, dropping both bills out of
+    `raw_window_bills` and breaking `pooled_transfers_excluded == 50.0`
+    below. Pinned the same way, to a payday fixed at "today" + 15 days, so
+    `days_away: 1` stays inside the window on every calendar day."""
     _wire_common(monkeypatch)
+
+    today = date.today()
+    next_payday = today + timedelta(days=15)  # days_until_payday == 15, always
+
+    def fake_confirmed_payday(_prefs, _today):
+        return (next_payday, {"schedule": "fixed"})
+
+    monkeypatch.setattr(income_service, "get_confirmed_payday", fake_confirmed_payday)
+
     bills = [
         {
             "name": "Anthropic", "days_away": 1, "amount": 180.0,
-            "expected_date": "2026-09-17", "kind": "discretionary",
+            "expected_date": (today + timedelta(days=1)).isoformat(), "kind": "discretionary",
             "account_id": "amex", "is_credit_card": True,
         },
         {
             "name": "To ISA saver", "days_away": 1, "amount": 50.0,
-            "expected_date": "2026-09-17", "kind": analytics.MOVEMENT,
+            "expected_date": (today + timedelta(days=1)).isoformat(), "kind": analytics.MOVEMENT,
             "account_id": "barclays", "is_credit_card": False,
             "dest_account_spendable": True,
         },
@@ -368,11 +454,28 @@ def test_reserve_catches_a_not_yet_posted_charge_even_with_zero_past_growth(monk
     and new_spend == 0 with no `future_unposted_charges` field to check),
     so the reserve would sit at £0 while a real, predicted charge sat
     completely unaccounted for — cash overstated by the full amount.
+
+    H94, 2026-09-28: same date rot as `test_reserve_still_catches_growth_
+    with_no_predicted_repayment` (see its G137 comment) — `days_away: 3`
+    under an UNPINNED "today" falls outside `0 <= days_away < days_until_payday`
+    once a real calendar month's final few days shrink the calendar_month
+    payday gap to 3 or less, dropping the charge out of `raw_window_bills`
+    (and so out of `card_charges_excluded_from_walk` too) entirely. Pinned
+    the same way, to a payday fixed at "today" + 15 days.
     """
     _wire_common(monkeypatch, recurring_spend=[])
+
+    today = date.today()
+    next_payday = today + timedelta(days=15)  # days_until_payday == 15, always
+
+    def fake_confirmed_payday(_prefs, _today):
+        return (next_payday, {"schedule": "fixed"})
+
+    monkeypatch.setattr(income_service, "get_confirmed_payday", fake_confirmed_payday)
+
     bills = [{
         "name": "New Phone Contract", "days_away": 3, "amount": 45.0,
-        "expected_date": "2026-09-19", "kind": "commitment",
+        "expected_date": (today + timedelta(days=3)).isoformat(), "kind": "commitment",
         "account_id": "newcard", "is_credit_card": True,
     }]
     accounts = [{"balance": 200.0, "type": "bank", "subtype": "CURRENT", "currency": "GBP"}]
@@ -398,3 +501,76 @@ def test_reserve_catches_a_not_yet_posted_charge_even_with_zero_past_growth(monk
     assert result["card_growth_total"] == 0.0  # nothing has posted — the descriptive fact stays honest
     assert result["card_growth_reserved"] == 45.0  # but the forecasted charge is still reserved for
     assert result["safe_to_spend"] == 155.0  # 200 - 45, not 200
+
+
+# ── H98 guard: the fourth blockage cannot come from this file ──────────────
+#
+# Three separate calendar-drift blockages have come out of this one file in
+# two days (G137, G180/H94, H98) because each fix pinned only the test that
+# happened to be red that day rather than the underlying pattern: a fixture
+# built from `date.today()` plus a bare `days_away`/`expected_date` literal
+# is silently at the mercy of `days_until_payday`, which shrinks to zero as
+# any calendar month ends (the `calendar_month` payday fallback used
+# whenever `get_confirmed_payday` finds no confirmed income stream in a
+# bare prefs doc). This file's own established fix (G180, extended by H98
+# above) is not "freeze a global clock" (that's test_pending_observed.py's
+# idiom, via timeutil.datetime) but "read the real date.today() once, then
+# pin income_service.get_confirmed_payday to today + 15 days so
+# days_until_payday is always 15, immune to the calendar" -- so the source
+# scan below does not forbid date.today() outright, it requires every test
+# that reads it to also carry that pin in the same function body. A test
+# with neither (no date.today() and no days_away fixture at all, like the
+# four `_touches_pooled_cash` unit tests above) is unaffected by either
+# check and passes trivially.
+def test_no_test_reads_the_real_clock_without_pinning_payday():
+    """Source-scan guard: every test function in this file that calls
+    date.today()/datetime.utcnow()/datetime.now() must also monkeypatch
+    income_service.get_confirmed_payday within the same function body.
+    Catches a future test being added back into the unpinned shape that
+    caused H98 (and, one test over, the shape G180/H94 already fixed)."""
+    import tests.test_g109_card_bill_double_count as _this_module
+
+    source = inspect.getsource(_this_module)
+    tree = ast.parse(source)
+
+    def reads_real_clock(fn_node: ast.FunctionDef) -> bool:
+        for n in ast.walk(fn_node):
+            if (
+                isinstance(n, ast.Call)
+                and isinstance(n.func, ast.Attribute)
+                and isinstance(n.func.value, ast.Name)
+                and n.func.value.id in ("date", "datetime")
+                and n.func.attr in ("today", "utcnow", "now")
+            ):
+                return True
+        return False
+
+    def pins_confirmed_payday(fn_node: ast.FunctionDef) -> bool:
+        for n in ast.walk(fn_node):
+            if (
+                isinstance(n, ast.Call)
+                and isinstance(n.func, ast.Attribute)
+                and n.func.attr == "setattr"
+                and len(n.args) >= 2
+                and isinstance(n.args[0], ast.Name)
+                and n.args[0].id == "income_service"
+                and isinstance(n.args[1], ast.Constant)
+                and n.args[1].value == "get_confirmed_payday"
+            ):
+                return True
+        return False
+
+    offending = [
+        node.name
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name.startswith("test_")
+        and reads_real_clock(node)
+        and not pins_confirmed_payday(node)
+    ]
+
+    assert offending == [], (
+        "these tests read the real clock without pinning "
+        "income_service.get_confirmed_payday, the exact rot class behind "
+        f"H98/H94/G180: {offending}"
+    )

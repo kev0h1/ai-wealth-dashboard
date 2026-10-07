@@ -1,0 +1,32 @@
+/* Contrast (WCAG): light muted #475569 on #f0f2f7 6.8:1, on #fff 7.6:1; ink #0f172a on #f0f2f7 15.9:1.
+   Dark (system dark branch): muted #cbd5e1 on #0f172a 12.0:1, on #1e293b 9.9:1; ink #f1f5f9 on #0f172a 16.3:1. */
+/* Sorted light token set (DESIGN.md). Indigo is the brand; the indigo to
+   violet gradient is Penny's and is never used here. */
+:root {
+  --s-primary: #4f46e5;
+  --s-primary-hover: #4338ca;
+  --s-link: #4f46e5;
+  --s-link-hover: #4338ca;
+  --s-canvas: #f0f2f7;
+  --s-card: #ffffff;
+  --s-border: #e2e8f0;
+  --s-ink: #0f172a;
+  --s-muted: #475569;
+  color-scheme: light dark;
+}
+/* A user with no saved Sorted preference follows the phone. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* White 14px text on #4f46e5 is about 6.3:1 (AA). Links need a lighter
+       indigo on slate: #818cf8 on #0f172a is about 6:1. */
+    --s-primary: #4f46e5;
+    --s-primary-hover: #4338ca;
+    --s-link: #818cf8;
+    --s-link-hover: #a5b4fc;
+    --s-canvas: #0f172a;
+    --s-card: #1e293b;
+    --s-border: #334155;
+    --s-ink: #f1f5f9;
+    --s-muted: #cbd5e1;
+  }
+}

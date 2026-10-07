@@ -1,5 +1,6 @@
 import { Capacitor } from "@capacitor/core";
-import { api } from "./api";
+import { api, isAppLockedError } from "./api";
+import { isAppLocked, runWhenUnlocked } from "./appLock";
 import { getToken } from "./auth";
 
 // Last APNs/FCM token we registered with the backend, so `unregisterCapacitorPush`
@@ -130,6 +131,11 @@ export const NOTIFICATION_TAP_EVENT = "wd:notification-tap";
 // as if each had been handled live one at a time.
 const pendingNotificationPaths: string[] = [];
 
+/** D13: non-destructive check used by sign-in routing. */
+export function hasPendingNotificationPaths(): boolean {
+  return pendingNotificationPaths.length > 0;
+}
+
 /**
  * Reads and clears every notification path queued by
  * `deliverNotificationPath` below, oldest first. Called once, from
@@ -218,6 +224,37 @@ function reportPushDiagnostic(stage: string, detail: unknown, plat: string): voi
   });
 }
 
+// A140: the token upload. While the biometric lock is up, lib/api.ts refuses
+// every authenticated request with AppLockedError, which used to drop the
+// token for good (the resync still reported success). That refusal is
+// expected, not a fault: hold ONE retry for the latest token until unlock.
+// Nothing is sent while locked; the retry only fires after setAppLocked(false).
+let cancelPendingTokenPost: (() => void) | null = null;
+
+export function postPushToken(token: string, plat: string): Promise<void> {
+  const registration =
+    plat === "android" ? api.registerFcmToken(token, plat) : api.registerApnsToken(token, plat);
+  return Promise.resolve(registration).then(
+    () => {},
+    (e) => {
+      if (isAppLockedError(e)) {
+        cancelPendingTokenPost?.();
+        cancelPendingTokenPost = runWhenUnlocked(() => {
+          cancelPendingTokenPost = null;
+          void postPushToken(token, plat);
+        });
+        return;
+      }
+      console.error("[capacitorPush] failed to send token to backend", e);
+      reportPushDiagnostic("tokenPostFailed", e instanceof Error ? e.message : e, plat);
+    },
+  );
+}
+
+// A140: a resync requested while locked is deferred whole, so register() is not
+// even issued until unlock. Cancelled on unregister (sign-out).
+let cancelPendingResync: (() => void) | null = null;
+
 /**
  * Registers this device for native push notifications (APNs on iOS, FCM on
  * Android) via Capacitor. No-op off native platforms.
@@ -244,15 +281,7 @@ export async function initCapacitorPush(): Promise<PushInitResult> {
         } catch {
           /* ignore */
         }
-        const plat = platform();
-        const registration =
-          plat === "android"
-            ? api.registerFcmToken(token.value, plat)
-            : api.registerApnsToken(token.value, plat);
-        registration.catch((e) => {
-          console.error("[capacitorPush] failed to send token to backend", e);
-          reportPushDiagnostic("tokenPostFailed", e instanceof Error ? e.message : e, plat);
-        });
+        void postPushToken(token.value, platform());
         for (const resolve of pendingTokenResolvers) resolve(token.value);
         pendingTokenResolvers.clear();
       });
@@ -357,9 +386,24 @@ export async function initCapacitorPush(): Promise<PushInitResult> {
 /**
  * Tells the backend to drop this device's push token and unregisters the
  * device locally. No-op off native platforms.
+ *
+ * A120: `remote: false` is the local-only teardown for a session that is
+ * already revoked (401 handler, revalidate, account deletion): the server
+ * already dropped every registration, and a DELETE would just 401 with the
+ * dead token. It still forgets the stored token and unregisters with the OS.
+ * Either way it re-arms resyncCapacitorPush so the next sign-in registers
+ * this device again.
  */
-export async function unregisterCapacitorPush(): Promise<void> {
+export async function unregisterCapacitorPush(opts: { remote?: boolean } = {}): Promise<void> {
   if (!isNative()) return;
+  const remote = opts.remote !== false;
+  resyncCompleted = false;
+  // A140: a sign-out must not leave an unlock-deferred upload or resync
+  // behind to register this token for the next user.
+  cancelPendingTokenPost?.();
+  cancelPendingTokenPost = null;
+  cancelPendingResync?.();
+  cancelPendingResync = null;
   try {
     const { PushNotifications } = await import("@capacitor/push-notifications");
     let token: string | null = null;
@@ -369,11 +413,13 @@ export async function unregisterCapacitorPush(): Promise<void> {
       /* ignore */
     }
     if (token) {
-      const unregistration =
-        platform() === "android"
-          ? api.unregisterFcmToken(token)
-          : api.unregisterApnsToken(token);
-      await unregistration.catch(() => {});
+      if (remote) {
+        const unregistration =
+          platform() === "android"
+            ? api.unregisterFcmToken(token)
+            : api.unregisterApnsToken(token);
+        await unregistration.catch(() => {});
+      }
       try {
         localStorage.removeItem(TOKEN_STORAGE_KEY);
       } catch {
@@ -463,6 +509,17 @@ export async function isCapacitorPushRegistered(): Promise<boolean> {
 export async function resyncCapacitorPush(): Promise<void> {
   if (resyncCompleted || resyncInFlight) return;
   if (!isNative()) return;
+  // A140: never start while the biometric lock is up; defer the whole resync
+  // until unlock (one pending deferral at a time).
+  if (isAppLocked()) {
+    if (!cancelPendingResync) {
+      cancelPendingResync = runWhenUnlocked(() => {
+        cancelPendingResync = null;
+        void resyncCapacitorPush();
+      });
+    }
+    return;
+  }
   if (!getToken()) return; // no session yet, the register POST would just 401
   try {
     const { PushNotifications } = await import("@capacitor/push-notifications");
@@ -475,8 +532,9 @@ export async function resyncCapacitorPush(): Promise<void> {
     // to do the real work.
     if (status.receive !== "granted") return;
     resyncInFlight = true;
-    await initCapacitorPush();
-    resyncCompleted = true;
+    // Only a real "granted" completes the resync; no-token/unavailable/denied
+    // stay retryable. A138 adds backoff and the Settings retry action.
+    if ((await initCapacitorPush()) === "granted") resyncCompleted = true;
   } catch {
     /* best-effort, a failed resync just leaves the existing token in place */
   } finally {

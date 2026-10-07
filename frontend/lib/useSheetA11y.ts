@@ -1,5 +1,6 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { beginTeardownPop, openSheetCount } from "@/lib/sheetTeardownPops";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 // Modal contract for bottom sheets: Escape closes, focus moves in on open,
 // Tab loops inside, and focus returns to the opener on close (WCAG dialog pattern).
@@ -107,6 +108,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 // so cleanup calls `history.back()` itself if the entry is still
 // unconsumed at that point.
 export interface SheetA11yOptions {
+  /** Keep a submitted change in its sheet until the request resolves. */
+  dismissDisabled?: boolean;
+  /** Multi-step flows use Escape as Back, while X still closes the flow. */
+  onEscape?: () => void;
   /** Lock background scroll while the sheet is open and restore the exact
    * pre-open scroll offset on close. Off by default. */
   lockScroll?: boolean;
@@ -133,6 +138,70 @@ let sheetHistoryIdSeq = 0;
 // one stack, the same convention lib/useSheetOpen.ts already uses for its
 // open-sheet reference count.
 const sheetHistoryStack: string[] = [];
+const focusStack: HTMLElement[] = [];
+/** How many history-owning sheets are open right now. A page with its own
+ * popstate listener reads this at the START of a pop (capture phase, before
+ * any sheet handler has popped itself off the stack) to tell "a sheet is
+ * consuming this traversal" from "the user is leaving the page's own view". */
+export function openSheetHistoryCount(): number {
+  return openSheetCount(sheetHistoryStack.length);
+}
+let scrollLockCount = 0;
+let releaseScrollLock: (() => void) | null = null;
+
+/** Reference-counted `position: fixed` body lock, shared by every sheet and
+ * by Penny's window (G196 fill-once): overflow:hidden alone does not stop
+ * Android Chrome scrolling the page behind a focused input. Returns release. */
+export function acquireScrollLock(): () => void {
+  scrollLockCount += 1;
+  const unlock = () => {
+    scrollLockCount -= 1;
+    if (scrollLockCount === 0) { releaseScrollLock?.(); releaseScrollLock = null; }
+  };
+  if (scrollLockCount > 1) return unlock;
+  const body = document.body.style;
+  const alreadyLocked = body.position === "fixed";
+  // If a lock is already active (a nested sheet), recover the TRUE
+  // offset from its `top` rather than reading `window.scrollY` fresh —
+  // see the file header comment: it reads 0 the moment body is fixed.
+  const scrollY = alreadyLocked ? -(parseFloat(body.top || "0") || 0) : window.scrollY;
+  // Measured HERE, before `body.position` is set to "fixed" below:
+  // fixing it removes the document scrollbar, so `clientWidth` no
+  // longer reflects the un-fixed layout once that happens. The
+  // `paddingRight` this gap drives is itself applied AFTER `position:
+  // fixed` further down (plain code-flow ordering, grouped with the
+  // other fixed-position styles it offsets — style properties on the
+  // same object don't care what order they're set in, so that part has
+  // no functional effect either way).
+  const scrollbarGap = alreadyLocked ? 0 : window.innerWidth - document.documentElement.clientWidth;
+  const prev = {
+    position: body.position,
+    top: body.top,
+    left: body.left,
+    right: body.right,
+    width: body.width,
+    paddingRight: body.paddingRight,
+  };
+  body.position = "fixed";
+  body.top = `-${scrollY}px`;
+  body.left = "0";
+  body.right = "0";
+  body.width = "100%";
+  if (scrollbarGap > 0) {
+    const existingPadRight = parseFloat(getComputedStyle(document.body).paddingRight) || 0;
+    body.paddingRight = `${existingPadRight + scrollbarGap}px`;
+  }
+  releaseScrollLock = () => {
+    body.position = prev.position;
+    body.top = prev.top;
+    body.left = prev.left;
+    body.right = prev.right;
+    body.width = prev.width;
+    body.paddingRight = prev.paddingRight;
+    window.scrollTo(0, scrollY);
+  };
+  return unlock;
+}
 
 export function useSheetA11y<T extends HTMLElement>(onClose: () => void): (node: T | null) => void;
 export function useSheetA11y<T extends HTMLElement>(onClose: () => void, options: SheetA11yOptions): SheetA11yHandle<T>;
@@ -141,9 +210,14 @@ export function useSheetA11y<T extends HTMLElement>(
   options?: SheetA11yOptions
 ): ((node: T | null) => void) | SheetA11yHandle<T> {
   const [el, setEl] = useState<T | null>(null);
-  const ref = useCallback((node: T | null) => setEl(node), []);
+  const liveElement = useRef<T | null>(null);
+  const ref = useCallback((node: T | null) => { liveElement.current = node; setEl(node); }, []);
   const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
+  const optionsRef = useRef(options);
+  useLayoutEffect(() => {
+    onCloseRef.current = onClose;
+    optionsRef.current = options;
+  }, [onClose, options]);
 
   const lockScroll = options?.lockScroll ?? false;
   const backToClose = options?.backToClose ?? false;
@@ -164,6 +238,7 @@ export function useSheetA11y<T extends HTMLElement>(
   // returned `close()` call — a single implementation for "the user asked
   // to close this sheet", whether or not backToClose is on.
   const requestClose = useCallback(() => {
+    if (!liveElement.current) return;
     if (backToClose) {
       if (closingRef.current) return;
       closingRef.current = true;
@@ -179,21 +254,34 @@ export function useSheetA11y<T extends HTMLElement>(
   useEffect(() => {
     if (!el) return;
     const opener = document.activeElement as HTMLElement | null;
+    focusStack.push(el);
     const focusables = () => Array.from(
       el.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
-    ).filter(f => !f.hasAttribute("disabled"));
-    focusables()[0]?.focus({ preventScroll: true });
+    ).filter(f => !f.hasAttribute("disabled") && f.tabIndex >= 0 && !f.closest("[inert], [aria-hidden=true]")
+      && f.getClientRects().length > 0 && getComputedStyle(f).visibility !== "hidden");
+    (focusables()[0] ?? el).focus({ preventScroll: true });
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") { e.stopPropagation(); requestClose(); return; }
+      if (focusStack.at(-1) !== el || e.defaultPrevented) return;
+      if (e.key === "Escape") {
+        e.preventDefault(); e.stopPropagation();
+        if (!optionsRef.current?.dismissDisabled) (optionsRef.current?.onEscape ?? requestClose)();
+        return;
+      }
       if (e.key !== "Tab") return;
       const f = focusables();
-      if (f.length === 0) return;
+      if (f.length === 0) { e.preventDefault(); el.focus({ preventScroll: true }); return; }
       const first = f[0], last = f[f.length - 1];
-      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
-      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      if (e.shiftKey && (document.activeElement === first || !f.includes(document.activeElement as HTMLElement))) { e.preventDefault(); last.focus({ preventScroll: true }); }
+      else if (!e.shiftKey && (document.activeElement === last || !f.includes(document.activeElement as HTMLElement))) { e.preventDefault(); first.focus({ preventScroll: true }); }
     }
     document.addEventListener("keydown", onKey);
-    return () => { document.removeEventListener("keydown", onKey); opener?.focus?.({ preventScroll: true }); };
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      const wasTop = focusStack.at(-1) === el;
+      const index = focusStack.indexOf(el);
+      if (index !== -1) focusStack.splice(index, 1);
+      if (wasTop && opener?.isConnected) opener.focus({ preventScroll: true });
+    };
   }, [el, requestClose]);
 
   // Background scroll lock (opt-in). Gated on `el` rather than plain mount
@@ -203,47 +291,7 @@ export function useSheetA11y<T extends HTMLElement>(
   // always mounted but return null internally until `open` flips.
   useEffect(() => {
     if (!el || !lockScroll) return;
-    const body = document.body.style;
-    const alreadyLocked = body.position === "fixed";
-    // If a lock is already active (a nested sheet), recover the TRUE
-    // offset from its `top` rather than reading `window.scrollY` fresh —
-    // see the file header comment: it reads 0 the moment body is fixed.
-    const scrollY = alreadyLocked ? -(parseFloat(body.top || "0") || 0) : window.scrollY;
-    // Measured HERE, before `body.position` is set to "fixed" below:
-    // fixing it removes the document scrollbar, so `clientWidth` no
-    // longer reflects the un-fixed layout once that happens. The
-    // `paddingRight` this gap drives is itself applied AFTER `position:
-    // fixed` further down (plain code-flow ordering, grouped with the
-    // other fixed-position styles it offsets — style properties on the
-    // same object don't care what order they're set in, so that part has
-    // no functional effect either way).
-    const scrollbarGap = alreadyLocked ? 0 : window.innerWidth - document.documentElement.clientWidth;
-    const prev = {
-      position: body.position,
-      top: body.top,
-      left: body.left,
-      right: body.right,
-      width: body.width,
-      paddingRight: body.paddingRight,
-    };
-    body.position = "fixed";
-    body.top = `-${scrollY}px`;
-    body.left = "0";
-    body.right = "0";
-    body.width = "100%";
-    if (scrollbarGap > 0) {
-      const existingPadRight = parseFloat(getComputedStyle(document.body).paddingRight) || 0;
-      body.paddingRight = `${existingPadRight + scrollbarGap}px`;
-    }
-    return () => {
-      body.position = prev.position;
-      body.top = prev.top;
-      body.left = prev.left;
-      body.right = prev.right;
-      body.width = prev.width;
-      body.paddingRight = prev.paddingRight;
-      window.scrollTo(0, scrollY);
-    };
+    return acquireScrollLock();
   }, [el, lockScroll]);
 
   // Back-to-close (opt-in). See the file header comment above for the
@@ -266,15 +314,24 @@ export function useSheetA11y<T extends HTMLElement>(
     // listener is registered for it. There was no dangling-entry case for
     // it to actually prevent.)
     const id = `sheet-${++sheetHistoryIdSeq}`;
+    const entryUrl = window.location.href;
     sheetHistoryStack.push(id);
     history.pushState({ ...(history.state ?? {}), __sheetA11yId: id }, "");
     let consumed = false;
 
-    function onPopState() {
+    function onPopState(event: PopStateEvent) {
       // Only the topmost (most recently pushed, i.e. innermost) open sheet
       // reacts to a given pop; an outer sheet's listener, if any, just
       // no-ops and waits for its own turn.
       if (sheetHistoryStack[sheetHistoryStack.length - 1] !== id) return;
+      // Closing a nested sheet lands on this sheet's entry. It must not
+      // also dismiss the parent, regardless of listener registration order.
+      if (event.state?.__sheetA11yId === id) return;
+      if (optionsRef.current?.dismissDisabled && !closingRef.current) {
+        history.pushState({ ...(history.state ?? {}), __sheetA11yId: id }, "");
+        closingRef.current = false;
+        return;
+      }
       consumed = true;
       sheetHistoryStack.pop();
       onCloseRef.current();
@@ -316,7 +373,15 @@ export function useSheetA11y<T extends HTMLElement>(
         // time the microtask actually runs.
         queueMicrotask(() => {
           if (generationRef.current !== myGeneration) return;
-          history.back();
+          // A success callback can unmount its parent in the same turn as
+          // close(). That traversal is already pending, never issue two.
+          if (closingRef.current) return;
+          // A route navigation already superseded the overlay. Never send
+          // the user back from their newly opened page during teardown.
+          if (history.state?.__sheetA11yId === id && window.location.href === entryUrl) {
+            beginTeardownPop();
+            history.back();
+          }
         });
       }
     };

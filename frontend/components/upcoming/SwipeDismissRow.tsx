@@ -76,6 +76,15 @@ export default function SwipeDismissRow({ onDismiss, children, label = "Not recu
     axis.current = "none";
   }
 
+  // G207: the browser can cancel a touch (it takes over for a scroll, a
+  // system gesture or a call). Without this the row kept its last dx.
+  function onTouchCancel() {
+    start.current = null;
+    axis.current = "none";
+    setDragging(false);
+    setDx(0);
+  }
+
   return (
     <div ref={shellRef} className="relative overflow-hidden">
       <div
@@ -103,6 +112,7 @@ export default function SwipeDismissRow({ onDismiss, children, label = "Not recu
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
+        onTouchCancel={onTouchCancel}
       >
         {children}
       </div>

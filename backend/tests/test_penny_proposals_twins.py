@@ -271,6 +271,35 @@ def test_propose_update_allocation_pause_happy_path(monkeypatch):
     assert "£120" in result["summary"]
 
 
+def test_propose_allocation_summaries_quote_this_periods_reduced_amount(monkeypatch):
+    """G217: when only this period was reduced, Penny quotes the recurring
+    amount as recurring and this period's effective amount beside it."""
+    monkeypatch.setattr(penny_tools_module, "penny_proposals_col", _FakeCol())
+    reduced = {**_alloc_item(amount_per_period=200.0), "period_amount": 161.6, "remaining": 161.6}
+    _patch_list_allocations(monkeypatch, [reduced])
+    pause = asyncio.run(execute_tool(UID, "propose_update_allocation", {"allocation_ref": "Holiday", "paused": True}))
+    assert "£200 per period, £161.60 this period" in pause["summary"]
+    delete = asyncio.run(execute_tool(UID, "propose_delete_allocation", {"allocation_ref": "Holiday"}))
+    assert "£200 per pay period, £161.60 this period" in delete["summary"]
+    # Not reduced: nothing extra is said.
+    _patch_list_allocations(monkeypatch, [{**_alloc_item(amount_per_period=200.0), "period_amount": 200.0}])
+    plain = asyncio.run(execute_tool(UID, "propose_update_allocation", {"allocation_ref": "Holiday", "paused": True}))
+    assert "this period" not in plain["summary"]
+
+
+def test_ambiguous_allocation_match_lists_both_amounts(monkeypatch):
+    monkeypatch.setattr(penny_tools_module, "penny_proposals_col", _FakeCol())
+    items = [
+        {**_alloc_item("a1", "Holiday fund", 200.0), "period_amount": 161.6},
+        _alloc_item("a2", "Holiday cash", 50.0),
+    ]
+    _patch_list_allocations(monkeypatch, items)
+    result = asyncio.run(execute_tool(UID, "propose_delete_allocation", {"allocation_ref": "Holiday"}))
+    by_id = {m["id"]: m for m in result["matches"]}
+    assert by_id["a1"]["period_amount"] != by_id["a1"]["amount_per_period"]
+    assert by_id["a2"]["period_amount"] == by_id["a2"]["amount_per_period"]
+
+
 def test_propose_update_allocation_resume_happy_path(monkeypatch):
     fake_col = _FakeCol()
     monkeypatch.setattr(penny_tools_module, "penny_proposals_col", fake_col)

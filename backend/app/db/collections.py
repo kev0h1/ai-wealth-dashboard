@@ -1,6 +1,6 @@
 """All MongoDB collection handles as module-level singletons."""
 from motor.motor_asyncio import AsyncIOMotorClient
-from app.core.config import MONGO_URI
+from app.core.config import MONGO_DB, MONGO_URI
 
 # Cap the pool per process. The web and worker run as separate Railway
 # services, each opening its own client; on Atlas M0 (500-connection cap)
@@ -8,7 +8,12 @@ from app.core.config import MONGO_URI
 # for a future replica. serverSelectionTimeoutMS fails fast if Atlas is
 # unreachable instead of hanging a request for the default 30s.
 _mongo = AsyncIOMotorClient(MONGO_URI, maxPoolSize=20, serverSelectionTimeoutMS=8000)
-db     = _mongo["wealth"]
+# H90: database NAME is MONGO_DB (defaults to "wealth", the same name this
+# used to hardcode) so backend/tests/conftest.py can point the whole
+# backend suite at a disposable "wealth_test" database in the SAME
+# deployment, before this module is ever imported, without needing a
+# second Mongo deployment or a Mongo double.
+db     = _mongo[MONGO_DB]
 
 # TrueLayer
 connections_col         = db["connections"]
@@ -166,6 +171,12 @@ orphaned_revocations_col = db["orphaned_revocations"]
 # FINEXER_PROVIDERS_TTL_HOURS, instead of on every consent sync.
 finexer_providers_col  = db["finexer_providers"]
 
+# A148: one small image per Finexer provider, fetched once from the provider's
+# logo_url (finexer.blob.core.windows.net only) and served same-origin by
+# app.routers.logos so the strict img-src CSP does not block it.
+# `_id` = provider id; `{content_type, data, fetched_at, source_url}`.
+provider_logos_col     = db["provider_logos"]
+
 # Bank-side PENDING transactions (provisional, not yet settled) — a SIBLING
 # collection to `transactions_col`, deliberately never merged into it, so
 # every existing consumer of `transactions_col` (recurring detection,
@@ -216,6 +227,14 @@ teaching_events_col     = db["teaching_events"]
 # f"{uid}::{series_key}". A vetoed series is excluded from projection but
 # tracked separately from the user's own `dismissed_recurring` preference.
 recurring_judge_col     = db["recurring_judge_verdicts"]
+
+# G157: auditable record of a credit deterministically or judge-confirmed
+# as belonging to a confirmed income stream's payer, after a payroll
+# reference change (or similar) meant it did not group into the stream's
+# own detected series (app/services/income_payer.py). Scoped by user_id;
+# carries the STABLE stream id (see `stable_stream_id`), never the raw
+# stream key/reference — see G158 review's suppression-log finding.
+income_payer_attachments_col = db["income_payer_attachments"]
 
 # Penny Agent Mode v1 — propose-only write tools (owner decision, 2026-08-30,
 # see PENNY_TOOLS.md's "Write tools (propose-only)" section). Penny never
@@ -471,3 +490,80 @@ safe_to_spend_history_col = db["safe_to_spend_history"]
 # app.services.retention.sweep_dormant_users before each erase_user), read
 # by `app.core.auth.current_user` on every session-branch request.
 session_tombstones_col = db["session_tombstones"]
+
+# ── Erasure manifest (A101) ─────────────────────────────────────────────
+# app.services.retention.erase_user used to walk every `*_col` attribute
+# on this module via `dir()` at runtime to decide what to sweep when a
+# user deletes their account. That is how A98's Kenya removal silently
+# dropped mpesa_accounts_col/mpesa_transactions_col (and three mono_*
+# bindings) out of account erasure without anyone deciding that was okay:
+# removing a binding here removed it from the sweep too, with nothing to
+# notice (A101; production held two orphaned mpesa_accounts documents as
+# a result — see A99 for the data-side decision, which is Kevin's, not
+# this manifest's).
+#
+# ERASURE_MANIFEST replaces the dir() enumeration with this explicit list.
+# tests/test_collections_manifest.py asserts this set is EXACTLY the set
+# of `*_col` attribute names bound above, in both directions: a live
+# binding missing here means a new collection was added without deciding
+# whether erase_user should sweep it; an entry here with no live binding
+# means a collection was removed without deciding what happens to the user
+# data already in it. Keep this list current whenever a `*_col` binding is
+# added or removed above — the guard test fails loudly, naming the
+# collection, if you don't.
+ERASURE_MANIFEST = frozenset({
+    "connections_col", "accounts_col", "transactions_col",
+    "preferences_col", "user_profiles_col", "chat_sessions_col",
+    "episodic_memory_col", "user_categories_col", "user_rules_col",
+    "merchant_categories_col", "budgets_col", "challenges_col",
+    "account_rates_col", "push_subscriptions_col", "apns_tokens_col",
+    "fcm_tokens_col", "notification_state_col", "confirmed_transfer_pairs_col",
+    "statement_accounts_col", "statement_transactions_col", "statement_uploads_col",
+    "yapily_consents_col", "yapily_accounts_col", "yapily_transactions_col",
+    "savings_insights_col", "savings_labels_col", "debt_plans_col",
+    "card_terms_col", "card_product_rates_col", "savings_goals_col",
+    "manual_accounts_col", "manual_transactions_col", "manual_account_rules_col",
+    "manual_account_mirrors_col", "investment_accounts_col", "investment_holdings_col",
+    "investment_notes_col", "shopping_baskets_col", "subscriptions_col",
+    "subscription_usage_col", "penny_topups_col", "mcp_call_packs_col",
+    "billing_customers_col", "billing_events_col", "cashflow_cache_col",
+    "money_shape_cache_col", "upcoming_overrides_col", "upcoming_rules_col",
+    "webhook_events_col", "excluded_accounts_col", "locks_col",
+    "worker_runs_col", "finexer_consents_col", "finexer_customers_col",
+    "finexer_providers_col", "provider_logos_col", "pending_transactions_col", "behaviour_portrait_col",
+    "needle_history_col", "cycle_story_col", "companion_items_col",
+    "planned_expenses_col", "checkpoints_col", "category_intent_col",
+    "commitments_col", "allocations_col", "teaching_events_col",
+    "recurring_judge_col", "penny_proposals_col", "user_data_version_col",
+    "linked_identities_col", "allowed_signups_col", "bot_credentials_col",
+    "bot_credential_uses_col", "bot_credential_unknown_col", "response_cache_col",
+    "llm_usage_col", "llm_global_usage_col", "mcp_calls_col",
+    "mcp_call_counters_col", "broadcasts_col", "broadcast_receipts_col",
+    "oauth_clients_col", "oauth_codes_col", "oauth_tokens_col",
+    "safe_to_spend_history_col", "session_tombstones_col",
+    "income_payer_attachments_col",
+})
+
+# A99/A101: these five collections lost their `*_col` binding when A98
+# removed the Kenya region (Mono, M-Pesa) — no code reads them any more,
+# so no binding is reinstated — but they can still hold user-keyed
+# documents (production held two `mpesa_accounts` documents as of A101's
+# 2026-09-28 audit) and Kevin has not yet decided whether to drop that
+# data outright or keep it (A99). Until he does, erase_user must keep
+# deleting from them and account_has_data must keep counting them, via a
+# raw `db[name]` handle rather than a `*_col` binding — a binding would
+# imply live code reads the collection, which is false and would be
+# actively misleading.
+#
+# Deliberately NOT part of ERASURE_MANIFEST or its guard test above: there
+# is no `*_col` binding for the guard to compare these names against, and
+# that absence is the point (A98's decision to remove the binding stands;
+# only the erasure gap it opened is being closed here). If Kevin decides
+# (A99) to drop these collections' data for good, delete the collections
+# and this set together, in one change; if he decides to keep and revive
+# them, give them back a real `*_col` binding and fold their names back
+# into ERASURE_MANIFEST/_ACCOUNT_DATA_COLLECTIONS instead.
+ERASE_ONLY_COLLECTIONS = frozenset({
+    "mpesa_accounts", "mpesa_transactions",
+    "mono_connections", "mono_accounts", "mono_transactions",
+})

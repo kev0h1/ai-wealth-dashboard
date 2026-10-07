@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en-GB" data-state="{{state}}" data-scheme="{{scheme}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>{{title}}</title>
+<style>
+:root{
+  --canvas:#f0f2f7;--border:#e2e8f0;--ink:#0f172a;--secondary:#475569;
+  --primary:#4f46e5;--hover:#4338ca;--on-primary:#ffffff;--accent:#4f46e5;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){
+  :root[data-scheme="auto"]{
+    --canvas:#0f172a;--border:#334155;--ink:#f1f5f9;--secondary:#94a3b8;
+    --accent:#818cf8;
+    color-scheme:dark;
+  }
+}
+:root[data-scheme="dark"]{
+  --canvas:#0f172a;--border:#334155;--ink:#f1f5f9;--secondary:#94a3b8;
+  --accent:#818cf8;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;min-height:100svh;background:var(--canvas);color:var(--ink);
+  font:14px/1.5 system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  -webkit-text-size-adjust:100%;-webkit-tap-highlight-color:transparent}
+html[data-state="ok"] .mk-err,html[data-state="error"] .mk-ok{display:none}
+h1{margin:0;font-weight:700;text-wrap:balance}
+#msg{margin:0;color:var(--secondary);text-wrap:pretty}
+.brand{margin:0;color:var(--secondary);font-size:12px}
+.brand strong{color:var(--ink);font-weight:600}
+.mark{display:grid;place-items:center;color:var(--accent)}
+.mark svg{display:block}
+html[data-state="error"] .mark{color:var(--secondary)}
+button{display:block;width:100%;max-width:320px;min-height:48px;margin:0 auto;padding:12px 16px;border:0;
+  border-radius:12px;background:var(--primary);color:var(--on-primary);font:inherit;font-weight:600;cursor:pointer}
+@media (hover:hover){button:hover{background:var(--hover)}}
+button:active{transform:scale(.97)}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){button:active{transform:none}}
+
+/* Open cockpit: no card, verdict-led type, return action anchored low */
+main{display:flex;flex-direction:column;width:100%;max-width:430px;min-height:100vh;min-height:100svh;margin:0 auto;
+  padding:28px 24px max(24px,env(safe-area-inset-bottom))}
+.brand{padding-bottom:20px;border-bottom:1px solid var(--border)}
+.brand strong{font-size:16px}
+.verdict{display:grid;grid-template-columns:minmax(0,1fr) 24px;column-gap:16px;
+  align-content:start;padding:64px 0 48px;padding-top:clamp(40px,12svh,112px)}
+.mark{grid-column:2;grid-row:1;width:24px;height:36px}
+.mark svg{width:24px;height:24px}
+h1{grid-column:1;grid-row:1;font-size:30px;line-height:1.2;letter-spacing:-.025em}
+#msg{grid-column:1/-1;max-width:280px;margin-top:16px}
+.action{margin-top:auto;padding-top:24px;border-top:1px solid var(--border)}
+</style>
+</head>
+<body>
+<main aria-labelledby="heading">
+  <p class="brand"><strong>Sorted</strong> <span>by Auriq</span></p>
+  <div class="verdict">
+    <div class="mark">
+      <svg class="mk-ok" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 12 4 4 8-8"/></svg>
+      <svg class="mk-err" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m9 5-4 4 4 4M5 9h9a5 5 0 0 1 0 10h-2"/></svg>
+    </div>
+    <h1 id="heading">{{heading}}</h1>
+    <p id="msg" aria-live="polite" aria-atomic="true" data-done="{{success_hint}}">{{message}}</p>
+  </div>
+  <div class="action">
+    <button id="return" type="button">Return to Sorted</button>
+  </div>
+</main>
+<script>
+  var RETURN_URL={{return_url_json}};
+  function returnToApp(){window.location.href=RETURN_URL;}
+  document.getElementById('return').addEventListener('click', returnToApp);
+  if({{auto_return}}){setTimeout(returnToApp, 600);}
+  // On iPhone a wealthdash:// navigation from the in-app browser the app itself
+  // opened is swallowed, so the button can be dead. The app closes this sheet
+  // itself once it has the sign-in; say so (A133).
+  setTimeout(function(){
+    if({{ok_flag}}){var m=document.getElementById('msg');m.textContent=m.getAttribute('data-done');}
+  }, 3000);
+</script>
+</body>
+</html>

@@ -15,6 +15,10 @@ Subcommands:
     scripts/release.py sync-vars NAME[,NAME...] [--from backend/.env]
     scripts/release.py deploy [--dry-run]
     scripts/release.py rollback <tag-or-sha>
+    scripts/release.py --tag-only <sha> --date YYYY-MM-DD [--time HHMM]
+
+`deploy` and `rollback` accept `--timeout-minutes N` (default 30), the poll
+window applied separately to Vercel and to each Railway service.
 
 Run with the venv:
 
@@ -56,7 +60,8 @@ PROD_WEB_URL = "https://wealth.auriqltd.co.uk"
 PROD_API_HOST = "api.wealth.auriqltd.co.uk"
 REMOTE_TIMEOUT = 30
 HTTP_TIMEOUT = 15
-DEPLOY_POLL_TIMEOUT_S = 15 * 60
+DEPLOY_POLL_TIMEOUT_MINUTES = 30  # H108: Railway builds take ~10 min each, 15 was too tight
+DEPLOY_POLL_TIMEOUT_S = DEPLOY_POLL_TIMEOUT_MINUTES * 60
 DEPLOY_POLL_INTERVAL_S = 15
 
 # The two names that must never be set in production until F7/A17 land.
@@ -774,6 +779,278 @@ def utc_release_tag(now: Optional[datetime] = None) -> str:
     return now.strftime("release-%Y%m%d-%H%M")
 
 
+# ── H108: poll window, late-SUCCESS re-check, Vercel rollback verification ──
+
+
+def timeout_seconds(minutes: Optional[float]) -> int:
+    """Poll window in seconds from --timeout-minutes; None means the default."""
+    if minutes is None:
+        return DEPLOY_POLL_TIMEOUT_S
+    return int(minutes * 60)
+
+
+MAX_TIMEOUT_MINUTES = 180
+
+
+def positive_minutes(text: str) -> int:
+    """--timeout-minutes: a whole number of minutes, 1..180."""
+    try:
+        value = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"--timeout-minutes must be a whole number of minutes (1-{MAX_TIMEOUT_MINUTES}), got {text!r}")
+    if not 1 <= value <= MAX_TIMEOUT_MINUTES:
+        raise argparse.ArgumentTypeError(f"--timeout-minutes must be between 1 and {MAX_TIMEOUT_MINUTES}, got {value}")
+    return value
+
+
+def final_recheck_decision(done: dict[str, bool]) -> str:
+    """After the poll window closes, one last status read is taken. Given the
+    per-service result of that read, decide: "continue" (every service reached
+    SUCCESS, even if after the window, so go on to smoke checks and tag) or
+    "fail" (at least one is still not done, so the caller rolls back / aborts)."""
+    return "continue" if done and all(done.values()) else "fail"
+
+
+def poll_railway_services(
+    sha: Optional[str],
+    require_release_branch: bool,
+    timeout_s: int,
+    interval_s: float,
+    fetch: Callable[[str], Optional[dict]],
+    sleep: Callable[[float], None] = time.sleep,
+    clock: Callable[[], float] = time.time,
+    services: tuple = tuple(RAILWAY_SERVICES),
+    failed_out: Optional[set] = None,
+) -> tuple[dict[str, bool], dict[str, Optional[str]]]:
+    """Poll each Railway service until its latest deployment matches `sha`, each
+    service with its own `timeout_s` window. Then take ONE final read of every
+    still-pending service before giving up (a deploy that reaches SUCCESS just
+    after the window must not be rolled back). A service whose deployment at
+    `sha` reaches FAILED/CRASHED stops being polled at once and is added to
+    `failed_out` (no point waiting out the window for a dead build).
+    Returns (done, last_branch)."""
+    done = {s: False for s in services}
+    failed: set = failed_out if failed_out is not None else set()
+    last_branch: dict[str, Optional[str]] = {s: None for s in services}
+    start = clock()
+    deadlines = {s: start + timeout_s for s in services}
+
+    def read(service: str) -> None:
+        try:
+            dep = fetch(service)
+        except RemoteError:
+            return
+        if dep:
+            last_branch[service] = (dep.get("meta") or {}).get("branch")
+        if railway_deployment_matches(dep, sha, require_release_branch=require_release_branch):
+            done[service] = True
+        elif dep and dep.get("status") in RAILWAY_DEAD_STATES and sha and ((dep.get("meta") or {}).get("commitHash") or "").startswith(sha):
+            failed.add(service)
+
+    def live(svc: str) -> bool:
+        return not done[svc] and svc not in failed
+
+    while any(live(s) and clock() < deadlines[s] for s in services):
+        for service in services:
+            if live(service) and clock() < deadlines[service]:
+                read(service)
+        if any(live(s) and clock() < deadlines[s] for s in services):
+            sleep(interval_s)
+    for service in services:
+        if live(service):
+            read(service)  # the final re-check
+    return done, last_branch
+
+
+RAILWAY_DEAD_STATES = ("FAILED", "CRASHED")
+
+VERCEL_API = "https://api.vercel.com"
+VERCEL_AUTH_FILE = Path.home() / ".local" / "share" / "com.vercel.cli" / "auth.json"
+
+# (method, url, token, timeout) -> parsed JSON body. Injectable so tests never
+# contact Vercel.
+VercelHttp = Callable[[str, str, str, int], dict]
+
+
+def vercel_cli_token(auth_file: Path = VERCEL_AUTH_FILE) -> Optional[str]:
+    """The token the already-logged-in Vercel CLI holds (the same login every
+    `vercel` call in this script uses). Never printed."""
+    try:
+        return json.loads(auth_file.read_text()).get("token")
+    except (OSError, ValueError):
+        return None
+
+
+def vercel_rest(method: str, url: str, token: str, timeout: int) -> dict:
+    req = urllib.request.Request(
+        url, method=method, headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        data=b"{}" if method == "POST" else None,
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 (fixed https host)
+            body = resp.read().decode() or "{}"
+    except (urllib.error.URLError, OSError) as exc:
+        raise RemoteError(f"Vercel API {method} {url.split('?')[0]} failed: {exc}") from exc
+    try:
+        return json.loads(body)
+    except ValueError as exc:
+        raise RemoteError(f"Vercel API {method} {url.split('?')[0]} returned a non-JSON body") from exc
+
+
+# Production domain the live alias is looked up by: the host of PROD_WEB_URL.
+PROD_DOMAIN = PROD_WEB_URL.split("://", 1)[1]
+
+
+def vercel_deployment_sha(dep: Optional[dict]) -> Optional[str]:
+    """Git sha a Vercel deployment object was built from: meta.githubCommitSha,
+    else gitSource.sha, else None (unknown, callers fail closed)."""
+    dep = dep or {}
+    return (dep.get("meta") or {}).get("githubCommitSha") or (dep.get("gitSource") or {}).get("sha") or None
+
+
+def sha_matches(a: Optional[str], b: Optional[str]) -> bool:
+    return bool(a) and bool(b) and (a.startswith(b) or b.startswith(a))
+
+
+def _vercel_link_ids(workdir: Path) -> tuple[str, Optional[str]]:
+    try:
+        link = json.loads((workdir / ".vercel" / "project.json").read_text())
+        return link["projectId"], link.get("orgId")
+    except (OSError, ValueError, KeyError) as exc:
+        raise RemoteError("scratch Vercel link has no usable .vercel/project.json") from exc
+
+
+def _team_q(org_id: Optional[str], first: bool = True) -> str:
+    if not (org_id and org_id.startswith("team_")):
+        return ""
+    return f"{'?' if first else '&'}teamId={org_id}"
+
+
+def resolve_live_vercel_deployment_obj(
+    http: VercelHttp, token: str, project_id: str, org_id: Optional[str], timeout: int,
+) -> tuple[str, dict]:
+    """(deployment id, git sha) of the deployment the production domain alias
+    points at. Documented calls only: GET /v4/aliases, then GET /v13/deployments/{id}.
+    Raises RemoteError (fail closed) naming whatever is missing."""
+    aliases = http("GET", f"{VERCEL_API}/v4/aliases?projectId={project_id}{_team_q(org_id, first=False)}", token, timeout)
+    entry = next((a for a in aliases.get("aliases", []) if a.get("alias") == PROD_DOMAIN), None)
+    if not entry:
+        raise RemoteError(f"no alias entry for {PROD_DOMAIN} in GET /v4/aliases for project {project_id}")
+    dep_id = entry.get("deploymentId")
+    if not dep_id:
+        raise RemoteError(f"alias {PROD_DOMAIN} has no deploymentId field")
+    dep = http("GET", f"{VERCEL_API}/v13/deployments/{dep_id}{_team_q(org_id)}", token, timeout)
+    return dep_id, dep
+
+
+def resolve_live_vercel_deployment(
+    http: VercelHttp, token: str, project_id: str, org_id: Optional[str], timeout: int,
+) -> tuple[str, str]:
+    """(deployment id, git sha) of the live production deployment; fails closed
+    naming the missing fields when no sha can be read."""
+    dep_id, dep = resolve_live_vercel_deployment_obj(http, token, project_id, org_id, timeout)
+    sha = vercel_deployment_sha(dep)
+    if not sha:
+        raise RemoteError(f"deployment {dep_id} carries neither meta.githubCommitSha nor gitSource.sha, cannot tell what is live")
+    return dep_id, sha
+
+
+def find_promote_candidate(
+    http: VercelHttp, token: str, project_id: str, org_id: Optional[str], sha: str, timeout: int,
+) -> Optional[str]:
+    """The READY production deployment built from `sha`, via GET /v7/deployments.
+
+    Strict, fail-closed rules (never promote without a verified match):
+      * a list item without sha metadata is resolved with GET /v13/deployments/{uid};
+        if it still has none it is ignored (never assumed to match);
+      * only items whose resolved sha matches `sha` count;
+      * zero matches -> None; matches that disagree on the full sha string, or
+        more than one distinct deployment with different shas -> RemoteError;
+      * several deployments with an IDENTICAL sha (redeploys of the same commit):
+        the newest is chosen (highest createdAt, else first in list order).
+    """
+    out = http(
+        "GET",
+        f"{VERCEL_API}/v7/deployments?projectId={project_id}&target=production&state=READY&sha={sha}&limit=5"
+        f"{_team_q(org_id, first=False)}",
+        token, timeout,
+    )
+    matches: list[tuple[int, str, str, int]] = []  # (order, uid, full sha, createdAt)
+    for order, item in enumerate(out.get("deployments", [])):
+        uid = item.get("uid") or item.get("id")
+        if not uid:
+            continue
+        dep_sha = vercel_deployment_sha(item)
+        created = item.get("createdAt") or item.get("created") or 0
+        if not dep_sha:
+            full = http("GET", f"{VERCEL_API}/v13/deployments/{uid}{_team_q(org_id)}", token, timeout)
+            dep_sha = vercel_deployment_sha(full)
+            created = created or full.get("createdAt") or 0
+        if dep_sha and sha_matches(dep_sha, sha):
+            matches.append((order, uid, dep_sha, int(created or 0)))
+    if not matches:
+        return None
+    if len({m[2] for m in matches}) > 1:
+        raise RemoteError(
+            f"{len(matches)} READY production deployments match {sha[:8]} but carry different full shas "
+            f"({', '.join(sorted({m[2][:12] for m in matches}))}); refusing to guess which to promote"
+        )
+    matches.sort(key=lambda m: (-m[3], m[0]))
+    return matches[0][1]
+
+
+def verify_vercel_rollback(
+    workdir: Path, sha: str, timeout: int,
+    http: VercelHttp = vercel_rest, token: Optional[str] = None,
+    sleep: Callable[[float], None] = time.sleep, settle_checks: int = 12, settle_interval_s: float = 15,
+) -> tuple[bool, str]:
+    """After a rollback push, confirm Vercel's live production deployment is the
+    rollback target; if not, promote the READY deployment built from `sha` (the
+    REST equivalent of `vercel promote`) and verify again. Fails closed."""
+    token = token or vercel_cli_token()
+    if not token:
+        return False, "no Vercel CLI token found, cannot verify the live deployment"
+    try:
+        project_id, org_id = _vercel_link_ids(workdir)
+        for _ in range(3):
+            _, live = resolve_live_vercel_deployment(http, token, project_id, org_id, timeout)
+            if sha_matches(live, sha):
+                return True, "Vercel production already serves the rollback target"
+            sleep(settle_interval_s)
+        uid = find_promote_candidate(http, token, project_id, org_id, sha, timeout)
+        if not uid:
+            return False, f"Vercel is serving {live[:8]}, not {sha[:8]}, and no READY production deployment for {sha[:8]} was found to promote"
+        http("POST", f"{VERCEL_API}/v10/projects/{project_id}/promote/{uid}{_team_q(org_id)}", token, timeout)
+        for _ in range(settle_checks):
+            _, live = resolve_live_vercel_deployment(http, token, project_id, org_id, timeout)
+            if sha_matches(live, sha):
+                return True, f"promoted Vercel deployment {uid} and verified it is live"
+            sleep(settle_interval_s)
+    except RemoteError as exc:
+        return False, str(exc)
+    return False, f"promoted Vercel deployment {uid} but production still serves {live[:8]}, not {sha[:8]}"
+
+
+def cmd_vercel_check(args: argparse.Namespace) -> int:
+    """Read-only: only the GETs the rollback verify relies on."""
+    token = vercel_cli_token()
+    if not token:
+        print("no Vercel CLI token found", file=sys.stderr)
+        return 1
+    try:
+        project_id, org_id = _vercel_link_ids(link_vercel(args.timeout))
+        dep_id, live = resolve_live_vercel_deployment(vercel_rest, token, project_id, org_id, args.timeout)
+        print(f"live production deployment ({PROD_DOMAIN}): {dep_id}")
+        print(f"live sha: {live}")
+        if args.sha:
+            cand = find_promote_candidate(vercel_rest, token, project_id, org_id, args.sha, args.timeout)
+            print(f"promote candidate for {args.sha}: {cand or 'none found'}")
+    except RemoteError as exc:
+        print(f"vercel-check failed: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
 # ── Codemagic release trigger ─────────────────────────────────────────────
 
 # (app_id, api_token, payload) -> (http_status, response_body). Injectable so
@@ -840,6 +1117,63 @@ def trigger_codemagic_prod_build(
 
 
 # ── deploy ───────────────────────────────────────────────────────────────
+
+
+def vercel_ready_for_push(dep: Optional[dict], sha: str, push_time: float, skew_s: float = 120) -> bool:
+    """Pure: a READY production deployment that carries the pushed sha and was
+    created at or after the push (minus clock skew)."""
+    dep = dep or {}
+    created = (dep.get("createdAt") or dep.get("created") or 0) / 1000
+    return (
+        dep.get("readyState", dep.get("state")) == "READY"
+        and sha_matches(vercel_deployment_sha(dep), sha)
+        and created >= push_time - skew_s
+    )
+
+
+def live_vercel_deployment(timeout: int, http: VercelHttp = None) -> tuple[str, dict]:
+    http = http or vercel_rest
+    token = vercel_cli_token()
+    if not token:
+        raise RemoteError("no Vercel CLI token found")
+    project_id, org_id = _vercel_link_ids(link_vercel(timeout))
+    return resolve_live_vercel_deployment_obj(http, token, project_id, org_id, timeout)
+
+
+def poll_vercel_ready(
+    window_s: int, timeout: int, sha: Optional[str] = None, push_time: Optional[float] = None,
+    live_dep: Optional[Callable[[], tuple[str, dict]]] = None,
+) -> tuple[bool, list[dict]]:
+    """Poll `vercel ls --prod` until the newest production deployment is Ready,
+    then take one final read before giving up (H108). With `sha` and
+    `push_time`, "ready" also requires the live production deployment to carry
+    the pushed sha and be newer than the push (the documented behaviour), not
+    merely that the newest row says Ready."""
+    deadline = time.time() + window_s
+    rows: list[dict] = []
+
+    def read() -> bool:
+        nonlocal rows
+        try:
+            rows = fetch_vercel_prod_rows(link_vercel(timeout), timeout)
+        except RemoteError:
+            return False
+        if not (rows and rows[0]["status"] == "Ready"):
+            return False
+        if sha is None or push_time is None:
+            return True
+        try:
+            _, dep = (live_dep or (lambda: live_vercel_deployment(timeout)))()
+        except RemoteError as exc:
+            print(f"  Vercel sha check not confirmed yet: {exc}", file=sys.stderr)
+            return False
+        return vercel_ready_for_push(dep, sha, push_time)
+
+    while time.time() < deadline:
+        if read():
+            return True, rows
+        time.sleep(DEPLOY_POLL_INTERVAL_S)
+    return read(), rows
 
 
 def cmd_check(args: argparse.Namespace) -> int:
@@ -912,7 +1246,7 @@ def cmd_deploy(args: argparse.Namespace) -> int:
 
     if args.dry_run:
         print("\n[dry-run] would run: git push origin main:release")
-        print("[dry-run] would poll Vercel (up to 15 minutes) for a Ready production deployment newer than the push")
+        print("[dry-run] would poll Vercel (up to --timeout-minutes, default 30) for a Ready production deployment newer than the push")
         if args.railway_branch_confirmed:
             print("[dry-run] would poll Railway (both services) until latest deployment is SUCCESS at "
                   f"{main_sha[:8] if main_sha else '?'} AND meta.branch == release (operator-confirmed dashboard "
@@ -934,52 +1268,29 @@ def cmd_deploy(args: argparse.Namespace) -> int:
 
     push_time = time.time()
     _run(["git", "push", "origin", "main:release"], timeout=args.timeout, cwd=REPO_ROOT)
-    print("\nPushed main -> release. Polling Vercel and Railway (up to 15 minutes)...")
+    print(f"\nPushed main -> release. Polling Vercel and Railway (up to {timeout_seconds(args.timeout_minutes) // 60} minutes)...")
 
-    deadline = time.time() + DEPLOY_POLL_TIMEOUT_S
-    vercel_ready = False
-    rows: list[dict] = []
-    while time.time() < deadline and not vercel_ready:
-        try:
-            workdir = link_vercel(args.timeout)
-            rows = fetch_vercel_prod_rows(workdir, args.timeout)
-            if rows and rows[0]["status"] == "Ready":
-                vercel_ready = True
-        except RemoteError:
-            pass
-        if not vercel_ready:
-            time.sleep(DEPLOY_POLL_INTERVAL_S)
+    window_s = timeout_seconds(args.timeout_minutes)
+    vercel_ready, rows = poll_vercel_ready(window_s, args.timeout, sha=main_sha, push_time=push_time)
     if not vercel_ready:
-        print("Vercel did not show a Ready production deployment within 15 minutes.", file=sys.stderr)
+        print(f"Vercel did not show a Ready production deployment within {window_s // 60} minutes.", file=sys.stderr)
         return 1
 
-    railway_done = {s: False for s in RAILWAY_SERVICES}
-    railway_last_branch: dict[str, Optional[str]] = {s: None for s in RAILWAY_SERVICES}
-    while time.time() < deadline and not all(railway_done.values()):
-        for service in RAILWAY_SERVICES:
-            if railway_done[service]:
-                continue
-            try:
-                dep = fetch_railway_latest_deployment(service, args.timeout)
-            except RemoteError:
-                continue
-            if dep:
-                railway_last_branch[service] = (dep.get("meta") or {}).get("branch")
-            if railway_deployment_matches(dep, main_sha, require_release_branch=args.railway_branch_confirmed):
-                railway_done[service] = True
-        if not all(railway_done.values()):
-            time.sleep(DEPLOY_POLL_INTERVAL_S)
-    if not all(railway_done.values()):
+    railway_failed: set = set()
+    railway_done, railway_last_branch = poll_railway_services(
+        main_sha, args.railway_branch_confirmed, window_s, DEPLOY_POLL_INTERVAL_S,
+        lambda svc: fetch_railway_latest_deployment(svc, args.timeout), failed_out=railway_failed,
+    )
+    if final_recheck_decision(railway_done) != "continue":
         pending = [s for s, ok in railway_done.items() if not ok]
+        for service in sorted(railway_failed):
+            print(f"Railway {service} deployment FAILED or CRASHED at the released sha.", file=sys.stderr)
         if args.railway_branch_confirmed:
             for service in pending:
                 print(railway_branch_mismatch_message(service, railway_last_branch.get(service), pre_release_sha), file=sys.stderr)
         else:
-            # Without confirmation we cannot tell a same-sha `main` deployment
-            # (branch switch not done, or still propagating) from a genuine
-            # `release` deploy, so we keep the pre-existing commit-only
-            # tolerance and this generic message as the default behaviour.
-            print(f"Railway service(s) not at the released sha within 15 minutes: {', '.join(pending)}", file=sys.stderr)
+            print(f"Railway service(s) not at the released sha within {window_s // 60} minutes "
+                  f"(final re-check included): {', '.join(pending)}", file=sys.stderr)
         return 1
 
     smoke = run_smoke_checks()
@@ -1043,45 +1354,109 @@ def cmd_rollback(args: argparse.Namespace) -> int:
     print(f"Rolling release back to {target} ({sha[:8]})...")
     _run(["git", "push", "--force-with-lease", "origin", f"{sha}:release"], timeout=args.timeout, cwd=REPO_ROOT)
 
-    print("Polling Vercel and Railway (up to 15 minutes)...")
-    deadline = time.time() + DEPLOY_POLL_TIMEOUT_S
-    vercel_ready = False
-    rows: list[dict] = []
-    while time.time() < deadline and not vercel_ready:
-        try:
-            workdir = link_vercel(args.timeout)
-            rows = fetch_vercel_prod_rows(workdir, args.timeout)
-            if rows and rows[0]["status"] == "Ready":
-                vercel_ready = True
-        except RemoteError:
-            pass
-        if not vercel_ready:
-            time.sleep(DEPLOY_POLL_INTERVAL_S)
+    window_s = timeout_seconds(args.timeout_minutes)
+    print(f"Polling Vercel and Railway (up to {window_s // 60} minutes)...")
+    vercel_ready, rows = poll_vercel_ready(window_s, args.timeout)
+    railway_done, _ = poll_railway_services(
+        sha, False, window_s, DEPLOY_POLL_INTERVAL_S,
+        lambda svc: fetch_railway_latest_deployment(svc, args.timeout),
+    )
 
-    railway_done = {s: False for s in RAILWAY_SERVICES}
-    while time.time() < deadline and not all(railway_done.values()):
-        for service in RAILWAY_SERVICES:
-            if railway_done[service]:
-                continue
-            try:
-                dep = fetch_railway_latest_deployment(service, args.timeout)
-            except RemoteError:
-                continue
-            if not dep:
-                continue
-            commit = (dep.get("meta") or {}).get("commitHash", "")
-            if dep.get("status") == "SUCCESS" and commit.startswith(sha):
-                railway_done[service] = True
-        if not all(railway_done.values()):
-            time.sleep(DEPLOY_POLL_INTERVAL_S)
+    # H108: Vercel did not redeploy on a rollback push once. Verify the live
+    # production deployment really is the target, promoting it if not.
+    try:
+        vercel_live, vercel_msg = verify_vercel_rollback(link_vercel(args.timeout), sha, args.timeout)
+    except RemoteError as exc:
+        vercel_live, vercel_msg = False, str(exc)
+    print(f"Vercel live check: {vercel_msg}")
 
     smoke = run_smoke_checks()
     print("\nSmoke checks:")
     print(format_smoke_table(smoke))
-    if not vercel_ready or not all(railway_done.values()) or any(not c.passed for c in smoke):
+    if not vercel_live or not all(railway_done.values()) or any(not c.passed for c in smoke):
         print("\nRollback did not fully verify within the poll window.", file=sys.stderr)
         return 1
     print(f"\nRolled back to {sha}.")
+    return 0
+
+
+TAG_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+TAG_TIME_RE = re.compile(r"^([01]\d|2[0-3])[0-5]\d$")
+SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
+
+
+def validate_tag_only_args(sha: Optional[str], date: Optional[str], time_hhmm: str = "0000") -> tuple[Optional[str], Optional[str]]:
+    """Returns (tag_name, error). Pure: no git, no network."""
+    if not sha or not SHA_RE.match(sha):
+        return None, f"--tag-only needs a commit sha (7-40 hex characters), got {sha!r}"
+    if not date:
+        return None, "--tag-only requires --date YYYY-MM-DD (the day the commit was deployed)"
+    if not TAG_DATE_RE.match(date):
+        return None, f"--date must be YYYY-MM-DD, got {date!r}"
+    try:
+        datetime.strptime(date, "%Y-%m-%d")
+    except ValueError:
+        return None, f"--date {date!r} is not a real calendar date"
+    if not TAG_TIME_RE.match(time_hhmm):
+        return None, f"--time must be HHMM, got {time_hhmm!r}"
+    return f"release-{date.replace('-', '')}-{time_hhmm}", None
+
+
+def cmd_tag_only(args: argparse.Namespace) -> int:
+    """Create the annotated release tag for a commit that is already deployed
+    (a release whose poll timed out but whose services later went SUCCESS)."""
+    tag, err = validate_tag_only_args(args.tag_only, args.date, args.time)
+    if err:
+        print(err, file=sys.stderr)
+        return 1
+    if not args.allow_worktree and Path.cwd() != REPO_ROOT:
+        print(f"--tag-only must run from {REPO_ROOT} (the shared tree), refusing", file=sys.stderr)
+        return 1
+    try:
+        _run(["git", "fetch", "origin", "release", "--tags"], timeout=args.timeout, cwd=REPO_ROOT)
+    except RemoteError as exc:
+        print(f"git fetch origin release --tags failed: {exc}", file=sys.stderr)
+        return 1
+    ok, out = _run_ok(["git", "rev-parse", "--verify", f"{args.tag_only}^{{commit}}"], timeout=args.timeout, cwd=REPO_ROOT)
+    if not ok:
+        print(f"{args.tag_only!r} does not resolve to a commit: {out}", file=sys.stderr)
+        return 1
+    sha = out.strip()
+    if not is_ancestor(REPO_ROOT, sha, "origin/release", args.timeout):
+        print(f"{sha[:8]} is not contained in origin/release, so it was never deployed; refusing to tag.", file=sys.stderr)
+        return 1
+    if is_tag_from_this_tool(REPO_ROOT, tag, args.timeout):
+        print(f"tag {tag} already exists, refusing.", file=sys.stderr)
+        return 1
+    ok, pointing = _run_ok(["git", "tag", "--points-at", sha], timeout=args.timeout, cwd=REPO_ROOT)
+    existing = [t for t in (pointing.split() if ok else []) if t.startswith("release-")]
+    if existing:
+        print(f"{sha[:8]} already carries release tag {', '.join(existing)}, refusing.", file=sys.stderr)
+        return 1
+    if getattr(args, "skip_live_check", False):
+        print("[warn] --skip-live-check: not confirming this sha is what Vercel serves.", file=sys.stderr)
+    else:
+        try:
+            dep_id, dep = live_vercel_deployment(args.timeout)
+            live_sha = vercel_deployment_sha(dep)
+        except RemoteError as exc:
+            print(f"Could not confirm what is live ({exc}); refusing to tag. "
+                  "Last resort: rerun with --skip-live-check.", file=sys.stderr)
+            return 1
+        if not sha_matches(live_sha, sha):
+            print(f"Vercel production serves {(live_sha or 'an unknown sha')[:8]} (deployment {dep_id}), not {sha[:8]}; "
+                  "refusing to tag. Last resort: --skip-live-check.", file=sys.stderr)
+            return 1
+    smoke = run_smoke_checks()
+    print("Smoke checks:")
+    print(format_smoke_table(smoke))
+    if any(not c.passed for c in smoke):
+        print("\nSmoke checks failed, not tagging.", file=sys.stderr)
+        return 1
+    _run(["git", "tag", "-a", tag, sha, "-m", f"Release {sha[:8]} (deployed {args.date}, tagged retroactively)"],
+         timeout=args.timeout, cwd=REPO_ROOT)
+    _run(["git", "push", "origin", tag], timeout=args.timeout, cwd=REPO_ROOT)
+    print(f"Tagged {tag} at {sha}.")
     return 0
 
 
@@ -1092,7 +1467,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Production release tool. See docs/ops/RELEASE.md.")
     parser.add_argument("--timeout", type=int, default=REMOTE_TIMEOUT, help="Timeout (seconds) per remote call.")
     parser.add_argument("--verbose", action="store_true")
-    sub = parser.add_subparsers(dest="command", required=True)
+    parser.add_argument("--timeout-minutes", type=positive_minutes, default=DEPLOY_POLL_TIMEOUT_MINUTES,
+                        help="Deploy/rollback poll window per service in minutes (default 30).")
+    parser.add_argument("--tag-only", metavar="SHA", help="Tag an already-deployed commit (needs --date); no deploy.")
+    parser.add_argument("--skip-live-check", action="store_true",
+                        help="With --tag-only: skip confirming the sha is what Vercel serves (last resort).")
+    parser.add_argument("--vercel-check", action="store_true",
+                        help="Read-only: resolve the live Vercel production deployment and its sha (optionally the promote candidate for --sha).")
+    parser.add_argument("--sha", help="With --vercel-check: a rollback sha to find a promote candidate for.")
+    parser.add_argument("--date", help="With --tag-only: the day it was deployed, YYYY-MM-DD.")
+    parser.add_argument("--time", default="0000", help="With --tag-only: HHMM for the tag name (default 0000).")
+    parser.add_argument("--allow-worktree", dest="allow_worktree", action="store_true", default=False,
+                        help=argparse.SUPPRESS)
+    sub = parser.add_subparsers(dest="command", required=False)
 
     p_check = sub.add_parser("check", help="Run every precondition, print a red/amber/green table.")
     p_check.add_argument("--allow-worktree", action="store_true", help="Allow running from a worktree, not just the shared tree.")
@@ -1120,6 +1507,8 @@ def build_parser() -> argparse.ArgumentParser:
         "services were switched to release in the Railway dashboard. deploy then verifies it for real after "
         "the push.",
     )
+    p_deploy.add_argument("--timeout-minutes", type=positive_minutes, default=argparse.SUPPRESS,
+                          help="Poll window per service in minutes (default 30).")
     p_deploy.set_defaults(func=cmd_deploy)
 
     p_rollback = sub.add_parser("rollback", help="Force-with-lease release back to a known-good tag or sha.")
@@ -1134,6 +1523,8 @@ def build_parser() -> argparse.ArgumentParser:
         "services were switched to release in the Railway dashboard. deploy then verifies it for real after "
         "the push.",
     )
+    p_rollback.add_argument("--timeout-minutes", type=positive_minutes, default=argparse.SUPPRESS,
+                            help="Poll window per service in minutes (default 30).")
     p_rollback.set_defaults(func=cmd_rollback)
 
     return parser
@@ -1142,6 +1533,16 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Optional[list[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.vercel_check:
+        if getattr(args, "func", None) or args.tag_only is not None:
+            parser.error("--vercel-check cannot be combined with a subcommand or --tag-only")
+        return cmd_vercel_check(args)
+    if args.tag_only is not None:
+        if getattr(args, "func", None):
+            parser.error("--tag-only cannot be combined with a subcommand")
+        return cmd_tag_only(args)
+    if not getattr(args, "func", None):
+        parser.error("a subcommand (check, sync-vars, deploy, rollback) or --tag-only is required")
     return args.func(args)
 
 

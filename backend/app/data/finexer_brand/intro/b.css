@@ -1,0 +1,5 @@
+/* B: quiet card, 1px hairline, small Adviser Indigo dot glyphs on the three facts (no side stripe). */
+.si-b { margin: 16px 16px 12px; padding: 12px; background: var(--s-card); border: 1px solid var(--s-border); border-radius: 16px; }
+.si-b p { margin: 0 0 8px; line-height: 1.5; }
+.si-b ul { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 0; padding: 0; list-style: none; font-size: 14px; color: var(--s-muted); }
+.si-b li::before { content: "\25cf\a0"; font-size: 10px; color: var(--s-primary); }

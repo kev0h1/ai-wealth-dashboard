@@ -152,7 +152,10 @@ async def _warm_user_impl(uid: str) -> dict:
     async def _step(name, compute_fn, *, self_caching: bool) -> None:
         try:
             payload = await compute_fn(uid)
-            if not self_caching:
+            # G210: a "syncing" Safe to Spend payload is never persisted.
+            if not self_caching and not (
+                isinstance(payload, dict) and payload.get("calculation_status") == "syncing"
+            ):
                 await response_cache.aput(name, uid, payload, version=v)
             warmed.append(name)
         except Exception:

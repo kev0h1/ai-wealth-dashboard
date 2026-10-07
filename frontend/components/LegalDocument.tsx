@@ -157,7 +157,7 @@ export default function LegalDocument({
   const segments = splitMarkdownIntoSegments(markdown);
 
   return (
-    <main className="min-h-screen bg-[#f0f2f7] dark:bg-[#0f172a] px-6 py-10">
+    <main className="legal-doc min-h-screen bg-[#f0f2f7] dark:bg-[#0f172a] px-6 py-10">
       <div className="mx-auto max-w-[65ch]">
         <div className="mb-8">
           <span className="text-sm font-bold tracking-tight text-slate-900 dark:text-slate-100">Sorted</span>

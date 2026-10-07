@@ -16,8 +16,6 @@ going through TestClient + dependency_overrides.
 """
 import asyncio
 
-import pytest
-from fastapi import HTTPException
 
 import app.routers.finexer as finexer_module
 
@@ -69,6 +67,16 @@ def _setup(monkeypatch, consent_doc, sync_calls):
     return fake_consents
 
 
+def _assert_designed_error(result, status):
+    """G215: the user sees the hand-off error page, never JSON."""
+    assert result.status_code == status
+    assert result.media_type == "text/html"
+    assert b"Connection didn" in result.body
+    assert b"By Auriq" in result.body or b"by Auriq" in result.body
+    assert b'"detail"' not in result.body
+    assert result.headers["Content-Security-Policy"].startswith("default-src 'none'")
+
+
 def _base_doc():
     return {
         "_id": "cst_test_1",
@@ -84,11 +92,9 @@ def test_missing_state_is_rejected_and_consent_not_authorised(monkeypatch):
     sync_calls = []
     fake_consents = _setup(monkeypatch, _base_doc(), sync_calls)
 
-    with pytest.raises(HTTPException) as exc_info:
-        asyncio.run(finexer_module.finexer_callback(fx_consent="cst_test_1", state=""))
+    result = asyncio.run(finexer_module.finexer_callback(fx_consent="cst_test_1", state=""))
 
-    assert exc_info.value.status_code == 400
-    assert exc_info.value.detail == "State mismatch"
+    _assert_designed_error(result, 400)
     assert fake_consents.docs[0]["status"] == "pending"
     assert "authed_at" not in fake_consents.docs[0]
     assert sync_calls == []
@@ -100,13 +106,11 @@ def test_missing_stored_state_is_rejected_and_consent_not_authorised(monkeypatch
     doc["state"] = None
     fake_consents = _setup(monkeypatch, doc, sync_calls)
 
-    with pytest.raises(HTTPException) as exc_info:
-        asyncio.run(finexer_module.finexer_callback(
+    result = asyncio.run(finexer_module.finexer_callback(
             fx_consent="cst_test_1", state="whatever-the-caller-sends",
         ))
 
-    assert exc_info.value.status_code == 400
-    assert exc_info.value.detail == "State mismatch"
+    _assert_designed_error(result, 400)
     assert fake_consents.docs[0]["status"] == "pending"
     assert sync_calls == []
 
@@ -115,27 +119,68 @@ def test_mismatched_state_is_rejected_and_consent_not_authorised(monkeypatch):
     sync_calls = []
     fake_consents = _setup(monkeypatch, _base_doc(), sync_calls)
 
-    with pytest.raises(HTTPException) as exc_info:
-        asyncio.run(finexer_module.finexer_callback(
+    result = asyncio.run(finexer_module.finexer_callback(
             fx_consent="cst_test_1", state="deliberately-wrong-state-value",
         ))
 
-    assert exc_info.value.status_code == 400
-    assert exc_info.value.detail == "State mismatch"
+    _assert_designed_error(result, 400)
     assert fake_consents.docs[0]["status"] == "pending"
     assert sync_calls == []
 
 
 def test_matching_state_still_succeeds(monkeypatch):
     sync_calls = []
-    fake_consents = _setup(monkeypatch, _base_doc(), sync_calls)
+    doc = _base_doc()
+    doc["native"] = True
+    fake_consents = _setup(monkeypatch, doc, sync_calls)
 
     result = asyncio.run(finexer_module.finexer_callback(
         fx_consent="cst_test_1", state="the-real-state-value",
     ))
 
     assert result.status_code == 200
-    assert b"Bank connected!" in result.body
+    assert b"Bank connected" in result.body
+    assert b"provider=finexer&connection=cst_test_1" in result.body
+    assert "Content-Security-Policy" in result.headers
     assert fake_consents.docs[0]["status"] == "authorized"
     assert "authed_at" in fake_consents.docs[0]
     assert sync_calls == [("cst_test_1", "kevin@example.com")]
+
+
+def test_non_native_success_redirects_to_accounts(monkeypatch):
+    sync_calls = []
+    fake_consents = _setup(monkeypatch, _base_doc(), sync_calls)
+    result = asyncio.run(finexer_module.finexer_callback(fx_consent="cst_test_1", state="the-real-state-value"))
+    assert result.status_code == 303
+    assert result.headers["location"] == f"{finexer_module.APP_URL}/accounts?syncing=1&connection=cst_test_1"
+    assert fake_consents.docs[0]["status"] == "authorized"
+    assert sync_calls == [("cst_test_1", "kevin@example.com")]
+
+
+def test_non_native_error_redirects_cancelled(monkeypatch):
+    sync_calls = []
+    _setup(monkeypatch, _base_doc(), sync_calls)
+    result = asyncio.run(finexer_module.finexer_callback(
+        fx_consent="cst_test_1", state="the-real-state-value", error="access_denied"))
+    assert result.status_code == 303
+    assert result.headers["location"] == f"{finexer_module.APP_URL}/accounts?connect=cancelled"
+    assert sync_calls == []
+
+
+def test_native_error_renders_handoff_page(monkeypatch):
+    doc = _base_doc()
+    doc["native"] = True
+    _setup(monkeypatch, doc, [])
+    result = asyncio.run(finexer_module.finexer_callback(
+        fx_consent="cst_test_1", state="the-real-state-value", error="access_denied"))
+    assert result.status_code == 200
+    assert b"wealthdash://auth-complete?provider=finexer&connection=cst_test_1&status=error" in result.body
+    assert result.headers["Content-Security-Policy"].startswith("default-src 'none'")
+
+
+def test_non_native_redirect_quotes_consent_id(monkeypatch):
+    doc = _base_doc()
+    doc["_id"] = "cst a&b"
+    _setup(monkeypatch, doc, [])
+    result = asyncio.run(finexer_module.finexer_callback(fx_consent="cst a&b", state="the-real-state-value"))
+    assert result.headers["location"].endswith("connection=cst%20a%26b")

@@ -12,7 +12,7 @@ import {
 } from "recharts";
 import {
   ChartPie, BarChart3, TrendingUp, TrendingDown, AlignStartVertical, MoreVertical, GripVertical, ChevronUp, ChevronDown,
-  Pin, PinOff, Trash2, Plus, ChevronRight, Activity, X,
+  Pin, PinOff, Trash2, Plus, ChevronRight, Activity,
   Car, Fuel, Train, Bus, CarTaxiFront, PlugZap, Wrench, SquareParking,
 } from "lucide-react";
 import {
@@ -28,8 +28,7 @@ import { cachedVerdict, fetchVerdictData } from "@/lib/verdictCache";
 import { usePreferences } from "@/components/PreferencesContext";
 import { createPreferenceSaver } from "@/lib/preferenceSave";
 import { createSerialQueue } from "@/lib/serialQueue";
-import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
-import { useSheetA11y } from "@/lib/useSheetA11y";
+import { SheetFrame } from "@/components/SheetFrame";
 import { getCategoryColour } from "@/lib/categories";
 import {
   PayPeriodConfig, prevPeriodWithConfig, filterPeriod,
@@ -1343,27 +1342,8 @@ function AddWidgetGallery({ available, onAdd, onClose }: {
   onAdd: (id: WidgetId) => void;
   onClose: () => void;
 }) {
-  useLockBodyScroll();
-  const panelRef = useSheetA11y<HTMLDivElement>(onClose);
   return (
-    <>
-      <button type="button" tabIndex={-1} aria-label="Close add chart" onClick={onClose} className="fixed inset-0 z-[65] cursor-default bg-black/40" />
-      <div
-        ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Add a chart"
-        className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] lg:max-w-md lg:bottom-auto lg:top-1/2 lg:-translate-y-1/2 glass-sheet rounded-t-3xl lg:rounded-3xl z-[70] max-h-[88dvh] overflow-y-auto p-5 pb-[calc(2rem+env(safe-area-inset-bottom))] lg:pb-5"
-      >
-        <div className="flex items-start gap-4">
-          <div className="min-w-0 flex-1">
-            <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">Add a chart</h2>
-            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Most charts use the pay period you&apos;re viewing.</p>
-          </div>
-          <button type="button" aria-label="Close" onClick={onClose} className="flex size-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-600 transition-colors hover:bg-slate-50 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">
-            <X size={17} aria-hidden="true" />
-          </button>
-        </div>
+    <SheetFrame title="Add a chart" description="Most charts use the pay period you’re viewing." onClose={onClose} bodyClassName="px-5 py-4">
         <div className="mt-4 space-y-2">
           {available.map(id => {
             const { title, description, Icon } = WIDGET_META[id];
@@ -1386,8 +1366,7 @@ function AddWidgetGallery({ available, onAdd, onClose }: {
             );
           })}
         </div>
-      </div>
-    </>
+    </SheetFrame>
   );
 }
 

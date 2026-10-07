@@ -1,10 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { createPortal } from "react-dom";
-import { X, ArrowLeftRight, CreditCard, ReceiptText, SlidersHorizontal } from "lucide-react";
-import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
-import { useSheetOpen } from "@/lib/useSheetOpen";
+import { ArrowLeftRight, CreditCard, ReceiptText, SlidersHorizontal } from "lucide-react";
+import { SheetFrame } from "@/components/SheetFrame";
 import PennyMark from "@/components/PennyMark";
 
 interface CategorisationRulesSheetProps {
@@ -12,45 +9,11 @@ interface CategorisationRulesSheetProps {
 }
 
 export default function CategorisationRulesSheet({ onClose }: CategorisationRulesSheetProps) {
-  useLockBodyScroll();
-  useSheetOpen();
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
-
-  if (!mounted) return null;
-
-  return createPortal(
-    <>
-      {/* Backdrop */}
-      <div className="fixed inset-0 bg-black/40 z-[65] fade-in" onClick={onClose} />
-
-      {/* Sheet — bottom sheet on mobile, centered modal on desktop */}
-      <div
-        className="fixed left-1/2 -translate-x-1/2 w-full max-w-[500px] glass-sheet z-[70] overflow-y-auto
-                    bottom-0 rounded-t-3xl slide-up max-h-[88dvh]
-                    lg:bottom-auto lg:top-1/2 lg:-translate-y-1/2 lg:rounded-3xl lg:max-h-[85dvh] lg:shadow-2xl"
-        style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
-      >
-        {/* Handle — mobile only */}
-        <div className="flex justify-center pt-3 pb-1 lg:hidden">
-          <div className="w-10 h-1 bg-slate-200 dark:bg-slate-600 rounded-full" />
-        </div>
-
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 pt-2 pb-4 lg:pt-5">
-          <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100 truncate flex-1 mr-4">
-            How we categorise your money
-          </h2>
-          <button
-            onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors flex-shrink-0"
-          >
-            <X size={16} color="#64748b" />
-          </button>
-        </div>
+  return (
+    <SheetFrame title="How we categorise your money" onClose={onClose}>
 
         {/* Penny explainer */}
-        <div className="mx-5 mb-4 glass-card rounded-2xl p-4">
+        <div className="mb-4 glass-card rounded-2xl p-4">
           <div className="flex items-center gap-2 mb-3">
             <span
               className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-white rounded-full px-2.5 py-1"
@@ -70,7 +33,7 @@ export default function CategorisationRulesSheet({ onClose }: CategorisationRule
         </div>
 
         {/* Rule list */}
-        <div className="px-5 pb-8 lg:pb-6 space-y-2">
+        <div className="space-y-2">
           <div className="glass-card rounded-2xl p-4 flex gap-3">
             <span className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: "#4f46e526" }}>
               <ArrowLeftRight size={15} style={{ color: "#4f46e5" }} />
@@ -130,8 +93,6 @@ export default function CategorisationRulesSheet({ onClose }: CategorisationRule
             </div>
           </div>
         </div>
-      </div>
-    </>,
-    document.body
+    </SheetFrame>
   );
 }

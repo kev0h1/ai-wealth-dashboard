@@ -49,12 +49,17 @@ _ORPHAN_STALE_AFTER = timedelta(days=7)
 # placeholder account" starts with the uid actually being one of these.
 _RELAY_DOMAIN = "@privaterelay.appleid.com"
 
-# Every collection that counts as "this account has data" for
+# Every *_col-bound collection that counts as "this account has data" for
 # erase_orphaned_relay_account's guard below: every provider's
 # connection/consent doc, every provider's account doc, and every
 # provider's transaction rows. Looked up fresh from app.db.collections by
 # name (see account_has_data) rather than bound at import time, same
-# reasoning as erase_user's own dir()-based sweep.
+# reasoning as erase_user's own manifest-driven sweep. A101: the five
+# collections with no live *_col binding (Mono/M-Pesa, unbound by A98) are
+# NOT listed here — they are all connection/account/transaction data too,
+# but account_has_data checks them separately via
+# app.db.collections.ERASE_ONLY_COLLECTIONS, the same raw db[name] path
+# erase_user uses for them, since there is no *_col attribute to getattr.
 _ACCOUNT_DATA_COLLECTIONS = (
     "connections_col", "finexer_consents_col", "yapily_consents_col",
     "accounts_col", "statement_accounts_col", "manual_accounts_col",
@@ -71,8 +76,16 @@ _last_stamped: dict[str, datetime] = {}
 
 
 async def erase_user(uid: str) -> dict[str, int]:
-    """Erase every trace of `uid`: every document in every `*_col` collection
-    in app.db.collections matched by `user_id` field or uid-keyed `_id`.
+    """Erase every trace of `uid`: every document in every collection named
+    in app.db.collections.ERASURE_MANIFEST, matched by `user_id` field or
+    uid-keyed `_id`, plus every collection in ERASE_ONLY_COLLECTIONS (A101 —
+    collections with no live `*_col` binding but which can still hold user
+    data, see that set's own comment). ERASURE_MANIFEST is an explicit list
+    rather than a `dir()` walk of app.db.collections' `*_col` attributes
+    (what this used to do): a runtime enumeration silently stopped sweeping
+    five Kenya collections the moment A98 removed their bindings, with
+    nothing to notice (A101). tests/test_collections_manifest.py guards the
+    manifest against drifting from the live bindings again.
 
     Before any of that, revoke every live bank connection `uid` holds
     (TrueLayer `connections_col`, Finexer `finexer_consents_col`) via
@@ -113,31 +126,49 @@ async def erase_user(uid: str) -> dict[str, int]:
     if revoke_errors:
         removed["connection_errors"] = revoke_errors
 
-    for attr in dir(_cols):
-        if not attr.endswith("_col"):
-            continue
+    for attr in _cols.ERASURE_MANIFEST:
         col = getattr(_cols, attr)
         r_field = await col.delete_many({"user_id": uid})
         r_keyed = await col.delete_many({"_id": uid})
         count = r_field.deleted_count + r_keyed.deleted_count
         if count:
             removed[attr.removesuffix("_col")] = count
+
+    # A101: ERASE_ONLY_COLLECTIONS have no *_col binding (A98 deliberately
+    # removed theirs), so there is nothing for the loop above to getattr —
+    # swept via a raw db[name] handle instead. See collections.py's own
+    # comment on that set for why a binding is not reinstated.
+    for name in _cols.ERASE_ONLY_COLLECTIONS:
+        col = _cols.db[name]
+        r_field = await col.delete_many({"user_id": uid})
+        r_keyed = await col.delete_many({"_id": uid})
+        count = r_field.deleted_count + r_keyed.deleted_count
+        if count:
+            removed[name] = count
     return removed
 
 
 async def account_has_data(uid: str) -> bool:
     """True if `uid` owns any connection, consent, account, or transaction
-    row anywhere (TrueLayer, Finexer, Yapily, statement upload, manual, or
-    investment) — the bar erase_orphaned_relay_account
-    below refuses to cross ("never delete an account with data").
+    row anywhere (TrueLayer, Finexer, Yapily, statement upload, manual,
+    investment, or the unbound Mono/M-Pesa collections — A101) — the bar
+    erase_orphaned_relay_account below refuses to cross ("never delete an
+    account with data").
 
     Looked up fresh from app.db.collections by name each call (like
-    erase_user's own dir()-based sweep), so a test that patches a subset of
-    collections there sees the same fakes rather than this module's own
-    bound names."""
+    erase_user's own manifest-driven sweep), so a test that patches a
+    subset of collections there sees the same fakes rather than this
+    module's own bound names."""
     from app.db import collections as _cols
     for name in _ACCOUNT_DATA_COLLECTIONS:
         col = getattr(_cols, name)
+        if await col.count_documents({"user_id": uid}, limit=1):
+            return True
+    # A101: ERASE_ONLY_COLLECTIONS carry no *_col binding, so there is
+    # nothing to getattr — checked via the same raw db[name] handle
+    # erase_user uses for them.
+    for name in _cols.ERASE_ONLY_COLLECTIONS:
+        col = _cols.db[name]
         if await col.count_documents({"user_id": uid}, limit=1):
             return True
     return False
@@ -600,7 +631,16 @@ async def stamp_activity(uid: str, now: datetime | None = None) -> None:
     _last_stamped[uid] = now
     try:
         await user_profiles_col.update_one(
-            {"_id": uid}, {"$set": {"last_active_at": now}}, upsert=True,
+            {"_id": uid},
+            {
+                "$set": {"last_active_at": now},
+                # D12: this upsert runs on the first authenticated request,
+                # BEFORE GET /profile, so it creates a brand-new user's profile
+                # document. Record onboarding as pending explicitly so the
+                # document is never ambiguous with a legacy one.
+                "$setOnInsert": {"onboarding_complete": False},
+            },
+            upsert=True,
         )
     except Exception:
         logger.warning("stamp_activity: failed to stamp %s", uid, exc_info=True)

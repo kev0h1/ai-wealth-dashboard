@@ -7,10 +7,13 @@ import { api, ApiError, Account, Connection, Transaction, InvestmentAccount, Inv
 import { accountBrand, BankBadge, TermsPill } from "@/components/AccountMiniCard";
 import AccountLedgerRow from "@/components/AccountLedgerRow";
 import ReconnectStrip, { type ReconnectProvider } from "@/components/ReconnectStrip";
+import PausedBanksStrip from "@/components/PausedBanksStrip";
+import { pausedAccountCount } from "@/lib/billingCopy";
 import { buildEstate, filterEstate, type EstateRow, type EstateLens } from "@/lib/accountsEstate";
 import { accountKind, accountKindLabel, type AccountKind } from "@/lib/accountKind";
 import CardTermsSheet from "@/components/CardTermsSheet";
 import { RadioDot } from "@/components/PlanOneOffSheet";
+import { DateField } from "@/components/DatePicker";
 import TransactionRow from "@/components/TransactionRow";
 import TeachingSheet from "@/components/TeachingSheet";
 import { useColours } from "@/components/ColourProvider";
@@ -28,12 +31,22 @@ import { createPortal } from "react-dom";
 import { getAllTransactionsCached } from "@/lib/useAllTransactions";
 import { getAccountsCached } from "@/lib/accountsCache";
 import { invalidateAllAccountData } from "@/lib/accountMutations";
+import { findLandedAccount, SYNC_POLL_TIMEOUT_MS } from "@/lib/syncLanding";
+import { AccountsSyncBanner } from "@/components/SyncNote";
+import { bankLabel } from "@/lib/bankLabel";
+import { connectionSyncInfos, pendingConnectionInfos, pollDelayMs, shouldPollTick } from "@/lib/syncStatusView";
+import type { SyncStatus } from "@/lib/api";
 import { writeHomePinnedAccounts } from "@/lib/homePinnedAccounts";
 import MoneyText from "@/components/MoneyText";
 import { formatConsentExpiry } from "@/lib/consentExpiry";
 import { useTutorialAction, useTutorialReady } from "@/components/TutorialContext";
 import { LEGACY_BANK_AVAILABLE, LEGACY_BANK_MENU_LABEL, isLegacyBankSource } from "@/lib/legacyBankProvider";
 import { useOpenBankingAccess } from "@/lib/openBankingAccess";
+import { stampAccountDetailState, hasAccountDetailEntry } from "@/lib/accountSheetHistory";
+import { useAccountDetailHistory } from "@/lib/useAccountDetailHistory";
+import { SheetFrame } from "@/components/SheetFrame";
+import { noticeSheet } from "@/components/ConfirmSheet";
+import { todayIso, dayIsoFromStored } from "@/lib/calendar";
 
 /** One row inside the condensed "+ Add" menu (header Variant B). Mirrors the
  *  MenuItem pattern already used by SpendTrends' widget overflow menu. */
@@ -297,6 +310,7 @@ export default function AccountsPage() {
   const [segment, setSegment] = useState<"Transactions" | "Categories">("Transactions");
   const [page, setPage] = useState(1);
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
+  const clearSelectedTransaction = useCallback(() => setSelectedTx(null), []);
   const [loadingTxns, setLoadingTxns] = useState<string | null>(null);
   const [tab, setTab] = useState<"Banks" | "Investments">(
     searchParams.get("tab") === "Investments" ? "Investments" : "Banks"
@@ -343,6 +357,11 @@ export default function AccountsPage() {
   const [uploadingColdStart, setUploadingColdStart] = useState(false);
   const coldStartFileRef = useRef<HTMLInputElement>(null);
   const isSyncing = searchParams.get("syncing") === "1";
+  // A108: the connection the user just authorised; the poll waits for ITS account.
+  const syncConnection = searchParams.get("connection");
+  const [syncTimedOut, setSyncTimedOut] = useState(false);
+  const [syncPollKey, setSyncPollKey] = useState(0);
+  const [connectNotice, setConnectNotice] = useState(false);
   // A67: does this plan include connecting a bank? Resolved alongside the
   // page rather than gating it — see lib/openBankingAccess.ts.
   const canConnectBank = useOpenBankingAccess();
@@ -752,17 +771,84 @@ export default function AccountsPage() {
   // transaction until a hard refresh).
   useEffect(() => {
     if (!isSyncing) return;
+    setSyncTimedOut(false);
+    const startedAt = Date.now();
     const interval = setInterval(async () => {
+      if (Date.now() - startedAt > SYNC_POLL_TIMEOUT_MS) {
+        clearInterval(interval);
+        setSyncTimedOut(true);
+        return;
+      }
       const accs = await getAccountsCached(true).catch(() => [] as Account[]);
-      if (accs.length > 0) {
+      const landed = findLandedAccount(accs, syncConnection);
+      if (landed) {
         invalidateAllAccountData();
         setAccounts(accs);
         clearInterval(interval);
-        router.replace("/accounts");
+        if (syncConnection) {
+          // A108: land on the account that just synced, like the ?id= deep link.
+          // Mark the ref so the replace-triggered effect run keeps the selection.
+          setSelectedAccountId(landed.id);
+          setSegment("Transactions");
+          setPage(1);
+          setLoadingTxns(landed.id);
+          consumedDeepLink.current = true;
+        }
+        router.replace("/accounts", { scroll: false });
       }
     }, 3000);
     return () => clearInterval(interval);
-  }, [isSyncing, router]);
+  }, [isSyncing, syncConnection, syncPollKey, router]);
+
+  // G214: server-side sync state for Accounts (banner, per-row ring, Pending
+  // rows). One poll: 3s while syncing, 15s once stalled, paused while hidden,
+  // never overlapping; re-asked when the tab becomes visible. It coexists
+  // with the ?syncing=1 landing poll above, which waits for the account itself.
+  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  const syncStatusRef = useRef<SyncStatus | null>(null);
+  syncStatusRef.current = syncStatus;
+  const syncInFlightRef = useRef(false);
+  const refreshSyncStatus = useCallback(async () => {
+    if (syncInFlightRef.current) return;
+    syncInFlightRef.current = true;
+    try {
+      const next = await api.getSyncStatus();
+      const wasRunning = syncStatusRef.current != null && syncStatusRef.current.state !== "idle";
+      setSyncStatus(next);
+      if (wasRunning && next.state === "idle") {
+        invalidateAllAccountData();
+        await loadAccounts();
+      }
+    } catch {} finally {
+      syncInFlightRef.current = false;
+    }
+  }, [loadAccounts]);
+  useEffect(() => { void refreshSyncStatus(); }, [refreshSyncStatus]);
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === "visible") void refreshSyncStatus(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [refreshSyncStatus]);
+  const syncPollDelay = pollDelayMs(syncStatus?.state);
+  useEffect(() => {
+    if (syncPollDelay == null) return;
+    const id = setInterval(() => {
+      if (shouldPollTick({ visible: document.visibilityState === "visible", inFlight: syncInFlightRef.current, cancelled: false })) void refreshSyncStatus();
+    }, syncPollDelay);
+    return () => clearInterval(id);
+  }, [syncPollDelay, refreshSyncStatus]);
+  async function handleSyncRetry() {
+    try { await api.syncAccounts(); } catch {}
+    await refreshSyncStatus();
+  }
+
+  // A108: the consent ended without linking an account (/accounts?connect=cancelled).
+  useEffect(() => {
+    if (searchParams.get("connect") === "cancelled") {
+      setConnectNotice(true);
+      router.replace("/accounts", { scroll: false });
+    }
+  }, [searchParams, router]);
 
   async function loadAccountTxns(accountId: string, force = false) {
     const isManual = accounts.find(a => a.id === accountId)?.manual;
@@ -835,18 +921,11 @@ export default function AccountsPage() {
     }
   }, [selectedAccountId]);
 
-  useEffect(() => {
-    const onPop = () => {
-      setSelectedAccountId(null);
-      setSelectedTx(null);
-    };
-    window.addEventListener("popstate", onPop);
-    return () => window.removeEventListener("popstate", onPop);
-  }, []);
+  useAccountDetailHistory(setSelectedAccountId, clearSelectedTransaction);
 
   async function handleSelectAccount(acc: Account) {
     listScrollY.current = window.scrollY;
-    window.history.pushState({ accountDetail: acc.id }, "");
+    window.history.pushState(stampAccountDetailState(window.history.state, acc.id), "");
     setSelectedAccountId(acc.id);
     setSegment("Transactions");
     setDetailSegment("Transactions");
@@ -912,7 +991,7 @@ export default function AccountsPage() {
   }, [selectedAccountId, segment, catSummaries, accounts]);
 
   function handleBack() {
-    if (window.history.state?.accountDetail) {
+    if (hasAccountDetailEntry(window.history.state)) {
       // Consume the history entry pushed on open — popstate closes the view,
       // keeping the in-app arrow and the system back gesture in sync.
       // For in-page opens (handleSelectAccount) this returns to the list.
@@ -998,7 +1077,7 @@ export default function AccountsPage() {
       }
       window.location.href = auth_url;
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Failed to start reconnection. Please try again.");
+      void noticeSheet({ title: "Couldn’t start reconnection", body: err instanceof ApiError ? err.message : "Please try again." });
     }
   }
 
@@ -1014,7 +1093,7 @@ export default function AccountsPage() {
       setTxnMap(prev => { const n = { ...prev }; delete n[selectedAccountId]; return n; });
       handleBack();
     } catch {
-      alert("Failed to remove account. Please try again.");
+      void noticeSheet({ title: "Couldn’t remove that account", body: "Please try again." });
     } finally {
       setDeletingAccount(false);
     }
@@ -1038,7 +1117,7 @@ export default function AccountsPage() {
     setManualModalOpen(true);
   }
 
-  async function saveManual() {
+  async function saveManual(close?: () => void) {
     const name = manualName.trim();
     if (!name) { setManualError("Give the account a name"); return; }
     const balance = parseFloat(manualBalance);
@@ -1053,7 +1132,8 @@ export default function AccountsPage() {
         const created = await api.createManualAccount({ name, balance, account_type: manualType });
         setManualAccounts(prev => [...prev, created]);
       }
-      setManualModalOpen(false);
+      if (close) close();
+      else setManualModalOpen(false);
       invalidateAllAccountData();
       loadAccounts();
     } catch {
@@ -1071,7 +1151,7 @@ export default function AccountsPage() {
       setManualAccounts(prev => prev.filter(a => a.id !== id));
       loadAccounts();
     } catch {
-      alert("Failed to remove account. Please try again.");
+      void noticeSheet({ title: "Couldn’t remove that account", body: "Please try again." });
     }
   }
 
@@ -1099,7 +1179,7 @@ export default function AccountsPage() {
     setManualTxDesc("");
     setManualTxAmount("");
     setManualTxType("debit");
-    setManualTxDate(new Date().toISOString().slice(0, 10));
+    setManualTxDate(todayIso());
     setManualTxError(null);
     setManualTxModalOpen(true);
   }
@@ -1109,12 +1189,12 @@ export default function AccountsPage() {
     setManualTxDesc(tx.description);
     setManualTxAmount(String(tx.amount));
     setManualTxType(tx.transaction_type === "credit" ? "credit" : "debit");
-    setManualTxDate(new Date(tx.date).toISOString().slice(0, 10));
+    setManualTxDate(dayIsoFromStored(tx.date));
     setManualTxError(null);
     setManualTxModalOpen(true);
   }
 
-  async function saveManualTx() {
+  async function saveManualTx(close?: () => void) {
     if (!selectedAccountId) return;
     const description = manualTxDesc.trim();
     if (!description) { setManualTxError("Add a description"); return; }
@@ -1129,7 +1209,8 @@ export default function AccountsPage() {
       } else {
         await api.addManualTransaction(selectedAccountId, body);
       }
-      setManualTxModalOpen(false);
+      if (close) close();
+      else setManualTxModalOpen(false);
       invalidateAllAccountData();
       await loadAccountTxns(selectedAccountId, true);
       loadAccounts();
@@ -1149,7 +1230,7 @@ export default function AccountsPage() {
       await loadAccountTxns(selectedAccountId, true);
       loadAccounts();
     } catch {
-      alert("Failed to delete entry.");
+      void noticeSheet({ title: "Couldn’t delete that entry", body: "Please try again." });
     }
   }
 
@@ -1183,7 +1264,7 @@ export default function AccountsPage() {
     setRuleSearchOpen(false);
   }
 
-  async function saveRule() {
+  async function saveRule(close?: () => void) {
     const name = ruleName.trim();
     const matchValue = ruleMatchValue.trim();
     if (!name) { setRuleError("Give the rule a name"); return; }
@@ -1207,7 +1288,8 @@ export default function AccountsPage() {
           match_field: matchField, backfill: ruleBackfill,
         });
       }
-      setRuleModalOpen(false);
+      if (close) close();
+      else setRuleModalOpen(false);
       setRuleSearchOpen(false);
       setRuleSearchResults([]);
       setRuleCounts(null);
@@ -1229,7 +1311,7 @@ export default function AccountsPage() {
       loadAccounts();
       if (selectedAccountId) await loadAccountTxns(selectedAccountId, true);
     } catch {
-      alert("Failed to update rule.");
+      void noticeSheet({ title: "Couldn’t update that rule", body: "Please try again." });
     }
   }
 
@@ -1242,7 +1324,7 @@ export default function AccountsPage() {
       loadAccounts();
       if (selectedAccountId) await loadAccountTxns(selectedAccountId, true);
     } catch {
-      alert("Failed to delete rule.");
+      void noticeSheet({ title: "Couldn’t delete that rule", body: "Please try again." });
     }
   }
 
@@ -1283,7 +1365,7 @@ export default function AccountsPage() {
       const h = await api.getInvestmentHoldings(id);
       setInvestmentHoldings(prev => ({ ...prev, [id]: h }));
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Refresh failed");
+      void noticeSheet({ title: "Refresh didn’t work", body: err instanceof Error ? err.message : "Please try again." });
     } finally {
       setRefreshingInvestment(null);
     }
@@ -1297,7 +1379,7 @@ export default function AccountsPage() {
       setInvestmentAccounts(prev => prev.filter(a => a.id !== id));
       setInvestmentHoldings(prev => { const n = { ...prev }; delete n[id]; return n; });
       if (expandedInvestment === id) setExpandedInvestment(null);
-    } catch { alert("Failed to remove investment account."); }
+    } catch { void noticeSheet({ title: "Couldn’t remove that account", body: "Please try again." }); }
     finally { setDeletingInvestment(null); }
   }
 
@@ -1331,7 +1413,7 @@ export default function AccountsPage() {
       }));
       setConfirmDeleteNote(null);
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Failed to delete note");
+      void noticeSheet({ title: "Couldn’t delete that note", body: err instanceof Error ? err.message : "Please try again." });
     } finally {
       setDeletingNote(null);
     }
@@ -1375,10 +1457,40 @@ export default function AccountsPage() {
     () => buildEstate(bankAccounts, investmentAccounts, pinnedIds),
     [bankAccounts, investmentAccounts, pinnedIds]
   );
+  // G214: per-connection sync info. A paused bank (B45) never shows as
+  // syncing: it is not being fetched at all.
+  const syncInfoByConnection = useMemo(() => connectionSyncInfos(syncStatus, null), [syncStatus]);
+  const pausedConnectionIds = useMemo(
+    () => new Set(bankAccounts.filter((a) => a.paused).map((a) => a.connection_id).filter(Boolean)),
+    [bankAccounts],
+  );
+  const syncFor = (row: EstateRow) => {
+    const acc = row.source === "bank" ? (row.raw as Account) : null;
+    if (!acc || acc.paused || !acc.connection_id) return undefined;
+    return syncInfoByConnection.get(acc.connection_id);
+  };
+  const pendingRows = useMemo(() => {
+    // Only a bank that has never synced gets a Pending row; a re-sync of a
+    // bank with data has accounts already.
+    const entries = pendingConnectionInfos(syncInfoByConnection, bankAccounts).filter(([id, info]) => info.kind === "new-bank" && !pausedConnectionIds.has(id));
+    // Landing from a bank consent before the server lists the connection yet.
+    if (entries.length === 0 && isSyncing && !syncTimedOut && bankAccounts.length === 0) {
+      entries.push(["landing", { kind: "new-bank" as const }]);
+    }
+    return entries.map(([id, info]) => ({ id: `pending-${id}`, info }));
+  }, [syncInfoByConnection, bankAccounts, pausedConnectionIds, isSyncing, syncTimedOut]);
+  const syncBannerInfos = useMemo(() => {
+    const infos = [...syncInfoByConnection.entries()].filter(([id]) => !pausedConnectionIds.has(id)).map(([, v]) => v);
+    if (infos.length === 0 && isSyncing) infos.push({ kind: "new-bank", stalled: syncTimedOut });
+    return infos;
+  }, [syncInfoByConnection, pausedConnectionIds, isSyncing, syncTimedOut]);
   const reconnectProviders = useMemo(() => {
     const grouped = new Map<string, ReconnectProvider>();
     for (const account of bankAccounts) {
       if (account.status !== "expired") continue;
+      // B45: a paused account cannot be reconnected on this plan (the
+      // connect endpoints refuse it), so it is covered by the paused strip.
+      if (account.paused) continue;
       const source = (account as Account & { source?: string }).source;
       const key = `${source ?? "bank"}:${account.provider_id ?? account.provider}`;
       const existing = grouped.get(key);
@@ -1587,21 +1699,16 @@ export default function AccountsPage() {
           onClose={() => setShowStatementUpload(false)}
         />
       )}
-      {manualModalOpen && modalsMounted && createPortal(
-        <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center bg-black/40" onClick={() => !manualSaving && setManualModalOpen(false)}>
-          <div className="glass-sheet w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl max-h-[85dvh] flex flex-col" onClick={e => e.stopPropagation()}>
-            {/* Drag handle */}
-            <div className="flex justify-center pt-3 pb-1 flex-shrink-0 sm:hidden">
-              <div className="w-10 h-1 bg-slate-200 dark:bg-slate-600 rounded-full" />
-            </div>
-            {/* Header */}
-            <div className="px-5 pt-4 pb-2 flex-shrink-0">
-              <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">
-                {manualEditId ? "Edit offline account" : "Add offline account"}
-              </h2>
-            </div>
-            {/* Scrollable body */}
-            <div className="overflow-y-auto flex-1 px-5 pb-5" style={{ paddingBottom: "calc(1.25rem + env(safe-area-inset-bottom, 0px))" }}>
+      {manualModalOpen && modalsMounted && <SheetFrame
+        title={manualEditId ? "Edit offline account" : "Add offline account"}
+        onClose={() => setManualModalOpen(false)}
+        dismissDisabled={manualSaving}
+        footer={({ close }) => <div className="flex gap-2">
+          <button type="button" onClick={close} disabled={manualSaving} className="flex-1 rounded-xl border border-slate-200 py-2.5 text-sm font-semibold text-slate-600 disabled:opacity-50 dark:border-slate-600 dark:text-slate-300">Cancel</button>
+          <button type="button" onClick={() => saveManual(close)} disabled={manualSaving} className="flex-1 rounded-xl bg-indigo-600 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50">{manualSaving ? "Saving…" : manualEditId ? "Save" : "Add account"}</button>
+        </div>}
+      >
+            <>
               <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1 mt-3">Name</label>
               <input
                 value={manualName}
@@ -1640,45 +1747,21 @@ export default function AccountsPage() {
                 className="w-full mb-2 px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
 
-              {manualError && <p className="text-xs text-rose-500 mb-2">{manualError}</p>}
+              {manualError && <p role="alert" className="text-xs text-rose-500 mb-2">{manualError}</p>}
+            </>
+      </SheetFrame>}
 
-              <div className="flex gap-2 mt-3">
-                <button
-                  onClick={() => setManualModalOpen(false)}
-                  disabled={manualSaving}
-                  className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 text-sm font-semibold text-slate-600 dark:text-slate-300 disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={saveManual}
-                  disabled={manualSaving}
-                  className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-sm font-semibold text-white disabled:opacity-50"
-                >
-                  {manualSaving ? "Saving…" : manualEditId ? "Save" : "Add account"}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
-
-      {manualTxModalOpen && modalsMounted && createPortal(
-        <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center bg-black/40" onClick={() => !manualTxSaving && setManualTxModalOpen(false)}>
-          <div className="glass-sheet w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl max-h-[85dvh] flex flex-col" onClick={e => e.stopPropagation()}>
-            {/* Drag handle */}
-            <div className="flex justify-center pt-3 pb-1 flex-shrink-0 sm:hidden">
-              <div className="w-10 h-1 bg-slate-200 dark:bg-slate-600 rounded-full" />
-            </div>
-            {/* Header */}
-            <div className="px-5 pt-4 pb-2 flex-shrink-0">
-              <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">
-                {manualTxEditId ? "Edit transaction" : "Add transaction"}
-              </h2>
-            </div>
-            {/* Scrollable body */}
-            <div className="overflow-y-auto flex-1 px-5" style={{ paddingBottom: "calc(1.25rem + env(safe-area-inset-bottom, 0px))" }}>
+      {manualTxModalOpen && modalsMounted && <SheetFrame
+        title={manualTxEditId ? "Edit transaction" : "Add transaction"}
+        onClose={() => setManualTxModalOpen(false)}
+        dismissDisabled={manualTxSaving}
+        footer={({ close, closeThen }) => <div className="flex gap-2">
+          {manualTxEditId && <button type="button" onClick={() => { const id = manualTxEditId; closeThen(() => removeManualTx(id)); }} disabled={manualTxSaving} className="rounded-xl border border-rose-200 px-4 py-2.5 text-sm font-semibold text-rose-500 disabled:opacity-50 dark:border-rose-800">Delete</button>}
+          <button type="button" onClick={close} disabled={manualTxSaving} className="flex-1 rounded-xl border border-slate-200 py-2.5 text-sm font-semibold text-slate-600 disabled:opacity-50 dark:border-slate-600 dark:text-slate-300">Cancel</button>
+          <button type="button" onClick={() => saveManualTx(close)} disabled={manualTxSaving} className="flex-1 rounded-xl bg-indigo-600 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50">{manualTxSaving ? "Saving…" : manualTxEditId ? "Save" : "Add"}</button>
+        </div>}
+      >
+            <>
               <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1 mt-3">Description</label>
               <input
                 value={manualTxDesc}
@@ -1721,63 +1804,24 @@ export default function AccountsPage() {
                 </div>
                 <div className="flex-1">
                   <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Date</label>
-                  <input
-                    type="date"
-                    value={manualTxDate}
-                    onChange={e => setManualTxDate(e.target.value)}
-                    className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  />
+                  <DateField mode="day" label="Date" value={manualTxDate} onChange={setManualTxDate} appearance="outlined" placeholder="Today" allowClear emptyDescription="not set, defaults to today" />
                 </div>
               </div>
 
-              {manualTxError && <p className="text-xs text-rose-500 mb-2">{manualTxError}</p>}
+              {manualTxError && <p role="alert" className="text-xs text-rose-500 mb-2">{manualTxError}</p>}
+            </>
+      </SheetFrame>}
 
-              <div className="flex gap-2 mt-3">
-                {manualTxEditId && (
-                  <button
-                    onClick={() => { const id = manualTxEditId; setManualTxModalOpen(false); removeManualTx(id); }}
-                    disabled={manualTxSaving}
-                    className="px-4 py-2.5 rounded-xl border border-rose-200 dark:border-rose-800 text-sm font-semibold text-rose-500 disabled:opacity-50"
-                  >
-                    Delete
-                  </button>
-                )}
-                <button
-                  onClick={() => setManualTxModalOpen(false)}
-                  disabled={manualTxSaving}
-                  className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 text-sm font-semibold text-slate-600 dark:text-slate-300 disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={saveManualTx}
-                  disabled={manualTxSaving}
-                  className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-sm font-semibold text-white disabled:opacity-50"
-                >
-                  {manualTxSaving ? "Saving…" : manualTxEditId ? "Save" : "Add"}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
-
-      {ruleModalOpen && modalsMounted && createPortal(
-        <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center bg-black/40" onClick={() => { if (!ruleSaving) { setRuleModalOpen(false); setRuleSearchOpen(false); setRuleSearchResults([]); setRuleCounts(null); } }}>
-          <div className="glass-sheet w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl max-h-[85dvh] flex flex-col" onClick={e => e.stopPropagation()}>
-            {/* Drag handle */}
-            <div className="flex justify-center pt-3 pb-1 flex-shrink-0 sm:hidden">
-              <div className="w-10 h-1 bg-slate-200 dark:bg-slate-600 rounded-full" />
-            </div>
-            {/* Header */}
-            <div className="px-5 pt-4 pb-2 flex-shrink-0">
-              <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">
-                {ruleEditId ? "Edit rule" : "Add rule"}
-              </h2>
-            </div>
-            {/* Scrollable body */}
-            <div className="overflow-y-auto flex-1 px-5" style={{ paddingBottom: "calc(1.25rem + env(safe-area-inset-bottom, 0px))" }}>
+      {ruleModalOpen && modalsMounted && <SheetFrame
+        title={ruleEditId ? "Edit rule" : "Add rule"}
+        onClose={() => { setRuleModalOpen(false); setRuleSearchOpen(false); setRuleSearchResults([]); setRuleCounts(null); }}
+        dismissDisabled={ruleSaving}
+        footer={({ close }) => <div className="flex gap-2">
+          <button type="button" onClick={close} disabled={ruleSaving} className="flex-1 rounded-xl border border-slate-200 py-2.5 text-sm font-semibold text-slate-600 disabled:opacity-50 dark:border-slate-600 dark:text-slate-300">Cancel</button>
+          <button type="button" onClick={() => saveRule(close)} disabled={ruleSaving} className="flex-1 rounded-xl bg-indigo-600 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50">{ruleSaving ? "Saving…" : ruleEditId ? "Save" : "Add rule"}</button>
+        </div>}
+      >
+            <>
               <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1 mt-3">Name</label>
               <input
                 value={ruleName}
@@ -2041,29 +2085,9 @@ export default function AccountsPage() {
                 ))}
               </div>
 
-              {ruleError && <p className="text-xs text-rose-500 mt-2">{ruleError}</p>}
-
-              <div className="flex gap-2 mt-4">
-                <button
-                  onClick={() => { setRuleModalOpen(false); setRuleSearchOpen(false); setRuleSearchResults([]); setRuleCounts(null); }}
-                  disabled={ruleSaving}
-                  className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 text-sm font-semibold text-slate-600 dark:text-slate-300 disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={saveRule}
-                  disabled={ruleSaving}
-                  className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-sm font-semibold text-white disabled:opacity-50"
-                >
-                  {ruleSaving ? "Saving…" : ruleEditId ? "Save" : "Add rule"}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
+              {ruleError && <p role="alert" className="text-xs text-rose-500 mt-2">{ruleError}</p>}
+            </>
+      </SheetFrame>}
     </>
   );
 
@@ -2821,21 +2845,30 @@ export default function AccountsPage() {
       {/* ── Banks tab ── */}
       {tab === "Banks" && (
         <>
-          {isSyncing && (
-            <div className="mx-4 mt-4 flex items-center gap-3 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800 rounded-2xl px-4 py-3">
-              <RefreshCw size={16} className="animate-spin text-indigo-500 flex-shrink-0" />
-              <p className="text-sm text-indigo-700 dark:text-indigo-300 font-medium">Syncing your bank accounts…</p>
+          {connectNotice && (
+            <div className="mx-4 mt-4 flex items-center gap-3 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl px-4 py-3">
+              <p className="flex-1 text-sm text-slate-700 dark:text-slate-300">No accounts were linked.</p>
+              <button onClick={() => setConnectNotice(false)} aria-label="Dismiss" className="min-h-[44px] min-w-[44px] -my-2 -mr-2 flex items-center justify-center text-slate-400 hover:text-slate-600"><X size={16} /></button>
+            </div>
+          )}
+
+          {syncBannerInfos.length > 0 && (
+            <div className="mx-4 mt-4">
+              <AccountsSyncBanner
+                connections={syncBannerInfos}
+                onRetry={isSyncing && syncTimedOut ? () => { setSyncTimedOut(false); setSyncPollKey(k => k + 1); } : handleSyncRetry}
+              />
             </div>
           )}
 
           {reconnectWarning && (
-            <div className="mx-4 mt-4 flex items-start gap-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-2xl px-4 py-3">
-              <AlertTriangle size={16} className="text-red-500 flex-shrink-0 mt-0.5" />
+            <div className="mx-4 mt-4 flex items-start gap-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-2xl px-4 py-3">
+              <AlertTriangle size={16} className="text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-red-800 dark:text-red-200">Wrong account connected</p>
-                <p className="text-xs text-red-600 dark:text-red-400 mt-0.5">{reconnectWarning}</p>
+                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Wrong account connected</p>
+                <p className="text-xs text-slate-600 dark:text-slate-300 mt-0.5">{reconnectWarning}</p>
               </div>
-              <button onClick={() => setReconnectWarning(null)} className="text-red-400 hover:text-red-600 text-lg leading-none">×</button>
+              <button onClick={() => setReconnectWarning(null)} aria-label="Dismiss" className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-lg leading-none min-h-11 min-w-11">×</button>
             </div>
           )}
 
@@ -2844,7 +2877,7 @@ export default function AccountsPage() {
               <div className="flex items-center justify-center py-16">
                 <Spinner size={32} />
               </div>
-            ) : bankAccounts.length === 0 && investmentAccounts.length === 0 ? (
+            ) : bankAccounts.length === 0 && investmentAccounts.length === 0 && pendingRows.length === 0 ? (
               <div className="bg-white dark:bg-slate-800 rounded-2xl p-10 text-center shadow-sm">
                 <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-indigo-50 dark:bg-indigo-900/20 mb-4">
                   <Landmark size={26} color="#4f46e5" />
@@ -2894,6 +2927,33 @@ export default function AccountsPage() {
                 {pinMsg && (
                   <div className="mb-1 px-3 py-2 rounded-xl bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700 text-xs font-medium text-slate-700 dark:text-slate-300">
                     {pinMsg}
+                  </div>
+                )}
+
+                <PausedBanksStrip count={pausedAccountCount(bankAccounts)} />
+
+                {pendingRows.length > 0 && (
+                  <div className="glass-card overflow-hidden rounded-2xl" aria-label="Banks being added">
+                    {pendingRows.map(({ id, info }, i) => (
+                      <div key={id} className={i > 0 ? "border-t border-slate-100 dark:border-white/5" : ""}>
+                        <AccountLedgerRow
+                          row={{
+                            id,
+                            name: info.bank ? bankLabel(info.bank) : "Your bank",
+                            provider: info.bank ? bankLabel(info.bank) : "Bank",
+                            kind: "Current",
+                            balance: 0,
+                            status: "connected",
+                            pinned: false,
+                            dormant: false,
+                            attention: false,
+                            source: "bank",
+                            raw: { id, name: info.bank ? bankLabel(info.bank) : "Your bank", type: "bank", balance: 0, currency: "GBP", provider: info.bank ?? "", status: "connected" } as Account,
+                          }}
+                          sync={info}
+                        />
+                      </div>
+                    ))}
                   </div>
                 )}
 
@@ -2952,6 +3012,7 @@ export default function AccountsPage() {
                             <AccountLedgerRow
                               row={row}
                               onClick={handleEstateRowClick}
+                              sync={syncFor(row)}
                               {...estateTermsProps(row)}
                             />
                           </div>
@@ -2974,7 +3035,7 @@ export default function AccountsPage() {
                         <p className="px-4 pt-3 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Pinned</p>
                         <div className="mt-1 divide-y divide-slate-100 dark:divide-slate-700">
                           {estate.pinned.map((row) => (
-                            <AccountLedgerRow key={row.id} row={row} onClick={handleEstateRowClick} {...estateTermsProps(row)} />
+                            <AccountLedgerRow key={row.id} row={row} onClick={handleEstateRowClick} sync={syncFor(row)} {...estateTermsProps(row)} />
                           ))}
                         </div>
                       </section>
@@ -3086,7 +3147,7 @@ export default function AccountsPage() {
                               >
                                 <div className="divide-y divide-slate-100 border-t border-slate-100 dark:divide-slate-700 dark:border-slate-700">
                                   {group.rows.map((row) => (
-                                    <AccountLedgerRow key={row.id} row={row} onClick={handleEstateRowClick} {...estateTermsProps(row)} />
+                                    <AccountLedgerRow key={row.id} row={row} onClick={handleEstateRowClick} sync={syncFor(row)} {...estateTermsProps(row)} />
                                   ))}
                                 </div>
                               </div>
@@ -3137,7 +3198,7 @@ export default function AccountsPage() {
                           >
                             <div className="divide-y divide-slate-100 border-t border-slate-100 dark:divide-slate-700 dark:border-slate-700">
                               {inactiveRows.map((row) => (
-                                <AccountLedgerRow key={row.id} row={row} onClick={handleEstateRowClick} />
+                                <AccountLedgerRow key={row.id} row={row} onClick={handleEstateRowClick} sync={syncFor(row)} />
                               ))}
                             </div>
                           </div>

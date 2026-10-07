@@ -151,14 +151,39 @@ class FakeCol:
         return _DeleteResult(count)
 
 
+class FakeDB:
+    """Stand-in for app.db.collections.db: a dict-like Mongo database whose
+    `__getitem__` hands back a FakeCol per bare collection name. A101's
+    ERASE_ONLY_COLLECTIONS sweep (erase_user/account_has_data) reads
+    `_cols.db[name]` directly since those five collections have no `*_col`
+    attribute left to getattr — this is what stops that path from ever
+    reaching the real Motor client in tests, the same job `_patch_all_collections`
+    below does for the `*_col`-bound majority."""
+
+    def __init__(self, cols: dict):
+        self._cols = dict(cols)
+
+    def __getitem__(self, name):
+        return self._cols[name]
+
+
 def _patch_all_collections(monkeypatch, overrides: dict) -> None:
     """Replace EVERY `*_col` attribute on the real app.db.collections module
-    with a FakeCol (empty by default), except names in `overrides`."""
+    with a FakeCol (empty by default), except names in `overrides`. Also
+    replaces `collections.db` with a FakeDB covering every bare name in
+    ERASE_ONLY_COLLECTIONS (A101), so erase_user/account_has_data's
+    db[name] fallback for the unbound Mono/M-Pesa collections never touches
+    real Mongo either — `overrides` may supply a FakeCol for one of those
+    bare names too, keyed the same way as a `*_col` override."""
     from app.db import collections as _real_cols
     for name in dir(_real_cols):
         if not name.endswith("_col"):
             continue
         monkeypatch.setattr(_real_cols, name, overrides.get(name, FakeCol()))
+    fake_db = FakeDB({
+        name: overrides.get(name, FakeCol()) for name in _real_cols.ERASE_ONLY_COLLECTIONS
+    })
+    monkeypatch.setattr(_real_cols, "db", fake_db)
 
 
 class FakeFxResponse:
@@ -810,6 +835,34 @@ def test_erase_user_with_no_connections_is_unchanged(monkeypatch):
     assert result == {"transactions": 1, "accounts": 1}
 
 
+def test_erase_user_sweeps_erase_only_collections(monkeypatch):
+    """A101: mpesa_accounts and mono_connections lost their *_col binding
+    when A98 removed the Kenya region, but erase_user must still delete a
+    user's documents from them via app.db.collections.ERASE_ONLY_COLLECTIONS
+    and a raw db[name] handle. Red on the code before this change (the old
+    dir()-based *_col loop never saw these two collections at all, so
+    neither doc would be removed); green after."""
+    uid = "u8@example.com"
+    mpesa_accounts = FakeCol([
+        {"_id": "mp-1", "user_id": uid, "currency": "KES", "name": "M-Pesa"},
+        {"_id": "mp-2", "user_id": "someone-else", "currency": "KES"},
+    ])
+    mono_connections = FakeCol([{"_id": "mono-1", "user_id": uid}])
+
+    _patch_all_collections(monkeypatch, {
+        "mpesa_accounts": mpesa_accounts,
+        "mono_connections": mono_connections,
+    })
+
+    result = asyncio.run(retention.erase_user(uid))
+
+    assert "mp-1" not in mpesa_accounts.docs
+    assert "mp-2" in mpesa_accounts.docs  # a different user's doc is untouched
+    assert "mono-1" not in mono_connections.docs
+    assert result["mpesa_accounts"] == 1
+    assert result["mono_connections"] == 1
+
+
 # ── run_retention_sweep wiring ───────────────────────────────────────────
 
 def test_run_retention_sweep_calls_all_four_sweeps(monkeypatch):
@@ -864,6 +917,19 @@ def test_account_has_data_true_when_any_data_collection_matches(monkeypatch):
 def test_account_has_data_false_when_nothing_matches(monkeypatch):
     _patch_all_collections(monkeypatch, {})
     assert asyncio.run(retention.account_has_data(RELAY)) is False
+
+
+def test_account_has_data_true_when_only_an_erase_only_collection_matches(monkeypatch):
+    """A101: account_has_data must still count a document in an
+    ERASE_ONLY_COLLECTIONS collection (no *_col binding survives A98) as
+    'this account has data' — otherwise the never-delete-an-account-with-
+    data guard erase_orphaned_relay_account relies on would be weakened for
+    exactly the accounts A99 is deciding about. Red on the code before this
+    change (account_has_data only ever walked _ACCOUNT_DATA_COLLECTIONS,
+    which no longer named mpesa_accounts_col after A98); green after."""
+    mpesa_accounts = FakeCol([{"_id": "mp-1", "user_id": RELAY, "currency": "KES"}])
+    _patch_all_collections(monkeypatch, {"mpesa_accounts": mpesa_accounts})
+    assert asyncio.run(retention.account_has_data(RELAY)) is True
 
 
 def test_erase_orphaned_relay_account_refuses_non_relay_address(monkeypatch):

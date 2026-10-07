@@ -38,7 +38,7 @@
 // 1. <PennyConversation> must NOT mount at the same time this shell does —
 //    it fires an authenticated suggestions fetch (api.canISuggestions()) on
 //    its own mount, and this shell mounts once at app boot for every
-//    session. Deferred via `hasOpenedRef` (see below): PennyConversation
+//    session. Deferred via `hasOpened` (see below): PennyConversation
 //    only enters the tree on the FIRST real open, and — because that flag
 //    is set synchronously in the render body rather than in an effect — it
 //    mounts in the very same render pass `isOpen` first flips true, not one
@@ -82,14 +82,9 @@
 //    tree. If you're reading this because a reviewer flagged that
 //    transform: it's already accounted for, the portal is what makes it
 //    safe.
-// 5. `useKeyboardInset()` attaches `visualViewport` resize/scroll listeners
-//    — cheap individually, but this shell mounts once at app boot, so an
-//    unconditional call would keep them attached (and re-rendering this
-//    component on every keystroke-adjacent keyboard show/hide ANYWHERE in
-//    the app, not just while this sheet is open) for the entire session.
-//    Deferred the same way PennyConversation itself is: only called once
-//    `hasOpened`, via a tiny wrapper component so the hook still obeys the
-//    Rules of Hooks (no conditional hook calls in this component itself).
+// 5. PennySheetPanel owns keyboard geometry while open. G197 restores Codex's approved
+//    variant B: once a keyboard is measured the window takes over the visible
+//    height (header links and chips yield); it never resizes on tap alone.
 //
 // z-index: click-catcher z-[56], panel z-[58] — same tier numbers as the
 // old scrim/panel, only the click-catcher's job changed: it used to BE the
@@ -111,7 +106,11 @@
 //   z-[65]/z-[70] the established sheet backdrop/panel tier — CommitmentSheet,
 //         and ~15 other sheets across the app
 //   z-[70] also ConfirmDialog, AccountsPage's modals, PlanningPage's tooltip
-//   z-[80] SpendPage's toast alerts (highest tier in the app)
+//   z-[80] SpendPage's toast alerts (highest tier in this list)
+//   z-[999] components/BiometricLock.tsx's lock screen (A121) — deliberately
+//         outside/above this whole tier system, not a gap left unreconciled:
+//         see that file's own z-index comment for why a privacy lock has to
+//         outrank literally everything else on screen, this sheet included.
 // z-[56]/z-[58] sits with clear room above BottomNav (z-50, so the sheet
 // reads as in front of the rail) and clear room below the crowded z-[60]
 // tier and the established z-[65]/z-[70] sheet tier. Concretely: this
@@ -119,7 +118,7 @@
 // (65/70), so when CommitmentSheet opens from inside this sheet, it wins
 // by actual z-index — a real ordering guarantee, not a DOM-order one.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -128,6 +127,8 @@ import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { useSheetA11y } from "@/lib/useSheetA11y";
 import PennyMark from "@/components/PennyMark";
 import PennyConversation from "@/components/PennyConversation";
+import PennySheetPanel from "@/components/PennySheetPanel";
+export { default as PennySheetPanel } from "@/components/PennySheetPanel";
 import { BRAND_GRADIENT } from "@/lib/brand";
 import { getPennyScreenConfig } from "@/lib/pennyScreenConfig";
 import {
@@ -157,26 +158,6 @@ import MoreMessagesSheet from "@/components/MoreMessagesSheet";
 // in place, rather than relocating it, is the smaller and safer change.
 import { screenForPathname } from "./BottomNav";
 
-/** On-screen keyboard avoidance — same technique as components/BankPickerSheet.tsx
- * (visualViewport shrinks when the keyboard appears; window.innerHeight does
- * not), ported locally same as the design preview did, pushing the whole
- * panel up via margin-bottom rather than resizing it. */
-function useKeyboardInset(): number {
-  const [inset, setInset] = useState(0);
-  useEffect(() => {
-    const vv = window.visualViewport;
-    if (!vv) return;
-    const update = () => setInset(Math.max(0, window.innerHeight - vv.height - vv.offsetTop));
-    vv.addEventListener("resize", update);
-    vv.addEventListener("scroll", update);
-    return () => {
-      vv.removeEventListener("resize", update);
-      vv.removeEventListener("scroll", update);
-    };
-  }, []);
-  return inset;
-}
-
 /** Zero-output component whose only job is to start/stop useLockBodyScroll
  * on the same cadence a real mount/unmount would, by actually
  * mounting/unmounting itself with `isOpen` — see this file's header
@@ -202,23 +183,6 @@ function useKeyboardInset(): number {
  * as every other sheet in the app. */
 function SheetEffectsGate() {
   useLockBodyScroll();
-  return null;
-}
-
-/** Reports the on-screen keyboard inset via `onChange`, only while mounted
- * — see this file's header comment, point 5. Mounted/unmounted on the same
- * `isOpen` cadence as <SheetEffectsGate />; kept as its own component
- * (rather than folded into that one) because it needs to report a value
- * OUT to the panel's own `marginBottom`, not just run a side effect.
- * Resets to 0 on unmount (close) rather than leaving whatever the keyboard
- * inset happened to be the moment the sheet closed — otherwise a REOPEN,
- * before the visualViewport fires its first fresh event, would briefly
- * apply a stale margin left over from the previous time the keyboard was
- * up. */
-function KeyboardInsetGate({ onChange }: { onChange: (inset: number) => void }) {
-  const inset = useKeyboardInset();
-  useEffect(() => { onChange(inset); }, [inset, onChange]);
-  useEffect(() => () => onChange(0), [onChange]);
   return null;
 }
 
@@ -356,6 +320,93 @@ function CrossfadeTitle({ base, alt, revealed }: { base: string; alt: string; re
   );
 }
 
+
+/** Shared header for the live window and fixture-safe keyboard previews. */
+export function PennySheetHeader({ pennyUsed, pennyLimit, usageRevealed, handleAvatarTap, close, headerLinks }: {
+  pennyUsed: number;
+  pennyLimit: number | null;
+  usageRevealed: boolean;
+  handleAvatarTap: () => void;
+  close: () => void;
+  headerLinks: { label: string; href: string }[];
+}) {
+  return (
+          <div className="flex-shrink-0 pt-3">
+            <div className="flex items-center justify-between gap-2 px-5">
+              <div className="flex items-center gap-2 min-w-0">
+                {/* Avatar + usage ring (2026-09-06, /design/penny-usage-ring
+                    variant A2, approved) — replaces the old plain
+                    `rounded-xl` chip. See AvatarRingButton's own comment for
+                    the geometry and why the avatar is now drawn circular. */}
+                <AvatarRingButton used={pennyUsed} limit={pennyLimit} revealed={usageRevealed} onTap={handleAvatarTap} />
+                <h2 className="min-w-0">
+                  <CrossfadeTitle
+                    base="Ask Penny"
+                    alt={pennyLimit == null ? "No monthly limit" : `${pennyUsed} of ${pennyLimit} messages`}
+                    revealed={usageRevealed}
+                  />
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={close}
+                aria-label="Close"
+                className="w-9 h-9 min-w-[44px] min-h-[44px] -m-2.5 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-700 active:scale-90 transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+              >
+                <X size={15} className="text-slate-500 dark:text-slate-400" />
+              </button>
+            </div>
+            {/* Subordinate doors out of the sheet — quiet, no gradient (the
+                indigo-to-violet gradient belongs to Penny's brand mark
+                alone). Screen-aware (lib/pennyScreenConfig.tsx): every
+                screen but Home falls back to the original single "Your plan
+                and updates" row; Home additionally offers the accounts and
+                Mirror doors the owner said "also make sense" from inside
+                the sheet. `.slice(0, 3)` is a defensive cap matching the
+                config's own contract (max 3) rather than trusting every
+                future edit to respect it by eye. Each link closes the sheet
+                on the way there so the destination isn't reached while a
+                sheet still sits over it. `min-w-0` + `truncate` on each
+                link (not `flex-wrap` on the row) is the "truncate rather
+                than wrap" rule: three links must stay one line even on a
+                narrow phone. */}
+            <div data-penny-secondary className="mt-2 flex items-center gap-3 px-5">
+              {headerLinks.slice(0, 3).map((l) => (
+                <Link
+                  key={l.href}
+                  href={l.href}
+                  onClick={close}
+                  className="inline-flex items-center gap-0.5 min-w-0 min-h-[44px] text-[12px] font-medium text-slate-500 dark:text-slate-400 active:opacity-70 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
+                >
+                  <span className="truncate">{l.label}</span>
+                  <ChevronRight size={12} aria-hidden="true" className="flex-shrink-0" />
+                </Link>
+              ))}
+            </div>
+            {/* `mt-1` (was `mt-1.5`) — design review, 2026-08-25: the header
+                links row, this divider, and the chip row just below it
+                (PennyConversation.tsx's `inSheet` chip row, `pt-0.5` for the
+                same reason) read as two separated bands of tap targets
+                rather than one utility cluster sitting above the thread.
+                Tightened by one spacing step on each side of the seam.
+                Full-bleed, no horizontal inset (owner, 2026-09-02: this line
+                and the chip row's own `border-b` below it read as different
+                lengths) — moving the two rows above onto their own `px-5`
+                rather than a shared wrapper `px-4` lets this divider span
+                edge to edge, matching PennyConversation.tsx's chip-row
+                hairline exactly instead of sitting inset by that wrapper's
+                padding. `px-5` (not the old `px-4`) also puts this header on
+                the same inset as the chip row, thread and composer below,
+                which already standardised on `px-5` on 2026-08-25 (see
+                PennyConversation.tsx's composer-wrapper comment) — the
+                header was the one row still on the old `px-4`, which is
+                what put its content 4px out of line with everything below
+                it as well as shortening its own divider. */}
+            <div data-penny-header-rule className="border-b border-slate-200/70 dark:border-slate-700 mt-1" />
+          </div>
+  );
+}
+
 export default function PennySheet() {
   const { isOpen, ctx, openSeq, open, close } = usePennySheetState();
   const pathname = usePathname();
@@ -424,34 +475,16 @@ export default function PennySheet() {
   // call, which getPennyScreenConfig treats the same as "other".
   const headerLinks = getPennyScreenConfig(ctx?.screen).headerLinks;
 
-  // SSR guard — createPortal needs `document`, which doesn't exist on the
-  // server. Defaulting `mounted` to true (as the design preview's own
-  // header comment flags it once did) would try to portal during SSR; this
-  // flips true a tick after the client mounts instead, same fix that
-  // preview settled on. This gate only ever runs once, at first client
-  // mount — it does not re-run on open/close, so it can't be the thing
-  // that tears PennyConversation down.
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  // Portals require a client document; this gate does not change on close.
+  const mounted = useSyncExternalStore(() => () => {}, () => true, () => false);
 
   // Deferred mount for PennyConversation — see header comment point 1.
-  // Set synchronously in the render body (a documented React exception,
-  // same pattern useSheetA11y.ts itself uses for `onCloseRef.current =
-  // onClose`), NOT in a useEffect: an effect-based flip would land one
-  // render after `isOpen` first goes true, so the sheet would visibly open
-  // with an empty body for a frame, and a same-open `askContext.ask` would
-  // have to wait a tick to even have a mounted component to fire from.
-  // Idempotent under React 18 Strict Mode's double-render (setting `true`
-  // when already `true` changes nothing), so it's safe here.
-  const hasOpenedRef = useRef(false);
-  if (isOpen) hasOpenedRef.current = true;
-  const hasOpened = hasOpenedRef.current;
+  // Adjust this component's state before committing its first open, then
+  // retain the conversation, drafts and replies for the entire session.
+  const [hasOpened, setHasOpened] = useState(false);
+  if (isOpen && !hasOpened) setHasOpened(true);
 
   const panelRef = useSheetA11y<HTMLDivElement>(close);
-  // Reported by <KeyboardInsetGate />, not called directly here — see this
-  // file's header comment, point 5, for why the hook itself can't just be
-  // called unconditionally in this component's body.
-  const [keyboardInset, setKeyboardInset] = useState(0);
 
   // ── PENNY USAGE RING state (2026-09-06) ───────────────────────────────
   const usage = usePennyUsage();
@@ -542,261 +575,19 @@ export default function PennySheet() {
           see the z-index note further up this file for why the tier itself
           didn't need to move. */}
       <div
-        className={`fixed inset-0 z-[56] bg-transparent ${isOpen ? "" : "hidden"}`}
+        className={`fixed inset-0 z-[56] touch-none bg-transparent ${isOpen ? "" : "hidden"}`}
         onClick={close}
         aria-hidden="true"
       />
-      {/* Panel wrapper — fixed, sits ABOVE the raised Penny nav button with
-          a gap, not just above the rail. 2026-08-25 owner feedback: "it
-          partially covers penny" — the window "grows out of" that button
-          (this file's header comment), so covering even the top sliver of
-          it breaks the conceit. The old value here, `calc(88px +
-          safe-area)`, only cleared the RAIL: it was derived from the rail's
-          own geometry (`h-[64px]` grid + a `max(safe-area, 10px)` floor,
-          ~74px to the rail's top edge on a no-inset device, +14px
-          breathing room = 88px) but never accounted for the raised centre
-          button, which pokes up ABOVE the rail's top edge on its own.
-          Recomputed from BottomNav.tsx's actual button geometry:
-            - rail height: 64px (`h-[64px]` on the nav grid)
-            - assumed safe-area floor: 10px (the `max(safe-area, 10px)` in
-              BottomNav.tsx's `<nav>` style — this flat number bakes in the
-              10px branch, same as the old 88px did; real device inset is
-              added on top via `env()` below, same idiom as before)
-            - button offset above the rail's top edge: 28px (the button is
-              `absolute`/`-top-7` — Tailwind's `top-7` is 1.75rem = 28px —
-              positioned relative to the rail's own container, and an
-              absolutely-positioned element doesn't add to that container's
-              flow height, so this is how far it visibly pokes up past the
-              rail rather than being clipped)
-            - button height: 56px (`w-14 h-14`) — not part of this sum;
-              only the TOP of the button (the highest point that must stay
-              clear) matters for a bottom-anchored clearance
-            - gap requested: 8px, so the window's bottom edge sits just
-              above the button's top edge rather than flush against it
-            10 (floor) + 64 (rail) + 28 (button poke-up) + 8 (gap) = 110.
-          Verify: with no safe-area inset, the button's own top-to-viewport-
-          bottom distance is 10 + 64 + 28 = 102px; 110px leaves exactly the
-          intended 8px clear above it. `px-3` (12px each side) keeps the
-          window off the screen edges horizontally too; nothing about this
-          shape should touch a viewport edge the way the old edge-to-edge
-          sheet did. If BottomNav.tsx's rail height, button size/offset, or
-          floor value ever change, this 110 must be recomputed from the new
-          numbers, not nudged by eye.
-
-          TWO ANCHORING MODELS, branched at `lg:` (impeccable review finding,
-          HIGH, 2026-08-25): the button-relative math above is a MOBILE-ONLY
-          concept — BottomNav.tsx is `lg:hidden`, there is no rail and no
-          raised button on desktop for the panel to "grow out of". Below
-          `lg`, this stays anchored bottom-centre off the button, full
-          bleed-minus-`px-3` width, using the `bottom-[calc(...)]` clearance
-          derived above. At `lg` and up, it switches to the OTHER
-          established convention for this kind of surface: a fixed
-          bottom-right corner popover (`lg:right-6 lg:bottom-6`, a flat 24px
-          off both edges — no button geometry to derive from, so no reason
-          to inherit the mobile formula), anchored to the new Penny trigger
-          in Sidebar.tsx rather than to anything in BottomNav.tsx.
-          `lg:inset-x-auto lg:left-auto` cancel the mobile `inset-x-0` (which
-          set both `left:0`/`right:0`) so the box stops stretching
-          edge-to-edge and instead sizes to its own content (`max-w-[420px]`
-          below), positioned purely by `right`/`bottom`. `lg:px-0` drops the
-          mobile edge padding, redundant once the box is corner-anchored
-          with its own margin from `right-6`/`bottom-6`. Same `max-w-[420px]`
-          box, same 65dvh cap, same pop-in animation either way — only the
-          anchor point (and, on the inner panel below, the transform-origin
-          pivot) changes. */}
-      <div
-        className={`fixed z-[58] inset-x-0 px-3 bottom-[calc(110px+env(safe-area-inset-bottom,0px))] lg:inset-x-auto lg:left-auto lg:right-6 lg:bottom-6 lg:px-0 ${isOpen ? "" : "hidden"}`}
-      >
-        {/* `ring-1 ring-black/[0.06] dark:ring-white/[0.12]` (2026-08-25,
-            owner: "in dark mode you can't really see the margin of the chat
-            window"). Root cause: `.glass-sheet` (app/globals.css) only
-            draws a `border-top` — meant for an edge-to-edge bottom sheet,
-            where the top edge is the only one that needs separating from
-            the page above it — but this shape (this file's own header
-            comment) is a fully rounded floating window with no natural top
-            edge, so that single border does nothing for a panel that needs
-            a boundary on all four sides. In light mode `shadow-xl` alone
-            was carrying the edge, faintly; in dark mode a near-black shadow
-            over a near-black page is invisible, so the panel had no visible
-            boundary at all, exactly what the owner's dark screenshots
-            showed. Not a new value: `ring-1 ring-black/[0.06]
-            dark:ring-white/[0.12]` is the established codebase pattern for
-            exactly this "barely-there in light, quiet-but-visible in dark"
-            edge (see e.g. AccountMiniCard.tsx, InvestmentMiniCard.tsx,
-            CommitmentSheet.tsx's own icon chips), reused here rather than
-            invented. `shadow-xl` stays as the panel's ONE shadow (The One
-            Shadow Rule, DESIGN.md — floating elements like this one and the
-            Penny FAB are the documented exception allowed a `shadow-xl`);
-            there is no established alternate dark-mode shadow token
-            anywhere in this codebase to swap it for (checked: no sheet or
-            dialog in components/ redefines shadow colour per theme), so the
-            ring is the fix, not the shadow. */}
-        <div
-          ref={isOpen ? panelRef : undefined}
-          role="dialog"
-          aria-modal="true"
-          aria-label="Ask Penny"
-          // `relative` (added 2026-09-06) — the More Messages sheet
-          // (below, from PennySheetProvider's own moreMessagesOpen
-          // singleton) renders as an `absolute inset-0` overlay ON this
-          // panel, same convention as the design preview's own
-          // MockSheetFrame — it needs a positioned ancestor to size against.
-          className="relative mx-auto w-full max-w-[420px] glass-sheet rounded-3xl shadow-xl ring-1 ring-black/[0.06] dark:ring-white/[0.12] flex flex-col transition-[margin] duration-100 origin-bottom lg:origin-bottom-right"
-          // Capped to 65dvh — a compact popover, not a page. The panel is a
-          // flex column with an indefinite (auto) main size, so it already
-          // sizes to its own content (header + chip row + thread +
-          // composer) and only grows up to this ceiling; above it, the
-          // thread's own `overflow-y-auto` (PennyConversation) scrolls
-          // internally rather than the panel growing further — same
-          // structural contract as before, just a lower ceiling to match
-          // the smaller floating shape.
-          //
-          // MINIMUM height (2026-08-25, owner: "did the chat window
-          // shrink? seems very small"): auto-sizing-to-content cuts both
-          // ways — with a short thread (just-opened, or a payday lead plus
-          // one turn) the panel shrink-wraps down to almost nothing, and a
-          // window that small no longer reads as a chat window. A minimum
-          // height pins a floor; the thread pane (`flex-1` in
-          // PennyConversation) is the one region that absorbs the slack
-          // between the floor and whatever the content actually needs, so
-          // short content sits top-aligned in a stable window instead of
-          // the window hugging it. The floor is the sum of this panel's
-          // actual fixed chrome, not a round number picked by eye:
-          //   header (icon/title row, subordinate-links row at its own
-          //     min-h-[44px], spacing + divider, pt-3 top pad)   ~104px
-          //   chip row (pt-1 + one row of min-h-[28px] chips + pb-1 +
-          //     the hairline `border-b` added 2026-08-28, see that
-          //     row's own comment, PennyConversation.tsx)          ~37px
-          //   composer (pt-2 + composerCard's own padding, input
-          //     row, disclaimer line + the new pb-6 bottom pad
-          //     from the Fix 2 below)                            ~114px
-          //   two-to-three compact bubbles + `space-y-3` gaps, the
-          //     "reads as a conversation" floor for the thread    ~160px
-          //   ------------------------------------------------------
-          //   total                                              ~414px
-          // ~414px rounds to 26rem (416px) — hence 26rem below.
-          //
-          // Interplay with the 65dvh cap above: a plain `min-h-[26rem]`
-          // CLASS would fight `maxHeight: 65dvh` on any viewport where
-          // 65dvh is actually shorter than 26rem (a short landscape phone,
-          // e.g. ~380px tall means 65dvh ≈ 247px) — min-height is a floor
-          // on the used size and can legally win the flex sizing over a
-          // smaller max-height in that case, forcing the panel past the
-          // cap or off-screen, the exact failure this fix must not
-          // introduce. So the floor is set inline instead, right next to
-          // the cap, as `minHeight: "min(26rem, 65dvh)"` — CSS's own
-          // `min()` picks whichever is smaller at render time, so the
-          // floor never exceeds the ceiling by construction: on a normal
-          // phone it resolves to 26rem (the stable-window floor this fix
-          // wants), on a short landscape viewport it collapses to the same
-          // 65dvh the cap already enforces, and the two values agree
-          // instead of racing.
-          //
-          // Entrance: scale + fade (`pennyPopIn` above), as if growing out
-          // of whichever trigger sits underneath it — replaces the old
-          // `slideUpSheet` (translate up from fully off-screen). The pivot
-          // point is the `origin-bottom lg:origin-bottom-right` classes
-          // above, NOT this inline style block (an inline `transformOrigin`
-          // would always beat a Tailwind class regardless of breakpoint, so
-          // it has to live in a class to be `lg:`-overridable at all) —
-          // below `lg`, `origin-bottom` (50% 100%) reads as emerging from
-          // BottomNav's raised Penny button; at `lg`, `origin-bottom-right`
-          // (100% 100%) reads as emerging from Sidebar.tsx's Penny trigger,
-          // the corner the popover is now anchored to at that breakpoint
-          // (see the outer wrapper's own comment for the anchoring split).
-          // This shape change also independently removes one trigger for
-          // the "page scrolls to the bottom on open" bug: this panel never
-          // starts translated below the viewport (only scaled down and
-          // nudged 8px, still within the fixed box's own layout), where
-          // `slideUpSheet` used to start at `translateY(100%)` — see
-          // lib/useSheetA11y.ts's own comment for the actual root cause and
-          // fix (an off-viewport `focus()` call, independent of this shape).
-          style={{
-            maxHeight: "65dvh",
-            minHeight: "min(26rem, 65dvh)",
-            marginBottom: keyboardInset,
-            ...(isOpen ? { animation: "pennyPopIn 200ms var(--ease-out, cubic-bezier(0.23, 1, 0.32, 1)) backwards" } : {}),
-          }}
-        >
+      <PennySheetPanel isOpen={isOpen} panelRef={isOpen ? panelRef : undefined}>
           {/* Header — shrink-0, stays put while the thread (rendered by
               PennyConversation below) scrolls independently. No drag-handle
               bar: that signalled "sheet", and this isn't one anymore.
               Horizontal inset moved off this wrapper (was `px-4`) and onto
               the two rows below individually (`px-5` each) so the divider
               two comments down can run full-bleed — see that comment. */}
-          <div className="flex-shrink-0 pt-3">
-            <div className="flex items-center justify-between gap-2 px-5">
-              <div className="flex items-center gap-2 min-w-0">
-                {/* Avatar + usage ring (2026-09-06, /design/penny-usage-ring
-                    variant A2, approved) — replaces the old plain
-                    `rounded-xl` chip. See AvatarRingButton's own comment for
-                    the geometry and why the avatar is now drawn circular. */}
-                <AvatarRingButton used={pennyUsed} limit={pennyLimit} revealed={usageRevealed} onTap={handleAvatarTap} />
-                <h2 className="min-w-0">
-                  <CrossfadeTitle
-                    base="Ask Penny"
-                    alt={pennyLimit == null ? "No monthly limit" : `${pennyUsed} of ${pennyLimit} messages`}
-                    revealed={usageRevealed}
-                  />
-                </h2>
-              </div>
-              <button
-                type="button"
-                onClick={close}
-                aria-label="Close"
-                className="w-9 h-9 min-w-[44px] min-h-[44px] -m-2.5 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-700 active:scale-90 transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-              >
-                <X size={15} className="text-slate-500 dark:text-slate-400" />
-              </button>
-            </div>
-            {/* Subordinate doors out of the sheet — quiet, no gradient (the
-                indigo-to-violet gradient belongs to Penny's brand mark
-                alone). Screen-aware (lib/pennyScreenConfig.tsx): every
-                screen but Home falls back to the original single "Your plan
-                and updates" row; Home additionally offers the accounts and
-                Mirror doors the owner said "also make sense" from inside
-                the sheet. `.slice(0, 3)` is a defensive cap matching the
-                config's own contract (max 3) rather than trusting every
-                future edit to respect it by eye. Each link closes the sheet
-                on the way there so the destination isn't reached while a
-                sheet still sits over it. `min-w-0` + `truncate` on each
-                link (not `flex-wrap` on the row) is the "truncate rather
-                than wrap" rule: three links must stay one line even on a
-                narrow phone. */}
-            <div className="mt-2 flex items-center gap-3 px-5">
-              {headerLinks.slice(0, 3).map((l) => (
-                <Link
-                  key={l.href}
-                  href={l.href}
-                  onClick={close}
-                  className="inline-flex items-center gap-0.5 min-w-0 min-h-[44px] text-[12px] font-medium text-slate-500 dark:text-slate-400 active:opacity-70 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
-                >
-                  <span className="truncate">{l.label}</span>
-                  <ChevronRight size={12} aria-hidden="true" className="flex-shrink-0" />
-                </Link>
-              ))}
-            </div>
-            {/* `mt-1` (was `mt-1.5`) — design review, 2026-08-25: the header
-                links row, this divider, and the chip row just below it
-                (PennyConversation.tsx's `inSheet` chip row, `pt-0.5` for the
-                same reason) read as two separated bands of tap targets
-                rather than one utility cluster sitting above the thread.
-                Tightened by one spacing step on each side of the seam.
-                Full-bleed, no horizontal inset (owner, 2026-09-02: this line
-                and the chip row's own `border-b` below it read as different
-                lengths) — moving the two rows above onto their own `px-5`
-                rather than a shared wrapper `px-4` lets this divider span
-                edge to edge, matching PennyConversation.tsx's chip-row
-                hairline exactly instead of sitting inset by that wrapper's
-                padding. `px-5` (not the old `px-4`) also puts this header on
-                the same inset as the chip row, thread and composer below,
-                which already standardised on `px-5` on 2026-08-25 (see
-                PennyConversation.tsx's composer-wrapper comment) — the
-                header was the one row still on the old `px-4`, which is
-                what put its content 4px out of line with everything below
-                it as well as shortening its own divider. */}
-            <div className="border-b border-slate-200/70 dark:border-slate-700 mt-1" />
-          </div>
+          <PennySheetHeader pennyUsed={pennyUsed} pennyLimit={pennyLimit} usageRevealed={usageRevealed}
+            handleAvatarTap={handleAvatarTap} close={close} headerLinks={headerLinks} />
 
           {/* Body — PennyConversation owns its own internally-scrolling
               thread and its non-fixed, flow-docked composer when `inSheet`
@@ -828,18 +619,12 @@ export default function PennySheet() {
               singleton) is what lets both of those different components
               open the identical overlay — see that file's own comment. */}
           {moreMessagesOpen && <MoreMessagesSheet onClose={closeMoreMessagesSheet} />}
-        </div>
-      </div>
+      </PennySheetPanel>
 
-      {/* See header comment: both start/stop on `isOpen`'s cadence by
+      {/* See header comment: scroll locking starts/stops on `isOpen`'s cadence by
           actually mounting/unmounting, without taking the panel (or
           PennyConversation inside it) down with it. */}
-      {isOpen && (
-        <>
-          <SheetEffectsGate />
-          <KeyboardInsetGate onChange={setKeyboardInset} />
-        </>
-      )}
+      {isOpen && <SheetEffectsGate />}
     </>,
     document.body
   );

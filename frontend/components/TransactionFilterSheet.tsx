@@ -11,10 +11,12 @@
 // account parameter (it deliberately spans every account), so a control
 // for it would be fake.
 
-import { useState } from "react";
-import { X } from "lucide-react";
+import { FormEvent, useId, useState } from "react";
+import { SheetFrame, type SheetFrameVariant } from "@/components/SheetFrame";
 import { useCategories } from "@/components/CategoriesContext";
+import { DateField } from "@/components/DatePicker";
 import type { SearchFilters } from "@/lib/transactionFilters";
+import { todayIso } from "@/lib/calendar";
 
 const MONEY_DIRECTIONS: { value: "debit" | "credit" | null; label: string }[] = [
   { value: null, label: "All" },
@@ -24,8 +26,8 @@ const MONEY_DIRECTIONS: { value: "debit" | "credit" | null; label: string }[] = 
 
 function isoDaysAgo(days: number): string {
   const d = new Date();
-  d.setUTCDate(d.getUTCDate() - days);
-  return d.toISOString().slice(0, 10);
+  d.setDate(d.getDate() - days);
+  return todayIso(d);
 }
 
 const DATE_PRESETS: { label: string; from: string | null; to: string | null }[] = [
@@ -53,18 +55,27 @@ export function draftFromFilters(f: SearchFilters): FilterDraft {
   };
 }
 
-export default function FilterSheet({
+export function TransactionFilterSheetContent({
   initial,
   onApply,
   onClearAll,
-  onClose,
+  categories: categoriesOverride,
+  includeIntroduction = true,
+  showActions = true,
+  formId,
 }: {
   initial: FilterDraft;
   onApply: (draft: FilterDraft) => void;
   onClearAll: () => void;
-  onClose: () => void;
+  /** Lets auth-free design previews provide fixture categories without fetching. */
+  categories?: string[];
+  includeIntroduction?: boolean;
+  /** SheetFrame owns the fixed footer in anatomy previews. */
+  showActions?: boolean;
+  formId?: string;
 }) {
   const { allCategories } = useCategories();
+  const categoriesForSheet = categoriesOverride ?? allCategories;
   const [categories, setCategories] = useState<string[]>(initial.categories);
   const [merchant, setMerchant] = useState(initial.merchant);
   const [from, setFrom] = useState<string | null>(initial.from);
@@ -90,30 +101,12 @@ export default function FilterSheet({
 
   const activePreset = DATE_PRESETS.find((p) => p.from === from && p.to === to) ?? null;
 
-  return (
-    <>
-      <div className="fixed inset-0 bg-black/40 z-[65] fade-in" onClick={onClose} />
-      <div
-        className="fixed left-1/2 -translate-x-1/2 w-full max-w-[500px] glass-sheet z-[70] overflow-y-auto bottom-0 rounded-t-3xl slide-up max-h-[88dvh] lg:bottom-auto lg:top-1/2 lg:-translate-y-1/2 lg:rounded-3xl lg:max-h-[85dvh] lg:shadow-2xl"
-        style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
-      >
-        <div className="flex justify-center pt-3 pb-1 lg:hidden">
-          <div className="w-10 h-1 bg-slate-200 dark:bg-slate-600 rounded-full" />
-        </div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close filters"
-          className="absolute top-3 right-3 w-11 h-11 flex items-center justify-center rounded-full text-slate-400 dark:text-slate-500 active:scale-95 motion-reduce:active:scale-100 transition-transform motion-reduce:transition-none"
-        >
-          <X size={18} />
-        </button>
-
-        <div className="px-5 pb-6 pt-1">
-          <h2 className="text-lg font-bold text-slate-950 dark:text-slate-50">Filter payments</h2>
+  function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); apply(); }
+  return <form id={formId} onSubmit={submit} onReset={clearAll}>
+          {includeIntroduction ? <><h2 className="text-lg font-bold text-slate-950 dark:text-slate-50">Filter payments</h2>
           <p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400">
             Narrow the list. Applies to every group below, not just this page.
-          </p>
+          </p></> : null}
 
           {/* Direction */}
           <p className="mt-5 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">
@@ -126,10 +119,10 @@ export default function FilterSheet({
                 type="button"
                 onClick={() => setTxnType(d.value)}
                 aria-pressed={txnType === d.value}
-                className={`min-h-[44px] rounded-xl border text-[13px] font-semibold transition-colors motion-reduce:transition-none ${
+                className={`min-h-[44px] flex items-center justify-center rounded-full text-[13px] font-semibold active:scale-95 motion-reduce:active:scale-100 transition-transform motion-reduce:transition-none ${
                   txnType === d.value
-                    ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300"
-                    : "border-slate-200 dark:border-slate-600 text-slate-500 dark:text-slate-400"
+                    ? "bg-indigo-600 text-white"
+                    : "bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200"
                 }`}
               >
                 {d.label}
@@ -161,21 +154,11 @@ export default function FilterSheet({
           <div className="mt-3 flex items-center gap-2">
             <label className="flex-1">
               <span className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">From</span>
-              <input
-                type="date"
-                value={from ?? ""}
-                onChange={(e) => setFrom(e.target.value || null)}
-                className="w-full h-11 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 px-3 text-[13px] text-slate-900 dark:text-slate-100 outline-none focus:ring-2 focus:ring-indigo-500"
-              />
+              <DateField mode="day" label="From" appearance="outlined" size="compact" allowClear value={from ?? ""} onChange={(v) => setFrom(v || null)} className="text-[13px]" />
             </label>
             <label className="flex-1">
               <span className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">To</span>
-              <input
-                type="date"
-                value={to ?? ""}
-                onChange={(e) => setTo(e.target.value || null)}
-                className="w-full h-11 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 px-3 text-[13px] text-slate-900 dark:text-slate-100 outline-none focus:ring-2 focus:ring-indigo-500"
-              />
+              <DateField mode="day" label="To" appearance="outlined" size="compact" allowClear value={to ?? ""} onChange={(v) => setTo(v || null)} className="text-[13px]" />
             </label>
           </div>
 
@@ -184,6 +167,9 @@ export default function FilterSheet({
             Merchant
           </p>
           <input
+            name="merchant"
+            aria-label="Merchant"
+            autoComplete="off"
             value={merchant}
             onChange={(e) => setMerchant(e.target.value)}
             placeholder="e.g. Tesco, Netflix"
@@ -199,7 +185,7 @@ export default function FilterSheet({
             Category
           </p>
           <div className="mt-2 flex flex-wrap gap-2">
-            {allCategories.map((c) => {
+            {categoriesForSheet.map((c) => {
               const active = categories.includes(c);
               return (
                 <button
@@ -218,8 +204,9 @@ export default function FilterSheet({
               );
             })}
           </div>
+          {categoriesForSheet.length === 0 && <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">No categories available. You can still filter by direction, date or merchant.</p>}
 
-          <div className="mt-6 flex items-center gap-3">
+          {showActions ? <div className="mt-6 flex items-center gap-3">
             <button
               type="button"
               onClick={clearAll}
@@ -228,15 +215,31 @@ export default function FilterSheet({
               Clear all
             </button>
             <button
-              type="button"
-              onClick={apply}
+              type="submit"
               className="flex-1 min-h-[44px] rounded-xl bg-indigo-600 text-white text-[14px] font-semibold active:scale-95 motion-reduce:active:scale-100 transition-transform motion-reduce:transition-none"
             >
               Show results
             </button>
-          </div>
-        </div>
-      </div>
-    </>
-  );
+          </div> : null}
+        </form>;
+}
+
+export default function FilterSheet({ initial, onApply, onClearAll, onClose, categories, variant }: {
+  initial: FilterDraft;
+  onApply: (draft: FilterDraft) => void;
+  onClearAll: () => void;
+  onClose: () => void;
+  categories?: string[];
+  variant?: SheetFrameVariant;
+}) {
+  const formId = useId();
+  return <SheetFrame variant={variant} title="Filter payments" description="Applies to every group in the list." onClose={onClose}
+    footer={<div className="flex gap-3">
+      <button type="reset" form={formId} className="min-h-11 rounded-xl px-3 text-sm font-semibold text-slate-600 active:opacity-70 dark:text-slate-300">Clear all</button>
+      <button type="submit" form={formId} className="min-h-11 flex-1 rounded-xl bg-indigo-600 px-3 text-sm font-semibold text-white active:scale-95">Show results</button>
+    </div>}>
+    {({ closeThen }) => <TransactionFilterSheetContent formId={formId} initial={initial}
+      categories={categories} includeIntroduction={false} showActions={false}
+      onApply={draft => closeThen(() => onApply(draft))} onClearAll={() => closeThen(onClearAll)} />}
+  </SheetFrame>;
 }

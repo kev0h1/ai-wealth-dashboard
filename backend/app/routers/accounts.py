@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.auth import current_user
 from app.core.models import Account
+from app.core.subscription import open_banking_paused
 from app.db.collections import (
     connections_col, accounts_col, transactions_col,
     statement_accounts_col, statement_transactions_col,
@@ -27,7 +28,7 @@ from app.services.account_kinds import (
     manual_account_class,
 )
 from app.services import response_cache
-from app.routers.analytics import compute_and_cache_cashflow
+from app.services.derived_caches import recompute_derived_caches
 from app.services.planned import settle_planned_expenses
 from app.services.account_cascade import cascade_account_deletion, purge_user_exclusions
 from app.services.retention import disconnect_connection as _disconnect_connection
@@ -120,12 +121,17 @@ async def _manual_accounts(uid: str, currency: str) -> List[Account]:
 @router.get("/accounts", response_model=List[Account])
 async def get_accounts(user: dict = Depends(current_user)):
     uid = user["email"]
+    # B45: on a plan without open banking (Statements, after a cancelled or
+    # lapsed subscription) bank-synced accounts stay readable but are flagged
+    # paused so the UI can say so and offer Resubscribe.
+    paused = await open_banking_paused(uid)
 
     docs = await accounts_col.find({"user_id": uid}).to_list(None)
     result = [
         Account(
             id=d["_id"],
-            **{k: v for k, v in d.items() if k not in {"_id", "cover_source_eligible"}},
+            **{k: v for k, v in d.items() if k not in {"_id", "cover_source_eligible", "paused"}},
+            paused=paused,
             # G55: `_engine_source_eligible` is companion.py's OWN
             # source_capacity predicate (credit-card exclusion AND the
             # current/savings inclusion gate), reused here rather than
@@ -168,6 +174,7 @@ async def get_accounts(user: dict = Depends(current_user)):
                 balance=a.get("balance", 0), currency=a.get("currency", "GBP"),
                 provider=a.get("institution_id", "YAPILY"), status=a.get("status", "connected"),
                 connection_id=a.get("consent", ""),
+                paused=paused,
                 # G55: was unconditionally True regardless of card type.
                 # Yapily's own sync (`services/yapily_sync.py`) stores the
                 # provider's real account type lowercased straight into
@@ -182,9 +189,28 @@ async def get_accounts(user: dict = Depends(current_user)):
     return await _attach_aprs(uid, result)
 
 
+@router.get("/sync/status")
+async def sync_status(user: dict = Depends(current_user)):
+    """G210: first-sync state (idle / syncing / stalled / failed) for Home."""
+    from app.services.sync_freshness import first_sync_state
+    return await first_sync_state(user["email"])
+
+
 @router.post("/accounts/sync")
 async def sync_all(user: dict = Depends(current_user)):
     uid = user["email"]
+
+    # B45: no bank sync, scheduled or manual, on a plan without open banking.
+    if await open_banking_paused(uid):
+        return {"message": "Bank sync is paused on your plan", "paused": True,
+                "connections": 0, "total_accounts": 0}
+
+    # G210: a retry clears a first sync's recorded error so Home reads as
+    # syncing again; a fresh failure re-stamps it.
+    _never_synced = {"user_id": uid, "last_synced": {"$exists": False}}
+    _clear_err = {"$unset": {"last_sync_error": "", "last_sync_error_at": ""}}
+    await connections_col.update_many(_never_synced, _clear_err)
+    await _finexer_consents_col.update_many(_never_synced, _clear_err)
 
     conns = await connections_col.find({"user_id": uid}).to_list(None)
     total = 0
@@ -198,10 +224,22 @@ async def sync_all(user: dict = Depends(current_user)):
         asyncio.create_task(sync_yapily_consent(yc["_id"], uid))
 
     finexer_conns = await _finexer_consents_col.find({"user_id": uid, "status": "authorized"}).to_list(None)
-    for fc in finexer_conns:
-        asyncio.create_task(_finexer_sync_pipeline(fc["_id"], uid))
+    # The Finexer pulls run alongside the response, but the recompute below
+    # is the ONE recompute for this refresh: each pipeline is told not to
+    # recompute on its own (`recompute=False`) and _post_sync waits for the
+    # pulls before it runs, so a bill Finexer just returned is inside the
+    # observed-match window rather than racing it (the G177(a) shape).
+    finexer_syncs = [
+        asyncio.create_task(_finexer_sync_pipeline(fc["_id"], uid, trigger="user", recompute=False))
+        for fc in finexer_conns
+    ]
 
-    async def _post_sync(u, has_new: bool):
+    async def _post_sync(u, new_count: int):
+        for res in await asyncio.gather(*finexer_syncs, return_exceptions=True):
+            if isinstance(res, dict):
+                new_count += int(res.get("new_transactions") or 0)
+            elif isinstance(res, BaseException):
+                logger.error("finexer sync during refresh failed for %s: %r", u, res)
         await apply_rules_bulk(u, structural=True)
         await categorise_others_bg(u)
         await apply_mirror_rules(u)
@@ -209,8 +247,12 @@ async def sync_all(user: dict = Depends(current_user)):
         await cashflow_cache_col.update_one(
             {"_id": u}, {"$set": {"synced_at": datetime.now()}}, upsert=True,
         )
-        if has_new:
-            await compute_and_cache_cashflow(u)
+        # trigger="user": an explicit refresh always recomputes the derived
+        # caches, new transactions or not (G159). The `if has_new:` guard
+        # that used to sit here kept a pre-deploy forecast doc alive and
+        # then rebuilt every screen from it, so the tap looked like it had
+        # worked. The gate survives only on the worker's automatic syncs.
+        await recompute_derived_caches(u, new_count=new_count, trigger="user")
         await settle_planned_expenses(u)
         # Categorisation/rules may have shifted things even without new txns.
         # Awaited (not the sync invalidate()'s fire-and-forget bump) so the
@@ -222,7 +264,7 @@ async def sync_all(user: dict = Depends(current_user)):
             await warm_user(u)
         except Exception:
             logger.exception("post-sync warm_user failed for %s", u)
-    _fire_and_forget(_post_sync(uid, total_new_txns > 0))
+    _fire_and_forget(_post_sync(uid, total_new_txns))
     # Balances were refreshed above — the immediate post-sync reload must not
     # be served a pre-sync cached response
     await response_cache.ainvalidate(uid)
@@ -232,6 +274,10 @@ async def sync_all(user: dict = Depends(current_user)):
 @router.post("/accounts/sync-history")
 async def sync_history(user: dict = Depends(current_user)):
     uid = user["email"]
+    # B45: same pause as POST /accounts/sync.
+    if await open_banking_paused(uid):
+        return {"message": "Bank sync is paused on your plan", "paused": True,
+                "connections": 0, "total_accounts": 0}
 
     conns   = await connections_col.find({"user_id": uid}).to_list(None)
     from_dt = (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")
@@ -245,15 +291,15 @@ async def sync_history(user: dict = Depends(current_user)):
     for yc in yapily_conns:
         asyncio.create_task(sync_yapily_consent(yc["_id"], uid))
 
-    async def _post_sync(u, has_new: bool):
+    async def _post_sync(u, new_count: int):
         await apply_rules_bulk(u, structural=True)
         await categorise_others_bg(u)
         await apply_mirror_rules(u)
         await cashflow_cache_col.update_one(
             {"_id": u}, {"$set": {"synced_at": datetime.now()}}, upsert=True,
         )
-        if has_new:
-            await compute_and_cache_cashflow(u)
+        # Explicit Settings action, same rule as sync_all: always recompute.
+        await recompute_derived_caches(u, new_count=new_count, trigger="user")
         await settle_planned_expenses(u)
         # Same pattern as sync_all's own _post_sync: awaited (not the sync
         # invalidate()'s fire-and-forget bump) so the warm-up below computes
@@ -264,7 +310,7 @@ async def sync_history(user: dict = Depends(current_user)):
             await warm_user(u)
         except Exception:
             logger.exception("post-sync warm_user failed for %s", u)
-    _fire_and_forget(_post_sync(uid, total_new_txns > 0))
+    _fire_and_forget(_post_sync(uid, total_new_txns))
     # Balances were refreshed above — the immediate post-sync reload must not
     # be served a pre-sync cached response
     await response_cache.ainvalidate(uid)

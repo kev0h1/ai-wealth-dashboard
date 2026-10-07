@@ -68,7 +68,7 @@ export const TUTORIAL_FLOWS: TutorialFlow[] = [
         bg: "#dbeafe",
         title: "Add your accounts",
         description:
-          "Nothing here is real until your accounts are in. Manage opens Accounts, where banks, statements, investments and offline pots all get added.",
+          "Nothing here is real until your accounts are in. The last row under Your estate opens Accounts, where banks, statements, investments and offline pots all get added.",
       },
       {
         id: "home-nav",

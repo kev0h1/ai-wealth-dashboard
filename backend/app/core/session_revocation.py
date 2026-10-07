@@ -45,11 +45,12 @@ _TOMBSTONE_MARGIN = timedelta(minutes=5)
 def _key(email: str) -> str:
     """Hash the tombstone key rather than keying by the raw email, because
     `app.services.retention.erase_user` deletes every `*_col` document
-    whose `_id` equals the raw email (its dir()-based sweep walks every
-    collection on `app.db.collections` by that exact rule) — a tombstone
-    keyed by the plain email would be erased by the very call it exists to
-    outlive. Hashing sidesteps that without needing to special-case this
-    collection in erase_user's sweep."""
+    whose `_id` equals the raw email (its manifest-driven sweep, see A101's
+    `app.db.collections.ERASURE_MANIFEST`, walks every collection listed
+    there by that exact rule) — a tombstone keyed by the plain email would
+    be erased by the very call it exists to outlive. Hashing sidesteps that
+    without needing to special-case this collection in erase_user's
+    sweep."""
     normalised = (email or "").strip().lower()
     return hashlib.sha256(normalised.encode()).hexdigest()
 
@@ -62,11 +63,11 @@ async def revoke_sessions(email: str, now: datetime | None = None) -> None:
     later call already caught.
 
     Looks up `session_tombstones_col` fresh from `app.db.collections` on
-    each call (like `app.services.retention.erase_user`'s own dir()-based
-    sweep) rather than binding it at import time, so a test that broadly
-    replaces every `*_col` collection on that module (retention.py's own
-    test suite does this for `erase_user`) transparently covers this call
-    too, instead of silently reaching the real Motor client.
+    each call (like `app.services.retention.erase_user`'s own manifest-
+    driven sweep) rather than binding it at import time, so a test that
+    broadly replaces every `*_col` collection on that module (retention.py's
+    own test suite does this for `erase_user`) transparently covers this
+    call too, instead of silently reaching the real Motor client.
 
     A84 rework: the itsdangerous session tombstone above was the only
     thing this function revoked, but F2's OAuth 2.1 server
@@ -88,11 +89,37 @@ async def revoke_sessions(email: str, now: datetime | None = None) -> None:
     revoke."""
     from app.db import collections as _cols
     now = as_utc(now) if now is not None else datetime.now(timezone.utc)
+    # Floor to whole seconds before storing: session tokens are signed by
+    # itsdangerous' TimestampSigner, whose `get_timestamp()` is
+    # `int(time.time())` and whose `timestamp_to_datetime()` reconstructs
+    # `issued_at` at microsecond 0. Comparing that floored `issued_at`
+    # against a microsecond-precise `not_before` means a genuine
+    # log-out-then-immediately-log-in within the SAME wall-clock second
+    # would, about half the time (not_before's fraction is effectively
+    # uniform), have issued_at < not_before even though the new token was
+    # minted after the logout — is_revoked would wrongly bounce it.
+    # Flooring not_before to match the token's own resolution fixes that.
+    # Consequence, accepted deliberately: a token minted EARLIER in the
+    # same second as this call now has issued_at == not_before, which
+    # is_revoked's strict `<` treats as NOT revoked, so it survives. That
+    # sub-second window is fine to accept: the device that just logged out
+    # has already cleared its own token locally, and a token an attacker
+    # recovered from disk is overwhelmingly older than one second, not
+    # newer. Do not widen this into an explicit grace period — the whole
+    # point is to match itsdangerous' own resolution, not add slack beyond
+    # it.
+    not_before = now.replace(microsecond=0)
     expires_at = now + timedelta(seconds=SESSION_MAX_AGE) + _TOMBSTONE_MARGIN
     normalised = (email or "").strip().lower()
     await _cols.session_tombstones_col.update_one(
         {"_id": _key(email)},
-        {"$max": {"not_before": now, "expires_at": expires_at}},
+        # $max is a per-field ceiling ratchet, not a whole-document
+        # replace: it only ever raises not_before, never lowers it, no
+        # matter what value (floored or not) this call passes. So flooring
+        # here cannot make a LATER logout store an EARLIER not_before than
+        # one an earlier call already set — monotonicity is Mongo's own
+        # guarantee on this operator, unaffected by this change.
+        {"$max": {"not_before": not_before, "expires_at": expires_at}},
         upsert=True,
     )
     await _cols.oauth_tokens_col.update_many(

@@ -16,6 +16,17 @@ load_dotenv(dotenv_path=_BACKEND_DIR / ".env")
 
 # ── General ───────────────────────────────────────────────────────────────────
 MONGO_URI           = os.getenv("MONGO_URI", "mongodb://localhost:27017")
+# H90 (2026-09-28): the database NAME within the deployment MONGO_URI points
+# at. Long present in UAT's backend/.env (`MONGO_DB=wealth`, matching what
+# app/db/collections.py used to hardcode) but never actually read anywhere
+# — see docs/ops/ENV.md's old "vestigial" note, now removed, since this is
+# the wire-up. Every real process (API, worker) leaves this unset and gets
+# "wealth", identical to the old hardcoded behaviour. backend/tests/
+# conftest.py sets this to a "_test"-suffixed name (default "wealth_test")
+# BEFORE any test can create a collection handle, so the whole backend
+# suite runs against a disposable database in the SAME Mongo deployment,
+# never the real one this app serves users from.
+MONGO_DB            = os.getenv("MONGO_DB", "wealth")
 OPENROUTER_API_KEY  = os.getenv("OPENROUTER_API_KEY", "")
 # Provider routing preferences applied to every OpenRouter request.
 # "data_collection": "deny" restricts routing to upstream providers that do
@@ -367,6 +378,10 @@ def _is_non_production(app_url: str) -> bool:
 
 TRUELAYER_ENABLED = _is_non_production(APP_URL)
 
+# B47: UAT-only admin routes (app.routers.uat_trial_reset), mounted by the
+# same APP_URL-derived rule as TrueLayer, never a separate env switch.
+UAT_ADMIN_ENABLED = _is_non_production(APP_URL)
+
 # ── VAPID / Web Push ──────────────────────────────────────────────────────────
 VAPID_SUBJECT   = os.getenv("VAPID_SUBJECT", "mailto:admin@wealthdashboard.app")
 _vapid_key_file = _BACKEND_DIR / ".vapid_private_key"
@@ -445,6 +460,11 @@ YAPILY_BASE_URL = os.getenv("YAPILY_BASE_URL", "https://api.yapily.com")
 FINEXER_API_KEY    = os.getenv("FINEXER_API_KEY", "")
 FINEXER_API_URL    = "https://api.finexer.com"
 FINEXER_RETURN_URL = os.getenv("FINEXER_RETURN_URL", "https://wealth.auriqltd.co.uk/auth/finexer/callback")
+# A143: branded consent-page templates. FINEXER_APP_ID is the app id from the
+# Finexer app settings (used by scripts/finexer_template.py and the template
+# check); FINEXER_TEMPLATE_DARK is the 12-char id of the "Sorted dark" template.
+FINEXER_APP_ID          = os.getenv("FINEXER_APP_ID", "")
+FINEXER_TEMPLATE_DARK   = os.getenv("FINEXER_TEMPLATE_DARK", "")
 
 # H19: how long the cached /providers walk (finexer_providers_col, see
 # app/db/collections.py) is trusted before app.services.finexer_sync.
@@ -556,6 +576,23 @@ BILLING_ENABLED: bool = bool(STRIPE_SECRET_KEY) and all(
     key in STRIPE_PRICE_IDS for key in _STRIPE_REQUIRED_PRICE_KEYS
 )
 
+# ── Trial lifecycle (B45) ────────────────────────────────────────────────────
+# REVOKE_CONSENT_ON_DOWNGRADE: when a subscription ends (cancelled, expired,
+# unpaid, or a trial that never converted) the user lands on the free
+# Statements plan and open-banking sync stops. By default that is ALL that
+# happens: the Finexer consent is kept, so resubscribing resumes sync with no
+# fresh bank consent. Setting this true also revokes the user's authorised
+# Finexer consents at downgrade (Finexer bills per connected account per
+# month, so revoking stops that cost, at the price of making the user
+# reconnect). Kevin has not decided; default off. See
+# app/services/billing_lifecycle.py.
+REVOKE_CONSENT_ON_DOWNGRADE: bool = os.getenv("REVOKE_CONSENT_ON_DOWNGRADE", "false").strip().lower() in ("1", "true", "on", "yes")
+
+# How long a past_due (failed payment) subscription keeps its paid tier,
+# counted from the first failed payment. Stripe's own retry schedule decides
+# when it finally cancels; this bounds our side so access cannot outlive it.
+BILLING_PAST_DUE_GRACE_DAYS: int = int(os.getenv("BILLING_PAST_DUE_GRACE_DAYS", "7") or 7)
+
 # ── Reconcile spread (E2) ────────────────────────────────────────────────────
 # task_reconcile_truelayer (app/workers/sync_worker.py) used to enqueue every
 # stale connection's sync job in one burst every 4 hours. That's fine at
@@ -583,3 +620,7 @@ RECONCILE_MAX_PER_MINUTE  = int(os.getenv("RECONCILE_MAX_PER_MINUTE", "40"))
 # RECONCILE_MAX_PER_MINUTE is raised very high — a floor still keeps jobs
 # from landing effectively simultaneously).
 RECONCILE_MIN_GAP_SECONDS = int(os.getenv("RECONCILE_MIN_GAP_SECONDS", "2"))
+
+# G217: smallest set-aside shortfall (in pence) that raises a Home card. Below
+# it the account sheet line still shows, but Home stays quiet about pennies.
+ALLOCATION_SHORTFALL_FLOOR_PENCE = int(os.getenv("ALLOCATION_SHORTFALL_FLOOR_PENCE", "500"))

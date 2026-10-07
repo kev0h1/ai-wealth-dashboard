@@ -1,0 +1,238 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import PennyComposer from "../components/PennyComposer.tsx";
+import { pennyViewport, pennyKeyboardVisible, pennyBottomInset, pennyLayoutShrank, pennyDockNext, pennyFillTop, pennyDeviceLandscape } from "../lib/pennyKeyboardViewport.ts";
+import { setSoftKeyboardAttribute } from "../lib/useSoftKeyboardAttribute.ts";
+import { pennyTypingActive, pennyNextEngaged, applyPennyTypingAttribute } from "../lib/pennyTyping.ts";
+
+const browser = pennyViewport({ width: 390, height: 800 }, { width: 390, height: 480, top: 0, left: 0 });
+const native = pennyViewport({ width: 390, height: 480 }, { width: 390, height: 480, top: 0, left: 0 });
+assert.deepEqual(browser, native, "Already-resized WebViews and visual-only resizing yield one identical visible box");
+assert.equal(browser.top + browser.height, 480);
+const panned = pennyViewport({ width: 390, height: 800 }, { height: 420, top: 60 });
+assert.equal(panned.top + panned.height, 480, "Safari visual viewport panning is included once");
+assert.deepEqual(pennyViewport({ width: 390, height: 480 }), native, "No VisualViewport uses the native layout size");
+assert.equal(pennyKeyboardVisible(800, browser), true);
+assert.equal(pennyKeyboardVisible(800, pennyViewport({ width: 390, height: 750 })), false, "Small toolbar changes are not a keyboard");
+assert.equal(pennyKeyboardVisible(800, { ...browser, scale: 2 }), false, "Pinch zoom is not a keyboard");
+assert.equal(pennyViewport({ width: 320, height: 240 }, { width: 900, height: 1000, top: -10 }).height, 240);
+
+const props = { inputRef: { current: null }, value: "Draft question", onChange() {}, onSend() {}, placeholder: "Ask Penny", loading: false, atCap: false };
+const normal = renderToStaticMarkup(React.createElement(PennyComposer, props));
+assert.match(normal, /General information, not regulated financial advice/);
+assert.match(normal, /aria-label="Ask Penny a spending question"/);
+assert.match(normal, /maxLength="160"/);
+assert.match(normal, /Draft question/);
+// G198: a pending reply never disables or locks the input (Android closes the keyboard on a focused input turning readOnly/disabled).
+for (const loading of [true, false]) {
+  const markup = renderToStaticMarkup(React.createElement(PennyComposer, { ...props, loading }));
+  assert.doesNotMatch(markup, /<input[^>]*disabled=""/, "Pending reply: input not disabled");
+  assert.doesNotMatch(markup, /<input[^>]*readOnly=""/, "Pending reply: input not readOnly");
+}
+assert.match(renderToStaticMarkup(React.createElement(PennyComposer, { ...props, atCap: true })), /<input[^>]*disabled=""/, "Message limits still disable input");
+
+const source = path => readFileSync(new URL(path, import.meta.url), "utf8");
+const live = source("../components/PennySheet.tsx");
+assert.match(live, /<PennySheetPanel isOpen=/);
+assert.doesNotMatch(live, /layout=/, "G196: one docked window, no layout variants");
+assert.match(source("../components/PennyConversation.tsx"), /<PennyComposer/);
+const composerSrc = source("../components/PennyComposer.tsx");
+assert.doesNotMatch(composerSrc, /preserveFocus|readOnly=|\.blur\(/, "G198: no readOnly toggle, no blur in the send path");
+const inputTag = composerSrc.match(/<input[\s\S]*?\/>/)[0];
+assert.doesNotMatch(inputTag, /disabled=\{[^}]*loading|\bkey=/, "G198: input disabled never tied to pending state, no remount key");
+const buttonTag = composerSrc.match(/<button type="button" onClick=\{onSend\}[\s\S]*?style=/)[0];
+assert.match(buttonTag, /onPointerDown=\{\(event\) => event\.preventDefault\(\)\}/, "G198: send does not steal focus on pointer-down");
+assert.match(buttonTag, /onMouseDown=\{\(event\) => event\.preventDefault\(\)\}/, "G198: nor on the compat mouse-down");
+assert.match(buttonTag, /tabIndex=\{-1\}/, "G198: send is out of the tab order");
+const convoSrc = source("../components/PennyConversation.tsx");
+const sendFn = convoSrc.split("function send(text: string)")[1].split("function sendChip")[0];
+assert.doesNotMatch(sendFn, /\.blur\(|activeElement/, "G198: the send path never blurs");
+assert.match(sendFn, /if \(!trimmed \|\| loading\) return;/, "Duplicate sends are blocked in the handler");
+assert.match(source("../components/PennyConversation.tsx"), /usePennyThreadAnchor/);
+assert.match(source("../lib/usePennyThreadAnchor.ts"), /ResizeObserver/);
+assert.match(source("../lib/usePennyThreadAnchor.ts"), /followLatestRef/);
+assert.match(source("../components/PennyConversation.tsx"), /data-penny-secondary/);
+assert.match(source("../components/PennyConversation.tsx"), /data-penny-composer-wrap/);
+const frame = source("../components/PennySheetPanel.tsx");
+assert.doesNotMatch(frame, /legacy|keyboardInset|onTypingChange/, "Dead layout and prop paths are gone");
+// G196 docking: geometry comes from the visual viewport, never a takeover.
+const styles = source("../components/PennySheetPanel.styles.ts");
+assert.doesNotMatch(styles, /data-penny-layout="focus"|align-items: flex-end|height: min\(26rem, 100%\)/, "G191's viewport-sized frame hack stays gone: the takeover is positioned from the measured dock");
+assert.match(styles, /\.penny-keyboard-typing \[data-penny-secondary\] \{ display: none; \}/, "G197: header links and chips are hidden while typing (approved B)");
+assert.match(styles, /\.penny-keyboard-typing \{[^}]*padding-inline: 0;/, "G197: the takeover is full width");
+assert.match(styles, /\.penny-keyboard-typing \.penny-keyboard-panel \{[^}]*max-width: 100%;/, "G197: the panel is not capped to 420px while typing");
+const ruleGap = styles.match(/\.penny-keyboard-typing \[data-penny-header-rule\] \{ margin-top: (\d+)px; \}/);
+assert.ok(ruleGap && Number(ruleGap[1]) >= 16, "G197: the header rule keeps a gap below the 44px close button so it never touches the X");
+assert.match(source("../components/PennySheet.tsx"), /data-penny-header-rule className="border-b/, "The header rule is addressable by the typing gap");
+assert.match(source("../components/PennySheet.tsx"), /<div data-penny-secondary className="mt-2 flex/, "The header links row is the hidden secondary row");
+assert.match(styles, /\.penny-keyboard-typing \{[^}]*top: calc\(var\(--penny-typing-top[^;]*\+ var\(--penny-safe-top\)\);/, "G206: the typing top ADDS the safe-area top inset to the visual top (max() left the header under the status bar)");
+assert.doesNotMatch(styles, /top: max\(var\(--penny-typing-top/, "G206: no max() of visual top and safe inset");
+assert.match(styles, /--penny-safe-top: max\(env\(safe-area-inset-top, 0px\)/, "G206: safe top comes from env(safe-area-inset-top)");
+assert.match(styles, /\.penny-keyboard-frame \{[^}]*bottom: calc\(110px \+ var\(--penny-safe-bottom\)\);/, "G206: the resting frame clears the home indicator");
+assert.match(styles, /--penny-safe-bottom: max\(env\(safe-area-inset-bottom, 0px\)/, "G206: safe bottom comes from env(safe-area-inset-bottom)");
+assert.match(styles, /not\(\.penny-keyboard-typing\) \{ bottom: calc\(8px \+ var\(--penny-safe-bottom\)\); \}/, "G206: resting landscape clears the home indicator");
+assert.match(styles, /bottom: var\(--penny-typing-bottom/, "Typing docks the bottom edge on the keyboard");
+assert.doesNotMatch(frame, /width: viewport\.width|height: viewport\.height/, "The frame is never sized to the whole viewport");
+assert.match(frame, /usePennyKeyboard/);
+const hook = source("../lib/usePennyKeyboard.ts");
+assert.match(hook, /vv\?\.addEventListener\("resize"/);
+assert.match(hook, /vv\?\.addEventListener\("scroll"/, "Chrome pans and iOS scrolls the visual viewport; both re-measure");
+assert.match(hook, /requestAnimationFrame/);
+assert.match(hook, /vv\?\.removeEventListener\("scroll"/, "Listeners are cleaned up");
+assert.match(source("../components/PennyConversation.tsx"), /usePennyKeyboard\(!inSheet\)/, "Full-page /penny docks its composer the same way");
+assert.match(source("../app/globals.css"), /html\[data-penny-typing="true"\] \[data-penny-navigation\]/, "Nav hides on any page that sets the attribute");
+const capacitor = source("../../capacitor-spike/capacitor.config.json");
+assert.doesNotMatch(capacitor, /Keyboard/, "Shells keep default WebView behaviour, which the single-source measurement handles");
+// Chrome-style: layout viewport stays 800 tall, only the visual viewport shrinks.
+assert.equal(pennyBottomInset(800, { height: 480, top: 0, scale: 1 }), 320, "Composer offset equals the keyboard gap on Chrome resize");
+// Chrome pans the visual viewport to reveal the field: offsetTop moves the bottom.
+assert.equal(pennyBottomInset(800, { height: 480, top: 40, scale: 1 }), 280, "Chrome pan is part of the same sum");
+// iOS Safari: layout viewport scrolls; counted once, never added twice.
+assert.equal(pennyBottomInset(800, { height: 420, top: 60, scale: 1 }), 320, "iOS offsetTop is not double counted");
+// Capacitor-style resized WebView: layout equals visual, nothing to add.
+assert.equal(pennyBottomInset(480, { height: 480, top: 0, scale: 1 }), 0, "Already-resized WebViews get no extra offset");
+assert.equal(pennyBottomInset(800, { height: 480, top: 0, scale: 2 }), 0, "Pinch zoom never docks");
+assert.equal(pennyBottomInset(800, null), 0);
+// Self-detecting inset (fill-once): a shrunk layout viewport means the fixed bottom edge IS the keyboard top.
+assert.equal(pennyLayoutShrank(844, 524), true, "resizes-content: innerHeight shrank with the keyboard");
+assert.equal(pennyLayoutShrank(844, 790), false, "A URL-bar change is not a keyboard");
+assert.equal(pennyBottomInset(524, { height: 524, top: 0, scale: 1 }, true), 0, "Shrunk layout: inset is 0");
+assert.equal(pennyBottomInset(844, { height: 524, top: 0, scale: 1 }, true), 0, "Shrunk flag wins: never double counted");
+assert.equal(pennyBottomInset(844, { height: 524, top: 0, scale: 1 }, false), 320, "iOS-style: visual sum when layout kept its height");
+assert.equal(pennyBottomInset(844, { height: 470, top: 50, scale: 1 }, false), 324, "iOS-style: offsetTop counted once");
+// Fill once geometry: top = visual top + 8 (CSS adds safe-area), bottom = keyboard top.
+assert.equal(pennyFillTop(0), 8);
+assert.equal(pennyFillTop(120), 128, "A panned visual viewport never puts the header above the visible area");
+assert.equal(pennyFillTop(-5), 8);
+// Held dock: pan, scroll and URL-bar jitter after settling change nothing; a genuine keyboard change re-fits; dismissal releases.
+const first = pennyDockNext(null, { keyboardVisible: true, height: 524, inset: 320, top: 0 }, true);
+assert.deepEqual(first, { key: 524, inset: 320, top: 0 });
+assert.equal(pennyDockNext(first, { keyboardVisible: true, height: 524, inset: 290, top: 40 }, false), first, "vv scroll or pan after settling changes nothing");
+assert.equal(pennyDockNext(first, { keyboardVisible: true, height: 510, inset: 334, top: 0 }, false), first, "Sub-threshold height jitter changes nothing");
+assert.deepEqual(pennyDockNext(first, { keyboardVisible: true, height: 440, inset: 404, top: 0 }, false), { key: 440, inset: 404, top: 0 }, "A genuine keyboard height change re-fits");
+assert.deepEqual(pennyDockNext(first, { keyboardVisible: true, height: 524, inset: 270, top: 50 }, true), { key: 524, inset: 270, top: 50 }, "While settling (iOS pan, late Chrome resize) it still converges");
+assert.equal(pennyDockNext(first, { keyboardVisible: false, height: 844, inset: 0, top: 0 }, false), null, "Dismissal releases the dock");
+assert.match(frame, /pennyFillTop\(viewport\.top\)/);
+assert.doesNotMatch(frame, /restTop|measureRest|pennyTypingTop/, "The 320px shortfall clamp and resting-edge recording are gone");
+assert.match(hook, /pennyDockNext/, "The hook holds the dock");
+assert.match(hook, /pennyLayoutShrank/);
+assert.match(source("../app/layout.tsx"), /interactiveWidget: "resizes-content"/, "Viewport meta asks Chrome to resize the layout viewport");
+assert.match(source("../lib/useLockBodyScroll.ts"), /acquireScrollLock/, "The Penny window uses the fixed-body lock");
+assert.match(source("../lib/useSheetA11y.ts"), /body\.position = "fixed"/, "Body lock is position:fixed with scroll restore");
+assert.match(source("../lib/useSheetA11y.ts"), /window\.scrollTo\(0, scrollY\)/);
+assert.match(source("../components/PennySheet.tsx"), /touch-none bg-transparent/, "The backdrop swallows touch scrolling");
+assert.match(source("../components/PennySheet.tsx"), /\{isOpen && <SheetEffectsGate \/>\}/, "Lock holds while the window is open, including while typing");
+// Portrait phone, keyboard up: the layout viewport is a short 360x315, but the device is portrait.
+assert.equal(pennyDeviceLandscape({ width: 360, height: 640, orientationType: "portrait-primary" }), false, "360x640 portrait with a keyboard (visible 360x315) is not landscape");
+assert.equal(pennyDeviceLandscape({ width: 360, height: 640 }), false, "No orientation API: screen dimensions say portrait");
+assert.equal(pennyDeviceLandscape({ width: 640, height: 360, orientationType: "landscape-primary" }), true, "A true landscape phone still collapses");
+assert.equal(pennyDeviceLandscape({ width: 640, height: 360 }), true);
+const chipRule = styles.split("@media (max-height: 480px)")[1].split("}\n}")[0];
+assert.match(chipRule, /\[data-penny-device="landscape"\] \[data-penny-secondary\] \{ display: none/, "The chip-hiding rule is gated on device orientation");
+assert.doesNotMatch(chipRule, /\.penny-keyboard-frame \[data-penny-secondary\]/, "No ungated rule can hide chips for a short portrait viewport");
+assert.doesNotMatch(styles, /\(orientation: landscape\)/, "Layout-viewport aspect ratio is not the signal");
+assert.match(frame, /data-penny-device=/);
+// Chips are hidden by CSS only (they stay mounted, so the thread and draft are untouched) and only while typing or on a landscape device.
+assert.doesNotMatch(styles, /^\.penny-keyboard-frame \[data-penny-secondary\]/m, "No ungated rule hides the chips at rest");
+assert.doesNotMatch(styles, /chips stay|keeps its links row/i, "fill-once wording is gone");
+const css = source("../app/globals.css");
+assert.match(css, /html\[data-soft-keyboard="true"\] \[data-penny-navigation\]/, "G198: app-wide nav hide keys on the measured soft keyboard");
+assert.doesNotMatch(css, /html:has\([^)]*:focus/, "G198: the nav hide no longer keys on input focus");
+const softHook = source("../lib/useSoftKeyboardAttribute.ts");
+assert.match(softHook, /usePennyKeyboard\(true\)/, "G198: the global attribute reuses the Penny keyboard measurement");
+assert.match(source("../app/Providers.tsx"), /useSoftKeyboardAttribute\(\)/, "G198: mounted once in Providers");
+{
+  const attrs = new Map();
+  const root = { setAttribute: (n, v) => attrs.set(n, v), removeAttribute: n => attrs.delete(n) };
+  setSoftKeyboardAttribute(root, pennyKeyboardVisible(844, pennyViewport({ width: 390, height: 844 }, { width: 390, height: 524 })));
+  assert.equal(attrs.get("data-soft-keyboard"), "true", "Shrink sets the attribute");
+  setSoftKeyboardAttribute(root, pennyKeyboardVisible(844, pennyViewport({ width: 390, height: 844 }, { width: 390, height: 844 })));
+  assert.equal(attrs.has("data-soft-keyboard"), false, "Restore clears it even if focus is retained");
+  setSoftKeyboardAttribute(root, pennyKeyboardVisible(844, { ...pennyViewport({ width: 390, height: 844 }, { width: 390, height: 524 }), scale: 2 }));
+  assert.equal(attrs.has("data-soft-keyboard"), false, "Pinch zoom never sets it");
+}
+assert.match(source("../app/design/page.tsx"), /takes over the visible height in one move/);
+assert.doesNotMatch(frame, /keyboardHeight/, "Native keyboard heights are never added to an already-resized viewport");
+const touchHandler = frame.split("onPointerDownCapture=")[1].split("onFocusCapture=")[0];
+assert.doesNotMatch(touchHandler, /setFocused|setDidFocus|setNativeKeyboard|setComposerEngaged/, "Touch-down must not resize the panel before the input receives its tap");
+assert.match(frame, /pennyTypingActive\(\{[^}]*engaged: composerEngaged, keyboardVisible: Boolean\(viewport\?\.keyboardVisible\)/, "The panel decides typing only through the tested pure rule");
+assert.match(frame, /!event.currentTarget.contains\(next\)/, "Tab within the dialog cannot collapse the typing layout under an open keyboard");
+assert.doesNotMatch(frame, /setNativeKeyboard/, "Native show events cannot expand the panel before the viewport resizes");
+const preview = source("../app/design/penny-keyboard/PennyKeyboardClient.tsx");
+assert.doesNotMatch(preview, /variant/, "The A/B switch no longer means anything");
+assert.match(preview, /PennySheetHeader, PennySheetPanel.*components\/PennySheet/);
+assert.match(preview, /<PennyComposer/);
+assert.match(preview, /usePennyThreadAnchor/);
+assert.doesNotMatch(preview, /\bapi\.|\bfetch\(/);
+assert.match(preview, /FixtureBottomNav/);
+assert.match(source("../components/BottomNav.tsx"), /data-penny-navigation/);
+assert.doesNotMatch(source("../app/layout.tsx").replace(/\/\/[^\n]*/g, ""), /maximumScale|userScalable/, "Pinch zoom remains enabled");
+// Touch sequence: a simulated device driving the same pure rules the panel uses.
+const device = { isOpen: true, proposed: true, mobile: true, engaged: false, keyboardVisible: false };
+const typingNow = () => pennyTypingActive(device);
+const resting = pennyViewport({ width: 390, height: 800 }, { width: 390, height: 800 });
+const withKeyboard = pennyViewport({ width: 390, height: 800 }, { width: 390, height: 480 });
+const measure = (v) => { device.keyboardVisible = pennyKeyboardVisible(800, v); };
+assert.equal(typingNow(), false, "Resting window is not typing");
+// touchstart on the input: the panel handler changes no state at all.
+assert.equal(typingNow(), false, "Touch-down alone does not switch layout");
+// iOS focuses the input on touch-up, before the keyboard has resized anything.
+device.engaged = pennyNextEngaged(device.engaged, { type: "composer-focus" });
+measure(resting);
+assert.equal(typingNow(), false, "Focus without a viewport change keeps the geometry still (also a hardware keyboard)");
+// Native will-show only requests a re-measure; the viewport has not shrunk yet.
+measure(resting);
+assert.equal(typingNow(), false, "keyboardWillShow before the WebView resizes does not expand");
+measure(withKeyboard);
+assert.equal(typingNow(), true, "Docks once the software keyboard is measured");
+// Toolbar-sized change and pinch zoom while engaged never enter typing.
+const toolbar = { ...device, keyboardVisible: pennyKeyboardVisible(800, pennyViewport({ width: 390, height: 740 })) };
+assert.equal(pennyTypingActive(toolbar), false);
+assert.equal(pennyTypingActive({ ...device, keyboardVisible: pennyKeyboardVisible(800, { ...withKeyboard, scale: 2 }) }), false);
+// Desktop widths and legacy layout never take over.
+assert.equal(pennyTypingActive({ ...device, mobile: false }), false);
+assert.equal(pennyTypingActive({ ...device, proposed: false }), false);
+assert.equal(pennyTypingActive({ ...device, isOpen: false }), false);
+
+// Keyboard dismissal with DOM focus retained: collapse, stay engaged, draft untouched.
+measure(resting);
+assert.equal(typingNow(), false, "Viewport restore collapses the layout even though the input keeps focus");
+assert.equal(device.engaged, true, "A null blur or restore keeps engagement so a second tap can reopen typing");
+device.engaged = pennyNextEngaged(device.engaged, { type: "blur", toOutsideDialog: false });
+assert.equal(device.engaged, true, "Null or in-dialog blur (keyboard swipe-down, tapping the header) does not lose engagement");
+measure(withKeyboard);
+assert.equal(typingNow(), true, "Second tap with retained focus fires no focus event yet reopens typing from the measured keyboard");
+// Focus leaving the dialog or closing clears engagement.
+assert.equal(pennyNextEngaged(true, { type: "blur", toOutsideDialog: true }), false);
+assert.equal(pennyNextEngaged(true, { type: "close" }), false);
+measure(resting);
+device.engaged = pennyNextEngaged(true, { type: "close" });
+measure(withKeyboard);
+assert.equal(typingNow(), false, "A stale viewport change after close cannot resurrect typing");
+// The draft is component state in PennyConversation, never owned by the frame.
+assert.doesNotMatch(frame, /setValue|setDraft|onChange/, "The panel never touches the draft");
+
+// Root attribute: cleanup restores the previous value, or removes it.
+const fakeRoot = (initial) => { const a = new Map(initial == null ? [] : [["data-penny-typing", initial]]);
+  return { a, getAttribute: n => a.get(n) ?? null, setAttribute: (n, v) => a.set(n, v), removeAttribute: n => a.delete(n) }; };
+const rootA = fakeRoot(null); const undoA = applyPennyTypingAttribute(rootA);
+assert.equal(rootA.a.get("data-penny-typing"), "true"); undoA();
+assert.equal(rootA.a.has("data-penny-typing"), false, "Cleanup removes the attribute when there was none");
+const rootB = fakeRoot("false"); const undoB = applyPennyTypingAttribute(rootB); undoB();
+assert.equal(rootB.a.get("data-penny-typing"), "false", "Cleanup restores the previous attribute value");
+assert.match(frame, /return applyPennyTypingAttribute\(document\.documentElement\)/, "The panel uses the tested apply/restore helper");
+
+// IME: Enter while composing must not send (Safari reports keyCode 229 after compositionend).
+let sent = 0;
+const composer = PennyComposer({ ...props, onSend() { sent++; } });
+const input = composer.props.children[0].props.children[0];
+const press = (nativeEvent, keyCode = 13) => input.props.onKeyDown({ key: "Enter", keyCode, nativeEvent });
+press({ isComposing: true });
+press({ isComposing: false }, 229);
+assert.equal(sent, 0, "Enter during IME composition does not send");
+press({ isComposing: false });
+assert.equal(sent, 1, "A plain Enter still sends");
+
+console.log("G197 restored B takeover, G196 docking, G191 viewport, composer and fixture safety passed");

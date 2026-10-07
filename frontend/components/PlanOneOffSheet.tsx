@@ -1,13 +1,10 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
-import { createPortal } from "react-dom";
-import { X } from "lucide-react";
 import { AccountRadioPicker } from "@/components/AccountRadioPicker";
 import { api, Account, PlannedImpact } from "@/lib/api";
-import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
-import { useSheetA11y } from "@/lib/useSheetA11y";
-import { useSheetOpen } from "@/lib/useSheetOpen";
 import MoneyText from "@/components/MoneyText";
+import { SheetFrame } from "@/components/SheetFrame";
+import { DateField } from "@/components/DatePicker";
 
 interface PlanOneOffSheetProps {
   accounts: Account[];
@@ -30,16 +27,8 @@ function todayIso() {
 }
 
 export default function PlanOneOffSheet({ accounts, onClose, onSaved }: PlanOneOffSheetProps) {
-  useLockBodyScroll();
-  useSheetOpen();
-  const panelRef = useSheetA11y<HTMLDivElement>(onClose);
-
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
-
-  const reduceMotion =
-    typeof window !== "undefined" &&
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   const today = todayIso();
 
@@ -94,11 +83,6 @@ export default function PlanOneOffSheet({ accounts, onClose, onSaved }: PlanOneO
     }
   }
 
-  function handleDone() {
-    onSaved();
-    onClose();
-  }
-
   if (!mounted) return null;
 
   const saved = impact !== null;
@@ -119,53 +103,21 @@ export default function PlanOneOffSheet({ accounts, onClose, onSaved }: PlanOneO
     confirmMessage = "Planned. It's now in your upcoming bills.";
   }
 
-  return createPortal(
-    <>
-      {/* Backdrop */}
-      <div
-        className="fixed inset-0 bg-black/40 z-[65] fade-in"
-        onClick={handleBackdropClose}
-        aria-hidden="true"
-      />
-
-      {/* Sheet */}
-      <div
-        ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Plan a one-off expense"
-        className="fixed inset-x-0 bottom-0 z-[70]"
-        style={reduceMotion ? undefined : { animation: "slideUpSheet 280ms cubic-bezier(0.32, 0.72, 0, 1) both" }}
-      >
-        <div
-          className="mx-auto w-full max-w-[500px] glass-sheet rounded-t-3xl flex flex-col"
-          style={{ maxHeight: "85dvh" }}
-        >
-          {/* Drag handle */}
-          <div className="flex justify-center pt-3 pb-1 flex-shrink-0">
-            <div className="w-10 h-1 bg-slate-200 dark:bg-slate-600 rounded-full" />
-          </div>
-
-          {/* Header */}
-          <div className="flex items-center gap-3 px-5 pt-2 pb-3 flex-shrink-0">
-            <div className="flex-1 min-w-0">
-              <p className="text-base font-semibold text-slate-900 dark:text-slate-100">Plan a one-off</p>
-              <p className="text-xs text-slate-500 dark:text-slate-400">A payment you know is coming.</p>
-            </div>
-            <button
-              onClick={handleBackdropClose}
-              aria-label="Close"
-              className="w-10 h-10 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 flex-shrink-0 ml-2 active:bg-slate-200 dark:active:bg-slate-600 transition-colors focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2"
-            >
-              <X size={15} />
-            </button>
-          </div>
-
-          {/* Scrollable content */}
-          <div
-            className="overflow-y-auto flex-1 px-5 space-y-3"
-            style={{ paddingBottom: "calc(1.5rem + env(safe-area-inset-bottom, 0px))" }}
-          >
+  return (
+    <SheetFrame
+      title="Plan a one-off"
+      description="A payment you know is coming."
+      onClose={handleBackdropClose}
+      dismissDisabled={saving}
+      footer={({ close }) => saved ? (
+        <button onClick={close} className="w-full rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white active:scale-95">Done</button>
+      ) : (
+        <div className="grid grid-cols-2 gap-2">
+          <button type="button" onClick={close} disabled={saving} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 active:scale-95 dark:border-slate-600 dark:text-slate-200">Cancel</button>
+          <button type="submit" form="plan-one-off-form" disabled={saving} className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white active:scale-95 disabled:opacity-60">{saving ? "Planning…" : "Plan it"}</button>
+        </div>
+      )}
+    >
             {saved ? (
               /* Confirmation state */
               <div className="space-y-4 py-2">
@@ -174,16 +126,10 @@ export default function PlanOneOffSheet({ accounts, onClose, onSaved }: PlanOneO
                     {confirmMessage && <MoneyText text={confirmMessage} />}
                   </p>
                 </div>
-                <button
-                  onClick={handleDone}
-                  className="w-full min-h-[48px] rounded-xl bg-indigo-600 text-white text-sm font-semibold active:scale-95 transition-transform focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-                >
-                  Done
-                </button>
               </div>
             ) : (
               /* Form */
-              <form onSubmit={handleSubmit} className="space-y-3">
+              <form id="plan-one-off-form" onSubmit={handleSubmit} className="space-y-3">
 
                 {/* Name */}
                 <div>
@@ -224,14 +170,7 @@ export default function PlanOneOffSheet({ accounts, onClose, onSaved }: PlanOneO
                   <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">
                     Date
                   </label>
-                  <input
-                    type="date"
-                    value={date}
-                    min={today}
-                    onChange={e => setDate(e.target.value)}
-                    required
-                    className="w-full min-h-[48px] px-3 rounded-xl bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-slate-100 border border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 text-sm appearance-none text-left [&::-webkit-date-and-time-value]:text-left"
-                  />
+                  <DateField mode="day" label="Date" value={date} min={today} onChange={setDate} required />
                 </div>
 
                 {/* Account (optional) */}
@@ -250,20 +189,8 @@ export default function PlanOneOffSheet({ accounts, onClose, onSaved }: PlanOneO
                   <p className="text-sm text-rose-600 dark:text-rose-400">{error}</p>
                 )}
 
-                {/* Save button */}
-                <button
-                  type="submit"
-                  disabled={saving}
-                  className="w-full min-h-[48px] rounded-xl bg-indigo-600 text-white text-sm font-semibold active:scale-95 transition-transform disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-                >
-                  {saving ? "Planning…" : "Plan it"}
-                </button>
               </form>
             )}
-          </div>
-        </div>
-      </div>
-    </>,
-    document.body
+    </SheetFrame>
   );
 }

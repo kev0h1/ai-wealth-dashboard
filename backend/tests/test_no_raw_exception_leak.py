@@ -44,8 +44,8 @@ ALLOWLIST: set[tuple[str, int]] = {
     # app.services.backlog.BacklogError — "Raised for any user/caller-facing
     # failure (unknown id, bad enum)" per its own docstring; owner-only
     # /ops/go-live admin surface.
-    ("app/routers/ops.py", 241),
-    ("app/routers/ops.py", 259),
+    ("app/routers/ops.py", 248),
+    ("app/routers/ops.py", 272),
     # ValueError raised by app.services.spend_impact.compute_intent_preview /
     # app.services.checkpoints.delete_intent with an authored message
     # ("'<category>' is not currently over usual, nothing to preview", etc.)
@@ -67,8 +67,8 @@ ALLOWLIST: set[tuple[str, int]] = {
     ("app/routers/billing.py", 195),
     # ValueError raised by app.core.subscription.grant_pack with an authored
     # message ("pack_id must be one of: ..."); admin-only endpoint.
-    ("app/routers/subscription.py", 246),
-    ("app/routers/subscription.py", 278),
+    ("app/routers/subscription.py", 269),
+    ("app/routers/subscription.py", 301),
     # app.services.safe_calc._CalcError — "Internal only" per its own
     # docstring, every raise site in that module is a static, authored,
     # already-calm string written for this exact Penny-facing surface.
@@ -97,22 +97,28 @@ ALLOWLIST: set[tuple[str, int]] = {
     # copy), none of these are new exception sites. A98 (2026-09-21) then
     # shifted every line below by -6, removing the Kenya region's
     # get_user_region import and its two KES/GBP home-currency branches
-    # earlier in this file; likewise not new exception sites.
-    ("app/services/penny_tools.py", 3865),
-    ("app/services/penny_tools.py", 3930),  # ValueError from compute_intent_preview, see above
-    ("app/services/penny_tools.py", 4433),
-    ("app/services/penny_tools.py", 4453),
-    ("app/services/penny_tools.py", 4489),
-    ("app/services/penny_tools.py", 4512),
-    ("app/services/penny_tools.py", 4654),
-    ("app/services/penny_tools.py", 4659),
-    ("app/services/penny_tools.py", 4664),
-    ("app/services/penny_tools.py", 4751),
-    ("app/services/penny_tools.py", 4756),
-    ("app/services/penny_tools.py", 4761),
-    ("app/services/penny_tools.py", 5702),
-    ("app/services/penny_tools.py", 6357),
-    ("app/services/penny_tools.py", 6371),
+    # earlier in this file; likewise not new exception sites. G159
+    # (2026-09-28) merged main into this branch: main gained unrelated
+    # content earlier in the file (independent of G159's own
+    # `engine_build`/`_load_cashflow_cache` stamp change) which shifted
+    # every line below again. Re-derived empirically post-merge by an AST
+    # scan of the merged file (the same scan this test runs), not by
+    # arithmetic on either side's shift comment.
+    ("app/services/penny_tools.py", 3894),
+    ("app/services/penny_tools.py", 3959),  # ValueError from compute_intent_preview, see above
+    ("app/services/penny_tools.py", 4468),
+    ("app/services/penny_tools.py", 4488),
+    ("app/services/penny_tools.py", 4524),
+    ("app/services/penny_tools.py", 4547),
+    ("app/services/penny_tools.py", 4689),
+    ("app/services/penny_tools.py", 4694),
+    ("app/services/penny_tools.py", 4699),
+    ("app/services/penny_tools.py", 4797),
+    ("app/services/penny_tools.py", 4802),
+    ("app/services/penny_tools.py", 4807),
+    ("app/services/penny_tools.py", 5748),
+    ("app/services/penny_tools.py", 6403),
+    ("app/services/penny_tools.py", 6417),
     # app.services.billing._handle_checkout_completed: `str(exc)` here is an
     # authored ValueError message from grant_pack (see above), returned as
     # the body of a Stripe *webhook* response — read by Stripe's own retry
@@ -120,7 +126,7 @@ ALLOWLIST: set[tuple[str, int]] = {
     # letter of "reaches an HTTP response body", allowlisted rather than
     # silently skipped; tighten this if the webhook response is ever
     # surfaced anywhere a person reads it.
-    ("app/services/billing.py", 480),
+    ("app/services/billing.py", 536),
 }
 
 

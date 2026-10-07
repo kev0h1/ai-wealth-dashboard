@@ -115,11 +115,16 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Send, Loader2, X, ChevronRight } from "lucide-react";
+import { X, ChevronRight } from "lucide-react";
 import { api, CanIOffer, CanISuggestionChip, PennyLimitError, PennyProposal, ScenarioItem } from "@/lib/api";
 import { BRAND_GRADIENT } from "@/lib/brand";
 import PennyMark from "@/components/PennyMark";
+import PennyComposer from "@/components/PennyComposer";
+import { usePennyThreadAnchor } from "@/lib/usePennyThreadAnchor";
 import CommitmentSheet from "@/components/CommitmentSheet";
+import { DateField } from "@/components/DatePicker";
+import { usePennyKeyboard } from "@/lib/usePennyKeyboard";
+import { applyPennyTypingAttribute, pennyNextEngaged } from "@/lib/pennyTyping";
 import MoneyText from "@/components/MoneyText";
 import ChatMarkdown from "@/components/ChatMarkdown";
 import type { PennyAskContext } from "@/components/PennySheetProvider";
@@ -441,7 +446,7 @@ const CADENCE_OPTIONS: { value: ScenarioItem["cadence"]; label: string }[] = [
   { value: "one_off", label: "One off" },
 ];
 
-/** "2026-10-01" -> "2026-10", for a native `type="month"` input's value. */
+/** "2026-10-01" -> "2026-10", the value DateField takes in month mode. */
 function toMonthValue(iso: string | null | undefined): string {
   return iso ? iso.slice(0, 7) : "";
 }
@@ -501,6 +506,8 @@ function ScenarioConfirmCard({
   onRun: (items: ScenarioItem[]) => void;
 }) {
   const [drafts, setDrafts] = useState<DraftItem[]>(() => items.map(toDraft));
+  // DateField has no native validation, so a missing start month is caught here.
+  const [dateError, setDateError] = useState(false);
 
   function patch(i: number, next: Partial<DraftItem>) {
     setDrafts((prev) => prev.map((d, idx) => (idx === i ? { ...d, ...next } : d)));
@@ -521,6 +528,7 @@ function ScenarioConfirmCard({
           className="mt-3 flex flex-col gap-3"
           onSubmit={(e) => {
             e.preventDefault();
+            if (drafts.some((d) => !d.starts)) { setDateError(true); return; }
             onRun(drafts.map(fromDraft));
           }}
         >
@@ -593,19 +601,11 @@ function ScenarioConfirmCard({
                   </label>
                 </div>
 
-                {/* Stacked, not a 2-col grid like the fields above — a
-                    native `type="month"` control needs its full row to
-                    display a longer month name (e.g. "September 2026")
-                    without truncating against its own built-in icon. */}
+                {/* Stacked rows, one field per line. The picker is a sheet (G136), so
+                    the old native-control width constraint no longer applies. */}
                 <label className="block mt-2">
                   <span className={FIELD_LABEL_CLASS}>Starts</span>
-                  <input
-                    type="month"
-                    value={toMonthValue(d.starts)}
-                    onChange={(e) => patch(i, { starts: fromMonthValue(e.target.value) })}
-                    required
-                    className={`${FIELD_CLASS} appearance-none text-left [&::-webkit-date-and-time-value]:text-left`}
-                  />
+                  <DateField mode="month" label="Starts" title="Starts" value={toMonthValue(d.starts)} onChange={(v) => { patch(i, { starts: fromMonthValue(v) }); setDateError(false); }} required />
                 </label>
 
                 <label className="block mt-2">
@@ -625,18 +625,14 @@ function ScenarioConfirmCard({
                 {hasEnd && (
                   <label className="block mt-2">
                     <span className={FIELD_LABEL_CLASS}>End month</span>
-                    <input
-                      type="month"
-                      value={toMonthValue(d.ends)}
-                      onChange={(e) => patch(i, { ends: fromMonthValue(e.target.value) })}
-                      required
-                      className={`${FIELD_CLASS} appearance-none text-left [&::-webkit-date-and-time-value]:text-left`}
-                    />
+                    <DateField mode="month" label="End month" title="End month" value={toMonthValue(d.ends)} min={toMonthValue(d.starts) || undefined} onChange={(v) => patch(i, { ends: fromMonthValue(v) })} required />
                   </label>
                 )}
               </fieldset>
             );
           })}
+
+          {dateError && <p role="alert" className="text-[12px] leading-snug text-slate-600 dark:text-slate-300">Choose a start month for each item to run it.</p>}
 
           {rejected.length > 0 && (
             <p className="text-[12px] leading-snug text-slate-500 dark:text-slate-400 text-pretty">{rejected.join(" ")}</p>
@@ -1135,6 +1131,22 @@ export default function PennyConversation({
   // two-prop contract (`inSheet`/`askContext`) has no ref slot; see this
   // file's header comment on why the scrollable pane lives in here.
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  // Resizing the available viewport is not a new message. Follow it only
+  // when the reader was already at the latest turn, so opening a keyboard
+  // never drags someone reading older advice back to the bottom.
+  const { anchorToLatest, onScroll: onThreadScroll } = usePennyThreadAnchor(scrollContainerRef, Boolean(inSheet));
+  // Full-page /penny shares the composer and the same docking problem as the
+  // sheet: on Android Chrome the layout viewport keeps its height under the
+  // keyboard, so a fixed-bottom composer sits beneath it. Dock it from the
+  // visual viewport and hide the navigation, only once a software keyboard is
+  // measured (G196). The sheet has its own docking in PennySheetPanel.
+  const pageKeyboard = usePennyKeyboard(!inSheet);
+  const [pageEngaged, setPageEngaged] = useState(false);
+  const pageTyping = !inSheet && pageEngaged && pageKeyboard != null && pageKeyboard.width < 1024 && pageKeyboard.keyboardVisible;
+  useLayoutEffect(() => {
+    if (!pageTyping) return;
+    return applyPennyTypingAttribute(document.documentElement);
+  }, [pageTyping]);
   const initialFiredRef = useRef(false);
   // Last `askSeq` this component has already submitted an `askContext.ask`
   // for — NOT a plain "have I ever fired" boolean. This component mounts
@@ -1388,14 +1400,6 @@ export default function PennyConversation({
       }
     } finally {
       setLoading(false);
-      // Refocusing the composer here used to happen synchronously right
-      // after this setLoading(false) call, but that only SCHEDULES the
-      // re-render that clears the input's `disabled={loading}` binding
-      // (see the composer below) — the DOM node was still disabled at the
-      // moment `.focus()` ran, and browsers no-op focus() on a disabled
-      // element, so the "ask another one immediately" flow frequently
-      // failed. Moved to the loading-transition effect below, which runs
-      // after React has actually committed the enabled input to the DOM.
     }
   }
 
@@ -1702,7 +1706,6 @@ export default function PennyConversation({
     if (idleFor > PENNY_THREAD_TTL_MS && bucket.messages.length > 0) {
       setBucket(currentScreen, () => newBucket());
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [askSeq, currentScreen]);
 
   // askContext.ask — sheet-mode equivalent of the `initialQuestion` effect
@@ -1784,9 +1787,8 @@ export default function PennyConversation({
   // isn't this component's to manage).
   useLayoutEffect(() => {
     if (!inSheet || askSeq == null) return;
-    const el = scrollContainerRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [askSeq, inSheet]);
+    anchorToLatest();
+  }, [askSeq, inSheet, anchorToLatest]);
 
   // Scroll the newest turn into view as it lands — covers both the
   // ?ask= deep link ("scroll to answer") and any regular chip/composer ask.
@@ -1944,57 +1946,11 @@ export default function PennyConversation({
   // `chipId` chip's own `sendChip` never touches `loading`/`atCap` disabling
   // — see that function's own comment).
   const restingPlaceholder = `Penny is resting until ${formatPennyResetDate(usage.resetsOn)}`;
-  const composerContent = (
-    <>
-      <div className="flex items-center gap-2">
-        <input
-          ref={inputRef}
-          type="text"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && send(input)}
-          placeholder={atCap ? restingPlaceholder : placeholder}
-          aria-label="Ask Penny a spending question"
-          maxLength={160}
-          disabled={loading || atCap}
-          className="flex-1 min-h-[44px] text-sm bg-slate-50 dark:bg-slate-700 dark:text-slate-100 rounded-full px-4 py-2 outline-none border border-slate-200 dark:border-slate-600 focus:border-violet-300 disabled:opacity-60"
-        />
-        <button
-          onClick={() => send(input)}
-          disabled={!input.trim() || loading || atCap}
-          aria-label="Ask Penny"
-          className="flex-shrink-0 w-11 h-11 rounded-full flex items-center justify-center disabled:opacity-40 text-white active:scale-95 transition-transform"
-          style={{ background: BG }}
-        >
-          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-        </button>
-      </div>
-      {/* Disclaimer + (sheet mode, at-cap only) "Get more messages" link on
-          the SAME row (2026-09-06, matching the approved design preview's
-          own A2 composer) — no new row added just for the cap state. Full
-          width when there's no link, so this is a no-op layout change for
-          every other state. */}
-      <div className="flex items-center justify-between gap-2 mt-1.5">
-        <p className="text-[11px] leading-snug text-slate-500 dark:text-slate-400 min-w-0">
-          General information, not regulated financial advice.
-        </p>
-        {inSheet && atCap && (
-          <button
-            type="button"
-            onClick={openMoreMessagesSheet}
-            className="flex-shrink-0 text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 underline decoration-dotted underline-offset-2 whitespace-nowrap flex items-center justify-center"
-            // 44px tap target via padding + a compensating negative margin
-            // (same idiom as SuggestionChip's own dismiss-X, and the design
-            // preview's identical link), so this doesn't grow the row's
-            // visual height beyond the disclaimer text's own line height.
-            style={{ minHeight: 44, minWidth: 44, padding: "14px 4px", margin: "-14px -4px -14px 0" }}
-          >
-            Get more messages
-          </button>
-        )}
-      </div>
-    </>
-  );
+  const composerContent = <PennyComposer
+    inputRef={inputRef} value={input} onChange={setInput} onSend={() => send(input)}
+    placeholder={atCap ? restingPlaceholder : placeholder} loading={loading} atCap={atCap}
+    onMoreMessages={inSheet ? openMoreMessagesSheet : undefined}
+  />;
   // Full-page mode's own floating surface (see the comment above for why it
   // still needs one) — sheet mode never uses this, it mounts
   // `composerContent` bare instead. See the render below.
@@ -2107,7 +2063,7 @@ export default function PennyConversation({
         // below onto this outer wrapper, same 4px of breathing room, now
         // followed by a hairline rather than falling straight into the
         // thread — see this block's own header comment above.
-        <div className="shrink-0 relative px-5 pt-0.5 pb-1 border-b border-slate-200/70 dark:border-slate-700">
+        <div data-penny-secondary className="shrink-0 relative px-5 pt-0.5 pb-1 border-b border-slate-200/70 dark:border-slate-700">
           <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide">
             {allChips.map((c) => {
               if (c.source === "personalised") {
@@ -2179,6 +2135,8 @@ export default function PennyConversation({
         ref={inSheet ? scrollContainerRef : undefined}
         aria-live="polite"
         role="log"
+        data-penny-scroll={inSheet ? "" : undefined}
+        onScroll={inSheet ? onThreadScroll : undefined}
         className={inSheet ? "flex-1 min-h-0 overflow-y-auto space-y-3 px-5" : "space-y-3"}
       >
         {/* A deterministic "Payday is close..." lead bubble used to render
@@ -2348,13 +2306,10 @@ export default function PennyConversation({
           safe-area-inset-bottom,0px))]` wrapper), so `pb-6` alone is
           genuine interior padding, not safe-area duplicated on top of an
           already-safe position.
-          Composes cleanly with the on-screen-keyboard inset: that inset is
-          a `marginBottom` on the PANEL itself (PennySheet.tsx's
-          `keyboardInset`), pushing the whole floating window up as a unit
-          when the keyboard opens, not a property of this composer wrapper
-          — so this `pb-6` (interior space, panel-relative) and that
-          `marginBottom` (whole-panel position, viewport-relative) sit on
-          different elements and never fight each other.
+          Composes cleanly with keyboard docking: PennySheetPanel moves the
+          whole window's bottom edge onto the keyboard while typing (G196), so
+          this `pb-6` (interior space, panel-relative) never fights it. The
+          panel trims it to 8px while typing.
 
           Sheet mode mounts `composerContent` here, NOT `composerCard` — no
           glass fill, no rounded shell, no shadow, no inner `px-3`. See the
@@ -2364,11 +2319,16 @@ export default function PennyConversation({
           the chip row and every bubble above it instead of sitting deeper
           from the panel edge than they do. */}
       {inSheet ? (
-        <div className="shrink-0 px-5 pt-2 pb-6">{composerContent}</div>
+        <div data-penny-composer-wrap className="shrink-0 px-5 pt-2 pb-6">{composerContent}</div>
       ) : (
         <div
           className="fixed inset-x-0 z-40 px-4 lg:px-0"
-          style={{ bottom: "calc(88px + env(safe-area-inset-bottom, 0px))" }}
+          style={{ bottom: pageTyping && pageKeyboard ? `${pageKeyboard.inset + 8}px` : "calc(88px + env(safe-area-inset-bottom, 0px))" }}
+          onFocusCapture={(event) => { if ((event.target as HTMLElement).matches("[data-penny-input]")) setPageEngaged(engaged => pennyNextEngaged(engaged, { type: "composer-focus" })); }}
+          onBlurCapture={(event) => {
+            const next = event.relatedTarget as HTMLElement | null;
+            setPageEngaged(engaged => pennyNextEngaged(engaged, { type: "blur", toOutsideDialog: Boolean(next && !event.currentTarget.contains(next)) }));
+          }}
         >
           <div className="lg:max-w-2xl lg:mx-auto">{composerCard}</div>
         </div>

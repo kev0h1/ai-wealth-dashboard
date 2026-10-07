@@ -51,6 +51,11 @@ RULES = [
     # 120/60 gives several times that per minute, enough headroom for
     # scrolling through a few pages or bouncing between screens inside a
     # minute, while still bounding a flood of distinct/unknown domains.
+    # A148: the bank picker opens with ~60+ provider logos at once, so the
+    # same-origin provider route needs more than the merchant-logo budget.
+    # Must precede "/logo/" (first prefix match wins). A miss costs at most one
+    # allow-listed fetch per provider id, then Mongo/LRU.
+    ("/logo/provider/", 300, 60),
     ("/logo/", 120, 60),
     # The auth middleware only calls check_rate_limit() for /auth/, /webhooks/
     # and /logo/ prefixes, so this rule is inert unless /push/test calls
@@ -142,6 +147,19 @@ CATCH_ALL_USER_LIMIT = (300, 60)
 EXPENSIVE_PREFIXES = (
     "/transactions/search", "/safe-to-spend", "/cashflow",
     "/spend/verdict", "/money-shape", "/savings-insights",
+    # G159 review fix: neither sync route had an entry here before, so a
+    # burst of taps fell under the generic CATCH_ALL_USER_LIMIT (300/60) —
+    # fine for a plain document read, not for a route that (since G159) now
+    # always pays the ~1.2s recompute + one Haiku call on every call. This
+    # is the blunt per-IDENTITY backstop; app.services.derived_caches'
+    # per-uid debounce is the mechanism that actually skips the redundant
+    # recompute work itself for a rapid double-tap.
+    # "-history" first: EXPENSIVE_PREFIXES is matched with `str.startswith`
+    # and first match wins (same rule RULES above uses), and
+    # "/accounts/sync-history" itself starts with "/accounts/sync" — the
+    # wrong order would give sync-history no budget of its own, silently
+    # folding it into plain sync's bucket instead.
+    "/accounts/sync-history", "/accounts/sync",
 )
 EXPENSIVE_USER_LIMIT = (30, 60)
 

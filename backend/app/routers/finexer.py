@@ -2,24 +2,37 @@
 import asyncio
 import hmac
 import secrets
+import logging
+import re
 import time
+from urllib.parse import quote as _urlquote
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from typing import Optional
 
 from app.core.auth import current_user
-from app.core.config import FINEXER_API_KEY
+from app.core.config import APP_URL, FINEXER_API_KEY, FINEXER_APP_ID, FINEXER_TEMPLATE_DARK
+from app.core.signin_handoff import bank_error_response, bank_handoff_html, signin_handoff_csp
 from app.core.subscription import check_connection_limit, check_open_banking_allowed
-from app.db.collections import finexer_consents_col
+from app.routers.logos import provider_logo_path
+from app.db.collections import finexer_consents_col, preferences_col
 from app.services.finexer_sync import (
     list_providers,
     get_or_create_customer,
     create_consent,
     finexer_sync_pipeline,
+    _client as _finexer_client,
 )
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(tags=["finexer"])
+
+
+def _bank_page(ok: bool, provider: str, connection_id: str, *, auto_return: bool) -> HTMLResponse:
+    page = bank_handoff_html(ok, provider=provider, connection_id=connection_id, auto_return=auto_return)
+    return HTMLResponse(page, headers={"Content-Security-Policy": signin_handoff_csp(page)})
 
 # In-process cache for the provider list — it barely ever changes and the
 # picker can open several times per session, so we don't want to even hit
@@ -51,18 +64,79 @@ async def finexer_providers(user: dict = Depends(current_user)):
 
     providers = await list_providers()
     if providers:
+        # A148: hand the client a same-origin logo path (resolved against the
+        # API base), never Finexer's remote URL, which the site CSP blocks.
+        providers = [
+            {**p, "logo": provider_logo_path(p.get("id", ""), p.get("logo"))}
+            for p in providers
+        ]
         providers = sorted(providers, key=lambda p: (p.get("name") or "").lower())
         _providers_cache = providers
         _providers_cache_at = now
     return providers
 
 
+# A143: the "Sorted dark" consent template. Finexer stops the consent page
+# opening on an invalid template id, so the id is only ever appended after a
+# live GET /apps/{app_id}/templates/{id} succeeds. Result cached per process:
+# a success is kept, a failure is retried after 10 minutes.
+_TEMPLATE_ID_RE = re.compile(r"^[A-Za-z0-9]{12}$")
+_TEMPLATE_RETRY_AFTER = 600.0  # seconds
+_template_check: dict = {"id": None, "ok": False, "at": 0.0, "warned": False}
+
+
+async def _dark_template_id() -> Optional[str]:
+    tid = (FINEXER_TEMPLATE_DARK or "").strip()
+    if not tid:
+        return None
+    if not (FINEXER_APP_ID and _TEMPLATE_ID_RE.match(tid)):
+        if not _template_check["warned"]:
+            _template_check["warned"] = True
+            logger.warning("Finexer dark template not used: FINEXER_APP_ID missing or template id malformed")
+        return None
+    cached = _template_check
+    if cached["id"] == tid:
+        if cached["ok"]:
+            return tid
+        if time.monotonic() - cached["at"] < _TEMPLATE_RETRY_AFTER:
+            return None
+    ok = False
+    try:
+        async with _finexer_client() as client:
+            r = await client.get(f"/apps/{FINEXER_APP_ID}/templates/{tid}", timeout=5.0)
+        ok = r.status_code == 200
+        if not ok:
+            logger.warning("Finexer dark template check failed: HTTP %s", r.status_code)
+    except Exception as exc:  # network failure: fall back to the default template
+        logger.warning("Finexer dark template check failed: %s", type(exc).__name__)
+    _template_check.update({"id": tid, "ok": ok, "at": time.monotonic()})
+    return tid if ok else None
+
+
+async def _user_prefers_dark(email: str) -> bool:
+    try:
+        doc = await preferences_col.find_one({"user_id": email}) or {}
+    except Exception as exc:
+        logger.warning("Finexer template: preference lookup failed: %s", type(exc).__name__)
+        return False
+    return bool(doc.get("dark_mode", False))
+
+
+def _with_template(consent_url: str, template_id: str) -> str:
+    """Append the parameter to the raw string; the existing query is untouched."""
+    sep = "&" if "?" in consent_url else "?"
+    return f"{consent_url}{sep}template={template_id}"
+
+
 @router.get("/auth/finexer/link")
 async def finexer_link(
     provider: str = "",
+    native: bool = False,
     user: dict = Depends(current_user),
 ):
-    """Initiate a Finexer consent flow; return the redirect URL."""
+    """Initiate a Finexer consent flow; return the redirect URL. `native` marks a
+    native-app connect so the callback hands back to the app (A68); web and old
+    app binaries omit it and get a plain redirect."""
     if not FINEXER_API_KEY:
         raise HTTPException(500, "Finexer not configured")
     await check_open_banking_allowed(user["email"])
@@ -86,12 +160,17 @@ async def finexer_link(
             "provider":    provider or None,
             "state":       state,
             "status":      "pending",
+            "native":      bool(native),
             "created_at":  datetime.utcnow(),
         }},
         upsert=True,
     )
 
     consent_url = consent["redirect"]["consent_url"]
+    if FINEXER_TEMPLATE_DARK and await _user_prefers_dark(user["email"]):
+        dark_id = await _dark_template_id()
+        if dark_id:
+            consent_url = _with_template(consent_url, dark_id)
     return {"auth_url": consent_url, "connection_id": consent_id}
 
 
@@ -109,11 +188,13 @@ async def finexer_callback(
     # Accept both `consent` and `fx_consent` param names
     consent_id = fx_consent or consent
     if not consent_id:
-        raise HTTPException(400, "Missing consent id")
+        return bank_error_response("finexer", "", status_code=400,
+                                   message="That link is missing its connection details. Close this window and try again in Sorted.")
 
     doc = await finexer_consents_col.find_one({"_id": consent_id})
     if not doc:
-        raise HTTPException(404, "Consent not found")
+        return bank_error_response("finexer", "", status_code=404,
+                                   message="We couldn’t find that bank connection. Close this window and try again in Sorted.")
 
     # State verification is mandatory: a missing `state` (ours or the
     # stored one) is rejected exactly like a mismatched one, not skipped.
@@ -122,31 +203,20 @@ async def finexer_callback(
     # through to authorise the consent and trigger a sync.
     stored_state = doc.get("state")
     if not state or not stored_state or not hmac.compare_digest(state, stored_state):
-        raise HTTPException(400, "State mismatch")
+        # A88 semantics unchanged (missing or mismatched state never authorises);
+        # G215: the user sees the hand-off error page, not JSON.
+        return bank_error_response("finexer", "", status_code=400,
+                                   message="We couldn’t confirm that this connection started in Sorted. Close this window and try again in Sorted.")
 
     if error:
         await finexer_consents_col.update_one(
             {"_id": consent_id},
             {"$set": {"status": "canceled", "canceled_at": datetime.utcnow(), "error": error}},
         )
-        return HTMLResponse("""<!DOCTYPE html>
-<html><head><meta name="viewport" content="width=device-width,initial-scale=1">
-<style>
-  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-       text-align:center;padding:60px 24px;background:#0f172a;color:#e2e8f0;margin:0}
-  .icon{font-size:56px;margin-bottom:16px}
-  h1{color:#f87171;font-size:24px;margin:0 0 12px}
-  p{color:#94a3b8;font-size:15px;line-height:1.6;margin:0 0 32px}
-  .btn{display:inline-block;background:#4f46e5;color:#fff;text-decoration:none;
-       padding:14px 32px;border-radius:14px;font-size:16px;font-weight:600;cursor:pointer;border:none}
-</style></head>
-<body>
-  <div class="icon">&#10007;</div>
-  <h1>Connection cancelled</h1>
-  <p>No accounts were linked.</p>
-  <button class="btn" onclick="window.location.href='/accounts'">Back to app</button>
-</body></html>
-""")
+        if doc.get("native"):
+            return _bank_page(False, "finexer", consent_id, auto_return=False)
+        return RedirectResponse(f"{APP_URL}/accounts?connect=cancelled", status_code=303)
+
 
     await finexer_consents_col.update_one(
         {"_id": consent_id},
@@ -156,32 +226,7 @@ async def finexer_callback(
     user_id = doc["user_id"]
     asyncio.create_task(finexer_sync_pipeline(consent_id, user_id))
 
-    return HTMLResponse("""<!DOCTYPE html>
-<html><head><meta name="viewport" content="width=device-width,initial-scale=1">
-<style>
-  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-       text-align:center;padding:60px 24px;background:#0f172a;color:#e2e8f0;margin:0}
-  .icon{font-size:56px;margin-bottom:16px}
-  h1{color:#34d399;font-size:24px;margin:0 0 12px}
-  p{color:#94a3b8;font-size:15px;line-height:1.6;margin:0 0 32px}
-  .btn{display:inline-block;background:#4f46e5;color:#fff;text-decoration:none;
-       padding:14px 32px;border-radius:14px;font-size:16px;font-weight:600;
-       cursor:pointer;border:none;-webkit-tap-highlight-color:transparent}
-</style></head>
-<body>
-  <div class="icon">&#10003;</div>
-  <h1>Bank connected!</h1>
-  <p>Your account has been linked.<br>Transactions are syncing in the background.</p>
-  <button class="btn" onclick="returnToApp()">Return to app</button>
-  <script>
-    function returnToApp(){window.location.href='wealthdash://auth-complete';}
-    setTimeout(function(){
-      var t=Date.now();
-      window.location.href='wealthdash://auth-complete';
-      setTimeout(function(){
-        if(Date.now()-t<1800){window.location.href='/accounts';}
-      },1500);
-    },800);
-  </script>
-</body></html>
-""")
+    if doc.get("native"):
+        return _bank_page(True, "finexer", consent_id, auto_return=True)
+    return RedirectResponse(f"{APP_URL}/accounts?syncing=1&connection={_urlquote(consent_id, safe='')}", status_code=303)
+

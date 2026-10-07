@@ -48,9 +48,17 @@ FUTURE_DATE = (date.today() + timedelta(days=200)).isoformat()
 
 def _match(doc: dict, query: dict) -> bool:
     for key, cond in query.items():
+        if key == "$and":
+            if not all(_match(doc, part) for part in cond):
+                return False
+            continue
         val = doc.get(key)
-        if isinstance(cond, dict) and "$ne" in cond:
-            if val == cond["$ne"]:
+        if isinstance(cond, dict):
+            if "$exists" in cond and (key in doc) != cond["$exists"]:
+                return False
+            if "$eq" in cond and (key not in doc or val != cond["$eq"]):
+                return False
+            if "$ne" in cond and val == cond["$ne"]:
                 return False
         elif val != cond:
             return False
@@ -162,6 +170,8 @@ def _setup(monkeypatch, *, commitments_docs=None, col=None):
     monkeypatch.setattr(commitments, "savings_goals_col", FakeCol([]))
     monkeypatch.setattr(commitments, "_cashflow", _boom)
     monkeypatch.setattr(commitments, "get_debt_plan_cached", _boom)
+    async def no_cache_invalidate(_): pass
+    monkeypatch.setattr(commitments.response_cache, "ainvalidate", no_cache_invalidate)
     return commitments.commitments_col
 
 

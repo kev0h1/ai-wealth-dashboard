@@ -6,6 +6,8 @@ and preference-cache invalidation without requiring Mongo.
 import asyncio
 from datetime import date, datetime, timedelta, timezone
 
+import pytest
+
 import app.core.timeutil as timeutil
 import app.routers.analytics as analytics
 import app.routers.preferences as preferences
@@ -169,7 +171,22 @@ def test_safe_to_spend_includes_yapily_records_with_authorized_consent(monkeypat
     ]
 
 
-def test_safe_to_spend_returns_lowest_projected_balance_and_reconciles_cash(monkeypatch):
+@pytest.mark.parametrize("today", [
+    date(2026, 9, 30),  # Month-end: the original unpinned test failed here.
+    date(2026, 10, 1),
+    date(2026, 9, 17),
+    date(2026, 9, 19),  # Weekend.
+], ids=["month-end", "month-start", "mid-month", "weekend"])
+def test_safe_to_spend_returns_lowest_projected_balance_and_reconciles_cash(monkeypatch, today):
+    # H102: this fixture means "tomorrow, before payday", not tomorrow
+    # relative to whichever calendar boundary the host happens to be on.
+    # Keep the financial assertions intact and control both clock and window.
+    monkeypatch.setattr(timeutil, "user_today", lambda: today)
+    monkeypatch.setattr(
+        income_service, "get_confirmed_payday",
+        lambda _prefs, _today: (today + timedelta(days=14), {"schedule": "fixed"}),
+    )
+    due_date = (today + timedelta(days=1)).isoformat()
     monkeypatch.setattr(analytics, "preferences_col", _PrefsCol({
         "user_id": "user@example.com", "safe_to_spend_buffer": 10,
     }))
@@ -191,7 +208,7 @@ def test_safe_to_spend_returns_lowest_projected_balance_and_reconciles_cash(monk
                 {
                     "days_away": 1,
                     "amount": 30.0,
-                    "expected_date": "2026-09-18",
+                    "expected_date": due_date,
                     "kind": analytics.MOVEMENT,
                     "card_dest_account_id": "card1",
                 },
@@ -239,12 +256,13 @@ def test_safe_to_spend_returns_lowest_projected_balance_and_reconciles_cash(monk
     # The £30 debit lands before the same-day £50 income, so £70 is the true
     # low point. £70 - £10 buffer - £5 plan - £4 envelope = £51 before cards.
     assert result["lowest_projected_balance"] == 70.0
+    assert result["plans_only_short"] is False  # G218: field always present
     assert result["safe_to_spend_cash"] == 51.0
     assert result["safe_to_spend"] == 51.0
     assert result["card_growth_total"] == 3.0
     assert result["card_growth_reserved"] == 0.0
     assert result["card_growth_wording"] == "cleared_monthly"
-    assert result["card_growth_due_date"] == "2026-09-18"
+    assert result["card_growth_due_date"] == due_date
     assert result["bills_total"] == 30.0
     assert result["pooled_transfers_excluded"] == 40.0
     assert result["calculation_status"] == "complete"
@@ -597,3 +615,71 @@ def test_safe_to_spend_pins_against_a_fixed_transaction_fixture(monkeypatch):
     assert result["state"] == "tight"
     assert result["short_reason"] is None
     assert result["estimated"] is False
+
+
+# ── G218: plans_only_short on the payload ───────────────────────────────
+
+def _sts_with_set_asides(monkeypatch, *, commitments_raise=False, first_sync=None):
+    """Kevin's screenshot: £0 cash, no bills, £50 of plans and £200 of envelopes."""
+    monkeypatch.setattr(analytics, "preferences_col", _PrefsCol({"user_id": "user@example.com"}))
+    monkeypatch.setattr(analytics, "cashflow_cache_col", _CacheDocCol())
+
+    async def cashflow_response(_cached, uid=None):
+        return {"upcoming_bills": [], "upcoming_income": []}
+
+    async def accounts(_uid):
+        return [{"balance": 0.0, "type": "bank", "subtype": "CURRENT", "currency": "GBP"}]
+
+    async def commitments(_uid):
+        if commitments_raise:
+            raise RuntimeError("commitments store unavailable")
+        return 50, 1
+
+    async def allocations(_uid):
+        return 200.0, 2
+
+    async def no_card_growth(_uid, _start, _today, _bills, _excluded=None):
+        return []
+
+    async def monthly_cashflow(_uid, _cutoff):
+        return {"spending": 0.0, "n_months": 3}
+
+    async def no_sync(_uid):
+        return None
+
+    monkeypatch.setattr(analytics, "_build_cashflow_response", cashflow_response)
+    monkeypatch.setattr(analytics, "_safe_to_spend_accounts", accounts)
+    monkeypatch.setattr(commitments_router, "total_reserved_slices", commitments)
+    monkeypatch.setattr(allocations_router, "total_reserved_remaining", allocations)
+    monkeypatch.setattr(net_position, "card_growth_by_card", no_card_growth)
+    monkeypatch.setattr(cashflow_service, "monthly_cashflow_cached", monthly_cashflow)
+    monkeypatch.setattr(analytics, "last_bank_sync", no_sync)
+    if first_sync is not None:
+        async def fake_first_sync(_uid):
+            return first_sync
+        monkeypatch.setattr(analytics, "first_sync_state", fake_first_sync)
+    return asyncio.run(analytics.compute_safe_to_spend("user@example.com"))
+
+
+def test_plans_only_short_true_for_kevins_set_aside_shortfall(monkeypatch):
+    result = _sts_with_set_asides(monkeypatch)
+    assert result["state"] == "short"
+    assert result["safe_to_spend_cash"] == -250.0
+    assert result["lowest_projected_balance"] == 0.0
+    assert result["plans_only_short"] is True
+
+
+def test_plans_only_short_false_when_degraded(monkeypatch):
+    # Without the guard the £200 of envelopes alone would make this True.
+    result = _sts_with_set_asides(monkeypatch, commitments_raise=True)
+    assert result["calculation_status"] == "degraded"
+    assert result["plans_only_short"] is False
+
+
+def test_plans_only_short_false_while_syncing(monkeypatch):
+    result = _sts_with_set_asides(
+        monkeypatch,
+        first_sync={"state": "syncing", "first_sync": True, "connections": []},
+    )
+    assert result["calculation_status"] == "syncing"
+    assert result["plans_only_short"] is False

@@ -1,0 +1,5 @@
+/* Remotion CLI only (the Next Player route gets the app stylesheet from the
+   root layout). Pulls in the app's own global CSS so the production
+   SafeToSpendCard's Tailwind classes, tokens and .money rule resolve exactly
+   as they do in the app. */
+@import "../app/globals.css";
