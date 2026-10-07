@@ -10,7 +10,6 @@
   --s-border: #e2e8f0;
   --s-ink: #0f172a;
   --s-muted: #64748b;
-  --s-focus: rgba(79, 70, 229, 0.35);
   color-scheme: light dark;
 }
 /* A user with no saved Sorted preference follows the phone. */
@@ -27,6 +26,5 @@
     --s-border: #334155;
     --s-ink: #f1f5f9;
     --s-muted: #94a3b8;
-    --s-focus: rgba(129, 140, 248, 0.5);
   }
 }
