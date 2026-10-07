@@ -460,6 +460,11 @@ YAPILY_BASE_URL = os.getenv("YAPILY_BASE_URL", "https://api.yapily.com")
 FINEXER_API_KEY    = os.getenv("FINEXER_API_KEY", "")
 FINEXER_API_URL    = "https://api.finexer.com"
 FINEXER_RETURN_URL = os.getenv("FINEXER_RETURN_URL", "https://wealth.auriqltd.co.uk/auth/finexer/callback")
+# A143: branded consent-page templates. FINEXER_APP_ID is the app id from the
+# Finexer app settings (used by scripts/finexer_template.py and the template
+# check); FINEXER_TEMPLATE_DARK is the 12-char id of the "Sorted dark" template.
+FINEXER_APP_ID          = os.getenv("FINEXER_APP_ID", "")
+FINEXER_TEMPLATE_DARK   = os.getenv("FINEXER_TEMPLATE_DARK", "")
 
 # H19: how long the cached /providers walk (finexer_providers_col, see
 # app/db/collections.py) is trusted before app.services.finexer_sync.

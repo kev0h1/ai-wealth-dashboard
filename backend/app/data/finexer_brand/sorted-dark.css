@@ -1,0 +1,12 @@
+/* Sorted dark token set (DESIGN.md): slate surfaces, hairline borders, no shadows. */
+:root {
+  --s-primary: #6366f1;
+  --s-primary-hover: #4f46e5;
+  --s-canvas: #0f172a;
+  --s-card: #1e293b;
+  --s-border: #334155;
+  --s-ink: #f1f5f9;
+  --s-muted: #94a3b8;
+  --s-focus: rgba(129, 140, 248, 0.5);
+  color-scheme: dark;
+}
