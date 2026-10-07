@@ -342,8 +342,9 @@ export default function PlanningPage() {
   const accountEndMs = upcomingAccountWindow(periodEnd.getTime(), planningNow);
   const plans = cashflow ? assessPlanOverlap(plansFromApi(accountPlans ?? []), cashflow, accountEndMs) : [];
   const sourceIds = new Set(plans.filter((plan) => plan.active && hasPlanSource(plan)).map((plan) => plan.sourceId));
-  const planSources = accounts.filter((account) => sourceIds.has(account.id) && isPlanSourceAccount(account)).map((account) => ({ id: account.id, bank: account.provider, name: account.name, balance: account.balance }));
-  const accountWalk = cashflow ? walkUpcomingAccounts(cashflow, accountEndMs, planSources) : null;
+  const excludedAccountIds = new Set(accounts.filter((account) => account.include_in_safe_to_spend === false).map((account) => account.id));
+  const planSources = accounts.filter((account) => sourceIds.has(account.id) && isPlanSourceAccount(account) && !excludedAccountIds.has(account.id)).map((account) => ({ id: account.id, bank: account.provider, name: account.name, balance: account.balance }));
+  const accountWalk = cashflow ? walkUpcomingAccounts(cashflow, accountEndMs, planSources, excludedAccountIds) : null;
   const accountPeriodLabel = `Payments through ${new Date(accountEndMs).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" })}`;
   const accountSummaries = accountWalk?.accounts ?? [];
   const plansStatus = accountPlansError ? "error" : accountPlans === null ? "loading" : "ready";
