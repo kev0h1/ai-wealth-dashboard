@@ -900,6 +900,32 @@ async def _serialise(
     }
 
 
+async def _attach_sources(uid: str, items: list[dict], docs: list[dict]) -> None:
+    """G230: add source_account_id (explicit or inferred), source_inferred and
+    source_account_name to each serialised plan. Read-only; never persisted.
+    A lookup failure leaves the plan unassigned (pooled-only) rather than
+    failing the list."""
+    from app.services.account_plan_sources import (
+        account_label, owned_account_map, resolve_goal_source,
+    )
+
+    try:
+        account_map = await owned_account_map(uid)
+    except Exception:
+        logger.exception("commitments: plan source lookup failed")
+        account_map = {}
+    for item, doc in zip(items, docs):
+        dest = {str(p["account_id"]) for p in _doc_pots(doc)}
+        source_id, inferred = (None, False)
+        if account_map and doc.get("status", "active") == "active":
+            source_id, inferred = await resolve_goal_source(uid, doc, account_map, dest)
+        item["source_account_id"] = source_id
+        item["source_inferred"] = inferred
+        item["source_account_name"] = (
+            account_label(account_map.get(source_id)) if source_id else None
+        )
+
+
 async def _serialise_all(
     uid: str, docs: list[dict], cfg: dict, fctx: tuple[float, float] | None,
     today: date | None = None, debt_shortfall: float = 0.0,
@@ -911,6 +937,7 @@ async def _serialise_all(
     today = today or timeutil.user_today()
     ledger = await compute_pot_ledger(uid, docs=docs)
     items = [await _serialise(doc, cfg, ledger, today=today) for doc in docs]
+    await _attach_sources(uid, items, docs)
     _apply_joint_feasibility(items, docs, fctx, period_rhythm_label(cfg), debt_shortfall)
     overlap = _pot_account_overlap(docs)
     id_to_name = {str(d["_id"]): str(d.get("name") or "").strip() for d in docs}
@@ -1172,12 +1199,12 @@ async def create_commitment(
         "contributed":  0.0,
         "source":       source,
         "status":       "active",
-        # New records always distinguish an explicit opt-out from a legacy
-        # record which genuinely predates source-account selection.
-        "source_account_id": None,
         "created_at":   datetime.now(timezone.utc),
         "idempotency_key": idempotency_key,
     }
+    # G230: an absent field means "the user has not said", so the paying
+    # account may be inferred from recent transfers on read. Only an explicit
+    # null (the "Not set" choice) is a persisted opt-out.
     if "source_account_id" in body:
         sources = await owned_account_map(uid)
         doc["source_account_id"] = validate_source_account(

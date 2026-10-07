@@ -5,6 +5,7 @@ participate in allocation reserves or commitment feasibility calculations.
 """
 from __future__ import annotations
 
+import logging
 import math
 from copy import deepcopy
 
@@ -16,6 +17,8 @@ from app.services.account_kinds import (
     is_current_account,
     is_savings_account,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def source_link_snapshot(doc: dict, *fields: str) -> dict:
@@ -126,6 +129,16 @@ def validate_source_account(
         raise HTTPException(400, "source_account_id must be an account id or null")
     aid = raw.strip()
     doc = account_map.get(aid)
+    # G230: static 422s (no ids or names echoed) for the two cases a user can
+    # reach from the picker only through a stale screen.
+    if doc is not None and (
+        is_credit_card_account(doc) or doc.get("account_type") == "credit_card"
+    ):
+        raise HTTPException(422, "A card cannot pay a plan.")
+    if doc is not None and doc.get("include_in_safe_to_spend") is False:
+        raise HTTPException(
+            422, "This account is not counted towards Safe to Spend, so it cannot pay a plan.",
+        )
     if aid in destination_ids or doc is None or not _is_eligible(
         doc, manual=bool(doc.get("_account_plan_manual")),
     ):
@@ -153,3 +166,42 @@ def chosen_source(
     ):
         return None, "unknown"
     return aid, "chosen"
+
+
+async def resolve_goal_source(
+    uid: str, doc: dict, account_map: dict[str, dict], destination_ids: set[str],
+) -> tuple[str | None, bool]:
+    """G230: (source_account_id, inferred) for one goal plan.
+
+    An explicit choice wins while the account is still usable and counted.
+    A document with no `source_account_id` field at all (a plan the user
+    never answered "Paid from" for) falls back to the paying account seen in
+    recent transfers into its sink pots, the same pairing set-asides use. A
+    persisted null is the user's explicit "Not set" and is never inferred.
+    The inference is read-only: nothing here writes to the document.
+    """
+    source_id, basis = chosen_source(doc, account_map, destination_ids)
+    if basis == "chosen":
+        if account_map[source_id].get("include_in_safe_to_spend") is False:
+            return None, False
+        return source_id, False
+    if basis != "legacy" and "source_account_id" in doc:
+        return None, False
+    if not destination_ids:
+        return None, False
+    from app.services.companion import infer_plan_source_account
+
+    eligible = {
+        aid: acct for aid, acct in eligible_source_account_map(account_map, destination_ids).items()
+        if acct.get("include_in_safe_to_spend") is not False
+    }
+    try:
+        inferred = await infer_plan_source_account(uid, sorted(destination_ids), eligible)
+        if not inferred:
+            return None, False
+        return validate_source_account(inferred, eligible, destination_ids), True
+    except HTTPException:
+        return None, False
+    except Exception:
+        logger.exception("Could not infer plan source for %s", doc.get("_id"))
+        return None, False

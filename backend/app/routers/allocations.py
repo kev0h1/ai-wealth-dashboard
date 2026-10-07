@@ -107,6 +107,7 @@ from app.services.account_plan_sources import (
     eligible_source_account_map,
     owned_plan_balance,
     owned_account_map,
+    resolve_goal_source,
     source_link_snapshot,
     validate_source_account,
 )
@@ -527,6 +528,8 @@ async def list_account_plans(user: dict = Depends(current_user)):
             "destination_account_ids": [destination_id] if destination_id else [],
             "source_account_id": source_id,
             "source_basis": basis,
+            "inferred": basis == "recent-transfers",
+            "source_account_name": account_label(account_map.get(source_id)) if source_id else None,
             "period_amount": serial.get("period_amount", serial["amount_per_period"]),
             "filled_amount": serial["filled_this_period"],
             "remaining": serial["remaining"],
@@ -563,9 +566,12 @@ async def list_account_plans(user: dict = Depends(current_user)):
     for doc in goal_docs:
         pots = commitments._doc_pots(doc)
         destination_ids = [str(p["account_id"]) for p in pots]
-        source_id, basis = chosen_source(doc, account_map, set(destination_ids))
-        if basis == "legacy":
-            basis = "unknown"  # goals deliberately have no transfer inference
+        # G230: goals infer their paying account from recent transfers into
+        # the sink pot(s), like set-asides; an explicit "Not set" stays pooled.
+        source_id, inferred = await resolve_goal_source(
+            uid, doc, account_map, set(destination_ids),
+        )
+        basis = "recent-transfers" if inferred else ("chosen" if source_id else "unknown")
         slice_info = await commitments._pot_progress_and_slice(doc, cfg, ledger, today)
         labels = [account_label(account_map.get(aid), "Funding account") for aid in destination_ids]
         items.append({
@@ -577,6 +583,8 @@ async def list_account_plans(user: dict = Depends(current_user)):
             "destination_account_ids": destination_ids,
             "source_account_id": source_id,
             "source_basis": basis,
+            "inferred": inferred,
+            "source_account_name": account_label(account_map.get(source_id)) if source_id else None,
             "period_amount": slice_info["per_period_slice"],
             "filled_amount": None,
             "remaining": slice_info["per_period_slice"],

@@ -2816,6 +2816,10 @@ async def _exec_get_goals(uid: str) -> dict:
                 _money(g.get("eased_this_period")) if g.get("eased_this_period") is not None else None
             ),
             "periods_left": g.get("periods_left"),
+            # G230: the current account the contribution leaves, and whether
+            # that is a guess from recent transfers (hedge it) or the user's choice.
+            "paid_from": g.get("source_account_name"),
+            "paid_from_inferred": bool(g.get("source_inferred")) if g.get("source_account_name") else None,
             "on_track": g.get("on_track"),
             "feasibility": g.get("feasibility"),
             "feasibility_note": g.get("feasibility_note"),

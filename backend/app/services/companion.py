@@ -722,6 +722,20 @@ async def _direct_fill_leg_source(
     from app.routers.analytics import _has_affinity
 
     fills = await matching_fills_this_period(uid, fill_account_id, match_type, match_value, start, end)
+    return await _pair_credits_to_source(uid, fill_account_id, fills, start, end, account_map)
+
+
+async def _pair_credits_to_source(
+    uid: str, fill_account_id: str, fills: list[dict], start: date, end: date,
+    account_map: dict[str, dict],
+) -> str | None:
+    """The pairing half of `_direct_fill_leg_source`, split out (G230) so a
+    plan's sink pot can reuse the exact same same-day, exact-amount,
+    name-affinity, fail-closed rule against ANY set of credits landing on
+    it, not just an allocation's rule-matched fills. See the docstring above
+    for the full doctrine; behaviour for allocations is unchanged."""
+    from app.routers.analytics import _has_affinity
+
     if not fills:
         return None
 
@@ -5885,3 +5899,35 @@ async def dismiss_item(uid: str, item_id: str) -> None:
         {"$addToSet": {"ids": item_id}},
         upsert=True,
     )
+
+
+async def infer_plan_source_account(
+    uid: str, sink_account_ids: list[str], account_map: dict[str, dict],
+    *, days: int = 90,
+) -> str | None:
+    """G230: the current account a goal plan is most likely paid from,
+    inferred from recent transfers into its sink pot(s) with the same pairing
+    and modal rule set-asides use. Read-only: the caller must never persist
+    the answer. Offline pots have no transactions, so they contribute nothing.
+    """
+    from app.core import timeutil
+    from datetime import timedelta
+
+    end = timeutil.user_today()
+    start = end - timedelta(days=days)
+    start_dt = datetime(start.year, start.month, start.day)
+    end_dt = datetime(end.year, end.month, end.day, 23, 59, 59)
+    votes: dict[str, int] = {}
+    for aid in sink_account_ids:
+        q = {
+            "user_id": uid, "account_id": aid, "transaction_type": "credit",
+            "date": {"$gte": start_dt, "$lte": end_dt},
+        }
+        proj = {"amount": 1, "merchant_name": 1, "description": 1, "date": 1}
+        credits: list[dict] = []
+        for col in (transactions_col, yapily_transactions_col):
+            credits += await col.find(q, proj).to_list(None)
+        src = await _pair_credits_to_source(uid, aid, credits, start, end, account_map)
+        if src:
+            votes[src] = votes.get(src, 0) + 1
+    return _modal_account(votes)
