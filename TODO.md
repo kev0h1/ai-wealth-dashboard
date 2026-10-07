@@ -1718,6 +1718,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
   - note (2026-10-07, claude): conflict with main; merge origin/main into the branch (do not rebase, it is already pushed) and re-run session.sh finish
   - note (2026-10-07, claude): Coordinator 2026-10-07: refreshed with main, design index conflict only (kept G228 and G229 entries), no other change since the 59ee938c review.
   - note (2026-10-07, claude): approved: Confirmed as shipped (Kevin 2026-10-07), nothing to fold in
+  - note (2026-10-07, claude): Kevin confirmed the By account fold as shipped on 2026-10-07; no second branch. Already on main in integrate commit 67ae3acd. Coordinator: please tick done with --commit 67ae3acd; the in-progress state is only the shape approve leaves behind.
 
 ## H. Repo hygiene
 
