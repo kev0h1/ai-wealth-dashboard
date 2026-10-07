@@ -446,6 +446,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
   - note (2026-10-07, claude): Coordinator 2026-10-07: duplicate of A144 (the developer's own follow-up, same activation steps). Recommend Kevin cancels A145.
   - note (2026-10-07, claude): Coordinator 2026-10-07 correction: A144 was ticked done when its tooling merged (b5dd5074), so A145 is now the live activation item, not a duplicate; ignore the earlier cancel recommendation. Templates on Finexer: Sorted light aYiuDETVBXPq, Sorted dark 8pq22L45Lf9L (default=false). Logos at /brand/sorted-logo-{light,dark,tile}-1024.png on UAT.
 - [ ] **A146. Finexer consent templates per app: key the template state file by app id and sync Sorted light/dark to the sandbox app acc_GA5guMoUxCWpDfSy6ShPbiHZ (production acc_DqPCRpHskkjNy7uYa1wv7mSv already done), document per-environment FINEXER_APP_ID** [owner: claude] [state: in-progress] [branch: feature-A146-finexer-template-per-app]
+  - note (2026-10-07, claude): Sandbox app acc_GA5guMoUxCWpDfSy6ShPbiHZ: NOT synced. Finexer ignores the app id in /apps/{id}/templates: list returns the same two templates (Sorted light aYiuDETVBXPq, Sorted dark 8pq22L45Lf9L, default=false) for the production id, the sandbox id and a bogus id, so the local key sees one account only. Sandbox needs its own API key from Kevin. Env: UAT FINEXER_APP_ID = sandbox, Railway = production; FINEXER_TEMPLATE_DARK per environment. State file now keyed by app id (0e578b6a).
 
 ## B. Penny cost, tiers and billing
 
