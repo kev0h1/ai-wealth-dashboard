@@ -88,4 +88,17 @@ assert.match(sheet, /from "@\/components\/SheetFrame"/, "production SheetFrame")
 const index = readFileSync(new URL("../app/design/page.tsx", import.meta.url), "utf8");
 assert.match(index, /slug: "plan-deferral"/, "design index entry");
 
+// Review fixes: B's departure from G217 is stated, the rounding caveat is visible, labels, capped fixture.
+assert.match(COPY.bBreaks, /G217/);
+assert.match(COPY.bBreaks, /one action/);
+assert.match(client, /COPY\.bBreaks/, "B caption states the single-action departure");
+assert.match(COPY.roundingCaveat, /rounds slices up to £5/);
+assert.match(sheet, /COPY\.roundingCaveat/, "caveat shown in the sheet footnote");
+assert.match(sheet, /Take £5 less off/);
+assert.match(sheet, /Take £5 more off/);
+assert.match(sheet, /aria-valuetext/);
+assert.equal(GOAL.easedUsedCapped, GOAL.maxEasedPer12Months, "capped fixture is at the limit");
+assert.equal(COPY.limits(GOAL.easedUsedCapped).slice(0, 18), "Eased 2 of 2 times");
+assert.match(client, /capped \? GOAL\.easedUsedCapped/, "capped state feeds the sheet");
+
 console.log("g228 plan-deferral: ok");

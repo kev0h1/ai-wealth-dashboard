@@ -14,7 +14,7 @@ const BTN_PRIMARY = "min-h-11 rounded-xl bg-indigo-600 px-4 py-3 text-sm font-se
 const BTN_STEP = "flex size-11 min-h-11 shrink-0 touch-manipulation items-center justify-center rounded-xl border border-slate-300 text-slate-700 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-40 dark:border-slate-600 dark:text-slate-200";
 const BTN_CHIP = "min-h-11 rounded-full border border-slate-300 px-4 text-xs font-semibold text-slate-700 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-slate-600 dark:text-slate-200";
 
-export default function DeferSheet({ covered, onClose, onSaved }: { covered: boolean; onClose(): void; onSaved(reduce: number, keep: "date" | "amount"): void }) {
+export default function DeferSheet({ covered, eased, onClose, onSaved }: { covered: boolean; eased: number; onClose(): void; onSaved(reduce: number, keep: "date" | "amount"): void }) {
   const formId = useId();
   const [reduce, setReduce] = useState(GOAL.gap);
   const [keep, setKeep] = useState<"date" | "amount">("date");
@@ -41,11 +41,11 @@ export default function DeferSheet({ covered, onClose, onSaved }: { covered: boo
           <div>
             <p id="step-label" className="text-sm font-medium text-slate-900 dark:text-slate-100">{COPY.stepLabel}</p>
             <div className="mt-2 flex items-center gap-3" role="group" aria-labelledby="step-label">
-              <button type="button" aria-label="Reduce by £5 less" disabled={reduce <= 0} onClick={() => set(reduce - GOAL.stepPounds)} className={BTN_STEP}><Minus size={16} aria-hidden="true" /></button>
+              <button type="button" aria-label="Take £5 less off" disabled={reduce <= 0} onClick={() => set(reduce - GOAL.stepPounds)} className={BTN_STEP}><Minus size={16} aria-hidden="true" /></button>
               <p className="money min-w-0 flex-1 text-center text-2xl font-semibold text-slate-900 dark:text-white" aria-live="polite">{gbp(reduce)}</p>
-              <button type="button" aria-label="Reduce by £5 more" disabled={reduce >= GOAL.usual} onClick={() => set(reduce + GOAL.stepPounds)} className={BTN_STEP}><Plus size={16} aria-hidden="true" /></button>
+              <button type="button" aria-label="Take £5 more off" disabled={reduce >= GOAL.usual} onClick={() => set(reduce + GOAL.stepPounds)} className={BTN_STEP}><Plus size={16} aria-hidden="true" /></button>
             </div>
-            <input type="range" min={0} max={GOAL.usual} step={GOAL.stepPounds} value={reduce} onChange={(e) => set(Number(e.target.value))} aria-label={COPY.stepLabel} className="mt-3 min-h-11 w-full accent-indigo-600" />
+            <input type="range" min={0} max={GOAL.usual} step={GOAL.stepPounds} value={reduce} onChange={(e) => set(Number(e.target.value))} aria-label={COPY.stepLabel} aria-valuetext={`${gbp(reduce)} off, ${gbp(x.thisPeriod)} planned this period`} className="mt-3 min-h-11 w-full accent-indigo-600" />
             <div className="flex flex-wrap gap-2">
               <button type="button" onClick={() => set(GOAL.gap)} className={BTN_CHIP}>{COPY.coverGap}</button>
               <button type="button" onClick={() => set(GOAL.usual)} className={BTN_CHIP}>{COPY.skip}</button>
@@ -92,7 +92,7 @@ export default function DeferSheet({ covered, onClose, onSaved }: { covered: boo
             </dl>
           </section>
 
-          <p className="text-xs leading-5 text-slate-600 dark:text-slate-400">{COPY.limits} {COPY.noBank}</p>
+          <p className="text-xs leading-5 text-slate-600 dark:text-slate-400">{COPY.limits(eased)} {COPY.noBank} {COPY.roundingCaveat}</p>
           <div className="border-t border-slate-200 pt-3 dark:border-slate-700">
             <p className="text-xs font-medium text-slate-900 dark:text-slate-100">{COPY.auditHeading}</p>
             <p className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-400">{COPY.audit(reduce, keep)}</p>

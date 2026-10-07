@@ -56,7 +56,7 @@ export default function PlanDeferralClient() {
             <h1 className="text-balance text-xl font-bold tracking-[-0.02em] text-slate-950 dark:text-white">{COPY.introTitle}</h1>
             <p className="mt-2 text-pretty text-sm leading-6 text-slate-600 dark:text-slate-300">{COPY.introBody}</p>
             <p className="mt-2 text-xs leading-5 text-slate-500 dark:text-slate-400">
-              Variant {variant.toUpperCase()}: {variant === "a" ? "its own card below the set-aside card" : variant === "b" ? "a third remedy row inside the set-aside card" : "a control on Planning's goal row, Home only points"}. State: {shown}. Preview only, nothing is saved.
+              Variant {variant.toUpperCase()}: {variant === "a" ? "its own card below the set-aside card" : variant === "b" ? "a third remedy row inside the set-aside card" : "a control on Planning's goal row, Home only points"}.{variant === "b" ? ` ${COPY.bBreaks}` : ""} State: {shown}. Preview only, nothing is saved.
             </p>
           </header>
 
@@ -96,7 +96,7 @@ export default function PlanDeferralClient() {
           )}
         </div>
       </main>
-      {sheet && <DeferSheet covered={covered} onClose={() => setSheet(false)} onSaved={() => setLocal("deferred")} />}
+      {sheet && <DeferSheet covered={covered} eased={capped ? GOAL.easedUsedCapped : GOAL.easedUsed} onClose={() => setSheet(false)} onSaved={() => setLocal("deferred")} />}
       <div className="pointer-events-none fixed inset-x-0 z-[70] flex justify-center px-3" style={{ bottom: "calc(env(safe-area-inset-bottom) + 12px)" }}>
         <nav aria-label="Design preview controls" className="pointer-events-auto max-w-[calc(100vw-24px)] rounded-2xl border border-white/15 bg-slate-950/95 p-1.5 shadow-xl">
           <div className="flex flex-wrap items-center justify-center gap-0.5">

@@ -19,7 +19,8 @@ export const GOAL = {
   stepPounds: 5,
   /** Proposed limits. */
   maxEasedPer12Months: 2,
-  easedUsed: 1,
+  easedUsed: 1, // eligible and deferred states; the capped state uses easedUsedCapped
+  easedUsedCapped: 2,
   catchUpCeilingPct: 125,
 };
 
