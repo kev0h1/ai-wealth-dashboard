@@ -29,7 +29,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.core.auth import current_user
 from app.core.config import PRIMARY_EMAIL, mask_email
 from app.core.subscription import get_subscription
-from app.db.collections import llm_usage_col, worker_runs_col, finexer_consents_col
+from app.db.collections import (
+    llm_usage_col, worker_runs_col, finexer_consents_col, orphaned_revocations_col,
+)
 from app.services.finexer_sync import list_providers
 
 router = APIRouter(tags=["admin"])
@@ -251,9 +253,19 @@ async def admin_sync_stats(user: dict = Depends(current_user)):
         "max": max(counts) if counts else 0,
     }
 
+    orphaned_pending = await orphaned_revocations_col.count_documents({})
+
     return {
         "last_reconcile": last_reconcile,
         "finexer_requests": finexer_requests,
+        # A106: markers app.services.retention.disconnect_connection writes
+        # when a Finexer consent revoke fails remotely (a raised exception
+        # or a non-success HTTP status), still pending the nightly
+        # retry_orphaned_revocations sweep. This is the only existing
+        # passive health surface, so a persistently non-zero count here is
+        # what should prompt someone to go and look, rather than a new
+        # alerting channel.
+        "orphaned_revocations": {"pending": orphaned_pending},
     }
 
 
