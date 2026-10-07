@@ -221,7 +221,7 @@ export default function AccountLedgerRow({
             {row.provider} · {accountKindLabel(row.kind)}
           </span>
           {notCounted && (
-            <span data-g231-not-counted className="shrink-0 text-[11px] font-medium text-slate-500 dark:text-slate-400">
+            <span data-g231-not-counted className="-ml-1 shrink-0 text-[11px] font-medium text-slate-500 dark:text-slate-400">
               <span aria-hidden="true">· </span>Not counted
             </span>
           )}
