@@ -32,10 +32,29 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "upcoming-by-account",
+    name: "Upcoming By account, attention first · G229",
+    description:
+      "G229, skill: impeccable · Alignment, not a variant round: the By account card on Upcoming now leads with accounts that need attention (short for payments, then short for plans, then ones to watch) and folds the rest behind one quiet row such as 3 accounts are fine, using the same grid-template-rows fold as Planning's rungs · An honest all-clear line when nothing needs attention · Renders the production card with invented accounts · ?fixture=long|watch|clear|all&mode=light|dark",
+    states: [
+      { label: "Long list, 2 need attention", value: "long" },
+      { label: "One to watch, 5 fine", value: "watch" },
+      { label: "All clear", value: "clear" },
+      { label: "Every account short", value: "all" },
+    ],
+  },
+  {
+    slug: "plan-deferral",
+    name: "Ease a goal plan for one period · G228 · shipped look",
+    description:
+      "G228 (Kevin picked A, 2026-10-07): the production Goal plan card and easing sheet rendered through real props with fixture figures · when cash is short and no safe move covers it, ease a plan for this period only, keeping the date or keeping the amount, with the engine's own figures (rounded up to £5) · no undo, reverting is editing the plan on Planning · set-asides and plans never trade cash · states: eligible (open the sheet), capped, deferred (the one-line result)",
+    states: [{ label: "Eligible", value: "eligible" }, { label: "Capped", value: "capped" }, { label: "Deferred", value: "deferred" }],
+  },
+  {
     slug: "finexer-consent-intro",
     name: "Finexer consent page intro block · G226 · shipped look (A canvas)",
     description:
-      "G226: Approved A, folded in. The shipped Sorted intro (eyebrow, one sentence, hairline) at the top of the Finexer-hosted consent page, rendered from the live header.html and sorted*.css inside a MOCK of Finexer's page built from Kevin's Android screenshots (not a production component) · light and dark · dim headings are Finexer's styling pending A147's effect",
+      "G226 + A151: Approved A, folded in, with the template name AURIQ LTD (Finexer substitutes it into its headline and footer) and a line naming Finexer Ltd as the provider. The shipped Sorted intro (eyebrow, one sentence, Finexer line, hairline) at the top of the Finexer-hosted consent page, rendered from the live header.html and sorted*.css inside a MOCK of Finexer's page built from Kevin's Android screenshots (not a production component) · light and dark · dim headings are Finexer's styling pending A147's effect",
     states: [
       { label: "Dark", value: "dark" },
       { label: "Light", value: "light" },
