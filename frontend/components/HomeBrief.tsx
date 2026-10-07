@@ -1831,12 +1831,12 @@ export function PlanEasingCard({ item, hideNetWorth = false, dismissible, onHome
       ? `Later periods stay about ${later != null ? money(later) : "as they were"} and it should now land in ${target}.`
       : `Later periods are about ${later != null ? money(later) : "a little higher"} and it should still land in ${target}.`;
     return (
-      <div data-plan-easing="deferred" className="flex flex-wrap items-center justify-between gap-x-3 px-1">
+      <div data-plan-easing="deferred" className="px-1">
         <div className="min-w-0 py-1">
           <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{name} is <span className="money">{money(eased)}</span> this period.</p>
           <p className="mt-0.5 text-[12px] leading-5 text-slate-600 dark:text-slate-400">{detail}</p>
         </div>
-        <Link href="/planning" className={`${PLAN_EASING_LINK} -mr-3`}>Edit plan</Link>
+        <Link href="/planning" className={`${PLAN_EASING_LINK} -ml-3`}>Edit plan</Link>
       </div>
     );
   }
