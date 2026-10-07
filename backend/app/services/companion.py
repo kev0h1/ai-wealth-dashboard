@@ -2166,11 +2166,18 @@ async def compute_today_items(
     all_uk_accounts: list[dict] = []
     _acct_proj = {"name": 1, "balance": 1, "current_balance": 1, "available_balance": 1,
                   "subtype": 1, "account_subtype": 1, "type": 1, "provider": 1, "currency": 1,
-                  "nickname": 1, "display_name": 1}
+                  "nickname": 1, "display_name": 1, "include_in_safe_to_spend": 1}
+    # G231: an account the user does not count towards Safe to Spend is
+    # neither a source nor a destination for any suggestion, and its balance
+    # never seeds a walk.
     async for acc in accounts_col.find({"user_id": uid}, _acct_proj):
+        if acc.get("include_in_safe_to_spend") is False:
+            continue
         acc["_str_id"] = str(acc["_id"])
         all_uk_accounts.append(acc)
     async for acc in yapily_accounts_col.find({"user_id": uid}, {**_acct_proj, "institution_id": 1}):
+        if acc.get("include_in_safe_to_spend") is False:
+            continue
         acc["_str_id"] = str(acc["_id"])
         all_uk_accounts.append(acc)
 
@@ -2209,10 +2216,10 @@ async def compute_today_items(
     # now doubles as the manual-transfer tie-break in `_live_class` below.
     offline_accounts: list[dict] = []
     async for _macc in manual_accounts_col.find(
-        {"user_id": uid}, {"name": 1, "balance": 1, "account_type": 1}
+        {"user_id": uid}, {"name": 1, "balance": 1, "account_type": 1, "include_in_safe_to_spend": 1}
     ):
         _macc_type = _macc.get("account_type") or "savings"
-        if _macc_type == "credit_card":
+        if _macc_type == "credit_card" or _macc.get("include_in_safe_to_spend") is False:
             continue
         offline_accounts.append({
             "_id": _macc["_id"],
