@@ -136,7 +136,7 @@ def test_sync_creates_both_with_default_false_from_files(monkeypatch, tmp_path):
         assert form["app_name"] == ["AURIQ LTD"]
         for k, v in expected.items():
             assert form[k] == [v]
-    assert "prefers-color-scheme:dark" in ft.build_payload("light")["css"]
+    assert "prefers-color-scheme" not in ft.build_payload("light")["css"]
     assert "prefers-color-scheme" not in ft.build_payload("dark")["css"]
     assert all(len(ft.build_payload(k)["css"]) <= 2000 for k in ("light", "dark"))
     assert set(ft._load_state("app_1")) == {"light", "dark"}
@@ -153,6 +153,16 @@ def test_sync_updates_in_place_and_never_sends_default(monkeypatch, tmp_path):
     for _, _, body in posts:
         assert "default" not in body.split("&") and "default=" not in body
         assert "file=file_9" in body
+
+
+def test_sync_only_dark_touches_one_template(monkeypatch, tmp_path):
+    monkeypatch.setattr(ft, "STATE_FILE", tmp_path / "state.json")
+    calls = []
+    existing = [{"id": "LIGHT0000001", "name": "Sorted light", "default": True},
+                {"id": "DARK00000001", "name": "Sorted dark", "default": False}]
+    assert ft.main(["--app-id", "app_1", "sync", "--only", "dark"], client=_mock_client(existing, calls)) == 0
+    posts = [c for c in calls if c[0] == "POST"]
+    assert [p[1] for p in posts] == ["/apps/app_1/templates/DARK00000001"]
 
 
 def test_make_default_requires_yes(monkeypatch, capsys):

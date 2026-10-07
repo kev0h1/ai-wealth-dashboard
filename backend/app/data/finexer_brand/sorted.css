@@ -8,11 +8,10 @@
 html, body {
   background: var(--s-canvas);
   color: var(--s-ink);
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family: system-ui, -apple-system, Roboto, sans-serif;
   line-height: 1.5;
 }
 h1, h2, h3, h4 {
-  color: var(--s-ink);
   font-weight: 700;
   line-height: 1.3;
   letter-spacing: -0.01em;
@@ -57,25 +56,31 @@ label, .label, .eyebrow, th {
   color: var(--s-muted);
 }
 /* Heading-like elements stay in full ink, after the muted rule so they win
-   (Kevin 2026-10-07: permission headings were dim in dark). */
-h1, h2, h3, h4, h5, h6, summary, dt, legend, strong,
-[class*="title"], [class*="heading"] {
-  color: var(--s-ink);
+   (Kevin 2026-10-07: permission headings were dim). !important is needed
+   because Finexer's own class rules outrank element selectors. Colour only,
+   never size, case or content. Buttons are deliberately not listed. */
+h1,h2,h3,h4,h5,h6,summary,dt,strong,
+[class*="title"],[class*="heading"],[class*="scope"],
+[class*="permission"],[role=button] {
+  color: var(--s-ink) !important;
+}
+[class*="title"] *, [class*="heading"] *, summary * {
+  color: inherit !important;
 }
 
 /* Regulated footer: colour only, full ink so it clears 7:1 on both themes
    (A151, Client Terms 7.4). Never size, opacity or visibility. */
 footer, footer *, [class*="footer"] {
-  color: var(--s-ink);
+  color: var(--s-ink) !important;
 }
 
-/* Our own intro block (header.html). 16px side gutters because Finexer
-   renders header_html flush to the screen edge. The second line names
-   Finexer as the provider in full ink at the Caption step (Client Terms 5.6, 7.6). */
+/* Our own intro block (header.html, variant A). The second line names Finexer
+   as the provider at the same Body step as the first, Finexer in bold (Client Terms 5.6, 7.6). */
+/* A: canvas-first. No panel, a label-style eyebrow and one sentence, hairline below. 16px side gutters because Finexer renders header_html flush to the screen edge. */
 .si-a { margin: 16px 16px 12px; padding: 0 0 12px; border-bottom: 1px solid var(--s-border); }
 .si-a b { display: block; margin: 0 0 4px; font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--s-muted); }
 .si-a p { margin: 0; font-size: 14px; line-height: 1.5; color: var(--s-ink); }
-.si-a p + p { margin-top: 6px; font-size: 12px; }
+.si-a p + p { margin-top: 6px; }
 
 /* ---- selectors to confirm against the preview ----
    Finexer's class names are not documented to us. Everything above is

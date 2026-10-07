@@ -188,10 +188,12 @@ def cmd_make_default(c, base, tid, yes):
     _check(c.post(f"{base}/{tid}", data={"default": "true"}), "make-default")
 
 
-def cmd_sync(c, base, app_id, logo_file_id=None):
+def cmd_sync(c, base, app_id, logo_file_id=None, only=None):
     existing = {t.get("name"): t for t in _items(_check(c.get(base), "list"))}
     state = _load_state(app_id)
     for kind, name in TEMPLATES.items():
+        if only and kind != only:
+            continue
         payload = build_payload(kind, logo_file_id)
         if name in existing:
             tid = existing[name]["id"]
@@ -221,6 +223,7 @@ def main(argv=None, client: httpx.Client | None = None) -> int:
     d.add_argument("--yes", action="store_true")
     s = sub.add_parser("sync")
     s.add_argument("--logo-file-id")
+    s.add_argument("--only", choices=sorted(TEMPLATES), help="sync just this template")
     m = sub.add_parser("make-default")
     m.add_argument("id")
     m.add_argument("--yes", action="store_true")
@@ -252,7 +255,7 @@ def main(argv=None, client: httpx.Client | None = None) -> int:
         elif a.cmd == "delete":
             cmd_delete(c, base, app_id, a.id, a.yes)
         elif a.cmd == "sync":
-            cmd_sync(c, base, app_id, a.logo_file_id)
+            cmd_sync(c, base, app_id, a.logo_file_id, a.only)
         elif a.cmd == "make-default":
             cmd_make_default(c, base, a.id, a.yes)
     except SystemExit as e:

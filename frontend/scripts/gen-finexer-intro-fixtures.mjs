@@ -1,5 +1,5 @@
 // Regenerates app/design/finexer-consent-intro/brand.generated.ts from the
-// shipped brand files in backend/app/data/finexer_brand (G226, A151). Run after
+// shipped brand files in backend/app/data/finexer_brand (G226). Run after
 // editing any of them; check:finexer-intro fails if the output is stale.
 import fs from "node:fs";
 import path from "node:path";

@@ -1,12 +1,12 @@
 "use client";
 
-// G226 design round, A151 agent-name correction. This is a MOCK of a third-party page (Finexer's hosted
+// G226 design round. This is a MOCK of a third-party page (Finexer's hosted
 // consent screen), not a production component: the shipped artifact is
 // backend/app/data/finexer_brand/header.html plus CSS synced to Finexer. The
 // shell is rebuilt from Kevin's Android screenshots and rendered in an iframe
-// so the template CSS cannot leak into this page. The header, CSS and app_name
-// are the real files under backend/app/data/finexer_brand and finexer_template.py (via
-// brand.generated.ts), so the visual check cannot drift from what would ship.
+// so the template CSS cannot leak into this page. Each variant's HTML and CSS
+// are the shipped header.html and sorted*.css (via brand.generated.ts), so the
+// visual check cannot drift from what ships.
 
 import { useMemo } from "react";
 import Link from "next/link";
@@ -24,11 +24,11 @@ export default function FinexerConsentIntroClient() {
   return (
     <main className="min-h-screen bg-slate-900 text-slate-100" style={{ colorScheme: "dark" }}>
       <div className="mx-auto max-w-[430px] px-4 pt-4 pb-3">
-        <h1 className="text-lg font-bold">Finexer consent page template (AURIQ LTD agent, Sorted intro)</h1>
+        <h1 className="text-lg font-bold">Sorted intro on the Finexer consent page</h1>
         <p className="mt-1 text-xs text-slate-300">
           A mock of Finexer&apos;s hosted page, built from Kevin&apos;s Android screenshots, not a production component.
-          The shipped artifact is header.html plus CSS synced to Finexer. The headline and footer show the template's app_name, AURIQ LTD, because Finexer substitutes it there; the Sorted identity is the logo and intro. The permission list, buttons and regulated
-          footer are never resized, dimmed or hidden by our CSS. The Light chip shows the light tokens only, while the real light template switches to dark tokens on a phone set to dark. The dim permission headings in Kevin&apos;s screenshots are Finexer&apos;s own styling, handled on A147, not this round.
+          Approved A, folded in. The shipped artifact is header.html plus CSS synced to Finexer. The permission list, buttons and regulated
+          footer are never touched by the intro. The dim permission headings in Kevin&apos;s screenshots are Finexer&apos;s own styling, pending A147&apos;s effect.
         </p>
         <div className="mt-3 flex gap-2" role="group" aria-label="Mode">
           {(["dark", "light"] as const).map((m) => (

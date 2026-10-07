@@ -28,14 +28,14 @@ const SHELL_CSS = `
 .fx footer{margin:32px 16px 0;border-top:1px solid var(--s-ink);padding:12px 0 24px;font-size:12px;line-height:1.6}
 `;
 
+// Finexer substitutes the template's app_name into the headline and the footer.
 export function buildDoc(mode: IntroMode): string {
-  // The light token file carries a prefers-color-scheme block for phones with no
-  // saved preference. The mock picks the mode with its chip, so drop it here.
-  const tokens = BRAND.tokens[mode].replace(/@media \(prefers-color-scheme: dark\)\s*\{[\s\S]*?\}\s*\}/, "");
+  const tokens = BRAND.tokens[mode];
+  const css = BRAND.shared;
+  const html = BRAND.header;
   const perms = PERMISSIONS.map(([h, d]) => `<dt>${h}</dt><dd>${d}</dd>`).join("");
-  // Finexer substitutes the template's app_name into the headline and the footer.
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${tokens}\n${BRAND.shared}\n${SHELL_CSS}</style></head><body class="fx">
-<div data-fx="header">${BRAND.header}</div>
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${tokens}\n${css}\n${SHELL_CSS}</style></head><body class="fx">
+<div data-fx="header">${html}</div>
 <div class="fx-bar"><span>View completion screen</span></div>
 <div class="fx-logo">${MARK}</div>
 <h1>${BRAND.appName} is requesting permission to read:</h1>
