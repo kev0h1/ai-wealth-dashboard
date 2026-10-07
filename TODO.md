@@ -443,6 +443,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
   - note (2026-10-07, claude): Logo files for the Finexer dashboard upload added at 13bd22cb; after integrate they are at https://uat.wealth.auriqltd.co.uk/brand/sorted-logo-light-1024.png , /brand/sorted-logo-dark-1024.png and /brand/sorted-logo-tile-1024.png (SVGs and 512px beside them). Light: slate-600 bars, transparent; dark: slate-300 bars, transparent; tile: midnight rounded square like the app icon.
   - note (2026-10-07, claude): Coordinator review PASS 2026-10-07 on 13bd22cb: CSS minified with a hard 2000-char refusal, header text-only, logo variants added under public/brand (web only) and the brand data dir; runtime unchanged and still inert until the template env vars are set.
 - [ ] **A145. Activate the Sorted-branded Finexer consent page (follow-up to A143, merged 2026-10-07 inert): set FINEXER_APP_ID, upload the logo, run scripts/finexer_template.py sync, tune the CSS against Finexer's previews, send Kevin screenshots, then make-default --yes and set FINEXER_TEMPLATE_DARK only after his approval** [owner: claude] [state: blocked: Waiting on Kevin: Finexer app id (app settings), a logo file id or the Files API page, and whether UAT and production share one Finexer app.]
+  - note (2026-10-07, claude): Coordinator 2026-10-07: duplicate of A144 (the developer's own follow-up, same activation steps). Recommend Kevin cancels A145.
 
 ## B. Penny cost, tiers and billing
 
