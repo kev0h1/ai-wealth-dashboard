@@ -365,7 +365,7 @@ export function BankBadge({
         className={`${sized ? "" : "w-9 h-9 rounded-xl"} flex items-center justify-center text-slate-600 ring-1 ring-black/[0.06] dark:ring-white/[0.12]`}
         style={{ background: brandBg ?? "#e2e8f0", ...(sized ? { width: size, height: size, borderRadius: radius } : {}) }}
       >
-        <Wallet size={size !== undefined ? Math.min(20, size - 8) : 20} />
+        <Wallet size={size !== undefined ? Math.max(8, Math.min(20, size - 8)) : 20} />
       </div>
     );
   }

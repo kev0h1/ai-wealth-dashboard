@@ -37,7 +37,8 @@ const [barOpen] = bar.split("<input");
 assert.ok(barOpen.includes("flex items-center gap-3"), "search and button share one row with a 12px gap");
 const btn = bar.slice(bar.indexOf("<button"));
 assert.ok(btn.includes("min-h-[44px]") && btn.includes("min-w-[44px]"), "Add transaction is a 44px button");
-assert.ok(btn.includes('aria-label="Add transaction"') && btn.includes("Add transaction</span>"), "named Add transaction");
+assert.ok(btn.includes('aria-label="Add transaction"'), "named Add transaction");
+assert.ok(/<span[^>]*>Add<\/span>/.test(btn), "visible Add label at the default render");
 assert.ok(!btn.includes("bg-indigo-"), "outlined secondary, not indigo fill");
 assert.ok(bar.indexOf("<input") < bar.indexOf("<button"), "button sits after the field in the same row");
 assert.ok(bar.includes("mb-5"), "20px before the list");
@@ -47,7 +48,9 @@ assert.ok(!none.includes("Add transaction"), "no add button for a bank account")
 // 4
 const page = read("../app/components/AccountsPage.tsx");
 assert.ok(page.includes("<AccountTransactionsToolbar") && page.includes("<AccountDetailKindLine"), "AccountsPage uses the shared parts");
-assert.ok(!page.includes('<div className="flex justify-end pb-1">\n                  <button\n                    onClick={openAddManualTx}'), "old floating button gone");
+assert.ok(!page.includes("justify-end pb-1"), "old floating button row gone");
+assert.ok(/onAdd=\{isManual \? openAddManualTx : undefined\}/.test(page), "the add control is wired only through the toolbar");
+assert.ok(!page.includes("onClick={openAddManualTx}"), "no inline add control left in AccountsPage");
 for (const f of ["../components/AccountDetailParts.tsx", "../app/design/offline-account/OfflineAccountClient.tsx", "../app/design/offline-account/fixtures.ts"]) {
   const src = read(f).replace(/\/\/.*$/gm, "");
   assert.ok(!src.includes("—"), `${f}: no em dash`);

@@ -70,10 +70,10 @@ export function AccountTransactionsToolbar({
           onClick={onAdd}
           aria-label="Add transaction"
           data-add-transaction
-          className="shrink-0 inline-flex items-center justify-center gap-1.5 min-h-[44px] min-w-[44px] sm:px-4 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 active:scale-95 transition-all text-sm font-semibold"
+          className="shrink-0 inline-flex items-center justify-center gap-1.5 min-h-[44px] min-w-[44px] min-[360px]:px-4 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 active:scale-95 transition-all text-sm font-semibold"
         >
           <Plus size={16} aria-hidden="true" />
-          <span className="hidden sm:inline">Add transaction</span>
+          <span className="hidden min-[360px]:inline">Add</span>
         </button>
       )}
     </div>
