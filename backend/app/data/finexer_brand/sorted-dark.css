@@ -15,3 +15,10 @@
   --s-muted: #cbd5e1;
   color-scheme: dark;
 }
+
+/* EXPERIMENT (G226, temporary, dark template only): force heading-like
+   elements to ink to test whether Finexer's permission headings can be
+   recoloured from template CSS. Colour only. Remove or promote after Kevin
+   checks the dark preview. */
+h1,h2,h3,h4,h5,h6,summary,dt,legend,strong,button:not([type=submit]):not([type=button]),[class*="title"],[class*="heading"],[class*="label"],[class*="scope"],[class*="permission"],[role=button]{color:#f1f5f9!important}
+[class*="title"] *,[class*="heading"] *,summary *{color:inherit!important}

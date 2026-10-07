@@ -155,6 +155,16 @@ def test_sync_updates_in_place_and_never_sends_default(monkeypatch, tmp_path):
         assert "file=file_9" in body
 
 
+def test_sync_only_dark_touches_one_template(monkeypatch, tmp_path):
+    monkeypatch.setattr(ft, "STATE_FILE", tmp_path / "state.json")
+    calls = []
+    existing = [{"id": "LIGHT0000001", "name": "Sorted light", "default": True},
+                {"id": "DARK00000001", "name": "Sorted dark", "default": False}]
+    assert ft.main(["--app-id", "app_1", "sync", "--only", "dark"], client=_mock_client(existing, calls)) == 0
+    posts = [c for c in calls if c[0] == "POST"]
+    assert [p[1] for p in posts] == ["/apps/app_1/templates/DARK00000001"]
+
+
 def test_make_default_requires_yes(monkeypatch, capsys):
     calls = []
     assert ft.main(["--app-id", "app_1", "make-default", "ID"], client=_mock_client([], calls)) == 2
