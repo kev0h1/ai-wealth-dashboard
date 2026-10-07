@@ -55,6 +55,12 @@ input, select, textarea {
 label, .label, .eyebrow, th {
   color: var(--s-muted);
 }
+/* Heading-like elements stay in full ink, after the muted rule so they win
+   (Kevin 2026-10-07: permission headings were dim in dark). */
+h1, h2, h3, h4, h5, h6, summary, dt, legend, strong,
+[class*="title"], [class*="heading"] {
+  color: var(--s-ink);
+}
 
 /* Our own intro block (header.html) */
 .sorted-intro {
