@@ -70,6 +70,21 @@ function listBundledFiles() {
   return readdirSync(banksDir).filter((f) => !f.startsWith(".") && IMAGE_EXT_RE.test(f));
 }
 
+// A148: the Add a Bank picker must keep rendering <img src={...bank.logo...}>
+// through resolveApiAsset (same-origin path against the API base) with the
+// first-letter fallback; a raw remote URL here is blocked by the site CSP.
+{
+  const picker = readFileSync(path.join(frontendRoot, "components", "BankPickerSheet.tsx"), "utf8");
+  const problems = [];
+  if (!/<img[^>]*src=\{resolveApiAsset\(bank\.logo\)\}/s.test(picker)) problems.push("<img src={resolveApiAsset(bank.logo)}> not found");
+  if (!/bank\.name\[0\]/.test(picker)) problems.push("first-letter fallback (bank.name[0]) not found");
+  if (problems.length > 0) {
+    console.error("components/BankPickerSheet.tsx logo handling regressed:");
+    for (const m of problems) console.error(`  - ${m}`);
+    process.exit(1);
+  }
+}
+
 const claims = listClaimedLogoFiles();
 const bundled = new Set(listBundledFiles());
 const claimedFiles = new Set(claims.map((c) => c.file));

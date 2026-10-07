@@ -157,6 +157,12 @@ finexer_customers_col  = db["finexer_customers"]
 # FINEXER_PROVIDERS_TTL_HOURS, instead of on every consent sync.
 finexer_providers_col  = db["finexer_providers"]
 
+# A148: one small image per Finexer provider, fetched once from the provider's
+# logo_url (finexer.blob.core.windows.net only) and served same-origin by
+# app.routers.logos so the strict img-src CSP does not block it.
+# `_id` = provider id; `{content_type, data, fetched_at, source_url}`.
+provider_logos_col     = db["provider_logos"]
+
 # Bank-side PENDING transactions (provisional, not yet settled) — a SIBLING
 # collection to `transactions_col`, deliberately never merged into it, so
 # every existing consumer of `transactions_col` (recurring detection,
@@ -510,7 +516,7 @@ ERASURE_MANIFEST = frozenset({
     "money_shape_cache_col", "upcoming_overrides_col", "upcoming_rules_col",
     "webhook_events_col", "excluded_accounts_col", "locks_col",
     "worker_runs_col", "finexer_consents_col", "finexer_customers_col",
-    "finexer_providers_col", "pending_transactions_col", "behaviour_portrait_col",
+    "finexer_providers_col", "provider_logos_col", "pending_transactions_col", "behaviour_portrait_col",
     "needle_history_col", "cycle_story_col", "companion_items_col",
     "planned_expenses_col", "checkpoints_col", "category_intent_col",
     "commitments_col", "allocations_col", "teaching_events_col",

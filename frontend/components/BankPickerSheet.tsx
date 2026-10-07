@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { X, Search, ChevronRight, Loader2 } from "lucide-react";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, resolveApiAsset } from "@/lib/api";
 import { AGENT_DISCLOSURE } from "@/lib/regulatoryCopy";
 import { LEGACY_BANK_SUBTITLE } from "@/lib/legacyBankProvider";
 import { SheetFrame } from "@/components/SheetFrame";
@@ -192,7 +192,7 @@ export default function BankPickerSheet({ onClose, onConnecting, provider = "fin
                     {bank.logo ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
-                        src={bank.logo}
+                        src={resolveApiAsset(bank.logo)}
                         alt={bank.name}
                         className="w-8 h-8 object-contain"
                       />
