@@ -4,7 +4,7 @@
     {
       "pdf": "frontend/public/TERMS.pdf",
       "source": "frontend/content/terms.md",
-      "source_sha256": "d1415f4a9490bfb6934d6f6369cfa98bc57b61beac4236a50a47415a19ff6ccf",
+      "source_sha256": "2ece1ec24e18234ae3ad14bef4809e5a18c3e4348e00f3e86ef24cf4f0c9e428",
       "exported": "2026-10-07",
       "pages": 8,
       "mcp_connector": "off"
@@ -20,7 +20,7 @@
     {
       "pdf": "TERMS.pdf",
       "source": "TERMS.md",
-      "source_sha256": "d010586b415fcca27610238c1f2c4e8bdfe08a707f228bf44f955df860e62adf",
+      "source_sha256": "a6c375ec6695bcdfdc2461c46b14acd7bdc9c88bdb63442c5ae31c614635c9ed",
       "exported": "2026-10-07",
       "pages": 6,
       "mcp_connector": "full-text"
