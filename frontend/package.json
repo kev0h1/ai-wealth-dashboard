@@ -14,6 +14,7 @@
     "check:no-native-dialogs": "node scripts/check-no-native-dialogs.mjs",
     "check:no-native-date-inputs": "node scripts/check-no-native-date-inputs.mjs",
     "check:g217-allocation-card": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g217-allocation-card.test.mjs",
+    "check:finexer-intro": "node scripts/g226-finexer-intro.test.mjs",
     "check:design-index": "node scripts/check-design-index.mjs",
     "check:signin-handoff": "node scripts/check-signin-handoff.mjs",
     "check:g211-ios-pan-guard": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g211-ios-pan-guard.test.mjs",

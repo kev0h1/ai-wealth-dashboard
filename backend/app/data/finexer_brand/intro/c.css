@@ -1,0 +1,4 @@
+/* C: two-line hero on the canvas. Headline step (20px/700) so it stays under Finexer's own title. */
+.si-c { margin: 16px 16px 12px; }
+.si-c h2 { margin: 0 0 4px; font-size: 20px; }
+.si-c p { margin: 0; color: var(--s-muted); }
