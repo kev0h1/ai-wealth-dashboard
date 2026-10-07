@@ -81,14 +81,8 @@ async def revoke_open_banking_consents(uid: str) -> dict:
     revoked, failed = 0, 0
     for consent in consents:
         cid = consent["_id"]
-        try:
-            from app.services.finexer_sync import _client as fx_client
-            async with fx_client() as client:
-                resp = await client.delete(f"/consents/{cid}")
-            if resp.status_code not in (200, 204, 404):
-                raise RuntimeError(f"HTTP {resp.status_code}")
-        except Exception:
-            logger.warning("billing_lifecycle: Finexer revoke failed for a consent of %s", uid, exc_info=True)
+        from app.services.retention import revoke_finexer_consent
+        if await revoke_finexer_consent(uid, cid) is not None:
             failed += 1
             continue
         await finexer_consents_col.update_one(

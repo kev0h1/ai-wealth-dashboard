@@ -149,6 +149,20 @@ worker_runs_col         = db["worker_runs"]
 finexer_consents_col   = db["finexer_consents"]
 finexer_customers_col  = db["finexer_customers"]
 
+# A106: markers for a Finexer consent revoke that failed remotely (either a
+# raised exception, e.g. a timeout/outage, or a non-success HTTP status,
+# e.g. 500/503/429) at the moment app.services.retention.disconnect_connection
+# tried `DELETE /consents/{id}`, written BEFORE the local consent doc is
+# deleted so the retry sweep (app.services.retention.retry_orphaned_revocations)
+# has something to work from. One marker per consent id (`_id == consent_id`,
+# upserted, never one per attempt), keyed additionally by `user_hash` (sha256
+# of the uid, the same scheme as app.core.session_revocation._key) rather
+# than a plain `user_id` field, because app.services.retention.erase_user
+# deletes every `*_col` document matched by `{"user_id": uid}` or
+# `{"_id": uid}` — a marker with a `user_id` field would be deleted by the
+# very account-deletion flow this collection exists to survive.
+orphaned_revocations_col = db["orphaned_revocations"]
+
 # H19: cached result of GET /providers (the full paginated AIS-provider
 # list Finexer supports) — one doc, `_id: "providers"`, holding
 # `{providers: [...], fetched_at, count}`. This is effectively static
@@ -528,6 +542,16 @@ ERASURE_MANIFEST = frozenset({
     "oauth_clients_col", "oauth_codes_col", "oauth_tokens_col",
     "safe_to_spend_history_col", "session_tombstones_col",
     "income_payer_attachments_col",
+    # A106: holds only a sha256 user hash and a consent id, keyed `_id ==
+    # consent_id`, so erase_user's `user_id`/`_id == uid` sweep deliberately
+    # never matches it: a marker must SURVIVE the erasure it was written
+    # during, or the Finexer consent it exists to revoke is orphaned. It is
+    # listed so the manifest guard sees the binding was decided on; markers
+    # are removed by the retry sweep on success, not by erasure. A marker holds
+    # a sha256 of the email and a Finexer consent id, kept under legitimate
+    # interest to complete the revocation, and is deleted after 90 days from
+    # failed_at at the latest (retention._ORPHAN_MAX_AGE), with an error log.
+    "orphaned_revocations_col",
 })
 
 # A99/A101: these five collections lost their `*_col` binding when A98
