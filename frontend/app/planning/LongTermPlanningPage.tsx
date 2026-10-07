@@ -66,7 +66,7 @@ export function GoalRow({ goal, hideValues, onOpen }: { goal: Commitment; hideVa
   const cadence = goal.period_label ? `each pay period (${goal.period_label})` : "a period";
   const detail = hideValues
     ? `£•••• ${cadence} · ${goal.periods_left} left · ${targetMonth(goal.target_date)}`
-    : `${money(goal.per_period_slice)} ${cadence} · ${goal.periods_left} left · ${targetMonth(goal.target_date)}`;
+    : `${money(goal.usual_slice ?? goal.per_period_slice)} ${cadence} · ${goal.periods_left} left · ${targetMonth(goal.target_date)}`;
 
   return (
     <button
@@ -85,6 +85,9 @@ export function GoalRow({ goal, hideValues, onOpen }: { goal: Commitment; hideVa
           <MoneyText text={amount} className="shrink-0 text-xs font-semibold text-slate-800 dark:text-slate-200" />
         </span>
         <MoneyText text={detail} className="mt-0.5 block truncate text-xs text-slate-500 dark:text-slate-400" />
+        {goal.eased_this_period != null && (
+          <MoneyText text={hideValues ? "Eased to £•••• this period" : `Eased to ${money(goal.eased_this_period)} this period`} className="block truncate text-xs text-slate-500 dark:text-slate-400" />
+        )}
         <span
           role="progressbar"
           aria-label={`${goal.name} funding progress`}

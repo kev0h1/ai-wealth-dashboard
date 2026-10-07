@@ -41,6 +41,10 @@ export function hasFundedCoverMove(items: CompanionItem[]): boolean {
  *                                  this period; carries the two equal
  *                                  remedies, move money or reduce the
  *                                  set-aside (AllocationShortfallCard).
+ *   plan_easing     ACTIONABLE    ONLY while eligible: a goal plan the user
+ *     (state          may ease for this period (PlanEasingCard). The
+ *      "eligible")    capped note and the deferred one-liner are
+ *                                  statements, not decisions.
  *   ask             ACTIONABLE    every `ask:*` id is a live question
  *                                  awaiting an answer — the payday
  *                                  confirm/decline pair (AskPaydayCard) or a
@@ -84,6 +88,10 @@ export function isActionableCompanionItem(item: CompanionItem): boolean {
     case "allocation_shortfall":
     case "ask":
       return true;
+    case "plan_easing":
+      // Only the live offer is a decision; the capped note and the deferred
+      // line are statements.
+      return item.plan_easing?.state === "eligible";
     case "rhythm":
       return item.payload?.multiple != null && item.payload.multiple >= 1.5;
     case "celebration":

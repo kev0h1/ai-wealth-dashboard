@@ -45,11 +45,10 @@ const ROUTES: PreviewRoute[] = [
   },
   {
     slug: "plan-deferral",
-    name: "Ease a goal plan for one period · G228 · round 2",
+    name: "Ease a goal plan for one period · G228 · shipped look",
     description:
-      "G228 round 2 (impeccable), after Kevin's feedback: when cash is short, reduce a goal plan's contribution for this period only and let later periods catch up, keeping the date (about £83 each period after this) or keeping £80 (lands one period later) · no undo, reverting is editing the plan on Planning · set-asides and plans never trade cash · A its own card below the payment card · C a control on Planning's goal row, with Home only pointing · production MoveCard and GoalRow render through props; the new card, control and sheet are hand-authored proposals · open the sheet to see the stepper, the choice and the working",
-    variants: [{ label: "A card", value: "a" }, { label: "C Planning control", value: "c" }],
-    states: [{ label: "Eligible", value: "eligible" }, { label: "Capped", value: "capped" }, { label: "Deferred", value: "deferred" }, { label: "Covered by a move", value: "covered" }],
+      "G228 (Kevin picked A, 2026-10-07): the production Goal plan card and easing sheet rendered through real props with fixture figures · when cash is short and no safe move covers it, ease a plan for this period only, keeping the date or keeping the amount, with the engine's own figures (rounded up to £5) · no undo, reverting is editing the plan on Planning · set-asides and plans never trade cash · states: eligible (open the sheet), capped, deferred (the one-line result)",
+    states: [{ label: "Eligible", value: "eligible" }, { label: "Capped", value: "capped" }, { label: "Deferred", value: "deferred" }],
   },
   {
     slug: "finexer-consent-intro",

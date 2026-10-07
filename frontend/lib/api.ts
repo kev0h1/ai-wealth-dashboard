@@ -768,6 +768,18 @@ export type Commitment = {
   remaining: number;
   periods_left: number;
   per_period_slice: number;
+  /** G228: the slice the engine would ask for without an easing. Equals
+   * per_period_slice unless this period has been eased. */
+  usual_slice?: number;
+  /** G228: pounds asked of THIS period after an easing, null when not eased. */
+  eased_this_period?: number | null;
+  eased_mode?: "keep_date" | "keep_amount" | null;
+  /** G228: the slice later periods carry (the engine's own rounding). */
+  later_slice?: number | null;
+  /** G228: periods eased in the rolling 12 months. */
+  eased_count_12m?: number;
+  /** G228: static reason easing is unavailable now, null when it may be used. */
+  ease_blocked_reason?: string | null;
   /** Pay-period rhythm ("monthly", "weekly", "every 2 weeks") backing
    * per_period_slice — null when the user's rhythm is custom/irregular,
    * in which case surfaces should render unqualified ("a period"). */
@@ -1470,9 +1482,56 @@ export type AllocationShortfallData = {
   moves: { amount: number; move_map: MoveMap }[];
 };
 
+/**
+ * G228: payload of a `plan_easing` item (backend/app/services/companion.py
+ * section 6c). A goal plan whose paying account is short this period with no
+ * safe move to cover it. `state` is "eligible" (one action), "capped" (the
+ * reason, no action) or "deferred" (this period is already eased).
+ */
+export type PlanEasingData = {
+  state: "eligible" | "capped" | "deferred";
+  plan: { id: string; name: string };
+  /** Pounds short this period, 0 for a deferred plan. */
+  gap: number;
+  usual_slice: number;
+  /** The most that can come off this period: the whole usual contribution. */
+  max_easing: number;
+  periods_left: number;
+  target_date: string;
+  later_slice: number | null;
+  eased_this_period: number | null;
+  eased_mode: "keep_date" | "keep_amount" | null;
+  eased_count_12m: number;
+  cap_reason: string | null;
+  paying_account_name: string | null;
+};
+
+/** One way of making up an easing, with the engine's own figures. */
+export type PlanEaseOption = {
+  later_slice: number | null;
+  date_moves_periods: number;
+  target_date: string;
+  /** Static refusal copy from the server, null when allowed. */
+  refused: string | null;
+};
+
+/** GET /commitments/{id}/ease-preview: both modes for one contribution. */
+export type PlanEasePreview = {
+  contribution: number;
+  usual_slice: number;
+  /** Pounds still to save before this period's contribution. */
+  remaining: number;
+  /** Pounds still to save once this period's contribution is made. */
+  remaining_after: number;
+  later_periods: number;
+  blocked_reason: string | null;
+  keep_date: PlanEaseOption;
+  keep_amount: PlanEaseOption;
+};
+
 export type CompanionItem = {
   id: string;
-  type: "move" | "rhythm" | "celebration" | "info" | "needle" | "ask" | "cliff" | "trajectory" | "payday_plan" | "intent_pace" | "unfunded_move" | "allocation_shortfall";
+  type: "move" | "rhythm" | "celebration" | "info" | "needle" | "ask" | "cliff" | "trajectory" | "payday_plan" | "intent_pace" | "unfunded_move" | "allocation_shortfall" | "plan_easing";
   headline: string;
   body: string;
   action: CompanionAction | null;
@@ -1497,6 +1556,8 @@ export type CompanionItem = {
   move_map?: MoveMap;
   /** Present when type === "allocation_shortfall". */
   allocation_shortfall?: AllocationShortfallData;
+  /** Present when type === "plan_easing". */
+  plan_easing?: PlanEasingData;
   // `PlanMove[]` when type === "move" (MoveCard's leg list). When type ===
   // "unfunded_move" the backend reuses this SAME field name for an
   // unrelated shape (see UnfundedMoveEntry above, confirmed against
@@ -2967,6 +3028,16 @@ export const api = {
       headers: authHeaders(),
     }).then((r) => toJson<{ penny_agent_consent: null; proposals_cancelled: number }>(r)),
   listCommitments: () => get<{ items: Commitment[] }>("/commitments"),
+  /** G228: the engine's figures for easing a plan to `contribution` pounds this period. Nothing is saved. */
+  previewPlanEase: (id: string, contribution: number) =>
+    get<PlanEasePreview>(`/commitments/${encodeURIComponent(id)}/ease-preview?contribution_pence=${Math.round(contribution * 100)}`),
+  /** G228: ease a plan for the current pay period only. There is no undo; editing the plan is the way back. */
+  easePlan: (id: string, contribution: number, mode: "keep_date" | "keep_amount") =>
+    fetch(`${API_BASE}/commitments/${encodeURIComponent(id)}/ease`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ contribution_pence: Math.round(contribution * 100), mode }),
+    }).then((r) => toJson<Commitment>(r)),
   createCommitment: (body: {
     source_account_id?: string | null;
     name: string;

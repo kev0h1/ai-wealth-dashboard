@@ -4,10 +4,11 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { RefreshCw, AlertTriangle, AlertCircle, TrendingDown, TrendingUp, Minus, CircleDashed, X, ChevronRight, ChevronDown, UserRound, CalendarDays, CreditCard, Check, CheckCircle2, Clock3, ArrowRight, ArrowRightLeft, Circle, PiggyBank } from "lucide-react";
+import { RefreshCw, AlertTriangle, AlertCircle, TrendingDown, TrendingUp, Minus, CircleDashed, X, ChevronRight, ChevronDown, UserRound, CalendarDays, CreditCard, Check, CheckCircle2, Clock3, ArrowRight, ArrowRightLeft, Circle, PiggyBank, CalendarClock } from "lucide-react";
 import type { Account, Allocation, CompanionItem, PlanDest, PlanDestBill, SafeToSpend, UnfundedMoveEntry } from "@/lib/api";
 import type { AllocationEditServices } from "@/components/AllocationEditForm";
 import type { AllocationPeriodReduceServices } from "@/components/AllocationPeriodReduceSheet";
+import type { PlanEasingServices } from "@/components/PlanEasingSheet";
 import { api } from "@/lib/api";
 import { invalidateVerdictCache } from "@/lib/verdictCache";
 import { coverPlanProtectsHeader, coverPlanSummary, type DueRange } from "@/lib/coverPlanDue";
@@ -28,6 +29,7 @@ import { isPlansOnlyShort } from "@/lib/pennyScreenViews";
 import { initialsOf } from "@/lib/displayName";
 
 const AllocationSheet = dynamic(() => import("@/components/AllocationSheet"));
+const PlanEasingSheet = dynamic(() => import("@/components/PlanEasingSheet").then((m) => m.PlanEasingSheet));
 const AllocationPeriodReduceSheet = dynamic(() => import("@/components/AllocationPeriodReduceSheet").then((m) => m.AllocationPeriodReduceSheet));
 
 // Window-scoped local dismiss for the Payday plan ENTRY ROW (the Home-only
@@ -1781,6 +1783,129 @@ export function RhythmCard({ item, router, maskAmounts, onRefresh, previewMode =
   );
 }
 
+// ── G228: goal plan easing card ────────────────────────────────────────────
+// Kevin's pick 2026-10-07: variant A, its own "Goal plan" card below the
+// set-aside card, lighter again than the payment card: no shadow, neutral icon,
+// no Penny pill, never red, amber or a gradient. A plan is a goal the user set,
+// and easing it for one pay period changes the plan, not a bank payment, so the
+// card never offers a move and the item carries no action route. One action,
+// "Ease <plan> this period", opens the sheet. There is no undo: editing the
+// plan on Planning is the way back. A capped plan shows the server's reason and
+// no action; an eased plan shows one quiet line with the new figures and an
+// "Edit plan" link. Set-asides and plans never trade cash.
+export type PlanEasingCardServices = Pick<typeof api, "dismissTodayItem"> & PlanEasingServices;
+
+export interface PlanEasingCardProps {
+  item: CompanionItem;
+  hideNetWorth?: boolean;
+  dismissible?: boolean;
+  onHomeDismiss?: (id: string) => void;
+  onRefresh?: () => void | Promise<void>;
+  /** Injected by design previews; production uses the real api. */
+  services?: PlanEasingCardServices;
+  /** Design previews only: open the sheet on first render. */
+  initialSheetOpen?: boolean;
+}
+
+const PLAN_EASING_ACTION = `${SECONDARY_ACTION} text-center leading-tight`;
+const PLAN_EASING_LINK = "inline-flex min-h-11 shrink-0 touch-manipulation items-center justify-center rounded-lg px-3 text-sm font-semibold text-slate-700 underline underline-offset-4 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-200 [@media(hover:hover)]:hover:bg-slate-100 dark:[@media(hover:hover)]:hover:bg-slate-700";
+
+function planTargetLabel(iso: string) {
+  return new Intl.DateTimeFormat("en-GB", { month: "short", year: "numeric", timeZone: "UTC" }).format(new Date(`${iso.slice(0, 10)}T00:00:00Z`));
+}
+
+export function PlanEasingCard({ item, hideNetWorth = false, dismissible, onHomeDismiss, onRefresh, services = api, initialSheetOpen = false }: PlanEasingCardProps) {
+  const [hidden, setHidden] = useState(false);
+  const [open, setOpen] = useState(initialSheetOpen);
+  const data = item.plan_easing;
+  if (hidden || !data) return null;
+
+  const money = (v: number) => setAsideMoney(v, hideNetWorth);
+  const name = data.plan.name;
+  const target = planTargetLabel(data.target_date);
+
+  function handleDismiss(e: React.MouseEvent) {
+    e.stopPropagation();
+    setHidden(true);
+    if (dismissible && onHomeDismiss) {
+      onHomeDismiss(item.id);
+    } else {
+      services.dismissTodayItem(item.id).catch(() => {
+        /* card already removed locally; the backend will re-surface next run */
+      });
+    }
+  }
+
+  if (data.state === "deferred") {
+    const eased = data.eased_this_period ?? 0;
+    const later = data.later_slice;
+    const detail = data.eased_mode === "keep_amount"
+      ? `Later periods stay about ${later != null ? money(later) : "as they were"} and it should now land in ${target}.`
+      : `Later periods are about ${later != null ? money(later) : "a little higher"} and it should still land in ${target}.`;
+    return (
+      <div data-plan-easing="deferred" className="relative px-1 pr-12">
+        <div className="min-w-0 py-1">
+          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{name} is <span className="money">{money(eased)}</span> this period.</p>
+          <p className="mt-0.5 text-[12px] leading-5 text-slate-600 dark:text-slate-400">{detail}</p>
+        </div>
+        <Link href="/planning" className={`${PLAN_EASING_LINK} -ml-3`}>Edit plan</Link>
+        <DismissChip label={`Dismiss ${name} note`} onClick={handleDismiss} className="absolute top-1 right-0 z-10" />
+      </div>
+    );
+  }
+
+  const capped = data.state === "capped";
+
+  return (
+    <div data-plan-easing={capped ? "capped" : "eligible"} className={`${BRIEF_CARD} !shadow-none p-4`}>
+      <div className="flex items-start gap-3 pr-9">
+        <BriefIcon><CalendarClock size={16} /></BriefIcon>
+        <div className="min-w-0 flex-1">
+          <KindLabel>Goal plan</KindLabel>
+          <p className="mt-1 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-slate-100">
+            {capped ? `Easing is held back for ${name}` : "Cash looks short this period"}
+          </p>
+        </div>
+      </div>
+      <div className="mt-2">
+        {capped ? (
+          <p className="text-[12px] leading-5 text-slate-600 dark:text-slate-400">
+            {data.cap_reason} To stop a plan drifting, further easing is held back for now. Its usual amount or date can be changed on Planning.
+          </p>
+        ) : (
+          <>
+            <p className="text-[12px] leading-5 text-slate-600 dark:text-slate-400">
+              Easing {name} by up to <span className="money">{money(data.max_easing)}</span> for this pay period could help, and the plan catches up later. You choose whether to keep the date or the usual amount.
+            </p>
+            <p className="mt-1 text-[12px] leading-5 text-slate-600 dark:text-slate-400">
+              No other account looks able to spare it. This changes the plan. No money is moved.
+            </p>
+          </>
+        )}
+      </div>
+      {!capped && (
+        <div className="mt-4 grid grid-cols-1 gap-2">
+          <button type="button" onClick={() => setOpen(true)} className={PLAN_EASING_ACTION}>Ease {name} this period</button>
+        </div>
+      )}
+      <DismissChip label={`Dismiss ${name} suggestion`} onClick={handleDismiss} className="absolute top-2 right-2 z-10" />
+      {open && (
+        <PlanEasingSheet
+          planId={data.plan.id}
+          planName={name}
+          usualSlice={data.usual_slice}
+          targetDate={data.target_date}
+          easedCount12m={data.eased_count_12m}
+          suggestedReduce={Math.min(data.max_easing, Math.max(5, Math.ceil(data.gap / 5) * 5))}
+          services={services}
+          onClose={() => setOpen(false)}
+          onSaved={async () => { setOpen(false); await onRefresh?.(); }}
+        />
+      )}
+    </div>
+  );
+}
+
 // ── G217: set-aside (allocation) shortfall card ────────────────────────────
 // Kevin's pick 2026-10-06: variant A, the move card's anatomy but lighter. A
 // set-aside the user chose is not a payment at risk, so: neutral icon, an ink
@@ -2198,7 +2323,9 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth =
   const unfundedMoveItems = items.filter(i => i.type === "unfunded_move");
   // G217: set-aside shortfalls render AFTER every payment move card (below).
   const allocationShortfallItems = items.filter(i => i.type === "allocation_shortfall");
-  const otherItems = items.filter(i => i.type !== "allocation_shortfall" && i.type !== "move" && i.type !== "payday_plan" && i.type !== "celebration" && i.type !== "needle" && i.type !== "ask" && i.type !== "cliff" && i.type !== "trajectory" && i.type !== "rhythm" && i.type !== "intent_pace" && i.type !== "unfunded_move");
+  // G228: a goal plan the user may ease renders after the set-aside card.
+  const planEasingItems = items.filter(i => i.type === "plan_easing");
+  const otherItems = items.filter(i => i.type !== "allocation_shortfall" && i.type !== "plan_easing" && i.type !== "move" && i.type !== "payday_plan" && i.type !== "celebration" && i.type !== "needle" && i.type !== "ask" && i.type !== "cliff" && i.type !== "trajectory" && i.type !== "rhythm" && i.type !== "intent_pace" && i.type !== "unfunded_move");
 
   // Mask £ figures in a string when hideNetWorth is on
   function maskAmounts(text: string): string {
@@ -2301,6 +2428,12 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth =
         {allocationShortfallItems.map(item => (
           <AllocationShortfallCard key={item.id} item={item} hideNetWorth={hideNetWorth} dismissible={dismissible} onHomeDismiss={onHomeDismiss} onRefresh={onRefresh} />
         ))}
+
+        {/* G228: a goal plan that may be eased this period. Ranks below the
+            set-aside card and every payment card. */}
+        {planEasingItems.map(item => (
+          <PlanEasingCard key={item.id} item={item} hideNetWorth={hideNetWorth} dismissible={dismissible} onHomeDismiss={onHomeDismiss} onRefresh={onRefresh} />
+        ))}
     </div>
   );
 }
@@ -2340,7 +2473,8 @@ const CLEARED_TYPE_LABEL: Record<string, string> = {
   needle: "last month's review",
   payday_plan: "your payday plan",
   unfunded_move: "a planned move",
-  allocation_shortfall: "a set-aside"
+  allocation_shortfall: "a set-aside",
+  plan_easing: "a goal plan"
 };
 
 // The "everything's hidden, but not actually done" pointer — see the
