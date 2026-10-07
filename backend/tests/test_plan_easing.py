@@ -415,3 +415,36 @@ def test_eased_plan_shows_the_deferred_line(monkeypatch):
     items = _run_brief(monkeypatch, [_gplan(doc, remaining=30.0)], [_account("cur", 500.0)], [doc])
     p = _card(items)["plan_easing"]
     assert p["state"] == "deferred" and p["eased_this_period"] == 30 and p["usual_slice"] >= 30
+
+
+def test_editing_the_plan_never_buys_a_second_ease_in_the_same_period(monkeypatch):
+    _today(monkeypatch, date(2026, 10, 7))
+    doc = _japan()
+    _setup(monkeypatch, [doc])
+    _ease(doc, 3000)
+    asyncio.run(commitments.update_commitment(str(doc["_id"]), {"amount": 2400}, USER))
+    assert doc["period_eased"]["2026-10-31"]["cleared"] is True
+    with pytest.raises(HTTPException) as exc:
+        _ease(doc, 3000)
+    assert (exc.value.status_code, exc.value.detail) == (422, plan_easing.MSG_ALREADY)
+    assert _preview(doc, 3000)["blocked_reason"] == plan_easing.MSG_ALREADY
+    assert _get(doc)["ease_blocked_reason"] == plan_easing.MSG_ALREADY
+
+
+def test_cleared_entries_count_toward_the_twelve_month_cap(monkeypatch):
+    _today(monkeypatch, date(2026, 12, 9))
+    doc = _japan(period_eased={
+        "2026-09-30": {"contribution_pence": 0, "usual_pence": 8000, "cleared": True},
+        "2026-10-31": {"contribution_pence": 0, "usual_pence": 8000, "cleared": True},
+    })
+    _setup(monkeypatch, [doc])
+    with pytest.raises(HTTPException) as exc:
+        _ease(doc, 3000)
+    assert exc.value.detail == plan_easing.MSG_COUNT
+
+
+def test_preview_reports_remaining_after(monkeypatch):
+    _today(monkeypatch, date(2026, 10, 7))
+    doc = _japan()
+    _setup(monkeypatch, [doc])
+    assert _preview(doc, 3000)["remaining_after"] == 1970.0

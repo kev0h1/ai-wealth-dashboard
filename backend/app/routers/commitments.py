@@ -1594,6 +1594,7 @@ async def preview_ease(commitment_id: str, contribution_pence: int, user: dict =
     options["blocked_reason"] = blocked
     options["later_periods"] = ctx["later_periods"]
     options["remaining"] = info["remaining"]
+    options["remaining_after"] = round(max(0.0, info["remaining"] - pounds), 2)
     return options
 
 
@@ -1650,8 +1651,9 @@ async def ease_commitment(commitment_id: str, body: dict, user: dict = Depends(c
     flt = {"_id": doc["_id"], "user_id": uid, "status": "active"}
     # Compare-and-set against the date and history this decision was made on.
     flt["target_date"] = doc["target_date"]
-    if live_key not in (doc.get("period_eased") or {}):
-        flt[f"period_eased.{live_key}"] = {"$exists": False}
+    # The live key must still be absent: a concurrent ease, or one cleared by an
+    # edit, can never be overwritten by a second ease in the same period.
+    flt[f"period_eased.{live_key}"] = {"$exists": False}
     result = await commitments_col.update_one(flt, update)
     if result.matched_count == 0:
         raise HTTPException(409, "This plan changed while you were editing. Refresh and try again.")

@@ -83,11 +83,13 @@ def history_state(period_eased: dict | None, live_key: str, period_start: date) 
 def period_cap_reason(period_eased: dict | None, live_key: str, period_start: date) -> str | None:
     """Why this plan cannot be eased now, from history alone (None = may be)."""
     h = history_state(period_eased, live_key, period_start)
-    if live_entry(period_eased, live_key):
+    # Any live key, cleared by a plan edit or not, means this period is spent:
+    # editing the plan ends the easing but never buys a second one.
+    if h["live_present"]:
         return MSG_ALREADY
     if h["consecutive"]:
         return MSG_CONSECUTIVE
-    if h["count_12m"] >= MAX_EASED_PERIODS_12M and not h["live_present"]:
+    if h["count_12m"] >= MAX_EASED_PERIODS_12M:
         return MSG_COUNT
     return None
 
