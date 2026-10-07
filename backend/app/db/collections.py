@@ -157,6 +157,12 @@ finexer_customers_col  = db["finexer_customers"]
 # FINEXER_PROVIDERS_TTL_HOURS, instead of on every consent sync.
 finexer_providers_col  = db["finexer_providers"]
 
+# A148: one small image per Finexer provider, fetched once from the provider's
+# logo_url (finexer.blob.core.windows.net only) and served same-origin by
+# app.routers.logos so the strict img-src CSP does not block it.
+# `_id` = provider id; `{content_type, data, fetched_at, source_url}`.
+provider_logos_col     = db["provider_logos"]
+
 # Bank-side PENDING transactions (provisional, not yet settled) — a SIBLING
 # collection to `transactions_col`, deliberately never merged into it, so
 # every existing consumer of `transactions_col` (recurring detection,

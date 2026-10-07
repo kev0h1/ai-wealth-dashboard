@@ -15,6 +15,7 @@ from app.core.auth import current_user
 from app.core.config import APP_URL, FINEXER_API_KEY, FINEXER_APP_ID, FINEXER_TEMPLATE_DARK
 from app.core.signin_handoff import bank_error_response, bank_handoff_html, signin_handoff_csp
 from app.core.subscription import check_connection_limit, check_open_banking_allowed
+from app.routers.logos import provider_logo_path
 from app.db.collections import finexer_consents_col, preferences_col
 from app.services.finexer_sync import (
     list_providers,
@@ -63,6 +64,12 @@ async def finexer_providers(user: dict = Depends(current_user)):
 
     providers = await list_providers()
     if providers:
+        # A148: hand the client a same-origin logo path (resolved against the
+        # API base), never Finexer's remote URL, which the site CSP blocks.
+        providers = [
+            {**p, "logo": provider_logo_path(p.get("id", ""), p.get("logo"))}
+            for p in providers
+        ]
         providers = sorted(providers, key=lambda p: (p.get("name") or "").lower())
         _providers_cache = providers
         _providers_cache_at = now

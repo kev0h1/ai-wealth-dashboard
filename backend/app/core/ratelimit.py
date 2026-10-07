@@ -51,6 +51,11 @@ RULES = [
     # 120/60 gives several times that per minute, enough headroom for
     # scrolling through a few pages or bouncing between screens inside a
     # minute, while still bounding a flood of distinct/unknown domains.
+    # A148: the bank picker opens with ~60+ provider logos at once, so the
+    # same-origin provider route needs more than the merchant-logo budget.
+    # Must precede "/logo/" (first prefix match wins). A miss costs at most one
+    # allow-listed fetch per provider id, then Mongo/LRU.
+    ("/logo/provider/", 300, 60),
     ("/logo/", 120, 60),
     # The auth middleware only calls check_rate_limit() for /auth/, /webhooks/
     # and /logo/ prefixes, so this rule is inert unless /push/test calls
