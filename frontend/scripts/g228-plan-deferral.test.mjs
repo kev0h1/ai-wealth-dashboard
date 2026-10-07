@@ -100,7 +100,7 @@ assert.match(COPY.introBody, /never trade cash/, "intro says set-asides and plan
 assert.match(COPY.editPlan, /Edit plan/);
 assert.match(read("PlanDeferral.tsx"), /href="\/planning"/, "deferred state points to Planning");
 assert.equal(COPY.deferredLine, "Japan is £30 this period.");
-assert.match(COPY.deferredDetail, /about £83, should still land Nov 2028/);
+assert.equal(COPY.deferredDetail, "Later periods are about £83 and it should still land in Nov 2028.");
 assert.match(COPY.roundingCaveat, /rounds slices up to £5/);
 assert.match(sheet, /COPY\.roundingCaveat/, "caveat shown in the sheet footnote");
 assert.match(sheet, /Take £5 less off/);

@@ -29,7 +29,7 @@ export const COPY = {
 
   // Deferred
   deferredLine: `${GOAL.name} is ${gbp(m.thisPeriod)} this period.`,
-  deferredDetail: `Later periods about ${gbp(m.keepDatePer)}, should still land ${GOAL.targetLabel}.`,
+  deferredDetail: `Later periods are about ${gbp(m.keepDatePer)} and it should still land in ${GOAL.targetLabel}.`,
   editPlan: "Edit plan",
 
   // Sheet
