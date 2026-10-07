@@ -13,11 +13,12 @@ Cache layout: backend/.logo_cache/{source}/{domain}.png
   source = "logodev" | "favicon"
 This namespace prevents stale low-res Google files from being served after a
 Logo.dev token is later added to .env."""
+import asyncio
 import logging
 import re
 import time
 from collections import OrderedDict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -136,7 +137,7 @@ _LOGO_TIMEOUT = 5.0
 _LRU_MAX = 128
 _NEG_TTL = 300.0  # seconds a failed fetch is remembered, so a bad logo is not refetched per request
 
-_lru: "OrderedDict[str, tuple[str, bytes]]" = OrderedDict()
+_lru: "OrderedDict[str, tuple[str, bytes, float]]" = OrderedDict()
 _neg: dict[str, float] = {}
 
 _PROVIDER_HEADERS = {
@@ -174,7 +175,7 @@ async def _download_logo(url: str) -> tuple[str, bytes] | None:
     if not _allowed_logo_url(url):
         return None
     try:
-        async with httpx.AsyncClient(timeout=_LOGO_TIMEOUT, follow_redirects=False) as client:
+        async with httpx.AsyncClient(timeout=_LOGO_TIMEOUT, follow_redirects=False, trust_env=False) as client:
             async with client.stream("GET", url) as r:
                 if r.status_code != 200:
                     return None
@@ -197,11 +198,38 @@ async def _download_logo(url: str) -> tuple[str, bytes] | None:
     return ctype, bytes(buf)
 
 
+_LRU_REVALIDATE = 3600.0   # seconds before an LRU hit re-checks source_url / age
+_REFRESH_AFTER = timedelta(days=30)
+_NEG_MAX = 2048
+_LOCKS_MAX = 256
+_locks: dict[str, asyncio.Lock] = {}
+
+
 def _lru_put(provider_id: str, value: tuple[str, bytes]) -> None:
-    _lru[provider_id] = value
+    _lru[provider_id] = (value[0], value[1], time.monotonic() + _LRU_REVALIDATE)
     _lru.move_to_end(provider_id)
     while len(_lru) > _LRU_MAX:
         _lru.popitem(last=False)
+
+
+def _neg_put(provider_id: str) -> None:
+    now = time.monotonic()
+    if len(_neg) >= _NEG_MAX:
+        for k in [k for k, v in _neg.items() if v <= now]:
+            del _neg[k]
+        if len(_neg) >= _NEG_MAX:
+            _neg.clear()
+    _neg[provider_id] = now + _NEG_TTL
+
+
+def _lock_for(provider_id: str) -> asyncio.Lock:
+    lock = _locks.get(provider_id)
+    if lock is None:
+        if len(_locks) >= _LOCKS_MAX:
+            for k in [k for k, v in _locks.items() if not v.locked()]:
+                del _locks[k]
+        lock = _locks[provider_id] = asyncio.Lock()
+    return lock
 
 
 def _provider_response(request: Request, content_type: str, data: bytes) -> Response:
@@ -212,30 +240,65 @@ def _provider_response(request: Request, content_type: str, data: bytes) -> Resp
     return Response(content=data, media_type=content_type, headers=headers)
 
 
+def _aware(dt):
+    if isinstance(dt, datetime) and dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
 async def _load_provider_logo(provider_id: str) -> tuple[str, bytes] | None:
+    if _neg.get(provider_id, 0.0) > time.monotonic():
+        return None
     hit = _lru.get(provider_id)
-    if hit is not None:
+    if hit is not None and hit[2] > time.monotonic():
         _lru.move_to_end(provider_id)
-        return hit
+        return hit[0], hit[1]
+    # Single-flight per id: concurrent cold requests share one fetch.
+    async with _lock_for(provider_id):
+        if _neg.get(provider_id, 0.0) > time.monotonic():
+            return None
+        hit = _lru.get(provider_id)
+        if hit is not None and hit[2] > time.monotonic():
+            return hit[0], hit[1]
+        return await _load_locked(provider_id, hit)
+
+
+async def _load_locked(provider_id: str, lru_hit) -> tuple[str, bytes] | None:
     try:
         doc = await provider_logos_col.find_one({"_id": provider_id})
     except Exception:
         logger.warning("provider logo cache read failed")
         doc = None
+    stale = None
     if doc and doc.get("data") and doc.get("content_type") in _LOGO_TYPES:
-        value = (doc["content_type"], bytes(doc["data"]))
-        _lru_put(provider_id, value)
-        return value
-
-    if _neg.get(provider_id, 0.0) > time.monotonic():
-        return None
+        stale = (doc["content_type"], bytes(doc["data"]))
+    elif lru_hit is not None:
+        stale = (lru_hit[0], lru_hit[1])
 
     # Only ever a provider from OUR list; its logo URL is not caller-supplied.
     provider = next((p for p in await list_providers() if p.get("id") == provider_id), None)
-    fetched = await _download_logo(provider.get("logo") or "") if provider else None
+    if provider is None:
+        _neg_put(provider_id)  # unknown id: do not re-walk providers per request
+        return None
+    current_url = provider.get("logo") or ""
+
+    if stale is not None:
+        fetched_at = _aware((doc or {}).get("fetched_at"))
+        fresh = (
+            (doc or {}).get("source_url") == current_url
+            and isinstance(fetched_at, datetime)
+            and datetime.now(timezone.utc) - fetched_at < _REFRESH_AFTER  # naive-ok: cache age
+        ) if doc else True
+        if fresh:
+            _lru_put(provider_id, stale)
+            return stale
+
+    fetched = await _download_logo(current_url)
     if fetched is None:
-        if provider:
-            _neg[provider_id] = time.monotonic() + _NEG_TTL
+        if stale is not None:  # keep serving the stale copy if a refresh fails
+            _lru_put(provider_id, stale)
+            return stale
+        _neg_put(provider_id)
         return None
     try:
         await provider_logos_col.replace_one(
@@ -245,7 +308,7 @@ async def _load_provider_logo(provider_id: str) -> tuple[str, bytes] | None:
                 "content_type": fetched[0],
                 "data": fetched[1],
                 "fetched_at": datetime.now(timezone.utc),  # naive-ok: persisted cache timestamp, not user-facing
-                "source_url": provider.get("logo"),
+                "source_url": current_url,
             },
             upsert=True,
         )

@@ -214,3 +214,101 @@ def test_provider_list_emits_same_origin_path(monkeypatch):
     assert out[0]["logo"] == ""
     assert out[1]["logo"] == "/logo/provider/b"
     assert all("blob.core.windows.net" not in p["logo"] for p in out)
+
+
+# ── A148 review minors ───────────────────────────────────────────────────────
+
+def test_headers_on_200_and_304(monkeypatch):
+    monkeypatch.setattr(logos.httpx, "AsyncClient", _fake_client(_FakeStreamResp(), []))
+    ok = _get("aib")
+    nm = _get("aib", _req(ok.headers["etag"]))
+    assert ok.status_code == 200 and nm.status_code == 304
+    for r in (ok, nm):
+        assert r.headers["x-content-type-options"] == "nosniff"
+        assert "sandbox" in r.headers["content-security-policy"]
+
+
+def test_content_type_with_parameters_and_svg_accepted(monkeypatch):
+    monkeypatch.setattr(logos.httpx, "AsyncClient",
+                        _fake_client(_FakeStreamResp(ctype="image/png; charset=binary"), []))
+    assert _run(logos._download_logo(GOOD_URL))[0] == "image/png"
+    monkeypatch.setattr(logos.httpx, "AsyncClient",
+                        _fake_client(_FakeStreamResp(ctype="image/svg+xml", body=b"<svg/>"), []))
+    assert _run(logos._download_logo(GOOD_URL)) == ("image/svg+xml", b"<svg/>")
+
+
+def test_trust_env_disabled(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(logos.httpx, "AsyncClient", _fake_client(_FakeStreamResp(), [], seen))
+    _run(logos._download_logo(GOOD_URL))
+    assert seen["trust_env"] is False
+
+
+def test_lru_evicts_at_128():
+    for i in range(logos._LRU_MAX + 5):
+        logos._lru_put(f"p{i}", ("image/png", b"x"))
+    assert len(logos._lru) == 128
+    assert "p0" not in logos._lru and "p132" in logos._lru
+
+
+def test_unknown_id_is_memoed_and_does_not_rewalk_providers(monkeypatch):
+    walks = []
+
+    async def _providers(*a, **k):
+        walks.append(1)
+        return []
+
+    monkeypatch.setattr(logos, "list_providers", _providers)
+    for _ in range(5):
+        assert _get("ghost").status_code == 404
+    assert len(walks) == 1
+
+
+def test_concurrent_cold_requests_fetch_once(monkeypatch):
+    calls = []
+    monkeypatch.setattr(logos.httpx, "AsyncClient", _fake_client(_FakeStreamResp(), calls))
+
+    async def _many():
+        return await asyncio.gather(*[logos.provider_logo("aib", _req()) for _ in range(8)])
+
+    out = _run(_many())
+    assert all(r.status_code == 200 for r in out)
+    assert len(calls) == 1
+
+
+def test_refresh_when_source_url_changes_and_stale_kept_on_failure(monkeypatch, _isolate):
+    calls = []
+    monkeypatch.setattr(logos.httpx, "AsyncClient", _fake_client(_FakeStreamResp(), calls))
+    assert _get("aib").status_code == 200 and len(calls) == 1
+
+    new_url = "https://finexer.blob.core.windows.net/logos/aib-v2.png"
+
+    async def _providers(*a, **k):
+        return [{"id": "aib", "name": "AIB", "logo": new_url}]
+
+    monkeypatch.setattr(logos, "list_providers", _providers)
+    logos._lru.clear()
+    new_png = b"\x89PNG" + b"y" * 600
+    monkeypatch.setattr(logos.httpx, "AsyncClient", _fake_client(_FakeStreamResp(body=new_png), calls))
+    assert _get("aib").body == new_png
+    assert calls[-1] == new_url and _isolate.docs["aib"]["source_url"] == new_url
+
+    # Provider changes again but the refresh fails: the stored copy keeps serving.
+    async def _providers2(*a, **k):
+        return [{"id": "aib", "name": "AIB", "logo": GOOD_URL}]
+
+    monkeypatch.setattr(logos, "list_providers", _providers2)
+    logos._lru.clear()
+    monkeypatch.setattr(logos.httpx, "AsyncClient", _fake_client(_FakeStreamResp(status=500), calls))
+    assert _get("aib").body == new_png
+
+
+def test_refresh_when_older_than_30_days(monkeypatch, _isolate):
+    from datetime import datetime, timedelta, timezone
+    calls = []
+    monkeypatch.setattr(logos.httpx, "AsyncClient", _fake_client(_FakeStreamResp(), calls))
+    _get("aib")
+    _isolate.docs["aib"]["fetched_at"] = datetime.now(timezone.utc) - timedelta(days=31)
+    logos._lru.clear()
+    _get("aib")
+    assert len(calls) == 2
