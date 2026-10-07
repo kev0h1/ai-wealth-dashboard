@@ -44,7 +44,7 @@ export default function FinexerConsentIntroClient() {
           title="Mock Finexer consent page"
           srcDoc={doc}
           className="block w-full border-0"
-          style={{ height: 1040 }}
+          style={{ height: 1160 }}
         />
       </div>
     </main>
