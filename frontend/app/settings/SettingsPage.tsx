@@ -1220,6 +1220,28 @@ export default function SettingsPage() {
               label="Dark mode"
             />
           </div>
+          {/* G60: PreferencesContext's setDarkMode now reverts and reconciles
+              on a failed save (see lib/preferenceSave.ts); darkMode's error
+              line sits directly under its own row, and G189's showTips row
+              (below) carries its own. H69 added a second wired consumer of
+              this same slot, the board toggle in
+              app/ops/go-live/HeaderHero.tsx, which renders the identical
+              message with the identical pattern when dark_mode fails —
+              PreferencesSaveError's own docstring covers why one slot
+              showing in two places at once is not the conflict the
+              single-slot design guards against. Same ink-plus-amber-dot
+              pattern as notifSaveMsg/childBenefitSaveMsg below, not a whole
+              coloured sentence (DESIGN.md:142). */}
+          {preferencesSaveError?.field === "dark_mode" && (
+            <p
+              role="status"
+              aria-live="polite"
+              className="flex items-start gap-1.5 px-4 pb-3.5 text-xs font-medium text-slate-600 dark:text-slate-300"
+            >
+              <span aria-hidden="true" className="mt-1 size-1.5 shrink-0 rounded-full bg-amber-500 dark:bg-amber-400" />
+              <span>{preferencesSaveError.message}</span>
+            </p>
+          )}
           {/* G189: display preference, distinct from the "Tips and insights
               notifications" push switch further down. Off hides the tip
               lines on Spend and Transactions and the Home tip card. */}
@@ -1235,28 +1257,6 @@ export default function SettingsPage() {
             />
           </div>
           {preferencesSaveError?.field === "show_tips" && (
-            <p
-              role="status"
-              aria-live="polite"
-              className="flex items-start gap-1.5 px-4 pb-3.5 text-xs font-medium text-slate-600 dark:text-slate-300"
-            >
-              <span aria-hidden="true" className="mt-1 size-1.5 shrink-0 rounded-full bg-amber-500 dark:bg-amber-400" />
-              <span>{preferencesSaveError.message}</span>
-            </p>
-          )}
-          {/* G60: PreferencesContext's setDarkMode now reverts and reconciles
-              on a failed save (see lib/preferenceSave.ts); darkMode is the
-              only one of the context's six server-backed fields with a
-              control on THIS page, but H69 added a second wired consumer of
-              this same slot, the board toggle in
-              app/ops/go-live/HeaderHero.tsx, which renders the identical
-              message with the identical pattern when dark_mode fails —
-              PreferencesSaveError's own docstring covers why one slot
-              showing in two places at once is not the conflict the
-              single-slot design guards against. Same ink-plus-amber-dot
-              pattern as notifSaveMsg/childBenefitSaveMsg below, not a whole
-              coloured sentence (DESIGN.md:142). */}
-          {preferencesSaveError?.field === "dark_mode" && (
             <p
               role="status"
               aria-live="polite"
