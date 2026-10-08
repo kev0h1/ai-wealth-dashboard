@@ -46,7 +46,8 @@ function Verdict({ account, plans, plansStatus }: Required<Pick<UpcomingAccountD
 
 export default function UpcomingAccountDetails({ account, periodLabel, plans = [], plansStatus = "ready", onPlan, onEvent, editableEventIds }: UpcomingAccountDetailsProps) {
   const id = useId();
-  const result = accountPlan(account, plansStatus === "ready" ? plans : []);
+  // G238: while plans are loading or failed the sheet says "payments only", so the server position (which includes plans) is withheld too.
+  const result = accountPlan(plansStatus === "ready" ? account : { ...account, position: undefined }, plansStatus === "ready" ? plans : []);
   const hasPlans = result.reservedPence > 0 || result.uncertain;
   const figure = hasPlans ? result.afterPlans : result.afterPayments;
   return <div className="space-y-6 text-slate-950 dark:text-slate-50">
