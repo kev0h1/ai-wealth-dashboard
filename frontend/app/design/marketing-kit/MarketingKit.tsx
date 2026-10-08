@@ -43,7 +43,7 @@ export default function MarketingKit() {
   const file = `${direction}-${feature}-${format}-${theme}.png`;
   return <main className={`${styles.workbench} ${theme === "dark" ? "dark" : ""}`}>
     <div className={styles.shell}>
-      <header className={styles.header}><Link href="/design">Design library</Link><h1>Sorted, out in the world.</h1><p>Marketing kit · C22 · Drafts for review, not approved advertising.</p><p>Two treatments. Seven stories. The real app, with fictional figures.</p></header>
+      <header className={styles.header}><Link href="/design/marketing-kit">New campaign directions</Link><h1>Sorted, out in the world.</h1><p>Product-proof library · C22 · Not the approved campaign creative.</p><p>Earlier A/B treatments, copy and fictional examples retained for reference. The new 3D campaign concepts are separate.</p></header>
       <section aria-label="Artwork controls" className={styles.controls}>
         <label>Story<select aria-label="Story" name="feature" value={feature} onChange={(e) => setFeature(e.target.value as FeatureId)}>{content.features.map((f) => <option value={f.id} key={f.id}>{f.name}</option>)}</select></label>
         <label>Format<select aria-label="Format" name="format" value={format} onChange={(e) => setFormat(e.target.value as Format)}>{Object.entries(content.formats).map(([key, value]) => <option value={key} key={key}>{value.label} · {value.width} × {value.height}</option>)}</select></label>

@@ -1,0 +1,11 @@
+{
+  "ticket": "C22",
+  "concept": "e",
+  "kind": "generated-blank-screen-scene",
+  "tool": "built-in image_gen",
+  "prompt": "Use case: ads-marketing. Create an imaginative premium 3D advertising art asset for Penny, the AI helper inside Sorted, a UK money-planning app. Square 1:1. No text, no drawn app UI.\nThe visual idea is a conversation physically coming out of a phone. A brushed aluminium smartphone floats upright at the centre, surrounded by a dramatic spiral of three thick sculpted speech bubbles and one tiny rounded question-mark sculpture. The bubbles are real volumetric objects, pearlescent white porcelain with thick edges, and one signature rich indigo-to-violet enamel bubble. Soft satisfying materials, gentle bevels, realistic reflected light, not flat icon tiles. A bubble sits in the left foreground and one behind the phone at upper right; the indigo-violet bubble floats above and to the left. The small solid indigo question mark sits to the right. Arrange depths and overlaps so these clearly seem to have lifted out of the phone's screen, but never cover the interior of the screen.\nPhone must be directly front-facing, vertical, parallel sides, no perspective or rotation so we can composite the exact real app afterwards. Occupies approximately x=31% to 69%, y=10% to 90%. The entire screen is blank #0f172a, slim dark bezel, rounded corners, tiny camera pill. No internal text, glyphs or buttons.\nScene: light cool slate seamless cyclorama #e9edf5, soft studio sun from upper left, warm silver edges, satin shadows on the floor, a discreet violet bounce light only from Penny's enamel bubble. Dramatic large scale objects and meticulous tactile product rendering, not an AI neon/glowing orb look. Use the broad light scene to contrast the dark phone. NO neon, coins, robots, faces, hands, currency, shields, padlocks, brains, sparkles, arrows, invented logos or lettering. No text or watermark anywhere. This is an authored advertising sculpture, confident, friendly, modern and memorable.",
+  "synthetic": true,
+  "approved": false,
+  "status": "creative-direction-review",
+  "note": "No generated UI or figures. The campaign composites real production components in the browser."
+}

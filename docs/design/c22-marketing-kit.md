@@ -3,7 +3,25 @@
 Mode: Persuade for campaign exports; Operate for the private review workbench.
 Audience: UK people who worry about money until payday. Continue the G222 and G223 campaign world, not a new brand. All examples are fictional. No paid publication or store submission is authorised by this item.
 
-## Direction contract
+## Campaign rework, 8 October 2026
+
+Kevin rejected the gallery-led creative approach: this must feel like advertising, with 3D phones, physical icons and app elements coming out of the screen. Impeccable, frontend-design and built-in image generation guide this round. The brand system remains Sorted's; this is a campaign extension, not a replacement app identity. Three coded campaign concepts are proposed before a full asset rollout. Earlier A/B exports remain supporting product-proof material, not approved campaign creative.
+
+THESIS: Make a money question tangible. Generated 3D stages earn attention; unchanged production components supply the answer.
+
+OWN-WORLD: Figtree heavy display and regular supporting copy; JetBrains Mono for money. Mist #f0f2f7, ink #0f172a, white #ffffff, indigo #4f46e5. Grocery teal and coffee orange belong to their objects. Violet is Penny only. Material depth is rendered advertising artwork, not a change to app card shadows.
+
+STORY: C brings everyday objects out around a phone and asks what fits; D turns the calendar into a physical path to payday; E turns Penny's conversation into sculpted speech. Each includes a real fixture-driven screen, not AI-invented interface lettering.
+
+FIRST VIEWPORT: The chosen poster leads at full available width, not a grid of screenshot thumbnails. Real-life has bold stacked copy over a bright object burst; payday has a dark calendar landscape; Penny uses a large conversational headline and pearlescent speech forms. Quiet adjacent controls switch C/D/E and feed/story framing. Copy, disclosure and an exact-size view remain available.
+
+FORM: Kevin pinned a 3D advertising direction. No random identity seed and no global DESIGN.md rewrite. Coded compositional probes combine generated blank-screen scene assets with real rendered UI. Signature: physical props carry the money question while the authentic app stays readable. No autoplay or decorative motion in this selection round. Launcher remains unavailable; manual direction/provenance and independent review replace its tooling.
+
+FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
+
+This round seeks a creative choice. Do not regenerate all seven feature families or imply the new 3D films are finished before that choice.
+
+## Earlier product-proof round (reference)
 
 THESIS: See the room before payday, then the evidence behind it. Actual Sorted components carry the proof, never decorative dashboard replicas.
 

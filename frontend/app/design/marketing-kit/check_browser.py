@@ -47,7 +47,7 @@ with sync_playwright() as p:
         page = context.new_page()
         page.on("pageerror", lambda error: errors.append(error.stack or str(error)))
         page.on("requestfailed", request_failed)
-        page.goto(BASE + f"?theme={theme}", wait_until="networkidle")
+        page.goto(BASE + f"?library=1&theme={theme}", wait_until="networkidle")
         page.evaluate("document.fonts.ready")
         page.add_style_tag(content="nextjs-portal{display:none!important}")
         assert page.get_by_role("heading", name="Sorted, out in the world.").is_visible()
