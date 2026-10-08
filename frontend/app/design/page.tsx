@@ -32,6 +32,13 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "bank-consent-journeys",
+    name: "Bank connection journeys · A155 · round 3",
+    description: "New design-only journeys after A to F: G bank first, H one continuous page, I the notice at Finexer consent (needs Finexer approval). Full required wording, interactive Back and change-bank paths, fixture banks and a simulated provider handoff. Production is unchanged.",
+    states: [{ label: "Start", value: "start" }, { label: "No results", value: "noresults" }, { label: "Handoff problem", value: "error" }],
+    variants: [{ label: "G · Bank first", value: "g" }, { label: "H · One continuous page", value: "h" }, { label: "I · Notice at consent", value: "i" }],
+  },
+  {
     slug: "plan-source-account",
     name: "Edit plan, Paid from · G230",
     description:
