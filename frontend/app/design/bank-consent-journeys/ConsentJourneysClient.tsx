@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useSearchParams } from "next/navigation";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import UpcomingFlowSheet from "@/components/UpcomingFlowSheet";
@@ -10,6 +10,9 @@ import HostedConsentPreview from "./HostedConsentPreview";
 import { BankChooser, ChosenBank, ConnectionNotice, ContinueAction, DIRECTIONS, primary, quiet, type Journey } from "./journeyParts";
 
 type View = "choose" | "review" | "continuous" | "provider" | "end" | "error";
+const subscribeToOrigin = () => () => {};
+const getOrigin = () => window.location.origin;
+const getServerOrigin = () => null;
 
 function JourneyFlow({ variant, banks, mode, initialState, onClose }: {
   variant: Journey; banks: Bank[]; mode: "light" | "dark"; initialState: string; onClose(): void;
@@ -76,9 +79,8 @@ export default function ConsentJourneysClient() {
   const initialVariant = DIRECTIONS.find(direction => direction.id === search.get("variant"))?.id ?? null;
   const [variant, setVariant] = useState<Journey | null>(initialVariant);
   const [mode, setMode] = useState<"light" | "dark">(search.get("mode") === "dark" ? "dark" : "light");
-  const [origin, setOrigin] = useState<string | null>(null);
+  const origin = useSyncExternalStore(subscribeToOrigin, getOrigin, getServerOrigin);
   const [initialState, setInitialState] = useState(search.get("state") ?? "start");
-  useEffect(() => { setOrigin(window.location.origin); }, []);
   useEffect(() => {
     const wasDark = document.documentElement.classList.contains("dark");
     const previousScheme = document.documentElement.style.colorScheme;

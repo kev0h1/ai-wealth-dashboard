@@ -117,6 +117,9 @@ report that limitation rather than claiming an on-device test.
   new journey/render checks, design index and no-live-data checks pass. The
   no-live-data check reports only its eight pre-existing warnings outside this
   route; these previews make no provider or connection requests.
+- New-route ESLint also passes. A post-review origin-initialisation change uses
+  the same hydration-safe snapshot pattern as the shared sheet. The independent
+  reviewer checked that exact non-visual delta and retained the ship disposition.
 - Browser matrix passed at 390 x 844 and 1280 x 900 in both themes, plus
   320 x 640 light. Sixty captures cover selection, reading, provider illustration,
   its bottom controls, empty search, end boundary, landing and simulated error.
