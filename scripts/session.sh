@@ -155,6 +155,22 @@ err() { echo "[session] error: $*" >&2; }
 warn() { echo "[session] warning: $*" >&2; }
 note() { echo "[session] note: $*" >&2; }
 
+# H95/H99: refuse to start something heavy when the host is short of memory.
+# This VPS has 12GB and no swap; the backend suite needs about 1GB and the
+# frontend checks (tsc) more, and the OOM killer takes whole sessions with
+# it. $1 = worktree (uses its copy of scripts/host_memory.py and venv),
+# $2 = what is about to run, $3 = MB required (default 1500). host_memory.py
+# prints the "refusing to run X: N MB available, need M MB" reason itself.
+require_memory() {
+  local worktree="$1" what="$2" need="${3:-1500}"
+  if ! "$worktree/backend/.venv/bin/python" "$worktree/scripts/host_memory.py" --require "$need" >/dev/null 2>"/tmp/.session-mem.$$"; then
+    sed "s/^error: refusing to run this step/error: refusing to run $what/" "/tmp/.session-mem.$$" >&2
+    rm -f "/tmp/.session-mem.$$"
+    return 1
+  fi
+  rm -f "/tmp/.session-mem.$$"
+}
+
 # H83: `finish` used to run a hand-maintained list of `npm run -s
 # check:*` calls, one line per check, that drifted from
 # frontend/package.json's own `check:*` scripts every time a new one was
@@ -992,6 +1008,8 @@ cmd_finish() {
     echo "$untracked"
   fi
 
+  require_memory "$worktree_dir" "the backend suite" 1500 || exit 1
+
   log "running backend tests in $worktree_dir/backend..."
   # H90: explicit MONGO_DB alongside conftest.py's own default (belt
   # and suspenders -- conftest.py's `os.environ.setdefault` already picks
@@ -1022,6 +1040,8 @@ cmd_finish() {
 
   log "checking no new naive local-clock date call in $worktree_dir/backend/app..."
   (cd "$worktree_dir" && "$worktree_dir/backend/.venv/bin/python" scripts/check_naive_dates.py)
+
+  require_memory "$worktree_dir" "the frontend checks" 1500 || exit 1
 
   log "running frontend typecheck in $worktree_dir/frontend..."
   (cd "$worktree_dir/frontend" && npx tsc --noEmit -p .)
