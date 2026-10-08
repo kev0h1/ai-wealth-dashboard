@@ -535,11 +535,13 @@ read-only):
   rows with `count: len(rows)`, so any "total at X" was a sum of a truncated
   list). `get_goals` gained a server-derived `remaining`, so "how much more do
   I need" is a lookup.
-- **Token cost.** The tool catalogue is part of the cached prefix (about
-  18,200 prompt tokens per round, 17,700 cached), so the larger `calculate`
-  schema (about 440 tokens) and the prompt edits (about 160) cost cache-write
-  once per prefix change and roughly 0.5 per cent extra on every cached round
-  afterwards. Measured per-question cost and the eval are in the audit.
+- **Token cost.** The tool catalogue is part of the cached prefix. Measured
+  on the live eval, the prefix grew from 18,087 to 18,411 prompt tokens per
+  round (+324 tokens, +1.8%), almost all of it cached (17,993 cached): the
+  `calculate` schema now has an `inputs` object and three more parameters
+  (though it is shorter in characters), plus the two prompt-rule edits. That
+  is a one-off cache write per prefix change and about +1% cost on a warm
+  cached round. Measured per-question cost and the eval are in the audit.
 - **Eval.** `backend/tests/penny_arithmetic_corpus.py` is the shared corpus;
   `tests/test_penny_calculator_corpus.py` is the deterministic half (100%
   bar) and routes each row through the B38 fake-model harness;
