@@ -54,6 +54,11 @@ let failures = [];
 // must leave that cache alone.
 const ALLOWED_UNREACHABLE = [
   [
+    "lib/nativeAuth.ts",
+    "clearRelayClaim",
+    "pre-auth Apple Hide My Email claim token (D9), held in memory for a refused sign-in only; not account-derived, and cleared by the login screen itself when the user leaves the claim step.",
+  ],
+  [
     "lib/onboardingGate.ts",
     "clearOnboarded",
     "per-user 'has completed onboarding' marker (D12), not account- or transaction-derived data; it is cleared only on account deletion, because an ordinary account mutation clearing it would send an existing user back through onboarding.",
