@@ -32,6 +32,14 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "marketing-kit",
+    name: "Sorted marketing kit · C22",
+    description: "Drafts for review: seven feature stories using production components and fictional figures. A answer first and B the question, light/dark store and social artwork, listing copy, landing sections, three feature films, overview and editorial App Store preview. Nothing approved for publication.",
+    states: [{ label: "Light", value: "light" }, { label: "Dark", value: "dark" }],
+    variants: [{ label: "A · Answer first", value: "a" }, { label: "B · The question", value: "b" }],
+    group: "current",
+  },
+  {
     slug: "accounts-header",
     name: "Accounts header, eye and Add · G236",
     description:

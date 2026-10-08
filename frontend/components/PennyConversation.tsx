@@ -222,7 +222,7 @@ type ExplainerMsg = {
  * comment, "PER-SCREEN THREADS"), so a plain `useState` inside
  * ProposalConfirmCard would forget a successful confirm the moment the user
  * navigated away and back to this screen's Penny thread. */
-type ProposalMsg = {
+export type ProposalMsg = {
   id: number;
   role: "assistant";
   kind: "proposal";
@@ -236,7 +236,7 @@ type ProposalMsg = {
 /** The one-time gate before Penny can act on the user's behalf at all (set
  * up envelopes/goals/one-offs), as opposed to only answering. Same
  * status-on-the-message reasoning as ProposalMsg above. */
-type ConsentMsg = {
+export type ConsentMsg = {
   id: number;
   role: "assistant";
   kind: "consent";
@@ -691,7 +691,7 @@ function ScenarioConfirmCard({
  * cancelProposal, which check-and-flip `status` synchronously via
  * `bucketsRef` before the network call even starts), not here — this
  * component only reflects `status`, it never owns it. */
-function ProposalConfirmCard({
+export function ProposalConfirmCard({
   msg,
   onConfirm,
   onCancel,
@@ -803,7 +803,7 @@ function ProposalConfirmCard({
  * wearing it must be a place the user can get advice" — this is that
  * surface). Decline is quiet text, same weight as Cancel above; declining
  * costs nothing and risks nothing. */
-function ConsentCard({
+export function ConsentCard({
   msg,
   onAccept,
   onDecline,
