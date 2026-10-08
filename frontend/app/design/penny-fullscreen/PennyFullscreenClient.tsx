@@ -104,7 +104,7 @@ function PreviewWindow({ open, onClose, variant, seed }: { open: boolean; onClos
           </ul>
           <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">Example history for this preview.</p>
         </section>}
-        {empty && variant === "c" && <p data-penny-fs-secondary className="pt-2 text-sm text-slate-600 dark:text-slate-300">Ask a question below, or pick a prompt.</p>}
+        {empty && variant === "c" && <p className="pt-2 text-sm text-slate-600 dark:text-slate-300">Ask a question below, or pick a prompt.</p>}
         {messages.map(turn => <div key={turn.id} className={turn.role === "user" ? "ml-8 break-words rounded-2xl bg-indigo-50 px-3 py-2 text-slate-900 dark:bg-indigo-950 dark:text-slate-100" : "mr-4 break-words text-slate-700 dark:text-slate-200"}>
           <span className="sr-only">{turn.role === "user" ? "You" : "Penny"}: </span>{turn.text}
         </div>)}

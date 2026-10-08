@@ -93,6 +93,9 @@ export const PENNY_PANEL_CSS = `
   .penny-fs-underlay { position: fixed; inset: 0; z-index: 57; background: var(--background); pointer-events: none; }
   .penny-fs-frame, .penny-fs-frame.penny-keyboard-typing { top: var(--penny-fs-top, 0px); bottom: 0; left: 0; right: 0; padding: 0; }
   .penny-fs-frame.penny-keyboard-typing { bottom: var(--penny-typing-bottom, 0px); }
+  /* Out-specify the landscape resting rule (0,3,0) so landscape is flush to the
+     bottom edge too; the panel's own safe-area padding is the only inset. */
+  .penny-keyboard-frame.penny-fs-frame[data-penny-device="landscape"]:not(.penny-keyboard-typing) { bottom: 0; }
   .penny-fs-frame .penny-keyboard-panel {
     height: 100%; min-height: 0; max-height: none; max-width: 100%;
     border: 0; border-radius: 0; box-shadow: none;
@@ -101,7 +104,7 @@ export const PENNY_PANEL_CSS = `
     padding-inline: max(0px, env(safe-area-inset-left, 0px)) max(0px, env(safe-area-inset-right, 0px));
   }
   .penny-fs-frame.penny-keyboard-typing .penny-keyboard-panel { padding-bottom: 0; }
-  .penny-fs-frame[data-penny-device="landscape"] .penny-keyboard-panel { height: 100%; max-height: none; }
+  .penny-keyboard-frame.penny-fs-frame[data-penny-device="landscape"] .penny-keyboard-panel { height: 100%; max-height: none; min-height: 0; }
   /* Variant-owned starter content (empty-state chips, history, prompt stack)
      yields to the conversation once the keyboard is up. */
   .penny-fs-frame.penny-keyboard-typing [data-penny-fs-secondary] { display: none; }
