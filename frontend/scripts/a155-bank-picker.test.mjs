@@ -20,6 +20,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { BankPickerBody, pickerDescription, pickerFooter } from "../components/BankPickerSheet.tsx";
 import { AGENT_DISCLOSURE } from "../lib/regulatoryCopy.ts";
 import { fixtureBanks, VARIANTS } from "../app/design/bank-picker/fixtures.ts";
+import { PopularBody, IndexBody, IntroBody, ChooserBody, NoResults, RAIL_GROUPS, POPULAR_IDS } from "../app/design/bank-picker/proposals.tsx";
 
 const h = React.createElement;
 const read = rel => readFileSync(new URL(rel, import.meta.url), "utf8");
@@ -113,11 +114,83 @@ assert.match(src, /description=\{pickerDescription\(provider, disclosurePlacemen
 assert.match(src, /\{AGENT_DISCLOSURE\}/, "picker still renders AGENT_DISCLOSURE");
 
 // 5. Source strings: no dashes or exclamation marks in what we wrote
-for (const rel of ["../app/design/bank-picker/BankPickerClient.tsx", "../app/design/bank-picker/fixtures.ts"]) {
+for (const rel of ["../app/design/bank-picker/BankPickerClient.tsx", "../app/design/bank-picker/fixtures.ts", "../app/design/bank-picker/proposals.tsx"]) {
   const t = read(rel);
   assert.ok(!/[—–]/.test(t), `${rel}: no em or en dash`);
   assert.ok(!/(["'`>])[^"'`<\n]*[A-Za-z]!(?=\s|["'`<])/.test(t), `${rel}: no exclamation marks in strings`);
 }
 assert.ok(!/[—–]/.test(src), "BankPickerSheet: no em or en dash");
+
+// ---- Round 2 proposals (D popular first, E index rail, F two-step page) ----
+// Hand-authored layouts in proposals.tsx; the production sheet above is untouched.
+const searchRef = { current: null };
+const common = { banks, query: "", setQuery: noop, inputRef: searchRef, onPick: noop };
+const mk = (C, over = {}) => renderToStaticMarkup(h(C, { ...common, ...over }));
+const proposals = {
+  d: q => mk(PopularBody, { query: q }),
+  e: q => mk(IndexBody, { query: q }),
+  f1: () => renderToStaticMarkup(h(IntroBody)),
+  f2: q => mk(ChooserBody, { query: q }),
+};
+const classesOf = html => [...html.matchAll(/class="([^"]*)"/g)].map(x => x[1]);
+for (const [name, fn] of Object.entries(proposals)) {
+  for (const q of ["", "bank", "zzq"]) {
+    const html = fn(q);
+    const t = text(html);
+    // the sentence is verbatim, in full, in the default markup (no tap, not hidden, not collapsed)
+    assert.ok(t.includes(SENTENCE), `${name}/${q || "empty"}: sentence verbatim and visible by default`);
+    assert.ok(!/ hidden=""|aria-expanded|<details|<dialog|display:\s*none/.test(html), `${name}: nothing collapsed or hidden in the default markup`);
+    assert.ok(!/[—–]|!/.test(t), `${name}: no em dash, en dash or exclamation mark in rendered text`);
+    // 12px floor everywhere
+    for (const cls of classesOf(html)) assert.ok(!/text-\[(?:[0-9]|1[01])px\]/.test(cls), `${name}: no text class under 12px (${cls})`);
+    // the sentence carrier is text-xs and never clamped
+    const m = html.match(/<p[^>]*class="([^"]*)"[^>]*>AURIQ LTD is acting/) ?? html.match(/<p[^>]*data-agent-disclosure[^>]*class="([^"]*)"/);
+    assert.ok(m, `${name}: found the sentence carrier`);
+    assert.match(m[1], /\btext-xs\b/, `${name}: sentence at the 12px Caption step`);
+    assert.ok(!/\b(?:line-clamp-\d+|truncate|overflow-hidden)\b|(?:^|\s)max-h-/.test(m[1]), `${name}: sentence never clamped (${m[1]})`);
+    assert.ok(!/text-(?:slate-(?:400|500)|red|amber)/.test(m[1]), `${name}: sentence ink is AA slate-600/300, no red or amber`);
+  }
+}
+// Search is a fixed 44px in every state and sticky, in D, E and F step two.
+for (const name of ["d", "e", "f2"]) {
+  const empty = proposals[name](""), typed = proposals[name]("bank");
+  assert.equal(field(empty), field(typed), `${name}: field classes identical empty versus typing`);
+  assert.match(field(typed), /\bh-11\b/, `${name}: field is a fixed 44px`);
+  assert.ok(!/\bflex\b|\bpy-|\bmin-h/.test(field(typed)), `${name}: field cannot be stretched by a taller child`);
+  assert.match(input(typed), /\bh-11\b.*\btext-base\b/, `${name}: input is 44px and 16px (no iOS zoom)`);
+  assert.ok(!/aria-label="Clear search"/.test(empty), `${name}: no clear button when empty`);
+  const clear = typed.match(/<button[^>]*aria-label="Clear search"[^>]*class="([^"]*)"/)?.[1] ?? typed.match(/<button[^>]*class="([^"]*)"[^>]*aria-label="Clear search"/)?.[1];
+  assert.match(clear, /\babsolute\b.*\bsize-11\b/, `${name}: clear button absolute, 44px`);
+  assert.match(empty, /data-bank-search="sticky"[^>]*class="[^"]*\bsticky top-0\b[^"]*\bborder-b\b[^"]*\bbg-white\b[^"]*\bdark:bg-slate-900\b/, `${name}: sticky, hairline, paints the sheet surface`);
+}
+// 44px targets: tiles, rows, rail, close controls, primary button
+const d = proposals.d("");
+for (const btn of [...d.matchAll(/<button[^>]*class="([^"]*)"[^>]*>/g)].map(x => x[1])) assert.match(btn, /\b(?:min-h-(?:14|24)|size-11|h-11)\b/, `d: button is 44px or more (${btn})`);
+assert.equal([...d.matchAll(/aria-label="Choose /g)].length, POPULAR_IDS.length + banks.length, "d: six popular tiles plus the full list");
+assert.match(d, /How this connection works/, "d: the strip is titled");
+assert.ok(d.indexOf(SENTENCE) < d.indexOf('data-bank-search="sticky"'), "d: the sentence strip sits above search");
+assert.ok(!proposals.d("bank").includes(">Popular<"), "d: typing replaces Popular with matching banks");
+const e = proposals.e("");
+assert.equal([...e.matchAll(/aria-label="Jump to banks [A-Z] to [A-Z]"/g)].length, RAIL_GROUPS.length, "e: six rail groups");
+for (const btn of [...e.matchAll(/<button[^>]*class="([^"]*)"[^>]*>/g)].map(x => x[1])) assert.match(btn, /\b(?:min-h-14|h-11)\b/, `e: rail and rows are 44px or more (${btn})`);
+assert.match(e, /\bw-11\b/, "e: rail is 44px wide");
+assert.ok(e.indexOf('data-bank-search="sticky"') < e.indexOf(SENTENCE) && e.indexOf(SENTENCE) < e.indexOf("pk-idx-A"), "e: search, then the notice as the opening row, then the list");
+assert.ok(!proposals.e("bank").includes("Jump to banks"), "e: the rail is hidden while typing");
+assert.match(e, /Provided by Finexer LTD/, "e: names Finexer");
+const f1 = proposals.f1();
+assert.ok(f1.includes("925695") && /Choose your bank|Connect your bank/.test(f1), "f: step one carries the FCA reference through the sentence");
+assert.ok(!f1.includes("aria-hidden=\"true\" hidden"), "f: step one nothing hidden");
+// the no-results copy
+assert.ok(text(renderToStaticMarkup(h(NoResults))).includes("No banks found"), "no-results copy");
+assert.ok(text(proposals.d("zzq")).includes("No banks found") && text(proposals.e("zzq")).includes("No banks found") && text(proposals.f2("zzq")).includes("No banks found"), "no results in d, e and f");
+// F shell source: full-screen, primary action, 44px header controls, no motion on load
+const prop = read("../app/design/bank-picker/proposals.tsx");
+assert.match(prop, /fixed inset-0 z-50 flex h-dvh flex-col/, "f: full-screen shell");
+assert.match(prop, /min-h-12 w-full rounded-xl bg-indigo-600/, "f: one primary Choose your bank button");
+assert.ok(!/\banimate-|\btransition|@keyframes|motion\//.test(prop), "proposals: no motion on load");
+assert.ok(!/gradient|violet|bg-red|text-red|amber/.test(prop.replace(/\/\/.*$/gm, "")), "proposals: no gradient, no red, no amber");
+// the production component is not touched by round 2
+assert.ok(!/proposals/.test(src), "BankPickerSheet does not import the proposals");
+assert.ok(VARIANTS.filter(v => v.kind === "proposal").map(v => v.value).join() === "d,e,f", "d, e, f are the proposal variants");
 
 console.log("a155-bank-picker OK");
