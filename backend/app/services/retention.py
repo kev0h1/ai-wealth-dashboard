@@ -348,16 +348,16 @@ _REVOKED_STATUSES = frozenset({"canceled", "cancelled", "revoked"})
 
 
 def _consent_is_revoked(body) -> bool:
-    """True only when a Finexer consent object shows it is cancelled: a
-    revoked-style `status`, or an existing revoked/cancelled timestamp."""
+    """True only when a Finexer consent object shows it is cancelled.
+    Rule: when the body HAS a `status` field, success is only status in
+    canceled/cancelled/revoked (a status of authorized is never success, even
+    alongside a timestamp). The revoked_at/cancelled_at/canceled_at timestamp
+    is consulted ONLY when the body carries no status field at all."""
     if not isinstance(body, dict):
         return False
-    status = body.get("status")
-    if isinstance(status, str) and status.strip().lower() in _REVOKED_STATUSES:
-        return True
-    # SPECULATIVE: the documented shape is status "canceled". The timestamp
-    # fallback below (success even if status still says authorized) is
-    # defensive only; confirm the real field names on the first real revoke.
+    if "status" in body:
+        status = body.get("status")
+        return isinstance(status, str) and status.strip().lower() in _REVOKED_STATUSES
     return bool(body.get("revoked_at") or body.get("cancelled_at") or body.get("canceled_at"))
 
 

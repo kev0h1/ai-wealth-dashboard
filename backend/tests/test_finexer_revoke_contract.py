@@ -97,10 +97,18 @@ def test_2xx_canceled_is_success_and_marks_local_revoked(monkeypatch, body):
     assert markers.docs == {}
 
 
-def test_2xx_with_existing_cancelled_timestamp_is_success(monkeypatch):
-    client = ContractClient(_Resp(200, {"status": "authorized", "canceled_at": "2026-10-08T10:00:00Z"}))
+def test_2xx_no_status_but_canceled_timestamp_is_success(monkeypatch):
+    """The ONLY timestamp fallback case: the body carries no status at all."""
+    client = ContractClient(_Resp(200, {"canceled_at": "2026-10-08T10:00:00Z"}))
     err, _, markers = _run(monkeypatch, client)
     assert err is None and markers.docs == {}
+
+
+def test_2xx_authorized_with_canceled_timestamp_is_not_success(monkeypatch):
+    client = ContractClient(_Resp(200, {"status": "authorized", "canceled_at": "2026-10-08T10:00:00Z"}))
+    err, consents, markers = _run(monkeypatch, client)
+    assert err == "not_canceled" and markers.docs[CID]["last_error"] == "not_canceled"
+    assert consents.docs[CID]["status"] == "authorized"
 
 
 def test_2xx_still_authorized_is_failure_with_not_canceled_marker(monkeypatch):
