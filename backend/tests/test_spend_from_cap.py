@@ -148,11 +148,20 @@ def test_excluded_account_never_appears(monkeypatch):
 def test_no_penny_surface_quotes_account_headroom():
     """Penny tools, chips, can_i and affordability read the pooled figure
     only; the capped per-account figure is reached solely through the
-    /today account_eligibility payload."""
+    /today account_eligibility payload. A missing path fails, not skips."""
     import pathlib
+    import re
     root = pathlib.Path(companion_service.__file__).parent.parent
+    strict = re.compile(r"account_eligibility|_account_headroom|spend_from")
+    bare = re.compile(r"headroom")
+    # Bare "headroom" is allowed only as prose, a comment, or the pooled-figure
+    # chip (`_headroom_chip(free)` / `headroom = _headroom_chip(...)`).
+    allowed_bare = ("#", "_headroom_chip", "if headroom", "chips.append(headroom)", "see your own headroom", "negative headroom")
     for rel in ("services/penny_tools.py", "services/penny_chips.py", "routers/can_i.py", "services/affordability.py"):
         path = root / rel
-        if path.exists():
-            text = path.read_text()
-            assert "spend_from_headroom" not in text and "account_headroom_raw" not in text, rel
+        assert path.exists(), f"{rel} is gone; update this guard"
+        for n, line in enumerate(path.read_text().splitlines(), 1):
+            assert not strict.search(line), f"{rel}:{n}: {line.strip()}"
+            if bare.search(line):
+                stripped = line.strip()
+                assert stripped.startswith(("#", '"', "'")) or any(a in line for a in allowed_bare), f"{rel}:{n}: {stripped}"
