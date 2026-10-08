@@ -2660,6 +2660,45 @@ async def compute_today_items(
                 "headroom": _headroom,
                 "spend_from_headroom": _headroom,
             }
+        # G238: the ONE per-account "after payments and plans" figure (the
+        # same one Upcoming's account sheet shows). `spend_from_headroom` is
+        # re-based on it: Home's Spend from = min(this, pooled Safe to Spend,
+        # applied in `cap_spend_from_to_pool`), hidden when uncertain. The
+        # standing `headroom` above stays the move finder's figure unchanged.
+        try:
+            from app.services.account_position import compute_account_positions, seed_spend_from
+            _gp_plans = await _load_account_plans(uid, goals=True, strict=True)
+            _gp_credit = {
+                a["_str_id"] for a in all_uk_accounts + offline_accounts if is_credit_card_account(a)
+            }
+            _gp_moves = [
+                b for b in assessable_bills
+                if b.get("kind") == MOVEMENT and not b.get("is_credit_card") and not b.get("pending")
+            ]
+            _gp_closing = {
+                _sid: float(running.get(_sid, live_balances.get(_sid, 0.0)))
+                for _sid in account_eligibility_out
+            }
+            _gp_positions = compute_account_positions(
+                _gp_plans, _gp_closing, movements=_gp_moves, credit_account_ids=_gp_credit,
+            )
+            _gp_failed = False
+        except Exception:
+            log.warning("account position failed for %s", uid, exc_info=True)
+            _gp_positions = {}
+            _gp_failed = True
+        for _sid, _entry in account_eligibility_out.items():
+            _pos = _gp_positions.get(_sid)
+            if _pos is None or _gp_failed:
+                # Fail closed: an unreadable position is never shown as Spend from.
+                _entry.update({
+                    "after_payments": None, "plans_reserved": 0.0,
+                    "after_payments_and_plans": None, "uncertain": True, "estimated": False,
+                    "spend_from_headroom": 0.0,
+                })
+                continue
+            _entry.update(_pos)
+            _entry["spend_from_headroom"] = seed_spend_from(_pos)
 
     # ── Shared source finder (G42, 2026-09-11; fewest-legs G43, 2026-09-11;
     # offline collapsed into its real class G47, 2026-09-13) ──
@@ -3846,7 +3885,8 @@ async def compute_today_items(
             _entry = account_eligibility_out.get(_sid)
             if _entry is None:
                 continue
-            _entry["spend_from_headroom"] = round(_entry["headroom"] - _reserved, 2)
+            if not _entry.get("uncertain"):
+                _entry["spend_from_headroom"] = round(_entry["spend_from_headroom"] - _reserved, 2)
 
     unfunded_move_items: list[dict] = []
     try:
@@ -5916,7 +5956,7 @@ async def _build_plan_easing_items(
     return []
 
 
-async def _load_account_plans(uid: str, *, goals: bool = False) -> list[dict]:
+async def _load_account_plans(uid: str, *, goals: bool = False, strict: bool = False) -> list[dict]:
     """G217 seam: the same plan rows the account sheet reads (`GET /account-plans`).
 
     Gated on an active allocation existing, so users without set-asides pay
@@ -5931,6 +5971,9 @@ async def _load_account_plans(uid: str, *, goals: bool = False) -> list[dict]:
         from app.routers.allocations import list_account_plans
         return list((await list_account_plans({"email": uid})).get("items") or [])
     except Exception:
+        if strict:
+            # G238: Spend from must not fall back to a plan-less figure.
+            raise
         log.warning("allocation shortfall: account plans unavailable for %s", uid, exc_info=True)
         return []
 
