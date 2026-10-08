@@ -151,6 +151,7 @@ const ROUTES: PreviewRoute[] = [
       { label: "Error", value: "error" },
       { label: "Degraded", value: "degraded" },
       { label: "Syncing", value: "syncing" },
+      { label: "Spend from capped (G234)", value: "capped" },
     ],
   },
   {

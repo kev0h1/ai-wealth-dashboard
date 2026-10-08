@@ -6,13 +6,12 @@
 // look: emerald On track, red only for a cash shortfall, amber for a shortfall
 // that exists only because of plans and envelopes, ink for the rest.
 //
-// /design/safe-to-spend-figure?state=on-track|tight|card|short-cash|short-plans|error|degraded|syncing|excluded&mode=light|dark&view=single|strip|compare
+// /design/safe-to-spend-figure?state=on-track|tight|card|short-cash|short-plans|error|degraded|syncing|excluded|capped&mode=light|dark&view=single|strip|compare
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import SafeToSpendCard from "@/components/SafeToSpendCard";
-import { FIXTURES as SPEND_FROM_FIXTURES } from "../g115-spend-from-accounts/fixtures";
-import { FIGURE_DATA, FIGURE_STATES, type FigureState } from "./fixtures";
+import { FIGURE_DATA, FIGURE_STATES, spendFromForPool, type FigureState } from "./fixtures";
 
 type Mode = "light" | "dark";
 type View = "single" | "strip" | "compare";
@@ -20,13 +19,17 @@ type View = "single" | "strip" | "compare";
 const noop = () => {};
 
 function Card({ state }: { state: FigureState }) {
+  // G234: the rail is derived from the state's own headline, the way the
+  // backend caps it, so no state shows a figure above the hero.
+  const data = FIGURE_DATA[state] ?? null;
+  const spendFrom = spendFromForPool(data?.safe_to_spend ?? 0);
   return (
     <SafeToSpendCard
       data={FIGURE_DATA[state] ?? null}
       error={state === "error"}
       loading={false}
       onRetry={noop}
-      spendFrom={SPEND_FROM_FIXTURES.clear.spendFrom}
+      spendFrom={spendFrom}
       previewBalancesVisible
     />
   );

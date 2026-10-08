@@ -475,7 +475,7 @@ export default function SettingsPage() {
     setCoverEligibilityStatus((prev) => (prev === "ready" ? "ready" : "loading"));
     api.getCoverPlan()
       .then((response) => {
-        setCoverPlan(coverPlanView(response.items, response.account_eligibility));
+        setCoverPlan(coverPlanView(response.items, response.account_eligibility ?? undefined));
         setCoverEligibilityStatus("ready");
       })
       .catch(() => {

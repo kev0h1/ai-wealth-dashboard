@@ -120,6 +120,10 @@ def test_today_route_now_returns_the_same_account_eligibility_snapshot(monkeypat
             account_eligibility_out["acc-2"] = {"short": False, "headroom": 40.0}
         return [{"id": "move-1", "type": "move", "headline": "Move £20"}]
 
+    async def _pool(uid):
+        return 100000.0  # G234: the cap never binds in this fixture
+
+    monkeypatch.setattr(companion_router, "_pooled_safe_to_spend", _pool)
     monkeypatch.setattr(companion_router, "compute_today_items", compute)
     spy = _CacheSpy()
     monkeypatch.setattr(companion_router, "response_cache", spy)
@@ -133,8 +137,10 @@ def test_today_route_now_returns_the_same_account_eligibility_snapshot(monkeypat
         "status": "ok",
         "items": [{"id": "move-1", "type": "move", "headline": "Move £20"}],
         "account_eligibility": {
-            "acc-1": {"short": True, "headroom": -2.5},
-            "acc-2": {"short": False, "headroom": 40.0},
+            "acc-1": {"short": True, "headroom": -2.5, "account_headroom_raw": -2.5,
+                      "spend_from_headroom": 0.0, "spend_from_capped": False},
+            "acc-2": {"short": False, "headroom": 40.0, "account_headroom_raw": 40.0,
+                      "spend_from_headroom": 40.0, "spend_from_capped": False},
         },
     }
     # The enriched payload is what actually gets cached, not a stripped copy.
@@ -150,6 +156,10 @@ def test_today_route_payday_preview_still_skips_the_response_cache(monkeypatch):
             account_eligibility_out["acc-1"] = {"short": False, "headroom": 12.0}
         return []
 
+    async def _pool(uid):
+        return 100000.0  # G234: the cap never binds in this fixture
+
+    monkeypatch.setattr(companion_router, "_pooled_safe_to_spend", _pool)
     monkeypatch.setattr(companion_router, "compute_today_items", compute)
     spy = _CacheSpy()
     monkeypatch.setattr(companion_router, "response_cache", spy)
@@ -161,7 +171,10 @@ def test_today_route_payday_preview_still_skips_the_response_cache(monkeypatch):
     assert result == {
         "status": "ok",
         "items": [],
-        "account_eligibility": {"acc-1": {"short": False, "headroom": 12.0}},
+        "account_eligibility": {"acc-1": {
+            "short": False, "headroom": 12.0, "account_headroom_raw": 12.0,
+            "spend_from_headroom": 12.0, "spend_from_capped": False,
+        }},
     }
 
 

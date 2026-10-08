@@ -1,11 +1,12 @@
 """Companion spine — today-engine router."""
+import logging
 from datetime import timedelta
 from fastapi import APIRouter, Depends
 
 from app.core.auth import current_user
 from app.core import timeutil
 from app.services import response_cache
-from app.services.companion import compute_today_items, dismiss_item
+from app.services.companion import cap_spend_from_to_pool, compute_today_items, dismiss_item
 from app.db.collections import needle_history_col, preferences_col
 from app.services.pay_period import get_pay_period_for_date
 from app.services.needle import (
@@ -16,6 +17,7 @@ from app.services.needle import (
 )
 
 router = APIRouter(tags=["companion"])
+log = logging.getLogger(__name__)
 
 
 async def build_today_payload(uid: str, *, payday_preview: bool = False) -> dict:
@@ -54,7 +56,38 @@ async def build_today_payload(uid: str, *, payday_preview: bool = False) -> dict
     items = await compute_today_items(
         uid, payday_preview=payday_preview, account_eligibility_out=account_eligibility,
     )
+    # G234: cap every shown spend-from figure at the pooled Safe to Spend.
+    # If the pool cannot be read, or is still syncing, fail closed to an
+    # absent field (the client says "not available") rather than show
+    # uncapped figures that may exceed the headline.
+    pool = await _pooled_safe_to_spend(uid)
+    if pool is None:
+        log.warning("spend-from cap: pooled Safe to Spend unavailable for %s", uid)
+        return {"status": "ok", "items": items, "account_eligibility": None}
+    cap_spend_from_to_pool(account_eligibility, pool)
     return {"status": "ok", "items": items, "account_eligibility": account_eligibility}
+
+
+async def _pooled_safe_to_spend(uid: str) -> float | None:
+    """The final pooled Safe to Spend (G231 exclusions and G227 plans already
+    applied), or None when it is unknown. A `degraded` result is already
+    clamped to 0 or below by the calculation itself, so it caps to 0."""
+    try:
+        from app.routers.analytics import get_cached_safe_to_spend
+        sts = await get_cached_safe_to_spend(uid)
+    except Exception:
+        return None
+    if not isinstance(sts, dict) or sts.get("status") != "ok":
+        return None
+    if sts.get("calculation_status") == "syncing":
+        return None
+    value = sts.get("safe_to_spend")
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 @router.get("/today")
@@ -75,7 +108,7 @@ async def get_today(payday_preview: int = 0, user: dict = Depends(current_user))
             return cached
         v = await response_cache.snapshot(uid)
     payload = await build_today_payload(uid, payday_preview=preview)
-    if not preview:
+    if not preview and payload.get("account_eligibility") is not None:
         await response_cache.aput("today", uid, payload, version=v)
     return payload
 

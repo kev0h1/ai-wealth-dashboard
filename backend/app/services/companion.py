@@ -1985,6 +1985,35 @@ def trajectory_copy(plan: dict, today: date) -> dict:
     }
 
 
+def cap_spend_from_to_pool(account_eligibility: dict, pooled_safe_to_spend: float | None) -> dict:
+    """G234: THE one place a per-account "Spend from" figure is capped.
+
+    `spend_from_headroom` (seeded and corrected inside `compute_today_items`)
+    deducts only that account's own bills, reserved moves and buffer. The
+    pooled Safe to Spend headline also deducts envelopes and plans, which no
+    account owns yet (G230/G232 will attribute them), so one account's figure
+    could exceed the headline (Safe to Spend 110.36, Barclays 127). Every
+    shown figure is therefore `min(account figure, pooled safe_to_spend)`,
+    floored at 0. A pool of 0 or below shows no figure for any account, so the
+    client lands on its existing "no room" line instead of an empty rail.
+
+    The uncapped figure is kept as `account_headroom_raw` for Penny's
+    explanations; `spend_from_capped` says whether the pool is what bound.
+    `headroom` (the standing cover-plan figure) is left untouched. Mutates and
+    returns `account_eligibility`. `pooled_safe_to_spend` must be the final
+    pooled figure (after G231 exclusions and G227 plans); None means unknown
+    and is the caller's problem, not guessed here.
+    """
+    pool = round(max(0.0, float(pooled_safe_to_spend or 0.0)), 2)
+    for entry in account_eligibility.values():
+        raw = float(entry.get("spend_from_headroom", entry.get("headroom", 0.0)) or 0.0)
+        shown = round(max(0.0, min(raw, pool)), 2)
+        entry["account_headroom_raw"] = round(raw, 2)
+        entry["spend_from_headroom"] = shown
+        entry["spend_from_capped"] = bool(raw > pool)
+    return account_eligibility
+
+
 async def compute_today_items(
     uid: str,
     payday_preview: bool = False,
