@@ -43,7 +43,7 @@ lines.push("- Housekeeping items H113, H43 and G126 only list previews while swe
 lines.push("- GATE-CANDIDATE: renders production components and every referencing item is done or cancelled (at least one). One per shipped surface is what Kevin may keep.");
 lines.push(`- DELETE-CANDIDATE: no open item, last commit older than ${STALE_DAYS} days, hand-authored markup only.`);
 lines.push("- UNSURE: anything else.");
-lines.push("- \"Renders production\" means a file in the directory imports from `@/components`, `@/app/components` or a relative `components` path. It does not prove the page is a faithful gate for the shipped surface.");
+lines.push("- \"Renders production\" means a file in the directory imports from `@/components`, any `@/app/<route>` other than `@/app/design`, or a relative `components` path. It does not prove the page is a faithful gate for the shipped surface.");
 lines.push("- Item matching: `design/<slug>` in an item's TODO.md block, or the bare slug when it contains a hyphen. One-word slugs match path form only, so expect some false negatives where prose names a preview loosely.");
 lines.push("");
 lines.push("## Table");

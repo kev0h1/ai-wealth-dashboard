@@ -153,7 +153,7 @@ export function scanFacts(slugs) {
   for (const slug of slugs) {
     const files = walkFiles(path.join(designDir, slug), (n) => /\.(ts|tsx)$/.test(n));
     const src = files.map((f) => readFileSync(f, "utf8")).join("\n");
-    const rendersProd = /from\s+["'](@\/components|@\/app\/components|(\.\.\/)+components|(\.\.\/)+app\/components)[\/"']/.test(src);
+    const rendersProd = /from\s+["'](@\/components|@\/app\/(?!design[\/"'])|(\.\.\/)+components|(\.\.\/)+app\/(?!design[\/"']))/.test(src);
 
     const re = new RegExp(`design/${escapeRe(slug)}(?![\\w-])`);
     // A real import has the slug path on an import/from/require/dynamic-import line;

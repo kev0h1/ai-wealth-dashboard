@@ -5,9 +5,9 @@ Generated 2026-10-08 by `frontend/scripts/design-preview-inventory.mjs`. 132 pre
 ## Counts per proposed action
 
 - KEEP: 61
-- GATE-CANDIDATE: 23
-- DELETE-CANDIDATE: 22
-- UNSURE: 26
+- GATE-CANDIDATE: 24
+- DELETE-CANDIDATE: 17
+- UNSURE: 30
 
 ## Rules
 
@@ -16,7 +16,7 @@ Generated 2026-10-08 by `frontend/scripts/design-preview-inventory.mjs`. 132 pre
 - GATE-CANDIDATE: renders production components and every referencing item is done or cancelled (at least one). One per shipped surface is what Kevin may keep.
 - DELETE-CANDIDATE: no open item, last commit older than 7 days, hand-authored markup only.
 - UNSURE: anything else.
-- "Renders production" means a file in the directory imports from `@/components`, `@/app/components` or a relative `components` path. It does not prove the page is a faithful gate for the shipped surface.
+- "Renders production" means a file in the directory imports from `@/components`, any `@/app/<route>` other than `@/app/design`, or a relative `components` path. It does not prove the page is a faithful gate for the shipped surface.
 - Item matching: `design/<slug>` in an item's TODO.md block, or the bare slug when it contains a hyphen. One-word slugs match path form only, so expect some false negatives where prose names a preview loosely.
 
 ## Table
@@ -61,7 +61,7 @@ Generated 2026-10-08 by `frontend/scripts/design-preview-inventory.mjs`. 132 pre
 | KEEP | `mirror-canvas-before-cards` | G97 (uat), G98 (uat) | 2026-09-16 | hand-authored | none | none | open item G97 (uat), G98 (uat) |
 | KEEP | `money-shape-canvas-before-cards` | G95 (uat) | 2026-09-15 | hand-authored | none | none | open item G95 (uat) |
 | KEEP | `offline-account` | G233 (uat) | 2026-10-07 | production | frontend/scripts/g233-offline-account.test.mjs | none | open item G233 (uat) |
-| KEEP | `ops-board-mobile` | A97 (todo), G126 (todo), G213 (done), H56 (done), H65 (todo) | 2026-09-18 | hand-authored | frontend/app/ops/go-live/BoardView.tsx (mentions: frontend/app/ops/go-live/MobileRibbonBoard.tsx) | none | open item A97 (todo), H65 (todo); also mentioned by housekeeping G126 |
+| KEEP | `ops-board-mobile` | A97 (todo), G126 (todo), G213 (done), H56 (done), H65 (todo) | 2026-09-18 | production | frontend/app/ops/go-live/BoardView.tsx (mentions: frontend/app/ops/go-live/MobileRibbonBoard.tsx) | none | open item A97 (todo), H65 (todo); also mentioned by housekeeping G126 |
 | KEEP | `payday-plan-standing-orders` | G173 (uat) | 2026-09-27 | production | none | none | open item G173 (uat) |
 | KEEP | `penny-fullscreen` | G240 (uat) | 2026-10-08 | production | none | none | open item G240 (uat) |
 | KEEP | `penny-usage-ring` | G3 (done) | 2026-09-08 | production | frontend/components/MoreMessagesSheet.tsx (mentions: frontend/components/PennySheet.tsx) | none | imported outside app/design (frontend/components/MoreMessagesSheet.tsx) |
@@ -95,6 +95,7 @@ Generated 2026-10-08 by `frontend/scripts/design-preview-inventory.mjs`. 132 pre
 | GATE-CANDIDATE | `goal-link-sheet` | G204 (done) | 2026-10-04 | production | none | none | renders production components; items done or cancelled |
 | GATE-CANDIDATE | `home-tip-gesture` | G207 (done) | 2026-10-04 | production | none (mentions: frontend/components/HomeInsightSpotlight.tsx) | none | renders production components; items done or cancelled |
 | GATE-CANDIDATE | `move-card-grammar` | G69 (done), G70 (done) | 2026-09-14 | production | none | none | renders production components; items done or cancelled |
+| GATE-CANDIDATE | `oauth-consent` | F2 (done) | 2026-09-08 | production | none (mentions: frontend/app/oauth/consent/OAuthConsentCard.tsx, frontend/lib/oauthScopes.ts) | none | renders production components; items done or cancelled |
 | GATE-CANDIDATE | `payday-plan-grammar` | G69 (done) | 2026-09-13 | production | none | none | renders production components; items done or cancelled |
 | GATE-CANDIDATE | `penny-keyboard` | G191 (done), G197 (done) | 2026-10-02 | production | none (mentions: frontend/scripts/g191-keyboard.test.mjs) | none | renders production components; items done or cancelled |
 | GATE-CANDIDATE | `plan-source-account` | G230 (done) | 2026-10-07 | production | none | none | renders production components; items done or cancelled |
@@ -112,11 +113,6 @@ Generated 2026-10-08 by `frontend/scripts/design-preview-inventory.mjs`. 132 pre
 | DELETE-CANDIDATE | `coming-up` | G17 (done), G35 (done), H43 (todo) | 2026-08-21 | hand-authored | none (mentions: frontend/components/UpcomingBillsStrip.tsx, frontend/lib/comingUp.tsx) | none | items done or cancelled; hand-authored; 48 days old; also mentioned by housekeeping H43 |
 | DELETE-CANDIDATE | `g100-scenario-canvas` | none | 2026-09-16 | hand-authored | none | none | no referencing item; hand-authored; 22 days old |
 | DELETE-CANDIDATE | `g16-safe-to-spend` | G16 (done), H43 (todo) | 2026-09-23 | hand-authored | none | none | items done or cancelled; hand-authored; 15 days old; also mentioned by housekeeping H43 |
-| DELETE-CANDIDATE | `g31-planning-hero` | H43 (todo) | 2026-09-13 | hand-authored | none | none | no referencing item; hand-authored; 25 days old; also mentioned by housekeeping H43 |
-| DELETE-CANDIDATE | `g89-planning-canvas` | none | 2026-09-16 | hand-authored | none | none | no referencing item; hand-authored; 22 days old |
-| DELETE-CANDIDATE | `g99-month-story-canvas` | none | 2026-09-15 | hand-authored | none | none | no referencing item; hand-authored; 23 days old |
-| DELETE-CANDIDATE | `month-story` | none | 2026-09-02 | hand-authored | none (mentions: frontend/app/month/story/StoryPlayer.tsx) | none | no referencing item; hand-authored; 36 days old |
-| DELETE-CANDIDATE | `oauth-consent` | F2 (done) | 2026-09-08 | hand-authored | none (mentions: frontend/app/oauth/consent/OAuthConsentCard.tsx, frontend/lib/oauthScopes.ts) | none | items done or cancelled; hand-authored; 30 days old |
 | DELETE-CANDIDATE | `penny-glyph` | G126 (todo) | 2026-08-18 | hand-authored | none (mentions: frontend/components/PennyMark.tsx, frontend/components/SettleMark.tsx) | none | no referencing item; hand-authored; 51 days old; also mentioned by housekeeping G126 |
 | DELETE-CANDIDATE | `planning` | none | 2026-09-02 | hand-authored | none | none | no referencing item; hand-authored; 36 days old |
 | DELETE-CANDIDATE | `planning-plans` | G3 (done) | 2026-09-05 | hand-authored | none | none | items done or cancelled; hand-authored; 33 days old |
@@ -137,10 +133,14 @@ Generated 2026-10-08 by `frontend/scripts/design-preview-inventory.mjs`. 132 pre
 | UNSURE | `dismiss-x` | G126 (todo) | 2026-09-02 | production | none (mentions: frontend/components/HomeBrief.tsx, frontend/components/HomeInsightSpotlight.tsx, frontend/components/PaydayPlanCard.tsx) | none | renders production components but no referencing item; also mentioned by housekeeping G126 |
 | UNSURE | `g111-spend-from-bank` | none | 2026-09-16 | production | none | none | renders production components but no referencing item |
 | UNSURE | `g29-reconnect-rows` | H43 (todo) | 2026-09-14 | production | none (mentions: frontend/components/ReconnectStrip.tsx) | none | renders production components but no referencing item; also mentioned by housekeeping H43 |
+| UNSURE | `g31-planning-hero` | H43 (todo) | 2026-09-13 | production | none | none | renders production components but no referencing item; also mentioned by housekeeping H43 |
+| UNSURE | `g89-planning-canvas` | none | 2026-09-16 | production | none | none | renders production components but no referencing item |
+| UNSURE | `g99-month-story-canvas` | none | 2026-09-15 | production | none | none | renders production components but no referencing item |
 | UNSURE | `home-brief-width` | G126 (todo) | 2026-09-13 | production | none | none | renders production components but no referencing item; also mentioned by housekeeping G126 |
 | UNSURE | `insights-live` | G126 (todo) | 2026-09-05 | production | none (mentions: frontend/app/spend/shape/MoneyShapeHero.tsx, frontend/components/InsightCard.tsx, frontend/lib/pennyScreenConfig.tsx) | none | renders production components but no referencing item; also mentioned by housekeeping G126 |
 | UNSURE | `miscategorised` | none | 2026-08-24 | production | none (mentions: frontend/components/MiscategorisedReviewSheet.tsx) | none | renders production components but no referencing item |
 | UNSURE | `month-closed-card` | none | 2026-09-26 | production | none | none | renders production components but no referencing item |
+| UNSURE | `month-story` | none | 2026-09-02 | production | none (mentions: frontend/app/month/story/StoryPlayer.tsx) | none | renders production components but no referencing item |
 | UNSURE | `payday-plan-executed` | none | 2026-09-26 | production | none | none | renders production components but no referencing item |
 | UNSURE | `penny-chat` | none | 2026-08-18 | production | none (mentions: frontend/components/PennyConversation.tsx) | none | renders production components but no referencing item |
 | UNSURE | `penny-sheet` | none | 2026-08-25 | production | none (mentions: frontend/components/PennyConversation.tsx, frontend/components/PennySheet.tsx) | none | renders production components but no referencing item |
