@@ -1,5 +1,5 @@
 // Finexer's regulated footer, as Finexer renders it: the template's app_name is
-// substituted into the first sentence (A151: AURIQ LTD, the registered agent).
+// substituted into the first sentence (Kevin 2026-10-08: Sorted).
 // The rest is verbatim from Kevin's production Android screenshot (2026-10-07).
 // Never reworded, restyled or hidden by our CSS.
 export function regulatedFooter(appName: string): string {
