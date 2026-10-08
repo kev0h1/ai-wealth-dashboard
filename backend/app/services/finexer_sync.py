@@ -330,6 +330,23 @@ async def _upsert_finexer_transactions(
     user_id: str,
     identity: dict | None = None,
 ) -> tuple[list, list]:
+    """Walk and upsert (see `_upsert_finexer_walk`); G177: if the walk raises
+    part way, rows already written still mark the cashflow cache stale."""
+    state = {"changed": False}
+    try:
+        return await _upsert_finexer_walk(txns, account_id, user_id, identity, state)
+    finally:
+        if state["changed"]:
+            await mark_stale(user_id)
+
+
+async def _upsert_finexer_walk(
+    txns: list,
+    account_id: str,
+    user_id: str,
+    identity: dict | None,
+    state: dict,
+) -> tuple[list, list]:
     """Upsert SETTLED transactions into unified transactions_col; a row whose
     `status` field (UK Open Banking "Booked"/"Pending") reads "pending" is
     routed to the sibling pending collection instead — see
@@ -341,7 +358,6 @@ async def _upsert_finexer_transactions(
     the normalised shape `replace_pending_for_account` expects."""
     new_txns = []
     pending_rows = []
-    changed = False
     for txn in txns:
         # Defensive field mapping — exact names TBD until first sandbox login
         txn_id = (
@@ -419,7 +435,7 @@ async def _upsert_finexer_transactions(
             return_document=ReturnDocument.BEFORE,
         )
         if txn_materially_changed(before, tdoc):
-            changed = True
+            state["changed"] = True
         if before is None:
             new_txns.append({
                 "description":   description,
@@ -427,11 +443,6 @@ async def _upsert_finexer_transactions(
                 "amount":        amount,
                 "currency":      currency,
             })
-    if changed:
-        # G177: any inserted or materially updated row makes the user's
-        # cashflow cache stale, whichever path (reconcile, webhook, manual
-        # refresh, OAuth callback) ran this pull.
-        await mark_stale(user_id)
     return new_txns, pending_rows
 
 

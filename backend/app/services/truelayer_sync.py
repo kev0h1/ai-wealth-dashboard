@@ -88,8 +88,19 @@ async def get_valid_token(connection_id: str) -> Optional[str]:
 
 async def _upsert_transactions(txns: list, account_id: str, user_id: str, is_card: bool = False,
                                identity: dict | None = None) -> list:
+    """Walk and upsert (see `_upsert_walk`); G177: if the walk raises part
+    way, rows already written still mark the cashflow cache stale."""
+    state = {"changed": False}
+    try:
+        return await _upsert_walk(txns, account_id, user_id, is_card, identity, state)
+    finally:
+        if state["changed"]:
+            await mark_stale(user_id)
+
+
+async def _upsert_walk(txns: list, account_id: str, user_id: str, is_card: bool,
+                       identity: dict | None, state: dict) -> list:
     new_txns = []
-    changed = False
     for txn in txns:
         merchant    = txn.get("merchant_name") or ""
         description = txn.get("description", "")
@@ -142,7 +153,7 @@ async def _upsert_transactions(txns: list, account_id: str, user_id: str, is_car
             return_document=ReturnDocument.BEFORE,
         )
         if txn_materially_changed(before, tdoc):
-            changed = True
+            state["changed"] = True
         if before is None:
             new_txns.append({
                 "description":   description,
@@ -150,9 +161,6 @@ async def _upsert_transactions(txns: list, account_id: str, user_id: str, is_car
                 "amount":        abs(txn["amount"]),
                 "currency":      txn["currency"],
             })
-    if changed:
-        # G177: see finexer_sync._upsert_finexer_transactions.
-        await mark_stale(user_id)
     return new_txns
 
 

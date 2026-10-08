@@ -73,6 +73,7 @@ import uuid
 from datetime import date, datetime, timedelta, timezone
 
 from fastapi import HTTPException
+from pymongo.errors import DuplicateKeyError
 
 from app.core.build import engine_build
 from app.core.config import MCP_CONNECTOR_ENABLED
@@ -2037,10 +2038,8 @@ async def _load_cashflow_cache(uid: str) -> dict | None:
             ]},
             {"$set": cached}, upsert=True,
         )
-    except Exception as exc:  # DuplicateKeyError: a newer recompute landed first
-        from pymongo.errors import DuplicateKeyError
-        if not isinstance(exc, DuplicateKeyError):
-            raise
+    except DuplicateKeyError:
+        pass  # a newer recompute landed first; keep theirs
     return cached
 
 

@@ -3091,6 +3091,55 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
     }
 
 
+# G177 read path: N concurrent reads of a dirty doc must run ONE recompute,
+# and a failing recompute must not be retried by every request. In-process
+# (single uvicorn process, same trade-off as derived_caches' debounce dict);
+# bounded so it cannot grow with the user count.
+_DIRTY_RETRY_SECONDS = 60
+_READ_LOCKS_MAX = 512
+_read_recompute_locks: dict[str, asyncio.Lock] = {}
+
+
+def _read_lock(uid: str) -> asyncio.Lock:
+    lock = _read_recompute_locks.get(uid)
+    if lock is None:
+        if len(_read_recompute_locks) >= _READ_LOCKS_MAX:
+            for k in [k for k, v in _read_recompute_locks.items() if not v.locked()]:
+                del _read_recompute_locks[k]
+        lock = _read_recompute_locks[uid] = asyncio.Lock()
+    return lock
+
+
+async def recompute_if_dirty_for_read(uid: str, cached: dict | None) -> dict | None:
+    """Return `cached`, or a freshly recomputed doc if a sync marked it dirty
+    (`dirty_since`). Single-flight per user; after a failed recompute stamps
+    `dirty_retry_after` so reads serve the stale doc for
+    _DIRTY_RETRY_SECONDS instead of re-running the expensive compute."""
+    if not cached or cached.get("dirty_since") is None:
+        return cached
+
+    def _backing_off(doc):
+        ra = doc.get("dirty_retry_after")
+        return ra is not None and ra > datetime.now()  # naive-ok: cache stamp
+
+    if _backing_off(cached):
+        return cached
+    async with _read_lock(uid):
+        fresh = await cashflow_cache_col.find_one({"_id": uid})
+        if not fresh or fresh.get("dirty_since") is None or _backing_off(fresh):
+            return fresh or cached  # another reader already recomputed (or is backing off)
+        # clear_ai_cache stays True (the default), like the pipeline path:
+        # the AI recurring predictions must see the new transactions too.
+        await compute_and_cache_cashflow(uid)
+        after = await cashflow_cache_col.find_one({"_id": uid})
+        if after is not None and after.get("dirty_since") is not None:
+            await cashflow_cache_col.update_one(
+                {"_id": uid},
+                {"$set": {"dirty_retry_after": datetime.now() + timedelta(seconds=_DIRTY_RETRY_SECONDS)}},  # naive-ok: cache stamp
+            )
+        return after or fresh
+
+
 def _ms(dt: datetime) -> datetime:
     """Truncate to Mongo's millisecond precision so the in-memory watermark
     and the stored one compare equal."""
@@ -3174,7 +3223,10 @@ async def at_risk_count(user: dict = Depends(current_user)):
     time is insufficient — reflecting payment sequencing and incoming income.
     """
     cached = await cashflow_cache_col.find_one({"_id": user["email"]})
-    if not cached or (cached.get("patterns_version") or 0) < PATTERNS_VERSION or cached.get("dirty_since") is not None:
+    # G177: a doc a sync marked dirty is recomputed (single-flight, with
+    # failure backoff) before this badge is computed from it.
+    cached = await recompute_if_dirty_for_read(user["email"], cached)
+    if not cached or (cached.get("patterns_version") or 0) < PATTERNS_VERSION:
         # This badge drives a user-visible red "at risk" count — a stale/pre-fix
         # cache doc (missing is_credit_card) can misclassify a credit card as a
         # debit account and inflate it with a false alarm. Recompute
@@ -4669,8 +4721,7 @@ async def get_cashflow(user: dict = Depends(current_user)):
         # computed and its own recompute has not landed (or failed). Never
         # serve it: recompute now so the next read is right, not the next
         # 6h refresh.
-        await compute_and_cache_cashflow(uid, clear_ai_cache=False)
-        cached = await cashflow_cache_col.find_one({"_id": uid}) or cached
+        cached = await recompute_if_dirty_for_read(uid, cached)
 
     if cached and (cached.get("patterns_version") or 0) < PATTERNS_VERSION:
         # Pre-fix (or unversioned) cache doc — e.g. bills serialised before the

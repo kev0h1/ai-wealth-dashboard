@@ -174,7 +174,8 @@ async def mark_stale(uid: str, *, reason: str = "transactions_changed") -> None:
             {"_id": uid},
             # Millisecond precision, like the recompute watermark it is
             # compared with (Mongo stores ms).
-            {"$set": {"dirty_since": _ms_now()}},
+            # A fresh change also lifts any read-path failure backoff.
+            {"$set": {"dirty_since": _ms_now()}, "$unset": {"dirty_retry_after": ""}},
         )
     except Exception:
         logger.exception("mark_stale(%s, %s): could not stamp dirty_since", uid, reason)
@@ -190,7 +191,7 @@ async def clear_dirty(uid: str, started_at: datetime) -> None:
     set while the recompute was running is newer and survives."""
     await cashflow_cache_col.update_one(
         {"_id": uid, "dirty_since": {"$lte": started_at}},
-        {"$unset": {"dirty_since": ""}},
+        {"$unset": {"dirty_since": "", "dirty_retry_after": ""}},
     )
 
 

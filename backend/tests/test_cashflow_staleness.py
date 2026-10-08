@@ -296,3 +296,66 @@ def test_newer_recompute_still_overwrites_older(_env):
     import time; time.sleep(0.01)
     asyncio.run(analytics.compute_and_cache_cashflow(UID, clear_ai_cache=False))
     assert _env["cache"].docs[UID]["computed_from"] > first
+
+
+# ── review follow-ups ────────────────────────────────────────────────────────
+
+def test_mark_stale_still_runs_when_a_pull_raises_mid_loop(_env):
+    good = _fx_txn("m1")
+    bad = {"id": "m2", "amount": 1, "description": "x", "date": "2026-09-25", "currency": "GBP", "type": "debit"}
+    real = finexer_sync._parse_date
+
+    def boom(txn):
+        if txn.get("id") == "m2":
+            raise RuntimeError("upstream broke")
+        return real(txn)
+
+    import pytest as _p
+    mp = _p.MonkeyPatch()
+    mp.setattr(finexer_sync, "_parse_date", boom)
+    try:
+        with pytest.raises(RuntimeError):
+            asyncio.run(finexer_sync._upsert_finexer_transactions([good, bad], "acc-1", UID))
+    finally:
+        mp.undo()
+    assert "m1" in _env["txns"].docs
+    assert _env["cache"].docs[UID].get("dirty_since") is not None
+
+
+def test_concurrent_reads_of_a_dirty_doc_run_one_recompute(_env, monkeypatch):
+    _env["cache"].docs[UID]["dirty_since"] = datetime.now() - timedelta(milliseconds=5)
+
+    async def run():
+        docs = [dict(_env["cache"].docs[UID]) for _ in range(5)]
+        return await asyncio.gather(*[analytics.recompute_if_dirty_for_read(UID, d) for d in docs])
+
+    results = asyncio.run(run())
+    assert _env["computes"] == [UID], "N concurrent reads must share one recompute"
+    assert all(r.get("dirty_since") is None for r in results)
+
+
+def test_failed_read_recompute_backs_off(_env, monkeypatch):
+    _env["cache"].docs[UID]["dirty_since"] = datetime.now() - timedelta(milliseconds=5)
+    calls = {"n": 0}
+
+    async def failing(uid):
+        calls["n"] += 1
+        raise RuntimeError("compute down")
+
+    monkeypatch.setattr(analytics, "_compute_cashflow_patterns", failing)
+
+    async def run():
+        for _ in range(3):
+            doc = await analytics.recompute_if_dirty_for_read(UID, dict(_env["cache"].docs[UID]))
+        return doc
+
+    doc = asyncio.run(run())
+    assert calls["n"] == 1, "reads inside the backoff must serve the stale doc, not retry"
+    assert doc.get("dirty_since") is not None
+    assert _env["cache"].docs[UID].get("dirty_retry_after") is not None
+
+
+def test_new_change_lifts_the_backoff(_env):
+    _env["cache"].docs[UID]["dirty_retry_after"] = datetime.now() + timedelta(seconds=60)
+    asyncio.run(derived_caches.mark_stale(UID))
+    assert "dirty_retry_after" not in _env["cache"].docs[UID]
