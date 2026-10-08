@@ -71,3 +71,10 @@ code fault: free memory and re-run, do not "fix" the branch.
   and wrongly blocked D7, A121 and G157. A121's own worktree built cleanly.
   Fix: OOM detection and reporting in `frontend_build.py`, verbatim
   surfacing in `integrate.py`, memory gates before builds and suites.
+
+## Re-pinning the database guard hashes
+
+`scripts/check_db_guard.py --print-hashes` is the only route to re-pin the
+guard hashes after a deliberate change to a database-drop guard, and the
+re-pin must land in the same commit as that change (and any weakening needs
+Kevin's agreement), see `docs/ops/INCIDENTS.md`.

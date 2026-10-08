@@ -62,19 +62,29 @@ def test_guarded_drops_refuse_before_touching_the_client():
 
 
 def test_guarded_client_class_refuses_before_any_io():
-    cls = guard.make_guarded_client_class()
+    calls = []
+
+    class FakeClient:
+        """Same drop_database shape as Motor's; records instead of dropping.
+        No Motor client is ever constructed in the guard tests."""
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def drop_database(self, name_or_database, session=None, comment=None):
+            calls.append(name_or_database)
+
+    client = guard.make_guarded_client_class(FakeClient)()
+
     async def go():
-        # connect=False and a dead address: the guard must refuse before any I/O.
-        client = cls("mongodb://127.0.0.1:1/", serverSelectionTimeoutMS=1, connect=False)
-        try:
-            with pytest.raises(guard.DropDatabaseRefused):
-                await client.drop_database("wealth")
-            with pytest.raises(guard.DropDatabaseRefused):
-                await client.drop_database("wealth", confirm_name="wealth")  # env flag unset
-        finally:
-            client.close()
+        with pytest.raises(guard.DropDatabaseRefused):
+            await client.drop_database("wealth")
+        with pytest.raises(guard.DropDatabaseRefused):
+            await client.drop_database("wealth", confirm_name="wealth")  # env flag unset
+        await client.drop_database("wealth_test_1_ab")
 
     asyncio.run(go())
+    assert calls == ["wealth_test_1_ab"]
 
 
 def test_app_client_is_the_guarded_one():
@@ -131,4 +141,4 @@ def test_check_fails_when_the_app_guard_is_mutated_or_bypassed(tmp_path):
     cf = root2 / "backend/tests/conftest.py"
     cf.write_text(cf.read_text().replace("await guarded_drop_database(client, name)", "await client.drop_database(name)"))
     problems = _check_against(_load_check(), root2)
-    assert any("raw .drop_database" in p for p in problems)
+    assert any("guarded_drop_database" in p or "raw drop_database" in p for p in problems)

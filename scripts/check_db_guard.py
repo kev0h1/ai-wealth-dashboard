@@ -21,7 +21,6 @@ from __future__ import annotations
 import argparse
 import ast
 import hashlib
-import re
 import sys
 from pathlib import Path
 
@@ -37,7 +36,8 @@ PINNED: dict[str, dict[str, str]] = {
         "_looks_like_a_test_database": "46172f1e7f7d4053e27e29830905d86aaf7898c1a27e4de25f7d1f079d02af1b",
         "_refuse_unless_test_db": "1085f72fad9f72f0aa5e35dcc0f6989360b4659bd5f673fbc3632fd08772e0b5",
         "_drop_database_with_fresh_client": "13bc3d781feafaf1b10cd4399c5986adab89311feda6bcd32bf84dce9b9bbbdf",
-        "_drop_test_database_at_session_end": "c2fa93ef97fefe8f00313a758f3d6bfb5c566f0f52f23c8fb0c97eddde9cea3d"
+        "_drop_test_database_at_session_end": "c2fa93ef97fefe8f00313a758f3d6bfb5c566f0f52f23c8fb0c97eddde9cea3d",
+        "_sweep_stale_test_databases": "d03a241156de27a5564b0aab08779b862c9c0cddb3f5a65095c92148cf6cbc0d"
     },
     "backend/app/db/guard.py": {
         "TEST_DB_NAME_RE": "a2cda4adc875d88601269cbc48ceaa2f9cab4809968a4d19e1d8e23c0f9c039b",
@@ -46,7 +46,7 @@ PINNED: dict[str, dict[str, str]] = {
         "assert_drop_allowed": "a58b72f65d736f789ff0d01f9572993659b13b6ea215fe9030952f9dcb242eed",
         "guarded_drop_database": "8acf0c2cb62c4dfa41c2a9971d3661f745211853f013d3063557d0edc1ecbffc",
         "guarded_drop_collection": "f62383fa5dda93bcbfe831e796f1c5a7ec45a96721f5f7f5ccc725d21d0afa6e",
-        "make_guarded_client_class": "b7ced2e183d501ba0052ddb01deebf3b83d49719992149ba1d930531e46898df"
+        "make_guarded_client_class": "d30ef1891fe49f6b032e787f8ea3c64ab17d3966e6fdba57ea859e16c1fa6425"
     }
 }
 
@@ -74,12 +74,53 @@ WATCHED = {
     "backend/tests/conftest.py": [
         "_TEST_DB_PREFIX_RE", "_looks_like_a_test_database", "_refuse_unless_test_db",
         "_drop_database_with_fresh_client", "_drop_test_database_at_session_end",
+        "_sweep_stale_test_databases",
     ],
     "backend/app/db/guard.py": [
         "TEST_DB_NAME_RE", "ALLOW_ENV", "DropDatabaseRefused", "assert_drop_allowed",
         "guarded_drop_database", "guarded_drop_collection", "make_guarded_client_class",
     ],
 }
+
+
+def _raw_drops(py: Path) -> list[str]:
+    """AST scan: .drop_database(...), .drop_collection(...), .drop() on a
+    collection-like expression, and command("dropDatabase"/"drop")."""
+    try:
+        tree = ast.parse(py.read_text())
+    except (OSError, SyntaxError):
+        return []
+    rel = py.relative_to(ROOT)
+    found: list[str] = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+            continue
+        attr = node.func.attr
+        if attr in ("drop_database", "drop_collection"):
+            found.append(f"{rel}:{node.lineno}: raw {attr}(); use app.db.guard")
+        elif attr == "drop" and not node.args and not node.keywords:
+            found.append(f"{rel}:{node.lineno}: raw .drop() on a collection; use app.db.guard")
+        elif attr == "command" and node.args and isinstance(node.args[0], ast.Constant) \
+                and str(node.args[0].value).lower() in ("dropdatabase", "drop"):
+            found.append(f"{rel}:{node.lineno}: raw command({node.args[0].value!r}); use app.db.guard")
+    return found
+
+
+def _conftest_drop_sites() -> list[str]:
+    """Both conftest drop sites (_drop_database_with_fresh_client and
+    _sweep_stale_test_databases) must call guarded_drop_database."""
+    try:
+        tree = ast.parse(CONFTEST.read_text())
+    except (OSError, SyntaxError) as exc:
+        return [f"cannot parse conftest: {exc}"]
+    out = []
+    for fn in ("_drop_database_with_fresh_client", "_sweep_stale_test_databases"):
+        node = next((n for n in tree.body if isinstance(n, ast.AsyncFunctionDef) and n.name == fn), None)
+        calls = [c for c in ast.walk(node) if isinstance(c, ast.Call)
+                 and isinstance(c.func, ast.Name) and c.func.id == "guarded_drop_database"] if node else []
+        if not calls:
+            out.append(f"backend/tests/conftest.py: {fn} must drop through app.db.guard.guarded_drop_database")
+    return out
 
 
 def compute() -> dict[str, dict[str, str]]:
@@ -104,20 +145,15 @@ def check() -> list[str]:
                 problems.append(f"{rel}: guard `{n}` is missing")
             elif have != want:
                 problems.append(f"{rel}: guard `{n}` was modified (hash {have[:12]}, pinned {str(want)[:12]})")
-    conftest = CONFTEST.read_text() if CONFTEST.exists() else ""
-    if conftest.count("guarded_drop_database(") < 2:
-        problems.append("backend/tests/conftest.py: teardown and sweep must drop through app.db.guard.guarded_drop_database")
-    if re.search(r"\.drop_database\(", conftest):
-        problems.append("backend/tests/conftest.py: a raw .drop_database( call bypasses the app-layer guard")
+    problems += _conftest_drop_sites()
     colls = (APP / "db" / "collections.py").read_text()
     if "make_guarded_client_class" not in colls:
         problems.append("backend/app/db/collections.py: the app's Mongo client is not the guarded client")
-    for py in APP.rglob("*.py"):
-        if py == GUARD:
+    for py in [*APP.rglob("*.py"), *(ROOT / "backend" / "tests").rglob("*.py")]:
+        # test_db_guard.py drives a fake client's drop_database on purpose.
+        if py == GUARD or py.name == "test_db_guard.py":
             continue
-        text = py.read_text()
-        if re.search(r"\.drop_database\(|\.drop_collection\(", text):
-            problems.append(f"{py.relative_to(ROOT)}: raw drop_database/drop_collection; use app.db.guard")
+        problems += _raw_drops(py)
     return problems
 
 

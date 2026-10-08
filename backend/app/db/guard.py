@@ -82,11 +82,13 @@ async def guarded_drop_collection(
     await client[db_name].drop_collection(collection)
 
 
-def make_guarded_client_class():
-    """Motor client subclass whose ``drop_database`` runs the guard first."""
-    from motor.motor_asyncio import AsyncIOMotorClient
+def make_guarded_client_class(base: Any = None):
+    """Client subclass whose ``drop_database`` runs the guard first. ``base``
+    defaults to Motor's client; tests pass a fake so no client is built."""
+    if base is None:
+        from motor.motor_asyncio import AsyncIOMotorClient as base
 
-    class GuardedMotorClient(AsyncIOMotorClient):
+    class GuardedMotorClient(base):
         async def drop_database(self, name_or_database, *args, confirm_name=None, **kwargs):  # type: ignore[override]
             name = getattr(name_or_database, "name", name_or_database)
             assert_drop_allowed(name, confirm_name)

@@ -157,9 +157,6 @@ AT_FDCWD = -100
 RENAME_EXCHANGE = 2
 
 
-_LAST_BUILD_PID: Optional[int] = None
-
-
 class FrontendBuildError(RuntimeError):
     """A build, verification, swap or lock failure. The live `.next` is
     untouched whenever this is raised from build_and_swap."""
@@ -356,27 +353,19 @@ def build_tag(frontend_dir: Path, now: Optional[_dt.datetime] = None) -> str:
     return f"build {date} {sha or 'nogit'}{f' #{number}' if number else ''}"
 
 
-def oom_evidence(rc: int, out: str, pid: Optional[int] = None) -> Optional[str]:
+def oom_evidence(rc: int, out: str) -> Optional[str]:
     """H99: did the kernel's OOM killer (not the code) end the build? True
     for exit 137 / -9 (SIGKILL; 137 = 128 + 9 when npm reports its child's
-    signal), a bare "Killed" line in the output, or, when dmesg/journalctl
-    are readable, an "Out of memory" line naming this pid. Returns a short
-    description of the evidence or None."""
+    signal) or a bare "Killed" line at the end of the output. Deliberately
+    NOT matched on the kernel log by pid: the process that is OOM-killed is
+    a descendant of npm (next-build), not the pid we hold, so a pid
+    substring match would miss it or hit unrelated lines. Exit code and
+    "Killed" are what the shell/npm actually report. Returns the evidence
+    or None."""
     if rc in (137, -9):
         return f"exit {rc} (SIGKILL)"
     if any(line.strip() == "Killed" or line.strip().endswith(": Killed") for line in (out or "").splitlines()[-20:]):
         return "build output ends with 'Killed'"
-    if pid is not None:
-        for cmd in (["dmesg", "-T"], ["journalctl", "-k", "-n", "300", "--no-pager"]):
-            try:
-                p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=10)
-            except (OSError, subprocess.TimeoutExpired):
-                continue
-            if p.returncode != 0:
-                continue
-            for line in p.stdout.splitlines():
-                if "Out of memory" in line and f"{pid}" in line:
-                    return f"kernel log: {line.strip()[:160]}"
     return None
 
 
@@ -399,8 +388,6 @@ def run_next_build(mirror: Path, frontend_dir: Path, timeout: int = BUILD_TIMEOU
         )
         try:
             out, _ = proc.communicate(timeout=timeout)
-            global _LAST_BUILD_PID
-            _LAST_BUILD_PID = proc.pid
             return proc.returncode, out
         except subprocess.TimeoutExpired:
             _kill_process_group(proc)
@@ -534,7 +521,7 @@ def build_and_swap(
             raise
         if rc != 0:
             _safe_rmtree(mirror, frontend_dir)
-            evidence = oom_evidence(rc, out, _LAST_BUILD_PID)
+            evidence = oom_evidence(rc, out)
             if evidence:
                 raise FrontendBuildError(
                     f"build killed, out of memory ({avail_at_start} MB available at start; {evidence}); "

@@ -32,13 +32,14 @@ from motor.motor_asyncio import AsyncIOMotorClient
 
 from app.core.config import MONGO_URI
 from app.db.collections import db as _app_db
+from app.db.guard import guarded_drop_database
 
 
 def test_worker_drops_its_own_resolved_database():
     async def run():
         client = AsyncIOMotorClient(MONGO_URI, serverSelectionTimeoutMS=8000)
         try:
-            await client.drop_database(_app_db.name)
+            await guarded_drop_database(client, _app_db.name)
         finally:
             client.close()
 
