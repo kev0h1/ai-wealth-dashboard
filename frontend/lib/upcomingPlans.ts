@@ -81,7 +81,6 @@ type OverlapAccount = Pick<Account, "id" | "type"> & { subtype?: string | null }
 
 function isCardRepayment(bill: CashflowData["upcoming_bills"][number], accounts: OverlapAccount[]) {
   if ((bill.category ?? "").trim().toLowerCase() === "debt") return true;
-  if ((bill as { kind?: string }).kind === "card_repayment") return true;
   const dest = bill.dest_account_id ? accounts.find((account) => account.id === bill.dest_account_id) : undefined;
   return Boolean(dest && `${dest.type} ${dest.subtype ?? ""}`.toLowerCase().includes("credit"));
 }

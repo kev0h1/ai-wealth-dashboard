@@ -23,7 +23,12 @@ assert.equal(flagged([mv({ amount: 80 })]), true, "Unknown destination, slice am
 assert.equal(flagged([mv({ amount: 90 })]), true, "Within 15%");
 assert.equal(flagged([mv({ amount: 423.62 })]), false, "Unknown destination, unrelated amount");
 assert.equal(flagged([mv({ amount: 80, category: "Debt" })]), false, "Category Debt");
-assert.equal(flagged([mv({ amount: 80, kind: "card_repayment" })]), false, "kind card_repayment");
+assert.equal(flagged([mv({ amount: 92 })]), true, "Exactly 15% above is inside");
+assert.equal(flagged([mv({ amount: 68 })]), true, "Exactly 15% below is inside");
+assert.equal(flagged([mv({ amount: 92.01 })]), false, "Just beyond 15% is outside");
+assert.equal(flagged([mv({ amount: 67.99 })]), false, "Just below 15% is outside");
+assert.equal(assessPlanOverlap([{ ...goal, remainingPence: 0 }], flow(mv({ amount: 80 })), end)[0].overlapUncertain, undefined, "Eased to 0 slice is never assessed");
+assert.equal(flagged([mv({ amount: 80, kind: "card_repayment" })]), false, "A bill kind of card_repayment is not a movement");
 assert.equal(flagged([mv({ amount: 80, dest_account_id: "amex" })], [{ id: "amex", type: "credit", subtype: "credit_card" }]), false, "Destination is a credit card");
 assert.equal(flagged([mv({ amount: 80, dest_account_id: "other" })]), false, "Known destination that is not the plan's");
 console.log("g235-plan-overlap ok");
