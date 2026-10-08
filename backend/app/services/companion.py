@@ -242,7 +242,13 @@ def humanise_account_name(name: str) -> str:
 
     return re.sub(r"[A-Za-z]+", _title_word, raw)
 
-def celebration_payload(stored: dict, dest_name: str | None, move_landed: bool = False) -> dict:
+def celebration_payload(
+    stored: dict,
+    dest_name: str | None,
+    move_landed: bool = False,
+    provider: str | None = None,
+    user_tokens: list[str] | None = None,
+) -> dict:
     """Celebration copy for a covered destination — self-contained and calm.
     Old docs may lack any of the underscore fields; every branch degrades to
     warm copy rather than a raw id or a £0 figure."""
@@ -255,6 +261,11 @@ def celebration_payload(stored: dict, dest_name: str | None, move_landed: bool =
     # tidyAccountName: re-cases a wholly upper-case provider name, leaves
     # mixed-case names alone), never the raw provider string.
     shown_name = humanise_account_name(dest_name) if dest_name else ""
+    if shown_name and _is_holder_named(shown_name, user_tokens):
+        # Same rule as the G212 cover plan card: an account named after its
+        # holder is "Your {Bank} account" in sentences.
+        _bank = _bank_name_of(provider)
+        shown_name = f"Your {_bank} account" if _bank else "Your account"
     headline = (
         f"{shown_name} has enough for what's due"
         if shown_name
@@ -5004,6 +5015,16 @@ async def compute_today_items(
                             {"$set": {"_celebration_lapsed": True}},
                         )
                 continue
+            _cel_provider = next(
+                (a.get("provider") or a.get("institution_id") for a in all_uk_accounts if a["_str_id"] == stored_dest),
+                None,
+            )
+            _cel_tokens: list[str] = []
+            try:
+                _cel_prof = await user_profiles_col.find_one({"_id": uid}, {"name_tokens": 1}) or {}
+                _cel_tokens = list(_cel_prof.get("name_tokens") or [])
+            except Exception as _cel_exc:  # profile is optional
+                log.warning("celebration: profile lookup failed for %s: %s", uid, type(_cel_exc).__name__)
             _cel_candidates.append({
                 "cel_id": f"celebrate:{stored_id}",
                 "group": stored_dest,
@@ -5013,7 +5034,7 @@ async def compute_today_items(
                     else 0
                 ),
                 "created_at": stored.get("created_at") or datetime.min,
-                "item": celebration_payload(stored, dest_name),
+                "item": celebration_payload(stored, dest_name, provider=_cel_provider, user_tokens=_cel_tokens),
             })
 
     # One celebration per destination: several generations of docs can cover the

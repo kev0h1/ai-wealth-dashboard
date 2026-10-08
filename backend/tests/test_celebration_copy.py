@@ -82,3 +82,16 @@ def test_copy_rules(kw, landed):
     assert "—" not in text and "–" not in text
     assert "Sorted" not in text and "held aside" not in text and "are safe" not in text
     assert "THE NUMBER ONE" not in text
+
+
+def test_holder_named_account_uses_bank_account_wording():
+    st = _stored(_dest_needs_total=843, _dest_bill_count=4)
+    out = celebration_payload(st, "MR KEVIN MBITHI MAINGI", provider="barclays", user_tokens=["kevin", "maingi"])
+    assert out["headline"] == "Your Barclays account has enough for what's due"
+    no_bank = celebration_payload(st, "KEVIN MAINGI", provider="Bank", user_tokens=["kevin", "maingi"])
+    assert no_bank["headline"] == "Your account has enough for what's due"
+
+
+def test_normally_named_account_keeps_display_name_with_tokens_present():
+    out = celebration_payload(_stored(), "PREMIER CURRENT", provider="hsbc", user_tokens=["kevin", "maingi"])
+    assert out["headline"] == "Premier Current has enough for what's due"
