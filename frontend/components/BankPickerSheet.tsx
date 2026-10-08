@@ -1,5 +1,6 @@
 "use client";
 
+import { consentToolbarColor, isDarkPreferenceOn } from "@/lib/consentToolbar";
 import { useState, useEffect, useRef, type ReactNode } from "react";
 import { X, Search, ChevronRight, ChevronDown, Loader2 } from "lucide-react";
 import { api, ApiError, resolveApiAsset } from "@/lib/api";
@@ -196,7 +197,7 @@ export default function BankPickerSheet({ onClose, onConnecting, provider = "fin
         // live; the connecting callback fires only from the ok return handler above.
         // A139: destructure and call inline, never return the plugin proxy.
         const { Browser } = await import("@capacitor/browser");
-        await Browser.open({ url: auth_url });
+        await Browser.open({ url: auth_url, toolbarColor: consentToolbarColor(isDarkPreferenceOn()) });
       } else if (mode === "rn") {
         // React Native WebView: external browser so bank apps (e.g. Starling) work.
         onConnecting?.();

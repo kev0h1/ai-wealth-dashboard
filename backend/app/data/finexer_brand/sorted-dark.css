@@ -15,3 +15,5 @@
   --s-muted: #cbd5e1;
   color-scheme: dark;
 }
+/* A150: applies only if Finexer loads the template on /connect/open. Colour only. */
+html, body { background: #0f172a; color-scheme: dark; }
