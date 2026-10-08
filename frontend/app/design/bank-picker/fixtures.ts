@@ -28,16 +28,23 @@ export function fixtureBanks(origin: string): Bank[] {
   })).sort((a, b) => a.name.localeCompare(b.name));
 }
 
-export type PickerVariant = "today" | "a" | "b" | "c";
-export const VARIANTS: { value: PickerVariant; label: string; placement: DisclosurePlacement; sticky: boolean }[] = [
-  { value: "today", label: "Today", placement: "footer", sticky: false },
-  { value: "a", label: "A · End of the list", placement: "list-end", sticky: true },
-  { value: "b", label: "B · Expands in place", placement: "expandable", sticky: true },
-  { value: "c", label: "C · In the header", placement: "header", sticky: true },
+export type PickerVariant = "today" | "a" | "b" | "c" | "d" | "e" | "f";
+/** "layout" variants (D, E, F, round 2) are hand-authored proposals in proposals.tsx; the rest are props on the production sheet. */
+export type PickerKind = "production" | "proposal";
+export const VARIANTS: { value: PickerVariant; label: string; placement: DisclosurePlacement; sticky: boolean; kind: PickerKind }[] = [
+  { value: "today", label: "Today", placement: "footer", sticky: false, kind: "production" },
+  { value: "a", label: "A · End of the list", placement: "list-end", sticky: true, kind: "production" },
+  { value: "b", label: "B · Expands in place", placement: "expandable", sticky: true, kind: "production" },
+  { value: "c", label: "C · In the header", placement: "header", sticky: true, kind: "production" },
+  { value: "d", label: "D · Popular first", placement: "footer", sticky: true, kind: "proposal" },
+  { value: "e", label: "E · Index rail", placement: "footer", sticky: true, kind: "proposal" },
+  { value: "f", label: "F · Two-step page", placement: "footer", sticky: true, kind: "proposal" },
 ];
 export const STATES = [
   { value: "empty", label: "Empty" },
   { value: "typing", label: "Typing" },
   { value: "scrolled", label: "Scrolled" },
-  { value: "expanded", label: "Expanded notice" },
+  { value: "chooser", label: "Step 2 (F)" },
+  { value: "noresults", label: "No results" },
+  { value: "expanded", label: "Expanded notice (B)" },
 ] as const;
