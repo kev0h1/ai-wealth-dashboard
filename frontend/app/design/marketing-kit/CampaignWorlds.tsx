@@ -3,15 +3,15 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import PennyMark from "@/components/PennyMark";
+import { ForecastContext, MovementCampaignProof, MovementGraphics, PaymentGraphics, UpcomingCampaignProof } from "./CampaignProof";
 import ProductionProof from "./ProductionProof";
 import { SAFE_TO_SPEND } from "./fixtures";
 import styles from "./worlds.module.css";
 
 const worlds = {
   c: { name: "Real life", image: "real-life", feature: "safe-to-spend", title: ["Life happens.", "See what fits."], sub: "Meet your Safe to Spend.", summary: "Everyday life, lifted out of the screen.", detail: "A tactile burst of coffee, groceries and plans around the real Safe to Spend view. Bright, human and built for a first introduction to Sorted.", film: "The objects lift into view, then settle around the phone. The estimated Safe to Spend card comes forward and holds still to read.", legal: "Fictional example. Safe to Spend is an estimate, not financial advice.", theme: "light" },
-  d: { name: "Payday path", image: "payday-path", feature: "upcoming", title: ["See it coming.", "Before it goes."], sub: "Upcoming payments. Account by account.", summary: "The days before payday become a place.", detail: "A sculpted calendar winds around the phone. A cinematic direction for showing what is coming and where a payment could leave an account short.", film: "The camera follows the calendar towards the phone, then stops on the account view. Payment risks stay visible, not hidden behind an upbeat headline.", legal: "Fictional forecast. Payments can take a day or two to appear.", theme: "dark" },
-  e: { name: "Ask Penny", image: "penny", feature: "penny", title: ["Money on", "your mind?"], sub: "Ask Penny. Review the next step.", summary: "A conversation you can almost touch.", detail: "Pearlescent speech bubbles rise around a dark phone, with Penny's indigo and violet reserved for the conversation. The real proposal keeps you in control.", film: "A question rises from the phone. Penny's proposal comes forward with Confirm and Cancel both visible. No money moves and nothing confirms itself.", legal: "Fictional conversation. General information, not regulated financial advice.", theme: "dark" },
+  d: { name: "Payday path", image: "connected-payments", feature: "upcoming", title: ["See it coming.", "Before it goes."], sub: "Upcoming payments, brought together.", summary: "Different accounts. One clear picture.", detail: "Two payment cards sit outside the phone at a readable scale. Calendar trails gather Monzo and Barclays activity into the forecast, with dates, amounts and the payment shortfall still visible.", film: "The bank activity arrives along the paper trails. Mobile and Energy lift into view, then the forecast settles. These are information flows, not bank transfers.", legal: "Fictional forecast. Payments can take a day or two to appear. Account information via Finexer Ltd. AURIQ LTD is its agent.", theme: "dark" },
+  e: { name: "Money movement", image: "money-movement", feature: "suggestions", title: ["One less thing", "to work out."], sub: "Sorted suggests the move.\nYou transfer with your bank.", summary: "The move, already worked out.", detail: "A clear route from Monzo Everyday to Barclays Bills, with a suggested £120 move. The real cover plan explains why. This replaces the Penny bubbles with the money task itself.", film: "The source and destination appear, then the suggested amount is placed on the route. Hold on the cover plan. The sequence ends before any transfer: you make it with your bank.", legal: "Fictional suggestion. Sorted does not move money. You make the transfer with your bank.", theme: "light" },
 } as const;
 type Campaign = keyof typeof worlds;
 type Canvas = "feed" | "story";
@@ -20,8 +20,8 @@ function RealScreen({ campaign }: { campaign: Campaign }) {
   const world = worlds[campaign];
   return <div className={`${styles.screen} ${world.theme === "dark" ? "dark" : ""}`} inert>
     <div className={styles.screenInner}>
-      <div className={styles.screenTitle}>{campaign === "c" ? "Home" : campaign === "d" ? "Before payday" : <><PennyMark size={22} /> Ask Penny</>}</div>
-      <ProductionProof feature={world.feature} />
+      <div className={styles.screenTitle}>{campaign === "c" ? "Home" : campaign === "d" ? "Before payday" : "Your cover plan"}</div>
+      {campaign === "d" ? <UpcomingCampaignProof /> : campaign === "e" ? <MovementCampaignProof /> : <ProductionProof feature={world.feature} />}
     </div>
   </div>;
 }
@@ -32,13 +32,15 @@ export function CampaignArtboard({ campaign, canvas }: { campaign: Campaign; can
   return <article data-campaign-artboard className={`${styles.artboard} ${styles[campaign]} ${canvas === "story" ? styles.story : ""}`} aria-label={`${world.name} campaign concept`}>
     <div className={styles.brand}>Sorted<span>The money-planning app</span></div>
     <div className={styles.headline}><h2>{world.title.map((line) => <span key={line}>{line}</span>)}</h2><p>{world.sub}</p></div>
+    {campaign === "d" && <ForecastContext />}
     <div data-campaign-scene className={styles.scene}>
       {/* Generated scenery has a blank screen. Product UI is rendered above it. */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={`/design-media/c22/worlds/${world.image}.png`} width={1254} height={1254} alt="" />
       <RealScreen campaign={campaign} />
       {campaign === "c" && safeToSpend != null && <div className={styles.liftedFigure}><span className={styles.money}>{new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP", maximumFractionDigits: 0 }).format(safeToSpend)}</span><span>Safe to Spend<span className={styles.estimate}>Estimated · until 30 Oct</span></span></div>}
-      {campaign === "e" && <div className={styles.pennySculpture}><PennyMark size={92} /></div>}
+      {campaign === "d" && <PaymentGraphics />}
+      {campaign === "e" && <MovementGraphics />}
     </div>
     <footer className={styles.artFooter}><p>{world.legal}</p><span>Meet Sorted <span aria-hidden="true">↗</span></span></footer>
   </article>;
@@ -66,7 +68,7 @@ export default function CampaignWorlds() {
   }, []);
   if (exact) return <div className={styles.exact}><CampaignArtboard campaign={campaign} canvas={canvas} /></div>;
   return <main className={styles.workbench}>
-    <header className={styles.header}><Link href="/design">Design library</Link><h1>Less screenshot.<br />More campaign.</h1><p>Three new directions for C22. Sculpted phones, real-life objects and app elements that step out of the screen.</p></header>
+    <header className={styles.header}><Link href="/design">Design library</Link><h1>Less screenshot.<br />More campaign.</h1><p>C stays as it was. D now gathers upcoming payments outside the phone; E replaces the Penny bubbles with a suggested money move.</p></header>
     <div className={styles.controls}>
       <fieldset><legend>Creative direction</legend>{(Object.keys(worlds) as Campaign[]).map((id) => <button type="button" key={id} aria-pressed={campaign === id} onClick={() => setCampaign(id)}>{id.toUpperCase()} · {worlds[id].name}</button>)}</fieldset>
       <fieldset><legend>Canvas</legend>{(["feed", "story"] as const).map((id) => <button type="button" key={id} aria-pressed={canvas === id} onClick={() => setCanvas(id)}>{id === "feed" ? "Feed" : "Story"}</button>)}</fieldset>

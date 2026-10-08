@@ -31,7 +31,7 @@ SHELL_READS = {
 
 def tag_scenes() -> None:
     """Embed prompt provenance without decoding or changing generated pixels."""
-    for name in ("real-life", "payday-path", "penny"):
+    for name in ("real-life", "connected-payments", "money-movement"):
         destination = OUT / f"{name}.png"
         source = json.loads((OUT / f"{name}.prompt.json").read_text())
         raw = destination.read_bytes()
@@ -129,6 +129,17 @@ def main() -> None:
             assert page.locator("[data-campaign-artboard]").count() == 1
             assert page.locator("[data-campaign-scene]").count() == 1
             assert page.locator("[data-marketing-proof]").count() >= 1
+            if campaign == "d":
+                assert page.locator("[data-payment-graphic]").count() == 2
+                assert page.locator('[data-payment-graphic="mobile"]').get_by_text("Monzo", exact=True).is_visible()
+                assert page.locator('[data-payment-graphic="energy"]').get_by_text("Barclays", exact=True).is_visible()
+                assert page.locator('[data-payment-graphic="energy"]').get_by_text("−£150.00", exact=True).is_visible()
+                assert page.get_by_text("£610 across these accounts", exact=False).is_visible()
+                assert page.get_by_text("£422 projected at payday, before your £110 buffer", exact=True).is_visible()
+            if campaign == "e":
+                assert page.locator("[data-movement-graphics]").get_by_text("Suggested move", exact=True).is_visible()
+                assert page.get_by_text("You transfer with your bank.", exact=False).first.is_visible()
+                assert page.get_by_text("£30 already in this account", exact=True).is_visible()
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), (filename, "horizontal overflow")
             page.screenshot(path=str(REVIEW / filename), full_page=True)
             context.close()
@@ -171,7 +182,7 @@ def main() -> None:
             context, page = make_page(390, 900)
             visit(page)
             # Button controls are intentionally named assertions, rather than brittle order checks.
-            for campaign, label in (("c", "C · Real life"), ("d", "D · Payday path"), ("e", "E · Ask Penny")):
+            for campaign, label in (("c", "C · Real life"), ("d", "D · Payday path"), ("e", "E · Money movement")):
                 button = page.get_by_role("button", name=label, exact=True)
                 button.click()
                 assert urlparse(page.url).query.startswith(f"campaign={campaign}") or f"campaign={campaign}" in page.url
