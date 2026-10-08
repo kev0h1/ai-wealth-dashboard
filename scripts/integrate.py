@@ -98,6 +98,7 @@ sys.path.insert(0, str(REPO_ROOT / "backend"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import frontend_build  # noqa: E402
+import host_memory  # noqa: E402
 from app.services import backlog  # noqa: E402
 
 LOCK_PATH = REPO_ROOT / ".integrate.lock"
@@ -574,6 +575,26 @@ def _install_dependencies(changed: set[str]) -> None:
             raise IntegrateError(f"npm ci failed:\n{out}")
 
 
+# H95/H99: bounded wait for memory before a build or the suite. A host short
+# of memory is not a fault in the branch, so wait a little for another
+# build or suite to finish; only then fail with the real reason.
+MEMORY_WAIT_S = int(os.environ.get("INTEGRATE_MEMORY_WAIT_S", "300"))
+MEMORY_POLL_S = 15
+
+
+def _require_memory(required_mb: int, what: str) -> None:
+    deadline = time.monotonic() + MEMORY_WAIT_S
+    while True:
+        try:
+            host_memory.require_available(required_mb, what)
+            return
+        except host_memory.MemoryGateError as exc:
+            if time.monotonic() >= deadline:
+                raise IntegrateError(str(exc)) from None
+            print(f"{exc} Waiting up to {MEMORY_WAIT_S}s for memory to free up.")
+            time.sleep(MEMORY_POLL_S)
+
+
 def _restart_services(changed: set[str]) -> None:
     frontend_or_shared = any(p == "frontend" or p.startswith("frontend/") or p == "shared" or p.startswith("shared/") for p in changed)
     backend_changed = any(p == "backend" or p.startswith("backend/") for p in changed)
@@ -594,10 +615,17 @@ def _restart_services(changed: set[str]) -> None:
         # corrupting each other; that failure blocks the item like any
         # other build failure, re-run finish/integrate once the other
         # build has finished.
+        _require_memory(frontend_build.MIN_AVAILABLE_MB, "the frontend build")
         try:
             result = frontend_build.build_and_swap(REPO_ROOT / "frontend")
         except frontend_build.FrontendBuildError as exc:
-            raise IntegrateError(f"frontend build failed:\n{exc}") from None
+            # H99: pass frontend_build's own message through verbatim
+            # ("build killed, out of memory (...)", "refusing to build: ...")
+            # and never leave the reason empty.
+            msg = str(exc).strip() or "frontend_build.py raised with no message (no output captured; check `dmesg | grep -i 'out of memory'`)"
+            if not msg.startswith("frontend build failed"):
+                msg = f"frontend build failed: {msg}"
+            raise IntegrateError(msg) from None
         print(
             f"frontend build {result.build_id} swapped into frontend/.next "
             f"(previous {result.previous_build_id or 'none'} kept at frontend/.next-prev)"
@@ -711,6 +739,7 @@ def _run_backend_tests() -> None:
     single shared "wealth_test" literal H90's first pass originally used
     here, so an integrate pass running concurrently with a `session.sh
     finish` (or another integrate pass) can never collide with it."""
+    _require_memory(host_memory.SUITE_REQUIRED_MB, "the backend suite")
     venv_python = REPO_ROOT / "backend" / ".venv" / "bin" / "python"
     rc, out = _sh(
         [

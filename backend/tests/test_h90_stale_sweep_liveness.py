@@ -29,6 +29,7 @@ import uuid
 import conftest
 import pytest
 from app.core.config import MONGO_URI
+from app.db.guard import guarded_drop_database
 from motor.motor_asyncio import AsyncIOMotorClient
 
 _OLD_ENOUGH_SECONDS = conftest._STALE_TEST_DB_AGE_SECONDS + 600  # comfortably past the threshold
@@ -58,7 +59,7 @@ async def _database_exists(name: str) -> bool:
 async def _drop(name: str) -> None:
     client = AsyncIOMotorClient(MONGO_URI, serverSelectionTimeoutMS=8000)
     try:
-        await client.drop_database(name)
+        await guarded_drop_database(client, name)
     finally:
         client.close()
 
