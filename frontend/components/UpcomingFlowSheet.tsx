@@ -22,6 +22,8 @@ export interface UpcomingFlowSheetProps<View> {
     title: string;
     subtitle?: string;
     leading?: ReactNode;
+    bodyHeader?: ReactNode;
+    bodyClassName?: string;
     body: ReactNode;
     footer?: ReactNode;
   };
@@ -232,6 +234,7 @@ export default function UpcomingFlowSheet<View>({ initialView, onClose, renderVi
   const hasFooter = rendered.footer != null || portalFooters > 0;
   return <UpcomingFlowSubmissionContext.Provider value={setSubmission}><UpcomingFlowFooterContext.Provider value={{ target: footerTarget, retain: retainFooter }}>
     <SheetFrame title={rendered.title} description={rendered.subtitle} leading={rendered.leading}
+      bodyHeader={rendered.bodyHeader} bodyClassName={rendered.bodyClassName}
       onClose={close} onEscape={back} onBack={depth > 0 ? back : undefined} backLabel="Back to details"
       dismissDisabled={saving} manageHistory={false} labelledBy={`${id}-title`}
       panelRef={panelRef} headingRef={headingRef} bodyRef={scrollRef}

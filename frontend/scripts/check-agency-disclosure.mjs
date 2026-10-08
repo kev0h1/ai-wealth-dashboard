@@ -25,7 +25,7 @@ for (const p of [
   if (!read(p).includes(SENTENCE)) failures.push(`${p} does not contain the A4.1 sentence verbatim`);
 }
 // Components must render the shared constant (so they cannot drift).
-for (const p of ["frontend/components/BankPickerSheet.tsx", "frontend/components/LoginScreen.tsx", "frontend/components/LegalDocument.tsx"]) {
+for (const p of ["frontend/components/BankPickerSheet.tsx", "frontend/components/bank-connect/BankConnectionParts.tsx", "frontend/components/LoginScreen.tsx", "frontend/components/LegalDocument.tsx"]) {
   if (!/\{AGENT_DISCLOSURE\}/.test(read(p))) failures.push(`${p} does not render {AGENT_DISCLOSURE}`);
 }
 if (/[—–]/.test(SENTENCE)) failures.push("sentence constant contains a dash character");

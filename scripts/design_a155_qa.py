@@ -11,6 +11,7 @@ from playwright.sync_api import sync_playwright, expect
 
 BASE = os.environ.get("A155_PREVIEW_URL", "http://127.0.0.1:3195")
 OUT = Path(os.environ.get("A155_QA_OUTPUT", "/tmp/a155-consent-qa"))
+VARIANTS = os.environ.get("A155_QA_VARIANTS", "g,h,i").split(",")
 OUT.mkdir(parents=True, exist_ok=True)
 results = []
 
@@ -41,6 +42,40 @@ def wait_step(page):
     page.wait_for_timeout(350)
 
 
+def fixed_search(page):
+    """A row must never paint between the heading and search, or behind it.
+
+    Bounding boxes alone miss the reported iPhone defect. Verify ownership,
+    contiguous edges AND the painted/hit-tested surface at both strip edges.
+    """
+    geometry = page.evaluate("""() => {
+      const sheet = document.querySelector('[data-sheet-frame]');
+      const header = sheet.querySelector('header').getBoundingClientRect();
+      const search = sheet.querySelector('[data-journey-search]');
+      const strip = search.getBoundingClientRect();
+      const body = sheet.querySelector('[data-sheet-body]');
+      const input = search.querySelector('input').getBoundingClientRect();
+      const rect = body.getBoundingClientRect();
+      const hits = [strip.top + 2, strip.bottom - 2].every(y =>
+        search.contains(document.elementFromPoint(strip.x + strip.width / 2, y)));
+      const canvas = document.createElement('canvas');
+      const paint = canvas.getContext('2d');
+      paint.fillStyle = getComputedStyle(search).backgroundColor;
+      paint.fillRect(0, 0, 1, 1);
+      return {headerBottom:header.bottom, stripTop:strip.top, stripBottom:strip.bottom,
+        bodyTop:rect.top, inputTop:input.top, inputHeight:input.height,
+        outside:!body.contains(search), opaque:getComputedStyle(search).backgroundColor,
+        alpha:paint.getImageData(0, 0, 1, 1).data[3], scroll:body.scrollTop, hits};
+    }""")
+    assert geometry["outside"] and geometry["hits"], geometry
+    assert abs(geometry["stripTop"] - geometry["headerBottom"]) < 1, geometry
+    assert abs(geometry["stripBottom"] - geometry["bodyTop"]) < 1, geometry
+    assert geometry["inputTop"] - geometry["stripTop"] == 12, geometry
+    assert geometry["inputHeight"] == 44, geometry
+    assert geometry["alpha"] == 255, geometry
+    return geometry
+
+
 with sync_playwright() as p:
     browser = p.chromium.launch(executable_path="/usr/bin/google-chrome", headless=True, args=["--no-sandbox"])
     for width, height, mode in [(390, 844, "light"), (390, 844, "dark"), (1280, 900, "light"), (1280, 900, "dark"), (320, 640, "light")]:
@@ -59,13 +94,15 @@ with sync_playwright() as p:
                 request.continue_()
 
         context.route("**/*", route)
-        for variant in ["g", "h", "i"]:
+        for variant in VARIANTS:
             prefix = f"{variant}-{width}-{mode}"
             page.goto(f"{BASE}/design/bank-consent-journeys?variant={variant}&mode={mode}", wait_until="networkidle")
             expect(page.get_by_role("dialog")).to_have_count(1)
             search = page.get_by_role("searchbox", name="Search banks")
             wait_step(page)
             shot(page, f"{prefix}-choose")
+            if variant == "g":
+                fixed_search(page)
             assert search.bounding_box()["height"] == 44
             assert search.evaluate("e => getComputedStyle(e).fontSize") == "16px"
             initial_search_top = search.bounding_box()["y"]
@@ -74,6 +111,13 @@ with sync_playwright() as p:
             wait_step(page)
             assert search.bounding_box()["y"] >= 0
             assert search.bounding_box()["y"] <= initial_search_top + 1
+            if variant == "g":
+                assert fixed_search(page)["scroll"] > 0
+                shot(page, f"{prefix}-scrolled")
+                page.mouse.wheel(0, 1000)
+                wait_step(page)
+                fixed_search(page)
+                shot(page, f"{prefix}-deep-scroll")
             search.fill("zzq")
             expect(page.get_by_role("heading", name="No banks found")).to_be_visible()
             if width == 390 and mode == "light":
@@ -92,6 +136,8 @@ with sync_playwright() as p:
                 page.get_by_role("button", name="Change bank", exact=True).click()
                 wait_step(page)
                 expect(search).to_have_value("  mOnZo  ")
+                if variant == "g":
+                    fixed_search(page)
                 page.get_by_role("button", name="Clear search", exact=True).click()
                 expect(search).to_be_focused()
                 search.fill("natwest")
@@ -131,6 +177,7 @@ with sync_playwright() as p:
             page.keyboard.press("Escape")
             expect(page.get_by_role("dialog")).to_have_count(0)
             expect(page.get_by_role("button", name=f"Try {variant.upper()}", exact=True)).to_be_focused()
+            print(f"PASS {prefix}: choose, scroll, filter, review, return and handoff", flush=True)
         page.get_by_role("heading", name="Bank connection journeys", exact=True).scroll_into_view_if_needed()
         shot(page, f"landing-{width}-{mode}")
         assert not errors, errors
@@ -142,9 +189,23 @@ with sync_playwright() as p:
     context = browser.new_context(viewport={"width": 390, "height": 844})
     page = context.new_page()
     context.route("**/*", lambda request: request.continue_() if request.request.url.startswith(BASE) and "/api/" not in request.request.url else request.abort())
-    for variant in ["g", "h", "i"]:
+    for variant in VARIANTS:
         page.goto(f"{BASE}/design/bank-consent-journeys?variant={variant}&state=error", wait_until="networkidle")
         wait_step(page)
+        if variant == "g":
+            page.get_by_role("searchbox").fill("monzo")
+            page.get_by_role("button", name="Choose Monzo", exact=True).click()
+            wait_step(page)
+            page.get_by_role("button", name="Continue to Finexer", exact=True).click()
+            expect(page.locator("[data-sheet-frame]").get_by_role("alert")).to_contain_text("Finexer did not open")
+            expect(page.locator("[data-selected-bank]")).to_contain_text("Monzo")
+            shot(page, "g-error")
+            page.get_by_role("button", name="Continue to Finexer", exact=True).click()
+            wait_step(page)
+            expect(page.get_by_role("dialog")).to_have_count(0)
+            page.get_by_role("button", name="Back in preview", exact=True).click()
+            expect(page.get_by_role("searchbox")).to_be_visible()
+            continue
         expect(page.get_by_role("heading", name="Finexer did not open", exact=True)).to_be_visible()
         shot(page, f"{variant}-error")
         page.get_by_role("button", name="Try again in preview").click()
@@ -156,6 +217,39 @@ with sync_playwright() as p:
         page.get_by_role("button", name="Back in preview", exact=True).click()
         wait_step(page)
         expect(page.get_by_role("dialog")).to_have_count(1)
+
+    for state, text in [("loading", "Loading banks"), ("empty", "No banks are available right now"), ("load-error", "We could not load banks"), ("pending", "Opening Finexer")]:
+        page.goto(f"{BASE}/design/bank-consent-journeys?variant=g&state={state}", wait_until="networkidle")
+        wait_step(page)
+        fixed_search(page)
+        if state == "pending":
+            page.get_by_role("searchbox").fill("monzo")
+            page.get_by_role("button", name="Choose Monzo", exact=True).click()
+            wait_step(page)
+            page.get_by_role("button", name="Continue to Finexer", exact=True).click()
+            expect(page.get_by_role("button", name="Opening Finexer", exact=False)).to_be_disabled()
+        else:
+            expect(page.get_by_text(text, exact=False).first).to_be_visible()
+        shot(page, f"g-{state}")
+        if state == "load-error":
+            page.get_by_role("button", name="Try again", exact=True).click()
+            expect(page.get_by_role("button", name="Choose Monzo", exact=True)).to_have_count(1)
+
+    # Short viewport approximates the space left by mobile browser/keyboard UI.
+    # This is not a claim of real iOS keyboard or Safari testing.
+    page.set_viewport_size({"width": 390, "height": 450})
+    page.goto(f"{BASE}/design/bank-consent-journeys?variant=g", wait_until="networkidle")
+    wait_step(page)
+    page.get_by_role("searchbox").click()
+    page.keyboard.type("monzo")
+    expect(page.get_by_role("searchbox")).to_be_focused()
+    fixed_search(page)
+    shot(page, "g-short-viewport-search")
+    page.get_by_role("button", name="Choose Monzo", exact=True).click()
+    wait_step(page)
+    expect(page.get_by_role("button", name="Continue to Finexer", exact=True)).to_be_in_viewport()
+    shot(page, "g-short-viewport-review")
+    page.set_viewport_size({"width": 390, "height": 844})
 
     page.goto(f"{BASE}/design/bank-consent-journeys", wait_until="networkidle")
     page.get_by_role("button", name="Dark theme", exact=True).click()

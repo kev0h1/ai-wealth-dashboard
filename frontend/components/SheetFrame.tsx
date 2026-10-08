@@ -27,6 +27,7 @@ export function SheetFrame({
   description,
   children,
   footer,
+  bodyHeader,
   onClose,
   labelledBy,
   themeClass,
@@ -48,6 +49,8 @@ export function SheetFrame({
   description?: ReactNode;
   children: ReactNode | ((controls: SheetFrameControls) => ReactNode);
   footer?: ReactNode | ((controls: SheetFrameControls) => ReactNode);
+  /** Fixed task controls, between the title and the independently scrolling body. */
+  bodyHeader?: ReactNode;
   onClose: () => void;
   labelledBy?: string;
   themeClass?: string;
@@ -185,6 +188,7 @@ export function SheetFrame({
             <X size={20} aria-hidden="true" />
           </button>
         </header>
+        {bodyHeader != null && <div data-sheet-body-header className="shrink-0">{bodyHeader}</div>}
         <div ref={setBody} data-sheet-body className={`min-h-0 flex-1 overflow-y-auto overscroll-contain ${bodyClassName}`} style={!footer ? { paddingBottom: "max(20px, env(safe-area-inset-bottom, 0px))" } : undefined}>{renderedBody}</div>
         {footer ? <footer data-sheet-footer className="shrink-0 border-t border-slate-100 px-5 pt-3 dark:border-slate-700" style={{ paddingBottom: "max(12px, env(safe-area-inset-bottom, 0px))" }}>{renderedFooter}</footer> : null}
       </section>

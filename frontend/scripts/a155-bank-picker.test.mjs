@@ -101,17 +101,19 @@ for (const variant of ["a", "b", "c"]) {
 }
 assert.ok(!render("today").body.includes("data-bank-search"), "Today keeps the old, non-sticky search");
 
-// 4. Inertness: default props equal today's production markup.
+// 4. Earlier A-C and legacy picker stay unchanged. Finexer now uses approved G.
 const golden = new URL("./a155-bank-picker.golden.html", import.meta.url);
 const todayHtml = [today.description, today.footer, render("today", "bank").body, today.body].join("\n");
 if (process.env.A155_WRITE_GOLDEN) writeFileSync(golden, todayHtml);
-assert.equal(todayHtml, readFileSync(golden, "utf8"), "default props render the same markup as production today");
+assert.equal(todayHtml, readFileSync(golden, "utf8"), "archived picker parts retain the original reference markup");
 const src = read("../components/BankPickerSheet.tsx");
 assert.match(src, /disclosurePlacement = "footer"/, "placement defaults to today's footer");
 assert.match(src, /stickySearch = false/, "sticky search defaults off");
 assert.match(src, /className="flex-1 bg-transparent text-sm text-slate-800 dark:text-slate-100 outline-none placeholder:text-slate-400/, "old search classes untouched");
 assert.match(src, /description=\{pickerDescription\(provider, disclosurePlacement\)\}/);
 assert.match(src, /\{AGENT_DISCLOSURE\}/, "picker still renders AGENT_DISCLOSURE");
+assert.match(src, /provider === "finexer" && !banksOverride\) return <BankConnectionFlow/, "live Finexer uses approved G");
+assert.match(src, /if \(banksOverride\) \{ setError\("Preview only\. No connection starts\."\); return; \}/, "archived preview selections cannot create a connection");
 
 // 5. Source strings: no dashes or exclamation marks in what we wrote
 for (const rel of ["../app/design/bank-picker/BankPickerClient.tsx", "../app/design/bank-picker/fixtures.ts", "../app/design/bank-picker/proposals.tsx"]) {

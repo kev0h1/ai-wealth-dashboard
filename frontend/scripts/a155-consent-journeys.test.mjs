@@ -7,6 +7,7 @@ import { fixtureBanks } from "../app/design/bank-picker/fixtures.ts";
 import { buildDoc } from "../app/design/finexer-consent-intro/fixtures.ts";
 import { BankChooser, ChosenBank, ConnectionNotice, ContinueAction, DIRECTIONS } from "../app/design/bank-consent-journeys/journeyParts.tsx";
 import HostedConsentPreview, { buildHostedPreviewDoc } from "../app/design/bank-consent-journeys/HostedConsentPreview.tsx";
+import { BankSearch, BankResults, BankMark, ConnectionNotice as ProductionNotice, ContinueAction as ProductionContinue } from "../components/bank-connect/BankConnectionParts.tsx";
 
 const h = React.createElement;
 const render = (component, props = {}) => renderToStaticMarkup(h(component, props));
@@ -37,6 +38,40 @@ assert.doesNotMatch(empty, /src=""/, "a missing fixture logo gets a neutral icon
 assert.match(render(ChosenBank, { bank: banks[0], onChange: noop }), /aria-label="Change bank"/);
 assert.match(render(ContinueAction, { onContinue: noop }), /Continue to Finexer/);
 
+// Approved G is production, not a second hand-authored mock. Its search is a
+// fixed sibling of the scroller, so rows cannot paint above or behind it.
+const productionNotice = render(ProductionNotice);
+assert.equal(productionNotice, notice, "approved notice markup and full disclosure are unchanged");
+const fixedSearch = render(BankSearch, common);
+const filledSearch = render(BankSearch, { ...common, query: "Monzo" });
+assert.match(fixedSearch, /data-journey-search[^>]*bg-white[^>]*dark:bg-slate-900/);
+assert.doesNotMatch(fixedSearch, /sticky|fixed|absolute[^>]*data-journey-search/);
+assert.match(filledSearch, /aria-label="Clear search"/);
+assert.match(filledSearch, /h-11 w-full[^\"]*text-base/);
+assert.equal((render(BankResults, common).match(/aria-label="Choose /g) ?? []).length, banks.length);
+assert.equal((render(BankResults, { ...common, query: "  mOnZo  " }).match(/aria-label="Choose /g) ?? []).length, 1);
+assert.match(render(BankResults, { ...common, loading: true }), /Loading banks/);
+assert.match(render(BankResults, { ...common, error: "Try again", onRetry: noop }), /role="alert"/);
+assert.match(render(BankResults, { ...common, banks: [] }), /No banks are available right now/);
+assert.match(render(BankResults, { ...common, query: "zzq" }), /No banks found/);
+assert.doesNotMatch(render(BankMark, { bank: { ...banks[0], logo: "" } }), /<img|src=""/);
+assert.match(render(BankMark, { bank: { ...banks[0], logo: "/logo/provider/test-bank" } }), /\/logo\/provider\/test-bank/);
+assert.match(render(ProductionContinue, { onContinue: noop, pending: true }), /disabled=""[^>]*aria-busy="true"/);
+const readSource = relative => readFileSync(new URL(relative, import.meta.url), "utf8");
+const productionFlow = readSource("../components/bank-connect/BankConnectionFlow.tsx");
+assert.match(productionFlow, /bodyHeader: <BankSearch/);
+assert.match(productionFlow, /body: <BankResults/);
+assert.match(productionFlow, /onChoose=\{bank => \{ setSelected\(bank\); navigation.goTo\("review"\); \}\}/);
+assert.match(productionFlow, /<ConnectionNotice \/>/);
+assert.match(productionFlow, /onContinue=\{\(\) => onConnect\(selected, navigation.close\)\}/);
+const sheet = readSource("../components/SheetFrame.tsx");
+assert.ok(sheet.indexOf("data-sheet-body-header") > sheet.indexOf("</header>"));
+assert.ok(sheet.indexOf("data-sheet-body-header") < sheet.indexOf("data-sheet-body className"));
+const approvedPreview = readSource("../app/design/bank-consent-journeys/ApprovedGPreview.tsx");
+assert.match(approvedPreview, /import BankConnectionFlow from "@\/components\/bank-connect\/BankConnectionFlow"/);
+assert.match(approvedPreview, /<BankConnectionFlow banks=/);
+assert.doesNotMatch(approvedPreview, /data-agent-disclosure|<input|<BankChooser|<ChosenBank/);
+
 for (const mode of ["light", "dark"]) {
   const original = buildDoc(mode);
   const shell = original.slice(original.indexOf('<div class="fx-bar">'));
@@ -61,7 +96,7 @@ for (const mode of ["light", "dark"]) {
     if (proposed) assert.match(html, /Needs Finexer approval/);
   }
 }
-for (const file of ["ConsentJourneysClient.tsx", "journeyParts.tsx", "HostedConsentPreview.tsx"]) {
+for (const file of ["ConsentJourneysClient.tsx", "journeyParts.tsx", "HostedConsentPreview.tsx", "ApprovedGPreview.tsx"]) {
   const source = readFileSync(new URL(`../app/design/bank-consent-journeys/${file}`, import.meta.url), "utf8");
   assert.doesNotMatch(source, /[—–]/, `${file}: no long dashes`);
   assert.doesNotMatch(source, /\b(?:fetch|axios)\s*\(|\bapi\.\w+\(/, `${file}: no live connection calls`);

@@ -6,6 +6,7 @@ import { api, ApiError, resolveApiAsset } from "@/lib/api";
 import { AGENT_DISCLOSURE } from "@/lib/regulatoryCopy";
 import { LEGACY_BANK_SUBTITLE } from "@/lib/legacyBankProvider";
 import { SheetFrame } from "@/components/SheetFrame";
+import BankConnectionFlow from "@/components/bank-connect/BankConnectionFlow";
 import { isNativePlatform } from "@/lib/nativeAuth";
 import { DEEP_LINK_EVENT, type DeepLinkDetail } from "@/lib/deepLinks";
 import { registerBankSheet } from "@/lib/bankConnectReturn";
@@ -19,9 +20,9 @@ export interface Bank {
   logo: string;
 }
 
-/** A155 design round. Where the A4.1 agency sentence lives in the picker:
- *  "footer" is today's pinned five-line footer (the default, production is
- *  unchanged until the fold-in); "list-end" puts the full sentence as the last
+/** Archived A155 exploration and legacy picker placements. Finexer production
+ *  now uses the approved G review step in BankConnectionFlow. "footer" is the
+ *  earlier pinned five-line footer; "list-end" puts the full sentence as the last
  *  row of the scrolling list with a short pinned line and a Full notice jump;
  *  "expandable" pins one compact line that opens in place to the full sentence;
  *  "header" sets the full sentence in the sheet header under the description. */
@@ -33,7 +34,7 @@ const CAPTION_INK = "text-xs leading-5 text-slate-600 dark:text-slate-300";
 
 interface BankPickerSheetProps {
   onClose: () => void;
-  /** Called the moment a bank is selected and OAuth is about to open. */
+  /** Called when handoff starts on web/RN, or after a successful native return. */
   onConnecting?: () => void;
   /** Which provider's bank list + connect link to use. Defaults to Finexer,
    *  the only provider production has (A67). "legacy" is the UAT-only
@@ -44,11 +45,11 @@ interface BankPickerSheetProps {
   /** Mid-flow callers (Onboarding): an ok return from the in-app browser must not
    *  navigate to Accounts; the caller carries on its own flow. */
   stayOnReturn?: boolean;
-  /** A155: where the A4.1 sentence sits. Defaults to today's pinned footer. */
+  /** Earlier design previews and legacy provider only. */
   disclosurePlacement?: DisclosurePlacement;
   /** A155: a fixed 44px search field in every state (clear button inside the
    *  field, no layout shift) that stays pinned under the sheet header while the
-   *  list scrolls. Off by default so production is unchanged. */
+   *  list scrolls. Used by the earlier design previews, not the G flow. */
   stickySearch?: boolean;
   /** Design previews only: render these banks instead of fetching the list. */
   banksOverride?: Bank[];
@@ -102,12 +103,19 @@ export default function BankPickerSheet({ onClose, onConnecting, provider = "fin
   const [query, setQuery] = useState(initialQuery);
   const [connecting, setConnecting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const connectingRef = useRef<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const closeRef = useRef<(() => void) | null>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   const onConnectingRef = useRef(onConnecting);
   onConnectingRef.current = onConnecting;
+  function updateConnecting(value: string | null) {
+    connectingRef.current = value;
+    setConnecting(value);
+  }
 
   // A108: while the in-app browser is open the sheet waits for the hand-off
   // deep link. A return closes the sheet, a failure keeps it open with a
@@ -118,7 +126,7 @@ export default function BankPickerSheet({ onClose, onConnecting, provider = "fin
       const d = (e as CustomEvent<DeepLinkDetail>).detail;
       if (d?.kind !== "bank_connected") return;
       if (d.status === "error") {
-        setConnecting(null);
+        updateConnecting(null);
         setError(BANK_FAILED);
         return;
       }
@@ -131,7 +139,7 @@ export default function BankPickerSheet({ onClose, onConnecting, provider = "fin
     if (isNativePlatform()) {
       // A139: destructure and call inline, never return the plugin proxy from an async function.
       void import("@capacitor/browser").then(({ Browser }) =>
-        Browser.addListener("browserFinished", () => setConnecting(null)),
+        Browser.addListener("browserFinished", () => updateConnecting(null)),
       ).then((h) => {
         if (disposed) void h.remove();
         else removeBrowser = () => void h.remove();
@@ -154,19 +162,31 @@ export default function BankPickerSheet({ onClose, onConnecting, provider = "fin
 
   useEffect(() => {
     if (banksOverride) return;
+    let active = true;
     const fetchProviders = provider === "legacy" ? api.legacyBankProviders() : api.finexerProviders();
     fetchProviders
-      .then(list => setBanks([...list].sort((a, b) => a.name.localeCompare(b.name))))
-      .catch(() => setError("Failed to load banks"))
-      .finally(() => setLoading(false));
-  }, [provider, banksOverride]);
+      .then(list => { if (active) setBanks([...list].sort((a, b) => a.name.localeCompare(b.name))); })
+      .catch(() => { if (active) setLoadError("We could not load the bank list. Please try again."); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [provider, banksOverride, loadAttempt]);
+
+  function retryBanks() {
+    setLoading(true);
+    setLoadError(null);
+    setLoadAttempt(attempt => attempt + 1);
+  }
 
   const filtered = query.trim()
     ? banks.filter(b => b.name.toLowerCase().includes(query.toLowerCase()))
     : banks;
 
   async function handleSelect(bank: Bank, close: () => void) {
-    setConnecting(bank.id);
+    // Archived fixtures must never create a live connection. Approved G's
+    // preview uses BankConnectionFlow directly with a separate inert transport.
+    if (banksOverride) { setError("Preview only. No connection starts."); return; }
+    if (connectingRef.current) return;
+    updateConnecting(bank.id);
     setError(null);
     closeRef.current = close;
     const rn = (window as unknown as { ReactNativeWebView?: { postMessage(s: string): void } }).ReactNativeWebView;
@@ -198,9 +218,13 @@ export default function BankPickerSheet({ onClose, onConnecting, provider = "fin
         ? err.message
         : "Failed to connect. Please try again.";
       setError(msg);
-      setConnecting(null);
+      updateConnecting(null);
     }
   }
+
+  if (provider === "finexer" && !banksOverride) return <BankConnectionFlow
+    banks={banks} loading={loading} loadError={loadError} connectionError={error} connecting={connecting}
+    onRetry={retryBanks} onConnect={handleSelect} onClose={onClose} />;
 
   return <SheetFrame
     title="Add a Bank"
@@ -210,7 +234,7 @@ export default function BankPickerSheet({ onClose, onConnecting, provider = "fin
     footer={pickerFooter(disclosurePlacement, initiallyExpanded)}
   >
     {({ close }) => <BankPickerBody
-      query={query} setQuery={setQuery} searchRef={searchRef} error={error} loading={loading}
+      query={query} setQuery={setQuery} searchRef={searchRef} error={error ?? loadError} loading={loading}
       filtered={filtered} connecting={connecting} onSelect={bank => handleSelect(bank, close)}
       stickySearch={stickySearch} disclosurePlacement={disclosurePlacement} />}
   </SheetFrame>;

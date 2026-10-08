@@ -1,5 +1,60 @@
 # A155: new consent journeys
 
+## Approved G production fold-in (8 October 2026)
+
+Kevin chose G and requested the search move up under the title, with no bank
+rows showing above or behind it. This supersedes the design-only delivery
+instructions recorded for the earlier round below.
+
+- Skill: impeccable, layout and polish, preserving the approved Calm Cockpit
+  structure. Web Interface Guidelines supplies the final accessibility check.
+- Finexer `BankPickerSheet` now renders `BankConnectionFlow`. Selecting a bank
+  only opens its review. The existing native, React Native and web transport
+  starts solely from **Continue to Finexer**. Legacy provider behaviour is
+  retained. No Finexer template, regulatory constant or backend change.
+- `BankSearch` lives in an optional fixed `SheetFrame.bodyHeader` slot, passed
+  through `UpcomingFlowSheet`. It is not a sticky descendant of the results.
+  Title, opaque search strip, and results have contiguous boundaries; only
+  results scroll. The input remains 44px tall with 16px text. Other sheets omit
+  the new slot and retain their existing structure and focus/history contract.
+- G's preview renders that same production flow with fixture banks and inert
+  callbacks, including loading, empty-list, retry and pending states. There is
+  no copied G screen markup. Its provider illustration appears as a separate
+  fixture page after handoff, not a second sheet. H/I remain unapproved
+  alternatives. Earlier A-C fixture selections cannot start live connections.
+- The full `AGENT_DISCLOSURE`, its 13px type and 22px leading, the selected-bank
+  summary and the reading/action hierarchy are preserved. The disclosure check
+  now pins the new production notice as well as the legacy consumers.
+- Regression coverage verifies the search is outside the scroll body, its
+  edges meet the header/results exactly, its background paint is fully opaque,
+  and hit-testing at both edges never exposes a bank row. Tests exercise initial,
+  partial-scroll, deep-scroll, filtered, cleared and returned-to-list states.
+  The repeatable runner supports `A155_QA_VARIANTS=g` for the approved surface.
+- The independent code and screenshot review returned **ship**. Phone and
+  desktop light/dark screenshots are under `.impeccable/review/a155-g/` locally.
+  A claimed capture anomaly was rechecked against each original file and
+  withdrawn by the reviewer: the fixed heading and search are visible.
+- The completed approved-G browser run passed all 41 captures at 390 x 844
+  and 1280 x 900 in both themes, 320 x 640 light, plus a 390 x 450 short
+  viewport. Filtering, clear, query/focus restoration, browser Back/Escape,
+  full notice, inert handoff, load/retry/empty/pending states and zero live
+  connection requests passed. Earlier H/I checks also passed in the wider
+  comparison matrix; an interrupted rerun was replaced with the shorter
+  complete approved-G batch rather than reported as a successful run.
+- Production build, TypeScript, new-file ESLint and focused disclosure,
+  bank-return and sheet-anatomy checks pass. Broader ESLint reports the same
+  six pre-existing React hook diagnostics in `BankPickerSheet`/`SheetFrame`
+  as their pre-change sources; no unrelated hook refactor is bundled here.
+- The skill's interactive browser runner is unavailable, so verification uses
+  the repository's installed headless Chrome/Playwright runner instead. No
+  physical iPhone keyboard, Safari engine or live bank authorisation is claimed.
+  The context/detector launcher was unavailable; manual source and visual
+  checks are used rather than bypassing host restrictions.
+- Delivery is a normal `session.sh finish A155`, not another choice round.
+  The coordinator remains responsible for merging and updating UAT.
+
+## Original round 3 proposal record
+
 ## Brief and boundaries
 
 Kevin rejected A to F and asked for more designs, not implementation: the
