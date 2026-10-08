@@ -73,3 +73,54 @@ def apply_temperature(records: list[dict], temperature: float) -> list[dict]:
             rec["confidence"] = sp[choice] if choice in sp else max(sp.values())
         out.append(rec)
     return out
+
+
+# ── G239: scalar (self-reported) confidence ────────────────────────────────
+# The OpenRouter models give one confidence for their chosen category, not a
+# probability vector, so temperature scaling acts on the logit of that scalar:
+# conf' = sigmoid(logit(conf) / T), with T fitted by grid search on the
+# negative log-likelihood of "the choice was right" (tune bucket only).
+
+def _logit(p: float) -> float:
+    p = min(max(float(p), EPS), 1 - EPS)
+    return math.log(p / (1 - p))
+
+
+def scale_scalar(conf: float, temperature: float) -> float:
+    return 1.0 / (1.0 + math.exp(-_logit(conf) / temperature))
+
+
+def _scalar_rows(records: list[dict]) -> list[tuple[float, bool]]:
+    return [
+        (r["confidence"], r["choice"] == r["label"])
+        for r in records
+        if r.get("confidence") is not None and r.get("choice") is not None and r.get("label") is not None
+    ]
+
+
+def fit_scalar_temperature(records: list[dict], grid: list[float] = TEMPERATURE_GRID) -> float:
+    """NLL-minimising temperature for scalar confidences; 1.0 when there is
+    nothing to fit."""
+    rows = _scalar_rows(records)
+    if not rows:
+        return 1.0
+    best_t, best = 1.0, None
+    for t in grid:
+        total = 0.0
+        for conf, ok in rows:
+            p = min(max(scale_scalar(conf, t), 1e-12), 1 - 1e-12)
+            total -= math.log(p if ok else 1 - p)
+        if best is None or total < best:
+            best_t, best = t, total
+    return best_t
+
+
+def apply_scalar_temperature(records: list[dict], temperature: float) -> list[dict]:
+    out = []
+    for r in records:
+        rec = dict(r)
+        if r.get("confidence") is not None:
+            rec["raw_confidence"] = r["confidence"]
+            rec["confidence"] = scale_scalar(r["confidence"], temperature)
+        out.append(rec)
+    return out

@@ -502,3 +502,154 @@ def test_results_path_v0_copies_legacy_file_once(tmp_path, monkeypatch):
     p.write_text("changed\n")
     assert common.results_path("jev", "v0_baseline").read_text() == "changed\n"  # not overwritten
     assert not common.results_path("jev", "v1_instructions").exists()
+
+
+# ── G239: generic OpenRouter runner and multi-model report (no network) ─────
+
+def test_g239_parse_args_defaults_and_flags():
+    from scripts.jev_eval import run_openrouter as R
+    a = R.parse_args(["--model", "openrouter/auto"])
+    assert (a.model, a.variant, a.bucket, a.limit) == ("openrouter/auto", "v0_baseline", "all", None)
+    assert not a.confirm_full_run and not a.dry_run and not a.no_confidence and a.max_tokens == 200 and a.tag == ""
+    b = R.parse_args(["--model", "x/y", "--limit", "5", "--confirm-full-run", "--max-tokens", "1000",
+                      "--tag", "mt1000", "--budget-usd", "0.5", "--data-policy-check"])
+    assert b.limit == 5 and b.confirm_full_run and b.max_tokens == 1000 and b.tag == "mt1000"
+    assert b.budget_usd == 0.5 and b.data_policy_check
+    with pytest.raises(SystemExit):
+        R.parse_args([])  # --model is required
+
+
+def test_g239_slug_keeps_dots_so_4_5_and_4_dash_5_do_not_collide(tmp_path):
+    from scripts.jev_eval.common import model_slug, model_results_path
+    assert model_slug("anthropic/claude-haiku-4.5") != model_slug("anthropic/claude-haiku-4-5")
+    assert model_results_path("openrouter/auto", "v0_baseline").name == "openrouter-auto_results.v0_baseline.jsonl"
+    assert model_results_path("typesafe/jev-router", "v0_baseline", "mt1000").name == "typesafe-jev-router_results.v0_baseline.mt1000.jsonl"
+
+
+def test_g239_parse_reply_variants():
+    from scripts.jev_eval.run_openrouter import parse_reply
+    allowed = ["Groceries", "Eating Out", "Other"]
+    assert parse_reply('{"category": "groceries", "confidence": 0.8}', allowed) == ("Groceries", 0.8)
+    assert parse_reply('```json\n{"category": "Other", "confidence": 85}\n```\n\nBecause reasons.', allowed) == ("Other", 0.85)
+    assert parse_reply('{"category": "Padel"}', allowed) == ("Padel", None)       # unknown category kept, scores as a miss
+    assert parse_reply('{"category": "Other", "confidence": "high"}') == ("Other", None)
+    assert parse_reply('{"category": "Other", "confidence": 250}') == ("Other", None)
+    assert parse_reply("I need example lines first.") == (None, None)
+    assert parse_reply("") == (None, None) and parse_reply(None) == (None, None)
+    assert parse_reply('{"category": ""}') == (None, None)
+
+
+def test_g239_result_from_response_records_served_model_cost_and_finish_reason():
+    from scripts.jev_eval.run_openrouter import result_from_response
+    data = {
+        "model": "deepseek/deepseek-v4-flash-0731",
+        "choices": [{"finish_reason": "stop", "message": {"content": '{"category": "Shopping", "confidence": 0.7}'}}],
+        "usage": {"prompt_tokens": 300, "completion_tokens": 15, "cost": 0.0001},
+    }
+    r = result_from_response(data, ["Shopping", "Other"])
+    assert r["choice"] == "Shopping" and r["confidence"] == 0.7
+    assert r["served_model"] == "deepseek/deepseek-v4-flash-0731" and r["finish_reason"] == "stop"
+    assert r["cost_usd"] == 0.0001
+    truncated = {"model": "m", "choices": [{"finish_reason": "length", "message": {"content": "", "reasoning": "..."}}], "usage": {}}
+    t = result_from_response(truncated)
+    assert t["choice"] is None and t["finish_reason"] == "length" and t["has_reasoning"] and t["cost_usd"] == 0.0
+
+
+def test_g239_prompt_asks_for_confidence_and_no_confidence_is_the_g178_line():
+    from scripts.jev_eval import run_openrouter as R, run_haiku
+    row = {"merchant_key": "k", "examples": [{"direction": "debit", "amount": 3.5, "description": "d"}]}
+    cats = ["Groceries", "Other"]
+    with_conf = R.build_prompt(row, cats, None)
+    assert '"confidence"' in with_conf and '{"category": "Category"}' not in with_conf
+    assert R.build_prompt(row, cats, None, ask_confidence=False) == run_haiku.build_prompt(row, cats, None)
+
+
+def test_g239_body_pins_deny_temperature_zero_and_reasoning_off():
+    from scripts.jev_eval.run_openrouter import build_body
+    b = build_body("m", "p")
+    assert b["provider"] == {"data_collection": "deny"} and b["temperature"] == 0 and b["max_tokens"] == 200
+    assert b["reasoning"] == {"effort": "none"} and b["usage"] == {"include": True}
+    assert "reasoning" not in build_body("m", "p", reasoning_off=False)
+    assert build_body("m", "p", max_tokens=1000)["max_tokens"] == 1000
+
+
+def test_g239_estimate_uses_fallback_for_dynamic_pricing_and_lookup_handles_alias():
+    from scripts.jev_eval import run_openrouter as R
+    e, fb = R.estimate_cost_usd(100, 1.0, 5.0)
+    assert not fb and e == pytest.approx(100 * (450 * 1.0 + 25 * 5.0) / 1e6)
+    e2, fb2 = R.estimate_cost_usd(100, -1.0, -1.0)
+    assert fb2 and e2 > e
+    assert R.listed_prices({"pricing": {"prompt": "0.000001", "completion": "0.000005"}}) == (pytest.approx(1.0), pytest.approx(5.0))
+    assert R.listed_prices({"pricing": {"prompt": "-1", "completion": "-1"}}) == (-1.0, -1.0)
+    assert R.listed_prices(None) == (None, None)
+    idx = {"anthropic/claude-haiku-4.5": {"id": "x"}}
+    assert R.lookup_model(idx, "anthropic/claude-haiku-4-5") == {"id": "x"}
+    assert R.lookup_model(idx, "nope/none") is None
+
+
+def test_g239_data_policy_report_flags_unlisted_and_router():
+    from scripts.jev_eval.run_openrouter import data_policy_report
+    assert "NO" in data_policy_report("a/b", None)[1]
+    auto = "\n".join(data_policy_report("openrouter/auto", {"pricing": {"prompt": "-1", "completion": "-1"}}, []))
+    assert "constrains" in auto
+    plain = "\n".join(data_policy_report("a/b", {"pricing": {"prompt": "0.000001", "completion": "0.000001"}}, ["Anthropic"]))
+    assert "data_collection=deny" in plain and "Anthropic" in plain
+
+
+def test_g239_scalar_temperature_softens_overconfident_scalar_confidence():
+    from scripts.jev_eval import calibrate
+    recs = [{"choice": "A", "label": "A" if i % 2 == 0 else "B", "confidence": 0.95} for i in range(40)]
+    t = calibrate.fit_scalar_temperature(recs)
+    assert t > 1.0
+    cal = calibrate.apply_scalar_temperature(recs, t)
+    assert all(c["confidence"] < 0.95 for c in cal) and cal[0]["raw_confidence"] == 0.95
+    assert calibrate.fit_scalar_temperature([]) == 1.0
+
+
+def _g239_recs():
+    base = {"http_status": 200, "latency_ms": 100, "cost_usd": 0.001, "served_model": "m1"}
+    rows = [
+        ("gold", "Groceries", "Groceries", 0.9, False), ("gold", "Groceries", "Other", 0.4, False),
+        ("gold", "Bills", "Other", 0.3, True), ("llm", "Shopping", "Shopping", 0.8, False),
+        ("llm", "Other", None, None, True),
+    ]
+    out = []
+    for i, (src, label, choice, conf, no_lines) in enumerate(rows):
+        out.append(dict(base, row_id=f"r{i}", label_source="user" if src == "gold" else "llm", label=label,
+                        choice=choice, confidence=conf, no_lines=no_lines))
+    return out
+
+
+def test_g239_miss_split_and_gold_category_breakdown():
+    recs = _g239_recs()
+    ms = report.miss_split(recs)
+    assert ms["no_lines"]["rows"] == 2 and ms["no_lines"]["no_answer"] == 1 and ms["no_lines"]["misses"] == 1
+    assert ms["with_lines"]["rows"] == 3 and ms["with_lines"]["misses"] == 1 and ms["with_lines"]["miss_pred_other"] == 1
+    by_cat = report.miss_by_gold_category(recs)
+    assert {"category": "Bills", "rows": 1, "misses": 1} in by_cat
+    assert report.confusion_cells([r for r in recs if r["label_source"] == "user"])[0]["pred"] == "Other"
+
+
+def test_g239_served_model_distribution_and_cost_helpers():
+    recs = _g239_recs()
+    recs[0]["served_model"] = "m2"
+    assert report.served_model_distribution(recs) == [("m1", 4), ("m2", 1)]
+    assert report.cost_per_1000(recs) == pytest.approx(1.0)
+    assert report.total_cost(recs) == pytest.approx(0.005)
+    assert report.percentile([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 0.95) == 10
+    assert report.parse_model_spec("a/b@mt1000") == ("a/b", "mt1000") and report.parse_model_spec("a/b") == ("a/b", "")
+
+
+def test_g239_model_comparison_report_is_aggregates_only(tmp_path, monkeypatch):
+    from scripts.jev_eval import common
+    monkeypatch.setattr(common, "OUT_DIR", tmp_path)
+    dataset = [{"scope": "user", "uid_hash": "h", "merchant_key": f"secret-merchant-{i}", "label": "Groceries",
+                "label_source": "user", "examples": [] if i == 2 else [{"description": "SECRET DESC"}]} for i in range(5)]
+    recs = _g239_recs()
+    for r, d in zip(recs, dataset):
+        r["row_id"] = common.row_id(d["scope"], d["uid_hash"], d["merchant_key"])
+        r["merchant_key"] = d["merchant_key"]
+    common.write_jsonl(common.model_results_path("anthropic/claude-haiku-4-5", "v0_baseline"), recs)
+    text = report.build_model_comparison(["anthropic/claude-haiku-4-5"], "v0_baseline", dataset, None)
+    assert "Headline" in text and "Miss analysis" in text and "Abstain thresholds" in text
+    assert "secret-merchant" not in text and "SECRET DESC" not in text

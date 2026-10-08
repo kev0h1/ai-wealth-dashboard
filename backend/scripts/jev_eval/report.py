@@ -421,6 +421,203 @@ def build_errors_dump(variant: str, bucket: str, split: dict[str, str] | None, d
     return "\n".join(lines)
 
 
+# ── G239: multi-model comparison and miss-cause analysis ───────────────────
+
+CURRENT_JUDGE = "anthropic/claude-haiku-4-5"
+
+
+def parse_model_spec(spec: str) -> tuple[str, str]:
+    """`model` or `model@tag` -> (model, tag)."""
+    model, _, tag = spec.partition("@")
+    return model, tag
+
+
+def percentile(values: list[float], q: float) -> float | None:
+    if not values:
+        return None
+    v = sorted(values)
+    return v[min(int(math.ceil(q * len(v))) - 1, len(v) - 1)]
+
+
+def cost_per_1000(records: list[dict]) -> float | None:
+    costs = [r["cost_usd"] for r in records if isinstance(r.get("cost_usd"), (int, float))]
+    return (sum(costs) / len(costs)) * 1000 if costs else None
+
+
+def total_cost(records: list[dict]) -> float:
+    return sum(r["cost_usd"] for r in records if isinstance(r.get("cost_usd"), (int, float)))
+
+
+def served_model_distribution(records: list[dict]) -> list[tuple[str, int]]:
+    c = Counter(r.get("served_model") or "unknown" for r in records if r.get("http_status") == 200)
+    return c.most_common()
+
+
+def tag_records(records: list[dict], dataset_rows: list[dict]) -> list[dict]:
+    """Add `no_lines` (the dataset row has zero transaction lines) to a copy
+    of each result record, keyed by row_id."""
+    nl = {make_row_id(d["scope"], d["uid_hash"], d["merchant_key"]): not (d.get("examples") or []) for d in dataset_rows}
+    return [dict(r, no_lines=nl.get(r.get("row_id"), False)) for r in records]
+
+
+def ece_of(records: list[dict]) -> float | None:
+    return calibration_and_ece(records)[1]
+
+
+def best_abstain(records: list[dict]) -> dict:
+    """Coverage at the 80, 90 and 95 percent accuracy targets, plus the
+    single best-accuracy point that still keeps at least 5 rows."""
+    cov = {f"{int(t['target'] * 100)}": t for t in coverage_at_accuracy(records)}
+    scored = sorted(((r["confidence"], r["choice"] == r["label"]) for r in records
+                     if r.get("confidence") is not None and r.get("choice") is not None), key=lambda x: -x[0])
+    best = None
+    ok = 0
+    for i, (conf, good) in enumerate(scored, 1):
+        ok += good
+        if i < len(scored) and scored[i][0] == conf:
+            continue
+        if i >= MIN_COVERED_N and (best is None or ok / i > best["accuracy"] or (ok / i == best["accuracy"] and i > best["n"])):
+            best = {"accuracy": ok / i, "coverage": i / len(scored), "threshold": conf, "n": i}
+    return {"cov": cov, "best": best}
+
+
+def model_summary(model: str, records: list[dict], split: dict[str, str] | None, current: list[dict] | None) -> dict:
+    """All per-model figures for the comparison table, as a plain dict."""
+    answered, _ = partition_answerable(records, None)
+    no_answer = sum(1 for r in records if r.get("choice") is None)
+    gold_all = [r for r in records if r.get("label_source") == "user"]
+    gold_ok = sum(1 for r in gold_all if r.get("choice") == r.get("label"))
+    ans_scope = lambda b: partition_answerable(in_bucket(records, split, b), split)[0]
+    tune, holdout = ans_scope("tune"), ans_scope("holdout")
+    has_conf = any(r.get("confidence") is not None for r in answered)
+    out = {
+        "model": model, "n": len(records), "no_answer": no_answer,
+        "gold_n": len(gold_all), "gold_ok": gold_ok,
+        "holdout_n": len(holdout), "holdout_acc": accuracy(holdout),
+        "tune_acc": accuracy(tune),
+    }
+    if current:
+        ag = agreement_between(answered, [r for r in current if r.get("choice") is not None])
+        out["agree"] = ag
+    lat = [r["latency_ms"] for r in records if isinstance(r.get("latency_ms"), (int, float)) and r.get("http_status") == 200]
+    out["lat_median"], out["lat_p95"] = (statistics.median(lat) if lat else None), percentile(lat, 0.95)
+    out["cost_per_1000"], out["total_cost"] = cost_per_1000(records), total_cost(records)
+    if has_conf:
+        t = calibrate.fit_scalar_temperature(tune)
+        out["T"] = t
+        out["ece_raw_holdout"], out["ece_raw_all"] = ece_of(holdout), ece_of(answered)
+        out["ece_cal_holdout"] = ece_of(calibrate.apply_scalar_temperature(holdout, t))
+        cal_all = calibrate.apply_scalar_temperature(answered, t)
+        out["abstain_raw"], out["abstain_cal"] = best_abstain(answered), best_abstain(cal_all)
+    return out
+
+
+def confusion_cells(records: list[dict], top_n: int = 10) -> list[dict]:
+    return confusion_pairs([r for r in records if r.get("choice")], top_n)
+
+
+def miss_split(records: list[dict]) -> dict:
+    """Accuracy and miss structure for rows with and without transaction
+    lines (records must have been through tag_records)."""
+    out = {}
+    for name, flag in (("no_lines", True), ("with_lines", False)):
+        seg = [r for r in records if r.get("no_lines") is flag]
+        ans = [r for r in seg if r.get("choice") is not None]
+        miss = [r for r in ans if r["choice"] != r["label"]]
+        out[name] = {
+            "rows": len(seg), "no_answer": len(seg) - len(ans),
+            "acc_answered": accuracy(ans), "misses": len(miss),
+            "other_pred_share": (sum(1 for r in ans if r["choice"] == "Other") / len(ans)) if ans else None,
+            "miss_pred_other": sum(1 for r in miss if r["choice"] == "Other"),
+            "miss_gold_other": sum(1 for r in miss if r["label"] == "Other"),
+        }
+    return out
+
+
+def miss_by_gold_category(records: list[dict], top_n: int = 8) -> list[dict]:
+    """Gold rows only: per gold category, rows and misses, largest miss
+    counts first."""
+    per: dict[str, list[int]] = {}
+    for r in records:
+        if r.get("label_source") != "user" or r.get("choice") is None:
+            continue
+        c = per.setdefault(r["label"], [0, 0])
+        c[0] += 1
+        c[1] += r["choice"] != r["label"]
+    rows = [{"category": k, "rows": v[0], "misses": v[1]} for k, v in per.items() if v[1]]
+    return sorted(rows, key=lambda x: (-x["misses"], x["category"]))[:top_n]
+
+
+def build_model_comparison(specs: list[str], variant: str, dataset_rows: list[dict], split: dict[str, str] | None) -> str:
+    from scripts.jev_eval.common import model_results_path
+    loaded = {}
+    for spec in specs:
+        model, tag = parse_model_spec(spec)
+        recs = read_jsonl(model_results_path(model, variant, tag))
+        loaded[spec] = tag_records(recs, dataset_rows)
+    cur_spec = next((s for s in specs if parse_model_spec(s) == (CURRENT_JUDGE, "")), None)
+    current = loaded.get(cur_spec) if cur_spec else None
+    f3 = lambda x: "n/a" if x is None else f"{x:.3f}"
+    fms = lambda x: "n/a" if x is None else f"{x:.0f}"
+    lines = [f"# G239 judge model comparison, variant {variant}", ""]
+    if dataset_rows:
+        g = sum(1 for r in dataset_rows if r.get("label_source") == "user")
+        nl = sum(1 for r in dataset_rows if not r.get("examples"))
+        lines.append(f"Dataset: {len(dataset_rows)} rows ({g} gold, {len(dataset_rows) - g} silver), {nl} with no transaction lines.")
+        lines.append("")
+    sums = {s: model_summary(s, recs, split, current) for s, recs in loaded.items() if recs}
+    lines += ["## Headline", "",
+              "| model | rows | no answer | gold acc (88) | holdout acc | agree w/ current | ECE raw (holdout) | ECE cal (holdout) | median ms | p95 ms | USD per 1k | USD total |",
+              "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
+    for s, m in sums.items():
+        ag = m.get("agree")
+        lines.append("| " + " | ".join([
+            s, str(m["n"]), str(m["no_answer"]),
+            f"{m['gold_ok']}/{m['gold_n']} = {_fmt_pct(m['gold_ok'] / m['gold_n'] if m['gold_n'] else None)}",
+            f"{_fmt_pct(m['holdout_acc'])} (n={m['holdout_n']})",
+            _fmt_pct(ag["rate"]) if ag else "n/a",
+            f3(m.get("ece_raw_holdout")), f3(m.get("ece_cal_holdout")),
+            fms(m["lat_median"]), fms(m["lat_p95"]),
+            f"{m['cost_per_1000']:.4f}" if m["cost_per_1000"] is not None else "n/a", f"{m['total_cost']:.4f}",
+        ]) + " |")
+    lines += ["", "Gold accuracy counts a missing answer as a miss. Holdout accuracy is over answerable holdout rows that got an answer. "
+              "Agreement is over rows both models answered. ECE calibration: temperature fitted on tune, applied to holdout.", ""]
+    lines += ["## Abstain thresholds (all answerable rows, self-reported confidence)", "",
+              "| model | T | max coverage at 90% acc (raw / cal) | max coverage at 95% acc (raw / cal) | best accuracy point (raw): acc at coverage |",
+              "| --- | --- | --- | --- | --- |"]
+    for s, m in sums.items():
+        if "abstain_raw" not in m:
+            lines.append(f"| {s} | n/a | n/a | n/a | n/a |")
+            continue
+        r, c = m["abstain_raw"], m["abstain_cal"]
+        b = r["best"]
+        lines.append(f"| {s} | {m['T']:.2f} | {_fmt_pct(r['cov']['90']['coverage'])} / {_fmt_pct(c['cov']['90']['coverage'])} | "
+                     f"{_fmt_pct(r['cov']['95']['coverage'])} / {_fmt_pct(c['cov']['95']['coverage'])} | "
+                     + (f"{_fmt_pct(b['accuracy'])} at {_fmt_pct(b['coverage'])} (threshold {b['threshold']:.2f})" if b else "n/a") + " |")
+    lines.append("")
+    for s, m in sums.items():
+        recs = loaded[s]
+        lines += [f"## Miss analysis: {s}", ""]
+        sd = served_model_distribution(recs)
+        lines.append("Served model(s): " + ", ".join(f"{k} x{v}" for k, v in sd))
+        ms = miss_split(recs)
+        lines += ["", "| segment | rows | no answer | accuracy (answered) | misses | predicted Other (share of answers) | misses predicted Other | misses where gold is Other |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- |"]
+        for name, d in ms.items():
+            lines.append(f"| {name} | {d['rows']} | {d['no_answer']} | {_fmt_pct(d['acc_answered'])} | {d['misses']} | {_fmt_pct(d['other_pred_share'])} | {d['miss_pred_other']} | {d['miss_gold_other']} |")
+        gold = [r for r in recs if r.get("label_source") == "user"]
+        lines += ["", "Top confusions, gold rows (gold -> predicted):", "", "| gold | predicted | count |", "| --- | --- | --- |"]
+        cells = confusion_cells(gold)
+        lines += [f"| {c['true']} | {c['pred']} | {c['count']} |" for c in cells] or ["| none | | |"]
+        lines += ["", "Top confusions, all rows against stored label (gold and silver):", "", "| label | predicted | count |", "| --- | --- | --- |"]
+        cells = confusion_cells(recs)
+        lines += [f"| {c['true']} | {c['pred']} | {c['count']} |" for c in cells] or ["| none | | |"]
+        lines += ["", "Gold misses by category:", "", "| gold category | rows | misses |", "| --- | --- | --- |"]
+        lines += [f"| {c['category']} | {c['rows']} | {c['misses']} |" for c in miss_by_gold_category(recs)] or ["| none | | |"]
+        lines.append("")
+    return "\n".join(lines)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--variant", default="v0_baseline")
@@ -428,10 +625,20 @@ def main() -> None:
     ap.add_argument("--calibrate-from", choices=["tune"], default=None)
     ap.add_argument("--compare", default=None, help="comma-separated variant names")
     ap.add_argument("--errors", action="store_true")
+    ap.add_argument("--models", default=None, help="G239: comma-separated OpenRouter model ids (optionally id@tag) for the per-model comparison")
     args = ap.parse_args()
 
     dataset_rows = read_jsonl(DATASET_PATH)
     split = load_split() or (make_split(dataset_rows) if dataset_rows else None)
+
+    if args.models:
+        specs = [n.strip() for n in args.models.split(",") if n.strip()]
+        text = build_model_comparison(specs, args.variant, dataset_rows, split)
+        print(text)
+        path = OUT_DIR / f"report.models.{args.variant}.md"
+        path.write_text(text, encoding="utf-8")
+        print(f"\n(written to {path})", file=sys.stderr)
+        return
 
     if args.compare:
         names = [n.strip() for n in args.compare.split(",") if n.strip()]
