@@ -1,0 +1,3937 @@
+{
+  "ticket": "C22",
+  "status": "review-draft-not-for-publication",
+  "completeStills": true,
+  "specificationsChecked": "2026-10-08",
+  "sources": [
+    {
+      "title": "Apple screenshot specifications",
+      "url": "https://developer.apple.com/help/app-store-connect/reference/app-information/screenshot-specifications"
+    },
+    {
+      "title": "Apple app preview specifications",
+      "url": "https://developer.apple.com/help/app-store-connect/reference/app-information/app-preview-specifications"
+    },
+    {
+      "title": "Apple listing text limits",
+      "url": "https://developer.apple.com/help/app-store-connect/reference/app-information/platform-version-information"
+    },
+    {
+      "title": "Apple name and subtitle",
+      "url": "https://developer.apple.com/help/app-store-connect/reference/app-information/app-information"
+    },
+    {
+      "title": "Google Play listing limits",
+      "url": "https://support.google.com/googleplay/android-developer/answer/9859152"
+    },
+    {
+      "title": "Google Play preview assets",
+      "url": "https://support.google.com/googleplay/android-developer/answer/9866151"
+    }
+  ],
+  "reviewChecks": [
+    "Kevin: choose campaign A or B and approve the wording before publication.",
+    "Compliance: review financial-promotion status, claims, provider disclosure and the intended audience and channels.",
+    "C5: verify every pictured feature against the submitted iOS and Android builds, supported banks, permissions and subscription entitlements.",
+    "C5: confirm current device classes in App Store Connect. The extra medium-display set follows Apple's current required-size guidance.",
+    "C5: replace or approve the component-rendered editorial App Store film after native-build parity review. Technical encoding alone is not store approval.",
+    "Paid social: check current TikTok, Meta and Instagram financial-services and creative safe-zone requirements before placement.",
+    "No pricing, download availability, savings result, return or FCA authorisation claim is approved by this kit."
+  ],
+  "assets": [
+    {
+      "file": "a-connect-android-dark.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 109564,
+      "sha256": "12ec61be882f9472eb8c17d72977fe4d97711a98e7db06344720da74e7da4536",
+      "direction": "a",
+      "feature": "connect",
+      "format": "android",
+      "kind": "campaign-still",
+      "source": [
+        "components/bank-connect/BankConnectionParts.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "a-connect-android-light.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 107402,
+      "sha256": "316c485c4e5ba2e1f6da009a3d6ae7b206ee90405d46e05d3564ca1d9a91216f",
+      "direction": "a",
+      "feature": "connect",
+      "format": "android",
+      "kind": "campaign-still",
+      "source": [
+        "components/bank-connect/BankConnectionParts.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "a-connect-feed-dark.png",
+      "width": 1080,
+      "height": 1350,
+      "bytes": 79197,
+      "sha256": "f08ed6a3bf585f7720bcddad0e7b653e984ddf28617ba706c76cbe7be02b16d2",
+      "direction": "a",
+      "feature": "connect",
+      "format": "feed",
+      "kind": "campaign-still",
+      "source": [
+        "components/bank-connect/BankConnectionParts.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "a-connect-feed-light.png",
+      "width": 1080,
+      "height": 1350,
+      "bytes": 78136,
+      "sha256": "7558212e198b4212beab98ff851e7dd0228a709bd7661b31913791f276cc4374",
+      "direction": "a",
+      "feature": "connect",
+      "format": "feed",
+      "kind": "campaign-still",
+      "source": [
+        "components/bank-connect/BankConnectionParts.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "a-connect-iphone-65-dark.png",
+      "width": 1242,
+      "height": 2688,
+      "bytes": 119562,
+      "sha256": "3c47c1ae2587f5ff3426e53b22dcda02f20a3e34b8f9115058eff6250f5b2400",
+      "direction": "a",
+      "feature": "connect",
+      "format": "iphone-65",
+      "kind": "campaign-still",
+      "source": [
+        "components/bank-connect/BankConnectionParts.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "a-connect-iphone-65-light.png",
+      "width": 1242,
+      "height": 2688,
+      "bytes": 116289,
+      "sha256": "18afa76dbc15b90923c7d102d45ffacef4d688216931e93e367148b686eb7b54",
+      "direction": "a",
+      "feature": "connect",
+      "format": "iphone-65",
+      "kind": "campaign-still",
+      "source": [
+        "components/bank-connect/BankConnectionParts.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "a-connect-iphone-69-dark.png",
+      "width": 1320,
+      "height": 2868,
+      "bytes": 123512,
+      "sha256": "16df97949997f1abab60352703557e82305bbd63c6059e28639f6c0965d87dc1",
+      "direction": "a",
+      "feature": "connect",
+      "format": "iphone-69",
+      "kind": "campaign-still",
+      "source": [
+        "components/bank-connect/BankConnectionParts.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "a-connect-iphone-69-light.png",
+      "width": 1320,
+      "height": 2868,
+      "bytes": 119753,
+      "sha256": "4908f159daa0993f9b60dca486cbfa14ae5f6415ac260a6fa991d66e7c4c901a",
+      "direction": "a",
+      "feature": "connect",
+      "format": "iphone-69",
+      "kind": "campaign-still",
+      "source": [
+        "components/bank-connect/BankConnectionParts.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "a-connect-iphone-medium-dark.png",
+      "width": 1206,
+      "height": 2622,
+      "bytes": 117026,
+      "sha256": "10e6d71ec662618e6744446c675c1a4a24dc6b22d2d6fcb0e09f18c15e4199b1",
+      "direction": "a",
+      "feature": "connect",
+      "format": "iphone-medium",
+      "kind": "campaign-still",
+      "source": [
+        "components/bank-connect/BankConnectionParts.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "a-connect-iphone-medium-light.png",
+      "width": 1206,
+      "height": 2622,
+      "bytes": 114650,
+      "sha256": "f1dcc53669c2b545dd81e0e170fe6422b67d5aa2a2100490bfc511a48a446371",
+      "direction": "a",
+      "feature": "connect",
+      "format": "iphone-medium",
+      "kind": "campaign-still",
+      "source": [
+        "components/bank-connect/BankConnectionParts.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "a-connect-landing-dark.png",
+      "width": 1600,
+      "height": 1200,
+      "bytes": 92958,
+      "sha256": "db67c8e095797ac90a330bb4bfc16b4c461685ca9d97a5b0e3843b9d8385b1d2",
+      "direction": "a",
+      "feature": "connect",
+      "format": "landing",
+      "kind": "campaign-still",
+      "source": [
+        "components/bank-connect/BankConnectionParts.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "a-connect-landing-light.png",
+      "width": 1600,
+      "height": 1200,
+      "bytes": 91021,
+      "sha256": "c9310907326ac85891fbd7a1570cc87d8826558067dbf874efa001d72d6da6b5",
+      "direction": "a",
+      "feature": "connect",
+      "format": "landing",
+      "kind": "campaign-still",
+      "source": [
+        "components/bank-connect/BankConnectionParts.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "a-connect-story-dark.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 91370,
+      "sha256": "70c9a63fdff5565987d45f3a7ca0f31325a15f1964bb19591fd88f5cd12b2017",
+      "direction": "a",
+      "feature": "connect",
+      "format": "story",
+      "kind": "campaign-still",
+      "source": [
+        "components/bank-connect/BankConnectionParts.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "a-connect-story-light.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 89305,
+      "sha256": "ca1ffe34d2e334bd0829e36e63555e99edfe24c52faf8d082658f0377d006700",
+      "direction": "a",
+      "feature": "connect",
+      "format": "story",
+      "kind": "campaign-still",
+      "source": [
+        "components/bank-connect/BankConnectionParts.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "a-investments-android-dark.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 112320,
+      "sha256": "ad3e46abb0198c26e1628028191359c71c20ff825fde723519247d7da277a4a1",
+      "direction": "a",
+      "feature": "investments",
+      "format": "android",
+      "kind": "campaign-still",
+      "source": [
+        "components/InvestmentMiniCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "a-investments-android-light.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 108198,
+      "sha256": "500920a3a32d84eef72b1623b67b99b5646a3c48fa548867a3eeddd07b6ccbef",
+      "direction": "a",
+      "feature": "investments",
+      "format": "android",
+      "kind": "campaign-still",
+      "source": [
+        "components/InvestmentMiniCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "a-investments-feed-dark.png",
+      "width": 1080,
+      "height": 1350,
+      "bytes": 79438,
+      "sha256": "0ad5c4e865f4a23525a27b9731513e991cac02268bd74699d62c59d0273a5cfe",
+      "direction": "a",
+      "feature": "investments",
+      "format": "feed",
+      "kind": "campaign-still",
+      "source": [
+        "components/InvestmentMiniCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "a-investments-feed-light.png",
+      "width": 1080,
+      "height": 1350,
+      "bytes": 76773,
+      "sha256": "42e9e26d988675041070b436eb94d09fb37efb57844b491978f27c68ba057843",
+      "direction": "a",
+      "feature": "investments",
+      "format": "feed",
+      "kind": "campaign-still",
+      "source": [
+        "components/InvestmentMiniCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "a-investments-iphone-65-dark.png",
+      "width": 1242,
+      "height": 2688,
+      "bytes": 120702,
+      "sha256": "3e15cdefa2af9bb5948f1b6f002880687274e9616b868a80633ee83c49d6449e",
+      "direction": "a",
+      "feature": "investments",
+      "format": "iphone-65",
+      "kind": "campaign-still",
+      "source": [
+        "components/InvestmentMiniCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "a-investments-iphone-65-light.png",
+      "width": 1242,
+      "height": 2688,
+      "bytes": 116003,
+      "sha256": "1970c4d456055cdbb9aaacaef7190d54631534f6fe8a31e1f2b79cc2fea07bff",
+      "direction": "a",
+      "feature": "investments",
+      "format": "iphone-65",
+      "kind": "campaign-still",
+      "source": [
+        "components/InvestmentMiniCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "a-investments-iphone-69-dark.png",
+      "width": 1320,
+      "height": 2868,
+      "bytes": 126403,
+      "sha256": "30080dacddcfa0fb1d57b39949f46ee709c7bab005ca95201c1878f19f4ab71a",
+      "direction": "a",
+      "feature": "investments",
+      "format": "iphone-69",
+      "kind": "campaign-still",
+      "source": [
+        "components/InvestmentMiniCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "a-investments-iphone-69-light.png",
+      "width": 1320,
+      "height": 2868,
+      "bytes": 121898,
+      "sha256": "cbd5850a70dc5fab94512f0508500033baa4af53694518e306fb6308f2071975",
+      "direction": "a",
+      "feature": "investments",
+      "format": "iphone-69",
+      "kind": "campaign-still",
+      "source": [
+        "components/InvestmentMiniCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "a-investments-iphone-medium-dark.png",
+      "width": 1206,
+      "height": 2622,
+      "bytes": 120756,
+      "sha256": "36ce14576f7c92ef97026156c42b534811c45c4519e83cfc80fadbecd35954ec",
+      "direction": "a",
+      "feature": "investments",
+      "format": "iphone-medium",
+      "kind": "campaign-still",
+      "source": [
+        "components/InvestmentMiniCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "a-investments-iphone-medium-light.png",
+      "width": 1206,
+      "height": 2622,
+      "bytes": 115520,
+      "sha256": "46cd6fb859ed019cb0657442404f4b389e218a5bceef37e338486ccde6202129",
+      "direction": "a",
+      "feature": "investments",
+      "format": "iphone-medium",
+      "kind": "campaign-still",
+      "source": [
+        "components/InvestmentMiniCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "a-investments-landing-dark.png",
+      "width": 1600,
+      "height": 1200,
+      "bytes": 95429,
+      "sha256": "4619eac7984a44b76705d46959f29404d8cabe70c07bd889e289cfc8daf04d3a",
+      "direction": "a",
+      "feature": "investments",
+      "format": "landing",
+      "kind": "campaign-still",
+      "source": [
+        "components/InvestmentMiniCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "a-investments-landing-light.png",
+      "width": 1600,
+      "height": 1200,
+      "bytes": 91929,
+      "sha256": "3687608a460e52bf4ffefeca45ae51feae4d1440bcef267fc7b2d497f7cce078",
+      "direction": "a",
+      "feature": "investments",
+      "format": "landing",
+      "kind": "campaign-still",
+      "source": [
+        "components/InvestmentMiniCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "a-investments-story-dark.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 94526,
+      "sha256": "db17e114d40cfbe6c8fb6129c5e82fb11ad756cfd7a61d5a5e56ee2b3833ad19",
+      "direction": "a",
+      "feature": "investments",
+      "format": "story",
+      "kind": "campaign-still",
+      "source": [
+        "components/InvestmentMiniCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "a-investments-story-light.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 91039,
+      "sha256": "582a7fe16a5276226e1e93be2db4dd86783e08e9450300bd04b2a98a467e4565",
+      "direction": "a",
+      "feature": "investments",
+      "format": "story",
+      "kind": "campaign-still",
+      "source": [
+        "components/InvestmentMiniCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "a-payday-android-dark.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 189696,
+      "sha256": "4fefbcdd974e68949228126c6ccdcd2bf397b24a9ed36c11e0c1af9af3ce4bb5",
+      "direction": "a",
+      "feature": "payday",
+      "format": "android",
+      "kind": "campaign-still",
+      "source": [
+        "components/PaydayPlanCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "a-payday-android-light.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 183365,
+      "sha256": "40d6bd9b0477edc5d473edc43c0ce5e4746dce57b3b2659b9a227c8dab28fdb9",
+      "direction": "a",
+      "feature": "payday",
+      "format": "android",
+      "kind": "campaign-still",
+      "source": [
+        "components/PaydayPlanCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "a-payday-feed-dark.png",
+      "width": 1080,
+      "height": 1350,
+      "bytes": 127193,
+      "sha256": "5f2dd4be46a9bc2a910357ee8bc2cc36ab1f6cc93ace6c51c5a03dbc650580f8",
+      "direction": "a",
+      "feature": "payday",
+      "format": "feed",
+      "kind": "campaign-still",
+      "source": [
+        "components/PaydayPlanCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "a-payday-feed-light.png",
+      "width": 1080,
+      "height": 1350,
+      "bytes": 123278,
+      "sha256": "c651209cbba050b9910e1a2c264c1d7b6127f755edac9eae8effaf32e7f9a047",
+      "direction": "a",
+      "feature": "payday",
+      "format": "feed",
+      "kind": "campaign-still",
+      "source": [
+        "components/PaydayPlanCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "a-payday-iphone-65-dark.png",
+      "width": 1242,
+      "height": 2688,
+      "bytes": 224676,
+      "sha256": "932d953a9ce01edb7a25c955ea413cca665d858917a61403f657d1217e7a6c2a",
+      "direction": "a",
+      "feature": "payday",
+      "format": "iphone-65",
+      "kind": "campaign-still",
+      "source": [
+        "components/PaydayPlanCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "a-payday-iphone-65-light.png",
+      "width": 1242,
+      "height": 2688,
+      "bytes": 216402,
+      "sha256": "43e59744b3c9ff5bb38c75a2a27f1a7b5acd9df6b1c8dfc57ff69f849e26b3c7",
+      "direction": "a",
+      "feature": "payday",
+      "format": "iphone-65",
+      "kind": "campaign-still",
+      "source": [
+        "components/PaydayPlanCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "a-payday-iphone-69-dark.png",
+      "width": 1320,
+      "height": 2868,
+      "bytes": 235820,
+      "sha256": "ff8865036bd02bafead941793dd9f6883910d333d31111359b78dccc57b57b3c",
+      "direction": "a",
+      "feature": "payday",
+      "format": "iphone-69",
+      "kind": "campaign-still",
+      "source": [
+        "components/PaydayPlanCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "a-payday-iphone-69-light.png",
+      "width": 1320,
+      "height": 2868,
+      "bytes": 227225,
+      "sha256": "5c272b467baf301316761d36fff21ce1bcd5845d7041fc36cd2e439f46d26b60",
+      "direction": "a",
+      "feature": "payday",
+      "format": "iphone-69",
+      "kind": "campaign-still",
+      "source": [
+        "components/PaydayPlanCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "a-payday-iphone-medium-dark.png",
+      "width": 1206,
+      "height": 2622,
+      "bytes": 220096,
+      "sha256": "58c87cc4d0001366f746e8e1b8f5ccfc708a41a8beaab414f2a802b6377dd1cb",
+      "direction": "a",
+      "feature": "payday",
+      "format": "iphone-medium",
+      "kind": "campaign-still",
+      "source": [
+        "components/PaydayPlanCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "a-payday-iphone-medium-light.png",
+      "width": 1206,
+      "height": 2622,
+      "bytes": 211775,
+      "sha256": "fd355c5520572832ea448eb886888344de48a3cc23d43fb1095831a6a078068a",
+      "direction": "a",
+      "feature": "payday",
+      "format": "iphone-medium",
+      "kind": "campaign-still",
+      "source": [
+        "components/PaydayPlanCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "a-payday-landing-dark.png",
+      "width": 1600,
+      "height": 1200,
+      "bytes": 139180,
+      "sha256": "02d0a6b09f8b06a24e306a7b5122b33f405fc7e7528b12285c48420e1c5b201a",
+      "direction": "a",
+      "feature": "payday",
+      "format": "landing",
+      "kind": "campaign-still",
+      "source": [
+        "components/PaydayPlanCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "a-payday-landing-light.png",
+      "width": 1600,
+      "height": 1200,
+      "bytes": 134678,
+      "sha256": "76560b7cdd218318aeb950e5f6c7f3b9b2fb5086828a293d5a5ccefcd16bb77e",
+      "direction": "a",
+      "feature": "payday",
+      "format": "landing",
+      "kind": "campaign-still",
+      "source": [
+        "components/PaydayPlanCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "a-payday-story-dark.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 146611,
+      "sha256": "797357e006adb48c3a67c75da0439d1ef9517d3eaf149c7e60eba42689114326",
+      "direction": "a",
+      "feature": "payday",
+      "format": "story",
+      "kind": "campaign-still",
+      "source": [
+        "components/PaydayPlanCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "a-payday-story-light.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 142305,
+      "sha256": "4acf2840780c05b883267e5fac367fe824852e327aa121af484d5d1944dd07e5",
+      "direction": "a",
+      "feature": "payday",
+      "format": "story",
+      "kind": "campaign-still",
+      "source": [
+        "components/PaydayPlanCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "a-penny-android-dark.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 145219,
+      "sha256": "4a91340878f277e449232ef9270d29866b80c67d0f092ff844eedead6293c44d",
+      "direction": "a",
+      "feature": "penny",
+      "format": "android",
+      "kind": "campaign-still",
+      "source": [
+        "components/PennyConversation.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "a-penny-android-light.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 141251,
+      "sha256": "84872f72862b432bf03c2e88e425c89c5f499c1d2811fa2684293f72224e2df9",
+      "direction": "a",
+      "feature": "penny",
+      "format": "android",
+      "kind": "campaign-still",
+      "source": [
+        "components/PennyConversation.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "a-penny-feed-dark.png",
+      "width": 1080,
+      "height": 1350,
+      "bytes": 98090,
+      "sha256": "ca0feaeeb0c8896862f9ab142f7c1c0568f8145e48887ca4839464730307f098",
+      "direction": "a",
+      "feature": "penny",
+      "format": "feed",
+      "kind": "campaign-still",
+      "source": [
+        "components/PennyConversation.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "a-penny-feed-light.png",
+      "width": 1080,
+      "height": 1350,
+      "bytes": 95595,
+      "sha256": "d8defcae4ccf586cbc40a8ebda6cb7e9cef1d0d99b415382eaf7f740c45215f3",
+      "direction": "a",
+      "feature": "penny",
+      "format": "feed",
+      "kind": "campaign-still",
+      "source": [
+        "components/PennyConversation.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "a-penny-iphone-65-dark.png",
+      "width": 1242,
+      "height": 2688,
+      "bytes": 157992,
+      "sha256": "cf3a45c1a5d9e1bc496b0bdd87b9996868959178cf5cf89249bb938de2ad0818",
+      "direction": "a",
+      "feature": "penny",
+      "format": "iphone-65",
+      "kind": "campaign-still",
+      "source": [
+        "components/PennyConversation.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "a-penny-iphone-65-light.png",
+      "width": 1242,
+      "height": 2688,
+      "bytes": 153649,
+      "sha256": "d6b53fb20c0fe36cccccc4ca5e9845a27f86abbffbeede15f88a0a6e5482be09",
+      "direction": "a",
+      "feature": "penny",
+      "format": "iphone-65",
+      "kind": "campaign-still",
+      "source": [
+        "components/PennyConversation.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "a-penny-iphone-69-dark.png",
+      "width": 1320,
+      "height": 2868,
+      "bytes": 168172,
+      "sha256": "a7ce6958cb19ba149ad3aba091796b386914d7b8272d6ae30020a8326bfa960d",
+      "direction": "a",
+      "feature": "penny",
+      "format": "iphone-69",
+      "kind": "campaign-still",
+      "source": [
+        "components/PennyConversation.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "a-penny-iphone-69-light.png",
+      "width": 1320,
+      "height": 2868,
+      "bytes": 163787,
+      "sha256": "af272bc006f1e88be3f751cac7ea4134496e352923912e7c02507aedc6d19356",
+      "direction": "a",
+      "feature": "penny",
+      "format": "iphone-69",
+      "kind": "campaign-still",
+      "source": [
+        "components/PennyConversation.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "a-penny-iphone-medium-dark.png",
+      "width": 1206,
+      "height": 2622,
+      "bytes": 157762,
+      "sha256": "fb2622e9fe50e9e9bdc7831ac95c253fb9f3df6fca2122f146c2dc814d8bb4fb",
+      "direction": "a",
+      "feature": "penny",
+      "format": "iphone-medium",
+      "kind": "campaign-still",
+      "source": [
+        "components/PennyConversation.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "a-penny-iphone-medium-light.png",
+      "width": 1206,
+      "height": 2622,
+      "bytes": 153734,
+      "sha256": "3538c214ca4142a01c96cf0472e18413382428b33f378d78ad5245b05fece493",
+      "direction": "a",
+      "feature": "penny",
+      "format": "iphone-medium",
+      "kind": "campaign-still",
+      "source": [
+        "components/PennyConversation.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "a-penny-landing-dark.png",
+      "width": 1600,
+      "height": 1200,
+      "bytes": 125710,
+      "sha256": "2b5b2f84cd9fdd1e963312f32ee9c6f4ba3b7ecae757919d7d6907a91f8150ce",
+      "direction": "a",
+      "feature": "penny",
+      "format": "landing",
+      "kind": "campaign-still",
+      "source": [
+        "components/PennyConversation.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "a-penny-landing-light.png",
+      "width": 1600,
+      "height": 1200,
+      "bytes": 121620,
+      "sha256": "11351b3bf3bff57b615025fc7329dd26762a8e44f0405c8abab781322bd8297a",
+      "direction": "a",
+      "feature": "penny",
+      "format": "landing",
+      "kind": "campaign-still",
+      "source": [
+        "components/PennyConversation.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "a-penny-story-dark.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 123537,
+      "sha256": "8b0b382fe4cf27cd59da4cf4cc6d28a061d7574d2c882ece655321d53dc3d0c1",
+      "direction": "a",
+      "feature": "penny",
+      "format": "story",
+      "kind": "campaign-still",
+      "source": [
+        "components/PennyConversation.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "a-penny-story-light.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 120622,
+      "sha256": "fc795616646c81e8089784e2de657226d593567cea53b9a855721557bb23b65e",
+      "direction": "a",
+      "feature": "penny",
+      "format": "story",
+      "kind": "campaign-still",
+      "source": [
+        "components/PennyConversation.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "a-safe-to-spend-android-dark.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 158298,
+      "sha256": "139c9de64b9a82ae768f3559c531358c9a3bc3b7470a2a7df8e8f147d3f6bf89",
+      "direction": "a",
+      "feature": "safe-to-spend",
+      "format": "android",
+      "kind": "campaign-still",
+      "source": [
+        "components/SafeToSpendCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "a-safe-to-spend-android-light.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 151920,
+      "sha256": "88051635aa343a3c0480c3a83ccc9e51f24afe8b946beacd3ff11dd1630a18e2",
+      "direction": "a",
+      "feature": "safe-to-spend",
+      "format": "android",
+      "kind": "campaign-still",
+      "source": [
+        "components/SafeToSpendCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "a-safe-to-spend-feed-dark.png",
+      "width": 1080,
+      "height": 1350,
+      "bytes": 104911,
+      "sha256": "af6600dfdc539694b478f91319ba2a130abaf39bc0d86becd0f6d8b5856432ef",
+      "direction": "a",
+      "feature": "safe-to-spend",
+      "format": "feed",
+      "kind": "campaign-still",
+      "source": [
+        "components/SafeToSpendCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "a-safe-to-spend-feed-light.png",
+      "width": 1080,
+      "height": 1350,
+      "bytes": 100658,
+      "sha256": "916239c20cd09dda713c8b73139a8e98e582493aacda550d3e6cd3df035b0ccc",
+      "direction": "a",
+      "feature": "safe-to-spend",
+      "format": "feed",
+      "kind": "campaign-still",
+      "source": [
+        "components/SafeToSpendCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "a-safe-to-spend-iphone-65-dark.png",
+      "width": 1242,
+      "height": 2688,
+      "bytes": 173598,
+      "sha256": "ebb354e84aba46c58a8ac3c0d6cf3fdbae805ec9a755486113de8842db522424",
+      "direction": "a",
+      "feature": "safe-to-spend",
+      "format": "iphone-65",
+      "kind": "campaign-still",
+      "source": [
+        "components/SafeToSpendCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "a-safe-to-spend-iphone-65-light.png",
+      "width": 1242,
+      "height": 2688,
+      "bytes": 167120,
+      "sha256": "38e746904541df4e29e03fdfb66a2f6f2ec00fef8740416ebb29e5e45049761e",
+      "direction": "a",
+      "feature": "safe-to-spend",
+      "format": "iphone-65",
+      "kind": "campaign-still",
+      "source": [
+        "components/SafeToSpendCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "a-safe-to-spend-iphone-69-dark.png",
+      "width": 1320,
+      "height": 2868,
+      "bytes": 181497,
+      "sha256": "42faf2103b8f5d5ed621b1ec01910dcededb6a350a5006cbed6cdcd3b1dc9ad8",
+      "direction": "a",
+      "feature": "safe-to-spend",
+      "format": "iphone-69",
+      "kind": "campaign-still",
+      "source": [
+        "components/SafeToSpendCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "a-safe-to-spend-iphone-69-light.png",
+      "width": 1320,
+      "height": 2868,
+      "bytes": 173999,
+      "sha256": "e9b052c35a2635eb3f78e54e160f832f28a57861331d83d53a088106add9d3ac",
+      "direction": "a",
+      "feature": "safe-to-spend",
+      "format": "iphone-69",
+      "kind": "campaign-still",
+      "source": [
+        "components/SafeToSpendCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "a-safe-to-spend-iphone-medium-dark.png",
+      "width": 1206,
+      "height": 2622,
+      "bytes": 171889,
+      "sha256": "1dfefa72a10f2741823fcc61ad502a95562ae1c729c72058dcef26e2d0fb8770",
+      "direction": "a",
+      "feature": "safe-to-spend",
+      "format": "iphone-medium",
+      "kind": "campaign-still",
+      "source": [
+        "components/SafeToSpendCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "a-safe-to-spend-iphone-medium-light.png",
+      "width": 1206,
+      "height": 2622,
+      "bytes": 165719,
+      "sha256": "6da8f249cfdf5112efe49db97b6c0cde3527fa6343d4cc5c5acb308bafaec763",
+      "direction": "a",
+      "feature": "safe-to-spend",
+      "format": "iphone-medium",
+      "kind": "campaign-still",
+      "source": [
+        "components/SafeToSpendCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "a-safe-to-spend-landing-dark.png",
+      "width": 1600,
+      "height": 1200,
+      "bytes": 134640,
+      "sha256": "49c9ba638668d89a80a26040a185a20524a1cb20c64560f6fefc4ab8485afeae",
+      "direction": "a",
+      "feature": "safe-to-spend",
+      "format": "landing",
+      "kind": "campaign-still",
+      "source": [
+        "components/SafeToSpendCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "a-safe-to-spend-landing-light.png",
+      "width": 1600,
+      "height": 1200,
+      "bytes": 128265,
+      "sha256": "1ad1f43607ef98fbba0b5caa3d3ab5ef58ec79df476f3f30fce42ccd9dc5f7a0",
+      "direction": "a",
+      "feature": "safe-to-spend",
+      "format": "landing",
+      "kind": "campaign-still",
+      "source": [
+        "components/SafeToSpendCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "a-safe-to-spend-story-dark.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 135079,
+      "sha256": "691d0e81b694d9f874748b0c3e4b2dcd87f3722a931480d4640279eb5779aaf4",
+      "direction": "a",
+      "feature": "safe-to-spend",
+      "format": "story",
+      "kind": "campaign-still",
+      "source": [
+        "components/SafeToSpendCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "a-safe-to-spend-story-light.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 129376,
+      "sha256": "e64d0e4a4f848ac038ec5456bda50ae489d8e7fd0f08af4ca2bf843673cd543e",
+      "direction": "a",
+      "feature": "safe-to-spend",
+      "format": "story",
+      "kind": "campaign-still",
+      "source": [
+        "components/SafeToSpendCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "a-suggestions-android-dark.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 173095,
+      "sha256": "3565b0e6c83bf10f41808fc4431f2205fbf31e2449459a21ac1babbc2246b152",
+      "direction": "a",
+      "feature": "suggestions",
+      "format": "android",
+      "kind": "campaign-still",
+      "source": [
+        "components/HomeBrief.tsx",
+        "components/CoverPlanSourcesCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "a-suggestions-android-light.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 169969,
+      "sha256": "a857e1745a1bf03eb9372e85e47b631b4dae3ec272c8bd85ad5b9f91e735f1f7",
+      "direction": "a",
+      "feature": "suggestions",
+      "format": "android",
+      "kind": "campaign-still",
+      "source": [
+        "components/HomeBrief.tsx",
+        "components/CoverPlanSourcesCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "a-suggestions-feed-dark.png",
+      "width": 1080,
+      "height": 1350,
+      "bytes": 117228,
+      "sha256": "e97029e82b35d9250b4ffa033ec68fce45ad4f3bef48a6d76f046b931e11d9b4",
+      "direction": "a",
+      "feature": "suggestions",
+      "format": "feed",
+      "kind": "campaign-still",
+      "source": [
+        "components/HomeBrief.tsx",
+        "components/CoverPlanSourcesCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "a-suggestions-feed-light.png",
+      "width": 1080,
+      "height": 1350,
+      "bytes": 115499,
+      "sha256": "fc5102886a7b26d20053cd51e6b8366be4d303d0c7ebaacad01b4d071cbc6ea4",
+      "direction": "a",
+      "feature": "suggestions",
+      "format": "feed",
+      "kind": "campaign-still",
+      "source": [
+        "components/HomeBrief.tsx",
+        "components/CoverPlanSourcesCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "a-suggestions-iphone-65-dark.png",
+      "width": 1242,
+      "height": 2688,
+      "bytes": 193955,
+      "sha256": "dc90b5634df2f2bacff11c2a2b7f942387287ee2d309210b2a04c9abf86806e1",
+      "direction": "a",
+      "feature": "suggestions",
+      "format": "iphone-65",
+      "kind": "campaign-still",
+      "source": [
+        "components/HomeBrief.tsx",
+        "components/CoverPlanSourcesCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "a-suggestions-iphone-65-light.png",
+      "width": 1242,
+      "height": 2688,
+      "bytes": 190609,
+      "sha256": "43f78b5c5aa754b5c98c1afd7168bb55a4b265ab47665d9637efc2cbdb95e63a",
+      "direction": "a",
+      "feature": "suggestions",
+      "format": "iphone-65",
+      "kind": "campaign-still",
+      "source": [
+        "components/HomeBrief.tsx",
+        "components/CoverPlanSourcesCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "a-suggestions-iphone-69-dark.png",
+      "width": 1320,
+      "height": 2868,
+      "bytes": 206590,
+      "sha256": "f30f4a2a26f7974c65cbf4a5fe41c3c123c93438db5bce0201b54e13eef7c489",
+      "direction": "a",
+      "feature": "suggestions",
+      "format": "iphone-69",
+      "kind": "campaign-still",
+      "source": [
+        "components/HomeBrief.tsx",
+        "components/CoverPlanSourcesCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "a-suggestions-iphone-69-light.png",
+      "width": 1320,
+      "height": 2868,
+      "bytes": 202190,
+      "sha256": "17a1b2a3568aebb376df059a39cfb0397ebc2a140f4090f24f690ab76285716c",
+      "direction": "a",
+      "feature": "suggestions",
+      "format": "iphone-69",
+      "kind": "campaign-still",
+      "source": [
+        "components/HomeBrief.tsx",
+        "components/CoverPlanSourcesCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "a-suggestions-iphone-medium-dark.png",
+      "width": 1206,
+      "height": 2622,
+      "bytes": 191991,
+      "sha256": "fb52592aa671ba7d7e7df3dc32834cc7941e2d5600733c265f61c7e5157a73bd",
+      "direction": "a",
+      "feature": "suggestions",
+      "format": "iphone-medium",
+      "kind": "campaign-still",
+      "source": [
+        "components/HomeBrief.tsx",
+        "components/CoverPlanSourcesCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "a-suggestions-iphone-medium-light.png",
+      "width": 1206,
+      "height": 2622,
+      "bytes": 188877,
+      "sha256": "b26eb567ca955c8e604180a9afb3be87d097bb89c98bf47f678baca4f4b20c46",
+      "direction": "a",
+      "feature": "suggestions",
+      "format": "iphone-medium",
+      "kind": "campaign-still",
+      "source": [
+        "components/HomeBrief.tsx",
+        "components/CoverPlanSourcesCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "a-suggestions-landing-dark.png",
+      "width": 1600,
+      "height": 1200,
+      "bytes": 142263,
+      "sha256": "a31621720e29db1902518e0b9c1f17f95b4a6a720f4526b2a9da7fb3da025cf0",
+      "direction": "a",
+      "feature": "suggestions",
+      "format": "landing",
+      "kind": "campaign-still",
+      "source": [
+        "components/HomeBrief.tsx",
+        "components/CoverPlanSourcesCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "a-suggestions-landing-light.png",
+      "width": 1600,
+      "height": 1200,
+      "bytes": 139336,
+      "sha256": "e80892a54f1f88e410f8f19ab40be82984daf29f8bf40ccfcc6b7483491bdbc8",
+      "direction": "a",
+      "feature": "suggestions",
+      "format": "landing",
+      "kind": "campaign-still",
+      "source": [
+        "components/HomeBrief.tsx",
+        "components/CoverPlanSourcesCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "a-suggestions-story-dark.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 144680,
+      "sha256": "b3cb226cf44bacc90c8b9de5cdf9e49e58f4379319721e87ad2c35028cbfab39",
+      "direction": "a",
+      "feature": "suggestions",
+      "format": "story",
+      "kind": "campaign-still",
+      "source": [
+        "components/HomeBrief.tsx",
+        "components/CoverPlanSourcesCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "a-suggestions-story-light.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 141681,
+      "sha256": "03e746613d0201afba95d9b5c78796a1b82cf7eb8b481266038e33388fd3d63e",
+      "direction": "a",
+      "feature": "suggestions",
+      "format": "story",
+      "kind": "campaign-still",
+      "source": [
+        "components/HomeBrief.tsx",
+        "components/CoverPlanSourcesCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "a-upcoming-android-dark.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 172119,
+      "sha256": "8c6974b1de1dd11e6bfd2126c8f982327ae7a682e51beaf17efbbc1397cc4466",
+      "direction": "a",
+      "feature": "upcoming",
+      "format": "android",
+      "kind": "campaign-still",
+      "source": [
+        "components/upcoming/UpcomingHeroCard.tsx",
+        "components/upcoming/UpcomingAccountsCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "a-upcoming-android-light.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 165418,
+      "sha256": "ce869860ecb01abb5825444afc5813b90df493cba3d566865017b95628bdd7a6",
+      "direction": "a",
+      "feature": "upcoming",
+      "format": "android",
+      "kind": "campaign-still",
+      "source": [
+        "components/upcoming/UpcomingHeroCard.tsx",
+        "components/upcoming/UpcomingAccountsCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "a-upcoming-feed-dark.png",
+      "width": 1080,
+      "height": 1350,
+      "bytes": 123300,
+      "sha256": "a23672ff36841f39d675de2b1b4cd5509ffa7a6454da62cbf699513f9cfbd521",
+      "direction": "a",
+      "feature": "upcoming",
+      "format": "feed",
+      "kind": "campaign-still",
+      "source": [
+        "components/upcoming/UpcomingHeroCard.tsx",
+        "components/upcoming/UpcomingAccountsCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "a-upcoming-feed-light.png",
+      "width": 1080,
+      "height": 1350,
+      "bytes": 118196,
+      "sha256": "7f737e54f4af97313ff66340799dd94cdb6d26d23de80384eab8c92ff59c50eb",
+      "direction": "a",
+      "feature": "upcoming",
+      "format": "feed",
+      "kind": "campaign-still",
+      "source": [
+        "components/upcoming/UpcomingHeroCard.tsx",
+        "components/upcoming/UpcomingAccountsCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "a-upcoming-iphone-65-dark.png",
+      "width": 1242,
+      "height": 2688,
+      "bytes": 209492,
+      "sha256": "389122689bd7f4c76718b18ddc243d7d4a3489da18f639d3901e10d828d8c509",
+      "direction": "a",
+      "feature": "upcoming",
+      "format": "iphone-65",
+      "kind": "campaign-still",
+      "source": [
+        "components/upcoming/UpcomingHeroCard.tsx",
+        "components/upcoming/UpcomingAccountsCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "a-upcoming-iphone-65-light.png",
+      "width": 1242,
+      "height": 2688,
+      "bytes": 201492,
+      "sha256": "aeb28907b675c0fb874f663920ccac73e8fd74dc5837b4e6630b8e91ea964f55",
+      "direction": "a",
+      "feature": "upcoming",
+      "format": "iphone-65",
+      "kind": "campaign-still",
+      "source": [
+        "components/upcoming/UpcomingHeroCard.tsx",
+        "components/upcoming/UpcomingAccountsCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "a-upcoming-iphone-69-dark.png",
+      "width": 1320,
+      "height": 2868,
+      "bytes": 223114,
+      "sha256": "48df29b9fdb91eb54fc65ae8bfbf5e4b4a9528fdf407dae7c688d53822143dae",
+      "direction": "a",
+      "feature": "upcoming",
+      "format": "iphone-69",
+      "kind": "campaign-still",
+      "source": [
+        "components/upcoming/UpcomingHeroCard.tsx",
+        "components/upcoming/UpcomingAccountsCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "a-upcoming-iphone-69-light.png",
+      "width": 1320,
+      "height": 2868,
+      "bytes": 213759,
+      "sha256": "82fcbd3efcc11be4ce473be5b2bad08f448c719a3a2679aed25102b08f5f8be4",
+      "direction": "a",
+      "feature": "upcoming",
+      "format": "iphone-69",
+      "kind": "campaign-still",
+      "source": [
+        "components/upcoming/UpcomingHeroCard.tsx",
+        "components/upcoming/UpcomingAccountsCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "a-upcoming-iphone-medium-dark.png",
+      "width": 1206,
+      "height": 2622,
+      "bytes": 207004,
+      "sha256": "d1b6b74da9017e72f6f5c38741eb49cc3c8a77daebfadc655b77a88830c3201d",
+      "direction": "a",
+      "feature": "upcoming",
+      "format": "iphone-medium",
+      "kind": "campaign-still",
+      "source": [
+        "components/upcoming/UpcomingHeroCard.tsx",
+        "components/upcoming/UpcomingAccountsCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "a-upcoming-iphone-medium-light.png",
+      "width": 1206,
+      "height": 2622,
+      "bytes": 198848,
+      "sha256": "0e7d09dcc0e2f20fe67c7a529800ccdc31451980a75404574dbc2bab8620aea6",
+      "direction": "a",
+      "feature": "upcoming",
+      "format": "iphone-medium",
+      "kind": "campaign-still",
+      "source": [
+        "components/upcoming/UpcomingHeroCard.tsx",
+        "components/upcoming/UpcomingAccountsCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "a-upcoming-landing-dark.png",
+      "width": 1600,
+      "height": 1200,
+      "bytes": 137255,
+      "sha256": "9c313acda7d48fe46c4c83c8b5e3a4f2c0a13e98f8ac2804762600ba0d2eb97d",
+      "direction": "a",
+      "feature": "upcoming",
+      "format": "landing",
+      "kind": "campaign-still",
+      "source": [
+        "components/upcoming/UpcomingHeroCard.tsx",
+        "components/upcoming/UpcomingAccountsCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "a-upcoming-landing-light.png",
+      "width": 1600,
+      "height": 1200,
+      "bytes": 131654,
+      "sha256": "777c944db476930d9d1d669a0688140e7d15fd85f838d310b505a798b6bdc808",
+      "direction": "a",
+      "feature": "upcoming",
+      "format": "landing",
+      "kind": "campaign-still",
+      "source": [
+        "components/upcoming/UpcomingHeroCard.tsx",
+        "components/upcoming/UpcomingAccountsCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "a-upcoming-story-dark.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 133436,
+      "sha256": "55c0d9af81c992296c16fec98d93f4605606c44d5b32b214558f952570c8db3b",
+      "direction": "a",
+      "feature": "upcoming",
+      "format": "story",
+      "kind": "campaign-still",
+      "source": [
+        "components/upcoming/UpcomingHeroCard.tsx",
+        "components/upcoming/UpcomingAccountsCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "a-upcoming-story-light.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 128668,
+      "sha256": "0c4dfa5583aca8c76ccba3a881b20e5fe1eef1de3d9ab11045b48ae20aeddc9b",
+      "direction": "a",
+      "feature": "upcoming",
+      "format": "story",
+      "kind": "campaign-still",
+      "source": [
+        "components/upcoming/UpcomingHeroCard.tsx",
+        "components/upcoming/UpcomingAccountsCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "b-connect-android-dark.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 113493,
+      "sha256": "d364a3bf2332a673fd4042d48a55a747984809cb4b0b78485c9a79823d09514e",
+      "direction": "b",
+      "feature": "connect",
+      "format": "android",
+      "kind": "campaign-still",
+      "source": [
+        "components/bank-connect/BankConnectionParts.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "b-connect-android-light.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 111234,
+      "sha256": "5418284321919724c52677b78716a414c996c122178c7f4c6f67bc364487e515",
+      "direction": "b",
+      "feature": "connect",
+      "format": "android",
+      "kind": "campaign-still",
+      "source": [
+        "components/bank-connect/BankConnectionParts.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "b-connect-feed-dark.png",
+      "width": 1080,
+      "height": 1350,
+      "bytes": 77506,
+      "sha256": "4184413a027d68cd7d7b61aa91488053833eff1af94a93967ba81b73564624cc",
+      "direction": "b",
+      "feature": "connect",
+      "format": "feed",
+      "kind": "campaign-still",
+      "source": [
+        "components/bank-connect/BankConnectionParts.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "b-connect-feed-light.png",
+      "width": 1080,
+      "height": 1350,
+      "bytes": 76630,
+      "sha256": "f99593d51f65737e653727be51eb9c8e86151ca1f3c9e3c173c7a6f986c69fff",
+      "direction": "b",
+      "feature": "connect",
+      "format": "feed",
+      "kind": "campaign-still",
+      "source": [
+        "components/bank-connect/BankConnectionParts.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "b-connect-iphone-65-dark.png",
+      "width": 1242,
+      "height": 2688,
+      "bytes": 124073,
+      "sha256": "210ca2b8a7fd0288bb3265fb518d1cb720ee26e7c831d4b21506320ab195b2d1",
+      "direction": "b",
+      "feature": "connect",
+      "format": "iphone-65",
+      "kind": "campaign-still",
+      "source": [
+        "components/bank-connect/BankConnectionParts.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "b-connect-iphone-65-light.png",
+      "width": 1242,
+      "height": 2688,
+      "bytes": 120624,
+      "sha256": "f34bce4fd0d4bf76b80f540cbe8c9c7557372b12033eceeb0cb90ca53e9fae5e",
+      "direction": "b",
+      "feature": "connect",
+      "format": "iphone-65",
+      "kind": "campaign-still",
+      "source": [
+        "components/bank-connect/BankConnectionParts.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "b-connect-iphone-69-dark.png",
+      "width": 1320,
+      "height": 2868,
+      "bytes": 127704,
+      "sha256": "16f56b804a9d8def108ead8a17f391acc86f966834a911d3630c08f027967719",
+      "direction": "b",
+      "feature": "connect",
+      "format": "iphone-69",
+      "kind": "campaign-still",
+      "source": [
+        "components/bank-connect/BankConnectionParts.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "b-connect-iphone-69-light.png",
+      "width": 1320,
+      "height": 2868,
+      "bytes": 124010,
+      "sha256": "dce104fa07711d37a11f1dd7d8b45ecf0ec6bf5a22fe8fd2880839bc2633052b",
+      "direction": "b",
+      "feature": "connect",
+      "format": "iphone-69",
+      "kind": "campaign-still",
+      "source": [
+        "components/bank-connect/BankConnectionParts.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "b-connect-iphone-medium-dark.png",
+      "width": 1206,
+      "height": 2622,
+      "bytes": 121334,
+      "sha256": "1d013517a38eb7e65f49cc976b06515a25ee661166402aefd82790ef5e5de6d5",
+      "direction": "b",
+      "feature": "connect",
+      "format": "iphone-medium",
+      "kind": "campaign-still",
+      "source": [
+        "components/bank-connect/BankConnectionParts.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "b-connect-iphone-medium-light.png",
+      "width": 1206,
+      "height": 2622,
+      "bytes": 118083,
+      "sha256": "e00c7c7fa4d6c7db3b6206ab648d287d91eacb94363a75544ff8406abaf5c9a5",
+      "direction": "b",
+      "feature": "connect",
+      "format": "iphone-medium",
+      "kind": "campaign-still",
+      "source": [
+        "components/bank-connect/BankConnectionParts.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "b-connect-landing-dark.png",
+      "width": 1600,
+      "height": 1200,
+      "bytes": 90201,
+      "sha256": "a294225540df32c25ff10d849e24a0d046ebfda1e030c1a7ca86c05d4b3eeb61",
+      "direction": "b",
+      "feature": "connect",
+      "format": "landing",
+      "kind": "campaign-still",
+      "source": [
+        "components/bank-connect/BankConnectionParts.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "b-connect-landing-light.png",
+      "width": 1600,
+      "height": 1200,
+      "bytes": 88472,
+      "sha256": "58d5b6e7995a4bf2ff527bcbcf9059a658be772f6a6a75710582bf3bee341a9f",
+      "direction": "b",
+      "feature": "connect",
+      "format": "landing",
+      "kind": "campaign-still",
+      "source": [
+        "components/bank-connect/BankConnectionParts.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "b-connect-story-dark.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 94814,
+      "sha256": "87dccde3f9c93b2faaf30dc7965711e3b094ea2b1f67031e8f6b3a31b96c08b6",
+      "direction": "b",
+      "feature": "connect",
+      "format": "story",
+      "kind": "campaign-still",
+      "source": [
+        "components/bank-connect/BankConnectionParts.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "b-connect-story-light.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 93021,
+      "sha256": "c16ada4e78c842f400f351cc7c4ae03ee65c094e779dc8500a4193336a9d4481",
+      "direction": "b",
+      "feature": "connect",
+      "format": "story",
+      "kind": "campaign-still",
+      "source": [
+        "components/bank-connect/BankConnectionParts.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "b-investments-android-dark.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 111233,
+      "sha256": "b2f0697ad27fcca06cdbe02521bffbf623b8f7e3c10932edab5a9c0d24737bec",
+      "direction": "b",
+      "feature": "investments",
+      "format": "android",
+      "kind": "campaign-still",
+      "source": [
+        "components/InvestmentMiniCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "b-investments-android-light.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 107220,
+      "sha256": "65a4c79264ed1188d82a3271e882f6d9eb9560c80bc13610e97ce8773b815355",
+      "direction": "b",
+      "feature": "investments",
+      "format": "android",
+      "kind": "campaign-still",
+      "source": [
+        "components/InvestmentMiniCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "b-investments-feed-dark.png",
+      "width": 1080,
+      "height": 1350,
+      "bytes": 71269,
+      "sha256": "a34eea38fe0bda5f9892ba690413950f1b60fa86e2efd7d1d60f9d614460906b",
+      "direction": "b",
+      "feature": "investments",
+      "format": "feed",
+      "kind": "campaign-still",
+      "source": [
+        "components/InvestmentMiniCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "b-investments-feed-light.png",
+      "width": 1080,
+      "height": 1350,
+      "bytes": 69283,
+      "sha256": "d996742c9cb9e9bea990d9237be89b70f2be9357097356c67f6d2e9b0edb8863",
+      "direction": "b",
+      "feature": "investments",
+      "format": "feed",
+      "kind": "campaign-still",
+      "source": [
+        "components/InvestmentMiniCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "b-investments-iphone-65-dark.png",
+      "width": 1242,
+      "height": 2688,
+      "bytes": 119416,
+      "sha256": "16562e84c7c4ea4e9bf655ee957bf4fe056809f503e13635ca14f0dc5bfa73f0",
+      "direction": "b",
+      "feature": "investments",
+      "format": "iphone-65",
+      "kind": "campaign-still",
+      "source": [
+        "components/InvestmentMiniCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "b-investments-iphone-65-light.png",
+      "width": 1242,
+      "height": 2688,
+      "bytes": 114750,
+      "sha256": "54bde55ae54e72030736fa3e55ef2f0ba432f731c19819f571a98b8b45a0e46c",
+      "direction": "b",
+      "feature": "investments",
+      "format": "iphone-65",
+      "kind": "campaign-still",
+      "source": [
+        "components/InvestmentMiniCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "b-investments-iphone-69-dark.png",
+      "width": 1320,
+      "height": 2868,
+      "bytes": 125429,
+      "sha256": "a329aad49beabd99edc051a1a61366227bc35e5e4113d18ba9d039551601780d",
+      "direction": "b",
+      "feature": "investments",
+      "format": "iphone-69",
+      "kind": "campaign-still",
+      "source": [
+        "components/InvestmentMiniCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "b-investments-iphone-69-light.png",
+      "width": 1320,
+      "height": 2868,
+      "bytes": 120959,
+      "sha256": "e9b326fe13e08950d133f638bedfe6557a03e65675c23e7022742e3c1442a7f9",
+      "direction": "b",
+      "feature": "investments",
+      "format": "iphone-69",
+      "kind": "campaign-still",
+      "source": [
+        "components/InvestmentMiniCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "b-investments-iphone-medium-dark.png",
+      "width": 1206,
+      "height": 2622,
+      "bytes": 119438,
+      "sha256": "21186670097dd6c17398c084dd9aaab08d1613c9539f1287f4dd7db658595f8a",
+      "direction": "b",
+      "feature": "investments",
+      "format": "iphone-medium",
+      "kind": "campaign-still",
+      "source": [
+        "components/InvestmentMiniCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "b-investments-iphone-medium-light.png",
+      "width": 1206,
+      "height": 2622,
+      "bytes": 114157,
+      "sha256": "89555cb280793a0044a01a596d6f00f86ff7977412d1e70e33140b24781354e6",
+      "direction": "b",
+      "feature": "investments",
+      "format": "iphone-medium",
+      "kind": "campaign-still",
+      "source": [
+        "components/InvestmentMiniCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "b-investments-landing-dark.png",
+      "width": 1600,
+      "height": 1200,
+      "bytes": 88101,
+      "sha256": "6ac3c92ac46e44bb5b61b2a0a35e9f6339f3a0eb218514cb530891e4b9e6158e",
+      "direction": "b",
+      "feature": "investments",
+      "format": "landing",
+      "kind": "campaign-still",
+      "source": [
+        "components/InvestmentMiniCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "b-investments-landing-light.png",
+      "width": 1600,
+      "height": 1200,
+      "bytes": 84823,
+      "sha256": "1e1eecd3bb831c0ab71d85811d468b1229f7ff72e0e23b2f285c951c50858669",
+      "direction": "b",
+      "feature": "investments",
+      "format": "landing",
+      "kind": "campaign-still",
+      "source": [
+        "components/InvestmentMiniCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "b-investments-story-dark.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 92914,
+      "sha256": "b88f47f5bab0b02ef3cf27ecb185dacec4bf39ae2041db885612e0dce797aeb9",
+      "direction": "b",
+      "feature": "investments",
+      "format": "story",
+      "kind": "campaign-still",
+      "source": [
+        "components/InvestmentMiniCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "b-investments-story-light.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 89507,
+      "sha256": "fc324f260cd4d5bd1ff3e237f3faba9274c5321d6c9d60e338bc124f601941e9",
+      "direction": "b",
+      "feature": "investments",
+      "format": "story",
+      "kind": "campaign-still",
+      "source": [
+        "components/InvestmentMiniCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "b-payday-android-dark.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 188295,
+      "sha256": "e8ee3867f6e9164455b6c1b25f563d28fd588ebb33b92b113ca8a54f9523a396",
+      "direction": "b",
+      "feature": "payday",
+      "format": "android",
+      "kind": "campaign-still",
+      "source": [
+        "components/PaydayPlanCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "b-payday-android-light.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 182684,
+      "sha256": "5600847560910556259c82ce03bb591560a1cc1e7ee7b8ca00ee0be38f3789b0",
+      "direction": "b",
+      "feature": "payday",
+      "format": "android",
+      "kind": "campaign-still",
+      "source": [
+        "components/PaydayPlanCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "b-payday-feed-dark.png",
+      "width": 1080,
+      "height": 1350,
+      "bytes": 119110,
+      "sha256": "0ee4def957ddb08ce07cb2065983587bedefba972827acb1ad6a8c83951b9fbf",
+      "direction": "b",
+      "feature": "payday",
+      "format": "feed",
+      "kind": "campaign-still",
+      "source": [
+        "components/PaydayPlanCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "b-payday-feed-light.png",
+      "width": 1080,
+      "height": 1350,
+      "bytes": 115932,
+      "sha256": "00ed0e7301fff6d4ba0c26a1560b91167a516da0fcd2ad0053558bc6c155ca2c",
+      "direction": "b",
+      "feature": "payday",
+      "format": "feed",
+      "kind": "campaign-still",
+      "source": [
+        "components/PaydayPlanCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "b-payday-iphone-65-dark.png",
+      "width": 1242,
+      "height": 2688,
+      "bytes": 235782,
+      "sha256": "737557bb0a072d9d18a20c94a7fc1ed27d6397a3ba9bf54d6e69644c1b9a6525",
+      "direction": "b",
+      "feature": "payday",
+      "format": "iphone-65",
+      "kind": "campaign-still",
+      "source": [
+        "components/PaydayPlanCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "b-payday-iphone-65-light.png",
+      "width": 1242,
+      "height": 2688,
+      "bytes": 227561,
+      "sha256": "7f22748a37d24c8f893895a6168da77ce6bcd8a2a874414334371d854c9a409c",
+      "direction": "b",
+      "feature": "payday",
+      "format": "iphone-65",
+      "kind": "campaign-still",
+      "source": [
+        "components/PaydayPlanCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "b-payday-iphone-69-dark.png",
+      "width": 1320,
+      "height": 2868,
+      "bytes": 247056,
+      "sha256": "80f6f9081fbd355fb42cfb6d06031d6eaf44149164d2740355e9c80361b08d7e",
+      "direction": "b",
+      "feature": "payday",
+      "format": "iphone-69",
+      "kind": "campaign-still",
+      "source": [
+        "components/PaydayPlanCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "b-payday-iphone-69-light.png",
+      "width": 1320,
+      "height": 2868,
+      "bytes": 237499,
+      "sha256": "f7fae465d93552fccc9be14982b3a838dc6dda968a5bdaaece680e2dd3c76f00",
+      "direction": "b",
+      "feature": "payday",
+      "format": "iphone-69",
+      "kind": "campaign-still",
+      "source": [
+        "components/PaydayPlanCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "b-payday-iphone-medium-dark.png",
+      "width": 1206,
+      "height": 2622,
+      "bytes": 231552,
+      "sha256": "acb0850d7fde4a23aed469251242371594c0e083a9c3f01066fa2001f333ae58",
+      "direction": "b",
+      "feature": "payday",
+      "format": "iphone-medium",
+      "kind": "campaign-still",
+      "source": [
+        "components/PaydayPlanCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "b-payday-iphone-medium-light.png",
+      "width": 1206,
+      "height": 2622,
+      "bytes": 223348,
+      "sha256": "652c094fe59babf99899f6cf19b07c006759558b0e43ac97eacae216ebd88ee9",
+      "direction": "b",
+      "feature": "payday",
+      "format": "iphone-medium",
+      "kind": "campaign-still",
+      "source": [
+        "components/PaydayPlanCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "b-payday-landing-dark.png",
+      "width": 1600,
+      "height": 1200,
+      "bytes": 148577,
+      "sha256": "a68d34dcd016a9af9622d346c67893ba5e5e92ee3bd00dc890296e63be1ac998",
+      "direction": "b",
+      "feature": "payday",
+      "format": "landing",
+      "kind": "campaign-still",
+      "source": [
+        "components/PaydayPlanCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "b-payday-landing-light.png",
+      "width": 1600,
+      "height": 1200,
+      "bytes": 143728,
+      "sha256": "c0a26d1d38384726a7f3700858cb49e76151cb548b932b6aeefe84e70c7ca3f2",
+      "direction": "b",
+      "feature": "payday",
+      "format": "landing",
+      "kind": "campaign-still",
+      "source": [
+        "components/PaydayPlanCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "b-payday-story-dark.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 144043,
+      "sha256": "37a75d0b85d6de615707c8c87e4027e990d57048d16f9bee3d5cf14e1eb3f13d",
+      "direction": "b",
+      "feature": "payday",
+      "format": "story",
+      "kind": "campaign-still",
+      "source": [
+        "components/PaydayPlanCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "b-payday-story-light.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 139602,
+      "sha256": "527bc7d03ec3ee32a7bccc3d165a809da1aa64813a5ac1cfe960f9c1cf4ddec2",
+      "direction": "b",
+      "feature": "payday",
+      "format": "story",
+      "kind": "campaign-still",
+      "source": [
+        "components/PaydayPlanCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "b-penny-android-dark.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 139976,
+      "sha256": "0bced86f77d1eaff5fd3b0b8bf990e451964d5cc979bc8eb03c70d7548d17587",
+      "direction": "b",
+      "feature": "penny",
+      "format": "android",
+      "kind": "campaign-still",
+      "source": [
+        "components/PennyConversation.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "b-penny-android-light.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 136319,
+      "sha256": "294a9542f44906cd04e0ecf0f5cd0f9ace17d003709ed7b90492f216ce5c9bb9",
+      "direction": "b",
+      "feature": "penny",
+      "format": "android",
+      "kind": "campaign-still",
+      "source": [
+        "components/PennyConversation.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "b-penny-feed-dark.png",
+      "width": 1080,
+      "height": 1350,
+      "bytes": 87744,
+      "sha256": "5e6f3b9a0f6afe427b6b64d09d2011dde3c4abb9ba8386151bc3412403cc9074",
+      "direction": "b",
+      "feature": "penny",
+      "format": "feed",
+      "kind": "campaign-still",
+      "source": [
+        "components/PennyConversation.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "b-penny-feed-light.png",
+      "width": 1080,
+      "height": 1350,
+      "bytes": 85458,
+      "sha256": "74d3c5c558c014e8c4162500e6a7915798f82868c2a8d5bf4b2d339dcf33c508",
+      "direction": "b",
+      "feature": "penny",
+      "format": "feed",
+      "kind": "campaign-still",
+      "source": [
+        "components/PennyConversation.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "b-penny-iphone-65-dark.png",
+      "width": 1242,
+      "height": 2688,
+      "bytes": 153066,
+      "sha256": "907c497ef4f637d670520a20edb3aa96c01e6176226071bda07fe643e9ffda98",
+      "direction": "b",
+      "feature": "penny",
+      "format": "iphone-65",
+      "kind": "campaign-still",
+      "source": [
+        "components/PennyConversation.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "b-penny-iphone-65-light.png",
+      "width": 1242,
+      "height": 2688,
+      "bytes": 149241,
+      "sha256": "8022276a79b834be3f70be91d670387a3286c292263bff479c68a88ea5b2f37d",
+      "direction": "b",
+      "feature": "penny",
+      "format": "iphone-65",
+      "kind": "campaign-still",
+      "source": [
+        "components/PennyConversation.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "b-penny-iphone-69-dark.png",
+      "width": 1320,
+      "height": 2868,
+      "bytes": 163034,
+      "sha256": "6990986481f132b394337ae6a0bc174a78003e435f160ef58785868cbebf836b",
+      "direction": "b",
+      "feature": "penny",
+      "format": "iphone-69",
+      "kind": "campaign-still",
+      "source": [
+        "components/PennyConversation.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "b-penny-iphone-69-light.png",
+      "width": 1320,
+      "height": 2868,
+      "bytes": 158231,
+      "sha256": "ac7969fc9d6e717c000286bc552d4f8c9fde6210c4a94beeaf37e31980c169ca",
+      "direction": "b",
+      "feature": "penny",
+      "format": "iphone-69",
+      "kind": "campaign-still",
+      "source": [
+        "components/PennyConversation.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "b-penny-iphone-medium-dark.png",
+      "width": 1206,
+      "height": 2622,
+      "bytes": 152657,
+      "sha256": "81ccefadf7ab3bf6e1990ee96f3b0f5e2d3c247700e6916db816fa9d0da33d36",
+      "direction": "b",
+      "feature": "penny",
+      "format": "iphone-medium",
+      "kind": "campaign-still",
+      "source": [
+        "components/PennyConversation.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "b-penny-iphone-medium-light.png",
+      "width": 1206,
+      "height": 2622,
+      "bytes": 148906,
+      "sha256": "738c5e62212d54e7d11d4a2cf4ab5722c793de38f7cdf5d8da2ae409fd1c919a",
+      "direction": "b",
+      "feature": "penny",
+      "format": "iphone-medium",
+      "kind": "campaign-still",
+      "source": [
+        "components/PennyConversation.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "b-penny-landing-dark.png",
+      "width": 1600,
+      "height": 1200,
+      "bytes": 110014,
+      "sha256": "f741a37813497e565ca357df68c2b715bc246c58086a543796a5e2f9b62e6de0",
+      "direction": "b",
+      "feature": "penny",
+      "format": "landing",
+      "kind": "campaign-still",
+      "source": [
+        "components/PennyConversation.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "b-penny-landing-light.png",
+      "width": 1600,
+      "height": 1200,
+      "bytes": 106367,
+      "sha256": "f4dbc8b7e66d25150b1fea26990d7feeaed1161d1771967236c4716d3764d381",
+      "direction": "b",
+      "feature": "penny",
+      "format": "landing",
+      "kind": "campaign-still",
+      "source": [
+        "components/PennyConversation.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "b-penny-story-dark.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 120483,
+      "sha256": "ef9c04787d3f49f037dd0b24f5fc7faf48f511b0f6df5467573842b993f6e581",
+      "direction": "b",
+      "feature": "penny",
+      "format": "story",
+      "kind": "campaign-still",
+      "source": [
+        "components/PennyConversation.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "b-penny-story-light.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 117739,
+      "sha256": "7cee80972f9adf2462cca27c70ea001c3c3ac5f9753056f4ab2a2871e47a4a0b",
+      "direction": "b",
+      "feature": "penny",
+      "format": "story",
+      "kind": "campaign-still",
+      "source": [
+        "components/PennyConversation.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "b-safe-to-spend-android-dark.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 165517,
+      "sha256": "f62966eb778b231f584d2e2caef6efba815a7d864eb27983a337c7893326ffb5",
+      "direction": "b",
+      "feature": "safe-to-spend",
+      "format": "android",
+      "kind": "campaign-still",
+      "source": [
+        "components/SafeToSpendCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "b-safe-to-spend-android-light.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 159421,
+      "sha256": "20396d2ecafb59777f50cfaec812fa196533f283ce4acb1fe2ecd9a18b57771c",
+      "direction": "b",
+      "feature": "safe-to-spend",
+      "format": "android",
+      "kind": "campaign-still",
+      "source": [
+        "components/SafeToSpendCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "b-safe-to-spend-feed-dark.png",
+      "width": 1080,
+      "height": 1350,
+      "bytes": 103156,
+      "sha256": "7a972ed8a6125d099d7db09deb2d95669f10e0f847b24913007b5538240732f8",
+      "direction": "b",
+      "feature": "safe-to-spend",
+      "format": "feed",
+      "kind": "campaign-still",
+      "source": [
+        "components/SafeToSpendCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "b-safe-to-spend-feed-light.png",
+      "width": 1080,
+      "height": 1350,
+      "bytes": 99796,
+      "sha256": "c563de612a5b1043bba6b93284efe03db811539a0aaffd5b3eaedf3131612147",
+      "direction": "b",
+      "feature": "safe-to-spend",
+      "format": "feed",
+      "kind": "campaign-still",
+      "source": [
+        "components/SafeToSpendCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "b-safe-to-spend-iphone-65-dark.png",
+      "width": 1242,
+      "height": 2688,
+      "bytes": 181469,
+      "sha256": "18016c6eb34ffdead4a08520f566b1092012c39ae5d380ae6582d4207d35cf24",
+      "direction": "b",
+      "feature": "safe-to-spend",
+      "format": "iphone-65",
+      "kind": "campaign-still",
+      "source": [
+        "components/SafeToSpendCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "b-safe-to-spend-iphone-65-light.png",
+      "width": 1242,
+      "height": 2688,
+      "bytes": 174376,
+      "sha256": "5b41e491f2a60b77670c9c3b3543fcd2edcbfeb102648e25cb882b52c72099d4",
+      "direction": "b",
+      "feature": "safe-to-spend",
+      "format": "iphone-65",
+      "kind": "campaign-still",
+      "source": [
+        "components/SafeToSpendCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "b-safe-to-spend-iphone-69-dark.png",
+      "width": 1320,
+      "height": 2868,
+      "bytes": 188879,
+      "sha256": "1000388c2314800c1f77bb327b9271961551d477a637d334716db2b106af9299",
+      "direction": "b",
+      "feature": "safe-to-spend",
+      "format": "iphone-69",
+      "kind": "campaign-still",
+      "source": [
+        "components/SafeToSpendCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "b-safe-to-spend-iphone-69-light.png",
+      "width": 1320,
+      "height": 2868,
+      "bytes": 181781,
+      "sha256": "bac5816b8231b16a9a5fb331ca649e89d9c6cfd73f3b39176b8a16d456a63781",
+      "direction": "b",
+      "feature": "safe-to-spend",
+      "format": "iphone-69",
+      "kind": "campaign-still",
+      "source": [
+        "components/SafeToSpendCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "b-safe-to-spend-iphone-medium-dark.png",
+      "width": 1206,
+      "height": 2622,
+      "bytes": 179535,
+      "sha256": "d1781cdc109d38519ca02c54685d4b3e57e21a0f120eeee2bbbe38f7cf1bb606",
+      "direction": "b",
+      "feature": "safe-to-spend",
+      "format": "iphone-medium",
+      "kind": "campaign-still",
+      "source": [
+        "components/SafeToSpendCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "b-safe-to-spend-iphone-medium-light.png",
+      "width": 1206,
+      "height": 2622,
+      "bytes": 172815,
+      "sha256": "62b2ee6e2776eca3f405d008f894feb883cc15c23b09b5b7f6fa21d21196d246",
+      "direction": "b",
+      "feature": "safe-to-spend",
+      "format": "iphone-medium",
+      "kind": "campaign-still",
+      "source": [
+        "components/SafeToSpendCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "b-safe-to-spend-landing-dark.png",
+      "width": 1600,
+      "height": 1200,
+      "bytes": 129469,
+      "sha256": "b04de0c77ba13bfb8401158213777a9da70f4c11dc9e99b4d03c94febf4a3483",
+      "direction": "b",
+      "feature": "safe-to-spend",
+      "format": "landing",
+      "kind": "campaign-still",
+      "source": [
+        "components/SafeToSpendCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "b-safe-to-spend-landing-light.png",
+      "width": 1600,
+      "height": 1200,
+      "bytes": 123612,
+      "sha256": "a68496e92e2c73f946f577085c58fd22866bcb9e1c5009797c436a6effb21b11",
+      "direction": "b",
+      "feature": "safe-to-spend",
+      "format": "landing",
+      "kind": "campaign-still",
+      "source": [
+        "components/SafeToSpendCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "b-safe-to-spend-story-dark.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 140734,
+      "sha256": "7a013625b30a78dfa0a42c4b32a7504d1053d11b8126736797196cf055811e91",
+      "direction": "b",
+      "feature": "safe-to-spend",
+      "format": "story",
+      "kind": "campaign-still",
+      "source": [
+        "components/SafeToSpendCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "b-safe-to-spend-story-light.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 135149,
+      "sha256": "fdf20028f6da4563ea15fd00de9fff75fa4704df2382d47ff36445292adbc626",
+      "direction": "b",
+      "feature": "safe-to-spend",
+      "format": "story",
+      "kind": "campaign-still",
+      "source": [
+        "components/SafeToSpendCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "b-suggestions-android-dark.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 185306,
+      "sha256": "363e5dc327e9ce9d3b95162ef9fdf69855b3cda3d9c4248997fb3d980e8b658f",
+      "direction": "b",
+      "feature": "suggestions",
+      "format": "android",
+      "kind": "campaign-still",
+      "source": [
+        "components/HomeBrief.tsx",
+        "components/CoverPlanSourcesCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "b-suggestions-android-light.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 182227,
+      "sha256": "024669681cfb2a96d1eb9be942965bbef589fe2adb14098fc029ca7f56f5d08d",
+      "direction": "b",
+      "feature": "suggestions",
+      "format": "android",
+      "kind": "campaign-still",
+      "source": [
+        "components/HomeBrief.tsx",
+        "components/CoverPlanSourcesCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "b-suggestions-feed-dark.png",
+      "width": 1080,
+      "height": 1350,
+      "bytes": 112734,
+      "sha256": "d2063a9e185663ed64f390ed163210bf2a726f43a0d51c1b5a1075fb5986e612",
+      "direction": "b",
+      "feature": "suggestions",
+      "format": "feed",
+      "kind": "campaign-still",
+      "source": [
+        "components/HomeBrief.tsx",
+        "components/CoverPlanSourcesCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "b-suggestions-feed-light.png",
+      "width": 1080,
+      "height": 1350,
+      "bytes": 110939,
+      "sha256": "b9504246d1558ac05ff7d8cf0ffc6f35ebc5281299700189dbe442672b071e88",
+      "direction": "b",
+      "feature": "suggestions",
+      "format": "feed",
+      "kind": "campaign-still",
+      "source": [
+        "components/HomeBrief.tsx",
+        "components/CoverPlanSourcesCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "b-suggestions-iphone-65-dark.png",
+      "width": 1242,
+      "height": 2688,
+      "bytes": 205959,
+      "sha256": "99e2e74104d2f48c95dcfb2c51f41125fc670ef024a37d8551734ac949ee3a00",
+      "direction": "b",
+      "feature": "suggestions",
+      "format": "iphone-65",
+      "kind": "campaign-still",
+      "source": [
+        "components/HomeBrief.tsx",
+        "components/CoverPlanSourcesCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "b-suggestions-iphone-65-light.png",
+      "width": 1242,
+      "height": 2688,
+      "bytes": 202136,
+      "sha256": "d2ff54af7ad9e29d936f6d2769576888ed3796abfec61667d9b0cc9e957159c5",
+      "direction": "b",
+      "feature": "suggestions",
+      "format": "iphone-65",
+      "kind": "campaign-still",
+      "source": [
+        "components/HomeBrief.tsx",
+        "components/CoverPlanSourcesCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "b-suggestions-iphone-69-dark.png",
+      "width": 1320,
+      "height": 2868,
+      "bytes": 218057,
+      "sha256": "a7d67b5d145cfb2443dd2779d310ac0a1c6858fd51dd25eaa984e0cb354c601f",
+      "direction": "b",
+      "feature": "suggestions",
+      "format": "iphone-69",
+      "kind": "campaign-still",
+      "source": [
+        "components/HomeBrief.tsx",
+        "components/CoverPlanSourcesCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "b-suggestions-iphone-69-light.png",
+      "width": 1320,
+      "height": 2868,
+      "bytes": 214149,
+      "sha256": "6870758224b3c14ff28b94d184b804962336a21f0f2cb366c8bc78cde6e7faba",
+      "direction": "b",
+      "feature": "suggestions",
+      "format": "iphone-69",
+      "kind": "campaign-still",
+      "source": [
+        "components/HomeBrief.tsx",
+        "components/CoverPlanSourcesCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "b-suggestions-iphone-medium-dark.png",
+      "width": 1206,
+      "height": 2622,
+      "bytes": 203882,
+      "sha256": "bf23e5b2dc8446f950aea146cbbca2d182e063711af42f25ed8c2312edd624f0",
+      "direction": "b",
+      "feature": "suggestions",
+      "format": "iphone-medium",
+      "kind": "campaign-still",
+      "source": [
+        "components/HomeBrief.tsx",
+        "components/CoverPlanSourcesCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "b-suggestions-iphone-medium-light.png",
+      "width": 1206,
+      "height": 2622,
+      "bytes": 200383,
+      "sha256": "65e8554ca6ead54ce1437fb22bca18ec6fa7eb0866950edd4768cac25948e8b1",
+      "direction": "b",
+      "feature": "suggestions",
+      "format": "iphone-medium",
+      "kind": "campaign-still",
+      "source": [
+        "components/HomeBrief.tsx",
+        "components/CoverPlanSourcesCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "b-suggestions-landing-dark.png",
+      "width": 1600,
+      "height": 1200,
+      "bytes": 147415,
+      "sha256": "e9aece7816ee8c89b73a9a08c00630eb7cf6c64b1903b00ca3a15ad06fc9098a",
+      "direction": "b",
+      "feature": "suggestions",
+      "format": "landing",
+      "kind": "campaign-still",
+      "source": [
+        "components/HomeBrief.tsx",
+        "components/CoverPlanSourcesCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "b-suggestions-landing-light.png",
+      "width": 1600,
+      "height": 1200,
+      "bytes": 144935,
+      "sha256": "c00e0ad54f9f6a9b361410e9347ae7c3447797c9a6d85196890e6d88980bdd2c",
+      "direction": "b",
+      "feature": "suggestions",
+      "format": "landing",
+      "kind": "campaign-still",
+      "source": [
+        "components/HomeBrief.tsx",
+        "components/CoverPlanSourcesCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "b-suggestions-story-dark.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 146195,
+      "sha256": "9be0631be0e3885bd7243432cff4dbe405184875ac339c73c5fc43451e1cfdf2",
+      "direction": "b",
+      "feature": "suggestions",
+      "format": "story",
+      "kind": "campaign-still",
+      "source": [
+        "components/HomeBrief.tsx",
+        "components/CoverPlanSourcesCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "b-suggestions-story-light.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 144360,
+      "sha256": "2cce76729676c599722e8f1e33de73a004e7dbe91a052b8bdf387715a58a3fad",
+      "direction": "b",
+      "feature": "suggestions",
+      "format": "story",
+      "kind": "campaign-still",
+      "source": [
+        "components/HomeBrief.tsx",
+        "components/CoverPlanSourcesCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "b-upcoming-android-dark.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 182202,
+      "sha256": "297e1df5b743a7bf9528ee28e1cc618f52604d58c42c4f62fcf8341c3e978625",
+      "direction": "b",
+      "feature": "upcoming",
+      "format": "android",
+      "kind": "campaign-still",
+      "source": [
+        "components/upcoming/UpcomingHeroCard.tsx",
+        "components/upcoming/UpcomingAccountsCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "b-upcoming-android-light.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 175631,
+      "sha256": "55eb7e9830c3cee3a36c667d4a9f14ac3179f9922513a2166fad0bdf8df69763",
+      "direction": "b",
+      "feature": "upcoming",
+      "format": "android",
+      "kind": "campaign-still",
+      "source": [
+        "components/upcoming/UpcomingHeroCard.tsx",
+        "components/upcoming/UpcomingAccountsCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "b-upcoming-feed-dark.png",
+      "width": 1080,
+      "height": 1350,
+      "bytes": 115208,
+      "sha256": "3b5db8cd907dd29bf94666d16f2052dd99b1a236cbcbf3d73519f91443196430",
+      "direction": "b",
+      "feature": "upcoming",
+      "format": "feed",
+      "kind": "campaign-still",
+      "source": [
+        "components/upcoming/UpcomingHeroCard.tsx",
+        "components/upcoming/UpcomingAccountsCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "b-upcoming-feed-light.png",
+      "width": 1080,
+      "height": 1350,
+      "bytes": 111057,
+      "sha256": "ae42b8088d881028df73cf4ef0c09133ace57988ee81f8fb065450b1c88f914e",
+      "direction": "b",
+      "feature": "upcoming",
+      "format": "feed",
+      "kind": "campaign-still",
+      "source": [
+        "components/upcoming/UpcomingHeroCard.tsx",
+        "components/upcoming/UpcomingAccountsCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "b-upcoming-iphone-65-dark.png",
+      "width": 1242,
+      "height": 2688,
+      "bytes": 218731,
+      "sha256": "a4f6b7cc0bd74a620c90667628c6d25e20887f0d4a3fabb149a2b6521c46f389",
+      "direction": "b",
+      "feature": "upcoming",
+      "format": "iphone-65",
+      "kind": "campaign-still",
+      "source": [
+        "components/upcoming/UpcomingHeroCard.tsx",
+        "components/upcoming/UpcomingAccountsCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "b-upcoming-iphone-65-light.png",
+      "width": 1242,
+      "height": 2688,
+      "bytes": 210006,
+      "sha256": "4f1cba2183ae7c571ac431e07df3499bb667a8b2d52dc0365817fbd2c14b9f72",
+      "direction": "b",
+      "feature": "upcoming",
+      "format": "iphone-65",
+      "kind": "campaign-still",
+      "source": [
+        "components/upcoming/UpcomingHeroCard.tsx",
+        "components/upcoming/UpcomingAccountsCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "b-upcoming-iphone-69-dark.png",
+      "width": 1320,
+      "height": 2868,
+      "bytes": 231247,
+      "sha256": "a27a306b2063b4b7976f5856a225d620ea314099454e6c1eb014fbc98c263fb2",
+      "direction": "b",
+      "feature": "upcoming",
+      "format": "iphone-69",
+      "kind": "campaign-still",
+      "source": [
+        "components/upcoming/UpcomingHeroCard.tsx",
+        "components/upcoming/UpcomingAccountsCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "b-upcoming-iphone-69-light.png",
+      "width": 1320,
+      "height": 2868,
+      "bytes": 222194,
+      "sha256": "f5c739db5b0b47995d5e5173ec056a6ab5d856999edee86e2738c2d96d6babc1",
+      "direction": "b",
+      "feature": "upcoming",
+      "format": "iphone-69",
+      "kind": "campaign-still",
+      "source": [
+        "components/upcoming/UpcomingHeroCard.tsx",
+        "components/upcoming/UpcomingAccountsCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "b-upcoming-iphone-medium-dark.png",
+      "width": 1206,
+      "height": 2622,
+      "bytes": 216160,
+      "sha256": "1897fb859954b7991bf6da5ef5cec331a58c6b8884824fd429f58b1fd92d96dc",
+      "direction": "b",
+      "feature": "upcoming",
+      "format": "iphone-medium",
+      "kind": "campaign-still",
+      "source": [
+        "components/upcoming/UpcomingHeroCard.tsx",
+        "components/upcoming/UpcomingAccountsCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "b-upcoming-iphone-medium-light.png",
+      "width": 1206,
+      "height": 2622,
+      "bytes": 207267,
+      "sha256": "77e6224a0ac4b05cddcd5149d3aa5762ce23bc90bfe569b4978cd5c474d7ad20",
+      "direction": "b",
+      "feature": "upcoming",
+      "format": "iphone-medium",
+      "kind": "campaign-still",
+      "source": [
+        "components/upcoming/UpcomingHeroCard.tsx",
+        "components/upcoming/UpcomingAccountsCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "b-upcoming-landing-dark.png",
+      "width": 1600,
+      "height": 1200,
+      "bytes": 140771,
+      "sha256": "1eb572b41dcc52899df739d2f2273dfdc498279e4c8d108d9e4867740ea969ee",
+      "direction": "b",
+      "feature": "upcoming",
+      "format": "landing",
+      "kind": "campaign-still",
+      "source": [
+        "components/upcoming/UpcomingHeroCard.tsx",
+        "components/upcoming/UpcomingAccountsCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "b-upcoming-landing-light.png",
+      "width": 1600,
+      "height": 1200,
+      "bytes": 135488,
+      "sha256": "8885f733ea1aae16439bffef2e9ae30bc003d1f0d1788a4dfff42af5f159a259",
+      "direction": "b",
+      "feature": "upcoming",
+      "format": "landing",
+      "kind": "campaign-still",
+      "source": [
+        "components/upcoming/UpcomingHeroCard.tsx",
+        "components/upcoming/UpcomingAccountsCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "b-upcoming-story-dark.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 136390,
+      "sha256": "eb06d22521d1abea346f521dc8ff08446a134642440f26bb2d84dd0964d6d0cc",
+      "direction": "b",
+      "feature": "upcoming",
+      "format": "story",
+      "kind": "campaign-still",
+      "source": [
+        "components/upcoming/UpcomingHeroCard.tsx",
+        "components/upcoming/UpcomingAccountsCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "b-upcoming-story-light.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 131202,
+      "sha256": "660cff33b227891200335173f8d79fde3b61c5d918303e9fe2186fe82fea2c82",
+      "direction": "b",
+      "feature": "upcoming",
+      "format": "story",
+      "kind": "campaign-still",
+      "source": [
+        "components/upcoming/UpcomingHeroCard.tsx",
+        "components/upcoming/UpcomingAccountsCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "detail-connect-dark.png",
+      "width": 780,
+      "height": 1180,
+      "bytes": 111633,
+      "sha256": "130387e2b2dba654d2cf718ab4ba79907beb7d5de798db5a0a0a0583ccdd33a0",
+      "feature": "connect",
+      "fixture": "app/design/marketing-kit/fixtures.ts",
+      "kind": "expanded-production-proof",
+      "source": [
+        "components/bank-connect/BankConnectionParts.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "detail-connect-light.png",
+      "width": 780,
+      "height": 1180,
+      "bytes": 110712,
+      "sha256": "e5c42613492ffebb01575d8072b5ad72bea1858284c8fde99ea73e2d72893c0e",
+      "feature": "connect",
+      "fixture": "app/design/marketing-kit/fixtures.ts",
+      "kind": "expanded-production-proof",
+      "source": [
+        "components/bank-connect/BankConnectionParts.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "detail-penny-dark.png",
+      "width": 780,
+      "height": 1044,
+      "bytes": 116025,
+      "sha256": "c70427c492ad2d326f06d8e60f3308a04d4f8f4af4b1e64314b263b4ebc34dc0",
+      "feature": "penny",
+      "fixture": "app/design/marketing-kit/fixtures.ts",
+      "kind": "expanded-production-proof",
+      "source": [
+        "components/PennyConversation.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "detail-penny-light.png",
+      "width": 780,
+      "height": 1044,
+      "bytes": 110525,
+      "sha256": "1ea93530943b3b20abcfee008aaadd2adafbfd81522cee3a1e471b0d4e65c261",
+      "feature": "penny",
+      "fixture": "app/design/marketing-kit/fixtures.ts",
+      "kind": "expanded-production-proof",
+      "source": [
+        "components/PennyConversation.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "detail-suggestions-dark.png",
+      "width": 780,
+      "height": 2060,
+      "bytes": 179905,
+      "sha256": "2c8822183348952b665493e178e344557e01cf7253ea0882db46ccbe594a2b1e",
+      "feature": "suggestions",
+      "fixture": "app/design/marketing-kit/fixtures.ts",
+      "kind": "expanded-production-proof",
+      "source": [
+        "components/HomeBrief.tsx",
+        "components/CoverPlanSourcesCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "detail-suggestions-light.png",
+      "width": 780,
+      "height": 2060,
+      "bytes": 172096,
+      "sha256": "7bd0221ed588a3c0eef2f94d6244d7b5f7ecf85c85804d27e4633f9f59477495",
+      "feature": "suggestions",
+      "fixture": "app/design/marketing-kit/fixtures.ts",
+      "kind": "expanded-production-proof",
+      "source": [
+        "components/HomeBrief.tsx",
+        "components/CoverPlanSourcesCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "proof-connect-dark.png",
+      "width": 780,
+      "height": 536,
+      "bytes": 29089,
+      "sha256": "c4fc460f1ab5a58af04d9a06b87560b6711b92862f9190df281f8185c32f33da",
+      "feature": "connect",
+      "fixture": "app/design/marketing-kit/fixtures.ts",
+      "kind": "production-proof",
+      "source": [
+        "components/bank-connect/BankConnectionParts.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "proof-connect-light.png",
+      "width": 780,
+      "height": 536,
+      "bytes": 27599,
+      "sha256": "ebcf263d10b04f17fd5cd5c87122e14d2c5d7f8e28825dda59025b0a75144c98",
+      "feature": "connect",
+      "fixture": "app/design/marketing-kit/fixtures.ts",
+      "kind": "production-proof",
+      "source": [
+        "components/bank-connect/BankConnectionParts.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "proof-investments-dark.png",
+      "width": 780,
+      "height": 536,
+      "bytes": 33946,
+      "sha256": "feb97eb39a5b321cbe412507557812ac6108d7a26a515620c6f5615a1a64c765",
+      "feature": "investments",
+      "fixture": "app/design/marketing-kit/fixtures.ts",
+      "kind": "production-proof",
+      "source": [
+        "components/InvestmentMiniCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "proof-investments-light.png",
+      "width": 780,
+      "height": 536,
+      "bytes": 31526,
+      "sha256": "4444f62d744e865f9f1b1b5f4dbe6fa19a8b6203832d6ac35e367448c0786967",
+      "feature": "investments",
+      "fixture": "app/design/marketing-kit/fixtures.ts",
+      "kind": "production-proof",
+      "source": [
+        "components/InvestmentMiniCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "proof-payday-dark.png",
+      "width": 780,
+      "height": 1186,
+      "bytes": 110997,
+      "sha256": "3a6cf0a3ffffb3b03326754c955c173c9457510d7cdadfa5c960951469c5c116",
+      "feature": "payday",
+      "fixture": "app/design/marketing-kit/fixtures.ts",
+      "kind": "production-proof",
+      "source": [
+        "components/PaydayPlanCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "proof-payday-light.png",
+      "width": 780,
+      "height": 1186,
+      "bytes": 105619,
+      "sha256": "4d79fd4e95de1b449477dd33f171488f03f1343d05af917238b588206904b421",
+      "feature": "payday",
+      "fixture": "app/design/marketing-kit/fixtures.ts",
+      "kind": "production-proof",
+      "source": [
+        "components/PaydayPlanCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "proof-penny-dark.png",
+      "width": 780,
+      "height": 604,
+      "bytes": 58575,
+      "sha256": "ebb90c0f41188d6c4243971f06e77779a6f7b49a03e648c9b0cc60e10ad1cc4e",
+      "feature": "penny",
+      "fixture": "app/design/marketing-kit/fixtures.ts",
+      "kind": "production-proof",
+      "source": [
+        "components/PennyConversation.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "proof-penny-light.png",
+      "width": 780,
+      "height": 604,
+      "bytes": 56145,
+      "sha256": "cade15e740d6894fe71e1058f123f2bee8e64b3cb2c2eea286fe3b9bf874927e",
+      "feature": "penny",
+      "fixture": "app/design/marketing-kit/fixtures.ts",
+      "kind": "production-proof",
+      "source": [
+        "components/PennyConversation.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "proof-safe-to-spend-dark.png",
+      "width": 780,
+      "height": 824,
+      "bytes": 67250,
+      "sha256": "ca8a64a70310c5524aa2d00b8365f529702b5cc8f0fa9449f33f7e352b6bbbc0",
+      "feature": "safe-to-spend",
+      "fixture": "app/design/marketing-kit/fixtures.ts",
+      "kind": "production-proof",
+      "source": [
+        "components/SafeToSpendCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "proof-safe-to-spend-light.png",
+      "width": 780,
+      "height": 824,
+      "bytes": 62948,
+      "sha256": "80b929c34b1d2051f8f245926d58167cdd6dc1b332beed915e4210a30f8f0d7c",
+      "feature": "safe-to-spend",
+      "fixture": "app/design/marketing-kit/fixtures.ts",
+      "kind": "production-proof",
+      "source": [
+        "components/SafeToSpendCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "proof-suggestions-dark.png",
+      "width": 780,
+      "height": 1018,
+      "bytes": 83821,
+      "sha256": "6c2c8a2633030ffeeadf4eee6be6709e347862e5148493b8032f7353e38f43e8",
+      "feature": "suggestions",
+      "fixture": "app/design/marketing-kit/fixtures.ts",
+      "kind": "production-proof",
+      "source": [
+        "components/HomeBrief.tsx",
+        "components/CoverPlanSourcesCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "proof-suggestions-light.png",
+      "width": 780,
+      "height": 1018,
+      "bytes": 81080,
+      "sha256": "1ef4e3287dbfddf94539caa300691e88a5d3d222e9b538bdcf93b1f5f7a9d9c3",
+      "feature": "suggestions",
+      "fixture": "app/design/marketing-kit/fixtures.ts",
+      "kind": "production-proof",
+      "source": [
+        "components/HomeBrief.tsx",
+        "components/CoverPlanSourcesCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "proof-upcoming-dark.png",
+      "width": 780,
+      "height": 1156,
+      "bytes": 91539,
+      "sha256": "f44e0e75a914979f9b22ec41d7691ee6f27592e601fd032d6cdc7bdbcb278327",
+      "feature": "upcoming",
+      "fixture": "app/design/marketing-kit/fixtures.ts",
+      "kind": "production-proof",
+      "source": [
+        "components/upcoming/UpcomingHeroCard.tsx",
+        "components/upcoming/UpcomingAccountsCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "dark"
+    },
+    {
+      "file": "proof-upcoming-light.png",
+      "width": 780,
+      "height": 1156,
+      "bytes": 85060,
+      "sha256": "c2e4dd74271ca44910fcc0c9dacb52d829a20dd4debb2a6b61a173ddb9217adb",
+      "feature": "upcoming",
+      "fixture": "app/design/marketing-kit/fixtures.ts",
+      "kind": "production-proof",
+      "source": [
+        "components/upcoming/UpcomingHeroCard.tsx",
+        "components/upcoming/UpcomingAccountsCard.tsx"
+      ],
+      "status": "review-draft",
+      "synthetic": true,
+      "theme": "light"
+    },
+    {
+      "file": "safe-to-spend-light.mp4",
+      "kind": "film",
+      "film": "safe-to-spend",
+      "theme": "light",
+      "width": 1080,
+      "height": 1920,
+      "duration": 15,
+      "fps": "30/1",
+      "codec": "h264",
+      "pixelFormat": "yuvj420p",
+      "bytes": 1027457,
+      "sha256": "1a4a80954e8ac81155dab870a9bfaa3db561a24fbccd848edbebd025102aa23e",
+      "status": "review-draft",
+      "audio": "silent",
+      "source": "remotion/marketing-kit/MarketingFilm.tsx",
+      "synthetic": true
+    },
+    {
+      "file": "safe-to-spend-dark.mp4",
+      "kind": "film",
+      "film": "safe-to-spend",
+      "theme": "dark",
+      "width": 1080,
+      "height": 1920,
+      "duration": 15,
+      "fps": "30/1",
+      "codec": "h264",
+      "pixelFormat": "yuvj420p",
+      "bytes": 1025322,
+      "sha256": "3a40ca4515fa71c1a71b84e41b4470f2094a1fa2608e8290bfd1512fbbfebf80",
+      "status": "review-draft",
+      "audio": "silent",
+      "source": "remotion/marketing-kit/MarketingFilm.tsx",
+      "synthetic": true
+    },
+    {
+      "file": "upcoming-light.mp4",
+      "kind": "film",
+      "film": "upcoming",
+      "theme": "light",
+      "width": 1080,
+      "height": 1920,
+      "duration": 15,
+      "fps": "30/1",
+      "codec": "h264",
+      "pixelFormat": "yuvj420p",
+      "bytes": 939457,
+      "sha256": "c92864b825914b3c98fc8e2950d33d07b638cf24a44f9c52daa169afc9081a37",
+      "status": "review-draft",
+      "audio": "silent",
+      "source": "remotion/marketing-kit/MarketingFilm.tsx",
+      "synthetic": true
+    },
+    {
+      "file": "upcoming-dark.mp4",
+      "kind": "film",
+      "film": "upcoming",
+      "theme": "dark",
+      "width": 1080,
+      "height": 1920,
+      "duration": 15,
+      "fps": "30/1",
+      "codec": "h264",
+      "pixelFormat": "yuvj420p",
+      "bytes": 925725,
+      "sha256": "0b15cf993a1f71bc4105f6bd7d1c65f0b3a718e3ad2be04d4012ae90a989bda1",
+      "status": "review-draft",
+      "audio": "silent",
+      "source": "remotion/marketing-kit/MarketingFilm.tsx",
+      "synthetic": true
+    },
+    {
+      "file": "penny-light.mp4",
+      "kind": "film",
+      "film": "penny",
+      "theme": "light",
+      "width": 1080,
+      "height": 1920,
+      "duration": 15,
+      "fps": "30/1",
+      "codec": "h264",
+      "pixelFormat": "yuvj420p",
+      "bytes": 1064698,
+      "sha256": "b39099c7f279fc636ab2daa4620166d5e8d1841fec16dda72f796ea5d338b2af",
+      "status": "review-draft",
+      "audio": "silent",
+      "source": "remotion/marketing-kit/MarketingFilm.tsx",
+      "synthetic": true
+    },
+    {
+      "file": "penny-dark.mp4",
+      "kind": "film",
+      "film": "penny",
+      "theme": "dark",
+      "width": 1080,
+      "height": 1920,
+      "duration": 15,
+      "fps": "30/1",
+      "codec": "h264",
+      "pixelFormat": "yuvj420p",
+      "bytes": 1045863,
+      "sha256": "0b278bc46fb11bcdb1a01866b10b52f7aa2bb2bd851fd0200780532c0cc05f33",
+      "status": "review-draft",
+      "audio": "silent",
+      "source": "remotion/marketing-kit/MarketingFilm.tsx",
+      "synthetic": true
+    },
+    {
+      "file": "overview-light.mp4",
+      "kind": "film",
+      "film": "overview",
+      "theme": "light",
+      "width": 1080,
+      "height": 1920,
+      "duration": 30,
+      "fps": "30/1",
+      "codec": "h264",
+      "pixelFormat": "yuvj420p",
+      "bytes": 4337783,
+      "sha256": "eaa579b3ecd480baf5c11f6949792d2ea9a9615ed4259e8dbd2761378b13b695",
+      "status": "review-draft",
+      "audio": "silent",
+      "source": "remotion/marketing-kit/MarketingFilm.tsx",
+      "synthetic": true
+    },
+    {
+      "file": "overview-dark.mp4",
+      "kind": "film",
+      "film": "overview",
+      "theme": "dark",
+      "width": 1080,
+      "height": 1920,
+      "duration": 30,
+      "fps": "30/1",
+      "codec": "h264",
+      "pixelFormat": "yuvj420p",
+      "bytes": 4250466,
+      "sha256": "55d8534da5e6c58510cceb3f0867609b84e8681de99c591b8c090ae92179df17",
+      "status": "review-draft",
+      "audio": "silent",
+      "source": "remotion/marketing-kit/MarketingFilm.tsx",
+      "synthetic": true
+    },
+    {
+      "file": "app-preview-light.mp4",
+      "kind": "film",
+      "film": "app-preview",
+      "theme": "light",
+      "width": 886,
+      "height": 1920,
+      "duration": 30,
+      "fps": "30/1",
+      "codec": "h264",
+      "pixelFormat": "yuvj420p",
+      "bytes": 2603785,
+      "sha256": "04867b92ddbdcfbce4e5c240eb5a589e6c2d3f045f9b20cf018497562de86db7",
+      "status": "review-draft",
+      "audio": "silent",
+      "source": "remotion/marketing-kit/MarketingFilm.tsx",
+      "synthetic": true
+    },
+    {
+      "file": "app-preview-dark.mp4",
+      "kind": "film",
+      "film": "app-preview",
+      "theme": "dark",
+      "width": 886,
+      "height": 1920,
+      "duration": 30,
+      "fps": "30/1",
+      "codec": "h264",
+      "pixelFormat": "yuvj420p",
+      "bytes": 2552295,
+      "sha256": "b9496cc00da4b4bda71c1f161efa91bdcb84fe0e47d7424368a81871e137dfef",
+      "status": "review-draft",
+      "audio": "silent",
+      "source": "remotion/marketing-kit/MarketingFilm.tsx",
+      "synthetic": true
+    }
+  ]
+}
