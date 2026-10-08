@@ -108,4 +108,6 @@ assert.ok(sheet.includes("useBankReturnReset(") && sheet.includes("bankReturn.be
 assert.ok(hook.includes("browserFinished") && hook.includes("sessionStorage"));
 const flow = read("components/bank-connect/BankConnectionFlow.tsx");
 assert.ok(flow.includes("const pending = connecting !== null"), "review step pending is driven by the picker's connecting state");
+const preview = read("app/design/bank-consent-journeys/ApprovedGPreview.tsx");
+assert.ok(preview.includes("useBankReturnReset") && preview.includes('"returned"'), "preview renders the production reset hook");
 console.log("a149-bank-return-reset ok");
