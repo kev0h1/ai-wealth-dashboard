@@ -502,6 +502,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
   - note (2026-10-07, claude): Coordinator review PASS 2026-10-07 on 8a9bdb57: A4.1 sentence byte-exact in terms, regulatoryCopy and the hand-off template, register line 1062474 and A4.5 lookup instruction, complaints route AURIQ then Finexer then FOS, FSCS line, no em dashes, check:agency-disclosure pins it. UAT only: Kevin approves the wording before production.
   - note (2026-10-07, claude): Kevin 2026-10-07: keep all the wording as written for production: complaints acknowledged within 3 business days and resolved within 8 weeks; we will cooperate with Finexer LTD on complaints; the FSCS line and 'Sorted never holds your money'; Privacy saying Finexer provides the regulated service with AURIQ LTD as its agent. A153 wording is approved for release.
 - [ ] **A154. Revert app_name to AURIQ LTD in finexer_template.py on main (A145's Sorted commit merged before Kevin's 2026-10-08 reversal; live templates already re-synced to AURIQ LTD, main must match before any further sync)** [owner: claude] [priority: p1] [state: in-progress] [branch: feature-A154-finexer-app-name-revert]
+  - note (2026-10-08, claude): Cherry-picked the revert (047cab37): APP_NAME AURIQ LTD with the comment; tests, generated fixtures and approval pack back to AURIQ LTD. Live templates already match. Finishing plain.
 
 ## B. Penny cost, tiers and billing
 
