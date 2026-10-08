@@ -264,7 +264,10 @@ TOOL_SCHEMAS = [
                 "questions naming a specific merchant, category, date range, or "
                 "transaction type ('how much did I spend at X', 'show my Tesco "
                 "payments', 'what did I spend on eating out in April'). Returns at "
-                "most 20 rows, most recent first. Figures are authoritative: quote "
+                "most 20 rows, most recent first, plus matched_count, "
+                "matched_spent and matched_received: the totals across EVERY "
+                "match, so use those (never a sum of the 20 rows) for any "
+                "total or count. Figures are authoritative: quote "
                 "them verbatim, never recompute, derive, or round them yourself. "
                 "Does NOT match account or pot names — `q` only "
                 "searches each row's own description/merchant/category. If the "
@@ -372,7 +375,8 @@ TOOL_SCHEMAS = [
             "name": "get_goals",
             "description": (
                 "The user's active savings/spending goals (e.g. a named pot like "
-                "'Japan'), with target amount and target date where set. Use this "
+                "'Japan'), with target amount, progress, the amount still remaining and "
+                "target date where set. Use this "
                 "when the question names a goal or asks about progress toward one. "
                 "Figures are authoritative: quote them verbatim, never recompute, "
                 "derive, or round them yourself."
@@ -424,7 +428,8 @@ TOOL_SCHEMAS = [
                 "spend', or any advice-shaped question ('how can I cut my X "
                 "spending') where the facts (the total, how it compares, what's "
                 "driving it) make the answer obvious without you prescribing "
-                "anything. Figures are authoritative: quote them verbatim, never "
+                "anything. last_n_months carries its window.days and a ready "
+                "average_per_week, so quote that for a weekly average. Figures are authoritative: quote them verbatim, never "
                 "recompute, derive, or round them yourself."
             ),
             "parameters": {
@@ -647,36 +652,38 @@ TOOL_SCHEMAS = [
         "function": {
             "name": "calculate",
             "description": (
-                "A generic arithmetic calculator, owner-approved 2026-08-30, for any "
-                "multi-step maths you must never do in your head: totals, running "
-                "series, percentages, date spans. ALWAYS fetch the real figures you "
-                "need from another tool first (get_safe_to_spend, "
-                "search_transactions, get_recurring_payments, ...), never guess or "
-                "invent a number, then pass them into an expression here. Supports "
-                "+ - * / // % ** with parentheses and unary minus, and exactly these "
-                "functions: round(x[, ndigits]), abs(x), min(a, b, ...), "
-                "max(a, b, ...), series_sum(first, step, count) for a value that "
-                "rises or falls by a fixed step each period (count of payments, up "
-                "to 5000), and days_between(\"YYYY-MM-DD\", \"YYYY-MM-DD\") (counts "
-                "the whole days from the first date up to but not including the "
-                "second), and pct(x, p) for p percent of x. Worked example: a daily "
-                "savings-challenge payment starting at 8.96, rising 0.04 (4p) a day "
-                "for 27 days: series_sum(8.96, 0.04, 27). No variable names and no "
-                "other functions are understood. Expressions over 400 characters are "
-                "rejected. The result is exact and authoritative, quote it verbatim "
-                "and show your working in the reply rather than restating the raw "
-                "expression."
+                "Deterministic calculator. ANY arithmetic goes through this, even a "
+                "bare sum, split, percentage or 'what is X minus Y' with numbers the "
+                "user typed: never do maths in your head. Fetch real figures with "
+                "other tools first, then pass them by NAME in `inputs` (money values "
+                "like '£1,250.00' or '−£380' are accepted as-is) instead of retyping "
+                "digits. Operators + - * / // % ** and brackets; functions: sum(a, b, "
+                "...), avg(a, b, ...), min, max, abs, round(x[, n]), pct(x, p) = p percent "
+                "of x, pct_change(old, new), share(part, whole) as a percent, "
+                "shortfall(target, current) = how much more is needed, "
+                "periods_to_reach(target, current, rate_per_period) = whole periods "
+                "at a steady rate, per_week(total, days), series_sum(first, step, "
+                "count), days_between(\"YYYY-MM-DD\", \"YYYY-MM-DD\"). Set `unit` "
+                "to get `result_formatted`. For 'when will I reach X at this rate' "
+                "use periods_to_reach with project_from (today's date) and period; "
+                "quote `projected_text` (it is already hedged), never promise the "
+                "date. The result is exact: quote it verbatim and show the working."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "expression": {
                         "type": "string",
-                        "description": (
-                            "The arithmetic expression to evaluate, e.g. "
-                            "'series_sum(8.96, 0.04, 27)' or '(120 + 45) * 0.5'."
-                        ),
+                        "description": "e.g. 'shortfall(target, saved)' or 'safe - 40'. Max 400 characters.",
                     },
+                    "inputs": {
+                        "type": "object",
+                        "description": "Named figures used in the expression, name -> number or £ string.",
+                        "additionalProperties": {"type": ["number", "string"]},
+                    },
+                    "unit": {"type": "string", "enum": ["gbp", "percent", "days", "number"]},
+                    "project_from": {"type": "string", "description": "YYYY-MM-DD start for a date projection."},
+                    "period": {"type": "string", "enum": ["day", "week", "fortnight", "month"]},
                 },
                 "required": ["expression"],
             },
@@ -2198,6 +2205,10 @@ async def _exec_search_transactions(
         logger.exception("penny_tools: search_transactions failed for %s", uid)
         return _tool_error("transaction search failed")
 
+    # G241: server-side totals over EVERY match, not just the 20 rows below,
+    # so "how much in total at X" is never a sum of a truncated list.
+    totals = await _search_totals(query)
+
     rows = []
     for d in items:
         tx = _doc_to_tx(d)
@@ -2211,7 +2222,44 @@ async def _exec_search_transactions(
             "transaction_type": tx.transaction_type,
             "category": tx.category,
         })
-    return {"transactions": rows, "count": len(rows)}
+    result = {"transactions": rows, "count": len(rows)}
+    if totals is not None:
+        result.update(totals)
+        result["truncated"] = totals["matched_count"] > len(rows)
+    return result
+
+
+async def _search_totals(query: dict) -> dict | None:
+    """Count and money in/out across ALL matches of `query`, summed in
+    Mongo. Amounts are stored absolute with `transaction_type` carrying the
+    direction. Returns None (totals simply omitted) if the aggregation fails,
+    so the 20-row answer is never lost to it."""
+    try:
+        pipeline = [
+            {"$match": query},
+            {"$group": {"_id": "$transaction_type", "total": {"$sum": "$amount"}, "n": {"$sum": 1}}},
+        ]
+        per_collection = await asyncio.gather(*(
+            c.aggregate(pipeline).to_list(10) for c in _SEARCH_COLLECTIONS
+        ))
+    except Exception:
+        logger.exception("penny_tools: search_transactions totals failed")
+        return None
+    spent = received = 0.0
+    count = 0
+    for groups in per_collection:
+        for g in groups:
+            count += int(g.get("n") or 0)
+            amount = abs(float(g.get("total") or 0.0))
+            if g.get("_id") == "credit":
+                received += amount
+            else:
+                spent += amount
+    return {
+        "matched_count": count,
+        "matched_spent": _money(spent, 2),
+        "matched_received": _money(received, 2),
+    }
 
 
 # ── Fuzzy name resolution, shared by every account/pot/trait/series
@@ -2821,6 +2869,12 @@ async def _exec_get_goals(uid: str) -> dict:
             "amount": _money(g.get("amount")) if g.get("amount") is not None else None,
             "target_date": g.get("target_date"),
             "progress": _money(g.get("progress")) if g.get("progress") is not None else None,
+            # G241: "how much more do I need" is a lookup, not arithmetic the
+            # model should do. Server-derived, never negative.
+            "remaining": (
+                _money(max(float(g["amount"]) - float(g["progress"]), 0.0))
+                if g.get("amount") is not None and g.get("progress") is not None else None
+            ),
             "per_period_slice": (
                 _money(g.get("per_period_slice")) if g.get("per_period_slice") is not None else None
             ),
@@ -2977,6 +3031,16 @@ async def _exec_get_category_spend(uid: str, category: str | None, months) -> di
             "months": months,
             "spent": _money(total),
             "payments_count": len(rows_raw),
+            # G241: the window the total covers, so a per-week or per-month
+            # average can be computed from the real day count (90 days is
+            # 12.86 weeks, not 12) instead of an assumed one.
+            "window": {
+                "from": start_d.isoformat(), "to": end_d.isoformat(),
+                "days": (end_d - start_d).days,
+            },
+            # Server-derived so "average weekly spend" is a lookup, not
+            # arithmetic the model can get wrong (12 weeks vs 12.86).
+            "average_per_week": _money(total / ((end_d - start_d).days / 7), 2),
         }
 
     result["top_merchants"] = _top_merchants(rows_raw, 3)
@@ -3937,14 +4001,83 @@ async def _exec_get_fill_candidates(uid: str, account_id_or_name: str | None) ->
 # rejection) so a reply or a propose-tool's consequence line can show its
 # working ("£8.96 first payment plus 4p a day for 27 days comes to
 # £258.66") without having to reconstruct the expression from memory.
-async def _exec_calculate(uid: str, expression: str | None) -> dict:
-    outcome = _safe_calc_evaluate(expression or "")
+_CALC_UNITS = ("gbp", "percent", "days", "number")
+_CALC_PERIODS = {"day": 1, "week": 7, "fortnight": 14, "month": None}
+
+
+def _add_months(start: date, months: int) -> date:
+    """Calendar months, clamping the day (31 Jan + 1 month = 28/29 Feb)."""
+    index = start.month - 1 + months
+    year, month = start.year + index // 12, index % 12 + 1
+    last_day = (date(year + (month == 12), month % 12 + 1, 1) - timedelta(days=1)).day
+    return date(year, month, min(start.day, last_day))
+
+
+def _format_calc_result(result, unit: str | None) -> str | None:
+    if not isinstance(result, (int, float)) or unit not in _CALC_UNITS:
+        return None
+    if unit == "gbp":
+        return _fmt_gbp(float(result), 0 if float(result).is_integer() else 2)
+    if unit == "percent":
+        return f"{round(float(result), 1):g}%"
+    if unit == "days":
+        n = int(round(result))
+        return f"{n} day" + ("" if abs(n) == 1 else "s")
+    return f"{round(float(result), 2):g}"
+
+
+def _project_date(result, project_from, period) -> dict:
+    """Date projection at a stated rate: `result` is a count of whole periods
+    (from `periods_to_reach`), `project_from` an ISO date, `period` one of
+    day/week/fortnight/month. Always hedged in the returned wording."""
+    if period not in _CALC_PERIODS:
+        return {"projection_error": "period must be one of day, week, fortnight or month"}
+    try:
+        start = date.fromisoformat(str(project_from))
+    except ValueError:
+        return {"projection_error": "project_from must be a YYYY-MM-DD date"}
+    if not isinstance(result, (int, float)) or result < 0 or result > 1200:
+        return {"projection_error": "that is not a sensible number of periods to project"}
+    n = int(result)
+    if period == "month":
+        end = _add_months(start, n)
+        text = end.strftime("%B %Y")
+    else:
+        end = start + timedelta(days=_CALC_PERIODS[period] * n)
+        text = f"{end.day} {end.strftime('%B %Y')}"
     return {
+        "projected_date": end.isoformat(),
+        "projected_text": (
+            f"At the same rate, roughly {text}. That is an estimate, "
+            "not a promise, and it moves if the rate does."
+        ),
+    }
+
+
+async def _exec_calculate(
+    uid: str, expression: str | None, inputs=None, unit: str | None = None,
+    project_from: str | None = None, period: str | None = None,
+) -> dict:
+    """G241 (2026-10-08): named `inputs`, `result_formatted` for a `unit`,
+    `inputs_used` (the working), and an optional hedged date projection.
+    The expression is still evaluated by `app.services.safe_calc` (AST
+    whitelist, no eval); everything added here is formatting around its
+    result and never computes a figure of its own."""
+    outcome = _safe_calc_evaluate(expression or "", inputs)
+    out = {
         "expression": expression,
         "ok": outcome["ok"],
         "result": outcome["result"],
         "error": outcome["error"],
+        "inputs_used": outcome.get("inputs_used") or {},
     }
+    if outcome["ok"]:
+        formatted = _format_calc_result(outcome["result"], unit)
+        if formatted is not None:
+            out["result_formatted"] = formatted
+        if project_from or period:
+            out.update(_project_date(outcome["result"], project_from, period))
+    return out
 
 
 # ── preview_trend_intent (B17, 2026-09-08, B12 stage 5) ───────────────────
@@ -6771,7 +6904,10 @@ async def execute_tool(uid: str, name: str, args: dict) -> dict:
         if name == "get_fill_candidates":
             return await _exec_get_fill_candidates(uid, args.get("account_id_or_name"))
         if name == "calculate":
-            return await _exec_calculate(uid, args.get("expression"))
+            return await _exec_calculate(
+                uid, args.get("expression"), inputs=args.get("inputs"), unit=args.get("unit"),
+                project_from=args.get("project_from"), period=args.get("period"),
+            )
         if name == "preview_trend_intent":
             return await _exec_preview_trend_intent(uid, args.get("category"), args.get("answer"))
         if name == "propose_mirror_choice":

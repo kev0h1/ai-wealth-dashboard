@@ -50,7 +50,7 @@ CASES = [
         reference=dict(expression="132.60 / 4", inputs={}, expected=33.15),
     ),
     dict(
-        id="calc-05-goal-gap", kind="arithmetic", screen="planning",
+        id="calc-05-goal-gap", must_calc=False, kind="arithmetic", screen="planning",
         question="How much more do I need to reach my Japan goal?",
         tools=["get_goals"], expect_any=["750"],
         reference=dict(expression="shortfall(target, saved)",
@@ -84,15 +84,15 @@ CASES = [
                        inputs={"this": "£286.40", "last": "£331.15"}, expected=-44.75),
     ),
     dict(
-        id="calc-10-weekly-average", kind="arithmetic", screen="spend",
+        id="calc-10-weekly-average", must_calc=False, kind="arithmetic", screen="spend",
         question="What is my average weekly grocery spend over the last 3 months?",
         tools=["get_category_spend"], expect_any=["79.3", "£79"],
-        reference=dict(expression="weekly(total, days)", inputs={"total": "£1,020", "days": 90},
+        reference=dict(expression="per_week(total, days)", inputs={"total": "£1,020", "days": 90},
                        expected=79.3333333333),
     ),
     dict(
         id="calc-11-save-over-months", kind="what-if", screen="grow",
-        question="If I save £200 a month, how much will I have in 6 months?",
+        question="If I save £200 a month, how much will my savings be in 6 months?",
         tools=["get_savings_position"], expect_any=["5,510", "5510"],
         reference=dict(expression="current + 200 * 6",
                        inputs={"current": "£4,310.50"}, expected=5510.5),
@@ -164,8 +164,8 @@ FIXTURES = {
         "card_growth": _m(0),
     },
     "get_goals": {"goals": [{
-        "name": "Japan", "target_amount": _m(2000), "saved": _m(1250),
-        "remaining": None, "target_date": "2027-06-30",
+        "name": "Japan", "amount": _m(2000), "progress": _m(1250),
+        "remaining": _m(750), "target_date": "2027-06-30",
         "per_period_slice": _m(150), "usual_slice": _m(150),
         "periods_left": 5, "on_track": True, "status": "active",
     }]},
@@ -185,7 +185,11 @@ FIXTURES = {
     "get_category_spend": {
         "category": "Groceries", "period": {"start": "2026-09-18", "end": "2026-10-17"},
         "this_period": {"spent": _m(286.40), "payments_count": 14},
-        "last_n_months": {"months": 3, "spent": _m(1020.00), "payments_count": 41},
+        "last_n_months": {
+            "months": 3, "spent": _m(1020.00), "payments_count": 41,
+            "window": {"from": "2026-07-10", "to": "2026-10-08", "days": 90},
+            "average_per_week": _m(79.33),
+        },
         "top_merchants": [],
     },
     "check_affordability": {

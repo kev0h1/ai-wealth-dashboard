@@ -89,8 +89,32 @@ known date to a deadline (the owner's own pay-period-end use case) without
 double-counting the start day; a caller who wants the END date counted too
 should add 1 themselves via ordinary arithmetic, e.g.
 `days_between("2026-01-01", "2026-01-02") + 1`.
+
+G241 (2026-10-08) additions, same AST-whitelist architecture, still no eval:
+
+- NAMED INPUTS. `evaluate(expression, inputs)` accepts an optional mapping of
+  figures the caller already fetched, and the expression may refer to them by
+  name (`target - saved`). A name is resolved ONLY from that mapping; a name
+  not in it, a name that collides with a function name, or an attribute
+  access is rejected exactly as before. Input values may be numbers, the
+  `{"raw": n, "formatted": "£n"}` money shape the Penny tools return, or a
+  currency string ("£1,250.00", "−£380.00"), parsed by `parse_amount`.
+  The names actually used are returned as `inputs_used`, so the reply can
+  show its working and the model never retypes digits.
+- CURRENCY LITERALS. `£`, a thousands comma directly after a `£` amount, and
+  the Unicode minus / dashes / `×` / `÷` the app and users write are
+  normalised before parsing (`_normalise`), so "£4,310.50 − £1,250.00" works.
+  A bare "1,250" with no `£` is deliberately NOT de-commaed, because
+  `max(1,250)` is a two-argument call, not one number.
+- MORE FUNCTIONS: `sum(...)`, `avg(...)`, `shortfall(target, current)` (how
+  much more is needed, never negative), `periods_to_reach(target, current,
+  rate)` (whole periods, rounded up, 0 if already there, an error if the rate
+  is not positive), `per_week(total, days)`, `pct_change(old, new)`,
+  `share(part, whole)` (percent). All closed-form, all bounded by the same
+  caps.
 """
 import ast
+import math
 import re
 from datetime import date
 
@@ -100,7 +124,14 @@ MAX_EXPONENT_ABS = 12
 MAX_SERIES_COUNT = 5000
 MAX_RESULT_ABS = 1e12
 
-_ALLOWED_FUNCS = frozenset({"round", "abs", "min", "max", "series_sum", "days_between", "pct"})
+_ALLOWED_FUNCS = frozenset({
+    "round", "abs", "min", "max", "series_sum", "days_between", "pct",
+    "sum", "avg", "shortfall", "periods_to_reach", "per_week", "pct_change", "share",
+})
+MAX_INPUTS = 20
+_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,30}$")
+_GBP_COMMA_RE = re.compile(r"£\s*\d{1,3}(?:,\d{3})+(?:\.\d+)?")
+_MINUS_CHARS = "\u2212\u2013\u2014\u2012"
 _ALLOWED_BINOPS = (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Mod, ast.Pow)
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
@@ -113,25 +144,96 @@ class _CalcError(Exception):
     exception, escape `evaluate` itself."""
 
 
-def evaluate(expression: str) -> dict:
+def _normalise(expression: str) -> str:
+    """Currency and typography clean-up applied BEFORE parsing. Only touches
+    characters that cannot be part of a valid expression anyway (so it never
+    changes what a valid expression means): £ signs, the thousands commas
+    inside a £ amount, Unicode minus/dashes, and the multiply/divide signs."""
+    text = _GBP_COMMA_RE.sub(lambda m: m.group(0).replace(",", ""), expression)
+    text = text.replace("£", "")
+    for ch in _MINUS_CHARS:
+        text = text.replace(ch, "-")
+    return text.replace("\u00d7", "*").replace("\u00f7", "/").strip()
+
+
+def parse_amount(value):
+    """A tool-result money value -> float, or None if it is not one. Accepts
+    int/float, the Penny money shape `{"raw": n, ...}`, and a currency string
+    such as "£1,250.00", "−£380" or "-380.5". Never raises."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value) if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return parse_amount(value.get("raw"))
+    if isinstance(value, str):
+        text = value.strip()
+        negative = False
+        for ch in _MINUS_CHARS:
+            text = text.replace(ch, "-")
+        if text.startswith("-"):
+            negative, text = True, text[1:].strip()
+        text = text.replace("£", "").replace(",", "").strip()
+        if text.startswith("-"):
+            negative, text = True, text[1:].strip()
+        try:
+            number = float(text)
+        except ValueError:
+            return None
+        if not math.isfinite(number):
+            return None
+        return -number if negative else number
+    return None
+
+
+def _clean_inputs(inputs) -> dict:
+    """Validated name -> float mapping. Raises `_CalcError` with a plain
+    sentence on any bad name or value."""
+    if inputs is None:
+        return {}
+    if not isinstance(inputs, dict):
+        raise _CalcError("inputs must be a mapping of name to figure")
+    if len(inputs) > MAX_INPUTS:
+        raise _CalcError(f"too many inputs, keep it under {MAX_INPUTS}")
+    cleaned = {}
+    for name, raw in inputs.items():
+        if not isinstance(name, str) or not _NAME_RE.match(name):
+            raise _CalcError(f"'{name}' is not a usable input name")
+        if name in _ALLOWED_FUNCS:
+            raise _CalcError(f"'{name}' is a function name and cannot be an input name")
+        number = parse_amount(raw)
+        if number is None:
+            raise _CalcError(f"the input '{name}' is not a number or a £ amount")
+        cleaned[name] = number
+    return cleaned
+
+
+def evaluate(expression: str, inputs=None) -> dict:
     """Safely evaluate a small arithmetic expression against the whitelist
     documented in this module's docstring. Always returns
-    `{"ok": bool, "result": float | int | None, "error": str | None}` and
-    never raises, regardless of input."""
+    `{"ok": bool, "result": float | int | None, "error": str | None}` (plus
+    `inputs_used: {name: number}` when named inputs were referenced) and never
+    raises, regardless of input."""
     if not isinstance(expression, str) or not expression.strip():
         return _fail("give me an expression to calculate")
     if len(expression) > MAX_EXPR_LEN:
         return _fail(f"that expression is too long, keep it under {MAX_EXPR_LEN} characters")
 
     try:
-        tree = ast.parse(expression, mode="eval")
+        names = _clean_inputs(inputs)
+    except _CalcError as e:
+        return _fail(str(e))
+
+    try:
+        tree = ast.parse(_normalise(expression), mode="eval")
     except (SyntaxError, ValueError):
         return _fail("that could not be parsed as an expression")
 
     node_count = [0]
+    used: dict = {}
     try:
-        _check(tree.body, node_count)
-        result = _eval(tree.body)
+        _check(tree.body, node_count, names)
+        result = _eval(tree.body, names, used)
     except _CalcError as e:
         return _fail(str(e))
     except ZeroDivisionError:
@@ -155,7 +257,12 @@ def evaluate(expression: str) -> dict:
         result = round(result, 10)
         if result == int(result):
             result = float(result)  # keep it a float, e.g. 4.0 not 4
-    return {"ok": True, "result": result, "error": None}
+    outcome = {"ok": True, "result": result, "error": None}
+    if used:
+        # Only present when named inputs were actually referenced, so every
+        # pre-G241 call keeps its exact three-key shape.
+        outcome["inputs_used"] = used
+    return outcome
 
 
 def _fail(msg: str) -> dict:
@@ -168,7 +275,7 @@ def _bump(node_count: list) -> None:
         raise _CalcError(f"that expression is too complex, keep it under {MAX_AST_NODES} parts")
 
 
-def _check(node, node_count: list) -> None:
+def _check(node, node_count: list, names: dict) -> None:
     """Structural whitelist pass. Raises `_CalcError` the moment it meets
     anything not explicitly recognised — there is no fallthrough allow."""
     _bump(node_count)
@@ -185,17 +292,24 @@ def _check(node, node_count: list) -> None:
         # else, which is always a rejection.
         raise _CalcError("text is only allowed as days_between's two 'YYYY-MM-DD' arguments")
 
+    if isinstance(node, ast.Name):
+        # A bare name is only ever an input the caller supplied. A function
+        # name used without a call, or any unknown name, is rejected.
+        if node.id not in names:
+            raise _CalcError(f"'{node.id}' is not one of the inputs you gave me")
+        return
+
     if isinstance(node, ast.BinOp):
         if not isinstance(node.op, _ALLOWED_BINOPS):
             raise _CalcError("that operator is not allowed")
-        _check(node.left, node_count)
-        _check(node.right, node_count)
+        _check(node.left, node_count, names)
+        _check(node.right, node_count, names)
         return
 
     if isinstance(node, ast.UnaryOp):
         if not isinstance(node.op, ast.USub):
             raise _CalcError("only a unary minus is allowed, not that")
-        _check(node.operand, node_count)
+        _check(node.operand, node_count, names)
         return
 
     if isinstance(node, ast.Call):
@@ -217,22 +331,26 @@ def _check(node, node_count: list) -> None:
                     raise _CalcError("days_between's arguments must look like 'YYYY-MM-DD'")
             return
         for arg in node.args:
-            _check(arg, node_count)
+            _check(arg, node_count, names)
         return
 
     raise _CalcError("that expression contains something that is not allowed")
 
 
-def _eval(node):
+def _eval(node, names: dict, used: dict):
     """Only ever called on a tree that has already passed `_check` in full,
     so every node type here is one `_check` already approved — this is pure
     computation, not a second layer of validation."""
     if isinstance(node, ast.Constant):
         return node.value
 
+    if isinstance(node, ast.Name):
+        used[node.id] = names[node.id]
+        return names[node.id]
+
     if isinstance(node, ast.BinOp):
-        left = _eval(node.left)
-        right = _eval(node.right)
+        left = _eval(node.left, names, used)
+        right = _eval(node.right, names, used)
         if isinstance(node.op, ast.Add):
             return left + right
         if isinstance(node.op, ast.Sub):
@@ -254,7 +372,7 @@ def _eval(node):
         raise _CalcError("that operator is not allowed")
 
     if isinstance(node, ast.UnaryOp):
-        return -_eval(node.operand)
+        return -_eval(node.operand, names, used)
 
     if isinstance(node, ast.Call):
         fname = node.func.id
@@ -262,7 +380,7 @@ def _eval(node):
             d1 = _parse_date(node.args[0].value)
             d2 = _parse_date(node.args[1].value)
             return (d2 - d1).days
-        args = [_eval(a) for a in node.args]
+        args = [_eval(a, names, used) for a in node.args]
         if fname == "round":
             if len(args) == 1:
                 return round(args[0])
@@ -300,6 +418,48 @@ def _eval(node):
                 raise _CalcError("pct needs exactly two arguments: x, p")
             x, p = args
             return x * p / 100
+        if fname == "sum":
+            if not args:
+                raise _CalcError("sum needs at least one argument")
+            return sum(args)
+        if fname == "avg":
+            if not args:
+                raise _CalcError("avg needs at least one argument")
+            return sum(args) / len(args)
+        if fname == "shortfall":
+            if len(args) != 2:
+                raise _CalcError("shortfall needs exactly two arguments: target, current")
+            return max(args[0] - args[1], 0)
+        if fname == "periods_to_reach":
+            if len(args) != 3:
+                raise _CalcError("periods_to_reach needs three arguments: target, current, rate_per_period")
+            target, current, rate = args
+            if target <= current:
+                return 0
+            if rate <= 0:
+                raise _CalcError("that rate never reaches the target, it needs to be above zero")
+            periods = math.ceil((target - current) / rate)
+            if periods > MAX_SERIES_COUNT:
+                raise _CalcError("that would take too long to be a useful projection")
+            return periods
+        if fname == "per_week":
+            if len(args) != 2:
+                raise _CalcError("per_week needs two arguments: total, days")
+            if args[1] <= 0:
+                raise _CalcError("per_week needs a number of days above zero")
+            return args[0] / (args[1] / 7)
+        if fname == "pct_change":
+            if len(args) != 2:
+                raise _CalcError("pct_change needs two arguments: old, new")
+            if args[0] == 0:
+                raise _CalcError("that involves dividing by zero")
+            return (args[1] - args[0]) / abs(args[0]) * 100
+        if fname == "share":
+            if len(args) != 2:
+                raise _CalcError("share needs two arguments: part, whole")
+            if args[1] == 0:
+                raise _CalcError("that involves dividing by zero")
+            return args[0] / args[1] * 100
         raise _CalcError(f"'{fname}' is not one of the allowed functions")
 
     raise _CalcError("that expression contains something that is not allowed")
