@@ -4,7 +4,7 @@ Stripe TEST mode using a test clock, with no real-time waits.
 What it does
   1. Reads STRIPE_SECRET_KEY and STRIPE_PRICE_IDS from backend/.env INTO
      VARIABLES (never printed). Refuses to run unless the key is a test key.
-  2. Points the app at a THROWAWAY Mongo database (b45_proof_<timestamp>),
+  2. Points the app at a THROWAWAY Mongo database (wealth_test_b45_proof_<timestamp>),
      never "wealth", and drops it at the end.
   3. Creates a disposable customer on a Stripe test clock, creates real test
      subscriptions, advances the clock, and after each step pulls the REAL
@@ -55,7 +55,7 @@ print(f"stripe key mode: {_mode}")
 if _mode != "test":
     sys.exit("refusing to run: not a Stripe TEST key")
 
-PROOF_DB = f"b45_proof_{int(time.time())}"
+PROOF_DB = f"wealth_test_b45_proof_{int(time.time())}"
 assert PROOF_DB != "wealth"
 os.environ["MONGO_DB"] = PROOF_DB
 os.environ["STRIPE_SECRET_KEY"] = _key

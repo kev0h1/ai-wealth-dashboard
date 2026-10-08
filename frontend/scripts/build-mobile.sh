@@ -151,6 +151,7 @@ trap '
 rsync -a --delete --exclude='node_modules' "$SHARED_SRC/" "$SCRATCH_ROOT/shared/"
 
 # public/design-media/ is marketing preview media for /design on the web only; keep it out of the app bundles.
+# C20: public/*.apk is the published Sorted APK (and sorted-apk.json its record); bundling it would nest an APK inside the next APK.
 rsync -a --delete \
   --exclude='.next/' \
   --exclude='.next-mobile/' \
@@ -161,6 +162,8 @@ rsync -a --delete \
   --exclude='.env.local' \
   --exclude='.env*.local' \
   --exclude='public/design-media/' \
+  --exclude='public/*.apk' \
+  --exclude='public/sorted-apk.json' \
   ./ "$SCRATCH/"
 
 # Reuse the already-installed deps instead of reinstalling into the scratch dir.

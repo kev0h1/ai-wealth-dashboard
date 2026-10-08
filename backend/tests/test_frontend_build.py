@@ -41,6 +41,13 @@ def _load_module():
 fb = _load_module()
 
 
+@pytest.fixture(autouse=True)
+def _plenty_of_memory(monkeypatch):
+    """H95: build_and_swap refuses below MIN_AVAILABLE_MB; keep these tests
+    independent of how loaded the host is. The gate has its own tests."""
+    monkeypatch.setattr(fb.host_memory, "available_mb", lambda *a, **k: 99999)
+
+
 def _write_complete_build(dist: Path, build_id: str) -> None:
     """Lay down the minimum shape verify_build_dir accepts, mimicking what
     `next build` writes (required-server-files.json's `files` entries are
@@ -722,3 +729,35 @@ def test_cli_status_for_a_scratch_dir(frontend: Path, capsys):
     out = capsys.readouterr().out
     assert "live: live" in out
     assert "previous: -" in out
+
+
+# --- H95/H99: memory gate and OOM reporting --------------------------------
+
+
+def test_build_refuses_when_memory_is_low_and_never_builds(frontend: Path, monkeypatch):
+    monkeypatch.setattr(fb.host_memory, "available_mb", lambda *a, **k: 800)
+    monkeypatch.setattr(fb, "MIN_AVAILABLE_MB", 2500)
+    calls = []
+    with pytest.raises(fb.FrontendBuildError, match=r"refusing to build: 800 MB available, need 2500 MB"):
+        fb.build_and_swap(frontend, run_build=lambda m, f: (calls.append(1), (0, ""))[1], log=lambda s: None)
+    assert calls == []
+    assert not _mirror(frontend).exists()
+
+
+def test_sigkilled_build_is_reported_as_out_of_memory_not_empty(frontend: Path, monkeypatch):
+    monkeypatch.setattr(fb.host_memory, "available_mb", lambda *a, **k: 3100)
+    with pytest.raises(fb.FrontendBuildError, match=r"build killed, out of memory \(3100 MB available at start"):
+        fb.build_and_swap(frontend, run_build=lambda m, f: (137, ""), log=lambda s: None)
+    assert not _mirror(frontend).exists()
+
+
+def test_oom_evidence_signals_and_killed_line():
+    assert fb.oom_evidence(137, "")
+    assert fb.oom_evidence(-9, "")
+    assert fb.oom_evidence(1, "> next build\nKilled\n")
+    assert fb.oom_evidence(1, "Type error: boom") is None
+
+
+def test_ordinary_failure_with_empty_output_still_says_something(frontend: Path):
+    with pytest.raises(fb.FrontendBuildError, match=r"(?s)exit 1.*the build printed nothing"):
+        fb.build_and_swap(frontend, run_build=lambda m, f: (1, ""), log=lambda s: None)

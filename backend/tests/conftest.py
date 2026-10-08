@@ -337,9 +337,11 @@ async def _drop_database_with_fresh_client(name: str) -> None:
 
     from app.core.config import MONGO_URI
 
+    from app.db.guard import guarded_drop_database  # H96: second, independent guard
+
     client = AsyncIOMotorClient(MONGO_URI, serverSelectionTimeoutMS=8000)
     try:
-        await client.drop_database(name)
+        await guarded_drop_database(client, name)
     finally:
         client.close()
 
@@ -403,7 +405,9 @@ async def _sweep_stale_test_databases(own_name: str) -> list[str]:
             if _has_a_live_owner(name):
                 continue
             try:
-                await client.drop_database(name)
+                from app.db.guard import guarded_drop_database  # H96
+
+                await guarded_drop_database(client, name)
                 dropped.append(name)
             except Exception:
                 pass

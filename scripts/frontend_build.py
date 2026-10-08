@@ -100,6 +100,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterator, Optional
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import host_memory  # noqa: E402
+
 REPO_ROOT = Path("/root/ai-wealth-dashboard")
 FRONTEND_DIR = REPO_ROOT / "frontend"
 
@@ -117,6 +120,11 @@ STAGING_NAME = ".frontend-staging"
 # while "Finalizing page optimization". A timeout now costs a rolled-back
 # merge and a blocked item (never a broken site), so err on the long side.
 BUILD_TIMEOUT_S = 1800
+# H95/H99: a next build peaks around 1.5GB on a 12GB box with no swap and
+# many resident Claude sessions, so refuse to start below this much
+# available memory rather than get OOM-killed with an empty error.
+# Override with FRONTEND_BUILD_MIN_AVAILABLE_MB (or --min-available-mb).
+MIN_AVAILABLE_MB = int(os.environ.get("FRONTEND_BUILD_MIN_AVAILABLE_MB", host_memory.BUILD_REQUIRED_MB))
 # Files `next start` reads before it will serve anything, beyond the
 # `files` list inside required-server-files.json (which is checked too).
 BASELINE_REQUIRED = (
@@ -345,6 +353,22 @@ def build_tag(frontend_dir: Path, now: Optional[_dt.datetime] = None) -> str:
     return f"build {date} {sha or 'nogit'}{f' #{number}' if number else ''}"
 
 
+def oom_evidence(rc: int, out: str) -> Optional[str]:
+    """H99: did the kernel's OOM killer (not the code) end the build? True
+    for exit 137 / -9 (SIGKILL; 137 = 128 + 9 when npm reports its child's
+    signal) or a bare "Killed" line at the end of the output. Deliberately
+    NOT matched on the kernel log by pid: the process that is OOM-killed is
+    a descendant of npm (next-build), not the pid we hold, so a pid
+    substring match would miss it or hit unrelated lines. Exit code and
+    "Killed" are what the shell/npm actually report. Returns the evidence
+    or None."""
+    if rc in (137, -9):
+        return f"exit {rc} (SIGKILL)"
+    if any(line.strip() == "Killed" or line.strip().endswith(": Killed") for line in (out or "").splitlines()[-20:]):
+        return "build output ends with 'Killed'"
+    return None
+
+
 def run_next_build(mirror: Path, frontend_dir: Path, timeout: int = BUILD_TIMEOUT_S) -> tuple[int, str]:
     """`npm run build` inside the mirror. Returns (returncode, output). If
     this process is interrupted (SIGINT, SIGTERM, or any other exception),
@@ -474,6 +498,14 @@ def build_and_swap(
     restarts the service afterwards (see the module docstring, step 6)."""
     frontend_dir = Path(frontend_dir).resolve()
     with build_lock(frontend_dir):
+        # H95/H99 memory gate, inside the lock so a refused build never
+        # races another one and a waiting build re-measures when it gets in.
+        avail_at_start = host_memory.available_mb()
+        if avail_at_start < MIN_AVAILABLE_MB:
+            raise FrontendBuildError(
+                f"refusing to build: {avail_at_start} MB available, need {MIN_AVAILABLE_MB} MB "
+                "(close stale Claude sessions, see docs/ops/HOST.md; live .next untouched)"
+            )
         try:
             mirror = prepare_staging(frontend_dir, log)
         except OSError as exc:
@@ -489,7 +521,14 @@ def build_and_swap(
             raise
         if rc != 0:
             _safe_rmtree(mirror, frontend_dir)
-            raise FrontendBuildError(f"frontend build failed (exit {rc}); live .next untouched:\n{out}")
+            evidence = oom_evidence(rc, out)
+            if evidence:
+                raise FrontendBuildError(
+                    f"build killed, out of memory ({avail_at_start} MB available at start; {evidence}); "
+                    "this is the host running out of memory, not a code fault; live .next untouched"
+                )
+            tail = (out or "").strip()[-3000:] or "(the build printed nothing)"
+            raise FrontendBuildError(f"frontend build failed (exit {rc}); live .next untouched:\n{tail}")
         try:
             build_id = verify_build_dir(built)
         except FrontendBuildError as exc:
@@ -599,6 +638,7 @@ def restart_frontend_service(log: Callable[[str], None] = print) -> None:
 
 
 def main(argv: Optional[list[str]] = None) -> int:
+    global MIN_AVAILABLE_MB
     parser = argparse.ArgumentParser(
         description="Build the frontend in a scratch mirror, verify it, swap it into frontend/.next atomically, restart wealth-frontend."
     )
@@ -609,9 +649,13 @@ def main(argv: Optional[list[str]] = None) -> int:
         help="Frontend directory to operate on (testing only; the live service is never restarted for a non-default dir).",
     )
     parser.add_argument("--no-restart", action="store_true", help="Do not restart wealth-frontend after the swap (testing only).")
+    parser.add_argument("--min-available-mb", type=int, default=None, metavar="MB",
+                        help=f"Refuse to build below this much available memory (default {MIN_AVAILABLE_MB}).")
     parser.add_argument("--timeout", type=int, default=BUILD_TIMEOUT_S, metavar="SECONDS", help=f"Build timeout (default {BUILD_TIMEOUT_S}).")
     args = parser.parse_args(argv)
 
+    if args.min_available_mb is not None:
+        MIN_AVAILABLE_MB = args.min_available_mb
     frontend_dir: Path = args.frontend_dir.resolve()
     if args.status:
         for key, value in status(frontend_dir).items():

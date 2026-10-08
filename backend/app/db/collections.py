@@ -1,13 +1,15 @@
 """All MongoDB collection handles as module-level singletons."""
 from motor.motor_asyncio import AsyncIOMotorClient
 from app.core.config import MONGO_DB, MONGO_URI
+from app.db.guard import make_guarded_client_class
 
 # Cap the pool per process. The web and worker run as separate Railway
 # services, each opening its own client; on Atlas M0 (500-connection cap)
 # two processes at maxPoolSize=20 stay well inside the limit with headroom
 # for a future replica. serverSelectionTimeoutMS fails fast if Atlas is
 # unreachable instead of hanging a request for the default 30s.
-_mongo = AsyncIOMotorClient(MONGO_URI, maxPoolSize=20, serverSelectionTimeoutMS=8000)
+# H96: drop_database on this client runs app.db.guard first.
+_mongo = make_guarded_client_class()(MONGO_URI, maxPoolSize=20, serverSelectionTimeoutMS=8000)
 # H90: database NAME is MONGO_DB (defaults to "wealth", the same name this
 # used to hardcode) so backend/tests/conftest.py can point the whole
 # backend suite at a disposable "wealth_test" database in the SAME

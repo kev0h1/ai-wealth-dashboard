@@ -29,6 +29,13 @@ def _load_integrate_module():
 integrate = _load_integrate_module()
 
 
+@pytest.fixture(autouse=True)
+def _plenty_of_memory(monkeypatch):
+    """H95: integrate gates builds and the suite on available memory; keep
+    these tests independent of host load. The gate has its own tests."""
+    monkeypatch.setattr(integrate.host_memory, "available_mb", lambda *a, **k: 99999)
+
+
 def test_install_dependencies_pip_when_requirements_changed(monkeypatch):
     calls: list[tuple] = []
 
@@ -1653,3 +1660,45 @@ def test_integrate_one_never_aborts_the_merge_when_link_derivation_raises(monkey
     assert result == "merged"
     assert "landed in uat" in detail
     assert uat_calls == [("H34", "https://uat.wealth.auriqltd.co.uk/design")]
+
+
+# --- H95/H99: memory gate and verbatim build message ------------------------
+
+
+def test_require_memory_refuses_with_the_reason_after_a_bounded_wait(monkeypatch):
+    monkeypatch.setattr(integrate.host_memory, "available_mb", lambda *a, **k: 700)
+    monkeypatch.setattr(integrate, "MEMORY_WAIT_S", 0)
+    with pytest.raises(integrate.IntegrateError, match=r"700 MB available, need 2500 MB"):
+        integrate._require_memory(2500, "the frontend build")
+
+
+def test_frontend_build_message_is_surfaced_verbatim_and_never_empty(monkeypatch):
+    monkeypatch.setattr(integrate, "_systemctl_restart", lambda service: None)
+
+    def killed(frontend_dir):
+        raise integrate.frontend_build.FrontendBuildError(
+            "build killed, out of memory (3100 MB available at start; exit 137 (SIGKILL))"
+        )
+
+    monkeypatch.setattr(integrate.frontend_build, "build_and_swap", killed)
+    with pytest.raises(integrate.IntegrateError) as excinfo:
+        integrate._restart_services({"frontend/components/Foo.tsx"})
+    reason = integrate._one_line_reason(str(excinfo.value))
+    assert reason.startswith("frontend build failed: build killed, out of memory")
+
+    def silent(frontend_dir):
+        raise integrate.frontend_build.FrontendBuildError("")
+
+    monkeypatch.setattr(integrate.frontend_build, "build_and_swap", silent)
+    with pytest.raises(integrate.IntegrateError) as excinfo:
+        integrate._restart_services({"frontend/components/Foo.tsx"})
+    assert integrate._one_line_reason(str(excinfo.value)) != "frontend build failed:"
+    assert "no message" in str(excinfo.value)
+
+
+def test_backend_suite_is_gated_on_memory(monkeypatch):
+    monkeypatch.setattr(integrate.host_memory, "available_mb", lambda *a, **k: 100)
+    monkeypatch.setattr(integrate, "MEMORY_WAIT_S", 0)
+    monkeypatch.setattr(integrate, "_sh", lambda *a, **k: pytest.fail("suite must not start"))
+    with pytest.raises(integrate.IntegrateError, match="refusing to run the backend suite"):
+        integrate._run_backend_tests()
