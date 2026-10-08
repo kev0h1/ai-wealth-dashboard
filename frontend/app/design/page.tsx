@@ -32,6 +32,14 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "marketing-kit",
+    name: "Sorted marketing kit · C22",
+    description: "New campaign directions: C Real life, D Payday path and E Ask Penny. Generated 3D scenes with real app components, feed/story formats. Earlier product-proof material and copy retained separately. Creative selection, not approved advertising.",
+    states: [{ label: "Light", value: "light" }, { label: "Dark", value: "dark" }],
+    variants: [{ label: "C · Real life", value: "c" }, { label: "D · Payday path", value: "d" }, { label: "E · Ask Penny", value: "e" }],
+    group: "current",
+  },
+  {
     slug: "accounts-header",
     name: "Accounts header, eye and Add · G236",
     description:

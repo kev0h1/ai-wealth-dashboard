@@ -1,0 +1,51 @@
+{
+  "positioning": "A clearer view of your money until payday.",
+  "pillars": [
+    { "title": "Know your room", "body": "An estimated Safe to Spend, with bills, plans and your buffer in view." },
+    { "title": "See what needs you", "body": "Upcoming payments and account-level gaps, without treating every item as a problem." },
+    { "title": "Keep the choice", "body": "Review suggestions, plans and Penny's proposed changes before deciding what to do." }
+  ],
+  "features": [
+    { "id": "safe-to-spend", "name": "Safe to Spend", "a": "See your room until payday.", "b": "What can I spend before payday?", "body": "An estimate after upcoming bills, plans and your buffer. Open the calculation to see the working.", "legal": "Fictional example. Safe to Spend is an estimate, not financial advice.", "proof": "SafeToSpendCard shows the cash forecast and its expandable calculation.", "landing": "Start with the figure. See the working.", "landingBody": "See an estimated amount available until payday, then open the calculation to understand what is included. Bills, plans and your chosen buffer remain distinct." },
+    { "id": "connect", "name": "Connect your banks", "a": "Your banks. A clearer picture.", "b": "Money spread across banks?", "body": "Choose a bank, review the connection information, then continue to Finexer.", "legal": "Open banking is provided by Finexer Ltd. AURIQ LTD acts as its agent. Fictional example.", "proof": "Production bank-choice components and the unchanged connection notice.", "landing": "Bring your bank accounts into view.", "landingBody": "Start with the bank you want to connect. Review how the connection works before continuing to Finexer. Availability depends on your bank and account." },
+    { "id": "upcoming", "name": "Upcoming payments", "a": "See the account that needs you.", "b": "Will each account cover its payments?", "body": "Look beyond the overall balance. See which account may be short before payday.", "legal": "Fictional forecast. Payments can take a day or two to appear.", "proof": "UpcomingHeroCard and UpcomingAccountsCard separate the overall projection from account-level risk.", "landing": "Enough overall can still mean a gap in one account.", "landingBody": "See expected payments and the accounts they leave from. Account-level shortfalls stay visible alongside the overall payday forecast, so you can inspect the gap." },
+    { "id": "suggestions", "name": "Suggestions and cover plan", "a": "A next step to consider.", "b": "Could another account cover the gap?", "body": "Review a possible move and the accounts considered for cover. You decide what happens next.", "legal": "Fictional suggestion. Sorted does not make the bank transfer.", "proof": "MoveCard and CoverPlanSourcesCard show the proposed move and source-account choices.", "landing": "A suggestion, with the reason attached.", "landingBody": "When a payment account looks short, inspect a possible source of cover. See the accounts considered and keep control of the next step. Any bank transfer is yours to make." },
+    { "id": "payday", "name": "Payday plan", "a": "Give payday a plan.", "b": "What should this payday cover?", "body": "Review the proposed split for this pay period before deciding how to use it.", "legal": "Fictional plan. Planned amounts are not completed bank transfers.", "proof": "PaydayPlanCard displays a production payday-plan proposal with fixture figures.", "landing": "Turn the next payday into a plan you can review.", "landingBody": "Bring the proposed split into one place. See the amounts and their purpose before deciding what to do. A plan in Sorted is not a bank payment." },
+    { "id": "investments", "name": "Investment tracking", "a": "Keep investments in the picture.", "b": "Where do investments fit?", "body": "Track recorded investment balances alongside the rest of your money.", "legal": "Fictional data. Capital at risk. Tracking, not investment advice.", "proof": "InvestmentMiniCard renders the recorded balance of an invented account.", "landing": "Track the longer view.", "landingBody": "Keep recorded investment balances in view without confusing them with cash available to spend. Values can fall as well as rise. Capital at risk. Sorted does not provide investment advice." },
+    { "id": "penny", "name": "Ask Penny", "a": "Talk it through. Keep the choice.", "b": "Can I change my plan?", "body": "Penny can draft a change for you to review. Confirm the proposal only if it is right for you.", "legal": "Fictional conversation. General information, not regulated financial advice.", "proof": "The production proposal confirmation and separate permission cards. No permission is granted in the demo.", "landing": "Ask a question. Review the proposed change.", "landingBody": "Penny can help explain your money and draft supported changes. Review what would change before confirming. Ongoing permissions have their own consent step. This is general information, not regulated financial advice." }
+  ],
+  "formats": {
+    "iphone-69": { "label": "iPhone 6.9-inch", "width": 1320, "height": 2868 },
+    "iphone-65": { "label": "iPhone 6.5-inch", "width": 1242, "height": 2688 },
+    "iphone-medium": { "label": "iPhone medium display", "width": 1206, "height": 2622 },
+    "android": { "label": "Android phone", "width": 1080, "height": 1920 },
+    "feed": { "label": "Social feed", "width": 1080, "height": 1350 },
+    "story": { "label": "Social story", "width": 1080, "height": 1920 },
+    "landing": { "label": "Landing section", "width": 1600, "height": 1200 }
+  },
+  "store": {
+    "name": "Sorted: Money until payday",
+    "subtitle": "Bills, plans, a clearer view",
+    "promotionalText": "See your estimated Safe to Spend, upcoming payments and the accounts that need attention. Review plans and Penny's proposed changes, with the choice staying yours.",
+    "shortDescription": "See estimated Safe to Spend, upcoming bills and plans in one calmer money view.",
+    "keywords": "budget,payday,bills,spending,accounts,planning,cashflow,finance,tracker",
+    "description": "A clearer view of your money until payday.\n\nSorted brings your money into a calmer view, with figures you can inspect and choices that stay yours.\n\nSEE YOUR ROOM UNTIL PAYDAY\nSee an estimated Safe to Spend after upcoming bills, plans and your buffer. Open the calculation to understand the working. Estimates depend on the bank data and information available.\n\nCHECK WHAT IS COMING\nView expected payments and an account-by-account forecast. An overall balance can hide a gap in the account a payment leaves from. Payments can take a day or two to appear.\n\nREVIEW YOUR NEXT STEP\nInspect move suggestions and the accounts considered for cover. Review a payday plan and your longer-term plans. Sorted does not make the bank transfer.\n\nKEEP INVESTMENTS IN VIEW\nTrack recorded investment balances alongside your wider money picture. Capital at risk. Tracking is not investment advice.\n\nASK PENNY\nTalk through a money question and review supported changes Penny proposes. Confirm a proposal only if it is right for you. Ongoing permissions have a separate consent step. General information, not regulated financial advice.\n\nCONNECT YOUR BANKS\nChoose your bank, review the connection information and continue to Finexer. Open banking is provided by Finexer Ltd, with AURIQ LTD acting as its agent. Availability depends on your bank and account.\n\nExample images use fictional data. Forecasts and suggestions are estimates, not guarantees."
+  },
+  "reviewChecks": [
+    "Kevin: choose campaign A or B and approve the wording before publication.",
+    "Compliance: review financial-promotion status, claims, provider disclosure and the intended audience and channels.",
+    "C5: verify every pictured feature against the submitted iOS and Android builds, supported banks, permissions and subscription entitlements.",
+    "C5: confirm current device classes in App Store Connect. The extra medium-display set follows Apple's current required-size guidance.",
+    "C5: replace or approve the component-rendered editorial App Store film after native-build parity review. Technical encoding alone is not store approval.",
+    "Paid social: check current TikTok, Meta and Instagram financial-services and creative safe-zone requirements before placement.",
+    "No pricing, download availability, savings result, return or FCA authorisation claim is approved by this kit."
+  ],
+  "sources": [
+    { "title": "Apple screenshot specifications", "url": "https://developer.apple.com/help/app-store-connect/reference/app-information/screenshot-specifications" },
+    { "title": "Apple app preview specifications", "url": "https://developer.apple.com/help/app-store-connect/reference/app-information/app-preview-specifications" },
+    { "title": "Apple listing text limits", "url": "https://developer.apple.com/help/app-store-connect/reference/app-information/platform-version-information" },
+    { "title": "Apple name and subtitle", "url": "https://developer.apple.com/help/app-store-connect/reference/app-information/app-information" },
+    { "title": "Google Play listing limits", "url": "https://support.google.com/googleplay/android-developer/answer/9859152" },
+    { "title": "Google Play preview assets", "url": "https://support.google.com/googleplay/android-developer/answer/9866151" }
+  ]
+}
