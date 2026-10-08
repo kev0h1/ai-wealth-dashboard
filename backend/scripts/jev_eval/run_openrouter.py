@@ -54,8 +54,8 @@ MAX_ATTEMPTS = 4
 
 _OLD_REPLY = 'Reply ONLY with JSON: {"category": "Category"}\n\n'
 _NEW_REPLY = (
-    'Reply ONLY with JSON: {"category": "Category", "confidence": 0.0}, where confidence is '
-    "your probability, between 0 and 1, that the category is right.\n\n"
+    'Reply ONLY with JSON: {"category": "<one category from the list>", "confidence": <number from 0 to 1>}, '
+    "where confidence is your probability that the category is right.\n\n"
 )
 
 #: Fallback USD per million tokens (prompt, completion) for models whose
@@ -78,12 +78,17 @@ def build_prompt(row: dict, allowed_cats: list[str], owner_name: str | None,
     return prompt
 
 
-def build_body(model: str, prompt: str) -> dict:
-    return {
-        "model": model, "max_tokens": MAX_TOKENS, "temperature": 0,
+def build_body(model: str, prompt: str, reasoning_off: bool = True, max_tokens: int = MAX_TOKENS) -> dict:
+    body = {
+        "model": model, "max_tokens": max_tokens, "temperature": 0,
         "messages": [{"role": "user", "content": prompt}],
         "provider": dict(PROVIDER_PREFS), "usage": {"include": True},
     }
+    if reasoning_off:
+        # Reasoning-capable models otherwise spend the 200-token cap on hidden
+        # thinking and return nothing; production Haiku 4.5 does not reason.
+        body["reasoning"] = {"effort": "none"}
+    return body
 
 
 def parse_reply(raw: str | None, allowed: list[str] | None = None) -> tuple[str | None, float | None]:
@@ -136,6 +141,8 @@ def result_from_response(data: dict, allowed: list[str] | None = None) -> dict:
         "choice": cat,
         "confidence": conf,
         "served_model": data.get("model"),
+        "reply_head": (content or "")[:200],
+        "has_reasoning": bool((choice0.get("message") or {}).get("reasoning")),
         "finish_reason": choice0.get("finish_reason"),
         "usage": usage,
         "cost_usd": float(usage.get("cost") or 0.0),
@@ -177,7 +184,25 @@ def fetch_models_index() -> dict[str, dict]:
     return {m["id"]: m for m in r.json().get("data", [])}
 
 
-def data_policy_report(model: str, entry: dict | None) -> list[str]:
+def lookup_model(index: dict[str, dict], model: str) -> dict | None:
+    """Listing entry for `model`, falling back to the dotted spelling
+    (anthropic/claude-haiku-4-5 is served as anthropic/claude-haiku-4.5)."""
+    return index.get(model) or index.get(re.sub(r"(\d)-(\d)", r"\1.\2", model))
+
+
+def fetch_endpoint_providers(model: str) -> list[str] | None:
+    """Distinct upstream provider names for a model, or None when the lookup
+    fails. Virtual routers (auto, jev-router) list none."""
+    try:
+        r = httpx.get(f"https://openrouter.ai/api/v1/models/{model}/endpoints", timeout=30)
+        r.raise_for_status()
+        eps = (r.json().get("data") or {}).get("endpoints") or []
+        return sorted({e.get("provider_name") for e in eps if e.get("provider_name")})
+    except Exception:
+        return None
+
+
+def data_policy_report(model: str, entry: dict | None, providers: list[str] | None = None) -> list[str]:
     """Human-readable data-policy lines for one model from its /models entry.
     The listing carries no per-provider retention flag; what the account-wide
     `data_collection: deny` preference does is filter routing to providers
@@ -194,6 +219,7 @@ def data_policy_report(model: str, entry: dict | None) -> list[str]:
     tp = entry.get("top_provider") or {}
     lines.append(f"  explicit policy fields in listing: {json.dumps(pol) if pol else 'none'}")
     lines.append(f"  top_provider moderated: {tp.get('is_moderated')}")
+    lines.append(f"  upstream providers listed: {', '.join(providers) if providers else 'none listed (virtual router or lookup failed)'}")
     if model == "openrouter/auto":
         lines.append("  router: the deny setting constrains which upstream providers auto may route to; "
                      "the served model is logged per row.")
@@ -224,12 +250,13 @@ async def _call(client: httpx.AsyncClient, body: dict, api_key: str) -> tuple[ht
 
 
 async def live_run(model: str, rows: list[dict], variant: Variant, limit: int | None, confirm_full_run: bool,
-                   budget_usd: float, ask_confidence: bool, entry: dict | None) -> None:
+                   budget_usd: float, ask_confidence: bool, entry: dict | None, reasoning_off: bool = True,
+                   max_tokens: int = MAX_TOKENS, tag: str = "") -> None:
     from scripts.jev_eval.run_haiku import _allowed_cats_and_owner_for
     from scripts.jev_eval.mongo_helpers import build_uid_hash_lookup
 
     ensure_out_dir()
-    out_path = model_results_path(model, variant.name)
+    out_path = model_results_path(model, variant.name, tag)
     done = existing_row_ids(out_path)
     todo = [r for r in rows if make_row_id(r["scope"], r["uid_hash"], r["merchant_key"]) not in done]
     if limit is not None:
@@ -259,11 +286,11 @@ async def live_run(model: str, rows: list[dict], variant: Variant, limit: int | 
                 "merchant_key": row["merchant_key"], "scope": row["scope"], "uid_hash": row["uid_hash"],
                 "label": row["label"], "label_source": row["label_source"],
                 "n_examples": len(row.get("examples") or []),
-                "requested_model": model, "variant": variant.name,
+                "requested_model": model, "variant": variant.name, "max_tokens": max_tokens,
                 "choice": None, "confidence": None, "served_model": None, "finish_reason": None,
                 "usage": None, "cost_usd": None, "latency_ms": None, "http_status": None, "error": None,
             }
-            resp, latency, terr = await _call(client, build_body(model, prompt), api_key)
+            resp, latency, terr = await _call(client, build_body(model, prompt, reasoning_off, max_tokens), api_key)
             if resp is None:
                 rec["error"] = terr
             else:
@@ -316,6 +343,9 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--data-policy-check", action="store_true")
     ap.add_argument("--no-confidence", action="store_true")
+    ap.add_argument("--max-tokens", type=int, default=MAX_TOKENS)
+    ap.add_argument("--tag", default="", help="suffix for the results file, e.g. mt1000 for a non-default cap")
+    ap.add_argument("--allow-reasoning", action="store_true", help="do not send reasoning.effort=none")
     ap.add_argument("--budget-usd", type=float, default=1.5)
     return ap.parse_args(argv)
 
@@ -326,11 +356,11 @@ def main() -> None:
     entry = None
     if args.data_policy_check or not args.dry_run:
         try:
-            entry = fetch_models_index().get(args.model)
+            entry = lookup_model(fetch_models_index(), args.model)
         except Exception as exc:
             print_err(f"could not fetch the models list: {type(exc).__name__}")
     if args.data_policy_check:
-        print("\n".join(data_policy_report(args.model, entry)))
+        print("\n".join(data_policy_report(args.model, entry, fetch_endpoint_providers(args.model))))
         return
     rows = read_jsonl(DATASET_PATH)
     if not rows:
@@ -345,7 +375,8 @@ def main() -> None:
         print_err("OPENROUTER_API_KEY is not set in backend/.env")
         sys.exit(2)
     asyncio.run(live_run(args.model, rows, variant, args.limit, args.confirm_full_run,
-                         args.budget_usd, not args.no_confidence, entry))
+                         args.budget_usd, not args.no_confidence, entry, not args.allow_reasoning,
+                         args.max_tokens, args.tag))
 
 
 if __name__ == "__main__":

@@ -57,12 +57,13 @@ def results_path(kind: str, variant: str) -> Path:
 def model_slug(model: str) -> str:
     """Filesystem-safe slug for an OpenRouter model id (G239)."""
     import re
-    return re.sub(r"[^a-z0-9]+", "-", model.lower()).strip("-")
+    return re.sub(r"[^a-z0-9.]+", "-", model.lower()).strip("-")
 
 
-def model_results_path(model: str, variant: str) -> Path:
-    """`out/<slug>_results.<variant>.jsonl` for the generic OpenRouter runner."""
-    return OUT_DIR / f"{model_slug(model)}_results.{variant}.jsonl"
+def model_results_path(model: str, variant: str, tag: str = "") -> Path:
+    """`out/<slug>_results.<variant>[.<tag>].jsonl` for the generic OpenRouter runner."""
+    suffix = f".{tag}" if tag else ""
+    return OUT_DIR / f"{model_slug(model)}_results.{variant}{suffix}.jsonl"
 
 
 def flag_value(rest: list[str], name: str, default: str) -> str:
