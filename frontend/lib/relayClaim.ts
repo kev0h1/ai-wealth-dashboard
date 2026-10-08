@@ -14,11 +14,11 @@ export const RELAY_VERIFY_CODE_PATH = "/auth/apple/relay/verify-code";
 
 export type AppleRefusal =
   | { kind: "invite_only" }
-  | { kind: "relay_claim"; claimToken: string; prompt: string };
+  | { kind: "relay_claim"; claimToken: string; prompt: string; emailClaimAvailable: boolean };
 
 export function classifyAppleRefusal(status: number, body: unknown): AppleRefusal | null {
   if (status !== 403) return null;
-  const detail = (body as { detail?: { code?: unknown; claim_token?: unknown; link_existing_prompt?: unknown } } | null)?.detail;
+  const detail = (body as { detail?: { code?: unknown; claim_token?: unknown; link_existing_prompt?: unknown; email_claim_available?: unknown } } | null)?.detail;
   if (!detail || typeof detail !== "object") return null;
   if (detail.code === INVITE_ONLY_CODE) return { kind: "invite_only" };
   if (detail.code === RELAY_INVITE_CLAIM_CODE && typeof detail.claim_token === "string" && detail.claim_token) {
@@ -26,6 +26,8 @@ export function classifyAppleRefusal(status: number, body: unknown): AppleRefusa
       kind: "relay_claim",
       claimToken: detail.claim_token,
       prompt: typeof detail.link_existing_prompt === "string" ? detail.link_existing_prompt : "",
+      // Absent or anything but true means no email form (fail closed).
+      emailClaimAvailable: detail.email_claim_available === true,
     };
   }
   return null;

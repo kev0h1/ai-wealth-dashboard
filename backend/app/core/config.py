@@ -211,6 +211,19 @@ def is_signup_open() -> bool:
     return OPEN_SIGNUP
 
 
+# D9: the claim-by-email path (send a one-time code to the invited address)
+# needs a real transactional email sender, which does not exist until D11.
+# Off by default and absent on UAT and Railway; while off a refused relay
+# sign-in still gets RELAY_INVITE_CLAIM but with email_claim_available false,
+# and the send-code endpoint creates nothing. Read through the function so
+# tests can flip the module attribute.
+RELAY_CLAIM_EMAIL_ENABLED = os.getenv("RELAY_CLAIM_EMAIL_ENABLED", "false").strip().lower() in ("1", "true", "on", "yes")
+
+
+def relay_claim_email_enabled() -> bool:
+    return RELAY_CLAIM_EMAIL_ENABLED
+
+
 # MCP connector kill switch (A17). The /mcp Streamable HTTP connector (F3)
 # and its OAuth 2.1 authorisation server (F2) are built but not yet part of
 # the Finexer compliance answers ("planned", not live), so production must

@@ -53,6 +53,7 @@ export default function LoginScreen({ error, onSignedIn, resuming, onCancelResum
   // dead end. Holds the prompt the backend sent; the claim token itself
   // stays in lib/nativeAuth.
   const [relayClaimPrompt, setRelayClaimPrompt] = useState<string | null>(null);
+  const [relayEmailAvailable, setRelayEmailAvailable] = useState(false);
 
   // G202: the single phase source for a native sign-in. `startedAt` is set on
   // the Google/Apple tap and the phase returns to "idle" on every exit (ok,
@@ -109,6 +110,7 @@ export default function LoginScreen({ error, onSignedIn, resuming, onCancelResum
     if (result === "ok") await establish(run, attempt, startedAt);
     else if (result === "relay_claim") {
       setRelayClaimPrompt(getRelayClaim()?.prompt ?? "");
+      setRelayEmailAvailable(getRelayClaim()?.emailClaimAvailable === true);
       setLocal({ kind: "idle" });
     } else if (result === "invite_only") {
       setNativeInviteOnly(true);
@@ -155,6 +157,7 @@ export default function LoginScreen({ error, onSignedIn, resuming, onCancelResum
     return (
       <RelayClaimScreen
         prompt={relayClaimPrompt}
+        emailClaimAvailable={relayEmailAvailable}
         onSend={sendRelayClaimCode}
         onVerify={verifyRelayClaimCode}
         onVerified={() => {

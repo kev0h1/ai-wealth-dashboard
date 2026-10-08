@@ -80,6 +80,13 @@ def _patch_jwks(monkeypatch):
     auth_module._apple_jwks_cache["fetched_at"] = 0.0
 
 
+@pytest.fixture(autouse=True)
+def _email_claim_on(monkeypatch):
+    """The email path is flag-gated (off by default until D11); most tests
+    exercise it, the flag-off tests switch it back off."""
+    monkeypatch.setattr(config, "RELAY_CLAIM_EMAIL_ENABLED", True)
+
+
 # ── fakes ────────────────────────────────────────────────────────────────
 
 def _match(d: dict, q: dict) -> bool:
@@ -515,3 +522,76 @@ def test_claim_endpoints_have_their_own_tight_rate_limits_ahead_of_generic_auth_
     for path in ("/auth/apple/relay/send-code", "/auth/apple/relay/verify-code"):
         assert prefixes.index(path) < generic
         assert rules[path][0] < rules["/auth/"][0]
+
+
+# ── D9 review: flag gating, already-linked sub, 429s ────────────────────────
+
+def _refusal_detail(fake_linked, fake_allowlist, monkeypatch):
+    _closed(monkeypatch)
+    _set_allow_list(monkeypatch, ["kevin.maingi12@gmail.com"])
+    _invite(fake_allowlist)
+    with pytest.raises(HTTPException) as exc:
+        _run(auth_module.apple_native({"identityToken": _make_token()}))
+    return exc.value.detail
+
+
+def test_refusal_says_email_claim_available_when_flag_on(fake_linked, fake_allowlist, monkeypatch):
+    detail = _refusal_detail(fake_linked, fake_allowlist, monkeypatch)
+    assert detail["code"] == "RELAY_INVITE_CLAIM"
+    assert detail["email_claim_available"] is True
+
+
+def test_flag_off_refusal_still_claims_but_email_unavailable_and_send_creates_nothing(
+    fake_linked, fake_allowlist, fake_codes, monkeypatch,
+):
+    monkeypatch.setattr(config, "RELAY_CLAIM_EMAIL_ENABLED", False)
+    captured = _captured_codes(monkeypatch)
+    detail = _refusal_detail(fake_linked, fake_allowlist, monkeypatch)
+    assert detail["code"] == "RELAY_INVITE_CLAIM"
+    assert detail["email_claim_available"] is False
+    result = _run(auth_module.send_relay_claim_code_endpoint(
+        {"claim_token": detail["claim_token"], "email": INVITED_EMAIL}
+    ))
+    assert result == {"ok": True}
+    assert captured == [] and fake_codes.docs == []
+
+
+def test_claim_token_for_already_linked_sub_is_rejected_by_send_and_verify(
+    fake_linked, fake_allowlist, fake_codes, monkeypatch,
+):
+    captured = _captured_codes(monkeypatch)
+    detail = _refusal_detail(fake_linked, fake_allowlist, monkeypatch)
+    fake_linked.docs.append({"_id": f"apple:{RELAY_SUB}", "user_id": "someone@example.com", "auto": False})
+    with pytest.raises(HTTPException) as e1:
+        _run(auth_module.send_relay_claim_code_endpoint(
+            {"claim_token": detail["claim_token"], "email": INVITED_EMAIL}))
+    assert e1.value.status_code == 401
+    with pytest.raises(HTTPException) as e2:
+        _run(auth_module.verify_relay_claim_code_endpoint(
+            {"claim_token": detail["claim_token"], "email": INVITED_EMAIL, "code": "123456"}))
+    assert e2.value.status_code == 401
+    assert captured == [] and fake_codes.docs == []
+
+
+class _Req:
+    def __init__(self, path, ip):
+        from types import SimpleNamespace
+        self.url = SimpleNamespace(path=path)
+        self.headers = {}
+        self.client = SimpleNamespace(host=ip)
+        self.method = "POST"
+
+
+@pytest.mark.parametrize("path,limit", [
+    ("/auth/apple/relay/send-code", 5),
+    ("/auth/apple/relay/verify-code", 10),
+])
+def test_claim_endpoints_return_429_past_their_budget(path, limit, monkeypatch):
+    from app.core import ratelimit
+    ip = f"198.51.100.{limit}"
+    monkeypatch.setattr(ratelimit, "client_ip", lambda request: ip)
+    monkeypatch.setattr(ratelimit, "_local_buckets", {}, raising=False)
+    for _ in range(limit):
+        assert _run(ratelimit.check_rate_limit(_Req(path, ip))) is None
+    resp = _run(ratelimit.check_rate_limit(_Req(path, ip)))
+    assert resp is not None and resp.status_code == 429

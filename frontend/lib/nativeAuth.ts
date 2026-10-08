@@ -203,8 +203,8 @@ export async function nativeAppleAuthorize(): Promise<{ identityToken: string; f
 export type NativeLoginResult = "ok" | "invite_only" | "relay_claim" | "failed" | "timeout" | "cancelled";
 // D9: the signed claim a refused Hide My Email sign-in handed back. Held in
 // memory only (it is short-lived and useless without the emailed code).
-let relayClaim: { claimToken: string; prompt: string } | null = null;
-export function getRelayClaim(): { claimToken: string; prompt: string } | null {
+let relayClaim: { claimToken: string; prompt: string; emailClaimAvailable: boolean } | null = null;
+export function getRelayClaim(): { claimToken: string; prompt: string; emailClaimAvailable: boolean } | null {
   return relayClaim;
 }
 export function clearRelayClaim(): void {
@@ -272,7 +272,7 @@ async function appleLoginInner(signal: AbortSignal): Promise<NativeLoginResult> 
         const refusal = classifyAppleRefusal(res.status, body);
         if (refusal?.kind === "invite_only") return "invite_only";
         if (refusal?.kind === "relay_claim") {
-          relayClaim = { claimToken: refusal.claimToken, prompt: refusal.prompt };
+          relayClaim = { claimToken: refusal.claimToken, prompt: refusal.prompt, emailClaimAvailable: refusal.emailClaimAvailable };
           return "relay_claim";
         }
       }

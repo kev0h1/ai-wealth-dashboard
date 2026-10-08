@@ -16,7 +16,7 @@ import RelayClaimScreen from "../components/RelayClaimScreen.tsx";
 assert.deepEqual(classifyAppleRefusal(403, { detail: { code: "INVITE_ONLY" } }), { kind: "invite_only" });
 assert.deepEqual(
   classifyAppleRefusal(403, { detail: { code: "RELAY_INVITE_CLAIM", claim_token: "tok", link_existing_prompt: "p" } }),
-  { kind: "relay_claim", claimToken: "tok", prompt: "p" },
+  { kind: "relay_claim", claimToken: "tok", prompt: "p", emailClaimAvailable: false },
 );
 assert.equal(classifyAppleRefusal(403, { detail: { code: "RELAY_INVITE_CLAIM" } }), null, "no token, no claim");
 assert.equal(classifyAppleRefusal(403, { detail: "Forbidden" }), null);
@@ -41,6 +41,7 @@ assert.match(login, /onVerified=/);
 // em dashes or exclamation marks in copy.
 const html = renderToStaticMarkup(
   React.createElement(RelayClaimScreen, {
+    emailClaimAvailable: true,
     prompt: "Already using Sorted with Google? Sign in with that and add Apple from Settings.",
     onSend: async () => "sent", onVerify: async () => "ok", onVerified: () => {}, onBack: () => {},
   }),
@@ -49,6 +50,19 @@ assert.match(html, /Invited email address/);
 assert.match(html, /Send me a code/);
 assert.match(html, /add Apple from Settings/);
 assert.match(html, /Back to sign in/);
+assert.match(html, /The address your invitation was sent to\./);
+const off = renderToStaticMarkup(
+  React.createElement(RelayClaimScreen, {
+    prompt: "p", emailClaimAvailable: false,
+    onSend: async () => "sent", onVerify: async () => "ok", onVerified: () => {}, onBack: () => {},
+  }),
+);
+assert.match(off, /Email codes are not switched on yet\. Sign in with the provider your invitation was sent to, then add Apple from Settings\./);
+assert.ok(!/<input|Send me a code/.test(off), "no email form while off");
+assert.match(off, /Back to sign in/);
+assert.equal(classifyAppleRefusal(403, { detail: { code: "RELAY_INVITE_CLAIM", claim_token: "t" } }).emailClaimAvailable, false);
+assert.equal(classifyAppleRefusal(403, { detail: { code: "RELAY_INVITE_CLAIM", claim_token: "t", email_claim_available: true } }).emailClaimAvailable, true);
 assert.ok(!html.includes("—") && !html.includes("!"), "copy rules");
 
+assert.ok(!off.includes("\u2014") && !off.includes("!"), "copy rules (off)");
 console.log("relay-claim: all checks passed");

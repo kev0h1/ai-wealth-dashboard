@@ -11,6 +11,8 @@ import { useState } from "react";
 
 export interface RelayClaimScreenProps {
   prompt: string;
+  // False while the backend has no email sender (RELAY_CLAIM_EMAIL_ENABLED off).
+  emailClaimAvailable: boolean;
   onSend: (email: string) => Promise<"sent" | "limited" | "failed">;
   onVerify: (email: string, code: string) => Promise<"ok" | "invalid" | "locked" | "failed">;
   onVerified: () => void;
@@ -18,13 +20,13 @@ export interface RelayClaimScreenProps {
 }
 
 const FIELD =
-  "w-full py-3 px-4 rounded-2xl border-2 border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-sm text-slate-900 dark:text-slate-100";
+  "w-full min-h-11 py-3 px-4 rounded-2xl border-2 border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-sm text-slate-900 dark:text-slate-100";
 const PRIMARY =
-  "w-full py-3.5 px-4 rounded-2xl bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 active:scale-95 transition font-medium text-sm disabled:opacity-60";
+  "w-full min-h-11 py-3.5 px-4 rounded-2xl bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 active:scale-95 transition font-medium text-sm disabled:opacity-60";
 const SECONDARY =
-  "w-full py-3.5 px-4 rounded-2xl border-2 border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 active:scale-95 transition font-medium text-slate-700 dark:text-slate-100 text-sm shadow-sm";
+  "w-full min-h-11 py-3.5 px-4 rounded-2xl border-2 border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 active:scale-95 transition font-medium text-slate-700 dark:text-slate-100 text-sm shadow-sm";
 
-export default function RelayClaimScreen({ prompt, onSend, onVerify, onVerified, onBack }: RelayClaimScreenProps) {
+export default function RelayClaimScreen({ prompt, emailClaimAvailable, onSend, onVerify, onVerified, onBack }: RelayClaimScreenProps) {
   const [step, setStep] = useState<"email" | "code">("email");
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
@@ -39,6 +41,15 @@ export default function RelayClaimScreen({ prompt, onSend, onVerify, onVerified,
     setBusy(false);
     if (r === "sent") setStep("code");
     else setMessage(r === "limited" ? "Too many tries. Wait a few minutes and try again." : "We could not send that. Check your connection and try again.");
+  }
+
+  async function resend() {
+    if (busy) return;
+    setBusy(true);
+    setMessage(null);
+    const r = await onSend(email.trim());
+    setBusy(false);
+    setMessage(r === "sent" ? "A new code is on its way if that address is on the list." : r === "limited" ? "Too many tries. Wait a few minutes and try again." : "We could not send that. Check your connection and try again.");
   }
 
   async function verify() {
@@ -61,16 +72,19 @@ export default function RelayClaimScreen({ prompt, onSend, onVerify, onVerified,
             Confirm your invitation
           </h1>
           <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-            You chose to hide your email, so we cannot see which address your invitation went to. Enter that address and we will send you a code.
+            You chose to hide your email, so we cannot see which address your invitation went to.
+            {emailClaimAvailable ? " Enter that address and we will send you a code." : ""}
           </p>
         </div>
 
+        {emailClaimAvailable ? (
         <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-sm p-6 space-y-3">
           {step === "email" ? (
             <>
               <label htmlFor="relay-claim-email" className="block text-sm font-medium text-slate-700 dark:text-slate-200">
                 Invited email address
               </label>
+              <p className="text-xs text-slate-600 dark:text-slate-400">The address your invitation was sent to.</p>
               <input
                 id="relay-claim-email"
                 type="email"
@@ -105,6 +119,9 @@ export default function RelayClaimScreen({ prompt, onSend, onVerify, onVerified,
               <button type="button" onClick={verify} disabled={busy || !code.trim()} className={PRIMARY}>
                 {busy ? "Checking" : "Confirm"}
               </button>
+              <button type="button" onClick={resend} disabled={busy} className="w-full min-h-11 text-sm text-slate-600 dark:text-slate-400 underline underline-offset-2 disabled:opacity-60">
+                Send a new code
+              </button>
               <button type="button" onClick={() => { setStep("email"); setCode(""); setMessage(null); }} className={SECONDARY}>
                 Use a different address
               </button>
@@ -116,8 +133,15 @@ export default function RelayClaimScreen({ prompt, onSend, onVerify, onVerified,
             </p>
           )}
         </div>
+        ) : (
+        <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-sm p-6">
+          <p className="text-sm text-slate-700 dark:text-slate-200 leading-relaxed">
+            Email codes are not switched on yet. Sign in with the provider your invitation was sent to, then add Apple from Settings.
+          </p>
+        </div>
+        )}
 
-        {prompt && (
+        {emailClaimAvailable && prompt && (
           <p className="mt-5 px-2 text-center text-sm text-slate-600 dark:text-slate-400 leading-relaxed">{prompt}</p>
         )}
         <button type="button" onClick={onBack} className={`${SECONDARY} mt-5`}>

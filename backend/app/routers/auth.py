@@ -15,7 +15,7 @@ from app.core.config import (
     GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
     APPLE_BUNDLE_ID, APPLE_SERVICES_ID,
     APP_URL, PRIMARY_EMAIL, SESSION_MAX_AGE, serializer,
-    mask_email,
+    mask_email, relay_claim_email_enabled,
 )
 from app.core.allowlist import resolve_allowed_signup
 from app.core.identity import resolve_signin_email
@@ -314,6 +314,9 @@ async def apple_native(body: dict):
             raise HTTPException(403, detail={
                 "code": "RELAY_INVITE_CLAIM",
                 "claim_token": mint_claim_token(sub=sub, relay_email=email_claim),
+                # False until D11 provides an email sender: the client then
+                # offers only "sign in another way, then link from Settings".
+                "email_claim_available": relay_claim_email_enabled(),
                 # Path 1 (no further endpoint needed — the account holder
                 # just signs in normally and links from Settings): shared
                 # copy so D10 reuses this prompt rather than duplicating it
@@ -472,8 +475,14 @@ async def send_relay_claim_code_endpoint(body: dict):
     if claim is None:
         raise HTTPException(401, "Invalid or expired claim")
 
+    # Already linked: nothing to claim (the sign-in would not have been
+    # refused), so a stale or replayed token gets a plain refusal.
+    if await linked_identities_col.find_one({"_id": f"apple:{claim['sub']}"}):
+        raise HTTPException(401, "Invalid or expired claim")
+
     email = (body.get("email") or "").strip().lower()
-    if email:
+    # Flag off: same generic ok, but nothing is created or sent (no oracle).
+    if email and relay_claim_email_enabled():
         target = await resolve_allowed_signup(email)
         if target:
             await send_relay_claim_code(sub=claim["sub"], target_email=target)
@@ -507,6 +516,9 @@ async def verify_relay_claim_code_endpoint(body: dict):
     """
     claim = load_claim_token(body.get("claim_token"))
     if claim is None:
+        raise HTTPException(401, "Invalid or expired claim")
+
+    if await linked_identities_col.find_one({"_id": f"apple:{claim['sub']}"}):
         raise HTTPException(401, "Invalid or expired claim")
 
     email = (body.get("email") or "").strip().lower()
