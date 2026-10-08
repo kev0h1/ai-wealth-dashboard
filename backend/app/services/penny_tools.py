@@ -2017,6 +2017,8 @@ async def _load_cashflow_cache(uid: str) -> dict | None:
     )
     if not has_accounts:
         return None
+    _started = datetime.now()
+    _started = _started.replace(microsecond=(_started.microsecond // 1000) * 1000)
     cached = await _compute_cashflow_patterns(uid)
     cached["computed_at"] = datetime.now()
     cached["patterns_version"] = PATTERNS_VERSION
@@ -2025,7 +2027,20 @@ async def _load_cashflow_cache(uid: str) -> dict | None:
     # build to cache_needs_recompute's "auto" self-heal check forever, not
     # just until the next real engine change.
     cached["engine_build"] = engine_build()
-    await cashflow_cache_col.update_one({"_id": uid}, {"$set": cached}, upsert=True)
+    cached["computed_from"] = _started
+    try:
+        # G177 compare-and-swap, same rule as compute_and_cache_cashflow.
+        await cashflow_cache_col.update_one(
+            {"_id": uid, "$or": [
+                {"computed_from": {"$exists": False}},
+                {"computed_from": {"$lte": _started}},
+            ]},
+            {"$set": cached}, upsert=True,
+        )
+    except Exception as exc:  # DuplicateKeyError: a newer recompute landed first
+        from pymongo.errors import DuplicateKeyError
+        if not isinstance(exc, DuplicateKeyError):
+            raise
     return cached
 
 

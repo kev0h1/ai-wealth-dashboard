@@ -20,6 +20,8 @@ from app.db.collections import (
 from app.services.categorisation import rule_categorise, user_identity, is_own_transfer, canonical_merchant_key
 from app.services.notifications import notify_after_sync
 from app.services.pending_transactions import replace_pending_for_account
+from app.services.derived_caches import TXN_MATERIAL_PROJECTION, mark_stale, txn_materially_changed
+from pymongo import ReturnDocument
 
 
 def _client() -> httpx.AsyncClient:
@@ -339,6 +341,7 @@ async def _upsert_finexer_transactions(
     the normalised shape `replace_pending_for_account` expects."""
     new_txns = []
     pending_rows = []
+    changed = False
     for txn in txns:
         # Defensive field mapping — exact names TBD until first sandbox login
         txn_id = (
@@ -406,18 +409,29 @@ async def _upsert_finexer_transactions(
             except (TypeError, ValueError):
                 pass
 
-        result = await transactions_col.update_one(
+        # BEFORE image (None on insert) so a material update to an existing
+        # row is told apart from a no-op re-pull (G177).
+        before = await transactions_col.find_one_and_update(
             {"_id": txn_id},
             {"$set": tdoc, "$setOnInsert": {"_id": txn_id, "custom_category": None}},
             upsert=True,
+            projection=TXN_MATERIAL_PROJECTION,
+            return_document=ReturnDocument.BEFORE,
         )
-        if result.upserted_id is not None:
+        if txn_materially_changed(before, tdoc):
+            changed = True
+        if before is None:
             new_txns.append({
                 "description":   description,
                 "merchant_name": merchant or None,
                 "amount":        amount,
                 "currency":      currency,
             })
+    if changed:
+        # G177: any inserted or materially updated row makes the user's
+        # cashflow cache stale, whichever path (reconcile, webhook, manual
+        # refresh, OAuth callback) ran this pull.
+        await mark_stale(user_id)
     return new_txns, pending_rows
 
 
