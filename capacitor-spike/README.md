@@ -94,8 +94,8 @@ API base: PRODUCTION, `https://wealth.auriqltd.co.uk/api`. The published APK is
 the real app, so it is exported with `npm run build:mobile:prod`, never the
 default UAT `build:mobile`. `check:apk-single` unzips the APK and fails unless
 the bundled JS contains the production API base and not `uat.wealth.auriqltd.co.uk/api`
-(the string `uat.wealth.auriqltd.co.uk` still appears once in design-preview fixture
-links inside the bundle; that is not an API base). The same file is served from
+(the string `uat.wealth.auriqltd.co.uk` still appears six times in one chunk of the
+bundle, in design-preview fixture links only; none is an API base). The same file is served from
 both the UAT and production web hosts, since `frontend/public` ships to both.
 
 To publish a new build: bump `versionCode` (and set `previousVersionCode` to the
