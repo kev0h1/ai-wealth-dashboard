@@ -1586,6 +1586,8 @@ export type CompanionItem = {
   income_note?: string;
   assumed_incomes?: { name: string; amount: number; expected_date: string }[];
   plan_dest?: PlanDest;
+  /** G212: account row for a cover plan card with no transfer source (readable name, balance and payments in one line). */
+  dest_row?: { title: string; detail: string };
   covered?: boolean;
   sources_safe?: boolean;
   /**
