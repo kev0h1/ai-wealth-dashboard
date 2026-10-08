@@ -258,8 +258,8 @@ const ROUTES: PreviewRoute[] = [
   {
     slug: "penny-fullscreen",
     name: "Ask Penny full screen · G240",
-    description: "G240, skills impeccable + emil-design-eng (no motion added) + web-design-guidelines audit, drafts from openai/gpt-6-astra rewritten to DESIGN.md. The Ask Penny sheet as a phone takeover from the top safe area to the bottom safe area (or the keyboard edge) on a solid surface, so no page shows around it. Three variants differ in the empty conversation and composer spacing: A Clear runway (starter heading and chips), B Question history (recent questions card), C Decision dock (prompts above the composer). All render the production Penny panel, header and composer through the new opt-in presentation prop; type into it on your phone, light and dark. Local replies, no live advice. ?state=a|b|c&thread=empty|long&mode=light|dark&open=1",
-    states: [{ label: "A Clear runway", value: "a" }, { label: "B Question history", value: "b" }, { label: "C Decision dock", value: "c" }],
+    description: "G240, approved variant A (Clear runway), Kevin 2026-10-08. Gate preview: the Ask Penny sheet as a phone takeover from the top safe area to the bottom safe area (or the keyboard edge) on a solid surface. Renders the production Penny panel, header, composer, empty-state layout and chip; the chip labels and replies are fixtures because the live conversation fetches its own data. Type into it on your phone, light and dark. ?mode=light|dark&thread=empty|long&open=1 (state= also works)",
+    states: [{ label: "Empty", value: "empty" }, { label: "Long thread", value: "long" }],
   },
   {
     slug: "g176-account-status",

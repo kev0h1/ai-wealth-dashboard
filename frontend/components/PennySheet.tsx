@@ -579,7 +579,7 @@ export default function PennySheet() {
         onClick={close}
         aria-hidden="true"
       />
-      <PennySheetPanel isOpen={isOpen} panelRef={isOpen ? panelRef : undefined}>
+      <PennySheetPanel isOpen={isOpen} panelRef={isOpen ? panelRef : undefined} presentation="fullscreen">
           {/* Header — shrink-0, stays put while the thread (rendered by
               PennyConversation below) scrolls independently. No drag-handle
               bar: that signalled "sheet", and this isn't one anymore.

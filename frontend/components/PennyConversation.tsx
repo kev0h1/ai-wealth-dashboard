@@ -116,6 +116,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { X, ChevronRight } from "lucide-react";
+import PennyStarterState from "@/components/PennyStarterState";
 import { api, CanIOffer, CanISuggestionChip, PennyLimitError, PennyProposal, ScenarioItem } from "@/lib/api";
 import { BRAND_GRADIENT } from "@/lib/brand";
 import PennyMark from "@/components/PennyMark";
@@ -945,7 +946,7 @@ function ErrorRetry({ onRetry }: { onRetry: () => void }) {
  * even when `label` itself is the short display form — the sheet row
  * passes both; full-page mode passes neither, so `label` doubles as the
  * accessible name there same as always. */
-function SuggestionChip({
+export function SuggestionChip({
   label,
   ariaLabel,
   onTap,
@@ -1967,6 +1968,14 @@ export default function PennyConversation({
   // comment on the removed block). With nothing left to dedupe, this
   // component now renders straight from `messages`.
 
+  // G240 (approved A, Clear runway): on phones the sheet is a full-screen
+  // takeover, so an empty thread shows a heading and the SAME chips as the
+  // row above (allChips: one source) instead of a blank panel. The top row
+  // steps aside on phones while this shows (`max-lg:hidden`); lg keeps the
+  // floating window and its row. Tapping a chip submits it through the
+  // existing send path (sendChip for chipId chips, send for the rest).
+  const showStarter = inSheet && messages.length === 0 && !loading && !error;
+
   return (
     <div className={[inSheet ? "flex flex-col h-full min-h-0" : null, className].filter(Boolean).join(" ") || undefined}>
       {/* Sheet-mode chip row (2026-08-25, owner: "with the chips could they
@@ -2063,7 +2072,7 @@ export default function PennyConversation({
         // below onto this outer wrapper, same 4px of breathing room, now
         // followed by a hairline rather than falling straight into the
         // thread — see this block's own header comment above.
-        <div data-penny-secondary className="shrink-0 relative px-5 pt-0.5 pb-1 border-b border-slate-200/70 dark:border-slate-700">
+        <div data-penny-secondary className={`shrink-0 relative px-5 pt-0.5 pb-1 border-b border-slate-200/70 dark:border-slate-700 ${showStarter ? "max-lg:hidden" : ""}`}>
           <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide">
             {allChips.map((c) => {
               if (c.source === "personalised") {
@@ -2153,6 +2162,22 @@ export default function PennyConversation({
             not a bubble injected on open. Do not rebuild this without
             re-reading this comment; this surface has had features rebuilt
             from misread history before. */}
+        {showStarter && (
+          <PennyStarterState>
+            {allChips.length > 0 && allChips.map((c) => {
+              if (c.source === "personalised") {
+                return <SuggestionChip key={`start-personalised-${c.label}`} label={c.label}
+                  onTap={() => (c.chip_id ? sendChip(c.chip_id, c.label, c.params) : send(c.label))} />;
+              }
+              if (c.kind === "link") {
+                return <LinkChip key={`start-link-${c.label}`} label={c.label}
+                  onTap={() => { closePennySheet(); router.push(c.href); }} />;
+              }
+              return <SuggestionChip key={`start-ask-${c.q}`} label={c.label}
+                onTap={() => (c.chipId ? sendChip(c.chipId, c.label) : send(c.q))} />;
+            })}
+          </PennyStarterState>
+        )}
         {messages.map((m) => {
           // Keyed on `m.id`, NOT array index — see the `id` field comment
           // on the Msg union above (`messages` is a sliding window, so an
