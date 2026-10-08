@@ -74,7 +74,7 @@ function ExpandableDisclosure({ initiallyExpanded = false }: { initiallyExpanded
       <span>Regulated by the FCA through Finexer LTD</span>
       <ChevronDown size={16} aria-hidden="true" className={`flex-shrink-0 text-slate-500 dark:text-slate-300 transition-transform ${open ? "rotate-180" : ""}`} />
     </button>
-    <p id={regionId} hidden={!open} className={`max-h-40 overflow-y-auto overscroll-contain pb-1 ${CAPTION_INK}`}>{AGENT_DISCLOSURE}</p>
+    <p id={regionId} hidden={!open} className={`pb-1 ${CAPTION_INK}`}>{AGENT_DISCLOSURE}</p>
   </div>;
 }
 
@@ -89,7 +89,7 @@ export function pickerFooter(placement: DisclosurePlacement, initiallyExpanded =
       note?.scrollIntoView({ block: "end" });
       note?.focus({ preventScroll: true });
     }} className={`flex w-full items-center justify-between gap-3 text-left ${CAPTION_INK} focus-visible:outline-2 focus-visible:outline-indigo-500`}>
-      <span className="text-balance">Provided by Finexer Ltd. AURIQ LTD acts as its agent.</span>
+      <span className="text-balance">Provided by Finexer LTD. AURIQ LTD acts as its agent.</span>
       <span className="flex-shrink-0 font-semibold text-indigo-700 dark:text-indigo-300">Full notice</span>
     </button>;
   }
@@ -248,7 +248,7 @@ export function BankPickerBody({ query, setQuery, searchRef, error, loading, fil
               autoCapitalize="none"
               spellCheck={false}
               enterKeyHint="search"
-              className="block h-11 w-full appearance-none rounded-2xl bg-transparent py-0 pl-10 pr-11 text-sm leading-5 text-slate-800 outline-none placeholder:text-slate-600 dark:text-slate-100 dark:placeholder:text-slate-300 [&::-webkit-search-cancel-button]:hidden"
+              className="block h-11 w-full appearance-none rounded-2xl bg-transparent py-0 pl-10 pr-11 text-base leading-6 text-slate-800 outline-none placeholder:text-slate-600 dark:text-slate-100 dark:placeholder:text-slate-300 [&::-webkit-search-cancel-button]:hidden"
             />
             {query && (
               <button type="button" data-compact aria-label="Clear search" onClick={() => { setQuery(""); searchRef.current?.focus({ preventScroll: true }); }}

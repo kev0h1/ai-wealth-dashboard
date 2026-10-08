@@ -58,6 +58,7 @@ for (const variant of ["today", "a", "b", "c"]) {
   assert.ok(m, `${variant}: found the element carrying the sentence`);
   assert.match(m[2], /\btext-xs\b/, `${variant}: sentence is at the 12px Caption step`);
   assert.ok(!/text-\[(?:[0-9]|1[01])px\]/.test(m[2]), `${variant}: no sentence text under 12px`);
+  if (variant !== "today") assert.ok(!/\b(?:line-clamp-\d+|truncate|overflow-hidden)\b|(?:^|\s)max-h-/.test(m[2]), `${variant}: sentence element is never clamped, truncated or height-capped (${m[2]})`);
   // every non-today disclosure line (footer line, button) is also 12px or more
   for (const cls of [...(r.footer + r.description).matchAll(/class="([^"]*)"/g)].map(x => x[1])) {
     assert.ok(!/text-\[(?:[0-9]|1[01])px\]/.test(cls), `${variant}: no class under 12px in the disclosure chrome (${cls})`);
@@ -68,7 +69,7 @@ for (const variant of ["today", "a", "b", "c"]) {
 const a = render("a"), b = render("b"), c = render("c"), today = render("today");
 assert.match(a.body, /id="bank-picker-disclosure"/, "A: the sentence is the last row of the list body");
 assert.ok(a.body.lastIndexOf("bank-picker-disclosure") > a.body.lastIndexOf("</button><") - 1, "A: after the last bank row");
-assert.ok(text(a.footer).includes("Provided by Finexer Ltd. AURIQ LTD acts as its agent."), "A: short pinned line");
+assert.ok(text(a.footer).includes("Provided by Finexer LTD. AURIQ LTD acts as its agent."), "A: short pinned line");
 assert.ok(!text(a.footer).includes("authorised by the Financial Conduct"), "A: footer carries only the short line");
 assert.match(b.footer, /aria-expanded="false"/, "B: collapsed by default");
 assert.match(b.footer, /aria-controls="bank-picker-disclosure-region"/);

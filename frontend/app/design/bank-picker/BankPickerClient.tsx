@@ -34,7 +34,7 @@ export default function BankPickerClient() {
     <div className="mx-auto max-w-xl">
       <a href="/design" className={`${button} -ml-3 text-indigo-700 dark:text-indigo-300`}><ArrowLeft size={16} aria-hidden="true" />Design previews</a>
       <h1 className="mt-3 text-xl font-bold">Add a bank</h1>
-      <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">The real picker sheet on 24 invented banks. Every variant has a search field that stays 44px tall and pinned under the header while the list scrolls (Today keeps the old behaviour for comparison). They differ in where the agency sentence sits. A and C show the full sentence without a tap, B shows it after one.</p>
+      <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">The real picker sheet on 24 invented banks. Every variant has a search field that stays 44px tall and pinned under the header while the list scrolls (Today keeps the old behaviour for comparison). They differ in where the agency sentence sits. A and C show the full sentence without a tap, B shows it after one. C has a cost: the header sentence takes about six lines, so the list starts lower, around a third of the way down a 390 by 844 phone.</p>
       <nav aria-label="Variants" className="mt-4 flex flex-wrap gap-2">
         {VARIANTS.map(v => <a key={v.value} href={href(v.value)} aria-current={variant.value === v.value ? "page" : undefined}
           className={`${button} ${variant.value === v.value ? "bg-indigo-600 text-white" : "border border-slate-300 dark:border-slate-600"}`}>{v.label}</a>)}
