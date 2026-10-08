@@ -133,7 +133,7 @@ def test_sync_creates_both_with_default_false_from_files(monkeypatch, tmp_path):
         form = parse_qs(body)
         expected = ft.build_payload(kind)
         assert form["default"] == ["false"]
-        assert form["app_name"] == ["Sorted"]
+        assert form["app_name"] == ["AURIQ LTD"]
         for k, v in expected.items():
             assert form[k] == [v]
     assert "prefers-color-scheme" not in ft.build_payload("light")["css"]

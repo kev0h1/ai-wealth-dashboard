@@ -41,10 +41,9 @@ STATE_FILE = _BACKEND / ".finexer_templates.json"
 API_URL = "https://api.finexer.com"
 # Finexer substitutes app_name into the page headline ("<app_name> is requesting
 # permission to read:") and the regulated footer ("<app_name> acts as Finexer
-# Ltd's registered agent"). Kevin 2026-10-08: "Sorted", pending Finexer adding
-# the trading name Sorted to AURIQ LTD's register entry; the header line keeps
-# "AURIQ LTD, trading as Sorted".
-APP_NAME = "Sorted"
+# Ltd's registered agent"). The registered agent is the legal entity, so this is
+# AURIQ LTD (A151); the Sorted identity lives in the logo and header_html.
+APP_NAME = "AURIQ LTD"
 TEMPLATES = {"light": "Sorted light", "dark": "Sorted dark"}
 
 

@@ -13,7 +13,7 @@ Two Finexer consent-page templates on app `acc_DqPCRpHskkjNy7uYa1wv7mSv`, set th
 | Light | Sorted light | aYiuDETVBXPq |
 | Dark | Sorted dark | 8pq22L45Lf9L |
 
-`app_name` is `Sorted` in both. Finexer substitutes it into its own headline ("Sorted is requesting permission to read:") and its regulated footer ("Sorted acts as Finexer Ltd's registered agent. Finexer Ltd is authorised ... 925695 ..."). AURIQ LTD is the registered agent on the FCA register. The register entry does not yet list Sorted as a trading name, and a request to add it is being sent alongside this pack. The Sorted identity appears only in our header block (and the logo slot once a logo file is supplied). We send no `footer_html`: Finexer's own footer is the only footer.
+`app_name` is `AURIQ LTD` in both. Finexer substitutes it into its own headline ("AURIQ LTD is requesting permission to read:") and its regulated footer ("AURIQ LTD acts as Finexer Ltd's registered agent. Finexer Ltd is authorised ... 925695 ..."). AURIQ LTD is the registered agent on the FCA register, so the name Finexer shows is the legal entity. The Sorted identity appears only in our header block (and the logo slot once a logo file is supplied). We send no `footer_html`: Finexer's own footer is the only footer.
 
 ## Header block (header_html, identical in both templates)
 
@@ -43,7 +43,7 @@ The CSS changes colours, button and input radius, and our own header block only.
 
 - The permission list (End User Statement): Your Accounts, Your Transactions, Your Account Balance, with Finexer's wording. Not hidden, resized or dimmed.
 - The End User Terms and Privacy Policy links.
-- Finexer's regulated footer, verbatim apart from Finexer substituting `Sorted` for the app name.
+- Finexer's regulated footer, verbatim apart from Finexer substituting `AURIQ LTD` for the app name.
 - Finexer's buttons and flow (we change colour and radius only).
 
 ## Screenshots
