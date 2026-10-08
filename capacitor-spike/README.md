@@ -58,3 +58,16 @@ regeneration, same as `setup-android-push.sh` and `apply-icons.sh`.
 - iOS: `codemagic.yaml` step "Patch AppDelegate for app-switcher privacy"
   merges `ios-privacy/AppDelegate.privacy.swift.txt` into `AppDelegate.swift`.
 - Both sit behind a web-layer cover in `frontend/components/BiometricLock.tsx`.
+
+## Dependency audit (H110, 2026-10-08)
+
+`@capacitor/android`, `@capacitor/ios`, `@capacitor/core` and `@capacitor/cli`
+are on 8.5.3 (8.5.0 is in the advisory range for the internal HTTP proxy
+remote-content issue; 8.5.1 or later is the fix). `npm audit --omit=dev
+--audit-level=high` is clean here. Three moderate findings remain
+(`uuid` via `xcode` via `@capacitor/cli`); they are build-time tooling, and
+npm's only offered fix downgrades `@capacitor/cli` to 8.4.3 into the
+vulnerable Capacitor range, so it is deliberately not applied. Re-check with
+`npm audit --omit=dev` after every Capacitor bump. The iOS shell is rebuilt
+by Codemagic on every push (`codemagic.yaml` runs `npx cap add ios`), so it
+picks up the lockfile versions automatically.
