@@ -53,6 +53,7 @@ PENDING_AUTOCANCEL_DAYS = 7
 ACTIVE_LOCAL = {"authorized", "connected"}
 CLOSED_REMOTE = {"canceled", "cancelled", "revoked", "expired"}
 REVOKE_RATE_PER_SEC = 2.0
+MIN_ORPHAN_AGE_HOURS = 24  # younger: a bank connect may be mid-flight, local doc not yet saved
 
 
 class ReconcileError(Exception):
@@ -79,6 +80,11 @@ def _parse_ts(v):
         except ValueError:
             return None
     return None
+
+
+def _age_hours(ts, now):
+    t = _parse_ts(ts)
+    return None if t is None else max(0.0, (now - t).total_seconds() / 3600)
 
 
 def _age_days(ts, now):
@@ -159,13 +165,15 @@ async def load_local(consents_col, customers_col) -> tuple[dict, dict]:
 def classify(remote: list[dict], local: dict, cust_users: dict, now: datetime) -> dict:
     """Group remote consents. Each entry: id, provider, status, age_days,
     user_hash (when known) and, internally, `_uid` (stripped before output)."""
-    g = {k: [] for k in ("orphans", "stale_local", "matched", "other_env", "ambiguous",
+    g = {k: [] for k in ("orphans", "recent_orphans", "stale_local", "matched", "other_env", "ambiguous",
                          "pending", "closed_remote_unknown")}
     for c in remote:
         cid, status = c["id"], (c.get("status") or "").lower()
         users = cust_users.get(c.get("customer") or "")
         entry = {"id": cid, "provider": c.get("provider"), "status": status,
                  "age_days": _age_days(c.get("created_at"), now)}
+        # age of the connect by authed_at, falling back to created_at
+        entry["age_hours"] = _age_hours(c.get("authed_at") or c.get("created_at"), now)
         doc = local.get(cid)
         if not users and not doc:
             g["other_env"].append(entry)
@@ -188,7 +196,12 @@ def classify(remote: list[dict], local: dict, cust_users: dict, now: datetime) -
             continue
         # no local doc, customer is ours
         if status == "authorized":
-            (g["orphans"] if uid else g["ambiguous"]).append(entry)
+            if not uid:
+                g["ambiguous"].append(entry)
+            elif entry["age_hours"] is None or entry["age_hours"] < MIN_ORPHAN_AGE_HOURS:
+                g["recent_orphans"].append(entry)  # unknown age is treated as recent
+            else:
+                g["orphans"].append(entry)
         elif status == "pending":
             g["pending"].append(entry)
         else:
@@ -211,10 +224,11 @@ def build_report(groups: dict, now: datetime, mode: str) -> dict:
             "close_local_candidates": sum(1 for e in pend if e.get("close_local_pending")),
             "oldest_age_days": max(ages) if ages else None,
         },
-        # other-environment consents are counted only, never listed.
         "orphans": clean(groups["orphans"]),
         "stale_local": clean(groups["stale_local"]),
-        "ambiguous": clean(groups["ambiguous"]),
+        # recent orphans are listed (id, hash, age) but never revoked.
+        "recent_orphans": clean(groups["recent_orphans"]),
+        # ambiguous and other-environment consents are counted only, never listed.
         "pending": clean(pend),
     }
 
@@ -224,7 +238,7 @@ async def apply_changes(groups, client, consents_col, revoke, limit, rate=REVOKE
     """Revoke orphans (capped by limit), flip stale local docs, close stale
     local pending docs. Nothing else. `revoke(uid, cid)` is
     retention.revoke_finexer_consent: None on confirmed success."""
-    result = {"revoked": 0, "revoke_failed": 0, "confirmed": 0, "unconfirmed": 0,
+    result = {"revoked": 0, "revoke_failed": 0,
               "local_stale_flipped": 0, "local_pending_closed": 0, "skipped_over_limit": 0}
     now = datetime.now(timezone.utc)  # naive-ok: persisted aware-UTC audit instant
     for i, e in enumerate(groups["orphans"]):
@@ -241,19 +255,27 @@ async def apply_changes(groups, client, consents_col, revoke, limit, rate=REVOKE
         if err is not None:
             result["revoke_failed"] += 1
             continue
-        result["revoked"] += 1
+        # Count as revoked only once a confirm GET shows the consent closed.
         rv = await client.get(f"/consents/{e['id']}", timeout=PAGE_TIMEOUT)
-        status = (rv.json().get("status") or "").lower() if rv.status_code == 200 else ""
-        result["confirmed" if status in CLOSED_REMOTE else "unconfirmed"] += 1
+        status = ""
+        if rv.status_code == 200:
+            body = rv.json()
+            status = (body.get("status") or "").lower() if isinstance(body, dict) else ""
+        if status in CLOSED_REMOTE:
+            result["revoked"] += 1
+        else:
+            result["revoke_failed"] += 1
     for e in groups["stale_local"]:
+        if not e.get("_uid"):
+            continue
         await consents_col.update_one(
-            {"_id": e["id"], "status": {"$in": sorted(ACTIVE_LOCAL)}},
+            {"_id": e["id"], "user_id": e["_uid"], "status": {"$in": sorted(ACTIVE_LOCAL)}},
             {"$set": {"status": "revoked", "revoked_at": now}})
         result["local_stale_flipped"] += 1
     for e in groups["pending"]:
-        if e.get("close_local_pending"):
+        if e.get("close_local_pending") and e.get("_uid"):
             await consents_col.update_one(
-                {"_id": e["id"], "status": "pending"},
+                {"_id": e["id"], "user_id": e["_uid"], "status": "pending"},
                 {"$set": {"status": "canceled", "canceled_at": now}})
             result["local_pending_closed"] += 1
     return result
@@ -263,14 +285,14 @@ async def apply_changes(groups, client, consents_col, revoke, limit, rate=REVOKE
 def _load_env(env_file, mongo_uri, db):
     """Set process env BEFORE any app import so app.core.config sees it."""
     from dotenv import dotenv_values
-    if env_file:
-        p = Path(env_file)
-        if not p.exists():
-            raise SystemExit(f"env file not found: {p}")
-        vals = dotenv_values(p)
-        for k in ("FINEXER_API_KEY", "MONGO_URI", "MONGO_DB"):
-            if vals.get(k) and not os.environ.get(k):
-                os.environ[k] = vals[k]
+    if env_file and not Path(env_file).exists():
+        raise SystemExit(f"env file not found: {env_file}")
+    for p in [Path(env_file) if env_file else None, _BACKEND / ".env"]:
+        if p and p.exists():
+            vals = dotenv_values(p)
+            for k in ("FINEXER_API_KEY", "MONGO_URI", "MONGO_DB"):
+                if vals.get(k) and not os.environ.get(k):
+                    os.environ[k] = vals[k]
     if mongo_uri:
         os.environ["MONGO_URI"] = mongo_uri
     if db:
@@ -298,7 +320,7 @@ async def amain(args) -> int:
             for k, n in report["counts"].items():
                 print(f"  {k}: {n}")
             print("  pending:", json.dumps(report["pending_summary"]))
-            for name in ("orphans", "stale_local", "ambiguous"):
+            for name in ("orphans", "recent_orphans", "stale_local"):
                 for e in report[name]:
                     print(f"  [{name}] {e['id']} user={str(e.get('user_hash', '-'))[:12]} "
                           f"age={e['age_days']}d provider={e['provider']} status={e['status']}")
