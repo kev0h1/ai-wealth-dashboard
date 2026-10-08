@@ -17,6 +17,7 @@
     "check:g217-allocation-card": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g217-allocation-card.test.mjs",
     "check:finexer-intro": "node scripts/g226-finexer-intro.test.mjs",
     "check:apk-single": "node scripts/check-apk-single.mjs",
+    "check:g189-show-tips": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g189-show-tips.test.mjs",
     "check:design-index": "node scripts/check-design-index.mjs",
     "check:signin-handoff": "node scripts/check-signin-handoff.mjs",
     "check:agency-disclosure": "node scripts/check-agency-disclosure.mjs",

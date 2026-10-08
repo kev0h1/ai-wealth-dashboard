@@ -56,6 +56,7 @@ DEFAULT_HOME_PINNED_WIDGET = "period_compare"
 # were never reachable through this body in the first place.
 ALLOWED_PREFERENCE_FIELDS = frozenset({
     "hide_net_worth",
+    "show_tips",
     "dark_mode",
     "pay_period_config",
     "income_value",
@@ -127,6 +128,9 @@ async def get_preferences(user: dict = Depends(current_user)):
     doc = await preferences_col.find_one({"user_id": user["email"]}) or {}
     result = {
         "hide_net_worth":     doc.get("hide_net_worth", False),
+        # G189: display preference, default on. Off hides Spend and
+        # Transactions tips (and the savings-insights API serves none).
+        "show_tips":          doc.get("show_tips", True),
         "dark_mode":          doc.get("dark_mode", False),
         "pay_period_config":  doc.get("pay_period_config", {"type": "calendar_month"}),
         "debt_target_months": doc.get("debt_target_months", 12),
@@ -413,6 +417,9 @@ async def update_preferences(body: dict, user: dict = Depends(current_user)):
             detail=f"Unknown preference field(s): {', '.join(sorted(unknown_fields))}",
         )
 
+    if "show_tips" in body and not isinstance(body["show_tips"], bool):
+        raise HTTPException(status_code=422, detail="show_tips must be true or false")
+
     # A85 optimistic-concurrency fix: an optional `expected_version` in the
     # JSON body -- the same body-carried convention the frontend already
     # uses for the `version` counter on every GET/PATCH response (see
@@ -562,6 +569,7 @@ async def update_preferences(body: dict, user: dict = Depends(current_user)):
 
     return {
         "hide_net_worth": doc.get("hide_net_worth", False),
+        "show_tips": doc.get("show_tips", True),
         "dark_mode": doc.get("dark_mode", False),
         "version": doc.get("version", 1),
     }

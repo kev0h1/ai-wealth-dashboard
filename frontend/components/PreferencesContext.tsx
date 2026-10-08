@@ -36,6 +36,9 @@ interface Prefs {
    * should mask while this is false to avoid a privacy flash. */
   preferencesReady: boolean;
   darkMode: boolean;
+  /** G189: display preference, default true. False hides the Spend and
+   * Transactions tips (the server also serves none). */
+  showTips: boolean;
   payPeriodConfig: PayPeriodConfig;
   debtTargetMonths: number;
   debtTrackingStart: string;
@@ -52,6 +55,7 @@ interface Prefs {
 interface PrefsCtx extends Prefs {
   setHideNetWorth: (v: boolean) => void;
   setDarkMode: (v: boolean) => void;
+  setShowTips: (v: boolean) => void;
   setPayPeriodConfig: (c: PayPeriodConfig) => void;
   setDebtTargetMonths: (n: number) => void;
   setDebtTrackingStart: (s: string) => void;
@@ -98,6 +102,7 @@ const Ctx = createContext<PrefsCtx>({
   hideNetWorth: true,
   preferencesReady: false,
   darkMode: false,
+  showTips: true,
   payPeriodConfig: DEFAULT_PAY_PERIOD_CONFIG,
   debtTargetMonths: 12,
   debtTrackingStart: todayYM(),
@@ -108,6 +113,7 @@ const Ctx = createContext<PrefsCtx>({
   preferencesSaveError: null,
   setHideNetWorth: () => {},
   setDarkMode: () => {},
+  setShowTips: () => {},
   setPayPeriodConfig: () => {},
   setDebtTargetMonths: () => {},
   setDebtTrackingStart: () => {},
@@ -133,6 +139,10 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     // Match the pre-paint inline script in layout.tsx so hydration doesn't undo it
     if (typeof window === "undefined") return false;
     try { return localStorage.getItem("wd_dark") === "1"; } catch { return false; }
+  });
+  const [showTips, setShowTipsState] = useState(() => {
+    if (typeof window === "undefined") return true;
+    try { return localStorage.getItem("wd_show_tips") !== "0"; } catch { return true; }
   });
   const [payPeriodConfig, setPayPeriodConfigState] = useState<PayPeriodConfig>(DEFAULT_PAY_PERIOD_CONFIG);
   const [debtTargetMonths, setDebtTargetMonthsState] = useState(12);
@@ -163,6 +173,13 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     darkModeRef.current = v;
     setDarkModeState(v);
     try { localStorage.setItem("wd_dark", v ? "1" : "0"); } catch {}
+  }, []);
+
+  const showTipsRef = useRef(showTips);
+  const applyShowTips = useCallback((v: boolean) => {
+    showTipsRef.current = v;
+    setShowTipsState(v);
+    try { localStorage.setItem("wd_show_tips", v ? "1" : "0"); } catch {}
   }, []);
 
   const payPeriodConfigRef = useRef(payPeriodConfig);
@@ -334,6 +351,17 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     onSuccess: invalidateSpendCaches,
   })).current;
 
+  const showTipsSaver = useRef(createPreferenceSaver<boolean>({
+    queue: createSerialQueue(),
+    getCurrent: () => showTipsRef.current,
+    apply: applyShowTips,
+    save: (v) => api.updatePreferences({ show_tips: v }),
+    reconcile: makeFieldReconcile<boolean>(fetchPreferencesSnapshot, "show_tips"),
+    noteVersion: notePreferencesVersion,
+    onError: makeFieldErrorHandler("show_tips"),
+    onSuccess: invalidateSpendCaches,
+  })).current;
+
   const payPeriodConfigSaver = useRef(createPreferenceSaver<PayPeriodConfig>({
     queue: createSerialQueue(),
     getCurrent: () => payPeriodConfigRef.current,
@@ -375,6 +403,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
         {
           applyHideNetWorth,
           applyDarkMode,
+          applyShowTips,
           applyPayPeriodConfig,
           applyDebtTargetMonths,
           applyDebtTrackingStart,
@@ -393,6 +422,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
         {
           hideNetWorth: () => hideNetWorthSaver.isSaving.current,
           darkMode: () => darkModeSaver.isSaving.current,
+          showTips: () => showTipsSaver.isSaving.current,
           payPeriodConfig: () => payPeriodConfigSaver.isSaving.current,
           debtTargetMonths: () => debtTargetMonthsSaver.isSaving.current,
           debtTrackingStart: () => debtTrackingStartSaver.isSaving.current,
@@ -402,8 +432,8 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     });
   }, [
     fetchPreferencesSnapshot,
-    applyHideNetWorth, applyDarkMode, applyPayPeriodConfig, applyDebtTargetMonths, applyDebtTrackingStart,
-    hideNetWorthSaver, darkModeSaver, payPeriodConfigSaver, debtTargetMonthsSaver, debtTrackingStartSaver,
+    applyHideNetWorth, applyDarkMode, applyShowTips, applyPayPeriodConfig, applyDebtTargetMonths, applyDebtTrackingStart,
+    hideNetWorthSaver, darkModeSaver, showTipsSaver, payPeriodConfigSaver, debtTargetMonthsSaver, debtTrackingStartSaver,
   ]);
 
   useEffect(() => {
@@ -422,6 +452,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
 
   const setHideNetWorth = useCallback((v: boolean) => { void hideNetWorthSaver.run(v); }, [hideNetWorthSaver]);
   const setDarkMode = useCallback((v: boolean) => { void darkModeSaver.run(v); }, [darkModeSaver]);
+  const setShowTips = useCallback((v: boolean) => { void showTipsSaver.run(v); }, [showTipsSaver]);
   const setPayPeriodConfig = useCallback((c: PayPeriodConfig) => { void payPeriodConfigSaver.run(c); }, [payPeriodConfigSaver]);
   const setDebtTargetMonths = useCallback((n: number) => { void debtTargetMonthsSaver.run(n); }, [debtTargetMonthsSaver]);
   const setDebtTrackingStart = useCallback((s: string) => { void debtTrackingStartSaver.run(s); }, [debtTrackingStartSaver]);
@@ -445,9 +476,9 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
 
   return (
     <Ctx.Provider value={{
-      hideNetWorth, preferencesReady, darkMode, payPeriodConfig, debtTargetMonths, debtTrackingStart,
+      hideNetWorth, preferencesReady, darkMode, showTips, payPeriodConfig, debtTargetMonths, debtTrackingStart,
       spendWidgets, homePinnedWidget, debtBurndownOverrides, rawPrefs, preferencesSaveError,
-      setHideNetWorth, setDarkMode, setPayPeriodConfig, setDebtTargetMonths, setDebtTrackingStart,
+      setHideNetWorth, setDarkMode, setShowTips, setPayPeriodConfig, setDebtTargetMonths, setDebtTrackingStart,
       setSpendWidgets, setHomePinnedWidget, setDebtBurndownOverrides, refreshPreferences,
       notePreferencesVersion,
     }}>

@@ -3267,6 +3267,7 @@ export const api = {
     }).then((r) => toJson<SavingsInsights>(r)),
   getPreferences: () => get<{
     hide_net_worth: boolean;
+    show_tips?: boolean;
     dark_mode?: boolean;
     notification_prefs?: NotificationPrefs;
     income_bracket?: string;
@@ -3298,6 +3299,7 @@ export const api = {
   getTaxAnnualisedIncome: () => get<{ annualised_income: number | null }>("/tax/annualised-income"),
   updatePreferences: (body: Partial<{
     hide_net_worth: boolean;
+    show_tips: boolean;
     dark_mode: boolean;
     pay_period_config: unknown;
     notification_prefs: NotificationPrefs;
@@ -3332,7 +3334,7 @@ export const api = {
       method: "PATCH",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(body),
-    }).then((r) => toJson<{ hide_net_worth: boolean; dark_mode?: boolean; version?: number }>(r)),
+    }).then((r) => toJson<{ hide_net_worth: boolean; show_tips?: boolean; dark_mode?: boolean; version?: number }>(r)),
   getCategories: () => get<CategoriesResponse>("/categories"),
   addCategory: (name: string, kind: CategoryKind = "discretionary") =>
     post<CategoriesResponse>("/categories", { name, kind }),

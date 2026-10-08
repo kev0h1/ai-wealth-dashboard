@@ -233,6 +233,7 @@ def test_every_allowlisted_field_is_accepted_and_written(monkeypatch):
     field the app actually uses."""
     sample_values = {
         "hide_net_worth": True,
+        "show_tips": False,
         "dark_mode": True,
         "pay_period_config": {"type": "calendar_month"},
         "income_value": 50000,
