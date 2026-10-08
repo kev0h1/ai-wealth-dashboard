@@ -1,3 +1,13 @@
+function rig2StaleKey() {
+  const store = new Map([[BANK_ATTEMPT_KEY, "7"]]);
+  const none = { addEventListener() {}, removeEventListener() {} };
+  attachBankReturnReset({
+    win: none, doc: none,
+    storage: { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v), removeItem: (k) => store.delete(k) },
+    setTimeout: () => 0, clearTimeout() {}, onReset() {},
+  });
+  return { store };
+}
 // A149: abandoned bank hand-offs reset the connecting state; completed returns win. Plain Node.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -97,6 +107,8 @@ const stash = (r) => r.store.set(PENDING_BANK_RETURN_KEY, "{}");
 }
 // a stale attempt key from a reloaded page is cleared at mount; detach removes listeners.
 {
+  const pre = rig2StaleKey();
+  assert.equal(pre.store.has(BANK_ATTEMPT_KEY), false, "stale wd_bank_attempt cleared at mount");
   const r = rig(); r.guard.detach();
   for (const set of r.handlers.values()) assert.equal(set.size, 0);
 }
