@@ -713,6 +713,14 @@ scripts/session.sh list
   dirty or either check fails. On success it pushes the branch and calls
   `scripts/backlog.py review <ID> --branch feature-<ID>[-slug]`, which is
   the new `[state: review: feature-<ID>[-slug]]` tag integrate looks for.
+  Host gates (H95/H99): before the backend suite and again before the
+  frontend checks, `finish` runs `scripts/host_memory.py --require 1500`
+  and refuses with "refusing to run the backend suite: N MB available,
+  need 1500 MB" when the host is short, rather than risk the OOM killer
+  taking the session. It also runs `scripts/check_db_guard.py` (H96),
+  which fails the finish if either database-drop guard (the conftest one
+  or `app/db/guard.py`) is missing or has been edited; see
+  `docs/ops/HOST.md` and `docs/ops/INCIDENTS.md`.
   The backend test suite (H90, 2026-09-28, two review rounds the same
   day) runs against a disposable, PER-RUN database, never the real
   UAT/production `wealth` one: `app/db/collections.py` selects its
