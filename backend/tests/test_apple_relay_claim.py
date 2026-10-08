@@ -502,3 +502,16 @@ def test_open_signup_on_relay_still_auto_links_no_claim_flow(fake_linked, fake_a
     link_doc = next(d for d in fake_linked.docs if d["_id"] == f"apple:{RELAY_SUB}")
     assert link_doc["auto"] is True
     assert link_doc["user_id"] == RELAY_EMAIL
+
+
+def test_claim_endpoints_have_their_own_tight_rate_limits_ahead_of_generic_auth_rule():
+    """D9: send-code (a would-be email send) and verify-code (code guessing)
+    are rate-limited tighter than the generic /auth/ budget, and match first."""
+    from app.core import ratelimit
+
+    prefixes = [p for p, _, _ in ratelimit.RULES]
+    generic = prefixes.index("/auth/")
+    rules = {p: (limit, window) for p, limit, window in ratelimit.RULES}
+    for path in ("/auth/apple/relay/send-code", "/auth/apple/relay/verify-code"):
+        assert prefixes.index(path) < generic
+        assert rules[path][0] < rules["/auth/"][0]
