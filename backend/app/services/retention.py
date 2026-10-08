@@ -355,6 +355,9 @@ def _consent_is_revoked(body) -> bool:
     status = body.get("status")
     if isinstance(status, str) and status.strip().lower() in _REVOKED_STATUSES:
         return True
+    # SPECULATIVE: the documented shape is status "canceled". The timestamp
+    # fallback below (success even if status still says authorized) is
+    # defensive only; confirm the real field names on the first real revoke.
     return bool(body.get("revoked_at") or body.get("cancelled_at") or body.get("canceled_at"))
 
 
