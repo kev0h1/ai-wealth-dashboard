@@ -18,6 +18,7 @@
     "check:finexer-intro": "node scripts/g226-finexer-intro.test.mjs",
     "check:apk-single": "node scripts/check-apk-single.mjs",
     "check:design-index": "node scripts/check-design-index.mjs",
+    "check:design-stale": "node scripts/check-design-stale.mjs",
     "check:signin-handoff": "node scripts/check-signin-handoff.mjs",
     "check:agency-disclosure": "node scripts/check-agency-disclosure.mjs",
     "check:g211-ios-pan-guard": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g211-ios-pan-guard.test.mjs",
