@@ -570,6 +570,11 @@ ERASURE_MANIFEST = frozenset({
     # interest to complete the revocation, and is deleted after 90 days from
     # failed_at at the latest (retention._ORPHAN_MAX_AGE), with an error log.
     "orphaned_revocations_col",
+    # D9: short-lived claim codes keyed `relay:<apple sub>:<invite key>`, not
+    # by user_id, so erase_user's sweep never matches them. They hold only a
+    # sha256 of a six digit code, expire in minutes and are single use; no
+    # account data. Listed so the manifest guard sees the binding was decided on.
+    "allowed_relay_codes_col",
 })
 
 # A99/A101: these five collections lost their `*_col` binding when A98
