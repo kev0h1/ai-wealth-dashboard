@@ -673,6 +673,46 @@ def _build_user_content(question: str, screen: str | None, context: str, view: d
         parts.append(_format_view_block(view))
     return "\n\n".join(parts)
 
+# G243 (Kevin 2026-10-08): "How much did I spend on Padel" went to
+# search_transactions (a merchant text match) although Padel is one of his
+# own custom categories. The model cannot know a user's custom categories
+# unless told, so the list rides in the UNCACHED system block next to the
+# date, never in the cached static prefix (it differs per user). Capped so
+# a user with many custom categories cannot inflate every request.
+_CATEGORY_CONTEXT_CAP = 40
+_CATEGORY_NAME_MAX = 30
+_CATEGORY_CONTEXT_TEMPLATE = (
+    "\n\n17. The user's own spend categories ({n} listed): {names}. "
+    "'(custom)' marks one the user created. A question about spend on, or "
+    "comparing, one of these names ('how much did I spend on Padel') is a "
+    "CATEGORY question: call get_category_spend with that name, never "
+    "search_transactions. A name not in this list is probably a merchant: "
+    "use search_transactions."
+)
+
+
+async def _category_context_block(uid: str) -> str:
+    """The per-user category list for the system prompt, or "" on any
+    failure (the tools still resolve names themselves, so this is a hint)."""
+    try:
+        from app.services.categories import BUILTIN_CATEGORIES, get_category_kinds
+
+        kinds = await get_category_kinds(uid)
+    except Exception:
+        logger.exception("penny_agent: category list lookup failed for %s", uid)
+        return ""
+    builtin = set(BUILTIN_CATEGORIES)
+    custom = [c for c in kinds if c not in builtin]
+    ordered = custom + [c for c in kinds if c in builtin]
+    shown = []
+    for name in ordered[:_CATEGORY_CONTEXT_CAP]:
+        clean = re.sub(r"[^\w &'/+.-]", "", str(name))[:_CATEGORY_NAME_MAX].strip()
+        if clean:
+            shown.append(clean + (" (custom)" if name not in builtin else ""))
+    if not shown:
+        return ""
+    return _CATEGORY_CONTEXT_TEMPLATE.format(n=len(shown), names=", ".join(shown))
+
 
 async def run_penny_agent(
     uid: str, question: str, history: list[dict], screen: str | None, context: str,
@@ -744,6 +784,7 @@ async def run_penny_agent(
     tools = TOOL_SCHEMAS + PROPOSE_TOOL_SCHEMAS
     today = timeutil.user_today()
     date_grounding = _DATE_GROUNDING_TEMPLATE.format(today=today.isoformat(), weekday=today.strftime("%A"))
+    date_grounding += await _category_context_block(uid)
 
     # Prompt caching (2026-09): the static system prompt (rules + write-tools
     # addendum, ~8,500 tokens together with the tool schemas above — comfortably

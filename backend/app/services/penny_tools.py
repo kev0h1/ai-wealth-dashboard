@@ -97,7 +97,9 @@ from app.routers.transactions import (
 from app.routers.chat import build_tax_fact_pack
 from app.content.money_basics import MONEY_BASICS, TAX_YEAR as _BASICS_TAX_YEAR
 from app.services.affordability import check_affordability as _check_affordability
-from app.services.categories import get_category_kinds, is_non_spend
+from app.services.categories import (
+    get_category_kinds, is_non_spend, normalise_name, resolve_category_name,
+)
 from app.services.companion import compute_today_items
 from app.services.behaviour import compute_portrait as _compute_portrait
 from app.services.checkpoints import list_active as _list_active_checkpoints
@@ -263,7 +265,10 @@ TOOL_SCHEMAS = [
                 "Search the user's own transaction history. Use this to answer "
                 "questions naming a specific merchant, category, date range, or "
                 "transaction type ('how much did I spend at X', 'show my Tesco "
-                "payments', 'what did I spend on eating out in April'). Returns at "
+                "payments'). If the name is one of the user's own categories (built-in "
+                "or custom, listed in the context), a total or comparison is a "
+                "get_category_spend question, not a merchant search. The result's "
+                "match_kind says whether rows matched as text or as a category. Returns at "
                 "most 20 rows, most recent first, plus matched_count, "
                 "matched_spent and matched_received: the totals across EVERY "
                 "match, so use those (never a sum of the 20 rows) for any "
@@ -280,7 +285,7 @@ TOOL_SCHEMAS = [
                 "type": "object",
                 "properties": {
                     "q": {"type": "string", "description": "Free-text match against description/merchant/category."},
-                    "category": {"type": "string", "description": "Exact spend category name, e.g. 'Eating Out'."},
+                    "category": {"type": "string", "description": "One of the user's category names (built-in or custom), e.g. 'Eating Out'. Case-insensitive."},
                     "merchants": {"type": "string", "description": "Comma-separated merchant names to match."},
                     "date_from": {"type": "string", "description": "ISO date (YYYY-MM-DD), inclusive lower bound."},
                     "date_to": {"type": "string", "description": "ISO date (YYYY-MM-DD), inclusive upper bound."},
@@ -420,7 +425,9 @@ TOOL_SCHEMAS = [
         "function": {
             "name": "get_category_spend",
             "description": (
-                "Per-category spend totals: this pay period, optionally the last "
+                "Per-category spend totals for ANY of the user's categories, built-in "
+                "or custom (the list is in the context; a custom category such as a "
+                "sport or hobby the user created counts, matched case-insensitively): this pay period, optionally the last "
                 "N months too, with payment count and the top 3 merchants by "
                 "spend in that category. Omit `category` to get the top spending "
                 "categories this period instead of one category's detail. Use "
@@ -435,7 +442,7 @@ TOOL_SCHEMAS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "category": {"type": "string", "description": "Exact spend category name, e.g. 'Entertainment'. Omit for the top categories this period."},
+                    "category": {"type": "string", "description": "A category name from the user's list, built-in or custom, e.g. 'Entertainment'. Omit for the top categories this period."},
                     "months": {"type": "integer", "description": "Optional: also total this category over the last N calendar months (rolling window)."},
                 },
                 "required": [],
@@ -2194,8 +2201,31 @@ async def _exec_search_transactions(
     uid: str, q: str | None, category: str | None, merchants: str | None,
     date_from: str | None, date_to: str | None, txn_type: str | None,
 ) -> dict:
+    # G243: which kind of match produced the rows, so the model phrases the
+    # answer correctly ("your Padel category", not "payments to Padel").
+    match_kind = "filters"
+    matched_category: str | None = None
     try:
+        if category:
+            resolved, _ = await _resolve_user_category(uid, category)
+            category = resolved or category
+            match_kind, matched_category = "category", category
+        elif q or merchants:
+            match_kind = "text"
         query = _search_query(uid, q, category, None, merchants, date_from, date_to, txn_type)
+        if match_kind == "text":
+            # The merchant-only text match (description / merchant name) is
+            # tried first, as it always was. Only when it finds nothing AND
+            # the text names one of the user's own categories (built-in or
+            # custom) do we fall back to that category.
+            candidate = q or (merchants if merchants and "," not in merchants else None)
+            cat_name, _ = await _resolve_user_category(uid, candidate) if candidate else (None, [])
+            if cat_name:
+                merchant_only = _search_query(uid, None, None, None, candidate, date_from, date_to, txn_type)
+                text_totals = await _search_totals(merchant_only)
+                if text_totals is not None and text_totals["matched_count"] == 0:
+                    query = _search_query(uid, None, cat_name, None, None, date_from, date_to, txn_type)
+                    match_kind, matched_category = "category", cat_name
         per_collection = await asyncio.gather(*(
             c.find(query).sort("date", -1).limit(_SEARCH_CAP).to_list(_SEARCH_CAP)
             for c in _SEARCH_COLLECTIONS
@@ -2222,7 +2252,13 @@ async def _exec_search_transactions(
             "transaction_type": tx.transaction_type,
             "category": tx.category,
         })
-    result = {"transactions": rows, "count": len(rows)}
+    result = {"transactions": rows, "count": len(rows), "match_kind": match_kind}
+    if matched_category:
+        result["matched_category"] = matched_category
+    if match_kind == "category":
+        result["match_note"] = (
+            "These rows are the user's own category, not payments to a merchant of that name."
+        )
     if totals is not None:
         result.update(totals)
         result["truncated"] = totals["matched_count"] > len(rows)
@@ -2950,7 +2986,7 @@ async def _category_txn_rows(uid: str, category: str, start: datetime, end: date
             if txn_currency and txn_currency != home_currency:
                 continue
             doc_category = doc.get("custom_category") or doc.get("category") or "Other"
-            if doc_category == category:
+            if doc_category == category or normalise_name(doc_category) == normalise_name(category):
                 rows.append(doc)
     return rows
 
@@ -2964,7 +3000,30 @@ def _top_merchants(rows: list[dict], n: int = 3) -> list[dict]:
     return [{"merchant": name, "spent": _money(total)} for name, total in ranked]
 
 
+_CATEGORY_HINT_CAP = 30
+
+
+async def _resolve_user_category(uid: str, text: str | None) -> tuple[str | None, list[str]]:
+    """G243: (canonical category name or None, the user's category names).
+    Built-in plus custom, through the same `get_category_kinds` the Spend
+    page's kind logic uses, so a custom category such as "Padel" resolves
+    exactly as the page does. A lookup failure degrades to (None, [])."""
+    try:
+        names = list(await get_category_kinds(uid))
+    except Exception:
+        logger.exception("penny_tools: category list lookup failed for %s", uid)
+        return None, []
+    return resolve_category_name(names, text), names
+
+
 async def _exec_get_category_spend(uid: str, category: str | None, months) -> dict:
+    unrecognised: list[str] | None = None
+    if category:
+        resolved, names = await _resolve_user_category(uid, category)
+        if resolved:
+            category = resolved
+        elif names:
+            unrecognised = names[:_CATEGORY_HINT_CAP]
     try:
         verdict = await compute_spend_verdict(uid, offset=0)
     except Exception:
@@ -3044,6 +3103,15 @@ async def _exec_get_category_spend(uid: str, category: str | None, months) -> di
         }
 
     result["top_merchants"] = _top_merchants(rows_raw, 3)
+    if unrecognised is not None:
+        # G243: the name matched none of the user's categories, so the zero
+        # above means "no such category", not "nothing spent".
+        result["category_recognised"] = False
+        result["note"] = (
+            "No category by that name. If it is a merchant or shop, use "
+            "search_transactions instead; otherwise pick one of available_categories."
+        )
+        result["available_categories"] = unrecognised
     return result
 
 
