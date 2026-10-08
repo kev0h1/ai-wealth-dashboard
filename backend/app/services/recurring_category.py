@@ -16,7 +16,7 @@ Rules:
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 _MIN = datetime.min
 
@@ -26,9 +26,11 @@ def _row_cat(t: dict) -> str:
 
 
 def _naive(d):
-    if isinstance(d, datetime):
-        return d.replace(tzinfo=None)
-    return _MIN
+    if not isinstance(d, datetime):
+        return _MIN  # missing or non-datetime: explicitly "no stamp"
+    if d.tzinfo is not None:
+        d = d.astimezone(timezone.utc)
+    return d.replace(tzinfo=None)
 
 
 def _correction_order(t: dict):

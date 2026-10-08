@@ -180,3 +180,80 @@ def test_older_recompute_after_a_correction_cannot_overwrite(_env, monkeypatch):
     doc = _env["cache"].docs[UID]
     assert doc["upcoming_bills"][0]["category"] == "Car finance"
     assert "dirty_since" not in doc
+
+
+# ── reviewer follow-ups ──────────────────────────────────────────────────────
+
+def test_correction_to_non_bill_category_sets_the_series_accepted_consequence():
+    # Accepted consequence: a user correction wins even when the target is
+    # not a bill-like category, so the series leaves the trusted tier and
+    # must then prove its cadence on the generic gate (5 monthly rows do).
+    rows = _rows(["Bills"] * 5, {4: ("Groceries", datetime(2026, 10, 1))})
+    assert series_category(rows) == "Groceries"
+    assert _detect(rows) == "Groceries"
+
+
+def test_correction_cleared_to_none_returns_to_the_vote():
+    rows = _rows(["Bills", "Bills", "Bills", "Car finance"],
+                 {3: ("Insurance", datetime(2026, 10, 1))})
+    assert series_category(rows) == "Insurance"
+    rows[3]["custom_category"] = None
+    assert series_category(rows) == "Bills"
+
+
+def test_aware_stamps_are_compared_in_utc_and_non_datetime_is_no_stamp():
+    from datetime import timezone
+    plus5 = timezone(timedelta(hours=5))
+    # 12:00+05:00 is 07:00 UTC, earlier than a naive 09:00 UTC stamp
+    rows = _rows(["Bills"] * 3, {
+        0: ("Insurance", datetime(2026, 10, 1, 12, 0, tzinfo=plus5)),
+        1: ("Car finance", datetime(2026, 10, 1, 9, 0)),
+    })
+    assert series_category(rows) == "Car finance"
+    rows[2]["custom_category"], rows[2]["custom_category_at"] = "Tax", "garbage"
+    assert series_category(rows) == "Car finance"  # "garbage" counts as no stamp
+
+
+@pytest.mark.parametrize("resolution,extra", [
+    ("mine-here", {}), ("mine-goal", {"goal_id": "abc"}), ("mine-offline", {"offline_pot_name": "Pot"}),
+])
+def test_movement_branches_stamp_the_correction(_env, monkeypatch, resolution, extra):
+    sets = []
+
+    class Col:
+        async def find_one(self, *_a, **_k):
+            return {"_id": "t1", "transaction_type": "debit", "merchant_name": "X", "description": "X"}
+
+        async def update_one(self, filt, update, **_k):
+            sets.append(update["$set"])
+
+        async def insert_one(self, *_a, **_k):
+            return None
+
+    class Goals(Col):
+        async def find_one(self, *_a, **_k):
+            return {"_id": "abc", "name": "Goal"}
+
+    monkeypatch.setattr(transactions, "transactions_col", Col())
+    monkeypatch.setattr(transactions, "commitments_col", Goals())
+    monkeypatch.setattr(transactions, "manual_accounts_col", Col())
+    monkeypatch.setattr(transactions, "_try_oid", lambda v: v)
+
+    async def noop(*_a, **_k):
+        return None
+
+    monkeypatch.setattr(transactions, "_log_teaching_event", noop)
+
+    async def patterns(uid):
+        return {"upcoming_bills": [], "recurring_spend": []}
+
+    monkeypatch.setattr(analytics, "_compute_cashflow_patterns", patterns)
+
+    async def run():
+        out = await transactions.resolve_movement(
+            "t1", {"resolution": resolution, **extra}, {"email": UID})
+        await asyncio.sleep(0.05)
+        return out
+
+    asyncio.run(run())
+    assert sets and isinstance(sets[0]["custom_category_at"], datetime)

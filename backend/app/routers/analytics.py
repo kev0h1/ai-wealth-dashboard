@@ -172,6 +172,7 @@ def _next_working_day(d):  # d: datetime.date -> datetime.date
         d += timedelta(days=1)
     return d
 
+from app.services.recurring_category import series_category  # G190
 from app.services.income import (
     next_occurrence as _next_occ_svc,
     schedule_label as _schedule_label_svc,
@@ -771,9 +772,6 @@ def _majority_landing_account(items: list) -> str | None:
         max(_acct_counts, key=lambda a: (_acct_counts[a], 1 if a == _recent_acct else 0))
         if _acct_counts else None
     )
-
-
-from app.services.recurring_category import series_category  # noqa: E402  (G190)
 
 
 def _detect_recurring(txns: list, min_occurrences: int = 2, trusted_categories: set | None = None, today: _date | None = None, is_income: bool = False, pay_period_config: dict | None = None, confirmed_income: dict | None = None, reversal_credits: list | None = None) -> list[dict]:
