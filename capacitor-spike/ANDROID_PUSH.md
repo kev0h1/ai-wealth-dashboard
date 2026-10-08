@@ -104,6 +104,9 @@ bash scripts/build-board-web-assets.sh
 # `cap sync`, see step 4a)
 npx cap sync android
 
+# 5a. C20: set versionCode from frontend/public/sorted-apk.json (see README "Published APK")
+bash scripts/set-android-version.sh
+
 # 6. Build the APKs
 cd android
 ./gradlew assembleSortedDebug

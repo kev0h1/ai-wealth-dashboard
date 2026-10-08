@@ -73,11 +73,14 @@ capacitor-spike/ios/
 # Firebase config, per-package, never commit
 capacitor-spike/google-services.json
 frontend/public/*.apk
+# C20: the ONE published Sorted APK is tracked on purpose (see capacitor-spike/README.md)
+!frontend/public/sorted.apk
 capacitor-spike/dist/
 frontend/out/
 
-# Built APKs — never commit binaries
+# Built APKs — never commit binaries (sole exception: frontend/public/sorted.apk, C20)
 *.apk
+!frontend/public/sorted.apk
 
 # Ad-hoc design-review scratch dir (LLM critiques, not for commit)
 design-review/

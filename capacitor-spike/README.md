@@ -1,6 +1,6 @@
 Release convention: after `./gradlew assembleSortedDebug`, copy the APK to /var/www/wealth-downloads/wealth.apk — served at https://uat.wealth.auriqltd.co.uk/downloads/wealth.apk
 
-NEVER place APKs in frontend/public/ — the static export bundles them into the next APK (recursive bloat). Publish ONLY to /var/www/wealth-downloads/.
+Debug/test APKs: publish ONLY to /var/www/wealth-downloads/. Never place them in frontend/public/ (the static export would bundle them into the next APK). The one exception is the single published release APK below; `build-mobile.sh` excludes `public/*.apk` from the mobile export so it cannot nest.
 
 ## Board (H66, 2026-09-17)
 
@@ -71,3 +71,36 @@ vulnerable Capacitor range, so it is deliberately not applied. Re-check with
 `npm audit --omit=dev` after every Capacitor bump. The iOS shell is rebuilt
 by Codemagic on every push (`codemagic.yaml` runs `npx cap add ios`), so it
 picks up the lockfile versions automatically.
+
+## Published APK (C20, 2026-10-08)
+
+Exactly one Sorted APK is published: `frontend/public/sorted.apk`, served at
+`/sorted.apk` on the web host (UAT: https://uat.wealth.auriqltd.co.uk/sorted.apk). It is
+the `sorted` release flavour signed with the AURIQ LTD key, and it replaced
+the debug-signed `app-debug.apk`. Two differently signed APKs with the same
+applicationId and versionCode made phones refuse the install with a generic
+"something went wrong" (signature conflict). `frontend/public/sorted-apk.json`
+records the file name, `versionCode`, `previousVersionCode`, SHA-256 and signer
+fingerprint, and `npm run check:apk-single` (in `frontend/`) fails unless
+exactly one APK exists under `frontend/public` and its versionCode is greater
+than the previous one.
+
+Current build: versionCode 2, SHA-256
+`cc742da6f8a124c6615acf92c68d9597670cd297f10b3a47eebd693cdde0aecf`, signer
+certificate SHA-256 `72c3196e4d4d7640162fb64b5423e68544e6e1e1109f52ccd8152b43e2e2d78e`
+(CN=AURIQ LTD, O=AURIQ LTD, L=London, C=GB). Built on Capacitor 8.5.3 with the
+default (UAT) API base.
+
+To publish a new build: bump `versionCode` (and set `previousVersionCode` to the
+old value) in `sorted-apk.json`, run `bash scripts/set-android-version.sh` (patches
+the gitignored `android/app/build.gradle`), build with
+`./gradlew assembleSortedRelease`, copy
+`android/app/build/outputs/apk/sorted/release/app-sorted-release.apk` to
+`frontend/public/sorted.apk`, update `sha256` in the JSON, run
+`apksigner verify --print-certs`, and `check:apk-single`. Every build given to
+Kevin must be this release build: never hand over a debug-signed build for the
+same applicationId.
+
+Phone step (once): uninstall the existing debug-signed Sorted (this clears its
+local app data), then install `sorted.apk`. Later updates install over it
+because the signer and applicationId match and versionCode only goes up.
