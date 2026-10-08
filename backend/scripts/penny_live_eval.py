@@ -77,7 +77,7 @@ def _classify(case, result):
     return "answered" if ok else "wrong"
 
 
-async def main():
+async def _run():
     ap = argparse.ArgumentParser()
     ap.add_argument("--label", default="run")
     ap.add_argument("--out", default=None)
@@ -132,7 +132,15 @@ async def main():
     print("TALLY", tally, "TOTAL_COST_USD", total)
     if args.out:
         Path(args.out).write_text(json.dumps({"label": args.label, "tally": tally, "total_cost_usd": total, "rows": rows}, indent=1, ensure_ascii=False))
-    await db.client.drop_database(_SCRATCH_DB)
+
+
+async def main():
+    try:
+        await _run()
+    finally:
+        # Always drop the scratch wealth_test_* database, even after a
+        # mid-run crash (same guarded client the app uses, no bare drop).
+        await db.client.drop_database(_SCRATCH_DB)
 
 
 if __name__ == "__main__":

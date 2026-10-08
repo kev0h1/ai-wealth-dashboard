@@ -52,6 +52,11 @@ backend/fuel_cache/
 backend/.logo_cache/
 backups/
 
+# G178: Jev-vs-Haiku eval harness output (dataset dump + judge results +
+# report) -- derived from the real merchant_categories/transactions corpus,
+# regenerable by re-running backend/scripts/jev_eval/*.py, never committed.
+backend/scripts/jev_eval/out/
+
 # Local Claude / tooling artifacts — never commit
 .claude/
 .impeccable/
