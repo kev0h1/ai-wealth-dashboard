@@ -72,10 +72,10 @@ verbatim. The LLM decides what to look up, never what the numbers are.
 | `get_recurring_payments` | the same cashflow-cache patterns (`recurring_spend`) behind `GET /cashflow`'s upcoming bills, cadence labelled from the detector's own weekly/fortnightly/monthly day-count bands | per-series name, cadence, typical amount, next expected date, billing account/bank, kind, pending/edited/days-past-due state |
 | `get_account_activity(account_id_or_name?, days?=30)` | server-side aggregation over the same 5-collection union `search_transactions` reads, home-currency filtered, spend-vs-movement split via `app.services.categories.is_non_spend` | money in/out (spend vs movement), net, top 5 transactions, current balance, per account or every account; a NAME matching more than one account returns `{ambiguous: true, matches: [...]}` (never guesses, audit fix 2026-08-27), an `id` from `get_accounts` always resolves precisely |
 | `get_mirror` | `app.services.behaviour.compute_portrait` (`GET /mirror`'s engine) plus `app.services.checkpoints.list_active` (`GET /checkpoints`'s engine); merges the user's persisted keep/change choice onto a fresh in-memory compute without writing back | traits (title, narrative, evidence, kind, choice), computed_at, window_days, active aims (category, aim_amount, spent_so_far, days_left, on_track) |
-| `calculate(expression)` | `app.services.safe_calc.evaluate`, owner-approved 2026-08-30 — generic arithmetic via Python `ast` parsing against a strict whitelist (numeric literals, `+ - * / // % **`, unary minus, parentheses, and calls to exactly `round`/`abs`/`min`/`max`/`series_sum(first, step, count)`/`days_between("YYYY-MM-DD","YYYY-MM-DD")`/`pct(x, p)`), never `eval`/`exec`. Names, attribute access, subscripts, strings outside `days_between`, comprehensions, lambdas and any other call are all rejected by construction. Bounds: expression ≤ 400 chars, ≤ 150 AST nodes, `**` exponent \|e\| ≤ 12, `series_sum` count ≤ 5000, \|result\| < 1e12, division by zero and every other rejection return a clean `{"ok": false, "error": "..."}` rather than raising. `series_sum` is the owner's own envelope case: a daily savings-challenge payment rising a fixed step each day, e.g. `series_sum(8.96, 0.04, 27)` for a first payment of £8.96 rising 4p a day for 27 days. `days_between` is inclusive of the first date, exclusive of the second. | `{ok, result, error}` plus the echoed `expression`, so a reply or a proposal's consequence line can show its working |
+| `calculate(expression, inputs?, unit?, project_from?, period?)` | `app.services.safe_calc.evaluate`, owner-approved 2026-08-30 — generic arithmetic via Python `ast` parsing against a strict whitelist (numeric literals, `+ - * / // % **`, unary minus, parentheses, and calls to exactly `round`/`abs`/`min`/`max`/`series_sum(first, step, count)`/`days_between("YYYY-MM-DD","YYYY-MM-DD")`/`pct(x, p)`, plus from G241 `sum`/`avg`/`shortfall(target, current)`/`periods_to_reach(target, current, rate)`/`per_week(total, days)`/`pct_change(old, new)`/`share(part, whole)`, and names that resolve ONLY from the caller's `inputs`), never `eval`/`exec`. Names, attribute access, subscripts, strings outside `days_between`, comprehensions, lambdas and any other call are all rejected by construction. Bounds: expression ≤ 400 chars, ≤ 150 AST nodes, `**` exponent \|e\| ≤ 12, `series_sum` count ≤ 5000, \|result\| < 1e12, division by zero and every other rejection return a clean `{"ok": false, "error": "..."}` rather than raising. `series_sum` is the owner's own envelope case: a daily savings-challenge payment rising a fixed step each day, e.g. `series_sum(8.96, 0.04, 27)` for a first payment of £8.96 rising 4p a day for 27 days. `days_between` is inclusive of the first date, exclusive of the second. | `{ok, result, error}` plus the echoed `expression`, so a reply or a proposal's consequence line can show its working. **G241 (2026-10-08) extended it** (see "G241" below): optional `inputs` (named figures, `£` strings and `{raw}` money values accepted), `unit` -> `result_formatted`, `inputs_used`, and an optional hedged date projection (`project_from` + `period` -> `projected_date`, `projected_text`) |
 | `preview_trend_intent(category, answer)` | `app.services.spend_impact.compute_intent_preview` (`POST /spend/intent-preview`'s own engine), added B17, 2026-09-08 (B12 stage 5) | for `answer='new_normal'`: `{title, lines}` pricing what filing the category's current overspend as the new normal actually changes (usual figure, payday move, horizon), requires the category to be currently notable (a tool error otherwise, same as the route); for `answer='one_off'`: a static note that nothing recalculates, no engine call, no notability required (one-off has nothing to preview, the real UI never shows a preview for that choice either) |
 
-All 20 of the above are read-only.
+All 20 of the above are read-only (and `calculate` still has no side effect).
 
 ## Write tools (propose-only)
 
@@ -499,6 +499,58 @@ carries a final, deterministic summary/consequence) and `run_penny_agent`
 returns `{"proposal": {...}}`. `app.routers.can_i`'s `/can-i` response gains
 a `proposal`/`consent_required` branch parallel to its existing `scenario`
 branch, both additive on the wire.
+
+## G241 (2026-10-08): Penny could not do basic arithmetic
+
+Kevin reported Penny failing simple arithmetic. The audit
+(`docs/penny/G241-arithmetic-audit.md`) found the calculator already existed;
+the dominant cause was system-prompt rule 5, which sent any question that
+was not visibly about the user's own money (a bare "what is 1,250 minus
+380", a split, a percentage) to the `OUT_OF_SCOPE` sentinel and so to the
+generic refusal, before `calculate` was ever considered. Fixes, all in the
+existing architecture (no second calculator, still no `eval`, still
+read-only):
+
+- **Rule 5 narrowed, rule 1 tightened** (`app/services/penny_agent.py`):
+  basic arithmetic is never out of scope; any arithmetic, even one
+  subtraction over figures a tool just returned, goes through `calculate`;
+  a date projection quotes `projected_text`, which is already hedged ("At the
+  same rate, roughly March 2027. That is an estimate, not a promise"). The
+  off-topic sentinel, the "facts, never advice" rule and the advice-shaped
+  rule are unchanged (a control row pins that weather and "which ISA
+  provider" are still declined).
+- **`calculate` extended** (`app/services/safe_calc.py`,
+  `_exec_calculate` in `penny_tools.py`): named `inputs` so the model passes
+  fetched figures by name instead of retyping digits, `£`/thousands-comma/
+  Unicode-minus normalisation, `sum`/`avg`/`shortfall`/`periods_to_reach`/
+  `per_week`/`pct_change`/`share`, `result_formatted` for a `unit`, the
+  working in `inputs_used`, and a hedged date projection. Names resolve only
+  from `inputs`; a name that is a function name, an attribute, a subscript or
+  anything else not on the whitelist is rejected exactly as before.
+- **Two small read-tool fixes** that arithmetic depended on:
+  `get_category_spend.last_n_months.window.days` (a weekly average needs the
+  real day count: 90 days is 12.86 weeks, not 12), and `search_transactions`
+  now returns `matched_count` / `matched_spent` / `matched_received` /
+  `truncated` summed in Mongo over EVERY match (it used to return at most 20
+  rows with `count: len(rows)`, so any "total at X" was a sum of a truncated
+  list). `get_goals` gained a server-derived `remaining`, so "how much more do
+  I need" is a lookup.
+- **Token cost.** The tool catalogue is part of the cached prefix (about
+  18,200 prompt tokens per round, 17,700 cached), so the larger `calculate`
+  schema (about 440 tokens) and the prompt edits (about 160) cost cache-write
+  once per prefix change and roughly 0.5 per cent extra on every cached round
+  afterwards. Measured per-question cost and the eval are in the audit.
+- **Eval.** `backend/tests/penny_arithmetic_corpus.py` is the shared corpus;
+  `tests/test_penny_calculator_corpus.py` is the deterministic half (100%
+  bar) and routes each row through the B38 fake-model harness;
+  `scripts/penny_live_eval.py` is the manual live half. The full question
+  matrix (85 rows, every screen key and every read tool) is
+  `docs/penny/question-matrix.md`.
+
+Coverage checklist entry: a new question shape needs (1) a tool or a
+prompt rule, (2) a row in `docs/penny/question-matrix.md`, and (3) if it is
+arithmetic, a row in `penny_arithmetic_corpus.py` with a deterministic
+`reference`. Known follow-ups are listed at the end of the audit.
 
 ## Coverage checklist
 
