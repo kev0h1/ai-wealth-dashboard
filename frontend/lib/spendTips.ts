@@ -8,7 +8,9 @@
 
 import type { SavingsInsight } from "@/lib/api";
 
-/** Every READABLE tip for a given Spend category — state "fresh", matched
+/** Every READABLE tip for a given Spend category — state "fresh" (or "stale",
+ *  B44: the last good tip kept visible while research is failing, which the
+ *  card labels "Tips may be out of date"), matched
  *  on the backend's own `app_category` field. For an older payload that
  *  predates the `state` field, falls back to the same missing-state rule
  *  the old Insights hero's own `heroOpen` used (that page, and `heroOpen`
@@ -22,7 +24,7 @@ import type { SavingsInsight } from "@/lib/api";
 export function openTipsFor(category: string, insights: SavingsInsight[]): SavingsInsight[] {
   return insights.filter((t) => {
     if (t.app_category !== category) return false;
-    if (t.state != null) return t.state === "fresh";
+    if (t.state != null) return t.state === "fresh" || t.state === "stale";
     return !t.verified_savings && !t.substituted;
   });
 }
@@ -47,7 +49,7 @@ export function tipsForMerchants(
   if (!tipId || merchants.length === 0) return [];
   const tip = insights.find((t) => t.id === tipId);
   if (!tip) return [];
-  if (tip.state != null ? tip.state !== "fresh" : (tip.verified_savings || tip.substituted)) return [];
+  if (tip.state != null ? tip.state !== "fresh" && tip.state !== "stale" : (tip.verified_savings || tip.substituted)) return [];
   const merchantName = tip.triggered_by?.[0]?.display_name;
   if (!merchantName || !merchants.includes(merchantName)) return [];
   return [tip];

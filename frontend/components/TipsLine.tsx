@@ -72,6 +72,9 @@ export function TipStrip({
           {tip.expiry_line && (
             <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">{tip.expiry_line}</p>
           )}
+          {tip.state === "stale" && tip.stale_note && (
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">{tip.stale_note}</p>
+          )}
         </div>
         <ChevronDown
           size={14}
