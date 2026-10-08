@@ -180,6 +180,9 @@ assert.match(e, /Provided by Finexer LTD/, "e: names Finexer");
 const f1 = proposals.f1();
 assert.ok(f1.includes("925695") && /Choose your bank|Connect your bank/.test(f1), "f: step one carries the FCA reference through the sentence");
 assert.ok(!f1.includes("aria-hidden=\"true\" hidden"), "f: step one nothing hidden");
+assert.ok(!text(proposals.d("zzq")).includes("Matching banks"), "d: no Matching banks heading when there are no results");
+assert.ok(f1.includes("Sorted cannot move money.") && !f1.includes("separate approval"), "f: reassurance copy as signed off by review");
+assert.ok(!/<h2[^>]*>Add a bank/.test(read("../app/design/bank-picker/proposals.tsx")) , "f: bar title is not a heading above the h1");
 // the no-results copy
 assert.ok(text(renderToStaticMarkup(h(NoResults))).includes("No banks found"), "no-results copy");
 assert.ok(text(proposals.d("zzq")).includes("No banks found") && text(proposals.e("zzq")).includes("No banks found") && text(proposals.f2("zzq")).includes("No banks found"), "no results in d, e and f");

@@ -148,7 +148,7 @@ export function IndexBody({ banks, query, setQuery, inputRef, onPick }: { banks:
       </div>
     </section>
     {filtered.length === 0 ? <NoResults /> : <div className="relative pb-6 pl-3 pr-16">
-      {!typing && <nav aria-label="Jump to banks" className="absolute bottom-0 right-1.5 top-3 w-11">
+      {!typing && <nav aria-label="Jump to banks" className="absolute bottom-0 right-1.5 top-3 w-[46px]">
         <ul className="sticky flex flex-col rounded-xl border border-slate-100 bg-slate-50 dark:border-slate-700 dark:bg-slate-800" style={{ top: SEARCH_BAR + 12 }}>
           {RAIL_GROUPS.map(g => {
             const has = firstLetterOfGroup.has(g);
@@ -185,15 +185,15 @@ export function IndexSheet({ banks, initialQuery, onClose, onPick }: { banks: Ba
 export function IntroBody() {
   return <div className="px-6 pb-6 pt-4">
     <h1 className="text-3xl font-bold leading-9 tracking-tight text-slate-900 dark:text-slate-100">Connect your bank</h1>
-    <p className="mt-3 text-sm leading-6 text-slate-600 dark:text-slate-300">Sorted uses Finexer, a regulated open banking provider, to see your accounts once you approve it.</p>
+    <p className="mt-3 text-sm leading-6 text-slate-600 dark:text-slate-300">Sorted uses Finexer, a regulated open banking provider, to read your accounts once you approve the connection at your bank.</p>
     <ul className="mt-5 border-y border-slate-100 dark:border-slate-700">
       <li className="py-4">
         <h2 className={TITLE}>You approve it at your bank</h2>
-        <p className={`mt-1 ${CAPTION}`}>Your bank asks you to confirm. Sorted never sees your bank login.</p>
+        <p className={`mt-1 ${CAPTION}`}>Your bank asks you to confirm. Your bank login stays with your bank.</p>
       </li>
       <li className="border-t border-slate-100 py-4 dark:border-slate-700">
         <h2 className={TITLE}>Sorted reads, it does not spend</h2>
-        <p className={`mt-1 ${CAPTION}`}>It can see balances and transactions. Moving money would need a separate approval from you.</p>
+        <p className={`mt-1 ${CAPTION}`}>It can see balances and transactions. Sorted cannot move money.</p>
       </li>
     </ul>
     <section aria-labelledby="pk-who" className="mt-5">
@@ -220,7 +220,9 @@ export function FullScreenPicker({ banks, initialQuery, initialStep, onClose, on
   return <section aria-label="Add a bank" data-full-screen className="fixed inset-0 z-50 flex h-dvh flex-col bg-white text-slate-900 dark:bg-slate-900 dark:text-slate-100">
     <header className="flex h-14 flex-shrink-0 items-center gap-1 border-b border-slate-100 px-2 dark:border-slate-700">
       {step === 2 && <button type="button" aria-label="Back to how this works" onClick={() => setStep(1)} className={icon}><ChevronLeft size={20} aria-hidden="true" /></button>}
-      <h2 className={`flex-1 ${step === 2 ? "px-1" : "px-3"} text-lg font-bold leading-7`}>{step === 1 ? "Add a bank" : "Choose your bank"}</h2>
+      {step === 1
+        ? <p className="flex-1 px-3 text-lg font-bold leading-7">Add a bank</p>
+        : <h1 className="flex-1 px-1 text-lg font-bold leading-7">Choose your bank</h1>}
       <button type="button" aria-label="Close" onClick={onClose} className={icon}><X size={20} aria-hidden="true" /></button>
     </header>
     <div data-sheet-body className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
