@@ -75,16 +75,33 @@ export function plansFromApi(items: AccountPlanData[]): Plan[] {
  * instead of either deducting it twice or inventing a matching credit.
  * Shared receiving pots similarly do not prove allocation/goal identity.
  */
-export function assessPlanOverlap(plans: Plan[], cashflow: Pick<CashflowData, "upcoming_bills">, endMs: number): Plan[] {
+export const PLAN_OVERLAP_TOLERANCE = 0.15;
+
+type OverlapAccount = Pick<Account, "id" | "type"> & { subtype?: string | null };
+
+function isCardRepayment(bill: CashflowData["upcoming_bills"][number], accounts: OverlapAccount[]) {
+  if ((bill.category ?? "").trim().toLowerCase() === "debt") return true;
+  const dest = bill.dest_account_id ? accounts.find((account) => account.id === bill.dest_account_id) : undefined;
+  return Boolean(dest && `${dest.type} ${dest.subtype ?? ""}`.toLowerCase().includes("credit"));
+}
+
+/** G235: only a move that could plausibly BE the plan's contribution counts. It must go to one
+ * of the plan's destinations, or have an unknown destination while not being a card repayment and
+ * sitting within PLAN_OVERLAP_TOLERANCE (15%) of the plan's remaining slice. Anything else
+ * (card repayments, unrelated amounts) is unrelated and never blanks the figure. */
+export function assessPlanOverlap(plans: Plan[], cashflow: Pick<CashflowData, "upcoming_bills">, endMs: number, accounts: OverlapAccount[] = []): Plan[] {
   return plans.map((plan) => {
     if (!plan.active || remaining(plan) === 0 || !hasPlanSource(plan)) return plan;
     const shared = plans.some((other) => other.id !== plan.id && other.active && remaining(other) > 0
       && other.sourceId === plan.sourceId && hasPlanSource(other)
       && other.destinationIds?.some((id) => plan.destinationIds?.includes(id)));
+    const slice = remaining(plan) / 100;
     const move = cashflow.upcoming_bills.some((bill) => bill.kind === "movement"
       && bill.account_id === plan.sourceId && !bill.is_credit_card && !bill.observed_pending
       && Number.isFinite(Date.parse(bill.expected_date)) && Date.parse(bill.expected_date) <= endMs
-      && (!bill.dest_account_id || plan.destinationIds?.includes(bill.dest_account_id)));
+      && (bill.dest_account_id
+        ? Boolean(plan.destinationIds?.includes(bill.dest_account_id))
+        : !isCardRepayment(bill, accounts) && Math.abs(Math.abs(bill.amount) - slice) <= slice * PLAN_OVERLAP_TOLERANCE));
     return { ...plan, overlapUncertain: shared || move, overlapReason: shared ? "shared-plan" : move ? "forecast-transfer" : undefined };
   });
 }

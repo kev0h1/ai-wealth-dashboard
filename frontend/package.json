@@ -65,6 +65,7 @@
     "check:g219-accounts-route": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g219-accounts-route.test.mjs",
     "check:g233-offline-account": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g233-offline-account.test.mjs",
     "check:g221-home-cleanup": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g221-home-cleanup.test.mjs",
+    "check:g235-plan-overlap": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g235-plan-overlap.test.mjs",
     "check:g230-plan-source": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g230-plan-source.test.mjs",
     "check:g231-exclude-account": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g231-exclude-account.test.mjs",
     "check:g218-figure-tone": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g218-figure-tone.test.mjs",
