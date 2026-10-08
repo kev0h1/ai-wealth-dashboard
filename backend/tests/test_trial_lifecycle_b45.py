@@ -360,7 +360,10 @@ class _Consents(_FakeCol):
 
 def _fake_finexer_client(deleted):
     class _Resp:
-        status_code = 204
+        status_code = 200
+
+        def json(self):
+            return {"status": "canceled"}
 
     class _Client:
         async def __aenter__(self):
@@ -369,8 +372,9 @@ def _fake_finexer_client(deleted):
         async def __aexit__(self, *a):
             return False
 
-        async def delete(self, path):
-            deleted.append(path)
+        async def post(self, path):
+            assert path.endswith("/revoke"), path
+            deleted.append(path[: -len("/revoke")])
             return _Resp()
     return lambda: _Client()
 

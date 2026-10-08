@@ -99,6 +99,8 @@ names, `railway variables --service ai-wealth-dashboard|worker --kv`,
 | `REPO_ROOT` | `routers/ops.py` | absent (defaults to this repo) | absent | optional; test/override only, not meant to be set in either real environment. |
 | `BACKLOG_ROOT` | `services/backlog.py` | absent (defaults to `/root/ai-wealth-dashboard`) | absent | optional; test override only, never meant to be set outside pytest. |
 
+**Finexer consent revocation (A157).** Every revoke (disconnect, account erasure, last-account delete, B45 downgrade, nightly orphan sweep) goes through `retention.revoke_finexer_consent_remote`, which calls Finexer's documented `POST /consents/{id}/revoke` (Basic auth, `FINEXER_API_KEY` as username); `DELETE /consents/{id}` is not a Finexer endpoint and must not be used. A revoke counts as success only when the response is 2xx and the returned consent `status` is `canceled`, or on a 404 that a follow-up `GET /consents/{id}` confirms is gone or canceled; anything else leaves an `orphaned_revocations` retry marker.
+
 ### Bot/service credentials (A28, replaces `BOT_SECRET`)
 
 Not an environment variable at all, so it doesn't appear in the table

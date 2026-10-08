@@ -94,7 +94,7 @@ async def erase_user(uid: str) -> dict[str, int]:
     `disconnect_connection`. A local delete alone cannot cancel a Finexer
     consent: the consent lives at Finexer, so it must be revoked there
     (`disconnect_connection`'s Finexer branch does a best-effort remote
-    `DELETE /consents/{id}`) or it stays live after the user's account is
+    `POST /consents/{id}/revoke`, A157) or it stays live after the user's account is
     gone (A82). Each revoke runs in its own try/except so one failing
     connection never blocks erasure of the rest, or of the user's other
     data; failures are logged and counted, not raised.
@@ -336,34 +336,109 @@ _ORPHAN_MAX_AGE = timedelta(days=90)
 
 
 def valid_consent_id(consent_id) -> bool:
-    """A106: a Finexer consent id is interpolated into a DELETE URL, so it is
+    """A106: a Finexer consent id is interpolated into the revoke URL, so it is
     validated first; anything else is never requested."""
     return isinstance(consent_id, str) and bool(_CONSENT_ID_RE.match(consent_id))
 
 
+# Finexer reports a revoked consent as status "canceled" (their spelling, per
+# the API reference). "cancelled"/"revoked" are accepted defensively in case
+# the spelling or a local mirror ever differs.
+_REVOKED_STATUSES = frozenset({"canceled", "cancelled", "revoked"})
+
+
+def _consent_is_revoked(body) -> bool:
+    """True only when a Finexer consent object shows it is cancelled.
+    Rule: when the body HAS a `status` field, success is only status in
+    canceled/cancelled/revoked (a status of authorized is never success, even
+    alongside a timestamp). The revoked_at/cancelled_at/canceled_at timestamp
+    is consulted ONLY when the body carries no status field at all."""
+    if not isinstance(body, dict):
+        return False
+    if "status" in body:
+        status = body.get("status")
+        return isinstance(status, str) and status.strip().lower() in _REVOKED_STATUSES
+    return bool(body.get("revoked_at") or body.get("cancelled_at") or body.get("canceled_at"))
+
+
+def _json_or_none(rv):
+    try:
+        return rv.json()
+    except Exception:
+        return None
+
+
+async def revoke_finexer_consent_remote(consent_id: str) -> str | None:
+    """A157: the ONE remote revoke call. `POST /consents/{id}/revoke` (Finexer's
+    documented endpoint; `DELETE /consents/{id}` is not one, and treating its
+    404 as success is how revocations silently never happened between A82 and
+    A157). Returns None only when Finexer confirms the consent is cancelled:
+    a 2xx whose JSON status is canceled. A 2xx still showing `authorized` is
+    a failure ("not_canceled"). On 404 a follow-up `GET /consents/{id}` decides:
+    404 or a canceled status means already gone (success), anything else fails.
+    Otherwise returns a short static error code (HTTP status, exception class
+    name). Never raises, never writes markers (callers do), no id validation
+    (callers do). Logs consent id, HTTP status and resulting status only."""
+    try:
+        from app.services.finexer_sync import _client as _fx_client
+        async with _fx_client() as fxc:
+            rv = await fxc.post(f"/consents/{consent_id}/revoke")
+            code = rv.status_code
+            if 200 <= code < 300:
+                body = _json_or_none(rv)
+                status = body.get("status") if isinstance(body, dict) else None
+                logger.info("Finexer revoke consent %s: HTTP %s, status=%s", consent_id, code, status)
+                if _consent_is_revoked(body):
+                    return None
+                logger.warning("Finexer revoke consent %s returned HTTP %s but status is not canceled", consent_id, code)
+                return "not_canceled"
+            if code == 404:
+                gv = await fxc.get(f"/consents/{consent_id}")
+                gcode = gv.status_code
+                gbody = _json_or_none(gv) if 200 <= gcode < 300 else None
+                gstatus = gbody.get("status") if isinstance(gbody, dict) else None
+                logger.info(
+                    "Finexer revoke consent %s: HTTP 404, follow-up GET HTTP %s, status=%s",
+                    consent_id, gcode, gstatus,
+                )
+                if gcode == 404 or _consent_is_revoked(gbody):
+                    return None
+                return "404_unconfirmed"
+            logger.warning("Finexer revoke consent %s: HTTP %s", consent_id, code)
+            return str(code)
+    except Exception as exc:
+        logger.warning("Finexer revoke failed for consent %s (non-fatal)", consent_id, exc_info=True)
+        error_code = type(exc).__name__  # static class name only, never the message
+        return error_code
+
+
+async def _mark_local_consent_revoked(consent_id: str) -> None:
+    """Best-effort: a still-present local consent doc follows the remote."""
+    try:
+        await finexer_consents_col.update_one(
+            {"_id": consent_id},
+            {"$set": {"status": "revoked", "revoked_at": datetime.now(timezone.utc)}},  # naive-ok: persisted aware-UTC audit instant
+        )
+    except Exception:
+        logger.warning("Finexer revoke: local status update failed for %s (non-fatal)", consent_id, exc_info=True)
+
+
 async def revoke_finexer_consent(uid: str, consent_id: str) -> str | None:
-    """Issue DELETE /consents/{id} once. Returns None on success (200, 204,
-    404) or a short static error code (HTTP status, exception class name, or
-    "bad_id" when the id fails validation, in which case NO request is made).
-    On failure a retry marker is recorded via record_orphaned_revocation;
-    success clears nothing (callers decide). Never raises."""
+    """Revoke one Finexer consent via `revoke_finexer_consent_remote`.
+    Returns None on confirmed success, or a short static error code ("bad_id"
+    when the id fails validation, in which case NO request is made). On
+    failure a retry marker is recorded via record_orphaned_revocation (callers
+    must call this BEFORE any local delete); on success the local consent doc,
+    if still present, is set to status revoked. Never raises."""
     if not valid_consent_id(consent_id):
         logger.warning("Finexer revoke skipped: malformed consent id (not requested)")
         await record_orphaned_revocation(uid, consent_id, "bad_id")
         return "bad_id"
-    error: str | None = None
-    try:
-        from app.services.finexer_sync import _client as _fx_client
-        async with _fx_client() as fxc:
-            rv = await fxc.delete(f"/consents/{consent_id}")
-        if rv.status_code not in (200, 204, 404):
-            logger.warning("Finexer revoke %s returned HTTP %s", consent_id, rv.status_code)
-            error = str(rv.status_code)
-    except Exception as exc:
-        logger.warning("Finexer revoke failed for consent %s (non-fatal)", consent_id, exc_info=True)
-        error = type(exc).__name__
+    error = await revoke_finexer_consent_remote(consent_id)
     if error is not None:
         await record_orphaned_revocation(uid, consent_id, error)
+    else:
+        await _mark_local_consent_revoked(consent_id)
     return error
 
 
@@ -401,20 +476,12 @@ async def disconnect_connection(uid: str, connection_id: str) -> dict | None:
         await purge_user_exclusions(
             uid, sorted(set(account_ids) | set(consent.get("excluded_accounts") or []))
         )
-        # Best-effort remote revoke (non-fatal to the local delete below,
-        # but A106: a failure of EITHER shape now leaves a retry marker
-        # first, so the consent isn't orphaned at Finexer with nothing left
-        # to retry from. The client is plain httpx with no
-        # raise_for_status(), so there are two distinct failure shapes: a
-        # raised exception (timeout, connection refused, DNS) and a
-        # non-success HTTP status (500/503/429/401/403/...) that returns
-        # normally. (200, 204, 404) count as success — 404 meaning the
-        # consent is already gone remotely, same convention
-        # finexer_sync.sync_finexer_consent uses for a consent-scoped GET.
-        # 401/403 are deliberately NOT treated as success here: on a DELETE
-        # they more plausibly mean our credential is wrong than that the
-        # consent itself is gone, and treating them as success would
-        # re-orphan the consent by deleting the local doc anyway.
+        # Best-effort remote revoke (non-fatal to the local delete below).
+        # A157: the helper POSTs /consents/{id}/revoke and only reports
+        # success when Finexer confirms status "canceled" (or a 404 confirmed
+        # gone by a follow-up GET). Any other outcome (non-2xx, timeout,
+        # exception, 2xx still authorized) has already written the A106
+        # retry marker by the time it returns, i.e. BEFORE the local delete.
         if await revoke_finexer_consent(uid, connection_id) is None:
             await clear_orphaned_revocation(connection_id)
 
@@ -542,7 +609,7 @@ async def sweep_dormant_users(now: datetime | None = None) -> dict:
 
 async def retry_orphaned_revocations(now: datetime | None = None) -> dict:
     """Retry the Finexer remote revoke for every marker `disconnect_connection`
-    left behind (A106) after a `DELETE /consents/{id}` that failed remotely,
+    left behind (A106) after a `POST /consents/{id}/revoke` that failed remotely,
     of either shape (a raised exception, or a non-success HTTP status).
 
     Follows `sweep_expired_connections`'s per-doc try/except shape: one
@@ -552,12 +619,12 @@ async def retry_orphaned_revocations(now: datetime | None = None) -> dict:
     signal.
 
     Finexer issues a fresh consent id on every new consent
-    (`routers/finexer.py`), so a retried `DELETE /consents/{old_id}` here can
+    (`routers/finexer.py`), so a retried revoke of `/consents/{old_id}` here can
     never touch a reconnected user's new consent: the old id has nothing left
     to collide with once the user has a different, live consent id.
 
-    On 200/204/404 (same success convention as `disconnect_connection`'s own
-    first attempt) the marker is deleted. On any other status, or a raised
+    On confirmed revoke (2xx with status canceled, or 404 confirmed gone by a
+    follow-up GET; see `revoke_finexer_consent_remote`) the marker is deleted. On any other status, or a raised
     exception, the marker is updated IN PLACE (`attempts` incremented,
     `last_attempt_at`/`last_error` refreshed) — never re-inserted, since the
     marker already exists. A marker with `attempts` >= 7 gets a WARNING on
@@ -628,11 +695,9 @@ async def retry_orphaned_revocations(now: datetime | None = None) -> dict:
             )
 
         try:
-            from app.services.finexer_sync import _client as _fx_client
-            async with _fx_client() as fxc:
-                rv = await fxc.delete(f"/consents/{consent_id}")
+            remote_error = await revoke_finexer_consent_remote(consent_id)
 
-            if rv.status_code in (200, 204, 404):
+            if remote_error is None:
                 await orphaned_revocations_col.delete_one({"_id": consent_id})
                 # B45 downgrade path leaves the local doc authorised on a
                 # failed revoke; reflect the now-successful remote revoke
@@ -650,15 +715,19 @@ async def retry_orphaned_revocations(now: datetime | None = None) -> dict:
                 cleared += 1
             else:
                 logger.warning(
-                    "retry_orphaned_revocations: consent %s still returns HTTP %s",
-                    consent_id, rv.status_code,
+                    "retry_orphaned_revocations: consent %s still not revoked (%s)",
+                    consent_id, remote_error,
                 )
                 await orphaned_revocations_col.update_one(
                     {"_id": consent_id},
-                    {"$set": {"last_attempt_at": now, "last_error": str(rv.status_code)},
+                    {"$set": {"last_attempt_at": now, "last_error": remote_error},
                      "$inc": {"attempts": 1}},
                 )
-                still_pending += 1
+                # A raised exception (not an HTTP/status outcome) is an "error".
+                if remote_error.isdigit() or remote_error in ("not_canceled", "404_unconfirmed"):
+                    still_pending += 1
+                else:
+                    errors += 1
         except Exception as exc:
             errors += 1
             logger.exception("retry_orphaned_revocations: failed to retry consent %s", consent_id)

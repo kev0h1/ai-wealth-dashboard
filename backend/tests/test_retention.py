@@ -203,13 +203,30 @@ def _fake_local_consents(monkeypatch):
 
 
 class FakeFxResponse:
-    def __init__(self, status_code):
+    def __init__(self, status_code, body=None):
         self.status_code = status_code
+        # A157: a 2xx revoke answers with the consent object; the fakes
+        # default to a cancelled one so "success" tests mean what they say.
+        self._body = body if body is not None else (
+            {"status": "canceled"} if 200 <= status_code < 300 else None)
+
+    def json(self):
+        if self._body is None:
+            raise ValueError("no body")
+        return self._body
+
+
+def _consent_path(path):
+    """A157: revoke is POST /consents/{id}/revoke. The fakes assert that
+    exact shape and record the bare /consents/{id} so call lists stay terse."""
+    assert path.endswith("/revoke"), f"unexpected Finexer POST {path}"
+    return path[: -len("/revoke")]
 
 
 class FakeFxClient:
     """Stand-in for finexer_sync._client()'s async-context-managed httpx
-    client — only `.delete()` is exercised by disconnect_connection."""
+    client. A157: only `.post(/consents/{id}/revoke)` and the 404 follow-up
+    `.get(/consents/{id})` exist; any DELETE fails the test."""
 
     def __init__(self, status_code=204, raise_exc=None):
         self.status_code = status_code
@@ -222,11 +239,18 @@ class FakeFxClient:
     async def __aexit__(self, *a):
         return False
 
-    async def delete(self, path):
-        self.calls.append(path)
+    async def post(self, path):
+        self.calls.append(_consent_path(path))
         if self.raise_exc:
             raise self.raise_exc
         return FakeFxResponse(self.status_code)
+
+    async def get(self, path):
+        # 404 follow-up: the consent is gone.
+        return FakeFxResponse(404)
+
+    async def delete(self, path):
+        raise AssertionError(f"DELETE {path} is not a Finexer endpoint (A157)")
 
 
 class FakeFxMultiClient:
@@ -246,11 +270,18 @@ class FakeFxMultiClient:
     async def __aexit__(self, *a):
         return False
 
-    async def delete(self, path):
+    async def post(self, path):
+        path = _consent_path(path)
         self.calls.append(path)
         if path in self.raise_paths:
             raise self.raise_paths[path]
         return FakeFxResponse(self.responses[path])
+
+    async def get(self, path):
+        return FakeFxResponse(404)
+
+    async def delete(self, path):
+        raise AssertionError(f"DELETE {path} is not a Finexer endpoint (A157)")
 
 
 def _stub_cascade(monkeypatch, calls: list):
