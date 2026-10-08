@@ -24,10 +24,11 @@ from app.db.collections import (
     needle_history_col,
     transactions_col,
     yapily_transactions_col,
+    user_profiles_col,
 )
 
 log = logging.getLogger(__name__)
-from app.routers.analytics import _build_cashflow_response, income_credit_ok, is_assessable_bill
+from app.routers.analytics import _bank_label, _build_cashflow_response, income_credit_ok, is_assessable_bill
 from app.routers.allocations import list_active_allocations
 from app.services.account_kinds import (
     is_credit_card_account,
@@ -302,6 +303,123 @@ def celebration_payload(stored: dict, dest_name: str | None, move_landed: bool =
         "action": None,
         "estimated": False,
         "brief_lead": brief_lead,
+    }
+
+
+# G212 (Kevin-approved copy, 2026-10-04): the Home cover plan card for an
+# account with no transfer source. An account named after its holder
+# ("MR KEVIN MBITHI MAINGI") must never be spoken as a person ("Mr Kevin
+# Mbithi Maingi payday"), so in sentences it becomes "{Bank} account" and the
+# readable name is shown only in the card's account row.
+_PERSON_TITLES = {"mr", "mrs", "ms", "miss", "dr", "mx", "prof", "sir"}
+
+
+def _bank_name_of(provider: str | None) -> str | None:
+    """Display bank name from a raw provider code ("ob-barclays" ->
+    "Barclays"); None when the provider is unknown/generic."""
+    raw = (provider or "").strip()
+    if not raw or raw.lower() == "bank":
+        return None
+    if raw.lower().startswith("ob-"):
+        raw = raw[3:]
+    return _bank_label(raw.replace("_", " ").replace("-", " ").strip() or None)
+
+
+def _is_holder_named(display_name: str, user_tokens: list[str] | None) -> bool:
+    """True when an account name is a person's name: it starts with a personal
+    title, or shares at least two words with the user's own saved name."""
+    words = [w.lower() for w in re.findall(r"[A-Za-z']+", display_name or "")]
+    if not words:
+        return False
+    if words[0] in _PERSON_TITLES:
+        return True
+    toks = {str(t).lower() for t in (user_tokens or []) if t}
+    return bool(toks) and len(set(words) & toks) >= min(2, len(toks))
+
+
+def _short_day(d: date) -> str:
+    return f"{d.day} {d.strftime('%b')}"
+
+
+def no_source_copy(
+    *,
+    dest_name: str,
+    provider: str | None,
+    shortfall: float,
+    is_overdraft: bool,
+    bill_amount: float | None,
+    bill_name: str | None,
+    bill_weekday: str | None,
+    balance: float,
+    needs_total: float,
+    bills: list[dict],
+    today: date,
+    payday: date | None,
+    user_tokens: list[str] | None,
+) -> dict:
+    """Headline, lead, body and account row for a cover plan card whose
+    destination has no viable transfer source. `bills` are the destination's
+    plan_dest bill rows (expected_date ISO, days_past_due)."""
+    display = humanise_account_name(dest_name)
+    bank = _bank_name_of(provider)
+    holder_named = _is_holder_named(display, user_tokens)
+    if holder_named:
+        subject = f"Your {bank} account" if bank else "Your account"
+    else:
+        subject = display
+    payday_txt = _short_day(payday) if payday else None
+
+    if is_overdraft:
+        headline = f"{subject} is £{_fmt_overdrawn(shortfall)} overdrawn."
+        body = (
+            "This account is overdrawn right now, and none of your other accounts "
+            "can safely top it up without leaving another account short."
+        )
+        lead = {"value": _gbp(shortfall), "companion": "to get back above £0"}
+        detail = f"£{_fmt_overdrawn(balance)} overdrawn right now"
+    else:
+        headline = f"{subject} is {_gbp(shortfall)} short before payday."
+        body = (
+            f"Your {_gbp(bill_amount or 0)} {_humanise_bill_name(bill_name or 'bill')} payment is expected "
+            f"{bill_weekday}, but there isn't enough in this account for it, and none of "
+            f"your other accounts can safely top it up right now."
+        )
+        lead = {
+            "value": _gbp(shortfall),
+            "companion": f"to find before {payday_txt}" if payday_txt else "to find before payday",
+        }
+        n = len(bills)
+        overdue = [b for b in bills if int(b.get("days_past_due") or 0) > 0]
+        current = [b for b in bills if int(b.get("days_past_due") or 0) <= 0]
+        last_current = None
+        for b in current:
+            try:
+                d = date.fromisoformat(str(b.get("expected_date") or "")[:10])
+            except ValueError:
+                continue
+            if last_current is None or d > last_current:
+                last_current = d
+        due_by = f"due by {_short_day(last_current)}" if last_current else "upcoming"
+        if n == 0:
+            needs = f"{_gbp(needs_total)} needed"
+        elif overdue and current:
+            needs = f"{_gbp(needs_total)} for {n} payments: {len(overdue)} overdue, {len(current)} {due_by}"
+        elif overdue:
+            needs = (
+                f"{_gbp(needs_total)} for 1 overdue payment" if n == 1
+                else f"{_gbp(needs_total)} for {n} payments, all overdue"
+            )
+        elif n == 1:
+            needs = f"{_gbp(needs_total)} for 1 payment {due_by}"
+        else:
+            needs = f"{_gbp(needs_total)} for {n} payments {due_by}"
+        detail = f"{_gbp(balance)} in the account · {needs}"
+    title = f"{bank} · {display}" if (holder_named and bank) else display
+    return {
+        "headline": headline,
+        "body": body,
+        "brief_lead": lead,
+        "dest_row": {"title": title, "detail": detail},
     }
 
 
@@ -2046,6 +2164,35 @@ def trajectory_copy(plan: dict, today: date) -> dict:
         "tone": tone,
         "trend": trend,
     }
+
+
+def cap_spend_from_to_pool(account_eligibility: dict, pooled_safe_to_spend: float | None) -> dict:
+    """G234: THE one place a per-account "Spend from" figure is capped.
+
+    `spend_from_headroom` (seeded and corrected inside `compute_today_items`)
+    deducts only that account's own bills, reserved moves and buffer. The
+    pooled Safe to Spend headline also deducts envelopes and plans, which no
+    account owns yet (G230/G232 will attribute them), so one account's figure
+    could exceed the headline (Safe to Spend 110.36, Barclays 127). Every
+    shown figure is therefore `min(account figure, pooled safe_to_spend)`,
+    floored at 0. A pool of 0 or below shows no figure for any account, so the
+    client lands on its existing "no room" line instead of an empty rail.
+
+    The uncapped figure is kept as `account_headroom_raw` for Penny's
+    explanations; `spend_from_capped` says whether the pool is what bound.
+    `headroom` (the standing cover-plan figure) is left untouched. Mutates and
+    returns `account_eligibility`. `pooled_safe_to_spend` must be the final
+    pooled figure (after G231 exclusions and G227 plans); None means unknown
+    and is the caller's problem, not guessed here.
+    """
+    pool = round(max(0.0, float(pooled_safe_to_spend or 0.0)), 2)
+    for entry in account_eligibility.values():
+        raw = float(entry.get("spend_from_headroom", entry.get("headroom", 0.0)) or 0.0)
+        shown = round(max(0.0, min(raw, pool)), 2)
+        entry["account_headroom_raw"] = round(raw, 2)
+        entry["spend_from_headroom"] = shown
+        entry["spend_from_capped"] = bool(raw > pool)
+    return account_eligibility
 
 
 async def compute_today_items(
@@ -4300,25 +4447,32 @@ async def compute_today_items(
             if not _regular_move_gate.will_emit_by_dest.get(dest_acct):
                 continue
             item_id = _regular_move_gate.item_id_by_dest[dest_acct]
-            # Humanise once — the destination's ALL-CAPS product name is
-            # shown in the headline, then referred to as "it" on second
-            # mention in the body (no repeated full name, no shouting caps).
-            _dest_display = humanise_account_name(u["dest_name"])
-            if u.get("is_overdraft"):
-                # OVERDRAFT, no viable source — describe the real state
-                # honestly rather than inventing a bill to blame it on.
-                headline = f"{_dest_display} is £{_fmt_overdrawn(u['shortfall'])} overdrawn."
-                body = (
-                    f"It's overdrawn right now, and there's no easy transfer source "
-                    f"that can safely cover it without leaving another account short."
-                )
-            else:
-                headline = f"{_gbp(u['shortfall'])} gap before {_dest_display} payday."
-                body = (
-                    f"Your {_gbp(u['bill_amount'])} {_humanise_bill_name(u['bill_name'])} payment is expected "
-                    f"{u['bill_weekday']}, but it's {_gbp(u['shortfall'])} short of cover, "
-                    f"and there's no easy transfer source right now."
-                )
+            # G212: copy built by `no_source_copy` (naming rule, hedged body,
+            # payday date in the lead, readable account row).
+            _ns_tokens: list[str] = []
+            try:
+                _ns_prof = await user_profiles_col.find_one(
+                    {"_id": uid}, {"name_tokens": 1}
+                ) or {}
+                _ns_tokens = list(_ns_prof.get("name_tokens") or [])
+            except Exception as _ns_exc:  # profile is optional; fall back to titles only
+                log.warning("no-source copy: profile lookup failed for %s: %s", uid, type(_ns_exc).__name__)
+            _ns = no_source_copy(
+                dest_name=u["dest_name"],
+                provider=dest_summaries[dest_acct].get("provider"),
+                shortfall=u["shortfall"],
+                is_overdraft=bool(u.get("is_overdraft")),
+                bill_amount=u.get("bill_amount"),
+                bill_name=u.get("bill_name"),
+                bill_weekday=u.get("bill_weekday"),
+                balance=dest_summaries[dest_acct].get("balance") or 0.0,
+                needs_total=dest_summaries[dest_acct].get("needs_total") or 0,
+                bills=dest_summaries[dest_acct].get("bills") or [],
+                today=today_d,
+                payday=window_end,
+                user_tokens=_ns_tokens,
+            )
+            headline, body = _ns["headline"], _ns["body"]
             item_doc = {
                 "_id": item_id,
                 "uid": uid,
@@ -4328,10 +4482,8 @@ async def compute_today_items(
                 "body": body,
                 "action": None,
                 "estimated": False,
-                "brief_lead": {
-                    "value": _gbp(u["shortfall"]),
-                    "companion": f"still to cover at {_dest_display}",
-                },
+                "brief_lead": _ns["brief_lead"],
+                "dest_row": _ns["dest_row"],
                 "created_at": datetime.utcnow(),
                 "_dest_acct": dest_acct,
                 "_dest_name": u["dest_name"],
@@ -4357,10 +4509,8 @@ async def compute_today_items(
                 "body": body,
                 "action": None,
                 "estimated": False,
-                "brief_lead": {
-                    "value": _gbp(u["shortfall"]),
-                    "companion": f"still to cover at {_dest_display}",
-                },
+                "brief_lead": _ns["brief_lead"],
+                "dest_row": _ns["dest_row"],
                 "plan_dest": dest_summaries[dest_acct],
             })
             emitted_dests += 1

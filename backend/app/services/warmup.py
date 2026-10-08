@@ -153,8 +153,16 @@ async def _warm_user_impl(uid: str) -> dict:
         try:
             payload = await compute_fn(uid)
             # G210: a "syncing" Safe to Spend payload is never persisted.
+            # G234: a today payload whose pooled Safe to Spend was unreadable or
+            # syncing carries account_eligibility=None ("not available"); like
+            # a syncing verdict it must never be persisted, or it would stick
+            # until the next data-version bump.
             if not self_caching and not (
-                isinstance(payload, dict) and payload.get("calculation_status") == "syncing"
+                isinstance(payload, dict)
+                and (
+                    payload.get("calculation_status") == "syncing"
+                    or ("account_eligibility" in payload and payload["account_eligibility"] is None)
+                )
             ):
                 await response_cache.aput(name, uid, payload, version=v)
             warmed.append(name)

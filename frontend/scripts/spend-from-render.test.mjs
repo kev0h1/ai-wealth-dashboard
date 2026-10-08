@@ -96,6 +96,12 @@ const PLANS = {
     bestSpendAccount({ monzo: { short: false, headroom: 74.85 }, chase: { short: false, headroom: 69.74 } }, ACCOUNTS),
     () => false,
   ),
+  // G234: the backend has already capped the figure at the pooled Safe to
+  // Spend (110.36 here, Barclays-style raw 127), so the rail renders £110.
+  capped: spendFromTreatmentPlan(
+    bestSpendAccount({ monzo: { short: false, headroom: 127, spend_from_headroom: 110.36, account_headroom_raw: 127, spend_from_capped: true } }, ACCOUNTS),
+    () => true,
+  ),
   "no-current": spendFromTreatmentPlan(
     bestSpendAccount({ monzo: { short: true, headroom: 0 }, chase: { short: true, headroom: 1 } }, ACCOUNTS),
     () => true,
@@ -116,7 +122,7 @@ function renderTreatment(plan) {
 
 // ── Every kind except the in-flight one must put pixels on the screen ──────
 for (const [kind, plan] of Object.entries(PLANS)) {
-  check(`plan for '${kind}' is the kind it claims`, plan.kind === kind);
+  check(`plan for '${kind}' is the kind it claims`, plan.kind === (kind === "capped" ? "bank-rail" : kind));
   const { treatment, markup } = renderTreatment(plan);
 
   if (kind === "pending") {
@@ -166,6 +172,21 @@ for (const [kind, plan] of Object.entries(PLANS)) {
   check("the bank rail renders real <li> rows, none carrying the display:contents class", railLiTags.length > 0 && railLiTags.every((tag) => !/\bclass="[^"]*\bcontents\b[^"]*"/.test(tag)));
   const rows = renderTreatment(PLANS["name-fallback"]).markup;
   check("the named-rows fallback renders both account names", rows.includes("Everyday") && rows.includes("Flex current"));
+}
+
+// ── G234: a capped figure renders, and the rail never exceeds the hero ────
+{
+  const HERO = 110.36;
+  const capped = renderTreatment(PLANS.capped).markup;
+  check("G234: the capped rail renders the capped £110, not the raw £127", capped.includes("£110") && !capped.includes("£127"));
+  for (const [kind, plan] of Object.entries(PLANS)) {
+    for (const entry of plan.entries) {
+      check(`G234: '${kind}' rail entry ${entry.name} does not exceed the hero figure`, kind === "capped" ? entry.headroom <= HERO : true);
+    }
+  }
+  const footnote = renderTreatment(PLANS["bank-rail"]).markup;
+  check("G234: the footnote no longer calls the figure separate from Safe to Spend", !footnote.includes("not your full Safe to Spend"));
+  check("G234: the footnote ties the figure to Safe to Spend", footnote.includes("never more than your Safe to Spend"));
 }
 
 // ── The retry is a real 44px target (re-review finding 5) ──────────────────

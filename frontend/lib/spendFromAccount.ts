@@ -55,6 +55,9 @@ export type SpendFromAccount = {
   name: string;
   provider: string;
   headroom: number;
+  // G234: true when the backend's cap at the pooled Safe to Spend is what
+  // set `headroom` (the account holds more spare than the headline allows).
+  capped?: boolean;
   // The full account, carried through so the render layer (SafeToSpendCard,
   // the /design preview) can resolve a bank badge/name via
   // components/AccountMiniCard.tsx's accountBrand() without this plain
@@ -98,8 +101,8 @@ export type SpendFromResult =
   | { kind: "none" }
   | { kind: "account"; best: SpendFromAccount; alternative: SpendFromAccount | null };
 
-function toSpendFromAccount(a: Account, headroom: number): SpendFromAccount {
-  return { accountId: a.id, name: a.name, provider: a.provider, headroom, account: a };
+function toSpendFromAccount(a: Account, headroom: number, capped = false): SpendFromAccount {
+  return { accountId: a.id, name: a.name, provider: a.provider, headroom, capped, account: a };
 }
 
 function rankByHeadroom(
@@ -116,7 +119,11 @@ function rankByHeadroom(
     .map((a) => {
       const entry = eligibility[a.id];
       const headroom = entry?.spend_from_headroom ?? entry?.headroom ?? 0;
-      return toSpendFromAccount(a, headroom);
+      // G234: `spend_from_headroom` arrives ALREADY capped at the pooled
+      // Safe to Spend by the backend (cap_spend_from_to_pool). Read it as
+      // is; never re-derive or re-cap here, and never rank on
+      // `account_headroom_raw`.
+      return toSpendFromAccount(a, headroom, entry?.spend_from_capped === true);
     })
     .sort((a, b) => b.headroom - a.headroom);
 }
@@ -275,10 +282,15 @@ export function spendFromHeroLine(
       // question was asked rather than leaving the two to collide. This is
       // also, as of G111, what the line says when the only spare money
       // sits in a savings pot: deliberate, see this file's header comment.
-      return "No single account has spare to spend from right now. Checked account by account, not against your full Safe to Spend.";
+      return "No single account has spare to spend from right now.";
     case "account": {
       const bank = bankLabel ? ` (${bankLabel})` : "";
-      return `In ${result.best.name}${bank}: ${amount(result.best.headroom)} spare right now. This account only, not your full Safe to Spend.`;
+      // G234: the figure is capped at the pooled Safe to Spend by the
+      // backend, so it can never read higher than the headline. When the
+      // cap is what set it, say so; otherwise it is the account's own spare.
+      return result.best.capped
+        ? `In ${result.best.name}${bank}: up to ${amount(result.best.headroom)} right now, the most your Safe to Spend allows.`
+        : `In ${result.best.name}${bank}: ${amount(result.best.headroom)} spare right now, within your Safe to Spend.`;
     }
   }
 }
@@ -296,7 +308,9 @@ export function spendFromAlternativeLine(
   // this line sits inside the "How we got £X" ledger, which itemises the
   // POOLED calculation, so an unqualified "£38 spare" reads as one of that
   // ledger's own rows.
-  return `Next best: ${result.alternative.name}, ${amount(result.alternative.headroom)} spare in that account.`;
+  return result.alternative.capped
+    ? `Next best: ${result.alternative.name}, up to ${amount(result.alternative.headroom)}, the most your Safe to Spend allows.`
+    : `Next best: ${result.alternative.name}, ${amount(result.alternative.headroom)} spare in that account.`;
 }
 
 // ── Which treatment the card renders (G148, 2026-09-23) ─────────────────────

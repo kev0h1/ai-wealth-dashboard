@@ -88,7 +88,9 @@ _MAX_TIME_MS = 500
 # Entries written before this existed carry no `shape` key at all, so
 # `.get("shape")` is None and they are rejected by the same comparison with
 # no migration step — which is exactly what should happen to them.
-SHAPE_VERSION = 1
+# 2: G234 caps spend_from_headroom at the pooled Safe to Spend and adds
+# account_headroom_raw / spend_from_capped to each account_eligibility entry.
+SHAPE_VERSION = 2
 
 # UK users; this cache pins its day boundary to Europe/London (DST-aware,
 # via app.core.timeutil) so the API and worker processes, even if their

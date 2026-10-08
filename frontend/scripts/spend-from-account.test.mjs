@@ -86,12 +86,12 @@ function account(overrides) {
   check(
     "hero line names the account and its own headroom, distinct from any pooled figure (no bank label passed)",
     spendFromHeroLine(result, amount),
-    "In Barclays Current: £142 spare right now. This account only, not your full Safe to Spend.",
+    "In Barclays Current: £142 spare right now, within your Safe to Spend.",
   );
   check(
     "hero line folds a caller-resolved bank label into the same sentence, variant A's shape",
     spendFromHeroLine(result, amount, "Barclays"),
-    "In Barclays Current (Barclays): £142 spare right now. This account only, not your full Safe to Spend.",
+    "In Barclays Current (Barclays): £142 spare right now, within your Safe to Spend.",
   );
   check(
     "alternative line names the second account",
@@ -122,7 +122,7 @@ function account(overrides) {
   check(
     "the copy names the current account only, no mention of the savings pot",
     spendFromHeroLine(resultWithCurrent, amount),
-    "In Barclays Current: £25 spare right now. This account only, not your full Safe to Spend.",
+    "In Barclays Current: £25 spare right now, within your Safe to Spend.",
   );
 
   // 2b. No current account qualifies at all, but the savings pot has plenty:
@@ -140,7 +140,7 @@ function account(overrides) {
   check(
     "the copy says nothing has spare, it does not name the savings pot or suggest moving it",
     spendFromHeroLine(resultNoCurrent, amount),
-    "No single account has spare to spend from right now. Checked account by account, not against your full Safe to Spend.",
+    "No single account has spare to spend from right now.",
   );
 }
 
@@ -159,7 +159,7 @@ function account(overrides) {
   check(
     "the copy is honest that nothing is currently reachable",
     spendFromHeroLine(result, amount),
-    "No single account has spare to spend from right now. Checked account by account, not against your full Safe to Spend.",
+    "No single account has spare to spend from right now.",
   );
 }
 
@@ -208,16 +208,18 @@ check("hero line is omitted (not a fallback sentence) while data is unavailable"
 // unqualified figure just because nobody added a string check for it.
 {
   const cases = [
-    ["account", { kind: "account", best: { accountId: "a", name: "A", provider: "p", headroom: 120, account: account({ id: "a" }) }, alternative: null }],
+    ["account", { kind: "account", best: { accountId: "a", name: "A", provider: "p", headroom: 120, capped: false, account: account({ id: "a" }) }, alternative: null }],
     ["none", { kind: "none" }],
   ];
   for (const [label, result] of cases) {
     const line = spendFromHeroLine(result, amount);
     check(`${label}: hero line is rendered`, typeof line, "string");
+    // G234: the figure is capped by the backend, so the account line ties
+    // itself to the headline instead of disclaiming it.
     check(
-      `${label}: hero line states its scope against the pooled headline by name`,
+      `${label}: hero line never disclaims the headline as a separate scope`,
       /not (your full|against your full) Safe to Spend/.test(line ?? ""),
-      true,
+      false,
     );
     check(`${label}: hero line uses no em dash (DESIGN.md)`, (line ?? "").includes("—"), false);
   }
@@ -225,16 +227,16 @@ check("hero line is omitted (not a fallback sentence) while data is unavailable"
   // qualifier must survive the parenthetical bank name, not be crowded out
   // by it.
   const withBank = spendFromHeroLine(
-    { kind: "account", best: { accountId: "a", name: "A", provider: "p", headroom: 120, account: account({ id: "a" }) }, alternative: null },
+    { kind: "account", best: { accountId: "a", name: "A", provider: "p", headroom: 120, capped: false, account: account({ id: "a" }) }, alternative: null },
     amount,
     "Chase",
   );
-  check("bank-qualified account line still states its scope", /not your full Safe to Spend/.test(withBank ?? ""), true);
-  check("bank-qualified account line names the bank in parentheses", withBank, "In A (Chase): £120 spare right now. This account only, not your full Safe to Spend.");
+  check("bank-qualified account line ties itself to Safe to Spend", /within your Safe to Spend/.test(withBank ?? ""), true);
+  check("bank-qualified account line names the bank in parentheses", withBank, "In A (Chase): £120 spare right now, within your Safe to Spend.");
   check("bank-qualified account line uses no em dash (DESIGN.md)", (withBank ?? "").includes("—"), false);
 
   const alt = spendFromAlternativeLine(
-    { kind: "account", best: { accountId: "a", name: "A", provider: "p", headroom: 120, account: account({ id: "a" }) }, alternative: { accountId: "b", name: "B", provider: "p", headroom: 38, account: account({ id: "b" }) } },
+    { kind: "account", best: { accountId: "a", name: "A", provider: "p", headroom: 120, capped: false, account: account({ id: "a" }) }, alternative: { accountId: "b", name: "B", provider: "p", headroom: 38, capped: false, account: account({ id: "b" }) } },
     amount,
   );
   check(
@@ -269,7 +271,7 @@ check("hero line is omitted (not a fallback sentence) while data is unavailable"
   check(
     "G114: the honest 'nothing spare' line is shown rather than naming Monzo off its standing £23.74",
     spendFromHeroLine(result, amount),
-    "No single account has spare to spend from right now. Checked account by account, not against your full Safe to Spend.",
+    "No single account has spare to spend from right now.",
   );
 }
 
@@ -576,6 +578,51 @@ const NEVER_BRANDED = () => false;
   // module no longer relies on Home hiding the card on loadError.
   check("accounts request succeeded and is genuinely empty: the true line", bestSpendAccount({}, [], "ready", "ready").kind, "none");
   check("default keeps existing callers on the settled branch", bestSpendAccount({}, []).kind, "none");
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// G234 (2026-10-08): the backend caps spend_from_headroom at the pooled Safe
+// to Spend. The client reads the capped value as is, carries the `capped`
+// flag, and never shows a figure above the hero. Kevin's numbers: Safe to
+// Spend 110.36, Barclays raw 127 -> shown 110.36.
+// ════════════════════════════════════════════════════════════════════════════
+{
+  const accounts = [
+    account({ id: "barclays", name: "Barclays Current", subtype: "CURRENT", cover_source_eligible: true }),
+    account({ id: "hsbc", name: "HSBC Current", subtype: "CURRENT", cover_source_eligible: true }),
+  ];
+  const POOL = 110.36;
+  const eligibility = {
+    barclays: { short: false, headroom: 127, spend_from_headroom: 110.36, account_headroom_raw: 127, spend_from_capped: true },
+    hsbc: { short: false, headroom: 60, spend_from_headroom: 60, account_headroom_raw: 60, spend_from_capped: false },
+  };
+  const result = bestSpendAccount(eligibility, accounts);
+  check("G234: the capped figure is what ranks and shows (not the raw 127)", result.best?.headroom, 110.36);
+  check("G234: the capped flag is carried through", result.best?.capped, true);
+  check("G234: an uncapped alternative is not flagged", result.alternative?.capped, false);
+  check("G234: no shown figure exceeds the pooled Safe to Spend", [result.best, result.alternative].every((e) => e.headroom <= POOL), true);
+  check(
+    "G234: the capped hero line says the figure is the most Safe to Spend allows",
+    spendFromHeroLine(result, amount, "Barclays"),
+    "In Barclays Current (Barclays): up to £110 right now, the most your Safe to Spend allows.",
+  );
+  check(
+    "G234: the capped hero line no longer carries the old 'not your full Safe to Spend' disclaimer",
+    /not your full Safe to Spend/.test(spendFromHeroLine(result, amount) ?? ""),
+    false,
+  );
+  check("G234: an uncapped alternative keeps the plain wording", spendFromAlternativeLine(result, amount), "Next best: HSBC Current, £60 spare in that account.");
+
+  // Pool at or below zero: the backend sends 0 for every account, so the
+  // client lands on the existing no-room line, never an empty rail.
+  const zeroPool = {
+    barclays: { short: false, headroom: 127, spend_from_headroom: 0, account_headroom_raw: 127, spend_from_capped: true },
+    hsbc: { short: false, headroom: 60, spend_from_headroom: 0, account_headroom_raw: 60, spend_from_capped: true },
+  };
+  const none = bestSpendAccount(zeroPool, accounts);
+  check("G234: a zero pool gives the no-room result, not a rail", none.kind, "none");
+  check("G234: the no-room line is rendered text", spendFromHeroLine(none, amount), "No single account has spare to spend from right now.");
+  check("G234: a null account_eligibility (pool unknown) is unavailable, not an uncapped rail", bestSpendAccount(null, accounts).kind, "unavailable");
 }
 
 if (failures > 0) {

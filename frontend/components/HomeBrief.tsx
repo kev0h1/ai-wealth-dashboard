@@ -1456,7 +1456,10 @@ export function MoveCard({ item, hideNetWorth, maskAmounts, hideAttribution, dis
             const overdrawnStr = Math.abs(overdrawnAmt - Math.round(overdrawnAmt)) < 0.005
               ? Math.round(overdrawnAmt).toLocaleString("en-GB")
               : overdrawnAmt.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-            const tileText = dest.is_overdraft
+            // G212: a no-transfer-source card carries its own approved row copy.
+            const tileText = item.dest_row
+              ? item.dest_row.detail
+              : dest.is_overdraft
               ? `£${overdrawnStr} overdrawn right now`
               : `£${Math.round(dest.balance).toLocaleString("en-GB")} held · £${(dest.needs_total ?? 0).toLocaleString("en-GB")} ${paymentCopy?.tilePaymentCopy ?? "needed for this move"}`;
             return (
@@ -1472,7 +1475,7 @@ export function MoveCard({ item, hideNetWorth, maskAmounts, hideAttribution, dis
                     />
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[13px] font-semibold text-slate-800 dark:text-slate-100">{dest.name}</span>
+                    <span className="block truncate text-[13px] font-semibold text-slate-800 dark:text-slate-100">{item.dest_row?.title ?? dest.name}</span>
                     <span className="block text-[12px] text-slate-600 dark:text-slate-300 leading-snug"><MoneyText text={maskAmounts(tileText)} /></span>
                   </span>
                 </div>
